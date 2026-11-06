@@ -47,6 +47,7 @@ const chk = (ok, label, extra) => {
       const u = String(url);
       if (/\/api\/accounts\/compat$/.test(u) && opts && opts.method === 'POST') {
         window.__posts.push(JSON.parse(opts.body));
+        if (window.__slow) await new Promise((r) => { window.__release = r; });
         const a = window.__addAnswer || { status: 200, body: { ok: true, connection: { state: 'ok' } } };
         return enc(a.body, a.status);
       }
@@ -136,6 +137,34 @@ const chk = (ok, label, extra) => {
   chk(posted.length === 1 && posted[0].vendor === 'glm' && posted[0].key === 'zai-good-3333', 'accepted: one post naming vendor glm', JSON.stringify(posted));
   const f2 = await form();
   chk(f2.success && !f2.shown && f2.key === '' && /Z\.ai GLM/.test(f2.successText), 'accepted: the success view names Z.ai GLM', JSON.stringify({ success: f2.success, text: f2.successText }));
+
+  // ---- review 1: a vendor change with the form open clears the pasted key (no reopen in between)
+  await reopen();
+  await pick('deepseek'); await settle();
+  await q(() => { window.__posts.length = 0; document.getElementById('acct-compat-key').value = 'sk-deepseek-5555'; document.getElementById('acct-compat-name').value = 'ds'; });
+  await pick('glm'); await settle();
+  const fx = await form();
+  const nm = await q(() => document.getElementById('acct-compat-name').value);   // read before Add, which clears it on success
+  await q(() => document.getElementById('acct-compat-go').click()); await settle();
+  const fxPosts = await q(() => window.__posts.slice());
+  chk(fx.shown && fx.key === '' && fx.label === 'Z.ai API key (GLM Coding Plan)' && fxPosts.length === 0,
+    'switching DeepSeek to GLM with a key typed clears it, and Add sends nothing to Z.ai', JSON.stringify({ key: fx.key, label: fx.label, posts: fxPosts }));
+  chk(nm === '', 'switching vendors clears the typed name too', JSON.stringify(nm));
+  // CONTROL: picking the SAME vendor again keeps what was typed.
+  await q(() => { document.getElementById('acct-compat-key').value = 'zai-keep-6666'; });
+  await pick('glm'); await settle();
+  const fk = await form();
+  chk(fk.key === 'zai-keep-6666', 'CONTROL: re-picking the same vendor keeps the typed key', JSON.stringify(fk.key));
+  // review 1: an add still in flight when the vendor changes does not leave the new form's Add dead.
+  await q(() => {
+    window.__slow = true;
+    document.getElementById('acct-compat-go').click();
+  });
+  await pick('deepseek'); await settle();
+  const goOff = await q(() => document.getElementById('acct-compat-go').disabled);
+  chk(goOff === false, 'a vendor change during a check leaves the new form\'s Add usable', JSON.stringify({ disabled: goOff }));
+  await q(() => { window.__slow = false; if (window.__release) window.__release(); });
+  await settle();
 
   // ---- DeepSeek after GLM: its own words again
   await reopen();

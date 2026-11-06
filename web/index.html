@@ -35042,9 +35042,9 @@ document.getElementById('acct-apikey-show').addEventListener('click', () => {
 /* #5977: the Qwen step of Add a provider. Its own flow, not ACCT_APIKEY_PROVIDERS: that path downloads a provider's
    own runner, and Qwen runs on codex. Bumped on every show, so an answer that returns after the step was left is
    ignored (the same rule as ACCT_APIKEY_GEN). */
-/* #7206: DeepSeek (a vendor whose endpoint speaks Claude Code's API). OFF unless the board says its switch is on
-   (GET /api/accounts/compat, read on every visit, as Meta Muse's /api/muse is): while off the option stays
-   "coming soon" and nothing here can be reached. */
+/* #7206: the vendors whose endpoint speaks Claude Code's API (DeepSeek, GLM). Each is OFF unless the board lists it
+   (GET /api/accounts/compat, read on every visit, as Meta Muse's /api/muse is): while off its option stays
+   "coming soon" and nothing here can be reached. COMPAT_ON is any; COMPAT_ON_FOR (below) is which. */
 let COMPAT_ON = false;
 let ACCT_COMPAT_GEN = 0;
 /* 1b review 1: every picker paint asks, so concurrent asks share one request and an answer is reused for COMPAT_ASK_MS;
@@ -35070,7 +35070,7 @@ function compatAsk() {
   const now = Date.now();
   if (COMPAT_ASK && now - COMPAT_ASK.at >= 0 && now - COMPAT_ASK.at < COMPAT_ASK_MS) return COMPAT_ASK.promise;
   const promise = (async () => {
-    let answer = null;   // true, false, or null when the board could not be asked
+    let answer = null;   // { <vendor>: true|false }, or null when the board could not be asked
     try {
       const r = await fetch('/api/accounts/compat', { cache: 'no-store' });
       const out = r.ok ? await r.json().catch(() => null) : null;
@@ -35112,7 +35112,15 @@ function acctCompatShow(which) {
   if (!flow) return;
   const id = compatId(which);
   const on = !!(id && COMPAT_ON_FOR[id]);
+  /* 2b review 1: a vendor change clears what was typed, as acctApikeyShow does: a DeepSeek key left in the field and
+     submitted under GLM would be sent to Z.ai's check. */
+  if (ACCT_COMPAT_WHICH !== (on ? id : '')) {
+    const k = document.getElementById('acct-compat-key'); if (k) k.value = '';
+    const n = document.getElementById('acct-compat-name'); if (n) n.value = '';
+  }
   ACCT_COMPAT_WHICH = on ? id : '';
+  /* A new show starts armed: the add it bumps past cannot re-enable Add itself (its finally checks the generation). */
+  const go = document.getElementById('acct-compat-go'); if (go) go.disabled = false;
   flow.hidden = !on;
   if (on) {
     const w = COMPAT_PAGE[id];
@@ -35972,7 +35980,7 @@ function frPaintCompat() {
   compatAsk().then(() => {
     for (const row of document.querySelectorAll('[data-compat-tile]')) {
       const live = COMPAT_ON_FOR[row.getAttribute('data-compat-tile')] === true;
-      row.classList.toggle('on', live); row.classList.toggle('off', !live);
+      row.classList.toggle('off', !live);   // never 'on': these rows only point to Settings (as Qwen's row)
       const mark = row.querySelector('.pmark');
       if (mark) { mark.classList.toggle('live', live); mark.classList.toggle('dim', !live); }
       const soon = row.querySelector('.soon'); if (soon) soon.textContent = live ? 'Add in Settings' : 'Coming soon';
