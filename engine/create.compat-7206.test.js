@@ -304,7 +304,11 @@ test('1b review 2: a switch onto Qwen still writes its codex trust entry; a swit
   assert.equal(fs.existsSync(nodePath.join(DS3, 'config.toml')), false, 'a codex config was written into a DeepSeek (Claude Code) folder');
 });
 
-test('#7206 2a review 5: under DeepSeek\'s switch, a switch to GLM is refused in GLM\'s name and changes nothing; GLM\'s own switch is the control', () => {
+test('#7206 2a review 5: under DeepSeek\'s switch, a switch to GLM is refused in GLM\'s name and changes nothing; GLM\'s own switch is the control', (t) => {
+  /* Out of dry-run, as the file's other late tests: earlier tests' setRunner(null) turns it back on, and in dry-run the
+     account step is skipped, so the control would prove nothing (review 7 found it). */
+  create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false);
+  t.after(() => create.setRunner(null));
   const sw = require('../test-support/compat-switch');
   const saved = process.env.AGENT_WORKFORCE_TEST_COMPAT_READY;
   process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = 'glm';
@@ -318,6 +322,9 @@ test('#7206 2a review 5: under DeepSeek\'s switch, a switch to GLM is refused in
     assert.equal(fs.readFileSync(jobfix.jobPath(name), 'utf8'), before, 'the job changed');
     sw.setVendor('glm', true);
     const on = create.setProvider(name, 'glm', { ...BINS, accountDir: GLM_HOME, pickedByPerson: true, platform: 'darwin' });
-    assert.notEqual(on.because, 'Z.ai GLM is not available in Kosmos yet', 'CONTROL: with its own switch on, GLM is not refused as off');
+    /* CONTROL (review 7): with its own switch on, the switch is made, onto the GLM account. */
+    assert.equal(on.outcome, 'created', 'CONTROL: GLM was not switched to with its own switch on: ' + on.because);
+    const job = create.readJob(name);
+    assert.deepEqual([job.runner, job.configDir, create.jobProvider(job)], ['claude', GLM_HOME, 'glm'], 'CONTROL: the job does not run on the GLM account');
   } finally { sw.setVendor('glm', false); if (saved === undefined) delete process.env.AGENT_WORKFORCE_TEST_COMPAT_READY; else process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = saved; }
 });

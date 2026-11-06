@@ -14825,8 +14825,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (pathname === '/api/accounts/compat/check' && req.method === 'POST') {
     /* 1b review 1: off means off here too, or a stored key (left from a time the switch was on) is still sent. */
-    /* 2a review 5: no switch-wide refusal before the body: the account names its vendor, and that vendor's own switch
-       (below, before any key is sent) refuses in its own name. */
+    /* 2a review 7: with every switch off, refused before the body, as on main (DeepSeek's words, no account looked up). */
+    if (!compatAccounts.anyEnabled()) { sendJson(res, 400, { error: compatAccounts.notYet('deepseek'), notYet: true }); return; }
     readBody(req)
       .then(async (raw) => {
         let body = null;

@@ -76,7 +76,7 @@ function vendorOf(id) {
 const ON_MARKER = 'compat-providers-on';
 /* A row with pageReady: false (GLM until slice 2b) is never on: the page would file its account under Claude. Only a
    test lifts that: it names the vendor in AGENT_WORKFORCE_TEST_COMPAT_READY, AND runs under node's test runner
-   (NODE_TEST_CONTEXT, which node --test sets and a launchd job or a shell never does), so a stray export cannot. */
+   (NODE_TEST_CONTEXT, which node --test sets and a launchd job does not), so one stray export alone cannot. */
 function pageReady(id) {
   const v = vendorOf(id);
   if (!v) return false;
