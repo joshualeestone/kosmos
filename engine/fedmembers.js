@@ -86,7 +86,9 @@ function rowsFor(projectId) {
   return own(all, projectId) && Array.isArray(all[projectId]) ? all[projectId] : [];
 }
 /** Whether a row is a live invite: not used by anyone this board knows of, not withdrawn, and not yet expired. An expiry
-    more than 30 days out is not a code's (they live 7; a time in milliseconds would read as live for ever), so it is not. */
+    more than 30 days out is not a code's (they live 7; a time in milliseconds would read as live for ever), so it is not.
+    members() still lists such a malformed row as pending until it is trimmed: deliberate, since the coordinator always
+    sends a 7-day expiry, and a row it never sent must not be able to grow the store without end. */
 function liveInvite(r, sec) {
   return !!r && !r.withdrawn_at && !r.member && Number.isFinite(r.expires_at) && r.expires_at > sec && r.expires_at <= sec + 30 * 86400;
 }
