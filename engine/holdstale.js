@@ -102,7 +102,10 @@ function owed(projects, log, now = Date.now(), o = {}) {
           projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: t.sentence || '',
           owner, holdAt: hold.at, byPerson: hold.byPerson || t.onHoldByPerson === true, posts,
           ...(t.onHoldForPerson === true ? { forPerson: true } : {}),   // kosmos#7797: the met line says it waits on the person
-          ...(owners.length > 1 ? { shared: true } : {}),   // kosmos#8140: other agents hold parts, so it is not this owner's to close
+          /* kosmos#8140: other agents hold open parts, or an open part has nobody, so closing the whole task is not this
+             owner's call; and the person's repeat rule or reviewer makes the close route refuse an agent (server.js). */
+          ...(owners.length > 1 || tasks.partsOf(t).some((x) => x && !x.who && !x.closedAt) ? { shared: true } : {}),
+          ...(t.repeat && (t.repeatByPerson === true || t.repeatReviewerByPerson === true) ? { personCloses: true } : {}),
           members: Array.isArray(p.agents) ? p.agents.slice() : [],
           swarmOff: require('./projects').isSwarmOff(p, owner),
         });
@@ -127,7 +130,7 @@ function agoWords(at, now) {
    alone holds is its to close; the person's hold, one that waits on the person, or one other agents share, it asks the
    person about. `idOf` as the line's own. */
 function closeText(items, idOf) {
-  const own = (x) => !x.byPerson && !x.forPerson && !x.shared;
+  const own = (x) => !x.byPerson && !x.forPerson && !x.shared && !x.personCloses;
   if (items.length === 1) {
     const x = items[0];
     return 'If it no longer needs doing, ' + (own(x) ? 'close it: kosmos task close ' + idOf(x) + ' ' + x.n : 'ask the person whether to close it') + '.';
@@ -135,8 +138,11 @@ function closeText(items, idOf) {
   const mine = items.filter(own);
   const theirs = items.filter((x) => !own(x));
   const parts = [];
-  if (mine.length) parts.push('close ' + (mine.length === 1 ? '#' + mine[0].n : 'them') + ': ' + mine.map((x) => 'kosmos task close ' + idOf(x) + ' ' + x.n).join(', '));
-  if (theirs.length) parts.push((mine.length ? 'for ' + theirs.map((x) => '#' + x.n).join(', ') + ', ' : '') + 'ask the person whether to close ' + (theirs.length === 1 ? 'it' : 'them'));
+  /* Review 1: never "close them", which reads as closing every task named: each one is closed on its own. */
+  if (mine.length) parts.push(mine.length === 1 ? 'close #' + mine[0].n + ': kosmos task close ' + idOf(mine[0]) + ' ' + mine[0].n
+    : 'close only that one: ' + mine.map((x) => 'kosmos task close ' + idOf(x) + ' ' + x.n + ' (#' + x.n + ')').join(', or '));
+  if (theirs.length) parts.push((mine.length ? 'for ' + theirs.map((x) => '#' + x.n).join(', ') + ', ' : '')
+    + (theirs.length === 1 ? 'ask the person whether to close it' : 'ask the person which, if any, to close'));
   return 'If one no longer needs doing, ' + parts.join('; ') + '.';
 }
 
