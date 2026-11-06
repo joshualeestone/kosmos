@@ -33,7 +33,7 @@ const ENGINE = 'we could not register the job that restarts the board if it stop
 const WANT = {
   refused: NO_REOPEN + ' Windows did not allow it: <b>Access</b> is denied. ' + RETRY,
   notyet: 'Kosmos will start when you sign in. It will set itself to reopen if it closes the next time it starts.',
-  notime: 'Kosmos will start when you sign in, but it will not reopen on its own if it closes yet. ' + RETRY,
+  notime: 'Kosmos will start when you sign in, but it will not reopen on its own yet if it closes. ' + RETRY,
   other: NO_REOPEN + ' ' + RETRY,
 };
 const ROW = (on) => ({ key: 'autostart', state: 'ok', title: 'Kosmos starts itself when you sign in',

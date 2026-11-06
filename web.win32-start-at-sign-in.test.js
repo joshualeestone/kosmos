@@ -173,7 +173,7 @@ test('kosmos#7504: not set up yet is said as fixing itself, with no way out to t
 
 test('kosmos#7504: no time left says "yet" and the way out; any other kind, or none, says the first sentence and the way out', async () => {
   assert.equal(await saidFor({ ok: false, kind: 'no-time', because: 'there was no time left in this read to ask Task Scheduler, so ...' }),
-    'Kosmos will start when you sign in, but it will not reopen on its own if it closes yet. ' + RETRY);
+    'Kosmos will start when you sign in, but it will not reopen on its own yet if it closes. ' + RETRY);
   for (const w of [{ ok: false, kind: 'other', because: 'we could not tell where Kosmos keeps its startup files' }, { ok: false, because: 'an older engine with no kind' }, { ok: false, kind: 'something new' }]) {
     assert.equal(await saidFor(w), NO_REOPEN + ' ' + RETRY, JSON.stringify(w));
   }

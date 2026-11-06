@@ -2176,7 +2176,6 @@ const SCREENS = [
     await page.waitForSelector('#diag-save', { state: 'visible', timeout: 8000 });
     await page.$eval('#diag-row', (el) => el.scrollIntoView({ block: 'center' }));
   } },
-  /* kosmos#7416 slice 3: the keep-awake switch, off and on (keepAwakeShot, above SCREENS). */
   /* kosmos#7504: Windows Settings > This computer, the start-at-sign-in switch just turned on while the crash-recovery
      watchdog was not registered: the line under the rows says so. The shot board is a Mac, so the rows and the
      route's answer are stubbed in the shape the Windows engine sends, and the page is told it is on Windows. */
@@ -2201,6 +2200,7 @@ const SCREENS = [
     await page.$eval('[data-start-at-sign-in]', (el) => el.closest('.setrow').scrollIntoView({ block: 'center' }));
     await page.mouse.move(1, 1);
   } },
+  /* kosmos#7416 slice 3: the keep-awake switch, off and on (keepAwakeShot, above SCREENS). */
   { name: 'settings-keepawake-off', owner: 'Renet Tilley', go: async (page) => keepAwakeShot(page, false) },
   { name: 'settings-keepawake-on', owner: 'Renet Tilley', go: async (page) => keepAwakeShot(page, true) },
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {

@@ -112,7 +112,10 @@ function run(args, timeoutMs) {
     const out = cp.execFileSync('schtasks.exe', args, { encoding: 'utf8', timeout: Math.min(SCHTASKS_TIMEOUT_MS, timeout) });
     return { ok: true, out: String(out || '') };
   } catch (e) {
-    return { ok: false, out: String((e && (e.stdout || e.message)) || ''), code: (e && e.status) };
+    /* kosmos#7504: stderr and a timeout are kept beside `out` (unchanged for its readers): schtasks says why on stderr,
+       and `out` falls back to Node's "Command failed: schtasks.exe ..." message, which carries a temp path. */
+    return { ok: false, out: String((e && (e.stdout || e.message)) || ''), code: (e && e.status),
+      stderr: e && e.stderr ? String(e.stderr) : '', timedOut: !!(e && (e.code === 'ETIMEDOUT' || e.signal)) };
   }
 }
 
@@ -656,7 +659,8 @@ function install(spec) {
 /**
  * #2988: write the watchdog's shim beside the board's and register (or refresh) its task.
  * `/Create /F` on the watchdog's own name only: the board task, and its switch, are not touched.
- * `spec`: { node, dir, workingDir, env, timeoutMs }. Returns `{ok, task}` or `{ok: false, because}`.
+ * `spec`: { node, dir, workingDir, env, timeoutMs }. Returns `{ok, task}` or `{ok: false, because}`; a failed /Create
+ * also carries `kind` (refused | no-time | other) and, when refused, `detail` (kosmos#7504).
  * Never throws.
  */
 function installWatchdog(spec) {
@@ -682,9 +686,14 @@ function installWatchdog(spec) {
   }
   if (!r.ok) {
     const said = (r.out || 'no detail').trim().split(/\r?\n/)[0];   // Windows ends lines with CRLF
-    /* kosmos#7504: kind and detail let Settings word this itself; detail is Windows' own words without its "ERROR:". */
-    return { ok: false, because: 'we could not register the job that restarts the board if it stops (' + said + ')',
-      kind: 'refused', detail: r.out ? said.replace(/^ERROR:\s*/i, '').trim() : '' };
+    const because = 'we could not register the job that restarts the board if it stops (' + said + ')';
+    /* kosmos#7504: kind and detail let Settings word this itself. Refused only when schtasks said ERROR: (on stderr, or
+       inside Node's message); detail is that line without "ERROR:", and none at all if it names a path or a command. */
+    if (r.timedOut) return { ok: false, because, kind: 'no-time' };
+    const errLine = (String(r.stderr || '') + '\n' + String(r.out || '')).split(/\r?\n/).find((l) => /^\s*ERROR:/i.test(l));
+    if (!errLine) return { ok: false, because, kind: 'other' };
+    const detail = errLine.replace(/^\s*ERROR:\s*/i, '').trim();
+    return { ok: false, because, kind: 'refused', detail: /[\\/]|Command failed|schtasks/i.test(detail) ? '' : detail };
   }
   return { ok: true, task: WATCHDOG_TASK_NAME, watch: watchAt, removeHint: WATCHDOG_REMOVE_HINT };
 }
@@ -959,7 +968,8 @@ function ensureWatchdog(opts) {
     if (left() < MIN_SCHTASKS_QUERY_MS) return { ok: false, kind: 'no-time', because: NO_TIME_LEFT + ', so the job that restarts Kosmos if it stops was not registered this time' };
     const w = installWatchdog({ node, dir, workingDir: o.workingDir || root, env, timeoutMs: left() });
     if (w.ok) return { ok: true, action: 'registered', task: w.task };
-    return { ok: false, because: w.because, kind: w.kind === 'refused' ? 'refused' : 'other', ...(w.kind === 'refused' ? { detail: w.detail } : {}) };
+    if (w.kind === 'refused') return { ok: false, because: w.because, kind: 'refused', detail: w.detail };
+    return { ok: false, because: w.because, kind: w.kind === 'no-time' ? 'no-time' : 'other' };
   } catch (e) {
     return { ok: false, kind: 'other', because: 'we could not register the job that restarts Kosmos if it stops (' + ((e && e.message) || 'no detail') + ')' };
   }
