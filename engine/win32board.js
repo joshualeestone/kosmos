@@ -680,7 +680,12 @@ function installWatchdog(spec) {
   } finally {
     try { fs.unlinkSync(xmlAt); } catch { /* best effort; it is in the temp root */ }
   }
-  if (!r.ok) return { ok: false, because: 'we could not register the job that restarts the board if it stops (' + (r.out || 'no detail').trim().split('\n')[0] + ')' };
+  if (!r.ok) {
+    const said = (r.out || 'no detail').trim().split(/\r?\n/)[0];   // Windows ends lines with CRLF
+    /* kosmos#7504: kind and detail let Settings word this itself; detail is Windows' own words without its "ERROR:". */
+    return { ok: false, because: 'we could not register the job that restarts the board if it stops (' + said + ')',
+      kind: 'refused', detail: r.out ? said.replace(/^ERROR:\s*/i, '').trim() : '' };
+  }
   return { ok: true, task: WATCHDOG_TASK_NAME, watch: watchAt, removeHint: WATCHDOG_REMOVE_HINT };
 }
 
@@ -937,25 +942,26 @@ function ensureWatchdog(opts) {
       absent = all.known;
     }
     if (!absent && left() < MIN_SCHTASKS_QUERY_MS) {
-      return { ok: false, because: NO_TIME_LEFT + ', so the job that restarts Kosmos if it stops was not registered this time' };
+      return { ok: false, kind: 'no-time', because: NO_TIME_LEFT + ', so the job that restarts Kosmos if it stops was not registered this time' };
     }
     if (!absent) {
-      return { ok: false, because: 'we could not tell whether the job that restarts Kosmos if it stops is there, so we left it as it is' };
+      return { ok: false, kind: 'other', because: 'we could not tell whether the job that restarts Kosmos if it stops is there, so we left it as it is' };
     }
     /* Review 1: the spec a boot gives the watchdog, WITHOUT anchoring: anchoring rewrites the fleet's pointer and boot
        shim and is the boot's job alone. The watchdog needs only the anchor's folder and its interpreter, because its
        shim reads the pointer each time it runs. */
     const env = machineEnv(o);
     const dir = o.anchorDir || anchorDirFor(o);   // o.anchorDir: a caller's (or a test's) known anchor folder, as o.root
-    if (!dir) return { ok: false, because: 'we could not tell where Kosmos keeps its startup files' };
+    if (!dir) return { ok: false, kind: 'other', because: 'we could not tell where Kosmos keeps its startup files' };
     const node = path.join(dir, win32anchor.NODE_NAME);
     const exists = o.exists || ((f) => fs.existsSync(f));
-    if (!exists(node)) return { ok: false, because: 'Kosmos has not set up its startup files on this computer yet, so the job that restarts it if it stops is registered the next time Kosmos starts' };
-    if (left() < MIN_SCHTASKS_QUERY_MS) return { ok: false, because: NO_TIME_LEFT + ', so the job that restarts Kosmos if it stops was not registered this time' };
+    if (!exists(node)) return { ok: false, kind: 'not-yet', because: 'Kosmos has not set up its startup files on this computer yet, so the job that restarts it if it stops is registered the next time Kosmos starts' };
+    if (left() < MIN_SCHTASKS_QUERY_MS) return { ok: false, kind: 'no-time', because: NO_TIME_LEFT + ', so the job that restarts Kosmos if it stops was not registered this time' };
     const w = installWatchdog({ node, dir, workingDir: o.workingDir || root, env, timeoutMs: left() });
-    return w.ok ? { ok: true, action: 'registered', task: w.task } : { ok: false, because: w.because };
+    if (w.ok) return { ok: true, action: 'registered', task: w.task };
+    return { ok: false, because: w.because, kind: w.kind === 'refused' ? 'refused' : 'other', ...(w.kind === 'refused' ? { detail: w.detail } : {}) };
   } catch (e) {
-    return { ok: false, because: 'we could not register the job that restarts Kosmos if it stops (' + ((e && e.message) || 'no detail') + ')' };
+    return { ok: false, kind: 'other', because: 'we could not register the job that restarts Kosmos if it stops (' + ((e && e.message) || 'no detail') + ')' };
   }
 }
 

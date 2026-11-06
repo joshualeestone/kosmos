@@ -2186,7 +2186,7 @@ const SCREENS = [
       detail: 'Kosmos starts when you sign in to Windows, and your agents come back on their own after a restart.', startAtSignIn: on }] });
     const json = (r, body) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }).catch(() => {});
     await page.route('**/api/machine/start-at-sign-in', (r) => { on = true; return json(r, { ok: true, on: true,
-      watchdog: { ok: false, because: 'we could not register the job that restarts the board if it stops (ERROR: Access is denied.)' } }); });
+      watchdog: { ok: false, kind: 'refused', detail: 'Access is denied.', because: 'we could not register the job that restarts the board if it stops (ERROR: Access is denied.)' } }); });
     await page.route('**/api/machine', (r) => json(r, row()));
     await at(page, '?tab=settings&sec=mac');
     await page.evaluate(async () => {

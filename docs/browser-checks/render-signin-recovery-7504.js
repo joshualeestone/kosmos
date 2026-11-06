@@ -9,12 +9,12 @@
  * POST /api/machine/start-at-sign-in (no board), in Chromium and WebKit, at desktop and phone width, inside the real
  * Settings panel. The switch is pressed through the DOM, not a pointer hit-test (one timed out on file:// in CI, as
  * web.win32-start-at-sign-in.test.js records). The claims, each able to fail:
- *  - watchdog failed: the line shows, says recovery is not set up, and carries the engine's reason as text (a reason
- *    with markup in it is not drawn as markup); the switch repaints on from the engine;
+ *  - each failure kind (refused, not set up yet, no time left, other) shows its own sentence in the page's words,
+ *    never the engine's; Windows' own words (a detail with markup in it) are text, not markup; the switch repaints on;
  *  - watchdog registered, present, or no watchdog field: no line (the controls);
  *  - at 390 px nothing scrolls sideways.
  *
- * Browser-check-surface: set-machine-msg data-start-at-sign-in startAtSignInNoRecovery
+ * Browser-check-surface: set-machine-msg data-start-at-sign-in startAtSignInNoReopen startAtSignInReopenNextStart
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-signin-recovery-7504.js
  *
@@ -27,12 +27,22 @@ try { pw = require('playwright'); }
 catch { console.log('render-signin-recovery-7504: playwright is not on NODE_PATH - SKIPPED, not passed.'); process.exit(0); }
 
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
-const LEAD = 'Kosmos will start when you sign in, but it is not yet set to start again if it closes:';
-const BECAUSE = 'we could not register the job that restarts the board if it stops (ERROR: <b>Access</b> is denied.)';
+const NO_REOPEN = 'Kosmos will start when you sign in, but it will not reopen on its own if it closes.';
+const RETRY = 'Turn the switch off and on to try again.';
+const ENGINE = 'we could not register the job that restarts the board if it stops (ERROR: Access is denied.)';
+const WANT = {
+  refused: NO_REOPEN + ' Windows did not allow it: <b>Access</b> is denied. ' + RETRY,
+  notyet: 'Kosmos will start when you sign in. It will set itself to reopen if it closes the next time it starts.',
+  notime: 'Kosmos will start when you sign in, but it will not reopen on its own if it closes yet. ' + RETRY,
+  other: NO_REOPEN + ' ' + RETRY,
+};
 const ROW = (on) => ({ key: 'autostart', state: 'ok', title: 'Kosmos starts itself when you sign in',
   detail: 'Kosmos starts when you sign in to Windows, and your agents come back on their own after a restart.', startAtSignIn: on });
 const CASES = {
-  failed: { watchdog: { ok: false, because: BECAUSE } },
+  refused: { watchdog: { ok: false, kind: 'refused', detail: '<b>Access</b> is denied.', because: ENGINE } },
+  notyet: { watchdog: { ok: false, kind: 'not-yet', because: ENGINE } },
+  notime: { watchdog: { ok: false, kind: 'no-time', because: ENGINE } },
+  other: { watchdog: { ok: false, because: ENGINE } },
   registered: { watchdog: { ok: true, action: 'registered' } },
   present: { watchdog: { ok: true, action: 'present' } },
   none: {},
@@ -99,11 +109,13 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         return out;
       }, { cases: CASES, rowOff: ROW(false), rowOn: ROW(true) });
       if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
-      const f = r.failed;
-      say(f.checked === 'true', tag + ' watchdog failed: the switch repaints on from the engine', f.checked);
-      say(f.shown, tag + ' watchdog failed: the line is shown');
-      say(f.text === LEAD + ' ' + BECAUSE, tag + ' watchdog failed: it says recovery is not set up, with the engine\'s reason', JSON.stringify(f.text));
-      say(!f.markup, tag + ' watchdog failed: a reason with markup in it is shown as text');
+      for (const k of ['refused', 'notyet', 'notime', 'other']) {
+        const f = r[k];
+        say(f.checked === 'true' && f.shown, tag + ' ' + k + ': switched on, and the line is shown', JSON.stringify(f));
+        say(f.text === WANT[k], tag + ' ' + k + ': its own sentence, in the page\'s words', JSON.stringify(f.text));
+        say(!/job|board|register/.test(f.text), tag + ' ' + k + ': no engine words on the page');
+      }
+      say(!r.refused.markup, tag + ' Windows\' words with markup in them are shown as text');
       for (const k of ['registered', 'present', 'none']) {
         say(r[k].checked === 'true' && !r[k].shown && r[k].text === '', tag + ' CONTROL ' + k + ': switched on, no line', JSON.stringify(r[k]));
       }
