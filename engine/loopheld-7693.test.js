@@ -115,6 +115,18 @@ test('#7693: no load to report writes no [load] line, and a free thread reads th
   assert.deepEqual(lines, []);
 });
 
+test('#7693: a failed read at the interval writes no [load] line and stops nothing', () => {
+  const lines = [];
+  let t = 0;
+  const w = held.watch({ log: (l) => lines.push(l), now: () => t, load: () => { throw new Error('load'); }, setInterval: () => ({}) });
+  w.tick();
+  for (let left = held.LOAD_EVERY_MS; left > 0; left -= held.TICK_MS) { t += held.TICK_MS; w.tick(); }
+  assert.deepEqual(lines, []);
+  t += held.TICK_MS + held.HELD_MS;
+  w.tick();
+  assert.equal(lines.length, 1, 'control: the next stall is still logged');
+});
+
 test('#7693: it is the one-minute figure', (ctx) => {
   ctx.mock.method(os, 'loadavg', () => [1.11, 5.55, 15.15]);
   const lines = [];

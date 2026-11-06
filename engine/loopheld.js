@@ -25,7 +25,7 @@ const TICK_MS = 500;
 const HELD_MS = 2000;       // late by this much: the board answered nobody for that long
 const ASLEEP_MS = 300000;   // a gap this long is more likely the computer sleeping than the board held
 const MAX_PER_MINUTE = 10;
-const LOAD_EVERY_MS = 600000;
+const LOAD_EVERY_MS = 1800000;
 const monotonic = () => Math.round(performance.now());   // not the wall clock: a clock step is not a stall
 
 // "4.24", or '' when there is no load to report. A failed read loses the figure, never the line it goes on.
