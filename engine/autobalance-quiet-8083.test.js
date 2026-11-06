@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { quietLine, QUIET_SAY_MS } = require('./autobalance-sweep');
+const { quietLine, tickLines, QUIET_SAY_MS } = require('./autobalance-sweep');
 
 const T0 = Date.UTC(2026, 10, 5, 21, 26, 0);
 const MIN = 60 * 1000;
@@ -111,7 +111,7 @@ test('kosmos#8083: a clock that went backwards does not silence a running state 
 
 test('kosmos#8083: the start line counts as said: server.js seeds quietLine with the shut gate it printed', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /if \(offNow \|\| settingOff\) autobalanceSweep\.quietLine\(abQuietSaid, \{ nowMs: Date\.now\(\), offWhy: offNow, did: settingOff \? 'off' : null, because: settingUnread \? 'setting-unreadable' : null, logged: true \}\);/);
+  assert.match(src, /if \(offNow \|\| settingOff\) autobalanceSweep\.quietLine\(abTickMem\.quiet, \{ nowMs: Date\.now\(\), offWhy: offNow, did: settingOff \? 'off' : null, because: settingUnread \? 'setting-unreadable' : null, logged: true \}\);/);
   assert.match(src, /try \{ setting = autobalanceSetting\.read\(\); \} catch \{ setting = \{ on: false, ok: false \}; \}/, 'the start line no longer asks the Settings switch, or falls back unlike the tick');
   assert.match(src, /settingUnreadable: \(\) => \{ try \{ return autobalanceSetting\.read\(\)\.ok === false; \} catch \{ return true; \} \},/, 'the tick cannot tell an unreadable switch from an off one');
   const s2 = { at: 0, key: null };
@@ -128,6 +128,42 @@ test('kosmos#8083: a Settings switch that could not be read is said as such, not
   assert.equal(quietLine(said, { nowMs: T0 + MIN, did: 'off' }), 'autobalance-sweep: not running: auto-balance is switched off in Settings', 'the two off states are one state');
 });
 
+/* tickLines: what one finished tick prints, in order, from the board's own memory. These run the real function the
+   board calls (server.js prints exactly what it returns), so the "logged" accounting is behaviour, not source text. */
+const MEM = () => ({ unreadableSaid: null, writeSaid: false, quiet: { at: 0, key: null } });
+test('kosmos#8083 tickLines: a recorded and a cleared decision each print one line, and the quiet line is not added beside them', () => {
+  const mem = MEM();
+  assert.deepEqual(tickLines(mem, { did: 'recorded' }, { nowMs: T0 }), ['autobalance-sweep: recorded a changed decision']);
+  assert.deepEqual(tickLines(mem, { did: 'nothing' }, { nowMs: T0 + 10 * MIN }), [], 'a quiet tick right after a recorded one printed');
+  assert.deepEqual(tickLines(mem, { did: 'cleared' }, { nowMs: T0 + 20 * MIN }), ['autobalance-sweep: recorded a changed decision (a risk ended)']);
+  assert.deepEqual(tickLines(mem, { did: 'nothing' }, { nowMs: T0 + 81 * MIN }), ['autobalance-sweep: running, nothing new to record'], 'silent an hour after');
+});
+
+test('kosmos#8083 tickLines: an unreadable reason prints once, then hourly in quietLine words; a new reason prints at once', () => {
+  const mem = MEM();
+  assert.deepEqual(tickLines(mem, { did: 'unreadable', because: 'walk failed' }, { nowMs: T0 }), ['autobalance-sweep: could not record the decision (unreadable: walk failed)']);
+  assert.deepEqual(tickLines(mem, { did: 'unreadable', because: 'walk failed' }, { nowMs: T0 + 10 * MIN }), []);
+  assert.deepEqual(tickLines(mem, { did: 'unreadable', because: 'walk failed' }, { nowMs: T0 + 60 * MIN }), ['autobalance-sweep: running, but it could not work out the decision (walk failed)']);
+  assert.deepEqual(tickLines(mem, { did: 'unreadable', because: 'list threw' }, { nowMs: T0 + 61 * MIN }), ['autobalance-sweep: could not record the decision (unreadable: list threw)']);
+});
+
+test('kosmos#8083 tickLines: a write failure prints once per run of failures, then hourly; its end is said', () => {
+  const mem = MEM();
+  const f = { did: 'nothing', because: 'write-failed' };
+  assert.deepEqual(tickLines(mem, f, { nowMs: T0 }), ['autobalance-sweep: its record could not be written; Settings says it is not recording']);
+  assert.deepEqual(tickLines(mem, f, { nowMs: T0 + 10 * MIN }), []);
+  assert.deepEqual(tickLines(mem, f, { nowMs: T0 + 60 * MIN }), ['autobalance-sweep: running, but its record could not be written']);
+  assert.deepEqual(tickLines(mem, { did: 'nothing' }, { nowMs: T0 + 70 * MIN }), ['autobalance-sweep: running, nothing new to record']);
+  assert.deepEqual(tickLines(mem, f, { nowMs: T0 + 80 * MIN }), ['autobalance-sweep: its record could not be written; Settings says it is not recording'], 'a new run of failures was not said');
+});
+
+test('kosmos#8083 tickLines: a result that is not an object is never said as a healthy quiet tick', () => {
+  for (const r of [undefined, null, 'x', 3]) {
+    assert.deepEqual(tickLines(MEM(), r, { nowMs: T0 }), ['autobalance-sweep: running, but it could not work out the decision (the sweep gave no answer)'], String(r));
+  }
+  assert.deepEqual(tickLines(null, { did: 'recorded' }, { nowMs: T0 }), [], 'no memory threw or printed');
+});
+
 test('kosmos#8083: no memory or no clock says nothing and never throws', () => {
   assert.equal(quietLine(null, { nowMs: T0, did: 'nothing' }), null);
   assert.equal(quietLine({ at: 0, key: null }, { nowMs: NaN, did: 'nothing' }), null);
@@ -140,12 +176,11 @@ test('kosmos#8083: server.js says the start line and calls quietLine where the t
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /autobalance-sweep: timer set, every \$\{Math\.round\(abSweepMs \/ 60000\)\} min, \$\{startState\}; the mover is \$\{automoveRun \? 'on' : 'off'\}/);
   assert.match(src, /settingOff \? 'not running now: ' \+ \(settingUnread \? 'its Settings switch could not be read' : 'auto-balance is switched off in Settings'\) : 'running';/);
-  assert.match(src, /r\.did === 'recorded' \|\| r\.did === 'cleared'\)\) \{ process\.stdout\.write\('autobalance-sweep: recorded a changed decision\\n'\); logged = true; \}/, 'a cleared risk is not logged');
   assert.match(src, /\.catch\(\(err\) => \{ abSayQuiet\(\{ did: 'unreadable', because: 'the tick failed: ' \+ /, 'a tick that throws leaves no trace');
   assert.match(src, /if \(!abSweep \|\| !autobalanceSweepRuns\(\{ forTick: true \}\)\) \{ abSayQuiet\(\{ offWhy: autobalanceSweepOffWhy\(\) \|\| 'unknown' \}\); return; \}/,
     'the early return no longer says why the sweep is not running');
-  assert.match(src, /try \{ unmeasured = \(abSweep\.state\.unmeasuredNow \|\| \[\]\)\.length; \} catch \{[^}]*\}\n\s+abSayQuiet\(\{ did: r && r\.did, because: r && r\.because, unmeasured, logged \}\);/, 'the end of a tick no longer reaches quietLine, or reads the count unguarded');
-  assert.match(src, /autobalanceSweep\.quietLine\(abQuietSaid, \{ nowMs: Date\.now\(\), \.\.\.opts \}\)/);
+  assert.match(src, /try \{ unmeasured = \(abSweep\.state\.unmeasuredNow \|\| \[\]\)\.length; \} catch \{[^}]*\}\n\s+for \(const line of autobalanceSweep\.tickLines\(abTickMem, r, \{ nowMs: Date\.now\(\), unmeasured \}\)\) process\.stdout\.write\(line \+ '\\n'\);/, 'the end of a tick no longer prints tickLines, or reads the count unguarded');
+  assert.match(src, /autobalanceSweep\.quietLine\(abTickMem\.quiet, \{ nowMs: Date\.now\(\), \.\.\.opts \}\)/);
   /* autobalanceSweepOffWhy names a gate for each of autobalanceSweepRuns' tick gates. */
   const runs = src.match(/function autobalanceSweepRuns\([^]*?\n\}/)[0];
   const why = src.match(/function autobalanceSweepOffWhy\(\) \{[^]*?\n\}/)[0];
