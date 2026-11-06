@@ -24,4 +24,4 @@ back removes it from the message, and the Mac keeps the file it was sent, as the
 network for an iCloud photo, for any tile drawn, and a request is not cancelled when its tile scrolls off; if that shows on the
 phone, make them local with a placeholder. One full-size photo is decoded at a time, so a very large one is a brief memory peak. A GIF goes up whole.
 
-Weakest premise: real Select Photos and a real camera were not run in a simulator; both are on the phone check.
+Known defect, shipped named: #8081, a room rises about 39 pt for a moment on closing back to the keyboard. Measured by frames on iOS 26.5; the chat is clean. Weakest premise: real Select Photos and a real camera were not run in a simulator; both are on the phone check.
