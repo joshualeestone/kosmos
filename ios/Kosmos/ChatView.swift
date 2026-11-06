@@ -128,6 +128,7 @@ struct ChatView: View {
     // a shift is counted in the middle of a layout, possibly every frame, and changing it must never redraw the chat.
     @State private var shifts = Board.ShiftBox()
     @State private var openCount = Board.ChatOpenCount()   // kosmos#7420
+    @State private var endPull = EndPullDriver()   // kosmos#8072
     // kosmos#7420: the scroll view the chat sits in (found by SideScrollLock), read only by the empty-list diagnostic.
     @State private var scrollBox = ScrollBox()
     @State private var diagContentWidth: CGFloat = 0
@@ -365,6 +366,12 @@ struct ChatView: View {
             // ran is kept); a return from the info page goes on with the same count.
             shifts.attach(send: shiftSender())
             openCount.shown(rowsDrawn: !onScreen.isEmpty)
+            // kosmos#8072: pull past the newest message for a read. Only with the end marker showing and nobody searching.
+            endPull.restsAbove = ChatView.fadeHeight + 8
+            endPull.allowed = { endVisible && !searchMode }
+            endPull.refresh = { _ = await read() }
+            scrollBox.endPull = endPull
+            if let shown = scrollBox.view { endPull.attach(to: shown) }
         }
         // kosmos#7354: on every read of the list while the chat is open, unread replies are marked read again, as the board's
         // paintTalk does on each poll; so one that failed is sent again, and replies landing while it is open are read.
@@ -3565,6 +3572,7 @@ struct PositionTargets: ViewModifier {
 // and putting an offset outside the content back at its end.
 final class ScrollBox {
     weak var view: UIScrollView?
+    weak var endPull: EndPullDriver?   // kosmos#8072: follows the list's scroll view, which a rebuild replaces
     // UIKit's own reading, on every iOS (personScrolling is set only on 18 and later).
     var underFinger: Bool { guard let sv = view else { return false }; return sv.isTracking || sv.isDragging || sv.isDecelerating }
     func reading() -> (line: String, place: String, end: Double)? {
@@ -3651,7 +3659,7 @@ struct SideScrollLock: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            if window == nil, let mine = found, box?.view === mine { box?.view = nil }   // kosmos#7420: never a stale scroll view
+            if window == nil, let mine = found, box?.view === mine { box?.view = nil; box?.endPull?.detach() }   // kosmos#7420: never a stale scroll view
             if window == nil { wasShifted = shifted }   // kosmos#7575 review 3: remembered across the move
             watch = nil; shifted = false; fixing = false; quick = 0; generation &+= 1
             guard window != nil else { return }
@@ -3660,6 +3668,7 @@ struct SideScrollLock: UIViewRepresentable {
             while let v = up, !(v is UIScrollView) { up = v.superview }
             guard let scroll = up as? UIScrollView else { ChatView.trace("side lock: no scroll view"); return }
             box?.view = scroll; found = scroll
+            box?.endPull?.attach(to: scroll)
             #if DEBUG
             if let at = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIDEWAYS"].flatMap(Double.init), !Self.sampleShifted {
                 Self.sampleShifted = true
