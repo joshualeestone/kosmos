@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import io.kosmos.app.shell.AppTabs
 import io.kosmos.app.shell.BoardSessionScripts
 import io.kosmos.app.shell.BoardWebViewClient
 import io.kosmos.app.shell.ShellLoad
@@ -63,42 +65,57 @@ fun BoardApp() {
     var loading by remember { mutableStateOf(true) }
     var failure by remember { mutableStateOf<ShellLoad.LoadFailure?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    // Launch tab: with Today off, AppTabs.keep opens on Agents (the tested rule). Tasks starts hidden until the
+    // board's own flag turns it on (a later increment wires the read); false is the safe default.
+    var selected by remember { mutableStateOf(AppTabs.keep(AppTabs.Tab.AGENTS, tasksTab = false)) }
 
-    androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    webView = this
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true // the board keeps its session in localStorage (kosmos#7042)
-                    webViewClient = BoardWebViewClient(
-                        context = ctx,
-                        coordinatorOrigin = coordinatorOrigin,
-                        isOnline = { isOnline(ctx) },
-                        onLoadFailure = { f, _ -> failure = f; loading = false },
-                        onMainFrameFinished = { loading = false },
-                    )
-                    // Arm the document-start session hand-over BEFORE the first load, so it runs before restore().
-                    BoardSessionScripts(this, coordinatorOrigin).apply(session)
-                    loadUrl(boardUrl)
-                }
-            },
-        )
-
-        if (loading && failure == null) {
-            AndroidView(modifier = Modifier.align(Alignment.Center), factory = { ctx -> SweepDots(ctx) })
-        }
-
-        failure?.let { f ->
-            BoardErrorPane(
-                failure = f,
-                onRetry = {
-                    failure = null
-                    loading = true
-                    webView?.reload()
+    Scaffold(
+        bottomBar = {
+            BoardTabBar(selected = selected, tasksTab = false) { tab ->
+                selected = tab
+                // Transitional: until the native per-tab screens land, a tab drives the board's section through
+                // the board's JS door (AppTabs.pressScript). Agents has no board section (boardName null), so it
+                // is a no-op here for now. The full native-screen + PressTracker lifecycle is a following increment.
+                AppTabs.pressScript(tab)?.let { js -> webView?.evaluateJavascript(js, null) }
+            }
+        },
+    ) { innerPadding ->
+        androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        webView = this
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true // the board keeps its session in localStorage (kosmos#7042)
+                        webViewClient = BoardWebViewClient(
+                            context = ctx,
+                            coordinatorOrigin = coordinatorOrigin,
+                            isOnline = { isOnline(ctx) },
+                            onLoadFailure = { f, _ -> failure = f; loading = false },
+                            onMainFrameFinished = { loading = false },
+                        )
+                        // Arm the document-start session hand-over BEFORE the first load, so it runs before restore().
+                        BoardSessionScripts(this, coordinatorOrigin).apply(session)
+                        loadUrl(boardUrl)
+                    }
                 },
             )
+
+            if (loading && failure == null) {
+                AndroidView(modifier = Modifier.align(Alignment.Center), factory = { ctx -> SweepDots(ctx) })
+            }
+
+            failure?.let { f ->
+                BoardErrorPane(
+                    failure = f,
+                    onRetry = {
+                        failure = null
+                        loading = true
+                        webView?.reload()
+                    },
+                )
+            }
         }
     }
 }
