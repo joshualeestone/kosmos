@@ -606,6 +606,10 @@ check(chatSource.contains("Board.endNeverShown(endSeen: endSeen") && chatSource.
       "kosmos#7420: the settled look and diagCheck read one rule for a list whose end never showed, a top marker cannot hold it off, and a rebuild restarts its clock")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
+// kosmos#8072: a chat's pull past its end reads the thread, and only with the end marker showing.
+check(chatSource.contains("endPull.allowed = { endVisible && !searchMode }") && chatSource.contains("endPull.refresh = { _ = await read() }")
+      && chatSource.contains("box?.endPull?.attach(to: scroll)") && chatSource.contains("scrollBox.endPull = endPull"),
+      "kosmos#8072: the chat's end pull is wired to a real read, and is armed only with the end showing")
 // kosmos#7420: the count's call sites, since Board.ChatOpenCount's own tests pass with any of these gone.
 check(chatSource.contains("onScreen.insert(item.id); openCount.rows(empty: false)") && chatSource.contains("if onScreen.isEmpty { openCount.rows(empty: true) }")
       && chatSource.contains("rebuilds.append(now)\n            openCount.rebuilt()") && chatSource.contains("if !infoOpen { sendOpenCount() }")

@@ -31,6 +31,14 @@ struct PullRefreshLogic: Equatable {
         max(0, -(offsetY + adjustedTop))
     }
 
+    /// kosmos#8072: how far past its end a list is, from the scroll view's own numbers. Zero when it is not.
+    static func pastEnd(offsetY: Double, content: Double, view: Double, adjustedBottom: Double) -> Double {
+        max(0, offsetY + view - adjustedBottom - content)
+    }
+
+    /// kosmos#8072: the least time the dots stay after letting go, in seconds, so a read that answers at once is still seen.
+    static let leastShow: Double = 0.6
+
     /// How much of the dots to show: none at the start of a pull, all of them by the threshold, and all while refreshing.
     static func shown(pulled: Double, refreshing: Bool) -> Double {
         refreshing ? 1 : min(1, max(0, pulled / threshold))
