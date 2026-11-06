@@ -367,7 +367,7 @@ struct ChatView: View {
             shifts.attach(send: shiftSender())
             openCount.shown(rowsDrawn: !onScreen.isEmpty)
             // kosmos#8072: pull past the newest message for a read. Only with the end marker showing and nobody searching.
-            endPull.restsAbove = 9.5   // Mona Lisa, 11-06: centred between the working line and the box (measured: 16.5 pt each side)
+            endPull.restsAbove = 14.5   // 11.5 pt under the working line, 21.5 above the box: clear of the box's fade (shots on the card)
             endPull.allowed = { endVisible && !searchMode }
             endPull.refresh = { _ = await read() }
             scrollBox.endPull = endPull

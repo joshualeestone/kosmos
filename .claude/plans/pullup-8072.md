@@ -9,3 +9,5 @@ Rejected: holding space open (an inset change is what blanks the fragile list in
 Weakest premises: that dots after the list has bounced back still read as checking; that the dots' spot at the end of the content is visible and not lost in the box's fade (the UI test's screenshot shows it on one simulator).
 
 Not covered: VoiceOver has no action for this, and the chat already reads every 5 s, so nothing is lost. Rooms: later, if chats hold.
+
+The dots' spot: Mona Lisa asked for centred with 16 pt clear of the working line. Measured gap 57 pt gives 16.5 each side, but the box's 18 pt fade then cuts the ring, seen in a screenshot. My call pending her word: 11.5 above, 21.5 below. Measured on: 60 pulls over 12 runs, 0 rebuilds, 10 of those pulls on the fragile opening, no keyboard up, at an earlier spot (the spot does not touch the list). The end-marker gate itself is pinned by a source check, not a behaviour test.
