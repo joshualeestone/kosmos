@@ -37,6 +37,10 @@ test('kosmos#8132: the sources are the files check-served reads, and none is emp
   assert.ok(PAGE.length > 100000, 'web/index.html read as ' + PAGE.length + ' bytes after the comment strip');
   assert.ok(PAGE.length > RAW_PAGE.length * 0.1, 'the comment strip removed more than 90% of web/index.html; it is broken');
   for (const p of PKG) assert.ok(p.body.length > 500, p.rel + ' read as ' + p.body.length + ' bytes');
+  // The strip here is a copy of check-served.js's (a local there, so it cannot be imported): hold the two to one text.
+  const ourStrip = /^const strip = \(t\) => (.*);$/m.exec(read('tools.served-markers-sources-8132.test.js'));
+  assert.ok(ourStrip && read('tools/check-served.js').includes('const strip = (t) => ' + ourStrip[1] + ';'),
+    'the comment strip here no longer matches check-served.js\'s; copy it again');
   // check-served reads exactly these pages from the expanded .pkg; if it reads another, PKG_PAGES here must follow.
   const served = read('tools/check-served.js');
   const lit = /const PAGES = (\[[^\]]*\]);/.exec(served);
