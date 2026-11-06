@@ -35,7 +35,7 @@ struct NewTaskView: View {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending) }
                     ToolbarItem(placement: .confirmationAction) {
                         if sending || checking {
-                            SweepDots(label: "Creating the task", scales: false, stillWhenReduced: true)
+                            SweepDots(label: "Creating the task", scales: false, framesPerSecond: 15, stillWhenReduced: true)
                         } else {
                             Button("Create") { startCreate() }
                                 // Held until the projects are read: a kept draft's project is checked against them first.
@@ -77,7 +77,7 @@ struct NewTaskView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Palette.ground.ignoresSafeArea())
         } else {
-            SweepDots(label: "Loading", scales: false, stillWhenReduced: true).frame(maxWidth: .infinity, maxHeight: .infinity).background(Palette.ground.ignoresSafeArea())
+            SweepDots(label: "Loading", scales: false, framesPerSecond: 15, stillWhenReduced: true).frame(maxWidth: .infinity, maxHeight: .infinity).background(Palette.ground.ignoresSafeArea())
         }
     }
 

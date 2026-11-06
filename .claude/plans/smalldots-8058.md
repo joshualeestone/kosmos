@@ -1,5 +1,7 @@
 # smalldots-8058: small waits show the simple dots
 
+Superseded by alldots-8058 (Josh 11-05 18:33): the dots are now the only loading indicator, whole-screen waits too.
+
 Josh 11-05: an attachment loading in a chat showed the KOSMOS orb; small actions like it take the very simple
 circular dots, as a file uploading does. Read as `SweepDots` (his "simple dots that go in a circle", 11-04,
 #7954); on main the upload row drew the orb too, so both change and still match.
