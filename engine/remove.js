@@ -1311,6 +1311,39 @@ function unsafeToActOn(name) {
   return null;
 }
 
+/**
+ * kosmos#8109: the name a person or agent copied from `kosmos agent list` (an agent's display name, such as "Cai")
+ * resolved to the agent it names (folder `cai`), so Remove finds it. Called once by the removal routes, before both
+ * the plan and the removal, so the two always act on the same agent.
+ *
+ * Returns the name unchanged when an agent has it exactly (folder, job or session), when the board cannot be read,
+ * or when no single agent matches. Otherwise it returns the folder name of the ONE agent whose folder name or display
+ * name equals it, ignoring case. Two matches resolve to nothing, so `plan` still answers "we cannot find an agent
+ * called <name>", spelled as asked: the refusal never names a different agent.
+ */
+function resolveName(name, platform) {
+  let clean;
+  try { clean = create.cleanName(name); } catch { return name; }
+  if (!clean || unsafeToActOn(clean)) return name;
+  if (existsExactly(create.workerDir(clean)) || jobFor(clean, platform)) return name;
+  let found;
+  try { found = sessionFor(clean); } catch { return name; }
+  if (found.kind !== FOUND.NONE) return name;   // its own session (ours, untied) or unknown: act on the name as given
+  let dirs;
+  try {
+    dirs = fs.readdirSync(create.workersDir(), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+  } catch { return name; }
+  const want = clean.toLowerCase();
+  const hits = new Set();
+  for (const dir of dirs) {
+    if (unsafeToActOn(dir)) continue;
+    let shown = null;
+    try { shown = status.readIdentity(dir).displayName || null; } catch { shown = null; }
+    if (dir.toLowerCase() === want || (shown && String(shown).trim().toLowerCase() === want)) hits.add(dir);
+  }
+  return hits.size === 1 ? [...hits][0] : name;
+}
+
 function plan(name, platform) {
   const clean = create.cleanName(name);
   const problem = unsafeToActOn(clean);
@@ -2796,6 +2829,7 @@ module.exports = {
   reapplyAtBoardStart,
   RESTART_CHANGED_NOTHING,   // #7470
   plan,
+  resolveName,   // #8109: a name as `agent list` prints it, resolved to the one agent it names
   restart,
   restartAsync,   // #6173: an account move's restarts, without blocking the board's thread
   putBackAsync,   // #6231 item 7: a stopped move's win32 put-backs, without blocking the board's thread

@@ -10630,8 +10630,10 @@ const server = http.createServer(async (req, res) => {
    */
   const rm = pathname.match(/^\/api\/agent\/([^/]+)\/removal$/);
   if (rm && (req.method === 'GET' || req.method === 'HEAD')) {
-    const name = decodeSegment(rm[1]);
-    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const asked = decodeSegment(rm[1]);
+    if (asked === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    // kosmos#8109: a name as `agent list` prints it (Cai) resolved to the one agent it names (cai); see remove.resolveName.
+    let name; try { name = removal.resolveName(asked); } catch { name = asked; }
   /**
    * ⚠️ GUARDED, like every other engine call in this file.
    *
@@ -10652,8 +10654,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (rm && req.method === 'DELETE') {
-    const name = decodeSegment(rm[1]);
-    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const asked = decodeSegment(rm[1]);
+    if (asked === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    // kosmos#8109: resolved exactly as the plan above resolves it, so the plan and the removal act on one agent.
+    let name; try { name = removal.resolveName(asked); } catch { name = asked; }
     /* #2651: `?force=1` opts into the user-initiated override of the UNTIED
        refusal ONLY -- clear the card of an agent whose session Kosmos cannot tie
        to it (a residual/auto-imported card, a teammate's session on a shared box)
