@@ -449,3 +449,15 @@ test('kosmos#8063 review 7: a command is checked only when it names exactly one 
   const ex = folder({ settings: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'bash', args: ['-c', '$CLAUDE_CONFIG_DIR/hooks/g.sh pre'] }] }] } }) });
   assert.equal(carry.losses(ex, none, H).ok, false, 'a script inside an exec -c argument read as checked');
 });
+
+test('kosmos#8063 review 8: the exec form names an extensionless script after an interpreter', () => {
+  const ex = (args, command = 'node') => folder({ settings: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command, args }] }] } }) });
+  const src = ex(['$CLAUDE_CONFIG_DIR/hooks/gate']);
+  fs.mkdirSync(path.join(src, 'hooks'), { recursive: true }); fs.writeFileSync(path.join(src, 'hooks', 'gate'), '// gate\n');
+  const dst = ex(['$CLAUDE_CONFIG_DIR/hooks/gate']);   // the same wiring, the script missing there
+  assert.deepEqual(carry.losses(src, dst, H).hooks, ['gate'], 'an extensionless exec gate missing on the target read as kept');
+  fs.mkdirSync(path.join(dst, 'hooks'), { recursive: true }); fs.writeFileSync(path.join(dst, 'hooks', 'gate'), '// gate\n');
+  assert.deepEqual(carry.losses(src, dst, H).hooks, [], 'CONTROL: the same gate there was not kept');
+  /* A path argument with no script named for certain (a tool, not an interpreter) cannot be checked. */
+  assert.equal(carry.losses(ex(['run', '~/hooks/x'], 'mytool'), folder({ settings: '{}' }), H).ok, false);
+});
