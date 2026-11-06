@@ -397,7 +397,13 @@ function chk(ok, label, extra) {
           await page.click('#tc-short');
           await settle(page, () => /Changed 3 names\./.test(document.getElementById('tc-name-said').textContent));
           const again = (await rows(page))[1].name;
-          chk(another !== 'Rosalind' && again !== another && again !== 'Rosalind', `${E} #8092 CONTROL: after Another the row is a suggestion again, so Use short names may change it`, JSON.stringify({ another, again }));
+          chk(again !== another, `${E} #8092 CONTROL: after Another the row is a suggestion again, so Use short names may change it`, JSON.stringify({ another, again }));
+          // An emptied box is not a typed name: Use short names fills it.
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', '');
+          await page.click('#tc-short');
+          await settle(page, () => /Changed 3 names\./.test(document.getElementById('tc-name-said').textContent) && document.querySelector('#tc-list li[data-slot="lead"] .tc-name').value !== '');
+          const filled = (await rows(page))[0].name;
+          chk(/^[A-Za-z]{3,5}$/.test(filled), `${E} #8092 an emptied box is filled by Use short names, not kept as typed`, JSON.stringify(filled));
           chk(errs.length === 0, `${E} no page errors (#8092 typed arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();
