@@ -47,3 +47,12 @@ and nobody learned recovery was missing.
 - NITs taken: installWatchdog's doc names kind/detail; the shots entry moved above the keep-awake comment it split.
 - NITs left: kind `other` from an unknowable folder offers a retry that will give the same answer; if the rows
   cannot be read back after a click, the line may mention a switch the page has just taken away.
+
+## Review round 3 (sonnet)
+- WARNING fixed (older than this branch, from #7498): `because` quoted the first line of `out`, which on Windows is
+  Node's "Command failed: ..." line with the person's folder, and the route and boot log carry `because`. It now
+  quotes schtasks' own ERROR: line when there is one.
+- NITs taken: an ERROR: line naming a path or a command is kind other (it is an argument or file error, not a
+  refusal to quote); a detail over 120 characters is not shown.
+- NITs left: any signal-killed child is no-time (only a timeout kills it in practice); the boot path's withWatchdog
+  answers carry no kind, and the page reads a missing kind as other.

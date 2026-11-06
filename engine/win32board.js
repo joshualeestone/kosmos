@@ -685,15 +685,19 @@ function installWatchdog(spec) {
     try { fs.unlinkSync(xmlAt); } catch { /* best effort; it is in the temp root */ }
   }
   if (!r.ok) {
-    const said = (r.out || 'no detail').trim().split(/\r?\n/)[0];   // Windows ends lines with CRLF
-    const because = 'we could not register the job that restarts the board if it stops (' + said + ')';
-    /* kosmos#7504: kind and detail let Settings word this itself. Refused only when schtasks said ERROR: (on stderr, or
-       inside Node's message); detail is that line without "ERROR:", and none at all if it names a path or a command. */
-    if (r.timedOut) return { ok: false, because, kind: 'no-time' };
+    /* kosmos#7504: schtasks says why on stderr, and `out` then falls back to Node's "Command failed: schtasks.exe ..."
+       message, which names a temp file under the person's own folder. The ERROR: line schtasks wrote (stderr, then
+       inside that message) is what `because` quotes when there is one, and the only source of `detail`. */
     const errLine = (String(r.stderr || '') + '\n' + String(r.out || '')).split(/\r?\n/).find((l) => /^\s*ERROR:/i.test(l));
+    const said = errLine ? errLine.trim() : (r.out || 'no detail').trim().split(/\r?\n/)[0];   // Windows ends lines with CRLF
+    const because = 'we could not register the job that restarts the board if it stops (' + said + ')';
+    if (r.timedOut) return { ok: false, because, kind: 'no-time' };
     if (!errLine) return { ok: false, because, kind: 'other' };
     const detail = errLine.replace(/^\s*ERROR:\s*/i, '').trim();
-    return { ok: false, because, kind: 'refused', detail: /[\\/]|Command failed|schtasks/i.test(detail) ? '' : detail };
+    /* A line naming a path, a command or schtasks itself is an argument or file error, not a refusal to put in front
+       of a person; a long one is not shown. */
+    if (/[\\/]|Command failed|schtasks/i.test(detail)) return { ok: false, because, kind: 'other' };
+    return { ok: false, because, kind: 'refused', detail: detail.length <= 120 ? detail : '' };
   }
   return { ok: true, task: WATCHDOG_TASK_NAME, watch: watchAt, removeHint: WATCHDOG_REMOVE_HINT };
 }

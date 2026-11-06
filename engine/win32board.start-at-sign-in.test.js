@@ -165,6 +165,7 @@ function withWatchdogState(state, watchdog) {
       if (watchdog === 'create-refused-in-message') return { ok: false, out: failed + '\r\nERROR: Access is denied.\r\n', code: 1 };
       if (watchdog === 'create-error-path') return { ok: false, out: failed, stderr: 'ERROR: Cannot read C:\\Users\\person\\x.xml\r\n', code: 1 };
       if (watchdog === 'create-timeout') return { ok: false, out: 'spawnSync schtasks.exe ETIMEDOUT', timedOut: true };
+      if (watchdog === 'create-long') return { ok: false, out: failed, stderr: 'ERROR: ' + 'x'.repeat(121) + '\r\n', code: 1 };
       if (watchdog === 'create-missing') return { ok: false, out: 'spawnSync schtasks.exe ENOENT' };
       if (watchdog === 'create-silent') return { ok: false, out: '' };
       return { ok: true, out: 'SUCCESS' };
@@ -309,14 +310,18 @@ function watchdogFor(state) {
 test('kosmos#7504: Windows refused on stderr: kind refused, detail is its words only, never the command or a path', () => {
   const w = watchdogFor('create-refused');
   assert.deepEqual([w.kind, w.detail], ['refused', 'Access is denied.']);
-  assert.match(w.because, /could not register the job that restarts the board if it stops/, 'the engine sentence changed');
+  assert.equal(w.because, 'we could not register the job that restarts the board if it stops (ERROR: Access is denied.)');
+  assert.doesNotMatch(w.because, /Command failed|Users|\.xml/, 'Node\'s command line, with the person\'s folder, is in the answer');
   const m = watchdogFor('create-refused-in-message');
   assert.deepEqual([m.kind, m.detail], ['refused', 'Access is denied.'], 'the ERROR: line inside Node\'s message was not found');
 });
 
-test('kosmos#7504: an ERROR: line that names a path is refused with no detail; the person\'s folder never reaches the page', () => {
+test('kosmos#7504: an ERROR: line that names a path is kind other (no detail, nothing for the page to quote); a long one is refused with no detail', () => {
   const w = watchdogFor('create-error-path');
-  assert.deepEqual([w.kind, w.detail], ['refused', '']);
+  assert.equal(w.kind, 'other');
+  assert.equal('detail' in w, false);
+  const l = watchdogFor('create-long');
+  assert.deepEqual([l.kind, l.detail], ['refused', '']);
 });
 
 test('kosmos#7504: a /Create that timed out is no-time; one with no ERROR: line (schtasks missing, nothing said) is other', () => {
