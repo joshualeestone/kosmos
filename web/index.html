@@ -15105,7 +15105,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" style="margin:8px 0 0;">Qwen answers questions and runs commands well; check the files it edits.</p>
     </div>
 
-    <!-- #7206: DeepSeek or Z.ai GLM, a key only. Kosmos checks the key with the vendor before it saves it; its agents run
+    <!-- #7206: DeepSeek, Z.ai GLM or MiniMax, a key only. Kosmos checks the key with the vendor before it saves it; its agents run
          on Claude Code, pointed at the vendor. The words below are DeepSeek's; acctCompatShow repaints them per vendor. -->
     <div id="acct-compat-flow" hidden style="margin-top: var(--space-5);">
       <p class="dwarn" style="margin:0 0 8px;"><b id="acct-compat-runs">DeepSeek agents run on Claude Code, pointed at DeepSeek with your key.</b> <span id="acct-compat-bills">Kosmos checks the key with DeepSeek before it saves it, and DeepSeek bills you for what your agents use.</span></p>
@@ -32247,7 +32247,7 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   document.getElementById('acct-openai-flow').hidden = true;
   acctApikeyShow(null);
   acctQwenShow(false);   // #5977
-  acctCompatShow(false);   // #7206 (1b review 2): the DeepSeek or GLM key form too, and its in-flight add stops
+  acctCompatShow(false);   // #7206 (1b review 2): the vendor key form too, and its in-flight add stops
   acctAddPickSay('');   // #3939 slice 3c-2 (round 5): going back to "Choose a provider" is a choice too
 });
 /* #770: the door opens the dialog; the dialog remembers nothing between
@@ -34737,7 +34737,7 @@ function closeAcctAdd() {
   acctOpenaiSubReset();   // hides the sub affordances and re-enables the Sign-in button
   acctApikeyShow(null);   // #3566: a pasted Gemini/Grok key does not stay in a hidden field after close
   acctQwenShow(false);   // #5977: the Qwen key and name too, and its download poll stops
-  acctCompatShow(false);   // #7206 (1b review 2): the DeepSeek or GLM key form too, and its in-flight add stops
+  acctCompatShow(false);   // #7206 (1b review 2): the vendor key form too, and its in-flight add stops
   acctMuseShow(false);   // #3939: a Muse sign-in left running is stopped, not left polling a closed dialog
   /* kosmos#1656: return the modal to its form state on the way out, so the next
      open is clean: the success panel gone and the sign-in controls back. */
@@ -35066,7 +35066,7 @@ document.getElementById('acct-apikey-show').addEventListener('click', () => {
 /* #5977: the Qwen step of Add a provider. Its own flow, not ACCT_APIKEY_PROVIDERS: that path downloads a provider's
    own runner, and Qwen runs on codex. Bumped on every show, so an answer that returns after the step was left is
    ignored (the same rule as ACCT_APIKEY_GEN). */
-/* #7206: the vendors whose endpoint speaks Claude Code's API (DeepSeek, GLM). Each is OFF unless the board lists it
+/* #7206: the vendors whose endpoint speaks Claude Code's API (DeepSeek, GLM, MiniMax). Each is OFF unless the board lists it
    (GET /api/accounts/compat, read on every visit, as Meta Muse's /api/muse is): while off its option stays
    "coming soon" and nothing here can be reached. COMPAT_ON is any; COMPAT_ON_FOR (below) is which. */
 let COMPAT_ON = false;
@@ -35375,7 +35375,7 @@ document.getElementById('acct-qwen-go').addEventListener('click', async () => {
   }
 });
 
-/* #7206: add a DeepSeek (2b: or Z.ai GLM) account. The key is checked with that vendor by the board before anything is
+/* #7206: add a DeepSeek, Z.ai GLM or MiniMax account. The key is checked with that vendor by the board before anything is
    saved (never with Anthropic); a refused key saves nothing and says so. */
 document.getElementById('acct-compat-go').addEventListener('click', async () => {
   const keyField = document.getElementById('acct-compat-key');
@@ -35994,7 +35994,7 @@ function frMuseCollapse() {
   flow.hidden = true;
   if (btn) btn.setAttribute('aria-expanded', 'false');
 }
-/* #7206 2b: the setup step's DeepSeek and GLM rows. Each is "Coming soon" until the board says its own switch is on;
+/* #7206 2b: the setup step's DeepSeek, GLM and MiniMax rows. Each is "Coming soon" until the board says its own switch is on;
    then it reads as Qwen's does, "Add in Settings" (the key form lives in Settings, AI Models). A failed ask keeps the
    last answer (compatAsk never turns a vendor off on a failure). */
 function frPaintCompat() {
@@ -61557,7 +61557,6 @@ const PROVIDER_MARK_KEY = {
      where #d-provider uses 'anthropic'; both name the same provider and get the same
      'claude' mark. Additive: #d-provider never looks up 'claude', so this does not touch it. */
   claude: 'claude',
-  /* 2b-roster (deferred to #770): glm, minimax, deepseek */
 };
 function providerMarkNode(value, label) {
   /* The mark is DECORATIVE: every place it is used (each option li, and the trigger) also

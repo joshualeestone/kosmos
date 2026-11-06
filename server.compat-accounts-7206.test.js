@@ -294,6 +294,27 @@ test('#7206 2a review 1: DeepSeek\'s switch on does not turn GLM on: GLM is refu
   } finally { sw.setVendorAt(SANDBOX, 'glm', false); fs.rmSync(nodePath.join(SANDBOX, '.kosmos-glm-stored'), { recursive: true, force: true }); }
 });
 
+test('#7206 slice 3: MiniMax is refused, stored nowhere and sent no key while only DeepSeek\'s and GLM\'s switches are on; its own switch is the control', async () => {
+  const urls = vendorAnswers({ status: 200, body: { data: [{ id: 'MiniMax-M3.1-Flash' }] } });
+  const sw = require('./test-support/compat-switch');
+  sw.setVendorAt(SANDBOX, 'glm', true);
+  try {
+    const r = await post('/api/accounts/compat', { vendor: 'minimax', key: 'mm-route-key-0123456789', label: 'mmoff' });
+    assert.equal(r.status, 400);
+    const b = await r.json();
+    assert.deepEqual([b.notYet, b.error], [true, 'MiniMax is not available in Kosmos yet']);
+    assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.kosmos-minimax-mmoff')), false, 'a MiniMax account was stored');
+    assert.deepEqual(urls, [], 'a MiniMax key was sent to MiniMax');
+    const off = await (await fetch(base + '/api/accounts/compat')).json();
+    assert.deepEqual(off.vendors.map((v) => v.id), ['deepseek', 'glm'], 'MiniMax is offered under the other switches');
+  } finally { sw.setVendorAt(SANDBOX, 'glm', false); }
+  sw.setVendorAt(SANDBOX, 'minimax', true);
+  try {
+    const on = await (await fetch(base + '/api/accounts/compat')).json();
+    assert.equal(on.vendors.some((v) => v.id === 'minimax'), true, 'CONTROL: with its own switch on, MiniMax is offered');
+  } finally { sw.setVendorAt(SANDBOX, 'minimax', false); }
+});
+
 test('#7206 2a review 5: the check route refuses a stored GLM account under DeepSeek\'s switch, in GLM\'s name, and sends no key; its own switch is the control', async () => {
   const sw = require('./test-support/compat-switch');
   const dir = nodePath.join(SANDBOX, '.kosmos-glm-checkme');

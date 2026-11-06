@@ -27,4 +27,7 @@ places that name vendors.
 1. A real key answers 200 at `api.minimax.io/v1/models`.
 2. Its list names `MiniMax-M3.1-Flash` exactly. MiniMax's pages disagree (M3, M3.1-Flash, M2.7); match the table to it.
 3. A real claude run against `api.minimax.io/anthropic` with that key, in an empty config folder.
-4. Whether a plan key and a pay-as-you-go key both answer the model list.
+4. Whether a plan key and a pay-as-you-go key both answer the model list (if not, the form says which it wants, as GLM's
+   does).
+5. Region: api.minimax.io is MiniMax's international platform. A key from its China platform (api.minimaxi.com) would
+   likely be refused here; either the form says which platform, or the table gains that address.

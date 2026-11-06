@@ -56,9 +56,10 @@ const VENDORS = Object.freeze({
   /* #7206 slice 3: MiniMax. The address and the key variable are MiniMax's own Claude Code guide
      (platform.minimax.io/docs/token-plan/claude-code, read 2026-11-05: ANTHROPIC_BASE_URL https://api.minimax.io/anthropic,
      the key as ANTHROPIC_AUTH_TOKEN, model MiniMax-M3.1-Flash). MiniMax's pages name different models (M3, M3.1-Flash,
-     M2.7), so the id is the Claude Code page's and is on the switch-on checklist. The key is checked at the platform's
-     model list, measured 2026-11-05 with a made-up key: 401 there with a Bearer key, as at the Anthropic address's
-     /v1/models with x-api-key. Off until its own switch (compat-minimax-on) exists. */
+     M2.7), so the id is the Claude Code page's and is on the switch-on checklist. checkUrl is the platform's model
+     list. Measured 2026-11-05 with a made-up key only: 401 there with a Bearer key. A real key's answer there is not
+     measured (no key held); that is the switch-on checklist's first item. Off until its own switch
+     (compat-minimax-on) exists. */
   minimax: Object.freeze({
     id: 'minimax',
     name: 'MiniMax',
