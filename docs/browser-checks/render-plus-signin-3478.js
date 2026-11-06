@@ -1286,7 +1286,7 @@ const visible = (page, sel) => page.evaluate((s) => {
           centred: !!card && card.classList.contains('plus-si-busy') };
       });
       chk(during.title === 'Signing in...' && !during.spin && during.k && during.note && during.centred,
-        `[${k}] #4608/#5785 while this computer connects: Signing in..., the big K loader (not the small ring), centred, the wait said`, JSON.stringify(during));
+        `[${k}] #4608/#5785 while this computer connects: Signing in..., the big KOSMOS orb (not the small dots), centred, the wait said`, JSON.stringify(during));
       await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 5000 });
       const siAfter = await page.evaluate(() => ({ title: document.getElementById('plus-si-title').textContent,
         spin: !document.getElementById('plus-si-spin').hidden,

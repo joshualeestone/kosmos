@@ -68155,7 +68155,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
      the message belongs beside the field that caused it. `revealMade` fills the
      step list in on the answer; here there is no answer yet, so the screen is the
      name heading plus the working mark.
-     ⚠️ Finish any prior loader before starting a fresh one: `startKLoader` has no
+     ⚠️ Finish any prior loader before starting a fresh one: `startMadeMark` has no
      hard stop (only `finish`), so without this a second attempt (a retry after a
      routed-back error) would leak a second animation loop onto the one canvas. */
   msg.textContent = '';
@@ -68367,7 +68367,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
 
   // #2190: we already advanced to the progress screen and started the loader on
   // click; the answer only fills in the step list. (`cstep('made')`, the heading,
-  // the hide-resets and startKLoader all moved to the click handler above; the
+  // the hide-resets and startMadeMark all moved to the click handler above; the
   // watch below still calls MADE_MARK.finish() on completion.)
   msg.textContent = '';
   revealMade(result);

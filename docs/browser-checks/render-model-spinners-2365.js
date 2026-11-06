@@ -25,9 +25,10 @@
  * CONTROL for the whole feature: on a page whose loading states render the Kosmos icon (the
  * pre-fix #11 shape) or no spinner, the sweep+no-icon assertions red.
  *
- * #7896 (Josh 2026-11-03): the loading mark is now the KOSMOS orb (KORB draws it into a canvas inside each
- * .spin-sweep). The arm at the end reads the drawing, not the markup: drawn, turning, the old dots hidden, and with
- * reduced motion drawn once and still.
+ * #7896 (Josh 2026-11-03, narrowed 11-06): whole-screen waits show the KOSMOS orb (KORB draws it into a canvas inside
+ * each .spin-sweep.orb-wait only); small spinners keep the Sweep dots. The arm at the end reads the drawing, not the
+ * markup: drawn, turning, the dots hidden under the orb, with reduced motion drawn once and still, and a small spinner
+ * still showing its eight dots.
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-model-spinners-2365.js
@@ -227,7 +228,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const fr = document.getElementById('firstrun');
     if (!fr) return { error: 'no #firstrun on the page' };
     const host = document.createElement('div');
-    try { host.innerHTML = kOrbWaitHtml('chk-orb', '', 14); fr.appendChild(host); return { dot: getComputedStyle(host.querySelector('.spin')).getPropertyValue('--spin-dot').trim().toLowerCase() }; }
+    try { host.innerHTML = LOAD_SPIN_HTML; fr.appendChild(host); return { dot: getComputedStyle(host.querySelector('.spin')).getPropertyValue('--spin-dot').trim().toLowerCase() }; }
     finally { host.remove(); }
   });
   await darkPage.close();
@@ -313,13 +314,13 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   const orbProblems = [];
   if (smallKeepsDots.orbCanvas || smallKeepsDots.dots !== 8) orbProblems.push('a small spinner was given the orb or lost its dots (Josh 11-06: small spinners keep the Sweep dots): ' + JSON.stringify(smallKeepsDots));
   // The dots keep the contrast fix (#7930): the same gold as the orb, the deep one on a light ground.
-  if (!smallKeepsDots.dot || smallKeepsDots.dot !== smallKeepsDots.orbDot) orbProblems.push('a small spinner is not in the orb\'s gold (the deep gold on light grounds, 3:1): ' + JSON.stringify(smallKeepsDots));
+  if (!smallKeepsDots.dot || smallKeepsDots.dot !== smallKeepsDots.orbDot || smallKeepsDots.dot.toLowerCase() !== '#9c741b') orbProblems.push('a small spinner is not in the orb\'s gold (the deep gold on light grounds, 3:1): ' + JSON.stringify(smallKeepsDots));
   if (onGold.error) orbProblems.push('orb on a gold button: ' + onGold.error);
   else if (!(onGold.avgRed >= 0 && onGold.avgRed < 90)) orbProblems.push('orb on a gold button: drawn in gold (average red ' + onGold.avgRed + '), not the button\'s dark ink, so it vanishes on the gold');
   // Within 14 of the wanted colour on each channel: the canvas blends edges, so the average is near the colour, not on it.
   const near = (got, want) => got && !got.error && Math.abs(got.r - want[0]) <= 14 && Math.abs(got.g - want[1]) <= 14 && Math.abs(got.b - want[2]) <= 14;
   const DEEP = [0x9c, 0x74, 0x1b], GOLD = [0xd6, 0xa6, 0x2e];
-  if (themeGold.firstrunDark.error || themeGold.firstrunDark.dot !== '#9c741b') orbProblems.push('orb on the first-run card on a dark system: --spin-dot is not the deep gold #9c741b but ' + JSON.stringify(themeGold.firstrunDark));
+  if (themeGold.firstrunDark.error || themeGold.firstrunDark.dot !== '#9c741b') orbProblems.push('spinner on the first-run card on a dark system: --spin-dot is not the deep gold #9c741b but ' + JSON.stringify(themeGold.firstrunDark));
   for (const [res, words] of [[calmTheme, 'a still orb on a switch from the light theme to the dark'], [plusCalm, 'a still orb going into the Kosmos+ screen in the light theme']]) {
     if (res.error || !near(res.before, DEEP) || !near(res.after, GOLD)) orbProblems.push(words + ' was not redrawn from the deep gold to --gold: ' + JSON.stringify(res));
   }

@@ -120,7 +120,7 @@ async function makeAnna(page, { seen }) {
      is still working so we caught it mid-flight rather than after it settled. None
      of those is implied by "a row exists", so each can still fail. */
   /* SYNC on BOTH a progress row AND the mark having drawn (>200 ink), because they
-     are INDEPENDENT animations: the create-go handler calls startKLoader (the mark)
+     are INDEPENDENT animations: the create-go handler calls startMadeMark (the orb)
      just before revealMade paces in the rows, but the mark draws on the next rAF
      frame while the first row can paint synchronously -- so a row can exist with the
      mark still at 0. Syncing on the row alone would let "the mark is drawing" race
