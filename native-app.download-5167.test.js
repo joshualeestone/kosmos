@@ -15,7 +15,7 @@
 const test = require('node:test');
 /* The Allow question's answer decides the download: yes downloads, no cancels. kosmos#8120 lets the no also tell the page
    (`failed`, under the click's own key), in the multi-line form; the decision itself is pinned the same either way. */
-const ALLOW_OR_CANCEL = String.raw`mayDownload\(file: .*?\) (?:\{ decisionHandler\(\$0 \? \.download : \.cancel\) \}|\{ \[weak self, weak webView\] yes in[^\n]*\n\s+if !yes \{ self\?\.tellPageKey\(webView, url: \w+, "failed"\) \}\n\s+decisionHandler\(yes \? \.download : \.cancel\)\n\s+\})`;
+const ALLOW_OR_CANCEL = String.raw`mayDownload\(file: .*?\) (?:\{ decisionHandler\(\$0 \? \.download : \.cancel\) \}|\{ \[weak self, weak webView\] yes in[^\n]*\n\s+if !yes \{ self\?\.tellPageKey\(webView, url: \w+, "failed"(?:, commits: clickCommits)?\) \}\n\s+decisionHandler\(yes \? \.download : \.cancel\)\n\s+\})`;
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -152,7 +152,7 @@ test('#5167 review 5: refused downloads stay out of the window, quarantine recor
 
 test('kosmos#8120: a Kosmos+ computer\'s own download keeps its Allow decision: no cancels, and is told to the page as failed', () => {
   const b = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
-  assert.match(b, /let asked = navigationAction\.request\n\s+mayDownload\(file: nil\) \{ \[weak self, weak webView\] yes in\n\s+decisionHandler\(\.cancel\)\n\s+if !yes \{ self\?\.tellPageKey\(webView, url: keyed, "failed"\) \}\n\s+guard yes, let self, let webView else \{ return \}/,
+  assert.match(b, /let asked = navigationAction\.request\n\s+mayDownload\(file: nil\) \{ \[weak self, weak webView\] yes in\n\s+decisionHandler\(\.cancel\)\n\s+if !yes \{ self\?\.tellPageKey\(webView, url: keyed, "failed", commits: clickCommits\) \}\n\s+guard yes, let self, let webView else \{ return \}/,
     'the Kosmos+ download path no longer cancels WebKit\'s own and starts only on Allow, or a Don\'t Allow is not told to the page');
   assert.match(b, /let keyed = navigationAction\.sourceFrame\.isMainFrame \? navigationAction\.request\.url : nil/,
     'a frame inside the page can answer the page\'s download click');

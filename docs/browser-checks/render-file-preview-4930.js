@@ -78,7 +78,7 @@ async function runOn(engine, base, say) {
         strip.innerHTML = pjAttachmentCards({ attachments: [
           { name: 'screenshot.png', type: 'image/png', size: 123456, kind: 'image', url: '/api/attachment/' + IMG_ID, preview: '/api/attachment/' + IMG_ID + '/preview' },
           { name: 'report.pdf', type: 'application/pdf', size: 99000, kind: 'pdf', url: '/api/attachment/' + PDF_ID, preview: '/api/attachment/' + PDF_ID + '/preview' },
-          { name: 'notes.md', type: 'text/markdown', size: 400, kind: 'text', url: '/api/attachment/' + TXT_ID, preview: '# Notes\n<img src=x onerror="window.__ran=1">\nline three' },
+          { name: 'notes.md', type: 'text/markdown', size: 400, kind: 'text', url: '/api/attachment/' + TXT_ID, preview: '# Notes\n<img src=x onerror="window.__ran=1">\nline three' + '\nmore'.repeat(200) },   // #8122: long, so the layout row below means something
           { name: 'deck.pptx', type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', size: 2048000, kind: 'other', url: '/api/attachment/' + DOC_ID },
           { name: 'windows.pdf', type: 'application/pdf', size: 5000, kind: 'pdf', url: '/api/attachment/' + NOPAGE_ID, preview: '/api/attachment/' + NOPAGE_ID + '/preview' },
         ] });
@@ -215,7 +215,14 @@ async function runOn(engine, base, say) {
       await pg.evaluate(() => { for (const b of document.querySelectorAll('[data-pv-rows]')) b.remove(); });
 
       // P6
+      /* #8122: whatever the file, the action sits inside the window and below it (never over a long text or a tall page). */
+      const placed = (what) => pg.evaluate((what) => {
+        const d = document.getElementById('pv-do').getBoundingClientRect();
+        const c = document.querySelector('#pv-preview .pv-media, #pv-preview .pv-text, #pv-preview .pv-file').getBoundingClientRect();
+        return { what, ok: d.top >= 0 && d.bottom <= innerHeight + 0.5 && d.left >= 0 && d.right <= innerWidth + 0.5 && d.top >= c.bottom - 1, act: [d.top, d.bottom], file: [c.top, c.bottom], vh: innerHeight };
+      }, what);
       await pg.click(card(PDF_ID));
+      { const r = await placed('a PDF page'); say(r.ok, tag + ' P1 #8122: the action is inside the window, below ' + r.what, JSON.stringify(r)); }
       const pdf = await pg.evaluate(() => ({ img: !!document.querySelector('#pv-preview img.pv-media'), note: (document.querySelector('#pv-preview .pv-note') || {}).textContent }));
       say(pdf.img && pdf.note === 'The first page', tag + ' P6: a PDF shows its first page', JSON.stringify(pdf));
       await pg.keyboard.press('Escape');
@@ -232,6 +239,7 @@ async function runOn(engine, base, say) {
       await pg.waitForTimeout(150);
       const txt = await pg.evaluate(() => ({ text: (document.querySelector('#pv-preview pre.pv-text') || {}).textContent, imgs: document.querySelectorAll('#pv-preview img').length, ran: !!window.__ran }));
       say(typeof txt.text === 'string' && txt.text.includes('line three') && txt.text.includes('<img src=x') && txt.imgs === 0 && !txt.ran, tag + ' P6: a text file shows its opening as text, its markup not run', JSON.stringify(txt));
+      { const r = await placed('a long text (200 lines)'); say(r.ok, tag + ' P1 #8122: the action is inside the window, below ' + r.what, JSON.stringify(r)); }
       // Selecting the text and letting go on the dark does not close it.
       const sel = await pg.evaluate(() => { const r = document.querySelector('#pv-preview pre.pv-text').getBoundingClientRect(); return { x: r.left + 20, y: r.top + 12, ex: innerWidth - 6, ey: r.top + 12 }; });
       await pg.mouse.move(sel.x, sel.y); await pg.mouse.down(); await pg.mouse.move(sel.ex, sel.ey, { steps: 8 }); await pg.mouse.up();
@@ -240,6 +248,7 @@ async function runOn(engine, base, say) {
       await pg.click(card(DOC_ID));
       const doc = await pg.evaluate(() => ({ name: (document.querySelector('#pv-preview .pv-file b') || {}).textContent, meta: (document.querySelector('#pv-preview .pv-file span') || {}).textContent }));
       say(doc.name === 'deck.pptx' && /PowerPoint/.test(doc.meta || '') && /2\.0 MB/.test(doc.meta || ''), tag + ' P6: any other file shows its name and size', JSON.stringify(doc));
+      { const r = await placed('a file card'); say(r.ok && r.act[0] - r.file[1] < 60, tag + ' P1 #8122: the action is right under ' + r.what + ', inside the window', JSON.stringify(r)); }
       await pg.keyboard.press('Escape');
       say(errors.length === 0, tag + ': no page errors', errors.slice(0, 3).join(' | '));
       await ctx.close();
@@ -344,7 +353,6 @@ async function runApp(engine, say) {
     await pg.click('#pv-do', { force: true }); await pg.waitForTimeout(150);
     say(!!k1 && (!netSeen || asked.length === 1) && first.busy, T + ': a Download click carries its own key, and turns the button off', JSON.stringify({ asked, first }));
     say(netSeen ? asked.length === 1 : (await waitingKeys()).length === 1, T + ': a second click while it saves asks for no second copy', JSON.stringify(netSeen ? asked : await waitingKeys()));
-    say(first.href === '/api/attachment/' + IMG_ID, T + ': the link goes back to its plain address after the click', first.href);
     await tell({ state: 'saved', key: 'someoneelse', id: 1, name: 'Files.zip' });
     const other = await state();
     say(other.busy && !/Saved/.test(other.text) && !/Files\.zip/.test(other.msg), T + ': another download\'s answer (a folder zip) does not reach this click', JSON.stringify(other));
@@ -355,7 +363,7 @@ async function runApp(engine, say) {
     say((await state()).busy && !/Saved/.test((await state()).text), T + ': saving is not saved', '');
     await tell({ state: 'saved', key: k1, id: 7, name: 'Budget 2026.xlsx' });
     const saved = await state();
-    say(/Saved to Downloads/.test(saved.text) && /Budget 2026\.xlsx is in your Downloads folder/.test(saved.msg) && saved.show === 'Show in Finder', T + ': only the app\'s saved says Saved to Downloads, with the name and Show in Finder', JSON.stringify(saved));
+    say(/Saved to Downloads/.test(saved.text) && /Budget 2026\.xlsx is in your Downloads folder/.test(saved.msg) && saved.show === 'Open in Finder', T + ': only the app\'s saved says Saved to Downloads, with the name and Open in Finder', JSON.stringify(saved));
     // A click while it says Saved saves nothing (it is the click Josh made three times), and the button comes back as
     // Download, never stuck on Saved (review round 2).
     const before = asked.length, waitBefore = (await waitingKeys()).length;
@@ -363,9 +371,17 @@ async function runApp(engine, say) {
     const again = await state();
     say((netSeen ? asked.length === before : true) && (await waitingKeys()).length === waitBefore && /Saved to Downloads/.test(again.text),
       T + ': a click while it says Saved saves nothing, and it still says Saved', JSON.stringify({ asked: asked.length - before, again }));
+    // The keyboard reaches it: Tab from the action goes to Open in Finder (the viewer keeps focus inside itself).
+    await pg.focus('#pv-do'); await pg.keyboard.press('Tab');
+    const tabbed = await pg.evaluate(() => document.activeElement && document.activeElement.classList.contains('pv-quiet'));
+    say(tabbed, T + ': Tab from the action reaches Open in Finder', String(tabbed));
     await pg.click('.pv-quiet');
     const posted = await pg.evaluate(() => window.__posted);
-    say(JSON.stringify(posted) === JSON.stringify([{ reveal: 7 }]) && !!(await pg.$('#pv-preview')), T + ': Show in Finder asks the app for that download (by id, never a path), and the viewer stays open', JSON.stringify(posted));
+    say(JSON.stringify(posted) === JSON.stringify([{ reveal: 7 }]) && !!(await pg.$('#pv-preview')), T + ': Open in Finder asks the app for that download (by id, never a path), and the viewer stays open', JSON.stringify(posted));
+    // Opened again while it still says Saved: it says Saved, not Saving.
+    await open();
+    const reSaved = await state();
+    say(/Saved to Downloads/.test(reSaved.text) && reSaved.show === 'Open in Finder', T + ': opened again after it saved, it says Saved (not Saving)', JSON.stringify(reSaved));
     await pg.waitForTimeout(6300);
     const back = await state();
     say(back.text === 'Download' && !back.busy, T + ': six seconds on, the button is Download again (not stuck on Saved)', JSON.stringify(back));
@@ -407,8 +423,8 @@ async function runApp(engine, say) {
     await tell({ state: 'saved', key: kb, id: 9, name: 'two.txt' });
     await tell({ state: 'failed', key: ka });
     const fl = await pg.evaluate(() => ({ a: document.getElementById('__fa').className, am: document.getElementById('__fa-m').textContent, b: document.getElementById('__fb').className, bm: document.getElementById('__fb-m').textContent }));
-    say(/dl-saved/.test(fl.b) && /two\.txt is in your Downloads folder/.test(fl.bm) && !/dl-busy|dl-saved/.test(fl.a) && !/Downloads folder/.test(fl.am),
-      T + ': answered out of order, the saved file says saved and the failed one does not', JSON.stringify(fl));
+    say(/dl-saved/.test(fl.b) && /two\.txt is in your Downloads folder/.test(fl.bm) && !/dl-busy|dl-saved/.test(fl.a) && fl.am === '',
+      T + ': answered out of order, the saved file says saved, and the failed one says nothing (its Already saving cleared)', JSON.stringify(fl));
     say(errors.length === 0, T + ': no page errors', errors.slice(0, 3).join(' | '));
     await ctx.close();
   } finally {

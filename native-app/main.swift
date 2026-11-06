@@ -3849,10 +3849,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // kosmos#8120: the page's key for this click, if it put one on, and only for the page's own main frame (a frame
             // inside it, or a link in a message it shows, does not end or answer the page's click).
             let keyed = navigationAction.sourceFrame.isMainFrame ? navigationAction.request.url : nil
+            let clickCommits = pageCommits   // the page that asked; an answer after it has gone is not sent
             tellPageKey(webView, url: keyed, "asking")
             guard byPage else {
                 mayDownload(file: nil) { [weak self, weak webView] yes in
-                    if !yes { self?.tellPageKey(webView, url: keyed, "failed") }
+                    if !yes { self?.tellPageKey(webView, url: keyed, "failed", commits: clickCommits) }
                     decisionHandler(yes ? .download : .cancel)
                 }
                 return
@@ -3860,7 +3861,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             let asked = navigationAction.request
             mayDownload(file: nil) { [weak self, weak webView] yes in
                 decisionHandler(.cancel)
-                if !yes { self?.tellPageKey(webView, url: keyed, "failed") }
+                if !yes { self?.tellPageKey(webView, url: keyed, "failed", commits: clickCommits) }
                 guard yes, let self, let webView else { return }
                 let request = sameOriginDownloadRequest(asked)
                 // Review 2: the page as it was when the answer came; a commit before the start voids it, as one during
@@ -4190,8 +4191,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
     /// kosmos#8120: for a click that ends before any download exists (the Allow question, or a refusal): `asking` while
     /// the question is up, `failed` when nothing will be saved.
-    fileprivate func tellPageKey(_ webView: WKWebView?, url: URL?, _ state: String) {
-        sendToPage(webView, key: downloadKey(url), commits: pageCommits, ["state": state])
+    /// `commits` is the page's commit count when the person clicked (a page that committed since gets nothing).
+    fileprivate func tellPageKey(_ webView: WKWebView?, url: URL?, _ state: String, commits: Int? = nil) {
+        sendToPage(webView, key: downloadKey(url), commits: commits ?? pageCommits, ["state": state])
     }
 
     /// kosmos#8120: Show in Finder, for a file this app saved and that is still where it put it.
@@ -6605,7 +6607,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 + "<a id=modalno href=/modal-no.txt download>s</a>"
                 + "<a id=modalvoid href=/modal-void.txt download>t</a>"
                 + "<a id=modalyes href=/modal-yes.txt download>u</a>"
-                + "<script>window.__heard = []; window.addEventListener('kosmos-download', (e) => window.__heard.push(e.detail.key + ':' + e.detail.state)); window.__probeReady = 1;</script>"
+                + "<script>window.__probeReady = 1;</script>"
             return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
         case "/att": return ok("Content-Disposition: attachment; filename=\"att.txt\"\r\n")
         case "/attframe": return ok("Content-Disposition: attachment; filename=\"attframe.txt\"\r\n")
