@@ -20508,11 +20508,9 @@ const server = http.createServer(async (req, res) => {
         }
       } catch { /* no report: the line stays "Nothing back yet" */ }
     }
-    /* #8141: an agent that declared where it answers its person (kosmos reply-channel, #5805) may have answered there,
-       which Kosmos cannot see, so the page says where it says it answers instead of "Nothing back yet". What it said in
-       its own window (#4612) is something Kosmos did see, so that stays first. A profile that cannot be read is no
-       declaration (replychannel.forAgent never throws), and the line stays as it was. */
-    if (owes && owes.state === 'owes' && !owes.unsent) {
+    /* #8141: the channel an agent declared (kosmos reply-channel, #5805), for the page to say in place of "Nothing back
+       yet". An answer from its own window (#4612) wins, by the page's own test (dmOwesLine: a non-empty text). */
+    if (owes && owes.state === 'owes' && !(owes.unsent && owes.unsent.text)) {
       const ch = require('./engine/replychannel').forAgent(name, store);
       if (ch) owes.elsewhere = ch;
     }

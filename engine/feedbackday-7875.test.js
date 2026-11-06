@@ -128,7 +128,7 @@ test('#7875: the task folder: absent is none, unreadable throws (so the digest s
     fs.chmodSync(path.join(dir, 'p.task-1.jsonl'), 0o000);   // one transcript it cannot open: an error, never "no change"
     if (process.platform !== 'win32' && process.getuid && process.getuid() !== 0) assert.throws(() => day.listTaskFilesIn(dir, today, fb.dateKey));
     fs.chmodSync(path.join(dir, 'p.task-1.jsonl'), 0o600);
-    const bad = day.digest({ name: 'Dana', date: DATE, readThread: () => [], listTaskFiles: () => day.listTaskFilesIn(notDir, DATE, fb.dateKey) }).join('\n');
+    const bad = day.digest({ name: 'Dana', date: DATE, readThread: () => [], replyChannel: () => null, listTaskFiles: () => day.listTaskFilesIn(notDir, DATE, fb.dateKey) }).join('\n');
     assert.ok(bad.includes('Kosmos could not read them on this computer'), bad);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
@@ -189,7 +189,7 @@ test('#7875: no tasks today and unreadable tasks read differently', () => {
 
 test('#7875: the default day is the report\'s own day (feedback.today)', () => {
   const today = fb.today();
-  const out = day.digest({ name: 'Dana', readThread: () => [], listTaskFiles: () => [], readTask: () => [], isGuide: () => false });
+  const out = day.digest({ name: 'Dana', readThread: () => [], listTaskFiles: () => [], readTask: () => [], isGuide: () => false, replyChannel: () => null });
   assert.ok(out[0].includes(today), out[0]);
 });
 

@@ -18,6 +18,9 @@
  *            says the agent is on it. It is still drawn (shown 1) but not visible, and the working line is.
  *   AUTH FAILED  #6479: OWES, with the same slot showing a sign-in failure instead: the line stays visible.
  *   STOPPED  #6479: OWES, working and then idle on the same page: the line comes back once the agent stops.
+ *   ELSEWHERE  #8141: OWES for an agent that declared where it answers (owes.elsewhere, set as the thread route sets
+ *            it): that line shows, its markup escaped, and "Nothing back yet." does not.
+ *   ELSEWHERE WORKING  #8141: the same with the agent working: it steps aside as "Nothing back yet." does (#6479).
  * Every arm also asserts the thread's message rows really rendered, so a "no line" arm cannot pass on a blank paint.
  * Harness posture mirrors render-agentdm-3414.js: load over file://, answer the thread poll from the fixture,
  * set CURRENT, call paintTalk.
@@ -30,6 +33,8 @@ const chat = require(path.resolve(__dirname, '..', '..', 'engine', 'chat.js'));
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
 const LINE = 'Nothing back yet.';
+/* #8141: the channel is declared with markup, so finding this exact text proves it was escaped, not rendered. */
+const ELSEWHERE_LINE = 'It says it answers you on Chat <b>app</b>, which Kosmos cannot see.';
 const fail = [];
 const chk = (ok, label, extra) => {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
@@ -39,9 +44,11 @@ const ago = (min) => new Date(Date.now() - min * 60000).toISOString();
 const dm = (min, state = chat.DELIVERY.PLACED) => ({ at: ago(min), text: 'could you check the invoice?', delivery: { state, paneState: 'idle' } });
 const reply = (min) => ({ from: 'april', at: ago(min), text: 'checked: it is paid.' });
 
-function fixture(messages) {
+function fixture(messages, elsewhere) {
+  const owes = chat.dmOwes(messages, 'april');
+  if (elsewhere && owes.state === 'owes') owes.elsewhere = elsewhere;   // #8141: as the thread route sets it
   return {
-    messages, owes: chat.dmOwes(messages, 'april'),
+    messages, owes,
     olderCount: 0, historyBecause: null, historyUnfilable: false,
     presence: 'on', presenceBecause: null, asking: false, question: null, questionBecause: null, options: null,
   };
@@ -56,13 +63,16 @@ const ARMS = [
   { name: 'WORKING', rows: [dm(5)], owes: 'owes', line: false, drawn: true, busy: 'working' },
   { name: 'AUTH FAILED', rows: [dm(5)], owes: 'owes', line: true, busy: 'auth_failed' },
   { name: 'STOPPED', rows: [dm(5)], owes: 'owes', line: true, busy: 'working', then: 'idle' },
+  { name: 'ELSEWHERE', rows: [dm(5)], owes: 'owes', line: true, elsewhere: 'Chat <b>app</b>', text: ELSEWHERE_LINE },
+  { name: 'ELSEWHERE WORKING', rows: [dm(5)], owes: 'owes', line: false, drawn: true, busy: 'working', elsewhere: 'Chat <b>app</b>', text: ELSEWHERE_LINE },
 ];
 
 (async () => {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
   try {
     for (const arm of ARMS) {
-      const fx = fixture(arm.rows);
+      const fx = fixture(arm.rows, arm.elsewhere);
+      const want = arm.text || LINE;
       chk(fx.owes.state === arm.owes, arm.name + ': the engine reads this thread as ' + arm.owes, JSON.stringify(fx.owes));
       const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
       const errs = [];
@@ -91,17 +101,24 @@ const ARMS = [
       if (arm.busy) await page.evaluate((st) => paintBusy({ sessionName: 'april', name: 'April', state: st }, 'April'), arm.busy);
       if (arm.then) await page.evaluate((st) => paintBusy({ sessionName: 'april', name: 'April', state: st }, 'April'), arm.then);
       await page.waitForTimeout(300);
-      const seen = await page.evaluate((line) => {
+      const seen = await page.evaluate(([line, plain]) => {
         const box = document.getElementById('d-dmthread');
-        const hits = box ? [...box.querySelectorAll('.dmnone')].filter((p) => p.textContent.trim() === line) : [];
+        const lines = box ? [...box.querySelectorAll('.dmnone')] : [];
+        const hits = lines.filter((p) => p.textContent.trim() === line);
         const busy = document.getElementById('d-busy');
         return { box: !!box, rows: box ? box.querySelectorAll('.msg').length : 0, shown: hits.length, visible: hits.some((p) => p.checkVisibility()),
+          plain: lines.filter((p) => p.textContent.trim() === plain).length,
+          bold: box ? box.querySelectorAll('.dmnone b').length : 0,
           busyVisible: !!(busy && !busy.hidden && busy.checkVisibility()) };
-      }, LINE);
+      }, [want, LINE]);
       chk(seen.box && seen.rows === arm.rows.length, arm.name + ': the DM thread rendered its ' + arm.rows.length + ' row(s)', JSON.stringify(seen));
-      if (arm.line) chk(seen.shown === 1 && seen.visible, arm.name + ': "' + LINE + '" shows under the thread', JSON.stringify(seen));
-      else if (arm.drawn) chk(seen.shown === 1 && !seen.visible, arm.name + ': "' + LINE + '" is drawn but hidden', JSON.stringify(seen));
-      else chk(seen.shown === 0, arm.name + ': "' + LINE + '" does not show', JSON.stringify(seen));
+      if (arm.line) chk(seen.shown === 1 && seen.visible, arm.name + ': "' + want + '" shows under the thread', JSON.stringify(seen));
+      else if (arm.drawn) chk(seen.shown === 1 && !seen.visible, arm.name + ': "' + want + '" is drawn but hidden', JSON.stringify(seen));
+      else chk(seen.shown === 0, arm.name + ': "' + want + '" does not show', JSON.stringify(seen));
+      if (arm.elsewhere) {
+        chk(seen.plain === 0, arm.name + ': "' + LINE + '" is not drawn beside it', JSON.stringify(seen));
+        chk(seen.bold === 0, arm.name + ': the declared channel\'s markup is shown as text, not rendered', JSON.stringify(seen));
+      }
       if (arm.busy && !arm.then) chk(seen.busyVisible, arm.name + ': the busy slot shows its line', JSON.stringify(seen));
       if (arm.then) chk(!seen.busyVisible, arm.name + ': the busy slot is empty once the agent stopped', JSON.stringify(seen));
       chk(errs.length === 0, arm.name + ': no page errors', errs.join(' | '));
