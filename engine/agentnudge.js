@@ -103,7 +103,7 @@ function openParts(session, projects) {
         const markedBy = t.builtAt && Array.isArray(t.builtWho) ? t.builtWho : [];
         const others = prog.parts.some((y) => y.who !== session && !y.closedAt && !markedBy.includes(y.who));
         const checks = Array.isArray(t.doneWhen) ? t.doneWhen.length : 0;
-        const subs = k.total > 0 && k.built > 0 ? { subs: { done: k.done, built: k.built, total: k.total, others, checks } } : {};
+        const subs = k.total > 0 && k.built > 0 ? { subs: { done: k.done, built: k.built, held: Number(k.held) || 0, total: k.total, others, checks } } : {};
         out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due, ...subs,
           /* kosmos#8067: a mark that does not free this agent (a colleague's, or an unnamed caller's) stays open work on purpose, so the line says it is marked. */
           ...(t.builtAt ? { marked: { by: markedBy, checks } } : {}) });
@@ -146,10 +146,13 @@ function nudgeText(part) {
   const s = part.subs;
   const sub = s && s.built > 0
     ? (() => {
-      const left = s.total - s.done - s.built;   // built never counts a closed subtask (tasks.treeOf isBuilt)
+      /* kosmos#8140: held subtasks are said apart: an agent is never told to finish what is on hold (no one is given it). */
+      const held = Number(s.held) || 0;
+      const left = s.total - s.done - s.built - held;   // built never counts a closed or held subtask (tasks.treeOf isBuilt)
       const are = (c) => (c === 1 ? ' is' : ' are');
       const waiting = ' built, waiting for the person to check and close ' + (s.built === 1 ? 'it' : 'them');
-      if (left > 0) return ' ' + s.built + ' of its ' + s.total + ' subtasks' + are(s.built) + ' built, waiting for the person; ' + left + are(left) + ' not finished.';
+      if (left > 0 || held > 0) return ' ' + s.built + ' of its ' + s.total + ' subtasks' + are(s.built) + ' built, waiting for the person; '
+        + [left > 0 ? left + are(left) + ' not finished' : '', held > 0 ? held + are(held) + ' on hold' : ''].filter(Boolean).join(', ') + '.';
       const all = ' Every subtask under it is closed or built (' + s.built + are(s.built) + waiting + ')';
       if (m) return all + '.';
       if (s.others === true) return all + ', and another part of it (someone else\'s, or nobody\'s) is still open, so it is not yours alone to mark built.';

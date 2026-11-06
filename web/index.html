@@ -71547,8 +71547,10 @@ function paintProjectTasks(p) {
        not read as finished. */
     const subHeld = sub && Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '';
     const subLabel = sub ? sub.done + ' of ' + sub.total + ' subtasks done' + subHeld : '';
-    const chip = sub ? '<span class="tsk-chip" title="' + esc(subLabel) + '">' + sub.done + '/' + sub.total + esc(subHeld)
-      + (sub.done === sub.total ? ', all subtasks done' : (!t.closedAt && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total) ? ', all subtasks built' : '<span class="vh"> subtasks done</span>') + '</span>' : '';
+    /* The hidden words follow the count and come BEFORE the held figure, so a screen reader hears "0/4 subtasks done, 3 on
+       hold", never "3 on hold subtasks done" (kosmos#8140 review 1). */
+    const chip = sub ? '<span class="tsk-chip" title="' + esc(subLabel) + '">' + sub.done + '/' + sub.total
+      + (sub.done === sub.total ? ', all subtasks done' : (!t.closedAt && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total) ? ', all subtasks built' : '<span class="vh"> subtasks done</span>') + esc(subHeld) + '</span>' : '';
     const partOf = crumb && t.parent != null
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
@@ -71953,7 +71955,7 @@ function tskRow(t, at) {
   const chip = !sub ? ''
     : place.kids
       ? '<button type="button" class="tsk-chip" data-fold="' + esc(tskKey(t)) + '" aria-expanded="' + !folded + '" aria-label="' + esc(chipLabel + (folded ? '. Show them' : '. Hide them')) + '" title="' + esc(chipLabel) + '"><span class="car" aria-hidden="true">\u25be</span>' + sub.done + '/' + sub.total + esc(subHeld) + '</button>'
-      : '<span class="tsk-chip" title="' + esc(chipLabel) + '">' + sub.done + '/' + sub.total + esc(subHeld) + '<span class="vh"> subtasks done</span></span>';
+      : '<span class="tsk-chip" title="' + esc(chipLabel) + '">' + sub.done + '/' + sub.total + '<span class="vh"> subtasks done</span>' + esc(subHeld) + '</span>';   // held after the hidden words (kosmos#8140 review 1)
   /* Every subtask closed, the parent still open: say so and offer Close. Closing the last child
      never closes the parent (nothing cascades, engine/tasks.js); the person decides here. */
   const allDone = sub && sub.done === sub.total && t.state !== 'closed'
@@ -72886,7 +72888,7 @@ function tkPaintSubtasks(p, t, closed) {
        unconditional write would take a keyboard user's focus off a subtask every tick. */
     const html = kids.length ? kids.map((x) => '<button class="tksub' + (done(x) ? ' done' : '') + '" type="button" data-sub="' + Number(x.number) + '">'
       + '<span class="tksub-n">#' + Number(x.number) + '</span><span class="tksub-t">' + esc(x.sentence) + '</span>'
-      + '<span class="tksub-s">' + (done(x) ? (Number.isInteger(x.replacedBy) ? 'Replaced' : 'Done') : built(x) ? 'Built' : 'Open') + '</span></button>').join('')
+      + '<span class="tksub-s">' + (done(x) ? (Number.isInteger(x.replacedBy) ? 'Replaced' : 'Done') : built(x) ? 'Built' : x.onHold === true ? 'On hold' : 'Open') + '</span></button>').join('')   // kosmos#8140: held apart from open
       : '<p class="dhint" style="margin:0;">None yet. Break this task into smaller ones, each with its own page.</p>';
     if (list.innerHTML !== html) list.innerHTML = html;
   }
