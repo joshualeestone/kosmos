@@ -37,18 +37,20 @@ final class BlankRingUITests: XCTestCase {
     }
 
     func testTheRingComesAndGoes() throws {
-        let app = try launch("6")
+        // kosmos#7609: held as long as it can be before the ring gives up (Board.blankRingGivesUp is 10 s): CI's first look
+        // once came after a 6 s ring had gone.
+        let app = try launch("9")
         let ring = app.descendants(matching: .any)["blank-ring"]
-        XCTAssertTrue(ring.waitForExistence(timeout: 20) || app.descendants(matching: .any)["blank-ring-was-shown"].exists, "no ring")   // kosmos#7609: on a slow runner it can come and go before the first look
+        XCTAssertTrue(ring.waitForExistence(timeout: 20), "no ring")
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = "ring"; a.lifetime = .keepAlways; add(a)
         gone(ring, timeout: 15)
         XCTAssertTrue(app.descendants(matching: .any)["blank-ring-was-shown"].exists, "CONTROL: the marker this file's first check reads")
     }
 
     func testTheRingComesAndGoesInARoom() throws {
-        let app = try launch("6", room: true)
+        let app = try launch("9", room: true)   // as testTheRingComesAndGoes
         let ring = app.descendants(matching: .any)["blank-ring"]
-        XCTAssertTrue(ring.waitForExistence(timeout: 20) || app.descendants(matching: .any)["blank-ring-was-shown"].exists, "no ring in a room")   // kosmos#7609: on a slow runner it can come and go before the first look
+        XCTAssertTrue(ring.waitForExistence(timeout: 20), "no ring in a room")
         gone(ring, timeout: 15)
     }
 

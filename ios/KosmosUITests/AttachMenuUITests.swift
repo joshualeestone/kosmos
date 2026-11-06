@@ -27,7 +27,7 @@ final class AttachMenuUITests: XCTestCase {
         XCTAssertTrue(plus.waitForExistence(timeout: 20), "the + did not show")
         plus.tap()
         XCTAssertTrue(panel(app).waitForExistence(timeout: 5), "the tray did not open")
-        // kosmos#7609: the plan file has what this is for and what it does not rule out.
+        // kosmos#7609: the tray slides in, so wait for it to land. The plan file says what this does not rule out.
         KeyboardSlideUITests.settle(panel(app))
         return plus
     }
@@ -153,7 +153,7 @@ final class AttachMenuUITests: XCTestCase {
         let up = p.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
         var seen: [CGFloat] = [last.frame.maxY]
         // kosmos#7609: the grid is lazy, so a tile off screen can leave the tree between drags (-1 here). CI, 11-06.
-        for _ in 0..<8 { top.press(forDuration: 0.05, thenDragTo: up); seen.append(last.exists ? last.frame.maxY : -1) }
+        for _ in 0..<8 { top.press(forDuration: 0.05, thenDragTo: up); seen.append((try? last.snapshot())?.frame.maxY ?? -1) }
         XCTAssertTrue(last.waitForExistence(timeout: 5), "the last tile is not there after scrolling to the end: \(seen)")
         let row = p.buttons["All photos"].frame
         XCTAssertLessThanOrEqual(last.frame.maxY, row.minY, "the last tile stops under the bottom row: \(seen), row \(row)")
