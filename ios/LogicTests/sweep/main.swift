@@ -175,7 +175,7 @@ do {
     // space stays out of a chat and a room. A chat has its own pull, past its end, which writes neither inset nor offset (kosmos#8072).
     check(!repoText("ios/Kosmos/ChatView.swift").contains("dotsRefresh") && !room.contains("dotsRefresh"), "the pull that holds space stays out of a chat and a room")
     let endPull = refreshPiece.components(separatedBy: "final class EndPullDriver").last ?? ""
-    check(refreshPiece.contains("final class EndPullDriver") && !endPull.contains("contentInset") && !endPull.contains("setContentOffset") && !endPull.contains("contentOffset ="),
+    check(refreshPiece.contains("final class EndPullDriver") && !endPull.contains("contentInset") && !endPull.contains("setContentOffset") && !endPull.contains("contentOffset =") && !endPull.contains("contentOffset.y +") && !endPull.contains("contentOffset.y -") && !endPull.contains("scrollRectToVisible"),
           "a chat's pull past its end writes no inset and no offset")
 }
 

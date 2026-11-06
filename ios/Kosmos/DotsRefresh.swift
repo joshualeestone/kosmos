@@ -203,7 +203,7 @@ final class DotsRefreshDriver: NSObject {
 
 /// kosmos#8072 (Josh 11-05 16:49): pulling a chat up past its newest message shows the dots and reads the thread.
 ///
-/// It writes nothing to the scroll view: no inset and no offset, unlike the driver above. In the simulator a bottom inset
+/// It writes no inset and no offset, unlike the driver above; the dots are a subview it adds and removes. In the simulator a bottom inset
 /// changing on a list still estimating its height is what makes the list go blank (kosmos#7420), so no space is held and the
 /// list bounces back by itself. Armed only while `allowed` says so, which the chat ties to its end marker showing.
 @MainActor
