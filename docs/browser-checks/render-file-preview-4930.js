@@ -20,6 +20,10 @@
  *       under it does not take focus while the preview is up;
  *   P10 Tab moves between the X and the action and wraps both ways; focus never leaves the preview;
  *   P9  a card drawn by the real message rows (the project thread panel's pjMsg and the DM's dmRow) opens the preview;
+ *   P8120 in the Mac app (its download handler stood in for): a click carries its own key and turns the button off, a
+ *       second click asks for nothing, another download's answer does not reach it, only `saved` says Saved to Downloads
+ *       (with the name and Show in Finder, which asks by id and keeps the viewer open), a failure puts the button back,
+ *       two Files-list downloads answered out of order each get their own answer; in a browser nothing changes;
  *   and no page errors from the preview's own code.
  * Needs no URL. ENGINES=chromium,webkit adds WebKit, the Mac app's engine.
  *
@@ -272,6 +276,120 @@ async function runRemote(engine, say) {
     const d = await pg.evaluate(() => { const a = document.getElementById('pv-do'); return { tag: a.tagName, text: a.textContent, href: a.getAttribute('href'), dl: a.getAttribute('download') }; });
     say(d.tag === 'A' && d.text === 'Download' && d.href === '/api/attachment/' + IMG_ID && d.dl === 'screenshot.png', engine + ' P4: over Kosmos+ the action is Download, a link to that attachment', JSON.stringify(d));
     say(reveals.length === 0, engine + ' P4: and nothing asks the board to reveal', JSON.stringify(reveals));
+    // kosmos#8120: a browser (no kosmosDownload handler) shows its own downloads: no key, and the button does not wait.
+    await pg.evaluate(() => { const a = document.getElementById('pv-do'); a.addEventListener('click', (e) => e.preventDefault()); a.click(); });
+    const plain = await pg.evaluate(() => { const a = document.getElementById('pv-do'); return { href: a.getAttribute('href'), busy: a.classList.contains('dl-busy') }; });
+    say(plain.href === '/api/attachment/' + IMG_ID && !plain.busy, engine + ' P8120: in a browser the click is as before (no key, no waiting)', JSON.stringify(plain));
+    await ctx.close();
+  } finally {
+    await browser.close();
+  }
+}
+
+/* kosmos#8120: in the Mac app (its kosmosDownload handler, stood in for here), a Download says when the file saved, and
+   only then; a second click saves no second copy; each answer reaches only the click that asked (the key on its address).
+   The app's events are dispatched by hand, the way the app sends them. */
+async function runApp(engine, say) {
+  const browser = await pw[engine].launch({ headless: process.env.HEADED === '0' });
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    await ctx.addInitScript(() => { window.__posted = []; window.webkit = { messageHandlers: { kosmosDownload: { postMessage: (m) => window.__posted.push(m) } } }; });
+    const pg = await ctx.newPage();
+    const asked = [];   // every download address the page asked for, with its query (a download skips the route: its own event)
+    const note = (u) => { const a = u.pathname + u.search; if (!asked.includes(a)) asked.push(a); };   // each address once, however the engine reports it
+    pg.on('download', (d) => { note(new URL(d.url())); d.cancel().catch(() => {}); });
+    const errors = [];
+    pg.on('pageerror', (e) => errors.push(String(e && e.message)));
+    await pg.route('**/*', async (route) => {
+      const u = new URL(route.request().url());
+      if (u.pathname === '/') return route.fulfill({ status: 200, contentType: 'text/html', body: HTML });
+      if (/\/preview$/.test(u.pathname)) return route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
+      if (/\/files\/download$/.test(u.pathname) && u.searchParams.get('check')) return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });   // the ?check=1 look
+      // WebKit routes a download's request here (Chromium reports it as a download instead): noted, and answered as nothing.
+      if (/^\/api\/attachment\/[0-9a-f]{24}$/.test(u.pathname) || /\/files\/download$/.test(u.pathname)) { note(u); return route.fulfill({ status: 204, body: '' }); }
+      return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+    });
+    await pg.goto('http://kosmos-remote.test/', { waitUntil: 'load' });
+    await pg.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvOpen === 'function' && typeof dlWatch === 'function');
+    const tell = (detail) => pg.evaluate((d) => window.dispatchEvent(new CustomEvent('kosmos-download', { detail: d })), detail);
+    const state = () => pg.evaluate(() => { const d = document.getElementById('pv-do'), m = document.getElementById('pv-msg'), q = document.querySelector('.pv-quiet');
+      return { text: d && d.textContent, busy: !!(d && d.classList.contains('dl-busy')), href: d && d.getAttribute('href'), msg: m && m.textContent, show: q ? q.textContent : null }; });
+    const keyOf = (a) => (a.match(/[?&]kdl=([A-Za-z0-9]+)/) || [])[1] || null;
+    /* Playwright's WebKit performs no download for a script's link click (measured 11-06: no request, no download event);
+       the app's WKWebView does (its download selftest clicks keyed links and is answered). So on WebKit the keys are read
+       from the page's own waiting list, and the rows that need the request itself run only where it can be seen. */
+    const netSeen = engine !== 'webkit';
+    const waitingKeys = () => pg.evaluate(() => [...DL_WAIT.keys()]);
+    if (!netSeen) console.log('INFO  ' + engine + ' P8120: the address rows (its key, one request per file) are judged on Chromium; WebKit here downloads nothing for a script click');
+    const open = async () => {
+      await pg.evaluate((IMG_ID) => {
+        pvClose();
+        document.querySelectorAll('[data-pv-test]').forEach((n) => n.remove());
+        const strip = document.createElement('div');
+        strip.setAttribute('data-pv-test', '');
+        strip.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:55;background:#fff;';
+        strip.innerHTML = pjAttachmentCard({ name: 'Budget 2026.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 68000, kind: 'file', url: '/api/attachment/' + IMG_ID });
+        document.body.appendChild(strip);
+      }, IMG_ID);
+      await pg.click('[data-pv-test] a.att');
+      await pg.waitForSelector('#pv-preview #pv-do');
+    };
+    const T = engine + ' P8120';
+    // 1. The viewer's link: the click carries its key, a second click saves nothing, another click's answer is not
+    // this one's, and only `saved` says saved.
+    await open();
+    await pg.click('#pv-do'); await pg.waitForTimeout(150);
+    const k1 = netSeen ? keyOf(asked[asked.length - 1] || '') : (await waitingKeys())[0];
+    const first = await state();
+    await pg.click('#pv-do', { force: true }); await pg.waitForTimeout(150);
+    say(!!k1 && (!netSeen || asked.length === 1) && first.busy, T + ': a Download click carries its own key, and turns the button off', JSON.stringify({ asked, first }));
+    say(netSeen ? asked.length === 1 : (await waitingKeys()).length === 1, T + ': a second click while it saves asks for no second copy', JSON.stringify(netSeen ? asked : await waitingKeys()));
+    say(first.href === '/api/attachment/' + IMG_ID, T + ': the link goes back to its plain address after the click', first.href);
+    await tell({ state: 'saved', key: 'someoneelse', id: 1, name: 'Files.zip' });
+    const other = await state();
+    say(other.busy && !/Saved/.test(other.text) && !/Files\.zip/.test(other.msg), T + ': another download\'s answer (a folder zip) does not reach this click', JSON.stringify(other));
+    await pg.waitForTimeout(400);
+    const slow = await state();
+    say(/Saving/.test(slow.text), T + ': a save that takes a moment says Saving, with the Sweep dots', JSON.stringify(slow));
+    await tell({ state: 'saving', key: k1, id: 7, name: 'Budget 2026.xlsx' });
+    say((await state()).busy && !/Saved/.test((await state()).text), T + ': saving is not saved', '');
+    await tell({ state: 'saved', key: k1, id: 7, name: 'Budget 2026.xlsx' });
+    const saved = await state();
+    say(/Saved to Downloads/.test(saved.text) && /Budget 2026\.xlsx is in your Downloads folder/.test(saved.msg) && saved.show === 'Show in Finder', T + ': only the app\'s saved says Saved to Downloads, with the name and Show in Finder', JSON.stringify(saved));
+    await pg.click('.pv-quiet');
+    const posted = await pg.evaluate(() => window.__posted);
+    say(JSON.stringify(posted) === JSON.stringify([{ reveal: 7 }]) && !!(await pg.$('#pv-preview')), T + ': Show in Finder asks the app for that download (by id, never a path), and the viewer stays open', JSON.stringify(posted));
+    // 2. A failure: the button comes straight back, and nothing says saved.
+    await open();
+    await pg.click('#pv-do'); await pg.waitForTimeout(100);
+    const k2 = netSeen ? keyOf(asked[asked.length - 1] || '') : (await waitingKeys()).find((k) => k !== k1);
+    await tell({ state: 'asking', key: k2 });
+    await tell({ state: 'failed', key: k2 });
+    const failed = await state();
+    say(!!k2 && k2 !== k1 && !failed.busy && failed.text === 'Download' && !/Downloads folder/.test(failed.msg), T + ': a failed save puts the button straight back, and says no saved', JSON.stringify(failed));
+    // 3. Two files from a Files list, answered out of order, one failing: each answer reaches its own click.
+    const two = await pg.evaluate(() => {
+      pvClose();
+      const mk = (id) => { const b = document.createElement('button'); b.id = id; b.textContent = 'D'; b.className = 'pj-doc-dl'; document.body.appendChild(b); const m = document.createElement('p'); m.id = id + '-m'; document.body.appendChild(m); return [b, kplusSayer(m)]; };
+      const [ba, sa] = mk('__fa'), [bb, sb] = mk('__fb');
+      kplusDownload('agent', 'ana', 'one.txt', sa, undefined, ba);
+      kplusDownload('agent', 'ana', 'two.txt', sb, undefined, bb);
+      kplusDownload('agent', 'ana', 'one.txt', sa, undefined, ba);   // the same file again, while it saves
+      return true;
+    });
+    await pg.waitForTimeout(200);
+    const files = asked.filter((a) => /files\/download/.test(a));
+    const byFile = await pg.evaluate(() => [...DL_WAIT.values()].map((w) => [w.name, w.key]));
+    const kOf = (n) => netSeen ? keyOf(files.find((a) => new RegExp('name=' + n.replace('.', '\\.')).test(a)) || '') : ((byFile.find(([x]) => x === n) || [])[1] || null);
+    const ka = kOf('one.txt'), kb = kOf('two.txt');
+    say(two && (netSeen ? files.length === 2 : byFile.length === 2) && ka && kb && ka !== kb, T + ': two files, two keys, and the same file twice asks once', JSON.stringify(netSeen ? files : byFile));
+    await tell({ state: 'saving', key: kb, id: 9, name: 'two.txt' });
+    await tell({ state: 'saved', key: kb, id: 9, name: 'two.txt' });
+    await tell({ state: 'failed', key: ka });
+    const fl = await pg.evaluate(() => ({ a: document.getElementById('__fa').className, am: document.getElementById('__fa-m').textContent, b: document.getElementById('__fb').className, bm: document.getElementById('__fb-m').textContent }));
+    say(/dl-saved/.test(fl.b) && /two\.txt is in your Downloads folder/.test(fl.bm) && !/dl-busy|dl-saved/.test(fl.a) && !/Downloads folder/.test(fl.am),
+      T + ': answered out of order, the saved file says saved and the failed one does not', JSON.stringify(fl));
+    say(errors.length === 0, T + ': no page errors', errors.slice(0, 3).join(' | '));
     await ctx.close();
   } finally {
     await browser.close();
@@ -296,6 +414,7 @@ async function runRemote(engine, say) {
       }
       await runOn(engine, 'http://127.0.0.1:59930', say);
       await runRemote(engine, say);
+      await runApp(engine, say);
     } catch (e) {
       say(false, engine + ': ran to the end', String(e && e.message).split('\n')[0]);
     }

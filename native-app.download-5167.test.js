@@ -13,6 +13,9 @@
  *   node --test native-app.download-5167.test.js
  */
 const test = require('node:test');
+/* The Allow question's answer decides the download: yes downloads, no cancels. kosmos#8120 lets the no also tell the page
+   (`failed`, under the click's own key), in the multi-line form; the decision itself is pinned the same either way. */
+const ALLOW_OR_CANCEL = String.raw`mayDownload\(file: .*?\) (?:\{ decisionHandler\(\$0 \? \.download : \.cancel\) \}|\{ \[weak self, weak webView\] yes in[^\n]*\n\s+if !yes \{ self\?\.tellPageKey\(webView, url: \w+, "failed"\) \}\n\s+decisionHandler\(yes \? \.download : \.cancel\)\n\s+\})`;
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -40,14 +43,14 @@ test('#5167: a same-origin <a download> becomes a download, BEFORE the connect-o
   assert.notEqual(dl, -1, 'the action policy never looks at shouldPerformDownload');
   assert.notEqual(guardAt, -1, 'the connect policy guard moved; re-read this test');
   assert.ok(dl < guardAt, 'the download check sits after the connect guard, so a computer that runs agents never saves one');
-  assert.match(b, /if navigationAction\.shouldPerformDownload, let url = navigationAction\.request\.url,\n\s+isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n[\s\S]*?mayDownload\(file: .*?\) \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}\n\s+return\n\s+\}/,
+  assert.match(b, new RegExp(String.raw`if navigationAction\.shouldPerformDownload, let url = navigationAction\.request\.url,\n\s+isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n[\s\S]*?` + ALLOW_OR_CANCEL + String.raw`\n\s+return\n\s+\}`),
     'a download is saved without the board-page and same-origin checks, or they no longer decide it');
 });
 
 test('#5167: the response policy saves only board files from a board page, refuses foreign attachments, and otherwise keeps WebKit\'s default', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
   assert.match(b, /func webView\(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,\n\s+decisionHandler: @escaping \(WKNavigationResponsePolicy\) -> Void\)/);
-  assert.match(b, /\.trimmingCharacters\(in: \.whitespaces\)\.lowercased\(\) == "attachment" \{\n\s+if isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n[\s\S]*?mayDownload\(file: .*?\) \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}\n\s+\} else \{[\s\S]*?tellDownloadFailed\([\s\S]*?decisionHandler\(\.cancel\)\n\s+\}\n\s+return/,
+  assert.match(b, new RegExp(String.raw`\.trimmingCharacters\(in: \.whitespaces\)\.lowercased\(\) == "attachment" \{\n\s+if isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n[\s\S]*?` + ALLOW_OR_CANCEL + String.raw`\n\s+\} else \{[\s\S]*?tellDownloadFailed\([\s\S]*?decisionHandler\(\.cancel\)\n\s+\}\n\s+return`),
     'an attachment is saved without the exact-token, board-page and same-origin checks, or a refused one loads in the window');
   assert.equal((b.match(/decisionHandler\(/g) || []).length, 6, 'the response policy has a path that never answers, or a new one');
   // With no such method WebKit shows what it can and cancels what it cannot; .allow for everything
@@ -124,7 +127,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 41[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 43[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -149,7 +152,7 @@ test('#5167 review 5: refused downloads stay out of the window, quarantine recor
 
 test('#5167 review 6: a board file the window cannot show is saved; an unmarkable one is kept and said', () => {
   const b = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
-  assert.match(b, /if !navigationResponse\.canShowMIMEType, let url = navigationResponse\.response\.url,\n\s+isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n[\s\S]*?mayDownload\(file: .*?\) \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}/,
+  assert.match(b, new RegExp(String.raw`if !navigationResponse\.canShowMIMEType, let url = navigationResponse\.response\.url,\n\s+isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\) \{\n[\s\S]*?` + ALLOW_OR_CANCEL + String.raw``),
     'a board file the window cannot show is cancelled with nothing said');
   assert.match(b, /String\(disposition\[\.\.<\(disposition\.firstIndex\(of: ";"\) \?\? disposition\.endIndex\)\]\)/, 'the attachment token is not read up to the first ;');
   const fin = body('@objc(downloadDidFinish:)');
