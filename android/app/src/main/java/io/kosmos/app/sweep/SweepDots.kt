@@ -17,8 +17,10 @@ import kotlin.math.roundToInt
  * this is its direct Android analog, a Canvas drawn from the view's clock.
  *
  * It is the app's ONLY loading indicator (Josh 2026-11-05 18:33: dots only in the mobile app, everywhere;
- * mirrored from iOS #8058). SweepGuardTest fails the build if any app source brings back a ProgressBar,
- * a Material progress indicator, a ProgressDialog, or a SwipeRefreshLayout spinner.
+ * mirrored from iOS #8058). SweepGuardTest fails the build if any app source brings back a system or
+ * Material progress spinner (that test lists the exact banned types), so none can return unnoticed.
+ * The banned types are deliberately NOT spelled out in this block comment: the guard reads block
+ * comments, so naming one here would trip it (the same limitation the iOS sweep guard documents).
  *
  * With no [label] it is hidden from TalkBack, for a place whose words already say what is loading; with
  * one, TalkBack reads that label. It grows with the person's text size (unless [scales] is false). Drawn

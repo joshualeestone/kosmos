@@ -31,7 +31,7 @@ class SweepLogicTest {
 
     private fun repoRoot(): File {
         System.getenv("KOSMOS_REPO")?.let { return File(it) }
-        var dir: File? = File(System.getProperty("user.dir"))
+        var dir: File? = File(System.getProperty("user.dir") ?: ".")
         while (dir != null) {
             if (File(dir, "web/index.html").exists()) return dir
             dir = dir.parentFile

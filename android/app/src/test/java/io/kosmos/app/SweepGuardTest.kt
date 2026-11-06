@@ -27,7 +27,7 @@ class SweepGuardTest {
     }
 
     private fun srcMain(): File {
-        val here = File(System.getProperty("user.dir"))
+        val here = File(System.getProperty("user.dir") ?: ".")
         val candidate = File(here, "src/main")
         if (candidate.isDirectory) return candidate
         // Fall back to the repo layout: <repoRoot>/android/app/src/main.
