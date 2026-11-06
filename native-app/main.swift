@@ -670,8 +670,11 @@ func downloadFailureWords(_ error: Error) -> String {
 func downloadFailureCodes(_ error: Error) -> String {
     let ns = error as NSError
     func one(_ e: NSError) -> String { e.domain.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == ".") } + " " + String(e.code) }
-    guard let u = ns.userInfo[NSUnderlyingErrorKey] as? NSError else { return one(ns) }
-    return one(ns) + ", " + one(u)
+    // Review 2: down to the same three levels the alert reads, so a POSIX reason under a Cocoa file error is logged too.
+    var parts = [one(ns)]
+    var under = ns.userInfo[NSUnderlyingErrorKey] as? NSError
+    while let u = under, parts.count < 4 { parts.append(one(u)); under = u.userInfo[NSUnderlyingErrorKey] as? NSError }
+    return parts.joined(separator: ", ")
 }
 
 /// #5167: PURE, for --kosmos-app-mode-selftest. Where a saved download goes: `dir` (the person's
@@ -6581,7 +6584,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        Allow), and only those are counted here: refusals are said too, but how many reach the screen depends on the
        guard's timing; a run that says fewer failures is judged as it stands. */
     func settled(_ go: @escaping () -> Void, tries: Int = 200) {
-        if failures().count >= 3 || tries == 0 { go(); return }
+        if failures().count >= 4 || tries == 0 { go(); return }   // #5167 (11-06) review 2: +1, the uncreatable file's failure comes first
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled(go, tries: tries - 1) }
     }
     /* The per-computer question through a real click: the probe page is treated as a Kosmos+ computer that
@@ -7949,6 +7952,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         fr(downloadFailureWords(fail(nil)) == "Cannot create file", downloadFailureWords(fail(nil)), "#5167: CONTROL: with no reason under it, WebKit's words alone")
         let nested = fail(NSError(domain: NSCocoaErrorDomain, code: 513, userInfo: [NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: 13)]))
         fr(downloadFailureWords(nested) == "Cannot create file: Permission denied", downloadFailureWords(nested), "#5167: a reason one level further down is found")
+        fr(downloadFailureCodes(nested) == "NSURLErrorDomain -3000, NSCocoaErrorDomain 513, NSPOSIXErrorDomain 13", downloadFailureCodes(nested), "#5167: and the log line names every level down to it")
         fr(downloadFailureWords(fail(NSError(domain: "SomeOtherDomain", code: 4))) == "Cannot create file", downloadFailureWords(fail(NSError(domain: "SomeOtherDomain", code: 4))), "#5167: a reason that is not the system's is not shown")
         fr(downloadFailureCodes(eacces) == "NSURLErrorDomain -3000, NSPOSIXErrorDomain 13", downloadFailureCodes(eacces), "#5167: the log line carries codes only")
         fr(!downloadFailureCodes(eacces).contains("SECRET") && !downloadFailureWords(eacces).contains("SECRET") && !downloadFailureWords(eacces).contains("127.0.0.1"), downloadFailureCodes(eacces), "#5167: and neither carries the download's address or its token")
@@ -8076,7 +8080,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 233   // kosmos#5167 (11-06): +7 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 234   // kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
