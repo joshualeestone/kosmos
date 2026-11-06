@@ -6526,11 +6526,19 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     // kosmos#8121 review 1: this run's own preferences for the whole selftest, never the binary's or the person's.
     let prefsName = "kosmos-download-selftest-\(getpid())"
     let prefs = UserDefaults(suiteName: prefsName)!
-    prefs.removePersistentDomain(forName: prefsName)
+    /* Review 2: removePersistentDomain empties the suite but leaves its .plist behind in ~/Library/Preferences, one per run,
+       so every exit drops the domain AND deletes the file. */
+    func dropPrefs() {
+        prefs.removePersistentDomain(forName: prefsName)
+        if let lib = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first {
+            try? FileManager.default.removeItem(at: lib.appendingPathComponent("Preferences/\(prefsName).plist"))
+        }
+    }
+    dropPrefs()
     AppDelegate.downloadDefaults = prefs
     DispatchQueue.main.asyncAfter(deadline: .now() + 300) {
         try? FileManager.default.removeItem(at: dl)
-        prefs.removePersistentDomain(forName: prefsName)
+        dropPrefs()
         print("download selftest TIMED OUT"); exit(1)
     }
     let app = NSApplication.shared
@@ -6622,7 +6630,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
     guard let listener = try? NWListener(using: params, on: .any) else {
         try? FileManager.default.removeItem(at: dl)
-        print("download selftest: no listener"); exit(1)
+        dropPrefs(); print("download selftest: no listener"); exit(1)
     }
     listener.newConnectionHandler = { conn in
         conn.start(queue: .main)
@@ -6652,7 +6660,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 if (r as? Bool) == true { then(); return }
                 guard tries > 0 else {
                     try? FileManager.default.removeItem(at: dl)
-                    print("download selftest PAGE NEVER LOADED: the probe page (this can be the app's own response policy)"); exit(1)
+                    dropPrefs(); print("download selftest PAGE NEVER LOADED: the probe page (this can be the app's own response policy)"); exit(1)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { poll(tries - 1) }
             }
@@ -6753,7 +6761,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 }
                 guard tries > 0 else {
                     try? FileManager.default.removeItem(at: dl)
-                    print("download selftest PAGE NEVER LOADED: the non-board page (this can be the app's own response policy)"); exit(1)
+                    dropPrefs(); print("download selftest PAGE NEVER LOADED: the non-board page (this can be the app's own response policy)"); exit(1)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { poll(tries - 1) }
             }
@@ -6938,7 +6946,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            prefs.removePersistentDomain(forName: prefsName)
+            dropPrefs()
             let expected = 47   // kosmos#8121: +8 (review 1: an Always Allow pressed on a changed page is void; Forget clears this run's Allows); +6 (Always Allow kept, plain Allow and Don't Allow not, one computer only, Forget, a saved list checked); #5167 (11-06): +1 (the uncreatable file says why); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
