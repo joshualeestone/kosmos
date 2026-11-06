@@ -687,6 +687,21 @@ test('#6421: plural counts, a held built subtask is said as on hold (kosmos#8140
   } finally { w.restore(); }
 });
 
+/* kosmos#8140: built and held only, nothing else open: the held one is said, and the agent is NOT told every subtask is
+   closed or built (that arm ends in "mark it built"). */
+test('kosmos#8140: built plus held subtasks, nothing else open: "N is on hold", never "Every subtask"', () => {
+  const w = world([{ name: 'parentheld' }]);
+  try {
+    const n = taskOn(w, w.key.parentheld, 'ship a seventh release');
+    childOf(w, n, 'write the notes', true);
+    const held = childOf(w, n, 'sign the build', false);
+    tasks.setOnHold(w.pid, held, true);
+    const t = pass(w).calls[0].text;
+    assert.match(t, /1 of its 2 subtasks is built, waiting for the person; 1 is on hold\./, t);
+    assert.doesNotMatch(t, /Every subtask under it/, t);
+  } finally { w.restore(); }
+});
+
 test('#6421: the agent\'s own second part is not another\'s: it is still told to mark the parent built', () => {
   const w = world([{ name: 'parenttwo' }]);
   try {
