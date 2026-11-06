@@ -1,5 +1,6 @@
 package io.kosmos.app.signin
 
+import java.net.URI
 import java.security.MessageDigest
 
 /**
@@ -274,5 +275,103 @@ object SignIn {
         if (s.isEmpty()) return s
         val capital = s.first().uppercase() + s.substring(1)
         return if (capital.last() in ".!?") capital else "$capital."
+    }
+
+    // MARK: - A company's own sign-in (kosmos#7045)
+    //
+    // On the phone this happens in the system sign-in sheet (Android CredentialManager / a Custom Tab, where
+    // iOS uses ASWebAuthenticationSession); that chrome is the UI-side divergence. The logic here is pure: which
+    // address is safe to open, and what the return carries. The coordinator is passed as its origin string
+    // ("https://host[:port]", no trailing slash, no default port), as location.origin writes it.
+
+    /** Where a company sign-in returns on the coordinator (sso.rs callback): its own /signin, the grant in the fragment. */
+    const val returnPath = "/signin"
+
+    /** What a company sign-in's grant starts with (sso.rs GRANT_PREFIX); spent at verify in place of the code. */
+    const val grantPrefix = "ksso1_"
+
+    /**
+     * start's company sign-in address (`sso_url`) as the page to open, only Kosmos+'s own begin path on the
+     * coordinator. Kept byte for byte: rebuilding the query would decode `%2B` in an address like ann+work@ to a
+     * `+`, which the server reads as a space. The `/v1/sso/begin?` prefix is what rejects an absolute or `//host`
+     * address, so no address anywhere else is ever opened.
+     */
+    fun companySignInURL(body: Map<String, Any?>?, coordinatorOrigin: String): String? {
+        val ssoUrl = body?.get("sso_url") as? String ?: return null
+        if (!ssoUrl.startsWith("/v1/sso/begin?") || ssoUrl.contains("#")) return null
+        return coordinatorOrigin.trimEnd('/') + ssoUrl
+    }
+
+    /** What the sign-in sheet brought back. */
+    sealed interface CompanyReturn {
+        /** The grant, and the email the provider vouched for (sign in with exactly this one). */
+        data class Grant(val grant: String, val email: String) : CompanyReturn
+        /** The coordinator's one-word refusal, already in the page's sentence. */
+        data class Refused(val message: String) : CompanyReturn
+    }
+
+    /**
+     * Only Kosmos+'s own /signin on the coordinator (https, exact host/port, the path), the grant in the fragment,
+     * a refusal in the query. Null for anything else: nothing is guessed.
+     */
+    fun companyReturn(url: String, coordinatorOrigin: String): CompanyReturn? {
+        val u = try { URI(url) } catch (_: Exception) { return null }
+        val co = try { URI(coordinatorOrigin) } catch (_: Exception) { return null }
+        if (u.scheme?.lowercase() != "https") return null
+        if (!u.host.equals(co.host, ignoreCase = true)) return null
+        if (u.port != co.port) return null
+        if (u.path != returnPath) return null
+        val query = queryPairs(u.rawQuery)
+        query["sso_error"]?.let { return CompanyReturn.Refused(companyWords[it] ?: companyWords.getValue("failed")) }
+        val fragment = queryPairs(u.rawFragment)
+        val grant = fragment["sso_grant"]
+        val email = fragment["email"]
+        if (grant != null && grant.startsWith(grantPrefix) && email != null && looksLikeEmail(email)) {
+            return CompanyReturn.Grant(grant, email)
+        }
+        return null
+    }
+
+    /** The page's sentences for each refusal (signin.html ssoReturn SSO_WORDS), word for word. */
+    val companyWords: Map<String, String> = mapOf(
+        "cancelled" to "You did not finish signing in with your company's account. Try again, or use your email code.",
+        "expired" to "That company sign-in took too long or was already used. Try again.",
+        "not_provisioned" to "Your company has not given you access to Kosmos+. Ask the people who run your company's accounts.",
+        "not_member" to "Your company's sign-in vouched for this address, but it is not a member of that company in Kosmos+. Sign in with your email code.",
+        "wrong_person" to "Your company's sign-in said you are someone else. Sign in again with the account for this address.",
+        "unavailable" to "Your company's sign-in is turned off right now. Sign in with your email code.",
+        "failed" to "Signing in with your company's account did not work. Try again, or use your email code.",
+    )
+
+    // Splits an &-joined key=value string, percent-decoding the VALUE only (the key is left raw), as iOS's
+    // removingPercentEncoding does. A pair whose value will not decode is dropped. `+` is left as `+`.
+    private fun queryPairs(raw: String?): Map<String, String> {
+        val out = HashMap<String, String>()
+        for (kv in (raw ?: "").split("&")) {
+            if (kv.isEmpty()) continue
+            val eq = kv.indexOf('=')
+            if (eq < 0) continue
+            val value = percentDecode(kv.substring(eq + 1)) ?: continue
+            out[kv.substring(0, eq)] = value
+        }
+        return out
+    }
+
+    private fun percentDecode(s: String): String? {
+        val bytes = java.io.ByteArrayOutputStream()
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c == '%') {
+                if (i + 2 >= s.length) return null
+                val b = s.substring(i + 1, i + 3).toIntOrNull(16) ?: return null
+                bytes.write(b)
+                i += 3
+            } else {
+                for (bb in c.toString().toByteArray(Charsets.UTF_8)) bytes.write(bb.toInt())
+                i++
+            }
+        }
+        return bytes.toString("UTF-8")
     }
 }
