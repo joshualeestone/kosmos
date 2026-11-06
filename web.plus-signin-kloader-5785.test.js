@@ -20,14 +20,16 @@ const fnBody = (name) => {
 test('#5785: the loader holder sits above the "Signing in..." heading in the sign-in card', () => {
   const card = code.slice(code.indexOf('<div id="plus-state2" hidden>'));
   assert.match(card, /^<div id="plus-state2" hidden>\s*<div id="plus-si-k" aria-hidden="true"><\/div>\s*<h3 id="plus-si-title">/);
-  assert.match(code, /#plus-si-k canvas \{ width: 88px; height: 103px; display: block;/);
+  // #7896: the KOSMOS orb, 88 px round, with margins that keep the K's 103 px.
+  assert.match(code, /#plus-si-k \.orb-wait \{ display: block; margin: 7px 0 24px; \}/);
 });
 
-test('#5785: it is the existing branded loader (startKLoader on a fresh canvas), not a new one', () => {
+test('#5785, #7896: it is the shared KOSMOS orb (kOrbWaitHtml, drawn by KORB), not a loader of its own', () => {
   const start = fnBody('plusSiKStart');
-  assert.match(start, /holder\.innerHTML = '<canvas width="176" height="206" aria-hidden="true"><\/canvas>';/);
-  assert.match(start, /startKLoader\(holder\.firstElementChild\)/);
-  // Removed, not hidden: startKLoader stops drawing only once its canvas leaves the page.
+  assert.match(start, /holder\.innerHTML = kOrbWaitHtml\('plus-si-orb'\);/);
+  assert.doesNotMatch(start, /startKLoader|<canvas/, 'the K loader is back on the sign-in wait');
+  assert.match(fnBody('kOrbWaitHtml'), /class="spin spin-sweep orb-wait /, 'the orb helper no longer writes the .spin-sweep KORB draws');
+  // Removed, not hidden: emptying the holder takes the orb away.
   assert.match(fnBody('plusSiKStop'), /holder\.textContent = ''/);
 });
 
@@ -77,7 +79,7 @@ test('#5785 Mona\'s review: centred while it connects, with the wait said, and b
   assert.match(fnBody('plusSiKStart'), /card\.classList\.toggle\('plus-si-busy', !!centred\)[\s\S]*note\.textContent = PLUS_SI_K_NOTE/);
   // Review 3: centred only for the automatic connect; a typed name keeps the card's left alignment.
   assert.match(code, /plusSiKStart\(owned\);/);
-  assert.match(code, /#plus-si-k canvas \{[^}]*margin: 0 0 16px;[^}]*\}\s*#plus-state2\.plus-si-busy #plus-si-k canvas \{ margin: 0 auto 16px; \}/);
+  assert.match(code, /#plus-si-k \.orb-wait \{[^}]*margin: 7px 0 24px;[^}]*\}\s*#plus-state2\.plus-si-busy #plus-si-k \.orb-wait \{ margin: 7px auto 24px; \}/);
   assert.match(fnBody('plusSiKStop'), /card\.classList\.remove\('plus-si-busy'\)[\s\S]*note\.textContent = ''/);
   // Mona Lisa's review: one "Signing in..." (the heading), not a second under a typed name's button.
   assert.doesNotMatch(fnBody('plusSiDoRegister'), /plusSiMsg\('Signing in\.\.\.'\)/);

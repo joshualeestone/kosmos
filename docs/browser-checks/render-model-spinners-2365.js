@@ -114,17 +114,17 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     return out;
   });
 
-  /* #7896 (Josh 2026-11-03): the loading mark is now the KOSMOS orb, drawn by KORB into a canvas inside each
-     .spin-sweep. The markup check above cannot see that (the eight <i> are still there, hidden), so this reads the
-     DRAWING: the page's own LOAD_SPIN_HTML, put on the page, gets a canvas.korb with drawn pixels (alpha) on it that
+  /* #7896, as Josh corrected it 11-06: the KOSMOS orb is only for whole-screen waits (kOrbWaitHtml, .orb-wait); small
+     spinners keep the Sweep dots (the arm after this one). This reads the orb's DRAWING: the page's own kOrbWaitHtml,
+     put on the page, gets a canvas.korb with drawn pixels (alpha) on it that
      change between frames, and its old dots are hidden. Then, with reduced motion, it is drawn once and holds still.
      And the loop STOPS once no spinner is visible: four spinners live hidden in the page, so a loop that only stops
      when there are none would run forever (review round 1 measured 289 frames in 2 s with nothing showing). */
   const orbRead = async (pg) => pg.evaluate(async () => {
-    if (typeof KORB !== 'object' || typeof LOAD_SPIN_HTML !== 'string') return { error: 'KORB or LOAD_SPIN_HTML is missing' };
+    if (typeof KORB !== 'object' || typeof kOrbWaitHtml !== 'function') return { error: 'KORB or kOrbWaitHtml is missing' };
     const host = document.createElement('div');
     host.style.cssText = 'position:fixed;left:10px;top:10px;z-index:99999;background:#faf9f7';
-    host.innerHTML = LOAD_SPIN_HTML.replace('--sz:14px', '--sz:32px');
+    host.innerHTML = kOrbWaitHtml('chk-orb', '', 32);
     document.body.appendChild(host);
     const frames = (n) => new Promise((res) => { let k = 0; const f = () => (++k < n ? requestAnimationFrame(f) : res()); requestAnimationFrame(f); });
     const lit = (c) => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0, sum = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 20) { n++; sum += i * d[i]; } return { n, sum }; };
@@ -154,12 +154,26 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     return { side: cv.width, want, litA: a.n, litB: b.n, changed: a.sum !== b.sum, oldDotsShown: dot ? getComputedStyle(dot).display !== 'none' : false, wasRunning, stopped, reattachedTurns };
   });
   const orb = await orbRead(page);
+  // Josh 11-06: "the small loading spinners [stay] the small loading spinners". The page's own small spinner, given time
+  // to be drawn, has no orb canvas and shows its eight Sweep dots.
+  const smallKeepsDots = await page.evaluate(async () => {
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:600px;top:10px;z-index:99999';
+    host.innerHTML = LOAD_SPIN_HTML;
+    document.body.appendChild(host);
+    await new Promise((res) => { let k = 0; const f = () => (++k < 12 ? requestAnimationFrame(f) : res()); requestAnimationFrame(f); });
+    const span = host.querySelector('.spin.spin-sweep');
+    const r = { orbCanvas: !!host.querySelector('canvas.korb'), dots: span ? [...span.querySelectorAll('i')].filter((i) => getComputedStyle(i).display !== 'none').length : 0,
+      dot: span ? getComputedStyle(span).getPropertyValue('--spin-dot').trim() : '' };
+    host.remove();
+    return r;
+  });
   // On a gold button it is drawn in the button's ink (--spin-dot), so it shows on the gold.
   const onGold = await page.evaluate(async () => {
     const frames = (n) => new Promise((res) => { let k = 0; const f = () => (++k < n ? requestAnimationFrame(f) : res()); requestAnimationFrame(f); });
     const host = document.createElement('div');
     host.style.cssText = 'position:fixed;left:400px;top:10px;z-index:99999';
-    host.innerHTML = '<button class="btn" type="button">' + LOAD_SPIN_HTML.replace('--sz:14px', '--sz:32px') + ' Adding</button>';
+    host.innerHTML = '<button class="btn" type="button">' + kOrbWaitHtml('chk-orb', '', 32) + ' Adding</button>';
     document.body.appendChild(host);
     await frames(6);
     const cv = host.querySelector('canvas.korb');
@@ -181,7 +195,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const host = document.createElement('div');
     try {
       host.style.cssText = 'position:fixed;left:500px;top:10px;z-index:99999';
-      host.innerHTML = LOAD_SPIN_HTML.replace('--sz:14px', '--sz:32px');
+      host.innerHTML = kOrbWaitHtml('chk-orb', '', 32);
       document.body.appendChild(host);
       await frames(6);
       const cv = host.querySelector('canvas.korb');
@@ -210,7 +224,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const fr = document.getElementById('firstrun');
     if (!fr) return { error: 'no #firstrun on the page' };
     const host = document.createElement('div');
-    try { host.innerHTML = LOAD_SPIN_HTML; fr.appendChild(host); return { dot: getComputedStyle(host.querySelector('.spin')).getPropertyValue('--spin-dot').trim().toLowerCase() }; }
+    try { host.innerHTML = kOrbWaitHtml('chk-orb', '', 14); fr.appendChild(host); return { dot: getComputedStyle(host.querySelector('.spin')).getPropertyValue('--spin-dot').trim().toLowerCase() }; }
     finally { host.remove(); }
   });
   await darkPage.close();
@@ -226,7 +240,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       const host = document.createElement('div');
       try {
         host.style.cssText = 'position:fixed;left:500px;top:10px;z-index:99999';
-        host.innerHTML = LOAD_SPIN_HTML.replace('--sz:14px', '--sz:32px');
+        host.innerHTML = kOrbWaitHtml('chk-orb', '', 32);
         document.body.appendChild(host);
         await frames(8);
         const cv = host.querySelector('canvas.korb');
@@ -246,7 +260,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   const firstFrame = await page.evaluate(async () => {
     const host = document.createElement('div');
     host.style.cssText = 'position:fixed;left:300px;top:10px;z-index:99999';
-    host.innerHTML = LOAD_SPIN_HTML;
+    host.innerHTML = kOrbWaitHtml('chk-orb', '', 14);
     document.body.appendChild(host);
     await new Promise((res) => requestAnimationFrame(res));
     const cv = host.querySelector('canvas.korb');
@@ -267,7 +281,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const host = document.createElement('div');
     window.__korbDensityHost = host;   // the arm's own element, kept by reference (no page id)
     host.style.cssText = 'position:fixed;left:200px;top:10px;z-index:99999';
-    host.innerHTML = LOAD_SPIN_HTML.replace('--sz:14px', '--sz:24px');
+    host.innerHTML = kOrbWaitHtml('chk-orb', '', 24);
     document.body.appendChild(host);
     await frames(8);
     const cv = host.querySelector('canvas.korb');
@@ -294,6 +308,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   await browser.close();
 
   const orbProblems = [];
+  if (smallKeepsDots.orbCanvas || smallKeepsDots.dots !== 8) orbProblems.push('a small spinner was given the orb or lost its dots (Josh 11-06: small spinners keep the Sweep dots): ' + JSON.stringify(smallKeepsDots));
   if (onGold.error) orbProblems.push('orb on a gold button: ' + onGold.error);
   else if (!(onGold.avgRed >= 0 && onGold.avgRed < 90)) orbProblems.push('orb on a gold button: drawn in gold (average red ' + onGold.avgRed + '), not the button\'s dark ink, so it vanishes on the gold');
   // Within 14 of the wanted colour on each channel: the canvas blends edges, so the average is near the colour, not on it.

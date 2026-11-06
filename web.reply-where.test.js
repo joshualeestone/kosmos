@@ -324,10 +324,12 @@ test('the update overlay carries the mark, and the loader never claims progress'
    * with different pixel counts, so it draws and it moves. This pins that the
    * overlay still MOUNTS it, which is the part that could vanish silently.
    */
-  assert.match(PAGE, /class="upd-k"/,
+  /* #7896 (Josh 11-06): the update overlay is a whole-screen wait, so its mark is the KOSMOS orb, the shared
+     .spin-sweep.orb-wait that KORB draws once it is in the page; KORB has nothing to fill toward either. */
+  assert.match(PAGE, /kOrbWaitHtml\('upd-k', 'Updating'\)/,
     'the update overlay lost its mark and is a black screen with a word again');
-  assert.match(PAGE, /startKLoader\(back\.querySelector\('\.upd-k'\)\)/,
-    'the canvas is in the overlay but nothing starts it, so it renders blank');
+  assert.match(PAGE, /getElementsByClassName\('orb-wait'\)/,
+    'KORB no longer draws the whole-screen waits, so the overlay mark renders as bare dots or blank');
 
   /* 🛑 ONE IMPLEMENTATION. The making-an-agent screen needs the same mark, and a
      second copy would drift the first time the brand does. */
