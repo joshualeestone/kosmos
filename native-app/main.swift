@@ -6229,18 +6229,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// common case.
     func applicationWillTerminate(_ notification: Notification) {
         guard computerMode == .run || computerMode == .both else { return }
-        // kosmos#8125: a switch this launch started that never landed is a miss, so the limit applies to it too.
-        if reopenLandingDue {
-            reopenLandingDue = false
-            reopenMisses = quitMissesAfter(prior: reopenMisses, landingDue: true)
-            if reopenMissesForget(reopenMisses), let gone = reopenComputerHost {
-                reopenComputerHost = nil
-                reopenOutstanding = false
-                reopenMisses = 0
-                logLine("#8125: the switch to \(gone) never landed, \(REOPEN_MISS_LIMIT) launches in a row, so it is forgotten")
-            }
-        }
         let away = isOnAnotherComputer() ? computerToRemember(committedPageURL, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost()) : nil
+        // kosmos#8125: a switch this launch started that never landed is a miss, so the limit applies to it too. A window
+        // already on another computer has landed, even if that page has not finished loading (review 1: a quit between
+        // its commit and its finish is not a miss), and with no computer kept there is nothing to count against.
+        let neverLanded = reopenLandingDue && away == nil && reopenComputerHost != nil
+        reopenLandingDue = false
+        reopenMisses = quitMissesAfter(prior: reopenMisses, landingDue: neverLanded)
+        if neverLanded, reopenMissesForget(reopenMisses), let gone = reopenComputerHost {
+            reopenComputerHost = nil
+            reopenOutstanding = false
+            reopenMisses = 0
+            logLine("#8125: the switch to \(gone) never landed, \(REOPEN_MISS_LIMIT) launches in a row, so it is forgotten")
+        }
         let host = quitKeeps(awayHost: away, hasPage: committedPageURL != nil, reopenOutstanding: reopenOutstanding, kept: reopenComputerHost)
         if host != reopenComputerHost {
             if host != nil { reopenMisses = 0 }   // review 7: a different computer starts its own count
