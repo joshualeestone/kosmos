@@ -418,18 +418,22 @@ class KosmosLauncher
     //   - the run folder: every allow entry counts, including ones that only reach the files and folders inside
     //     it, because that is where the code is;
     //   - the code inside it that this launcher starts, loads or points at (Kosmos.exe, runtime\, runtime\node.exe,
-    //     runtime\WebView2Loader.dll, app\, app\server.js, open-board.js), read on their own: a file made there by another account while the folder
-    //     let them is theirs, and its owner can always change its permissions, whatever the folder now says;
+    //     runtime\WebView2Loader.dll, app\, app\server.js, open-board.js), every file directly in runtime\, and
+    //     every folder under app\ and runtime\, each read on its own;
     //   - each folder above it, up to the drive: entries that apply to that folder itself, and only the rights
     //     that would let someone rename or replace what is below it (delete, delete children, permissions, owner).
     // CREATOR OWNER and OWNER RIGHTS stand for the owner, who is checked. A deny entry is never counted, so a deny
     // can only make the answer stricter than Windows'. An ACL that cannot be read, or a missing one (a FAT or exFAT
     // drive), is refused. Accounts are compared by SID, never by name: a domain group (Domain Admins, say) is not
     // one of the four, so a folder IT set up with one is refused, and a copy in the profile is the way round it.
-    // Every file directly in runtime\ is read on its own as well (review 2, v2): node.exe loads DLLs from its own
-    // folder first, so anything placed beside it is code that runs. There are a handful.
-    // ⚠️ WEAKEST PART: below those, a file inside is taken at the folder's word (reading every file would cost
-    // a launch far more than these few milliseconds). A folder inside the profile is trusted by where it is, not
+    // WHY THOSE ARE READ ON THEIR OWN (review 4, v2): the run folder's word covers only what inherits from it. An item
+    // that stopped inheriting, or carries entries of its own, is not covered by it, so the entry points, everything
+    // beside node.exe (which loads DLLs from its own folder first) and every folder of code are read for their own
+    // entries and owner. A folder is read, not each file in it: a file inside inherits from its folder, and a file
+    // with entries of its own already means somebody changed the folder, which this check does not claim to catch
+    // (above). The shipped build has five folders under app\ and four files in runtime\, so this stays a few
+    // milliseconds.
+    // ⚠️ WEAKEST PART: below those, a file inside a folder is taken at the folder's word. A folder inside the profile is trusted by where it is, not
     // read, as the profile is this person's; a junction from the profile to somewhere else is taken at its
     // profile path, and a junction outside the profile is read at its target, without the folders above the
     // target.
@@ -458,7 +462,7 @@ class KosmosLauncher
     internal const int AncestorChangeRights = FILE_DELETE_CHILD | DELETE_RIGHT | WRITE_DAC | WRITE_OWNER | GENERIC_ALL | GENERIC_WRITE;
 
     // The code in a build that this launcher starts or points the Start menu at, read on its own.
-    // Review 1 (v2): runtime\\WebView2Loader.dll too, the native code this launcher loads into its own process for --window.
+    // Review 1 (v2): runtime\WebView2Loader.dll too, the native code this launcher loads into its own process for --window.
     internal static readonly string[] RunFolderCode = { "Kosmos.exe", "runtime", "runtime\\node.exe", "runtime\\WebView2Loader.dll", "app", "app\\server.js", "open-board.js" };
 
     static readonly string[] TrustedWriterSids = {
@@ -524,6 +528,21 @@ class KosmosLauncher
                 if (problem != null) return problem;
             }
         }
+        // Review 4 (v2): every folder under app\ and runtime\, read for its own entries and owner (a folder that
+        // stopped inheriting is not covered by its parent's word).
+        foreach (string top in new[] { "app", "runtime" })
+        {
+            string root = Path.Combine(folder.EndsWith(":") ? folder + "\\" : folder, top);
+            if (!Directory.Exists(root)) continue;
+            string[] below;
+            try { below = Directory.GetDirectories(root, "*", SearchOption.AllDirectories); }
+            catch (Exception e) { return "what is in " + root + " could not be read (" + e.Message + ")"; }
+            foreach (string item in below)
+            {
+                problem = OtherWriterOf(item, me, AclScope.Code);
+                if (problem != null) return problem;
+            }
+        }
         while (true)
         {
             string up;
@@ -556,15 +575,17 @@ class KosmosLauncher
             descriptor = new System.Security.AccessControl.RawSecurityDescriptor(security.GetSecurityDescriptorBinaryForm(), 0);
         }
         catch (Exception e) { return "who can change " + shown + " could not be read (" + e.Message + ")"; }
+        // No permissions at all first (review 4, v2): a FAT or exFAT drive reports no owner worth naming either, and its
+        // own reason is the one the person can act on.
+        System.Security.AccessControl.RawAcl acl = descriptor.DiscretionaryAcl;
+        bool hasDacl = (descriptor.ControlFlags & System.Security.AccessControl.ControlFlags.DiscretionaryAclPresent) != 0;
+        if (acl == null || !hasDacl) return "anyone can change " + shown + " (it has no permissions, as on a FAT or exFAT drive)";
         // The owner can always change the permissions, so it must be one of the four, never a placeholder SID.
         bool ownerTrusted = descriptor.Owner != null && (descriptor.Owner.Equals(me) || Array.IndexOf(TrustedOwnerSids, descriptor.Owner.Value) >= 0);
         if (!ownerTrusted)
         {
             return NameOf(descriptor.Owner) + " owns " + shown;
         }
-        System.Security.AccessControl.RawAcl acl = descriptor.DiscretionaryAcl;
-        bool hasDacl = (descriptor.ControlFlags & System.Security.AccessControl.ControlFlags.DiscretionaryAclPresent) != 0;
-        if (acl == null || !hasDacl) return "anyone can change " + shown + " (it has no permissions, as on a FAT or exFAT drive)";
         int rights = scope == AclScope.Above ? AncestorChangeRights : RunFolderChangeRights;
         // Entries only for what is inside count where what is inside is code: the run folder and a folder of code.
         bool insideCounts = scope != AclScope.Above && isFolder;

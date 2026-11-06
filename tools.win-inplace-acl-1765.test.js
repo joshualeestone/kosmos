@@ -165,7 +165,7 @@ function baselineOrSkip(t) {
   return true;
 }
 
-test('#1765: the run folder: only this user, SYSTEM and Administrators may change it or what is inside it', WINDOWS_ONLY, (t) => {
+test('#1765: the run folder: only this user, SYSTEM, Administrators and TrustedInstaller may change it or what is inside it', WINDOWS_ONLY, (t) => {
   if (!needsBuild(t) || !baselineOrSkip(t)) return;
   const cases = [
     ['Users may modify', [USERS + ':(OI)(CI)M'], /^UNSAFE .+ can change /],
@@ -255,11 +255,19 @@ test('#1765: the code inside is read on its own, whatever the run folder says', 
   answer = probe(app, NOT_MY_PROFILE);
   assert.match(answer, /^UNSAFE .+ can change /);
   assert.ok(answer.includes(path.join(app, 'app')), 'the reason does not name app: ' + answer);
-  // A file below the six is taken at the folder's word (the plan's named weak spot), so this stays safe.
+  // A file below the named code is taken at its folder's word (the plan's named weak spot), so this stays safe.
   const deep = build();
   fs.writeFileSync(path.join(deep, 'app', 'other.js'), '');
   icacls(path.join(deep, 'app', 'other.js'), '/grant', USERS + ':(M)');
   assert.equal(probe(deep, NOT_MY_PROFILE), 'SAFE');
+  // Review 4 (v2): but a folder under app\ that stopped inheriting and lets Users change it is read on its own.
+  const sub = build();
+  const lib = path.join(sub, 'app', 'node_modules', 'lib');
+  fs.mkdirSync(lib, { recursive: true });
+  icacls(lib, '/inheritance:r', '/grant:r', '*' + mySid + ':(OI)(CI)F', USERS + ':(OI)(CI)M');
+  answer = probe(sub, NOT_MY_PROFILE);
+  assert.match(answer, /^UNSAFE .+ can change /);
+  assert.ok(answer.includes(lib), 'the reason does not name the folder under app: ' + answer);
 });
 
 test('#1765: a folder inside this person\'s profile is not read; a missing folder is refused', WINDOWS_ONLY, (t) => {
