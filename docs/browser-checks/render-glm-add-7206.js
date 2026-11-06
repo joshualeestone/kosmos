@@ -11,7 +11,8 @@
  *   - picking DeepSeek after GLM: the form is DeepSeek's again, nothing of GLM's words left;
  *   - GLM switched off while its form is open: the next ask puts it away and empties the pasted key, and an off for
  *     DeepSeek alone does not touch an open GLM form;
- *   - the setup step's GLM row reads "Add in Settings" only while GLM's switch is on; DeepSeek's stays "Coming soon".
+ *   - the setup step's GLM row reads "Add in Settings" only while GLM's switch is on; DeepSeek's stays "Coming soon";
+ *   - slice 3: MiniMax by its own switch alone, in its own words, posting vendor minimax.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-glm-add-7206.js
  */
@@ -208,6 +209,24 @@ const chk = (ok, label, extra) => {
   const f5 = await form();
   const r5 = await row('glm');
   chk(!f5.shown && f5.key === '' && r5.disabled && /coming soon/.test(r5.text || ''), 'GLM off: the next ask puts its form away and empties the pasted key', JSON.stringify({ f5: { shown: f5.shown, key: f5.key }, r5 }));
+
+  // ---- slice 3: MiniMax, by its own switch alone, on the same form
+  await q(() => { window.__on = ['minimax']; });
+  await reopen();
+  const m0 = await row('minimax');
+  const g0 = await row('glm');
+  chk(!m0.disabled && m0.text === 'MiniMax' && g0.disabled, 'MiniMax only: its row is offered, GLM\'s is not', JSON.stringify({ m0, g0 }));
+  await pick('minimax'); await settle();
+  const fm = await form();
+  chk(fm.shown && fm.label === 'MiniMax API key' && /^https:\/\/platform\.minimax\.io\//.test(fm.href || '') && /pointed at MiniMax/.test(fm.words) && !/GLM|DeepSeek|Coding Plan/.test(fm.words),
+    'MiniMax: the form is in MiniMax\'s words only', JSON.stringify({ label: fm.label, href: fm.href, words: fm.words }));
+  await q(() => { window.__posts.length = 0; document.getElementById('acct-compat-key').value = 'mm-good-8888'; document.getElementById('acct-compat-go').click(); });
+  await settle();
+  const pm = await q(() => window.__posts.slice());
+  chk(pm.length === 1 && pm[0].vendor === 'minimax', 'MiniMax: an accepted key posts vendor minimax', JSON.stringify(pm));
+  await q(() => frPaintCompat()); await settle();
+  const t2 = await tiles();
+  chk(t2.minimax && t2.minimax.soon === 'Add in Settings' && t2.glm && t2.glm.soon === 'Coming soon', 'MiniMax only: its setup row reads Add in Settings, GLM\'s Coming soon', JSON.stringify(t2));
 
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();

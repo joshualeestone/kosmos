@@ -78,7 +78,7 @@ function guideText() {
     'Kosmos checks the address when it',
     'saves it, and refuses one that answers but turns the key or model down; one',
     'that does not answer properly yet (Ollama closed, say) is still saved.',
-    'DeepSeek, Z.ai GLM, Moonshot Kimi and Mistral (and Meta and Qwen, off a Mac) appear in the menu',
+    'DeepSeek, Z.ai GLM, MiniMax, Moonshot Kimi and Mistral (and Meta and Qwen, off a Mac) appear in the menu',
     'marked coming soon and cannot be chosen yet, so if they ask for one of',
     'those, the honest answer is that it is listed but not available.',
     '',

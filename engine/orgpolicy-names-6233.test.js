@@ -24,6 +24,7 @@ const SCREEN = {
   alibaba: 'Alibaba Qwen',
   deepseek: 'DeepSeek',   // #7206: the create menu's row (web/index.html)
   glm: 'Z.ai GLM',   // #7206 slice 2a: the menus' coming-soon row
+  minimax: 'MiniMax',   // #7206 slice 3
 };
 
 /* A policy that allows another provider than `id` (the provider-not-allowed sentence). */

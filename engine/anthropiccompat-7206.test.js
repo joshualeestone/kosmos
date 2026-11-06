@@ -344,3 +344,20 @@ test('#7206 2b: GLM is on exactly when its own switch is, with no other conditio
   } finally { sw.setVendor('glm', false); }
   assert.equal(compat.enabled('darwin', 'glm'), false, 'CONTROL: GLM stayed on after its switch went off');
 });
+
+test('#7206 slice 3: MiniMax is a third row, on exactly when its own switch (compat-minimax-on) is', () => {
+  const sw = require('../test-support/compat-switch');
+  const v = compat.VENDORS.minimax;
+  assert.deepEqual([v.id, v.name, v.baseUrl, v.checkUrl], ['minimax', 'MiniMax', 'https://api.minimax.io/anthropic', 'https://api.minimax.io/v1/models']);
+  assert.equal(compat.markerFor('minimax'), 'compat-minimax-on');
+  assert.equal(compat.enabled('darwin', 'minimax'), false, 'MiniMax is on with its switch off');
+  sw.set(true); sw.setVendor('glm', true);
+  try { assert.equal(compat.enabled('darwin', 'minimax'), false, 'DeepSeek\'s or GLM\'s switch turned MiniMax on'); }
+  finally { sw.set(false); sw.setVendor('glm', false); }
+  sw.setVendor('minimax', true);
+  try {
+    assert.deepEqual([compat.enabled('darwin', 'minimax'), compat.enabled('darwin', 'deepseek'), compat.enabled('darwin', 'glm')], [true, false, false]);
+    assert.equal(compat.enabled('win32', 'minimax'), false, 'never on off a Mac');
+  } finally { sw.setVendor('minimax', false); }
+  assert.equal(compat.enabled('darwin', 'minimax'), false, 'CONTROL: MiniMax stayed on after its switch went off');
+});

@@ -66,7 +66,7 @@ function sentence(name, wrote, back, RESTARTED) {
   /* #3566: Gemini and Grok accounts are per-home too (GEMINI_CLI_HOME / GROK_HOME, no
      cross-home link), so their chat stays behind exactly as Codex's does. The word
      names the chat the person would look for. #7206: a DeepSeek account is its own CLAUDE_CONFIG_DIR, per-home too. */
-  const moveChatWord = ({ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen', deepseek: 'DeepSeek', glm: 'Z.ai GLM' })[String(account.provider || '').toLowerCase()];
+  const moveChatWord = ({ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen', deepseek: 'DeepSeek', glm: 'Z.ai GLM', minimax: 'MiniMax' })[String(account.provider || '').toLowerCase()];
   const isPerHomeMove = !!moveChatWord;
   return {
     outcome: ok ? 'changed' : 'partial',

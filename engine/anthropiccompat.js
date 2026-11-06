@@ -53,6 +53,20 @@ const VENDORS = Object.freeze({
     /* 2b: the page knows it now (its key form, menus, setup row and words), so 2a's pageReady hold and its test-only
        override are gone: GLM is offered exactly when its own switch (compat-glm-on) is. */
   }),
+  /* #7206 slice 3: MiniMax. The address and the key variable are MiniMax's own Claude Code guide
+     (platform.minimax.io/docs/token-plan/claude-code, read 2026-11-05: ANTHROPIC_BASE_URL https://api.minimax.io/anthropic,
+     the key as ANTHROPIC_AUTH_TOKEN, model MiniMax-M3.1-Flash). MiniMax's pages name different models (M3, M3.1-Flash,
+     M2.7), so the id is the Claude Code page's and is on the switch-on checklist. The key is checked at the platform's
+     model list, measured 2026-11-05 with a made-up key: 401 there with a Bearer key, as at the Anthropic address's
+     /v1/models with x-api-key. Off until its own switch (compat-minimax-on) exists. */
+  minimax: Object.freeze({
+    id: 'minimax',
+    name: 'MiniMax',
+    baseUrl: 'https://api.minimax.io/anthropic',
+    checkUrl: 'https://api.minimax.io/v1/models',
+    models: Object.freeze(['MiniMax-M3.1-Flash']),
+    keyPage: 'https://platform.minimax.io/console/plan',
+  }),
 });
 
 /* Review 2: the vendor for an id, from the table's OWN keys only. A plain lookup also finds inherited names

@@ -113,9 +113,9 @@ test('CONTROL, switch ON: the same routes answer (so the OFF test is not a gate 
   } finally { withSwitch(false); }
 });
 
-test('the page: every provider menu lists DeepSeek and GLM as disabled "coming soon" rows, and compatAsk keeps each so while its own switch is off', async () => {
+test('the page: every provider menu lists DeepSeek, GLM and MiniMax as disabled "coming soon" rows, and compatAsk keeps each so while its own switch is off', async () => {
   const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  for (const [id, name] of [['deepseek', 'DeepSeek'], ['glm', 'Z.ai GLM']]) {
+  for (const [id, name] of [['deepseek', 'DeepSeek'], ['glm', 'Z.ai GLM'], ['minimax', 'MiniMax']]) {
     const rows = [...PAGE.matchAll(new RegExp('<option value="' + id + '"([^>]*)>([^<]*)</option>', 'g'))];
     assert.equal(rows.length, 3, 'expected the ' + name + ' row in Add a provider, the create menu and the switch menu');
     for (const [, attrs, text] of rows) {
@@ -130,7 +130,7 @@ test('the page: every provider menu lists DeepSeek and GLM as disabled "coming s
   const src = script.slice(at, script.indexOf('\n}\n', script.indexOf('function compatAsk(', at)) + 2);
   const run = async (answer, opts = {}) => {
     const menus = {};
-    for (const id of ['deepseek', 'glm']) menus[id] = [1, 2, 3].map(() => ({ disabled: true, textContent: id + ' · coming soon', value: id }));
+    for (const id of ['deepseek', 'glm', 'minimax']) menus[id] = [1, 2, 3].map(() => ({ disabled: true, textContent: id + ' · coming soon', value: id }));
     const doc = {
       querySelectorAll: (q) => { const m = /value="(\w+)"/.exec(q); return m && menus[m[1]] ? menus[m[1]] : []; },
       querySelector: (q) => { const m = /#acct-provider-pick option\[value="(\w+)"\]/.exec(q); return m && menus[m[1]] ? menus[m[1]][0] : null; },
@@ -149,24 +149,30 @@ test('the page: every provider menu lists DeepSeek and GLM as disabled "coming s
   };
   const off = await run([]);
   assert.equal(off.any, false);
-  for (const id of ['deepseek', 'glm']) for (const o of off.menus[id]) { assert.equal(o.disabled, true); assert.match(o.textContent, /coming soon/); }
+  for (const id of ['deepseek', 'glm', 'minimax']) for (const o of off.menus[id]) { assert.equal(o.disabled, true); assert.match(o.textContent, /coming soon/); }
   // CONTROL: DeepSeek's switch on offers DeepSeek, and only DeepSeek (one switch per vendor).
   const ds = await run(['deepseek']);
   assert.equal(ds.any, true, 'CONTROL: compatAsk never turns it on');
-  assert.deepEqual(ds.onFor, { deepseek: true, glm: false });
+  assert.deepEqual(ds.onFor, { deepseek: true, glm: false, minimax: false });
   assert.equal(ds.menus.deepseek[0].disabled, false, 'CONTROL: Add a provider is not offered when the switch is on');
   assert.equal(ds.menus.deepseek[0].textContent, 'DeepSeek');
   assert.equal(ds.menus.glm[0].disabled, true, 'DeepSeek\'s switch offered GLM');
   assert.match(ds.menus.glm[0].textContent, /coming soon/);
   // 2b: GLM's own switch offers GLM, by its page name, and leaves DeepSeek coming soon.
   const glm = await run(['glm']);
-  assert.deepEqual(glm.onFor, { deepseek: false, glm: true });
+  assert.deepEqual(glm.onFor, { deepseek: false, glm: true, minimax: false });
   assert.equal(glm.menus.glm[0].disabled, false, 'GLM is not offered under its own switch');
   assert.equal(glm.menus.glm[0].textContent, 'Z.ai GLM');
   assert.equal(glm.menus.deepseek[0].disabled, true, 'GLM\'s switch offered DeepSeek');
   // Windows: never offered, whatever the board says.
-  const win = await run(['deepseek', 'glm'], { windows: true });
-  assert.deepEqual(win.onFor, { deepseek: false, glm: false }, 'a vendor was offered on Windows');
+  const win = await run(['deepseek', 'glm', 'minimax'], { windows: true });
+  assert.deepEqual(win.onFor, { deepseek: false, glm: false, minimax: false }, 'a vendor was offered on Windows');
+  // slice 3: MiniMax by its own switch alone, by its page name.
+  const mm = await run(['minimax']);
+  assert.deepEqual(mm.onFor, { deepseek: false, glm: false, minimax: true });
+  assert.equal(mm.menus.minimax[0].disabled, false, 'MiniMax is not offered under its own switch');
+  assert.equal(mm.menus.minimax[0].textContent, 'MiniMax');
+  assert.equal(mm.menus.glm[0].disabled, true, 'MiniMax\'s switch offered GLM');
   // 1b review 1: a failed ask keeps what was known and never puts the form away (it would clear a pasted key).
   const fail = await run('fail', { startOn: ['deepseek'], open: 'deepseek' });
   assert.equal(fail.any, true, 'one failed ask turned DeepSeek off');
