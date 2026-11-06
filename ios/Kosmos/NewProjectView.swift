@@ -38,7 +38,7 @@ struct NewProjectView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending) }
                 ToolbarItem(placement: .confirmationAction) {
                     if sending {
-                        SweepDots(label: "Creating the project", scales: false, framesPerSecond: 15, stillWhenReduced: true)
+                        SweepDots(label: "Creating the project", scales: false, stillWhenReduced: true)
                     } else {
                         Button(NewProject.Words.create) { Task { await create() } }
                             .disabled(!NewProject.canCreate(draft))

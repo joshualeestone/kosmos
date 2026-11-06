@@ -18,8 +18,8 @@ struct SweepDots: View {
     /// false keeps `size` at every text size. kosmos#7945 follow-up: the Agents tab's wait to connect, which must match
     /// the launch screen's fixed 20 pt picture; its words still grow with the text.
     var scales = true
-    /// The most frames a second it draws. kosmos#8058: 15 inside a chat or room's lazy thread and at every
-    /// former orb site (#8058), the orb's rate; whether 15 avoids #7427 (a clock-drawn view in the thread stopped it following new messages) is
+    /// The most frames a second it draws. kosmos#8058: 15 inside a chat or room's lazy thread, the orb's rate. Elsewhere
+    /// 30, the board's. whether 15 avoids #7427 (a clock-drawn view in the thread stopped it following new messages) is
     /// not measured. At 15 the dots step 2-2-2-3 frames each (0.15 s a dot); how that looks on a phone is not measured.
     var framesPerSecond: Double = 30
     /// kosmos#8058: with Reduce Motion, one still frame and no clock, as the orb drew everywhere before #8058,
