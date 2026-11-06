@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: landing-8125
-diff_hash: ff3b39034f553576f403936a7a002a7a70c838c068aef6a3c22d258a5c30462a
+diff_hash: 2680fbead25659e79049145a79260086162804c4025396a70ed4528169a5c4a3
 validation: local (app selftest 290; every web*, native-app* file and every test that reads main.swift, 482 files)
 subdir_audit: passed
-timestamp: 2026-11-06T20:26:08Z
+timestamp: 2026-11-06T21:37:04Z
 iterations: 2
 converged: true
 ---
@@ -41,7 +41,7 @@ kosmos#8125, a follow-up to #8118 (stacked on reopen-8118, PR #8127). When the M
 Local, on c0155e72b9: app selftest 290/290 (swiftc at the macOS 13.5 floor; a mutant that never counts fails both counting rows); 482 test files (web*, native-app*, and every test that reads native-app/main.swift), 4165 run, 0 fail. Not run: the full `yarn test`.
 
 ### Note
-Stacked on reopen-8118, so diff_hash is over origin/main...HEAD, including #8118's commits. After #8127 rebase-merges and this branch is rebased onto main, recompute diff_hash before the PR. The reviewed change stays the same.
+Was stacked on reopen-8118. #8118 merged as #8127 (6bb92b19d9, 15:30 CST), and this branch's own four commits were rebased onto main with `--onto`. The only conflicts were the selftest row count and its two pins: main is at 295 with #8118, and this branch adds 3, so they were resolved to 298. The first commit's `#` subject, which the conflicted re-commit stripped, was restored from the original. diff_hash is recomputed over origin/main...HEAD. On the rebased head: selftest 298/298; 482 files (web*, native-app*, and every test that reads main.swift), 4165 run, 0 fail.
 
 ### Weakest premise
 That a page which loads at all clears the landing: a page from that computer that loads and then fails counts as landed.
