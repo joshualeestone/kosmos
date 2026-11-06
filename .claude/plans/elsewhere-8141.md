@@ -23,4 +23,4 @@ The same plan is on the card: https://github.com/joshualeestone/kosmos/issues/81
 
 ## Tests
 
-`server.dm-elsewhere-8141.test.js`: the thread route (declared, undeclared control, a reply in Kosmos still clears it), the page line (escaped, grace kept, the unsent answer first, the old line without a channel), and the digest (declared, empty day, the undeclared hint, no hint when answered or quiet, a throwing reader). `engine/feedbackday-7875.test.js` updated for the "in Kosmos" wording, and its helper now stubs the channel reader so no live store is read.
+`server.dm-elsewhere-8141.test.js`: the thread route (declared, undeclared control, a reply in Kosmos still clears it), the page line (escaped, grace kept, the unsent answer first, the old line without a channel), and the digest (declared, empty day, the undeclared hint, no hint when answered or quiet, a throwing reader). `engine/feedbackday-7875.test.js` updated for the "in Kosmos" wording; every digest call there stubs the channel reader. `docs/browser-checks/render-dm-owes-4340.js` gains ELSEWHERE and ELSEWHERE WORKING arms.

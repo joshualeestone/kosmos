@@ -99,6 +99,19 @@ test('#8141: a reply in Kosmos still clears it, declared channel or not', async 
   assert.equal(o.elsewhere, undefined, JSON.stringify(o));
 });
 
+test('#8141: an answer from its own window (#4612) wins over the declared channel at the route', async () => {
+  const selfreport = require('./engine/selfreport');
+  const name = agent('windowdm');
+  replychannel.set(name, 'Telegram');
+  const heard = Date.now() - 5 * 60000;
+  chat.appendMessage(chat.DIRECT, name, { text: 'hello', at: new Date(heard).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
+  assert.equal((await owes(name)).elsewhere, 'Telegram');   // CONTROL: no report yet, the channel is carried
+  selfreport.record(name, { state: 'idle', auto: true, final: { text: 'Hi, all good here.', startedAt: new Date(heard + 1000).toISOString() } });
+  const o = await owes(name);
+  assert.equal(o.unsent && o.unsent.text, 'Hi, all good here.', JSON.stringify(o));
+  assert.equal(o.elsewhere, undefined, 'the channel was carried beside an answer the page shows first: ' + JSON.stringify(o));
+});
+
 test('#8141: the page says where it answers, escaped, instead of "Nothing back yet."', () => {
   const html = owesLine({ state: 'owes', lastHeardAt: OLD, elsewhere: 'Chat <b>app</b>' });
   assert.equal(html, '<p class="dmnone dmquiet">It says it answers you on Chat &lt;b&gt;app&lt;/b&gt;, which Kosmos cannot see.</p>');
@@ -137,7 +150,7 @@ test('#8141: an empty day in Kosmos with a declared channel is not a bare "nothi
 
 test('#8141: undeclared, the person wrote and nothing went back here: the digest names kosmos reply-channel', () => {
   const out = digest({ readThread: () => fromPerson });
-  assert.ok(out.includes('If you answered them somewhere else, tell Kosmos where with: kosmos reply-channel "<where>"'), out);
+  assert.ok(out.includes('If you answered them somewhere else, tell Kosmos where with: kosmos reply-channel "<where>" (Kosmos then stops reminding you to answer a first message here, so declare it only where you do answer)'), out);
 });
 
 test('#8141: undeclared and answered in Kosmos, or a quiet day: no hint (CONTROLS)', () => {

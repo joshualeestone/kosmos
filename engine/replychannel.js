@@ -5,8 +5,8 @@
  *
  * The report (collected feedback, 2026-10-10): an agent whose instructions say to answer through another channel
  * answered there, and the first-reply nudge (firstreply-nudge.js) then said nothing had reached the person. Kosmos
- * cannot see an answer given outside it, so with a channel declared that nudge does not speak for the agent. Nothing
- * else reads the declaration: a room ask is answered in the room, and the room's reminders are unchanged.
+ * cannot see an answer given outside it, so with a channel declared that nudge does not speak for the agent. A room
+ * ask is answered in the room, and the room's reminders are unchanged.
  *
  * Stored on the agent's profile as `replyChannel`: words, at most MAX_LEN characters, one line. Empty clears it, and
  * so does "kosmos" (answering through Kosmos is what an undeclared agent does already).
