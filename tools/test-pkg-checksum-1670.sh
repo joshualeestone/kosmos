@@ -57,8 +57,10 @@ PORT_WAIT_SCALE_EFF=$(LC_ALL=C awk -v s="$PORT_WAIT_SCALE" 'BEGIN{ if (s !~ /^[+
 # the cap, comfortably under the node wrapper's 230s spawn timeout
 # (tools.pkg-checksum-home-6507.test.js) -- a slow-but-succeeding box still reports a clean
 # per-arm result rather than a SIGKILL. 15s is still 3x the old 5s, well above the observed
-# 5-20s loaded bind the flake is about.
-PORT_WAIT_SECS=$(LC_ALL=C awk -v s="$PORT_WAIT_SCALE_EFF" 'BEGIN{ t=15*(s+0); printf "%d", (t<1?1:t) }')
+# 5-20s loaded bind the flake is about. (The t<1 floor below is belt-and-suspenders:
+# PORT_WAIT_SCALE_EFF is already clamped >= 1.00, so t is always >= PORT_WAIT_BASE_SECS.)
+PORT_WAIT_BASE_SECS=15               # give-up budget at scale 1; scaled up to the 4x cap under load
+PORT_WAIT_SECS=$(LC_ALL=C awk -v b="$PORT_WAIT_BASE_SECS" -v s="$PORT_WAIT_SCALE_EFF" 'BEGIN{ t=b*(s+0); printf "%d", (t<1?1:t) }')
 # wait_for_port <logfile>: poll the server log until it prints "port NNNNN"; echo the port and
 # return 0, or return 1 after PORT_WAIT_SECS of WALL-CLOCK time. Bounding by $SECONDS (bash's
 # real-time counter, bash 3.2 safe) rather than a poll count means a loaded box that stretches
