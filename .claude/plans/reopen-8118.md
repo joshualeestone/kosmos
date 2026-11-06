@@ -50,3 +50,25 @@ board load).
   a test runs the shared switch with no link.
 - NIT kept: a host kept in run mode survives a reset to an unchosen mode, so after the first-screen answer the window
   goes back to that computer. It is still the computer the window was last on.
+
+## Review round 2 (sonnet; no BLOCKER) and Angel's switcher review (read at 27fd49b898)
+- WARNING (r2): a reload while the reopen waits could make the torn-down page's failure ask again --> FIXED: every
+  finished load is counted (`pageLoadSerial`) and an answer from a page since replaced is ignored.
+- WARNING (r2): an automatic own-board reload after the ask counts as going home --> KNOWN LIMIT, kept: no in-app
+  trigger found (the #1042 notice does not reload); the cost is one launch opening home.
+- WARNING (r2): typing during the ticket wait --> FIXED: the reopen blurs the focused field before switching, and the
+  guard also watches wheel and touchstart.
+- CONVENTION (r2): source-text tests for a state machine --> FIXED: `reopenStep` is a pure decision with 14 rows in
+  the selftest; the wiring test checks each arm does what the step says.
+- WARNING (Angel): 6 s was below the route's own worst case (20 s Mac request plus 4 s per off probe) --> FIXED: 30 s,
+  OA_COMPUTERS_LIMIT_MS's value and reason; the touch guard protects unsent text meanwhile.
+- WARNING (Angel): a passing failure forgot the computer, which brings back the card's complaint --> CHANGED from
+  round 1's call: only FINAL answers forget (gone, home, touched, signed-out, bad); slow, unknown, updating, offline
+  and not-instant keep it. A later own-board load in the same launch still forgets. Signed-out forgets on purpose,
+  against Angel's suggestion: remote access off is usually deliberate, and keeping it repeats the toast every launch.
+  Weakest premise (Angel's): a session at home after a failed reopen with no board reload keeps the host, so the next
+  launch goes back, one click from home.
+- NIT (Angel): the rule was a second copy --> FIXED: `computersOpens(c)` and `computersOlderSaid` shared by the menu
+  and the reopen, and the reopen ends on the shared rule.
+- NIT (Angel): the menu hides itself under two rows, the reopen does not --> NO CHANGE: the reopen only needs the
+  remembered computer's own row.

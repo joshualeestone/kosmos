@@ -33142,6 +33142,14 @@ if (typeof window !== 'undefined' && window.addEventListener) {
     computersOpening = false;
   });
 }
+/* kosmos#8118 (Angel's review): the switcher's rules, shared by the menu (computersRender, computersOpenClick) and
+   the launch reopen (computersReopen), so "opens exactly what the switcher would" stays true. A row is a link only
+   for a computer that is not this one, is online, and is not updating; one that cannot take the instant switch says
+   so in this one sentence. */
+function computersOpens(c) { return !!c && c.this !== true && c.online === true && c.updating !== true; }
+function computersOlderSaid(name, host) {
+  return name + ' is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on ' + name + ', or open ' + host + ' in your browser and sign in.';
+}
 function computersOpenClick(e) {
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   const a = e.target && e.target.closest ? e.target.closest('a[data-computer-open]') : null;
@@ -33157,7 +33165,7 @@ function computersOpenClick(e) {
   if (a.getAttribute('data-computer-instant') === '0') {
     // The phone menu covers the page and its toasts, so it closes first; the words carry an address, so they stay longer.
     if (typeof pnavClose === 'function') pnavClose(false);
-    if (typeof msgToast === 'function') msgToast(name + ' is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on ' + name + ', or open ' + url.host + ' in your browser and sign in.', 9000);
+    if (typeof msgToast === 'function') msgToast(computersOlderSaid(name, url.host), 9000);
     return;
   }
   computersOpenWithTicket(url, name, a);
@@ -33200,18 +33208,22 @@ function computersOpenWithTicket(url, name, a) {
    own board has loaded at launch, asks this page to go back to the computer the window was last on (only its host is
    kept). Checked against the switcher's own list, so it opens only what the switcher would open, the same way (a
    ticket, the switching screen). Otherwise the window stays on this computer's agents and says why, in the
-   switcher's words. Resolves the outcome for the app: 'opening' and 'busy' keep the host (the next page records it);
-   every other answer means the window stays home, so the app forgets it.
-   It gives up after COMPUTERS_REOPEN_MAX_MS, and stays home with no switch if the person clicks or types meanwhile:
-   a switch that lands while they work here would take unsent text with it (review 1). */
-const COMPUTERS_REOPEN_MAX_MS = 6000;
+   switcher's words. Resolves the outcome for the app (native-app reopenAnswerKeeps): a FINAL answer ('gone', 'home',
+   'touched', 'signed-out', 'bad') forgets the host; a passing one ('slow', 'unknown', 'updating', 'offline',
+   'not-instant') keeps it for the next launch, so one slow launch or a computer mid-update does not lose it (Angel's
+   review); 'opening' and 'busy' keep it too (the next page records it).
+   It gives up after COMPUTERS_REOPEN_MAX_MS, which is OA_COMPUTERS_LIMIT_MS's value and reason (above the route's
+   own worst case: a 20 s Mac request plus a 4 s probe for a computer that is off; Angel's review: 6 s was below it),
+   and stays home with no switch if the person clicks, types, scrolls or touches meanwhile: a switch that lands
+   while they work here would take unsent text with it (review 1). */
+const COMPUTERS_REOPEN_MAX_MS = 30000;
 async function computersReopen(host) {
   const h = typeof host === 'string' ? host.trim().toLowerCase() : '';
   if (!h) return 'bad';
   const say = (t) => { try { if (typeof msgToast === 'function') msgToast(t, 9000); } catch {} };
   let touched = false;
   const mark = () => { touched = true; };
-  const ev = ['pointerdown', 'keydown'];
+  const ev = ['pointerdown', 'keydown', 'wheel', 'touchstart'];
   try { for (const k of ev) document.addEventListener(k, mark, true); } catch {}
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
   const cut = setTimeout(() => { if (ctl) ctl.abort(); }, COMPUTERS_REOPEN_MAX_MS);
@@ -33246,12 +33258,16 @@ async function computersReopen(host) {
   if (c.updating === true) { say(name + ' is updating, so Kosmos opened this computer\'s agents. Switch to it from the top-left menu when it is done.'); return 'updating'; }
   if (c.online !== true) { say(name + ' is not connected, so Kosmos opened this computer\'s agents.'); return 'offline'; }
   if (c.instant === false) {
-    say(name + ' is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on ' + name + ', or open ' + h + ' in your browser and sign in.');
+    say(computersOlderSaid(name, h));
     return 'not-instant';
   }
+  if (!computersOpens(c)) return 'unknown';   // the switcher's own rule decides last, whatever is added to it later
   if (computersOpening) return 'busy';
   let url;
   try { url = new URL('https://' + h + '/'); } catch { return 'bad'; }
+  // Review 2: nothing the person clicked started this, so nothing keeps focus while the ticket is made (up to 8 s):
+  // a key pressed then lands on no composer. The switching screen covers clicks.
+  try { if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur(); } catch {}
   computersOpenWithTicket(url, name, null);
   return 'opening';
 }
@@ -33286,7 +33302,7 @@ function computersRender(data) {
     /* Only an ONLINE computer is a link. An offline one would open a browser error page (the
        relay closes a computer that is not connected at the TLS handshake, and HSTS keeps it https),
        and an updating one is restarting; each is a plain row that says so instead. */
-    const opens = c.this !== true && c.online === true && c.updating !== true;
+    const opens = computersOpens(c);
     const row = document.createElement(opens ? 'a' : 'div');
     row.className = (opens || c.this === true) ? 'worldsw-row' : 'worldsw-row worldsw-row-off';
     const check = document.createElement('span');
