@@ -65,3 +65,12 @@ Nobody automatically: no caller in this repo (only comments, plans and the READM
 - NITs, fixed: the header names the pkg arm's strip; the guard holds build-installer-pkg.sh to the two source folders;
   the old-sentence control says what its failure would really mean; the edit note in check-served.js is gone.
 30 passed across the three affected test files.
+
+## Review 5 (sonnet)
+- WARNING, fixed: the strip-identity check compared source text, so a harmless reformat failed it with a misleading
+  message. It now compares behaviour: check-served.js's strip expression is evaluated and both strips run on a sample
+  with every comment kind (and a URL); a strip that differs turns it red (perturbed: dropping the // part), and a
+  missing or reformatted line fails with a message that says so.
+- NITs, fixed: the header line rewrapped; the item 4 test title kept on one line so it can be searched; _cannot_see
+  split into shorter sentences. Left: no note beside the marker (JSON cannot carry one; this plan records it).
+30 passed across the three affected test files.

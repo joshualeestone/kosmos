@@ -12,7 +12,7 @@
  *   binary          NOT checked here, on purpose: it is matched against the COMPILED app, where a WebKit delegate
  *                   method is an Objective-C selector string ("runOpenPanel") that no source file spells.
  * The absent kinds are not checked here either: a marker that must be absent has no source by design.
- * Matched against each source with its comments stripped (the strip check-served.js's pkg arm uses on its absent side). So this is
+ * Matched against each source with its comments stripped, by the same strip as check-served.js's pkg arm (absent side). So this is
  * deliberately STRICTER than the served check, which matches present markers against the raw page: a marker live only
  * in a comment passes there and fails here. The strip is non-greedy and can over-strip a page holding a '/*' string or
  * regex literal; that gives a false red here, never a false green.
@@ -39,10 +39,14 @@ test('kosmos#8132: the sources are the files check-served reads, and none is emp
   assert.ok(PAGE.length > 100000, 'web/index.html read as ' + PAGE.length + ' bytes after the comment strip');
   assert.ok(PAGE.length > RAW_PAGE.length * 0.1, 'the comment strip removed more than 90% of web/index.html; it is broken');
   for (const p of PKG) assert.ok(p.body.length > 500, p.rel + ' read as ' + p.body.length + ' bytes');
-  // The strip here is a copy of check-served.js's (a local there, so it cannot be imported): hold the two to one text.
-  const ourStrip = /^const strip = \(t\) => (.*);$/m.exec(read('tools.served-markers-sources-8132.test.js'));
-  assert.ok(ourStrip && read('tools/check-served.js').includes('const strip = (t) => ' + ourStrip[1] + ';'),
-    'the comment strip here no longer matches check-served.js\'s; copy it again');
+  // The strip here is a copy of check-served.js's (a local there, so it cannot be imported). Held by BEHAVIOUR: its
+  // expression is taken from check-served.js and both are run on a sample holding every comment kind.
+  const m = /const strip = \(t\) => (t\.replace\(.*\));\s*$/m.exec(read('tools/check-served.js'));
+  assert.ok(m, 'cannot find `const strip = (t) => t.replace(...)` in check-served.js (moved or reformatted); compare the strips by hand');
+  const theirs = new Function('t', 'return ' + m[1] + ';');
+  const sample = 'a <!-- html\ncomment --> b /* block\ncomment */ c\n  // line comment\nd https://x.y/z e';
+  assert.equal(strip(sample), theirs(sample), 'the comment strip here behaves differently from check-served.js\'s; copy it again');
+  assert.notEqual(strip(sample), sample, 'CONTROL: the sample has comments, so a strip must change it');
   const build = read('tools/build-installer-pkg.sh');
   assert.ok(build.includes('install/pkg-scripts') && build.includes('install/pkg-resources'),
     'build-installer-pkg.sh no longer packs install/pkg-scripts and install/pkg-resources; update PKG_PAGES here to match');
