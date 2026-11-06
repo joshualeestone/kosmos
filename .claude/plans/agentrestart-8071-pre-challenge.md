@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: agentrestart-8071
-diff_hash: 876caaff14966f73ea09ecaed7ee1fd973cc4b482f914c5e6b0f1568725be208
+diff_hash: 271527223ead697fbaa12fb5264c81943e0491084f47df7291b3bf7c1947c504
 validation: local only on 871f8f72a7: cli.agent-restart-8071 and server.agent-restart-removed-8071 (11/11); parity, Windows and agent CLI tests 635/635 on round-5 head. Shell-scanning tests on an earlier head: 7 reds in slow-board timing files, which passed 60/60 alone at low load (contention). The full suite runs on the PR's CI.
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-05T23:33:45Z
