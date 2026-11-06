@@ -26,8 +26,8 @@
     },
     {
       "icon": "shield",
-      "title": "Windows says when crash recovery is not set up",
-      "line": "On Windows, when you turn on start at sign-in and Kosmos cannot set itself to reopen after a crash, Settings now says so.",
+      "title": "Settings says when crash recovery is not set up",
+      "line": "On Windows, when you turn on start at sign-in and Kosmos has not set itself to reopen after a crash, Settings now says so.",
       "platforms": [
         "windows"
       ]
