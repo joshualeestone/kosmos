@@ -125,9 +125,10 @@ final class KeyboardSlideUITests: XCTestCase {
         app.launchEnvironment["KOSMOS_SAMPLE_OPEN"] = "dana"
         app.launchEnvironment["KOSMOS_SAMPLE_LONG"] = "varied"
         app.launchEnvironment["KOSMOS_SAMPLE_TRACE"] = "1"
-        app.launchEnvironment["KOSMOS_SAMPLE_BOXFLIP"] = "60"
+        app.launchEnvironment["KOSMOS_SAMPLE_BOXFLIP"] = "4"
+        if let n = ProcessInfo.processInfo.environment["KOSMOS_NUDGE"] { app.launchEnvironment["KOSMOS_SAMPLE_NUDGE"] = n }
         app.launch()
-        Thread.sleep(forTimeInterval: 60)   // no queries: the varied long chat timed one out at 131 s
+        Thread.sleep(forTimeInterval: 18)   // no queries: the varied long chat timed one out at 131 s
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.name = "boxflip-end"; shot.lifetime = .keepAlways; add(shot)
     }
 

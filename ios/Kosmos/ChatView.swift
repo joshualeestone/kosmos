@@ -48,6 +48,7 @@ struct ChatView: View {
     @State private var listEpoch = 0
     @State private var rebuilds: [Date] = []
     static let rebuildsMax = 3
+    static var sampleNudged = false
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
     @State private var anchorLetGo = false
     // kosmos#7645: where each drawn row is on the screen (iOS 26 and later), for the keyboard hold.
@@ -718,6 +719,19 @@ struct ChatView: View {
                             if Self.idAnchor { positionId = target } else { proxy.scrollTo(target, anchor: .top) }
                         }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { sampleScrollRest(tries: 0) }
+                    }
+                    // EXPERIMENT kosmos#7420: a nudge at open, to see whether a fragile opening can be made a stable one.
+                    if let how = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NUDGE"], !Self.sampleNudged {
+                        Self.sampleNudged = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            Self.trace("debug nudge \(how): rows \(onScreen.count), end \(endVisible), \(scrollBox.reading()?.line ?? "unread")")
+                            if how == "scrollto" { proxy.scrollTo("end", anchor: .bottom) }
+                            if how == "gonewest" { goNewest(proxy) }
+                            if how == "offset", let sv = scrollBox.view { let y = sv.contentOffset.y; sv.contentOffset.y = y - 400; DispatchQueue.main.async { sv.contentOffset.y = y } }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                                Self.trace("debug nudged \(how): rows \(onScreen.count), end \(endVisible), \(scrollBox.reading()?.line ?? "unread")")
+                            }
+                        }
                     }
                     // kosmos#7420: KOSMOS_SAMPLE_REBUILD=1 runs the empty-list recovery 3 s after opening, the reader at the newest
                     // (so the real decision gives .rebuild), then shows a marker with the rebuilds counted. The cause (rows not drawn within
