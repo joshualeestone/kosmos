@@ -1610,7 +1610,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* The mark sits above the words and is sized like the pack's: the canvas is
    drawn at 2x and displayed at half, so it stays crisp on this screen. */
 .upd-back .upd-msg { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; }
-.upd-back .upd-k { width: 88px; height: 103px; display: block; }
+/* #7896: the orb is 88 px round where the K was 88 x 103; the margins keep the 103 px the screen was laid out for. */
+.upd-back .upd-k { display: block; margin: 7px 0 8px; }
 /* #4343 (Josh, 2026-09-28): the full-restart screen. Unlike the update overlay it is OPAQUE, on
    the page's own ground, because his ask was that nothing else shows: no header, chips or panels. */
 .restart-back { position: fixed; inset: 0; z-index: 61; background: var(--k-bg);
@@ -2973,7 +2974,7 @@ a[data-computer-open][aria-busy="true"] { cursor: progress; text-decoration: und
 /* kosmos#6585: the switching screen, on the page's own ground like the full-restart screen. */
 .cswitch-back { position: fixed; inset: 0; z-index: 62; background: var(--k-bg); display: flex; flex-direction: column;
                 align-items: center; justify-content: center; gap: 22px; color: var(--k-ink); }
-.cswitch-back .cswitch-k { width: 88px; height: 103px; display: block; }
+.cswitch-back .cswitch-k { display: block; margin: 7px 0 8px; }   /* #7896: the orb, in the K's 103 px */
 .cswitch-back p { margin: 0; font-size: 17px; font-weight: 600; }
 .oa-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); }
 .oa-card { display: flex; flex-direction: column; gap: 4px; min-width: 0; text-decoration: none;
@@ -3169,12 +3170,14 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    used for agent restart, not a loader. ONE markup shape sized by --sz:
    <span class="spin spin-sweep" style="--sz:16px"> with eight <i></i>. Each <i> is a rotator;
    its ::before is the dot on the ring, and the dots light one after another around it. Gold by
-   default; on a gold .btn it flips to ink so it stays visible. Since #7896 (Josh 2026-11-03) the KOSMOS orb (KORB,
-   in the script) is drawn in their place and hides them, so the dots and their reduced-motion pulse below show only
-   until the script runs. Reduced motion calms to one slow pulse
+   default; on a gold .btn it flips to ink so it stays visible. The KOSMOS orb (KORB, in the script) is drawn only on
+   the whole-screen waits (.orb-wait); Josh 11-06: "the small loading spinners [stay] the small loading spinners".
+   Reduced motion calms to one slow pulse
    (no travel), so it still says "working" without the movement. */
 .spin { position: relative; display: inline-block; width: var(--sz); height: var(--sz); flex: none;
-        vertical-align: -0.18em; --sz: 16px; --dot: calc(var(--sz)*0.19); --spin-dot: var(--spin-gold, var(--gold)); }
+        vertical-align: -0.18em; --sz: 16px; --dot: calc(var(--sz)*0.19); --spin-dot: var(--gold); }
+/* Josh 11-06: the KOSMOS orb is only for whole-screen waits (.orb-wait); it keeps the light theme's deep gold (#7930). */
+.spin.orb-wait { --spin-dot: var(--spin-gold, var(--gold)); }
 .spin i { position: absolute; inset: 0; }
 .spin i::before { content: ""; position: absolute; top: 0; left: 50%; width: var(--dot); height: var(--dot);
         margin-left: calc(var(--dot)/-2); border-radius: 50%; background: var(--spin-dot); }
@@ -3195,8 +3198,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    Sweep loader in front of the words, so the wait reads as work in progress; the finished line in the
    change dialog carries a check in the page's own green instead. */
 .wake-spin { margin-right: 8px; }
-/* #7896: the KOSMOS orb (KORB, in the script) is drawn into a canvas inside each .spin-sweep; the old dots are hidden
-   once it is there, so a page whose script has not run yet still shows the Sweep dots. */
+/* #7896: on a whole-screen wait (.orb-wait) the KOSMOS orb (KORB, in the script) is drawn into a canvas and the dots
+   are hidden once it is there, so before the script runs the Sweep dots show. */
 .spin.korb-on i { display: none; }
 .spin > canvas.korb { position: absolute; inset: 0; width: 100%; height: 100%; }
 .wake-done { display: inline-block; width: 16px; height: 16px; margin-right: 8px; vertical-align: -0.2em; color: var(--ok); }
@@ -9187,6 +9190,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 /* "if we could move the elements down just a little so that when the K
    is animating it's not so close to the top." */
 .made-mark { display: block; margin: var(--space-4) auto var(--space-5); width: 66px; height: 77px; }
+.made-orb { display: block; margin: calc(var(--space-4) + 5px) auto calc(var(--space-5) + 6px); }   /* the orb in the mark's 77 px */
 /* 🔑 THE ROWS ARRIVE, ONE AT A TIME. Josh asked for each to animate in and to
    look like it is working before it resolves. The motion is on the ROW; what
    the row SAYS is the engine's answer and is never animated into existence.
@@ -12344,13 +12348,13 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #askcard .asknote-x:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #plus-state2 h3 { font-size: 1.3rem; line-height: 1.2; margin: 0 0 .25rem; }   /* #6314: a heading that wraps on a phone ("Add this computer to your account") must not inherit the body's fixed 16px (#6299) */
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
-/* #5785: the branded K-to-circle loader (#2692) above "Signing in..." while this computer connects; the restart
-   interstitial's canvas size. Empty (and so taking no room) the rest of the time. */
-#plus-si-k canvas { width: 88px; height: 103px; display: block; margin: 0 0 16px; }
-/* Mona Lisa's review: while it connects automatically, the K, the heading and the lines under it are centred, as on
+/* #5785: a whole-screen-sized loader above "Signing in..." while this computer connects (the KOSMOS orb since #7896,
+   Josh 11-06). Empty (and so taking no room) the rest of the time. */
+#plus-si-k .orb-wait { display: block; margin: 7px 0 24px; }   /* #7896: the orb, in the K's 103 px and its 16 px below */
+/* Mona Lisa's review: while it connects automatically, the loader, the heading and the lines under it are centred, as on
    the restart screen the loader comes from (.restart-back .restart-msg). Only then: the card's other steps, and a
    connect to a typed name (its name field stays on screen), keep the card's own left alignment (review 3). */
-#plus-state2.plus-si-busy #plus-si-k canvas { margin: 0 auto 16px; }
+#plus-state2.plus-si-busy #plus-si-k .orb-wait { margin: 7px auto 24px; }
 /* Review 9: the note is a status region that is always there and empty until a connect; a screen reader announces a
    change to its text, not its appearing. Empty, it takes no room. */
 #plus-state2 #plus-si-k-note:empty { margin: 0; }
@@ -25808,17 +25812,14 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     ? (body && body.rollingBackTo ? String(body.rollingBackTo) : '')
     : (body && body.updating ? String(body.updating) : '');
   back.innerHTML = '<div class="upd-msg" role="alert" tabindex="-1">'
-    + '<canvas class="upd-k" width="176" height="206" role="img" aria-label="Updating"></canvas>'
+    + kOrbWaitHtml('upd-k', 'Updating')
     + '<b>' + esc(updateOverlayLead(true, downloading, undefined, rollingBack)) + '</b> Your agents keep working.</div>';
   /* #4356: an update over the first screen is shown, not hidden under it: the screen goes (and its
      inert hold with it), so the person sees why the buttons stopped; the reload that ends every
      update brings the screen back, still asking (review round 21). */
   { const frc = document.getElementById('fr-choice');
     if (frc && !frc.hidden) { frc.hidden = true; if (typeof frChoiceInert === 'function') frChoiceInert(false); } }
-  document.body.appendChild(back);
-  /* After it is in the document: the loader measures the canvas, and a detached
-     one has no layout to measure. */
-  startKLoader(back.querySelector('.upd-k'));
+  document.body.appendChild(back);   // the orb (#7896) is drawn by KORB once it is in the page
   // Same rule as the first-run overlay: everything behind it goes inert, so
   // the keyboard cannot operate the dying board through the backdrop. No
   // un-inert path is needed; every exit from this state is a reload.
@@ -33151,16 +33152,12 @@ function computersSwitchingScreen(name) {
   back.className = 'cswitch-back';
   back.id = 'cswitch-screen';
   back.setAttribute('role', 'status');
-  const cv = document.createElement('canvas');
-  cv.className = 'cswitch-k';
-  cv.width = 176;
-  cv.height = 206;
-  cv.setAttribute('aria-hidden', 'true');
+  const mark = document.createElement('div');
+  mark.innerHTML = kOrbWaitHtml('cswitch-k');   // the KOSMOS orb (#7896); KORB draws it as soon as it is in the page
   const p = document.createElement('p');
   p.textContent = 'Opening ' + name;
-  back.append(cv, p);
+  back.append(mark.firstElementChild, p);
   document.body.appendChild(back);
-  if (typeof startKLoader === 'function') startKLoader(cv);
   /* Never stranded: when the switch does not leave this page (the Mac app went home instead and declined, an update
      running there; or the navigation failed and the page stayed), the screen comes down after the ticket's own
      8 s cut and a margin, and the page is usable again. */
@@ -47292,9 +47289,10 @@ function usageHistoryHtml(byDay) {
     + rows.join('');
 }
 let USAGE_BUSY = false;
-/* #7896 (Josh 2026-11-03: "Let's do it. Can you replace it wherever we have the current spinning one?", "keep it the
-   same sized circle"): the loading mark is the KOSMOS orb. Every .spin.spin-sweep keeps its markup, size (--sz) and
-   colour (--spin-dot, ink on a gold .btn); this draws the orb into a canvas inside it and the CSS hides the old dots.
+/* #7896, corrected by Josh 11-06: "the new orb stuff should not replace the small loading spinners ... It's only on
+   these big giant ones ... where a whole screen needs to load or something is waiting." So this draws the KOSMOS orb
+   only into a whole-screen wait's .spin.spin-sweep.orb-wait (kOrbWaitHtml, 88 px); every small spinner keeps the Sweep
+   dots. It draws into a canvas inside the spinner and the CSS hides its dots.
    The orb: a ball of gold dots carried by slow currents, its skin held round, turning, with K, O, S, M, O, S cut
    through it one letter per half turn (the wordmark's own dots, chaoskosmos-site kosmos-wordmark.svg; odd letters
    mirrored so they read from the far side; the O a full open circle), a 27 s loop (still, under reduced motion, with
@@ -47485,7 +47483,7 @@ const KORB = (() => {
       if (undrawn.length) firstAll(undrawn);
       if (shown.size) start();
     });
-    all = document.getElementsByClassName('spin-sweep');
+    all = document.getElementsByClassName('orb-wait');   // Josh 11-06: only the whole-screen waits; small spinners keep the Sweep dots
     new MutationObserver(watch).observe(document.documentElement, { childList: true, subtree: true });
     watch();
     // A theme change recolours: forget each colour and draw again. Needed since #7896's follow-up: --spin-gold is the
@@ -47525,6 +47523,15 @@ const KORB = (() => {
 })();
 /* #5362: the standard loading spinner (Take D Sweep), beside Token Usage's reading line while /api/usage loads. */
 const LOAD_SPIN_HTML = '<span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
+/* #7896 follow-up (Josh 11-06 11:25, on the "Opening" screen: "When are we going to maybe see the new kosmos animated
+   graphic in here?"): the big waiting screens show the KOSMOS orb too. It is the same .spin-sweep KORB draws everywhere
+   else, at 88 px, the K loader's width on those screens. `cls` keeps each screen's own class for its layout; `label`
+   names it for a screen reader where the old canvas did (the update overlay), and hides it otherwise; `size` in px (88). */
+function kOrbWaitHtml(cls, label, size) {
+  return '<span class="spin spin-sweep orb-wait ' + cls + '" style="--sz:' + (size || 88) + 'px"'
+    + (label ? ' role="img" aria-label="' + label + '"' : ' aria-hidden="true"')
+    + '><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
+}
 async function paintUsage() {
   const msg = document.getElementById('usage-msg');
   const hero = document.getElementById('usage-hero'); // #2840: the approved value-view hero
@@ -53915,6 +53922,22 @@ let ROLES_COMPLETE = false; // #4632: false while the board holds only the built
 /* The running mark on the creation screen, so the one branch that may complete
    it can reach the loop that is already drawing. Null on every other screen. */
 let MADE_MARK = null;
+/* Josh 11-06 named creating an agent as a whole-screen wait for the KOSMOS orb. The orb shows while the agent is made;
+   a clean finish (finish(), only on the success path) puts the K loader's canvas back and finishes it, so the moment
+   still ends in the dots becoming a tick. Each start puts in a fresh copy of the canvas: an earlier loader's loop
+   ends once its canvas has left the page, so a retry never draws two loops on one canvas. */
+function startMadeMark(cv) {
+  if (!cv) return null;
+  const fresh = cv.cloneNode(false); cv.replaceWith(fresh); fresh.hidden = true;
+  const holder = document.createElement('div'); holder.innerHTML = kOrbWaitHtml('made-orb', '', 66);
+  const orb = holder.firstElementChild; fresh.before(orb);
+  let done = false;
+  return { finish() {
+    if (done) return; done = true;
+    orb.remove(); fresh.hidden = false;
+    const k = startKLoader(fresh); if (k && k.finish) k.finish();
+  } };
+}
 
 let CREATE_MODELS = [];    // the engine's model list, from the same payload
 /* #2140: a generation counter for the OpenAI create-model fetch, so switching
@@ -58427,15 +58450,13 @@ function plusSiWayOut(step) {
   if (step === 'plus-si-keychanged') return '';   // kosmos#6596 step 8: its own two buttons
   return 'Start over';
 }
-/* #5785: the branded K loader (#2692) while a register runs. Mounted fresh each time and removed by emptying the holder:
-   startKLoader ends its frame loop once its canvas has left the page, so hiding it would leave it drawing. */
+/* #5785: a loader while a register runs (the KOSMOS orb since #7896). Mounted fresh each time and removed by emptying the holder. */
 /* Mona Lisa's review: measured on the coordinator, a connect is about 33 s (a fixed 24 s DNS settle). */
 const PLUS_SI_K_NOTE = 'This takes about half a minute.';
 function plusSiKStart(centred) {
   const holder = document.getElementById('plus-si-k');
   if (!holder) return;
-  holder.innerHTML = '<canvas width="176" height="206" aria-hidden="true"></canvas>';
-  if (typeof startKLoader === 'function') startKLoader(holder.firstElementChild);
+  holder.innerHTML = kOrbWaitHtml('plus-si-orb');   // the KOSMOS orb (#7896), drawn by KORB
   const card = document.getElementById('plus-state2'); if (card) card.classList.toggle('plus-si-busy', !!centred);
   const note = document.getElementById('plus-si-k-note'); if (note) note.textContent = PLUS_SI_K_NOTE;
 }
@@ -68149,7 +68170,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
   document.getElementById('made-retry').hidden = true;
   document.getElementById('made-ticks').innerHTML = '';
   if (MADE_MARK && MADE_MARK.finish) MADE_MARK.finish();
-  const myMark = startKLoader(document.getElementById('made-mark'));
+  const myMark = startMadeMark(document.getElementById('made-mark'));
   MADE_MARK = myMark;
   /* #2190: drop THIS attempt's loader, but only while it is still the current
      one. The walk-away returns and the error paths below all call this. Keying on

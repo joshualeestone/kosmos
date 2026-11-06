@@ -258,7 +258,7 @@ const FOUR = {
       const s = document.getElementById('cswitch-screen');
       if (!s) return null;
       const r = s.getBoundingClientRect();
-      const cv = s.querySelector('canvas.cswitch-k');
+      const cv = s.querySelector('.cswitch-k canvas.korb');   // #7896 (Josh 11-06): the KOSMOS orb, drawn by KORB
       let inked = 0;
       try { const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) inked += 1; } catch {}
       const top = document.elementFromPoint(innerWidth / 2, 20);
@@ -267,7 +267,7 @@ const FOUR = {
     });
     ok(`${t} #6585: from the click, the switching screen covers the window, on top, and names the computer`,
       !!shown && shown.covers && shown.onTop && shown.text === 'Opening desk-mini' && shown.role === 'status' && shown.asked === 1, JSON.stringify(shown));
-    ok(`${t} #6585: the animated K is drawn (not a blank canvas) on an opaque ground`,
+    ok(`${t} #6585, #7896: the KOSMOS orb is drawn (not a blank canvas) on an opaque ground`,
       !!shown && shown.inked > 50 && !/rgba\(0, 0, 0, 0\)|transparent/.test(shown.bg), JSON.stringify(shown && { inked: shown.inked, bg: shown.bg }));
     if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, `switching-${engine}-${theme}-desktop.png`) });
 
