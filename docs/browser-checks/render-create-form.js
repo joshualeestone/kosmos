@@ -297,11 +297,12 @@ function check(name, pass, detail) {
         && enabled.some(([t]) => /openai/i.test(t))
         // #3568: Google Gemini (Google subscription), gated on Antigravity being installed
         // (off in this check's sandbox, which has no agy); its name matches /gemini/ above.
-        // #7206: eleven with DeepSeek and Z.ai GLM, each refused up front while its own switch is off (this sandbox
-        // has no marker). (The GLM row made it eleven before slice 2b; this check was not selected until 2b's diff.)
-        && seen.providers.length === 11
+        // #7206: twelve with DeepSeek, Z.ai GLM and MiniMax, each refused up front while its own switch is off (this
+        // sandbox has no marker).
+        && seen.providers.length === 12
         && seen.providers.some(([t, d]) => /deepseek/i.test(t) && d)
-        && seen.providers.some(([t, d]) => /glm/i.test(t) && d),
+        && seen.providers.some(([t, d]) => /glm/i.test(t) && d)
+        && seen.providers.some(([t, d]) => /minimax/i.test(t) && d),
       `${enabled.length} of ${seen.providers.length} selectable: ${enabled.map((x) => x[0]).join(', ')}`);
     /* #3566: the loose check above cannot see the gate break (a gate that always offers
        Gemini/Grok passes it). This one compares each against what the page's own account
