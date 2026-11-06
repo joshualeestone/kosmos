@@ -24,3 +24,14 @@ and nobody learned recovery was missing.
 - docs/browser-checks/render-signin-recovery-7504.js: Chromium and WebKit, desktop and phone, failed vs three
   controls, markup as text, no sideways scroll.
 - mobile-shots screen settings-signin-recovery-7504 for design review.
+
+## After design review (Mona Lisa, 11-05 20:49): the page owns the words
+- engine/win32board.js: ensureWatchdog's failures carry `kind` (refused | not-yet | no-time | other); a /Create
+  Windows refused also carries `detail`, Windows' own first line without "ERROR:". `because` is unchanged for every
+  other reader (logs, the boot path's withWatchdog builds its own answer and is untouched). CRLF output split fixed.
+- web/index.html: startAtSignInRecoverySaid picks the page's own sentence by kind and never shows `because`:
+  refused (with Windows' words, then the way out), not-yet (fixes itself, no way out), no-time ("yet", way out),
+  anything else or no kind (first sentence, way out). "Turn the switch off and on to try again" is offered only where
+  turning it on runs ensureWatchdog again.
+- Superseded: the "engine's own reason after the colon" design above, and its one-full-stop rule.
+- Not taken: a "One thing is not set up:" lead (not-yet is not a failure).
