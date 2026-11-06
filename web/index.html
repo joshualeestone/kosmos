@@ -63260,7 +63260,7 @@ async function openTeamCreate(key) {
   }
   TC = {
     key, team: body.team,
-    members: body.members.map((m) => ({ slot: m.slot, title: m.title, name: m.name || '', state: 'ready', why: '', made: null, portrait: null, seen: null })),
+    members: body.members.map((m) => ({ slot: m.slot, title: m.title, name: m.name || '', suggested: m.name || '', state: 'ready', why: '', made: null, portrait: null, seen: null })),
     leadSlot: (body.team && body.team.lead) || (body.members[0] && body.members[0].slot) || null,
     started: false,
   };
@@ -63600,7 +63600,7 @@ document.getElementById('tc-short').addEventListener('click', () => {
   for (const m of TC.members) {
     if (m.state !== 'ready') continue;
     if (m.typed) { typed += 1; continue; }
-    const was = m.name; m.name = tcShortName(m); if (m.name !== was) n += 1; else none += 1;
+    const was = m.name; m.name = tcShortName(m); m.suggested = m.name; if (m.name !== was) n += 1; else none += 1;
   }
   for (const li of document.querySelectorAll('#tc-list li')) {
     const m = TC.members.find((x) => x.slot === li.dataset.slot);
@@ -63610,8 +63610,8 @@ document.getElementById('tc-short').addEventListener('click', () => {
   const said = [];
   if (n) said.push('Changed ' + (n === 1 ? '1 name.' : n + ' names.'));
   if (typed) said.push('Kept ' + (typed === 1 ? 'the name' : 'the ' + typed + ' names') + ' you typed.');
-  if (none) said.push(none === 1 ? '1 kept its name: no other short name was free.' : none + ' kept their names: no other short name was free.');
-  tcSayName(said.join(' ') || 'No other short name is free.');
+  if (none) said.push(none === 1 ? '1 kept its name: no other short name is free.' : none + ' kept their names: no other short name is free.');
+  tcSayName(n === 0 && typed === 0 ? 'No other short name is free.' : said.join(' '));
 });
 function tcPaint() {
   if (!TC) return;
@@ -63654,7 +63654,8 @@ function tcPaint() {
     /* Review 27: nor from the click until the run starts. The names are checked free at the click, and
        a name typed after that check would be made, and trusted as checked, without ever being checked. */
     input.disabled = TC.started ? m.state !== 'failed' : Boolean(TC.busy);
-    input.addEventListener('input', () => { m.name = input.value; m.typed = true; });   // kosmos#8092: typed is theirs
+    // kosmos#8092: a name typed in is theirs; an emptied box, or the suggestion typed back, is not.
+    input.addEventListener('input', () => { m.name = input.value; const v = input.value.trim(); m.typed = Boolean(v) && v !== (m.suggested || '').trim(); });
     // kosmos#8092: Another name, a short one; it changes only what the name box would, so it is open exactly when that is.
     const another = document.createElement('button');
     another.type = 'button'; another.className = 'tc-another'; another.disabled = input.disabled;
@@ -63662,7 +63663,7 @@ function tcPaint() {
     another.setAttribute('aria-label', 'Another name for the ' + m.title);
     another.textContent = 'Another';   // a word, not an icon: a phone shows no tooltip
     another.addEventListener('click', () => {
-      const was = m.name; m.name = tcShortName(m); input.value = m.name; m.typed = false;   // a suggestion again
+      const was = m.name; m.name = tcShortName(m); input.value = m.name; m.typed = false; m.suggested = m.name;   // a suggestion again
       tcSayName(m.name === was ? 'No other short name is free.' : 'The ' + m.title + ' is now ' + m.name + '.');   // focus stays on the button
     });
     const namebox = document.createElement('span'); namebox.className = 'tc-namebox';
