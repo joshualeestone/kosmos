@@ -7,7 +7,7 @@
  *   P1  a plain click on an image card opens the preview: a backdrop at least 85% black over the whole window (the
  *       page's scrollbar strip too, which Chromium never paints a fixed layer over), the
  *       picture fitted inside it (never cropped, never past the window), the X in the top-right corner and
- *       "Open in Finder" in the bottom-left corner;
+ *       "Open in Finder" centred right under the picture, in the regular gold (#8122; it was the bottom-left corner);
  *   P2  Escape closes it and focus goes back to the card; the X and a click on the dark close it too;
  *   P3  Open in Finder asks the board to reveal THAT attachment (POST /api/attachment/<id>/reveal), and nothing else;
  *   P4  over Kosmos+ (the page reached by a name other than this computer) the button is Download, a link to the
@@ -98,6 +98,7 @@ async function runOn(engine, base, say) {
         return {
           bg, back: r(back), img: r(img), nat: [img.naturalWidth, img.naturalHeight], fit: getComputedStyle(img).objectFit,
           x: r(back.querySelector('#pv-x')), act: r(back.querySelector('#pv-do')), actText: back.querySelector('#pv-do').textContent,
+          actBg: getComputedStyle(back.querySelector('#pv-do')).backgroundColor,
           vw: innerWidth, vh: innerHeight,
         };
       });
@@ -107,7 +108,11 @@ async function runOn(engine, base, say) {
       say(m.img.l >= 0 && m.img.t >= 0 && m.img.r <= m.vw + 0.5 && m.img.b <= m.vh + 0.5 && m.img.w > m.vw * 0.5, tag + ' P1: the picture is fitted inside the window, and large', JSON.stringify(m.img));
       say(Math.abs(m.img.w / m.img.h - m.nat[0] / m.nat[1]) < 0.02, tag + ' P1: the picture keeps its shape (never cropped or stretched)', (m.img.w / m.img.h).toFixed(3) + ' vs ' + (m.nat[0] / m.nat[1]).toFixed(3));
       say(m.x.r > m.vw - 40 && m.x.t < 40, tag + ' P1: the X is in the top-right corner', JSON.stringify(m.x));
-      say(m.act.l < 40 && m.act.b > m.vh - 40, tag + ' P1: the action is in the bottom-left corner', JSON.stringify(m.act));
+      // #8122 (Josh 11-06: "put the download button right below it ... so it's not hidden off in the corner ... our regular
+      // gold button color"): centred, right under the picture, gold.
+      say(Math.abs((m.act.l + m.act.r) / 2 - m.vw / 2) < 2 && m.act.t >= m.img.b && m.act.t - m.img.b < 90 && m.act.b <= m.vh,
+        tag + ' P1: the action is centred right under the picture (#8122), not in a corner', JSON.stringify({ act: m.act, imgBottom: m.img.b }));
+      { const c = (m.actBg.match(/[\d.]+/g) || []).map(Number); say(c[0] > 200 && c[1] > 150 && c[1] < 200 && c[2] < 110, tag + ' P1: the action is the regular gold button (#8122)', m.actBg); }
       say(m.actText === 'Open in Finder', tag + ' P1: the action is Open in Finder on this computer', m.actText);
       if (label === 'phone') {
         // P7

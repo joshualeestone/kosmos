@@ -6835,7 +6835,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(ev("saved", "missing.txt").isEmpty && pageEvents.contains { ($0["state"] as? String) == "failed" },
                 "kosmos#8120: A FAILED DOWNLOAD IS TOLD AS failed, NEVER saved (failed told \(pageEvents.filter { ($0["state"] as? String) == "failed" }.count))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 41   // kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
+            let expected = 41   // kosmos#8120: +3 (what the page is told); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)

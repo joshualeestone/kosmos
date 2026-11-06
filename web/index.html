@@ -7918,11 +7918,13 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .att-name { font: 600 .9375rem var(--font-ui); color: var(--k-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-meta { font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
 
-/* #4930: the full-page preview of a file a message carries. Very dark, the file fitted to the screen, X top right,
-   the action bottom left. Its own layer above the board, like the other dialogs. */
+/* #4930: the full-page preview of a file a message carries. Very dark, the file fitted to the screen, X top right.
+   #8122 (Josh 11-06: "maybe we put the download button right below it ... so it's not hidden off in the corner like it
+   is right now. And maybe make it our regular gold button color as well"): the name and the action sit centred right
+   under the file, and the action is the regular gold button. Its own layer above the board, like the other dialogs. */
 /* The backdrop is an .rm-back too, so every "is a dialog open?" guard in the page sees it (tips, type-to-compose);
    two classes, so its own dark and layer win over .rm-back's. */
-.rm-back.pv-back { position: fixed; inset: 0; z-index: 59; display: block; background: rgba(0, 0, 0, .9); }   /* under first run (60), which pvCovered also gives the keys */
+.rm-back.pv-back { position: fixed; inset: 0; z-index: 59; display: block; background: rgba(0, 0, 0, .96); }   /* #8122: .96, so the page no longer shows through behind the file's words */   /* under first run (60), which pvCovered also gives the keys */
 /* The page keeps a strip for its scrollbar (scrollbar-gutter: stable), and Chromium (the Windows app's engine) never
    paints a fixed layer over it, so the dark would stop short of the edge. While the preview is in the page the page has
    no scrollbar and no strip (it moves by that strip, behind the dark); gone, it has them back, however it went. */
@@ -7931,7 +7933,8 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 .pv-x { position: absolute; top: 14px; right: 14px; z-index: 1; width: 40px; height: 40px; border: 0; border-radius: 50%;
   background: rgba(255, 255, 255, .12); color: #fff; font: 400 26px/1 var(--font-ui); cursor: pointer; }
 .pv-x:hover { background: rgba(255, 255, 255, .2); }
-.pv-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+.pv-box { justify-content: center; }   /* #8122: the file and its action together, in the middle, not the action in a corner */
+.pv-stage { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 10px; padding: 64px 24px 12px; }
 .pv-media { max-width: 100%; max-height: 100%; min-height: 0; object-fit: contain; border-radius: 4px; }
 .pv-note { margin: 0; color: rgba(255, 255, 255, .62); font: var(--text-caption) var(--font-ui); }
@@ -7941,14 +7944,27 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 .pv-file svg { width: 56px; height: 56px; }
 .pv-file b { font: 600 1.0625rem var(--font-ui); }
 .pv-file span { color: rgba(255, 255, 255, .62); font: var(--text-caption) var(--font-ui); }
-.pv-bar { display: flex; align-items: center; gap: 14px; padding: 14px 18px 18px; min-width: 0; }
-.pv-btn { flex: none; min-height: 40px; padding: 9px 14px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, .14); color: #fff;
-  font: 600 .875rem var(--font-ui); text-decoration: none; cursor: pointer; }
-.pv-btn:hover { background: rgba(255, 255, 255, .22); }
+.pv-bar { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 4px 18px 40px; min-width: 0; text-align: center; }
+.pv-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+/* #8122: the regular gold button (.btn.uprime's gold and ink), on the dark. */
+.pv-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 22px;
+  border: 0; border-radius: 10px; background: var(--gold-bright); color: #14161a;
+  font: 600 .9375rem var(--font-ui); text-decoration: none; cursor: pointer; }
+.pv-btn:hover { filter: brightness(1.06); }
+/* Show in Finder, beside a saved download: the quiet one, so the gold stays the one thing to press. */
+.pv-btn.pv-quiet { background: rgba(255, 255, 255, .14); color: #fff; }
+.pv-btn.pv-quiet:hover { filter: none; background: rgba(255, 255, 255, .22); }
+/* kosmos#8120: saving (off, the Sweep dots in the button's ink) and saved (a tick). */
+.dl-busy { cursor: default; }
+.pv-btn.dl-busy:not(.dl-saved) { opacity: .85; }
+.pv-btn .spin { --spin-dot: #14161a; }
+.dl-tick { flex: none; }
 .pv-x:focus-visible, .pv-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
-.pv-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255, 255, 255, .72);
+.pv-name { max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255, 255, 255, .72);
   font: var(--text-caption) var(--font-ui); }
 .pv-msg { color: #ffb4a8; font: var(--text-caption) var(--font-ui); }
+.pv-name.pv-dup { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pv-msg.dl-said { color: rgba(255, 255, 255, .78); }   /* kosmos#8120: "<name> is in your Downloads folder" is news, not an error */
 .att.haspic[data-att] { cursor: zoom-in; }
 /* #5510: a phone's own keyboard has emoji, so on a phone touchscreen the room's emoji button gives its 34px back to
    the text box, where the hint was being cut after "Write something c". The picker stays on every other screen. */
@@ -21614,7 +21630,64 @@ const KPLUS_SETTINGS_ELSEWHERE = 'Those settings open on the computer Kosmos run
    the line was already showing, such as a cut-short list), which a refusal then replaces. `kind` is 'agent' (an agent's Files) or 'project'; the addresses are
    written out here, once each, so every fetch on the page keeps a URL the route test can read. */
 const KPLUS_LATEST = new WeakMap();   // message line -> the last download asked through it
-function kplusDownload(kind, owner, name, say, after) {
+/* kosmos#8120 (Josh 11-06: "I hit it three times before I was like, Well I don't really see that anything's happening.
+   I went over and looked in my Downloads folder and there was the file."): in the Mac app, a Download button says when
+   the file has saved, and cannot be clicked again while it saves. The app tells the page `saving`, `saved` or `failed`
+   (native-app kosmosDownload, the event `kosmos-download`); `saved` comes only from the save finishing, never from the
+   click, so a failed save never says saved. A plain browser shows its own downloads, and an older app tells nothing,
+   so without the app's handler nothing here changes. Each event is matched to the click that started it, oldest first. */
+const DL_WAIT = [];   // the clicks waiting to hear from the app, oldest first
+const DL_TICK = '<svg class="dl-tick" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M3.5 8.5 6.5 11.5 12.5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function dlAppTells() {
+  try { return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosDownload); } catch { return false; }
+}
+function dlBusy(btn) { return !!(btn && btn.classList.contains('dl-busy')); }
+/* Starts watching one click. `btn` (optional) is the control that was clicked; `say` (optional, a kplusSayer) is the
+   line beside it. Returns false, and changes nothing, when the app will not say how the save went. */
+function dlWatch(btn, say) {
+  if (!dlAppTells()) return false;
+  const w = { btn, say, id: null, html: btn ? btn.innerHTML : '', text: !!(btn && btn.classList.contains('pv-btn')) };
+  if (btn) { btn.classList.add('dl-busy'); btn.setAttribute('aria-disabled', 'true'); }
+  // A new click clears this line's last "is in your Downloads folder": it was about the last save, not this one.
+  if (say && say.el && say.el.classList.contains('dl-said')) { say.el.textContent = ''; say.el.classList.remove('dl-said'); }
+  // Only a save that takes a moment shows the dots, so a fast one never flashes them (#7896: small waits are the Sweep dots).
+  w.slow = setTimeout(() => { if (btn && DL_WAIT.includes(w)) btn.innerHTML = '<span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>' + (w.text ? 'Saving' : ''); }, 400);
+  // No word from the app at all (it refused the download before it began): the button comes back, unclaimed.
+  w.lost = setTimeout(() => { if (w.id === null) dlEnd(w); }, 30000);
+  DL_WAIT.push(w);
+  return true;
+}
+function dlEnd(w) {
+  clearTimeout(w.slow); clearTimeout(w.lost);
+  const i = DL_WAIT.indexOf(w); if (i >= 0) DL_WAIT.splice(i, 1);
+  if (w.btn) { w.btn.innerHTML = w.html; w.btn.classList.remove('dl-busy', 'dl-saved'); w.btn.removeAttribute('aria-disabled'); }
+}
+window.addEventListener('kosmos-download', (e) => {
+  const d = (e && e.detail) || {};
+  if (typeof d.id !== 'number') return;
+  if (d.state === 'saving') { const w = DL_WAIT.find((x) => x.id === null); if (w) w.id = d.id; return; }
+  const w = DL_WAIT.find((x) => x.id === d.id);
+  if (!w) return;
+  if (d.state !== 'saved') { dlEnd(w); return; }   // failed: the app has already said why, in its own alert
+  clearTimeout(w.slow); clearTimeout(w.lost);
+  DL_WAIT.splice(DL_WAIT.indexOf(w), 1);
+  const name = String(d.name || 'The file');
+  if (w.say) { w.say(name + ' is in your Downloads folder.'); if (w.say.el) w.say.el.classList.add('dl-said'); }
+  if (w.btn) {
+    w.btn.classList.add('dl-saved');
+    w.btn.innerHTML = DL_TICK + (w.text ? 'Saved to Downloads' : '');
+    if (w.text) {   // the viewer: Show in Finder beside it, for this file, until the viewer closes
+      const show = document.createElement('button');
+      show.type = 'button'; show.className = 'pv-btn pv-quiet'; show.textContent = 'Show in Finder';
+      show.addEventListener('click', () => { try { window.webkit.messageHandlers.kosmosDownload.postMessage({ reveal: d.id }); } catch { /* not the app */ } });
+      const had = w.btn.parentNode && w.btn.parentNode.querySelector('.pv-quiet'); if (had) had.remove();
+      w.btn.after(show);
+    }
+    setTimeout(() => { if (w.btn.classList.contains('dl-saved')) dlEnd(w); }, w.text ? 6000 : 3000);
+  }
+});
+function kplusDownload(kind, owner, name, say, after, btn) {
+  if (dlBusy(btn)) return;   // kosmos#8120: saving already; a second click would save a second copy
   const q = 'name=' + encodeURIComponent(name);
   const ticket = {};
   if (say && say.el) KPLUS_LATEST.set(say.el, ticket);   // an older look's answer then never lands on a newer click
@@ -21629,6 +21702,7 @@ function kplusDownload(kind, owner, name, say, after) {
   a.click();
   a.remove();
   if (say) say(after || '');
+  dlWatch(btn, say);   // kosmos#8120: in the Mac app, the button and the line say when it has saved
   const look = kind === 'agent'
     ? fetch('/api/agent/' + encodeURIComponent(owner) + '/files/download?check=1&' + q, { cache: 'no-store' })
     : fetch('/api/project/' + encodeURIComponent(owner) + '/file-download?check=1&' + q, { cache: 'no-store' });
@@ -45498,7 +45572,7 @@ for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-lis
   const dlb = e.target.closest('.pj-doc-dl');
   if (dlb && CURRENT) {   // kosmos#7952: one file, to this device
     const who = CURRENT.sessionName;
-    kplusDownload('agent', who, dlb.dataset.dl, kplusSayer(document.getElementById(msgId), () => CURRENT && CURRENT.sessionName === who));
+    kplusDownload('agent', who, dlb.dataset.dl, kplusSayer(document.getElementById(msgId), () => CURRENT && CURRENT.sessionName === who), undefined, dlb);
     return;
   }
   const row = e.target.closest('.pj-doc');
@@ -77126,7 +77200,7 @@ const PV_HTML = '<div class="rm-back pv-back" id="pv-preview">'
   + '<div class="pv-box" role="dialog" aria-modal="true" aria-labelledby="pv-name" tabindex="-1">'
   + '<button type="button" class="pv-x" id="pv-x" aria-label="Close">&times;</button>'
   + '<div class="pv-stage" id="pv-stage"></div>'
-  + '<div class="pv-bar"><span id="pv-act"></span><span class="pv-name" id="pv-name"></span><span class="pv-msg" id="pv-msg" role="status"></span></div>'
+  + '<div class="pv-bar"><span class="pv-name" id="pv-name"></span><span class="pv-acts"><span id="pv-act"></span></span><span class="pv-msg" id="pv-msg" role="status"></span></div>'
   + '</div></div>';
 function pvRevealWord() { return onWindows() ? 'Show in File Explorer' : 'Open in Finder'; }
 /* The preview's action is Download, not a reveal, through Kosmos+ (the file is not on this device) and, #5865, on
@@ -77172,17 +77246,25 @@ function pvOpen(id, from) {
     stage.appendChild(fileCard());
   }
   back.querySelector('#pv-name').textContent = a.name;
+  // #8122: a file that cannot be shown has its name on its card already, with the button right under it; the bar's copy
+  // stays only as the dialog's label.
+  if (stage.querySelector('.pv-file')) back.querySelector('#pv-name').classList.add('pv-dup');
   const act = back.querySelector('#pv-act');
   if (kplusRemote() && typeof a.download === 'function') {
     /* #4997: a Files-list file downloads through kplusDownload, so a refusal (renamed, moved, a gate) is said in the
        bar rather than answered with nothing (a navigation's refusal is a silent 204, #5165). */
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'pv-btn'; b.id = 'pv-do'; b.textContent = 'Download';
-    b.addEventListener('click', () => a.download());
+    b.addEventListener('click', () => a.download(b));
     act.replaceWith(b);
   } else if (pvOffersDownload()) {
     const dl = document.createElement('a');
     dl.className = 'pv-btn'; dl.id = 'pv-do'; dl.href = a.url; dl.setAttribute('download', a.name); dl.textContent = 'Download';
+    // kosmos#8120: in the Mac app the link says when it has saved, and a click while it saves does nothing.
+    dl.addEventListener('click', (e) => {
+      if (dlBusy(dl)) { e.preventDefault(); return; }
+      dlWatch(dl, kplusSayer(document.getElementById('pv-msg'), () => !!document.getElementById('pv-msg')));
+    });
     act.replaceWith(dl);
   } else {
     const b = document.createElement('button');
@@ -77191,10 +77273,10 @@ function pvOpen(id, from) {
     act.replaceWith(b);
   }
   back.querySelector('#pv-x').addEventListener('click', pvClose);
-  // A click on the dark closes it: anything but the file, the X, the action, and the words a person may want to
+  // A click on the dark closes it: anything but the file, the X, the action (and #8120's Show in Finder), and the words a person may want to
   // select or copy (the name, a note, an error). Only when the press began on the dark too, so selecting a text
   // file's words and letting go past them does not close it.
-  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, #pv-x, #pv-do, .pv-name, .pv-msg, .pv-note'));
+  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, #pv-x, #pv-do, .pv-quiet, .pv-name, .pv-msg, .pv-note'));
   let pressedOnFile = false;
   back.addEventListener('pointerdown', (e) => { pressedOnFile = onFile(e.target); });
   back.addEventListener('click', (e) => { if (!pressedOnFile && !onFile(e.target)) pvClose(); pressedOnFile = false; });
@@ -77313,8 +77395,8 @@ function filesPvOpen(row, where, e) {
     url: base.download + q, preview: base.preview + q,
     // #6724: the only way a text preview is fetched (pvStageKind): which list, whose, and the listed name. Never an address.
     textOf: kind === 'text' ? { kind: where.agent ? 'agent' : 'project', owner: where.agent || where.project, name } : undefined,
-    download: () => kplusDownload(where.agent ? 'agent' : 'project', where.agent || where.project, name,
-      kplusSayer(document.getElementById('pv-msg'), () => !!document.getElementById('pv-msg'))),
+    download: (btn) => kplusDownload(where.agent ? 'agent' : 'project', where.agent || where.project, name,
+      kplusSayer(document.getElementById('pv-msg'), () => !!document.getElementById('pv-msg')), undefined, btn),
     reveal: async () => {
       const msg = document.getElementById('pv-msg');
       if (msg) msg.textContent = '';
