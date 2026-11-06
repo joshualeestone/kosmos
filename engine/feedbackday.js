@@ -187,7 +187,7 @@ function digest(o) {
     if (elsewhere) {
       lines.push('  You told Kosmos you answer your person on ' + elsewhere + '. Kosmos cannot see that, so what you said there is not counted here.');
     } else if (theirs > 0 && theirs === talk.length) {
-      lines.push('  If you answered them somewhere else, tell Kosmos where with: kosmos reply-channel "<where>" (Kosmos then stops reminding you to answer a first message here, so declare it only where you do answer)');
+      lines.push('  If you answered them somewhere else, tell Kosmos where with: kosmos reply-channel "<where>" (Kosmos then stops reminding you to answer a first message here, so declare it only where you do answer).');
     }
     const shown = talk.slice(-MAX_MESSAGES);
     if (shown.length < talk.length) lines.push('  (the last ' + shown.length + ')');

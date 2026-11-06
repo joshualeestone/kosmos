@@ -3651,10 +3651,11 @@ cmd_post() {
 
 # ---- kosmos reply-channel <where> | --clear      (kosmos#5805 part 2)
 # An agent whose instructions say to answer the person somewhere other than `kosmos reply` (Discord, say) declares it,
-# so Kosmos stops reminding it that nothing reached the person: Kosmos cannot see that channel. --clear goes back.
+# so Kosmos stops reminding it that nothing reached the person, and the person's thread says it answers there (#8141): Kosmos
+# cannot see that channel. --clear goes back.
 # Bare prints the usage and exits 2, like the other argument-taking verbs (the --help guard reuses it).
 cmd_reply_channel() {
-  local usage="Usage: kosmos reply-channel <where you answer the person>   (for an agent whose instructions say to answer somewhere other than kosmos reply, Discord say: Kosmos then stops reminding you that nothing reached them, since it cannot see that channel; kosmos reply-channel --clear goes back to kosmos reply)"
+  local usage="Usage: kosmos reply-channel <where you answer the person>   (for an agent whose instructions say to answer somewhere other than kosmos reply, Discord say: Kosmos then stops reminding you that nothing reached them, and their thread with you says you answer there, since it cannot see that channel; kosmos reply-channel --clear goes back to kosmos reply)"
   [ "$#" -gt 0 ] || { say "$usage"; exit 2; }
   local channel _tok="" _bt rc=0 body because esc_ch esc_pane
   if [ "$#" -eq 1 ] && [ "$1" = "--clear" ]; then channel=""; else channel="$*"; fi

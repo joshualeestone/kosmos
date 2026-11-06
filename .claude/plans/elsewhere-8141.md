@@ -13,8 +13,9 @@ The same plan is on the card: https://github.com/joshualeestone/kosmos/issues/81
 4. `kosmos inbox --unanswered`: the agent's own list, no claim to the person. Left as is.
 
 **Change:**
-- Thread route: with a declared channel and a message owed, the page says "It says it answers you on <where>, which Kosmos cannot see." in place of "Nothing back yet." The two-minute grace stays.
+- Thread route: with a declared channel and a message owed, the page says "Nothing back here. It says it answers you on <where>, which Kosmos cannot see." in place of "Nothing back yet." (it keeps the one fact Kosmos can see: nothing came back here) The two-minute grace stays.
 - Digest: the line says what was said **here in Kosmos**, never a bare "nothing today". With a declared channel it adds that the person may have been answered there. Without one, when the person wrote and the agent sent nothing here, it names `kosmos reply-channel`, so the agent can declare it next time.
+- The `kosmos reply-channel` help (Mac and Windows CLIs) names this too: declaring changes what the person sees, not only the reminder.
 - Tests: each wording, plus a control showing an undeclared agent still gets "Nothing back yet."
 
 **Rejected:** inferring "answers elsewhere" from a `-discord` session name. A Discord bridge says where an agent runs, not that it answered this person there, so the board would be claiming an answer it cannot see, which is the same mistake reversed.
