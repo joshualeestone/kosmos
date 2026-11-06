@@ -632,6 +632,10 @@ func reopenMissesAfter(_ answer: ReopenAnswer, _ prior: Int) -> Int {
 /// kosmos#8118 (review 5, 6): a sign-in page's retry is taken only this soon after the ask, never hours later. PURE.
 let REOPEN_RETRY_WINDOW_S: TimeInterval = 120
 func reopenRetryAllowed(now: Date, until: Date?) -> Bool { until.map { now < $0 } ?? false }
+/// kosmos#8125: PURE. The miss count at quit. A reopen that answered 'opening' but whose page never loaded (the list
+/// said online, the ticket was made, then the load failed) is a miss too, counted when the launch ends; otherwise that
+/// one path said "Going back to ..." at every launch, past REOPEN_MISS_LIMIT.
+func quitMissesAfter(prior: Int, landingDue: Bool) -> Int { landingDue ? prior + 1 : prior }
 
 /// kosmos#8118 (review 4): PURE, for --kosmos-app-mode-selftest. What a quit writes as the computer to reopen.
 /// On another computer: that one. With no page on screen (the page process crashed): nothing is decided, so the
@@ -2395,6 +2399,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // computer's page finishes loading (reopenStep's .keep, the same computer included). While true, a quit keeps
     // the host (quitKeeps).
     private var reopenOutstanding = false
+    // kosmos#8125: true from an 'opening' answer until the other computer's page loads. Still true at quit means the
+    // switch never landed, which counts as a miss (quitMissesAfter).
+    private var reopenLandingDue = false
     // kosmos#8118 (review 5): launches in a row whose reopen missed (reopenMissesForget), kept with the host.
     private static let reopenMissesKey = "kosmos.reopenComputerMisses"
     private var reopenMisses: Int {
@@ -3306,6 +3313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         boardStartFromBackHome = true
         // kosmos#8118: going home on purpose is the person's choice, so the next launch opens here too.
         reopenOutstanding = false
+        reopenLandingDue = false
         reopenMisses = 0
         if reopenComputerHost != nil { reopenComputerHost = nil; logLine("#8118: forgot the computer to reopen (back to this computer)") }
         loadBoard()
@@ -5868,6 +5876,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case .nothing: return
         case .keep(let host):
             reopenOutstanding = false
+            reopenLandingDue = false   // kosmos#8125: it landed
             reopenMisses = 0   // review 6: the other computer's page LANDED, so it is reachable; only this resets the count
             if host != reopenComputerHost { reopenComputerHost = host; logLine("#8118: will reopen \(host) at the next launch") }
         case .forget: reopenComputerHost = nil; logLine("#8118: forgot the computer to reopen (the window is home, or this computer connects)")
@@ -5910,8 +5919,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             let answer = reopenAnswerKeeps(said)
             self.reopenMisses = reopenMissesAfter(answer, self.reopenMisses)
             switch answer {
-            case .opening, .notChecked:
-                break   // still outstanding; a switch under way is settled when the other computer's page loads
+            case .opening:
+                self.reopenLandingDue = true   // kosmos#8125: settled when the other computer's page loads, or a miss at quit
+            case .notChecked:
+                break   // still outstanding, not counted (this computer could not check)
             case .missed:
                 if reopenMissesForget(self.reopenMisses) {
                     self.reopenOutstanding = false
@@ -6134,6 +6145,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// common case.
     func applicationWillTerminate(_ notification: Notification) {
         guard computerMode == .run || computerMode == .both else { return }
+        // kosmos#8125: a switch this launch started that never landed is a miss, so the limit applies to it too.
+        if reopenLandingDue {
+            reopenLandingDue = false
+            reopenMisses = quitMissesAfter(prior: reopenMisses, landingDue: true)
+            if reopenMissesForget(reopenMisses), let gone = reopenComputerHost {
+                reopenComputerHost = nil
+                reopenOutstanding = false
+                reopenMisses = 0
+                logLine("#8125: the switch to \(gone) never landed, \(REOPEN_MISS_LIMIT) launches in a row, so it is forgotten")
+            }
+        }
         let away = isOnAnotherComputer() ? computerToRemember(committedPageURL, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost()) : nil
         let host = quitKeeps(awayHost: away, hasPage: committedPageURL != nil, reopenOutstanding: reopenOutstanding, kept: reopenComputerHost)
         if host != reopenComputerHost {
@@ -8155,6 +8177,15 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     retry(60, true, "a sign-in page soon after the ask: ask again")
     retry(-1, false, "PAST THE WINDOW: NEVER HOURS LATER")
     retry(nil, false, "no ask yet: no retry")
+    func landed(_ prior: Int, _ due: Bool, _ want: Int, _ why: String) {
+        ran += 1
+        let got = quitMissesAfter(prior: prior, landingDue: due)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "landing".padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    landed(0, true, 1, "A SWITCH THAT NEVER LANDED IS A MISS AT QUIT")
+    landed(2, true, 3, "the third such launch reaches the limit")
+    landed(2, false, 2, "a switch that landed (or none) is not counted")
     func quit(_ away: String?, _ hasPage: Bool, _ outstanding: Bool, _ kept: String?, _ want: String?, _ why: String) {
         ran += 1
         let got = quitKeeps(awayHost: away, hasPage: hasPage, reopenOutstanding: outstanding, kept: kept)
@@ -8403,7 +8434,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 295   // kosmos#8118: +61 (7 computerToRemember rows, 7 rememberableHost rows, 15 reopenAnswerKeeps rows, 3 reopenMissesForget rows, 5 reopenMissesAfter rows, 3 reopenRetryAllowed rows, 6 quitKeeps rows, 15 reopenStep rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 298   // kosmos#8125: +3 (quitMissesAfter rows); kosmos#8118: +61 (7 computerToRemember rows, 7 rememberableHost rows, 15 reopenAnswerKeeps rows, 3 reopenMissesForget rows, 5 reopenMissesAfter rows, 3 reopenRetryAllowed rows, 6 quitKeeps rows, 15 reopenStep rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
