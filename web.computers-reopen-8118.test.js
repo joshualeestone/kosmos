@@ -50,7 +50,7 @@ function world(answer, { opening = false, during = null, hang = false } = {}) {
   };
   const early = [];
   // Round 3: the reopen says at once that it is going back; that toast is kept apart so each case checks its own.
-  const msgToast = (t) => { (/^Going back to /.test(t) ? early : said).push(t); };
+  const msgToast = (t) => { (/^Going back to /.test(t) ? early : said).push(t); };   // 'Opening ...' lands in said
   const computersOpenWithTicket = (url, name, a) => { opened.push({ href: url.href, name, a }); };
   // eslint-disable-next-line no-new-func
   const run = new Function('fetch', 'msgToast', 'computersOpenWithTicket', 'computersOpening', 'document', 'setTimeout',
@@ -65,7 +65,7 @@ test('#8118: a computer the switcher would open is opened the same way (ticket p
   assert.equal(await w.run('Mini.KosmosPlus.com '), 'opening');
   assert.deepEqual(w.opened.map((o) => [o.href, o.name, o.a]), [['https://mini.kosmosplus.com/', 'mini', null]],
     'the reopen did not go through computersOpenWithTicket for that computer');
-  assert.deepEqual(w.said, [], 'an opening reopen should say nothing; the switching screen shows');
+  assert.deepEqual(w.said, ['Opening mini...'], 'the "Going back" promise is not retired as the switch starts');
   assert.deepEqual(w.blurred, [true], 'the focused field kept focus while the ticket is made, so typing lands in it');
 });
 
@@ -190,7 +190,7 @@ test('#8118: the shared switch with no clicked link (a reopen) opens with a tick
 test('#8118 (round 3): the reopen says at once where it is going and how to stay, before the list answers', async () => {
   const w = world(list([HERE, MINI]));
   const p = w.run('mini.kosmosplus.com');
-  assert.deepEqual(w.early, ['Going back to mini, the computer you were looking at. Click or type here to stay on this computer.'],
+  assert.deepEqual(w.early, ['Going back to mini, the computer you were looking at. Click, type or scroll here to stay on this computer.'],
     'nothing is said while the list is read, so the switch lands as a surprise');
   assert.equal(await p, 'opening');
 });

@@ -12,11 +12,12 @@ own agents, so he switches again every time.
 - View > Back to This Computer (#6411) is the way home.
 
 ## Plan
-1. Remember (app): the kept value means "the computer the window was last on". When another of the account's
-   computers finishes loading, store ONLY its host (`<name>.kosmosplus.com`) in the app's defaults: never a ticket,
-   token or full URL. Forgotten by Back to This Computer (and the #6585 navigation home), by any later load of this
-   computer's own board in the same launch (the window is home), by a reopen that does not happen, and when the Mac
-   is in connect mode (review 1).
+1. Remember (app): the kept value means "the computer the window was on at quit" (`quitKeeps`, rounds 3 to 5). Store
+   ONLY a host (`<name>.kosmosplus.com`) in the app's defaults: never a ticket, token or full URL. Kept as soon as
+   another computer's page loads (so a crash still leaves it). Written at quit: that computer if the window is on
+   one; unchanged if no page is on screen or a reopen is still outstanding; otherwise nothing. Forgotten at once by
+   Back to This Computer, by connect mode, by a reopen answer that can never succeed or that the person ended
+   (gone, home, bad, touched, signed-out), and after REOPEN_MISS_LIMIT (3) launches in a row whose reopen missed.
 2. Reopen (app + page): launch loads the local board exactly as today. After that first load finishes, the app asks
    the page to reopen the remembered host (`computersReopen(host)`), so the local board is never held up by a slow
    remote.
@@ -105,6 +106,21 @@ board load).
   host in the common case).
 - NIT: the "Going back" toast stayed up on quiet exits --> FIXED ("Staying on this computer.").
 - NIT: stale plan text (6 s, "everything else forgets", signed-out) --> FIXED above.
+
+## Review round 5 (opus; no BLOCKER)
+- WARNING: choosing to stay was lost if the page crashed before quit (touched only settled) --> FIXED: touched and
+  signed-out forget at once.
+- WARNING: a computer that stays off (or on an older Kosmos) toasted at every launch with no practical way out -->
+  FIXED: misses are counted across launches (UserDefaults) and 3 in a row forget it (`reopenMissesForget`, 3 rows);
+  an opening reopen, a new host and Back to This Computer reset the count.
+- WARNING: a failed switch left "Going back to ... click to stay" up with nobody listening --> FIXED: "Opening
+  <name>..." replaces it as the switch starts.
+- CONVENTION: a successful reopen never settled the outstanding reopen (`.nothing` for the same host) --> FIXED:
+  another computer's page always settles it; the wiring writes only a change.
+- CONVENTION: plan step 1 contradicted the code --> FIXED.
+- NITs fixed: a sign-in page's retry only within 120 s of the ask; "Click, type or scroll here"; the quitKeeps doc on
+  mid-switch; a row title; the #6585 comment's condition. NIT kept: the first toast uses the host label (the name is
+  not known until the list answers).
 
 ## Weakest premise (now)
 That every way the app ends reaches applicationWillTerminate (Cmd-Q, the menu, the Dock, the last window, an

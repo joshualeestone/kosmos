@@ -33223,7 +33223,7 @@ async function computersReopen(host) {
   if (!h) return 'bad';
   const say = (t) => { try { if (typeof msgToast === 'function') msgToast(t, 9000); } catch {} };
   const label = h.split('.')[0];
-  try { if (typeof msgToast === 'function') msgToast('Going back to ' + label + ', the computer you were looking at. Click or type here to stay on this computer.', COMPUTERS_REOPEN_MAX_MS); } catch {}
+  try { if (typeof msgToast === 'function') msgToast('Going back to ' + label + ', the computer you were looking at. Click, type or scroll here to stay on this computer.', COMPUTERS_REOPEN_MAX_MS); } catch {}
   let touched = false;
   const mark = () => { touched = true; };
   const ev = ['pointerdown', 'keydown', 'wheel', 'touchstart'];
@@ -33271,6 +33271,8 @@ async function computersReopen(host) {
   // Review 2: nothing the person clicked started this, so nothing keeps focus while the ticket is made (up to 8 s):
   // a key pressed then lands on no composer. The switching screen covers clicks.
   try { if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur(); } catch {}
+  // Review 5: the "Going back" promise (and its "click to stay", no longer listened for) is retired as the switch starts.
+  try { if (typeof msgToast === 'function') msgToast('Opening ' + name + '...', 4000); } catch {}
   computersOpenWithTicket(url, name, null);
   return 'opening';
 }
