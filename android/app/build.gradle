@@ -1,5 +1,8 @@
 plugins {
     id 'com.android.application'
+    // kosmos#8046: native Android code is Kotlin (SweepLogic/SweepDots and on). Declared/version-pinned
+    // in the root build.gradle.
+    id 'org.jetbrains.kotlin.android'
 }
 
 // Release-signing inputs, resolved ONCE from the environment so the two config
@@ -77,6 +80,11 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // Match the Kotlin bytecode target to the Java source/target level above (JDK 17 on this box + CI).
+    kotlinOptions {
+        jvmTarget = '17'
     }
 
     testOptions {
