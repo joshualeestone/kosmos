@@ -22471,7 +22471,7 @@ const CARD_ST = {
      provider / instructions / account) takes the agent out of tmux for a
      moment. pres: 'on' -- the process is coming back, and rendering the tmux
      gap as "gone" is the exact lie boardEmpty() refuses. Its own st class, a
-     SOLID border (not the dashed unknown), and the animated Kosmos K glyph.
+     SOLID border (not the dashed unknown), and the Sweep dots (#7896).
      The engine (Renet, #2019 engine half) emits state 'restarting' with
      a.disruption = { cause, startedAt }; the state ENDS both ways engine-side
      (alive -> live state, or failed -> stopped after a window). */
@@ -33109,7 +33109,7 @@ function computersGo(to) {
   } catch { window.location.assign(to); }
 }
 /* kosmos#6585 (Josh 09:12: "a loading screen or something with our animated K with the dots, that's fine"): from
-   the click until the other computer's page replaces this one, the whole window shows the animated K and the
+   the click until the other computer's page replaces this one, the whole window shows the KOSMOS orb (#7896; it was the animated K) and the
    computer's name, so a switch never looks like a dead click. A status, not a dialog: there is nothing to answer,
    and the next page takes it away. Back from the other computer can restore this page from the browser's cache
    with the screen still up, so pageshow takes it down. */
@@ -47375,6 +47375,9 @@ const KORB = (() => {
      Colour is read on first sight and about once a second, so an orb whose ground changes recolours within a
      second; no site moves a live spinner today. */
   const shown = new Set();
+  /* Orbs handed to finish(): the loop and the observers leave them alone from then on, so nothing draws the turning
+     orb back over the check (round 6). `parked` holds one finished while hidden, drawn as the check when it shows. */
+  const finishing = new WeakSet(), parked = new WeakSet();
   let running = false, t0 = 0, last = -1e9, ticks = 0, sizeStale = false, stillPts = null, warned = false;
   const stillDots = () => stillPts || (stillPts = place(0));   // the still frame (K facing), worked out once
   /* Josh 11-06 12:17: the full-restart screen held its K still, so its orb is still too (.orb-still, kOrbWaitHtml's
@@ -47404,6 +47407,7 @@ const KORB = (() => {
       last = now; ticks++;
       let calm = true, moving = null;
       for (const s of shown) {
+        if (finishing.has(s)) continue;
         if (stillOf(s)) { draw1(s, stillDots()); continue; }
         calm = false; draw1(s, moving || (moving = place((now - t0) / 1000)));
       }
@@ -47423,7 +47427,7 @@ const KORB = (() => {
      Only laid-out ones; a hidden one waits for the loop. */
   function firstAll(fresh) {
     for (const s of fresh) attach(s);
-    const laid = fresh.filter((s) => s.getClientRects().length);
+    const laid = fresh.filter((s) => !finishing.has(s) && s.getClientRects().length);
     if (!laid.length) return;
     if (!t0) t0 = performance.now();
     let pts, calmPts;
@@ -47451,11 +47455,15 @@ const KORB = (() => {
   if (typeof IntersectionObserver === 'function' && typeof MutationObserver === 'function' && typeof document !== 'undefined') {
     io = new IntersectionObserver((entries) => {
       for (const e of entries) {
+        if (finishing.has(e.target)) {   // finished: never the turning orb again; a parked one becomes the check now
+          if (e.isIntersecting && parked.has(e.target)) { parked.delete(e.target); run(e.target, true); }
+          continue;
+        }
         if (e.isIntersecting) { shown.add(e.target); sizeStale = true; const c = e.target.querySelector('canvas.korb'); if (c) c.korbKey = ''; }   // re-read its size on showing (a zoom while it was hidden)
         else { shown.delete(e.target); if (!e.target.isConnected) { seen.delete(e.target); io.unobserve(e.target); if (ro) ro.unobserve(e.target); } }   // gone while hidden: let it go
       }
       // A spinner revealed (its hidden removed) whose canvas was never drawn: draw it now, not a frame later.
-      const undrawn = entries.filter((e) => e.isIntersecting && !(e.target.querySelector('canvas.korb') || {}).width).map((e) => e.target);
+      const undrawn = entries.filter((e) => e.isIntersecting && !finishing.has(e.target) && !(e.target.querySelector('canvas.korb') || {}).width).map((e) => e.target);
       if (undrawn.length) firstAll(undrawn);
       if (shown.size) start();
     });
@@ -47502,7 +47510,6 @@ const KORB = (() => {
      Nothing appears and nothing vanishes: the K loader's rule, which this replaces. Only ever called on a clean finish,
      because a check is a claim that the thing finished. Under reduced motion it draws the check at once. */
   const CHECK = [99.1,27.2,2.4,103.1,27.9,2.2,94.1,35.8,2.4,99.7,34.2,2.8,99.9,32.3,3.6,101.4,34.8,3.6,101.5,36,2.8,106.1,31,3.5,108.8,35.4,3.4,92.4,39.9,3.5,95.5,38.6,3.3,97,40.8,2.2,98.9,37.2,3.1,104.1,43.7,3.4,105.2,43.2,3.5,109.9,36.5,3.1,84.5,51,3.6,86.4,50.8,3.6,90.1,46.8,3.4,93.5,46.9,2.3,95.4,50.3,3.4,95.6,46.4,3.6,97.3,45.5,3.6,99.1,48.6,2.7,100.5,49.2,3.2,101.5,48.3,3,101.8,47.8,2.9,102.5,46.8,2.6,78.4,59.8,2.9,82.1,59.8,3.5,82.7,58,2.1,83.2,55.3,3.5,87.4,57.8,3.3,87.5,55.6,2.5,88.5,53.5,2.7,91.6,52.5,2.9,93.1,52.9,3.2,96.3,58.6,3.1,97.8,55.8,2.3,74.7,67.1,3.6,77,66,3.4,81.4,63.4,2.7,81.8,63.7,2.3,85.6,64.7,3.6,85.6,62.2,3.6,88.5,63.6,2.5,88.6,63.9,3.1,93.2,63.7,3.3,24.1,75.5,2.1,73.1,71,3.6,77,75.8,2.6,78.8,74.3,3.5,78.8,73.4,2.6,79.7,69.5,2.3,84.2,70.8,3.2,85.8,74.3,2.9,85.8,69.4,3.5,88.8,69.9,3.2,26.4,78.4,3.5,27.1,83.3,3.6,27.4,82.7,3.1,30.2,83.4,2.7,65.8,83.8,2.4,67.6,77.8,3.1,67.9,82.2,3.1,67.9,80.4,3.6,73.4,77,3.5,73.7,77.2,3.4,77.9,81,2.4,79.8,81.1,2.2,80,77.2,3,82.4,79.6,3.3,15.7,87.4,3.3,20.3,88.2,2.5,22,89.8,3.2,27.8,85.8,2.9,28.2,88.4,3.4,29.4,91.4,2.3,30,84.9,3.6,33.5,89.6,3.6,33.7,89.7,2.9,60.3,89.7,2.3,62.6,84.3,2.6,62.7,86,3,65.2,85.6,3.3,65.9,88.7,3.5,69.5,88,2.2,70.9,85.9,3.5,72.5,85.9,3.4,74.4,85.3,2.8,77.7,85.4,3.6,79.5,84.2,2.8,20.7,93,2.3,28.2,92.1,3.4,29.8,98.7,3.6,30.4,98.3,3.5,31.7,97.1,3,32.1,92.2,3.2,32.4,93.7,2.6,34.1,99.6,3.5,34.2,93.7,2.6,35.8,94.2,3.3,37.2,93.1,2.2,41.3,94.2,3.4,41.6,97.5,2.8,44.4,95.8,3.1,54.3,96.7,3.1,57.2,95.4,3.6,58.2,95.6,3.4,58.4,95.6,3.2,59.1,97.3,2.7,61.5,92.4,3.4,62.5,98.8,2.9,65.3,93.7,3.2,65.4,97.7,2.3,66.5,93.6,2.9,67.5,92.5,3.6,70.4,93.6,2.7,71,94.1,3.6,36.5,103.8,2.4,37.3,107,3.6,38.4,102.1,3.6,39.4,101.2,2.8,40.4,106.8,2.4,41.5,106.5,3.1,43.4,105.2,2.2,45.6,106.8,3.3,47,100.5,3.5,47.2,104.7,3.4,51.6,106.4,3.6,52.8,106.5,2.6,57.1,103.4,2.5,58.1,107,2.1,58.2,107.5,3.5,58.9,107.6,3.3,59.3,105,3.3,60,102.7,3.5,60.9,101.4,3.6,42.6,111,3,42.9,109.9,3.5,43.3,113.5,2.6,43.8,115.7,3.6,46.5,115.9,3.6,46.6,113.4,2.9,46.9,109.6,2.3,47.5,109,3.5,48.2,110.2,3.2,51.2,109.1,2.9,52.3,111,2.7,53.7,112.9,3.6,55.6,112.5,3.4,56,110.4,2.3,60,108.2,2.5,61.9,110.7,3.1,47.4,117.8,3.2];   // the check's dots [x, y, r] in the K loader's 128.28 x 150.28 frame, sorted as it sorted them
-  const finishing = new WeakSet();
   const rgbOf = (g, c, dflt) => {
     g.fillStyle = dflt; g.fillStyle = c || dflt; const v = String(g.fillStyle);
     if (v[0] === '#') return [1, 3, 5].map((i) => parseInt(v.slice(i, i + 2), 16));
@@ -47510,9 +47517,16 @@ const KORB = (() => {
   };
   function finish(s) {
     if (!s || finishing.has(s)) return;
-    finishing.add(s);
+    finishing.add(s); shown.delete(s);
+    // Finished while hidden (another tab open): measuring it now would read 0 and size the canvas to nothing, and
+    // nobody would see the change. Draw the check when it next shows (the io callback), at its real size.
+    if (!s.getClientRects().length) { parked.add(s); return; }
+    run(s, false);
+  }
+  function run(s, instant) {
     try {
-      shown.delete(s); if (io) io.unobserve(s); if (ro) ro.unobserve(s);   // the loop lets go of it; this draws it from here
+      if (io) io.unobserve(s); if (ro) ro.unobserve(s);   // the loop lets go of it; this draws it from here
+      sizeStale = true;
       const cv = fit(s), g = cv.getContext('2d');
       if (!g) return;
       const side = cv.width, R = side * 0.46, CAM = 6, px = side * 0.009;
@@ -47543,7 +47557,7 @@ const KORB = (() => {
         }
       };
       const done = () => fill(T.map((t) => ({ x: t.x, y: t.y, r: t.r, a: 1, c: green })));
-      if (stillOf(s)) { done(); return; }
+      if (instant || stillOf(s)) { done(); return; }
       const step = (now) => {
         if (!s.isConnected) return;
         const el = now - from;
@@ -52762,7 +52776,7 @@ function restartCost(shown, rec) {
 
 let RST_FOR = null;      // the button that opened it, so the receipt lands there
 let RST_RETURN = null;   // focus goes back where it came from
-/* #2831: true while the restart is in flight and the K-loader interstitial holds.
+/* #2831: true while the restart is in flight and the orb interstitial holds.
    Once the restart has been POSTed there is nothing left to cancel, so Escape and
    the backdrop must NOT close the modal: "leave it running" is no longer an
    available outcome, and a key that silently means the opposite of what it says is
@@ -52793,7 +52807,7 @@ function openRestartModal(btn, name, opts) {
   ul.hidden = cost.list.length === 0;
   document.getElementById('rst-msg').textContent = '';
   /* #2831: a prior restart may have hidden the confirm content to show the
-     K-into-circle loader interstitial. Reset those flags here (the same shape as
+     orb interstitial (#7896; it was the K-into-circle loader). Reset those flags here (the same shape as
      changeDialog resetting keep/goBtn/sm at its top) so every open starts from
      the confirm view, whatever the last run left behind. rst-list.hidden is set
      from the cost just above and is not reset here. */
@@ -52848,7 +52862,7 @@ function popRestartAfterSave(forAgent, lead) {
 function closeRestartModal() {
   document.getElementById('rst-modal').hidden = true;
   /* #2831: DETACH any loader interstitial mounted in rst-msg on close, not just
-     hide the modal -- the branded K loader's rAF loop self-terminates on
+     hide the modal -- the orb is let go by KORB on
      `!cv.isConnected`, but hiding the modal leaves the canvas CONNECTED and the
      loop running. This mirrors changeDialog's #2692 teardown, so an Escape or
      backdrop dismissal DURING the hold cannot leak an animating canvas. Harmless
@@ -52864,7 +52878,7 @@ document.getElementById('rst-keep').addEventListener('click', closeRestartModal)
 /* Backdrop and Escape both mean leave it running. Every accidental dismissal
    lands on the harmless answer, which is what makes the dialog safe to be
    loud. #2831: EXCEPT while RST_BUSY -- once the restart is POSTed and the
-   K-loader is holding, dismissing would not cancel it (it is already happening),
+   orb is holding, dismissing would not cancel it (it is already happening),
    so both exits no-op rather than closing onto the board while the operation and
    its receipt continue behind. Same rule as changeDialog's `goBtn.disabled` gate. */
 document.getElementById('rst-modal').addEventListener('click', (e) => {
@@ -53112,7 +53126,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
   const cost = document.getElementById('rst-cost');
   /* #3492: the third button shares this singleton modal, so the plain-restart
      interstitial must hide AND disable it too. Without this it stays visible and
-     enabled behind the K-loader during a plain Restart, and a click there would
+     enabled behind the orb interstitial during a plain Restart, and a click there would
      launch the handoff flow concurrently with the in-flight restart (both share
      RST_FOR/RST_BUSY and this one modal). Hidden in showConfirm, disabled on
      entry, re-enabled in restoreConfirm -- symmetric with rst-go's own go. */
@@ -53175,7 +53189,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
       document.getElementById('rst-msg').textContent = restartFailureLine(out);
       return;
     }
-    /* #2831: hold the loader for the remainder of the floor so the K-into-circle
+    /* #2831: hold the loader for the remainder of the floor so the whole hold
        plays in full (a fast restart otherwise flashes it), THEN hand off to the
        existing #2686 receipt. The interstitial stays until the POST resolves (the
        await above) AND at least holdMs, exactly the model/provider flow's shape. */
@@ -53271,7 +53285,7 @@ let HANDOFF_POLL_MS = 3000;
      AFTER the restart -- the SAME post-restart wake path (autoHelloAfterRestart),
        but delivering the handoff pointer (deliverPickup) instead of 'hello', so
        the fresh session continues rather than starting cold.
-   The K-loader interstitial plays only during the actual restart (phase 3); the
+   The orb interstitial plays only during the actual restart (phase 3); the
    handoff-write wait shows a plain status line, because it can run for a while
    and a spinning K there would misread as the restart hanging. */
 document.getElementById('rst-handoff-go').addEventListener('click', async () => {
@@ -53395,7 +53409,7 @@ document.getElementById('rst-handoff-go').addEventListener('click', async () => 
     setStatus(restartFailureLine(out));
     return;
   }
-  // Hold the loader for the remainder of the floor so the K plays in full.
+  // Hold the loader for the remainder of the floor so the hold plays in full.
   const wait = Math.max(0, holdMs - (Date.now() - busyStart));
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 
@@ -59438,7 +59452,7 @@ async function plusSiDoRegister(name, owned) {
   plusSiMsg('');
   btn.disabled = true;
   PLUS_SI_BOUGHT_SEQ += 1;   // kosmos#4756: a bought-address read still out is not drawn over this register
-  /* #4608: while the register runs, the heading says what is happening (#5785: and the big K loader plays, for the
+  /* #4608: while the register runs, the heading says what is happening (#5785: and the big KOSMOS orb plays, for the
      automatic register and a chosen name alike; a chosen name also says so in the live status line). They
      are put back once THIS register answers, and not by a stale answer from an abandoned sign-in (a newer one
      may be showing them by then; its own steps restore the heading). */
@@ -60763,7 +60777,7 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs, alt }) {
     back.hidden = true; keep.onclick = null; goBtn.onclick = null; back.onclick = null;
     if (altBtn) altBtn.onclick = null;   // #7410
     /* #2692: DETACH the interstitial content on close, not just hide the modal. The restart
-       interstitial mounts the branded K loader on a canvas whose rAF loop self-terminates on
+       interstitial mounts the KOSMOS orb, which KORB lets go of on
        `!cv.isConnected` -- but `back.hidden = true` only display:none's the modal, leaving the
        canvas CONNECTED and the loop running. Today no close path is reachable while the loader
        is up (keep is hidden and Escape is gated on goBtn.disabled during the busy state; #4963's
@@ -60786,7 +60800,7 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs, alt }) {
   const proceed = async (viaAlt) => {
     goBtn.disabled = true; keep.hidden = true;
     if (altBtn) { altBtn.disabled = true; altBtn.hidden = true; }   // #7410
-    /* busyHtml is app-generated markup (#2692: the branded K-loader canvas markup +
+    /* busyHtml is app-generated markup (#2692: the orb markup +
        a caption that is either a fixed literal -- RESTART_BUSY_HTML for the model
        switch -- or an app-DERIVED provider label from chgBusyHtml, e.g. "Setting up
        OpenAI"), never user input, so innerHTML is safe here; the plain path keeps
@@ -62459,7 +62473,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
     run: (say, how) => changeProviderNow(say, how),
   });
 });
-/* #768-batch (Josh, 5.51.59): the restart interstitial. The branded K loader plays over
+/* #768-batch (Josh, 5.51.59): the restart interstitial. The KOSMOS orb (#7896; the branded K loader until then) plays over
    "Restarting the agent" while the switch is in flight.
    #2463 follow-up (Mona): RESTART_HOLD_MS is a FLOOR, not a fixed hold. The
    interstitial already stays up until the restart finishes -- `run` awaits the POST and
@@ -62474,7 +62488,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
    drift. A named constant so it is one edit to tune. App-generated markup only (no user
    input), safe for innerHTML. */
 const RESTART_HOLD_MS = Math.max(2000, K_LOADER_CYCLE_MS);
-/* #2692: the branded-K-loader interstitial markup, parameterised by its line so the provider
+/* #2692: the restart interstitial markup (the orb since #7896), parameterised by its line so the provider
    switch can say "Setting up OpenAI" while the model switch says "Restarting the agent".
    Its mark is the KOSMOS orb (#7896), which KORB draws once the markup is in the page; it is decorative (aria-hidden) because `line` is the
    announced text. `line` is an app-generated fixed literal or an app-derived provider label,
