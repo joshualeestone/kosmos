@@ -59,22 +59,35 @@ The iOS "shell and board client" is a **hybrid**, not fully-native screens:
 - The existing Android app is already a **Trusted Web Activity** (a WebView board with native sign-in
   handoff via `OpenAddressActivity`, a native `LoadErrorActivity`, and notification delegation).
 
-### OPEN DECISION to settle before porting the shell (surfaced to Liu Kang)
-Does Android slice 1 mirror iOS's **hybrid** (native chrome + board-in-WebView through a door), or go
-**fully native** (Compose screens hitting the API, no board WebView)? This is NOT settled by "use Compose".
-It decides whether most of `ShellLogic` (the `AppTabs`/`PressTracker`/door brain) is ported at all, or
-replaced by native navigation. The existing TWA leans hybrid; the iOS reference is hybrid; "rebuild
-natively… reuse the existing app" could mean either. I will not guess this — porting the tab brain blind
-would be large and likely rework. **Next increment waits on this answer.**
+### DECISION — Path A, mirror the iOS hybrid (ruled by Liu Kang, 2026-11-06; recorded on #8046)
+Android slice 1 mirrors iOS's **hybrid**: a native (Compose) shell and chrome, the board in one WebView
+through the board's JS door (`AppTabs`/`PressTracker` model), with native screens replacing board pages
+slice by slice (Agents first), as iOS did. Reasons: #8046 asks for the same product/structure as iOS; the
+hybrid is what iOS shipped; it reuses the existing TWA board; it reaches Josh's device fastest. Rejected:
+a fully-native slice 1 (Compose screens hitting the API, no board WebView) — a much larger slice 1 and
+more rework risk. Consequence: most of `ShellLogic` (load-failure, link routing, retry/back, the tab/door
+brain) ports to Kotlin as the shell's framework-agnostic logic; the WebView + Compose chrome are thin
+callers of it, as iOS's `ContentView` is.
 
-## Next increment (isolable, architecture-independent — safe either way)
-Port **only the load-failure classification** (`Shell.LoadFailure` + the classifier) to Kotlin as
-`ShellLoadLogic.kt`, with a JVM test, because a native failure page is needed under BOTH architectures.
-**Android divergence to write on #8046:** iOS classifies `NSURLError` codes and gets "offline" from
-specific codes; Android classifies `WebViewClient.ERROR_*` codes (`ERROR_HOST_LOOKUP`, `ERROR_CONNECT`,
-`ERROR_TIMEOUT`, `ERROR_IO`, `ERROR_FAILED_SSL_HANDSHAKE`, …) and gets "offline" from `ConnectivityManager`
-(no active network), so the function takes an explicit `online: Boolean`. These code→category mappings are
-real decisions and will be named as the weakest part of that increment.
+## DONE this increment — load-failure classification (`ShellLoadLogic.kt` + `ShellLoadLogicTest.kt`)
+Ported the `Shell.LoadFailure` classifier and the failure-page helpers (offersOtherComputer, retriesOnShow,
+macName, macUnreachableTitle/Message, retryAction, backAction, isMacHost) to pure Kotlin with a JVM test
+mirroring the iOS `ShellLogic` cases. **Android divergences, written here and on #8046:**
+- iOS reads `NSURLError` codes and gets "offline" from specific codes; Android reads `WebViewClient.ERROR_*`
+  codes and gets "offline" from `ConnectivityManager`, so `classify` takes an explicit `online: Boolean`.
+- TLS certificate errors reach Android via `onReceivedSslError` (a different callback), so they are out of
+  scope here; `ERROR_FAILED_SSL_HANDSHAKE` (the handshake failing) IS handled.
+- "Cancelled / superseded" has no standard Android code, so the WebViewClient caller pre-filters
+  (main-frame only, failing URL == the one it meant to load).
+**Weakest part:** the `WebViewClient.ERROR_*` → category mapping is a reasoned translation of the iOS
+`NSURLError` mapping; the error-code integers are declared as local constants (no Android import, so the
+file is plain-JVM-testable) and must equal the real `android.webkit.WebViewClient` values — verified by the
+build on a clear box.
+
+## Next increment
+The shell's link routing + tab/door brain (`AppTabs`/`PressTracker` analogs) and the board client
+(sign-in/token: `BoardClient`/`SignInClient`/`SessionKeychain` analogs, token in Android Keystore /
+EncryptedSharedPreferences). Then the native Compose chrome + WebView host, and the first native screen.
 
 ## Still to do in slice 1 (after the decision above)
 - The shell per the hybrid-vs-native ruling: load-failure page (native), link routing, same-app upgrade check.
