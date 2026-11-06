@@ -47524,7 +47524,7 @@ const LOAD_SPIN_HTML = '<span class="spin spin-sweep" style="--sz:14px" aria-hid
    names it for a screen reader where the old canvas did (the update overlay), and hides it otherwise; `size` in px (88). */
 function kOrbWaitHtml(cls, label, size) {
   return '<span class="spin spin-sweep orb-wait ' + cls + '" style="--sz:' + (size || 88) + 'px"'
-    + (label ? ' role="img" aria-label="' + label + '"' : ' aria-hidden="true"')
+    + (label ? ' role="img" aria-label="' + String(label).replace(/[&"<]/g, (ch) => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;' })[ch]) + '"' : ' aria-hidden="true"')
     + '><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 }
 async function paintUsage() {

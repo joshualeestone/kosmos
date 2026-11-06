@@ -254,6 +254,14 @@ const FOUR = {
     await page.waitForTimeout(150);
     await page.click('#worldsw-computers-list a.worldsw-row[href="https://desk-mini.kosmosplus.example/"]');
     await page.waitForTimeout(400);
+    // #7896: the orb is drawn by KORB once it is in the page (not at once, as the K loader was): wait for ink, bounded.
+    await page.waitForFunction(() => {
+      const c = document.querySelector('#cswitch-screen .cswitch-k canvas.korb');
+      if (!c || !c.width) return false;
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 0) return true;
+      return false;
+    }, null, { timeout: 5000 }).catch(() => {});
     const shown = await page.evaluate(() => {
       const s = document.getElementById('cswitch-screen');
       if (!s) return null;
