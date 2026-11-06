@@ -9437,6 +9437,16 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   background: var(--bg, transparent); border: 0.5px solid var(--border-strong);
   border-radius: var(--radius-control); padding: 6px 8px; box-sizing: border-box; }
 .tc-name:disabled { border-color: transparent; background: transparent; padding-left: 0; }
+/* kosmos#8092: the name box and its Another name button share the middle column. */
+.tc-namebox { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.tc-namebox .tc-name { flex: 1 1 auto; }
+.tc-another { flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px;
+  background: none; color: var(--label-2); cursor: pointer; }
+.tc-another:hover:not(:disabled) { color: var(--label); background: var(--k-sunk, rgba(0,0,0,.05)); }
+.tc-another:focus-visible { outline: 2px solid var(--k-ink, currentColor); outline-offset: 1px; }
+.tc-another:disabled { visibility: hidden; }
+#cstep-teammake .tc-short { margin: 0 0 var(--space-2); font: var(--text-callout) var(--font-ui); }
+#cstep-teammake .tc-short .linkish { font: inherit; font-weight: 600; }
 .tc-state { white-space: nowrap; color: var(--label-2); }
 .tc-state.made { color: var(--ok); }
 .tc-state.failed { color: var(--danger); }
@@ -9444,7 +9454,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .tc-retry { grid-column: 1 / -1; justify-self: start; }
 /* "(leads the team)" stays on one line. (#4709's Project-label gap is now the .field spacing below, #4935.) */
 .tc-leads { white-space: nowrap; }
-@media (max-width: 560px) { .tc-row { grid-template-columns: minmax(0, 1fr) auto; } .tc-name { grid-column: 1 / -1; grid-row: 2; } }
+@media (max-width: 560px) { .tc-row { grid-template-columns: minmax(0, 1fr) auto; } .tc-name, .tc-namebox { grid-column: 1 / -1; grid-row: 2; } }   /* kosmos#8092: the box now sits in .tc-namebox */
 /* #4935 (Josh, 0.7.16: "Some of the styling just doesn't feel like the Create an Agent styling" and "some of
    the input fields are touching the labels"). The team steps take the single create's own numbers, the
    #cstep-name rules above, rather than a second set: a field is 20px from the one above with no rule line,
@@ -16856,6 +16866,9 @@ window.kosmosMeasureScrollbarWidth();
   <div id="cstep-teammake" hidden>
     <h2 class="tc-h" id="tc-title" tabindex="-1"></h2>
     <p class="rolehelp" id="tc-purpose"></p>
+    <!-- kosmos#8092 (Mona Lisa): the suggested names can be long and hard to type, and they are what a person types to
+         reach an agent. One press swaps every row still open for a short name; each row also has its own Another name. -->
+    <p class="tc-short" id="tc-short-p" hidden><button type="button" class="linkish" id="tc-short">Use short names</button></p>
     <ol class="tc-list" id="tc-list" aria-labelledby="tc-title"></ol>
     <!-- #4935 (Josh: "Some of the styling just doesn't feel like the Create an Agent styling"): the same
          structure as that screen, .field > .flabel + .frow, and its stepped Model block (.msteps/.mstep), so
@@ -63203,6 +63216,7 @@ async function openTeamCreate(key) {
   document.getElementById('tc-purpose').textContent = '';
   document.getElementById('tc-list').replaceChildren();
   document.getElementById('tc-go').hidden = true;
+  document.getElementById('tc-short-p').hidden = true;   // kosmos#8092: tcPaint shows it once a team is in
   /* Review 28: tcPaint owns these and only runs once a team has loaded, so while the load is out (or if
      it fails) they were still the PREVIOUS team's: a Say Hello that did nothing, its project menu, its choice. */
   document.getElementById('tc-hello').hidden = true;
@@ -63230,6 +63244,7 @@ async function openTeamCreate(key) {
     started: false,
   };
   document.getElementById('tc-title').textContent = body.team.label || 'Your team';
+  tcLoadBoardNames(gen);   // kosmos#8092: not awaited; Another name avoids them once they are in
   document.getElementById('tc-purpose').textContent = body.team.purpose || '';
   /* The existing projects, for the project menu. A failed read only means the menu offers a new project or none. */
   try { await loadProjects(); } catch { /* the menu still offers a new project or none */ }
@@ -63500,8 +63515,52 @@ function tcFillProjects() {
   sel.value = 'new';
 }
 
+/* kosmos#8092: short names to offer, 3 to 5 plain letters so anyone can type them on any keyboard, from many places.
+   A suggestion only: the person can always type their own, and Make still checks the name is free. */
+const TC_SHORT_NAMES = Object.freeze(['Ada', 'Ade', 'Ali', 'Amir', 'Ana', 'Anil', 'Ari', 'Asha', 'Ava', 'Ayo', 'Bea', 'Ben',
+  'Cai', 'Cara', 'Dan', 'Dara', 'Dev', 'Dina', 'Ebo', 'Eda', 'Eli', 'Emi', 'Esi', 'Eva', 'Ezra', 'Fia', 'Gabe', 'Gia',
+  'Hana', 'Hugo', 'Ian', 'Ida', 'Ife', 'Ines', 'Ira', 'Isa', 'Ivo', 'Jae', 'Jia', 'Jon', 'Juan', 'Kai', 'Kemi', 'Kian',
+  'Kim', 'Kira', 'Kofi', 'Lea', 'Lena', 'Leon', 'Lia', 'Lin', 'Liv', 'Lola', 'Luca', 'Luz', 'Mae', 'Mai', 'Mara', 'Max',
+  'Mei', 'Mia', 'Mika', 'Milo', 'Mira', 'Nia', 'Nico', 'Nina', 'Noa', 'Nour', 'Obi', 'Ola', 'Omar', 'Oren', 'Otto',
+  'Pia', 'Raj', 'Rana', 'Ravi', 'Rei', 'Remi', 'Rio', 'Rosa', 'Ruth', 'Sami', 'Sana', 'Sara', 'Seun', 'Sol', 'Tae',
+  'Tala', 'Tao', 'Tara', 'Teo', 'Tom', 'Uma', 'Vera', 'Vik', 'Wen', 'Yan', 'Yara', 'Yuki', 'Zara', 'Zoe', 'Zuri']);
+/* Names to steer clear of, in lower case: the board's agents (read once per team, TC.boardNames) and the team's other rows. */
+function tcTakenNames(except) {
+  const taken = new Set(TC && Array.isArray(TC.boardNames) ? TC.boardNames : []);
+  for (const o of (TC ? TC.members : [])) if (o !== except && o.name) taken.add(o.name.trim().toLowerCase());
+  return taken;
+}
+/* A short name for this row: not taken, not the one it has now, picked at random so pressing again gives another. */
+function tcShortName(m) {
+  const taken = tcTakenNames(m);
+  const now = (m.name || '').trim().toLowerCase();
+  const free = TC_SHORT_NAMES.filter((n) => !taken.has(n.toLowerCase()) && n.toLowerCase() !== now);
+  return free.length ? free[Math.floor(Math.random() * free.length)] : m.name;
+}
+/* The board's agent names, so a suggestion does not collide with one. A failed read leaves only the team's own rows to
+   avoid; Make's own check still refuses a taken name with words. */
+async function tcLoadBoardNames(gen) {
+  try {
+    const res = await fetch('/api/agents/list', { cache: 'no-store' });
+    const body = await res.json().catch(() => null);
+    if (gen !== TC_GEN || !TC || !res.ok || !body || !Array.isArray(body.agents)) return;
+    const names = [];
+    for (const a of body.agents) for (const v of [a && a.sessionName, a && a.name]) if (typeof v === 'string' && v.trim()) names.push(v.trim().toLowerCase());
+    TC.boardNames = names;
+  } catch { /* only the team's own rows are avoided */ }
+}
+document.getElementById('tc-short').addEventListener('click', () => {
+  if (!TC || TC.started || TC.busy) return;
+  for (const m of TC.members) if (m.state === 'ready') m.name = tcShortName(m);
+  for (const li of document.querySelectorAll('#tc-list li')) {
+    const m = TC.members.find((x) => x.slot === li.dataset.slot);
+    const box = li.querySelector('.tc-name');
+    if (m && box && !box.disabled) box.value = m.name;
+  }
+});
 function tcPaint() {
   if (!TC) return;
+  document.getElementById('tc-short-p').hidden = Boolean(TC.started || TC.busy);   // kosmos#8092: only while names can change
   const list = document.getElementById('tc-list');
   /* Round 1 (a11y): the list is rebuilt on every change, so remember what had focus (a row's name box or
      its Try again) and put focus back on the same row afterwards, or a keyboard user drops to the page. */
@@ -63541,6 +63600,14 @@ function tcPaint() {
        a name typed after that check would be made, and trusted as checked, without ever being checked. */
     input.disabled = TC.started ? m.state !== 'failed' : Boolean(TC.busy);
     input.addEventListener('input', () => { m.name = input.value; });
+    // kosmos#8092: Another name, a short one; it changes only what the name box would, so it is open exactly when that is.
+    const another = document.createElement('button');
+    another.type = 'button'; another.className = 'tc-another'; another.disabled = input.disabled;
+    another.setAttribute('aria-label', 'Another name for the ' + m.title); another.title = 'Another name';
+    another.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3h-3"/></svg>';
+    another.addEventListener('click', () => { m.name = tcShortName(m); input.value = m.name; });
+    const namebox = document.createElement('span'); namebox.className = 'tc-namebox';
+    namebox.append(input, another);
     const st = document.createElement('span'); st.className = 'tc-state ' + m.state;
     /* Round 1: "Made" said more than create's answer means (the job was accepted, not that the agent is
        up). It is "Made, starting" until the board can see it, the same evidence the single create waits for. */
@@ -63552,7 +63619,7 @@ function tcPaint() {
     if (m.state === 'made' && m.hello && m.portrait === 'failed') st.textContent += ' (picture not set)';   // review 7: still said
     // Review 5: and in its own colour: only "Said hello" is the success green; a failed hello is red, the rest plain.
     if (m.state === 'made' && m.hello && m.hello !== 'started') st.className = 'tc-state' + (m.hello === 'failed' ? ' failed' : '');
-    row.append(seat, input, st);
+    row.append(seat, namebox, st);
     if (m.renamedFrom) {
       const note = document.createElement('p'); note.className = 'tc-why';
       note.textContent = 'The teammates made before this still know it as ' + m.renamedFrom + '. Tell them in chat if it matters.';
