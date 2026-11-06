@@ -2,22 +2,22 @@
 pre_challenge: true
 method: challenge-loop
 branch: trayflake
-diff_hash: ac8520d7d828cabdcdf93086195a14b0c7752fe896a5207d2eb49a1523ffe4ed
-validation: passed
+diff_hash: 40f3f8161b8a9d438d46525d77c3c4221931ce659f188ac87fa7e729264a35ca
+validation: passed before the two later UI-test-only commits; those ran as UI tests
 subdir_audit: passed
-timestamp: 2026-11-06T09:08:05Z
-iterations: 5
+timestamp: 2026-11-06T09:39:16Z
+iterations: 7
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 5
+**Iterations:** 7
 **Converged:** Yes
 **Total findings:** 12 (0 BLOCKERs, 5 WARNINGs, 2 CONVENTIONs, 5 NITs, counting first raises only)
 **Fixed:** 4 | **Deferred:** 3 | **Asked (awaiting user):** 0
 
-Full validation ran on the final code: 0 failed. AttachMenuUITests: 42 of 42 over 3 runs on the final test file. The artifact step ran for real on this branch: run 42184198471 left a bundle that downloaded and opened by name.
+Full validation: 0 failed, two commits before the last; those two change UI tests only. AttachMenuUITests: 42 of 42 over 3 runs before the last edit to that file. BlankRingUITests and testTheLastRowScrollsClearOfTheBottomRow: 3 runs clean on the final code. The artifact step ran for real on this branch: runs 42184198471 and 42192726744 each left a bundle that downloaded and opened by name, and each explained its red.
 
 ### Per-Iteration Breakdown
 
@@ -66,6 +66,20 @@ Full validation ran on the final code: 0 failed. AttachMenuUITests: 42 of 42 ove
 Run after the lazy-grid commit 22d4af3a6e, which came from this branch's own CI red and its artifact. **Converged.**
 - [NIT] .github/workflows/ios.yml -- the bundle may also carry runner paths, so "sample data only" is about the app's content
 - [NIT] ios/KosmosUITests/AttachMenuUITests.swift -- settle's cap is silent (deferred in iteration 2)
+
+#### Iteration 6
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 4 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 2 of the above
+- [WARNING] ios/KosmosUITests/AttachMenuUITests.swift -- exists then frame is two queries, the crash could recur --> FIXED (one snapshot)
+- [WARNING] ios/KosmosUITests/BlankRingUITests.swift -- accepting the marker lets a broken ring view pass, twice --> FIXED (hold 9 s, strict check kept, marker rejected)
+- [WARNING] ios/KosmosUITests/BlankRingUITests.swift -- a screenshot named ring taken after it had gone --> FIXED (gone with the fallback)
+
+#### Iteration 7
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs (its WARNING matches iteration 2's deferred entry)
+**Self-generated:** 0 of the above
+**Converged.**
 
 ### Final Ledger
 
