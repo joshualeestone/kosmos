@@ -2,7 +2,8 @@
 /**
  * kosmos#8122 (parser half): the board's read-only grid for the file viewer, from a spreadsheet's bytes.
  *
- * One shape for the viewer, whatever the file: `{ sheets: [{ name, rows, cut, notGrid? }], moreSheets, noValues, empty }`
+ * One shape for the viewer, whatever the file: `{ sheets: [{ name, rows, cut, notGrid?, firstRow? }], moreSheets, noValues, empty,
+ * someNoValues? }`
  * (engine/xlsxpreview.js's answer, Mona Lisa's seam), or a refusal `{ ok: false, because, tooLarge? }` whose sentence a
  * person can be shown.
  *
@@ -14,6 +15,7 @@
  *
  * Built-ins only, as xlsxpreview.js.
  */
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const xlsx = require('./xlsxpreview');
@@ -87,6 +89,15 @@ function readDelimited(text, sep, name) {
   return { sheets: [{ name: name || 'Sheet 1', rows: grid, cut }], moreSheets: 0, noValues: false, empty: !any };
 }
 
+/* Review 5: an answer too large to send is "too large to preview", decided here, whichever reader made it (the xlsx
+   reader caps its own answer; this is the seam's own line, and it covers CSV, whose input cap bounds it). */
+const MAX_ANSWER_CHARS = 8 * 1024 * 1024;
+function fits(answer) {
+  let size = Infinity;
+  try { size = JSON.stringify(answer).length; } catch { /* past the longest string: too large */ }
+  return size <= MAX_ANSWER_CHARS ? answer : { ok: false, because: TOO_LARGE, tooLarge: true };
+}
+
 /**
  * A spreadsheet's bytes to `{ ok: true, ...shape }` or `{ ok: false, because, tooLarge? }`. `name` decides the reader.
  */
@@ -95,8 +106,24 @@ function fromBytes(buf, name) {
   if (!kind) return { ok: false, because: 'There is no spreadsheet preview for this kind of file.' };
   if (!Buffer.isBuffer(buf)) return { ok: false, because: CANNOT_READ };
   if (buf.length > capFor(kind)) return { ok: false, because: TOO_LARGE, tooLarge: true };
+  // Review 5: the same bytes are read once, not once per request (a hostile file could cost up to the 2 s budget every
+  // time the viewer asked). Keyed by the bytes and the reader, so a renamed or changed file is read again.
+  // A CSV's sheet is named after its file, so its name is part of the key. A refusal is kept too (a hostile file is the
+  // case this is for); one that came from a busy moment rather than the file is read again once MAX_REMEMBERED others
+  // have been asked for, or on a restart. Each caller gets its own copy.
+  const key = kind + ':' + (kind === 'xlsx' ? '' : path.basename(String(name || ''))) + ':' + crypto.createHash('sha256').update(buf).digest('base64');
+  let answer = answers.get(key);
+  if (answer) answers.delete(key);
+  else answer = readFresh(buf, kind, name);
+  answers.set(key, answer);
+  if (answers.size > MAX_REMEMBERED) answers.delete(answers.keys().next().value);
+  return structuredClone(answer);
+}
+const MAX_REMEMBERED = 8;   // answers kept, the least recently asked for goes first; each is capped (MAX_ANSWER_CHARS)
+const answers = new Map();
+function readFresh(buf, kind, name) {
   if (kind === 'xlsx') {
-    try { return { ok: true, ...xlsx.readXlsx(buf) }; }
+    try { return fits({ ok: true, ...xlsx.readXlsx(buf) }); }
     catch (e) {
       if (e && e.name === 'XlsxRefusal') return { ok: false, because: e.message, ...(e.message === TOO_LARGE ? { tooLarge: true } : {}) };
       return { ok: false, because: CANNOT_READ };
@@ -105,7 +132,7 @@ function fromBytes(buf, name) {
   // A NUL byte means this is not text, whatever its name says.
   if (buf.includes(0)) return { ok: false, because: CANNOT_READ };
   const base = path.basename(String(name || ''));
-  try { return { ok: true, ...readDelimited(buf.toString('utf8'), kind === 'tsv' ? '\t' : ',', base) }; }
+  try { return fits({ ok: true, ...readDelimited(buf.toString('utf8'), kind === 'tsv' ? '\t' : ',', base) }); }
   catch { return { ok: false, because: CANNOT_READ }; }
 }
 
@@ -134,4 +161,4 @@ function fromFile(file, name) {
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
-module.exports = { kindOf, capFor, readDelimited, fromBytes, fromFile, MAX_DELIMITED_BYTES, TOO_LARGE, CANNOT_READ };
+module.exports = { _forgetForTests: () => answers.clear(), kindOf, capFor, readDelimited, fromBytes, fromFile, MAX_DELIMITED_BYTES, TOO_LARGE, CANNOT_READ };

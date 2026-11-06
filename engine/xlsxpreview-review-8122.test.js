@@ -188,10 +188,15 @@ test('#8122 r4: a row number that never grows, or cells past the last column, do
   const wide = fx.book({ S: fx.SHEET('<row r="1">' + '<c r="ZZ1"/>'.repeat(1e6) + '</row>') }, {}, D);
   for (const [name, b] of [['repeat', repeat], ['wide', wide]]) {
     assert.ok(b.length < 120000, name + ' should be a small file: ' + b.length);
-    const r = timed(() => x.readXlsx(b));   // a real clock: the walk itself is bounded, not only checked
-    assert.equal(r.err, null, name + ': ' + (r.err && r.err.message));
-    assert.ok(r.ms < 600, name + ' took ' + r.ms + ' ms');
-    assert.equal(r.out.sheets[0].cut, true, name + ': a walk cut short says so');
+    // Review 5: counted work, not a wall clock (a busy machine failed a 600 ms limit). The clock is read once at the start
+    // and once per budget check, which runs every 1024 steps, so the count of reads is the walk's length / 1024.
+    let reads = 0;
+    x._internal.setClockForTests(() => { reads++; return 0; });
+    let out, err = null;
+    try { out = x.readXlsx(b); } catch (e) { err = e; } finally { x._internal.setClockForTests(null); }
+    assert.equal(err, null, name + ': ' + (err && err.message));
+    assert.ok(reads < 400, name + ': the walk took ' + reads + ' budget checks (about ' + (reads * 1024) + ' steps)');
+    if (name === 'repeat') assert.equal(out.sheets[0].cut, true, 'a walk cut short says so');
   }
   assert.equal(repeat.length > 0 && x.readXlsx(repeat).sheets[0].rows[0][25], '1');
 });
@@ -229,4 +234,79 @@ test('#8122 r4: a self-closed phonetic guide does not cut the text after it', ()
   const sst = '<sst><si><t>a</t><rPh/><t>b</t></si></sst>';
   const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': sst }));
   assert.deepEqual(r.sheets[0].rows, [['ab']]);
+});
+
+/* Review 5 */
+test('#8122 r5: the answer is bounded: one long shared string in every cell of 20 sheets is not a 100 MB reply', () => {
+  const sp = require('./sheetpreview');
+  const cols = Array.from({ length: 50 }, (_, i) => (i < 26 ? '' : 'A') + String.fromCharCode(65 + (i % 26)));
+  const rows = Array.from({ length: 200 }, (_, i) => `<row r="${i + 1}">` + cols.map((c) => `<c r="${c}${i + 1}" t="s"><v>0</v></c>`).join('') + '</row>').join('');
+  for (const ch of ['A', '&#1;']) {   // '&#1;' is 6 bytes of JSON per character: it made a string too long to build
+    const sheets = {};
+    for (let i = 0; i < 20; i++) sheets['S' + i] = fx.SHEET(rows);
+    const b = fx.book(sheets, { 'xl/sharedStrings.xml': '<sst><si><t>' + ch.repeat(600) + '</t></si></sst>' }, { deflate: true });
+    assert.ok(b.length < 600000, 'a small file: ' + b.length);
+    const r = sp.fromBytes(b, 'a.xlsx');
+    const size = JSON.stringify(r).length;
+    assert.ok(size < 3 * 1024 * 1024, ch + ': the answer is ' + size + ' characters');
+    assert.equal(r.ok, true, ch + ': a partial grid is shown, not refused');
+    assert.equal(r.sheets.some((s) => s.cut), true, ch + ': what is left out is said');
+    assert.equal(r.sheets[0].rows[0][0].length, x.MAX_CELL_CHARS);
+  }
+});
+
+test('#8122 r5: "cut" means a value was left out, never a formatted blank or an empty row', () => {
+  const cutOf = (rows) => x.readXlsx(fx.book({ S: fx.SHEET(rows) })).sheets[0];
+  assert.equal(cutOf('<row r="1"><c r="A1"><v>1</v></c><c r="BA1" s="0"/></row>').cut, false, 'a formatted blank past column 50');
+  assert.equal(cutOf('<row r="1"><c r="A1"><v>1</v></c></row><row r="500" ht="20" customHeight="1"/>').cut, false, 'an empty row far down');
+  // CONTROL: a value past column 50, or far down, is cut.
+  assert.equal(cutOf('<row r="1"><c r="A1"><v>1</v></c><c r="BA1"><v>2</v></c></row>').cut, true);
+  assert.equal(cutOf('<row r="1"><c r="A1"><v>1</v></c></row><row r="500"><c r="A500"><v>2</v></c></row>').cut, true);
+  const only = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="BA1"><v>2</v></c></row>') }));
+  assert.equal(only.empty, false, 'a workbook whose only value is past column 50 is not empty');
+  assert.equal(only.sheets[0].cut, true);
+});
+
+test('#8122 r5: the rows shown do not depend on the order rows sit in the file', () => {
+  const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="300"><c r="A300"><v>far</v></c></row><row r="1"><c r="A1" t="str"><v>top</v></c></row>') })).sheets[0];
+  assert.deepEqual(r.rows[0], ['top']);
+  assert.equal('firstRow' in r, false);
+  assert.equal(r.cut, true);
+});
+
+test('#8122 r5: a date with a time keeps its format\'s clock; a boolean saved as "true" is TRUE', () => {
+  const styles = STYLES('<xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="165"/>',
+    '<numFmts><numFmt numFmtId="164" formatCode="m/d/yyyy h:mm AM/PM"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd hh:mm"/></numFmts>');
+  const c = (ref, s, v) => `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
+  const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 45000.75)}${c('B1', 2, 45000.5 + 30 / 86400)}<c r="C1" t="b"><v>true</v></c></row>`) }, { 'xl/styles.xml': styles }));
+  assert.deepEqual(r.sheets[0].rows[0], ['2023-03-15 6:00 PM', '2023-03-15 12:00', 'TRUE']);
+});
+
+test('#8122 r5: a long cell is never cut through the middle of an emoji', () => {
+  const t = 'a'.repeat(x.MAX_CELL_CHARS - 2) + '😀'.repeat(5);
+  const shown = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1"><c r="A1" t="inlineStr"><is><t>${t}</t></is></c></row>`) })).sheets[0].rows[0][0];
+  const before = shown.charCodeAt(shown.length - 2);
+  assert.equal(before >= 0xd800 && before <= 0xdbff, false, 'a lone high surrogate before the ellipsis');
+});
+
+test('#8122 r5: the same bytes are read once; changed bytes, or a CSV under another name, are read again', () => {
+  const sp = require('./sheetpreview');
+  sp._forgetForTests();
+  let reads = 0;
+  x._internal.setClockForTests(() => { reads++; return 0; });
+  try {
+    const b = fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>') });
+    const first = sp.fromBytes(b, 'a.xlsx');
+    const afterFirst = reads;
+    assert.ok(afterFirst > 0, 'CONTROL: a read is counted');
+    const second = sp.fromBytes(b, 'a.xlsx');
+    assert.equal(reads, afterFirst, 'the same bytes were read again');
+    assert.deepEqual(second, first);
+    second.sheets[0].rows[0][0] = 'changed';
+    assert.equal(sp.fromBytes(b, 'a.xlsx').sheets[0].rows[0][0], '1', 'a caller changed the remembered answer');
+    sp.fromBytes(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>2</v></c></row>') }), 'a.xlsx');
+    assert.ok(reads > afterFirst, 'changed bytes were not read again');
+  } finally { x._internal.setClockForTests(null); sp._forgetForTests(); }
+  assert.equal(sp.fromBytes(Buffer.from('a,b\n'), 'one.csv').sheets[0].name, 'one.csv');
+  assert.equal(sp.fromBytes(Buffer.from('a,b\n'), 'two.csv').sheets[0].name, 'two.csv');
 });

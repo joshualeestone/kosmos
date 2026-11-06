@@ -11,8 +11,8 @@
  * but no saved values (one a script wrote, which saves `<v/>` or nothing) is said as such (`noValues`), never drawn as
  * an empty grid.
  *
- * Untrusted input, and the work is bounded on every path (review 1 measured a 1.7 KB file hanging the board for
- * minutes, and a 77 KB one costing 19 s, before these):
+ * Untrusted input, and the work and the answer are bounded (review 1 measured a 1.7 KB file hanging the board for
+ * minutes, and a 77 KB one costing 19 s; review 5 a 404 KB one making a 100 MB answer):
  * - the zip is read by engine/win32zip.js's checked reader (entry count, sizes, overlapping entries, a deflate capped
  *   at its declared size);
  * - every XML part is capped in size and scanned forward with indexOf; the patterns that run on a whole part or body
@@ -21,8 +21,11 @@
  * - comments are cut and CDATA unwrapped first, so neither can hide or fake a value; namespace prefixes are dropped;
  * - each worksheet part is read once, however many sheets name it, and reading a sheet stops after MAX_VISITS rows and
  *   cells walked, shown or not (review 4: a row number that never grew walked a whole part);
- * - the whole read has a time budget (WORK_BUDGET_MS), checked every 1024 steps of every loop and between parts; past
- *   it the answer is "too large to preview". One scan (clean) is linear, so it needs no check inside;
+ * - the whole read has a time budget (WORK_BUDGET_MS), checked every 1024 steps of the loops over parts, strings,
+ *   styles, sheets, rows and cells, and after each part; past it the answer is "too large to preview". The scans that
+ *   have no check inside (clean, one string's text, the skip inside `elements`) are linear in a capped part;
+ * - the answer's cells are capped as JSON writes them (MAX_OUTPUT_CHARS, all sheets together), and each shared string
+ *   is clipped once, however many cells use it;
  * - the grid is capped (MAX_SHEETS, MAX_ROWS, MAX_COLS, MAX_CELL_CHARS, MAX_SHARED_STRINGS).
  * Anything it cannot read is a XlsxRefusal with a sentence a person can be shown.
  *
@@ -37,7 +40,8 @@ const MAX_ROWS = 200;                          // per sheet
 const MAX_COLS = 50;
 const MAX_CELL_CHARS = 500;
 const MAX_SHARED_STRINGS = 200000;
-const MAX_VISITS = 40000;                      // rows and cells walked per sheet, shown or not (review 4)
+const MAX_VISITS = 100000;                     // rows and cells walked per sheet, shown or not (review 4)
+const MAX_OUTPUT_CHARS = 2 * 1024 * 1024;      // the answer's cells as JSON writes them, all sheets (review 5)
 const MAX_TAG_CHARS = 4096;                    // a start tag longer than this has no attributes we read
 const MAX_FORMAT_CODE = 255;                   // Excel's own limit on a number format code
 const WORK_BUDGET_MS = 2000;                   // the whole read, on the board's one thread
@@ -166,7 +170,14 @@ function cellRef(ref) {
   if (row < 1) return null;
   return [row - 1, col - 1];
 }
-const clip = (s) => (s.length > MAX_CELL_CHARS ? s.slice(0, MAX_CELL_CHARS - 1) + '…' : s);
+/* A cell cut to MAX_CELL_CHARS, never through the middle of a character outside the BMP (review 5: an emoji was halved). */
+const clip = (s) => {
+  if (s.length <= MAX_CELL_CHARS) return s;
+  let n = MAX_CELL_CHARS - 1;
+  const last = s.charCodeAt(n - 1);
+  if (last >= 0xd800 && last <= 0xdbff) n--;
+  return s.slice(0, n) + '…';
+};
 
 /* A format code without its quoted text and bracketed parts ("[Red]", "[$-409]", "[h]" stays: elapsed hours), by a
    forward scan (review 1: a pattern here was quadratic on a code full of "["). Codes longer than Excel allows are not
@@ -203,8 +214,10 @@ function formatKind(code) {
   // Review 4: a date code with no hour or second shows no time (yyyy-mm-dd on 45000.5 showed 12:00), and a time code says
   // whether it is 12-hour and whether it has hours and seconds (h:mm AM/PM showed 18:00, mm:ss showed the hour).
   const time = /[hs]/.test(lower);
-  if (/[dy]/.test(lower)) return { kind: 'date', time };
-  if (time) return { kind: 'time', ampm: /am\/pm|a\/p/.test(lower), hours: /h/.test(lower), seconds: /s/.test(lower) };
+  const ampm = /am\/pm|a\/p/.test(lower);
+  // Review 5: a date with a time keeps its clock too (m/d/yyyy h:mm AM/PM showed 18:00, and yyyy-mm-dd hh:mm a second).
+  if (/[dy]/.test(lower)) return { kind: 'date', time, ampm, seconds: /s/.test(lower) };
+  if (time) return { kind: 'time', ampm, hours: /h/.test(lower), seconds: /s/.test(lower) };
   if (/m/.test(lower) && !/^[#0.,%\s]*$/.test(lower)) return { kind: 'date', time: false };   // "mmm" alone is a month
   // Only a code of digit placeholders (review 3: a currency or a unit, quoted or in brackets, was dropped from the shown
   // text); anything else shows the saved number.
@@ -226,7 +239,7 @@ function builtinKind(id) {
   if (id === 9) return { kind: 'number', decimals: 0, thousands: false, percent: true };
   if (id === 10) return { kind: 'number', decimals: 2, thousands: false, percent: true };
   if (id >= 14 && id <= 17) return { kind: 'date', time: false };
-  if (id === 22) return { kind: 'date', time: true };
+  if (id === 22) return { kind: 'date', time: true, ampm: false, seconds: false };
   if ((id >= 27 && id <= 36) || (id >= 50 && id <= 58)) return { kind: 'date' };   // locale codes: a time only when saved
   if (id === 46) return { kind: 'duration', unit: 'h', seconds: true };
   if (id === 18 || id === 19) return { kind: 'time', ampm: true, hours: true, seconds: id === 19 };
@@ -262,7 +275,7 @@ function serialDate(n, from1904 = false, fmt = null) {
   n = Math.round(n * 86400) / 86400;   // review 2: to the second first, so a time just before midnight carries into the next day
   const timePart = (x) => {
     const show = fmt && fmt.time !== undefined ? fmt.time : x % 1 !== 0;
-    return show ? ' ' + serialTime(x) : '';
+    return show ? ' ' + serialTime(x, fmt && fmt.time ? { ampm: fmt.ampm, hours: true, seconds: fmt.seconds } : null) : '';
   };
   if (!from1904 && Math.floor(n) === 60) return '1900-02-29' + timePart(n);
   if (!from1904 && Math.floor(n) === 0) return '1900-01-00' + timePart(n);   // review 4: Excel's day 0, as Excel shows it
@@ -313,10 +326,10 @@ function shownDuration(n, fmt) {
 }
 
 /**
- * Reads `buf` (a whole .xlsx in memory) to `{ sheets: [{ name, rows, cut, notGrid? }], moreSheets, noValues, empty,
- * someNoValues? }`.
- * `rows` is an array of arrays of strings, as many columns as the widest row (up to MAX_COLS); `cut` is true when the
- * sheet had more rows or columns than shown. Sheets past MAX_SHEETS are left out and `moreSheets` counts them.
+ * Reads `buf` (a whole .xlsx in memory) to `{ sheets: [{ name, rows, cut, notGrid?, firstRow? }], moreSheets, noValues,
+ * empty, someNoValues? }`. `firstRow` (1-based) is there only when the rows shown do not start at row 1.
+ * `rows` is an array of arrays of strings, as many columns as the widest row (up to MAX_COLS); `cut` is true when a value
+ * in the sheet is not shown (past the rows, the columns, the walk or the answer's size). Sheets past MAX_SHEETS are left out and `moreSheets` counts them.
  */
 function readXlsx(buf) {
   if (!Buffer.isBuffer(buf)) throw new TypeError('xlsxpreview: readXlsx takes a Buffer');
@@ -353,7 +366,7 @@ function readXlsx(buf) {
     let k = 0;
     for (const si of elements(sst, 'si')) {
       if (shared.length >= MAX_SHARED_STRINGS) { sharedCut = true; break; }
-      shared.push(textOf(si.body));
+      shared.push(clip(textOf(si.body)));   // review 5: clipped once, not once per cell that uses it
       if ((++k & 1023) === 0) budget();
     }
   }
@@ -362,6 +375,7 @@ function readXlsx(buf) {
   const sheets = [];
   const readTargets = new Set();   // review 1: a part named by several sheets is read once
   let all = 0, anyValue = false, anyFormula = false, bareFormula = false;
+  let outputLeft = MAX_OUTPUT_CHARS;   // review 5: for the whole answer, every sheet together
   let sk = 0;
   for (const s of elements(workbook, 'sheet')) {
     if ((++sk & 1023) === 0) budget();
@@ -378,85 +392,108 @@ function readXlsx(buf) {
     const xml = part('xl/' + target);
     // Review 3: a part that is not in the file (damaged, or a name the lister leaves out) is not a grid, never "empty".
     if (xml === null) { sheets.push({ name, rows: [], cut: false, notGrid: true }); continue; }
-    const grid = new Map();   // row (from `base`) -> Map(col -> text)
-    let width = 0, cut = false;
+    // Review 4/5: rows are gathered by number, and the window shown is placed only once the walk is done: at row 1, or at
+    // the smallest row holding a value when that is past the cap (data starting at row 300 showed as empty; a far row
+    // first in the file hid row 1). Only rows inside a window of the smallest so far are kept, so at most MAX_ROWS rows
+    // are held. What bounds the walk is MAX_VISITS, rows and cells together, shown or not (a row number that never grows,
+    // or cells past the last column, walked a whole 16 MB part, about 2 s a request). `cut` means a VALUE was left out
+    // (review 5: a formatted blank past column 50, or an empty row far down, as Excel writes them, said "more").
+    const kept = new Map();   // row -> Map(col -> text)
+    let minRow = Infinity;
+    let cut = false;
     const data = elements(xml, 'sheetData', true).next().value;
     let rowAt = -1;
     let k = 0;
-    // Review 4: the window of rows shown starts at the first row with a value when that row is past the cap (a sheet whose
-    // data starts at row 300 showed as empty), and a row outside the window is skipped, not the end of the sheet (rows out
-    // of order lost everything after the first far one). What bounds the walk is MAX_VISITS, rows and cells together: a
-    // row number that never grows, or cells past the last column, walked a whole 16 MB part before (about 2 s a request).
-    let base = null;
     let visits = 0;
+    const keepRow = (row, line) => {
+      anyValue = true;
+      if (row < minRow) {
+        minRow = row;   // the window may move up: rows now below its end are left out
+        const end = windowEnd();
+        for (const r of [...kept.keys()]) if (r >= end) { kept.delete(r); cut = true; }
+      }
+      if (row >= windowEnd()) { cut = true; return; }
+      if (!kept.has(row)) kept.set(row, new Map());
+      for (const [col, text] of line) kept.get(row).set(col, text);
+    };
+    const windowStart = () => (minRow < MAX_ROWS ? 0 : minRow);
+    /* A cell's shown text, or null when it holds no saved value. */
+    const cellText = (c, hasFormula) => {
+      const type = attr(c.tag, 't') || 'n';
+      let text = null;
+      if (type === 'inlineStr') {
+        const is = elements(c.body, 'is').next().value;
+        text = is ? textOf(is.body) : null;
+      } else {
+        const v = elements(c.body, 'v').next().value;
+        // Review 1: an empty <v/> (as openpyxl writes beside a formula) is no saved value, not an empty one. Review 4:
+        // except a text result (t="str"), where an empty <v></v> is the saved "" of a formula such as IF(A1,"","").
+        if (v && (v.body !== '' || type === 'str')) {
+          const raw = unescapeXml(v.body);
+          if (type === 's') {
+            const n = Number(raw);
+            // Review 4: a string past the ones read (MAX_SHARED_STRINGS) is not shown, and the sheet says it is cut.
+            if (n >= shared.length && sharedCut) cut = true;
+            text = shared[n] ?? '';
+          }
+          else if (type === 'b') text = raw === '1' || raw.toLowerCase() === 'true' ? 'TRUE' : 'FALSE';
+          else if (type === 'e' || type === 'str') text = raw;
+          // Review 3: an ISO date cell (t="d", as openpyxl with iso_dates, SheetJS and Strict OOXML write) is shown as its
+          // date, never handed to the serial reader (it showed "NaN").
+          else if (type === 'd') text = raw.replace(/T00:00(:00(\.0+)?)?Z?$/, '').replace('T', ' ').slice(0, 16);
+          else {
+            const fmt = kinds[Number(attr(c.tag, 's') || 0)] || null;
+            const kind = fmt && fmt.kind;
+            // Review 4: text that is not a number under a date or time format is shown as written, never "NaN".
+            text = (kind && kind !== 'number' && (raw.trim() === '' || !Number.isFinite(Number(raw)))) ? raw
+              : kind === 'date' ? serialDate(Number(raw), from1904, fmt)
+                : kind === 'time' ? serialTime(Number(raw), fmt)
+                  : kind === 'duration' ? shownDuration(Number(raw), fmt)
+                    : shownNumber(raw, fmt);
+          }
+        }
+      }
+      if (text === null) { if (hasFormula) bareFormula = true; return null; }
+      return clip(text);
+    };
+    const windowEnd = () => windowStart() + MAX_ROWS;
     rows: for (const row of data ? elements(data.body, 'row', true) : []) {
       if ((++k & 1023) === 0) budget();
       if (++visits > MAX_VISITS) { cut = true; break; }
       const rr = Number(attr(row.tag, 'r'));
       rowAt = Number.isInteger(rr) && rr >= 1 ? rr - 1 : rowAt + 1;   // a row with no r is the next one (review 1)
-      if (base !== null && (rowAt < base || rowAt >= base + MAX_ROWS)) { cut = true; continue; }
       const line = new Map();
-      const keep = () => {   // this row's cells into the grid; the first row kept places the window
-        if (base === null) base = rowAt >= MAX_ROWS ? rowAt : 0;
-        anyValue = true;
-        const at = rowAt - base;
-        if (!grid.has(at)) grid.set(at, new Map());
-        for (const [col, text] of line) { grid.get(at).set(col, text); if (col + 1 > width) width = col + 1; }
-      };
       let colAt = -1;
       for (const c of elements(row.body, 'c')) {
         if ((++k & 1023) === 0) budget();
-        if (++visits > MAX_VISITS) { cut = true; if (line.size) keep(); break rows; }
+        if (++visits > MAX_VISITS) { cut = true; if (line.size) keepRow(rowAt, line); break rows; }
         const at = cellRef(attr(c.tag, 'r'));
         const col = at ? at[1] : colAt + 1;                          // a cell with no r is the next column
         colAt = col;
-        if (col >= MAX_COLS) { cut = true; continue; }
         const hasFormula = c.body.indexOf('<f') >= 0;
         if (hasFormula) anyFormula = true;
-        const type = attr(c.tag, 't') || 'n';
-        let text = null;
-        if (type === 'inlineStr') {
-          const is = elements(c.body, 'is').next().value;
-          text = is ? textOf(is.body) : null;
-        } else {
-          const v = elements(c.body, 'v').next().value;
-          // Review 1: an empty <v/> (as openpyxl writes beside a formula) is no saved value, not an empty one. Review 4: except
-          // a text result (t="str"), where an empty <v></v> is the saved "" of a formula such as IF(A1,"","").
-          if (v && (v.body !== '' || type === 'str')) {
-            const raw = unescapeXml(v.body);
-            if (type === 's') {
-              const n = Number(raw);
-              // Review 4: a string past the ones read (MAX_SHARED_STRINGS) is not shown, and the sheet says it is cut.
-              if (n >= shared.length && sharedCut) cut = true;
-              text = shared[n] ?? '';
-            }
-            else if (type === 'b') text = raw === '1' ? 'TRUE' : 'FALSE';
-            else if (type === 'e' || type === 'str') text = raw;
-            // Review 3: an ISO date cell (t="d", as openpyxl with iso_dates, SheetJS and Strict OOXML write) is shown as its
-            // date, never handed to the serial reader (it showed "NaN").
-            else if (type === 'd') text = raw.replace(/T00:00(:00(\.0+)?)?Z?$/, '').replace('T', ' ').slice(0, 16);
-            else {
-              const fmt = kinds[Number(attr(c.tag, 's') || 0)] || null;
-              const kind = fmt && fmt.kind;
-              // Review 4: text that is not a number under a date or time format is shown as written, never "NaN".
-              text = (kind && kind !== 'number' && (raw.trim() === '' || !Number.isFinite(Number(raw)))) ? raw
-                : kind === 'date' ? serialDate(Number(raw), from1904, fmt)
-                : kind === 'time' ? serialTime(Number(raw), fmt)
-                  : kind === 'duration' ? shownDuration(Number(raw), fmt)
-                    : shownNumber(raw, fmt);
-            }
-          }
-        }
-        if (text === null) { if (hasFormula) bareFormula = true; continue; }
-        line.set(col, clip(text));
+        const text = cellText(c, hasFormula);
+        if (text === null) continue;
+        if (col >= MAX_COLS) { cut = true; anyValue = true; continue; }   // a value past the last column is left out
+        line.set(col, text);
       }
-      if (line.size) keep();
+      if (line.size) keepRow(rowAt, line);
     }
-    const height = grid.size ? Math.max(...grid.keys()) + 1 : 0;
+    const base = windowStart();
+    let width = 0;
+    for (const line of kept.values()) for (const col of line.keys()) if (col + 1 > width) width = col + 1;
+    const height = kept.size ? Math.max(...kept.keys()) - base + 1 : 0;
     const rows = [];
     for (let r = 0; r < height; r++) {
-      const line = grid.get(r);
-      rows.push(Array.from({ length: width }, (_, j) => (line && line.get(j)) || ''));
+      const line = kept.get(base + r);
+      const out = Array.from({ length: width }, (_, j) => (line && line.get(j)) || '');
+      // Review 5: the answer itself is bounded (a 404 KB file of one long shared string in every cell made a 100 MB
+      // reply, and a copy that would not fit in a string crashed the board). Counted as JSON writes it.
+      let cost = 1;
+      for (const t of out) cost += t === '' ? 3 : JSON.stringify(t).length + 1;
+      if (cost > outputLeft) { cut = true; outputLeft = 0; break; }
+      outputLeft -= cost;
+      rows.push(out);
     }
     sheets.push({ name, rows, cut, ...(base ? { firstRow: base + 1 } : {}) });
     budget();
