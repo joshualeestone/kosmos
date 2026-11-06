@@ -4,7 +4,7 @@
     {
       "icon": "spark",
       "title": "Create agent says when no model is connected",
-      "line": "With no AI model connected, Create agent says so where you see it and links to connect one. Back within 30 minutes, your form is kept."
+      "line": "With no AI model connected, Create agent now says so where you can see it, with a link to connect one."
     },
     {
       "icon": "shield",
