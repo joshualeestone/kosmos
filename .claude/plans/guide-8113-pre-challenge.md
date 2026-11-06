@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: guide-8113
-diff_hash: 2ce8e9ee98e4ee18963202c989267ba01bffc27f81925e4308548388b7fd5579
+diff_hash: acab32b634f187b8334d528da0195d2514af491a125f9ecbc8eb829274d3704e
 validation: local-node-suites-only (full Mortals validation pending, held by the 0.7.94 cut)
 subdir_audit: passed
-timestamp: 2026-11-06T16:10:56Z
-iterations: 4
+timestamp: 2026-11-06T16:26:48Z
+iterations: 5
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4
-**Converged:** Yes (iteration 4 found only NITs, zero BLOCKER/WARNING/CONVENTION)
+**Iterations:** 5
+**Converged:** Yes, on the code iteration 4 reviewed (only NITs). A follow-up committed after that was reviewed in iteration 5, found unsafe, and reverted, so the code is byte-identical to 276090ee2e, the commit iteration 4 reviewed; only the plan differs.
 **Total findings:** 0 BLOCKERs, 4 WARNINGs, 3 CONVENTIONs, 11 NITs
 **Fixed:** 4 WARNINGs fixed or deferred with reasons (3 fixed, 1 deferred), all 3 CONVENTIONs, 6 NITs | **Deferred:** 1 WARNING and 5 NITs, all in the plan | **Asked:** 0
 
@@ -54,12 +54,21 @@ kosmos#8113 (follow-up to #8109, stacked on agentname-8109): `kosmos agent remov
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0
-- [NIT] a removed agent's exact name beside a live card shown by it now refuses as ambiguous, not "already removed" --> DEFERRED (fails closed; follow-up noted on #8113)
+- [NIT] a removed agent's exact name beside a live card shown by it now refuses as ambiguous, not "already removed" --> tried a fix after convergence (9a2ffa7174), see iteration 5; reverted; DECIDED to keep the refusal (fails closed)
 - [NIT] removed-agent test leaves its record in the sandbox --> DEFERRED
 - [NIT] one long docstring sentence --> DEFERRED
 
+#### Iteration 5 (the post-convergence follow-up only)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 1 CONVENTION, 2 NITs, all on 9a2ffa7174
+**Self-generated:** 4 (all on this loop's own follow-up commit)
+- [WARNING] engine/remove.js: the removed-exact early return answered "already removed" about a hidden folder while a live card the person copied answers to the name --> FIXED by reverting 9a2ffa7174 (commit 3760508f76)
+- [CONVENTION] resolve docstring and the guideMarkName comment false after it --> resolved by the revert (both true again)
+- [NIT] the try/catch did not give the fail-closed behaviour its comment claimed --> resolved by the revert
+- [NIT] the test leaked a second sandbox agent and had no engine twin --> resolved by the revert
+
 ### Validation (honest scope)
-Local, from the worktree, on 51b25207ba: engine/remove.test.js 116/116, server.agent-remove-name-8109.test.js 11/11, server.agent-remove-4475.test.js 36/36, cli.agent-remove-7362.test.js 26/26, server.guide-hidden-3739.test.js 7/7, server.setup-guide-page-3034.test.js 15/15, server.test.js 368/368. Full kosmos validation on Mortals has not run (held for the 0.7.94 cut).
+Local, from the worktree, on 51b25207ba (the same code; engine 116/116 and route 11/11 re-run on 2ccae18137 after the revert): engine/remove.test.js 116/116, server.agent-remove-name-8109.test.js 11/11, server.agent-remove-4475.test.js 36/36, cli.agent-remove-7362.test.js 26/26, server.guide-hidden-3739.test.js 7/7, server.setup-guide-page-3034.test.js 15/15, server.test.js 368/368. Full kosmos validation on Mortals has not run (held for the 0.7.94 cut).
 
 ### Note
 Stacked on agentname-8109, so diff_hash is over origin/main...HEAD including #8109's commits. After #8109 rebase-merges and this branch is rebased onto main, recompute diff_hash before the PR; the reviewed code does not change.
