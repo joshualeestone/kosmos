@@ -202,7 +202,7 @@ struct TasksView: View {
             }
         } else {
             VStack(spacing: 8) {
-                KosmosOrb().accessibilityHidden(true)
+                SweepDots()
                 Text("Reading your tasks\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }

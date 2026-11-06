@@ -156,7 +156,7 @@ struct ProjectInfoView: View {
                 Section {
                     if textChanged {
                         Button { Task { await save(.text(name: nameText, description: descText)) } } label: {
-                            HStack { Text("Save changes"); if savingKind == "text" { Spacer(); KosmosOrb() } }
+                            HStack { Text("Save changes"); if savingKind == "text" { Spacer(); SweepDots(label: "Loading") } }
                                 .frame(minHeight: 44).contentShape(Rectangle())
                         }
                         .disabled(saving)
@@ -180,7 +180,7 @@ struct ProjectInfoView: View {
                 Button { let to = !shownPaused; pendingPaused = to; Task { await save(.paused(to)) } } label: {
                     HStack {
                         Text(shownPaused ? "Resume it" : "Pause it").foregroundColor(Palette.primary)
-                        if savingKind == "paused" { Spacer(); KosmosOrb() }
+                        if savingKind == "paused" { Spacer(); SweepDots(label: "Loading") }
                     }
                     .frame(minHeight: 44).contentShape(Rectangle())
                 }

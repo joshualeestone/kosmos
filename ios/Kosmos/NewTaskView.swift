@@ -35,7 +35,7 @@ struct NewTaskView: View {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending) }
                     ToolbarItem(placement: .confirmationAction) {
                         if sending || checking {
-                            KosmosOrb(label: "Creating the task")
+                            SweepDots(label: "Creating the task")
                         } else {
                             Button("Create") { startCreate() }
                                 // Held until the projects are read: a kept draft's project is checked against them first.
@@ -77,7 +77,7 @@ struct NewTaskView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Palette.ground.ignoresSafeArea())
         } else {
-            KosmosOrb().frame(maxWidth: .infinity, maxHeight: .infinity).background(Palette.ground.ignoresSafeArea())
+            SweepDots(label: "Loading").frame(maxWidth: .infinity, maxHeight: .infinity).background(Palette.ground.ignoresSafeArea())
         }
     }
 
