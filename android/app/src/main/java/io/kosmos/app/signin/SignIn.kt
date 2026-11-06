@@ -1,14 +1,18 @@
 package io.kosmos.app.signin
 
+import java.security.MessageDigest
+
 /**
  * kosmos#8046 slice 1 (board client): the native sign-in core, framework-free (no Android types) so a plain
  * JVM test proves it, ported from ios/Kosmos/SignInLogic.swift (Kosmos+'s phone sign-in: POST
  * /v1/signin/start, /v1/signin/verify, /v1/signin/second, and GET /v1/account/me for the Allow).
  *
- * This first slice is the route paths + the input validation a person's typing is checked against. The
- * request/answer model (Answer / answer(status, body)), the step machine (next), and the device-proof
- * CRYPTO (behind a DeviceKey interface, with the Android Keystore-backed signing isolated for review) are
- * the focused following increments, because the proof and the token store are the highest-risk parts.
+ * This holds the route paths, the input validation a person's typing is checked against, the request/answer
+ * model (Answer / answer(status, body)), the step machine (next), and the device-proof encoding: base64url,
+ * the device id, the message a device signs, and the verify body. The signing KEY itself is held behind the
+ * DeviceKey interface so the hardware-backed implementation (Android Keystore EC P-256) stays isolated and
+ * reviewable on its own; the software key used by the tests is in DeviceKeyCrypto.kt. The proof here is
+ * pinned by content to the coordinator's own WebCrypto vector (devkey.rs), the same vector the iOS suite uses.
  */
 object SignIn {
     const val startPath = "/v1/signin/start"
@@ -41,6 +45,102 @@ object SignIn {
         val digits = raw.filterNot { it.isWhitespace() }
         return if (digits.length == 6 && digits.all { it in '0'..'9' }) digits else null
     }
+
+    // MARK: - The device's proof (kosmos#5422)
+    //
+    // base64url is hand-rolled, not java.util.Base64: that type is API 26, and this app's minSdk is 24, so on
+    // an API 24/25 device java.util.Base64 would not be there. Hand-rolled it is also framework-free, so the
+    // plain JVM test runs it, and it is pinned by content to the coordinator's WebCrypto vector. (Android
+    // divergence from iOS, which uses Foundation's Data base64, written per #8046.)
+
+    private const val B64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+    /** base64url with no padding, the coordinator's written form. */
+    fun base64url(data: ByteArray): String {
+        val out = StringBuilder((data.size + 2) / 3 * 4)
+        var i = 0
+        while (i < data.size) {
+            val b0 = data[i].toInt() and 0xFF
+            val b1 = if (i + 1 < data.size) data[i + 1].toInt() and 0xFF else 0
+            val b2 = if (i + 2 < data.size) data[i + 2].toInt() and 0xFF else 0
+            val chunk = (b0 shl 16) or (b1 shl 8) or b2
+            out.append(B64URL[(chunk shr 18) and 0x3F])
+            out.append(B64URL[(chunk shr 12) and 0x3F])
+            if (i + 1 < data.size) out.append(B64URL[(chunk shr 6) and 0x3F])
+            if (i + 2 < data.size) out.append(B64URL[chunk and 0x3F])
+            i += 3
+        }
+        return out.toString()
+    }
+
+    /** Reads base64url back. Tolerant of padding and of the standard `+`/`/` alphabet; null on any other char. */
+    fun fromBase64url(text: String): ByteArray? {
+        val out = ArrayList<Byte>(text.length * 3 / 4)
+        var buffer = 0
+        var bits = 0
+        for (c in text) {
+            if (c == '=') continue
+            val v = when (c) {
+                in 'A'..'Z' -> c - 'A'
+                in 'a'..'z' -> c - 'a' + 26
+                in '0'..'9' -> c - '0' + 52
+                '-', '+' -> 62
+                '_', '/' -> 63
+                else -> return null
+            }
+            buffer = (buffer shl 6) or v
+            bits += 6
+            if (bits >= 8) {
+                bits -= 8
+                out.add(((buffer shr bits) and 0xFF).toByte())
+            }
+        }
+        return out.toByteArray()
+    }
+
+    /**
+     * The coordinator's device id for a public key (devkey.rs derive_id): "k1." and the first 32 characters of
+     * the base64url SHA-256 of the key's SPKI DER.
+     */
+    fun deviceID(spki: ByteArray): String =
+        "k1." + base64url(MessageDigest.getInstance("SHA-256").digest(spki)).take(32)
+
+    /** What a device signs (devkey.rs message): one field per line. `email` exactly as the request carries it. */
+    fun proofMessage(door: String = "signin", email: String, code: String, deviceID: String): ByteArray =
+        "kosmos-device-v1\n$door\n$email\n$code\n$deviceID".toByteArray(Charsets.UTF_8)
+
+    /**
+     * A key that can sign the proof: the app's Android Keystore key on a device, a software key in the tests.
+     * [spki] is the public key as SPKI DER; [sign] gives ECDSA P-256 SHA-256 as raw r||s (64 bytes), the form
+     * the coordinator checks. The concrete implementations live in their own files so the hardware-backed one
+     * is isolated: DeviceKeyCrypto.kt (software, used by the tests) and KeystoreDeviceKey.kt (device, a
+     * following increment).
+     */
+    interface DeviceKey {
+        val spki: ByteArray
+        fun sign(message: ByteArray): ByteArray
+        val id: String get() = SignIn.deviceID(spki)
+    }
+
+    // MARK: - Request bodies
+
+    fun startBody(email: String, deviceID: String, deviceName: String): Map<String, Any> =
+        mapOf("email" to email, "device_id" to deviceID, "device_name" to deviceName)
+
+    /**
+     * The verify body, with the proof. The email goes exactly as signed: the coordinator checks the proof over
+     * the email as sent, before it normalises it.
+     */
+    fun verifyBody(email: String, code: String, deviceName: String, key: DeviceKey): Map<String, Any> {
+        val sig = key.sign(proofMessage(email = email, code = code, deviceID = key.id))
+        return mapOf(
+            "email" to email, "device_id" to key.id, "device_name" to deviceName, "code" to code,
+            "device_key" to base64url(key.spki), "device_sig" to base64url(sig)
+        )
+    }
+
+    fun secondBody(challenge: String, code: String): Map<String, Any> =
+        mapOf("challenge" to challenge, "code" to code)
 
     // MARK: - Answers
     //
