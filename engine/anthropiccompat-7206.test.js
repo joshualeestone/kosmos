@@ -342,5 +342,9 @@ test('#7206 2a review 5: GLM is never on before slice 2b, whatever its switch sa
     assert.equal(compat.anyEnabled('darwin'), false, 'GLM\'s switch alone made "any vendor" true');
     process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = 'glm';
     assert.equal(compat.enabled('darwin', 'glm'), true, 'CONTROL: named as ready, its switch turns it on');
-  } finally { sw.setVendor('glm', false); process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = saved; }
+    /* Review 6: naming it without the test runner's mark does nothing (as a board or a shell would). */
+    const ntc = process.env.NODE_TEST_CONTEXT; delete process.env.NODE_TEST_CONTEXT;
+    try { assert.equal(compat.enabled('darwin', 'glm'), false, 'the readiness override worked outside node --test'); }
+    finally { if (ntc !== undefined) process.env.NODE_TEST_CONTEXT = ntc; }
+  } finally { sw.setVendor('glm', false); if (saved === undefined) delete process.env.AGENT_WORKFORCE_TEST_COMPAT_READY; else process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = saved; }
 });
