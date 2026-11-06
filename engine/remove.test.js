@@ -3468,7 +3468,7 @@ test('#8109 the plan route resolves the name before it plans; the remove route a
   assert.ok(getAt >= 0 && delAt > getAt, 'CONTROL: the removal route shape moved');
   const getPart = route.slice(getAt, delAt);
   const delPart = route.slice(delAt, route.indexOf('removal.remove(name', delAt));
-  const r = getPart.indexOf('removal.resolve(asked)');
+  const r = getPart.indexOf('removal.resolve(asked, process.platform, listed)');
   assert.ok(r >= 0 && getPart.indexOf('removal.plan(name') > r, 'the plan route does not resolve before it plans');
   assert.ok(delPart.length > 0 && !/removal\.resolve/.test(delPart),
     'the remove route resolves the name, which can redirect a removal whose agent went away to another agent');
@@ -3495,4 +3495,32 @@ test('#8109 a name that is a live session exactly is not redirected to another a
   } finally { status.setPaneSource(() => ''); }
   // CONTROL: with the session gone, the same name does resolve to the other agent, so the test can see a redirect.
   assert.equal(remove.resolve('Kses8109', MAC).name, 'kshown8109', 'CONTROL: the name does not resolve without the session');
+});
+
+test('#8109 a card outside the folder: a listed agent with no folder here makes a shared name ambiguous', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  folderAgent('kout8109', 'Kout8109');
+  // A connected agent the board lists as "Kout8109" whose folder is not in the workers folder.
+  const listed = [{ name: 'kout8109', shown: 'Kout8109' }, { name: 'kout8109mac', shown: 'Kout8109' }];
+  const r = remove.resolve('Kout8109', MAC, listed);
+  assert.equal(r.name, 'Kout8109', 'a name two listed agents answer to was resolved to the folder one');
+  assert.deepEqual(r.ambiguous, ['kout8109', 'kout8109mac'], 'the card outside the folder was not counted');
+  // CONTROL: without that card, the same name resolves to the folder, so the test can see the miss.
+  assert.equal(remove.resolve('Kout8109', MAC, [{ name: 'kout8109', shown: 'Kout8109' }]).name, 'kout8109');
+});
+
+test('#8109 a card outside the folder resolves by itself when it is the only match', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const r = remove.resolve('Konly 8109', MAC, [{ name: 'konly8109', shown: 'Konly 8109' }]);
+  assert.equal(r.name, 'konly8109', 'the one listed agent with that name was not found');
+});
+
+test('#8109 when the route could not read the cards (null), nothing is resolved', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  folderAgent('knull8109', 'Knull8109');
+  assert.equal(remove.resolve('Knull8109', MAC, null).name, 'Knull8109', 'a name was resolved without the board\'s cards');
+  assert.equal(remove.resolve('Knull8109', MAC, []).name, 'knull8109', 'CONTROL: with the cards read, it resolves');
 });

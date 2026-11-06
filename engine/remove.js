@@ -1320,8 +1320,15 @@ function unsafeToActOn(name) {
  * or when no single agent matches. Otherwise it returns the folder name of the ONE agent whose folder name or display
  * name equals it, ignoring case. Two matches resolve to nothing, so `plan` still answers "we cannot find an agent
  * called <name>", spelled as asked: the refusal never names a different agent.
+ *
+ * `listed` is the board's own card list, as `agent list` prints it: [{ name: <machine name>, shown: <display name> }].
+ * The folder scan alone cannot see a card whose agent has no folder in the workers folder (a connected or profile
+ * agent, a symlinked folder, a session or a job with no folder), and such a card shown as "Cai" next to a folder `cai`
+ * shown as "Cai" would have resolved to `cai` with no refusal (round 7). Every listed card counts as a candidate. The
+ * route passes `null` when it could not read the cards, and that resolves nothing (test: "a card outside the folder").
+ * Left out (engine tests), only the folders are candidates.
  */
-function resolve(name, platform) {
+function resolve(name, platform, listed) {
   const asGiven = { name, ambiguous: [], shown: {} };
   let clean;
   try { clean = create.cleanName(name); } catch { return asGiven; }
@@ -1349,7 +1356,18 @@ function resolve(name, platform) {
     try { shown = status.readIdentity(dir).displayName || null; } catch { process.stderr.write(`remove: resolving "${clean}" stopped: could not read ${dir}'s name\n`); return asGiven; }
     if (dir.toLowerCase() === want || (shown && String(shown).trim().toLowerCase() === want)) { hits.push(dir); displayOf[dir] = shown; }
   }
-  if (hits.length === 1) return { name: hits[0], ambiguous: [], shown: {} };
+  // The cards the folder scan cannot see. One already found as a folder is not counted twice; an unsafe name still
+  // counts, so it can make a name ambiguous but is never resolved to (unsafeToActOn refuses it in plan anyway).
+  if (listed === null) return asGiven;
+  for (const card of Array.isArray(listed) ? listed : []) {
+    const machine = card && typeof card.name === 'string' ? card.name : '';
+    if (!machine || dirs.includes(machine)) continue;
+    const shown = card.shown == null ? null : String(card.shown);
+    if (machine.toLowerCase() === want || (shown && shown.trim().toLowerCase() === want)) {
+      if (!hits.includes(machine)) { hits.push(machine); displayOf[machine] = shown; }
+    }
+  }
+  if (hits.length === 1) return unsafeToActOn(hits[0]) ? asGiven : { name: hits[0], ambiguous: [], shown: {} };
   return hits.length > 1 ? { name, ambiguous: hits.sort(), shown: displayOf } : asGiven;
 }
 function resolveName(name, platform) { return resolve(name, platform).name; }
