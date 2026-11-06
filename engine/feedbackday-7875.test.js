@@ -14,7 +14,7 @@ const DATE = '2026-11-03';
 const at = (h, m, d = 3) => new Date(2026, 10, d, h, m).toISOString();
 
 function run(o) {
-  return day.digest({ name: 'Dana', date: DATE, listTaskFiles: () => [], readTask: () => [], isGuide: () => false, ...o });
+  return day.digest({ name: 'Dana', date: DATE, listTaskFiles: () => [], readTask: () => [], isGuide: () => false, replyChannel: () => null, ...o });
 }
 
 test('#7875: today\'s conversation both ways, oldest first, as time, who and the first line', () => {
@@ -23,7 +23,7 @@ test('#7875: today\'s conversation both ways, oldest first, as time, who and the
     { at: at(9, 30), text: 'Can you check the catalogue?\nMore detail below.', from: null },
     { at: at(9, 32), text: 'On it.', from: 'Dana' },
   ] });
-  assert.ok(out.includes('Your conversation with your person today: 2 from them, 1 from you.'), out.join('\n'));
+  assert.ok(out.includes('Your conversation with your person in Kosmos today: 2 from them, 1 from you.'), out.join('\n'));
   const i = out.indexOf('  09:30 them: Can you check the catalogue?');
   assert.ok(i > 0, out.join('\n'));
   assert.equal(out[i + 1], '  09:32 you: On it.');
@@ -48,7 +48,7 @@ test('#7875: an unreadable conversation says so, never "nothing today"', () => {
   assert.ok(out.includes('Kosmos could not read it on this computer'), out);
   assert.ok(!out.includes('nothing today'), out);
   const empty = run({ readThread: () => [] }).join('\n');
-  assert.ok(empty.includes('Your conversation with your person: nothing today.'), empty);   // CONTROL: empty is not unreadable
+  assert.ok(empty.includes('Your conversation with your person in Kosmos: nothing today.'), empty);   // CONTROL: empty is not unreadable
 });
 
 test('#7875: a long day keeps the newest messages and says it was cut', () => {
