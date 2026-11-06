@@ -47,24 +47,67 @@ test('#7693: no load to report (Windows answers 0, a bad number, a failed read):
   }
 });
 
-test('#7693: a load too small to round up is still not printed as an idle 0.0', () => {
-  const lines = [];
-  let t = 0;
-  const w = held.watch({ log: (l) => lines.push(l), now: () => t, load: () => 0.04, setInterval: () => ({}) });
-  w.tick();
-  t += held.TICK_MS + 2000;
-  w.tick();
-  assert.match(lines[0], /, load 0\.04$/);
+test('#7693: a load that would print as 0.00 is left out, and the smallest one that would not is kept', () => {
+  const said = (n) => {
+    const lines = [];
+    let t = 0;
+    const w = held.watch({ log: (l) => lines.push(l), now: () => t, load: () => n, setInterval: () => ({}) });
+    w.tick();
+    t += held.TICK_MS + 2000;
+    w.tick();
+    return lines[0];
+  };
+  assert.doesNotMatch(said(0.004), /load/);
+  assert.match(said(0.04), /, load 0\.04$/);
 });
 
-test('#7693: a sleep gap carries no load: a computer waking has none worth comparing', () => {
+test('#7693: a gap carries the load too: it may be the longest stall of all', () => {
   const lines = [];
   let t = 0;
   const w = held.watch({ log: (l) => lines.push(l), now: () => t, load: () => 4.24, setInterval: () => ({}) });
   w.tick();
   t += held.TICK_MS + held.ASLEEP_MS;
   w.tick();
-  assert.deepEqual(lines, [`[loop-held] gap ${held.ASLEEP_MS} ms, a sleeping computer or a very long stall`]);
+  assert.deepEqual(lines, [`[loop-held] gap ${held.ASLEEP_MS} ms, a sleeping computer or a very long stall, load 4.24`]);
+});
+
+test('#7693: the load is recorded between stalls too, so a quiet hour has a reading', () => {
+  const lines = [];
+  let t = 0;
+  const w = held.watch({ log: (l) => lines.push(l), now: () => t, load: () => 4.24, setInterval: () => ({}) });
+  w.tick();
+  const walk = (ms) => { for (let left = ms; left > 0; left -= held.TICK_MS) { t += held.TICK_MS; w.tick(); } };
+  walk(held.LOAD_EVERY_MS - held.TICK_MS);
+  assert.deepEqual(lines, [], 'control: not before the interval');
+  walk(held.TICK_MS);
+  assert.deepEqual(lines, ['[load] 4.24']);
+  walk(held.LOAD_EVERY_MS);
+  assert.deepEqual(lines, ['[load] 4.24', '[load] 4.24'], 'and again');
+});
+
+test('#7693: no load to report writes no [load] line, and a free thread reads the load only at the interval', () => {
+  const lines = [];
+  let reads = 0;
+  let t = 0;
+  const w = held.watch({ log: (l) => lines.push(l), now: () => t, load: () => { reads += 1; return 0; }, setInterval: () => ({}) });
+  w.tick();
+  for (let i = 0; i < 100; i += 1) { t += held.TICK_MS; w.tick(); }
+  assert.equal(reads, 0, 'a free thread inside the interval does not read it');
+  t += held.LOAD_EVERY_MS;
+  w.tick();
+  assert.deepEqual(lines.filter((l) => l.startsWith('[load]')), []);
+  assert.ok(reads >= 1, 'control: the interval did come round');
+});
+
+test('#7693: it is the one-minute figure', (ctx) => {
+  ctx.mock.method(os, 'loadavg', () => [1.11, 5.55, 15.15]);
+  const lines = [];
+  let t = 0;
+  const w = held.watch({ log: (l) => lines.push(l), now: () => t, setInterval: () => ({}) });
+  w.tick();
+  t += held.TICK_MS + 2000;
+  w.tick();
+  assert.match(lines[0], /, load 1\.11$/);
 });
 
 test('the blocking time counts only this stall, not the ones before it', () => {
