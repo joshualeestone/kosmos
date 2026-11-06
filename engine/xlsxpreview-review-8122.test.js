@@ -109,7 +109,7 @@ test('#8122 r1: dates as Excel shows them: the 1904 system, the 1900 leap-year b
   const cell = (ref, s, v) => `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
   const sheet = fx.SHEET(`<row r="1">${cell('A1', 1, 1)}${cell('B1', 1, 60)}${cell('C1', 1, 61)}${cell('D1', 2, 0.5)}${cell('E1', 3, 0.25)}${cell('F1', 4, 0.75)}${cell('G1', 0, '0.30000000000000004')}</row>`);
   const b1900 = x.readXlsx(fx.book({ S: sheet }, { 'xl/styles.xml': styles }));
-  assert.deepEqual(b1900.sheets[0].rows[0], ['1900-01-01', '1900-02-29', '1900-03-01', '12:00', '25%', '18:00', '0.3']);
+  assert.deepEqual(b1900.sheets[0].rows[0], ['1900-01-01', '1900-02-29', '1900-03-01', '12:00', '25%', '18:00:00', '0.3']);   // r4: hh:mm:ss shows its seconds
   const wb1904 = '<workbook xmlns:r="r"><workbookPr date1904="1"/><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>';
   const b1904 = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${cell('A1', 1, 45000)}</row>`) }, { 'xl/styles.xml': styles, 'xl/workbook.xml': wb1904 }));
   assert.deepEqual(b1904.sheets[0].rows[0], ['2027-03-16'], 'a 1904-system date was read in the 1900 system');
@@ -159,7 +159,7 @@ test('#8122 r2: simple number formats show their decimals, thousands and percent
     '<numFmts><numFmt numFmtId="168" formatCode="0.0%"/></numFmts>');
   const c = (ref, s, v) => `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
   const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 3.14159)}${c('B1', 2, -1234567.891)}${c('C1', 3, 0.075)}${c('D1', 4, 0.1234)}${c('E1', 5, 45000)}${c('F1', 6, 0.99999999)}</row>`) }, { 'xl/styles.xml': styles }));
-  assert.deepEqual(r.sheets[0].rows[0], ['3.14', '-1,234,567.89', '8%', '12.3%', '2023-03-15', '1900-01-01']);
+  assert.deepEqual(r.sheets[0].rows[0], ['3.14', '-1,234,567.89', '8%', '12.3%', '2023-03-15', '1900-01-01 00:00']);   // r4: id 22 is m/d/yy h:mm
 });
 
 test('#8122 r2: an entry the reader never reads ("[trash]/" from Excel, a name Windows cannot store) does not refuse the workbook', () => {
@@ -178,4 +178,55 @@ test('#8122 r3: an ISO date cell (t="d") shows its date; a sheet whose part is m
   const gone = x.readXlsx(fx.zip({ '[Content_Types].xml': '<Types/>', 'xl/workbook.xml': fx.WB(['S']), 'xl/_rels/workbook.xml.rels': fx.RELS(1) }));
   assert.deepEqual(gone.sheets, [{ name: 'S', rows: [], cut: false, notGrid: true }]);
   assert.equal(gone.empty, true);
+});
+
+/* Review 4 */
+test('#8122 r4: a row number that never grows, or cells past the last column, do not walk a whole part (about 2 s a request)', () => {
+  const D = { deflate: true };
+  const row = '<row r="1">' + '<c r="Z1"><v>1</v></c>'.repeat(5) + '</row>';
+  const repeat = fx.book({ S: fx.SHEET(row.repeat(Math.floor(15e6 / row.length))) }, {}, D);
+  const wide = fx.book({ S: fx.SHEET('<row r="1">' + '<c r="ZZ1"/>'.repeat(1e6) + '</row>') }, {}, D);
+  for (const [name, b] of [['repeat', repeat], ['wide', wide]]) {
+    assert.ok(b.length < 120000, name + ' should be a small file: ' + b.length);
+    const r = timed(() => x.readXlsx(b));   // a real clock: the walk itself is bounded, not only checked
+    assert.equal(r.err, null, name + ': ' + (r.err && r.err.message));
+    assert.ok(r.ms < 600, name + ' took ' + r.ms + ' ms');
+    assert.equal(r.out.sheets[0].cut, true, name + ': a walk cut short says so');
+  }
+  assert.equal(repeat.length > 0 && x.readXlsx(repeat).sheets[0].rows[0][25], '1');
+});
+
+test('#8122 r4: data that starts below the row cap is shown (with its first row), and a row out of order is not the end of the sheet', () => {
+  const far = x.readXlsx(fx.book({ S: fx.SHEET('<row r="300"><c r="A300"><v>7</v></c></row><row r="301"><c r="A301"><v>8</v></c></row>') }));
+  assert.deepEqual(far.sheets[0].rows, [['7'], ['8']]);
+  assert.equal(far.sheets[0].firstRow, 300);
+  assert.equal(far.empty, false, 'a sheet with values read as empty');
+  const odd = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row><row r="900"><c r="A900"><v>9</v></c></row><row r="2"><c r="A2"><v>2</v></c></row>') }));
+  assert.deepEqual(odd.sheets[0].rows, [['1'], ['2']]);
+  assert.equal(odd.sheets[0].cut, true);
+  assert.equal('firstRow' in odd.sheets[0], false, 'a sheet that starts at row 1 has no firstRow');
+});
+
+test('#8122 r4: a formula that returns "" is a saved empty text, not a missing value', () => {
+  const only = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="str"><f>IF(1,"","")</f><v></v></c></row>') }));
+  assert.equal(only.noValues, false, 'a saved "" read as a workbook with no saved values');
+  const mixed = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>3</v></c><c r="B1" t="str"><f>IF(1,"","")</f><v></v></c></row>') }));
+  assert.equal('someNoValues' in mixed, false);
+  // CONTROL: a number cell with an empty <v/> beside a formula (openpyxl) is still no saved value.
+  const bare = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>3</v></c><c r="B1"><f>A1*2</f><v/></c></row>') }));
+  assert.equal(bare.someNoValues, true);
+});
+
+test('#8122 r4: date and time formats show what Excel shows; odd formats and text never break the workbook', () => {
+  const styles = STYLES('<xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="18"/><xf numFmtId="45"/><xf numFmtId="14"/><xf numFmtId="165"/><xf numFmtId="166"/>',
+    '<numFmts><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/><numFmt numFmtId="165" formatCode="0.' + '0'.repeat(101) + '"/><numFmt numFmtId="166" formatCode="h:mm AM/PM"/></numFmts>');
+  const c = (ref, s, v) => `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
+  const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 45000.5)}${c('B1', 2, 0.75)}${c('C1', 3, 0.5)}${c('D1', 4, 0)}${c('E1', 5, 1.5)}${c('F1', 4, 'abc')}${c('G1', 6, 0.25)}</row>`) }, { 'xl/styles.xml': styles }));
+  assert.deepEqual(r.sheets[0].rows[0], ['2023-03-15', '6:00 PM', '00:00', '1900-01-00', '1.5', 'abc', '6:00 AM']);
+});
+
+test('#8122 r4: a self-closed phonetic guide does not cut the text after it', () => {
+  const sst = '<sst><si><t>a</t><rPh/><t>b</t></si></sst>';
+  const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': sst }));
+  assert.deepEqual(r.sheets[0].rows, [['ab']]);
 });

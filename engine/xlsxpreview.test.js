@@ -37,7 +37,7 @@ test('an ordinary workbook: its sheets, in order, with shared and inline strings
     ['Item', 'Cost (USD)', '', ''],
     ['Rent & bills', '1250.5', 'TRUE', ''],
     ['', '', '', ''],
-    ['2025-11-06', '2025-11-06 12:00', '', '#DIV/0!'],
+    ['2025-11-06', '2025-11-06', '', '#DIV/0!'],   // review 4: dd/mm/yyyy shows no time, as in Excel
   ]);
   assert.deepEqual(out.sheets[1].rows, [['', 'done']]);
   assert.equal(out.noValues, false);
