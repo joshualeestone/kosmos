@@ -444,7 +444,8 @@ const SAY = Object.freeze({
   org_code_used: 'That code has already been used. Ask whoever sent it for a new one.',
   org_code_expired: 'That code has expired. Ask whoever sent it for a new one.',
   org_other_org: 'This Kosmos+ account is already in another company or family account.',
-  org_wrong_domain: "That code was sent for a different email address than this account's.",
+  /* kosmos#6583 review 4: the domain refusal, worded apart from org_wrong_email's exact-address one, with its way out. */
+  org_wrong_domain: 'That code only works for email addresses at the domain it was made for. Sign in with an address there.',
   /* kosmos#6583 (S-11): an invite bound to one address, tried from an account with another, which the coordinator
      refuses as org_wrong_email. Without a sentence here the person was told to try again in a minute, which never
      works. It names no address, as the coordinator's own words do not. */

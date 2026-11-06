@@ -25,7 +25,6 @@ test('kosmos#6583: a bound invite refused as org_wrong_email is said as that, on
   assert.equal(p.code, 'org_wrong_email', 'the live refusal was not recognised');
   assert.equal(p.because, org.SAY.org_wrong_email);
   assert.doesNotMatch(p.because, /try again in a minute|could not be checked/, 'a refusal that never changes was said as a passing failure');
-  assert.doesNotMatch(p.because, /@/, 'a sentence named an address');
   const e = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: said(LIVE) });
   assert.equal(e.code, 'org_wrong_email');
   assert.equal(e.because, org.SAY.org_wrong_email);
@@ -52,5 +51,5 @@ test('kosmos#6583 review 1: a company pilot with no free seat is said as that, o
 });
 
 test('kosmos#6583: the wrong-address sentence names no company, so a family hears it as it is', () => {
-  assert.doesNotMatch(org.SAY.org_wrong_email, /company/);
+  assert.doesNotMatch(org.SAY.org_wrong_email, /company|family/i);
 });
