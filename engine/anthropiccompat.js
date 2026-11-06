@@ -37,6 +37,20 @@ const VENDORS = Object.freeze({
     models: Object.freeze(['deepseek-chat', 'deepseek-reasoner']),
     keyPage: 'https://platform.deepseek.com/api_keys',
   }),
+  /* #7206 slice 2a: GLM (Z.ai). The address and models are Z.ai's own Claude Code guide (docs.z.ai/devpack/tool/claude,
+     read 2026-11-05: ANTHROPIC_BASE_URL https://api.z.ai/api/anthropic, the key as ANTHROPIC_AUTH_TOKEN, GLM-5.3 and
+     GLM-5.3-Flash). The key is checked at the Coding Plan's model list, the endpoint Z.ai's docs give Coding Plan keys:
+     measured with a made-up key, it answers 401. The Anthropic address cannot be the check: measured, it answers HTTP 200
+     with {"code":401} in the body for any key and any path, so every key would read as accepted. A real key's 200 there
+     is not measured yet (no key held); that is part of the switch-on measurement. */
+  glm: Object.freeze({
+    id: 'glm',
+    name: 'GLM',
+    baseUrl: 'https://api.z.ai/api/anthropic',
+    checkUrl: 'https://api.z.ai/api/coding/paas/v4/models',
+    models: Object.freeze(['glm-5.3', 'glm-5.3-flash']),
+    keyPage: 'https://z.ai/manage-apikey/apikey-list',
+  }),
 });
 
 /* Review 2: the vendor for an id, from the table's OWN keys only. A plain lookup also finds inherited names
@@ -247,8 +261,10 @@ async function validateLive(ep, opts) {
   if (r.status !== 200) return { state: STATE.UNKNOWN, because: `we asked ${v.name} for its models and it answered ${r.status || 'nothing usable'}` };
   const data = r.body && Array.isArray(r.body.data) ? r.body.data : null;
   if (!data) return { state: STATE.UNKNOWN, because: v.name + ' answered, but not with a list of models' };
-  const ids = data.map((m) => (m && typeof m.id === 'string' ? m.id : '')).filter(Boolean);
-  if (ids.includes(ep.model)) return { state: STATE.CONNECTED, because: `${v.name} accepted the key and has ${ep.model}` };
+  /* #7206 slice 2a: compared without case. Z.ai's guide spells its models GLM-5.3 in one place and glm-5.3 in another,
+     and a list that names the model in other capitals is not a vendor refusing it. */
+  const ids = data.map((m) => (m && typeof m.id === 'string' ? m.id.toLowerCase() : '')).filter(Boolean);
+  if (ids.includes(String(ep.model).toLowerCase())) return { state: STATE.CONNECTED, because: `${v.name} accepted the key and has ${ep.model}` };
   return { state: STATE.NONE, because: `${v.name} accepted the key but does not offer ${ep.model}` };
 }
 

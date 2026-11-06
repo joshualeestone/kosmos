@@ -185,7 +185,7 @@ test('the supervisor\'s lists match the module: every vendor is recognised, ever
   const block = src.slice(src.indexOf('#7206: an account home named for a vendor'), src.indexOf('#2808 class-1 / #2129'));
   assert.ok(block.length > 200, 'the #7206 block moved; re-anchor this test');
   for (const id of Object.keys(compat.VENDORS)) {
-    assert.ok(block.includes(`.kosmos-${id}-?*)`), `vendor ${id} has no case in the supervisor`);
+    assert.ok(new RegExp(`\\.kosmos-${id}-\\?\\*[)|]`).test(block), `vendor ${id} has no case in the supervisor`);   // alone or in an alternation
   }
   // Every launch variable is either set by the account (a -e pair beats tmux's global value) or removed outright with
   // env -u: the removed ones are exactly the launch variables the account does not set.
@@ -193,4 +193,13 @@ test('the supervisor\'s lists match the module: every vendor is recognised, ever
   const unset = compat.LAUNCH_VARS.filter((v) => !set.includes(v));
   const declared = (block.match(/_cx_unset=\(([^)]*)\)/) || [])[1];
   assert.deepEqual(String(declared).trim().split(/\s+/).sort(), unset.slice().sort());
+});
+
+test('#7206 slice 2a: a GLM home launches claude against Z.ai, through the same case', () => {
+  const r = run(home({ 'kosmos-vendor.json': JSON.stringify({ vendor: 'glm', model: 'glm-5.3', key: KEY }) }, '.kosmos-glm-h'), 'claude-sonnet-5');
+  assert.match(r.argv, /new-session/, r.out);
+  assert.match(r.argv, /-e ANTHROPIC_BASE_URL=https:\/\/api\.z\.ai\/api\/anthropic/);
+  assert.match(r.argv, /--model glm-5\.3/);
+  assert.equal(/claude-sonnet-5/.test(r.argv), false, 'the agent\'s Claude model is not sent to Z.ai');
+  assert.equal(r.argv.includes(KEY), false, 'the key reached the argv');
 });

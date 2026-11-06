@@ -298,3 +298,29 @@ test('review 4: the test switch helper never touches a data folder outside the t
   assert.doesNotThrow(() => sw.setAt(ok, true));
   assert.equal(fs.existsSync(sw.markerAt(sw.rootFor(ok))), true);
 });
+
+test('#7206 slice 2a: GLM is a row of the same table, checked at the Coding Plan model list, launched at Z.ai', async () => {
+  const g = compat.VENDORS.glm;
+  assert.deepEqual([g.id, g.name, g.baseUrl, g.checkUrl, g.models[0]],
+    ['glm', 'GLM', 'https://api.z.ai/api/anthropic', 'https://api.z.ai/api/coding/paas/v4/models', 'glm-5.3']);
+  /* Never the Anthropic address as the check: measured, it answers 200 for any key. */
+  assert.notEqual(g.checkUrl, g.baseUrl);
+  assert.doesNotMatch(g.checkUrl, /\/api\/anthropic/);
+  const dir = nodePath.join(SANDBOX, compat.dirPrefix('glm') + 'g' + (++n));
+  compat.storeAccount(dir, { vendor: 'glm', model: 'glm-5.3', key: 'zai-key-0123456789' });
+  compat.resetLiveCacheForTest();
+  const calls = answering(models('glm-5.3', 'glm-5.3-flash'));
+  assert.equal((await compat.checkLive(dir)).state, compat.STATE.CONNECTED);
+  assert.deepEqual([calls[0].url, calls[0].auth], ['https://api.z.ai/api/coding/paas/v4/models', 'Bearer zai-key-0123456789']);
+  const env = compat.launchEnv(dir);
+  assert.deepEqual([env.ok, env.env.ANTHROPIC_BASE_URL, env.env.ANTHROPIC_MODEL], [true, 'https://api.z.ai/api/anthropic', 'glm-5.3']);
+});
+
+test('#7206 slice 2a: a model list naming the model in other capitals still lists it; another model still does not', async () => {
+  const dir = nodePath.join(SANDBOX, compat.dirPrefix('glm') + 'g' + (++n));
+  compat.storeAccount(dir, { vendor: 'glm', model: 'glm-5.3', key: 'zai-key-0123456789' });
+  compat.resetLiveCacheForTest(); answering(models('GLM-5.3', 'GLM-5.3-Flash'));
+  assert.equal((await compat.checkLive(dir)).state, compat.STATE.CONNECTED, 'GLM-5.3 in the list read as not offering glm-5.3');
+  compat.resetLiveCacheForTest(); answering(models('GLM-4.7'));
+  assert.equal((await compat.checkLive(dir)).state, compat.STATE.NONE, 'CONTROL: a list without the model must still refuse it');
+});
