@@ -3375,3 +3375,71 @@ test('#6173 review 4: a restart given up on DURING its unload wait sends no furt
     disruption.clear(name);
   }
 });
+
+/* ── kosmos#8109: Remove takes the name `kosmos agent list` prints ────────────────────────────────────────────────
+ * `agent list` prints the display name (Cai); the folder, and so the engine, knows the machine name (cai). Agents
+ * here are a folder and an instruction file only (no job, an empty board), so the result is the same on a
+ * case-insensitive Mac disk and on Linux, where the card was found. */
+function folderAgent(dir, displayName) {
+  fs.mkdirSync(create.workerDir(dir), { recursive: true });
+  fs.writeFileSync(nodePath.join(create.workerDir(dir), 'CLAUDE.md'), `You are **${displayName}**.\n`, 'utf8');
+  return dir;
+}
+
+test('#8109 a display name copied from agent list resolves to the one agent it names, and Remove finds it', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  folderAgent('kcai8109', 'Kcai8109');
+  // CONTROL: the bug is real in this fixture. The display name, as given, finds nothing.
+  const before = remove.plan('Kcai8109', MAC);
+  assert.equal(before.ok, false, 'CONTROL: the display name as given already plans; this fixture cannot show the bug');
+  assert.match(before.because, /cannot find an agent called Kcai8109/, 'CONTROL: refused for another reason: ' + before.because);
+  assert.equal(remove.resolveName('Kcai8109', MAC), 'kcai8109', 'the listed display name did not resolve to its agent');
+  const after = remove.plan(remove.resolveName('Kcai8109', MAC), MAC);
+  assert.equal(after.ok, true, 'Remove still refused the listed name after resolving it: ' + after.because);
+  assert.equal(remove.resolveName('kcai8109', MAC), 'kcai8109', 'an exact machine name was changed');
+});
+
+test('#8109 a folder name in other letter case resolves too (the display name differs)', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  folderAgent('kbo8109', 'Bo Smith 8109');
+  assert.equal(remove.resolveName('KBO8109', MAC), 'kbo8109');
+  assert.equal(remove.resolveName('bo smith 8109', MAC), 'kbo8109', 'a display name in other case did not resolve');
+});
+
+test('#8109 a name that matches two agents resolves to nothing, and the refusal still names what was asked', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  folderAgent('kana8109', 'Kana Twin 8109');
+  folderAgent('kana8109b', 'Kana Twin 8109');
+  assert.equal(remove.resolveName('Kana Twin 8109', MAC), 'Kana Twin 8109', 'an ambiguous name was resolved to one of two agents');
+  const p = remove.plan(remove.resolveName('Kana Twin 8109', MAC), MAC);
+  assert.equal(p.ok, false, 'an ambiguous name was offered for removal');
+  assert.doesNotMatch(p.because, /kana8109/, 'the refusal named one of the two agents: ' + p.because);
+});
+
+test('#8109 when the board cannot be read, the name is left as given (no guessing)', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  folderAgent('kdee8109', 'Kdee8109');
+  status.setPaneSource(() => { throw new Error('tmux is not answering'); });
+  try {
+    assert.equal(remove.resolveName('Kdee8109', MAC), 'Kdee8109', 'a name was resolved while the board could not be read');
+  } finally { status.setPaneSource(() => ''); }
+});
+
+test('#8109 both removal routes resolve the name before they plan or remove', () => {
+  const src = codeOnly(fs.readFileSync(nodePath.join(__dirname, '..', 'server.js'), 'utf8'));
+  const route = src.slice(src.indexOf('/^\\/api\\/agent\\/([^/]+)\\/removal$/'));
+  const getAt = route.indexOf("req.method === 'GET'");
+  const delAt = route.indexOf("req.method === 'DELETE'");
+  assert.ok(getAt >= 0 && delAt > getAt, 'CONTROL: the removal route shape moved');
+  const getPart = route.slice(getAt, delAt);
+  const delPart = route.slice(delAt, delAt + 4000);
+  for (const [label, part, call] of [['GET', getPart, 'removal.plan(name'], ['DELETE', delPart, 'removal.remove(name']]) {
+    const r = part.indexOf('removal.resolveName(asked)');
+    const c = part.indexOf(call);
+    assert.ok(r >= 0, `${label} removal route does not resolve the name`);
+    assert.ok(c > r, `${label} removal route acts before it resolves the name`);
+  }
+});
