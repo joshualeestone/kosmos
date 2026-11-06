@@ -50,3 +50,12 @@ logged-ticks-not-said, early return silent: each red.
   now names the case the order protects (a poll that is off is not named as a dry run).
 - Plan lines brought up to date. Left: the unmeasured count is not part of the state key (a change in it waits for
   the hourly line), by design.
+
+## Review round 4 (sonnet): two WARNINGs, fixed
+- A broken state keyed by its words would print every tick when the words change (a path, a pid): unreadable and
+  gap are keyed by kind; the line carries the latest reason; the board's own line still says a new reason at once.
+- The unmeasured count was read outside the guard, so a throw there would read as a failed tick: guarded on its own.
+- NIT taken: the start line asks the Settings switch too, so it no longer says "running" before a "switched off in
+  Settings" first tick.
+- Note: on a default install (usage poll off) the start line is the only line saying the sweep is not running; a
+  rotated log loses it. Accepted to keep an unchanged setting out of the log every hour.

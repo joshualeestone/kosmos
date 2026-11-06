@@ -199,7 +199,8 @@ function create({ file, nowMs = Date.now() }) {
    same trace: none. This returns a line when the sweep's state changes, and once an hour while a running state holds
    (a not-running state comes from settings, so it is said when it changes, not hourly on every default install);
    `logged` says the board already printed a line for this tick, which then counts as said. `said` is the caller's own
-   { at, key }. */
+   { at, key }. A broken state is keyed by its kind, not its words, so an error whose text changes every tick is
+   still said at most hourly (the board's own "could not record" line says a new reason when it changes). */
 const QUIET_SAY_MS = 60 * 60 * 1000;
 function quietLine(said, { nowMs, offWhy = null, did = null, because = null, unmeasured = 0, logged = false } = {}) {
   if (!said || typeof said !== 'object' || !Number.isFinite(nowMs)) return null;
@@ -208,8 +209,8 @@ function quietLine(said, { nowMs, offWhy = null, did = null, because = null, unm
   let line;
   if (offWhy) { key = 'off:' + offWhy; line = 'autobalance-sweep: not running: ' + offWhy; }
   else if (did === 'off') { key = 'off:setting'; line = 'autobalance-sweep: not running: auto-balance is switched off in Settings'; }
-  else if (did === 'unreadable') { key = 'unreadable:' + why; line = 'autobalance-sweep: running, but it could not work out the decision (' + why + ')'; }
-  else if (did === 'gap') { key = 'gap:' + why; line = 'autobalance-sweep: running, but it could not measure what it needs (' + why + ')'; }
+  else if (did === 'unreadable') { key = 'unreadable'; line = 'autobalance-sweep: running, but it could not work out the decision (' + why + ')'; }
+  else if (did === 'gap') { key = 'gap'; line = 'autobalance-sweep: running, but it could not measure what it needs (' + why + ')'; }
   else if (because === 'write-failed') { key = 'write-failed'; line = 'autobalance-sweep: running, but its record could not be written'; }
   else if (because === 'fewer-than-two') { key = 'fewer-than-two'; line = 'autobalance-sweep: running, but there are fewer than two Claude subscription accounts to balance'; }
   else {

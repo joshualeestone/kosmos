@@ -28501,8 +28501,11 @@ function start(port = PORT) {
       const abQuietSaid = { at: 0, key: null };   // kosmos#8083: autobalanceSweep.quietLine's memory between ticks
       if (abSweep) {
         const offNow = autobalanceSweepOffWhy();
-        process.stdout.write(`autobalance-sweep: timer set, every ${Math.round(abSweepMs / 60000)} min, ${offNow ? 'not running now: ' + offNow : 'running'}; the mover is ${automoveRun ? 'on' : 'off'}\n`);
-        if (offNow) autobalanceSweep.quietLine(abQuietSaid, { nowMs: Date.now(), offWhy: offNow, logged: true });   // the start line said it
+        let settingOff = false;   // the Settings switch, read per tick by the sweep; asked once here so the start line agrees
+        try { settingOff = autobalanceSetting.read().on !== true; } catch { settingOff = false; }
+        const startState = offNow ? 'not running now: ' + offNow : settingOff ? 'not running now: auto-balance is switched off in Settings' : 'running';
+        process.stdout.write(`autobalance-sweep: timer set, every ${Math.round(abSweepMs / 60000)} min, ${startState}; the mover is ${automoveRun ? 'on' : 'off'}\n`);
+        if (offNow || settingOff) autobalanceSweep.quietLine(abQuietSaid, { nowMs: Date.now(), offWhy: offNow, did: settingOff ? 'off' : null, logged: true });   // the start line said it
       }
       const abSayQuiet = (opts) => { try { const line = autobalanceSweep.quietLine(abQuietSaid, { nowMs: Date.now(), ...opts }); if (line) process.stdout.write(line + '\n'); } catch { /* best-effort: never into the timer */ } };
       let abSweepWriteSaid = false;
@@ -28531,7 +28534,9 @@ function start(port = PORT) {
               const failed = !!(r && r.because === 'write-failed');
               if (failed && !abSweepWriteSaid) { process.stdout.write('autobalance-sweep: its record could not be written; Settings says it is not recording\n'); logged = true; }   // said once per run of failures
               abSweepWriteSaid = failed;
-              abSayQuiet({ did: r && r.did, because: r && r.because, unmeasured: (abSweep.state.unmeasuredNow || []).length, logged });
+              let unmeasured = 0;
+              try { unmeasured = (abSweep.state.unmeasuredNow || []).length; } catch { /* a count, never a failed tick */ }
+              abSayQuiet({ did: r && r.did, because: r && r.because, unmeasured, logged });
             })
             .catch((err) => { abSayQuiet({ did: 'unreadable', because: 'the tick failed: ' + String((err && err.message) || err) }); })
             /* kosmos#7548: the move waits for the sweep's record of the same period. A move can take minutes, so the busy
