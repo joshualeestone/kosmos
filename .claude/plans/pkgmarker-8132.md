@@ -74,3 +74,13 @@ Nobody automatically: no caller in this repo (only comments, plans and the READM
 - NITs, fixed: the header line rewrapped; the item 4 test title kept on one line so it can be searched; _cannot_see
   split into shorter sentences. Left: no note beside the marker (JSON cannot carry one; this plan records it).
 30 passed across the three affected test files.
+
+## Review 6 (opus)
+- WARNING, fixed: the behavioural strip sample held one comment of each kind, so a greedy (over-stripping) regex
+  matched the lazy one and the comparison stayed green. The sample now has two of each with live text between, and
+  asserts the live text survives. Measured: a copy of check-served.js with the greedy HTML strip turns it red.
+- NIT, noted: the parity check covers the pkg arm's strip only; the web/index.html side of check-served is a separate
+  chain (codeOnly). The header names the pkg arm.
+- NITs, fixed: a sentence break after the item 4 test title; "That is no longer true" in installing-page with both
+  halves marked as history; _cannot_see split.
+30 passed across the three affected test files.
