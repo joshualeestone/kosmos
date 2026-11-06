@@ -54,6 +54,9 @@ test('the mark is the KOSMOS orb at 88 px, and the progress bar exists, both alw
   assert.match(CODE, /@keyframes sweepLite\{/, 'the fallback Sweep dots lost their animation');
   assert.match(CODE, /\.spin\{[^}]*--spin-dot:#9c741b\}/, 'the light-ground orb is not the deep gold #9c741b');
   assert.match(CODE, /@media \(prefers-color-scheme:dark\)\{[^@]*\.spin\{--spin-dot:#d6a62e\}\}/, 'the dark-scheme orb is not the bright gold #d6a62e');
+  // Same specificity, so the dark rule wins only by coming after the base one.
+  assert.ok(CODE.search(/@media \(prefers-color-scheme:dark\)\{[^@]*\.spin\{--spin-dot:#d6a62e\}/) > CODE.search(/\.spin\{[^}]*--spin-dot:#9c741b\}/),
+    'the dark-scheme gold comes before the base rule, so the dark scheme draws the deep gold');
 });
 
 test('KORB is ported verbatim, and the K loader is gone', () => {
@@ -83,7 +86,8 @@ test('KORB here is byte for byte the app\'s KORB', () => {
 test('neither ending turns the orb into a check, and KORB runs in its own script', () => {
   // #867's rule, kept from the K loader's days: the page never reaches a clean finish. "Kosmos is ready" hands over to
   // the board, and "taken" means something else answered; a check would claim a success this page did not see.
-  assert.doesNotMatch(CODE.slice(CODE.indexOf('(function(){')), /KORB\.finish\(/, 'the page turns the orb into a check on an ending');
+  // The page's own script never names KORB at all (so no spelling of a finish can slip in); KORB finds the orb itself.
+  assert.doesNotMatch(CODE.slice(CODE.indexOf('(function(){')), /\bKORB\b/, 'the page script reaches into KORB (a finish would turn the orb into a check on an ending)');
   // KORB in a <script> of its own, closed before the page's ES5 script opens: an engine that cannot run KORB keeps the
   // polling, the bar and the endings (the dots show instead of the orb).
   const korbAt = HTML.indexOf('const KORB = (() => {'), pageAt = HTML.indexOf('(function(){');
