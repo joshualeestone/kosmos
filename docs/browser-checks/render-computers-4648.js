@@ -279,6 +279,30 @@ const FOUR = {
       !!shown && shown.inked > 50 && !/rgba\(0, 0, 0, 0\)|transparent/.test(shown.bg), JSON.stringify(shown && { inked: shown.inked, bg: shown.bg }));
     if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, `switching-${engine}-${theme}-desktop.png`) });
 
+    /* kosmos#8118: the launch reopen the Mac app asks for (computersReopen), in the real page and in WebKit, the
+       app's engine. A reachable computer opens the same way a click does (a ticket for it, the switching screen); an
+       offline one stays here and says why, with no switching screen. The ticket hangs, so the page stays to be read. */
+    await page.goto(PAGE);
+    const reopen = async (host) => page.evaluate(async (h) => {
+      const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+      window.__ticketHang = true;
+      window.__ticketAsked = [];
+      const prior = document.getElementById('cswitch-screen'); if (prior) prior.remove();
+      const said = await computersReopen(h);
+      await new Promise((r) => setTimeout(r, 120));   // the toast fills its words a moment after it is made
+      const toast = document.getElementById('msg-toast');
+      return { said, toast: toast ? toast.textContent : null, screen: !!document.getElementById('cswitch-screen'),
+        asked: (window.__ticketAsked || []).map((b) => b.address) };
+    }, host);
+    const opened = await reopen('desk-mini.kosmosplus.example');
+    ok(`${t} #8118: the launch reopen opens a reachable computer the switcher's way (its ticket, the switching screen)`,
+      opened.said === 'opening' && opened.screen && opened.asked.length === 1 && opened.asked[0] === 'desk-mini.kosmosplus.example',
+      JSON.stringify(opened));
+    const away = await reopen('garage-pc.kosmosplus.example');
+    ok(`${t} #8118: an offline computer stays here and says so by name, with no switching screen`,
+      away.said === 'offline' && !away.screen && away.asked.length === 0 && /^garage-pc is not connected/.test(away.toast || ''),
+      JSON.stringify(away));
+
     await page.close();
   }
   await browser.close();
