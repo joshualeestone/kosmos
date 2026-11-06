@@ -3414,10 +3414,14 @@ test('#8109 a name that matches two agents resolves to nothing, and the refusal 
   folderAgent('kana8109', 'Kana Twin 8109');
   folderAgent('kana8109b', 'Kana Twin 8109');
   assert.equal(remove.resolveName('Kana Twin 8109', MAC), 'Kana Twin 8109', 'an ambiguous name was resolved to one of two agents');
-  assert.deepEqual(remove.resolve('Kana Twin 8109', MAC).ambiguous, ['kana8109', 'kana8109b'], 'the two agents it matches were not reported');
-  const said = remove.ambiguousRefusal('Kana Twin 8109', ['kana8109', 'kana8109b']);
+  const r = remove.resolve('Kana Twin 8109', MAC);
+  assert.deepEqual(r.ambiguous, ['kana8109', 'kana8109b'], 'the two agents it matches were not reported');
+  const said = remove.ambiguousRefusal('Kana Twin 8109', r.ambiguous, r.shown);
   assert.equal(said.ok, false);
-  assert.match(said.because, /more than one agent is called Kana Twin 8109 \(kana8109, kana8109b\)/, 'the refusal does not say there are two');
+  assert.match(said.because, /more than one agent is called Kana Twin 8109 \(kana8109, shown as Kana Twin 8109; kana8109b, shown as Kana Twin 8109\)/,
+    'the refusal does not say which agent each folder is: ' + said.because);
+  // A folder whose shown name is its own folder name is not repeated.
+  assert.match(remove.ambiguousRefusal('X', ['a', 'b'], { a: 'a', b: 'Bob' }).because, /\(a; b, shown as Bob\)/);
 });
 
 test('#8109 a removed agent with the same display name is not a second match', () => {

@@ -7860,7 +7860,8 @@ cmd_agent() {
       local rm_name="$1" rm_path rm_plan rm_head rm_label rm_ok rm_why rm_back rm_parsed rm_out rm_because rm_end rm_target
       local _rmparse='let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");'
       rm_path=$(KOSMOS_RM_NAME="$rm_name" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_RM_NAME))') || { say "We could not use that name."; exit 1; }
-      body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 15 "$URL/api/agent/$rm_path/removal" 2>/dev/null) || rc=$?
+      # kosmos#8109: ?resolve=1 asks the plan to resolve a name as `agent list` prints it; the board's own button does not.
+      body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 15 "$URL/api/agent/$rm_path/removal?resolve=1" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "read what removing $rm_name would do" "$rc"; exit 1; fi
       # Fields, tab-separated: ok, label, why (refused), whether it can be put back; then the lines to show, one each.
       rm_plan=$(printf '%s' "$body" | "$_node" -e "$_rmparse"'const loses=Array.isArray(j.loses)?j.loses:[];const keeps=Array.isArray(j.keeps)?j.keeps:[];console.log([j.ok===true?"ok":"no",one(j.label||j.name),one(j.because||j.error),loses.some((l)=>/put it back/.test(l))?"back":"",one(j.ok===true?j.name:"")].join("\t"));if(j.ok!==true)return;if(j.hint)console.log(one(j.hint));if(loses.length)console.log("It loses: "+loses.map(one).join("; ")+".");if(keeps.length)console.log("It keeps: "+keeps.map(one).join("; ")+".")})') \

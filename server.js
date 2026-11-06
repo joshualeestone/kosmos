@@ -10632,10 +10632,14 @@ const server = http.createServer(async (req, res) => {
   if (rm && (req.method === 'GET' || req.method === 'HEAD')) {
     const asked = decodeSegment(rm[1]);
     if (asked === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    // kosmos#8109: a name as `agent list` prints it (Cai) resolved to the one agent it names (cai); see remove.resolve.
-    let name = asked; let many = [];
-    try { const r = removal.resolve(asked); name = r.name; many = r.ambiguous; } catch { name = asked; many = []; }
-    if (many.length) { sendJson(res, 400, removal.ambiguousRefusal(asked, many)); return; }
+    // kosmos#8109: ONLY when the caller asks (`?resolve=1`, which both CLIs send), a name as `agent list` prints it (Cai)
+    // is resolved to the one agent it names (cai); see remove.resolve. The board asks about its own card by its exact
+    // name and does not ask, so a stale card is never answered with a different agent's plan.
+    let name = asked; let many = []; let shown = {};
+    if (/[?&]resolve=1(?:&|$)/.test(req.url || '')) {
+      try { const r = removal.resolve(asked); name = r.name; many = r.ambiguous; shown = r.shown; } catch { name = asked; many = []; }
+      if (many.length) { sendJson(res, 400, removal.ambiguousRefusal(asked, many, shown)); return; }
+    }
   /**
    * ⚠️ GUARDED, like every other engine call in this file.
    *

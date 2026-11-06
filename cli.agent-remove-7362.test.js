@@ -71,7 +71,7 @@ test('#7362 Mac: --yes reads the plan, then removes through the same route, neve
   const r = await cli(port, ['agent', 'remove', 'Sally Sales', '--yes']);
   assert.equal(r.code, 0, r.out);
   // kosmos#8109: the DELETE goes to the agent the plan resolved (PLAN.name), not the typed name again.
-  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agent/Sally%20Sales/removal', 'DELETE /api/agent/sally-sales/removal']);
+  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agent/Sally%20Sales/removal?resolve=1', 'DELETE /api/agent/sally-sales/removal']);
   assert.doesNotMatch(seen.map((s) => s.url).join(' '), /force/, 'the CLI sent the person\'s override');
   assert.match(r.out, /you can put it back\./, 'the plan\'s hint was not shown');
   assert.match(r.out, /Sally Sales has been removed from Kosmos\. Its folder/);
@@ -129,7 +129,7 @@ test('#7362 Windows: --yes reads the plan, then removes through the same route, 
   const r = await winRun(port, ['agent', 'remove', 'Sally Sales', '--yes']);
   assert.equal(r.code, 0, r.err);
   // kosmos#8109: the DELETE goes to the agent the plan resolved (PLAN.name), not the typed name again.
-  assert.deepEqual(seen.map((x) => x.method + ' ' + x.url), ['GET /api/agent/Sally%20Sales/removal', 'DELETE /api/agent/sally-sales/removal']);
+  assert.deepEqual(seen.map((x) => x.method + ' ' + x.url), ['GET /api/agent/Sally%20Sales/removal?resolve=1', 'DELETE /api/agent/sally-sales/removal']);
   assert.doesNotMatch(seen.map((x) => x.url).join(' '), /force/, 'the CLI sent the person\'s override');
   assert.equal(seen[1].headers['x-kosmos-agent-token'], 'abc123', 'the removal did not go as this agent');
   assert.equal(r.asked.length, 0, '--yes still asked');
@@ -370,7 +370,7 @@ test('#8109 Mac: the DELETE goes to the name the plan resolved, not the name as 
     const d = deletes(seen);
     assert.equal(d.length, 1, 'CONTROL: no DELETE was sent: ' + r.out);
     assert.match(d[0].url, /\/api\/agent\/cai\/removal$/, 'the DELETE did not go to the resolved agent: ' + d[0].url);
-    assert.match(seen[0].url, /\/api\/agent\/Cai\/removal$/, 'CONTROL: the plan was not asked by the typed name');
+    assert.match(seen[0].url, /\/api\/agent\/Cai\/removal\?resolve=1$/, 'the plan was not asked by the typed name, with resolve=1');
   }));
 
 test('#8109 Mac: a plan with no name (an older board) keeps the typed name for the DELETE', () => withStub(
