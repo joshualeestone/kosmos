@@ -19,7 +19,6 @@ and a failed read never loses the line it goes on.
   that removed the stalls would look just like a quiet machine. About 48 lines a day, on the same tick, no new timer.
 - Left the [loop-held] line's existing text unchanged, so anything reading it by prefix still matches.
 - Load on the gap line too (review 2): it can be the longest real stall.
-
 - Every 30 minutes, not 10 (review 6): the diagnostics file keeps only the last 300 lines of board.log, so 144 lines a
   day could push a failure out of it within two days on a quiet board. 48 a day leaves about six days of tail even with
   nothing else written. The card compares hours, so two readings an hour is enough.
