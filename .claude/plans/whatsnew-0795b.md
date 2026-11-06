@@ -9,3 +9,12 @@ web/whats-new.json now lists the next five eligible items. No item text was writ
 title and line was already in the pool and reviewed in its own PR (#8136 for the 0.7.95 items).
 
 Check: `node tools/whats-new-pool.js prod-check` passes after the build (it refused before it).
+
+## Review round 1: one hand retirement
+
+0.7.94 showed five highlights, not four: the tool marked four, and left the fifth ("Settings says when crash recovery
+is not set up") pending because it is Windows-only and the pool records Mac promotes only. The tool's header
+(tools/whats-new-pool.js lines 19-20) says such an item is retired BY HAND once Windows prod has shown it. Windows prod
+serves 0.7.93 (live https://chaoskosmos.com/dist/latest-win.json, read 11-06), and 0.7.93's build (e9f745d813) showed
+it, so it is now status shown, shownIn 0.7.93, and the build was run again. It gave its slot to "Old project summaries
+say why" (already in the pool, rank 16.8). That one edit is the only hand change; web/whats-new.json is tool output.
