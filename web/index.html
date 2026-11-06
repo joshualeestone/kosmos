@@ -3177,6 +3177,10 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 /* #7896: on a whole-screen wait (.orb-wait) the KOSMOS orb (KORB, in the script) is drawn into a canvas and the dots
    are hidden once it is there, so before the script runs the Sweep dots show. */
 .spin.korb-on i { display: none; }
+/* #7896 round 8: if the orb's finish cannot draw, a plain check in the page's green stands in for it. */
+.spin.korb-check-fallback i { display: none; }
+.spin.korb-check-fallback::after { content: "\2713"; position: absolute; inset: 0; display: grid; place-items: center;
+  color: var(--ok); font: 600 calc(var(--sz) * 0.6)/1 var(--font-ui, -apple-system, sans-serif); }
 .spin > canvas.korb { position: absolute; inset: 0; width: 100%; height: 100%; }
 .wake-done { display: inline-block; width: 16px; height: 16px; margin-right: 8px; vertical-align: -0.2em; color: var(--ok); }
 /* Accessibility: honour reduced-motion. Keep ONE calm pulse so the "working" signal
@@ -47329,7 +47333,7 @@ const KORB = (() => {
      is one path and one fill, instead of a fill per dot (review round 2: 2200 fills per orb per frame). */
   const STEPS = 8, groups = Array.from({ length: STEPS }, () => []);
   /* One dot onto the canvas: its x, y, radius and strength (alpha), or null when it is too faint to draw. The one
-     projection, used by paint and by the finish, so the finish's first frame lands exactly on the last turning one. */
+     projection, used by paint and by the finish, so the finish's first frame lands on the last turning one (the strength steps differ by under 0.07). */
   function project(side, X, Y, Z, r, vis) {
     const R = side * 0.46, CAM = 6, px = side * 0.009;   // dots scale with the orb (66 to 88 px on the screens that show it); the 0.35 px floor only matters far smaller
     const f = CAM / (CAM + Z), front = Math.max(0, Math.min(1, (1 - Z) / 2));
@@ -47457,7 +47461,7 @@ const KORB = (() => {
   // Every attached canvas, shown or not, so a hidden still orb is right when it next shows.
   const forget = (colour) => {
     if (all) for (const s of all) { const c = s.querySelector(':scope > canvas.korb'); if (c) { c.korbKey = ''; if (colour) c.korbColour = ''; } }
-    for (const s of checked) { if (!s.isConnected) checked.delete(s); else if (s.korbCheck && s.getClientRects().length) s.korbCheck(); }
+    for (const s of checked) { if (!s.isConnected) checked.delete(s); else if (s.korbCheck) s.korbCheck(); }
     if (shown.size) start();
   };
   // A spinner's own size changing (a new --sz, a layout change), not only the window's: read it again and redraw.
@@ -47466,8 +47470,9 @@ const KORB = (() => {
     io = new IntersectionObserver((entries) => {
       for (const e of entries) {
         if (finishing.has(e.target)) {   // finished: never the turning orb again; a parked one becomes the check now
-          if (!e.target.isConnected) { parked.delete(e.target); io.unobserve(e.target); if (ro) ro.unobserve(e.target); }
+          if (!e.target.isConnected) { parked.delete(e.target); checked.delete(e.target); io.unobserve(e.target); if (ro) ro.unobserve(e.target); }
           else if (e.isIntersecting && parked.has(e.target)) { parked.delete(e.target); run(e.target, true); }
+          else if (e.isIntersecting && e.target.korbStale && !parked.has(e.target)) { e.target.korbStale = false; run(e.target, true); }
           continue;
         }
         if (e.isIntersecting) { shown.add(e.target); sizeStale = true; const c = e.target.querySelector('canvas.korb'); if (c) c.korbKey = ''; }   // re-read its size on showing (a zoom while it was hidden)
@@ -47537,7 +47542,7 @@ const KORB = (() => {
   }
   function run(s, instant) {
     try {
-      if (io) io.unobserve(s); if (ro) ro.unobserve(s);   // the loop lets go of it; this draws it from here
+      if (ro) ro.unobserve(s);   // the loop lets go of it; this draws it from here (io still watches it: see the io callback)
       sizeStale = true;
       const cv = fit(s), g = cv.getContext('2d');
       if (!g) return;
@@ -47564,14 +47569,21 @@ const KORB = (() => {
           g.beginPath(); for (let i = 0; i < arr.length; i += 3) { g.moveTo(arr[i] + arr[i + 2], arr[i + 1]); g.arc(arr[i], arr[i + 1], arr[i + 2], 0, 6.283); } g.fill();
         }
       };
-      // Once the check is drawn, a theme change or a resize draws it again in that moment's --ok and size (round 7).
+      /* A theme change or a resize (forget) draws the check again in that moment's --ok and size (rounds 7, 8). One that
+         comes during the flight, or while the orb is hidden, is remembered (korbStale) and done when the flight ends or
+         the orb shows again. */
+      let flying = !(instant || stillOf(s));
+      s.korbCheck = () => { if (flying || !s.getClientRects().length) { s.korbStale = true; return; } run(s, true); };
+      for (const x of checked) if (!x.isConnected) checked.delete(x);
+      checked.add(s);
       const done = () => {
+        flying = false;
+        if (s.korbStale && s.isConnected && s.getClientRects().length) { s.korbStale = false; run(s, true); return; }
         fill(T.map((t) => ({ x: t.x, y: t.y, r: t.r, a: 1, c: green })));
-        s.korbCheck = () => { s.korbCheck = null; run(s, true); };
-        checked.add(s);
       };
       if (instant || stillOf(s)) { done(); return; }
-      const step = (now) => {
+      const step = (now) => { try { flight(now); } catch (e) { fallback(s, e); } };
+      const flight = (now) => {
         if (!s.isConnected) return;
         const el = now - from;
         if (el < SLOW * 0.6 || !pairs) {
@@ -47591,9 +47603,13 @@ const KORB = (() => {
         if (left) requestAnimationFrame(step); else done();
       };
       requestAnimationFrame(step);
-    } catch (e) {
-      if (!warned) { warned = true; try { console.warn('KOSMOS loading orb: the finish failed', e); } catch (x) { /* no console */ } }
-    }
+    } catch (e) { fallback(s, e); }
+  }
+  /* The finish could not draw (round 8), at its start or mid-flight: never leave a turning or half-drawn orb on a finished
+     screen. A plain check in --ok takes its place (CSS .korb-check-fallback), so success still shows. */
+  function fallback(s, e) {
+    try { s.korbCheck = null; const c = s.querySelector(':scope > canvas.korb'); if (c) c.remove(); s.classList.add('korb-check-fallback'); } catch (x) { /* nothing more to do */ }
+    if (!warned) { warned = true; try { console.warn('KOSMOS loading orb: the finish failed', e); } catch (x) { /* no console */ } }
   }
   return { draw, finish, running: () => running };   // draw: one frame at time t into a context (for a design harness)
 })();

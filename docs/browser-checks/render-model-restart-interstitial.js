@@ -77,14 +77,8 @@ function check(name, pass, detail) {
   }
   const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
   // #7896: reduced motion OFF also lets KORB turn the orb (under reduce it draws it once, still).
-  // #2692: pin reduced-motion OFF so the detached-canvas control below deterministically
-  // exercises startKLoader's ANIMATING path -- the only path with an rAF loop, and so the
-  // only path the !cv.isConnected guard governs. Under prefers-reduced-motion: reduce the
-  // loader takes a one-shot synchronous frame(1,0) and never enters tick(), which both paints
-  // a detached canvas (false-red for the control) and has no loop to leak anyway. Emulating
-  // no-preference makes the check machine-independent instead of depending on the host's
-  // motion setting (the animating arms -- loaderPainted etc. -- are unaffected: they animate
-  // under no-preference and painted a static frame under reduce, so both were already green).
+  // #2692 (history): reduced-motion was pinned OFF for the K loader's detached-canvas control, which
+  // #7896 retired with the loader; it stays OFF so the orb's moving arms test a turning orb on any host.
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));

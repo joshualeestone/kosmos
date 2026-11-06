@@ -340,13 +340,22 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await wait(500); const cv2 = document.querySelector('#__f2 canvas.korb'); const w0 = cv2.width;
     h2.hidden = true; await wait(100); m2.finish(); await wait(400); out.hiddenBefore = read(cv2);
     h2.hidden = false; await wait(300); out.hiddenAfter = read(cv2); out.hiddenW0 = w0;
+    // 3b. A theme change DURING the flight (round 8): the check still ends in the dark theme's --ok.
+    const h4 = mk('__f4'), m4 = startMadeMark(document.getElementById('__f4'));
+    await wait(500); const cv4 = document.querySelector('#__f4 canvas.korb');
+    m4.finish(); await wait(500); document.documentElement.setAttribute('data-theme', 'dark');
+    await wait(1700); out.midFlightDark = read(cv4);
+    out.darkOk = getComputedStyle(document.getElementById('__f4')).getPropertyValue('--ok').trim();
+    if (was === null) document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', was);
+    h4.remove();
     // 4. hold(): still, not green.
     const h3 = mk('__f3'), m3 = startMadeMark(document.getElementById('__f3'));
     await wait(400); m3.hold(); await wait(200); const cv3 = document.querySelector('#__f3 canvas.korb'); out.holdA = read(cv3); await wait(400); out.holdB = read(cv3);
     for (const h of [h1, h2, h3]) h.remove();
+    const near = (x, hex) => { const v = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)); return x.n > 100 && Math.abs(x.r - v[0]) < 24 && Math.abs(x.g - v[1]) < 24 && Math.abs(x.b - v[2]) < 24; };
     out.ok = { seenGreen: green(out.after), held: out.after.sum === out.held.sum, wasGold: out.before.n > 100 && !green(out.before),
-      darkRecoloured: green(out.dark) && out.dark.g > out.after.g + 40, backToLight: green(out.light) && Math.abs(out.light.g - out.after.g) < 6,
-      hiddenGold: !green(out.hiddenBefore), hiddenGreen: green(out.hiddenAfter) && out.hiddenAfter.w === w0,
+      darkRecoloured: /^#[0-9a-f]{6}$/i.test(out.darkOk) && near(out.dark, out.darkOk), midFlightDark: near(out.midFlightDark, out.darkOk), backToLight: green(out.light) && Math.abs(out.light.g - out.after.g) < 6,
+      hiddenGold: out.hiddenBefore.n > 100 && !green(out.hiddenBefore), hiddenGreen: green(out.hiddenAfter) && out.hiddenAfter.w === w0,
       holdStill: out.holdA.n > 100 && out.holdA.sum === out.holdB.sum && !green(out.holdB) };
     return out;
   });
