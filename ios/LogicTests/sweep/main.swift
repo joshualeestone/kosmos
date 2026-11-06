@@ -165,6 +165,12 @@ do {
     let usesDots = ["AgentInfoView", "AgentsView", "FilesView", "ProjectInfoView", "ProjectsView", "SettingsView", "TaskPageView", "TasksView", "TodayView"]
         .reduce(0) { $0 + repoText("ios/Kosmos/" + $1 + ".swift").components(separatedBy: ".dotsRefresh {").count - 1 }
     check(usesDots == 10 && repoText("ios/Kosmos/ContentView.swift").contains("DotsRefreshDriver()"), "pull to refresh keeps the dots at its 11 places (\(usesDots) lists and the board page)")
+    // A pull runs the closure of the latest render, not of the first: a closure reading a view's `let` sees that render's
+    // value, and the Tasks list laid out a stale read this way (review 1). Read from source: no sample read ever changes.
+    let refreshPiece = repoText("ios/Kosmos/DotsRefresh.swift")
+    check(refreshPiece.contains("let _ = { driver.refreshAction = action }()") && !refreshPiece.contains(".onAppear"), "a pull runs the latest render's refresh, set on every render")
+    // WebKit manages the web view's insets, so the board page holds no space (review 1).
+    check(repoText("ios/Kosmos/ContentView.swift").contains("refresh.holdsSpace = false"), "the board page's pull never writes the web view's insets")
     // Pulling past a chat's end is the state the #7420 blank fixes act on (Angel, kosmos#8072).
     check(!repoText("ios/Kosmos/ChatView.swift").contains("dotsRefresh") && !room.contains("dotsRefresh"), "the dots' pull to refresh stays out of a chat and a room")
 }

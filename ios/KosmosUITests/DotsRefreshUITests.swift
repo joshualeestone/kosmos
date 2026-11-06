@@ -39,6 +39,22 @@ final class DotsRefreshUITests: XCTestCase {
         wait(for: [gone], timeout: 12)
     }
 
+    /// The list must come back exactly where it was: an inset not given back would leave the rows under the bar or low.
+    func testTheListComesBackWhereItWas() {
+        let app = launch(tab: nil)
+        let row = app.staticTexts["Cleo"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        sleep(2)
+        let before = row.frame.minY
+        pull(app, distance: 320)
+        XCTAssertTrue(dots(app).waitForExistence(timeout: 3))
+        XCTAssertGreaterThan(row.frame.minY, before + 20, "CONTROL: while refreshing, the list is held lower")
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dots(app))
+        wait(for: [gone], timeout: 12)
+        sleep(1)
+        XCTAssertEqual(row.frame.minY, before, accuracy: 1, "the list did not come back to where it was")
+    }
+
     func testAgentsPullShowsTheDotsAndEnds() { pullRefreshes(tab: nil, named: "agents") }
     func testTasksPullShowsTheDotsAndEnds() { pullRefreshes(tab: "tasks", named: "tasks") }
     func testSettingsPullShowsTheDotsAndEnds() { pullRefreshes(tab: "settings", named: "settings") }
