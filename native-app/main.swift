@@ -1826,7 +1826,9 @@ func pageOrigin(protocol scheme: String, host: String, port: Int) -> String {
 }
 func pageOrigin(of url: URL?) -> String? {
     guard let url, let scheme = url.scheme, let host = url.host else { return nil }
-    return pageOrigin(protocol: scheme, host: host, port: url.port ?? 0)
+    // The scheme's own port is written as none, as WebKit's securityOrigin gives it (round 7: https://h:443 is https://h).
+    let p = url.port ?? 0, s = scheme.lowercased()
+    return pageOrigin(protocol: scheme, host: host, port: (s == "https" && p == 443) || (s == "http" && p == 80) ? 0 : p)
 }
 /// kosmos#8120: PURE. The id in the page's Show in Finder message, {reveal: <whole number>}, or nil for anything else
 /// (true, a fraction, a string, a missing field): a page cannot name a download by any other shape.
@@ -6624,7 +6626,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         case "/att": return ok("Content-Disposition: attachment; filename=\"att.txt\"\r\n")
         case "/attframe": return ok("Content-Disposition: attachment; filename=\"attframe.txt\"\r\n")
         case "/framedl":   // kosmos#7952: a frame inside the board page that asks for a same-origin download itself
-            let page = "<!doctype html><meta charset=utf-8><a id=fd href=/framed.txt download>q</a><script>document.getElementById('fd').click()</script>"
+            let page = "<!doctype html><meta charset=utf-8><a id=fd href=/framed.txt?kdl=f1 download>q</a><script>document.getElementById('fd').click()</script>"
             return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
         case "/attframe2": return ok("Content-Disposition: attachment; filename=\"attframe2.txt\"\r\n")
         case "/pack2.zip":
@@ -6924,6 +6926,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 "kosmos#8120: A KEYED FAILED DOWNLOAD (404) IS TOLD failed, NEVER saved (\(ev("m1")))")
             row(ev("n1").first == "asking" && ev("n1").last == "failed" && !ev("n1").contains("saving"),
                 "kosmos#8120: A CLICK REFUSED BEFORE ANY DOWNLOAD (Don't Allow) IS TOLD asking THEN failed (\(ev("n1")))")
+            row(ev("f1").isEmpty && saved("framed.txt"),
+                "kosmos#8120: A FRAME'S DOWNLOAD IS NEVER TOLD TO THE PAGE, even with a key on its address (told \(ev("f1")))")
+            row(pageOrigin(of: URL(string: "https://amy.kosmosplus.com:443/x")) == "https://amy.kosmosplus.com" && pageOrigin(of: URL(string: "http://127.0.0.1:8080/")) == "http://127.0.0.1:8080",
+                "kosmos#8120: A PAGE'S ORIGIN WRITES THE SCHEME'S OWN PORT AS NONE, as WebKit does (Show in Finder over Kosmos+)")
             let toldKeys = Set(pageEvents.compactMap { $0["key"] as? String })
             let savedTold = pageEvents.filter { ($0["state"] as? String) == "saved" }.compactMap { $0["name"] as? String }
             row(toldKeys.isSubset(of: ["s1", "m1", "n1", "y1"]) && savedTold.sorted() == ["asked-yes.txt", "same.txt"] && savedTold.allSatisfy { all.contains($0) },
@@ -6944,7 +6950,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(own && !other && !unknown && revealed.map { $0.lastPathComponent } == ["same.txt"],
                 "kosmos#8120: SHOW IN FINDER SELECTS A FILE THIS APP SAVED, ONLY FOR THE ORIGIN THAT SAVED IT, and nothing for an unknown id (\(own)/\(other)/\(unknown))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 46   // kosmos#8120: +8 (what the page is told, that it runs there, and Show in Finder); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
+            let expected = 48   // kosmos#8120: +10 (what the page is told, that it runs there, and Show in Finder); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)

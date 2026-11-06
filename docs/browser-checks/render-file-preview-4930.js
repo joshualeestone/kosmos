@@ -411,7 +411,8 @@ async function runApp(engine, say) {
     const reopened = await state();
     say(reopened.busy && /Saving/.test(reopened.text), T + ': opened again mid-save, the button says Saving', JSON.stringify(reopened));
     await tell({ state: 'saved', key: k3, id: 8, name: 'Budget 2026.xlsx' });
-    say(/Saved to Downloads/.test((await state()).text), T + ': and the save\'s answer lands on the reopened button', JSON.stringify(await state()));
+    const reAns = await state();
+    say(/Saved to Downloads/.test(reAns.text) && /Budget 2026\.xlsx is in your Downloads folder/.test(reAns.msg || ''), T + ': and the save\'s answer lands on the reopened viewer, its button and its line', JSON.stringify(reAns));
     await pg.waitForTimeout(6300);
     // 2. A failure: the button comes straight back, and nothing says saved.
     await open();
@@ -463,6 +464,37 @@ async function runApp(engine, say) {
     const rl = await pg.evaluate(() => document.getElementById('__rl').textContent);
     say(rl === 'r1.txt is in your Downloads folder.', T + ': two rows clicked in one list, the first one\'s saved still shows in the line', JSON.stringify(rl));
     await tell({ state: 'failed', key: (rowsLine.find(([n]) => n === 'r2.txt') || [])[1] });   // r2 ends, so it is not in the next arm
+    // 2d. Round 7: a Files-list icon clicked, then the viewer opened for that file (it takes the save over): when it
+    // saves, the list's line keeps no Saving and its icon shows the tick; and a saved line never replaces an error.
+    const lv = await pg.evaluate(() => {
+      pvClose();
+      const b = document.createElement('button'); b.id = '__lb'; b.className = 'pj-doc-dl'; b.textContent = 'D'; document.body.appendChild(b);
+      const m = document.createElement('p'); m.id = '__lm'; document.body.appendChild(m);
+      kplusDownload('agent', 'ana', 'pic.png', kplusSayer(m), undefined, b);
+      return [...DL_WAIT.values()].find((w) => w.name === 'pic.png').key;
+    });
+    await pg.waitForTimeout(500);   // the list line says Saving pic.png...
+    const listSaving = await pg.evaluate(() => document.getElementById('__lm').textContent);
+    await pg.evaluate(() => {   // the viewer opens for that same file and adopts the save
+      PV_ATTS.set('lv', { id: 'lv', name: 'pic.png', kind: 'file', meta: '', url: '/x', dlFile: 'agent\nana\npic.png', download: (btn) => kplusDownload('agent', 'ana', 'pic.png', kplusSayer(document.getElementById('pv-msg')), undefined, btn) });
+      window.kplusRemote = () => true; pvOpen('lv');
+    });
+    await tell({ state: 'saving', key: lv, id: 31, name: 'pic.png' });
+    await tell({ state: 'saved', key: lv, id: 31, name: 'pic.png' });
+    const lvOut = await pg.evaluate(() => ({ line: document.getElementById('__lm').textContent, icon: document.getElementById('__lb').className, viewer: (document.getElementById('pv-msg') || {}).textContent }));
+    say(/Saving pic\.png/.test(listSaving) && !/Saving/.test(lvOut.line) && /dl-saved/.test(lvOut.icon) && /pic\.png is in your Downloads folder/.test(lvOut.viewer || ''),
+      T + ': a list click the viewer took over leaves no Saving in the list, and its icon and the viewer say saved', JSON.stringify({ listSaving, lvOut }));
+    const err = await pg.evaluate(() => {
+      pvClose();
+      const m = document.createElement('p'); m.id = '__em'; document.body.appendChild(m); const say = kplusSayer(m);
+      kplusDownload('agent', 'ana', 'e1.txt', say);
+      m.textContent = 'That folder is too big to download.';   // another writer (a folder refused) says something in the same line
+      return [...DL_WAIT.values()].find((w) => w.name === 'e1.txt').key;
+    });
+    await tell({ state: 'saved', key: err, id: 32, name: 'e1.txt' });
+    const errLine = await pg.evaluate(() => document.getElementById('__em').textContent);
+    say(errLine === 'That folder is too big to download.', T + ': a saved line never replaces someone else\'s error in the line', JSON.stringify(errLine));
+    await pg.waitForTimeout(3300);   // the list icon's restore
     // 3. Two files from a Files list, answered out of order, one failing: each answer reaches its own click.
     const two = await pg.evaluate(() => {
       pvClose();
