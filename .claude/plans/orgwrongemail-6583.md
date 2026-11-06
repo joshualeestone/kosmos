@@ -43,3 +43,11 @@ page code keys on the list of org codes (grep: only engine/orgenroll.js and its 
   (red with a company-worded sentence).
 - Noted: a coded refusal on the accept path now reads as "did not take the acceptance" rather than the unknown line;
   neither new code comes from that route.
+
+## Review round 4 (opus)
+- WARNING taken: org_wrong_domain's older sentence ("sent for a different email address than this account's") now
+  read like org_wrong_email's and gave no way out; the coordinator means "only your company's own domain". Reworded,
+  kind-neutral: "That code only works for email addresses at the domain it was made for. Sign in with an address
+  there." orgenroll-5531's assertion updated to match; familysay-6251's guard already covers the code.
+- NITs taken: the new test's no-org-kind check is case-insensitive and covers "family"; the "@" assertion, which
+  could not fail on a fixed sentence, removed.
