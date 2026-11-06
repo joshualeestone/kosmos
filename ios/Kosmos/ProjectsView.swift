@@ -865,18 +865,19 @@ struct ProjectRowView: View {
 
     private var word: Board.ProjectWord? { Board.projectWord(project, agentsUnreadable: unreadable) }
 
+    private var bubble: String? { Board.unreadBubble(project.unread) }
+    /// Whether stateAndBubble draws anything. Both read word and bubble, so a part added to one is seen by the other.
+    private var hasStateOrBubble: Bool { word != nil || bubble != nil }
     // kosmos#7486 (Josh 10-28 09:35): Working is the Agents list's own animated green pill, in the same place; the other
     // words keep their look. kosmos#7342 (Mona Lisa): the unread bubble after the word, 6 pt apart, as the Agents list has
     // it, so the two tabs read alike: at the row's right end, or under the name at the accessibility sizes. The pill wraps
     // there rather than truncate, as the Agents list's does.
-    /// Whether stateAndBubble draws anything; one place, so the two cannot drift.
-    private var hasStateOrBubble: Bool { word != nil || Board.unreadBubble(project.unread) != nil }
     private var stateAndBubble: some View {
         HStack(spacing: 6) {
             if word == .working {
                 StatusPill(word: Board.projectWordText(.working), pill: .working, wraps: typeSize.isAccessibilitySize)
             } else if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
-            if let bubble = Board.unreadBubble(project.unread) { UnreadBubble(text: bubble, quiet: project.quiet) }
+            if let bubble { UnreadBubble(text: bubble, quiet: project.quiet) }
         }
     }
 
