@@ -703,6 +703,7 @@ struct ChatView: View {
                 // once it has passed. Here, not an onChange inside this branch, which never sees its own creation.
                 .onAppear {
                     diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty
+                    openCount.messagesArrived(rowsDrawn: !onScreen.isEmpty)
                     DispatchQueue.main.asyncAfter(deadline: .now() + Board.endNeverShownCheck) { diagTick &+= 1 }
                 }
                 .onAppear {
@@ -1386,8 +1387,8 @@ struct ChatView: View {
         let app = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
         // The epoch this chat holds, not the client's now: a change not yet seen here means this count is another computer's.
         guard epoch == client.chatEpoch else { openCount.reset(); return }
-        // A search with no matches, and unsent messages filling the screen, draw no rows either (as Board.listBlank).
-        let excused = searchMode || (endVisible && !pending.isEmpty)
+        // A search with no matches, and unsent messages filling the screen, draw no rows either.
+        let excused = searchMode || (endSeen && endVisible && !pending.isEmpty)
         guard let body = openCount.finish(hasRows: !(thread?.rows.isEmpty ?? true), excused: excused, app: app) else { return }
         let client = self.client, sentAt = epoch
         Task { @MainActor in

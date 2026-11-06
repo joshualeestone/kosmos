@@ -728,6 +728,8 @@ enum Board {
             guard shownAt == nil else { return }
             shownAt = now; blankSince = rowsDrawn ? nil : now; rebuilds = 0
         }
+        // A slow load is not a blank: the clock runs from when there are messages to draw.
+        func messagesArrived(rowsDrawn: Bool, now: Date = Date()) { blankSince = rowsDrawn ? nil : now }
         func rebuilt(now: Date = Date()) { rebuilds += 1; blankSince = now }   // a new list starts with no rows
         func rows(empty: Bool, now: Date = Date()) {
             if !empty { blankSince = nil } else if blankSince == nil { blankSince = now }

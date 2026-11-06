@@ -609,7 +609,9 @@ check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmp
 // kosmos#7420: the count's call sites, since Board.ChatOpenCount's own tests pass with any of these gone.
 check(chatSource.contains("onScreen.insert(item.id); openCount.rows(empty: false)") && chatSource.contains("if onScreen.isEmpty { openCount.rows(empty: true) }")
       && chatSource.contains("rebuilds.append(now)\n            openCount.rebuilt()") && chatSource.contains("if !infoOpen { sendOpenCount() }")
-      && chatSource.contains("if visible { sendOpenCount() } else { openCount.reset() }") && chatSource.contains("if phase == .active, visible { openCount.shown(rowsDrawn: !onScreen.isEmpty) }"),
+      && chatSource.contains("if visible { sendOpenCount() } else { openCount.reset() }") && chatSource.contains("if phase == .active, visible { openCount.shown(rowsDrawn: !onScreen.isEmpty) }")
+      && chatSource.contains("shifts.attach(send: shiftSender())\n            openCount.shown(rowsDrawn: !onScreen.isEmpty)") && chatSource.contains("openCount.reset(); if visible { openCount.shown(rowsDrawn: false) }")
+      && chatSource.contains("openCount.messagesArrived(rowsDrawn: !onScreen.isEmpty)") && chatSource.contains("let excused = searchMode || (endSeen && endVisible && !pending.isEmpty)"),
       "kosmos#7420: rows, rebuilds, a close and going to the background all reach the chat's count")
 check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
       && !chatSource.contains(".onChange(of: onScreen.isEmpty)"), "review 1: the check runs only for the chat on screen, and never makes the chat redraw per row")
