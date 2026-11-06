@@ -398,12 +398,12 @@ function chk(ok, label, extra) {
           await page.click('#tc-short');
           await settle(page, () => /Changed 3 names\./.test(document.getElementById('tc-name-said').textContent));
           const again = at(await rows(page), 'content');
-          chk(again !== another, `${E} #8092 CONTROL: after Another the row is a suggestion again, so Use short names may change it`, JSON.stringify({ another, again }));
-          // A typed name, then emptied, is not a typed name any more: Use short names fills it.
+          chk(again !== another, `${E} #8092 after Another the row is a suggestion again, so Use short names may change it`, JSON.stringify({ another, again }));
+          // A typed name is kept (it is emptied later and then filled).
           await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Bartholomew');
           await page.click('#tc-short');
           await settle(page, () => /Kept the name you typed\./.test(document.getElementById('tc-name-said').textContent));
-          chk(at(await rows(page), 'lead') === 'Bartholomew', `${E} #8092 CONTROL: the lead's typed name is kept before it is emptied`);
+          chk(at(await rows(page), 'lead') === 'Bartholomew', `${E} #8092 the lead's typed name is kept`);
           // The suggestion typed back, spaces aside, is a suggestion again (the lead holds its typed name here).
           const sugg = at(await rows(page), 'content');
           await page.fill('#tc-list li[data-slot="content"] .tc-name', 'x');
@@ -411,22 +411,35 @@ function chk(ok, label, extra) {
           const typedBack = await page.evaluate(() => TC.members.find((m) => m.slot === 'content').typed);
           chk(typedBack === false, `${E} #8092 the suggestion typed back, spaces aside, is not a typed name`, JSON.stringify({ sugg, typedBack }));
           await page.fill('#tc-list li[data-slot="content"] .tc-name', sugg.toUpperCase());
-          const lowered = await page.evaluate(() => TC.members.find((m) => m.slot === 'content').typed);
-          chk(lowered === true, `${E} #8092 the suggestion in another case is their own spelling, so it is typed`, JSON.stringify({ sugg, upper: lowered }));
+          const upper = await page.evaluate(() => TC.members.find((m) => m.slot === 'content').typed);
+          chk(upper === true, `${E} #8092 the suggestion in another case is their own spelling, so it is typed`, JSON.stringify({ sugg, upper }));
           // Two typed names (content, social; the lead emptied, so it is changed): the line says the plural.
           await page.fill('#tc-list li[data-slot="lead"] .tc-name', '');
           await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Evangeline');
           await page.click('#tc-short');
           await settle(page, () => /Kept the 2 names you typed\./.test(document.getElementById('tc-name-said').textContent));
           const plural = await page.evaluate(() => document.getElementById('tc-name-said').textContent);
-          chk(/^Kept the 2 names you typed\.$/.test(plural.replace(/^Changed 1 name\. /, '')) && at(await rows(page), 'social') === 'Evangeline', `${E} #8092 two typed names: kept, and the line says the plural`, JSON.stringify(plural));
+          chk(plural === 'Changed 1 name. Kept the 2 names you typed.' && at(await rows(page), 'social') === 'Evangeline', `${E} #8092 two typed names: kept, and the line says the plural`, JSON.stringify(plural));
           await page.fill('#tc-list li[data-slot="content"] .tc-name', '');
           await page.fill('#tc-list li[data-slot="social"] .tc-name', '');
           await page.fill('#tc-list li[data-slot="lead"] .tc-name', '');
           await page.click('#tc-short');
           await settle(page, () => /Changed 3 names\./.test(document.getElementById('tc-name-said').textContent) && document.querySelector('#tc-list li[data-slot="lead"] .tc-name').value !== '');
           const filled = at(await rows(page), 'lead');
-          chk(/^[A-Za-z]{3,5}$/.test(filled), `${E} #8092 an emptied box is filled by Use short names, not kept as typed`, JSON.stringify(filled));
+          const emptiedSaid = await page.evaluate(() => document.getElementById('tc-name-said').textContent);
+          chk(/^[A-Za-z]{3,5}$/.test(filled) && emptiedSaid === 'Changed 3 names.', `${E} #8092 emptied boxes (typed before) are filled by Use short names, none kept as typed`, JSON.stringify({ filled, emptiedSaid }));
+          // No short name free (every one on the board): a typed row is kept, the others keep theirs, and the line says both;
+          // Another on the typed row finds none and leaves it typed.
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Rosalind');
+          await page.evaluate(() => { TC.boardNames = TC_SHORT_NAMES.map((n) => n.toLowerCase()); });
+          await page.click('#tc-short');
+          await settle(page, () => /no other short name is free/.test(document.getElementById('tc-name-said').textContent));
+          const noneSaid = await page.evaluate(() => document.getElementById('tc-name-said').textContent);
+          chk(noneSaid === 'Kept the name you typed. 2 kept their names: no other short name is free.', `${E} #8092 with none free: the typed row is kept and the others keep theirs, said in one line`, JSON.stringify(noneSaid));
+          await page.click('#tc-list li[data-slot="content"] .tc-another');
+          await settle(page, () => document.getElementById('tc-name-said').textContent === 'No other short name is free.');
+          const stillTyped = await page.evaluate(() => ({ typed: TC.members.find((m) => m.slot === 'content').typed, said: document.getElementById('tc-name-said').textContent }));
+          chk(stillTyped.typed === true && stillTyped.said === 'No other short name is free.' && at(await rows(page), 'content') === 'Rosalind', `${E} #8092 Another with none free leaves a typed name typed`, JSON.stringify(stillTyped));
           chk(errs.length === 0, `${E} no page errors (#8092 typed arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();
