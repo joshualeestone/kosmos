@@ -117,9 +117,24 @@ build on a clear box.
   Android-only, so the JVM suite cannot prove their round trip the way the device proof is pinned to the
   WebCrypto vector; verified on a device, and in scope for the pre-PR /challenge-loop. Build: compileDebug/
   ReleaseKotlin both compiled them; testDebug/testReleaseUnitTest 87/0/0, `gradlew test` exit 0.
-- NEXT: secondary sign-in paths (passkey / company-SSO / review-account / TOTP-enrol, pure logic + JVM tests,
-  ios main.swift 4882-5060), then the Compose chrome + WebView host wiring the door + the native load-failure
-  page + the upgrade check + the first native screen (needs a real build + Josh's device).
+- DONE: all six secondary sign-in paths (pure logic + JVM tests, ios main.swift 4882-5060), one increment per
+  box window, build-verified between each:
+  1. company SSO (`companySignInURL`/`companyReturn`/`companyWords`; java.net.URI; %2B never decoded).
+  2. passkey (`passkeyOffer`/`passkeyFinish`/`passkeyFinishBody`; challenge compared by content, rp_id host-matched).
+  3. App Store review door (`reviewDoorOpen`/`reviewBody`/`reviewAnswer`/`reviewDropsKey` [m733]).
+  4. TOTP enrol (`enrolled`/`grouped`/`enrolBody`/`confirmBody`/`startsOver`).
+  5. second-step + hand-over display (`secondWords` NBSP / `wrappable` ZWSP / `webTitle`).
+  6. `sessionScript` — the WebView token hand-over. **DECISION (divergence):** iOS verifies by EXECUTING the
+     script in a JSContext; JDK 21 has no Nashorn and the pure-JVM unit test has no JS engine. The JSON array is
+     HAND-ROLLED (a private `jsonString` escaper — org.json is not on the unit-test classpath, same reason
+     base64url is hand-rolled) and the test PINS BY STRING CONTENT plus a dedicated assertion that a quote in the
+     token is carried as data, never spliced as script. REJECTED adding a GraalJS test dependency (heavy, and an
+     offline-fetch risk) for what a content pin + escaper assertion already proves. **Weakest part:** the content
+     pin does not execute the browser round-trip (idempotent write, replace-stale, storage-that-throws); that is
+     in scope for the WebView integration and the pre-PR /challenge-loop.
+  Build-verified: testDebug/testReleaseUnitTest 109/0/0, `gradlew test` exit 0. Head c5557391.
+- NEXT: the Compose chrome + WebView host wiring the door + the native load-failure page + the upgrade check +
+  the first native screen (needs a real build + Josh's device).
 
 ## After the board client
 The native Compose chrome + WebView host wiring the door (`AppTabs.pressScript`/`markScript`) + the
