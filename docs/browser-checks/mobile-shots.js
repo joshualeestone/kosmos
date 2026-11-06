@@ -2179,7 +2179,7 @@ const SCREENS = [
   /* kosmos#7504: Windows Settings > This computer, the start-at-sign-in switch just turned on while the crash-recovery
      watchdog was not registered: the line under the rows says so. The shot board is a Mac, so the rows and the
      route's answer are stubbed in the shape the Windows engine sends, and the page is told it is on Windows. */
-  { name: 'settings-signin-recovery-7504', owner: 'PigeonPete', go: async (page) => {
+  { name: 'settings-signin-recovery-7504', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => {
     let on = false;
     const row = () => ({ checks: [{ key: 'autostart', state: 'ok', title: 'Kosmos starts itself when you sign in',
       detail: 'Kosmos starts when you sign in to Windows, and your agents come back on their own after a restart.', startAtSignIn: on }] });
