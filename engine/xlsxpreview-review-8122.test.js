@@ -648,7 +648,8 @@ test('#8162: a cell or value cut off before its close marks the sheet cut and ne
   }
   // Review r1: a close missing mid-part (a row that swallowed the next, a cell that swallowed the next) is counted too.
   for (const rows of ['<row r="1"><c r="A1"><v>5</v></c><row r="2"><c r="A2"><v>6</v></c></row>', '<row r="1"><c r="A1"><v>5</v><c r="B1"><v>6</v></c></row>',
-    '<row r="1"><c r="A1"><v>5</v><c/></c></row>', '<row r="1"><c r="A1"><v>5</v><c\tr="B1"><v>6</v></c></row>', '<row r="1"><c r="A1"><v>5</v><c\nr="B1"><v>6</v></c></row>']) {   // r4: "/", tab, newline
+    '<row r="1"><c r="A1"><v>5</v><c/></c></row>', '<row r="1"><c r="A1"><v>5</v><c\tr="B1"><v>6</v></c></row>', '<row r="1"><c r="A1"><v>5</v><c\nr="B1"><v>6</v></c></row>',
+    '<row r="1"><c r="A1"><v>5</v><c\rr="B1"><v>6</v></c></row>']) {   // r4: "/", tab, newline; r5: carriage return
     assert.equal(read(rows).sheets[0].cut, true, rows);
   }
   // Review r2: a part truly cut short (no ">" after a start tag, or no close of a row or of sheetData) is counted too;
@@ -683,6 +684,7 @@ test('#8162 r3: the seam refuses an answer past 8 MiB of JSON, and remembers tha
   const csv = Buffer.from((line + '\n').repeat(200));
   assert.ok(csv.length <= sp.MAX_DELIMITED_BYTES, 'under the input cap: ' + csv.length);
   assert.equal(sp.fromBytes(csv, 'ctl.csv').tooLarge, true);
+  assert.equal(sp._heldForTests().count, 1, 'the refusal is remembered (r5)');
   assert.equal(sp.fromBytes(csv, 'ctl.csv').tooLarge, true);
   sp._forgetForTests();
   // CONTROL: the same shape with plain letters fits.
@@ -719,4 +721,19 @@ test('#8162 r4: an answer that cannot be written to JSON is "too large", not a c
   try { r = sp.fromBytes(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>') }), 'throw.xlsx'); } finally { JSON.stringify = real; sp._forgetForTests(); }
   assert.equal(calls >= 1, true, 'CONTROL: the stub was reached');
   assert.equal(r.tooLarge, true, JSON.stringify(r));
+});
+
+test('#8162 r5: an unclosed quote never loses later cells silently; a cut-off shared string marks its cell; rich text is no cut', () => {
+  const read = (rows, extra) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }, extra));
+  const q = read('<row r="1"><c r="A1" s="1><v>1</v></c><c r="B1" t="inlineStr"><is><t>it\'s "x</t></is></c></row><row r="2"><c r="A2"><v>3</v></c></row>');
+  assert.equal(q.sheets[0].cut, true, JSON.stringify(q.sheets[0]));
+  const s = read('<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>', { 'xl/sharedStrings.xml': '<sst><si><t>hi</si><si><t>ok</t></si></sst>' });
+  assert.equal(s.sheets[0].cut, true, 'a blank cell from a cut-off string said nothing');
+  // A skipped row whose only value is an inline string still counts.
+  const f = read('<row r="2000000"><c t="inlineStr"><is><t>x</t></is></c></row>');
+  assert.equal(f.empty, false);
+  assert.equal(f.sheets[0].cut, true);
+  // CONTROL: a well-formed rich inline string (<color> starts like <c) is read whole, with no cut.
+  const rich = read('<row r="1"><c r="A1" t="inlineStr"><is><r><rPr><color rgb="FFFF0000"/><b/></rPr><t>red</t></r><r><t> plain</t></r></is></c></row>');
+  assert.deepEqual([rich.sheets[0].rows, rich.sheets[0].cut], [[['red plain']], false]);
 });

@@ -150,9 +150,14 @@ let cutShorts = 0;
    element is then counted as cut off; a damaged file can lose everything after such a quote). */
 function startTagEnd(xml, i) {
   let quote = null;
+  let firstGt = -1;
   for (let j = i + 1; j < xml.length; j++) {
     const ch = xml[j];
-    if (quote) { if (ch === quote) quote = null; }
+    // Review r5: "<" is never legal inside a start tag, even in a quoted value. Met inside a quote, the quote was never
+    // closed (a damaged file): the tag ends at its first ">" and is counted as cut off, rather than running on through
+    // later tags and losing their values silently. Met outside one, the tag has no end.
+    if (ch === '<') { if (quote && firstGt >= 0) { cutShorts++; return firstGt; } return -1; }
+    if (quote) { if (ch === '>' && firstGt < 0) firstGt = j; if (ch === quote) quote = null; }
     else if (ch === '"' || ch === "'") quote = ch;
     else if (ch === '>') return j;
   }
@@ -454,7 +459,7 @@ function shownDuration(n, fmt) {
  * Reads `buf` (a whole .xlsx in memory) to `{ sheets: [{ name, rows, cut, notGrid?, firstRow? }], moreSheets, noValues,
  * empty, someNoValues? }`. `firstRow` (1-based) is there only when the rows shown do not start at row 1.
  * `rows` is an array of arrays of strings, as many columns as the widest row (up to MAX_COLS); `cut` is true when a value
- * in the sheet is not shown (past the rows, the columns, the walk or the answer's size). Sheets past MAX_SHEETS are left out and `moreSheets` counts them.
+ * in the sheet is not shown (past the rows, the columns, the walk or the answer's size), or an element in it was cut off. Sheets past MAX_SHEETS are left out and `moreSheets` counts them.
  */
 function readXlsx(buf) {
   if (!Buffer.isBuffer(buf)) throw new TypeError('xlsxpreview: readXlsx takes a Buffer');
@@ -496,12 +501,15 @@ function readBook(buf, budget) {
   }
   const shared = [];
   let sharedCut = false;
+  const sharedCutAt = new Set();   // #8162 r5: indexes of shared strings cut off inside
   const sst = part('xl/sharedStrings.xml');
   if (sst) {
     let k = 0;
     for (const si of elements(sst, 'si')) {
       if (shared.length >= MAX_SHARED_STRINGS) { sharedCut = true; break; }
+      const before = cutShorts;
       shared.push(clip(textOf(si.body)));   // review 5: clipped once, not once per cell that uses it
+      if (cutShorts > before) sharedCutAt.add(shared.length - 1);   // #8162 r5: a string cut off inside
       if ((++k & 1023) === 0) budget();
     }
   }
@@ -593,7 +601,7 @@ function readBook(buf, budget) {
           if (type === 's') {
             const n = /^[0-9]{1,9}$/.test(raw.trim()) ? Number(raw) : -1;   // review 6: a decimal index, never 0x1
             // Review 4: a string past the ones read (MAX_SHARED_STRINGS) is not shown, and the sheet says it is cut.
-            if (n >= shared.length && sharedCut) { cut = true; anyValue = true; savedEmpty = true; }   // review 7: so a cut sheet is not "empty"; r7: it has a saved value
+            if ((n >= shared.length && sharedCut) || sharedCutAt.has(n)) { cut = true; anyValue = true; savedEmpty = true; }   // #8162 r5: or a cut-off string   // review 7: so a cut sheet is not "empty"; r7: it has a saved value
             text = shared[n] ?? null;   // review 6: an index to no string is no value (it made a blank workbook not empty)
             // #8147: an empty string shows nothing, so it is not a value for `empty`; but it IS a saved value, so a formula
             // that saved one is not "no saved value" (review r1: it set someNoValues).
