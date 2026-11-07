@@ -144,6 +144,27 @@ test('kosmos#8165: an in_reply_to that names no post is REFUSED on the live rout
   const del = await post({ project: a.id, text: 'answering a deleted post', from_pane: '', in_reply_to: gone.json.delivery.id }, { 'x-kosmos-agent-token': tok() });
   assert.equal(del.json.delivery.state, 'could_not', JSON.stringify(del.json.delivery));
   assert.match(del.json.delivery.because, /^post m\d+ was deleted, so nothing was posted/);
+  // Review 3: a deletion in another room is none of this sender's business: the generic answer, not "deleted".
+  const z = room('Zeta deleted 8165');
+  const far = await post({ project: z.id, text: 'answering another room deleted post', from_pane: '', in_reply_to: gone.json.delivery.id }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(far.json.delivery.state, 'could_not');
+  assert.doesNotMatch(far.json.delivery.because, /deleted/);
+});
+
+test('kosmos#8165 review 3: an unknown id within the ids handed out is "could not find", never "no post in any room"', async () => {
+  const a = room('Alpha unknown-in-range 8165');
+  const seed = await post({ project: a.id, text: 'seed in range', from_pane: '' }, { 'x-kosmos-agent-token': tok() });
+  const high = Number(seed.json.delivery.id.slice(1));
+  // A row five ids on leaves the four between handed out and unrecorded, as when a restart loses posts' rows.
+  fs.appendFileSync(messagesEngine.LOG, JSON.stringify({ id: 'm' + (high + 5), kind: 'message', from: 'erin', to: 'frank', text: 'later', at: new Date().toISOString(), state: 'placed' }) + '\n');
+  const gap = high + 2;
+  assert.equal(messagesEngine.record().parsed.some((x) => x && x.id === 'm' + gap), false, 'CONTROL: the cited id names nothing');
+  const lost = await post({ project: a.id, text: 'in range', from_pane: '', in_reply_to: 'm' + gap }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(lost.json.delivery.state, 'could_not', JSON.stringify(lost.json.delivery));
+  assert.match(lost.json.delivery.because, /^we could not find post m\d+, so nothing was posted/);
+  // CONTROL: above every id handed out is "there is no post".
+  const none = await post({ project: a.id, text: 'above', from_pane: '', in_reply_to: 'm' + (high + 500000) }, { 'x-kosmos-agent-token': tok() });
+  assert.match(none.json.delivery.because, /^there is no post m\d+ in any room/);
 });
 
 test('kosmos#8165: an in_reply_to that names a DIRECT MESSAGE is refused, and tells a party to it how to answer it', async () => {

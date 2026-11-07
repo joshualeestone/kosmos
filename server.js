@@ -5076,6 +5076,9 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
       if (kind === 'message' && me && what.parties.includes(me)) {
         return { state: 'could_not', because: named + ' is a direct message, not a room post, so nothing was posted. Answer it with kosmos msg --in-reply-to ' + named + ', or post here without --in-reply-to.' };
       }
+      if (kind === 'unknown') {
+        return { state: 'could_not', because: 'we could not find post ' + named + ', so nothing was posted. If it reached you only just now, try again in a moment; otherwise check the id (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
+      }
       if (kind !== 'post') {
         return { state: 'could_not', because: (named === 'that id' ? 'that id names no post' : 'there is no post ' + named) + ' in any room, so nothing was posted. Check the id in the post you meant to answer (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
       }
