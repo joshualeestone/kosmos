@@ -377,6 +377,25 @@ final class AttachMenuUITests: XCTestCase {
             app.terminate()
         } }
     }
+    // kosmos#8200: who could reach it. The production path (id anchor on) against the anchor off, no tray, by text size.
+    func testProbeSweepSizes() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set") }
+        continueAfterFailure = true
+        let sizes = ["AccessibilityXXXL", "AccessibilityXXL", "AccessibilityXL", "AccessibilityL", "AccessibilityM", "XXXL", "L"]
+        for anchor in ["on", "off"] { for size in sizes { for rep in 1...6 {
+            let app = XCUIApplication()
+            var e = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana"]
+            if anchor == "off" { e["KOSMOS_SAMPLE_NOPOSID"] = "1" }
+            app.launchEnvironment = e
+            app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategory" + size]
+            app.launch()
+            _ = app.buttons[chatPlus].waitForExistence(timeout: 30)
+            Thread.sleep(forTimeInterval: 4)
+            print("SWEEP-HOLD \(anchor)-\(size) \(rep)")
+            Thread.sleep(forTimeInterval: 6)
+            app.terminate()
+        } } }
+    }
     func testProbeANormal() throws { try probe("normal", args: []) }
     func testProbeBLargest() throws { try probe("largest", args: largest) }
     func testProbeCLargestOff() throws { try probe("largestoff", args: largest, photos: "off") }
