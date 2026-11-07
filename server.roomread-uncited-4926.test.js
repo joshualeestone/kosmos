@@ -101,11 +101,12 @@ test('a typed post with an unconfirmed delivery counts as reached; held, quiet, 
   const held = ask(pid, { outcomes: { [WHO]: 'held' } });
   const none = ask(pid, { outcomes: {} });
   const couldNot = ask(pid, { outcomes: { [WHO]: 'could_not' } });
+  const quiet = ask(pid, { outcomes: { [WHO]: 'quiet' } });
   own(pid);
   const t = await unanswered(pid);
   assert.ok(onCovered(t).includes('[' + unconfirmed + ']'), t);
   assert.ok(!listed(t, unconfirmed), t);
-  for (const id of [held, none, couldNot]) {
+  for (const id of [held, none, couldNot, quiet]) {
     assert.ok(listed(t, id), id + ' stays listed: ' + t);
     assert.ok(!onCovered(t).includes('[' + id + ']'), t);
   }

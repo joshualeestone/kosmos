@@ -5503,7 +5503,7 @@ cmd_room() {
   # #4926: --unanswered lists only the posts that asked you something and that no post of yours answers by id.
   # An agent's post the reader has since posted after, not citing an older post, is named on its own line instead.
   # #7848: and that no other agent they asked has claimed (the board decides; this only passes the flag).
-  # kosmos#7969: --all (with --unanswered) lists the asks older than the board's few days too.
+  # kosmos#7969: --all (with --unanswered) shows the asks older than the board's few days too.
   local _n="" _ngiven=0 _arg _unans="" _all=0
   project=""
   while [ $# -gt 0 ]; do
