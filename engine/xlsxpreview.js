@@ -43,6 +43,7 @@ const MAX_COLS = 50;
 const MAX_CELL_CHARS = 500;
 const MAX_SHARED_STRINGS = 200000;
 const MAX_EXCEL_ROW = 1048576;
+const MAX_TEXT_RUNS = 4000000;                 // text runs in strings, per read (#8147 review r3: 200000 rich strings fit)
 const MAX_NEAR_MISSES = 1000000;               // tags that only start like one sought, per read (#8147)
 const MAX_VISITS = 100000;                     // rows and cells walked per sheet, shown or not (review 4)
 const MAX_OUTPUT_CHARS = 2 * 1024 * 1024;      // the answer's cells as JSON writes them, all sheets (review 5)
@@ -133,6 +134,9 @@ function attr(tag, name) {
    `onNearMiss` is set by readXlsx for the length of one read; the board's one thread runs one read at a time. */
 let onNearMiss = null;
 const nearMiss = () => { if (onNearMiss) onNearMiss(); };
+/* #8147 review r3: so are a string's text runs (3.9M "<t/>" in one 16 KB file cost 0.3 to 0.5 s, unseen likewise): each
+   run is counted toward its own cap, with the same budget check. */
+let onTextRun = null;
 /* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with indexOf. With
    `lenient` (the containers: sheetData, row), one the part never closes (a file cut short) yields the rest of the part,
    so what is there is still read; a value that is not closed is never read. */
@@ -173,7 +177,7 @@ function textOf(body) {
     shown = out;
   }
   let out = '';
-  for (const t of elements(shown, 't')) out += unescapeXml(t.body);
+  for (const t of elements(shown, 't')) { if (onTextRun) onTextRun(); out += unescapeXml(t.body); }
   return out;
 }
 /* "B3" -> [row 2, column 1] (0-based); case-blind; null for anything else (including row 0). */
@@ -215,7 +219,8 @@ function bareCode(code) {
 /* What a number format shows: { kind: 'date' } (a day, maybe with a time), { kind: 'time' } (a time of day),
    { kind: 'duration', unit: 'h' | 'm' | 's', seconds } ("[h]:mm": elapsed time past 24 hours, review 2), or
    { kind: 'number', decimals, thousands, percent, digits, sections } for the simple codes ("0.00", "#,##0", "0.0%"), or null (shown as
-   saved). The first section of a code (before ";") decides how; a number another section would draw is shown as saved
+   saved). The first section of a code (before ";") decides how; a number another section would draw is shown as saved,
+   except a negative under a percent code, drawn by the first section with its sign so it keeps its percent
    (`sections`). Currency symbols, fractions, a trailing thousands comma and the rest are null. */
 /* A number format's first section (the part before the first ";", which positive numbers use). Not a split: ";" here is
    Excel's section separator, never a path list, and indexOf says so without a separator literal (#1732). */
@@ -345,7 +350,7 @@ function shownNumber(raw, fmt) {
   if (!fmt || fmt.kind !== 'number') return String(Number(n.toPrecision(15)));
   // A percent is drawn with its sign by the first section instead (review r2: -0.5 shown as saved read as -0.5% in a
   // column of 25%; Excel shows (50%) or similar, so -50% is the honest near form).
-  if (fmt.sections > 1 && !fmt.percent && (n < 0 || (n === 0 && fmt.sections > 2))) return String(Number(n.toPrecision(15)));
+  if (fmt.sections > 1 && ((n < 0 && !fmt.percent) || (n === 0 && fmt.sections > 2))) return String(Number(n.toPrecision(15)));
   const v = Number((fmt.percent ? n * 100 : n).toPrecision(15));
   const f = Math.pow(10, fmt.decimals);
   // Review 7: rounded on the 15 digits Excel keeps, not with a nudge (2.4999999995 under "0" showed 3).
@@ -356,6 +361,7 @@ function shownNumber(raw, fmt) {
   // #8147: a code with no integer digit drops the leading zero (".00" on 0.5 is .50), and a negative that rounds to zero
   // keeps its sign (-0.4 under "0" is -0), as Excel shows them.
   if (fmt.digits === 0 && fmt.decimals > 0 && text.startsWith('0.')) text = text.slice(1);   // "#.00" too (review r1)
+  if (fmt.digits === 0 && fmt.decimals === 0 && !fmt.percent && text === '0') return '';   // "#" shows no zero (review r3)
   return (v < 0 ? '-' : '') + text + (fmt.percent ? '%' : '');
 }
 /* An elapsed time ("[h]:mm:ss"): total hours, minutes or seconds, past 24 hours (Excel shows 1.5 days as 36:00). */
@@ -383,9 +389,11 @@ function readXlsx(buf) {
   // `slow`: refused for the time it took, which a busy moment can cause (the seam does not remember it, review 6).
   const budget = () => { if (now() - started > WORK_BUDGET_MS) throw new XlsxRefusal(TOO_LARGE, true); };
   let misses = 0;
-  const outer = onNearMiss;
+  let runs = 0;
+  const outer = onNearMiss, outerRun = onTextRun;
   onNearMiss = () => { if (++misses > MAX_NEAR_MISSES) refuse(TOO_LARGE); if ((misses & 4095) === 0) budget(); };
-  try { return readBook(buf, budget); } finally { onNearMiss = outer; }
+  onTextRun = () => { if (++runs > MAX_TEXT_RUNS) refuse(TOO_LARGE); if ((runs & 4095) === 0) budget(); };
+  try { return readBook(buf, budget); } finally { onNearMiss = outer; onTextRun = outerRun; }
 }
 function readBook(buf, budget) {
   let entries;
@@ -501,7 +509,9 @@ function readBook(buf, budget) {
             if (text === '') { text = null; savedEmpty = true; }
           }
           else if (type === 'b') text = raw === '1' || raw.toLowerCase() === 'true' ? 'TRUE' : 'FALSE';
-          else if (type === 'e' || type === 'str') text = raw;
+          else if (type === 'e') text = raw;
+          // #8147 review r3: a text formula that saved "" is answered as an empty shared or inline string is.
+          else if (type === 'str') { text = raw; if (text === '') { text = null; savedEmpty = true; } }
           // Review 3: an ISO date cell (t="d", as openpyxl with iso_dates, SheetJS and Strict OOXML write) is shown as its
           // date, never handed to the serial reader (it showed "NaN").
           else if (type === 'd') text = raw.replace(/T00:00(:00(\.0+)?)?Z?$/, '').replace('T', ' ').slice(0, 16);
@@ -526,9 +536,11 @@ function readBook(buf, budget) {
       if ((++k & 1023) === 0) budget();
       if (++visits > MAX_VISITS) { cut = true; walkCut = true; break; }
       const rs = attr(row.tag, 'r');
-      const rr = rs !== null && /^[0-9]{1,7}$/.test(rs) ? Number(rs) : NaN;   // review r2: decimal only ("0x10", "1e3")
-      // #8147: a row number past Excel's last row (1048576) is no row of the sheet: skipped, not placed on another row.
-      if (rr > MAX_EXCEL_ROW) { cut = true; continue; }
+      const digits = rs !== null && /^[0-9]{1,40}$/.test(rs) ? rs.replace(/^0+(?=.)/, '') : null;   // decimal only (r2)
+      const rr = digits === null ? NaN : digits.length > 7 ? Infinity : Number(digits);
+      // #8147: a row number past Excel's last row (1048576), however many digits, is no row of the sheet: skipped, not
+      // placed on another row. Review r3: what it held is unknown to the answer (never "empty"), and an empty one is no cut.
+      if (rr > MAX_EXCEL_ROW) { if (row.body.indexOf('<c') >= 0) { cut = true; walkCut = true; } continue; }
       rowAt = rr >= 1 ? rr - 1 : rowAt + 1;   // a row with no r (or one that is not a number) is the next one (review 1)
       const line = new Map();
       let colAt = -1;
@@ -576,7 +588,7 @@ function readBook(buf, budget) {
   // #8147: nor of one whose walk stopped before the end (formatted blanks, then a value, read as "empty").
   const unread = all > MAX_SHEETS || otherSheet || walkCut;
   return { sheets, moreSheets: Math.max(0, all - MAX_SHEETS), noValues: !unread && !anyValue && anyFormula && !savedFormula, empty: !unread && !anyValue && !anyFormula,
-    ...(anyValue && bareFormula ? { someNoValues: true } : {}) };
+    ...((anyValue || savedFormula) && bareFormula ? { someNoValues: true } : {}) };
 }
 
 module.exports = {
