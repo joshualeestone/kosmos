@@ -10,7 +10,7 @@ Josh 2026-11-06 18:14 (#7896, Angel's sheet Files/iphone-loading-dots-vs-orb.png
 - The #8058 "only the dots" guard allows exactly the three orb lines and still reds on any other.
 
 - BoardStates is shared: Projects, Tasks and Today draw the same orb in those phases (accepted, review 1).
-- At accessibility text sizes and in landscape the orb (and Making's tick box) is 66 pt.
+- MY CALL, NOT JOSH'S, and an exception to his "at least double 66": at accessibility text sizes and in landscape the orb (and Making's tick box) is 66 pt, so the words (Allow's code to check) keep their room on screens that do not scroll. At default text size in portrait it is always 132. Rejected: 132 always with the screens made to scroll (changes the shared message() for every error screen). Josh can overrule it with one constant.
 - Low Power Mode holds the dots still, as Reduce Motion does. The three orbs keep turning in Low Power Mode (only Reduce Motion stills them), as every orb did before; accepted.
 
 ## Out of scope
