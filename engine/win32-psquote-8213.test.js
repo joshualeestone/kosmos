@@ -62,7 +62,7 @@ const REFUSED = [
   ['a possessive then another apostrophe', "post fleet 'the agents' work and Bob's'"],
   ['a task title cut the same way', "task add fleet 'fix what we can't and won't'"],
   ['an option value cut by apostrophes', "post fleet --topic='a's'b' hi"],
-  ['a colon option value with a word touching it', "post fleet -topic:'a b'x hi"],
+  ['a colon option value with a word touching it (rule (a): -topic: is its own token)', "post fleet -topic:'a b'x hi"],
 ];
 const ALLOWED = [
   ['an apostrophe written twice', "msg bob 'it''s fine'"],
