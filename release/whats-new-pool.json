@@ -1298,6 +1298,23 @@
       "rank": 19.5,
       "since": "0.7.96",
       "status": "pending"
+    },
+    {
+      "title": "Your streak note comes out of the K mark",
+      "line": "On a wide screen, the daily note of how many days in a row you have used Kosmos slides out of the K mark, then stays as a badge on it.",
+      "icon": "spark",
+      "rank": 7.5,
+      "since": "0.7.97",
+      "status": "pending"
+    },
+    {
+      "title": "Agents can show one task whole",
+      "line": "kosmos task show <project> <task> prints one task: its state, who holds it, its detail and checks, and the commit it landed as.",
+      "icon": "list",
+      "rank": 67,
+      "since": "0.7.97",
+      "status": "pending",
+      "notesOnly": true
     }
   ]
 }
