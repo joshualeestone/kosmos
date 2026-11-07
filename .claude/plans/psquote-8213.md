@@ -28,8 +28,8 @@ from words meant as separate. The raw line is only visible in kosmos.ps1.
 engine/win32-psquote-8213.test.js runs kosmos.ps1 (copied beside no runtime) under every PowerShell found: pwsh,
 and powershell.exe 5.1 on Windows. 3 shapes refuse with exit 2 before the runtime. 6 shapes pass on to the runtime:
 a doubled apostrophe, plain words, an option with a quoted value, plain single quotes, double quotes, a here-string.
-Mutant (the refusal disabled): exactly the 3 refusal arms fail, 7 pass. (The first version; rounds 1 and 2 below
-added arms. The current lists are REFUSED and ALLOWED in the test file.)
+Mutant (the refusal disabled): exactly the 3 refusal arms fail, 7 pass. Those counts are the first version's only;
+every round below added arms, and the current lists are REFUSED and ALLOWED in the test file.
 
 Weakest premise: Windows PowerShell 5.1 tokenizes these lines as pwsh 7 does. Measured only on pwsh here; the
 Windows CI runner runs the same arms under 5.1.
@@ -88,3 +88,10 @@ Windows CI runner runs the same arms under 5.1.
   comment gives the true reason a here-string passes (the first line is a parse error, so it fails open); the test's
   count sentence is narrowed.
 - Mutants: no level rule -> the two expression arms fail; Comment not a separator -> the comment arm fails.
+
+## Review round 6
+- WARNING: $cfg['name'] was refused (the quoted key touches ]), though PowerShell delivers exactly its value. [ ] and .
+  are separators now (an index or a member), with arms for $h['k'] and ('abc').Length.
+- WARNING: double quotes inside double quotes ("say "hi" now") are cut the same way. Out of this card's scope (single
+  quotes); named in the comment as not checked.
+- NIT not taken: 'x' with a backtick continuation touching it is refused. Rare, and a refusal sends nothing.

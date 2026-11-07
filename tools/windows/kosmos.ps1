@@ -87,7 +87,7 @@ if ($pipedIn -and $PSCommandPath) {
 # join and send. So this call's own words on the line as typed ($MyInvocation.Line) are read with PowerShell's own
 # parser, and two shapes refuse before anything is sent:
 #   (a) a single-quoted string with anything touching its end except a closer or separator (| ; ) } , a redirection,
-#       a newline), or a double-quoted string or variable touching its start ('I can't  ->  'I can' then t;
+#       a newline, a comment, or [ ] . for an index or a member, as in $h['k']), or a double-quoted string or variable touching its start ('I can't  ->  'I can' then t;
 #       'well'-known;  'a'"b";  $x'a'), which PowerShell splits or joins;
 #   (b) a bare word holding a single quote once its double-quoted parts and backtick escapes (can`'t, which PowerShell
 #       delivers as can't) are set aside (won't do it', Bob's', and also
@@ -105,7 +105,8 @@ if ($pipedIn -and $PSCommandPath) {
 # parser reports an error on (see below); the quoted 'it''s' is one token, so it passes too. Not covered, so a mangled
 # text can still go out there: a command continued onto the next line with a backtick ($MyInvocation.Line holds the
 # first line only), and two quoted pieces that do not touch ('the agents' 'til noon' arrives as [the agents]
-# [til noon], one apostrophe at the end of a word and one at the start of the next). When the line is not
+# [til noon], one apostrophe at the end of a word and one at the start of the next). Double quotes inside double quotes
+# ("say "hi" now") are cut the same way and are not checked here either: this check is for single quotes. When the line is not
 # readable (started with -File, no line at all, or a line PowerShell's parser reports errors on, such as one that
 # starts inside a here-string another command opened) or anything here fails, nothing is checked and the call runs
 # as before.
@@ -130,7 +131,7 @@ try {
     $sq = "['\u2018\u2019\u201A\u201B]"
     $dq = '["\u201C\u201D\u201E]'
     $oneQuoted = '^' + $sq + '(?:(?!' + $sq + ').|' + $sq + $sq + ')*' + $sq + '$'
-    $apart = @('Pipe', 'Semi', 'RParen', 'RCurly', 'Comma', 'NewLine', 'EndOfInput', 'AndAnd', 'OrOr', 'Redirection', 'RedirectInStd', 'Comment')
+    $apart = @('Pipe', 'Semi', 'RParen', 'RCurly', 'Comma', 'NewLine', 'EndOfInput', 'AndAnd', 'OrOr', 'Redirection', 'RedirectInStd', 'Comment', 'LBracket', 'RBracket', 'Dot')
     for ($i = 0; $i -lt $mine.Count -and -not $splitQuote; $i++) {
       if ($level[$i] -gt 0) { continue }
       $k = [string]$mine[$i].Kind
