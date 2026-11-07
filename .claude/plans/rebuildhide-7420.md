@@ -17,3 +17,5 @@
 **Not covered:** this does not stop a blank happening or shorten the empty stretch before the rebuild. Rooms: `roomBlankLook` in RoomView.swift rebuilds the same way and should flash old posts too; unmeasured and untouched here. Nothing that shows while the list is hidden is touched: the top bar and composer stay.
 
 **What would change my mind:** seeing a longer blank on a phone, or VoiceOver losing its place during the hide (the list is hidden from it for that moment; unmeasured).
+
+**Also accepted:** a person who began scrolling as the rebuild ran can skip the asks to go to the newest. The hide then lifts on the clock and the rows show where they are, as today, after up to 0.75 s empty.
