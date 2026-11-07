@@ -173,6 +173,7 @@ function nestedStart(body, name) {
   for (let at = body.indexOf('<' + name); at >= 0; at = body.indexOf('<' + name, at + 1)) {
     const after = body[at + name.length + 1];
     if (after === ' ' || after === '>' || after === '/' || after === '\t' || after === '\n' || after === '\r') return true;
+    nearMiss();   // review r7: a skip here is counted like any other (16 MB of "<cx" in a cell went unseen)
   }
   return false;
 }
@@ -213,7 +214,7 @@ function textOf(body) {
       const tagEnd = shown.indexOf('>', i);
       if (tagEnd > 0 && shown[tagEnd - 1] === '/') { at = tagEnd + 1; continue; }
       const close = shown.indexOf('</rPh>', i);
-      if (close < 0) break;
+      if (close < 0) { cutShorts++; break; }   // #8162 r7: a guide never closed loses the text after it: counted
       at = close + 6;
     }
     shown = out;
@@ -494,6 +495,8 @@ function readBook(buf, budget) {
     budget();
     return clean(text);
   };
+  // #8162 r7: an element cut off in the workbook, its rels or the styles can shift or drop what every sheet uses (a
+  // style index, a number format, a sheet's part), so it makes every sheet cut, not only the workbook "not empty".
   const workbook = part('xl/workbook.xml');
   if (!workbook) refuse(CANNOT_READ);
   const pr = elements(workbook, 'workbookPr').next().value;
@@ -507,16 +510,22 @@ function readBook(buf, budget) {
   const shared = [];
   let sharedCut = false;
   const sharedCutAt = new Set();   // #8162 r5: indexes of shared strings cut off inside
+  let sharedSuspectFrom = -1;       // #8162 r7: from this index on, every string may be another's (a swallowed <si>)
+  const structureBeforeStrings = cutShorts > 0;   // the workbook and its rels, read above
   const sst = part('xl/sharedStrings.xml');
   if (sst) {
     let k = 0;
-    // #8162 r5/r6: a string cut off is marked by index, so a cell that uses it is cut. The count is read around each
-    // step of the walk, not only around the text: an <si> that swallowed the next (its close missing) counts before it
-    // is yielded, and one the part ends inside is never yielded, so every later index is lost too (as at the cap).
+    // #8162 r5-r7: a string cut off inside its text is marked by index, so a cell that uses it is cut. One cut off at
+    // the <si> level shifts what follows: an <si> that swallowed the next (its close missing, counted by the step
+    // itself) makes every later index suspect, and one the part ends inside is never yielded, so every later index is
+    // lost (as at the cap). Either way a cell using any of them is cut.
     const strings = elements(sst, 'si');
     for (;;) {
       const before = cutShorts;
       const step = strings.next();
+      // Review r7: a count made by the step itself (this <si> swallowed the next: its close is missing) shifts every
+      // later index, so every string from this one on is suspect, not this one alone.
+      if (!step.done && cutShorts > before && sharedSuspectFrom < 0) sharedSuspectFrom = shared.length;
       if (step.done) { if (cutShorts > before) sharedCut = true; break; }
       if (shared.length >= MAX_SHARED_STRINGS) { sharedCut = true; break; }
       shared.push(clip(textOf(step.value.body)));   // review 5: clipped once, not once per cell that uses it
@@ -524,7 +533,9 @@ function readBook(buf, budget) {
       if ((++k & 1023) === 0) budget();
     }
   }
+  const beforeStyles = cutShorts;
   const kinds = styleKinds(part('xl/styles.xml') || '', budget);
+  const structureCut = cutShorts > beforeStyles || structureBeforeStrings;
 
   const sheets = [];
   const readTargets = new Set();   // review 1: a part named by several sheets is read once
@@ -612,7 +623,7 @@ function readBook(buf, budget) {
           if (type === 's') {
             const n = /^[0-9]{1,9}$/.test(raw.trim()) ? Number(raw) : -1;   // review 6: a decimal index, never 0x1
             // Review 4: a string past the ones read (MAX_SHARED_STRINGS) is not shown, and the sheet says it is cut.
-            if ((n >= shared.length && sharedCut) || sharedCutAt.has(n)) { cut = true; anyValue = true; savedEmpty = true; }   // #8162 r5: or a cut-off string   // review 7: so a cut sheet is not "empty"; r7: it has a saved value
+            if ((n >= shared.length && sharedCut) || sharedCutAt.has(n) || (sharedSuspectFrom >= 0 && n >= sharedSuspectFrom)) { cut = true; anyValue = true; savedEmpty = true; }   // #8162 r5: or a cut-off string   // review 7: so a cut sheet is not "empty"; r7: it has a saved value
             text = shared[n] ?? null;   // review 6: an index to no string is no value (it made a blank workbook not empty)
             // #8147: an empty string shows nothing, so it is not a value for `empty`; but it IS a saved value, so a formula
             // that saved one is not "no saved value" (review r1: it set someNoValues).
@@ -696,7 +707,7 @@ function readBook(buf, budget) {
       outputLeft -= cost;
       rows.push(out);
     }
-    if (cutShorts > cutShortsBefore) cut = true;   // #8162: an element cut off in this sheet (the workbook: `unread`)
+    if (cutShorts > cutShortsBefore || structureCut) cut = true;   // #8162: cut off in this sheet, or in what it uses
     sheets.push({ name, rows, cut, ...(base ? { firstRow: base + 1 } : {}) });
     budget();
   }

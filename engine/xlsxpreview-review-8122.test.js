@@ -757,3 +757,24 @@ test('#8162 r6: a shared string lost at the <si> level marks its cell; a raw "<"
   const d = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="2"><v>45000</v></c></row>') }, { 'xl/styles.xml': styles }));
   assert.deepEqual(d.sheets[0].rows, [['2023-03-15']]);
 });
+
+test('#8162 r7: a swallowed <si> or <xf> makes every later index suspect; "<" outside a quote ends a tag; an open guide counts', () => {
+  const read = (rows, extra) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }, extra));
+  // Index 0 swallowed index 1, so cells at 1 and 2 would show another cell's text: they are cut.
+  const s = read('<row r="1"><c r="A1" t="s"><v>1</v></c><c r="B1" t="s"><v>2</v></c></row>', { 'xl/sharedStrings.xml': '<sst><si><t>a</t><si><t>b</t></si><si><t>c</t></si><si><t>d</t></si></sst>' });
+  assert.equal(s.sheets[0].cut, true, JSON.stringify(s.sheets[0]));
+  // A style that swallowed the next shifts every later style: the sheets that use them are cut.
+  const st = '<styleSheet><cellXfs><xf numFmtId="0"><alignment/><xf numFmtId="0"><alignment/></xf><xf numFmtId="14"/></cellXfs></styleSheet>';
+  assert.equal(read('<row r="1"><c r="A1" s="1"><v>45000</v></c><c r="B1" s="2"><v>45000</v></c></row>', { 'xl/styles.xml': st }).sheets[0].cut, true);
+  // A format code with ">" then "<" (two conditions) cuts the style walk: the sheet says so.
+  const fm = '<styleSheet><numFmts><numFmt numFmtId="164" formatCode="[>100]0;[<=100]0.0"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="165"/></cellXfs></styleSheet>';
+  assert.equal(read('<row r="1"><c r="A1" s="2"><v>45000</v></c></row>', { 'xl/styles.xml': fm }).sheets[0].cut, true);
+  // "<" outside a quote: the tag has no end, and B1's value never lands in A1 unannounced.
+  const lt = read('<row r="1"><c r="A1" <c r="B1"><v>2</v></c><c r="C1"><v>3</v></c></row>');
+  assert.equal(lt.sheets[0].cut, true, JSON.stringify(lt.sheets[0]));
+  // A phonetic guide never closed loses the text after it: the cell is cut.
+  const g = read('<row r="1"><c r="A1" t="s"><v>0</v></c></row>', { 'xl/sharedStrings.xml': '<sst><si><r><t>a</t></r><rPh sb="0" eb="1"><t>x</t><r><t>b</t></r></si></sst>' });
+  assert.equal(g.sheets[0].cut, true, JSON.stringify(g.sheets[0]));
+  // CONTROL: the same strings and styles whole, no cut.
+  assert.equal(read('<row r="1"><c r="A1" t="s"><v>1</v></c></row>', { 'xl/sharedStrings.xml': '<sst><si><t>a</t></si><si><t>b</t></si></sst>' }).sheets[0].cut, false);
+});
