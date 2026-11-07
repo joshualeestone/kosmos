@@ -192,6 +192,48 @@ async function offProject6895(page, data) {
     return id;
   }, [OFFPROJECT_6895, data.chatAgent, data.askAgent]);
 }
+/* kosmos#8140: a parent marked built whose pieces are mostly on hold: one subtask closed, three held, so its count reads
+   "1/4, 3 on hold" (the shape #8140 says misled a quick reader as "1/4"). Each screen has its own project (#7185). */
+const HELDCOUNT_8140 = { card: 'Winter catalogue', row: 'Winter catalogue tasks', page: 'Winter catalogue page' };
+async function heldCount8140(page, data, which) {
+  const id = await page.evaluate(async ([name, chat]) => {
+    const call = (m, url, body) => fetch(url, { method: m, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const made = await (await call('POST', '/api/projects', { name, agents: [chat] })).json().catch(() => ({}));
+    const pid = made && made.project && made.project.id;
+    if (!pid) throw new Error('heldCount8140: the board made no project');
+    const base = '/api/project/' + encodeURIComponent(pid);
+    const tasks = [['Ship the winter catalogue', null], ['Draft the copy', 1], ['Lay out the pages', 1], ['Order the paper', 1], ['Book the printer', 1]];
+    for (const [sentence, parent] of tasks) {
+      const r = await call('POST', base + '/tasks', { sentence, who: chat, ...(parent ? { parent } : {}) });
+      if (r.status !== 200) throw new Error('heldCount8140: a task was refused (' + r.status + ')');
+    }
+    const c = await call('POST', base + '/task/2/close', {});
+    if (c.status !== 200) throw new Error('heldCount8140: closing 2 answered ' + c.status);
+    for (const n of [3, 4, 5]) {
+      const h = await call('POST', base + '/task/' + n + '/hold', { onHold: true });
+      if (h.status !== 200) throw new Error('heldCount8140: holding ' + n + ' answered ' + h.status);
+    }
+    const b = await call('POST', base + '/task/1/built', {});
+    if (b.status !== 200) throw new Error('heldCount8140: marking 1 built answered ' + b.status);
+    return pid;
+  }, [HELDCOUNT_8140[which], data.chatAgent]);
+  if (which === 'row') {
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.evaluate((pid) => openProjectTasks(pid), id);
+    await page.waitForSelector('#tsk-back:not([hidden])', { state: 'visible', timeout: 5000 });
+    await page.waitForSelector('.tsk-chip', { state: 'visible', timeout: 8000 });
+    return;
+  }
+  await openTab(page, 'projects');
+  await page.click(`#pj-list .pj-row[data-project="${id}"]`);
+  await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+  if (which === 'card') { await page.waitForSelector('#pj-one-view .tsk-chip', { state: 'visible', timeout: 8000 }); return; }
+  await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
+  await page.waitForSelector('#pj-task-view:not([hidden]) #tk-subs .tksub-s', { state: 'visible', timeout: 8000 });
+  await page.evaluate(() => document.getElementById('tk-subs').scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(300);
+}
 /* A screen's throwaway project, by name, deleted after its shot (kosmos#6501: one helper for every such screen). */
 async function throwawayProjectGone(page, projectName) {
   const st = await page.evaluate(async (name) => {
@@ -2771,6 +2813,14 @@ const SCREENS = [
     await page.evaluate(() => document.getElementById('tk-subs-built').scrollIntoView({ block: 'center' }));
     await page.waitForTimeout(300);
   }, after: async (page) => { await throwawayProjectGone(page, ROLLUP_6501); } },
+  /* kosmos#8140: a built parent with three of four pieces on hold: the count says them apart, on the project page, the
+     Tasks row and the task page's Subtasks list ("On hold", not "Open"). */
+  { name: 'project-heldcount-8140', owner: 'PigeonPete', go: async (page, data) => { await heldCount8140(page, data, 'card'); },
+    after: async (page) => { await throwawayProjectGone(page, HELDCOUNT_8140.card); } },
+  { name: 'tasks-heldcount-8140', owner: 'PigeonPete', go: async (page, data) => { await heldCount8140(page, data, 'row'); },
+    after: async (page) => { await throwawayProjectGone(page, HELDCOUNT_8140.row); } },
+  { name: 'task-heldsubs-8140', owner: 'PigeonPete', go: async (page, data) => { await heldCount8140(page, data, 'page'); },
+    after: async (page) => { await throwawayProjectGone(page, HELDCOUNT_8140.page); } },
   /* kosmos#7184: what a held task waits for, on its page: held (from the screen) until task 2 closes, or until a time two
      days ahead at 9:30 in the shot's own clock. A throwaway project, deleted after the shot. */
   { name: 'task-holduntil-7184', owner: 'Mona Lisa', go: async (page, data) => { await holdUntil7184(page, data, 'task'); },
