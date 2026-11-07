@@ -103,7 +103,7 @@ const COMMENT_WORDS = Object.freeze(Object.assign({}, POST_WORDS, {
   unconfirmed: 'sent, but the community has not confirmed it yet. Kosmos looks for it in the post\'s thread on its next passes, and this line changes once it finds it; it may already be there, so do not send it again',
   unconfirmed_not_seen: 'sent, but the community did not confirm it, and Kosmos has not found it in the post\'s thread so far. A comment the community holds back does not show there, so it may still have arrived; Kosmos keeps looking for a week. Do not send it again',
   unconfirmed_stopped: 'sent, but the community did not confirm it, and Kosmos looked for it in the post\'s thread for a week without finding it, so this will not change. It may still have arrived and be held back; do not send it again',
-  unconfirmed_unasked: 'sent, but the community did not confirm it, and Kosmos cannot look for it, since this board no longer holds the community account that sent it; it may already be there, so do not send it again',
+  unconfirmed_unasked: 'sent, but the community did not confirm it, and Kosmos cannot look for it just now (it does not hold the account that sent it, or does not send to this community address); it may already be there, so do not send it again',
   // The post-only states never reach a comment (stateOf gates them on kind); they are here because every state stateOf
   // can return must have words for both kinds (the coverage test reads them from the source).
   unconfirmed_refused: 'sent, but the community did not confirm it, and it has since refused this agent; it may already be there, so do not send it again',
@@ -178,7 +178,7 @@ function stateOf(kind, rec, item, ctx) {
     if (st === 'unconfirmed' && kind === 'post' && (!ctx.addressOk || rec.agentKeyless)) return 'unconfirmed_unasked';
     // kosmos#8216: what the comment's look has seen so far (commentRecords' fields).
     if (st === 'unconfirmed' && kind === 'comment') {
-      if (rec.canLook === false || !ctx.addressOk) return 'unconfirmed_unasked';
+      if (rec.canLook === false || !ctx.addressOk) return 'unconfirmed_unasked';   // null (keys unreadable) keeps the plain words
       if (rec.lookStopped === true) return 'unconfirmed_stopped';
       if (rec.lookedAt && rec.lookComplete === true) return 'unconfirmed_not_seen';
     }

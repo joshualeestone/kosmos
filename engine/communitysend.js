@@ -1135,7 +1135,8 @@ async function sweepTakedowns(keys, sent, now) {
  * nothing back (holding is the board's job, already done: only published rows get here).
  * AT MOST ONCE: the service has no "my comments" route to look a comment up by, so a send
  * that got no answer is recorded `unconfirmed` and never sent again. A doubled public
- * comment is the worse failure; the record says what happened.
+ * comment is the worse failure; the record says what happened. kosmos#8216: never sent again, but a later pass looks
+ * for it in its thread (settleUnconfirmedComments) and settles it as sent when it is there.
  */
 const commentsInFlight = new Set();   // #4801 review 1: comment ids whose POST this process has out right now
 // kosmos#7230 review 3: whether a comment's send is out right now (attempted, not yet answered): still on its way.
@@ -2115,9 +2116,6 @@ async function sweepOnce(now) {
     await settleUnconfirmed(keys, sent, now);
     saveJson(sentFile(), sent);
   } catch (e) { log(`unconfirmed sends: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  // kosmos#8216: unconfirmed comments are looked for in their threads, as posts are settled just above.
-  try { await settleUnconfirmedComments(keys, now); }
-  catch (e) { log(`unconfirmed comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   let from = null;
   if (on && st) {
     from = sinceForOnPeriod(st);
@@ -2162,6 +2160,10 @@ async function sweepOnce(now) {
   catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   try { await sweepAvatars(keys, on, { removals: true }); }   // #4885: taking a picture down is a take-down
   catch (e) { log(`picture removals: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  /* kosmos#8216: unconfirmed comments are looked for in their threads, whatever the switch says (as posts are settled),
+     and here, after the take-downs, so a slow thread never holds back taking something off the public site (review 1). */
+  try { await settleUnconfirmedComments(keys, now); }
+  catch (e) { log(`unconfirmed comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   // #4373 part B: comments go after the owner's deletes, the take-down reads, the industry pass and picture removals,
   // so a slow comment pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
   if (on && st && from) {
@@ -2218,8 +2220,10 @@ async function settleUnconfirmed(keys, sent, now) {
  *   Found: it settles as sent, with its id, so status links to it and a take-back can reach it.
  *   Not found after reading back past the send: it stays unconfirmed, marked as looked for (a held or hidden comment is
  *   not in the public thread, so "not seen" is never "not sent", and it is still never sent again).
- * Looked for at most once an hour per comment, for a week from the first look, and at most a few per pass, so a slow
- * thread never holds up the sweep. Runs whatever the switch says, as the post settle does.
+ * Looked for at most once an hour per comment, for a week from the first look that got an answer, at most a few per
+ * pass and a bounded number of reads per look. Runs whatever the switch says, as the post settle does, after the
+ * take-downs. A comment id another record already holds is never claimed, and a record with no time to bound the look
+ * by is not settled by words alone.
  */
 const LOOK_EVERY_MS = 60 * 60 * 1000;
 const LOOK_FOR_MS = 7 * 24 * 60 * 60 * 1000;
@@ -2231,50 +2235,118 @@ const LOOK_CURSOR_RE = /^[A-Za-z0-9_=.-]{1,200}$/;
 function unconfirmedComment(id, rec) {
   return Boolean(rec) && (rec.state === 'unconfirmed' || (rec.state === 'pending' && rec.attempted === true && !commentsInFlight.has(String(id))));
 }
-/* The comments a thread read returns, as { id, agentId, body, at } (at in ms, NaN if unreadable). */
+/* The comments a read returns, as { id, agentId, body, at } (at in ms, NaN if unreadable). A tombstone (a removed,
+   deleted or deactivated author's comment) has no author and no body, so it can never match. */
 function lookRows(list) {
   return (Array.isArray(list) ? list : []).map((x) => ({
     id: x && typeof x.id === 'string' ? x.id : '',
     agentId: x && x.agent && typeof x.agent.id === 'string' ? x.agent.id : '',
     body: x && typeof x.body === 'string' ? x.body : null,
     at: Date.parse(x && x.created_at),
+    replies: x && Array.isArray(x.replies) ? x.replies : null,
+    replyCount: x && Number.isInteger(x.reply_count) ? x.reply_count : 0,
   }));
 }
-/* Look for one comment. Returns { found: id } , { found: null, complete } (complete: the read went back past `since`, or
-   to the end of the thread), or null (the community could not be read: try again later). */
-async function lookForComment(c, agentKey, keys, agentId, since) {
-  const words = String(c.body || '').trim();
-  const match = (x) => x.agentId === agentId && x.body !== null && x.body.trim() === words && (since === null || !(x.at < since));
+const LOOK_REQUESTS = 12;   // review 1: one look's reads, whatever the thread's shape
+const COMPANY_LIST_MAX = 50;   // the space's "my comments" list holds at most this many, with no cursor
+/* Look for one comment. `ok(row)` says whether a row is it (account, words, time, and an id no other record holds).
+   Returns { found: id }, { found: null, complete } (complete: every place it could be was read), or null (the community
+   could not be read: try again later). */
+async function lookForComment(c, agentKey, keys, ok) {
   if (c.space === 'company') {
     const r = await spaceAs(agentKey, keys, 'GET', '/agents/me/comments', undefined, c.org);
     if (!r || r.notSent || r.status !== 200 || !r.json || !Array.isArray(r.json.comments)) return null;
-    // The space's list is this agent's own comments, newest first: the post is checked, not the author.
-    const mine = r.json.comments.filter((x) => x && String(x.post_id || '') === String(c.remotePostId));
-    const hit = lookRows(mine).find((x) => x.body !== null && x.body.trim() === words && (since === null || !(x.at < since)));
-    return { found: hit ? hit.id : null, complete: true };
+    // The space's list is this agent's own comments, newest first, capped with no cursor: the post is checked, and a
+    // full list may have dropped an older one (review 1), so it is not called complete.
+    const list = r.json.comments;
+    const rows = lookRows(list.filter((x) => x && String(x.post_id || '') === String(c.remotePostId))).map((x) => ({ ...x, agentId: 'self' }));
+    const hit = rows.slice().reverse().find((x) => ok(x, true));   // oldest first: pairs same-words comments in order
+    return hit ? { found: hit.id } : { found: null, complete: list.length < COMPANY_LIST_MAX };
   }
-  const post = encodeURIComponent(String(c.remotePostId));
-  const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? encodeURIComponent(c.remoteParentId) : null;
+  let budget = LOOK_REQUESTS;
+  const get = async (pathname) => {
+    if (budget <= 0) return { over: true };
+    budget -= 1;
+    const r = await request('GET', pathname, { cap: LOOK_CAP });
+    if (r.status === 404 || r.status === 410) return { gone: true };   // review 1: a taken-down post answers 410
+    if (r.status !== 200 || !r.json) return null;
+    return r;
+  };
+  const next = (r) => (typeof r.json.next_cursor === 'string' && LOOK_CURSOR_RE.test(r.json.next_cursor) ? r.json.next_cursor : '');
+  const post = '/posts/' + encodeURIComponent(String(c.remotePostId)) + '/comments';
+  /* Every reply under one top-level comment, oldest first, to the end (a thread's replies are capped): the candidates,
+     and whether `parent` is among them. null: could not be read; over: out of reads. */
+  const allReplies = async (topId, parent) => {
+    let cursor = '';
+    const out = [];
+    let sawParent = false;
+    for (;;) {
+      const r = await get(post + '/' + encodeURIComponent(topId) + '/replies?limit=' + LOOK_PAGE + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
+      if (!r) return null;
+      if (r.over) return { over: true };
+      if (r.gone) return out.length ? { rows: out, sawParent } : { gone: true };   // first page 404: not a top-level id
+      if (!Array.isArray(r.json.replies)) return null;
+      const rows = lookRows(r.json.replies);
+      if (parent && rows.some((x) => x.id === parent)) sawParent = true;
+      out.push(...rows);
+      cursor = next(r);
+      if (!cursor) return { rows: out, sawParent };
+    }
+  };
+  const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? c.remoteParentId : null;
+  if (parent) {
+    // A reply to a top-level comment sits under it.
+    const direct = await allReplies(parent, null);
+    if (direct === null) return null;
+    if (direct.over) return { found: null, complete: false };
+    if (!direct.gone) {
+      const hit = direct.rows.find((x) => ok(x));
+      return hit ? { found: hit.id } : { found: null, complete: true };   // the parent's replies, read whole
+    }
+    // The replies route refused the id: the parent is a reply itself (or gone), so it is looked for in the thread below.
+  }
+  /* The thread, newest first. For a top-level comment, its candidates are the thread's comments. For a reply whose
+     parent is itself a reply (review 1: the service keeps a reply to a reply under the top-level comment, and its
+     replies route refuses a non-top-level id), the candidates are the replies of the top-level comment that holds the
+     parent. */
   let cursor = '';
   for (let page = 0; page < LOOK_PAGES; page++) {
-    const base = parent ? '/posts/' + post + '/comments/' + parent + '/replies?limit=' + LOOK_PAGE
-      : '/posts/' + post + '/comments?order=newest&limit=' + LOOK_PAGE;
-    const r = await request('GET', base + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''), { cap: LOOK_CAP });
-    if (r.status === 404) return { found: null, complete: true };   // the post (or the parent) is gone from the public thread
-    const list = r.status === 200 && r.json ? (parent ? r.json.replies : r.json.comments) : null;
-    if (!Array.isArray(list)) return null;
-    const rows = lookRows(list);
-    // A top-level comment arrives with its first replies; a reply is looked for under its own parent only.
-    const hit = rows.find(match);
-    if (hit) return { found: hit.id };
-    const next = typeof r.json.next_cursor === 'string' && LOOK_CURSOR_RE.test(r.json.next_cursor) ? r.json.next_cursor : '';
-    if (!next) return { found: null, complete: true };   // the end of the thread
-    // Newest first: once a page reaches back before the send, nothing older can be it. Replies come oldest first, so
-    // they are read to the end (a thread's replies are capped).
-    if (!parent && since !== null && rows.some((x) => x.at < since)) return { found: null, complete: true };
-    cursor = next;
+    const r = await get(post + '?order=newest&limit=' + LOOK_PAGE + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
+    if (!r) return null;
+    if (r.over) return { found: null, complete: false };
+    if (r.gone) return { found: null, complete: true };   // the post is gone from the public community
+    if (!Array.isArray(r.json.comments)) return null;
+    const tops = lookRows(r.json.comments);
+    if (!parent) {
+      // Oldest first among this page's matches, so two same-words comments pair in order.
+      const hit = tops.slice().reverse().find((x) => ok(x));
+      if (hit) return { found: hit.id };
+    } else {
+      for (const t of tops) {
+        const embedded = lookRows(t.replies);
+        if (t.id === parent) continue;   // read above, directly
+        const holds = embedded.some((x) => x.id === parent);
+        if (!holds && !(t.replyCount > embedded.length)) continue;   // every reply is here and the parent is not
+        const all = await allReplies(t.id, parent);
+        if (all === null) return null;
+        if (all.over) return { found: null, complete: false };
+        if (!all.sawParent) continue;
+        const hit = all.rows.find((x) => ok(x));
+        return hit ? { found: hit.id } : { found: null, complete: true };   // the parent's thread, read whole
+      }
+    }
+    cursor = next(r);
+    if (!cursor) return { found: null, complete: !parent };   // the end; a reply whose parent was not found is not settled
+    // Newest first: once a page reaches back before the send, nothing older can be a top-level match.
+    if (!parent && tops.some((x) => x.at < ok.since)) return { found: null, complete: true };
   }
-  return { found: null, complete: false };   // more thread than this pass reads
+  return { found: null, complete: false };   // more thread than one look reads
+}
+/* The ids every record already holds: a comment already settled is never claimed again for another (review 1). */
+function claimedIds(csent) {
+  const ids = new Set();
+  for (const rec of Object.values(csent || {})) if (rec && typeof rec.remoteId === 'string' && rec.remoteId) ids.add(rec.remoteId);
+  return ids;
 }
 async function settleUnconfirmedComments(keys, now) {
   const csent = loadJson(commentsSentFile());
@@ -2294,24 +2366,37 @@ async function settleUnconfirmedComments(keys, now) {
     const agentId = rec.agentId || (k && k.remoteId) || '';
     if (!c || !agentId || !c.remotePostId) continue;
     if (c.space === 'company' && !(k && k.apiKey && companyPostGoesNow(c, now))) continue;
-    looked += 1;
+    /* The earliest it can have landed: just before the send was tried, or (review 1: a record from before attemptedAt
+       was kept) just before the comment was made. With neither, words alone would match any old copy: not settled. */
     const tried = Date.parse(rec.attemptedAt);
-    const since = Number.isFinite(tried) ? tried - REGISTER_CLOCK_SKEW_MS : null;
+    const made = Date.parse(c.releasedAt || c.receivedAt || c.at);
+    const from = Number.isFinite(tried) ? tried : made;
+    if (!Number.isFinite(from)) continue;
+    const since = from - REGISTER_CLOCK_SKEW_MS;
+    looked += 1;
+    const words = String(c.body || '').trim();
+    const taken = claimedIds(csent);
+    const ok = (x, self) => (self || x.agentId === agentId) && x.body !== null && x.body.trim() === words && !(x.at < since) && !taken.has(x.id);
+    ok.since = since;
     let r = null;
-    try { r = await lookForComment(c, rec.agent, keys, agentId, since); } catch { r = null; }
+    try { r = await lookForComment(c, rec.agent, keys, ok); } catch { r = null; }
     // Re-read before writing: a send pass or a take-back may have written the file while this was on the network.
     const latest = loadJson(commentsSentFile());
     if (!latest || !unconfirmedComment(id, latest[id])) continue;
     const cur = latest[id];
     const stamp = new Date(now).toISOString();
-    if (r && r.found) {
+    if (r && r.found && !claimedIds(latest).has(String(r.found))) {
       latest[id] = settle(cur, { state: 'sent', remoteId: String(r.found), agentId, sentAt: cur.attemptedAt || stamp, foundInThread: stamp,
         ...(c.space === 'company' ? { space: 'company', org: c.org } : {}) });
       log(`comment ${id} for ${rec.agent}: found in the community thread, so it was sent after all`);
+    } else if (r) {
+      // Review 1: the week's window starts at the first look that got an answer, so an outage does not use it up.
+      latest[id] = { ...cur, lookedAt: stamp, lookFirstAt: cur.lookFirstAt || stamp, lookComplete: r.complete === true };
     } else {
-      latest[id] = { ...cur, lookedAt: stamp, lookFirstAt: cur.lookFirstAt || stamp, ...(r ? { lookComplete: r.complete === true } : {}) };
+      latest[id] = { ...cur, lookedAt: stamp };   // not read: looked for again in an hour
     }
     saveJson(commentsSentFile(), latest);
+    csent[id] = latest[id];
   }
 }
 
@@ -3437,7 +3522,7 @@ function commentRecords() {
       /* kosmos#8216: for an unconfirmed comment, whether Kosmos can look for it (it knows the sending account), when it
          last looked, whether that look read back past the send, and whether it has stopped looking (a week on). */
       ...(state === 'unconfirmed' ? {
-        canLook: Boolean(rec.agentId || (k && k.remoteId)),
+        canLook: rec.agentId ? true : !keysRead ? null : Boolean(k && k.remoteId),   // null: keys.json unreadable, so unknown
         lookedAt: typeof rec.lookedAt === 'string' ? rec.lookedAt : null,
         lookComplete: rec.lookComplete === true,
         lookStopped: typeof rec.lookFirstAt === 'string' && Date.now() - Date.parse(rec.lookFirstAt) >= LOOK_FOR_MS,

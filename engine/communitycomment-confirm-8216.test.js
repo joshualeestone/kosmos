@@ -49,12 +49,18 @@ function backend() {
       };
       const shown = (c) => ({ id: c.id, parent_id: c.parent, agent: { id: c.agentId, name: 'x', role: null, kind: 'agent' }, body: c.body, created_at: c.at, state: 'live', reply_to_name: null });
       if (req.method === 'GET' && thread) {
+        if (st.mode.postGone) return send(410, { detail: 'post taken down' });
         if (thread[1] !== POST) return send(404, { detail: 'post not found' });
         const tops = st.comments.filter((c) => !c.parent).slice().sort((a, b) => (u.searchParams.get('order') === 'newest' ? b.at.localeCompare(a.at) : a.at.localeCompare(b.at)));
         const p = page(tops);
-        return send(200, { comments: p.rows.map((c) => ({ ...shown(c), replies: [], reply_count: 0, replies_cursor: null })), next_cursor: p.next_cursor });
+        // As the service: each top-level comment carries its first replies (3 here) and the true count.
+        const under = (id) => st.comments.filter((x) => x.parent === id).sort((a, b) => a.at.localeCompare(b.at));
+        return send(200, { comments: p.rows.map((c) => ({ ...shown(c), replies: under(c.id).slice(0, 3).map(shown), reply_count: under(c.id).length, replies_cursor: null })), next_cursor: p.next_cursor });
       }
       if (req.method === 'GET' && replies) {
+        // As the service: the id must be a top-level comment of this post, else 404 "comment not found".
+        const top = st.comments.find((c) => c.id === replies[2]);
+        if (!top || top.parent) return send(404, { detail: 'comment not found' });
         const rows = st.comments.filter((c) => c.parent === replies[2]).sort((a, b) => a.at.localeCompare(b.at));
         const p = page(rows);
         return send(200, { replies: p.rows.map(shown), next_cursor: p.next_cursor });
@@ -63,7 +69,10 @@ function backend() {
       const a = [...st.agents.values()].find((x) => x.token === t);
       if (!a) return send(401, { detail: 'invalid or expired token' });
       if (req.method === 'POST' && thread) {
-        const c = { id: crypto.randomUUID(), parent: body.parent_id || null, agentId: a.id, body: body.body, at: new Date(st.mode.at || Date.now()).toISOString() };
+        // As the service: a reply to a reply is kept under the top-level comment.
+        const p0 = body.parent_id ? st.comments.find((x) => x.id === body.parent_id) : null;
+        const parentTop = p0 ? (p0.parent || p0.id) : (body.parent_id || null);
+        const c = { id: crypto.randomUUID(), parent: parentTop, agentId: a.id, body: body.body, at: new Date(st.mode.at || Date.now()).toISOString() };
         if (st.mode.lose !== 'unstored') st.comments.push(c);
         if (st.mode.lose) return send(500, { detail: 'boom' });   // the answer is lost; stored or not, as the mode says
         return send(201, { id: c.id, parent_id: c.parent, body: c.body, state: 'live' });
@@ -221,4 +230,93 @@ test('#8216 status says what the look has seen, and that it is never to be sent 
   const line = status.statusText('ava').text.split('\n').find((l) => l.includes('"Status words."'));
   assert.match(line, /has not found it in the post's thread so far/);
   assert.match(line, /Do not send it again/);
+});
+
+test('#8216 review 1: an id another record already holds is never claimed, even with the same account and words', async () => {
+  await cs.sweep();
+  const first = comment('ava', 'Same again.');
+  await cs.sweep();   // sent normally, with its id
+  assert.equal(recOf(first.id).state, 'sent', 'fixture: the first comment was not sent');
+  const second = comment('ava', 'Same again.');
+  be.st.mode.lose = 'unstored';   // the second never landed
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  await cs.sweep(t0 + 1000);
+  assert.equal(recOf(second.id).state, 'unconfirmed', 'the second record took the first comment\'s id');
+  assert.equal(recOf(first.id).remoteId, be.st.comments[0].id, 'the first record changed');
+});
+
+test('#8216 review 1: a record from before the send time was kept is bounded by when the comment was made', async () => {
+  await cs.sweep();
+  const c = comment('ava', 'Old record.');
+  await cs.sweep();   // registers ava and sends it
+  const sentRec = recOf(c.id);
+  assert.equal(sentRec.state, 'sent', 'fixture: not sent');
+  // An older copy of the same words by the same account, from long before this comment was made, must not match.
+  const stored = be.st.comments.find((x) => x.id === sentRec.remoteId);
+  stored.at = new Date(Date.now() - 24 * HOUR).toISOString();
+  const recs = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+  recs[c.id] = { state: 'unconfirmed', agent: 'ava', post: POST };   // no attemptedAt: written by an older board
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(recs));
+  await cs.sweep();
+  assert.equal(recOf(c.id).state, 'unconfirmed', 'a copy from a day before the comment was made was taken for it');
+  stored.at = new Date().toISOString();   // CONTROL: a copy from after it was made is it
+  const again = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+  delete again[c.id].lookedAt;
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(again));
+  await cs.sweep();
+  assert.equal(recOf(c.id).state, 'sent', 'CONTROL: a copy from after the comment was made was not found');
+});
+
+test('#8216 review 1: a reply to a reply (kept under the top-level comment) is found', async () => {
+  await cs.sweep();
+  const top = { id: crypto.randomUUID(), parent: null, agentId: 'someone-else', body: 'A question.', at: new Date(Date.now() - 9000).toISOString() };
+  const mid = { id: crypto.randomUUID(), parent: top.id, agentId: 'someone-else', body: 'A follow-up.', at: new Date(Date.now() - 8000).toISOString() };
+  be.st.comments.push(top, mid);
+  const c = comment('ava', 'Answering the follow-up.', { serviceParentId: mid.id });
+  be.st.mode.lose = 'stored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  assert.equal(be.st.comments.find((x) => x.body === 'Answering the follow-up.').parent, top.id, 'fixture: the fake did not keep it under the top');
+  be.st.mode.lose = null;
+  await cs.sweep(t0 + 1000);
+  assert.equal(recOf(c.id).state, 'sent', 'a reply to a reply was not found: ' + JSON.stringify(recOf(c.id)));
+});
+
+test('#8216 review 1: a comment on the second page of a busy thread is found; one older than the send is never matched', async () => {
+  await cs.sweep();
+  const c = comment('ava', 'Deep in the thread.');
+  be.st.mode.lose = 'stored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  // 25 newer comments by others push it to the second page (newest first, 20 a page).
+  for (let i = 0; i < 25; i++) be.st.comments.push({ id: crypto.randomUUID(), parent: null, agentId: 'other' + i, body: 'Noise ' + i, at: new Date(t0 + 100 + i).toISOString() });
+  await cs.sweep(t0 + 1000);
+  assert.equal(recOf(c.id).state, 'sent', 'a comment on page two was not found');
+  // The same words by the same account from well before a send (outside the ten-minute margin) are never it.
+  const d = comment('ava', 'Said before.');
+  be.st.comments.push({ id: crypto.randomUUID(), parent: null, agentId: be.st.comments.find((x) => x.body === 'Deep in the thread.').agentId, body: 'Said before.', at: new Date(t0 - 2 * HOUR).toISOString() });
+  be.st.mode.lose = 'unstored';
+  await cs.sweep(t0 + 2000);
+  be.st.mode.lose = null;
+  await cs.sweep(t0 + 3000);
+  assert.equal(recOf(d.id).state, 'unconfirmed', 'a copy from two hours before the send was taken for it');
+});
+
+test('#8216 review 1: a taken-down post (410) ends the look as complete, and the look runs with the switch off', async () => {
+  await cs.sweep();
+  const c = comment('ava', 'On a post that goes.');
+  be.st.mode.lose = 'unstored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  be.st.mode.postGone = true;
+  SW = { on: false, ok: true };
+  const before = looks().length;
+  await cs.sweep(t0 + 1000);
+  assert.ok(looks().length > before, 'the look did not run with the switch off');
+  assert.equal(recOf(c.id).lookComplete, true, 'a 410 was read as "could not read"');
+  assert.equal(posts().length, 1, 'something was sent with the switch off');
 });
