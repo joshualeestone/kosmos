@@ -320,3 +320,22 @@ test('#8216 review 1: a taken-down post (410) ends the look as complete, and the
   assert.equal(recOf(c.id).lookComplete, true, 'a 410 was read as "could not read"');
   assert.equal(posts().length, 1, 'something was sent with the switch off');
 });
+
+test('#8216 review 2: a row whose time cannot be read is never taken for the comment', async () => {
+  await cs.sweep();
+  const c = comment('ava', 'Timeless.');
+  be.st.mode.lose = 'stored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  const stored = be.st.comments.find((x) => x.body === 'Timeless.');
+  stored.at = 'not a time';
+  await cs.sweep(t0 + 1000);
+  assert.equal(recOf(c.id).state, 'unconfirmed', 'a row with no readable time was taken for it');
+  stored.at = new Date(t0).toISOString();   // CONTROL: with its time, it is found
+  const recs = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+  delete recs[c.id].lookedAt;
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(recs));
+  await cs.sweep(t0 + 2000);
+  assert.equal(recOf(c.id).state, 'sent', 'CONTROL: with a readable time it was not found');
+});
