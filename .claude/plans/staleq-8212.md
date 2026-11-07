@@ -13,7 +13,7 @@ other than Claude, nothing keeps a typed line out of an open question.
 - REMINDED_STATES = ['blocked', 'needs_you'] (the WAITING_ON_A_PERSON pair).
 - A needs_you gets its own line: "Kosmos here, a reminder, not an answer from the person: ...
   If nobody needs to answer it any more, clear it with: kosmos report clear. If you still need
-  the person, leave it, and there is nothing to send them."
+  the person, leave it as it is, and there is nothing to send them."
 - A needs_you is reminded only when the agent wrote it (by: agent): a line with no writer may
   be an old permission wait, and a person's own line is theirs (review iteration 2).
 - Unchanged guards that make this safe: Claude cards only and never one reached through a
@@ -47,3 +47,13 @@ What would change it: seeing it happen; then re-showing the covered wait gets it
 - an agent that is not running: nothing can ask it, and auto-clearing would erase a real question;
 - non-Claude runners: #5959's reason still holds there;
 - the per-project "blocked on the same thing" view: a web/ change, its own card.
+
+## Known tradeoffs (review iteration 3)
+- The agent decides. A reminded agent that misjudges a still-real question and clears it removes
+  it from the card, the same harm the plan rejects for auto-clearing. Accepted because asking the
+  agent is exactly what #8212 asks for, the clear condition is report show's own, and the
+  selfreport history keeps the cleared line. What would change it: a reminded agent clearing a
+  question the person then had to ask about.
+- Re-asking. An agent that answers the reminder by re-reporting needs_you in new words starts a
+  new question (state + words + project), which notifies the person again and restarts its age.
+  The line says "leave it as it is, and there is nothing to send them" to steer away from that.
