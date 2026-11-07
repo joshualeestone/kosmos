@@ -93,6 +93,15 @@ ran="$(printf '%s\n' "$tally" | grep -c -E ' (passed|failed|skipped)$')"
 skipped="$(printf '%s\n' "$tally" | grep -c ' skipped$')"   # #7654: a check that says it could not test here
 failed="$(printf '%s\n' "$tally" | grep -c ' failed$')"
 flaky="$(printf '%s\n' "$tally" | grep ' flaky$' | sed 's/ flaky$//')"
+# kosmos#7609: on a red run too: each flake's first-try words, a warning on the run, and a test's own UI-NOTE lines (the log is deleted with the run).
+flaky_report() {
+  grep -h 'UI-NOTE' "$log" | sort -u | cut -c1-200
+  [ -n "$flaky" ] || return 0
+  [ -n "${GITHUB_ACTIONS:-}" ] && echo "::warning title=ui-sample::FLAKY, failed once: $(printf '%s' "$flaky" | paste -sd ' ' -)"
+  printf '%s\n' "$flaky" | while IFS= read -r t; do
+    echo "FLAKY $t: $(grep -m1 -F "error: -[KosmosUITests.${t%%.*} ${t##*.}]" "$log" | sed 's/.*\] : //' | cut -c1-200)"
+  done
+}
 # Review 1: each class must have run exactly its own number, so one class gaining a test cannot hide another skipping one.
 short=""
 for c in $classes; do
@@ -104,16 +113,18 @@ if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ] && [ -z "$sh
   # #7654: on GitHub Actions a skip is also an annotation on the run, so a green job that tested less is visible.
   [ "$skipped" -gt 0 ] && [ -n "${GITHUB_ACTIONS:-}" ] && echo "::warning title=ui-sample::$skipped UI check(s) SKIPPED (they tested nothing); named in this step's output"
   [ -n "$flaky" ] && note="$note ($(printf '%s\n' "$flaky" | wc -l | tr -d ' ') FLAKY: failed, then passed on its retry, named below)"
-  [ -n "$flaky" ] && [ -n "${GITHUB_ACTIONS:-}" ] && echo "::warning title=ui-sample::FLAKY, passed only on a retry: $(printf '%s' "$flaky" | paste -sd ' ' -)"
   echo "PASS  ui-sample: $ran of $want UI checks passed on a fresh simulator$note"
-  [ -n "$flaky" ] && printf '%s\n' "$flaky" | sed 's/^/FLAKY /'
+  flaky_report
   # kosmos#7348: name them and why, since the log is deleted with the run.
   sed -n 's/.*-\[KosmosUITests\.\([A-Za-z0-9_]* [A-Za-z0-9_]*\)\] : Test skipped - /SKIPPED \1: /p' "$log" | cut -c1-300
   exit 0
 fi
-why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\] : /\1.\2: /p' "$log" | head -3)"
+# Only the words of tests that are still failing, once each: a test that passed on its retry is reported by flaky_report.
+stillred="$(printf '%s\n' "$tally" | sed -n 's/ failed$//p')"
+why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\] : /\1.\2: /p' "$log" | grep -F -f <(printf '%s\n' "$stillred") | awk -F: '!seen[$1]++' | head -3)"
 echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)${short:+; per class:$short}"
 [ -n "$why" ] && printf '%s\n' "$why"
+flaky_report
 # kosmos#7609: as ui-keyboard.sh does, the read-higher-up check's scroll trace, read from the app's own data container
 # before cleanup deletes the simulator (--keep keeps the log, not the simulator). The bundle id is the built app's.
 # #7690: and the long room's own read-higher-up check, which appends to the same file.
