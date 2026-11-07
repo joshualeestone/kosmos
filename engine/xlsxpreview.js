@@ -408,7 +408,7 @@ function styleKinds(stylesXml, budget = () => {}) {
     /* kosmos#8168 r3/r4: a custom format (164 and up) nobody defines was lost. Marked, and counted only where a cell
        formats a number with it, so a style no cell uses cuts nothing. */
     const lost = id >= 164 && !custom.has(id);
-    if (!memo.has(id)) memo.set(id, lost ? { ...(builtinKind(id) || {}), lost: true } : custom.has(id) ? formatKind(custom.get(id)) : builtinKind(id));
+    if (!memo.has(id)) memo.set(id, lost ? { lost: true } : custom.has(id) ? formatKind(custom.get(id)) : builtinKind(id));
     out.push(memo.get(id));
     if ((++k & 1023) === 0) budget();
   }
