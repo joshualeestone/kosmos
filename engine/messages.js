@@ -1292,7 +1292,11 @@ function withPending(log, projectId, ownId) {
     if (earlier(p.row)) extra.push(p.row);
   }
   const rows = Array.isArray(log) ? (own === Infinity ? log : log.filter(earlier)) : [];
-  return extra.length ? rows.concat(extra) : rows;
+  if (!extra.length) return rows;
+  /* Review 5: in id order, as the rows were posted: a reader takes a quote's origin as the first row carrying the words,
+     and rows are recorded when their deliveries finish, in any order. Stable for rows with no m-number. */
+  const num = (r) => (r && /^m\d+$/.test(String(r.id)) ? Number(String(r.id).slice(1)) : -1);
+  return rows.concat(extra).map((r, i) => [r, i]).sort((a, b) => (num(a[0]) < 0 || num(b[0]) < 0 ? a[1] - b[1] : num(a[0]) - num(b[0]) || a[1] - b[1])).map((x) => x[0]);
 }
 function pendingPost(id) {
   for (const [k, p] of PENDING_POSTS) if (Date.now() - p.at > PENDING_POST_MAX_MS) PENDING_POSTS.delete(k);   // pruned on every look
@@ -2175,6 +2179,7 @@ function quotedSegments(text, from, projectId, rows) {
     const independent = rows.some((m) => m && m !== origin && m.kind === 'post' && m.project === projectId
       && typeof m.text === 'string' && (m.operator === true ? 'you' : m.from) !== author
       && chat.cleanMessage(m.text).includes(words)
+      && m.pending !== true   // kosmos#8165 review 5: a post still being delivered has no quotes yet, so it proves nothing
       && !(Array.isArray(m.quotes) && m.quotes.some((q) => q.of === origin.id)));
     if (independent) continue;
     sourced.push({ of: origin.id, from: author, start: seg.start, end: seg.end });
@@ -2563,7 +2568,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId)
       // kosmos#8165 review 1/2: or one of this room's posts still being delivered: its row as it will be written (the
       // fields a reply reads), since the record takes it only when every delivery has finished.
-      || ((pendingPost(replyTo) || {}).projectId === projectId ? pendingPost(replyTo).row : null))
+      || ((p) => (p && p.projectId === projectId ? p.row : null))(pendingPost(replyTo)))
     : null;
   /* #4580: the same post again (sender, room, text and the post it answers) is folded into the first, before the
      room valve. The answered post is part of it: "yes" to two different questions is two answers. The flags
@@ -3027,7 +3032,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      as a late one does (a bare id woke nobody). */
   for (const [k, p] of PENDING_POSTS) if (Date.now() - p.at > PENDING_POST_MAX_MS) PENDING_POSTS.delete(k);   // r3: pruned on set
   if (PENDING_POSTS.size >= PENDING_POST_MAX) PENDING_POSTS.delete(PENDING_POSTS.keys().next().value);   // r3: and capped
-  PENDING_POSTS.set(id, { projectId, at: Date.now(), row: { kind: 'post', id, project: projectId, from, to: recipients.slice(), text: stored, at,
+  PENDING_POSTS.set(id, { projectId, at: Date.now(), row: { kind: 'post', id, project: projectId, from, to: recipients.slice(), text: stored, at, pending: true,
+    ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),   // review 5: a file-only post is quoted by its name
+    ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}),
     ...(atNamed.mentioned.size ? { mentioned: [...atNamed.mentioned] } : {}),
     ...(operator !== true && namedHere.size ? { addressed: [...namedHere] } : {}),
     ...(operator === true ? { operator: true } : {}) } });
@@ -4609,7 +4616,9 @@ function projectOfPost(id) {
    (a recorded post, or one still being delivered, or never recorded and within the hour, while this board runs: PENDING_POSTS), { is: 'deleted' } (a post the
    person deleted, #7614, with its room), { is: 'message', parties } (a direct message, with its two ends), { is: 'unknown' }
    (not found, but within the ids handed out: perhaps a post typed before a restart and never recorded), or null
-   (above every id handed out: nothing was ever sent under it). Throws on an unreadable record, as projectOfPost does, so a caller can fail closed. */
+   (above every id this board has handed out since it started and every id in the record). Review 5: null is not proof
+   that nothing was sent: a post in flight when the board restarted has an id above both, so the route says only that
+   it could not find it. Throws on an unreadable record, as projectOfPost does, so a caller can fail closed. */
 function kindOfId(id) {
   const wanted = String(id == null ? '' : id).trim();
   if (!wanted) return null;

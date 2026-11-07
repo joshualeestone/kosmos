@@ -127,7 +127,7 @@ test('kosmos#8165: an in_reply_to that names no post is REFUSED on the live rout
   const before = messagesEngine.record().rows.length;
   const r = await post({ project: a.id, text: 'answering a citation with a typo', from_pane: '', in_reply_to: 'm999999' }, { 'x-kosmos-agent-token': tok() });
   assert.equal(r.json.delivery.state, 'could_not', JSON.stringify(r.json));
-  assert.match(r.json.delivery.because, /there is no post m999999 in any room, so nothing was posted/);
+  assert.match(r.json.delivery.because, /we could not find post m999999 in any room, so nothing was posted/);
   assert.doesNotMatch(r.json.delivery.because, /"/, 'no double quote: the bash CLI reads because with a sed that stops at one');
   assert.equal(messagesEngine.record().rows.length, before, 'a refused post wrote a row');
   // A stray id that is not of the m-number shape is named as "that id", never echoed.
@@ -161,10 +161,11 @@ test('kosmos#8165 review 3: an unknown id within the ids handed out is "could no
   assert.equal(messagesEngine.record().parsed.some((x) => x && x.id === 'm' + gap), false, 'CONTROL: the cited id names nothing');
   const lost = await post({ project: a.id, text: 'in range', from_pane: '', in_reply_to: 'm' + gap }, { 'x-kosmos-agent-token': tok() });
   assert.equal(lost.json.delivery.state, 'could_not', JSON.stringify(lost.json.delivery));
-  assert.match(lost.json.delivery.because, /^we could not find post m\d+, so nothing was posted/);
-  // CONTROL: above every id handed out is "there is no post".
+  assert.match(lost.json.delivery.because, /^we could not find post m\d+, so nothing was posted\. It may have been lost when the board restarted/);
+  // CONTROL: above every id handed out is the generic sentence (review 5: never "there is no post": a restart can lose one).
   const none = await post({ project: a.id, text: 'above', from_pane: '', in_reply_to: 'm' + (high + 500000) }, { 'x-kosmos-agent-token': tok() });
-  assert.match(none.json.delivery.because, /^there is no post m\d+ in any room/);
+  assert.match(none.json.delivery.because, /^we could not find post m\d+ in any room, so nothing was posted/);
+  assert.doesNotMatch(none.json.delivery.because, /there is no post/);
 });
 
 test('kosmos#8165: an in_reply_to that names a DIRECT MESSAGE is refused, and tells a party to it how to answer it', async () => {
@@ -178,7 +179,7 @@ test('kosmos#8165: an in_reply_to that names a DIRECT MESSAGE is refused, and te
   const other = await post({ project: a.id, text: 'probing', from_pane: '', in_reply_to: 'm888802' }, { 'x-kosmos-agent-token': tok() });
   assert.equal(other.json.delivery.state, 'could_not');
   assert.doesNotMatch(other.json.delivery.because, /direct message/);
-  assert.match(other.json.delivery.because, /there is no post m888802 in any room/);
+  assert.match(other.json.delivery.because, /we could not find post m888802 in any room/);
 });
 
 test('#3224 TYPE-CHECK: a non-string in_reply_to is refused with 400 before any side-effect (parity with reply_expected)', async () => {
