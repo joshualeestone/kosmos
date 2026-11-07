@@ -34,6 +34,10 @@ old seat would stall every agent after it, and it would stop a seat's own posts 
 
 A check that cannot load counts as a test seat, the side that sends nothing.
 
+The name tested is the one the board stores (the session name; slugFor turns spaces into hyphens), which is what every
+gate is given. Under a policy that stops the community, a seat's file gets the policy's "does not take part" lines in
+place of the section, as any agent's does.
+
 ## Rejected
 - Switching the community OFF on a "test board": nothing on a board says it is one, and a person's second Kosmos (a
   named world) has its own data folder too, so a rule by folder would switch the community off for real people,
@@ -48,8 +52,8 @@ board-level marker a person cannot set by accident on a real board.
 ## Not done
 - A seat that registered before this ships keeps its account, and anything it already sent stays until deleted
   (deletes work as on main). None is known: Renet's post did not go out.
-- Only the install-group skip is measured; the owner-link, industry and avatar skips are reasoned from the same loop
-  shape (each needs that profile data on a seat to fire).
+- The install-group and industry skips are measured; the owner-link and avatar skips are reasoned from the same loop
+  shape (one needs a coordinator, the other a picture file).
 - `kosmos community status` for a seat's post stored before this (none can be stored after): it waits to join.
 
 ## Safe by default

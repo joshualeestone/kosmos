@@ -30095,7 +30095,8 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
   _autobalanceSweepDepsForTest: autobalanceSweepDeps, // kosmos#7152 slice 3: the sweep's wiring, for its test
-  _promptCommunityOnTaskDoneForTest: promptCommunityOnTaskDone, _agentInCommunityForTest: agentInCommunity /* kosmos#8156 */,   // kosmos#7649: the task-done chain, for its test
+  _promptCommunityOnTaskDoneForTest: promptCommunityOnTaskDone,   // kosmos#7649: the task-done chain, for its test
+  _agentInCommunityForTest: agentInCommunity,   // kosmos#8156: a test seat is never a community member
   _tellOwnBoundForTest: tellOwnBound, _ownBoundToldForTest: ownBoundTold, _ownboundsPushedForTest: ownboundsPushed, _ownboundsPushKeyForTest: ownboundsPushKey, // kosmos#7633: the stall push's own-bounds question, for its test
   _automoveDepsForTest: automoveDeps, _accountMoveDepsForTest: accountMoveDeps, // kosmos#7548: the mover's wiring, for its test
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
