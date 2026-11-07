@@ -23,7 +23,7 @@
  *   cells walked, shown or not (review 4: a row number that never grew walked a whole part);
  * - the whole read has a time budget (WORK_BUDGET_MS), checked every 1024 steps of the loops over parts, strings,
  *   styles, sheets, rows and cells, and after each part; past it the answer is "too large to preview". The scans that
- *   have no check inside (clean, one string's text) are linear in a capped part; the skip inside `elements` counts each
+ *   have no check inside (clean, a string's phonetic strip) are linear in a capped part; the skip inside `elements` counts each
  *   near-miss, with a cap and a budget check (#8147);
  * - the answer's cells are capped as JSON writes them (MAX_OUTPUT_CHARS, all sheets together), and each shared string
  *   is clipped once, however many cells use it;
@@ -253,8 +253,8 @@ function countSections(code) {
   return n;
 }
 /* Review r4: a negative is drawn by the second section, which carries its own sign or none ("0%;[Red]0%" shows 50% in
-   red, "#,##0;(#,##0)" shows (5)). When that section is itself a simple code (colours and conditions stripped), the
-   value's size is drawn through it with no sign added; otherwise (brackets, text) it is shown as saved. */
+   red, "#,##0;(#,##0)" shows (5)). When that section is itself a simple code (a leading colour stripped; a condition is not simple), the
+   value's size is drawn through it with that section's sign (brackets, or a minus); otherwise it is shown as saved. */
 function negativeKind(code) {
   if (countSections(code) < 2) return null;
   const raw = sectionAt(code, 1);
@@ -479,7 +479,8 @@ function readBook(buf, budget) {
   let all = 0, anyValue = false, anyFormula = false, bareFormula = false;
   let otherSheet = false;   // a chart or dialog sheet that is in the file
   let savedFormula = false; // #8147: a formula whose saved value is an empty string
-  let walkCut = false;      // #8147: a sheet's walk stopped at MAX_VISITS, so what lies past it is unknown
+  let walkCut = false;      // #8147: something in a sheet was not read (the walk stopped at MAX_VISITS, or a row or cell
+                            // could not be placed), so what it held is unknown to the answer
   let outputLeft = MAX_OUTPUT_CHARS;   // review 5: for the whole answer, every sheet together
   let sk = 0;
   for (const s of elements(workbook, 'sheet')) {
@@ -526,6 +527,14 @@ function readBook(buf, budget) {
       for (const [col, text] of line) kept.get(row).set(col, text);
     };
     const windowStart = () => (minRow < MAX_ROWS ? 0 : minRow);
+    /* A row or cell that is not placed (past the last row, or a start tag too long to read), by what its body holds
+       (review r6/r7): a saved value or string is a cut and keeps the answer from "empty"; a formula with no saved value
+       keeps it from "no saved values" and is counted as one with none (so the viewer can say why the grid is blank); an
+       empty <v/>, as openpyxl writes it, is no value. */
+    const skipped = (body) => {
+      if (/<v>[^<]|<is[\s>]/.test(body)) { cut = true; walkCut = true; }
+      else if (/<f[\s>]/.test(body)) { walkCut = true; bareFormula = true; }
+    };
     /* A cell's shown text, or null when it holds no saved value. */
     const cellText = (c, hasFormula) => {
       const type = attr(c.tag, 't') || 'n';
@@ -544,7 +553,7 @@ function readBook(buf, budget) {
           if (type === 's') {
             const n = /^[0-9]{1,9}$/.test(raw.trim()) ? Number(raw) : -1;   // review 6: a decimal index, never 0x1
             // Review 4: a string past the ones read (MAX_SHARED_STRINGS) is not shown, and the sheet says it is cut.
-            if (n >= shared.length && sharedCut) { cut = true; anyValue = true; }   // review 7: so a cut sheet is not "empty"
+            if (n >= shared.length && sharedCut) { cut = true; anyValue = true; savedEmpty = true; }   // review 7: so a cut sheet is not "empty"; r7: it has a saved value
             text = shared[n] ?? null;   // review 6: an index to no string is no value (it made a blank workbook not empty)
             // #8147: an empty string shows nothing, so it is not a value for `empty`; but it IS a saved value, so a formula
             // that saved one is not "no saved value" (review r1: it set someNoValues).
@@ -583,15 +592,15 @@ function readBook(buf, budget) {
       if (++visits > MAX_VISITS) { cut = true; walkCut = true; break; }
       // Review r6: a start tag past MAX_TAG_CHARS has no attribute read (attr), so its row number is unknown: the row is
       // not placed (it landed on the next real row), and a value in it is unknown to the answer.
-      if (row.tag.length > MAX_TAG_CHARS) { if (/<(v|is)[\s>]/.test(row.body)) { cut = true; walkCut = true; } else if (/<f[\s>]/.test(row.body)) walkCut = true; continue; }
-      const rs = attr(row.tag, 'r');
+      if (row.tag.length > MAX_TAG_CHARS) { skipped(row.body); continue; }
+      const rs = (attr(row.tag, 'r') || '').trim() || null;   // review r7: XML integers may carry spaces (" 5")
       // Decimal only (r2); review r5: any length (the tag is capped), so 41 digits are past the last row, not "no r".
       const digits = rs !== null && /^[0-9]+$/.test(rs) ? rs.replace(/^0+(?=.)/, '') : null;
       const rr = digits === null ? NaN : digits.length > 7 ? Infinity : Number(digits);
       // #8147: a row number past Excel's last row (1048576), however many digits, is no row of the sheet: skipped, not
       // placed on another row. Review r3: what it held is unknown to the answer (never "empty"), and an empty one is no cut.
-      // A value or a string is a cut; a formula alone only keeps the answer from claiming none (review r6).
-      if (rr > MAX_EXCEL_ROW) { if (/<(v|is)[\s>]/.test(row.body)) { cut = true; walkCut = true; } else if (/<f[\s>]/.test(row.body)) walkCut = true; continue; }
+      // Review r7: so is a row with no r that would come after the last row.
+      if (rr > MAX_EXCEL_ROW || (!(rr >= 1) && rowAt + 1 >= MAX_EXCEL_ROW)) { skipped(row.body); continue; }
       rowAt = rr >= 1 ? rr - 1 : rowAt + 1;   // a row with no r (or one that is not a number) is the next one (review 1)
       const line = new Map();
       let colAt = -1;
@@ -599,7 +608,7 @@ function readBook(buf, budget) {
         if ((++k & 1023) === 0) budget();
         if (++visits > MAX_VISITS) { cut = true; walkCut = true; if (line.size) keepRow(rowAt, line); break rows; }
         // Review r6: likewise a cell whose start tag is too long to read has no known column: not placed.
-        if (c.tag.length > MAX_TAG_CHARS) { if (/<(v|is)[\s>]/.test(c.body)) { cut = true; walkCut = true; } continue; }
+        if (c.tag.length > MAX_TAG_CHARS) { skipped(c.body); continue; }
         const at = cellRef(attr(c.tag, 'r'));
         const col = at ? at[1] : colAt + 1;                          // a cell with no r is the next column
         colAt = col;
@@ -632,8 +641,9 @@ function readBook(buf, budget) {
     budget();
   }
   if (!all) refuse(CANNOT_READ);
-  /* someNoValues: some cells are formulas with no saved value, beside cells that have one (a workbook partly written by a
-     script), so the viewer can say why those cells are blank. noValues: every value is missing that way. */
+  /* someNoValues: some cells are formulas with no saved value, beside cells that have one or beside a part that was not
+     read (so "no saved values" cannot be claimed), so the viewer can say why those cells are blank. noValues: every
+     value is missing that way. */
   // Review 6: past MAX_SHEETS the sheets left out are never read, so nothing is known about them: neither empty nor
   // "no saved values" is said of a workbook with sheets left out.
   // Review 7: a chart or dialog sheet is something, so a workbook that has one is not "empty" (a sheet whose part is
