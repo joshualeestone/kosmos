@@ -1224,13 +1224,22 @@ function hidesCard(r) {
   return Boolean(r) && (r.stopped !== false || r.leftRunningByChoice === true);
 }
 
-/* kosmos#8112: whether THIS spelling has its own folder. A folder recorded in the agent's profile carries no spelling:
-   the profile is keyed on store.safeKey (lowercased), so workerDir('Cai') returns cai's recorded folder and
-   existsExactly on it is true. Such a folder never proves the name by itself; the job, the session, or (in resolve) a
-   listed card with exactly this name must. An agent whose folder is not recorded is named by its folder, as before. */
-function folderIsExactly(clean) {
-  if (create.agentDirRecorded(clean)) return false;
-  return existsExactly(create.workerDir(clean));
+/* kosmos#8112: whether THIS spelling has its own folder. A folder recorded in the agent's profile does not carry the
+   spelling in its path: the profile is keyed on store.safeKey (lowercased), so workerDir('Cai') returns cai's recorded
+   folder and existsExactly on it is true. So a recorded folder proves a spelling only when
+     - the profile's displayName is exactly it (register-only connect writes the name as typed, and has no job or
+       session to prove it otherwise, review 1), and
+     - no startup job is under the lowercase machine name (an adopted `cai` shown as "Cai" has its job under `cai`,
+       which proves cai, so "Cai" is a variant).
+   An agent whose folder is not recorded is named by its folder, as before. */
+function folderIsExactly(clean, platform) {
+  if (!create.agentDirRecorded(clean)) return existsExactly(create.workerDir(clean));
+  let shown;
+  try { shown = store.readProfile(clean).displayName; } catch { return false; }
+  if (shown !== clean) return false;
+  let key;
+  try { key = store.safeKey(clean); } catch { return false; }
+  return !(key !== clean && jobFor(key, platform));
 }
 
 /**
@@ -1241,7 +1250,7 @@ function exists(clean, platform) {
   if (jobFor(clean, platform)) return true;
   // ⚠️ Exact spelling again. Without it `exists('CASEY')` is true because
   // `casey`'s folder answers, and the removal proceeds under the wrong name.
-  if (folderIsExactly(clean)) return true;
+  if (folderIsExactly(clean, platform)) return true;
   /**
    * ⚠️ An unreachable tmux is UNKNOWN, and the caller says so in those words.
    * Returning a bare false here made `plan` answer "we cannot find an agent
@@ -1344,7 +1353,7 @@ function resolve(name, platform, listed) {
   try { clean = create.cleanName(name); } catch { return asGiven; }
   if (!clean || unsafeToActOn(clean)) return asGiven;
   // An agent with this exact name (folder, job, or a session; an unknown session also counts, so it fails closed).
-  let exact = folderIsExactly(clean) || Boolean(jobFor(clean, platform));   // kosmos#8112: a recorded folder is no spelling
+  let exact = folderIsExactly(clean, platform) || Boolean(jobFor(clean, platform));   // kosmos#8112: a recorded folder is no spelling
   if (!exact) {
     let found;
     try { found = sessionFor(clean); } catch { return asGiven; }
@@ -1967,7 +1976,10 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
     if (DRY_RUN && !runner) {
       got = { ok: true, removed: false, because: null };
     } else {
-      try { got = create.forgetCodexFolder(create.workerDir(clean), codexHome, !codexHome); }
+      /* kosmos#8112 review 1: a variant spelling that passed plan on its own job or session must not clear the Codex
+         trust of the folder recorded for ANOTHER spelling (the real agent's). */
+      if (create.agentDirRecorded(clean) && !folderIsExactly(clean, platform)) got = { ok: true, removed: false, because: null };
+      else try { got = create.forgetCodexFolder(create.workerDir(clean), codexHome, !codexHome); }
       catch { threw = true; }
     }
     const leftAlone = !threw && got && got.ok === false
@@ -2024,7 +2036,7 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
     // a real `casey` folder) promises "its folder is still on your computer"
     // about a folder that agent never had. The hazard was fixed in two places
     // and this third one kept the old call.
-    because: existsExactly(create.workerDir(clean))
+    because: folderIsExactly(clean, platform)   // kosmos#8112 review 1: never another spelling's recorded folder
       ? `${shown} has been removed from Kosmos. Its folder and everything in it is still on your computer.`
       : `${shown} has been removed from Kosmos. Nothing on your computer was deleted.`,
     steps,
