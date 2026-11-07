@@ -1,7 +1,11 @@
 import SwiftUI
 
 /// kosmos#7896 (Josh 2026-11-03), retired on the iPhone by kosmos#8058 (Josh 2026-11-05 18:33: dots only in the mobile
-/// app): no screen draws it, and the sweep suite fails if one does. Unused; deleting the file is enough (the project syncs its folder).
+/// app), then back on exactly three whole-screen waits by Josh 2026-11-06 18:14: Allow this iPhone and Connecting to your
+/// Mac (AgentsView) and Making <name> (NewAgentView), at AgentsWait.orbSide. The sweep suite fails if any other place draws it.
+
+/// The orb's side on those three waits: Josh, "at least double" the 66 pt the desktop list uses.
+enum AgentsWait { static let orbSide: CGFloat = 132 }
 /// The geometry is OrbLogic (the desktop's, same seed). 15 frames a second
 /// (the .animation schedule pauses with the app in the background; whether it also pauses for a view kept alive out of
 /// sight is not verified here); with Reduce Motion on, one still frame with the K facing. VoiceOver hears it as
