@@ -6681,6 +6681,15 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    let a caller into a project that has members. */
 /* kosmos#5752 slice 2: a refusal for not being on the project names its fix (engine/messages.js says where). */
 const NOT_ON_PROJECT_FIX = messages.NOT_ON_PROJECT_FIX;
+/* #3311, kosmos#4926: someone else's words, for a line an agent reads as Kosmos's own or as a row: one line, no control
+   characters, and no bracket to spell a marker with (every marker starts with `[`). The caller removes whatever could close
+   the quote it puts them in. */
+function othersWordsOneLine(text) {
+  return String(text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ');
+}
+/* kosmos#4926: how much of a covered ask its line shows: enough to recognise the ask, short enough that -n of them stay one
+   readable line. */
+const COVERED_EXCERPT_CHARS = 60;
 /* #4926: a line of `kosmos room <id> --unanswered`'s answer starts with this. Both CLIs look for a line starting with it
    to tell a board that ignored the flag (an older one, which sends the whole room) from one that applied it. */
 const UNANSWERED_HEAD = 'Waiting on an answer from you: ';
@@ -23954,6 +23963,8 @@ const server = http.createServer(async (req, res) => {
           && (namedReader.has(String(m.id))
             || (m.operator === true && Array.isArray(m.to) && m.to.includes(readerName)
               && !(m.outcomes && (m.outcomes[readerName] === 'quiet' || m.outcomes[readerName] === 'could_not'))));
+        // kosmos#4926: the asks a later post of the reader's does not move: its own claim is no answer (#7848), and a person's ask stays listed.
+        const listKeepsAsk = (m) => m.operator === true || !!(m.claim && m.claim.by === readerName);
         if (onlyUnanswered && !readerName) {
           res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
           res.end('Kosmos could not tell which agent is reading, so it cannot say which posts are waiting on you. '
@@ -23983,10 +23994,8 @@ const server = http.createServer(async (req, res) => {
               if (c) { claimedAsks.unshift({ id: String(rows[i].id), by: c.by, at: c.at }); continue; }
               // kosmos#7969: after the claim check on purpose: a claimed ask is named on the claimed line whatever its age.
               if (aged(rows[i])) { agedAsks += 1; continue; }
-              /* kosmos#4926: after age, so an old ask is counted there. The person's asks stay listed, as they never age out.
-                 So does one the reader claimed: its own claim is no answer (#7848), and a post can be about something else. */
-              const ownClaim = rows[i].claim && rows[i].claim.by === readerName;
-              const own = rows[i].operator === true || ownClaim ? null : messages.laterOwnPost(rows, i, readerName);
+              // kosmos#4926: after age, so an old ask is counted there.
+              const own = listKeepsAsk(rows[i]) ? null : messages.laterOwnPost(rows, i, readerName);
               if (own) { coveredAsks.unshift({ id: String(rows[i].id), own, text: rows[i].text }); continue; }
               openAsks += 1;
               if (tail.length < textRows) tail.unshift(rows[i]);
@@ -24036,7 +24045,7 @@ const server = http.createServer(async (req, res) => {
             // on (the operator's, a colleague's, [kosmos]) starts with `[`, and local
             // posts are refused for carrying them (messages.js MARKERS); outside
             // words cannot be refused, so here they cannot spell one.
-            const said = String(m.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/[«»]/g, '"').replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ');
+            const said = othersWordsOneLine(String(m.text || '').replace(/[«»]/g, '"'));
             // kosmos#7129: the row arrived while this computer was waiting to be let in (a sealed room would have refused it).
             const unchecked = m.unverified === true ? ' (arrived while this computer was waiting to be let in, so it may not be from anyone in this project)' : '';
             return [when + '  [external ' + (m.fromKind === 'agent' ? 'agent' : 'person') + '] ' + who + ' wrote: «' + said + '»' + unchecked];
@@ -24111,7 +24120,7 @@ const server = http.createServer(async (req, res) => {
           const ownAfter = !mine && askedOfReader(m) ? messages.laterOwnPost(rows, rowAt.get(m), readerName) : null;
           const youPosted = ownAfter
             ? [when + '  [kosmos] you posted [' + ownAfter + '] after [' + m.id + '] without citing it. '
-              + (m.operator === true || (m.claim && m.claim.by === readerName)
+              + (listKeepsAsk(m)
                 ? 'If that answered it, cite it with --in-reply-to to take it off your list.'
                 : 'If that answered it, it needs nothing more.')]
             : [];
@@ -24191,8 +24200,8 @@ const server = http.createServer(async (req, res) => {
            the treatment an outside sender's get above (#3311): no control characters, no quote to close, no bracket to
            spell a marker with. */
         const coveredHead = (text) => {
-          const chars = Array.from(String(text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/"/g, "'").replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ').trim());
-          return chars.length > 60 ? chars.slice(0, 60).join('') + '...' : chars.join('');
+          const chars = Array.from(othersWordsOneLine(String(text || '').replace(/"/g, "'")).trim());
+          return chars.length > COVERED_EXCERPT_CHARS ? chars.slice(0, COVERED_EXCERPT_CHARS).join('') + '...' : chars.join('');
         };
         const shownCovered = coveredAsks.slice(-textRows);
         const moreCovered = coveredAsks.length - shownCovered.length;

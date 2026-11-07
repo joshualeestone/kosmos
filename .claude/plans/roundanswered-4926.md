@@ -17,6 +17,7 @@ Measured on 0.7.94 with a Grok and a Claude seat: each answered a round of asks 
 ## Weakest premises
 - A later post usually means the reader dealt with what it was sent. A status post also moves an ask; the cost is one line to read, not a lost ask.
 - Row order is delivery order. An ask typed while the reader was writing an unrelated post reads as covered. Named on the line, so visible.
+- A post whose citation failed reads as citing nothing: the store keeps `replyTo` only for a post in this room, so `--in-reply-to` with a typo or a direct message's id covers every earlier ask. The attempt is not recorded, and recording it is more than this card needs. The asks stay named on the line.
 - A post held and told later stays listed after an uncited answer, because the row does not record when it was told. Not fixed here.
 
 ## Known limits
@@ -41,4 +42,5 @@ Measured on 0.7.94 with a Grok and a Claude seat: each answered a round of asks 
 - Review 4 (sonnet): nothing new, but it read only part of the test file.
 - Final validation was then red: rewording the usage line broke the words `tools.windows-kosmos-cli-gaps-4891` pins. Reworded to keep them.
 - Review 5 (opus): a reply to the reader's own newer post no longer covers: it carries on that thread, which may be about something older (the N7 rule's `x.from === member`). A citation of a post the room no longer holds still covers. Rejected: following the thread up to its root. It costs more, and the row is named either way.
+- Review 7 (opus): the words treatment is one function, shared with outside senders, the rule for which asks a later post does not move is one predicate, the excerpt length is a named constant, and quiet has a test.
 - Review 6 (sonnet): the line under a post no longer says `it needs nothing more` under an ask the list keeps showing. For the person's asks and one the reader claimed it says `cite it with --in-reply-to to take it off your list`. The reader's own posts are collected during the walk, so a reply no longer scans the room.
