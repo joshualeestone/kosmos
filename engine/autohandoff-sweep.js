@@ -141,7 +141,8 @@ function communityFor(session, now = Date.now()) {
 const CONFIRM_WORDS = {
   sent: 'sent (its box no longer held the prompt after the Enter)',
   unread: 'probably sent, but its box could not be read after the Enter, so this is not confirmed',
-  unsent: 'left in its box: its Enter did not take',
+  // Review 3: what was seen, not why: a slow submit under load reads the same as an Enter that was swallowed.
+  unsent: 'left in its box: it still held the prompt when checked after the Enter',
   other: 'not confirmed: Enter was pressed and its box then held something besides the prompt (other text, or a folded paste)',
   'not-pressed': 'left in its box: the box already held other text, so Enter was not pressed',
 };
@@ -152,7 +153,10 @@ function promptLogLine(p) {
   if (p.confirm && Object.prototype.hasOwnProperty.call(CONFIRM_WORDS, p.confirm)) said = CONFIRM_WORDS[p.confirm];
   else if (p.verdict === 'could_not') {
     // Review 2: which hold (a menu, the account, the quota, text in the box) and why, as the delivery said it.
-    said = p.heldByInput ? 'not typed: its box already holds unsent text' : 'could not be typed' + (p.heldBy ? ', held by ' + p.heldBy : '') + why;
+    // Review 3: chat.js's own hold reasons start 'held: ', so they are said once, not after a second "held by".
+    const own = p.because ? String(p.because).replace(/\s+/g, ' ').replace(/^held: /, '').slice(0, 160) : '';
+    said = p.heldByInput ? 'not typed: its box already holds unsent text'
+      : 'could not be typed' + (own ? ' (' + own + ')' : p.heldBy ? ' (held: ' + p.heldBy + ')' : '');
   }
   else if (p.verdict === 'placed') said = 'placed, with no check after the Enter';
   else if (p.verdict === 'unconfirmed') said = 'not confirmed as sent' + why;

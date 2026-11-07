@@ -43,3 +43,9 @@ falls back to the state words, which do not separate sent from unread.
   a box where someone started typing); "not sent" became "left in its box" or "not confirmed" (UNCONFIRMED means may
   be there). A could-not names its hold (menu, account, quota) and its because.
 - The untested branches are tested now; the JSDoc lists the new fields.
+
+## Review round 3 (decided)
+- Only NITs. Two taken, because this line exists for diagnosis under load: an unsent outcome says what was seen
+  ("it still held the prompt when checked after the Enter"), not why, since a slow submit and a swallowed Enter read
+  the same; chat.js's own hold reasons start "held: ", so the line says the reason once. Left: two collected fields
+  promptLogLine does not need (unsubmitted, heldByInput beside heldBy), and the retry wording's rare band case.
