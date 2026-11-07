@@ -3,8 +3,8 @@
  * kosmos#8191: a board a test boots writes "[slow request] ..." to its stdout once a request takes KOSMOS_SLOW_REQUEST_MS
  * (#6721, 5 s by default). Many tests read a board child's whole stdout as one JSON answer, so on a busy runner that line
  * landed in front of the JSON and the parse failed (run 42362867313: forget-claude-1659 and forget-openai-1372).
- * tools/run-tests.sh now sets the limit to one day for every test. This file proves both halves: with a small limit the
- * line does break such a parse (the control), and with the runner's value the same slow request leaves stdout as JSON.
+ * tools/run-tests.sh now sets the limit to one day for every test. Test 2 is the control (a small limit puts the line in
+ * front of the JSON); test 3 sends a request slower than the 5 s default under the runner's value.
  *
  *   node --test server.slowrequest-runner-8191.test.js
  */
@@ -23,9 +23,9 @@ function runnerLimit() {
   return m ? Number(m[1]) : null;
 }
 
-/* Boots the real server in a child, sends one request whose body arrives 60 ms late (so the server's own clock sees a
-   request of at least that long), and returns the child's whole stdout, the shape the affected tests read. */
-function boardStdout(limit) {
+/* Boots the real server in a child, sends one request whose body arrives delayMs late, and returns the child's whole
+   stdout, the shape the affected tests read. */
+function boardStdout(limit, delayMs) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-slowrunner-8191-'));
   const bin = nodePath.join(sb, 'bin');
   fs.mkdirSync(bin, { recursive: true });
@@ -50,12 +50,13 @@ function boardStdout(limit) {
       });
       req.on('error', (e) => { process.stdout.write(JSON.stringify({ code: null, error: String(e.message) })); process.exit(0); });
       req.flushHeaders();
-      setTimeout(() => req.end(body), 60);
+      setTimeout(() => req.end(body), ${Number(delayMs)});
     });
   `;
   try {
     return execFileSync(process.execPath, ['-e', script], {
       encoding: 'utf8',
+      timeout: 60000,
       env: {
         ...process.env,
         KOSMOS_SLOW_REQUEST_MS: String(limit),
@@ -81,13 +82,15 @@ test('#8191: tools/run-tests.sh sets KOSMOS_SLOW_REQUEST_MS to at least an hour'
 });
 
 test('#8191 control: with a small limit, the slow-request line lands in front of the JSON and breaks the parse', () => {
-  const out = boardStdout(10);
+  const out = boardStdout(10, 60);
   assert.match(out, /^\[slow request\] DELETE \/api\/accounts\/claude took /, 'the control wrote no slow-request line');
   assert.throws(() => JSON.parse(out), SyntaxError);
 });
 
-test("#8191: with the runner's limit, the same slow request leaves the child's stdout as one JSON answer", () => {
-  const out = boardStdout(runnerLimit() || 86400000);
+test("#8191: with the runner's limit, a request slower than the 5 s default leaves the child's stdout as one JSON answer", () => {
+  const limit = runnerLimit();
+  assert.ok(limit !== null, 'tools/run-tests.sh no longer exports KOSMOS_SLOW_REQUEST_MS');
+  const out = boardStdout(limit, 5300);
   assert.doesNotMatch(out, /slow request/);
   const parsed = JSON.parse(out);
   assert.equal(typeof parsed.code, 'number', 'the request got no answer: ' + out);

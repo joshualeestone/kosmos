@@ -17,8 +17,9 @@ flake is load-driven and the suite and CI both go through run-tests.sh; I judged
 
 ## Guard
 server.slowrequest-runner-8191.test.js: (1) the runner's export exists and is at least an hour; (2) control: a 10 ms
-limit puts the line in front of the JSON and the parse throws; (3) the runner's limit leaves stdout as JSON for the
-same slow (60 ms) request. Mutants: export deleted -> (1) fails; server.js reading a different name -> (2) fails.
+limit puts the line in front of the JSON and the parse throws; (3) under the runner's limit, a request slower than the
+5 s default (5.3 s) leaves stdout as JSON. Mutants: export deleted -> (1) and (3) fail; server.js reading a different
+name -> (2) fails; runner limit 4000 -> (3) fails on its own. The child has a 60 s timeout so a hang is a fast red.
 server.slowrequest-6721.test.js sets its own limit before loading server.js, so it is unaffected (ran green).
 
 ## Tests run
