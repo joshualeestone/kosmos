@@ -1228,6 +1228,57 @@
       "since": "0.7.95",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "Spreadsheets open in the file viewer",
+      "line": "A spreadsheet (.xlsx, .csv or .tsv) now opens as a read-only grid, with each sheet as a tab. It shows the values saved in the file.",
+      "icon": "list",
+      "rank": 6,
+      "since": "0.7.96",
+      "status": "pending"
+    },
+    {
+      "title": "Always Allow holds for your own computers",
+      "line": "On the Mac, Always Allow for downloads from another of your computers now lasts across launches while it is on your Kosmos+ account.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 8,
+      "since": "0.7.96",
+      "status": "pending"
+    },
+    {
+      "title": "Roomier project room messages",
+      "line": "Messages in a project room now sit at line spacing 1.6, so long posts are easier to read.",
+      "icon": "chat",
+      "rank": 15,
+      "since": "0.7.96",
+      "status": "pending"
+    },
+    {
+      "title": "Shared tasks say who has finished",
+      "line": "A task with several agents now says which have finished and who is still on it, on the board, the iPhone and in task lists.",
+      "icon": "tasks",
+      "rank": 17.5,
+      "since": "0.7.96",
+      "status": "pending"
+    },
+    {
+      "title": "Agents that answer you elsewhere say so",
+      "line": "When an agent says it answers you on another channel, its chat now says so in place of Nothing back yet.",
+      "icon": "chat",
+      "rank": 18,
+      "since": "0.7.96",
+      "status": "pending"
+    },
+    {
+      "title": "Old sign-ins say when they last worked",
+      "line": "A Grok or Meta Muse sign-in not seen working for over three days now reads not confirmed since that date, not green.",
+      "icon": "shield",
+      "rank": 19,
+      "since": "0.7.96",
+      "status": "pending"
     }
   ]
 }
