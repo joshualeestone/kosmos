@@ -866,10 +866,12 @@ const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtF
 const FINGERPRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
 /* kosmos#8214: the delivered file's absolute path, as the CLI resolved it on the computer that marked it, kept beside its
    fingerprint so `kosmos task files` can check the file again there. The board never reads it; it checks the shape as
-   landedValue checks a repository's. */
+   landedValue checks a repository's. Only a local path: `kosmos task files` opens every path on a project, including
+   other markers', so a network one (//host/share, \\host\share) would make it connect where a marker chose. */
 const FILE_PATH_MAX = 1024;
 function filePathValue(v) {
   if (typeof v !== 'string' || !v || v.length > FILE_PATH_MAX || /[\u0000-\u001f\u007f]/.test(v)) return null;
+  if (/^[\\/]{2}/.test(v)) return null;
   return v.startsWith('/') || /^[A-Za-z]:[\\/]/.test(v) ? v : null;
 }
 /* #7508: the commit a code fix landed as, from `kosmos task built --commit <ref>`. Its own fields, not built ones:
@@ -920,7 +922,7 @@ function withoutBuilt(t) {
  *                          unnamed agent's (review 6). A clear drops both
  *   builtFilePath          (kosmos#8214) the file's absolute path on the marking computer, sent with the fingerprint as
  *                          `filePath`; kept and dropped with it. A fingerprint sent without one (an older CLI) has none
- * The same mark again (same marker, same note, same fingerprint) records nothing (`changed: false`). `refusePersonMark` refuses a
+ * The same mark again (same marker, same note, same fingerprint and file path) records nothing (`changed: false`). `refusePersonMark` refuses a
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
  */
@@ -933,7 +935,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   if (fingerprint != null && !(typeof print === 'string' && FINGERPRINT_RE.test(print))) return { ok: false, because: 'a fingerprint is "sha256:" or "pdf-normalized:" followed by 64 lowercase hex characters' };
   // kosmos#8214: a path only with the fingerprint it locates, and only an absolute one.
   const sentPath = filePath == null ? '' : filePathValue(filePath);
-  if (filePath != null && (!sentPath || !print)) return { ok: false, because: 'a file path is sent with the fingerprint, as the absolute path of that file' };
+  if (filePath != null && (!sentPath || !print)) return { ok: false, because: 'a file path is sent with the fingerprint, as the local absolute path of that file' };
   /* #5705 review 3: format characters (zero-width and the like) are not a note, so a note of only those is none. Checked
      on a copy (review 4): the stored note keeps them, as an emoji or a right-to-left name needs them. */
   const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';

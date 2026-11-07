@@ -1893,14 +1893,15 @@ async function taskBuilt(ctx, args) {
     let fileprint;
     try { fileprint = ctx.engine('fileprint'); } catch { ctx.err('Kosmos could not find its own fingerprint reader; this install looks incomplete.'); return 1; }
     /* kosmos#8214, as install/kosmos: and its absolute path here, so `kosmos task files` can check it again. Resolved
-       first and fingerprinted by that path, so the two always name the same file. A path with control characters is
-       sent as none, as the Mac command sends it. */
+       first and fingerprinted by that path, so the two always name the same file. A path the board would refuse
+       (control characters, a network path such as \\server\share, over 1024 characters) is sent as none, as the Mac
+       command sends it, and the mark goes without it. */
     let whole = null;
     try { whole = (ctx.pathRules || path).resolve(ctx.cwd(), file); } catch (_) { whole = null; }
     const got = fileprint.fingerprint(typeof whole === 'string' ? whole : file);
     if (!fileprint.isPrint(got)) { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
     fingerprint = got;
-    filePath = typeof whole === 'string' && !/[\u0000-\u001f\u007f]/.test(whole) ? whole : null;
+    filePath = typeof whole === 'string' && whole.length <= 1024 && !/[\u0000-\u001f\u007f]/.test(whole) && !/^[\\/]{2}/.test(whole) ? whole : null;
   }
   /* #7508, as install/kosmos: the commit a code fix landed as, resolved here in this checkout: its full sha, the
      repository's shared git directory (it outlives a removed worktree) and whether a remote branch has it. */

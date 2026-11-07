@@ -6412,7 +6412,7 @@ cmd_task() {
     [ "$_frc" -eq 0 ] || { say_unreached "list the built tasks" "$_frc"; exit 1; }
     case "$_fbody" in '{"error":'*)
       local _fwhy; _fwhy=$(printf '%s' "$_fbody" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
-      case "$_fproj:$_fwhy" in ':say which project'*) say "This board is older than --all, so it did not list what was asked. Update Kosmos."; exit 1 ;; esac
+      case "$_fproj:$_fwhy" in ':say which project'*) say "This board is older than --all, so it did not list what was asked. Update Kosmos." >&2; exit 1 ;; esac
       say "Kosmos refused that: ${_fwhy:-it did not say why}." >&2; exit 1 ;;
     esac
     printf '%s' "$_fbody" | "$_fnode" "$_fmod" files "$_fproj"
@@ -6857,13 +6857,16 @@ cmd_task() {
         _fnode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to fingerprint that file."; exit 1; }
         _fmod="$(kosmos_engine_module fileprint).js"
         [ -f "$_fmod" ] || { say "Kosmos could not find its own fingerprint reader; this install looks incomplete."; exit 1; }
-        fingerprint=$("$_fnode" "$_fmod" "$file" 2>/dev/null) || fingerprint=""
-        case "$fingerprint" in sha256:????????????????????????????????????????????????????????????????|pdf-normalized:????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2 ;; esac
-        # kosmos#8214: and its absolute path here, so `kosmos task files` can check it again. Logical, as the Windows
-        # CLI's path.resolve. A path that cannot be written as plain JSON (control characters) is sent as none.
-        local _fdir; _fdir=$(CDPATH= cd -- "$(dirname -- "$file")" 2>/dev/null && pwd) || _fdir=""
+        # kosmos#8214: and its absolute path here, so `kosmos task files` can check it again: its folder resolved as the
+        # kernel resolves it (-P, so link/.. is the folder the hash read), and the fingerprint is then taken of that path,
+        # as the Windows CLI does, so the two always name the same file. A path the board would refuse (control
+        # characters, a network path, over 1024 characters) is sent as none, and the mark goes without it.
+        local _fdir; _fdir=$(CDPATH= cd -P -- "$(dirname -- "$file")" 2>/dev/null && pwd -P) || _fdir=""
         case "$_fdir" in /*) file_abs="${_fdir%/}/$(basename -- "$file")" ;; *) file_abs="" ;; esac
-        case "$file_abs" in *[[:cntrl:]]*) file_abs="" ;; esac
+        case "$file_abs" in *[[:cntrl:]]*|//*) file_abs="" ;; esac
+        [ "${#file_abs}" -le 1024 ] || file_abs=""
+        fingerprint=$("$_fnode" "$_fmod" "${file_abs:-$file}" 2>/dev/null) || fingerprint=""
+        case "$fingerprint" in sha256:????????????????????????????????????????????????????????????????|pdf-normalized:????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2 ;; esac
       fi
       # #7508: the commit a code fix landed as, resolved here in this checkout: its full sha, the repository's shared git
       # directory (it outlives a removed worktree) and whether a remote branch has it. The board checks only the shape.

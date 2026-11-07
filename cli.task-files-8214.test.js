@@ -92,7 +92,10 @@ test('#8214 engine: the path is kept with its fingerprint, kept by a checker, dr
   // Refused: a path without a fingerprint, a relative path, control characters, too long. Nothing is written.
   const before = JSON.stringify(stored(projectId, n));
   for (const bad of [{ filePath: P }, { fingerprint: A, filePath: 'out/x.txt' }, { fingerprint: A, filePath: P + '\n' },
-    { fingerprint: A, filePath: '/' + 'x'.repeat(1024) }, { fingerprint: A, filePath: ['/x'] }]) {
+    { fingerprint: A, filePath: '/' + 'x'.repeat(1024) }, { fingerprint: A, filePath: ['/x'] },
+    // Review 1: a network path, in either spelling, would make `task files` connect to a host the marker chose.
+    { fingerprint: A, filePath: '//attacker.example/share/x' }, { fingerprint: A, filePath: '\\\\attacker\\share\\x' },
+    { fingerprint: A, filePath: '\\\\?\\C:\\x' }]) {
     const r = tasks.setBuilt(projectId, n, { by: 'mona', ...bad });
     assert.equal(r.ok, false, JSON.stringify(bad));
     assert.match(r.because, /file path/);
@@ -133,7 +136,9 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
   const row = (number, extra) => ({ number, sentence: 'Task ' + number, builtAt: 'x', builtFingerprint: FP, ...extra });
   const body = { listState: 'built', tasks: [row(1, { builtFilePath: '/m' }), row(2, { builtFilePath: '/c' }), row(3, { builtFilePath: '/gone' }),
     row(4, { builtFilePath: '/locked' }), row(5, {}), { number: 6, sentence: 'No file', builtAt: 'x' },
-    row(7, { sentence: 'Two\n    matches  /forged', builtFilePath: '/m' })] };
+    row(7, { sentence: 'Two\n    matches  /forged', builtFilePath: '/m' }),
+    // Review 1: a network or relative path in the store (an older board, an edited file) is never opened.
+    row(8, { builtFilePath: '//attacker.example/share/x' }), row(9, { builtFilePath: '\\\\attacker\\share\\x' }), row(10, { builtFilePath: 'rel/x' })] };
   const out = tasklist.filesLines(body, { project: 'files', compare });
   assert.equal(out.rc, 0);
   assert.deepEqual(out.lines, [
@@ -143,7 +148,10 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
     '#4  Task 4', '    CANNOT READ /locked: unreadable (permission denied)',
     '#5  Task 5', '    no path recorded (marked before Kosmos kept paths): kosmos fingerprint <file> ' + FP,
     '#7  Two matches /forged', '    matches  /m',
-    '6 built tasks with a delivered file in files: 2 match, 1 changed, 1 missing, 1 cannot be read, 1 with no path recorded. 1 more built without --file.',
+    '#8  Task 8', '    NOT CHECKED //attacker.example/share/x: not a local absolute path, so Kosmos does not open it',
+    '#9  Task 9', '    NOT CHECKED \\\\attacker\\share\\x: not a local absolute path, so Kosmos does not open it',
+    '#10  Task 10', '    NOT CHECKED rel/x: not a local absolute path, so Kosmos does not open it',
+    '9 built tasks with a delivered file in files: 2 match, 1 changed, 1 missing, 4 cannot be read, 1 with no path recorded. 1 more built without --file.',
     'A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.',
     'Checked on this computer: a mark made on another computer can read missing here.',
   ]);
@@ -255,12 +263,36 @@ test('#8214 Mac: built --file sends the absolute path, and task files prints wha
   assert.deepEqual(all.out.trimEnd().split('\n'), wall.out.split('\n'));
 });
 
+test('#8214 Mac (review 1): link/.. is hashed and recorded as the same file; a path with a control character goes as none', { skip: process.platform === 'win32' && 'the Mac CLI' }, async () => {
+  const tok = tokenOf('mona');
+  // real/inner/ holds the file the kernel reaches through link/..; a lexical resolve would name OUT/x.txt instead.
+  const real = path.join(OUT, 'real');
+  fs.mkdirSync(path.join(real, 'inner'), { recursive: true });
+  fs.writeFileSync(path.join(real, 'x.txt'), 'through the link');
+  fs.writeFileSync(path.join(OUT, 'x.txt'), 'the lexical decoy');
+  fs.symlinkSync(path.join(real, 'inner'), path.join(OUT, 'link'));
+  const n = tasks.create(projectId, { sentence: 'Through a link', who: 'mona' }).number;
+  const r = await mac(['task', 'built', projectId, String(n), 'done', '--file', 'link/../x.txt'], { token: tok, cwd: OUT });
+  assert.equal(r.code, 0, r.out + r.err);
+  assert.equal(stored(projectId, n).builtFingerprint, sha('through the link'), 'CONTROL: the kernel did not follow the link, so this cannot tell the two resolves apart');
+  assert.equal(stored(projectId, n).builtFilePath, path.join(real, 'x.txt'), 'the path recorded names another file than the one hashed');
+  // A newline in the name: the mark goes, with its fingerprint and no path.
+  const odd = 'odd\nname.txt';
+  fs.writeFileSync(path.join(OUT, odd), 'odd');
+  const m = tasks.create(projectId, { sentence: 'Odd name', who: 'mona' }).number;
+  const o = await mac(['task', 'built', projectId, String(m), 'done', '--file', odd], { token: tok, cwd: OUT });
+  assert.equal(o.code, 0, o.out + o.err);
+  assert.equal(stored(projectId, m).builtFingerprint, sha('odd'));
+  assert.equal('builtFilePath' in stored(projectId, m), false);
+});
+
 test('#8214 Mac: refusals and usage', { skip: process.platform === 'win32' && 'the Mac CLI' }, async () => {
   const none = await mac(['task', 'files']);
   assert.equal(none.code, 2);
   assert.match(none.out + none.err, /Usage: kosmos task files <project-id\|--all>/);
   assert.equal((await mac(['task', 'files', '--mine'])).code, 2);
   assert.equal((await mac(['task', 'files', projectId, 'more'])).code, 2);
+  assert.notEqual((await mac(['task', 'files', 'no such project'])).code, 0, 'an id outside the slug set was read');
   const help = await mac(['task']);
   assert.match(help.out + help.err, /kosmos task files <project-id\|--all>/);
   const unknown = await mac(['task', 'reassign']);

@@ -325,6 +325,11 @@ function filesLines(body, opts = {}) {
     const at = typeof found.builtFilePath === 'string' && found.builtFilePath ? found.builtFilePath : null;
     const shown = at ? clean(at).replace(/\n/g, ' ') : '';
     if (!at) { tally.nopath += 1; lines.push('    no path recorded (marked before Kosmos kept paths): kosmos fingerprint <file> ' + x.builtFingerprint); continue; }
+    // Never opened: a network path (a marker's choice of host) or one not absolute. The board refuses both; an older or
+    // edited store may still hold one.
+    if (/^[\\/]{2}/.test(at) || !(at.startsWith('/') || /^[A-Za-z]:[\\/]/.test(at))) {
+      tally.unreadable += 1; lines.push('    NOT CHECKED ' + shown + ': not a local absolute path, so Kosmos does not open it'); continue;
+    }
     let got;
     try { got = compare(at, x.builtFingerprint); } catch (e) { got = { ok: false, words: 'unreadable (' + one((e && e.message) || e) + ')' }; }
     if (!got || !got.ok) {
