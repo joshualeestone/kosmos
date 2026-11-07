@@ -25,6 +25,12 @@
  *       (with the name and Show in Finder, which asks by id and keeps the viewer open), a failure puts the button back,
  *       two Files-list downloads answered out of order each get their own answer; in a browser nothing changes;
  *   and no page errors from the preview's own code.
+ *   P8122 (runSheet, the spreadsheet grid, against stubbed sheet routes): tabs and grid, markup as text, numbers right,
+ *       the notes (cut, no saved values, more sheets, empty, no sheets), arrows with Home and End, firstRow, a long cell
+ *       cut to one line with its whole value on hover, too large and a 404 showing the card, a viewer closed before the
+ *       answer, a CSV falling back to its text, the dark-click rule (a tab, a cell, the gap between tabs keep it; beside a
+ *       narrow grid, also under a wider note, closes it), the grid centred over the button, Tab reaching tab and grid,
+ *       and a phone (44 px tabs, a 200 x 50 sheet scrolling inside the window).
  * Needs no URL. ENGINES=chromium,webkit adds WebKit, the Mac app's engine.
  *
  *   ENGINES=chromium,webkit HEADED=0 NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-file-preview-4930.js
