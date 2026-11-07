@@ -462,6 +462,11 @@ export AGENT_WORKFORCE_PERSON_LOCALE=en   # #5050: a test that inherits this env
 # #4632: the roles and teams catalogue a board downloads when asked (the picker, `kosmos agent
 # roles`, a create for a role it does not hold). A test that needs it serves its own.
 export KOSMOS_CATALOGUE_BASE=http://127.0.0.1:9/
+# kosmos#8191: a board a test boots writes "[slow request] ..." to its stdout when a request takes 5 s or more (#6721),
+# and on a busy runner one does. Many tests read a board child's whole stdout as one JSON answer, so that line in
+# front of it failed the parse and the test never reached what it checked. One day is longer than any test, so no
+# such line is written. server.slowrequest-6721.test.js sets its own limit before it loads the server.
+export KOSMOS_SLOW_REQUEST_MS=86400000
 # kosmos#6756: no test waits behind a real relay pre-push build. A test that runs queued-heavy.sh or release.sh would
 # otherwise read this machine's real build lock (~/.cache/prepush/machine.lock) and wait out a live cargo step until its
 # own deadline. A path under /dev/null can never exist, so the probe answers "no build"; a test of the wait sets its own.
