@@ -1228,6 +1228,76 @@
       "since": "0.7.95",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "A task says how many subtasks are on hold",
+      "line": "A task with subtasks now says how many are on hold beside its done count, on the board and in task lists.",
+      "icon": "tasks",
+      "rank": 17.2,
+      "since": "0.7.95",
+      "status": "pending"
+    },
+    {
+      "title": "Spreadsheets open in the file viewer",
+      "line": "A spreadsheet (.xlsx, .csv or .tsv) now opens as a read-only grid, a workbook's sheets as tabs. It shows the values saved in the file.",
+      "icon": "list",
+      "rank": 6,
+      "since": "0.7.96",
+      "status": "pending"
+    },
+    {
+      "title": "Always Allow for downloads from your computers",
+      "line": "On the Mac, a download from another of your computers can now be set to Always Allow, kept while that computer is on your Kosmos+ account.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 8,
+      "since": "0.7.96",
+      "status": "pending"
+    },
+    {
+      "title": "A little more space in project rooms",
+      "line": "Posts in a project room now have slightly more space between lines.",
+      "icon": "chat",
+      "rank": 17,
+      "since": "0.7.96",
+      "status": "pending"
+    },
+    {
+      "title": "Shared tasks say who has finished",
+      "line": "A task with several agents now says which of them have finished and who is still on it, on the board and in task lists.",
+      "icon": "tasks",
+      "rank": 17.5,
+      "since": "0.7.96",
+      "status": "pending"
+    },
+    {
+      "title": "Agents that answer you elsewhere say so",
+      "line": "When an agent says it answers you on another channel, its chat now says so in place of \"Nothing back yet.\"",
+      "icon": "chat",
+      "rank": 18,
+      "since": "0.7.96",
+      "status": "pending"
+    },
+    {
+      "title": "An old Grok sign-in says since when",
+      "line": "A Grok sign-in not renewed for over three days now reads \"not confirmed since\" a date, not \"Signed in\".",
+      "icon": "shield",
+      "rank": 19,
+      "since": "0.7.96",
+      "status": "pending"
+    },
+    {
+      "title": "An old Meta Muse sign-in says since when",
+      "line": "On the Mac, a Meta Muse sign-in not seen working for over three days now reads \"not confirmed since\" a date, not green.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 19.5,
+      "since": "0.7.96",
+      "status": "pending"
     }
   ]
 }
