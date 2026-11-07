@@ -86,14 +86,19 @@ if ($pipedIn -and $PSCommandPath) {
 # gone (measured, pwsh 7: 'I can't and won't do it' arrives as "I can", "t", "and", "wont do it"), which the CLI would
 # join and send. So this call's own words on the line as typed ($MyInvocation.Line) are read with PowerShell's own
 # parser, and two shapes refuse before anything is sent:
-#   (a) a single-quoted string with a word touching its end ('I can't  ->  'I can' then t);
-#   (b) a bare word still holding an apostrophe once doubled ones ('') and double-quoted parts are set aside
-#       (won't do it'  or  Bob's'). In an --option=value word only the value is read, and a value that is one quoted
-#       string ('eng', 'Bob''s') is fine. (-option:'value' is not one word: PowerShell gives a Parameter token and then
-#       the value's own tokens, so (a) and (b) read it as they read any text.)
+#   (a) a single-quoted string touching, with no space, a bare word, a number, a double-quoted string or a variable
+#       ('I can't  ->  'I can' then t;  'a'"b";  'a'$x), which PowerShell splits or joins;
+#   (b) a bare word holding a single quote once its double-quoted parts are set aside (won't do it', Bob's', and also
+#       it''s or O''Brien: outside quotes '' is an EMPTY quoted string, which PowerShell drops, so it''s arrives as its).
+#       In an --option=value word only the value is read, and a value that is exactly one quoted string ('eng',
+#       'Bob''s', where '' inside the quotes IS an apostrophe) is fine. (-option:'value' is not one word: PowerShell
+#       gives a Parameter token and then the value's own tokens, so (a) and (b) read it as they read any text.)
+#   PowerShell takes the curly quotes as quotes too (U+2018, U+2019, U+201A, U+201B as single; U+201C, U+201D, U+201E
+#   as double), so every quote here is matched by class. They are written as regex escapes: this file stays ASCII,
+#   because Windows PowerShell 5.1 reads a .ps1 with no byte-order mark in the ANSI code page.
 # This call's words run from where it starts on the line to the first | ; && || or newline, or to a ) or } it did not
 # open (so a later word in the same if, block or array is not read). A here-string never holds a StringLiteral token,
-# and 'it''s' is one token, so neither refuses. Not covered, so a mangled text can still go out there: a command
+# and the quoted 'it''s' is one token, so neither refuses. Not covered, so a mangled text can still go out there: a command
 # continued onto the next line with a backtick ($MyInvocation.Line holds the first line only). When the line is not
 # readable (started with -File, or no line at all) or anything here fails, nothing is checked and the call runs as
 # before.
@@ -114,21 +119,25 @@ try {
       if (@('RParen', 'RCurly') -contains $tk) { if ($depth -eq 0) { break } else { $depth-- } }
       [void]$mine.Add($t)
     }
-    $word = @('Identifier', 'Generic', 'Number')
+    $sq = "['\u2018\u2019\u201A\u201B]"
+    $dq = '["\u201C\u201D\u201E]'
+    $oneQuoted = '^' + $sq + '(?:(?!' + $sq + ').|' + $sq + $sq + ')*' + $sq + '$'
+    $touch = @('Identifier', 'Generic', 'Number', 'StringExpandable', 'Variable')
     for ($i = 0; $i -lt $mine.Count -and -not $splitQuote; $i++) {
       $k = [string]$mine[$i].Kind
       if ($k -eq 'Generic') {
-        $w = $mine[$i].Text
-        $optValue = $false
-        if ($w.StartsWith('-')) {
-          $eq = $w.IndexOf('=')
-          if ($eq -lt 0) { $w = '' } else { $w = $w.Substring($eq + 1); $optValue = $true }
+        $w = $mine[$i].Text -replace ($dq + '(?:(?!' + $dq + ').)*' + $dq), ''
+        $eq = $w.IndexOf('=')
+        if ($w.StartsWith('-') -and $eq -ge 0) {
+          $v = $w.Substring($eq + 1)
+          if ($v -match $oneQuoted) { $w = $w.Substring(0, $eq) } else { $w = $v }
         }
-        $w = ($w -replace '"[^"]*"', '').Replace("''", '')
-        if ($optValue -and $w -match "^'[^']*'$") { $w = '' }
-        if ($w.Contains("'")) { $splitQuote = $true }
+        if ($w -match $sq) { $splitQuote = $true }
       }
-      if ($k -eq 'StringLiteral' -and $i + 1 -lt $mine.Count -and $word -contains [string]$mine[$i + 1].Kind -and $mine[$i + 1].Extent.StartOffset -eq $mine[$i].Extent.EndOffset) { $splitQuote = $true }
+      if ($i + 1 -lt $mine.Count -and $mine[$i + 1].Extent.StartOffset -eq $mine[$i].Extent.EndOffset) {
+        $k2 = [string]$mine[$i + 1].Kind
+        if (($k -eq 'StringLiteral' -and $touch -contains $k2) -or ($k2 -eq 'StringLiteral' -and @('StringExpandable', 'Variable') -contains $k)) { $splitQuote = $true }
+      }
     }
   }
 } catch { $splitQuote = $false }

@@ -51,7 +51,8 @@ function run(shell, rest, name) {
   const driver = path.join(dir, name + '.ps1');
   const call = "& '" + target + "'";
   const line = rest.includes('{K}') ? rest.replace('{K}', call) : call + ' ' + rest;
-  fs.writeFileSync(driver, line + '\nWrite-Output ("RC=" + $LASTEXITCODE)\n', 'utf8');
+  // A byte-order mark, so Windows PowerShell 5.1 reads the curly quotes as UTF-8 (it reads a .ps1 without one as ANSI).
+  fs.writeFileSync(driver, '\ufeff' + line + '\nWrite-Output ("RC=" + $LASTEXITCODE)\n', 'utf8');
   const r = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driver], { encoding: 'utf8', windowsHide: true, timeout: 60000 });
   const m = /RC=(-?\d+)/.exec(r.stdout || '');
   return { rc: m ? Number(m[1]) : null, err: String(r.stderr || '') + String(r.stdout || '') };
@@ -63,6 +64,12 @@ const REFUSED = [
   ['a task title cut the same way', "task add fleet 'fix what we can't and won't'"],
   ['an option value cut by apostrophes', "post fleet --topic='a's'b' hi"],
   ['a colon option value with a word touching it (rule (a): -topic: is its own token)', "post fleet -topic:'a b'x hi"],
+  // Outside quotes '' is an EMPTY quoted string, which PowerShell drops: it''s arrives as its, O''Brien as OBrien.
+  ['a bare it\'\'s, the apostrophe written twice outside quotes', "msg bob it''s fine"],
+  ['a bare path with an apostrophe written twice', "msg bob C:\\O''Brien\\a.txt"],
+  // PowerShell takes the curly quotes as quotes too, so the same cut happens with them.
+  ['curly apostrophes cutting the text', "post fleet 'the agents\u2019 work and Bob\u2019s\u2019"],
+  ['a quoted part touching a double-quoted part', "msg bob 'a'\"b\""],
 ];
 const ALLOWED = [
   ['an apostrophe written twice', "msg bob 'it''s fine'"],
@@ -72,7 +79,7 @@ const ALLOWED = [
   ['a double-quoted text holding an apostrophe', 'msg bob "it\'s fine"'],
   ['a here-string holding apostrophes', "msg bob @'\nit's fine, can't and won't\n'@"],
   ['an option value with an apostrophe written twice', "post fleet --topic='Bob''s' hi"],
-  ['a bare word with an apostrophe written twice', "msg bob C:\\O''Brien\\a.txt"],
+  ['a curly-double-quoted part holding an apostrophe', "msg bob x\u201cit's\u201d"],
   // {K} is where the call goes when the arm is a whole line: a later word on the line, outside this call, is not read.
   ['inside an if, a later word holding an apostrophe', "if ({K} msg bob 'hi') { $null = 1 } else { Write-Output Bob's' }"],
   ['inside an array, a later element holding an apostrophe', "$r = @({K} msg bob 'hi'), (Write-Output Bob's')"],
