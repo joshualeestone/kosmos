@@ -727,6 +727,19 @@ test('kosmos#8140 follow-up: held subtasks with none built are said, with what i
     assert.match(t, / 1 of its 2 subtasks is on hold; 1 is not finished\./, t);
     assert.doesNotMatch(t, /kosmos task built|Every subtask/, t);
   } finally { w2.restore(); }
+  // Review 1: closed subtasks are not counted as left: two closed and one held reads only the held one.
+  const w3 = world([{ name: 'parentdoneheld' }]);
+  try {
+    const n = taskOn(w3, w3.key.parentdoneheld, 'ship a mostly done release');
+    for (const words of ['write the notes', 'cut the build']) {
+      const c = childOf(w3, n, words, false);
+      assert.ok(tasks.close(w3.pid, c).closedAt, 'fixture: close refused');
+    }
+    tasks.setOnHold(w3.pid, childOf(w3, n, 'sign the build', false), true);
+    const t = pass(w3).calls[0].text;
+    assert.match(t, / 1 of its 3 subtasks is on hold\./, t);
+    assert.doesNotMatch(t, /not finished|kosmos task built|Every subtask/, t);
+  } finally { w3.restore(); }
 });
 
 test('#6421: the agent\'s own second part is not another\'s: it is still told to mark the parent built', () => {
