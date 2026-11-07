@@ -36,6 +36,7 @@ function helpOf(cmd, args) {
   const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: home, KOSMOS_HOME: home, KOSMOS_PORT: '9', TMPDIR: os.tmpdir(),
     AGENT_WORKFORCE_TMUX_BIN: path.join(ROOT, 'test-support', 'fake-tmux.sh') };
   const r = spawnSync(cmd, args, { cwd: ROOT, env, encoding: 'utf8', timeout: scaleBudget(30000) });
+  if (typeof r.status !== 'number') throw new Error(args.join(' ') + ' gave no exit code (killed or timed out): ' + (r.error || r.signal));   // #3628
   assert.equal(r.status, 0, args.join(' ') + ' exited ' + r.status + ': ' + r.stderr);
   return r.stdout;
 }
