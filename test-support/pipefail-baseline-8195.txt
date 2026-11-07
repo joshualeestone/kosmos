@@ -42,7 +42,6 @@ tools/lib/browser-check-gate.sh	if [ -n "$p1" ] && printf '%s\n' "$all" | grep -
 tools/lib/browser-check-surface-gate.sh	if [ -n "$p1" ] && printf '%s\n' "$all" | grep -qx "$p1"; then printf '%s\n' "$p1"; return 0; fi
 tools/lib/browser-check-surface-gate.sh	if printf '%s\n' "$files" | grep -qE "^[AM][^${tab}]*${tab}${esc_bcdir}/${esc_base}$" 2>/dev/null; then
 tools/lib/browser-check-surface-lib.sh	sed -n 's|^[[:space:]]*//[[:space:]]*[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:[[:space:]]*\(.*\)$|\1|p' "$1" | head -1
-tools/lib/browser-check-surface-lib.sh	printf '%s\n' "$2" | grep -qE "(^|[^A-Za-z0-9_-])${esc}([^A-Za-z0-9_-]|\$)" 2>/dev/null
 tools/lib/cut-guard.sh	for p in $(/usr/sbin/lsof -n -P -t -- "$1" 2>/dev/null | head -3); do   # -n -P: no name lookups, on every poll
 tools/lib/cut-load-guard.sh	ps -Ao pid,pcpu,comm -r 2>/dev/null | awk 'NR>1 && $2+0 > 0' | head -n "$n" || true
 tools/lib/deploy-linux.sh	[ "$name" = "kosmos-$ver-linux-x64.tar.gz" ] && printf '%s' "$ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'  || { echo "deploy-site: the committed dist/$p does not name a kosmos-<version>-linux-x64.tar.gz ('$name') -- refusing (kosmos#7281)" >&2; return 1; }

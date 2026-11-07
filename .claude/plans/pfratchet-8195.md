@@ -4,7 +4,7 @@ Card: kosmos#8195. Stacked on sweeppipe-8193 (#8198), which adds test-support/ea
 
 ## Decision (on the card)
 The triage found no non-test site that is a measured live false fail today, so the shipping scripts are not
-rewritten, with two exceptions found in review round 1 (below). Instead, a ratchet: today's hits (382 entries plus 4 header lines, after review round 1) become test-support/pipefail-baseline-8195.txt, and
+rewritten, with two exceptions found in review round 1 (below). Instead, a ratchet: today's hits (381 entries plus 4 header lines, after review round 5) become test-support/pipefail-baseline-8195.txt, and
 shell.pipefail-ratchet-8195.test.js fails on any NEW hit and on any listed line that is gone.
 
 ## Change
@@ -43,3 +43,10 @@ A script that gets pipefail only from whoever sources it; the helper's known gap
   seen and the ones not seen (+o, comments).
 - browser-check-surface-gate.sh line 168 (`printf "$files" | grep -qE`) stays listed on purpose: a false fail there
   makes the gate REFUSE (the safe direction), while line 149's false fail meant "no trailer", which skips checks.
+
+## Review round 5 (decided)
+- browser-check-surface-lib.sh bc_surface_token_hits: the changed diff body into grep -qE, under a caller's pipefail
+  (run-tests.sh, bc-surface-map.sh). A false fail reads as "token not changed", so the gate skips a check: the unsafe
+  direction, which my round-1 read missed. Now grep -c. Measured: the old line 30/30 false on a 400 KB diff (review),
+  the new one 0/30 on 410 KB, and an absent token still not found. Three surface tests rc=0.
+- KOSMOS_PRINT_PIPEFAIL_BASELINE=1 prints the header too, so its output can replace the file.
