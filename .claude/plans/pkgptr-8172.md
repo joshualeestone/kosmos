@@ -77,3 +77,18 @@ name the same sha, which is correct: the installer is the same file.
   disagreement between the two reads is absorbed by step 9's six-read retry. publish-staging-pointer.sh names
   `Kosmos-staging.pkg` literally because it does not load pkg-inputs.sh; it hashes the pkg bytes only, and
   verify-served checks the whole triple.
+
+## Review round 4
+
+- WARNING, fixed: an unreadable pointer failed the run on either channel. A prod cut's verify reads
+  latest-staging.json too (it also writes Kosmos-staging.pkg), and that pointer can be missing for reasons the cut did
+  not cause. Now only this run's channel ($POINTER) fails; the other is said. Tested both ways.
+- WARNING, fixed: the named-promote same-build comparison ignored pkg_sha256 entirely. It is now ignored only when one
+  side lacks it; two pointers that both name a pkg, and name different ones, are refused. Tested both ways.
+- WARNING, decided: when the pointer names a pkg that is not obtainable (not served as Kosmos-staging.pkg, or not on
+  the machine), the promote still moves the pointer, leaves Kosmos.pkg, and warns that a prod verify will red. Not
+  refused, because Josh's word is for the APP version: refusing that promote over an installer problem would hold
+  every prod user's update back for something the Download button alone is affected by. The red verify is the alarm.
+- NIT, settled by reading: step 9's six-read loop wraps the whole verify-served run (release.sh, step 9), so one
+  transient fetch inside it is retried.
+- NIT, fixed: the writer's comment says what promote does with a pointer that names no pkg.

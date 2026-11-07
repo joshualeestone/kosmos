@@ -273,7 +273,7 @@ if [ -n "$NAMED_VERSION" ]; then
   if [ -n "$_newest" ] && [ "$_newest" != "$NAMED_COMMIT" ]; then
     git -C "$SITE" show "${_newest}:dist/$STAGING_NAME" > "$NAMED_DIR/newest.json" 2>/dev/null
     git -C "$SITE" show "${NAMED_COMMIT}:dist/$STAGING_NAME" > "$NAMED_DIR/chosen.json" 2>/dev/null
-    if node -e 'const r=f=>{const p=JSON.parse(require("fs").readFileSync(f,"utf8"));delete p.setup_sha256;delete p.pkg_sha256;return p};process.exit(require("util").isDeepStrictEqual(r(process.argv[1]),r(process.argv[2]))?0:1)' "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json" 2>/dev/null; then
+    if node -e 'const r=f=>{const p=JSON.parse(require("fs").readFileSync(f,"utf8"));delete p.setup_sha256;return p};const A=r(process.argv[1]),B=r(process.argv[2]);if(A.pkg_sha256&&B.pkg_sha256&&A.pkg_sha256!==B.pkg_sha256)process.exit(1);delete A.pkg_sha256;delete B.pkg_sha256;process.exit(require("util").isDeepStrictEqual(A,B)?0:1)' "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json" 2>/dev/null; then
       _ns="$(read_pointer_field "$NAMED_DIR/newest.json" setup_sha256)"; _cs="$(read_pointer_field "$NAMED_DIR/chosen.json" setup_sha256)"
       if [ "$_ns" = "$_cs" ] || [ -z "$_ns" ]; then
         echo "promote-channel: NOTE using ${NAMED_COMMIT:0:10} for $NAMED_VERSION; ${_newest:0:10}, a later commit naming it, points at the same build" >&2

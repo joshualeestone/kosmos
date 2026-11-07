@@ -215,6 +215,13 @@ out="$(runvs latest.json)"
 case "$out" in *"/dist/Kosmos-staging.pkg vs latest-staging.json | differs"*"FAIL=0"*) true;; *) false;; esac && pass "8172 verify-served: a prod cut's verify is not failed by the staging pointer naming an older pkg" || bad "8172 verify-served prod-cut arm: $out"
 out="$(runvs latest-staging.json)"
 case "$out" in *"/dist/Kosmos-staging.pkg vs latest-staging.json | NOT the pkg the pointer names"*"FAIL=1"*) true;; *) false;; esac && pass "8172 verify-served: CONTROL a staging verify does red a staging pkg that is not its pointer's" || bad "8172 verify-served staging red arm: $out"
+# (f) the OTHER channel's pointer is missing (a site that never had a staging cut): a prod verify says so and stays
+#     green; the same missing pointer on a staging verify is its own channel, and reds.
+ptr latest.json "$(psha "$WWW/dist/Kosmos.pkg")"; rm -f "$WWW/dist/latest-staging.json"
+out="$(runvs latest.json)"
+case "$out" in *"could not be fetched; not this run's channel (latest.json)"*"FAIL=0"*) true;; *) false;; esac && pass "8172 verify-served: a missing staging pointer does not red a prod verify" || bad "8172 verify-served missing-other arm: $out"
+out="$(runvs latest-staging.json)"
+case "$out" in *"/dist/latest-staging.json | could not be fetched, so"*"FAIL=1"*) true;; *) false;; esac && pass "8172 verify-served: CONTROL the same missing pointer reds a staging verify" || bad "8172 verify-served missing-own arm: $out"
 # (c) pointers cut before #8172 name no pkg: said, not failed, and #8167's lag rule still holds.
 ptr latest-staging.json ""; ptr latest.json ""
 out="$(runvs)"
