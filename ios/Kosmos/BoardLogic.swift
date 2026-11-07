@@ -66,19 +66,23 @@ enum Board {
         }
     }
 
-    /// kosmos#8055: the open chat kept across a cold start, as "<computer host>\n<agent session>\n<name>", so a launch
-    /// after iOS ended the app reopens it, on the same computer only.
-    static let openChatKeptKey = "kosmos.openChat"
-    static func keptChat(host: String, session: String, name: String) -> String? {
+    /// kosmos#8055: the open chat kept across a cold start, as "<computer host>\n<agent session>\n<name>\n<seconds since
+    /// 1970 when kept>", so a launch after iOS ended the app reopens it, on the same computer only, and not long after.
+    static let openChatKeptKey = "kosmos.openChatKept"
+    /// How long after it was kept a chat still reopens: past this the person comes back to the list.
+    static let chatReopenWithin: TimeInterval = 12 * 60 * 60
+    static func keptChat(host: String, session: String, name: String, at: Date) -> String? {
         guard !host.isEmpty, !session.isEmpty, !host.contains("\n"), !session.contains("\n") else { return nil }
-        return host + "\n" + session + "\n" + name.replacingOccurrences(of: "\n", with: " ")
+        return host + "\n" + session + "\n" + name.replacingOccurrences(of: "\n", with: " ") + "\n" + String(Int(at.timeIntervalSince1970))
     }
-    /// The chat to reopen on a launch, from what was kept: only when the computer this launch opens on is the one it was
-    /// open on. Nil for anything malformed, or no computer yet.
-    static func chatToReopen(kept: String?, hostNow: String?) -> (session: String, name: String)? {
+    /// The chat to reopen on a launch, from what was kept: only on the computer it was kept on, and within chatReopenWithin
+    /// of being kept. Nil for anything malformed, no computer yet, or a time in the future.
+    static func chatToReopen(kept: String?, hostNow: String?, now: Date) -> (session: String, name: String)? {
         guard let kept, let hostNow, !hostNow.isEmpty else { return nil }
         let parts = kept.components(separatedBy: "\n")
-        guard parts.count == 3, parts[0] == hostNow, !parts[1].isEmpty else { return nil }
+        guard parts.count == 4, parts[0] == hostNow, !parts[1].isEmpty, let at = Double(parts[3]) else { return nil }
+        let age = now.timeIntervalSince1970 - at
+        guard age >= 0, age <= chatReopenWithin else { return nil }
         return (parts[1], parts[2])
     }
     /// What the Agents tab finds when it appears with no chat open: the chat it lost while gone (`was`, the open chat's

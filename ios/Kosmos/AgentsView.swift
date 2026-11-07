@@ -25,6 +25,8 @@ struct AgentsView: View {
     @State private var closedNote: String?
     /// kosmos#8055: this tab's own id, so a close while away it already said is not said again by it, but is by a new tab.
     @State private var tabID = UUID()
+    /// kosmos#8055: the chat a launch reopened, until the first list read says its agent is still there.
+    @State private var reopenedSession: String?
     #if DEBUG
     private static var sampleOpened = false
     #endif
@@ -125,8 +127,8 @@ struct AgentsView: View {
             if let a = openAgent { noteClosed(client.chatOpen?.name.isEmpty == true ? "" : a.name, .forgotten(why: client.chatsForgottenWhy, byPerson: client.chatsForgottenByPerson)) }
             openAgent = nil
         }
-        // kosmos#8055: the client (and, for a relaunch, this phone's defaults) keep which chat is open, so a new Agents tab,
-        // or a new launch, that lost it can say so. A chat opening clears an older line.
+        // kosmos#8055: the client keeps which chat is open, so a new Agents tab that lost it can say so; this phone's
+        // defaults keep it too, so a launch after iOS ended the app reopens it. A chat opening clears an older line.
         // Assumed, not guaranteed by SwiftUI: openAgent's change is seen after the chatEpoch handler that cleared it, so the
         // epoch kept is the one the chat opened under. A close while away keeps the record for the next appear.
         .onChange(of: openAgent?.session) { _ in
@@ -134,7 +136,7 @@ struct AgentsView: View {
                 client.chatOpen = (session: a.session, name: a.name, epoch: client.chatEpoch); client.chatClosedAway = false; client.chatClosedAwaySaidBy = nil
                 UserDefaults.standard.set(a.name, forKey: Board.openChatKey); closedNote = nil
                 // kosmos#8055: kept for a cold start, with the computer it is on, so a launch after iOS ended the app reopens it.
-                if let kept = Board.keptChat(host: client.macURL?.host ?? "", session: a.session, name: a.name) {
+                if let kept = Board.keptChat(host: client.macURL?.host ?? "", session: a.session, name: a.name, at: Date()) {
                     UserDefaults.standard.set(kept, forKey: Board.openChatKeptKey)
                 } else { UserDefaults.standard.removeObject(forKey: Board.openChatKeptKey) }
             } else if !client.chatClosedAway {
@@ -144,6 +146,13 @@ struct AgentsView: View {
             }
         }
         .onChange(of: agentRequest) { _ in openRequested() }
+        // kosmos#8055 review 1: a chat reopened on a launch whose agent the first list read does not have (removed while
+        // away) closes quietly, back to the list.
+        .onChange(of: client.agents.map(\.session)) { sessions in
+            guard let s = reopenedSession, !sessions.isEmpty else { return }
+            reopenedSession = nil
+            if !sessions.contains(s), openAgent?.session == s { openAgent = nil }
+        }
         // kosmos#7421: the chosen order goes to the list at once, and on each visit; By project first reads each agent's
         // projects (again after a computer or account change, whose names were the other one's).
         .task(id: SortRead(sort: sortChoice, epoch: client.chatEpoch)) {
@@ -158,7 +167,7 @@ struct AgentsView: View {
             client.show(BoardClient.agentsViewer)   // kosmos#7030: Today reads the same list
             openRequested()   // kosmos#7418: a tap on a cold launch, or while another tab showed
             // kosmos#8055: after a notification's chat has opened (so a cold launch from one whose request is already here
-            // shows no line), a chat this tab lost while gone, or one recorded open before the app started again, is said.
+            // shows no line), a chat this tab lost while gone is said, and one kept from before the app started again reopens.
             // On the next turn of the run loop, so a notification's chat that arrives just after a cold launch has opened
             // first; skipped while one is still on its way.
             DispatchQueue.main.async { findClosedChat() }
@@ -193,8 +202,10 @@ struct AgentsView: View {
         // kosmos#8055 (Josh 11-07): a launch after iOS ended the app, with a chat open on this same computer, reopens it
         // rather than saying it closed. Only on a launch (nothing this run has opened a chat yet).
         if client.chatOpen == nil,
-           let back = Board.chatToReopen(kept: UserDefaults.standard.string(forKey: Board.openChatKeptKey), hostNow: client.macURL?.host) {
+           let back = Board.chatToReopen(kept: UserDefaults.standard.string(forKey: Board.openChatKeptKey), hostNow: client.macURL?.host, now: Date()) {
+            NSLog("[Chat] the app started again with a chat open on this computer: reopened")
             UserDefaults.standard.removeObject(forKey: Board.openChatKey)
+            reopenedSession = back.session
             openAgent = client.agents.first(where: { $0.session == back.session })
                 ?? Board.Agent(session: back.session, name: back.name, role: nil, state: "idle", task: nil, needsYou: false)
             return

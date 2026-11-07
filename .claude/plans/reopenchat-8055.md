@@ -14,13 +14,17 @@ reopen the chat.
 - Board.chatClosedCause(.relaunched) returns nil: no line on a cold start. The other causes (popped soon after a return,
   popped while away, lost with the tab) keep their line: those are our screen closing a chat, and a sighting of one is how
   the warm-return bug is found.
-- Kept in this phone's defaults as "<computer host>\n<agent session>\n<name>" (Board.keptChat), written when a chat opens,
+- Kept in this phone's defaults (key kosmos.openChatKept) as "<computer host>\n<agent session>\n<name>\n<seconds when kept>"
+  (Board.keptChat), written when a chat opens,
   removed when it closes, on an account change (blankOpenChat) and once the Agents tab has looked.
 - Reopened (Board.chatToReopen) only when the computer this launch opens on (client.macURL host) is the one it was kept
   on, and only when nothing this run has opened a chat yet (client.chatOpen nil). A notification's chat wins (the existing
   guard in findClosedChat). The agent is taken from the list if there, otherwise opened by its session, as a
   notification's chat is.
 - No computer known yet at that moment: nothing reopens and the record goes, so the person gets the list (no line).
+- Reopens only within 12 hours of being kept (Board.chatReopenWithin); after that the person comes back to the list.
+- A reopened chat whose agent the first list read does not have (removed while away) closes quietly, back to the list.
+- A reopen is written to the device log ("[Chat] the app started again with a chat open on this computer: reopened").
 
 ## Weakest premise
 That client.macURL is set by the time the Agents tab's first findClosedChat runs on a cold start (admitted is restored

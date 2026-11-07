@@ -6103,17 +6103,26 @@ do {
     check(Board.chatClosedCause(.lostWithTab(forgottenSince: false, why: "old reason", byPerson: false)) == Board.chatClosedRebuilt
           && Board.chatClosedCause(.lostWithTab(forgottenSince: true, why: "", byPerson: false)) == Board.chatClosedRebuilt, "otherwise, the tab drawn again")
     check(Board.chatClosedCause(.relaunched) == nil, "a relaunch writes no line (Josh 11-07: it read as an error); the chat is reopened instead")
-    // kosmos#8055: the chat kept across a cold start reopens on the same computer only.
-    let keptAda = Board.keptChat(host: "mac1.example", session: "ada", name: "Ada")
-    check(keptAda == "mac1.example\nada\nAda", "kept as computer, agent, name")
-    check(Board.chatToReopen(kept: keptAda, hostNow: "mac1.example").map { $0.session + "|" + $0.name } == "ada|Ada", "the same computer reopens it")
-    check(Board.chatToReopen(kept: keptAda, hostNow: "mac2.example") == nil, "another computer does not")
-    check(Board.chatToReopen(kept: keptAda, hostNow: nil) == nil && Board.chatToReopen(kept: keptAda, hostNow: "") == nil, "no computer yet: nothing reopens")
-    check(Board.chatToReopen(kept: nil, hostNow: "mac1.example") == nil && Board.chatToReopen(kept: "Eli", hostNow: "mac1.example") == nil
-          && Board.chatToReopen(kept: "mac1.example\n\nEli", hostNow: "mac1.example") == nil, "nothing kept, an older build's bare name, or no agent: nothing")
-    check(Board.keptChat(host: "", session: "ada", name: "Ada") == nil && Board.keptChat(host: "mac1.example", session: "", name: "Ada") == nil
-          && Board.keptChat(host: "mac1.example", session: "a\nb", name: "Ada") == nil, "no computer, no agent, or a line break in either: not kept")
-    check(Board.chatToReopen(kept: Board.keptChat(host: "mac1.example", session: "ada", name: "A\nda"), hostNow: "mac1.example")?.name == "A da",
+    // kosmos#8055: the chat kept across a cold start reopens on the same computer only, and not long after.
+    let keptAt = Date(timeIntervalSince1970: 1_000_000)
+    let keptAda = Board.keptChat(host: "mac1.example", session: "ada", name: "Ada", at: keptAt)
+    check(keptAda == "mac1.example\nada\nAda\n1000000", "kept as computer, agent, name, time")
+    check(Board.chatToReopen(kept: keptAda, hostNow: "mac1.example", now: keptAt.addingTimeInterval(60)).map { $0.session + "|" + $0.name } == "ada|Ada",
+          "the same computer, a minute later, reopens it")
+    check(Board.chatToReopen(kept: keptAda, hostNow: "mac2.example", now: keptAt) == nil, "another computer does not")
+    check(Board.chatToReopen(kept: keptAda, hostNow: nil, now: keptAt) == nil && Board.chatToReopen(kept: keptAda, hostNow: "", now: keptAt) == nil,
+          "no computer yet: nothing reopens")
+    check(Board.chatToReopen(kept: keptAda, hostNow: "mac1.example", now: keptAt.addingTimeInterval(Board.chatReopenWithin)) != nil
+          && Board.chatToReopen(kept: keptAda, hostNow: "mac1.example", now: keptAt.addingTimeInterval(Board.chatReopenWithin + 1)) == nil,
+          "reopens up to 12 hours after, not after that")
+    check(Board.chatToReopen(kept: keptAda, hostNow: "mac1.example", now: keptAt.addingTimeInterval(-1)) == nil, "a kept time in the future: nothing")
+    check(Board.chatToReopen(kept: nil, hostNow: "mac1.example", now: keptAt) == nil && Board.chatToReopen(kept: "Eli", hostNow: "mac1.example", now: keptAt) == nil
+          && Board.chatToReopen(kept: "mac1.example\n\nEli\n1000000", hostNow: "mac1.example", now: keptAt) == nil
+          && Board.chatToReopen(kept: "mac1.example\nada\nAda", hostNow: "mac1.example", now: keptAt) == nil,
+          "nothing kept, a bare name, no agent, or no time: nothing (malformed records fail closed)")
+    check(Board.keptChat(host: "", session: "ada", name: "Ada", at: keptAt) == nil && Board.keptChat(host: "mac1.example", session: "", name: "Ada", at: keptAt) == nil
+          && Board.keptChat(host: "mac1.example", session: "a\nb", name: "Ada", at: keptAt) == nil, "no computer, no agent, or a line break in either: not kept")
+    check(Board.chatToReopen(kept: Board.keptChat(host: "mac1.example", session: "ada", name: "A\nda", at: keptAt), hostNow: "mac1.example", now: keptAt)?.name == "A da",
           "a line break in the name is kept as a space, so the record still reads")
     let lost = Board.chatFoundClosed(was: (name: "Dana", epoch: 3), epochNow: 4, forgottenWhy: "another computer answered", forgottenByPerson: false, keptName: "Eli")
     check(lost?.name == "Dana" && lost?.close == .lostWithTab(forgottenSince: true, why: "another computer answered", byPerson: false),
