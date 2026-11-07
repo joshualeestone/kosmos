@@ -77466,7 +77466,16 @@ function pvSheetLoad(stage, url, fileCard, orText) {
   const wait = document.createElement('p'); wait.className = 'pv-note'; wait.setAttribute('role', 'status'); wait.textContent = 'Opening the spreadsheet\u2026';
   stage.appendChild(wait);
   const card = (because) => { stage.textContent = ''; if (orText) { orText(); return; } stage.appendChild(fileCard()); if (because) { const n = document.createElement('p'); n.className = 'pv-note'; n.textContent = because; stage.appendChild(n); } };
-  fetch(url, { cache: 'no-store' }).then(async (r) => ({ status: r.ok, j: await r.json().catch(() => null) })).then(({ status, j }) => {
+  /* The three board routes written out, so the route test (#3957) reads each address (as pvTextInto's are); anything
+     else is not asked for and shows the card. */
+  const ask = (u) => {
+    let m;
+    if ((m = /^\/api\/attachment\/([0-9a-f]{24})\/sheet$/.exec(u))) return fetch('/api/attachment/' + m[1] + '/sheet', { cache: 'no-store' });
+    if ((m = /^\/api\/agent\/([^/?]+)\/files\/sheet\?name=([^&]*)$/.exec(u))) return fetch('/api/agent/' + m[1] + '/files/sheet?name=' + m[2], { cache: 'no-store' });
+    if ((m = /^\/api\/project\/([^/?]+)\/file-sheet\?name=([^&]*)$/.exec(u))) return fetch('/api/project/' + m[1] + '/file-sheet?name=' + m[2], { cache: 'no-store' });
+    return Promise.reject(new Error('not a spreadsheet address'));
+  };
+  ask(url).then(async (r) => ({ status: r.ok, j: await r.json().catch(() => null) })).then(({ status, j }) => {
     if (!stage.isConnected && !wait.isConnected) return;
     // Only a real grid answer draws (review 1): a 404 ({ error }), an older board without the route, or no sheets list
     // shows the card, with the board's sentence when it gave one.

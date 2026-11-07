@@ -282,6 +282,23 @@ test('iteration 6: the preview fetches a text file only through an explicit File
   assert.match(PAGE, /#d-filesall-path button \{ min-height: 44px;/, 'the path line\u2019s buttons are small on a phone');
 });
 
+// #8122: the grid asks the board only at its three spreadsheet routes, each address passed through as built (a Files-list
+// name with a space and a slash included), and asks nothing for any other address.
+test('#8122: the spreadsheet grid fetches exactly its three board routes, and nothing else', async () => {
+  const asked = [];
+  const el = () => ({ setAttribute() {}, appendChild() {}, className: '', textContent: '', isConnected: true });
+  const load = new Function('fetch', 'document', 'pvSheetInto', page.lift(SCRIPT, 'pvSheetLoad') + '\nreturn pvSheetLoad;')(
+    (u) => { asked.push(u); return Promise.resolve({ ok: false, json: async () => ({}) }); }, { createElement: el }, () => {});
+  const id = 'a3'.repeat(12);
+  const urls = ['/api/attachment/' + id + '/sheet',
+    '/api/agent/' + encodeURIComponent('ana') + '/files/sheet?name=' + encodeURIComponent('Q3 plan/v2.xlsx'),
+    '/api/project/' + encodeURIComponent('p-1') + '/file-sheet?name=' + encodeURIComponent('list.csv')];
+  for (const u of urls) load(el(), u, el);
+  load(el(), '/api/accounts', el);   // CONTROL: not a spreadsheet route, so nothing is fetched
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(asked, urls);
+});
+
 /* kosmos#7952 (Josh, 11-04: on a remote board the Files screen offered only Download folder): over Kosmos+, each file has
    its own download button beside its row; at the computer itself the rows are as they were. */
 test('kosmos#7952: over Kosmos+ each file row has its own download button, named for the file; folders do not', async () => {
