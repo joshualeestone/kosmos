@@ -135,8 +135,9 @@ fi
 # #4392: no TEST may use the reserved prefix, or a real test leak under it would go unseen. Every tracked file is
 # searched except the two that define and pin the skip.
 # #8156: three files TELL a person the prefix, so a throwaway agent on a shared Mac is named with it: the agent help
-# in both CLIs and the #3011 LEAK message. They stay in the search; each may name it on exactly as many lines as
-# ALLOWED says, so one more use anywhere in them still fails, and finding all three is the search's own control.
+# in both CLIs and the #3011 LEAK message. They stay in the search; each may name it exactly as many times as
+# ALLOWED says (occurrences, not lines: a second use on an allowed line counts too), so one more use anywhere in them
+# still fails, and finding all three is the search's own control.
 # It catches LITERAL use only: a name built at runtime ('zz-live' + 'check') evades it. That is accepted because the
 # count guards against accidental reuse, and #3605 (launch-guard.js) already refuses any test's write to the real
 # LaunchAgents under node --test, whatever the name.
@@ -151,14 +152,16 @@ fi
 ALLOWED='install/kosmos:1
 tools/run-tests.sh:1
 tools/windows/kosmos-cli.js:1'
-counts="$(git -C "$REPO_ROOT" grep -c 'zz-livecheck' -- . ':!tools/lib/launchagent-leak-guard.sh' ':!tools/test-launchagent-leak-guard-3011.sh' ':!.claude/plans/' 2>/dev/null)"; used_rc=$?
+# -o prints one `path:match` line per occurrence; captured whole first, so the exit status is git grep's own.
+hits="$(git -C "$REPO_ROOT" grep -o 'zz-livecheck' -- . ':!tools/lib/launchagent-leak-guard.sh' ':!tools/test-launchagent-leak-guard-3011.sh' ':!.claude/plans/' 2>/dev/null)"; used_rc=$?
+counts="$(printf '%s\n' "$hits" | sed '/^$/d; s/:zz-livecheck$//' | sort | uniq -c | awk '{ print $2 ":" $1 }')"
 used="$(printf '%s\n' "$counts" | grep -v -x -F "$ALLOWED" | sed '/^$/d')"
 # An empty pattern list makes grep -F match every line, so a search that found nothing would read as nothing missing.
 if [ -z "$counts" ]; then missing="$ALLOWED"; else missing="$(printf '%s\n' "$ALLOWED" | grep -v -x -F "$counts")"; fi
 if [ "$used_rc" -gt 1 ]; then
   fail "#4392: the reserved-prefix search could not run (git grep exit $used_rc)"
 elif [ -n "$used" ]; then
-  fail "#4392: the reserved live-check prefix appears in $(printf '%s' "$used" | tr '\n' ' ')(file:lines; a test must never name an agent with it; ALLOWED lists the lines that tell a person it)"
+  fail "#4392: the reserved live-check prefix appears in $(printf '%s' "$used" | tr '\n' ' ')(file:uses; a test must never name an agent with it; ALLOWED lists the uses that tell a person it)"
 elif [ -n "$missing" ]; then
   fail "#4392 control: the search did not find the prefix where it is told to a person, exactly as often as allowed: $(printf '%s' "$missing" | tr '\n' ' ')(found: $(printf '%s' "$counts" | tr '\n' ' '))"
 else
