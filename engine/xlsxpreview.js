@@ -138,17 +138,16 @@ const nearMiss = () => { if (onNearMiss) onNearMiss(); };
    run is counted toward its own cap, with the same budget check. */
 let onTextRun = null;
 /* #8162: an element whose start tag has no ">", or that no closing tag of its name follows anywhere (a part cut short),
-   is never read, as before (a container, sheetData or row, still yields the rest of the part); and one whose body holds another start tag of its own name (its close is missing mid-part,
-   so it swallowed the next one, review r1) is read as found. Each is counted (`cutShorts`, reset for each read): a sheet
+   is never read, as before (a container, sheetData or row, still yields the rest of the part); and one whose body
+   holds another start tag of its own name (its close is missing mid-part, so it swallowed the next one, review r1) is
+   read as found. Each is counted (`cutShorts`, reset for each read): a sheet
    whose walk counted one is cut, and a workbook where one was counted anywhere (shared strings, the sheet list) is
    never called "empty" or "no saved values". */
 let cutShorts = 0;
-/* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with indexOf. With
-   `lenient` (the containers: sheetData, row), one the part never closes (a file cut short) yields the rest of the part,
-   so what is there is still read; a value that is not closed is never read. */
 /* The ">" that ends the start tag at `i`, outside quotes: a raw ">" is legal inside an attribute value
    (formatCode="[>100]0", a sheet named "A>B"), and taking the first ">" cut such a tag short (review r2). -1 if none.
-   One forward pass over the tag. */
+   One forward pass, to the end of the tag (to the end of the part when a quote is never closed: still linear, and the
+   element is then counted as cut off; a damaged file can lose everything after such a quote). */
 function startTagEnd(xml, i) {
   let quote = null;
   for (let j = i + 1; j < xml.length; j++) {
@@ -167,6 +166,10 @@ function nestedStart(body, name) {
   }
   return false;
 }
+/* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with indexOf (a start
+   tag's end by startTagEnd). With
+   `lenient` (the containers: sheetData, row), one the part never closes (a file cut short) yields the rest of the part,
+   so what is there is still read; a value that is not closed is never read. */
 function* elements(xml, name, lenient = false) {
   let at = 0;
   for (;;) {

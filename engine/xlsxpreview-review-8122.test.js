@@ -632,7 +632,7 @@ test('#8162: a skipped row or cell with a value that has attributes is still a v
   assert.equal(b.sheets[0].cut, true);
   // CONTROL: an empty <v/> (openpyxl) is still no value.
   assert.equal(read('<row r="1"><c r="A1"><v>1</v></c></row><row r="2000000"><c><f>1</f><v /></c></row>').sheets[0].cut, false);
-  // A run of unclosed "<v " tags in a skipped row is linear (the scan counts them, it does not backtrack).
+  // A run of unclosed "<v " tags in a skipped row is linear (the scan stops at the first, counted as cut off; no backtracking).
   const t0 = Date.now();
   const runs = read('<row r="2000000"><c>' + '<v '.repeat(200000) + '</c></row>');
   assert.ok(Date.now() - t0 < 5000, 'took ' + (Date.now() - t0) + ' ms');
@@ -672,4 +672,33 @@ test('#8162: a cell or value cut off before its close marks the sheet cut and ne
   const ok = read('<row r="1"><c r="A1"><v>5</v></c></row>');
   assert.deepEqual(ok.sheets[0].rows, [['5']]);
   assert.equal(ok.sheets[0].cut, false);
+});
+
+/* #8162 review r3: the pieces a mutation could remove without a test noticing */
+test('#8162 r3: the seam refuses an answer past 8 MiB of JSON, and remembers that', () => {
+  const sp = require('./sheetpreview');
+  sp._forgetForTests();
+  const line = Array.from({ length: 50 }, () => '\x01'.repeat(200)).join(',');
+  const csv = Buffer.from((line + '\n').repeat(200));
+  assert.ok(csv.length <= sp.MAX_DELIMITED_BYTES, 'under the input cap: ' + csv.length);
+  assert.equal(sp.fromBytes(csv, 'ctl.csv').tooLarge, true);
+  assert.equal(sp.fromBytes(csv, 'ctl.csv').tooLarge, true);
+  sp._forgetForTests();
+  // CONTROL: the same shape with plain letters fits.
+  assert.equal(sp.fromBytes(Buffer.from((Array.from({ length: 50 }, () => 'a'.repeat(200)).join(',') + '\n').repeat(200)), 'a.csv').ok, true);
+  sp._forgetForTests();
+});
+
+test('#8162 r3: a start tag with no end, alone, is counted; single quotes are quotes; an empty skipped string is nothing', () => {
+  // Only the "no >" count can see this: the sheet is empty and the shared strings end inside a start tag.
+  const a = x.readXlsx(fx.book({ S: fx.SHEET('') }, { 'xl/sharedStrings.xml': '<sst><si><t>hi</t></si><si ' }));
+  assert.equal(a.empty, false);
+  // A sheet entry written with single quotes, with a raw ">" inside them.
+  const wb = "<workbook xmlns:r='r'><sheets><sheet name='A>B' sheetId='1' r:id='rId1'/></sheets></workbook>";
+  const b = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>') }, { 'xl/workbook.xml': wb }));
+  assert.deepEqual([b.sheets[0].name, b.sheets[0].cut, b.sheets[0].rows], ['A>B', false, [['1']]]);
+  // A skipped row holding only an empty inline string is no value.
+  const c = x.readXlsx(fx.book({ S: fx.SHEET('<row r="2000000"><c t="inlineStr"><is><t></t></is></c></row>') }));
+  assert.equal(c.empty, true);
+  assert.equal(c.sheets[0].cut, false);
 });
