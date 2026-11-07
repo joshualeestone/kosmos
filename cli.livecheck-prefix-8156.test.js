@@ -16,6 +16,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { scaleBudget } = require('./test-support/eventually');
 
 const ROOT = __dirname;
 const GUARD = fs.readFileSync(path.join(ROOT, 'tools', 'lib', 'launchagent-leak-guard.sh'), 'utf8');
@@ -27,10 +28,14 @@ test('#8156: the guard declares the reserved prefix this test pins (CONTROL)', (
   assert.ok(GUARD.includes('! -name "com.kosmos.agent.${LAUNCHAGENT_LIVECHECK_PREFIX}*.plist"'), 'the guard no longer skips the prefix');
 });
 
-/* Each CLI's `agent --help`, run with a fresh HOME and no agent token, so nothing on this computer is read. */
+/* Each CLI's `agent --help`, with the env cli.agent-create-3734.test.js gives install/kosmos: a fresh HOME and
+   KOSMOS_HOME, no agent token, a system-only PATH, the fake tmux (install/kosmos picks a tmux and asks it for its
+   sessions when it starts) and a dead KOSMOS_PORT (9, discard). */
 function helpOf(cmd, args) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-livecheck-8156-'));
-  const r = spawnSync(cmd, args, { cwd: ROOT, env: { PATH: process.env.PATH, HOME: home }, encoding: 'utf8', timeout: 30000 });
+  const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: home, KOSMOS_HOME: home, KOSMOS_PORT: '9', TMPDIR: os.tmpdir(),
+    AGENT_WORKFORCE_TMUX_BIN: path.join(ROOT, 'test-support', 'fake-tmux.sh') };
+  const r = spawnSync(cmd, args, { cwd: ROOT, env, encoding: 'utf8', timeout: scaleBudget(30000) });
   assert.equal(r.status, 0, args.join(' ') + ' exited ' + r.status + ': ' + r.stderr);
   return r.stdout;
 }
