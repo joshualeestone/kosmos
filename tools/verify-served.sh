@@ -178,9 +178,10 @@ _vs_pkg() {
       # older latest-staging.json, and a promote that could not move the pkg leaves latest.json naming one it does not
       # serve. Neither is this run's channel, so it is said, not failed.
       else say "/dist/$pn vs $_vs_ptr" "differs from what $_vs_ptr names (served ${preal:0:12}, named ${_vs_named:0:12}); not this run's channel ($POINTER), so not failed"; fi
-    # A pointer that cannot be read IS a fault, on either channel: unlike a mismatch on the other channel, it is not a
-    # state some other cut legitimately left behind.
-    else say "/dist/$_vs_ptr" "could not be fetched, so $pn was not held to it"; fail=1; fi
+    # An unreadable pointer fails THIS run's channel. The other channel's may be missing for reasons this run did not
+    # cause (a site that never had a staging cut, an aborted cut's pointer removed), so it is said, not failed.
+    elif [ "$_vs_ptr" = "$POINTER" ]; then say "/dist/$_vs_ptr" "could not be fetched, so $pn was not held to it"; fail=1
+    else say "/dist/$_vs_ptr" "could not be fetched; not this run's channel ($POINTER), so $pn was not held to it and not failed"; fi
     # The sidecar must vouch for THESE bytes: a new sidecar beside the prior
     # pkg pair (each self-consistent) is the mixed edge state this line catches.
     if [ -s "$pdir/inputs" ]; then

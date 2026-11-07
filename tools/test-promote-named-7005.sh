@@ -403,5 +403,13 @@ out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "points at the same build" \
   && pass "8172 named: a republish differing only in pkg_sha256 still counts as the same build" || bad "8172 named republish (rc=$rc, out=$out)"
 
+# ...but two same-build pointers that BOTH name a pkg, and name different ones, are a real disagreement: refused.
+S="$(KM_LJ_PKG_SHA="$PX" newsite)"
+git -C "$S" show HEAD~1:dist/latest-staging.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const p=JSON.parse(s);p.pkg_sha256="0".repeat(64);process.stdout.write(JSON.stringify(p)+"\n")})' > "$S/dist/latest-staging.json"
+git -C "$S" commit -qam "9.9.8: republished naming another pkg"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "differ in more than the installer they name" && [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ] \
+  && pass "8172 named: two same-build pointers naming DIFFERENT pkgs are refused, nothing written" || bad "8172 named pkg disagreement (rc=$rc, out=$out)"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-promote-named-7005: ALL PASS"; else echo "test-promote-named-7005: FAILURES above"; exit 1; fi
