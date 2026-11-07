@@ -154,12 +154,23 @@ test('#8202 Windows (review 1): a hold says what it waits for and who put it on;
   const h = await win(['task', 'show', projectId, String(held)]);
   assert.equal(h.code, 0, h.err);
   assert.match(h.out, new RegExp('^State: on hold until task ' + parentNum + ' is closed, put on hold by the person \\(only they can take it off\\), waiting on the person$', 'm'), h.out);
+  // Review 2: held and built says both, as the list's [on hold] [built].
+  const heldBuilt = tasks.create(projectId, { sentence: 'Built, then held' }).number;
+  projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === heldBuilt ? { ...x, onHold: true, builtAt: BUILT_AT } : x)) }));
+  assert.match((await win(['task', 'show', projectId, String(heldBuilt)])).out, /^State: on hold; built$/m);
   const many = tasks.create(projectId, { sentence: 'Two hands' }).number;
   projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'ivo'], tasks: p.tasks.map((x) => (x.number === many ? { ...x, parts: [
     { id: 1, who: 'mara', closedAt: BUILT_AT }, { id: 2, who: 'ivo', sentence: 'The second half' }, { id: 3 }] } : x)) }));
   const m = await win(['task', 'show', projectId, String(many)]);
   assert.equal(m.code, 0, m.err);
   assert.match(m.out, /^Parts:\n {4}1\) mara, finished\n {4}2\) ivo, not finished: The second half\n {4}3\) nobody, not finished$/m, m.out);
+  // Review 2: closed by its parts finishing (no closedAt of its own): Closed is the latest part's.
+  const LATER = '2026-11-07T13:30:00.000Z';
+  projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === many ? { ...x, closedAt: null, parts: [
+    { id: 1, who: 'mara', closedAt: BUILT_AT }, { id: 2, who: 'ivo', closedAt: LATER }] } : x)) }));
+  const done = await win(['task', 'show', projectId, String(many)]);
+  assert.match(done.out, /^State: done$/m, done.out);
+  assert.match(done.out, new RegExp('^Closed: ' + local(LATER) + '$', 'm'), done.out);
 });
 
 test('#8202 Windows: refusals and usage', async () => {

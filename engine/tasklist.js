@@ -191,7 +191,8 @@ function stateWords(x) {
     const u = x.onHoldUntil;
     const until = u && Number.isInteger(u.task) ? ' until task ' + u.task + ' is closed' : u && typeof u.at === 'string' ? ' until ' + one(u.at) : '';
     return 'on hold' + until + (x.onHoldByPerson === true ? ', put on hold by the person (only they can take it off)' : '')
-      + (x.onHoldForPerson === true ? ', waiting on the person' : '');
+      + (x.onHoldForPerson === true ? ', waiting on the person' : '')
+      + (x.builtAt ? '; built' : '');   // review 2: as the list's [on hold] [built], so delivered work is not hidden
   }
   if (x.builtAt) return 'built' + (x.projectPaused === true ? ' (its project is paused)' : '');
   if (x.projectPaused === true) return 'on hold (its project is paused)';
@@ -258,7 +259,13 @@ function showLines(body, num, project) {
   }
   field('Added', [whenWords(x.createdAt), x.addedVia === 'process' && x.addedBy ? 'by ' + q(x.addedBy) : x.addedVia === 'screen' ? 'by the person' : null].filter(Boolean).join(', '));
   if (typeof x.dueDate === 'string' && x.dueDate) field('Due', one(x.dueDate));
-  if (x.isClosed) field('Closed', whenWords(x.closedAt));
+  if (x.isClosed) {
+    // Review 2: a task closed by all its parts finishing has no closedAt of its own: the latest part's, as the board's
+    // closedAtOf reads it.
+    const partsAt = (Array.isArray(x.parts) ? x.parts : []).map((pt) => pt && pt.closedAt).filter((a) => typeof a === 'string' && Number.isFinite(Date.parse(a)));
+    const at = x.closedAt || (partsAt.length ? partsAt.reduce((a, b) => (Date.parse(b) > Date.parse(a) ? b : a)) : null);
+    field('Closed', whenWords(at));
+  }
   lines.push('Its conversation: kosmos task activity ' + one(project) + ' ' + n);
   return { lines, rc: 0 };
 }

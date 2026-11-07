@@ -24,7 +24,8 @@ Card: kosmos#8202 (feedback 2026-11-07: no one command prints a single task whol
 - cli.task-show-8202.test.js: 7 tests pass (Windows lines exact, Mac lines equal Windows, webhook quoting, done
   state, refusals and usage, help on both).
 - Perturbations: no indent on written words turns the exact-lines test red; no control-character strip turns it red.
-- Related CLI/tasklist tests and the verbs-parity test: 617 pass, 0 fail. One existing test changed (the parity
+- Related tests, 617 pass, 0 fail: every cli.task-*.test.js, cli.unknown-flag-4889, the files that require
+  engine/tasklist, and tools.windows-kosmos-cli-verbs-parity. One existing test changed (the parity
   test's pinned Mac subcommands gain show). cli.task-assign-4914 matches the help's `list|add|assign|close`, so show
   is placed after activity in the help rather than changing that test.
 
@@ -40,3 +41,9 @@ project pays one list read per show.
 - Parts: one line each, who holds it and whether it is finished, when a task has more than one.
 - A webhook detail keeps its lines, each quoted, under a heading that says whose words they are; Added says "by the
   person" for a task added on the screen.
+
+## Review round 2 (decided)
+- Held and built says both (`on hold ...; built`), as the list's [on hold] [built].
+- A task closed by all its parts finishing shows Closed from the latest part, as the board's closedAtOf does.
+- The Commit line prints landedRepo, a path on this computer: the agent-token list already sends it, and the card
+  asks for where work landed. The "no path is kept" line is about the delivered file only.
