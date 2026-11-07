@@ -24136,10 +24136,14 @@ const server = http.createServer(async (req, res) => {
           const youAnswered = mine && (m.operator === true || m.from !== readerName)
             ? [when + '  [kosmos] you already answered [' + m.id + '] in ' + mine.map((x) => '[' + x + ']').join(', ') + '.']
             : [];
-          // kosmos#4926: said for the person's asks too, which stay listed: it is only what the reader did next.
+          /* kosmos#4926: said for the person's asks too, which stay listed: it is only what the reader did next. What it
+             means for the reader differs: the list moves an agent's ask, and keeps the person's and one the reader claimed. */
           const ownAfter = !mine && askedOfReader(m) ? messages.laterOwnPost(rows, rowAt.get(m), readerName) : null;
           const youPosted = ownAfter
-            ? [when + '  [kosmos] you posted [' + ownAfter + '] after [' + m.id + '] without citing it. If that answered it, it needs nothing more.']
+            ? [when + '  [kosmos] you posted [' + ownAfter + '] after [' + m.id + '] without citing it. '
+              + (m.operator === true || (m.claim && m.claim.by === readerName)
+                ? 'If that answered it, cite it with --in-reply-to to take it off your list.'
+                : 'If that answered it, it needs nothing more.')]
             : [];
           return [line, ...youAnswered, ...youPosted, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         });

@@ -1436,15 +1436,14 @@ function laterOwnPost(rows, i, reader) {
   const reached = ask.outcomes && ask.outcomes[reader];
   if (reached !== chat.DELIVERY.PLACED && reached !== chat.DELIVERY.UNCONFIRMED) return null;
   const order = (id) => (typeof id === 'string' && /^m\d+$/.test(id) ? Number(id.slice(1)) : NaN);
+  const mine = new Set();   // the reader's posts since the ask
   for (let j = i + 1; j < rows.length; j++) {
     const r = rows[j];
     if (!r || r.kind !== 'post' || r.operator === true || r.from !== reader) continue;
     if (typeof r.replyTo !== 'string') return String(r.id);
-    if (!(order(r.replyTo) > order(ask.id))) continue;
     // A reply to the reader's own post carries on that thread, which may be about something older (as N7's x.from === member).
-    const cited = rows.find((x) => x && x.id === r.replyTo);
-    if (cited && cited.operator !== true && cited.from === reader) continue;
-    return String(r.id);
+    if (order(r.replyTo) > order(ask.id) && !mine.has(r.replyTo)) return String(r.id);
+    mine.add(r.id);
   }
   return null;
 }
