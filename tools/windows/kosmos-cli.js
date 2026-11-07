@@ -123,7 +123,7 @@ const USAGE = {
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
     '      --to <agent>                                             tell this agent too (several allowed); else only the assignees hear it',
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time, and whether the person has viewed it',
-    '  kosmos task show <project-id> <task-number>                  one task whole: its state, who holds it, its checks, and what it delivered (kosmos#8202)',
+    '  kosmos task show <project-id> <task-number>                  one task whole: its state, who holds it, its checks, and what it delivered',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
     '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',

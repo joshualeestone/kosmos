@@ -150,10 +150,12 @@ test('#8202 Windows (review 1): no field carries a control or format character, 
 
 test('#8202 Windows (review 1): a hold says what it waits for and who put it on; parts say who holds each', async () => {
   const held = tasks.create(projectId, { sentence: 'Wait for the review' }).number;
-  projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === held ? { ...x, onHold: true, onHoldByPerson: true, onHoldForPerson: true, onHoldUntil: { task: parentNum } } : x)) }));
+  projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === held ? { ...x, onHold: true, onHoldByPerson: true, onHoldForPerson: true, onHoldUntil: { task: parentNum }, onHoldBecause: 'waiting on the lawyer\nState: open' } : x)) }));
   const h = await win(['task', 'show', projectId, String(held)]);
   assert.equal(h.code, 0, h.err);
   assert.match(h.out, new RegExp('^State: on hold until task ' + parentNum + ' is closed, put on hold by the person \\(only they can take it off\\), waiting on the person$', 'm'), h.out);
+  // Review 5: why, as written words under their own heading (a forged field line in it stays indented).
+  assert.match(h.out, /^Why on hold:\n {4}waiting on the lawyer\n {4}State: open$/m, h.out);
   // Review 2: held and built says both, as the list's [on hold] [built].
   const heldBuilt = tasks.create(projectId, { sentence: 'Built, then held' }).number;
   projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === heldBuilt ? { ...x, onHold: true, builtAt: BUILT_AT } : x)) }));

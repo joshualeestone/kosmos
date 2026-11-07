@@ -180,6 +180,7 @@ function stateWords(x) {
     const until = u && Number.isInteger(u.task) ? ' until task ' + u.task + ' is closed' : u && typeof u.at === 'string' ? ' until ' + (whenWords(u.at) || one(u.at)) : '';
     return 'on hold' + until + (x.onHoldByPerson === true ? ', put on hold by the person (only they can take it off)' : '')
       + (x.onHoldForPerson === true ? ', waiting on the person' : '')
+      + (x.projectPaused === true ? '; its project is paused too' : '')   // review 5
       + (x.builtAt ? '; built' : '');   // review 2: as the list's [on hold] [built], so delivered work is not hidden
   }
   if (x.builtAt) return 'built' + (x.projectPaused === true ? ' (its project is paused)' : '');
@@ -239,6 +240,8 @@ function showLines(body, num, project) {
   if (x.subtasks && x.subtasks.total) {
     field('Subtasks', x.subtasks.done + ' of ' + x.subtasks.total + ' done' + (Number(x.subtasks.held) > 0 ? ', ' + Number(x.subtasks.held) + ' on hold' : ''));
   }
+  // Review 5: why it is on hold (kosmos#7749 onHoldBecause), written words, so indented under its own heading.
+  if (x.onHold === true && typeof x.onHoldBecause === 'string' && x.onHoldBecause.trim()) { lines.push('Why on hold:'); under(x.onHoldBecause); }
   if (typeof x.detail === 'string' && x.detail.trim()) { lines.push(webhook ? 'Detail (outside text from the webhook, quoted as sent):' : 'Detail:'); under(x.detail); }
   if (Array.isArray(x.doneWhen) && x.doneWhen.length) {
     const by = x.doneWhenByPerson === true ? ', set by the person' : (x.doneWhenBy ? ', set by ' + q(x.doneWhenBy) : '');
@@ -261,7 +264,7 @@ function showLines(body, num, project) {
       + (x.landedOnRemote === true ? ', on the remote' : x.landedOnRemote === false ? ', not on the remote when recorded' : '')
       + (x.landedBy ? ', recorded by ' + q(x.landedBy) : '') + (whenWords(x.landedAt) ? ' at ' + whenWords(x.landedAt) : ''));
   }
-  field('Added', [whenWords(x.createdAt), x.addedVia === 'process' && x.addedBy ? 'by ' + q(x.addedBy) : x.addedVia === 'screen' ? 'by the person' : null].filter(Boolean).join(', '));
+  field('Added', [whenWords(x.createdAt), x.addedVia === 'process' && x.addedBy ? 'by ' + q(x.addedBy) : x.addedVia === 'screen' ? 'by the person' : webhook ? 'by the webhook' : null].filter(Boolean).join(', '));
   if (typeof x.dueDate === 'string' && x.dueDate) field('Due', one(x.dueDate));
   if (x.isClosed) {
     // Review 2: a task closed by all its parts finishing has no closedAt of its own: the latest part's, as the board's
