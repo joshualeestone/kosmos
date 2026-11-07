@@ -949,6 +949,32 @@ function sessionOps(platform, tmuxBin) {
   };
 }
 
+/**
+ * kosmos#8177: on Windows, whether the task found for `clean` belongs to ANOTHER spelling of the name.
+ *
+ * Task Scheduler ignores letter case, so `Cai` finds `cai`'s task. Counting it as `Cai`'s job made plan('Cai') ok and a
+ * removal answer "removed" while `cai` kept running (the false success #8112 fixes on the Mac). `st` is
+ * win32job.status's answer; its `spelledOtherwise` is set only when the answer names the task in another spelling.
+ *
+ * ⚠️ ANOTHER SPELLING ALONE IS NOT ENOUGH (review 3, measured): an agent whose folder is `caix` and whose task was
+ * stored as `Caix` owns that task, and main restarts, pauses and removes it (the task commands ignore case too). So
+ * the task is another spelling's only when this spelling has no exact folder of its own; Windows cannot hold `cai`
+ * and `Cai` folders side by side, so an exact folder settles it. A folder recorded in the profile does not carry the
+ * spelling (#8112), so for a recorded agent this keeps main's answer: #8112's folderIsExactly is the test to use there
+ * once it lands. An answer that names no task path keeps the job, so a job never vanishes on an unrecognised shape.
+ */
+function taskIsAnotherSpellings(clean, st) {
+  if (!st || !st.registered || !st.spelledOtherwise) return false;
+  /* create.agentDirRecorded's own rule (it is not exported): the profile's folder, validated by usableRecordedDir. The
+     profile is keyed without case, so `Cai` reads `cai`'s, which is the #8112 case this defers. */
+  let recorded = null;
+  try { recorded = store.readProfile(clean).dir; } catch { recorded = null; }
+  try {
+    if (create.usableRecordedDir(recorded)) return false;
+    return !existsExactly(create.workerDir(clean));
+  } catch { return false; }
+}
+
 /* `worldId` (#1704 PR4 review round 3): the same answer about ANOTHER Kosmos --
    an import asks it of the Kosmos it copies INTO, which is not always the one this
    board serves. Absent means this process's own world, which is every other caller. */
@@ -966,11 +992,7 @@ function jobFor(name, platform, worldId) {
     // and hit the booted world's task -- wrong whenever the caller names a non-current world (#2935).
     const wid = worldId === undefined ? launchidentity.currentWorldId() : worldId;
     const st = win32job.status(clean, wid);
-    /* kosmos#8177: Task Scheduler ignores letter case, so `Cai` finds `cai`'s task. That task is `cai`'s job, not
-       one for `Cai`: counting it made plan('Cai') ok and a removal answer "removed" while `cai` kept running (the
-       false success #8112 fixes on the Mac). Only a task the answer names in a different spelling is refused; an
-       answer that names no task path keeps the job, so a real agent's job never vanishes on an unrecognised shape. */
-    if (st.registered && st.spelledOtherwise) return null;
+    if (taskIsAnotherSpellings(clean, st)) return null;   // kosmos#8177
     return st.registered ? { label: win32job.taskName(clean, wid), plist: null, ours: true, worldId: wid } : null;
   }
   if ((platform || process.platform) === 'linux') {
@@ -1508,17 +1530,6 @@ function plan(name, platform) {
    * all count. Requiring all three would refuse the half-set-up agents this
    * feature is most useful for.
    */
-  /* kosmos#8177 review 2: on Windows, a task found for this name only in another letter case is not this agent's, and
-     it refuses BOTH ways round: asked for `Cai` when the task is `cai`'s (removing would record `Cai` while `cai` runs),
-     and asked for `cai` whose folder is `cai` when the task is stored as `Cai` (jobFor finds no job, so the removal
-     would leave that task to start an agent at login). Says the name as asked, never `shown` (see the note below). */
-  if ((platform || process.platform) === 'win32') {
-    let other = null;
-    try { other = win32job.status(clean).spelledOtherwise || null; } catch { other = null; }
-    if (other) {
-      return { ok: false, because: `${clean} has no startup task of its own: the one Windows finds for that name is spelled ${other} (Windows ignores letter case there), so we have not offered to remove ${clean}. To remove that agent, use its name as spelled there.` };
-    }
-  }
   const there = exists(clean, platform);
   if (there === UNKNOWN) {
     return { ok: false, because: `we could not check whether ${shown} is still there, so we have not offered to remove it. Try again in a moment.` };
@@ -2913,7 +2924,7 @@ function forget(name) {
   return !isRemoved(clean);
 }
 
-module.exports = {
+module.exports = { taskIsAnotherSpellings,
   reapplyRemovedDisables,
   reapplyAtBoardStart,
   RESTART_CHANGED_NOTHING,   // #7470

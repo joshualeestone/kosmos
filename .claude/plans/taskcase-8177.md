@@ -10,7 +10,9 @@
 the task's own spelling. `win32job.spelledOtherwise(tn, out)` reads that path (bounded, compared without case) and
 returns the real spelling when the output names the task only in spellings other than the one asked for.
 `presenceNow` adds it as `spelledOtherwise` (only when set, so existing deep-equals are untouched); `status` passes it
-through; `jobFor` returns null for it. Nothing else changes meaning: `registered` stays true, so create's collision
+through; `jobFor` returns null for it only when `remove.taskIsAnotherSpellings` says the task is another spelling's:
+the answer names it in another spelling AND this spelling has no exact folder of its own (Windows cannot hold `cai`
+and `Cai` side by side). `delete-leftover.plan` refuses on the same test. Nothing else changes meaning: `registered` stays true, so create's collision
 checks still see `cai`'s task when someone makes `Cai`.
 
 ## Rejected
@@ -19,6 +21,16 @@ checks still see `cai`'s task when someone makes `Cai`.
 - `machineTaskPaths()`: locale-proof but a whole-machine listing per lookup, and a second call that can fail on its
   own, leaving an "unknown" arm to decide.
 - Making `presence.registered` false for a variant: create.js relies on it to see the other spelling's task.
+
+## Review decisions
+- Review 1: only the name after the Task Scheduler folder is compared exactly (a folder stored as `kosmos` must not
+  hide a job); a leftover delete refuses rather than delete another spelling's task; a test pins that create still
+  sees the variant's task.
+- Review 2 added a refusal in `plan` for a task stored in other case; review 3 measured that it stranded a real agent
+  (folder `caix`, task stored `Caix`: main restarts, pauses and removes it, the branch refused all three). Removed;
+  the exact-folder condition replaces it, and that agent keeps its job (tested).
+- A folder recorded in the profile (#8112's case) does not carry the spelling, so for a recorded agent this keeps
+  main's answer. When #8112 lands, its folderIsExactly is the test to use there.
 
 ## Weakest part
 It answers only on positive evidence: output that does not carry the task path at all keeps the old answer
