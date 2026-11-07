@@ -36,6 +36,13 @@ if (e.KM_LJ_SETUP_SHA) {
   if (!/^[0-9a-f]{64}$/.test(e.KM_LJ_SETUP_SHA)) { process.stderr.write('write-latest-pointer: KM_LJ_SETUP_SHA is not a lower-case sha256; refusing\n'); process.exit(1); }
   ptr.setup_sha256 = e.KM_LJ_SETUP_SHA;
 }
+// kosmos#8172: optional KM_LJ_PKG_SHA adds "pkg_sha256", the sha256 of the installer pkg this build leaves for its
+// channel (Kosmos-staging.pkg on a staging cut, Kosmos.pkg on a prod cut, #8167). promote-channel.sh decides the
+// copy onto Kosmos.pkg by it, and verify-served.sh holds the served pkg to it. A pointer without it is not checked.
+if (e.KM_LJ_PKG_SHA) {
+  if (!/^[0-9a-f]{64}$/.test(e.KM_LJ_PKG_SHA)) { process.stderr.write('write-latest-pointer: KM_LJ_PKG_SHA is not a lower-case sha256; refusing\n'); process.exit(1); }
+  ptr.pkg_sha256 = e.KM_LJ_PKG_SHA;
+}
 // kosmos#7281: optional KM_LJ_VERSIONED adds "versioned", the immutable tarball name, which the Linux family's pointer
 // carries (engine/update.js readManifest checks it equals kosmos-<version>-linux-x64.tar.gz, as the Windows pointer's).
 if (e.KM_LJ_VERSIONED) {

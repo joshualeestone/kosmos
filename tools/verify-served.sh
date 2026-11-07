@@ -164,6 +164,15 @@ _vs_pkg() {
     if [ -z "$ppub" ]; then say "/dist/$pn.sha256" "could not be fetched"; fail=1
     elif [ "$preal" = "$ppub" ]; then say "/dist/$pn" "$(wc -c < "$ptmp" | tr -d ' ') bytes, checksum matches"
     else say "/dist/$pn" "CHECKSUM MISMATCH -- the pair a person downloads disagrees with itself"; fail=1; fi
+    # kosmos#8172: the served pointer for this pkg's channel may NAME it (pkg_sha256). Then it must be those bytes.
+    # A pointer cut before #8172 names none, and that is said, not passed silently.
+    case "$pn" in Kosmos.pkg) _vs_ptr=latest.json ;; *) _vs_ptr=latest-staging.json ;; esac
+    if curl -fsS -m 30 -H 'Cache-Control: no-cache' "$HOST/dist/$_vs_ptr" -o "$pdir/ptr" 2>/dev/null; then
+      _vs_named=$(node -e 'try{const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(/^[0-9a-f]{64}$/.test(p.pkg_sha256||"")?p.pkg_sha256:"")}catch{}' "$pdir/ptr" 2>/dev/null)
+      if [ -z "$_vs_named" ]; then say "/dist/$pn vs $_vs_ptr" "the pointer names no pkg (cut before kosmos#8172): not checked"
+      elif [ "$_vs_named" = "$preal" ]; then say "/dist/$pn vs $_vs_ptr" "is the pkg the pointer names (${preal:0:12})"
+      else say "/dist/$pn vs $_vs_ptr" "NOT the pkg the pointer names: served ${preal:0:12}, named ${_vs_named:0:12}"; fail=1; fi
+    else say "/dist/$_vs_ptr" "could not be fetched, so $pn was not held to it"; fail=1; fi
     # The sidecar must vouch for THESE bytes: a new sidecar beside the prior
     # pkg pair (each self-consistent) is the mixed edge state this line catches.
     if [ -s "$pdir/inputs" ]; then

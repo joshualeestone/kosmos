@@ -252,6 +252,37 @@ Sb9="$(promote_site yes)"; mkpkg "$Sb9" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "
 out="$(bash "$HERE/promote-channel.sh" "$Sb9" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && grep -q '"9.9.9"' "$Sb9/dist/latest.json" && [ "$(cat "$Sb9/dist/Kosmos.pkg")" = "PROD-PKG" ] && has "$out" "is missing" && pass "8167 promote: a staging pkg missing its sidecar is not copied, and the pointer still promotes" || bad "8167 promote partial arm (rc=$rc, out=$out)"
 
+# ---- kosmos#8172: a pointer that NAMES its pkg (pkg_sha256) decides the promote's copy ----
+name_pkg() { node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.pkg_sha256=process.argv[2];require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$1/dist/latest-staging.json" "$2"; }
+psha() { shasum -a 256 < "$1" | awk '{print $1}'; }
+# A) it names the staging pkg, which is served: copied.
+Sa8="$(promote_site yes)"; mkpkg "$Sa8" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sa8" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"; served8 "$Sa8"; name_pkg "$Sa8" "$(psha "$Sa8/dist/Kosmos-staging.pkg")"
+out="$(bash "$HERE/promote-channel.sh" "$Sa8" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && cmp -s "$Sa8/dist/Kosmos-staging.pkg" "$Sa8/dist/Kosmos.pkg" && grep -q '"pkg_sha256"' "$Sa8/dist/latest.json" \
+  && pass "8172 promote: a pointer naming the served staging pkg copies it, and latest.json carries the name" || bad "8172 promote named-staging arm (rc=$rc, out=$out)"
+# B) it names the pkg Kosmos.pkg already is: nothing copied, even though the staging pkg differs.
+Sb8b="$(promote_site yes)"; mkpkg "$Sb8b" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sb8b" Kosmos-staging.pkg "OTHER-PKG" "$IN_NEW"; served8 "$Sb8b"; name_pkg "$Sb8b" "$(psha "$Sb8b/dist/Kosmos.pkg")"
+out="$(bash "$HERE/promote-channel.sh" "$Sb8b" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$Sb8b/dist/Kosmos.pkg")" = "PROD-PKG" ] && has "$out" "is already the pkg" \
+  && pass "8172 promote: a pointer naming the current Kosmos.pkg copies nothing, though the staging pkg differs" || bad "8172 promote already arm (rc=$rc, out=$out)"
+# C) it names neither local pkg: left as it is, loudly; the pointer still promotes.
+Sc8="$(promote_site yes)"; mkpkg "$Sc8" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sc8" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"; served8 "$Sc8"; name_pkg "$Sc8" "$(printf 'elsewhere' | shasum -a 256 | awk '{print $1}')"
+out="$(bash "$HERE/promote-channel.sh" "$Sc8" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$Sc8/dist/Kosmos.pkg")" = "PROD-PKG" ] && grep -q '"9.9.9"' "$Sc8/dist/latest.json" && has "$out" "neither dist/Kosmos.pkg" \
+  && pass "8172 promote: a pointer naming neither local pkg leaves Kosmos.pkg, warns, and still promotes" || bad "8172 promote neither arm (rc=$rc, out=$out)"
+# D) it names the staging pkg, but the host does not serve it: not copied.
+Sd8="$(promote_site yes)"; mkpkg "$Sd8" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sd8" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"; served8; name_pkg "$Sd8" "$(psha "$Sd8/dist/Kosmos-staging.pkg")"
+out="$(bash "$HERE/promote-channel.sh" "$Sd8" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$Sd8/dist/Kosmos.pkg")" = "PROD-PKG" ] && has "$out" "serves no Kosmos-staging.pkg of those bytes" \
+  && pass "8172 promote: a named staging pkg the host does not serve is not copied" || bad "8172 promote unserved-named arm (rc=$rc, out=$out)"
+# publish-staging-pointer.sh keeps pkg_sha256 only for the same build, as it does setup_sha256.
+Sp8="$(promote_site yes)"; name_pkg "$Sp8" "$IN_NEW"
+bash "$HERE/publish-staging-pointer.sh" "$Sp8" >/dev/null 2>&1
+grep -q "\"pkg_sha256\":\"$IN_NEW\"" "$Sp8/dist/latest-staging.json" && pass "8172 publish-staging: republishing the same build keeps pkg_sha256" || bad "8172 publish-staging dropped pkg_sha256: $(cat "$Sp8/dist/latest-staging.json")"
+node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.version="9.9.8";require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$Sp8/dist/latest-staging.json"
+bash "$HERE/publish-staging-pointer.sh" "$Sp8" >/dev/null 2>&1
+! grep -q pkg_sha256 "$Sp8/dist/latest-staging.json" && pass "8172 publish-staging: CONTROL a different build drops pkg_sha256" || bad "8172 publish-staging carried pkg_sha256 across builds"
+
 kill "$SRV8" 2>/dev/null; wait "$SRV8" 2>/dev/null; unset KOSMOS_SITE_URL
 
 echo ""
