@@ -11,15 +11,18 @@ const line = (t, r) => "Test Case '-[KosmosUITests." + t + "]' " + r + ' (1.0 se
 function tally(lines) {
   const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tally-')), 'log');
   fs.writeFileSync(f, lines.join('\n') + '\n');
-  return execFileSync('bash', [SCRIPT, f], { encoding: 'utf8' }).trim().split('\n');
+  const out = execFileSync('bash', [SCRIPT, f], { encoding: 'utf8' }).trim().split('\n');
+  fs.rmSync(path.dirname(f), { recursive: true, force: true });
+  return out;
 }
 test('kosmos#7609: failed then passed counts once, as passed and flaky; failed twice stays failed; a skip is a skip', () => {
-  const out = tally([line('A one', 'passed'), line('A two', 'failed'), 'noise', line('A three', 'failed'), line('A four', 'skipped'), line('A two', 'passed'), line('A three', 'failed')]);
-  assert.deepEqual(out, ['A.one passed', 'A.two passed', 'A.two flaky', 'A.three failed', 'A.four skipped']);
+  const out = tally([line('A one', 'passed'), line('A two', 'failed'), 'noise', line('A three', 'failed'), line('A four', 'skipped'), line('A two', 'passed'), line('A three', 'failed'), line('A five', 'failed'), line('A five', 'skipped')]);
+  assert.deepEqual(out, ['A.one passed', 'A.two passed', 'A.two flaky', 'A.three failed', 'A.four skipped', 'A.five skipped', 'A.five flaky']);
 });
 test('kosmos#7609: the sample script retries and counts through the tally (a rename here would count nothing)', () => {
   const s = fs.readFileSync(path.join(__dirname, 'ios', 'tools', 'ui-sample.sh'), 'utf8');
   assert.ok(s.includes('-retry-tests-on-failure -test-iterations 2'));
   assert.ok(s.includes('ui-sample-tally.sh'));
-  assert.ok(s.includes('sed \'s/^/FLAKY /\''));
+  assert.ok(s.includes('flaky_report'));
+  assert.ok(s.includes('UI-NOTE'));
 });
