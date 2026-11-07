@@ -598,3 +598,24 @@ test('#8147 r6: a row or cell whose start tag is too long to read is not placed 
   // CONTROL: a short tag is read.
   assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c><c r="C1"><v>3</v></c></row>') })).sheets[0].rows, [['1', '', '3']]);
 });
+
+/* #8147 review r7 */
+test('#8147 r7: a row or cell that is not placed answers by what it held', () => {
+  const pad = ' z="' + 'a'.repeat(5000) + '"';
+  const read = (rows) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }));
+  // A formula in a long-tag cell: never "empty", and the viewer is told why (no saved value).
+  const a = read(`<row r="1"><c${pad}><f>1</f></c></row>`);
+  assert.equal(a.empty, false);
+  assert.equal(a.someNoValues, true);
+  // A far row holding only a formula: the same.
+  const b = read('<row r="2000000"><c><f>1+1</f></c></row>');
+  assert.equal(b.someNoValues, true);
+  // A far row whose cell is an openpyxl empty <v/> is no cut.
+  assert.equal(read('<row r="1"><c r="A1"><v>1</v></c></row><row r="2000000"><c><f>1</f><v /></c></row>').sheets[0].cut, false);
+  // A row with no r after the last row is not placed past it.
+  const c = read('<row r="1048576"><c r="A1"><v>1</v></c></row><row><c><v>2</v></c></row>');
+  assert.equal(c.sheets[0].rows.length, 1);
+  assert.equal(c.sheets[0].cut, true);
+  // " 5" is row 5.
+  assert.deepEqual(read('<row r=" 2"><c r="A2"><v>1</v></c></row>').sheets[0].rows, [[''], ['1']]);
+});
