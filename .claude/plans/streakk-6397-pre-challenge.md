@@ -22,19 +22,45 @@ Perturbations: 23 applied to the page, 22 turned the check red. One stayed green
 measured, mid-slide top 43 px against the switcher's bottom 41 px, so the old reading cleared it at this layout; kept
 as defensive, no arm can make it red here.
 
-### Per round (warnings fixed; each with a red-when-broken arm unless noted)
-- R1 (opus): no BLOCKER; 6 WARNINGs. Measured placement (switcher, tabs), always-present status region, Escape scope,
-  resize, phone notice assertions restored, pill hover hold. The switcher arm first tested nothing (the page re-hid the
-  switcher); stubbed the computers answer. A late-switcher arm added after the watch's perturbation stayed green.
-- R2 (sonnet): 2 WARNINGs. Day kept at show (reload keeps the badge); a mouse click no longer pins (:focus-visible).
-- R3 (opus): 5 WARNINGs. No pill after an early fold; measured at rest; label hidden under it; the notice keeps the day;
-  waits for the loading cover (reasoned, not staged).
-- R4 (sonnet): 3 WARNINGs. Timer and watch start in the frame; none in a hidden tab; check waits for the pill; slide fix.
-- R5 (opus): 3 WARNINGs. Hover holds only where it hovers; only a width change folds; a watch fold hands to the notice.
-- R6 (sonnet): 2 real WARNINGs (slide; read out twice on hand-over), 1 checked and false (a same-day refresh repaints:
-  streakCheck returns early for a settled day).
-- R7 (opus): 5 WARNINGs. A wait past its day is dropped (reasoned); negative arms wait; tablet premise; badge alone no
-  longer counts; keyboard hold proven; comments fixed.
-- R8 (sonnet, last): beside tested against notices too (reasoned); the welcome opening holds the pill; a new day's pill
-  folds yesterday's (reasoned); W4 (no #streak-slot) latent, left.
-- After R8: the width fold moved into the watch (a static test reads the page's resize listener; mine shadowed it).
+### Iteration 1 (opus, whole branch)
+- [WARNING] the pill covered the computer switcher and, at 601-1000 px, the tabs --> FIXED (measured placement: beside, below, else the notice)
+- [WARNING] a status region revealed and filled in one update is often skipped --> FIXED (always-present .vh region; the pill aria-hidden)
+- [WARNING] Escape folded the pill even when another control used it --> FIXED (defaultPrevented, dialogs, menus, .worldsw)
+- [WARNING] a resize across 600 px left the pill out --> FIXED (a width change folds it)
+- [WARNING] the phone notice lost its assertions --> FIXED (wording, role, Dismiss label, gold, focus return)
+- [WARNING] hovering the pill did not hold it --> FIXED
+### Iteration 2 (sonnet, whole branch)
+- [WARNING] a reload during the pill lost pill and badge for the day --> FIXED (day kept at show)
+- [WARNING] a mouse click on the mark pinned the pill --> FIXED (:focus-visible)
+### Iteration 3 (opus, whole branch)
+- [WARNING] a fold before the first frame left the pill stuck --> FIXED (frame guard)
+- [WARNING] placement measured at the entrance pose --> FIXED (.measure, the resting transform)
+- [WARNING] the hover label drew under the pill --> FIXED
+- [WARNING] the phone notice lost the badge on a reload --> FIXED (day kept at show)
+- [WARNING] the 6 s could run out under the loading cover --> FIXED (waits for it; reasoned, not staged)
+### Iteration 4 (sonnet, whole branch)
+- [WARNING] the watch measured mid-slide --> FIXED (at rest); its perturbation stays green, measured why (top 43 vs 41)
+- [WARNING] a background tab spent the 6 s unseen --> FIXED (waits while hidden; timer and watch start in the frame)
+- [WARNING] fixed sleeps in the check --> FIXED (waits for the pill)
+### Iteration 5 (opus, whole branch)
+- [WARNING] hover stuck on a tablet held the pill forever --> FIXED ((hover: hover) only)
+- [WARNING] a height-only resize folded it --> FIXED (width only)
+- [WARNING] a watch fold lost the day's words --> FIXED (hands to the notice)
+### Iteration 6 (sonnet, whole branch)
+- [WARNING] the slide never played --> FIXED (transition off through the flush)
+- [WARNING] read out twice on a hand-over --> FIXED (the handed-over notice has no role)
+- [WARNING] a same-day refresh shows the badge beside the pill --> CHECKED, FALSE (streakCheck returns early for a settled day)
+### Iteration 7 (opus, whole branch)
+- [WARNING] negative arms read too early --> FIXED (settled())
+- [WARNING] a wait across midnight showed yesterday's words --> FIXED (dropped past its day; reasoned)
+- [WARNING] the tablet premise unproven --> FIXED (:hover asserted)
+- [WARNING] a badge alone counted as the words shown --> FIXED
+- [WARNING] a stale comment --> FIXED
+- [NIT] badge ring colour, keyboard hold unproven --> FIXED
+### Iteration 8 (sonnet, whole branch, the cap)
+- [WARNING] beside not tested against notices --> FIXED (reasoned; no layout found where it bites)
+- [WARNING] the welcome opening after the pill --> FIXED (it holds the pill)
+- [WARNING] a held pill across midnight dropped the new day's --> FIXED (reasoned)
+- [WARNING] fold(true) with no #streak-slot --> LEFT (latent: the slot always exists)
+### After iteration 8
+- The width fold moved into the watch: a static test reads the page's resize listener and mine shadowed it.
