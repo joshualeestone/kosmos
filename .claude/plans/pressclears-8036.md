@@ -10,6 +10,8 @@
 
 **Weakest premise:** idle for the seconds after a Yes, on a screen the classifier does not read as working: the card reads idle until the next report. Rejected working: after a No the agent can sit at its prompt, reading mid-task for 5 minutes and then unknown.
 
+**Accepted, named:** after a No the agent may sit at its prompt with no Stop, so a colleague's un-addressed room post is held until its next turn (roomhold's own comment already accepts this for a turn that ends without a Stop); the person who pressed No normally types next. A half-drawn frame at the settle capture can read as no menu and end a wait still standing: the card goes red again if the screen reads the prompt, but the phone stops offering Allow.
+
 **What would change my mind:** a phone read that still shows the row after a placed press, or a press on a prompt whose report arrives only after the press.
 
 **Not covered:** a wait answered at the computer leaves the same gap until the next report.

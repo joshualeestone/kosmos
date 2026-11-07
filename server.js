@@ -4962,6 +4962,7 @@ function noteTextNow(m, names) {
    as the agent thinks, in general), and until then the thread falls back to its words (#2456) with no menu to offer. A press
    that closed the prompt is what ended the wait, so it ends here, at once. Its pushes go with it and no "no longer asking" line
    follows: the person answered it. */
+const pressedWaits = new Map();   // session -> the `at` of the wait whose prompt a press is on: a report can land while the press settles
 function permissionWaitBeforePress(card) {
   try {
     const standing = card && card.sessionName ? selfreport.read(card.sessionName) : null;
@@ -4977,7 +4978,10 @@ function endPermissionWaitPressed(card, before, screenAfter) {
     if (!selfreport.isAutoPermissionWait(now) || now.at !== before.at) return;   // a newer report during the press: it stands
     /* Idle, for a Yes and a No alike: a No can leave the agent at its prompt, and a screen that shows it running outranks a reported idle. */
     const kept = selfreport.record(session, { state: 'idle', because: 'its prompt was answered', auto: true });
-    if (kept && kept.recorded === true) require('./engine/needsyouack').ended(session, (id) => phonenotify.acked(id));
+    if (kept && kept.recorded === true) {
+      pressedWaits.delete(session);
+      require('./engine/needsyouack').ended(session, (id) => phonenotify.acked(id));
+    }
   } catch { /* the answer went; the agent's next report ends the wait as before */ }
 }
 
@@ -19211,9 +19215,11 @@ const server = http.createServer(async (req, res) => {
         let wasNeedsYou = false;
         let askedBefore = null;   // #7756: the question standing before this report, held or not
         let autoWaitBefore = false;   // kosmos#8036: a permission wait stood before this report
+        let autoWaitAt = null;
         try {
           const prior = selfreport.read(who);
           autoWaitBefore = selfreport.isAutoPermissionWait(prior);
+          if (autoWaitBefore) autoWaitAt = prior.at;
           // Review 1: a hook's permission wait is not a question the agent asked, and its words can hold a command or a path.
           if (prior && prior.found === true && prior.state === 'needs_you' && !selfreport.isAutoPermissionWait(prior)) askedBefore = { text: prior.because };
           /* #7915: a HELD question was never buzzed, so asking it for real afterwards is the change that buzzes. */
@@ -19251,7 +19257,10 @@ const server = http.createServer(async (req, res) => {
         if (autoWaitBefore && body.state !== 'needs_you' && kept && kept.recorded === true) {
           try {
             const nya = require('./engine/needsyouack');
-            if (nya.ended(who, (id) => phonenotify.acked(id))) {
+            /* A person pressed this wait's prompt, so it did not pass by itself: its pushes are acknowledged and no line is said. */
+            const pressed = pressedWaits.get(who) === autoWaitAt;
+            pressedWaits.delete(who);
+            if (nya.ended(who, (id) => phonenotify.acked(id)) && !pressed) {
               /* kosmos#8036 (Josh's iPhone 11-06): two waits hours apart said the same sentence one under the other, and it read
                  as a fault. While the chat's last row already says it, the second adds nothing. Any row between lets it speak. */
               const rows = chat.readThread(chat.DIRECT, who).messages || [];
@@ -21189,8 +21198,10 @@ const server = http.createServer(async (req, res) => {
             }
             if (opt && !files.recs.length && !answered) {
               const waitPressed = cq.permission ? permissionWaitBeforePress(askingCard) : null;   // kosmos#8036: only a press on the prompt itself
+              if (waitPressed) pressedWaits.set(askingCard.sessionName, waitPressed.at);
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}),
                 ...(cq.permission && requestGiven ? { request: body.request } : {}) });   // kosmos#7020: re-checked on the last look
+              if (waitPressed && !r.ok) pressedWaits.delete(askingCard.sessionName);
               if (r.ok && r.answered) endPermissionWaitPressed(askingCard, waitPressed, r.screen);
               // kosmos#6239: refused for quiet hours is the person's act, reported like a refused message.
               if (!r.ok && r.quiet === true) { try { require('./engine/agentevents').recordRefusal({ agent: name, rule: 'quiet-hours' }); } catch { /* not reported */ } }
