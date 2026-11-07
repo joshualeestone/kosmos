@@ -1021,7 +1021,7 @@ struct NewAgentView: View {
         return VStack(spacing: 16) {
             Spacer()
             if seen {
-                // As on the Mac, the wait ends in the green tick in the orb's place (Mona Lisa's call on Josh's 18:14 ruling).
+                // A green tick in the orb's place, after the Mac's ending (whose orb turns into a dotted check); Mona Lisa's call.
                 WaitTick()
                 Text(NewAgent.Words.running(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
                 Text(NewAgent.Words.hello).font(.body).foregroundColor(Palette.primary)

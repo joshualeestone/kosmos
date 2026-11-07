@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Josh 2026-11-06 18:18: "would also be cool if we had some animated free floating dots like we do on the desktop install".
 /// The desktop first run's dot field (#fr-dots, frDots in web/index.html), ported with its mechanics: the same five golds
-/// over grey, one dot per 8200 square points, radius 1.5 to 5.4, a random drift with soft walls and heavy damping, 60
-/// steps a second. The desktop warms the field from grey to gold as its steps advance; sign-in has no steps, so it is drawn
+/// over grey, one dot per 8200 square points, radius 1.5 to 5.4, a random drift with soft walls and heavy damping. The
+/// desktop steps once a screen refresh; here it is 60 steps a second, from the time elapsed. The desktop warms the field from grey to gold as its steps advance; sign-in has no steps, so it is drawn
 /// at the ramp's half way (warmth 0.5, opacity 0.26), a pale texture behind the words and the white fields.
 ///
 /// Cost: about 40 dots on a phone, five filled paths a frame, at most 30 frames a second, and no frames at all while the
