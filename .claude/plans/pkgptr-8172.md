@@ -92,3 +92,11 @@ name the same sha, which is correct: the installer is the same file.
 - NIT, settled by reading: step 9's six-read loop wraps the whole verify-served run (release.sh, step 9), so one
   transient fetch inside it is retried.
 - NIT, fixed: the writer's comment says what promote does with a pointer that names no pkg.
+
+## Review round 5
+
+- WARNING, fixed: promote's malformed-pkg_sha256 branch had no test. It has one now (an upper-case sha: no pkg moved,
+  the warning says malformed and not "neither", the pointer promotes), and mistyping the sentinel turns it red.
+- NITs, fixed: verify-served tells a malformed pkg_sha256 from an absent one, and a malformed one on this run's
+  channel fails (tested); the refusal for two same-build pointers names the different-pkg case too; a stale comment on
+  what $POINTER decides; the doc sentence on which commit a named promote reads.

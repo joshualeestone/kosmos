@@ -222,6 +222,12 @@ out="$(runvs latest.json)"
 case "$out" in *"could not be fetched; not this run's channel (latest.json)"*"FAIL=0"*) true;; *) false;; esac && pass "8172 verify-served: a missing staging pointer does not red a prod verify" || bad "8172 verify-served missing-other arm: $out"
 out="$(runvs latest-staging.json)"
 case "$out" in *"/dist/latest-staging.json | could not be fetched, so"*"FAIL=1"*) true;; *) false;; esac && pass "8172 verify-served: CONTROL the same missing pointer reds a staging verify" || bad "8172 verify-served missing-own arm: $out"
+# (g) a MALFORMED pkg_sha256 on this run's channel reds, and is not called "cut before #8172".
+serve; mk "$WWW/dist" Kosmos.pkg "PROD" "$WANT"; ptr latest.json "$(psha "$WWW/dist/Kosmos.pkg" | tr 'a-f' 'A-F')"
+out="$(runvs latest.json)"
+case "$out" in *"pkg_sha256 is not a sha256, so it names nothing"*"FAIL=1"*) true;; *) false;; esac && pass "8172 verify-served: a malformed pkg_sha256 on this run's channel reds" || bad "8172 verify-served malformed arm: $out"
+serve; mk "$WWW/dist" Kosmos-staging.pkg "STAGING" "$WANT"; mk "$WWW/dist" Kosmos.pkg "PROD" "$OLDIN"
+ptr latest-staging.json "$(psha "$WWW/dist/Kosmos-staging.pkg")"; ptr latest.json "$(psha "$WWW/dist/Kosmos.pkg")"
 # (c) pointers cut before #8172 name no pkg: said, not failed, and #8167's lag rule still holds.
 ptr latest-staging.json ""; ptr latest.json ""
 out="$(runvs)"

@@ -275,6 +275,11 @@ Sd8="$(promote_site yes)"; mkpkg "$Sd8" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "
 out="$(bash "$HERE/promote-channel.sh" "$Sd8" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$Sd8/dist/Kosmos.pkg")" = "PROD-PKG" ] && has "$out" "serves no Kosmos-staging.pkg of those bytes" \
   && pass "8172 promote: a named staging pkg the host does not serve is not copied" || bad "8172 promote unserved-named arm (rc=$rc, out=$out)"
+# E) a MALFORMED pkg_sha256 (upper-case): the pkg is not moved, the warning says malformed, the pointer still promotes.
+Se8="$(promote_site yes)"; mkpkg "$Se8" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Se8" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"; served8 "$Se8"; name_pkg "$Se8" "$(psha "$Se8/dist/Kosmos-staging.pkg" | tr 'a-f' 'A-F')"
+out="$(bash "$HERE/promote-channel.sh" "$Se8" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$Se8/dist/Kosmos.pkg")" = "PROD-PKG" ] && grep -q '"9.9.9"' "$Se8/dist/latest.json" && has "$out" "malformed pkg_sha256" && ! has "$out" "neither dist/Kosmos.pkg" \
+  && pass "8172 promote: a malformed pkg_sha256 moves no pkg, says malformed (not neither), and the pointer promotes" || bad "8172 promote malformed arm (rc=$rc, out=$out)"
 # publish-staging-pointer.sh keeps pkg_sha256 only for the same build, as it does setup_sha256.
 Sp8="$(promote_site yes)"; printf 'new' > "$Sp8/dist/Kosmos-staging.pkg"; name_pkg "$Sp8" "$IN_NEW"   # IN_NEW is sha256("new")
 bash "$HERE/publish-staging-pointer.sh" "$Sp8" >/dev/null 2>&1; [ "$?" = 0 ] || bad "8172 publish-staging: the same-build republish failed outright"

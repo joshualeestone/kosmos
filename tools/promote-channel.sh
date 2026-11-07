@@ -283,7 +283,7 @@ if [ -n "$NAMED_VERSION" ]; then
     else
       # Which of two different pointers for V is the right one is not this script's to guess: a later one may carry a
       # correction, the earlier one is the cut's own. The operator names it.
-      echo "promote-channel: ${NAMED_COMMIT:0:10} ($NAMED_VERSION's cut) and ${_newest:0:10} (a later commit naming $NAMED_VERSION) have pointers that differ in more than the installer they name - refusing; nothing was written. Name the one to promote with --commit <its sha>." >&2
+      echo "promote-channel: ${NAMED_COMMIT:0:10} ($NAMED_VERSION's cut) and ${_newest:0:10} (a later commit naming $NAMED_VERSION) have pointers that differ in more than the /setup installer they name, or name different installer pkgs - refusing; nothing was written. Name the one to promote with --commit <its sha>." >&2
       exit 1
     fi
     rm -f "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json"

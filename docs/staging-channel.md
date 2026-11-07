@@ -108,7 +108,8 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    - **It names its pkg (`pkg_sha256`, written by every cut since #8172):** `Kosmos.pkg` already that pkg: nothing to
      copy. `Kosmos-staging.pkg` that pkg AND served by the host: copied. Neither: `Kosmos.pkg` is left as it is with a
      WARNING, the pointer still promotes, and a prod verify-served then reds until those bytes are put back. This
-     holds for a promote with `--version` too, whose pointer is read from its own commit.
+     holds for a promote with `--version` too, whose pointer is read from a commit naming that build (its cut's
+     own, or a later republish of the same build; one that dropped `pkg_sha256` names no pkg, and the rule below applies).
    - **It names none (cut before #8172):** copied when `dist/Kosmos-staging.pkg` differs from `Kosmos.pkg` AND is the
      pkg the host serves; otherwise left, with a WARNING. A promote with `--version` then leaves `Kosmos.pkg` as it is
      and says so, because the staging pkg may belong to a later cut.
