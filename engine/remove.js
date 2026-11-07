@@ -1248,8 +1248,16 @@ function folderIsExactly(clean, platform) {
        refuses it (the variant this card is about); otherwise the lowercase key form proves it. */
     const shown = typeof prof.displayName === 'string' ? prof.displayName : '';
     if (shown !== clean) {
-      if (shown.toLowerCase() === clean.toLowerCase()) return false;
-      if (key !== clean) return false;
+      let shownKey = null;
+      try { shownKey = shown ? store.safeKey(shown) : null; } catch { shownKey = null; }
+      if (shownKey === key) {
+        /* Review 5: the display name is another spelling of this same key ("April" for april, or "orch.main" for
+           orchmain). The profile cannot say which spelling is the agent's: an old full connect (april, shown "April")
+           has its job under the lowercase name, an old register-only agent ("orch.main") has none. So the job decides. */
+        if (!(clean === key && jobFor(clean, platform))) return false;
+      } else if (key !== clean) {
+        return false;
+      }
     }
   }
   return !(key !== clean && jobFor(key, platform));
@@ -1697,6 +1705,10 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
      unchanged. */
   const ops = jobOps(platform);
   const job = jobFor(clean, platform);
+  /* kosmos#8112 review 5: whether this spelling owns the folder, decided once and used by the Codex step and the
+     removed message. (Removal disables the job and touches no files, measured, so the job still proves an old agent
+     when the message is written; one decision is simply one answer for both.) */
+  const ownsFolder = folderIsExactly(clean, platform);
   /* 🔑 READ BEFORE ANYTHING IS TAKEN APART (#1414). The codex trust entry
      lives in the home the agent RAN in, and the only record of which home
      that was is `CODEX_HOME` inside the plist. Every step below exists to
@@ -1976,7 +1988,7 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
      plist recorded, or null, and null means the same default the WRITE used. */
   /* kosmos#8112 review 4: no Codex step at all for a variant spelling of another agent's recorded folder, so nothing
      reports a trust it did not take back. */
-  if (codexJob && !(create.agentDirRecorded(clean) && !folderIsExactly(clean, platform))) {
+  if (codexJob && !(create.agentDirRecorded(clean) && !ownsFolder)) {
     /* 🛑 THE LABEL IS CHOSEN AFTER THE WORK, BECAUSE THIS CARD IS ABOUT A
        LABEL THAT OVERSTATED WHAT IT DID (PigeonPete, cross-review). `step()`
        records `{label, ok}` and nothing else, so a refusal would have shown
@@ -2048,7 +2060,7 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
     // a real `casey` folder) promises "its folder is still on your computer"
     // about a folder that agent never had. The hazard was fixed in two places
     // and this third one kept the old call.
-    because: folderIsExactly(clean, platform)   // kosmos#8112 review 1: never another spelling's recorded folder
+    because: ownsFolder   // kosmos#8112 review 1/5: never another spelling's recorded folder; decided before the job went
       ? `${shown} has been removed from Kosmos. Its folder and everything in it is still on your computer.`
       : `${shown} has been removed from Kosmos. Nothing on your computer was deleted.`,
     steps,
