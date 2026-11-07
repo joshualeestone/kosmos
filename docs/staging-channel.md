@@ -107,7 +107,10 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    file). Which pkg moves depends on the pointer being promoted:
    - **It names its pkg (`pkg_sha256`, written by every cut since #8172):** `Kosmos.pkg` already that pkg: nothing to
      copy. `Kosmos-staging.pkg` that pkg AND served by the host: copied. Neither: `Kosmos.pkg` is left as it is with a
-     WARNING, the pointer still promotes, and a prod verify-served then reds until those bytes are put back. This
+     WARNING and the pointer still promotes. **That WARNING is the only signal**: nothing runs a prod verify-served
+     after a promote, so `latest.json` then names a pkg the Download button does not serve until someone puts those
+     bytes back (the WARNING gives the recipe) or the next prod cut writes a new pair. A by-hand
+     `KOSMOS_VERIFY_POINTER=latest.json tools/verify-served.sh` shows the state. This
      holds for a promote with `--version` too, whose pointer is read from a commit naming that build (its cut's
      own, or a later republish of the same build; one that dropped `pkg_sha256` names no pkg, and the rule below applies).
    - **It names none (cut before #8172):** copied when `dist/Kosmos-staging.pkg` differs from `Kosmos.pkg` AND is the
