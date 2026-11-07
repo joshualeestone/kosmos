@@ -77450,10 +77450,19 @@ function pvSheetInto(stage, data) {
 }
 /* #8122: fetches the grid and draws it; a file the board cannot draw shows its card with the board's sentence (the gold
    button stays under it); a failed look shows the card. An answer that arrives after the viewer closed draws nothing. */
-function pvSheetLoad(stage, url, fileCard) {
+/* #6724: a text file's start in the viewer, read from the board (textOf) or the attachment's own first words (snippet). */
+function pvTextStage(stage, a, how, fileCard) {
+  if (how === 'textOf') { pvTextInto(stage, a.textOf, fileCard); return; }   // #6724: a Files-list text file
+  const pre = document.createElement('pre');
+  pre.className = 'pv-text';
+  pre.textContent = a.preview;   // the file's own words, as text, never markup
+  stage.appendChild(pre);
+  const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The start of the file'; stage.appendChild(c);
+}
+function pvSheetLoad(stage, url, fileCard, orText) {
   const wait = document.createElement('p'); wait.className = 'pv-note'; wait.textContent = 'Opening the spreadsheet\u2026';
   stage.appendChild(wait);
-  const card = (because) => { stage.textContent = ''; stage.appendChild(fileCard()); if (because) { const n = document.createElement('p'); n.className = 'pv-note'; n.textContent = because; stage.appendChild(n); } };
+  const card = (because) => { stage.textContent = ''; if (orText) { orText(); return; } stage.appendChild(fileCard()); if (because) { const n = document.createElement('p'); n.className = 'pv-note'; n.textContent = because; stage.appendChild(n); } };
   fetch(url, { cache: 'no-store' }).then(async (r) => ({ status: r.ok, j: await r.json().catch(() => null) })).then(({ status, j }) => {
     if (!stage.isConnected && !wait.isConnected) return;
     // Only a real grid answer draws (review 1): a 404 ({ error }), an older board without the route, or no sheets list
@@ -77495,16 +77504,14 @@ function pvOpen(id, from) {
        type the server cannot preview) shows the file's card instead of a broken image on the whole screen. */
     img.addEventListener('error', () => { stage.textContent = ''; stage.appendChild(fileCard()); }, { once: true });
     pvZoomFrom(img, from);
-  } else if (how === 'textOf') {
-    pvTextInto(stage, a.textOf, fileCard);   // #6724: a Files-list text file
+  } else if (how === 'textOf' || how === 'snippet') {
+    pvTextStage(stage, a, how, fileCard);
   } else if (how === 'sheet') {
-    pvSheetLoad(stage, pvSheetUrl(a), fileCard);   // #8122: a spreadsheet, read-only
-  } else if (how === 'snippet') {
-    const pre = document.createElement('pre');
-    pre.className = 'pv-text';
-    pre.textContent = a.preview;   // the file's own words, as text, never markup
-    stage.appendChild(pre);
-    const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The start of the file'; stage.appendChild(c);
+    /* #8122 review 1: a CSV or TSV previewed as text before the grid; when the grid answer fails it still does. What
+       the record would show without the grid (its name hidden from pvSheetUrl), or the card. */
+    const asText = pvStageKind(Object.assign({}, a, { name: '', sheetUrl: undefined }));
+    const orText = (asText === 'textOf' || asText === 'snippet') ? () => pvTextStage(stage, a, asText, fileCard) : null;
+    pvSheetLoad(stage, pvSheetUrl(a), fileCard, orText);   // #8122: a spreadsheet, read-only
   } else {
     stage.appendChild(fileCard());
   }

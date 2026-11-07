@@ -545,13 +545,13 @@ async function runSheet(engine, say) {
     });
     await pg.goto('http://kosmos-remote.test/', { waitUntil: 'load' });
     await pg.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvSheetInto === 'function');
-    const open = async (id, name) => {
-      await pg.evaluate(([id, name]) => {
+    const open = async (id, name, extra) => {
+      await pg.evaluate(([id, name, extra]) => {
         pvClose(); document.querySelectorAll('[data-pv-test]').forEach((n) => n.remove());
         const strip = document.createElement('div'); strip.setAttribute('data-pv-test', ''); strip.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:55;background:#fff;';
-        strip.innerHTML = pjAttachmentCard({ name, type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 68000, kind: 'file', url: '/api/attachment/' + id });
+        strip.innerHTML = pjAttachmentCard(Object.assign({ name, type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 68000, kind: 'file', url: '/api/attachment/' + id }, extra || {}));
         document.body.appendChild(strip);
-      }, [id, name]);
+      }, [id, name, extra || null]);
       await pg.click('[data-pv-test] a.att');
       await pg.waitForSelector('#pv-preview #pv-do');
       await pg.waitForFunction(() => !/Opening the spreadsheet/.test(document.getElementById('pv-stage').textContent));
@@ -598,6 +598,10 @@ async function runSheet(engine, say) {
     await open('e9'.repeat(12), 'Gone.xlsx');
     const gone = await pg.evaluate(() => ({ card: !!document.querySelector('#pv-preview .pv-file'), grid: !!document.querySelector('#pv-preview .pv-grid-wrap') }));
     say(gone.card && !gone.grid, T + ': a 404 shows the file card, not an empty grid', JSON.stringify(gone));
+    // A CSV used to show as text; when its grid answer fails (here a 404) it still does, never the bare card (review 1).
+    await open('ea'.repeat(12), 'list.csv', { type: 'text/csv', kind: 'text', preview: 'name,cost\nchairs,40' });
+    const csv = await pg.evaluate(() => ({ text: (document.querySelector('#pv-preview .pv-text') || {}).textContent || null, card: !!document.querySelector('#pv-preview .pv-file'), grid: !!document.querySelector('#pv-preview .pv-grid-wrap') }));
+    say(csv.text === 'name,cost\nchairs,40' && !csv.card && !csv.grid, T + ': a CSV whose grid fails shows its text, as before the grid', JSON.stringify(csv));
     say(errors.length === 0, T + ': no page errors', errors.slice(0, 3).join(' | '));
     await ctx.close();
   } finally { await browser.close(); }

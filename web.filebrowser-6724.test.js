@@ -265,9 +265,20 @@ test('iteration 6: the preview fetches a text file only through an explicit File
   assert.equal(kind({ kind: 'text', textOf: { kind: 'accounts', owner: 'x', name: 'a.txt' } }), 'card', 'textOf names an agent or a project list, nothing else');
   assert.equal(kind({ kind: 'text', textUrl: '/api/agent/ana/files/preview?name=a.txt' }), 'card', 'an address on the record is never fetched');
   assert.equal(kind({ kind: 'image', preview: '/api/attachment/1/preview' }), 'media', 'CONTROL: pictures as before');
-  const open = page.lift(SCRIPT, 'pvOpen');
-  assert.match(open, /pvTextInto\(stage, a\.textOf, fileCard\)/);
-  assert.doesNotMatch(open, /pvTextInto\(stage, a\.preview/, 'the preview text is used as an address again');
+  // #8122: the text drawing moved into pvTextStage, so a CSV whose grid answer fails can still show its text.
+  const open = page.lift(SCRIPT, 'pvOpen'), textStage = page.lift(SCRIPT, 'pvTextStage');
+  assert.match(open, /pvTextStage\(stage, a, how, fileCard\)/, 'pvOpen draws a text file through pvTextStage');
+  assert.match(textStage, /pvTextInto\(stage, a\.textOf, fileCard\)/);
+  assert.doesNotMatch(open + textStage, /pvTextInto\(stage, a\.preview/, 'the preview text is used as an address again');
+  // A CSV opens as its grid; without the grid (its name hidden, as pvOpen's fallback does) it is the text it was before.
+  const csvAtt = { kind: 'text', name: 'list.csv', preview: 'a,b', url: '/api/attachment/' + 'a2'.repeat(12) };
+  const csvFiles = { kind: 'text', name: 'list.csv', textOf: { kind: 'agent', owner: 'ana', name: 'list.csv' }, sheetUrl: '/api/agent/ana/files/sheet?name=list.csv' };
+  assert.equal(kind(csvAtt), 'sheet', 'a CSV attachment opens as its grid');
+  assert.equal(kind(csvFiles), 'sheet', 'a CSV in a Files list opens as its grid');
+  assert.equal(kind(Object.assign({}, csvAtt, { name: '', sheetUrl: undefined })), 'snippet', 'without the grid, a CSV attachment is its snippet');
+  assert.equal(kind(Object.assign({}, csvFiles, { name: '', sheetUrl: undefined })), 'textOf', 'without the grid, a Files CSV is read as text');
+  assert.match(open, /pvStageKind\(Object\.assign\(\{\}, a, \{ name: '', sheetUrl: undefined \}\)\)/, 'pvOpen asks what the file would be without its grid');
+  assert.match(page.lift(SCRIPT, 'pvSheetLoad'), /if \(orText\) \{ orText\(\); return; \}/, 'a failed grid answer falls back to the text');
   assert.match(PAGE, /#d-filesall-path button \{ min-height: 44px;/, 'the path line\u2019s buttons are small on a phone');
 });
 
