@@ -43,7 +43,7 @@ for (const [label, cmd, args] of [
     const out = helpOf(cmd, args);
     assert.ok(out.includes('kosmos agent create'), 'not the agent help: ' + out);   // CONTROL: the right text was read
     assert.ok(out.includes(PREFIX + '<something>'), label + ' does not name ' + PREFIX + ':\n' + out);
-    assert.ok(out.includes('leak guard skips'), out);
+    assert.ok(out.includes('check for stray agents skips'), out);
   });
 }
 

@@ -162,7 +162,7 @@ const USAGE = {
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
     '                                                  make one with a role you wrote, when none fits',
     '                                                  either form, for a throwaway agent on a Mac that runs test suites: name it',
-    '                                                  zz-livecheck-<something>, which the suites\' leak guard skips',
+    '                                                  zz-livecheck-<something>, which the test suites\' check for stray agents skips',
     '  kosmos agent roles [<word>]                     list the roles an agent can be made with, or those matching <word>',
     '  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)',
     '  kosmos agent instructions-add "<name>" --from <file>',
