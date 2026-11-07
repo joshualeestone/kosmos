@@ -25,6 +25,12 @@
  *       (with the name and Show in Finder, which asks by id and keeps the viewer open), a failure puts the button back,
  *       two Files-list downloads answered out of order each get their own answer; in a browser nothing changes;
  *   and no page errors from the preview's own code.
+ *   P8122 (runSheet, the spreadsheet grid, against stubbed sheet routes): tabs and grid, markup as text, numbers right,
+ *       the notes (cut, no saved values, more sheets, empty, no sheets), arrows with Home and End, firstRow, a long cell
+ *       cut to one line with its whole value on hover, too large and a 404 showing the card, a viewer closed before the
+ *       answer, a CSV falling back to its text, the dark-click rule (a tab, a cell, the gap between tabs keep it; beside a
+ *       narrow grid, also under a wider note, closes it), the grid centred over the button, Tab reaching tab and grid,
+ *       and a phone (44 px tabs, a 200 x 50 sheet scrolling inside the window).
  * Needs no URL. ENGINES=chromium,webkit adds WebKit, the Mac app's engine.
  *
  *   ENGINES=chromium,webkit HEADED=0 NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-file-preview-4930.js
@@ -524,6 +530,192 @@ async function runApp(engine, say) {
   }
 }
 
+/* #8122: a spreadsheet opens as a read-only grid (Ice Cream Kitty's route, stood in for here): sheets as tabs, a cell's
+   words as text never markup, the gold button under it; a file the board cannot draw shows its card and the board's
+   sentence, the button still under it. */
+async function runSheet(engine, say) {
+  const browser = await pw[engine].launch({ headless: process.env.HEADED === '0' });
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pg = await ctx.newPage();
+    const errors = []; pg.on('pageerror', (e) => errors.push(String(e && e.message)));
+    const BIG = 'e7'.repeat(12), OK = 'e8'.repeat(12);
+    const WIDE = 'eb'.repeat(12), NOVAL = 'ec'.repeat(12), EMPTY = 'ed'.repeat(12), MORE = 'ee'.repeat(12), SLOW = 'ef'.repeat(12);
+    const ans = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(Object.assign({ ok: true, sheets: [], moreSheets: 0, noValues: false, someNoValues: false, empty: false }, o)) });
+    const routes = async (route) => {
+      // #6022: one answer waits 700 ms, so the page can be gone by the time any answer is sent; a late one is dropped.
+      try {
+        const u = new URL(route.request().url());
+        if (u.pathname === '/api/attachment/' + NOVAL + '/sheet') return await route.fulfill(ans({ noValues: true }));
+        if (u.pathname === '/api/attachment/' + EMPTY + '/sheet') return await route.fulfill(ans({ empty: true }));
+        if (u.pathname === '/api/attachment/' + 'f1'.repeat(12) + '/sheet') return await route.fulfill(ans({}));   // no sheets, no flags (review 4)
+        if (u.pathname === '/api/attachment/' + MORE + '/sheet') return await route.fulfill(ans({ sheets: [{ name: 'A', rows: [['1']], cut: false }], moreSheets: 3 }));
+        if (u.pathname === '/api/attachment/' + SLOW + '/sheet') { await new Promise((r) => setTimeout(r, 700)); return await route.fulfill(ans({ sheets: [{ name: 'Late', rows: [['late']], cut: false }] })); }
+        if (u.pathname === '/api/attachment/' + WIDE + '/sheet') {
+          const rows = Array.from({ length: 200 }, (_, r) => Array.from({ length: 50 }, (_, c) => (r === 0 ? 'Head ' + c : String(r * 50 + c))));
+          return await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, sheets: [{ name: 'Big', rows, cut: true }, { name: 'Other', rows: [['x']], cut: false }], moreSheets: 0, noValues: false, someNoValues: false, empty: false }) });
+        }
+        if (u.pathname === '/') return await route.fulfill({ status: 200, contentType: 'text/html', body: HTML });
+        if (u.pathname === '/api/attachment/' + OK + '/sheet') return await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true,
+          sheets: [{ name: 'Budget', rows: [['Item', 'Cost'], ['<img src=x onerror="window.__ran=1">', '12.5'], ['A very long note that runs on and on past any sensible column width, '.repeat(4), '3']], cut: true }, { name: 'Notes', rows: [['done']], cut: false, firstRow: 301 }, { name: 'Chart', rows: [], cut: false, notGrid: true }],
+          moreSheets: 0, noValues: false, someNoValues: true, empty: false }) });
+        if (u.pathname === '/api/attachment/' + BIG + '/sheet') return await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, because: 'This spreadsheet is too large to preview.', tooLarge: true }) });
+        return await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+      } catch (e) { /* the page closed at teardown */ }
+    };
+    await pg.route('**/*', routes);
+    await pg.goto('http://kosmos-remote.test/', { waitUntil: 'load' });
+    await pg.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvSheetInto === 'function');
+    const open = async (id, name, extra) => {
+      await pg.evaluate(([id, name, extra]) => {
+        pvClose(); document.querySelectorAll('[data-pv-test]').forEach((n) => n.remove());
+        const strip = document.createElement('div'); strip.setAttribute('data-pv-test', ''); strip.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:55;background:#fff;';
+        strip.innerHTML = pjAttachmentCard(Object.assign({ name, type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 68000, kind: 'file', url: '/api/attachment/' + id }, extra || {}));
+        document.body.appendChild(strip);
+      }, [id, name, extra || null]);
+      await pg.click('[data-pv-test] a.att');
+      await pg.waitForSelector('#pv-preview #pv-do');
+      await pg.waitForFunction(() => !/Opening the spreadsheet/.test(document.getElementById('pv-stage').textContent));
+    };
+    const T = engine + ' P8122';
+    await open(OK, 'Budget 2026.xlsx');
+    const g = await pg.evaluate(() => ({
+      tabs: [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => t.textContent + (t.getAttribute('aria-selected') === 'true' ? '*' : '')),
+      cells: [...document.querySelectorAll('#pv-preview .pv-grid tbody td')].map((c) => c.textContent),
+      imgs: document.querySelectorAll('#pv-preview .pv-grid img').length, ran: !!window.__ran,
+      notes: [...document.querySelectorAll('#pv-preview .pv-note')].map((n) => n.textContent),
+      name: document.getElementById('pv-name').textContent,
+      below: (() => { const w = document.querySelector('.pv-grid-wrap').getBoundingClientRect(), d = document.getElementById('pv-do').getBoundingClientRect(); return d.top >= w.bottom - 1 && d.bottom <= innerHeight; })(),
+    }));
+    say(JSON.stringify(g.tabs) === '["Budget*","Notes","Chart"]' && g.cells[0] === 'Item' && g.cells[3] === '12.5', T + ': a spreadsheet opens as a grid, its sheets as tabs', JSON.stringify(g));
+    const nums = await pg.evaluate(() => [...document.querySelectorAll('#pv-preview .pv-grid tbody td')].map((c) => c.className === 'num'));
+    say(nums[1] === false && nums[3] === true, T + ': a number sits right and a word does not (12.5, Cost)', JSON.stringify(nums));
+    say(g.cells[2] === '<img src=x onerror="window.__ran=1">' && g.imgs === 0 && !g.ran, T + ': a cell\'s words are text, never markup', JSON.stringify(g.cells));
+    // A narrow grid is centred over the name and the gold button, not left in the corner (the real reader's small CSV).
+    const mid = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap').getBoundingClientRect(), d = document.getElementById('pv-do').getBoundingClientRect();
+      return { grid: Math.round(w.left + w.width / 2), button: Math.round(d.left + d.width / 2), narrow: w.width < innerWidth / 2 }; });
+    say(mid.narrow && Math.abs(mid.grid - mid.button) <= 2, T + ': a narrow grid sits centred over the gold button', JSON.stringify(mid));
+    // A click on the dark beside a narrow grid closes the viewer, as any click on the dark does (review 2: the sheet's box
+    // was wider than its grid and kept it open). Clicked 40 px left of the grid, level with it; reopened after.
+    const beside = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap').getBoundingClientRect(); return { x: Math.round(w.left - 40), y: Math.round(w.top + w.height / 2) }; });
+    await pg.mouse.click(beside.x, beside.y); await pg.waitForTimeout(400);
+    say(!(await pg.$('#pv-preview')), T + ': a click on the dark beside a narrow grid closes the viewer', JSON.stringify(beside));
+    await open(OK, 'Budget 2026.xlsx');
+    // A long value is cut to one line with an ellipsis, the whole value on hover (review 1: max-width on a td is ignored).
+    const lc = await pg.evaluate(() => { const c = [...document.querySelectorAll('#pv-preview .pv-grid .pv-cell')].find((x) => /very long note/.test(x.textContent));
+      if (!c) return null; const r = c.getBoundingClientRect(), fs = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      return { w: r.width, max: 24 * fs, cut: c.scrollWidth > c.clientWidth + 1, oneLine: r.height < 30, title: (c.title || '').length, ell: getComputedStyle(c).textOverflow }; });
+    say(!!lc && lc.w <= lc.max + 0.5 && lc.cut && lc.oneLine && lc.title > 200 && lc.ell === 'ellipsis', T + ': a long cell is cut to one line at 24rem with an ellipsis, the whole value on hover', JSON.stringify(lc));
+    say(g.notes.some((n) => /goes on past what is shown/.test(n)) && g.notes.some((n) => /no saved value/.test(n)) && g.below && g.name === 'Budget 2026.xlsx', T + ': it says when it is cut short or values are missing; the name and the gold button are under it', JSON.stringify(g));
+    // The keyboard reaches the sheets: Tab from the X goes to the selected tab, then the grid (review 1).
+    await pg.focus('#pv-x'); await pg.keyboard.press('Tab');
+    const t1 = await pg.evaluate(() => document.activeElement.className + ':' + document.activeElement.textContent.slice(0, 12));
+    await pg.keyboard.press('Tab');
+    const t2 = await pg.evaluate(() => document.activeElement.className);
+    say(/pv-tab:Budget/.test(t1) && /pv-grid-wrap/.test(t2), T + ': Tab reaches the selected sheet tab, then the grid', JSON.stringify({ t1, t2 }));
+    await pg.focus('#pv-preview .pv-tab'); await pg.keyboard.press('ArrowRight');
+    const k = await pg.evaluate(() => ({ sel: [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => t.getAttribute('aria-selected')), cell: (document.querySelector('#pv-preview .pv-grid tbody td') || {}).textContent, row: (document.querySelector('#pv-preview .pv-grid tbody th') || {}).textContent, focus: document.activeElement.textContent }));
+    say(k.sel.join() === 'false,true,false' && k.cell === 'done' && k.focus === 'Notes' && k.row === '301', T + ': the arrow keys move between sheets; a sheet starting at row 301 numbers its rows from 301', JSON.stringify(k));
+    // A mouse click on a tab (and on a cell) keeps the viewer open (review 1); a chart sheet's note is readable, outside
+    // the white panel.
+    await pg.click('#pv-preview .pv-tab:nth-child(3)'); await pg.waitForTimeout(150);
+    const ch = await pg.evaluate(() => { const n = [...document.querySelectorAll('#pv-preview .pv-note')].find((x) => /not a table/.test(x.textContent));
+      return { open: !!document.getElementById('pv-preview'), note: n ? n.textContent : null, inPanel: !!(n && n.closest('.pv-grid-wrap')), colour: n ? getComputedStyle(n).color : null }; });
+    say(ch.open && ch.note && !ch.inPanel && /255, 255, 255/.test(ch.colour), T + ': clicking a tab keeps the viewer open, and a chart sheet says so in readable words', JSON.stringify(ch));
+    // The 4 px gap between two tabs is part of the tab row: a near-miss there keeps the viewer (review 6).
+    const gap = await pg.evaluate(() => { const [a, b] = [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => t.getBoundingClientRect()); return { x: Math.round((a.right + b.left) / 2), y: Math.round(a.top + a.height / 2), w: b.left - a.right }; });
+    await pg.mouse.click(gap.x, gap.y); await pg.waitForTimeout(150);
+    say(gap.w > 0 && !!(await pg.$('#pv-preview')), T + ': a click in the gap between two sheet tabs keeps the viewer open', JSON.stringify(gap));
+    await pg.click('#pv-preview .pv-tab:nth-child(1)'); await pg.click('#pv-preview .pv-grid td'); await pg.waitForTimeout(100);
+    say(!!(await pg.$('#pv-preview')), T + ': clicking a cell keeps the viewer open', '');
+    await open(BIG, 'Huge.xlsx');
+    const big = await pg.evaluate(() => ({ card: !!document.querySelector('#pv-preview .pv-file'), notes: [...document.querySelectorAll('#pv-preview .pv-note')].map((n) => n.textContent), btn: !!document.getElementById('pv-do') }));
+    say(big.card && big.notes.includes('This spreadsheet is too large to preview.') && big.btn, T + ': one too large to draw shows its card and the board\'s sentence, the button still there', JSON.stringify(big));
+    // A 404 ({ error }, a file gone, or a board without the route) shows the card, never an empty white box (review 1).
+    await open('e9'.repeat(12), 'Gone.xlsx');
+    const gone = await pg.evaluate(() => ({ card: !!document.querySelector('#pv-preview .pv-file'), grid: !!document.querySelector('#pv-preview .pv-grid-wrap') }));
+    say(gone.card && !gone.grid, T + ': a 404 shows the file card, not an empty grid', JSON.stringify(gone));
+    // The other answers the board gives (review 1): formulas with no saved values, an empty workbook, sheets past the
+    // ones shown. Each says so in words, under no empty white box.
+    const words = async () => pg.evaluate(() => ({ notes: [...document.querySelectorAll('#pv-preview .pv-note')].map((n) => n.textContent), grid: !!document.querySelector('#pv-preview .pv-grid'), card: !!document.querySelector('#pv-preview .pv-file') }));
+    await open(NOVAL, 'Formulas.xlsx'); const nv = await words();
+    say(nv.notes.some((n) => /no saved values/.test(n)) && !nv.grid && !nv.card, T + ': a workbook of formulas with no saved values says so', JSON.stringify(nv));
+    await open(EMPTY, 'Blank.xlsx'); const em = await words();
+    say(em.notes.includes('This spreadsheet is empty.') && !em.grid && !em.card, T + ': an empty workbook says it is empty', JSON.stringify(em));
+    await open('f1'.repeat(12), 'NoSheets.xlsx'); const ns = await pg.evaluate(() => ({ notes: [...document.querySelectorAll('#pv-preview .pv-note')].map((n) => n.textContent), box: !!document.querySelector('#pv-preview .pv-grid-wrap') }));
+    say(ns.notes.includes('This spreadsheet is empty.') && !ns.box, T + ': an answer with no sheets and no flags reads as empty, with no empty box to tab into', JSON.stringify(ns));
+    await open(MORE, 'Many.xlsx'); const mo = await words();
+    say(mo.grid && mo.notes.includes('3 more sheets are not shown.'), T + ': sheets past the ones shown are counted', JSON.stringify(mo));
+    // A small grid under a wider note: a click on the dark beside the grid still closes the viewer (review 5: the sheet's box
+    // is as wide as its widest note, so the box itself must not count as the file).
+    const nb = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap').getBoundingClientRect(), n = [...document.querySelectorAll('#pv-preview .pv-note')].map((x) => x.getBoundingClientRect().width);
+      return { x: Math.round(w.left - 40), y: Math.round(w.top + w.height / 2), grid: Math.round(w.width), note: Math.round(Math.max(...n)) }; });
+    await pg.mouse.click(nb.x, nb.y); await pg.waitForTimeout(400);
+    say(nb.note > nb.grid + 80 && !(await pg.$('#pv-preview')), T + ': beside a small grid under a wider note, a click on the dark closes the viewer', JSON.stringify(nb));
+    await open(MORE, 'Many.xlsx');
+    const one = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap'); return { tabs: document.querySelectorAll('#pv-preview .pv-tab').length, role: w.getAttribute('role'), name: w.getAttribute('aria-label'), by: w.getAttribute('aria-labelledby') }; });
+    say(one.tabs === 0 && one.role === 'region' && one.name === 'A' && !one.by, T + ': a one-sheet workbook has no tabs and its grid is named for its sheet', JSON.stringify(one));
+    // ArrowLeft from the first sheet goes round to the last.
+    await open(OK, 'Budget 2026.xlsx');
+    await pg.focus('#pv-preview .pv-tab'); await pg.keyboard.press('ArrowLeft');
+    const wrapL = await pg.evaluate(() => ({ sel: [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => t.getAttribute('aria-selected')).join(), focus: document.activeElement.textContent }));
+    say(wrapL.sel === 'false,false,true' && wrapL.focus === 'Chart', T + ': ArrowLeft on the first sheet goes round to the last', JSON.stringify(wrapL));
+    await pg.keyboard.press('Home');
+    const home = await pg.evaluate(() => ({ sel: [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => t.getAttribute('aria-selected')).join(), focus: document.activeElement.textContent, controls: document.activeElement.getAttribute('aria-controls'), panel: !!document.getElementById(document.activeElement.getAttribute('aria-controls') || 'x') }));
+    await pg.keyboard.press('End');
+    const end = await pg.evaluate(() => document.activeElement.textContent);
+    say(home.sel === 'true,false,false' && home.focus === 'Budget' && home.panel && end === 'Chart', T + ': Home and End go to the first and last sheet; a tab names the panel it controls', JSON.stringify({ home, end }));
+    // Closed before the answer: nothing is drawn afterwards, and nothing reopens.
+    await pg.evaluate((id) => {
+      pvClose(); document.querySelectorAll('[data-pv-test]').forEach((n) => n.remove());
+      const strip = document.createElement('div'); strip.setAttribute('data-pv-test', ''); strip.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:55;background:#fff;';
+      strip.innerHTML = pjAttachmentCard({ name: 'Late.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 68000, kind: 'file', url: '/api/attachment/' + id });
+      document.body.appendChild(strip);
+    }, SLOW);
+    await pg.click('[data-pv-test] a.att');
+    await pg.waitForSelector('#pv-preview #pv-do');
+    const waiting = await pg.evaluate(() => /Opening the spreadsheet/.test(document.getElementById('pv-stage').textContent));
+    // The closed stage is kept, so a late answer drawn into it (off the page) is seen (review 3: the page alone cannot see it).
+    await pg.evaluate(() => { window.__lateStage = document.getElementById('pv-stage'); pvClose(); });
+    await pg.waitForTimeout(1100);
+    const late = await pg.evaluate(() => ({ viewer: !!document.getElementById('pv-preview'), sheet: !!document.querySelector('.pv-sheet'),
+      lateCell: [...document.querySelectorAll('td')].some((c) => c.textContent === 'late'),
+      stageDrawn: !!window.__lateStage.querySelector('.pv-sheet, .pv-file, .pv-grid'), stageText: window.__lateStage.textContent }));
+    say(waiting && !late.viewer && !late.sheet && !late.lateCell && !late.stageDrawn && /Opening the spreadsheet/.test(late.stageText), T + ': a viewer closed before the answer draws nothing when it comes', JSON.stringify({ waiting, late }));
+    // A CSV used to show as text; when its grid answer fails (here a 404) it still does, never the bare card (review 1).
+    await open('ea'.repeat(12), 'list.csv', { type: 'text/csv', kind: 'text', preview: 'name,cost\nchairs,40' });
+    const csv = await pg.evaluate(() => ({ text: (document.querySelector('#pv-preview .pv-text') || {}).textContent || null, card: !!document.querySelector('#pv-preview .pv-file'), grid: !!document.querySelector('#pv-preview .pv-grid-wrap') }));
+    say(csv.text === 'name,cost\nchairs,40' && !csv.card && !csv.grid, T + ': a CSV whose grid fails shows its text, as before the grid', JSON.stringify(csv));
+    say(errors.length === 0, T + ': no page errors', errors.slice(0, 3).join(' | '));
+    await ctx.close();
+    // A phone (390 x 844, a finger): a 200 x 50 sheet scrolls inside the window, the tabs are a finger's size, and the
+    // gold button is under the grid and on screen (review 1).
+    const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: engine === 'chromium' });
+    const pp = await pctx.newPage(); const perr = []; pp.on('pageerror', (e) => perr.push(String(e && e.message)));
+    await pp.route('**/*', routes);
+    await pp.goto('http://kosmos-remote.test/', { waitUntil: 'load' });
+    await pp.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvSheetInto === 'function');
+    await pp.evaluate((id) => {
+      const strip = document.createElement('div'); strip.setAttribute('data-pv-test', ''); strip.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:55;background:#fff;';
+      strip.innerHTML = pjAttachmentCard({ name: 'Big.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 68000, kind: 'file', url: '/api/attachment/' + id });
+      document.body.appendChild(strip);
+    }, WIDE);
+    await pp.click('[data-pv-test] a.att');
+    await pp.waitForSelector('#pv-preview .pv-grid');
+    const ph = await pp.evaluate(() => {
+      const w = document.querySelector('#pv-preview .pv-grid-wrap').getBoundingClientRect(), d = document.getElementById('pv-do').getBoundingClientRect();
+      const tabs = [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => Math.round(t.getBoundingClientRect().height));
+      const wrap = document.querySelector('#pv-preview .pv-grid-wrap');
+      return { coarse: matchMedia('(pointer: coarse)').matches, tabs, inside: w.left >= 0 && w.right <= innerWidth + 0.5, scrolls: wrap.scrollWidth > wrap.clientWidth && wrap.scrollHeight > wrap.clientHeight,
+        below: d.top >= w.bottom - 1 && d.bottom <= innerHeight, noSideways: document.documentElement.scrollWidth <= innerWidth + 1, rows: document.querySelectorAll('#pv-preview .pv-grid tbody tr').length };
+    });
+    say(ph.coarse && ph.tabs.length === 2 && ph.tabs.every((h) => h >= 44), T + ' phone: the sheet tabs are a finger\'s size (44 px or more)', JSON.stringify(ph));
+    say(ph.rows === 200 && ph.inside && ph.scrolls && ph.below && ph.noSideways, T + ' phone: a 200 x 50 sheet scrolls inside the window, the gold button under it and on screen, no sideways page scroll', JSON.stringify(ph));
+    say(perr.length === 0, T + ' phone: no page errors', perr.slice(0, 3).join(' | '));
+    await pctx.close();
+  } finally { await browser.close(); }
+}
+
 (async () => {
   const fails = [];
   const say = (ok, l, x) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + l + (x ? '  ' + x : '')); if (!ok) fails.push(l); };
@@ -549,6 +741,7 @@ async function runApp(engine, say) {
       await runOn(engine, 'http://127.0.0.1:59930', say);
       await runRemote(engine, say);
       await runApp(engine, say);
+      await runSheet(engine, say);
     } catch (e) {
       say(false, engine + ': ran to the end', String(e && e.message).split('\n')[0]);
     }
