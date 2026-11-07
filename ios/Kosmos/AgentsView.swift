@@ -525,10 +525,12 @@ struct BoardStates<Empty: View>: View {
     }
 
     /// `orb`: Allow this iPhone and Connecting (Josh 2026-11-06 18:14) draw the orb above the words, inside this group, so
-    /// the orb and the words are centred together; it is what VoiceOver hears for the orb. Every other state passes none.
+    /// the orb and the words are centred together; it is the orb's VoiceOver label on Connecting (Allow's combined label
+    /// replaces it, as it did the dots'). Every other state passes none. BoardStates is shared, so Projects, Tasks and Today
+    /// draw it too while the Mac is in those phases.
     private func message(_ title: String, detail: String, retry: Bool = false, orb: String? = nil) -> some View {
         VStack(spacing: 12) {
-            if let orb { KosmosOrb(size: AgentsWait.orbSide, label: orb).padding(.bottom, 12) }
+            if let orb { WaitOrb(label: orb).padding(.bottom, 12) }
             VStack(spacing: 6) {
                 Text(title).font(.headline).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
                 Text(detail).font(.subheadline).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
