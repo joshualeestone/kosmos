@@ -61,11 +61,11 @@ test('#3939 3c-2 / #4569: the server builds the row only when Muse is on and ins
   // #4569: signed in is green when seen working, amber otherwise; a refusal is a red row, not no row.
   assert.match(block, /if \(muse\.signedIn\(\)\.signedIn\)/);
   assert.match(block, /else if \(muse\.refused\(\)\)/);
-  assert.match(block, /badge: 'working'/);
+  // #8173: green or amber is musestatus.connectionFor's call now (tested in engine/musestatus.stale-8173.test.js).
+  assert.match(block, /muse\.connectionFor\(muse\.lastSeenWorking\(\)\)/);
   assert.match(block, /badge: 'rejected'/);
   assert.match(block, /provider: 'meta', providerName: 'Meta'/);
   assert.match(block, /authMode: 'muse'/);
-  assert.match(block, /badge: 'signed_in_unverified'/);
   // Round 1: the row must reach the response, not only be built.
   const send = src.slice(src.indexOf('sendJson(res, 200, { accounts:', at), src.indexOf('\n', src.indexOf('sendJson(res, 200, { accounts:', at)));
   assert.match(send, /\.\.\.museSub[,\]]/, 'the Meta Muse row is built but never sent');

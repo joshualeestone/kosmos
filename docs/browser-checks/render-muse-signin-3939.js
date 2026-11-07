@@ -483,6 +483,11 @@ const chk = (ok, label, extra) => {
   chk(green && green.cls === 'acct-connected' && /^Signed in · confirmed /.test(green.text), 'after Kosmos\'s own sign-in the row is green, with when (#4569)', JSON.stringify(green));
   const amber = await pillOf({ state: 'connected', checkedLive: false, badge: 'signed_in_unverified' });
   chk(amber && amber.cls === 'acct-unverified' && amber.text === 'Signed in' && amber.color !== green.color, 'on Muse\'s own record alone it is amber, not green (#4569)', JSON.stringify(amber));
+  /* #8173: seen working, but 18 days ago: amber "Not confirmed since <date>", never the green "confirmed ... ago",
+     with Sign in again still there. */
+  const stale = await pillOf({ state: 'connected', checkedLive: false, badge: 'signed_in_unverified', notConfirmedSince: Date.now() - 18 * 86400000, observedFrom: 'turn' });
+  chk(stale && stale.cls === 'acct-unverified' && /^Not confirmed since [A-Z][a-z]{2} \d{1,2}/.test(stale.text) && stale.color !== green.color && stale.buttons.join() === 'Sign in again',
+    'a sign-in last seen working 18 days ago is amber Not confirmed since <date>, never green (#8173)', JSON.stringify(stale));
   const red = await pillOf({ state: 'none', checkedLive: false, badge: 'rejected' });
   chk(red && red.cls === 'acct-none' && red.text === 'Not connected' && red.buttons.join() === 'Sign in again', 'after Meta refused a turn it is red Not connected, with Sign in again (#4569)', JSON.stringify(red));
   chk(await q(() => !document.querySelector('#set-accounts [data-muse-row] .acct-unknown')), 'no Meta row is the black unknown pill any more (#4569)');

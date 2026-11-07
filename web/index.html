@@ -30699,6 +30699,12 @@ async function paintAccounts(opts) {
         const why = (c.observedFrom === 'turn' ? 'A Muse turn on this sign-in finished' : 'Kosmos signed in to Meta through Muse Code')
           + (ago ? ' ' + ago : ' recently') + ', so it is working. Kosmos does not check it by itself; a turn Meta refuses turns this red.';
         pill = '<span class="acct-connected" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ago ? ' · confirmed ' + esc(ago) : '') + '<span class="vh"> (' + esc(why) + ')</span></span>';
+      } else if (c.badge === 'signed_in_unverified' && Number.isFinite(c.notConfirmedSince)) {
+        /* #8173: seen working, but not for days: amber with the date, never the green "confirmed ... ago". */
+        const sinceAt = new Date(c.notConfirmedSince);
+        const since = sinceAt.toLocaleDateString(undefined, sinceAt.getFullYear() === new Date().getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+        const why = 'Kosmos last saw this sign-in work on ' + since + ', so it cannot say it still works. If a Muse agent stops at a sign-in screen, press Sign in again.';
+        pill = '<span class="acct-unverified" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Not confirmed since ' + esc(since) + '<span class="vh"> (' + esc(why) + ')</span></span>';
       } else if (c.badge === 'rejected') {
         const why = 'Meta refused the last turn on this sign-in, so Muse agents cannot work until you sign in again.';
         pill = '<span class="acct-none" title="' + esc(why) + '"><span class="dot" aria-hidden="true"></span>Not connected<span class="vh"> (' + esc(why) + ')</span></span>';

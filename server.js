@@ -14444,10 +14444,8 @@ const server = http.createServer(async (req, res) => {
               email: null, authMode: 'muse', keyTail: null, connection,
             }];
             if (muse.signedIn().signedIn) {
-              const seen = muse.lastSeenWorking();
-              museSub = row(seen
-                ? { state: 'connected', checkedLive: false, badge: 'working', observedFrom: seen.from, observedAgeMs: Math.max(0, Date.now() - seen.at) }
-                : { state: 'connected', checkedLive: false, badge: 'signed_in_unverified' });
+              // #8173: green only while it was seen working in the last 3 days; older says since when (musestatus.connectionFor).
+              museSub = row(muse.connectionFor(muse.lastSeenWorking()));
             } else if (muse.refused()) {
               museSub = row({ state: 'none', checkedLive: false, badge: 'rejected' });
             }
