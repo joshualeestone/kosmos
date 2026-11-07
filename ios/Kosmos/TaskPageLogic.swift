@@ -26,7 +26,7 @@ extension Board {
     struct SubtaskRow: Equatable, Identifiable {
         let number: Int
         let sentence: String
-        // Done, Replaced, Built or Open (tkPaintSubtasks).
+        // Done, Replaced, Built, On hold or Open (tkPaintSubtasks).
         let status: String
         var id: Int { number }
     }
@@ -123,7 +123,9 @@ extension Board {
         func built(_ x: [String: Any]) -> Bool { !isClosed(x) && x["onHold"] as? Bool != true && text(x["builtAt"]) != nil }
         let subtasks = kids.compactMap { x -> SubtaskRow? in
             guard let n = integer(x["number"]) else { return nil }
-            let status = isClosed(x) ? (integer(x["replacedBy"]) != nil ? "Replaced" : "Done") : built(x) ? "Built" : "Open"
+            // kosmos#8146 (the board's tkPaintSubtasks since #8140): a held one reads On hold, not Open.
+            let status = isClosed(x) ? (integer(x["replacedBy"]) != nil ? "Replaced" : "Done") : built(x) ? "Built"
+                : x["onHold"] as? Bool == true ? "On hold" : "Open"
             return SubtaskRow(number: n, sentence: text(x["sentence"]) ?? "", status: status)
         }
         let parentNumber = integer(t["parent"])

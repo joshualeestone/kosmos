@@ -39,6 +39,27 @@ check(parent?.detail == "All **twelve** pages, checked against the price sheet."
 check(parent?.subtasks.map(\.number) == [2, 3, 4] && parent?.subtasks.map(\.status) == ["Done", "Built", "Open"],
       "its subtasks in number order, each Done, Built or Open")
 check(parent?.allSubtasksDone == false && parent?.allSubtasksBuilt == false, "one subtask still open: neither all-done line")
+// kosmos#8146: a held subtask reads On hold, as the board's task page does since #8140. The captured read with its
+// open subtask (4) and its built one (3) put on hold, as engine/tasks.js setOnHold stores it (onHold: true): a held
+// one is never Built (the board's built() leaves held out, kosmos#5956).
+func withHeld(_ numbers: Set<Int>) -> Data {
+    guard var top = try? JSONSerialization.jsonObject(with: projectsData) as? [String: Any],
+          var projects = top["projects"] as? [[String: Any]],
+          let i = projects.firstIndex(where: { $0["id"] as? String == "springcatalogue" }),
+          var list = projects[i]["tasks"] as? [[String: Any]] else { return Data() }
+    for j in list.indices where numbers.contains((list[j]["number"] as? NSNumber)?.intValue ?? -1) { list[j]["onHold"] = true }
+    projects[i]["tasks"] = list
+    top["projects"] = projects
+    return (try? JSONSerialization.data(withJSONObject: top)) ?? Data()
+}
+func statuses(_ d: Data) -> [String]? {
+    if case .page(let p) = Board.parseTaskPage(d, project: "springcatalogue", number: 1) { return p.subtasks.map(\.status) }
+    return nil
+}
+check(statuses(withHeld([4])) == ["Done", "Built", "On hold"], "a held open subtask reads On hold, not Open")
+check(statuses(withHeld([3])) == ["Done", "On hold", "Open"], "a held built subtask reads On hold, not Built")
+check(statuses(withHeld([2])) == ["Done", "Built", "Open"], "a closed subtask still reads Done when held (closing drops a hold)")
+check(statuses(withHeld([])) == ["Done", "Built", "Open"], "CONTROL: the rebuilt read with nothing held reads as the captured one")
 check(parent?.stateLine(roster: roster) == "Open" && parent?.act == .close && parent?.act.title == "Mark as done", "open: Mark as done")
 let createdAt = Tasks.parseISO("2026-10-25T00:36:58.000Z")!
 check(parent?.added(now: createdAt, calendar: cal) == "You, today", "added by the person, today")
