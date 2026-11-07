@@ -77439,7 +77439,8 @@ function pvSheetInto(stage, data) {
   };
   sheets.forEach((sh, i) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'pv-tab'; b.setAttribute('role', 'tab');
-    b.id = 'pv-tab-' + i; b.textContent = sh.name; b.setAttribute('aria-controls', 'pv-sheet-panel'); b.addEventListener('click', () => show(i));
+    // An unnamed sheet still has a name to say (review 6).
+    b.id = 'pv-tab-' + i; b.textContent = sh.name || 'Sheet ' + (i + 1); b.setAttribute('aria-controls', 'pv-sheet-panel'); b.addEventListener('click', () => show(i));
     b.addEventListener('keydown', (e) => {   // the tab pattern: arrows move between sheets
       if (e.altKey || e.ctrlKey || e.metaKey) return;   // Alt and Cmd arrows stay the browser's (review 2)
       const to = { ArrowRight: (i + 1) % sheets.length, ArrowLeft: (i - 1 + sheets.length) % sheets.length, Home: 0, End: sheets.length - 1 }[e.key];
@@ -77570,7 +77571,7 @@ function pvOpen(id, from) {
   // A click on the dark closes it: anything but the file, the X, the action (its row, with #8120's Show in Finder), and the words a person may want to
   // select or copy (the name, a note, an error). Only when the press began on the dark too, so selecting a text
   // file's words and letting go past them does not close it.
-  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, .pv-grid-wrap, .pv-tab, #pv-x, .pv-acts, .pv-name, .pv-msg, .pv-note'));
+  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, .pv-grid-wrap, .pv-tabs, #pv-x, .pv-acts, .pv-name, .pv-msg, .pv-note'));
   let pressedOnFile = false;
   back.addEventListener('pointerdown', (e) => { pressedOnFile = onFile(e.target); });
   back.addEventListener('click', (e) => { if (!pressedOnFile && !onFile(e.target)) pvClose(); pressedOnFile = false; });

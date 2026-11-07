@@ -17,7 +17,7 @@
   - Then it draws the grid.
   - A file the board cannot draw shows its card with the board's sentence, and the gold button stays under it.
   - A failed read shows the card; a CSV, or an attached TSV, whose grid fails shows its text, as before the grid (a TSV in a Files list shows the card).
-  - A click on the dark closes the viewer anywhere outside the grid, the tabs, the notes and the controls (review 5).
+  - A click on the dark closes the viewer anywhere outside the grid, the tab row, the notes and the controls (reviews 5 and 6).
 - From an agent's or a project's Files list too: a spreadsheet opens in the viewer (the grid) rather than straight in the spreadsheet app, as images and PDFs there already do (#4997). A call, stated on #8122; weakest premise: one more click to edit a workbook.
   - An answer that arrives after the viewer closed draws nothing.
 - `pvSheetInto` draws a light, read-only sheet on the dark:

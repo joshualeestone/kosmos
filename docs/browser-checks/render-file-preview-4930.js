@@ -613,6 +613,10 @@ async function runSheet(engine, say) {
     const ch = await pg.evaluate(() => { const n = [...document.querySelectorAll('#pv-preview .pv-note')].find((x) => /not a table/.test(x.textContent));
       return { open: !!document.getElementById('pv-preview'), note: n ? n.textContent : null, inPanel: !!(n && n.closest('.pv-grid-wrap')), colour: n ? getComputedStyle(n).color : null }; });
     say(ch.open && ch.note && !ch.inPanel && /255, 255, 255/.test(ch.colour), T + ': clicking a tab keeps the viewer open, and a chart sheet says so in readable words', JSON.stringify(ch));
+    // The 4 px gap between two tabs is part of the tab row: a near-miss there keeps the viewer (review 6).
+    const gap = await pg.evaluate(() => { const [a, b] = [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => t.getBoundingClientRect()); return { x: Math.round((a.right + b.left) / 2), y: Math.round(a.top + a.height / 2), w: b.left - a.right }; });
+    await pg.mouse.click(gap.x, gap.y); await pg.waitForTimeout(150);
+    say(gap.w > 0 && !!(await pg.$('#pv-preview')), T + ': a click in the gap between two sheet tabs keeps the viewer open', JSON.stringify(gap));
     await pg.click('#pv-preview .pv-tab:nth-child(1)'); await pg.click('#pv-preview .pv-grid td'); await pg.waitForTimeout(100);
     say(!!(await pg.$('#pv-preview')), T + ': clicking a cell keeps the viewer open', '');
     await open(BIG, 'Huge.xlsx');
