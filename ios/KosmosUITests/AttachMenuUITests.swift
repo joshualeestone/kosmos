@@ -358,6 +358,25 @@ final class AttachMenuUITests: XCTestCase {
             app.terminate()
         } }
     }
+    // kosmos#8200: what the id-anchor-off reproduction needs. Each arm drops or changes one thing.
+    func testProbeSweepBounds() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set") }
+        continueAfterFailure = true
+        for arm in ["control", "vstack", "notray", "defaultheight", "normaltext"] { for rep in 1...8 {
+            let app = XCUIApplication()
+            var e = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_PHOTOS": "all", "KOSMOS_SAMPLE_NOPOSID": "1", "KOSMOS_PROBE_ARM2": arm]
+            if arm != "notray" { e["KOSMOS_SAMPLE_PLUS"] = "6" }
+            if arm != "defaultheight" { e["KOSMOS_PROBE_TRAY"] = "212" }
+            app.launchEnvironment = e
+            app.launchArguments = ["-UIPreferredContentSizeCategoryName", arm == "normaltext" ? "UICTContentSizeCategoryL" : "UICTContentSizeCategoryAccessibilityXXXL"]
+            app.launch()
+            _ = app.buttons[chatPlus].waitForExistence(timeout: 30)
+            Thread.sleep(forTimeInterval: 7)
+            print("SWEEP-HOLD \(arm) \(rep)")
+            Thread.sleep(forTimeInterval: 6)
+            app.terminate()
+        } }
+    }
     func testProbeANormal() throws { try probe("normal", args: []) }
     func testProbeBLargest() throws { try probe("largest", args: largest) }
     func testProbeCLargestOff() throws { try probe("largestoff", args: largest, photos: "off") }

@@ -584,7 +584,7 @@ struct ChatView: View {
             let drawnEpoch = listEpoch
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    ProbeStack {
                         // Earlier messages load by themselves when the person reaches the top (the board's
                         // earlierNearTop); the line says only that a page is loading, or that one failed, with Try again.
                         earlierFailedLine
@@ -3798,5 +3798,18 @@ enum ChatProbePlace {
             print("PLACE y=\(Int(v.contentOffset.y)) contentH=\(Int(v.contentSize.height)) boundsH=\(Int(v.bounds.height)) inset=\(Int(v.adjustedContentInset.bottom))")
         }
         t.resume(); timer = t
+    }
+}
+
+
+// PROBE, throwaway, kosmos#8200: the list's stack, lazy or not, in one build.
+struct ProbeStack<C: View>: View {
+    @ViewBuilder var content: () -> C
+    var body: some View {
+        if ProcessInfo.processInfo.environment["KOSMOS_PROBE_ARM2"] == "vstack" {
+            VStack(alignment: .leading, spacing: 0, content: content)
+        } else {
+            LazyVStack(alignment: .leading, spacing: 0, content: content)
+        }
     }
 }
