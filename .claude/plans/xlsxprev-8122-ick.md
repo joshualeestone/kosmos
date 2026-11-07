@@ -123,3 +123,12 @@ absolutely.
 - KEPT: N5 a second sheet naming the same part stays notGrid (reading a part once is the review-1 DoS fix).
 - All 6 new r7 tests fail on efd904b948. Touched engine tests: 644, 0 fail, 84 skipped. server.js source tests from the
   repo root: 5526, 0 fail, 138 skipped.
+
+## Review round 8 (sonnet): no BLOCKER; 5 WARNINGs, 2 CONVENTIONs, 6 NITs. LOOP STOPPED at the 8-round cap
+- Usage rule (Splinter 10-22): past 8 only while a BLOCKER is open. None is, so nothing from round 8 was changed here;
+  every finding is on the follow-up card #8147 (hostile-file cost ~1.2 s per distinct file through non-boundary skips;
+  empty/noValues after a walk cut; trailing-comma and multi-section formats; cache bounded by count not size; a
+  preview-only lister; work-counting timing tests; NITs).
+- Weakest premise in shipping now: W2/W3 can make the viewer say "empty" or "no saved values" about a sheet whose values
+  sit past 100000 visited cells, which needs a sheet of ~2000 rows of formatted blanks before the data. Rare, and wrong in
+  words only (nothing hidden is exposed, nothing crashes).
