@@ -1,6 +1,6 @@
 # pfratchet-8195: a ratchet on early readers under pipefail, repo-wide
 
-Card: kosmos#8195. Stacked on sweeppipe-8193 (#8198), which adds test-support/early-readers.js.
+Card: kosmos#8195. Uses test-support/early-readers.js, which #8198 put on main.
 
 ## Decision (on the card)
 The triage found no non-test site that is a measured live false fail today, so the shipping scripts are not
@@ -49,4 +49,9 @@ A script that gets pipefail only from whoever sources it; the helper's known gap
   (run-tests.sh, bc-surface-map.sh). A false fail reads as "token not changed", so the gate skips a check: the unsafe
   direction, which my round-1 read missed. Now grep -c. Measured: the old line 30/30 false on a 400 KB diff (review),
   the new one 0/30 on 410 KB, and an absent token still not found. Three surface tests rc=0.
-- KOSMOS_PRINT_PIPEFAIL_BASELINE=1 prints the header too, so its output can replace the file.
+- A way to regenerate the list (round 7 corrected it: see below).
+
+## Review round 7 (decided)
+- KOSMOS_WRITE_PIPEFAIL_BASELINE=<path> writes the list, header included, to that path. Printing it to stdout did
+  not work: node's own result lines follow it, so the output could not replace the file.
+- A tracked extensionless file missing from disk now fails like a *.sh one does, rather than being skipped.
