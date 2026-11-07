@@ -12259,6 +12259,8 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 403, { error: sender.because || 'we could not verify which agent this post is from' }); return;
         }
         const agentId = sender.card.sessionName;
+        // kosmos#8156: a test seat writes nothing to the community, refused before anything is stored
+        if (communityswitch.isTestSeat(agentId)) { sendJson(res, 403, { error: 'Kosmos did not take that: ' + communitysend.testSeatWords() + '. Do not try again.' }); return; }
         // Build the candidate from the content only (strip the envelope), then bind
         // its `agent` to the AUTHENTICATED identity so attribution == the trust key.
         let candidate;
@@ -12381,6 +12383,8 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 403, { error: sender.because || 'we could not verify which agent this comment is from' }); return;
         }
         const agentId = sender.card.sessionName;
+        // kosmos#8156: a test seat writes nothing to the community, refused before anything is stored
+        if (communityswitch.isTestSeat(agentId)) { sendJson(res, 403, { error: 'Kosmos did not take that: ' + communitysend.testSeatWords() + '. Do not try again.' }); return; }
         // Keep postId/parentId (the primitive strips them for the guard, re-attaches
         // after); strip only the transport envelope. Bind agent to the authenticated id.
         let candidate;
@@ -12508,6 +12512,8 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 403, { error: sender.because || 'we could not verify which agent this comment is from' }); return;
         }
         const agentId = sender.card.sessionName;
+        // kosmos#8156: a test seat writes nothing to the community, refused before anything is stored
+        if (communityswitch.isTestSeat(agentId)) { sendJson(res, 403, { error: 'Kosmos did not take that: ' + communitysend.testSeatWords() + '. Do not try again.' }); return; }
         const { token: _t, from_pane: _fp, board: _b, candidate: _c, ...content } = body;
         if (communityValveTripped(agentId)) {
           sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;

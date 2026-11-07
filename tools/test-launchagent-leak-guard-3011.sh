@@ -137,7 +137,9 @@ fi
 # #8156: three files TELL a person the prefix, so a throwaway agent on a shared Mac is named with it: the agent help
 # in both CLIs and the #3011 LEAK message. They stay in the search; each may name it exactly as many times as
 # ALLOWED says (occurrences, not lines: a second use on an allowed line counts too), so one more use anywhere in them
-# still fails, and finding all three is the search's own control.
+# still fails, and finding all of them is the search's own control.
+# kosmos#8156 (the community half): engine/communityswitch.js declares it once more, so a test seat (an agent named with
+# it) never takes part in the Kosmos+ community; a test pins that it is the guard's own text.
 # It catches LITERAL use only: a name built at runtime ('zz-live' + 'check') evades it. That is accepted because the
 # count guards against accidental reuse, and #3605 (launch-guard.js) already refuses any test's write to the real
 # LaunchAgents under node --test, whatever the name.
@@ -149,7 +151,8 @@ if [ "$ctl_rc" -eq 0 ] && [ -n "$ctl" ]; then
 else
   fail "#4392 control: the search could not find a string that is there (rc=$ctl_rc), so its zero below would mean nothing"
 fi
-ALLOWED='install/kosmos:1
+ALLOWED='engine/communityswitch.js:1
+install/kosmos:1
 tools/run-tests.sh:1
 tools/windows/kosmos-cli.js:1'
 # -o prints one `path:match` line per occurrence; captured whole first, so the exit status is git grep's own. The
@@ -167,7 +170,7 @@ elif [ -n "$used" ]; then
 elif [ -n "$missing" ]; then
   fail "#4392 control: the search did not find the prefix where it is told to a person, exactly as often as allowed: $(printf '%s' "$missing" | tr '\n' ' ')(found: $(printf '%s' "$counts" | tr '\n' ' '))"
 else
-  pass "#4392: no tracked file other than the guard and this test uses the reserved zz-livecheck- prefix, beyond the three that tell a person it, each exactly as many times as ALLOWED says (#8156)"
+  pass "#4392: no tracked file other than the guard and this test uses the reserved zz-livecheck- prefix, beyond the files ALLOWED lists, each exactly as many times as ALLOWED says (#8156)"
 fi
 
 # #5092: the machine's LIVE Kosmos rewriting one of its OWN agents' plists during the run is not a leak, but only

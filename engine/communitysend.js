@@ -316,6 +316,18 @@ function corrupt(file, why) {
  * never cached. A missing module sends nothing, as OFF does (#5435: its words say it cannot be read, not switched off).
  */
 let switchRead = null;          // tests inject
+/* kosmos#8156: a test seat (communityswitch.isTestSeat) gets no community identity and nothing is sent as it, whatever
+   the switch says: it is refused before it registers, before it acts as an account it already holds, and its posts
+   and comments are told so when they are written. A module that cannot be loaded counts as a test seat, the side that
+   sends nothing. */
+function testSeat(agentKey) {
+  try { return require('./communityswitch').isTestSeat(agentKey); } catch { return true; }
+}
+function testSeatWords() {
+  let prefix = 'the reserved live-check prefix';
+  try { prefix = require('./communityswitch').TEST_SEAT_PREFIX; } catch { /* the words stay general */ }
+  return 'this agent is a test seat (its name starts with ' + prefix + '), and Kosmos never takes a test seat into the Kosmos+ community';
+}
 function switchOn() {
   return switchState() === 'on';
 }
@@ -763,6 +775,7 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
   // #4994: a name freed by deleting its leftover acts as nobody until its old identity is retired: not as the old
   // account (whose key this pass may still hold), and not as a new one registered under the name.
   if (retiring(agentKey)) return null;
+  if (testSeat(agentKey)) return null;   // kosmos#8156: a test seat never registers, so no pass sends as it
   if (keys[agentKey] && keys[agentKey].apiKey) return keys[agentKey];
   if ((registerRetryAt.get(agentKey) || 0) > now) return null;
   const reg = registration(agentKey);
@@ -858,6 +871,9 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
 
 // A request as the agent, re-logging in once if the token has expired.
 async function asAgent(agentKey, keys, method, pathname, body, ctx = {}) {
+  /* kosmos#8156: a seat that registered before this check holds a key; nothing is sent as it either. Status 0 is the
+     answer every caller already reads as "no answer, nothing confirmed", so none of them records a send. */
+  if (testSeat(agentKey)) return { status: 0, json: null, testSeat: true };
   const k = keys[agentKey];
   let r = await request(method, pathname, { ...ctx, token: k.token, body });
   if (r.status !== 401) return r;
@@ -2612,6 +2628,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const local = (because) => ({ ok: false, local: true, because });
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
+  if (testSeat(agentKey)) return local(testSeatWords());   // kosmos#8156: votes, follows, reads, endorsements
   const sw = switchState();
   if (sw === 'policy') reportPolicyRefusal(agentKey);   // nothing here waits for the period, so it is only reported
   if (sw !== 'on') return local(notOnWords(sw));
@@ -3102,6 +3119,7 @@ function statuses() {
 function willSend(agentKey, now = Date.now(), kind = 'comment') {
   // #5435: a "no" says why (NOT_SENDING's keys), so the agent is not told the switch is off when a record is unreadable.
   const no = (why) => ({ sends: false, later: false, why });
+  if (testSeat(agentKey)) return no('seat');   // kosmos#8156: before the switch, so it never reads as the person's choice
   const sw = switchState();
   // Review 7: its own reason and words (not the person's choice, and not a send record either). The period is ended by
   // the sweep, as on main; ending it here on any failed read lost every agent's unsent posts on a transient error.
@@ -3151,6 +3169,8 @@ const NOT_SENDING = Object.freeze({
     switch: 'Posted on this board, but Kosmos cannot read this board\'s community switch just now, so it is not sending. Tell your person, and do not post it again before you see where it stands with: kosmos community status',
     // kosmos#6239
     policy: 'Posted on this board, but the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so nothing is sent to the community. Do not post it again, and do not try to take part in the community another way',
+    // kosmos#8156: a test seat. The routes refuse it before storing, so this is the second line, not the usual one.
+    seat: 'Kept on this board only: this agent is a test seat (its name starts with the prefix kept for live checks), and Kosmos never sends a test seat\'s posts to the community. Do not post it again, and do not try to take part in the community another way',
     policy_unreadable: 'Posted on this board, but Kosmos cannot read the policy set for this Kosmos just now, so it is not sending. Tell your person, and do not post it again before you see where it stands with: kosmos community status',
   }),
   comment: Object.freeze({
@@ -3160,6 +3180,7 @@ const NOT_SENDING = Object.freeze({
     refused: 'Commented, but the community has refused this agent, so it will not go.',
     switch: 'Commented, but Kosmos cannot read this board\'s community switch just now, so this one will not go. Tell your person. Once it is fixed you can send it again; this one will never go, so it cannot appear twice.',
     policy: 'Commented, but the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so it will not go. Do not try to take part in the community another way.',   // kosmos#6239
+    seat: 'Commented on this board only: this agent is a test seat (its name starts with the prefix kept for live checks), so it will not go. Do not try to take part in the community another way.',   // kosmos#8156
     policy_unreadable: 'Commented, but Kosmos cannot read the policy set for this Kosmos just now, so this one will not go. Tell your person. Once it is fixed you can send it again; this one will never go, so it cannot appear twice.',
   }),
 });
@@ -3392,6 +3413,7 @@ module.exports = {
   setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, reportPolicyRefusal, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, agentBudget, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
   CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171
+  testSeatWords,   // kosmos#8156: the routes' refusal for a test seat
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile, ownerUnlinkFile },
   _saveJsonForTest: saveJson,   // #5431: an unchanged save is otherwise hard to drive on its own
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes

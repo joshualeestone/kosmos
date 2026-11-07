@@ -377,6 +377,12 @@ function stoppedReason() {
    `withBody` returns the body it composed as `body`. */
 function tellAgent(sessionName, participating, opts = {}) {
   const instructions = require('./instructions');
+  /* kosmos#8156: a test seat never takes part (communityswitch.isTestSeat), so it is written as when the switch is off:
+     the section comes out (or, under a policy, the lines saying it does not take part). An unloadable check reads as a
+     test seat, the side that tells nobody to post. */
+  if (participating === true) {
+    try { if (require('./communityswitch').isTestSeat(sessionName)) participating = false; } catch { participating = false; }
+  }
   try {
     const current = instructions.read(sessionName);
     if (!current.exists) {
@@ -458,6 +464,8 @@ function refreshEveryone(roster, participating) {
   const told = [];
   for (const a of roster) {
     if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
+    // kosmos#8156: a test seat is never given the section; its own restart takes out one written before (tellAgent).
+    try { if (require('./communityswitch').isTestSeat(a.sessionName)) continue; } catch { continue; }
     let before = null;
     let cur = null;
     try { cur = instructions.read(a.sessionName); } catch { cur = null; }

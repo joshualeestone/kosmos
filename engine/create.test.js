@@ -2495,6 +2495,22 @@ test('#6908: community:false makes an agent with no community section, with the 
   assert.ok(!(quiet.steps || []).some((st) => /community/i.test(st.label || '')), 'leaving the section out on purpose was reported as a failure');
 });
 
+test('#8156: a test seat (the live-check prefix) is made with no community section, with the switch ON and no option', () => {
+  recorder();
+  create.setDryRun(false);
+  const sw = require('./communityswitch');
+  const communityblock = require('./communityblock');
+  const projects = require('./projects');
+  fs.rmSync(sw.FILE, { force: true });   // no community.json: the default, ON
+  const name = sw.TEST_SEAT_PREFIX + 'birth';   // built from the engine's constant: no test spells the prefix
+  const seat = create.createAgent({ ...BINS, name, role: 'pm' });
+  assert.equal(seat.outcome, create.OUTCOME.CREATED, seat.because);
+  const text = fs.readFileSync(create.instructionFile(name), 'utf8');
+  assert.equal(projects.findBlock(text, communityblock.START, communityblock.END), null, 'a test seat was given the community section at birth');
+  assert.ok(!(seat.steps || []).some((st) => /community/i.test(st.label || '')), 'leaving the section out on purpose was reported as a failure');
+  // CONTROL: the #6908 test above makes nc-plain the same way and gets the section, so the switch and setup do write it.
+});
+
 test('#5023: a new agent is asked to introduce itself at birth; one whose key already has a post is not', () => {
   recorder();
   create.setDryRun(false);

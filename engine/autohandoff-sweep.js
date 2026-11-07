@@ -117,6 +117,8 @@ function handoffPathFor(store, session) {
  * lesson of handoffPathFor above: an inline lambda in server.js broke silently behind the sweep's catch). The switch is
  * read first, so with the community off nothing else is read. Modules are required lazily: this file stays light. */
 function communityFor(session, now = Date.now()) {
+  // kosmos#8156: a test seat is never asked for a community post (a live-check seat wrote one at 85%, Renet 11-07).
+  if (require('./communityswitch').isTestSeat(session)) return { participating: false, posts: null, max: null };
   if (!require('./communityswitch').participating()) return { participating: false, posts: null, max: null };
   const nudge = require('./communitynudge');
   if (nudge.accountRefused(session)) return { participating: false, posts: null, max: null };

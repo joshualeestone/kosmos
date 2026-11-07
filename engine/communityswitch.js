@@ -123,10 +123,21 @@ function participating() {
   try { return require('./orgpolicy').communityAllows().ok === true; } catch { return false; }
 }
 
+/* kosmos#8156: a test seat never takes part in the Kosmos+ community, whatever the switch says. A live check names its
+   throwaway agents with the prefix #4392 reserved (tools/lib/launchagent-leak-guard.sh declares it, and a test pins
+   that this is the same text). Without this, a seat on a test board that starts with the community ON (migrate writes
+   ON when no file exists) was asked for a public post at its handoff and wrote one about the test (Renet, 11-07). It is
+   decided by the agent's name, not the board: nothing on a board says it is a test board, and a person's second
+   Kosmos looks the same. Letter case is ignored, as every name lookup on a board does. */
+const TEST_SEAT_PREFIX = 'zz-livecheck-';
+function isTestSeat(name) {
+  return typeof name === 'string' && name.trim().toLowerCase().startsWith(TEST_SEAT_PREFIX);
+}
+
 /* Tests only: replace the pause between retries (null puts the real one back), and forget the last failure. */
 const realPause = pause;
 function _setPause(f) { pause = f || realPause; lastFailed = null; lastRound = 0; }
 /* Tests only: as if RETRY_GAP_MS had passed, keeping the remembered failure. */
 function _endRetryGap() { lastRound = 0; }
 
-module.exports = { read, setOn, participating, migrate, FILE, RETRIES, _setPause, _endRetryGap };
+module.exports = { read, setOn, participating, migrate, isTestSeat, TEST_SEAT_PREFIX, FILE, RETRIES, _setPause, _endRetryGap };
