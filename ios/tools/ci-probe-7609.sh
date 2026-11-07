@@ -26,10 +26,13 @@ watch_marker() { # $1 marker, $2 file prefix
 watch_marker PROBE-HOLD hold & W1=$!
 watch_marker PROBE-QUERY query & W2=$!
 cd "$GITHUB_WORKSPACE/ios" || exit 3
-only=""; for t in testProbeANormal testProbeBLargest testProbeCLargestOff testProbeDKeyboardThenLargest testProbeEKeyboardThenNormal; do only="$only -only-testing:KosmosUITests/AttachMenuUITests/$t"; done
+only="-only-testing:KosmosUITests/AttachMenuUITests"
 # shellcheck disable=SC2086
 TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$U" $only -test-iterations 3 -parallel-testing-enabled NO -derivedDataPath "$D/dd" -resultBundlePath "$D/res.xcresult" > "$L" 2>&1
 echo "REAL_EXIT=$?"
+DATA=$(xcrun simctl get_app_container "$U" io.kosmos.app data); wc -l "$DATA/Documents/changes.txt"
+cp "$DATA/Documents/changes.txt" "$D/changes.txt"
+awk '/^START/{n++; print "== launch " n ": " $0} !/^START/{c[n" "$0]++} END{for(k in c) if (c[k]>20) print c[k], k}' "$D/changes.txt" | sort -k2,2n -k1,1rn | cut -c1-170 | tail -n 120
 kill "$W1" "$W2" 2>/dev/null
 grep -E '^PROBE|^Test [Cc]ase .*(passed|failed)' "$L" | cut -c1-220
 echo "=== cpu"; cat "$D/cpu.log"

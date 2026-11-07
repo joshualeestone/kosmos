@@ -219,7 +219,17 @@ struct ChatView: View {
     private var pending: [Board.PendingSend] { client.pending[agent.session] ?? [] }
     private var widthShare: CGFloat { typeSize.isAccessibilitySize ? 0.85 : 0.78 }
 
+    // PROBE, throwaway, kosmos#7609: SwiftUI's own account of why this body ran, in Documents/changes.txt.
+    private static var probeOpened = false
+    static func probeOpen() {
+        guard !probeOpened else { return }
+        probeOpened = true
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("changes.txt")
+        freopen(url.path, "a", stdout); setvbuf(stdout, nil, _IOLBF, 0)
+        print("START pid=\(getpid()) args=\(ProcessInfo.processInfo.arguments.dropFirst()) photos=\(ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PHOTOS"] ?? "-")")
+    }
     var body: some View {
+        let _ = { Self.probeOpen(); Self._printChanges() }()
         // Read here so the end of an arm window or an answered lock redraws the buttons (redraw(after:)).
         let _ = tick
         VStack(spacing: 0) {
@@ -253,7 +263,7 @@ struct ChatView: View {
                 .background(Palette.chatGround.ignoresSafeArea(edges: .bottom))
                 // kosmos#7817: its height, read for the list (stripHeight).
                 .background(GeometryReader { g in
-                    Color.clear.onAppear { stripHeight = g.size.height }.onChange(of: g.size.height) { stripHeight = $0 }
+                    Color.clear.onAppear { stripHeight = g.size.height }.onChange(of: g.size.height) { stripHeight = $0; print("WRITE stripHeight \($0)") }
                 })
                 // Josh 10-27: "with a slide fade into it so it looks smooth": messages fade into the strip over fadeHeight above it,
                 // never a hard edge. Drawn over the list, so it takes no room and no touches.
@@ -270,7 +280,7 @@ struct ChatView: View {
         .toolbar(.hidden, for: .tabBar)
         .messageActionsHost()   // kosmos#7419: the one long-press sheet of this chat
         .background(GeometryReader { g in
-            Color.clear.onAppear { contentWidth = g.size.width }.onChange(of: g.size.width) { contentWidth = $0 }
+            Color.clear.onAppear { contentWidth = g.size.width }.onChange(of: g.size.width) { contentWidth = $0; print("WRITE contentWidth \($0)") }
         })
         // kosmos#7034 build 11 reviews 2 and 4: the header star's stars, asked again on a switch to another computer.
         .task(id: client.chatEpoch) { await client.readStarsIfUnknown() }
@@ -627,7 +637,7 @@ struct ChatView: View {
                     .padding(.vertical, ChatView.listPadV)
                     // kosmos#7420 diagnostic: the stack's width (wider than the list is the shift-left Josh saw).
                     .background(GeometryReader { g in
-                        Color.clear.onAppear { diagContentWidth = g.size.width }.onChange(of: g.size.width) { diagContentWidth = $0 }
+                        Color.clear.onAppear { diagContentWidth = g.size.width }.onChange(of: g.size.width) { diagContentWidth = $0; print("WRITE diagContentWidth \($0)") }
                     })
                     // kosmos#7420 (Josh 10-28, builds 13 to 15): the list only scrolls up and down, so a sideways offset is put
                     // back to its rest and written in the diagnostic's record (see SideScrollLock).
@@ -702,7 +712,7 @@ struct ChatView: View {
                 // kosmos#7420 diagnostic: the list's size, and a check whenever no message is on screen.
                 .background(GeometryReader { g in
                     Color.clear.onAppear { diagViewport = g.size }
-                        .onChange(of: g.size) { now in diagViewport = now; Self.trace("viewport \(Int(now.width))x\(Int(now.height))") }
+                        .onChange(of: g.size) { now in diagViewport = now; print("WRITE diagViewport \(now)"); Self.trace("viewport \(Int(now.width))x\(Int(now.height))") }
                 })
                 // Review 1: driven by a tick bumped only when the last row leaves (row()), never by reading onScreen here,
                 // which would redraw the whole chat on every row that scrolls in or out. Checked at 0.5 s and again at 1.5 s.
