@@ -1250,7 +1250,7 @@
     },
     {
       "title": "A little more space in project rooms",
-      "line": "Posts in a project room now sit at line spacing 1.6, a little more spaced than before.",
+      "line": "Posts in a project room now have slightly more space between lines.",
       "icon": "chat",
       "rank": 17,
       "since": "0.7.96",
@@ -1273,8 +1273,8 @@
       "status": "pending"
     },
     {
-      "title": "Old sign-ins say when they last worked",
-      "line": "A Grok or Meta Muse sign-in not seen working for over three days now reads not confirmed since that date, not green.",
+      "title": "Old sign-ins say since when they are unconfirmed",
+      "line": "A Grok or Meta Muse sign-in not renewed or seen working for over three days now reads \"not confirmed since\" a date, not green.",
       "icon": "shield",
       "rank": 19,
       "since": "0.7.96",
