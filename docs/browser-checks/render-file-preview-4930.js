@@ -534,15 +534,21 @@ async function runSheet(engine, say) {
     const pg = await ctx.newPage();
     const errors = []; pg.on('pageerror', (e) => errors.push(String(e && e.message)));
     const BIG = 'e7'.repeat(12), OK = 'e8'.repeat(12);
-    await pg.route('**/*', async (route) => {
+    const WIDE = 'eb'.repeat(12);
+    const routes = async (route) => {
       const u = new URL(route.request().url());
+      if (u.pathname === '/api/attachment/' + WIDE + '/sheet') {
+        const rows = Array.from({ length: 200 }, (_, r) => Array.from({ length: 50 }, (_, c) => (r === 0 ? 'Head ' + c : String(r * 50 + c))));
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, sheets: [{ name: 'Big', rows, cut: true }, { name: 'Other', rows: [['x']], cut: false }], moreSheets: 0, noValues: false, someNoValues: false, empty: false }) });
+      }
       if (u.pathname === '/') return route.fulfill({ status: 200, contentType: 'text/html', body: HTML });
       if (u.pathname === '/api/attachment/' + OK + '/sheet') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true,
         sheets: [{ name: 'Budget', rows: [['Item', 'Cost'], ['<img src=x onerror="window.__ran=1">', '12.5'], ['A very long note that runs on and on past any sensible column width, '.repeat(4), '3']], cut: true }, { name: 'Notes', rows: [['done']], cut: false, firstRow: 301 }, { name: 'Chart', rows: [], cut: false, notGrid: true }],
         moreSheets: 0, noValues: false, someNoValues: true, empty: false }) });
       if (u.pathname === '/api/attachment/' + BIG + '/sheet') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, because: 'This spreadsheet is too large to preview.', tooLarge: true }) });
       return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
-    });
+    };
+    await pg.route('**/*', routes);
     await pg.goto('http://kosmos-remote.test/', { waitUntil: 'load' });
     await pg.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvSheetInto === 'function');
     const open = async (id, name, extra) => {
@@ -604,6 +610,31 @@ async function runSheet(engine, say) {
     say(csv.text === 'name,cost\nchairs,40' && !csv.card && !csv.grid, T + ': a CSV whose grid fails shows its text, as before the grid', JSON.stringify(csv));
     say(errors.length === 0, T + ': no page errors', errors.slice(0, 3).join(' | '));
     await ctx.close();
+    // A phone (390 x 844, a finger): a 200 x 50 sheet scrolls inside the window, the tabs are a finger's size, and the
+    // gold button is under the grid and on screen (review 1).
+    const pctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: engine === 'chromium' });
+    const pp = await pctx.newPage(); const perr = []; pp.on('pageerror', (e) => perr.push(String(e && e.message)));
+    await pp.route('**/*', routes);
+    await pp.goto('http://kosmos-remote.test/', { waitUntil: 'load' });
+    await pp.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvSheetInto === 'function');
+    await pp.evaluate((id) => {
+      const strip = document.createElement('div'); strip.setAttribute('data-pv-test', ''); strip.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:55;background:#fff;';
+      strip.innerHTML = pjAttachmentCard({ name: 'Big.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 68000, kind: 'file', url: '/api/attachment/' + id });
+      document.body.appendChild(strip);
+    }, WIDE);
+    await pp.click('[data-pv-test] a.att');
+    await pp.waitForSelector('#pv-preview .pv-grid');
+    const ph = await pp.evaluate(() => {
+      const w = document.querySelector('#pv-preview .pv-grid-wrap').getBoundingClientRect(), d = document.getElementById('pv-do').getBoundingClientRect();
+      const tabs = [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => Math.round(t.getBoundingClientRect().height));
+      const wrap = document.querySelector('#pv-preview .pv-grid-wrap');
+      return { coarse: matchMedia('(pointer: coarse)').matches, tabs, inside: w.left >= 0 && w.right <= innerWidth + 0.5, scrolls: wrap.scrollWidth > wrap.clientWidth && wrap.scrollHeight > wrap.clientHeight,
+        below: d.top >= w.bottom - 1 && d.bottom <= innerHeight, noSideways: document.documentElement.scrollWidth <= innerWidth + 1, rows: document.querySelectorAll('#pv-preview .pv-grid tbody tr').length };
+    });
+    say(ph.coarse && ph.tabs.length === 2 && ph.tabs.every((h) => h >= 44), T + ' phone: the sheet tabs are a finger\'s size (44 px or more)', JSON.stringify(ph));
+    say(ph.rows === 200 && ph.inside && ph.scrolls && ph.below && ph.noSideways, T + ' phone: a 200 x 50 sheet scrolls inside the window, the gold button under it and on screen, no sideways page scroll', JSON.stringify(ph));
+    say(perr.length === 0, T + ' phone: no page errors', perr.slice(0, 3).join(' | '));
+    await pctx.close();
   } finally { await browser.close(); }
 }
 

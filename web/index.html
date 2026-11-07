@@ -7935,6 +7935,7 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
   color: rgba(255, 255, 255, .78); font: 600 .8125rem var(--font-ui); cursor: pointer; white-space: nowrap; }
 .pv-tab[aria-selected="true"] { background: #fff; color: #14161a; }
 .pv-tab:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@media (pointer: coarse) { .pv-tab { min-height: 44px; } }   /* a finger's target on a phone (review 1) */
 .pv-grid-wrap { overflow: auto; min-height: 0; max-height: 100%; width: fit-content; max-width: 100%; border-radius: 6px; background: #fff; }   /* as wide as its table, never a white slab past the last column */
 .pv-grid { border-collapse: separate; border-spacing: 0; font: 13px/1.35 var(--font-ui); color: #1c1b19; }
 .pv-grid th, .pv-grid td { padding: 4px 8px; border-right: 1px solid #e6e3dc; border-bottom: 1px solid #e6e3dc; text-align: left;
