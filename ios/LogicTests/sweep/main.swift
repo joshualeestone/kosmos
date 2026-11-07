@@ -219,7 +219,12 @@ do {
     let orbSrc = repoText("ios/Kosmos/KosmosOrb.swift")
     // KosmosOrb.swift is skipped by the offender scan, so it may declare only the orb, WaitOrb and WaitTick at its top level:
     // no other type, alias, extension or function a fourth screen could draw the orb through (review 4).
-    let topLevel = orbSrc.split(separator: "\n").filter { l in ["struct ", "class ", "enum ", "typealias ", "extension ", "func ", "let ", "var ", "private ", "fileprivate ", "public ", "final ", "actor "].contains(where: { l.hasPrefix($0) }) }.map(String.init)
+    // Every line that starts at column 0 and is not a comment, an import or a closing brace (review 8: a keyword list missed
+    // an attribute-led line such as `@MainActor func`), so anything new at the top level shows up, however it begins.
+    let topLevel = orbSrc.split(separator: "\n").filter { l in
+        guard let c = l.first, c != " ", c != "\t" else { return false }
+        return !l.hasPrefix("//") && !l.hasPrefix("/*") && !l.hasPrefix("*") && !l.hasPrefix("import ") && l != "}"
+    }.map(String.init)
     let orbFileOk = topLevel == ["struct KosmosOrb: View {", "struct WaitOrb: View {", "struct WaitTick: View {"]
     check(orbFileOk, "KosmosOrb.swift declares only KosmosOrb, WaitOrb and WaitTick at its top level (\(topLevel))")
     check(waitOrbs == ["AgentsView.swift": 1, "NewAgentView.swift": 1] && allowHas == 1 && connectingHas == 1 && outsideHas == 1
