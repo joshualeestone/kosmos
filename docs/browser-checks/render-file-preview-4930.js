@@ -569,6 +569,12 @@ async function runSheet(engine, say) {
     say(JSON.stringify(g.tabs) === '["Budget*","Notes","Chart"]' && g.cells[0] === 'Item' && g.cells[3] === '12.5', T + ': a spreadsheet opens as a grid, its sheets as tabs', JSON.stringify(g));
     say(g.cells[2] === '<img src=x onerror="window.__ran=1">' && g.imgs === 0 && !g.ran, T + ': a cell\'s words are text, never markup', JSON.stringify(g.cells));
     say(g.notes.some((n) => /first 200 rows/.test(n)) && g.notes.some((n) => /no saved value/.test(n)) && g.below && g.name === 'Budget 2026.xlsx', T + ': it says when it is cut short or values are missing; the name and the gold button are under it', JSON.stringify(g));
+    // The keyboard reaches the sheets: Tab from the X goes to the selected tab, then the grid (review 1).
+    await pg.focus('#pv-x'); await pg.keyboard.press('Tab');
+    const t1 = await pg.evaluate(() => document.activeElement.className + ':' + document.activeElement.textContent.slice(0, 12));
+    await pg.keyboard.press('Tab');
+    const t2 = await pg.evaluate(() => document.activeElement.className);
+    say(/pv-tab:Budget/.test(t1) && /pv-grid-wrap/.test(t2), T + ': Tab reaches the selected sheet tab, then the grid', JSON.stringify({ t1, t2 }));
     await pg.focus('#pv-preview .pv-tab'); await pg.keyboard.press('ArrowRight');
     const k = await pg.evaluate(() => ({ sel: [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => t.getAttribute('aria-selected')), cell: (document.querySelector('#pv-preview .pv-grid tbody td') || {}).textContent, row: (document.querySelector('#pv-preview .pv-grid tbody th') || {}).textContent, focus: document.activeElement.textContent }));
     say(k.sel.join() === 'false,true,false' && k.cell === 'done' && k.focus === 'Notes' && k.row === '301', T + ': the arrow keys move between sheets; a sheet starting at row 301 numbers its rows from 301', JSON.stringify(k));

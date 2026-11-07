@@ -77710,7 +77710,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pvClose(); return; }
   if (e.key !== 'Tab') return;
   e.stopPropagation();
-  const f = [back.querySelector('#pv-x'), ...back.querySelectorAll('.pv-acts button, .pv-acts a')].filter(Boolean);   // #8120: Open in Finder beside the action too
+  // #8120: Open in Finder beside the action too; #8122: a spreadsheet's selected tab and its grid (to scroll it), in page order.
+  const f = [...back.querySelectorAll('#pv-x, .pv-tab[aria-selected="true"], .pv-grid-wrap:not([hidden]), .pv-acts button, .pv-acts a')];
   // Every Tab is moved here, never left to the browser: WebKit's own Tab skips buttons (Safari's default), so a step
   // left to it lands on the box instead of the next button.
   e.preventDefault();
