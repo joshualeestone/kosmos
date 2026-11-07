@@ -339,7 +339,8 @@ const POST_FACTS = Object.freeze({
   in: ['sent', 'sent_refused'],
   out: ['taken_down', 'withheld', 'refused', 'refused_empty', 'refused_not_company', 'agent_refused', 'deleted', 'not_sent', 'switch_unreadable', 'policy', 'policy_unreadable', 'before_on'],
   waiting: ['queued', 'capped', 'name_unclaimed', 'paused', 'address_refused', 'held', 'company_off', 'public_off', 'policy_waiting'],   // kosmos#7543: the last three
-  unknown: ['unconfirmed', 'unconfirmed_refused', 'unconfirmed_unasked', 'unconfirmed_taken_back', 'unconfirmed_not_seen', 'unconfirmed_stopped'],   // kosmos#8216: the comment-only two   // taken back, and never heard whether the first send arrived
+  // taken back, and never heard whether the first send arrived; kosmos#8216: the last two are a comment's look
+  unknown: ['unconfirmed', 'unconfirmed_refused', 'unconfirmed_unasked', 'unconfirmed_taken_back', 'unconfirmed_not_seen', 'unconfirmed_stopped'],
   unread: ['unreadable'],
 });
 const POST_FACT_WORDS = Object.freeze({
