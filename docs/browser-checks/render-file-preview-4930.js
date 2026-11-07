@@ -584,7 +584,7 @@ async function runSheet(engine, say) {
       if (!c) return null; const r = c.getBoundingClientRect(), fs = parseFloat(getComputedStyle(document.documentElement).fontSize);
       return { w: r.width, max: 24 * fs, cut: c.scrollWidth > c.clientWidth + 1, oneLine: r.height < 30, title: (c.title || '').length, ell: getComputedStyle(c).textOverflow }; });
     say(!!lc && lc.w <= lc.max + 0.5 && lc.cut && lc.oneLine && lc.title > 200 && lc.ell === 'ellipsis', T + ': a long cell is cut to one line at 24rem with an ellipsis, the whole value on hover', JSON.stringify(lc));
-    say(g.notes.some((n) => /first 200 rows/.test(n)) && g.notes.some((n) => /no saved value/.test(n)) && g.below && g.name === 'Budget 2026.xlsx', T + ': it says when it is cut short or values are missing; the name and the gold button are under it', JSON.stringify(g));
+    say(g.notes.some((n) => /goes on past what is shown/.test(n)) && g.notes.some((n) => /no saved value/.test(n)) && g.below && g.name === 'Budget 2026.xlsx', T + ': it says when it is cut short or values are missing; the name and the gold button are under it', JSON.stringify(g));
     // The keyboard reaches the sheets: Tab from the X goes to the selected tab, then the grid (review 1).
     await pg.focus('#pv-x'); await pg.keyboard.press('Tab');
     const t1 = await pg.evaluate(() => document.activeElement.className + ':' + document.activeElement.textContent.slice(0, 12));
@@ -618,11 +618,18 @@ async function runSheet(engine, say) {
     say(em.notes.includes('This spreadsheet is empty.') && !em.grid && !em.card, T + ': an empty workbook says it is empty', JSON.stringify(em));
     await open(MORE, 'Many.xlsx'); const mo = await words();
     say(mo.grid && mo.notes.includes('3 more sheets are not shown.'), T + ': sheets past the ones shown are counted', JSON.stringify(mo));
+    const one = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap'); return { tabs: document.querySelectorAll('#pv-preview .pv-tab').length, role: w.getAttribute('role'), name: w.getAttribute('aria-label'), by: w.getAttribute('aria-labelledby') }; });
+    say(one.tabs === 0 && one.role === 'region' && one.name === 'A' && !one.by, T + ': a one-sheet workbook has no tabs and its grid is named for its sheet', JSON.stringify(one));
     // ArrowLeft from the first sheet goes round to the last.
     await open(OK, 'Budget 2026.xlsx');
     await pg.focus('#pv-preview .pv-tab'); await pg.keyboard.press('ArrowLeft');
     const wrapL = await pg.evaluate(() => ({ sel: [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => t.getAttribute('aria-selected')).join(), focus: document.activeElement.textContent }));
     say(wrapL.sel === 'false,false,true' && wrapL.focus === 'Chart', T + ': ArrowLeft on the first sheet goes round to the last', JSON.stringify(wrapL));
+    await pg.keyboard.press('Home');
+    const home = await pg.evaluate(() => ({ sel: [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => t.getAttribute('aria-selected')).join(), focus: document.activeElement.textContent, controls: document.activeElement.getAttribute('aria-controls'), panel: !!document.getElementById(document.activeElement.getAttribute('aria-controls') || 'x') }));
+    await pg.keyboard.press('End');
+    const end = await pg.evaluate(() => document.activeElement.textContent);
+    say(home.sel === 'true,false,false' && home.focus === 'Budget' && home.panel && end === 'Chart', T + ': Home and End go to the first and last sheet; a tab names the panel it controls', JSON.stringify({ home, end }));
     // Closed before the answer: nothing is drawn afterwards, and nothing reopens.
     await pg.evaluate((id) => {
       pvClose(); document.querySelectorAll('[data-pv-test]').forEach((n) => n.remove());

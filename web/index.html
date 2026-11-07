@@ -77407,12 +77407,12 @@ function pvSheetInto(stage, data) {
   const box = document.createElement('div'); box.className = 'pv-sheet';
   const sheets = data.sheets || [];
   const tabs = document.createElement('div'); tabs.className = 'pv-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Sheets');
-  const panel = document.createElement('div'); panel.className = 'pv-grid-wrap'; panel.setAttribute('role', 'tabpanel'); panel.tabIndex = 0;
+  const panel = document.createElement('div'); panel.className = 'pv-grid-wrap'; panel.setAttribute('role', 'tabpanel'); panel.tabIndex = 0; panel.id = 'pv-sheet-panel';
   const notes = document.createElement('div');
   const show = (i) => {
     [...tabs.children].forEach((t, k) => { t.setAttribute('aria-selected', String(k === i)); t.tabIndex = k === i ? 0 : -1; });
     const sh = sheets[i]; panel.textContent = ''; notes.textContent = '';
-    if (tabs.children[i]) panel.setAttribute('aria-labelledby', tabs.children[i].id);
+    if (sheets.length > 1 && tabs.children[i]) panel.setAttribute('aria-labelledby', tabs.children[i].id);
     // Said under the sheet, in the viewer's own (light) words colour, never inside the white panel.
     if (sh.notGrid) { notes.appendChild(note('This sheet is not a table of values, so it is not shown here.')); panel.hidden = true; return; }
     if (!sh.rows.length) { notes.appendChild(note('This sheet is empty.')); panel.hidden = true; return; }
@@ -77425,24 +77425,26 @@ function pvSheetInto(stage, data) {
     sh.rows.forEach((r, ri) => {
       const tr = body.insertRow(); const th = document.createElement('th'); th.scope = 'row'; th.textContent = String((Number(sh.firstRow) || 1) + ri); tr.appendChild(th);   // firstRow: data starting past row 200 (Kitty's reader)
       r.forEach((v) => {
-        const td = tr.insertCell(); if (v && /^-?[0-9][0-9.,]*$/.test(v)) td.className = 'num';
+        const td = tr.insertCell(); if (typeof v === 'string' && /^[-+(]?[$\u00a3\u20ac]?[0-9][0-9.,]*%?\)?$/.test(v.trim())) td.className = 'num';   // 1,200 -3.5 $40 (12) 7%
         if (v === '' || v == null) return;
         const c = document.createElement('span'); c.className = 'pv-cell'; c.textContent = v; if (String(v).length > 40) c.title = v; td.appendChild(c);
       });
     });
     panel.appendChild(t);
-    if (sh.cut) notes.appendChild(note('Showing the first 200 rows and 50 columns. Download it to see the rest.'));
+    if (sh.cut) notes.appendChild(note('This sheet goes on past what is shown here (up to 200 rows and 50 columns). Download it to see all of it.'));
   };
   sheets.forEach((sh, i) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'pv-tab'; b.setAttribute('role', 'tab');
-    b.id = 'pv-tab-' + i; b.textContent = sh.name; b.addEventListener('click', () => show(i));
+    b.id = 'pv-tab-' + i; b.textContent = sh.name; b.setAttribute('aria-controls', 'pv-sheet-panel'); b.addEventListener('click', () => show(i));
     b.addEventListener('keydown', (e) => {   // the tab pattern: arrows move between sheets
-      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-      e.preventDefault(); const n = (i + (e.key === 'ArrowRight' ? 1 : -1) + sheets.length) % sheets.length; show(n); tabs.children[n].focus();
+      const to = { ArrowRight: (i + 1) % sheets.length, ArrowLeft: (i - 1 + sheets.length) % sheets.length, Home: 0, End: sheets.length - 1 }[e.key];
+      if (to === undefined) return;
+      e.preventDefault(); show(to); tabs.children[to].focus();
     });
     tabs.appendChild(b);
   });
   if (sheets.length > 1) box.appendChild(tabs);
+  else { panel.removeAttribute('role'); panel.setAttribute('role', 'region'); panel.setAttribute('aria-label', sheets[0] ? sheets[0].name : 'Sheet'); }   // one sheet: no tabs, so the grid is named for its sheet (review 1)
   box.appendChild(panel); box.appendChild(notes);
   if (data.someNoValues) box.appendChild(note('Some cells hold formulas with no saved value, so they are blank here.'));
   if (data.moreSheets) box.appendChild(note(data.moreSheets === 1 ? 'One more sheet is not shown.' : data.moreSheets + ' more sheets are not shown.'));
@@ -77461,7 +77463,7 @@ function pvTextStage(stage, a, how, fileCard) {
   const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The start of the file'; stage.appendChild(c);
 }
 function pvSheetLoad(stage, url, fileCard, orText) {
-  const wait = document.createElement('p'); wait.className = 'pv-note'; wait.textContent = 'Opening the spreadsheet\u2026';
+  const wait = document.createElement('p'); wait.className = 'pv-note'; wait.setAttribute('role', 'status'); wait.textContent = 'Opening the spreadsheet\u2026';
   stage.appendChild(wait);
   const card = (because) => { stage.textContent = ''; if (orText) { orText(); return; } stage.appendChild(fileCard()); if (because) { const n = document.createElement('p'); n.className = 'pv-note'; n.textContent = because; stage.appendChild(n); } };
   fetch(url, { cache: 'no-store' }).then(async (r) => ({ status: r.ok, j: await r.json().catch(() => null) })).then(({ status, j }) => {
