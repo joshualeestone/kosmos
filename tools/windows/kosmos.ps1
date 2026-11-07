@@ -80,6 +80,41 @@ if ($pipedIn -and $PSCommandPath) {
     if ($fileValue) { break }
   }
 }
+# kosmos#8213: an apostrophe inside plain single quotes ('I can't and won't') ends the quote early. With an odd count
+# PowerShell refuses the line before this script runs ("The string is missing the terminator"), which the agent's
+# instructions now name. With an even count it PARSES, and the text arrives here cut into pieces with the apostrophes
+# gone (measured, pwsh 7: 'I can't and won't do it' arrives as "I can", "t", "and", "wont do it"), which the CLI would
+# join and send. So the line as typed ($MyInvocation.Line, this call only) is read with PowerShell's own parser, and
+# two shapes refuse before anything is sent:
+#   (a) a single-quoted string with a word touching its end ('I can't  ->  'I can' then t);
+#   (b) a bare word holding an apostrophe (won't do it'  or  Bob's'), unless it starts with - (--channel='eng').
+# A here-string never holds a StringLiteral token, and 'it''s' is one token, so neither refuses. When the line is not
+# readable (started with -File, or no line at all), nothing is checked and the call runs as before.
+$splitQuote = $false
+try {
+  $line = $MyInvocation.Line
+  $at = $MyInvocation.OffsetInLine
+  if ($line -and $at -gt 0) {
+    $tokens = $null; $parseErrors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseInput($line, [ref]$tokens, [ref]$parseErrors)
+    $mine = New-Object System.Collections.ArrayList
+    foreach ($t in $tokens) {
+      if ($t.Extent.StartOffset -lt ($at - 1)) { continue }
+      if (@('Pipe', 'Semi', 'NewLine', 'AndAnd', 'OrOr', 'EndOfInput') -contains [string]$t.Kind) { if ($mine.Count) { break } else { continue } }
+      [void]$mine.Add($t)
+    }
+    $word = @('Identifier', 'Generic', 'Number')
+    for ($i = 0; $i -lt $mine.Count -and -not $splitQuote; $i++) {
+      $k = [string]$mine[$i].Kind
+      if ($k -eq 'Generic' -and $mine[$i].Text.Contains("'") -and -not $mine[$i].Text.StartsWith('-')) { $splitQuote = $true }
+      if ($k -eq 'StringLiteral' -and $i + 1 -lt $mine.Count -and $word -contains [string]$mine[$i + 1].Kind -and $mine[$i + 1].Extent.StartOffset -eq $mine[$i].Extent.EndOffset) { $splitQuote = $true }
+    }
+  }
+} catch { $splitQuote = $false }
+if ($splitQuote) {
+  [Console]::Error.WriteLine("An apostrophe inside single quotes ended your text early, so PowerShell cut it into pieces and dropped the apostrophe. Nothing was sent. Pass the text as one single-quoted here-string: @' at the end of the command's line, the text, then '@ at the start of its own line. (Inside plain single quotes, an apostrophe is written twice: can''t.)")
+  exit 2
+}
 $pipeFlag = @()
 if ($pipedIn) { $pipeFlag = @('--kosmos-ps-pipeline') }
 $argvFile = $null
