@@ -60,8 +60,26 @@ enum Board {
             if forgottenSince && byPerson { return nil }
             return forgottenSince && !why.isEmpty ? why : chatClosedRebuilt
         case .relaunched:
-            return "the app was started again (iOS may have closed it while you were away, or it was closed by hand)"
+            // Josh 11-07 (TestFlight, "kind of a weird error"): iOS ending the app while away is not a loss the person needs
+            // told about. The chat is reopened instead (chatToReopen); an older build's kept name says nothing.
+            return nil
         }
+    }
+
+    /// kosmos#8055: the open chat kept across a cold start, as "<computer host>\n<agent session>\n<name>", so a launch
+    /// after iOS ended the app reopens it, on the same computer only.
+    static let openChatKeptKey = "kosmos.openChat"
+    static func keptChat(host: String, session: String, name: String) -> String? {
+        guard !host.isEmpty, !session.isEmpty, !host.contains("\n"), !session.contains("\n") else { return nil }
+        return host + "\n" + session + "\n" + name.replacingOccurrences(of: "\n", with: " ")
+    }
+    /// The chat to reopen on a launch, from what was kept: only when the computer this launch opens on is the one it was
+    /// open on. Nil for anything malformed, or no computer yet.
+    static func chatToReopen(kept: String?, hostNow: String?) -> (session: String, name: String)? {
+        guard let kept, let hostNow, !hostNow.isEmpty else { return nil }
+        let parts = kept.components(separatedBy: "\n")
+        guard parts.count == 3, parts[0] == hostNow, !parts[1].isEmpty else { return nil }
+        return (parts[1], parts[2])
     }
     /// What the Agents tab finds when it appears with no chat open: the chat it lost while gone (`was`, the open chat's
     /// epoch, with the chats' epoch and last forget now), or one recorded open before the app started again (`keptName`),

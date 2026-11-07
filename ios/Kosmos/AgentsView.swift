@@ -133,9 +133,14 @@ struct AgentsView: View {
             if let a = openAgent {
                 client.chatOpen = (session: a.session, name: a.name, epoch: client.chatEpoch); client.chatClosedAway = false; client.chatClosedAwaySaidBy = nil
                 UserDefaults.standard.set(a.name, forKey: Board.openChatKey); closedNote = nil
+                // kosmos#8055: kept for a cold start, with the computer it is on, so a launch after iOS ended the app reopens it.
+                if let kept = Board.keptChat(host: client.macURL?.host ?? "", session: a.session, name: a.name) {
+                    UserDefaults.standard.set(kept, forKey: Board.openChatKeptKey)
+                } else { UserDefaults.standard.removeObject(forKey: Board.openChatKeptKey) }
             } else if !client.chatClosedAway {
                 client.chatOpen = nil
                 UserDefaults.standard.removeObject(forKey: Board.openChatKey)
+                UserDefaults.standard.removeObject(forKey: Board.openChatKeptKey)
             }
         }
         .onChange(of: agentRequest) { _ in openRequested() }
@@ -185,6 +190,15 @@ struct AgentsView: View {
     // kosmos#8055: what the Agents tab finds when it appears with no chat open (see Board.chatFoundClosed).
     private func findClosedChat() {
         guard openAgent == nil, agentRequest == nil, push.agentToOpen == nil else { return }
+        // kosmos#8055 (Josh 11-07): a launch after iOS ended the app, with a chat open on this same computer, reopens it
+        // rather than saying it closed. Only on a launch (nothing this run has opened a chat yet).
+        if client.chatOpen == nil,
+           let back = Board.chatToReopen(kept: UserDefaults.standard.string(forKey: Board.openChatKeptKey), hostNow: client.macURL?.host) {
+            UserDefaults.standard.removeObject(forKey: Board.openChatKey)
+            openAgent = client.agents.first(where: { $0.session == back.session })
+                ?? Board.Agent(session: back.session, name: back.name, role: nil, state: "idle", task: nil, needsYou: false)
+            return
+        }
         // A close while away this tab already said is not said twice; a new tab (the old one torn down) says it.
         if client.chatClosedAwaySaidBy != tabID {
             let was = client.chatOpen.map { (name: $0.name, epoch: $0.epoch) }
@@ -196,6 +210,7 @@ struct AgentsView: View {
         }
         client.chatOpen = nil; client.chatClosedAway = false; client.chatClosedAwaySaidBy = nil
         UserDefaults.standard.removeObject(forKey: Board.openChatKey)
+        UserDefaults.standard.removeObject(forKey: Board.openChatKeptKey)
     }
 
     // kosmos#8055: the link closed the chat, by a press on back or by the screen itself, told apart by how soon after the

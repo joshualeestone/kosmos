@@ -1329,6 +1329,7 @@ final class BoardClient: ObservableObject {
     /// chat's record keeps only that one was open (and its epoch), so a tab drawn again still says a chat closed.
     private func blankOpenChat() {
         UserDefaults.standard.removeObject(forKey: Board.openChatKey)
+        UserDefaults.standard.removeObject(forKey: Board.openChatKeptKey)   // never reopened on another account
         chatOpen = chatOpen.map { (session: "", name: "", epoch: $0.epoch) }
     }
     /// kosmos#8055: when the app last came to the front (ContentView), to tell the screen's own close from a press on back.
