@@ -29,7 +29,8 @@ part), `refreshEveryone` (takes a seat's old section out, never reported as a ch
 For a seat registered before this shipped (it holds a key): nothing new is added to its profile, and what was added
 can still be taken back. The install-group pass counts a seat as removed (never sent the group, cleared if it may be
 grouped), the avatar pass gives a seat no picture (one already sent is taken down), the industry pass sends it no new
-industry (a clear still goes), and the owner-link pass skips it (unlinking is its own loop). `agentCallSteps` lets
+industry (a clear still goes), and the owner-link pass links it to no owner; an owner link it already has stays
+(see Not done). `agentCallSteps` lets
 through only a take-back by a seat holding a key: a DELETE (unfollow, unendorse) and a vote cleared to 0.
 
 Not gated, on purpose: `asAgent`. Review 1 found that a refused answer there reads as an outage to the passes, so one
@@ -55,9 +56,14 @@ board-level marker a person cannot set by accident on a real board.
 ## Not done
 - A seat that registered before this ships keeps its account, and anything it already sent stays until deleted
   (deletes work as on main). None is known: Renet's post did not go out.
-- Measured for an old seat: no request as its account in a sweep (which covers the install-group pass: it sent the
-  group before), no industry, an unfollow let through while a follow is refused. Reasoned: the owner-link skip and
-  the avatar take-down (one needs a coordinator, the other a picture file).
+- Measured for an old seat: nothing new is written as its account in a sweep (it sent the group before the fix), no
+  industry, its group and picture are taken down, and an unfollow is let through while a follow is refused. It still
+  reads as its account where the passes look for its own posts, and its deletes go out as it: reads and take-backs.
+  Reasoned: the owner-link skip (it needs a coordinator).
+- An owner link an old seat already has stays on its profile: only "Forget Kosmos+" unlinks, and no such seat is
+  known. Clearing it would mean an unlink path for seats; left out on purpose.
+- The birth gate tests `wantedKey || name`, where every other gate tests the stored session name; slugFor makes the
+  two the same for any name that reaches it.
 - `kosmos community status` for a seat's post stored before this (none can be stored after): it waits to join.
 
 ## Safe by default
@@ -65,7 +71,7 @@ Once this ships (the first release after it merges), a seat named with the prefi
 to switch off. Until then: `PUT /api/community-setting {"on":false}` on the sandbox board before any seat starts.
 
 ## Review ledger (challenge loop)
-4 blind iterations, opus and sonnet alternating (1, 3 opus; 2, 4 sonnet); converged at iteration 4 (no new BLOCKER,
+Blind iterations, opus and sonnet alternating (odd opus, even sonnet); converged at iteration 4, then reopened by the fixture fix (iteration 5) (no new BLOCKER,
 WARNING or CONVENTION after deduplication).
 - 1: gating asAgent stalled the profile passes and blocked deletes (removed); refreshSelf ungated; an old section kept
   through board starts and agentInCommunity still counted a seat; the old-key test did not reach asAgent; plan claims.
@@ -75,5 +81,9 @@ WARNING or CONVENTION after deduplication).
 - 4: deferred: a future space call that bypassed both gates (no such path today: every space call goes through
   agentCallSteps or ensureRegistered); checked and not an issue: a stored seat post makes no per-sweep noise
   (sendPost returns on no key, silently). The comment-beside-the-constant note repeats iteration 2.
+- 5 (after the suite caught fixture-discipline on hand-built roster rows, fixed by using the fleet's real cards): an
+  old seat's owner link stays (written in Not done); the avatar and grouped install-group take-downs untested (tested
+  now); the "no request" claim overstated (reworded); a test makes a real agent with the prefix (the reason is stated
+  beside it).
 Deferred NITs: one helper for the three route refusals; the "Kept on this board" words are a backstop for a case
-that cannot now occur.
+that cannot now occur; the birth gate's key (above); a refused seat's log line says "removed".
