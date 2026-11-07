@@ -109,9 +109,13 @@ test('kosmos#8212: an agent\'s own needs_you over a day old is told once, in wor
   const { sent } = run([q], reports, { reminded });
   assert.equal(sent.length, 1, 'a three-day-old question was not told about');
   assert.equal(sent[0].text, 'Kosmos here, a reminder, not an answer from the person: Your own `needs_you` report has been standing for 3 days. '
-    + 'If what it waited on has gone away, clear it with: kosmos report clear. If you still need the person, leave it. '
+    + 'If nobody needs to answer it any more, clear it with: kosmos report clear. '
+    + 'If you still need the person, leave it, and there is nothing to send them. '
     + 'To see your card as the person sees it, run: kosmos report show');
   assert.ok(!sent[0].text.includes('Should I wait'), 'the agent\'s own question was repeated to it');
+  // The clear condition is report show's own for needs_you, so the agent is taught one rule.
+  const src = fs.readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
+  assert.ok(src.includes("'If nobody needs to answer it any more'"), 'CONTROL: report show no longer says it this way');
   assert.equal(reminded.get(q.sessionName), reports[q.sessionName].at, 'the reminder was not recorded');
   assert.deepEqual(run([q], reports, { reminded, now: NOW + 60e3 }).sent, [], 'told again about the same question');
 });

@@ -15,11 +15,10 @@
  *  - its card is ours, a Claude agent, not mid-turn (activeWhileWaiting: a later sweep tells it), and not a switched-off
  *    swarm.
  * Its screen is read first (screenOpen), and nothing is typed while a menu or a prompt is open there or the screen
- * cannot be read: deliverAutomatic's own menu hold reads the screen only for a needs_you or working card, never for the
- * blocked cards this sweep types to. So Claude only (those readers know Claude Code's screens), and never an agent
- * reached through a channel (a Windows agent, whose screen this computer cannot read).
- * A needs_you is a question waiting on the person, so the line for it says it is not their answer (nudgeText). A question
- * still open on the screen is refused by screenOpen; one held until the person is back is held back by untilDefers.
+ * cannot be read. deliverAutomatic's own menu hold reads the screen for a needs_you or working card but not for a blocked
+ * one, so for a needs_you card it is a second read and for a blocked card screenOpen is the only one. So Claude only
+ * (those readers know Claude Code's screens), and never an agent reached through a channel (a Windows agent, whose screen
+ * this computer cannot read). A needs_you is a question waiting on the person, so its line says it is not their answer.
  *
  * How often: once per waiting run, kept on disk (remindedFile(), session -> the run's start, runOf below), so a board
  * restart or an update does not repeat it. Re-reporting the same question is the same run; a new question starts a new
@@ -85,10 +84,11 @@ function nudgeText(rep, ageMs) {
   const age = cardlabel.standingFor(ageMs);
   // Who wrote it, as report show says it: the agent, or someone else / no writer recorded ("This").
   const whose = rep.by === 'agent' ? 'Your own `' + rep.state + '` report' : 'This `' + rep.state + '` report';
-  /* kosmos#8212: for a question, said first that this line is Kosmos and not the person answering it. */
+  /* kosmos#8212: a question is opened with "not an answer from the person", and its clear condition is report show's. */
   if (rep.state === 'needs_you') {
     return 'Kosmos here, a reminder, not an answer from the person: ' + whose + ' has been standing for ' + age + '. '
-      + 'If what it waited on has gone away, clear it with: kosmos report clear. If you still need the person, leave it. '
+      + 'If nobody needs to answer it any more, clear it with: kosmos report clear. '
+      + 'If you still need the person, leave it, and there is nothing to send them. '
       + 'To see your card as the person sees it, run: kosmos report show';
   }
   return 'Kosmos here, a reminder: ' + whose + ' has been standing for ' + age + '. '
@@ -184,8 +184,8 @@ function sweepOnce(o) {
       let heldBy = null;
       try { const r = o.deliver(session, nudgeText(rep, p.ageMs), o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = (r && r.heldBy) || null; }
       catch (err) { state = 'threw: ' + String((err && err.message) || err); }
-      /* Held (deliverAutomatic's holds; for a blocked Claude card screenOpen above is what protects it, and these are a
-         backstop): nothing typed and no try spent. Logged once
+      /* Held (deliverAutomatic's holds, a backstop to screenOpen above; its menu hold reads the screen for a needs_you
+         card, not a blocked one): nothing typed and no try spent. Logged once
          per report with what held it, so a person asking why an agent was never reminded finds the answer in the log. */
       if (held) {
         const why = p.because + '; held' + (heldBy ? ' (' + heldBy + ')' : '');
