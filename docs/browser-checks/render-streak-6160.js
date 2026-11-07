@@ -148,7 +148,7 @@ const read = (pg) => pg.evaluate(() => {
   // Each width twice: the switcher's one-time tip showing (it sits under the switcher), and already seen (the usual case).
   // `late`: the computers answer is held 2 s, so the switcher arrives AFTER the pill is out (only the pill's watch can
   // then move it; measured: without the delay the switcher usually arrived first and the watch was never exercised).
-  for (const [vp, tipSeen, late] of [[{ width: 1400, height: 800 }, false, false], [{ width: 1400, height: 800 }, true, false], [{ width: 1400, height: 800 }, true, true], [{ width: 800, height: 800 }, false, false], [{ width: 800, height: 800 }, true, false]]) {
+  for (const [vp, tipSeen, late] of [[{ width: 1400, height: 800 }, false, false], [{ width: 1400, height: 800 }, true, false], [{ width: 1400, height: 800 }, true, true], [{ width: 1400, height: 800 }, false, true], [{ width: 800, height: 800 }, false, false], [{ width: 800, height: 800 }, true, false]]) {
     const ctx = await b.newContext({ viewport: vp });
     if (tipSeen) await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch { /* no storage */ } });
     // Two computers, as /api/remote/computers answers on a Kosmos+ account with a second Mac (render-computers-4648's shape).
@@ -156,6 +156,7 @@ const read = (pg) => pg.evaluate(() => {
       { name: 'Office Mac mini', address: 'office.kosmosplus.example', this: true, online: true },
       { name: 'Home Mac mini', address: 'home.kosmosplus.example', this: false, online: true }] }) }).catch(() => {}); });
     const { pg } = await open(ctx, () => ({ count: 12, congrats: true }), { key: 'switcher ' + vp.width + (tipSeen ? ', tip seen' : '') + (late ? ', late' : ''), viewport: vp });
+    if (late) await pillOut(pg);   // review 5: the premise reads a pill that is really out, not a fixed sleep's guess
     const before = late ? await pg.evaluate(() => { const p = document.querySelector('#kpill.in'); const w = document.getElementById('worldsw'); return { pill: Boolean(p), below: Boolean(p && p.classList.contains('below')), switcher: Boolean(w && !w.hidden && w.getClientRects().length) }; }) : null;
     await pg.waitForFunction(() => { const w = document.getElementById('worldsw'); return w && !w.hidden && w.getClientRects().length > 0; }, null, { timeout: 8000 }).catch(() => {});
     await pg.waitForTimeout(900);   // past a 400 ms look, so a pill the switcher arrived under has had its chance to fold
@@ -174,6 +175,9 @@ const read = (pg) => pg.evaluate(() => {
     say(g.switcher && (g.pill || g.note || g.badge) && !g.coversSwitcher && !g.coversTabs, tag + ': the day\'s words show, and the pill covers neither the computer switcher nor the tabs', JSON.stringify(g));
     // With the tip already seen at a desk, the pill has room below the mark: a person with two computers sees the pill.
     if (tipSeen && vp.width === 1400) say(g.pill && g.below && !g.tip, tag + ': the pill comes out below the mark', JSON.stringify(g));
+    // Review 5: arriving late with the tip showing, there is no room left anywhere: the day's words go to the notice,
+    // not straight to the badge (a sentence seen for under half a second is not seen).
+    if (late && !tipSeen) say(g.note && !g.pill, tag + ': with no room left, the day\'s words are handed to the notice', JSON.stringify(g));
     await pg.screenshot({ path: path.join(OUT, 'streak-switcher-' + vp.width + (tipSeen ? '-seen' : '') + '.png') }).catch(() => {});
     await pg.close(); await ctx.close();
   }
@@ -233,7 +237,8 @@ const read = (pg) => pg.evaluate(() => {
     await pg.close();
   }
 
-  // review 3: a pill folded before its first frame (Escape, or a hidden tab) never comes out. Frames are held 900 ms.
+  // review 3: a pill folded before its first frame (here Escape) never comes out. Frames are held 900 ms. (A hidden tab
+  // does not fold it: it waits to be seen, review 4.)
   {
     const ctx = await b.newContext();
     await ctx.addInitScript(() => { const raf = window.requestAnimationFrame.bind(window); window.requestAnimationFrame = (f) => setTimeout(() => raf(f), 900); });
@@ -277,6 +282,32 @@ const read = (pg) => pg.evaluate(() => {
     await pg.close(); await ctx.close();
   }
 
+  // review 5: on a tablet (no hover) a tap on the K mark leaves :hover stuck; it must not hold the pill
+  {
+    const ctx = await b.newContext({ viewport: { width: 1024, height: 768 }, isMobile: true, hasTouch: true });
+    const pg = await ctx.newPage();
+    await pg.route('**/api/streak', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }).catch(() => {}));
+    await gotoReady(pg);
+    const hovers = await pg.evaluate(() => matchMedia('(hover: hover)').matches);
+    const out = await pillOut(pg);
+    await pg.tap('#klink').catch(() => {});
+    await pg.waitForTimeout(7500);
+    const g = await read(pg);
+    say(!hovers && out, 'tablet: (premise) a screen with no hover, and the pill came out', JSON.stringify({ hovers, out }));
+    say(!g.pill.shown, 'tablet: a tap on the K mark does not hold the pill; it folds', JSON.stringify({ pill: g.pill.shown, badge: g.badge }));
+    await pg.close(); await ctx.close();
+  }
+
+  // review 5: a height-only resize (a tablet toolbar while scrolling) leaves the pill out; the width resize arm is the control
+  {
+    const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'height resize' });
+    await pillOut(pg);
+    await pg.setViewportSize({ width: 1400, height: 640 }); await pg.waitForTimeout(450);
+    const g = await read(pg);
+    say(g.pill.shown, 'height resize: the pill stays out when only the height changes', JSON.stringify(g.pill.shown));
+    await pg.close();
+  }
+
   // reload the same day: the badge is back, with no pill; a badge folded yesterday is not (control)
   for (const [when, want] of [['today', true], ['yesterday', false]]) {
     const ctx = await b.newContext();
@@ -293,7 +324,7 @@ const read = (pg) => pg.evaluate(() => {
   {
     const ctx = await b.newContext({ reducedMotion: 'reduce' });
     const { pg } = await open(ctx, () => ({ count: 12, congrats: true }), { key: 'reduced' });
-    await pg.waitForTimeout(150);
+    await pg.waitForSelector('#kpill.in', { state: 'attached', timeout: 10000 }).catch(() => {});
     const g = await read(pg);
     say(g.pill.shown && /^0s(, 0s)*$/.test(g.pill.transition), 'reduced: the pill shows, with no transition', JSON.stringify(g.pill));
     await pg.close(); await ctx.close();
