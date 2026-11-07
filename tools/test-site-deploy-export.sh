@@ -152,4 +152,18 @@ git -C "$S" checkout -q -- index.html; rm -f "$S/notes.txt" "$S/dist/build.log"
 man="$(site_deploy_export "$S" "$T/out4")"
 printf '%s\n' "$man" | grep -q "left behind: nothing" && ok "a clean tree reports nothing left behind" || bad "a clean tree reported strays: $man"
 
+
+# ---- kosmos#8167: the staging pkg triple is its own unit, carried beside Kosmos.pkg ----------------
+printf 'SPKG\n' > "$S/dist/Kosmos-staging.pkg"; printf 'y  Kosmos-staging.pkg\n' > "$S/dist/Kosmos-staging.pkg.sha256"; printf 'in\npkg:z\n' > "$S/dist/Kosmos-staging.pkg.inputs"
+rm -rf "$T/out8167"; man="$(site_deploy_export "$S" "$T/out8167" 2>&1)"
+[ -f "$T/out8167/dist/Kosmos-staging.pkg" ] && [ -f "$T/out8167/dist/Kosmos-staging.pkg.sha256" ] && [ -f "$T/out8167/dist/Kosmos-staging.pkg.inputs" ] && ok "8167: the staging pkg triple ships" || bad "8167: the staging pkg triple is incomplete: $man"
+[ -f "$T/out8167/dist/Kosmos.pkg" ] && [ -f "$T/out8167/dist/Kosmos.pkg.inputs" ] && ok "8167: and the prod triple still ships beside it" || bad "8167: the prod triple did not ship beside the staging one"
+printf '%s\n' "$man" | grep -q "carried: the pkg triple (Kosmos-staging.pkg, .sha256, .inputs)" && ok "8167: the manifest names the staging triple" || bad "8167: the manifest did not name the staging triple: $man"
+printf '%s\n' "$man" | grep -q "ignored:   dist/Kosmos-staging.pkg" && bad "8167: the carried staging pkg is also listed as left behind" || ok "8167: a carried staging pkg is not listed as left behind"
+rm "$S/dist/Kosmos-staging.pkg.inputs"; rm -rf "$T/out8167b"
+if site_deploy_export "$S" "$T/out8167b" >/dev/null 2>"$T/err8167"; then bad "8167: a staging pkg without its sidecar did not refuse"; else grep -q "without dist/Kosmos-staging.pkg.inputs" "$T/err8167" && ok "8167: a partial staging triple refuses and names the missing file" || bad "8167: the refusal did not name it: $(cat "$T/err8167")"; fi
+rm -f "$S/dist/Kosmos-staging.pkg" "$S/dist/Kosmos-staging.pkg.sha256"
+mv "$S/dist/Kosmos.pkg" "$T/pkg8167.aside"; rm -rf "$T/out8167c"; man="$(site_deploy_export "$S" "$T/out8167c" 2>&1)"
+printf '%s\n' "$man" | grep -q "carried: no pkg (neither dist/Kosmos.pkg nor dist/Kosmos-staging.pkg" && ok "8167: with neither name present, it says no pkg was carried" || bad "8167: the no-pkg line is wrong: $man"
+mv "$T/pkg8167.aside" "$S/dist/Kosmos.pkg"
 echo "site-deploy-export: $FAILS failures"; [ "$FAILS" -eq 0 ]

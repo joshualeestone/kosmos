@@ -4957,6 +4957,41 @@ function noteTextNow(m, names) {
   } catch { return m.text || null; }
 }
 
+/* kosmos#8036 (Josh's iPhone 11-06 20:25): he pressed Yes on a live permission prompt and it worked, and directly under his Yes
+   the chat said the agent had asked him something. The hook's report only ends at the agent's next report (14 s there; as long
+   as the agent thinks, in general), and until then the thread falls back to its words (#2456) with no menu to offer. A press
+   that closed the prompt is what ended the wait, so it ends here, at once. Its pushes go with it and no "no longer asking" line
+   follows: the person answered it. */
+const pressedWaits = new Map();   // session -> the `at` of the wait whose prompt a press is on: a report can land while the press settles
+function permissionWaitPressed(card) {
+  try {
+    if (!card || !pressedWaits.has(card.sessionName)) return false;
+    const standing = selfreport.read(card.sessionName);
+    return selfreport.isAutoPermissionWait(standing) && standing.at === pressedWaits.get(card.sessionName);
+  } catch { return false; }
+}
+function permissionWaitBeforePress(card) {
+  try {
+    const standing = card && card.sessionName ? selfreport.read(card.sessionName) : null;
+    return selfreport.isAutoPermissionWait(standing) ? standing : null;
+  } catch { return null; }
+}
+function endPermissionWaitPressed(card, before, screenAfter) {
+  if (!before) return;   // only the hook's wait: an agent's own question is the agent's to close (#5943)
+  try {
+    if (typeof screenAfter !== 'string' || require('./engine/status').claudeAnswerableMenu(screenAfter)) return;   // the next prompt is up
+    const session = card.sessionName;
+    const now = selfreport.read(session);
+    if (!selfreport.isAutoPermissionWait(now) || now.at !== before.at) return;   // a newer report during the press: it stands
+    /* Idle, for a Yes and a No alike: a No can leave the agent at its prompt, and a screen that shows it running outranks a reported idle. */
+    const kept = selfreport.record(session, { state: 'idle', because: 'its prompt was answered', auto: true });
+    if (kept && kept.recorded === true) {
+      pressedWaits.delete(session);
+      require('./engine/needsyouack').ended(session, (id) => phonenotify.acked(id));
+    }
+  } catch { /* the answer went; the agent's next report ends the wait as before */ }
+}
+
 /* Record an agent's reply in its thread with the person: the one write both
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
    `at` is the original send time for a drained reply, now for the route, and the daily-limit sweep's own `now`
@@ -4981,7 +5016,7 @@ function keepAgentReply(who, text, at, opts) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster, asynchronousDelivery) {
+function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, replyExpected, inReplyTo, askWhichRoom, newPost, citationMustResolve }, roster, asynchronousDelivery) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -5004,10 +5039,10 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
      oracle (recorded when it was posted, independent of this reply). If the target
      project differs, this is the misroute Josh reported -- refuse rather than land
      the answer in the wrong room. A citation the record does not hold
-     (projectOfPost null; the record is unpruned today, so an id that never existed)
-     is treated as absent: never block a legit reply over a stale id. The person's
-     room route refuses one instead (#3745, see its plan); a retention change must
-     revisit both. A proactive post (no in_reply_to) is unchanged. */
+     (projectOfPost null: not in the record and not being delivered; review 5: not proof it was never sent)
+     is treated as absent here; on the live route kosmos#8165 then refuses it (below), and on
+     the outbox drain it still falls through. The person's room route refuses one too (#3745);
+     a retention change must revisit both. A proactive post (no in_reply_to) is unchanged. */
   const citedId = messages.messageIdOf(inReplyTo);   // #4631: '530' and 'message 530' name m530 too
   let answeredProject = null;   // outside the block: the which-room ask below keys on it (round 3)
   if (citedId) {
@@ -5017,9 +5052,38 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
       /* The record could not be read, so we cannot verify which room the answered
          message is in. FAIL CLOSED (never post blind into a possibly-wrong room) --
          retriable, matching the fail-closed sibling gates. A citation that simply is
-         not found returns null (below) and falls through; only an unreadable record
-         throws. */
+         not found returns null (below): the live route refuses it (kosmos#8165), the drain
+         falls through; only an unreadable record throws. */
       return { state: 'could_not', because: 'we could not check which room that message is in, so nothing was posted -- try that reply again in a moment' };
+    }
+    /* kosmos#8165: on the live route, a citation that names no room post is refused, not posted as citing nothing: the
+       sender believes it answered something, and an uncited post moves every earlier ask off the reader's waiting
+       list (#4926). A post still being delivered counts as a post (messages PENDING_POSTS). Review 5: what the record
+       does not hold is not proof it was never sent (a post in flight when the board restarted), so the sentence says
+       only that the post could not be found. Not on the outbox drain: a kept post's sender has moved on and would never
+       see the refusal, so it posts as before. */
+    if (!answeredProject && citationMustResolve === true) {
+      let what = null;
+      try { what = messages.kindOfId(citedId); } catch {
+        return { state: 'could_not', because: 'we could not check which room that message is in, so nothing was posted -- try that reply again in a moment' };
+      }
+      const named = /^m\d+$/.test(citedId) ? citedId : 'that id';   // never echo a stray quote to the CLI's sed
+      const kind = what && what.is;   // `is`, not `kind`: web.speech-kind-1397 reads every engine kind: literal as a row kind
+      // Review 1: a direct message is named as one only to a party to it (anyone else learns nothing of other DMs).
+      const me = sender && sender.ok && sender.card ? sender.card.sessionName : null;
+      // Review 2: "deleted" only for a post of this room (a deletion in another room is none of this sender's business).
+      if (kind === 'deleted' && what.project === found.id) {
+        return { state: 'could_not', because: 'post ' + named + ' was deleted, so nothing was posted. If your answer still stands, post here without --in-reply-to.' };
+      }
+      if (kind === 'message' && me && what.parties.includes(me)) {
+        return { state: 'could_not', because: named + ' is a direct message, not a room post, so nothing was posted. Answer it with kosmos msg --in-reply-to ' + named + ', or post here without --in-reply-to.' };
+      }
+      if (kind === 'unknown') {
+        return { state: 'could_not', because: 'we could not find post ' + named + ', so nothing was posted. It may never have been recorded (a board restart, or a post that reached nobody): check the id (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
+      }
+      if (kind !== 'post') {
+        return { state: 'could_not', because: (named === 'that id' ? 'that id names no post' : 'we could not find post ' + named) + ' in any room, so nothing was posted. Check the id in the post you meant to answer (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
+      }
     }
     if (answeredProject && answeredProject !== found.id) {
       /* Do NOT name the answered project here. The answering agent already holds its
@@ -5047,9 +5111,9 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
        it meant (a reply is already bound above). The caller decides whether to ask at
        all: the live route does, the outbox drain does not. */
     askWhichRoom: askWhichRoom === true && !answeredProject,
-    /* ^ keyed on the citation RESOLVING, not on one being present (round 3): an id that
-       names no post (a copied "[q12]" with its brackets, a typo) is bound to nothing, so
-       it is asked like any other non-reply rather than slipping past both checks. */
+    /* ^ keyed on the citation RESOLVING, not on one being present (round 3): on the outbox drain an
+       id that names no post (a typo) is bound to nothing, so it is asked like any other non-reply
+       rather than slipping past both checks; on the live route kosmos#8165 refuses it first. */
     projectNameOf: (id) => {
       try { const p = projects.get(id, roster); return p ? p.name : null; } catch { return null; }
     },
@@ -6692,6 +6756,15 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    let a caller into a project that has members. */
 /* kosmos#5752 slice 2: a refusal for not being on the project names its fix (engine/messages.js says where). */
 const NOT_ON_PROJECT_FIX = messages.NOT_ON_PROJECT_FIX;
+/* #3311, kosmos#4926: someone else's words, for a line an agent reads as Kosmos's own or as a row: one line, no control
+   characters, and no bracket to spell a marker with (every marker starts with `[`). The caller removes whatever could close
+   the quote it puts them in. */
+function othersWordsOneLine(text) {
+  return String(text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ');
+}
+/* kosmos#4926: how much of a covered ask its line shows: enough to recognise the ask, short enough that -n of them stay one
+   readable line. */
+const COVERED_EXCERPT_CHARS = 60;
 /* #4926: a line of `kosmos room <id> --unanswered`'s answer starts with this. Both CLIs look for a line starting with it
    to tell a board that ignored the flag (an older one, which sends the whole room) from one that applied it. */
 const UNANSWERED_HEAD = 'Waiting on an answer from you: ';
@@ -14300,7 +14373,7 @@ const server = http.createServer(async (req, res) => {
         const unverifiedSub = (a) => {
           if (!(a.authMode === 'subscription' && a.connection && a.connection.state === 'connected')) return a;
           const r = subChecks.get(a.dir);
-          const because = r ? r.because : a.connection.because;
+          const because = grokAccounts.subscriptionReason(a.connection, r);   // #8159: a stale sign-in keeps its since-when
           return { ...a, connection: { ...a.connection, because, badge: 'signed_in_unverified', liveVerdict: r ? r.verdict : null,
             ...(r && r.verdict === 'pending' ? { liveCheckPending: true } : {}) } };
         };
@@ -14400,10 +14473,8 @@ const server = http.createServer(async (req, res) => {
               email: null, authMode: 'muse', keyTail: null, connection,
             }];
             if (muse.signedIn().signedIn) {
-              const seen = muse.lastSeenWorking();
-              museSub = row(seen
-                ? { state: 'connected', checkedLive: false, badge: 'working', observedFrom: seen.from, observedAgeMs: Math.max(0, Date.now() - seen.at) }
-                : { state: 'connected', checkedLive: false, badge: 'signed_in_unverified' });
+              // #8173: green only while it was seen working in the last 3 days; older says since when (musestatus.connectionFor).
+              museSub = row(muse.connectionFor(muse.lastSeenWorking()));
             } else if (muse.refused()) {
               museSub = row({ state: 'none', checkedLive: false, badge: 'rejected' });
             }
@@ -19178,9 +19249,11 @@ const server = http.createServer(async (req, res) => {
         let wasNeedsYou = false;
         let askedBefore = null;   // #7756: the question standing before this report, held or not
         let autoWaitBefore = false;   // kosmos#8036: a permission wait stood before this report
+        let autoWaitAt = null;
         try {
           const prior = selfreport.read(who);
           autoWaitBefore = selfreport.isAutoPermissionWait(prior);
+          if (autoWaitBefore) autoWaitAt = prior.at;
           // Review 1: a hook's permission wait is not a question the agent asked, and its words can hold a command or a path.
           if (prior && prior.found === true && prior.state === 'needs_you' && !selfreport.isAutoPermissionWait(prior)) askedBefore = { text: prior.because };
           /* #7915: a HELD question was never buzzed, so asking it for real afterwards is the change that buzzes. */
@@ -19218,7 +19291,16 @@ const server = http.createServer(async (req, res) => {
         if (autoWaitBefore && body.state !== 'needs_you' && kept && kept.recorded === true) {
           try {
             const nya = require('./engine/needsyouack');
-            if (nya.ended(who, (id) => phonenotify.acked(id))) keepAgentReply(who, nya.WAIT_ENDED_LINE, undefined, { kosmos: true });
+            /* A person pressed this wait's prompt: its pushes are acknowledged and no line is said, unconfirmed presses included (they were told so). */
+            const pressed = pressedWaits.get(who) === autoWaitAt;
+            pressedWaits.delete(who);
+            if (nya.ended(who, (id) => phonenotify.acked(id)) && !pressed) {
+              /* kosmos#8036 (Josh's iPhone 11-06): two waits hours apart said the same sentence one under the other, and it read
+                 as a fault. While the chat's last row already says it, the second adds nothing. Any row between lets it speak. */
+              const rows = chat.readThread(chat.DIRECT, who).messages || [];
+              const last = rows.length ? rows[rows.length - 1] : null;
+              if (!last || last.text !== nya.WAIT_ENDED_LINE) keepAgentReply(who, nya.WAIT_ENDED_LINE, undefined, { kosmos: true });
+            }
           } catch { /* the report still stands */ }
         }
         /* #7756: `kosmos report clear "why"` over a question: the person sees it closed, not just gone. A line in the agent's
@@ -19943,6 +20025,7 @@ const server = http.createServer(async (req, res) => {
           inReplyTo: body.in_reply_to,   // #3224: bind an answer to the room the message came from
           askWhichRoom: body.new_post !== true,   // #3224: ask which room a non-reply meant, unless --new
           newPost: body.new_post === true,        // #3224: recorded on the row (acknowledges; not a suspected misroute)
+          citationMustResolve: true,              // kosmos#8165: a citation naming no room post is refused here (not on drain)
         }, roster, true);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
@@ -20423,7 +20506,8 @@ const server = http.createServer(async (req, res) => {
      * board's placeholder for a needs_you with no words of its own, so it is
      * NOT offered as a question - falling through to the honest clause below.
      */
-    const reportedQuestion = (asking && !paneQuestion
+    const pressSettling = asking && !paneQuestion && permissionWaitPressed(card);   // kosmos#8036
+    const reportedQuestion = (asking && !paneQuestion && !pressSettling
       && card && card.stateReported === true
       && card.because && card.because !== ASKING_GENERIC)
       ? { text: card.because, reported: true } : null;
@@ -20431,7 +20515,7 @@ const server = http.createServer(async (req, res) => {
     // The same two sentences as the project route, and they stay two: "we read
     // its screen and the question is not in the capture" is not "we could not
     // read its screen at all". Null too once a reported question stands in.
-    const questionBecause = (asking && !question)
+    const questionBecause = (asking && !question && !pressSettling)
       ? ((view && view.noWindow === true)
         ? NO_WINDOW_QUESTION_BECAUSE
         : (!view || view.text == null)
@@ -20507,6 +20591,12 @@ const server = http.createServer(async (req, res) => {
           owes.unsent = { text: guideMasked(name, rep.final.text) };
         }
       } catch { /* no report: the line stays "Nothing back yet" */ }
+    }
+    /* #8141: the channel an agent declared (kosmos reply-channel, #5805), for the page to say in place of "Nothing back
+       yet". An answer from its own window (#4612) wins, by the page's own test (dmOwesLine: a non-empty text). */
+    if (owes && owes.state === 'owes' && !(owes.unsent && owes.unsent.text)) {
+      const ch = require('./engine/replychannel').forAgent(name, store);
+      if (ch) owes.elsewhere = ch;
     }
     const TAIL = tailAsked;
     /* kosmos#5841: a conversation that rolled over at the engine's cap continues earlier files; their messages are
@@ -21143,8 +21233,19 @@ const server = http.createServer(async (req, res) => {
               e.status = 409; throw e;
             }
             if (opt && !files.recs.length && !answered) {
+              const waitPressed = cq.permission ? permissionWaitBeforePress(askingCard) : null;   // kosmos#8036: only a press on the prompt itself
+              const markBefore = pressedWaits.get(askingCard.sessionName);   // a refused press puts back what another press had marked
+              const pressFailed = () => {
+                if (!waitPressed) return;
+                if (markBefore === undefined) pressedWaits.delete(askingCard.sessionName);
+                else pressedWaits.set(askingCard.sessionName, markBefore);
+              };
+              if (waitPressed) pressedWaits.set(askingCard.sessionName, waitPressed.at);
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}),
-                ...(cq.permission && requestGiven ? { request: body.request } : {}) });   // kosmos#7020: re-checked on the last look
+                ...(cq.permission && requestGiven ? { request: body.request } : {}) }   // kosmos#7020: re-checked on the last look
+              ).catch((err) => { pressFailed(); throw err; });
+              if (!r.ok) pressFailed();
+              if (r.ok && r.answered) endPermissionWaitPressed(askingCard, waitPressed, r.screen);
               // kosmos#6239: refused for quiet hours is the person's act, reported like a refused message.
               if (!r.ok && r.quiet === true) { try { require('./engine/agentevents').recordRefusal({ agent: name, rule: 'quiet-hours' }); } catch { /* not reported */ } }
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
@@ -23699,7 +23800,8 @@ const server = http.createServer(async (req, res) => {
        archive, which has no way to open it, still reaches every message by scrolling back. */
     let archiveView = null;   // null (the whole room), 'live' or 'archive'
     /* #4926: `kosmos room <id> --unanswered` (text view only): the posts that asked the reading agent something and that
-       none of its posts answers by id. */
+       none of its posts answers by id. An agent's ask it has since posted after, not citing an older post, is named on its
+       own line instead (kosmos#4926). */
     let onlyUnanswered = false;
     let unansweredAll = false;   // kosmos#7969: --all, the asks older than UNANSWERED_DAYS too
     try {
@@ -23958,7 +24060,7 @@ const server = http.createServer(async (req, res) => {
            it too); the person's post that names nobody asked every agent it was delivered to, not one it went quiet or
            could not reach. */
         /* kosmos#7848: only while the project's members could be read. With no member list a departed agent's claim is
-           not filtered out (claimMembers fails toward "held", right for the page's pill), so here the ask stays listed. */
+           not filtered out (claimMembers fails toward "held", right for the page's pill), so here the claim does not move the ask. */
         const membersKnown = !!(roomRecord && Array.isArray(roomRecord.agents));
         const claimedByOther = (m) => {
           if (!membersKnown) return null;
@@ -23971,11 +24073,14 @@ const server = http.createServer(async (req, res) => {
           return asked ? c : null;
         };
         const claimedAsks = [];
+        const coveredAsks = [];   // kosmos#4926: an agent's ask the reader posted after without citing, named on its own line
         const askedOfReader = (m) => !!readerName && m && m.kind === 'post'
           && (m.operator === true || m.from !== readerName)
           && (namedReader.has(String(m.id))
             || (m.operator === true && Array.isArray(m.to) && m.to.includes(readerName)
               && !(m.outcomes && (m.outcomes[readerName] === 'quiet' || m.outcomes[readerName] === 'could_not'))));
+        // kosmos#4926: the asks a later post of the reader's does not move: its own claim is no answer (#7848), and a person's ask stays listed.
+        const listKeepsAsk = (m) => m.operator === true || !!(m.claim && m.claim.by === readerName);
         if (onlyUnanswered && !readerName) {
           res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
           res.end('Kosmos could not tell which agent is reading, so it cannot say which posts are waiting on you. '
@@ -24005,6 +24110,9 @@ const server = http.createServer(async (req, res) => {
               if (c) { claimedAsks.unshift({ id: String(rows[i].id), by: c.by, at: c.at }); continue; }
               // kosmos#7969: after the claim check on purpose: a claimed ask is named on the claimed line whatever its age.
               if (aged(rows[i])) { agedAsks += 1; continue; }
+              // kosmos#4926: after age, so an old ask is counted there.
+              const own = listKeepsAsk(rows[i]) ? null : messages.laterOwnPost(rows, i, readerName);
+              if (own) { coveredAsks.unshift({ id: String(rows[i].id), own, text: rows[i].text }); continue; }
               openAsks += 1;
               if (tail.length < textRows) tail.unshift(rows[i]);
             }
@@ -24033,6 +24141,7 @@ const server = http.createServer(async (req, res) => {
             if (who && shownIds.length) roomhold.dropShown(who, id, shownIds);
           } catch { /* the posts stay held */ }
         }
+        const rowAt = new Map(readerName ? rows.map((r, n) => [r, n]) : []);   // kosmos#4926: a read walks up to 200 rows of a long room
         const lines = tail.flatMap((m) => {
           const when = messages.roomClock(m.at, zone);
           if (m.kind === 'valve') return [when + '  [kosmos] ' + (m.because || 'Kosmos stepped in.')];
@@ -24052,7 +24161,7 @@ const server = http.createServer(async (req, res) => {
             // on (the operator's, a colleague's, [kosmos]) starts with `[`, and local
             // posts are refused for carrying them (messages.js MARKERS); outside
             // words cannot be refused, so here they cannot spell one.
-            const said = String(m.text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/[«»]/g, '"').replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ');
+            const said = othersWordsOneLine(String(m.text || '').replace(/[«»]/g, '"'));
             // kosmos#7129: the row arrived while this computer was waiting to be let in (a sealed room would have refused it).
             const unchecked = m.unverified === true ? ' (arrived while this computer was waiting to be let in, so it may not be from anyone in this project)' : '';
             return [when + '  [external ' + (m.fromKind === 'agent' ? 'agent' : 'person') + '] ' + who + ' wrote: «' + said + '»' + unchecked];
@@ -24122,7 +24231,16 @@ const server = http.createServer(async (req, res) => {
           const youAnswered = mine && (m.operator === true || m.from !== readerName)
             ? [when + '  [kosmos] you already answered [' + m.id + '] in ' + mine.map((x) => '[' + x + ']').join(', ') + '.']
             : [];
-          return [line, ...youAnswered, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
+          /* kosmos#4926: said for the person's asks too, which stay listed: it is only what the reader did next. What it
+             means for the reader differs: the list moves an agent's ask, and keeps the person's and one the reader claimed. */
+          const ownAfter = !mine && askedOfReader(m) ? messages.laterOwnPost(rows, rowAt.get(m), readerName) : null;
+          const youPosted = ownAfter
+            ? [when + '  [kosmos] you posted [' + ownAfter + '] after [' + m.id + '] without citing it. '
+              + (listKeepsAsk(m)
+                ? 'If that answered it, cite it with --in-reply-to to take it off your list.'
+                : 'If that answered it, it needs nothing more.')]
+            : [];
+          return [line, ...youAnswered, ...youPosted, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
@@ -24169,7 +24287,10 @@ const server = http.createServer(async (req, res) => {
             + (openAsks > tail.length ? (tail.length === 1 ? '; the newest is below' : '; the newest ' + tail.length + ' are below') : '') + ':\n'
           : rec.ok === false ? UNANSWERED_HEAD + 'none found' + (agedAsks ? ' from the last ' + UNANSWERED_DAYS + ' days' : '')   // kosmos#7969
             + ', but this room could not be read, so that may be wrong.\n'
-          : agedAsks && !claimedAsks.length ? UNANSWERED_HEAD + 'nothing from the last ' + UNANSWERED_DAYS + ' days in this room.\n'   // kosmos#7969
+          : agedAsks && !claimedAsks.length && !coveredAsks.length ? UNANSWERED_HEAD + 'nothing from the last ' + UNANSWERED_DAYS + ' days in this room.\n'   // kosmos#7969
+          /* kosmos#4926: before the claimed head: the reader may not have dealt with a covered ask, so this view cannot say
+             nothing is waiting, whatever else sits under it. */
+          : coveredAsks.length ? UNANSWERED_HEAD + 'nothing listed ' + (agedAsks ? 'from the last ' + UNANSWERED_DAYS + ' days ' : '') + 'in this room; the posts named below may still be open.\n'
           : claimedAsks.length ? UNANSWERED_HEAD + 'nothing else ' + (agedAsks ? 'from the last ' + UNANSWERED_DAYS + ' days ' : '')   // kosmos#7848, #7969
             + 'waiting on you in this room; '
             + (claimedAsks.length === 1 ? 'the ask below is claimed by another agent it also asked.\n' : 'the asks named below are claimed by agents they also asked.\n')
@@ -24189,13 +24310,32 @@ const server = http.createServer(async (req, res) => {
             + (moreClaimed ? ', and ' + moreClaimed + ' older' : '')
             + '. They are still in the room, and one comes back here if its claim ends.\n'
           : '';
-        /* kosmos#7969: the older asks are said, never dropped silently, with the way to see them. */
+        /* kosmos#4926: never dropped silently either: a post about something else also moves an ask here, so each is named,
+           with enough of its words to judge by. `kosmos room` cannot be relied on for that: it stops at 200 rows, and this
+           walk does not. One line, as every row here is (#314). Another agent's words inside a [kosmos] line, so they get
+           the treatment an outside sender's get above (#3311): no control characters, no quote to close, no bracket to
+           spell a marker with. */
+        const coveredHead = (text) => {
+          // kosmos#8165: and no bidirectional mark or override, which could reorder the line it sits in.
+          const chars = Array.from(othersWordsOneLine(String(text || '').replace(/"/g, "'").replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')).trim());
+          return chars.length > COVERED_EXCERPT_CHARS ? chars.slice(0, COVERED_EXCERPT_CHARS).join('') + '...' : chars.join('');
+        };
+        const shownCovered = coveredAsks.slice(-textRows);
+        const moreCovered = coveredAsks.length - shownCovered.length;
+        const coveredLine = coveredAsks.length
+          ? '[kosmos] Not counted as waiting on you, because you posted here after each without citing it: '
+            + shownCovered.map((x) => '[' + x.id + '] (your [' + x.own + ']) "' + coveredHead(x.text) + '"').join(', ')
+            + (moreCovered ? ', and ' + moreCovered + ' older' : '')
+            + '. If one is still open, answer it.\n'
+          : '';
+        /* kosmos#7969: the older asks are said, never dropped silently, with the way to see them. "See", not "list": under
+           --all one the reader has since posted after is named on the line above (kosmos#4926). */
         const agedLine = agedAsks
           ? '[kosmos] ' + agedAsks + (agedAsks === 1 ? ' post' : ' posts') + ' that asked you something more than '
             + UNANSWERED_DAYS + ' days ago ' + (agedAsks === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). '
-            + 'Add --all to list ' + (agedAsks === 1 ? 'it' : 'them') + ' too.\n'
+            + 'Add --all to see ' + (agedAsks === 1 ? 'it' : 'them') + ' too.\n'
           : '';
-        res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + agedLine);
+        res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + coveredLine + agedLine);
         return;
       }
       if (jsonRows !== null) {   // kosmos#7032: a page (see the cursor note where n is read)

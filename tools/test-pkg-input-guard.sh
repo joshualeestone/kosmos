@@ -242,4 +242,49 @@ out="$(GIT_CONFIG_GLOBAL="$F/gitconfig" HOME="$F" pkg_upload_filter_excludes "$F
 G="$(mktemp -d "${TMPDIR:-/tmp}/pkg-filter-ctl.XXXXXX")"; ( cd "$G" && GIT_CONFIG_GLOBAL="$F/gitconfig" HOME="$F" git init -q . && mkdir dist && : > dist/Kosmos.pkg && GIT_CONFIG_GLOBAL="$F/gitconfig" HOME="$F" git check-ignore -q dist/Kosmos.pkg ) && ok "CONTROL: without isolation that global file really excludes dist/Kosmos.pkg" || bad "CONTROL: the global excludes file did not exclude even unisolated, so the isolation assert proves nothing"
 rm -rf "$G" "$F"
 
+
+# ---- kosmos#8167: the pkg name follows the channel ----------------------------------------------
+[ "$(pkg_names_for_channel staging)" = "Kosmos-staging.pkg" ] && ok "8167: a staging cut publishes only Kosmos-staging.pkg" || bad "8167: staging names are '$(pkg_names_for_channel staging)'"
+[ "$(pkg_names_for_channel prod | tr '\n' ' ')" = "Kosmos.pkg Kosmos-staging.pkg " ] && ok "8167: a prod cut publishes Kosmos.pkg and Kosmos-staging.pkg" || bad "8167: prod names are '$(pkg_names_for_channel prod | tr '\n' ' ')'"
+pkg_names_for_channel bogus >/dev/null 2>&1 && bad "8167: an unknown channel was given names" || ok "8167: an unknown channel is refused"
+case " $(pkg_names_for_channel staging | tr '\n' ' ') " in *" Kosmos.pkg "*) bad "8167: CONTROL failed, staging names include Kosmos.pkg";; *) ok "8167: CONTROL: the staging names never include Kosmos.pkg (the Download button's file)";; esac
+
+S8="$(mktemp -d "${TMPDIR:-/tmp}/pkg-8167.XXXXXX")"; mkdir -p "$S8/src" "$S8/dst"
+mk_triple() {   # <dir> <name> <bytes>
+  printf '%s' "$3" > "$1/$2"
+  printf '%s  %s\n' "$(_pkg_hash < "$1/$2" | awk '{print $1}')" "$2" > "$1/$2.sha256"
+  pkg_sidecar_write "$1/$2" "$want" "$1/$2.inputs"
+}
+mk_triple "$S8/src" Kosmos-staging.pkg "staging-bytes"
+why="$(pkg_publish_needed "$S8/src" "$want" Kosmos-staging.pkg)"; rc=$?
+[ "$rc" = 2 ] && ok "8167: pkg_publish_needed reads the NAMED triple (Kosmos-staging.pkg current: $why)" || bad "8167: the named current triple came back rc $rc ($why)"
+why="$(pkg_publish_needed "$S8/src" "$want")"; rc=$?
+[ "$rc" = 0 ] && case "$why" in *"no Kosmos.pkg"*) true;; *) false;; esac && ok "8167: CONTROL: with no name it still reads Kosmos.pkg, which is absent here ($why)" || bad "8167: the default name did not read Kosmos.pkg (rc $rc, $why)"
+
+sha="$(pkg_triple_check "$S8/src" Kosmos-staging.pkg)" && [ "$sha" = "$(_pkg_hash < "$S8/src/Kosmos-staging.pkg" | awk '{print $1}')" ] && ok "8167: pkg_triple_check passes a whole triple and prints its sha" || bad "8167: pkg_triple_check on a good triple gave '$sha'"
+mk_triple "$S8/dst" Kosmos.pkg "old-prod-bytes"; cp "$S8/dst/Kosmos.pkg" "$S8/oldpkg"; cp "$S8/dst/Kosmos.pkg.sha256" "$S8/oldsum"
+if pkg_triple_copy "$S8/src" Kosmos-staging.pkg "$S8/dst" Kosmos.pkg 2>/dev/null; then
+  cmp -s "$S8/src/Kosmos-staging.pkg" "$S8/dst/Kosmos.pkg" && ok "8167: copy: the bytes are the staging pkg's" || bad "8167: copy: bytes differ"
+  cmp -s "$S8/src/Kosmos-staging.pkg.inputs" "$S8/dst/Kosmos.pkg.inputs" && ok "8167: copy: the sidecar is copied as it is" || bad "8167: copy: sidecar differs"
+  [ "$(awk '{print $2}' "$S8/dst/Kosmos.pkg.sha256")" = "Kosmos.pkg" ] && [ "$(awk '{print $1}' "$S8/dst/Kosmos.pkg.sha256")" = "$sha" ] && ok "8167: copy: the .sha256 names its own file (Kosmos.pkg) and the bytes' sha" || bad "8167: copy: .sha256 reads '$(cat "$S8/dst/Kosmos.pkg.sha256")'"
+  [ "$(awk '{print $2}' "$S8/src/Kosmos-staging.pkg.sha256")" = "Kosmos-staging.pkg" ] && ok "8167: CONTROL: the source .sha256 still names Kosmos-staging.pkg (the rewrite is real, not a copy)" || bad "8167: the source .sha256 changed"
+  pkg_triple_check "$S8/dst" Kosmos.pkg >/dev/null 2>&1 && ok "8167: copy: the result is a whole triple" || bad "8167: copy: the result fails pkg_triple_check"
+  [ -z "$(find "$S8/dst" -name '.pkgcopy.*' 2>/dev/null)" ] && ok "8167: copy: no temp dir left behind" || bad "8167: copy left a temp dir"
+else bad "8167: pkg_triple_copy refused a good triple"; fi
+# A refused copy leaves the destination as it was.
+mk_triple "$S8/dst" Kosmos.pkg "old-prod-bytes"
+printf 'tampered' > "$S8/src/Kosmos-staging.pkg"
+pkg_triple_check "$S8/src" Kosmos-staging.pkg >/dev/null 2>&1 && bad "8167: a tampered pkg passed pkg_triple_check" || ok "8167: pkg_triple_check refuses bytes that are not its .sha256's"
+pkg_triple_copy "$S8/src" Kosmos-staging.pkg "$S8/dst" Kosmos.pkg 2>/dev/null && bad "8167: a tampered source was copied" || ok "8167: pkg_triple_copy refuses a tampered source"
+cmp -s "$S8/dst/Kosmos.pkg" "$S8/oldpkg" && cmp -s "$S8/dst/Kosmos.pkg.sha256" "$S8/oldsum" && ok "8167: a refused copy leaves the destination triple untouched" || bad "8167: a refused copy changed the destination"
+# vouch mismatch: pair agrees, the sidecar names other bytes.
+mk_triple "$S8/src" Kosmos-staging.pkg "staging-bytes"; printf '%s\npkg:%s\n' "$want" "0000000000000000000000000000000000000000000000000000000000000000" > "$S8/src/Kosmos-staging.pkg.inputs"
+pkg_triple_check "$S8/src" Kosmos-staging.pkg >/dev/null 2>&1 && bad "8167: a sidecar vouching for other bytes passed" || ok "8167: pkg_triple_check refuses a sidecar that vouches for other bytes"
+rm -f "$S8/src/Kosmos-staging.pkg.inputs"
+pkg_triple_copy "$S8/src" Kosmos-staging.pkg "$S8/dst" Kosmos.pkg 2>/dev/null && bad "8167: a triple missing its sidecar was copied" || ok "8167: a triple missing a file is not copied"
+# the upload filter must see the staging names too.
+printf 'dist/Kosmos-staging.pkg\n' > "$S8/vi"
+out="$(pkg_upload_filter_excludes "$S8/vi")"; rc=$?
+[ "$rc" = 0 ] && [ "$out" = "dist/Kosmos-staging.pkg" ] && ok "8167: filter: excluding dist/Kosmos-staging.pkg is caught" || bad "8167: filter missed a staging-pkg exclusion (rc $rc, '$out')"
+rm -rf "$S8"
 echo "pkg-input-guard: $FAILS failures"; [ "$FAILS" -eq 0 ]

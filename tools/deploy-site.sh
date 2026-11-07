@@ -788,10 +788,57 @@ if [ "$PROMOTE" = 1 ]; then
   [ "$gotsha" = "$CSHA" ] || { echo "deploy-site: --promote: the committed latest.json advertises sha256 '$CSHA' but the served $ART hashes to '$gotsha' -- refusing (the pointer does not describe the served bytes)"; exit 1; }
 fi
 
-# the macOS pkg triple (fixed names)
-fetch_verified "$HOST/dist/Kosmos.pkg" "$SITE/dist/Kosmos.pkg"   # Kosmos.pkg + Kosmos.pkg.sha256 (#4745)
-fetch "$HOST/dist/Kosmos.pkg.inputs" "$SITE/dist/Kosmos.pkg.inputs"
-verify_sha "$SITE/dist/Kosmos.pkg" "$HOST/dist/Kosmos.pkg.sha256"
+# the macOS pkg triples (fixed names). kosmos#8167: two of them. Kosmos.pkg is the Download button's; a staging cut
+# writes Kosmos-staging.pkg instead, and promote-channel.sh copies that onto Kosmos.pkg.
+. "$REPO/tools/lib/pkg-inputs.sh"
+# Kosmos.pkg: pinned to the SERVED one (#4745), with one exception. On --promote, a local Kosmos.pkg that is a whole
+# triple AND byte-identical to the SERVED Kosmos-staging.pkg is the promote's copy of verified served bytes, and is
+# kept: fetching would put the old installer back under the promoted pointer.
+_pkg_keep=0
+if [ "$PROMOTE" = 1 ] && _pkg_lsha="$(pkg_triple_check "$SITE/dist" Kosmos.pkg 2>/dev/null)"; then
+  _pkg_ssrv="$(curl -fsSL -m 30 -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null)" || _pkg_ssrv=""
+  _pkg_ssrv="${_pkg_ssrv%%[[:space:]]*}"
+  if [ -n "$_pkg_ssrv" ] && [ "$_pkg_ssrv" = "$_pkg_lsha" ]; then
+    _pkg_keep=1
+    echo "deploy-site: dist/Kosmos.pkg is the promoted copy of the served Kosmos-staging.pkg (${_pkg_lsha:0:12}) -- kept, not fetched (kosmos#8167)"
+  fi
+fi
+if [ "$_pkg_keep" = 0 ]; then
+  if [ "$PROMOTE" = 1 ] && [ -f "$SITE/dist/Kosmos.pkg" ]; then
+    _pkg_psrv="$(curl -fsSL -m 30 -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos.pkg.sha256" 2>/dev/null)" || _pkg_psrv=""
+    _pkg_psrv="${_pkg_psrv%%[[:space:]]*}"
+    _pkg_ploc="$(_sha256_of "$SITE/dist/Kosmos.pkg")"
+    [ -z "$_pkg_psrv" ] || [ "$_pkg_ploc" = "$_pkg_psrv" ] \
+      || echo "deploy-site: WARNING the local dist/Kosmos.pkg (${_pkg_ploc:0:12}) is neither the served Kosmos.pkg (${_pkg_psrv:0:12}) nor the served Kosmos-staging.pkg, so it is replaced by the served Kosmos.pkg and the Download button keeps its current installer. If promote-channel.sh just copied a staging pkg here, that pkg was never served (kosmos#8167)." >&2
+  fi
+  fetch_verified "$HOST/dist/Kosmos.pkg" "$SITE/dist/Kosmos.pkg"   # Kosmos.pkg + Kosmos.pkg.sha256 (#4745)
+  fetch "$HOST/dist/Kosmos.pkg.inputs" "$SITE/dist/Kosmos.pkg.inputs"
+  verify_sha "$SITE/dist/Kosmos.pkg" "$HOST/dist/Kosmos.pkg.sha256"
+fi
+# Kosmos-staging.pkg: pinned to the served one when there is one. When none is served yet (before the first staging cut
+# after kosmos#8167), a local one would ship bytes no cut's 9c ever checked, so that is a refusal, and no local one is fine.
+# Only a 404 means "none served". Anything else that is not a 200 (a timeout, a 5xx) is a refusal: read as "none", it
+# would deploy without the triple and the staging pkg would stop serving.
+_pkg_scode="$(curl -sS -L -m 30 -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null)" || _pkg_scode="${_pkg_scode:-000}"
+case "$_pkg_scode" in
+  200|404) ;;
+  *) echo "deploy-site: could not tell whether the host serves Kosmos-staging.pkg (HTTP ${_pkg_scode:-none} for its .sha256) -- refusing; nothing was deployed (kosmos#8167)"; exit 1 ;;
+esac
+if [ "$_pkg_scode" = 200 ]; then
+  fetch_verified "$HOST/dist/Kosmos-staging.pkg" "$SITE/dist/Kosmos-staging.pkg"
+  fetch "$HOST/dist/Kosmos-staging.pkg.inputs" "$SITE/dist/Kosmos-staging.pkg.inputs"
+  verify_sha "$SITE/dist/Kosmos-staging.pkg" "$HOST/dist/Kosmos-staging.pkg.sha256"
+elif [ -e "$SITE/dist/Kosmos-staging.pkg" ] || [ -e "$SITE/dist/Kosmos-staging.pkg.sha256" ] || [ -e "$SITE/dist/Kosmos-staging.pkg.inputs" ]; then
+  # The host serves no staging pkg, so this one is a staging cut's output that never deployed (an aborted cut). It is
+  # never shipped unchecked: it is MOVED ASIDE (kept, not deleted) and this deploy goes on without it. The next staging
+  # cut publishes its own. Refusing instead would block every site deploy until someone cleaned up by hand.
+  _pkg_aside="$SITE/dist/.unserved-staging-pkg.$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$_pkg_aside" || { echo "deploy-site: could not make $_pkg_aside to move the unserved staging pkg aside -- refusing; nothing was deployed (kosmos#8167)"; exit 1; }
+  for _f in Kosmos-staging.pkg Kosmos-staging.pkg.sha256 Kosmos-staging.pkg.inputs; do
+    [ ! -e "$SITE/dist/$_f" ] || mv "$SITE/dist/$_f" "$_pkg_aside/" || { echo "deploy-site: could not move dist/$_f aside -- refusing; nothing was deployed (kosmos#8167)"; exit 1; }
+  done
+  echo "deploy-site: WARNING the host serves no Kosmos-staging.pkg, so the local one (a staging cut that never deployed?) was moved to $_pkg_aside and is not deployed (kosmos#8167)" >&2
+fi
 
 # The Windows zip (and its .sha256) are TRACKED, so git archive ships the COMMITTED copies and the
 # honest-marker check below confirms the zip was carried. It is deliberately NOT fetched: fetching a
@@ -872,6 +919,12 @@ kosmos_setup_floor_tree_ok "deploy-site's export" "$EXPORT" || { echo "deploy-si
 [ -f "$EXPORT/dist/kosmos-arm64.tar.gz" ] || { echo "deploy-site: the export did not carry the unversioned alias kosmos-arm64.tar.gz -- refusing (setup.sh's cache-busted fallback; #2014 review)"; rm -rf "$EXPORT"; exit 1; }
 # the .sha256 sidecars the installer verifies each gitignored tarball against: gitignored and
 # glob-carried like the tarballs, so a missing one drops the same way. Check them too.
+# kosmos#8167: a served staging pkg must be carried too, or this deploy would stop serving it.
+if [ "${_pkg_scode:-}" = 200 ]; then
+  for s in Kosmos-staging.pkg Kosmos-staging.pkg.sha256 Kosmos-staging.pkg.inputs; do
+    [ -f "$EXPORT/dist/$s" ] || { echo "deploy-site: the host serves Kosmos-staging.pkg but the export did not carry $s -- refusing (kosmos#8167)"; rm -rf "$EXPORT"; exit 1; }
+  done
+fi
 for s in "$ART.sha256" Kosmos.pkg.sha256 tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz.sha256; do
   [ -f "$EXPORT/dist/$s" ] || { echo "deploy-site: the export did not carry the checksum $s -- refusing (the installer verifies against it)"; rm -rf "$EXPORT"; exit 1; }
 done
@@ -1039,6 +1092,11 @@ for f in "$ART" Kosmos.pkg tmux-arm64.tar.gz kosmos-arm64.tar.gz; do
   served_matches "$f"        "$SITE/dist/$f"
   served_matches "$f.sha256" "$SITE/dist/$f.sha256"
 done
+# ...and the staging installer pkg, when the deploy carried one (kosmos#8167).
+if [ -f "$SITE/dist/Kosmos-staging.pkg" ]; then
+  served_matches Kosmos-staging.pkg        "$SITE/dist/Kosmos-staging.pkg"
+  served_matches Kosmos-staging.pkg.sha256 "$SITE/dist/Kosmos-staging.pkg.sha256"
+fi
 # ...and the staged Mac build, the pair the 2026-09-30 deploy dropped (#4819).
 if [ -n "$STAGED_ART" ]; then
   served_matches "$STAGED_ART"        "$SITE/dist/$STAGED_ART"

@@ -16,6 +16,7 @@
  *   node tools/check-served.js                     # markers from tools/served-markers.json
  *   node tools/check-served.js --version 0.5.76    # pin a version rather than reading latest
  *   node tools/check-served.js --expect 'pj-settings-link' --absent 'pjdisc'
+ *   node tools/check-served.js --pkg Kosmos-staging.pkg   # read the staging installer for pkg_* markers (#8167)
  *
  * ⚠️ WHAT IT CANNOT SEE, stated so a green run is not over-read: anything that
  * exists only because the page is hosted by an app. File pickers, the menu bar,
@@ -54,6 +55,13 @@ function argAll(name) {
   const out = [];
   process.argv.forEach((a, i) => { if (a === '--' + name) out.push(process.argv[i + 1]); });
   return out;
+}
+// kosmos#8167: which served installer the pkg_* markers read. Checked at start, so a typo stops every run.
+if (process.argv.includes('--pkg') && !arg('pkg')) { console.error('FAIL  --pkg needs a value: Kosmos.pkg or Kosmos-staging.pkg'); process.exit(2); }
+const pkgName = arg('pkg') || 'Kosmos.pkg';
+if (pkgName !== 'Kosmos.pkg' && pkgName !== 'Kosmos-staging.pkg') {
+  console.error('FAIL  --pkg must be Kosmos.pkg or Kosmos-staging.pkg (got ' + pkgName + ')');
+  process.exit(2);
 }
 
 /* 🛑 ONE CLEANUP, REGISTERED ONCE, BECAUSE THERE ARE TEN WAYS OUT OF THIS
@@ -399,7 +407,10 @@ process.on('exit', () => {
      mismatch; this one cannot, and says so instead of pretending. */
   if (markers.pkg_present.length || markers.pkg_absent.length) {
     const PAGES = ['component.pkg/Scripts/installing.html', 'Resources/welcome.html', 'Resources/conclusion.html'];
-    const pkgUrl = BASE + '/Kosmos.pkg';
+    /* kosmos#8167: a staging cut publishes Kosmos-staging.pkg and leaves Kosmos.pkg (the Download button's) to the
+       promote, so an installer change is live on staging only under the staging name. --pkg picks which one is read;
+       only the two real names are accepted, so a typo cannot read as "the marker is absent". */
+    const pkgUrl = BASE + '/' + pkgName;
     let pkgBuf = null;
     try {
       pkgBuf = await get(pkgUrl, true);

@@ -137,53 +137,70 @@ echo "== what the Download button serves =="
 # person double-clicks, so each is its own line.
 . "$REPO/tools/lib/pkg-inputs.sh"
 pwant=$(pkg_input_sha "$REPO") || { say "/dist/Kosmos.pkg inputs" "could not compute the source input sha"; fail=1; pwant=; }
-pdir=$(mktemp -d); pvouch=
-if curl -fsS -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos.pkg.inputs" -o "$pdir/inputs" 2>/dev/null && [ -s "$pdir/inputs" ]; then
-  pside=$(pkg_sidecar_inputs "$pdir/inputs"); pvouch=$(pkg_sidecar_pkgsha "$pdir/inputs")
-  if [ -n "$pwant" ] && [ "$pside" = "$pwant" ]; then say "/dist/Kosmos.pkg.inputs" "matches source (${pwant:0:12})"
-  else say "/dist/Kosmos.pkg.inputs" "STALE -- served ${pside:0:12}, source ${pwant:0:12}"; fail=1; fi
-else say "/dist/Kosmos.pkg.inputs" "MISSING -- the served pkg predates the guard, its inputs are unknown"; fail=1; fi
-# ⚠️ NAMED Kosmos.pkg ON DISK, not a bare mktemp: `stapler validate` decides
-# the file type from the extension and reports "no valid staple" on a stapled
-# pkg with none. Measured on the served pkg itself: rc 66 as `mktemp` output,
-# rc 0 as served.pkg, same bytes. A check that cannot reach the state it
-# tests reads as the defect it was built to catch.
-ptmp="$pdir/Kosmos.pkg"
-if curl -fsS "$HOST/dist/Kosmos.pkg" -o "$ptmp"; then
-  preal=$(_pkg_hash < "$ptmp" | awk '{print $1}')
-  ppub=$(curl -fsS "$HOST/dist/Kosmos.pkg.sha256" 2>/dev/null | awk '{print $1}')
-  if [ -z "$ppub" ]; then say "/dist/Kosmos.pkg.sha256" "could not be fetched"; fail=1
-  elif [ "$preal" = "$ppub" ]; then say "/dist/Kosmos.pkg" "$(wc -c < "$ptmp" | tr -d ' ') bytes, checksum matches"
-  else say "/dist/Kosmos.pkg" "CHECKSUM MISMATCH -- the pair a person downloads disagrees with itself"; fail=1; fi
-  # The sidecar must vouch for THESE bytes: a new sidecar beside the prior
-  # pkg pair (each self-consistent) is the mixed edge state this line catches.
-  if [ -s "$pdir/inputs" ]; then
-    if [ -z "$pvouch" ]; then say "/dist/Kosmos.pkg.inputs vouches for" "NO bytes (no pkg: line) -- a hand-written or truncated sidecar"; fail=1
-    elif [ "$pvouch" = "$preal" ]; then say "/dist/Kosmos.pkg.inputs vouches for" "these bytes"
-    else say "/dist/Kosmos.pkg.inputs vouches for" "OTHER bytes (${pvouch:0:12}) than the served pkg (${preal:0:12})"; fail=1; fi
-  fi
-  # The signature and the staple, from the downloaded bytes, on a Mac only
-  # (elsewhere the tools do not exist and their absence is said, not passed).
-  if command -v pkgutil >/dev/null 2>&1; then
-    # OUR identity, by team id, not any Developer ID Installer's (named once, lib/signing-identity.sh,
-    # #3643). The build-time override (KOSMOS_INSTALLER_CERT) is deliberately NOT honoured here: it may be
-    # a loose name or a SHA-1, and this check is about which TEAM signed what users download.
-    # The identity of the release being verified ($REPO); if that checkout predates the lib, the one
-    # beside this script.
-    _vs_inst=""; _vs_lib="$REPO/tools/lib/signing-identity.sh"
-    [ -f "$_vs_lib" ] || _vs_lib="$(dirname "$0")/lib/signing-identity.sh"
-    if . "$_vs_lib" 2>/dev/null; then _vs_inst="${KOSMOS_SIGN_INSTALLER_DEFAULT:-}"; fi
-    _vs_sig="$(pkgutil --check-signature "$ptmp" 2>/dev/null || true)"   # captured: no pipe into an early-exiting grep
-    if [ -z "$_vs_inst" ]; then say "/dist/Kosmos.pkg signature" "NOT checked: could not read the signing identity from $_vs_lib"; fail=1
-    elif printf '%s\n' "$_vs_sig" | grep -qF "$_vs_inst"; then say "/dist/Kosmos.pkg signature" "$_vs_inst"
-    else say "/dist/Kosmos.pkg signature" "NOT signed by our Developer ID Installer ($_vs_inst)"; fail=1; fi
-  else say "/dist/Kosmos.pkg signature" "not checked here (no pkgutil on this machine)"; fi
-  if command -v xcrun >/dev/null 2>&1 && xcrun --find stapler >/dev/null 2>&1; then
-    if xcrun stapler validate "$ptmp" >/dev/null 2>&1; then say "/dist/Kosmos.pkg staple" "notarisation ticket stapled"
-    else say "/dist/Kosmos.pkg staple" "NO valid staple -- a fresh Mac shows the warning"; fail=1; fi
-  else say "/dist/Kosmos.pkg staple" "not checked here (no stapler on this machine)"; fi
-else say "/dist/Kosmos.pkg" "could not be fetched"; fail=1; fi
-rm -rf "$pdir"
+# kosmos#8167: two names. A staging cut publishes Kosmos-staging.pkg and leaves Kosmos.pkg (the button's) alone;
+# promote copies one onto the other. So when a staging pkg is served, IT must match the source, and Kosmos.pkg is
+# checked as a whole, signed, stapled triple. Its inputs are NOT checked against anything then: between a staging cut
+# and its promote they are meant to lag, and nothing records which pkg prod should have. With no staging pkg served yet
+# (before the first staging cut after kosmos#8167), Kosmos.pkg must match the source, as before.
+# _vs_pkg <name> <source|any>
+_vs_pkg() {
+  pn="$1"; pmode="$2"
+  pdir=$(mktemp -d); pvouch=
+  if curl -fsS -H 'Cache-Control: no-cache' "$HOST/dist/$pn.inputs" -o "$pdir/inputs" 2>/dev/null && [ -s "$pdir/inputs" ]; then
+    pside=$(pkg_sidecar_inputs "$pdir/inputs"); pvouch=$(pkg_sidecar_pkgsha "$pdir/inputs")
+    if [ -n "$pwant" ] && [ "$pside" = "$pwant" ]; then say "/dist/$pn.inputs" "matches source (${pwant:0:12})"
+    elif [ "$pmode" = any ]; then say "/dist/$pn.inputs" "inputs ${pside:0:12} (prod, not the source's ${pwant:0:12}: it moves at the promote, kosmos#8167)"
+    else say "/dist/$pn.inputs" "STALE -- served ${pside:0:12}, source ${pwant:0:12}"; fail=1; fi
+  else say "/dist/$pn.inputs" "MISSING -- the served pkg predates the guard, its inputs are unknown"; fail=1; fi
+  # ⚠️ NAMED $pn ON DISK, not a bare mktemp: `stapler validate` decides
+  # the file type from the extension and reports "no valid staple" on a stapled
+  # pkg with none. Measured on the served pkg itself: rc 66 as `mktemp` output,
+  # rc 0 as served.pkg, same bytes. A check that cannot reach the state it
+  # tests reads as the defect it was built to catch.
+  ptmp="$pdir/$pn"
+  if curl -fsS "$HOST/dist/$pn" -o "$ptmp"; then
+    preal=$(_pkg_hash < "$ptmp" | awk '{print $1}')
+    ppub=$(curl -fsS "$HOST/dist/$pn.sha256" 2>/dev/null | awk '{print $1}')
+    if [ -z "$ppub" ]; then say "/dist/$pn.sha256" "could not be fetched"; fail=1
+    elif [ "$preal" = "$ppub" ]; then say "/dist/$pn" "$(wc -c < "$ptmp" | tr -d ' ') bytes, checksum matches"
+    else say "/dist/$pn" "CHECKSUM MISMATCH -- the pair a person downloads disagrees with itself"; fail=1; fi
+    # The sidecar must vouch for THESE bytes: a new sidecar beside the prior
+    # pkg pair (each self-consistent) is the mixed edge state this line catches.
+    if [ -s "$pdir/inputs" ]; then
+      if [ -z "$pvouch" ]; then say "/dist/$pn.inputs vouches for" "NO bytes (no pkg: line) -- a hand-written or truncated sidecar"; fail=1
+      elif [ "$pvouch" = "$preal" ]; then say "/dist/$pn.inputs vouches for" "these bytes"
+      else say "/dist/$pn.inputs vouches for" "OTHER bytes (${pvouch:0:12}) than the served pkg (${preal:0:12})"; fail=1; fi
+    fi
+    # The signature and the staple, from the downloaded bytes, on a Mac only
+    # (elsewhere the tools do not exist and their absence is said, not passed).
+    if command -v pkgutil >/dev/null 2>&1; then
+      # OUR identity, by team id, not any Developer ID Installer's (named once, lib/signing-identity.sh,
+      # #3643). The build-time override (KOSMOS_INSTALLER_CERT) is deliberately NOT honoured here: it may be
+      # a loose name or a SHA-1, and this check is about which TEAM signed what users download.
+      # The identity of the release being verified ($REPO); if that checkout predates the lib, the one
+      # beside this script.
+      _vs_inst=""; _vs_lib="$REPO/tools/lib/signing-identity.sh"
+      [ -f "$_vs_lib" ] || _vs_lib="$(dirname "$0")/lib/signing-identity.sh"
+      if . "$_vs_lib" 2>/dev/null; then _vs_inst="${KOSMOS_SIGN_INSTALLER_DEFAULT:-}"; fi
+      _vs_sig="$(pkgutil --check-signature "$ptmp" 2>/dev/null || true)"   # captured: no pipe into an early-exiting grep
+      if [ -z "$_vs_inst" ]; then say "/dist/$pn signature" "NOT checked: could not read the signing identity from $_vs_lib"; fail=1
+      elif printf '%s\n' "$_vs_sig" | grep -qF "$_vs_inst"; then say "/dist/$pn signature" "$_vs_inst"
+      else say "/dist/$pn signature" "NOT signed by our Developer ID Installer ($_vs_inst)"; fail=1; fi
+    else say "/dist/$pn signature" "not checked here (no pkgutil on this machine)"; fi
+    if command -v xcrun >/dev/null 2>&1 && xcrun --find stapler >/dev/null 2>&1; then
+      if xcrun stapler validate "$ptmp" >/dev/null 2>&1; then say "/dist/$pn staple" "notarisation ticket stapled"
+      else say "/dist/$pn staple" "NO valid staple -- a fresh Mac shows the warning"; fail=1; fi
+    else say "/dist/$pn staple" "not checked here (no stapler on this machine)"; fi
+  else say "/dist/$pn" "could not be fetched"; fail=1; fi
+  rm -rf "$pdir"
+}
+# Only a 404 means "no staging pkg served". Any other failure is said as itself, not read as "none".
+_vs_scode="$(curl -sS -L -m 30 -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null)" || _vs_scode="${_vs_scode:-000}"
+case "$_vs_scode" in
+  200) _vs_pkg Kosmos-staging.pkg source; _vs_pkg Kosmos.pkg any ;;
+  404) _vs_pkg Kosmos.pkg source ;;
+  *) say "/dist/Kosmos-staging.pkg.sha256" "could not tell whether it is served (HTTP ${_vs_scode:-none}), so neither pkg was judged"; fail=1 ;;
+esac
 
 echo
 [ "$fail" = "0" ] && echo "every artifact a user can receive matches the repo" || { echo "SOMETHING A USER RECEIVES IS WRONG"; exit 1; }

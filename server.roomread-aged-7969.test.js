@@ -1,7 +1,7 @@
 'use strict';
 /**
  * kosmos#7969 (the 0.7.88 cross-seat report: 39, 41 and 102 historical posts on three seats' --unanswered): an agent's ask
- * older than UNANSWERED_DAYS is counted under `kosmos room <id> --unanswered`, not listed; --all lists it too. The
+ * older than UNANSWERED_DAYS is counted under `kosmos room <id> --unanswered`, not listed; --all shows it too. The
  * person's asks never age out. Follows #4926 and #7848.
  */
 require('./test-support/tmpscope');
@@ -61,7 +61,7 @@ const room = async (project, query) => {
 };
 const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + ']') && !l.startsWith('[kosmos]'));
 const AGED = (n) => '[kosmos] ' + n + (n === 1 ? ' post' : ' posts') + ' that asked you something more than 3 days ago '
-  + (n === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). Add --all to list ' + (n === 1 ? 'it' : 'them') + ' too.';
+  + (n === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). Add --all to see ' + (n === 1 ? 'it' : 'them') + ' too.';
 
 test('kosmos#7969: an agent\'s ask older than 3 days is counted under the list, not in it; a recent one is listed', async () => {
   const pid = newRoom('Aged7969a');

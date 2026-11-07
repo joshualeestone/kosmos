@@ -660,6 +660,7 @@ function resetForTests() {
   IN_FLIGHT_SENDS.clear();   // #4580: a held send in one test must not fold a later test's send
   UNRECORDED_SENDS.clear();
   UNRECORDED_POSTS.length = 0;
+  PENDING_POSTS.clear();     // kosmos#8165 r3: ids start again at m1, so a pending one would answer for a later test's
   ID_HIGH = 0;               // #4888: a test that starts a new log starts its ids again
 }
 
@@ -1267,6 +1268,45 @@ const IN_FLIGHT_SENDS = new Map();
 /* #4926 review 2 (Sonnet): a post the members got whose record could not be written has no row for recentSameSend to
    fold a retry into, so its answer is kept here for the dedup window. */
 const UNRECORDED_SENDS = new Map();
+/* kosmos#8165 review 1 (Opus): a post's id reaches the members (their envelope says "to answer, run: kosmos post
+   --in-reply-to mN") BEFORE its row is written, which waits for every member's delivery; and a post the record could
+   not take never gets a row. So the id of every post minted and not yet recorded is kept here, with its room, until
+   its row is written, or for PENDING_POST_MAX_MS: a reply citing it is a reply to a real post. In memory, as ID_HIGH. */
+const PENDING_POSTS = new Map();   // id -> { projectId, at, row } (row: the fields a reply reads, as its row will carry them)
+const PENDING_POST_MAX_MS = 60 * 60 * 1000;
+const PENDING_POST_MAX = 2000;   // r3: while the record keeps failing (a full disk) nothing else would clear them
+/* kosmos#8165 review 3/4: the record as a post in `projectId` should read it: its rows, then this room's posts still being
+   delivered (as their rows will be), for the quote tag and the person's claim line, so a fast reply reads the post it
+   answers there as a late one would. Not every reader of the post path uses it: the ack-only owner rule (#6608) still
+   reads the record as it was when the post began, so a fast "agreed" to a post being delivered is delivered rather than
+   refused as an ack (the harmless direction). Given `ownId`, only rows EARLIER than it, recorded or pending (review 4: a
+   fast reply recorded before the ask it answers is a LATER post, and the ask must not be tagged as quoting it). */
+function withPending(log, projectId, ownId) {
+  const extra = [];
+  /* Only posts EARLIER than the one being written (a lower id; all of them when it has none yet): the post itself is
+     pending by then, and a later one (a fast reply to it) must never read as an earlier carrier of its words. */
+  const own = typeof ownId === 'string' && /^m\d+$/.test(ownId) ? Number(ownId.slice(1)) : Infinity;
+  const earlier = (r) => !(r && /^m\d+$/.test(String(r.id))) || Number(String(r.id).slice(1)) < own;
+  for (const p of PENDING_POSTS.values()) {
+    if (p.projectId !== projectId || !p.row || p.unrecorded === true || Date.now() - p.at > PENDING_POST_MAX_MS) continue;   // r6: never one the room will not show
+    if (earlier(p.row)) extra.push(p.row);
+  }
+  const rows = Array.isArray(log) ? (own === Infinity ? log : log.filter(earlier)) : [];
+  // Review 7: sorted whether or not anything is pending, or a post's tag would turn on an unrelated post being in flight.
+  /* Review 5: in id order, as the rows were posted: a reader takes a quote's origin as the first row carrying the words,
+     and rows are recorded when their deliveries finish, in any order. Stable for rows with no m-number. */
+  // Review 6: the m-rows are sorted into the m-rows' own slots and every row with no m-number keeps its place (a
+  // comparator mixing the two is not transitive, so a valve row between posts left them out of order).
+  const num = (r) => (r && /^m\d+$/.test(String(r.id)) ? Number(String(r.id).slice(1)) : -1);
+  const all = rows.concat(extra);
+  const ms = all.filter((r) => num(r) >= 0).map((r, i) => [r, i]).sort((a, b) => num(a[0]) - num(b[0]) || a[1] - b[1]).map((x) => x[0]);
+  let k = 0;
+  return all.map((r) => (num(r) >= 0 ? ms[k++] : r));
+}
+function pendingPost(id) {
+  for (const [k, p] of PENDING_POSTS) if (Date.now() - p.at > PENDING_POST_MAX_MS) PENDING_POSTS.delete(k);   // pruned on every look
+  return PENDING_POSTS.get(id) || null;
+}
 /* Review 7 (Opus): EVERY post the record could not take (the person's too), by room, with its start: when the record
    keeps failing (a full disk) no later post leaves a row, so these are what break a twin's quiet. */
 const UNRECORDED_POSTS = [];
@@ -1423,6 +1463,29 @@ function staleHeld(projectId, ids, log, now, member) {
     }
   } catch { /* nothing is dropped */ }
   return out;
+}
+
+/* kosmos#4926: the reader's own later post that may have dealt with the ask at rows[i], or null. Seats answer a round of
+   asks in one post that cites none of them (measured on a Grok and a Claude seat, 0.7.94), and `--unanswered` then listed
+   them all as waiting. A post citing nothing counts, and so does one citing someone else's post newer than the ask. One citing the ask's
+   elders is about those. Only an ask that was typed to the reader counts: a held, quiet or undelivered one, or a row
+   with no outcome, had not reached it. rows are one room's rows, oldest first. */
+function laterOwnPost(rows, i, reader) {
+  const ask = rows && rows[i];
+  if (!ask || !reader) return null;
+  const reached = ask.outcomes && ask.outcomes[reader];
+  if (reached !== chat.DELIVERY.PLACED && reached !== chat.DELIVERY.UNCONFIRMED) return null;
+  const order = (id) => (typeof id === 'string' && /^m\d+$/.test(id) ? Number(id.slice(1)) : NaN);
+  const mine = new Set();   // the reader's posts since the ask
+  for (let j = i + 1; j < rows.length; j++) {
+    const r = rows[j];
+    if (!r || r.kind !== 'post' || r.operator === true || r.from !== reader) continue;
+    if (typeof r.replyTo !== 'string') return String(r.id);
+    // A reply to the reader's own post carries on that thread, which may be about something older (as N7's x.from === member).
+    if (order(r.replyTo) > order(ask.id) && !mine.has(r.replyTo)) return String(r.id);
+    mine.add(r.id);
+  }
+  return null;
 }
 
 /* kosmos#7246 slice 2 (round 7): who a row asked by name: its @-names (`mentioned`) and the header names an agent's post
@@ -2506,7 +2569,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
      refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
   const answered = (typeof replyTo === 'string' && /^m\d+$/.test(replyTo))
-    ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId) || null)
+    ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId)
+      // kosmos#8165 review 1/2: or one of this room's posts still being delivered: its row as it will be written (the
+      // fields a reply reads), since the record takes it only when every delivery has finished.
+      || ((p) => (p && p.projectId === projectId ? p.row : null))(pendingPost(replyTo)))
     : null;
   /* #4580: the same post again (sender, room, text and the post it answers) is folded into the first, before the
      room valve. The answered post is part of it: "yes" to two different questions is two answers. The flags
@@ -2673,7 +2739,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      in a room shared with another computer (a claim there is this computer's alone), and not when no reply is wanted. */
   const claimOpen = operator === true && replyExpected !== false && federated !== true
     && claimAskedMembers({ text: stored, from, mentioned: [...atNamed.mentioned], ambiguousMentions: [...ambiguousWords],
-      ...(answered ? { replyTo: answered.id } : {}) }, log, projectId, recipients).length === 0;
+      ...(answered ? { replyTo: answered.id } : {}) },
+      // #8165 r3/r7: the room as it will read, and the very post answered (an unrecorded one is left out of the view,
+      // but it is still the post this reply answers, so the guard must find it, as the reply path does).
+      ((rows) => (answered && answered.pending === true && !rows.includes(answered) ? rows.concat([answered]) : rows))(withPending(log, projectId)),
+      projectId, recipients).length === 0;
   const note4653 = ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '';
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
@@ -2965,6 +3035,20 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   }
 
   const id = mintId(rec.parsed);
+  /* kosmos#8165: cited before its row exists. Review 2: with the fields a reply reads off the post it answers (who sent
+     it, who it asked, whether it is the person's), as its row will carry them, so a fast reply wakes the asker exactly
+     as a late one does (a bare id woke nobody). */
+  for (const [k, p] of PENDING_POSTS) if (Date.now() - p.at > PENDING_POST_MAX_MS) PENDING_POSTS.delete(k);   // r3: pruned on set
+  if (PENDING_POSTS.size >= PENDING_POST_MAX) PENDING_POSTS.delete(PENDING_POSTS.keys().next().value);   // r3: and capped
+  PENDING_POSTS.set(id, { projectId, at: Date.now(), row: { kind: 'post', id, project: projectId, from, to: recipients.slice(), text: stored, at, pending: true,
+    ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),   // review 5: a file-only post is quoted by its name
+    ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}),
+    ...(atNamed.mentioned.size ? { mentioned: [...atNamed.mentioned] } : {}),
+    ...(operator !== true && namedHere.size ? { addressed: [...namedHere] } : {}),
+    ...(operator === true ? { operator: true } : {}) } });
+  /* Review 6: and its own quote tags, judged as its row will be (a copy with none read as an untagged second author, or,
+     excused, let a third post be tagged where a late one is not). Recomputed when it is recorded, against the room then. */
+  try { const q = quotedSegments(stored, from, projectId, withPending(log, projectId, id)); if (q.length) PENDING_POSTS.get(id).row.quotes = q; } catch { /* untagged */ }
 
   /* #2239: the STORED text keeps paragraph breaks (storeText keeps newlines, and
      since #3679 also indentation and fenced code), so the room
@@ -3269,6 +3353,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        was typed anywhere, so nothing is logged (send()'s typed-only
        rule). */
     /* #4447: every member's spill was removed as its delivery failed (above), so none is left here. */
+    PENDING_POSTS.delete(id);   // kosmos#8165 review 2: it reached nobody, so no member holds its id to cite
     const failed = refuse('we could not get this post to anybody on ' + shownProject);
     failed.outcomes = outcomes;
     if (oneThrough) require('./roomloop').pairRefund(projectId, from, askedHere[0]);   // kosmos#7461: no wake, so no slot
@@ -3287,7 +3372,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   // that an ambiguous quote resolves to no styling.
   /* #4926 review 2 (Sonnet): the quoted-words pass runs after delivery too, so a throw from it must not turn into "refused". */
   let quotes = [];
-  try { quotes = quotedSegments(stored, from, projectId, log); } catch { quotes = []; }
+  /* #8165 r3: from the record as it is NOW (posts recorded while this one was being delivered, a fast-answered ask among
+     them, were missing from the snapshot taken when it began), plus the room's earlier posts still being delivered. */
+  try { const now = record(); quotes = quotedSegments(stored, from, projectId, withPending(now && now.ok !== false ? now.rows : log, projectId, id)); } catch { quotes = []; }
   /* #4926 review 1 (Opus): the members have it by now. A record that cannot be written must not turn into a thrown
      "refused" (the sender would post it again, and nothing could fold the twin): it is answered unconfirmed. */
   try {
@@ -3321,9 +3408,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       ...(answered ? { replyTo: answered.id } : {}),
       ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
       ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
+    PENDING_POSTS.delete(id);   // kosmos#8165: recorded now; an unrecorded one stays pending (it was delivered)
   } catch (err) {
     try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
     const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', unrecorded: true, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
+    // kosmos#8165 review 6: still citable (its members hold the id), but the room never shows it, so it is no longer a
+    // source for a later post's quote tag or claim line.
+    if (PENDING_POSTS.has(id)) PENDING_POSTS.get(id).unrecorded = true;
     /* Review 2: an agent's retry folds. Review 4 (Sonnet): NOT the person's. Folded, the page says "Posted." again for a
        post the room never shows, so the person's every repeat vanished until the window passed; a second delivery in
        this rare case (the record could not be written) is the lesser harm. */
@@ -3965,8 +4056,9 @@ function freeClaim({ project, of, by, members }) {
 function messageIdOf(value) {
   const s = String(value == null ? '' : value).trim();
   /* No '#': '#4631' is how a card is written, and a card number must not quietly name a message. */
-  const hit = /^(?:message\s+)?m?(\d{1,15})(?:\s+in\s+\S.*)?[.,;:!?]?$/i.exec(s);   // a sentence's own full stop too
-  return hit ? 'm' + String(Number(hit[1])) : s;
+  // kosmos#8165 review 1: and one surrounding bracket pair, as kosmos room prints every id ("[m530]").
+  const hit = /^(?:message\s+)?(?:\[m?(\d{1,15})\]|m?(\d{1,15}))(?:\s+in\s+\S.*)?[.,;:!?]?$/i.exec(s);   // a sentence's own full stop too
+  return hit ? 'm' + String(Number(hit[1] || hit[2])) : s;   // r3: a balanced pair only
 }
 
 /* kosmos#5752 slice 3: an agent refused something in a project, logged as a `refused` row of that project's room,
@@ -4528,7 +4620,37 @@ function projectOfPost(id) {
      two oracles disagreeing on the same id. */
   if (!Array.isArray(r.rows)) return null;
   const m = r.rows.find((x) => x && x.kind === 'post' && String(x.id) === wanted);
-  return m && typeof m.project === 'string' && m.project ? m.project : null;
+  if (m && typeof m.project === 'string' && m.project) return m.project;
+  // kosmos#8165 review 1: a post still being delivered (or never recorded) is in its room too, so the misroute guard
+  // holds for a fast reply as for a late one.
+  const pending = pendingPost(wanted);
+  return pending ? pending.projectId : null;
+}
+/* kosmos#8165: what an id names, for the live route's refusal of a citation that names no room post: { is: 'post' }
+   (a recorded post, or one still being delivered, or never recorded and within the hour, while this board runs: PENDING_POSTS), { is: 'deleted' } (a post the
+   person deleted, #7614, with its room), { is: 'message', parties } (a direct message, with its two ends), { is: 'unknown' }
+   (not found, but within the ids handed out: perhaps a post typed before a restart and never recorded), or null
+   (above every id this board has handed out since it started and every id in the record). Review 5: null is not proof
+   that nothing was sent: a post in flight when the board restarted has an id above both, so the route says only that
+   it could not find it. Throws on an unreadable record, as projectOfPost does, so a caller can fail closed. */
+function kindOfId(id) {
+  const wanted = String(id == null ? '' : id).trim();
+  if (!wanted) return null;
+  if (pendingPost(wanted)) return { is: 'post' };
+  const r = record();
+  if (!r || r.ok !== true) throw new Error('the message record could not be read');
+  const rows = Array.isArray(r.rows) ? r.rows : [];
+  const m = rows.find((x) => x && (x.kind === 'post' || x.kind === 'message') && String(x.id) === wanted);
+  if (m && m.kind === 'post') return { is: 'post' };
+  if (m) return { is: 'message', parties: [m.from, m.to].filter((n) => typeof n === 'string') };
+  const parsed = Array.isArray(r.parsed) ? r.parsed : [];
+  const gone = parsed.find((x) => x && x.kind === 'post-deleted' && x.of === wanted);
+  if (gone) return { is: 'deleted', project: gone.project };
+  /* Review 3: an id at or below the highest the record or this board has handed out may still have been a post (one
+     typed into panes before a restart and never recorded): "unknown", said honestly. Above it, nothing was ever sent. */
+  const n = /^m(\d+)$/.exec(wanted);
+  const high = parsed.reduce((h, x) => Math.max(h, x && x.id ? Number(String(x.id).slice(1)) || 0 : 0), ID_HIGH);
+  return n && Number(n[1]) <= high ? { is: 'unknown' } : null;
 }
 
 /**
@@ -4718,6 +4840,7 @@ async function deletePostAsync({ projectId, id, roster } = {}) {
 module.exports = {
   tellHeldStill,   // kosmos#7936
   namedIn,   // #4926: server.js asks it who a room post asked by name
+  laterOwnPost,   // kosmos#4926
   lastPostAt, recommenderNoted,   // #6341
   spillLimit,   // #6065: the longest line typed whole
   spillLine, requestIn, fitOrBare,   // #6065 N1: the shortened line, its request, and the re-measure (tests)
@@ -4743,7 +4866,9 @@ module.exports = {
   setSenderTextFilter, filteredText, // #3769
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
-  projectOfPost, owedElsewhere,
+  projectOfPost, kindOfId, owedElsewhere,
+  _withPendingForTests: withPending,
+  _setPendingForTests: (id, entry) => { if (entry) PENDING_POSTS.set(id, entry); else PENDING_POSTS.delete(id); },
   deletePostAsync,   // kosmos#7614
   react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji, freeClaim,
   messageIdOf, // #4631

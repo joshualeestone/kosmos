@@ -429,7 +429,7 @@ function record(sessionName, entry) {
        cannot drift.
 
        ⚠️ THREE WRITTEN VALUES, NOT A BOOLEAN, and that is the whole reason it
-       is not `auto: true`. 'auto' (a lifecycle hook), 'agent' (the agent chose
+       is not `auto: true`. 'auto' (a lifecycle hook; kosmos#8036: or a press on its permission prompt), 'agent' (the agent chose
        to say it), and 'operator' (a person cleared a stale self-report on the
        agent's behalf, via the operator-only clear route -- #2575 -- or Kosmos
        cleared it when the agent left the project it was about -- #5034). A line

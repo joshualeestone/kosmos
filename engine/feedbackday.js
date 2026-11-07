@@ -132,6 +132,16 @@ function recordWho(env, seams) {
   return r && r.ok ? { name: r.name, also: [] } : null;
 }
 
+/* #8141: where this agent says it answers its person (kosmos reply-channel, #5805), or null. Injected as
+   `o.replyChannel` for tests; the real reader never throws, and one that does here counts as no declaration. */
+function replyChannelOf(o, name) {
+  try {
+    const read = o.replyChannel || ((n) => require('./replychannel').forAgent(n));
+    const ch = read(name);
+    return typeof ch === 'string' && ch ? ch : null;
+  } catch { return null; }
+}
+
 /**
  * The digest as lines. `o.name` and `o.also` are recordWho's; `o.date` the person's local day (feedback.today()).
  * A conversation that cannot be read says so, never "nothing today".
@@ -167,11 +177,18 @@ function digest(o) {
     lines.push('Your conversation with your person: Kosmos keeps no conversation under this agent\'s name.');
   } else if (talk == null) {
     lines.push('Your conversation with your person: Kosmos could not read it on this computer.');
-  } else if (talk.length === 0) {
-    lines.push('Your conversation with your person: nothing today.');
   } else {
+    /* #8141: only what was said HERE. An agent that answers its person on another channel (a chat app) has a day of
+       conversation Kosmos never sees, so a bare "nothing today" or "0 from you" read as a day of ignoring them. */
+    const elsewhere = replyChannelOf(o, name);
     const theirs = talk.filter((t) => !t.mine).length;
-    lines.push('Your conversation with your person today: ' + theirs + ' from them, ' + (talk.length - theirs) + ' from you.');
+    if (talk.length === 0) lines.push('Your conversation with your person in Kosmos: nothing today.');
+    else lines.push('Your conversation with your person in Kosmos today: ' + theirs + ' from them, ' + (talk.length - theirs) + ' from you.');
+    if (elsewhere) {
+      lines.push('  You told Kosmos you answer your person on ' + elsewhere + '. Kosmos cannot see that, so what you said there is not counted here.');
+    } else if (theirs > 0 && theirs === talk.length) {
+      lines.push('  If you answered them somewhere else, tell Kosmos where with: kosmos reply-channel "<where>" (Kosmos then stops reminding you to answer a first message here, so declare it only where you do answer).');
+    }
     const shown = talk.slice(-MAX_MESSAGES);
     if (shown.length < talk.length) lines.push('  (the last ' + shown.length + ')');
     for (const t of shown) lines.push('  ' + hhmm(t.d) + ' ' + (t.mine ? 'you' : 'them') + ': ' + t.text);

@@ -47,6 +47,16 @@ struct ChatView: View {
     // most `rebuildsMax` a chat open and Board.rebuildSpacing (2 s) apart, so a list that stays empty cannot rebuild itself in a loop.
     @State private var listEpoch = 0
     @State private var rebuilds: [Date] = []
+    // kosmos#7420: a rebuilt list draws its oldest rows for a moment before it reaches the newest (video, 11-07, about two frames at 30 a
+    // second: "Message 42 of 260"). So it stays out of sight until the end shows, or for rebuildHideAfterLastAsk after the last
+    // ask to go there, when the rows show wherever they are.
+    @State private var rebuildHiding = false
+    static let rebuildHideAfterLastAsk: Double = 0.35
+    #if DEBUG
+    static let sampleNoRebuildHide = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOREBUILDHIDE"] == "1"   // the control
+    #else
+    static let sampleNoRebuildHide = false
+    #endif
     static let rebuildsMax = 3
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
     @State private var anchorLetGo = false
@@ -440,7 +450,7 @@ struct ChatView: View {
             dictation.reset(); emojiOpen = false; trayOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
-            positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true; rebuilds = []   // kosmos#7265 review: a fresh chat's anchor
+            positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true; rebuildHiding = false; rebuilds = []   // kosmos#7265 review: a fresh chat's anchor
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             fullRead = false; threadTag = nil   // kosmos#7810
@@ -598,6 +608,7 @@ struct ChatView: View {
                                 guard drawnEpoch == listEpoch else { return }
                                 Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
                                 endVisible = true
+                                rebuildHiding = false
                                 atBottom = true; unseenNew = false; endSeen = true
                                 // The first scroll has settled when the newest message is really on screen (not after
                                 // a time): from then on, reaching the top is the person scrolling up. Checked a turn
@@ -657,6 +668,9 @@ struct ChatView: View {
                     .modifier(ContentSpace())   // kosmos#7645: rows read their place in the content by this (iOS 26 and later)
                 }
                 .modifier(PositionById(on: Self.idAnchor, id: $positionId))
+                .opacity(rebuildHiding ? 0 : 1)
+                .allowsHitTesting(!rebuildHiding)
+                .accessibilityHidden(rebuildHiding)
                 .id(listEpoch)   // kosmos#7420: a new epoch is a new list (recoverEmpty's .rebuild)
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(PersonScroll(scrolling: $personScrolling) {
@@ -1340,10 +1354,18 @@ struct ChatView: View {
             atBottom = true
             listEpoch &+= 1
             let listAt = listEpoch, chatAt = epoch
+            rebuildHiding = !Self.sampleNoRebuildHide
             for at in [0.05, 0.4] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + at) {
                     guard listEpoch == listAt, epoch == chatAt, !personScrolling, !scrollBox.underFinger else { return }
                     goNewest(proxy)
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {   // queued after the last ask, so a slow layout cannot lift the hide ahead of it
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.rebuildHideAfterLastAsk) {
+                    guard listEpoch == listAt else { return }
+                    if rebuildHiding { Self.trace("rebuild: the end had not shown, list shown anyway") }
+                    rebuildHiding = false
                 }
             }
             // A new list that draws no row never has a row leave, so nothing would check it: one check once the grace is over.

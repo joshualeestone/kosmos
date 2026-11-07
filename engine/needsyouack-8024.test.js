@@ -224,3 +224,262 @@ test('the store: a failed hand-over is kept, a week is the limit, and each agent
   nya.remember('s3', 'three', 7000);
   assert.equal(nya.due('s3', 7000), true, 'and is written fresh');
 });
+
+/* kosmos#8036, Josh's iPhone 11-06 20:25: a press on a live permission prompt, through the real routes and a real captured prompt.
+   withPrompt: the agent reports the hook's wait over a pane showing the prompt; `afterKey` is what the pane shows once a digit lands. */
+const selfreport = require('./selfreport');
+const PROMPT = fs.readFileSync(path.join(__dirname, '..', 'test-support', 'claude-screens', 'permission-prompt-bash-2.1.296.txt'), 'utf8');
+const NEXT_PROMPT = PROMPT.replace(' /usr/bin/uuidgen\n╌', ' /usr/bin/whoami\n╌');
+const IDLE_SCREEN = '⏺ Done.\n\n────────\n❯ \n────────\n  ⏸ manual mode on';
+async function withPrompt(name, { screen = PROMPT, afterKey = IDLE_SCREEN, onKey = null, reportFirst }, fn) {
+  const board = fleet.install([fleet.agent(name, { state: 'idle', runner: 'claude', command: 'claude' })]);
+  messages.setRunner(() => ({ ok: true, session: name + '-discord' }));
+  let shown = screen;
+  const keys = [];
+  chat.setRunner((args) => {
+    const done = (out) => ({ ran: true, spawnFailed: false, status: 0, out: out || '', err: '' });
+    if (args[0] === 'display-message') return done('2.1.296\t\t0\n');
+    if (args[0] === 'capture-pane') return done(shown);
+    if (args[0] === 'send-keys' && /^\d$/.test(args[args.length - 1])) { keys.push(args[args.length - 1]); shown = afterKey; if (onKey) onKey(); }
+    return done();
+  });
+  chat.setDryRun(false);
+  chat.setPauser(() => {});
+  try {
+    posts.length = 0;
+    await reportFirst();
+    const read = async () => (await fetch(base + '/api/agent/' + name + '/thread', { headers: { 'sec-fetch-site': 'same-origin' } })).json();
+    const press = async (which = 'allow') => {
+      const back = await read();
+      const row = (back.messages || []).filter((m) => m && m.kind === 'question' && !m.reported && m.permission).pop();
+      assert.ok(row && back.asked, 'premise: the thread serves a permission card: ' + JSON.stringify(back.messages));
+      const res = await fetch(base + '/api/agent/' + name + '/thread', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+        body: JSON.stringify({ text: String(row.permission[which]), chose: back.options.find((o) => o.n === row.permission[which]).label, asked: back.asked, request: row.permission.request }) });
+      assert.equal(res.status, 200, await res.clone().text());
+      assert.equal(keys.length, 1, 'premise: the key went');
+      return { text: String(row.permission[which]), chose: back.options.find((o) => o.n === row.permission[which]).label, asked: back.asked, request: row.permission.request, delivery: (await res.json()).delivery };
+    };
+    return await fn({ read, press, keys, setShown: (s) => { shown = s; } });
+  } finally { chat.resetForTests(); messages.setRunner(null); board.restore(); }
+}
+const hookWait = () => report({ state: 'needs_you', text: 'asking permission to use Bash: /usr/bin/uuidgen', auto: true });
+const questionRows = (t) => (t.messages || []).filter((m) => m && m.kind === 'question');
+
+test('kosmos#8036: a press that closes the prompt ends the wait at once: no "asked you something" under his Yes, no line after', async () => {
+  await withPrompt('pressed', { reportFirst: hookWait }, async ({ read, press }) => {
+    assert.equal(nya.due('pressed'), true, 'control: its push is held');
+    await press();
+    const after = await read();
+    assert.deepEqual(questionRows(after), [], 'the row the phone draws as "asked you something"');
+    assert.equal(after.asking, false);
+    assert.equal(selfreport.read('pressed').state, 'idle');
+    assert.equal(nya.due('pressed'), false, 'its push went with it');
+    assert.equal(acks().length, 1, 'the coordinator is told, so no email');
+    await report({ state: 'working', text: 'running Bash', auto: true });
+    assert.equal(selfreport.read('pressed').state, 'working', 'the agent\'s next report replaces the idle the press left');
+    const words = chat.readThread(chat.DIRECT, 'pressed').messages.map((m) => m.text);
+    assert.ok(!words.includes(nya.WAIT_ENDED_LINE), 'they answered it, so it did not pass by itself: ' + JSON.stringify(words));
+  });
+});
+
+test('kosmos#8036: a No ends the wait too, and the agent left at its prompt does not read as working', async () => {
+  await withPrompt('denied', { reportFirst: hookWait }, async ({ read, press }) => {
+    await press('deny');
+    const after = await read();
+    assert.deepEqual(questionRows(after), []);
+    assert.equal(after.asking, false);
+    const card = require('./status').snapshot().agents.find((a) => a.sessionName === 'denied');
+    assert.equal(card.state, 'idle', JSON.stringify(card.because));
+  });
+});
+
+test('kosmos#8036 premise (#1995, no press here): a screen showing it running outranks a reported idle', async () => {
+  const board = fleet.install([fleet.agent('stillgoing', { state: 'working', runner: 'claude', command: 'claude' })]);
+  try {
+    assert.equal(selfreport.record('stillgoing', { state: 'idle', because: 'its prompt was answered', auto: true }).recorded, true);
+    assert.equal(require('./status').snapshot().agents.find((a) => a.sessionName === 'stillgoing').state, 'working');
+  } finally { board.restore(); }
+});
+
+test('kosmos#8036 CONTROL: with no press, the same gone-from-screen wait still shows its words (#2456), so the case above shows the fix', async () => {
+  await withPrompt('notpressed', { reportFirst: hookWait }, async ({ read, setShown }) => {
+    setShown(IDLE_SCREEN);
+    const after = await read();
+    assert.equal(questionRows(after).length, 1);
+    assert.equal(selfreport.read('notpressed').state, 'needs_you');
+  });
+});
+
+test('kosmos#8036: the next prompt already up after the press keeps the wait', async () => {
+  await withPrompt('nextup', { afterKey: NEXT_PROMPT, reportFirst: hookWait }, async ({ read, press }) => {
+    const pressed = await press();
+    assert.equal(pressed.delivery && pressed.delivery.state, 'placed', 'premise: it read as answered, so the menu check is what kept the wait');
+    assert.equal(selfreport.read('nextup').state, 'needs_you');
+    assert.equal(questionRows(await read()).length, 1);
+  });
+});
+
+test('kosmos#8036: a newer report written during the press stands, though the screen reads clear', async () => {
+  const later = () => {
+    selfreport.record('during', { state: 'needs_you', because: 'asking permission to use Bash: /usr/bin/whoami', auto: true });
+  };
+  await withPrompt('during', { onKey: later, reportFirst: hookWait }, async ({ press }) => {
+    await press();
+    const now = selfreport.read('during');
+    assert.equal(now.state, 'needs_you');
+    assert.match(now.because, /whoami/);
+  });
+});
+
+test('kosmos#8036: a press on another menu does not end a permission wait standing beside it', async () => {
+  const menu = fs.readFileSync(path.join(__dirname, '..', 'test-support', 'claude-screens', 'question-menu-2.1.29x.txt'), 'utf8');
+  await withPrompt('othermenu', { screen: menu, reportFirst: hookWait }, async ({ read, keys }) => {
+    const back = await read();
+    assert.ok(back.asked && back.options && back.options.length, 'premise: the thread offers the menu: ' + JSON.stringify(back.options));
+    const res = await fetch(base + '/api/agent/othermenu/thread', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ text: String(back.options[0].n), chose: back.options[0].label, asked: back.asked }) });
+    assert.equal(res.status, 200, await res.clone().text());
+    assert.equal(keys.length, 1, 'premise: the press went to the menu as a key');
+    assert.equal(selfreport.read('othermenu').state, 'needs_you');
+  });
+});
+
+test('kosmos#8036: a read while the press settles shows no "asked you something" and no "cannot find the question"', async () => {
+  let during = null;
+  await withPrompt('midsettle', { onKey: () => { during = fetch(base + '/api/agent/midsettle/thread', { headers: { 'sec-fetch-site': 'same-origin' } }).then((r) => r.json()); }, reportFirst: hookWait }, async ({ press }) => {
+    await press();
+    const seen = await during;
+    assert.equal(seen.asking, true, 'premise: the report still stood when this read ran');
+    assert.deepEqual(questionRows(seen), []);
+    assert.equal(seen.questionBecause, null);
+  });
+});
+
+test('kosmos#8036: a stale second tap after the wait ended is refused, and nothing is typed', async () => {
+  await withPrompt('secondtap', { reportFirst: hookWait }, async ({ press, keys }) => {
+    const { delivery, ...again } = await press();
+    assert.ok(delivery, 'premise: the first press was delivered');
+    const res = await fetch(base + '/api/agent/secondtap/thread', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(again) });
+    assert.equal(res.status, 409, await res.clone().text());
+    assert.equal(keys.length, 1);
+  });
+});
+
+const endedLines = (name) => chat.readThread(chat.DIRECT, name).messages.filter((m) => m.text === nya.WAIT_ENDED_LINE).length;
+test('kosmos#8036: a report landing while the press settles says no line either, and the push is still acknowledged', async () => {
+  let landed = null;
+  await withPrompt('settling', { onKey: () => { landed = report({ state: 'idle', text: 'finished responding', auto: true }); }, reportFirst: hookWait }, async ({ press }) => {
+    await press('deny');
+    await landed;
+    assert.equal(selfreport.read('settling').state, 'idle');
+    assert.equal(endedLines('settling'), 0);
+    assert.equal(nya.due('settling'), false);
+    assert.equal(acks().length, 1);
+  });
+});
+
+test('kosmos#8036: a press still unconfirmed says no line when the wait then ends', async () => {
+  await withPrompt('slowdraw', { afterKey: PROMPT, reportFirst: hookWait }, async ({ press }) => {
+    await press();
+    await report({ state: 'working', text: 'running Bash', auto: true });
+    assert.equal(endedLines('slowdraw'), 0);
+    assert.equal(nya.due('slowdraw'), false);
+  });
+});
+
+test('kosmos#8036: a press names only its own wait: the next wait passing by itself still says the line', async () => {
+  await withPrompt('nextwait', { afterKey: PROMPT, reportFirst: hookWait }, async ({ press }) => {
+    await press();
+    await new Promise((r) => setTimeout(r, 5));
+    await report({ state: 'needs_you', text: 'asking permission to use Bash: /usr/bin/whoami', auto: true });
+    nya.remember('nextwait', 'report:later:nextwait', undefined, { autoWait: true });
+    await report({ state: 'working', text: 'running Bash', auto: true });
+    assert.equal(endedLines('nextwait'), 1);
+  });
+});
+
+test('kosmos#8036: a press that blew up did not answer the wait, so its passing still says the line', async () => {
+  const realAnswer = chat.answerQuestionMenu;
+  await withPrompt('blewup', { reportFirst: hookWait }, async ({ read }) => {
+    const back = await read();
+    const row = questionRows(back).pop();
+    chat.answerQuestionMenu = async () => { throw new Error('the pane went away'); };
+    try {
+      const res = await fetch(base + '/api/agent/blewup/thread', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+        body: JSON.stringify({ text: String(row.permission.allow), chose: back.options.find((o) => o.n === row.permission.allow).label, asked: back.asked, request: row.permission.request }) });
+      assert.notEqual(res.status, 200, 'premise: the press failed');
+    } finally { chat.answerQuestionMenu = realAnswer; }
+    await report({ state: 'working', text: 'running Bash', auto: true });
+    assert.equal(endedLines('blewup'), 1);
+  });
+});
+
+async function refusedPress(name, read) {
+  const back = await read();
+  const row = questionRows(back).pop();
+  const realAnswer = chat.answerQuestionMenu;
+  chat.answerQuestionMenu = async () => ({ ok: false, because: 'its question is being handled right now' });
+  try {
+    const res = await fetch(base + '/api/agent/' + name + '/thread', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ text: String(row.permission.allow), chose: back.options.find((o) => o.n === row.permission.allow).label, asked: back.asked, request: row.permission.request }) });
+    assert.equal(res.status, 409, 'premise: the press was refused');
+  } finally { chat.answerQuestionMenu = realAnswer; }
+}
+
+test('kosmos#8036: a refused press did not answer the wait, so its passing still says the line', async () => {
+  await withPrompt('refused', { reportFirst: hookWait }, async ({ read }) => {
+    await refusedPress('refused', read);
+    await report({ state: 'working', text: 'running Bash', auto: true });
+    assert.equal(endedLines('refused'), 1);
+  });
+});
+
+test('kosmos#8036: a refused second press leaves the first press in place: still no line', async () => {
+  await withPrompt('secondpress', { afterKey: PROMPT, reportFirst: hookWait }, async ({ read, press }) => {
+    await press();
+    await refusedPress('secondpress', read);
+    await report({ state: 'working', text: 'running Bash', auto: true });
+    assert.equal(endedLines('secondpress'), 0);
+  });
+});
+
+test('kosmos#8036: a press does not close a question the agent reported itself', async () => {
+  const own = () => report({ state: 'needs_you', text: 'Which logo do you want?' });
+  await withPrompt('ownq', { reportFirst: own }, async ({ press }) => {
+    await press();
+    const now = selfreport.read('ownq');
+    assert.equal(now.state, 'needs_you');
+    assert.equal(now.because, 'Which logo do you want?');
+  });
+});
+
+test('kosmos#8036: a second wait does not repeat the line under itself; a row between lets it speak', async () => {
+  await withAgent('twowaits', async () => {
+    posts.length = 0;
+    /* Each wait's push marked by hand: the phone's cooldown would send no second push, and with no mark there is no line to repeat. */
+    let n = 0;
+    const wait = async () => {
+      await hookWait();
+      nya.remember('twowaits', 'report:' + (++n) + ':twowaits', undefined, { autoWait: true });
+      await report({ state: 'working', text: 'running a tool', auto: true });
+    };
+    const said = () => chat.readThread(chat.DIRECT, 'twowaits').messages.filter((m) => m.text === nya.WAIT_ENDED_LINE).length;
+    await wait();
+    assert.equal(said(), 1, 'control: the first one speaks');
+    await wait();
+    assert.equal(said(), 1, 'the same sentence again under itself');
+    assert.equal(nya.due('twowaits'), false, 'the second push is still acknowledged');
+    chat.appendMessage(chat.DIRECT, 'twowaits', { text: 'hello', at: new Date().toISOString() });
+    await wait();
+    assert.equal(said(), 2, 'a row between: this one is news again');
+  });
+});
+
+test('kosmos#8036: a press still unconfirmed (the same prompt on screen) keeps the wait', async () => {
+  await withPrompt('stillup', { afterKey: PROMPT, reportFirst: hookWait }, async ({ read, press }) => {
+    await press();
+    assert.equal(selfreport.read('stillup').state, 'needs_you');
+    assert.equal(nya.due('stillup'), true);
+    assert.equal(questionRows(await read()).length, 1);
+  });
+});

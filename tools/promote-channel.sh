@@ -164,6 +164,8 @@ SITE="${SITE:-${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}}"
 [ -d "$SITE/dist" ] || { echo "promote-channel: no $SITE/dist" >&2; exit 1; }
 # kosmos#6620: no release pointer moves while the site is frozen (tools/pointer-freeze.sh, the incident pin).
 . "$(cd "$(dirname "$0")" && pwd)/lib/pointer-freeze.sh" || { echo "promote-channel: cannot load tools/lib/pointer-freeze.sh" >&2; exit 1; }
+# kosmos#8167: the installer pkg moves with the promote, as /setup does (#5032).
+. "$(cd "$(dirname "$0")" && pwd)/lib/pkg-inputs.sh" || { echo "promote-channel: cannot load tools/lib/pkg-inputs.sh" >&2; exit 1; }
 pointer_freeze_refuse "$SITE" promote-channel.sh || exit 1
 command -v node >/dev/null 2>&1 || { echo "promote-channel: node is required" >&2; exit 1; }
 
@@ -780,6 +782,36 @@ if [ -n "$NAMED_VERSION" ]; then
     || { echo "promote-channel: $ARTIFACT is no longer the bytes checked above (sha256 $SHA; was $V re-cut while the gates ran?) - refusing; nothing was written." >&2; exit 1; }
 fi
 
+# kosmos#8167: the installer pkg. A staging cut publishes dist/Kosmos-staging.pkg and leaves dist/Kosmos.pkg
+# (the Download button's file) alone, so a promote is what moves the installer. Decided and CHECKED here, before
+# the first write; copied below, after /setup. The pkg names no version, so only a promote of what staging
+# serves NOW may carry the staging pkg: a named promote (--version, possibly an older build) leaves Kosmos.pkg as
+# it is and says so, because the staging pkg may belong to a later cut.
+PKG_PROMOTE=0
+if [ "$FAMILY" = mac ] && [ -f "$SITE/dist/$PKG_STAGING_NAME" ]; then
+  # A broken staging triple (a staging cut that aborted mid-copy, a hand copy) must not block the POINTER promote,
+  # which does not depend on it: the installer is left as it is, loudly, and the pointer promotes.
+  if ! _pkg_ssha="$(pkg_triple_check "$SITE/dist" "$PKG_STAGING_NAME")"; then
+    echo "promote-channel: WARNING dist/$PKG_STAGING_NAME is not a whole, self-consistent triple (above), so it is not copied and $PKG_PROD_NAME is left as it is; the pointer still promotes. Move the $PKG_STAGING_NAME files aside (deploy-site.sh fetches the served triple back) and promote again to move the installer." >&2
+  elif [ -f "$SITE/dist/$PKG_PROD_NAME" ] && cmp -s "$SITE/dist/$PKG_STAGING_NAME" "$SITE/dist/$PKG_PROD_NAME" \
+     && cmp -s "$SITE/dist/$PKG_STAGING_NAME.inputs" "$SITE/dist/$PKG_PROD_NAME.inputs"; then
+    echo "   $PKG_PROD_NAME is already the staging pkg (${_pkg_ssha:0:12}): nothing to copy"
+  elif [ -n "$NAMED_VERSION" ]; then
+    echo "promote-channel: NOTE dist/$PKG_STAGING_NAME (${_pkg_ssha:0:12}) differs from $PKG_PROD_NAME, but a named promote cannot tell whether it belongs to $NAMED_VERSION, so $PKG_PROD_NAME is left as it is. To move the installer too, promote what staging serves (no --version), or copy the triple by hand: pkg_triple_copy in tools/lib/pkg-inputs.sh." >&2
+  else
+    # Only a staging pkg the host SERVES has been through a cut's 9c. A local one that is not served (a staging cut
+    # that aborted after 3c) is never copied: the pointer still promotes, and Kosmos.pkg stays as it is, loudly.
+    _pkg_host="${KOSMOS_SITE_URL:-https://installkosmos.com}"
+    _pkg_served="$(curl -fsSL -m 30 -H 'Cache-Control: no-cache' "$_pkg_host/dist/$PKG_STAGING_NAME.sha256" 2>/dev/null)" || _pkg_served=""
+    _pkg_served="${_pkg_served%%[[:space:]]*}"
+    if [ -n "$_pkg_served" ] && [ "$_pkg_served" = "$_pkg_ssha" ]; then
+      PKG_PROMOTE=1
+    else
+      echo "promote-channel: WARNING dist/$PKG_STAGING_NAME (${_pkg_ssha:0:12}) is not what $_pkg_host serves as $PKG_STAGING_NAME (served: ${_pkg_served:-nothing read}), so it is not copied onto $PKG_PROD_NAME and the Download button keeps its installer. Promote again once the staging pkg is served, or deploy it from the cut box first." >&2
+    fi
+  fi
+fi
+
 # Promote: copy the staging SNAPSHOT to prod. A pointer copy - the artifact bytes are already
 # served and unchanged; only which pointer prod fetches changes. Written ATOMICALLY (temp in
 # the same dir + rename): latest.json is the prod pointer every install fetches, so an
@@ -837,6 +869,15 @@ elif [ "$FAMILY" = mac ]; then
   if [ -f "$SETUP_SRC" ] && ! cmp -s "$SETUP_SRC" "$SITE/setup"; then
     echo "promote-channel: WARNING setup-staging differs from /setup and the promoted pointer names no installer, so prod now serves $V beside the OLDER /setup. If $V was cut with $SETUP_HAND_HINT and commit them with $PROD_NAME." >&2
   fi
+fi
+# kosmos#8167: the staging pkg onto the Download button's name (checked before any write, above). After /setup
+# and before the read-back, like /setup: a failure here leaves the pointer promoted and says exactly what is left.
+if [ "$PKG_PROMOTE" = 1 ]; then
+  pkg_triple_copy "$SITE/dist" "$PKG_STAGING_NAME" "$SITE/dist" "$PKG_PROD_NAME" \
+    || { echo "promote-channel: could not copy dist/$PKG_STAGING_NAME onto dist/$PKG_PROD_NAME ($PROD_NAME is promoted; the Download button's installer is NOT yet). Finish by hand before any deploy: pkg_triple_copy \"$SITE/dist\" $PKG_STAGING_NAME \"$SITE/dist\" $PKG_PROD_NAME (tools/lib/pkg-inputs.sh)." >&2; exit 1; }
+  cmp -s "$SITE/dist/$PKG_STAGING_NAME" "$SITE/dist/$PKG_PROD_NAME" && [ "$(pkg_triple_check "$SITE/dist" "$PKG_PROD_NAME")" = "$_pkg_ssha" ] \
+    || { echo "promote-channel: dist/$PKG_PROD_NAME does not read back as the verified staging pkg - check it by hand before any deploy" >&2; exit 1; }
+  echo "   copied the staging installer pkg onto $PKG_PROD_NAME (sha256 ${_pkg_ssha:0:12}; same bytes, no re-sign). deploy-site.sh --promote ships it only if these are the SERVED Kosmos-staging.pkg's bytes; otherwise it keeps the served $PKG_PROD_NAME and says so."
 fi
 # Prove the promote landed: the prod pointer now names the same artifact + sha as the snapshot.
 PROD_ART="$(read_pointer_field "$SITE/dist/$PROD_NAME" "$ARTIFACT_FIELD")"

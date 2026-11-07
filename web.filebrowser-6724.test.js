@@ -252,7 +252,11 @@ test('iteration 3: a list stopped by the read budget says Kosmos stopped looking
 });
 
 test('iteration 6: the preview fetches a text file only through an explicit Files address, never from an attachment\u2019s own words', () => {
-  const kind = new Function(page.lift(SCRIPT, 'pvStageKind') + '\nreturn pvStageKind;')();
+  // #8122: pvStageKind asks pvSheetUrl first (a spreadsheet's grid), so both are lifted with the extensions it reads.
+  const kind = new Function(page.liftConst(SCRIPT, 'PV_SHEET_EXT') + '\n' + page.lift(SCRIPT, 'pvSheetUrl') + '\n' + page.lift(SCRIPT, 'pvStageKind') + '\nreturn pvStageKind;')();
+  assert.equal(kind({ kind: 'file', name: 'Budget.xlsx', url: '/api/attachment/' + 'a1'.repeat(12) }), 'sheet', 'an .xlsx attachment opens as its grid');
+  assert.equal(kind({ kind: 'file', name: 'Budget.xlsx', url: '/api/attachment/not-an-id' }), 'card', 'an attachment address that is not an id gets no grid');
+  assert.equal(kind({ kind: 'file', name: 'Budget.xlsx', sheetUrl: 'https://elsewhere/x' }), 'card', 'a sheet address that is not the board\'s own is ignored');
   // An attachment's preview is the file's first characters: untrusted, and never an address.
   assert.equal(kind({ kind: 'text', preview: '/api/accounts' }), 'card', 'a text attachment beginning "/api/" would make the viewer fetch that path');
   assert.equal(kind({ kind: 'text', preview: 'hello there' }), 'snippet', 'CONTROL: an attachment\u2019s words show as its snippet');
@@ -261,10 +265,38 @@ test('iteration 6: the preview fetches a text file only through an explicit File
   assert.equal(kind({ kind: 'text', textOf: { kind: 'accounts', owner: 'x', name: 'a.txt' } }), 'card', 'textOf names an agent or a project list, nothing else');
   assert.equal(kind({ kind: 'text', textUrl: '/api/agent/ana/files/preview?name=a.txt' }), 'card', 'an address on the record is never fetched');
   assert.equal(kind({ kind: 'image', preview: '/api/attachment/1/preview' }), 'media', 'CONTROL: pictures as before');
-  const open = page.lift(SCRIPT, 'pvOpen');
-  assert.match(open, /pvTextInto\(stage, a\.textOf, fileCard\)/);
-  assert.doesNotMatch(open, /pvTextInto\(stage, a\.preview/, 'the preview text is used as an address again');
+  // #8122: the text drawing moved into pvTextStage, so a CSV whose grid answer fails can still show its text.
+  const open = page.lift(SCRIPT, 'pvOpen'), textStage = page.lift(SCRIPT, 'pvTextStage');
+  assert.match(open, /pvTextStage\(stage, a, how, fileCard\)/, 'pvOpen draws a text file through pvTextStage');
+  assert.match(textStage, /pvTextInto\(stage, a\.textOf, fileCard\)/);
+  assert.doesNotMatch(open + textStage, /pvTextInto\(stage, a\.preview/, 'the preview text is used as an address again');
+  // A CSV opens as its grid; without the grid (its name hidden, as pvOpen's fallback does) it is the text it was before.
+  const csvAtt = { kind: 'text', name: 'list.csv', preview: 'a,b', url: '/api/attachment/' + 'a2'.repeat(12) };
+  const csvFiles = { kind: 'text', name: 'list.csv', textOf: { kind: 'agent', owner: 'ana', name: 'list.csv' }, sheetUrl: '/api/agent/ana/files/sheet?name=list.csv' };
+  assert.equal(kind(csvAtt), 'sheet', 'a CSV attachment opens as its grid');
+  assert.equal(kind(csvFiles), 'sheet', 'a CSV in a Files list opens as its grid');
+  assert.equal(kind(Object.assign({}, csvAtt, { name: '', sheetUrl: undefined })), 'snippet', 'without the grid, a CSV attachment is its snippet');
+  assert.equal(kind(Object.assign({}, csvFiles, { name: '', sheetUrl: undefined })), 'textOf', 'without the grid, a Files CSV is read as text');
+  assert.match(open, /pvStageKind\(Object\.assign\(\{\}, a, \{ name: '', sheetUrl: undefined \}\)\)/, 'pvOpen asks what the file would be without its grid');
+  assert.match(page.lift(SCRIPT, 'pvSheetLoad'), /if \(orText\) \{ orText\(\); return; \}/, 'a failed grid answer falls back to the text');
   assert.match(PAGE, /#d-filesall-path button \{ min-height: 44px;/, 'the path line\u2019s buttons are small on a phone');
+});
+
+// #8122: the grid asks the board only at its three spreadsheet routes, each address passed through as built (a Files-list
+// name with a space and a slash included), and asks nothing for any other address.
+test('#8122: the spreadsheet grid fetches exactly its three board routes, and nothing else', async () => {
+  const asked = [];
+  const el = () => ({ setAttribute() {}, appendChild() {}, className: '', textContent: '', isConnected: true });
+  const load = new Function('fetch', 'document', 'pvSheetInto', page.lift(SCRIPT, 'pvSheetLoad') + '\nreturn pvSheetLoad;')(
+    (u) => { asked.push(u); return Promise.resolve({ ok: false, json: async () => ({}) }); }, { createElement: el }, () => {});
+  const id = 'a3'.repeat(12);
+  const urls = ['/api/attachment/' + id + '/sheet',
+    '/api/agent/' + encodeURIComponent('ana') + '/files/sheet?name=' + encodeURIComponent('Q3 plan/v2.xlsx'),
+    '/api/project/' + encodeURIComponent('p-1') + '/file-sheet?name=' + encodeURIComponent('list.csv')];
+  for (const u of urls) load(el(), u, el);
+  load(el(), '/api/accounts', el);   // CONTROL: not a spreadsheet route, so nothing is fetched
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(asked, urls);
 });
 
 /* kosmos#7952 (Josh, 11-04: on a remote board the Files screen offered only Download folder): over Kosmos+, each file has

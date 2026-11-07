@@ -431,3 +431,350 @@ test('#8122 r7: a file that is slow twice running is remembered; once is not', (
   sp._forgetForTests();
   assert.equal(sp.fromBytes(b, 'a.xlsx').ok, true, 'CONTROL: forgotten, it reads');
 });
+
+/* #8147: the round-8 leftovers */
+test('#8147 r3: a string of millions of empty text runs is counted and refused, not read', () => {
+  const sp = require('./sheetpreview');
+  // 3.9M runs in the shared strings and 1M in one inline cell: each part under the 16 MB part cap, 4.9M runs in all.
+  const b = fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="inlineStr"><is>' + '<t/>'.repeat(1e6) + '</is></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si>' + '<t/>'.repeat(3.9e6) + '</si></sst>' }, { deflate: true });
+  assert.ok(b.length < 100000, 'a small file: ' + b.length);
+  let reads = 0;
+  x._internal.setClockForTests(() => { reads++; return 0; });
+  let r;
+  try { r = sp.fromBytes(b, 'runs.xlsx'); } finally { x._internal.setClockForTests(null); sp._forgetForTests(); }
+  assert.equal(r.tooLarge, true, JSON.stringify(r).slice(0, 200));
+  assert.ok(reads > 100, 'CONTROL: the runs reached the budget (' + reads + ' clock reads)');
+});
+
+test('#8147: tags that only start like a cell are counted: a part of millions of them is refused, not walked', () => {
+  const sp = require('./sheetpreview');
+  const parts = {};
+  for (let i = 0; i < 4; i++) parts['S' + i] = fx.SHEET('<row r="1">' + '<cx'.repeat(5e6) + '</row>');
+  const b = fx.book(parts, {}, { deflate: true });
+  assert.ok(b.length < 200000, 'a small file: ' + b.length);
+  // Counted work, not a clock: the budget clock is read every 4096 near-misses, and the read stops at the cap.
+  let reads = 0;
+  x._internal.setClockForTests(() => { reads++; return 0; });
+  let r;
+  try { r = sp.fromBytes(b, 'near.xlsx'); } finally { x._internal.setClockForTests(null); sp._forgetForTests(); }
+  assert.equal(r.tooLarge, true, JSON.stringify(r).slice(0, 200));
+  assert.ok(reads > 100, 'CONTROL: the near-misses reached the budget (' + reads + ' clock reads)');
+  // CONTROL: an ordinary file is untouched.
+  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>') })).sheets[0].rows, [['1']]);
+});
+
+test('#8147: a sheet whose walk stopped before the end is never "empty" or "no saved values"', () => {
+  const blanks = Array.from({ length: 2100 }, (_, i) => `<row r="${i + 1}">` + Array.from({ length: 50 }, (_, j) => `<c r="${String.fromCharCode(65 + (j % 26))}${i + 1}" s="1"/>`).join('') + '</row>').join('');
+  const a = x.readXlsx(fx.book({ S: fx.SHEET(blanks + '<row r="2200"><c r="A2200"><v>7</v></c></row>') }, {}, { deflate: true }));
+  assert.equal(a.sheets[0].cut, true);
+  assert.equal(a.empty, false, 'a value past the walk read as empty');
+  const f = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1">' + '<c><f>1+1</f></c>'.repeat(100001) + '</row><row r="2"><c><v>5</v></c></row>') }, {}, { deflate: true }));
+  assert.equal(f.noValues, false, 'a saved value past the walk read as "no saved values"');
+  // Review r5: and the formulas that were read still say why the cells are blank.
+  assert.equal(f.someNoValues, true, 'the formulas read have no saved value, and a saved value exists: "some" is true');
+  const g = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1">' + '<c><f>1+1</f></c>'.repeat(100001) + '</row>') }, {}, { deflate: true }));
+  assert.equal(g.noValues, false);
+  assert.equal(g.someNoValues, true, 'a capped sheet of formulas with no saved values said nothing');
+  // CONTROL: a workbook with only formulas and no walk cut still says so.
+  assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c><f>1+1</f></c></row>') })).noValues, true);
+});
+
+test('#8147: formats that scale or decide by sign show the saved number, not a wrong one; -0, .50', () => {
+  const styles = STYLES('<xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="165"/><xf numFmtId="166"/><xf numFmtId="1"/><xf numFmtId="167"/><xf numFmtId="168"/><xf numFmtId="169"/><xf numFmtId="170"/>',
+    '<numFmts><numFmt numFmtId="164" formatCode="#,##0,"/><numFmt numFmtId="165" formatCode="0,"/><numFmt numFmtId="166" formatCode="#,##0;(#,##0)"/><numFmt numFmtId="167" formatCode=".00"/><numFmt numFmtId="168" formatCode="#,##0.00;[Red]#,##0.00"/><numFmt numFmtId="169" formatCode="#.00"/><numFmt numFmtId="170" formatCode="0.0;-0.0;&quot;zero&quot;"/></numFmts>');
+  const c = (ref, s, v) => `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
+  const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 1234567.891)}${c('B1', 2, 1234567)}${c('C1', 3, -5)}${c('D1', 4, -0.4)}${c('E1', 5, 0.5)}</row>`) }, { 'xl/styles.xml': styles }));
+  assert.deepEqual(r.sheets[0].rows[0], ['1234567.891', '1234567', '(5)', '-0', '.50']);   // r5: "(#,##0)" draws brackets
+  // Review r1: a positive under a code with a section for negatives keeps the first section's formatting; a negative,
+  // or a zero under a code with a zero section, is shown as saved; "#.00" has no leading zero either.
+  const s = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 6, 1234.5)}${c('B1', 6, -1234.5)}${c('C1', 3, 5)}${c('D1', 7, 0.5)}${c('E1', 8, 0)}${c('F1', 8, 2)}</row>`) }, { 'xl/styles.xml': styles }));
+  // Review r4/r5: -1234.5 under "#,##0.00;[Red]#,##0.00" is drawn by its second section; Excel's only sign there is the
+  // red, which this preview cannot show, so it gets a minus (without one a loss read as a gain).
+  assert.deepEqual(s.sheets[0].rows[0], ['1,234.50', '-1,234.50', '5', '.50', '0', '2.0']);
+  // Review r2: a negative percent keeps its percent; a ";" inside quotes is not a section.
+  const st2 = STYLES('<xf numFmtId="0"/><xf numFmtId="171"/><xf numFmtId="172"/>', '<numFmts><numFmt numFmtId="171" formatCode="0%;(0%)"/><numFmt numFmtId="172" formatCode="0.00;&quot;a;b&quot;"/></numFmts>');
+  const p = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, -0.5)}${c('B1', 1, 0.25)}${c('C1', 2, 0)}</row>`) }, { 'xl/styles.xml': st2 }));
+  assert.deepEqual(p.sheets[0].rows[0], ['(50%)', '25%', '0.00']);   // r5: "(0%)" draws brackets, as Excel does
+  // Review r4: "0%;[Red]0%" draws -0.5 as 50% (red, no sign), through its second section.
+  const st4 = STYLES('<xf numFmtId="0"/><xf numFmtId="175"/>', '<numFmts><numFmt numFmtId="175" formatCode="0%;[Red]0%"/></numFmts>');
+  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, -0.5)}</row>`) }, { 'xl/styles.xml': st4 })).sheets[0].rows[0], ['-50%']);
+  // Review r5: a "-" written in the second section is drawn as a minus, and "0.00;[Red]0.00" never shows a loss as a gain.
+  const st6 = STYLES('<xf numFmtId="0"/><xf numFmtId="176"/><xf numFmtId="177"/>', '<numFmts><numFmt numFmtId="176" formatCode="#,##0.00;-#,##0.00"/><numFmt numFmtId="177" formatCode="0.00;[Red]0.00"/></numFmts>');
+  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, -1234.5)}${c('B1', 2, -5)}${c('C1', 2, 5)}</row>`) }, { 'xl/styles.xml': st6 })).sheets[0].rows[0], ['-1,234.50', '-5.00', '5.00']);
+  // Review r3: a percent code's zero section still decides its zero; "#" shows no zero.
+  const st3 = STYLES('<xf numFmtId="0"/><xf numFmtId="173"/><xf numFmtId="174"/>', '<numFmts><numFmt numFmtId="173" formatCode="0%;-0%;&quot;-&quot;"/><numFmt numFmtId="174" formatCode="#"/></numFmts>');
+  const z = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 0)}${c('B1', 2, 0.4)}${c('C1', 2, 7)}</row>`) }, { 'xl/styles.xml': st3 }));
+  assert.deepEqual(z.sheets[0].rows[0], ['0', '', '7']);
+  // Review r4: a cell drawn as nothing is not a value ("empty"), as an empty string is not.
+  const st5 = STYLES('<xf numFmtId="0"/><xf numFmtId="174"/>', '<numFmts><numFmt numFmtId="174" formatCode="#"/></numFmts>');
+  assert.equal(x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 0.4)}</row>`) }, { 'xl/styles.xml': st5 })).empty, true);
+  // CONTROL: an ordinary thousands code still groups.
+  const g = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 1234567)}</row>`) }, { 'xl/styles.xml': STYLES('<xf numFmtId="0"/><xf numFmtId="3"/>') }));
+  assert.deepEqual(g.sheets[0].rows[0], ['1,234,567']);
+});
+
+test('#8147: a row number past Excel\'s last row is not a row number; an empty shared string is not a value', () => {
+  const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1e300"><c r="A1"><v>1</v></c></row>') }));
+  assert.deepEqual(r.sheets[0].rows, [['1']]);
+  assert.equal('firstRow' in r.sheets[0], false);
+  // Review r2: "0x10" is not row 16; a row past the last never lands on a real row.
+  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET('<row r="0x10"><c r="A1"><v>1</v></c></row>') })).sheets[0].rows, [['1']]);
+  for (const big of ['5000000', '50000000', '0000000000000000000099999999', '9'.repeat(41)]) {   // r5: 41 digits too
+    const far = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="2"><c r="A2"><v>2</v></c></row><row r="${big}"><c r="A1"><v>5</v></c></row><row r="3"><c r="A3"><v>9</v></c></row>`) }));
+    assert.deepEqual(far.sheets[0].rows, [[''], ['2'], ['9']], big);
+    assert.equal(far.sheets[0].cut, true, big);
+  }
+  // Review r3: leading zeros are still the row ("00000005" is row 5); a far row's value keeps the workbook from "empty";
+  // an empty far row is no cut.
+  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET('<row r="00000002"><c r="A1"><v>1</v></c></row>') })).sheets[0].rows, [[''], ['1']]);
+  const lone = x.readXlsx(fx.book({ S: fx.SHEET('<row r="5000000"><c r="A1"><v>5</v></c></row>') }));
+  assert.equal(lone.empty, false);
+  assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row><row r="2000000"/>') })).sheets[0].cut, false);
+  // Review r4: nor a far row of formatted blanks.
+  assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row><row r="2000000"><c s="1"/></row>') })).sheets[0].cut, false);
+  const e = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t></t></si></sst>' }));
+  assert.equal(e.empty, true);
+  // Review r1: but a formula whose saved value is that empty string has a saved value, so it is not "some have none".
+  // (Review r3: this and the next check pass on the reader before #8147 too, which counted "" as a value; they pin that
+  // the empty-string change did not break them, not the change itself.)
+  const f = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>3</v></c><c r="B1" t="s"><f>A2</f><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t></t></si></sst>' }));
+  assert.equal('someNoValues' in f, false, 'a formula that saved "" was called one with no saved value');
+  // Review r2: and a workbook whose only formula saved "" is not "no saved values".
+  const only = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="inlineStr"><f>1</f><is><t/></is></c></row>') }));
+  assert.equal(only.noValues, false);
+  // Review r3: the same formula with t="str" is answered the same way (the case beside a formula with no value is `mix`).
+  const str = x.readXlsx(fx.book({ S: fx.SHEET('<row r="500"><c r="A500" t="str"><f>A1</f><v></v></c></row><row r="600"><c r="A600"><v>1</v></c></row>') }));
+  assert.equal(str.sheets[0].firstRow, 600);
+  // Review r4: and a sheet whose only formula is a t="str" "" is not "no saved values".
+  assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="str"><f>A2</f><v></v></c></row>') })).noValues, false);
+  const mix = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><f>A2</f><v>0</v></c><c r="B1"><f>A9</f></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t></t></si></sst>' }));
+  assert.equal(mix.someNoValues, true, 'a blank grid with no word about the formula with no saved value');
+  // CONTROL: a formula with no saved value at all still is.
+  assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>3</v></c><c r="B1"><f>A2</f></c></row>') })).someNoValues, true);
+});
+
+test('#8147: the answer cache is bounded by size, not only by count, and keeps the newest', () => {
+  const sp = require('./sheetpreview');
+  sp._forgetForTests();
+  // Workbooks (an xlsx read reads the clock; a CSV read does not, so a CSV could not show a re-read). Each answer is
+  // about 1.9 MB of JSON: 150 rows of 50 inline strings of 250 characters. 8 would be 15 MB, past the 8 MiB kept.
+  const cols = Array.from({ length: 50 }, (_, i) => (i < 26 ? '' : 'A') + String.fromCharCode(65 + (i % 26)));
+  const book = (k) => fx.book({ S: fx.SHEET(Array.from({ length: 150 }, (_, r) => `<row r="${r + 1}">` + cols.map((c, j) => `<c r="${c}${r + 1}" t="inlineStr"><is><t>${String.fromCharCode(97 + ((k + j) % 26)).repeat(250)}</t></is></c>`).join('') + '</row>').join('')) }, {}, { deflate: true });
+  const books = Array.from({ length: 8 }, (_, k) => book(k));
+  for (let k = 0; k < 8; k++) assert.equal(sp.fromBytes(books[k], 'b' + k + '.xlsx').ok, true);
+  const { count: held } = sp._heldForTests();
+  assert.ok(held <= 4, 'held ' + held + ' answers of about 1.9 MB each');
+  let reads = 0;
+  x._internal.setClockForTests(() => { reads++; return 0; });
+  try {
+    assert.equal(sp.fromBytes(books[7], 'b7.xlsx').ok, true);
+    assert.equal(reads, 0, 'the newest answer was evicted (it was read again)');
+    sp.fromBytes(books[0], 'b0.xlsx');
+    assert.ok(reads > 0, 'CONTROL: the oldest was evicted, so it is read again');
+  } finally { x._internal.setClockForTests(null); sp._forgetForTests(); }
+});
+
+/* #8147 review r6 */
+test('#8147 r6: no format code shows a negative without a sign; a negative time is shown as saved', () => {
+  const codes = ['0;0', '0.00;[Color10]0.00', '0;[Red][<0]0', '#,##0;(#,##0);"-";@', '0%;0', '[Blue]0;[Red]0', '_(#,##0_);(#,##0)', '"$"#,##0;("$"#,##0)'];
+  const fmts = codes.map((code, i) => `<numFmt numFmtId="${180 + i}" formatCode="${code.replace(/"/g, '&quot;')}"/>`).join('');
+  const xfs = '<xf numFmtId="0"/>' + codes.map((_, i) => `<xf numFmtId="${180 + i}"/>`).join('') + '<xf numFmtId="20"/>';
+  const cells = codes.map((_, i) => `<c r="${String.fromCharCode(65 + i)}1" s="${i + 1}"><v>-5</v></c>`).join('') + `<c r="Z1" s="${codes.length + 1}"><v>-0.5</v></c>`;
+  const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${cells}</row>`) }, { 'xl/styles.xml': `<styleSheet><numFmts>${fmts}</numFmts><cellXfs>${xfs}</cellXfs></styleSheet>` }));
+  const shown = r.sheets[0].rows[0].filter((t) => t !== '');
+  assert.equal(shown.length, codes.length + 1);
+  for (const t of shown) assert.ok(/^-|^\(/.test(t), 'a negative shown with no sign: ' + JSON.stringify(t) + ' in ' + JSON.stringify(shown));
+  assert.equal(shown[shown.length - 1], '-0.5', 'h:mm on -0.5 is shown as saved, never 12:00');
+});
+
+test('#8147 r6: a row or cell whose start tag is too long to read is not placed on another row or column', () => {
+  const pad = ' z="' + 'a'.repeat(5000) + '"';
+  const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="2"><c r="A2"><v>2</v></c></row><row${pad} r="9999999"><c r="A1"><v>5</v></c></row>`) }));
+  assert.deepEqual(r.sheets[0].rows, [[''], ['2']]);
+  assert.equal(r.sheets[0].cut, true);
+  const c = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1"><c r="A1"><v>1</v></c><c${pad} r="C1"><v>3</v></c></row>`) }));
+  assert.deepEqual(c.sheets[0].rows, [['1']]);
+  assert.equal(c.sheets[0].cut, true);
+  // CONTROL: a short tag is read.
+  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c><c r="C1"><v>3</v></c></row>') })).sheets[0].rows, [['1', '', '3']]);
+});
+
+/* #8147 review r7 */
+test('#8147 r7: a row or cell that is not placed answers by what it held', () => {
+  const pad = ' z="' + 'a'.repeat(5000) + '"';
+  const read = (rows) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }));
+  // A formula in a long-tag cell: never "empty", and the viewer is told why (no saved value).
+  const a = read(`<row r="1"><c${pad}><f>1</f></c></row>`);
+  assert.equal(a.empty, false);
+  assert.equal(a.someNoValues, true);
+  // A far row holding only a formula: the same.
+  const b = read('<row r="2000000"><c><f>1+1</f></c></row>');
+  assert.equal(b.someNoValues, true);
+  // A far row whose cell is an openpyxl empty <v/> is no cut.
+  assert.equal(read('<row r="1"><c r="A1"><v>1</v></c></row><row r="2000000"><c><f>1</f><v /></c></row>').sheets[0].cut, false);
+  // A row with no r after the last row is not placed past it.
+  const c = read('<row r="1048576"><c r="A1"><v>1</v></c></row><row><c><v>2</v></c></row>');
+  assert.equal(c.sheets[0].rows.length, 1);
+  assert.equal(c.sheets[0].cut, true);
+  // " 5" is row 5.
+  assert.deepEqual(read('<row r=" 2"><c r="A2"><v>1</v></c></row>').sheets[0].rows, [[''], ['1']]);
+});
+
+/* #8162 */
+test('#8162: a skipped row or cell with a value that has attributes is still a value', () => {
+  const pad = ' z="' + 'a'.repeat(5000) + '"';
+  const read = (rows) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }));
+  const a = read('<row r="2000000"><c><v xml:space="preserve">5</v></c></row>');
+  assert.equal(a.empty, false);
+  assert.equal(a.sheets[0].cut, true);
+  const b = read(`<row r="1"><c${pad}><v >5</v></c></row>`);
+  assert.equal(b.empty, false);
+  assert.equal(b.sheets[0].cut, true);
+  // CONTROL: an empty <v/> (openpyxl) is still no value.
+  assert.equal(read('<row r="1"><c r="A1"><v>1</v></c></row><row r="2000000"><c><f>1</f><v /></c></row>').sheets[0].cut, false);
+  // A run of unclosed "<v " tags in a skipped row is linear (the scan stops at the first, counted as cut off; no backtracking).
+  const t0 = Date.now();
+  const runs = read('<row r="2000000"><c>' + '<v '.repeat(200000) + '</c></row>');
+  assert.ok(Date.now() - t0 < 5000, 'took ' + (Date.now() - t0) + ' ms');
+  assert.equal(runs.sheets[0].cut, true, 'the unclosed "<v " tags are counted as cut off');
+});
+
+test('#8162: a cell or value cut off before its close marks the sheet cut and never "empty"', () => {
+  const read = (rows) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }));
+  for (const rows of ['<row r="1"><c r="A1"><v>5</v>', '<row r="1"><c r="A1"><v>5</c></row>', '<row r="1"><c r="A1" ']) {
+    const r = read(rows);
+    assert.equal(r.sheets[0].cut, true, rows);
+    assert.equal(r.empty, false, rows);
+  }
+  // Review r1: a close missing mid-part (a row that swallowed the next, a cell that swallowed the next) is counted too.
+  for (const rows of ['<row r="1"><c r="A1"><v>5</v></c><row r="2"><c r="A2"><v>6</v></c></row>', '<row r="1"><c r="A1"><v>5</v><c r="B1"><v>6</v></c></row>',
+    '<row r="1"><c r="A1"><v>5</v><c/></c></row>', '<row r="1"><c r="A1"><v>5</v><c\tr="B1"><v>6</v></c></row>', '<row r="1"><c r="A1"><v>5</v><c\nr="B1"><v>6</v></c></row>',
+    '<row r="1"><c r="A1"><v>5</v><c\rr="B1"><v>6</v></c></row>']) {   // r4: "/", tab, newline; r5: carriage return
+    assert.equal(read(rows).sheets[0].cut, true, rows);
+  }
+  // Review r2: a part truly cut short (no ">" after a start tag, or no close of a row or of sheetData) is counted too;
+  // these are raw parts, not wrapped by fx.SHEET, which would supply closing tags.
+  for (const part of ['<worksheet><sheetData><row r="1"><c r="A1" ', '<worksheet><sheetData><row r="1">', '<worksheet><sheetData>', '<worksheet><sheetData><row r="1"><c r="A1"><v>5</v></c>']) {
+    const r = x.readXlsx(fx.book({ S: part }));
+    assert.equal(r.sheets[0].cut, true, part);
+    assert.equal(r.empty, false, part);
+  }
+  // Review r2: a raw ">" inside an attribute (legal XML) is no cut-off tag: "no saved values" is still said.
+  const gt = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="1"><f>1</f></c></row>') }, { 'xl/styles.xml': '<styleSheet><numFmts><numFmt numFmtId="164" formatCode="[>100]0"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>' }));
+  assert.equal(gt.noValues, true);
+  const named = x.readXlsx(fx.book({ 'A>B': fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>') }));
+  assert.deepEqual([named.sheets[0].name, named.sheets[0].cut, named.sheets[0].rows], ['A>B', false, [['1']]]);
+  // Review r1: an element lost outside the sheet walk (the shared strings, the sheet list) keeps the workbook from "empty".
+  const list = '<workbook xmlns:r="r"><sheets><sheet name="A" sheetId="1" r:id="rId1"/><sheet name="B" sheetId="2" r:id="rId2"></sheets></workbook>';
+  const lost = x.readXlsx(fx.book({ A: fx.SHEET(''), B: fx.SHEET('<row r="1"><c r="A1"><v>5</v></c></row>') }, { 'xl/workbook.xml': list }));
+  assert.equal(lost.empty, false, 'a sheet lost from the list read as an empty workbook');
+  const sst = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t>hi</si></sst>' }));
+  assert.equal(sst.empty, false);
+  // CONTROL: a whole cell is read and the sheet is not cut.
+  const ok = read('<row r="1"><c r="A1"><v>5</v></c></row>');
+  assert.deepEqual(ok.sheets[0].rows, [['5']]);
+  assert.equal(ok.sheets[0].cut, false);
+});
+
+/* #8162 review r3: the pieces a mutation could remove without a test noticing */
+test('#8162 r3: the seam refuses an answer past 8 MiB of JSON, and remembers that', () => {
+  const sp = require('./sheetpreview');
+  sp._forgetForTests();
+  const line = Array.from({ length: 50 }, () => '\x01'.repeat(200)).join(',');
+  const csv = Buffer.from((line + '\n').repeat(200));
+  assert.ok(csv.length <= sp.MAX_DELIMITED_BYTES, 'under the input cap: ' + csv.length);
+  assert.equal(sp.fromBytes(csv, 'ctl.csv').tooLarge, true);
+  assert.equal(sp._heldForTests().count, 1, 'the refusal is remembered (r5)');
+  assert.equal(sp.fromBytes(csv, 'ctl.csv').tooLarge, true);
+  sp._forgetForTests();
+  // CONTROL: the same shape with plain letters fits.
+  assert.equal(sp.fromBytes(Buffer.from((Array.from({ length: 50 }, () => 'a'.repeat(200)).join(',') + '\n').repeat(200)), 'a.csv').ok, true);
+  sp._forgetForTests();
+});
+
+test('#8162 r3: a start tag with no end, alone, is counted; single quotes are quotes; an empty skipped string is nothing', () => {
+  // Only the "no >" count can see this: the sheet is empty and the shared strings end inside a start tag.
+  const a = x.readXlsx(fx.book({ S: fx.SHEET('') }, { 'xl/sharedStrings.xml': '<sst><si><t>hi</t></si><si ' }));
+  assert.equal(a.empty, false);
+  // A sheet entry written with single quotes, with a raw ">" inside them.
+  const wb = "<workbook xmlns:r='r'><sheets><sheet name='A>B' sheetId='1' r:id='rId1'/></sheets></workbook>";
+  const b = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>') }, { 'xl/workbook.xml': wb }));
+  assert.deepEqual([b.sheets[0].name, b.sheets[0].cut, b.sheets[0].rows], ['A>B', false, [['1']]]);
+  // A skipped row holding only an empty inline string is no value.
+  const c = x.readXlsx(fx.book({ S: fx.SHEET('<row r="2000000"><c t="inlineStr"><is><t></t></is></c></row>') }));
+  assert.equal(c.empty, true);
+  assert.equal(c.sheets[0].cut, false);
+});
+
+test('#8162 r4: an answer that cannot be written to JSON is "too large", not a crash', () => {
+  const sp = require('./sheetpreview');
+  sp._forgetForTests();
+  const real = JSON.stringify;
+  let calls = 0;
+  // Only the seam's own write of the whole answer (the reader also writes single cells to count its output).
+  JSON.stringify = function (...args) {
+    const v = args[0];
+    if (v && typeof v === 'object' && 'ok' in v && ++calls === 1) throw new RangeError('Invalid string length');
+    return real.apply(this, args);
+  };
+  let r;
+  try { r = sp.fromBytes(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>') }), 'throw.xlsx'); } finally { JSON.stringify = real; sp._forgetForTests(); }
+  assert.equal(calls >= 1, true, 'CONTROL: the stub was reached');
+  assert.equal(r.tooLarge, true, JSON.stringify(r));
+});
+
+test('#8162 r5: an unclosed quote never loses later cells silently; a cut-off shared string marks its cell; rich text is no cut', () => {
+  const read = (rows, extra) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }, extra));
+  const q = read('<row r="1"><c r="A1" s="1><v>1</v></c><c r="B1" t="inlineStr"><is><t>it\'s "x</t></is></c></row><row r="2"><c r="A2"><v>3</v></c></row>');
+  assert.equal(q.sheets[0].cut, true, JSON.stringify(q.sheets[0]));
+  // Review r6: and the cells after the damaged tag are still read (only the fallback to its first ">" does that).
+  assert.deepEqual(q.sheets[0].rows[1], ['3', ''], JSON.stringify(q.sheets[0].rows));
+  const s = read('<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>', { 'xl/sharedStrings.xml': '<sst><si><t>hi</si><si><t>ok</t></si></sst>' });
+  assert.equal(s.sheets[0].cut, true, 'a blank cell from a cut-off string said nothing');
+  // A skipped row whose only value is an inline string still counts.
+  const f = read('<row r="2000000"><c t="inlineStr"><is><t>x</t></is></c></row>');
+  assert.equal(f.empty, false);
+  assert.equal(f.sheets[0].cut, true);
+  // CONTROL: a well-formed rich inline string (<color> starts like <c) is read whole, with no cut.
+  const rich = read('<row r="1"><c r="A1" t="inlineStr"><is><r><rPr><color rgb="FFFF0000"/><b/></rPr><t>red</t></r><r><t> plain</t></r></is></c></row>');
+  assert.deepEqual([rich.sheets[0].rows, rich.sheets[0].cut], [[['red plain']], false]);
+});
+
+test('#8162 r6: a shared string lost at the <si> level marks its cell; a raw "<" in a quoted format code is text', () => {
+  const read = (rows, sst) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }, { 'xl/sharedStrings.xml': sst }));
+  const cells = '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c></row>';
+  // The part ends inside the last string: C1 is lost, and says so.
+  const a = read(cells, '<sst><si><t>a</t></si><si><t>b</t></si><si><t>c</t>');
+  assert.equal(a.sheets[0].cut, true, JSON.stringify(a.sheets[0]));
+  // A string missing its close swallowed the next: the cell using it is cut.
+  const b = read(cells, '<sst><si><t>a</t><si><t>b</t></si><si><t>c</t></si></sst>');
+  assert.equal(b.sheets[0].cut, true, JSON.stringify(b.sheets[0]));
+  // CONTROL: whole strings, no cut.
+  const ok = read(cells, '<sst><si><t>a</t></si><si><t>b</t></si><si><t>c</t></si></sst>');
+  assert.deepEqual([ok.sheets[0].rows, ok.sheets[0].cut], [[['a', 'b', 'c']], false]);
+  // A raw "<" inside a quoted format code does not drop the number formats after it.
+  const styles = '<styleSheet><numFmts><numFmt numFmtId="164" formatCode="[<100]0.0"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="165"/></cellXfs></styleSheet>';
+  const d = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="2"><v>45000</v></c></row>') }, { 'xl/styles.xml': styles }));
+  assert.deepEqual(d.sheets[0].rows, [['2023-03-15']]);
+});
+
+test('#8162 r7: a swallowed <si> or <xf> makes every later index suspect; "<" outside a quote ends a tag; an open guide counts', () => {
+  const read = (rows, extra) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }, extra));
+  // Index 0 swallowed index 1, so cells at 1 and 2 would show another cell's text: they are cut.
+  const s = read('<row r="1"><c r="A1" t="s"><v>1</v></c><c r="B1" t="s"><v>2</v></c></row>', { 'xl/sharedStrings.xml': '<sst><si><t>a</t><si><t>b</t></si><si><t>c</t></si><si><t>d</t></si></sst>' });
+  assert.equal(s.sheets[0].cut, true, JSON.stringify(s.sheets[0]));
+  // A style that swallowed the next shifts every later style: the sheets that use them are cut.
+  const st = '<styleSheet><cellXfs><xf numFmtId="0"><alignment/><xf numFmtId="0"><alignment/></xf><xf numFmtId="14"/></cellXfs></styleSheet>';
+  assert.equal(read('<row r="1"><c r="A1" s="1"><v>45000</v></c><c r="B1" s="2"><v>45000</v></c></row>', { 'xl/styles.xml': st }).sheets[0].cut, true);
+  // A format code with ">" then "<" (two conditions) cuts the style walk: the sheet says so.
+  const fm = '<styleSheet><numFmts><numFmt numFmtId="164" formatCode="[>100]0;[<=100]0.0"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="165"/></cellXfs></styleSheet>';
+  assert.equal(read('<row r="1"><c r="A1" s="2"><v>45000</v></c></row>', { 'xl/styles.xml': fm }).sheets[0].cut, true);
+  // "<" outside a quote: the tag has no end, and B1's value never lands in A1 unannounced.
+  const lt = read('<row r="1"><c r="A1" <c r="B1"><v>2</v></c><c r="C1"><v>3</v></c></row>');
+  assert.equal(lt.sheets[0].cut, true, JSON.stringify(lt.sheets[0]));
+  // A phonetic guide never closed loses the text after it: the cell is cut.
+  const g = read('<row r="1"><c r="A1" t="s"><v>0</v></c></row>', { 'xl/sharedStrings.xml': '<sst><si><r><t>a</t></r><rPh sb="0" eb="1"><t>x</t><r><t>b</t></r></si></sst>' });
+  assert.equal(g.sheets[0].cut, true, JSON.stringify(g.sheets[0]));
+  // CONTROL: the same strings and styles whole, no cut.
+  assert.equal(read('<row r="1"><c r="A1" t="s"><v>1</v></c></row>', { 'xl/sharedStrings.xml': '<sst><si><t>a</t></si><si><t>b</t></si></sst>' }).sheets[0].cut, false);
+});

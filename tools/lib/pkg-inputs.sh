@@ -199,23 +199,77 @@ pkg_sidecar_pkgsha() { sed -n '2p' "${1:?}" | sed 's/^pkg://' | tr -d '[:space:]
 # and a caller that read "non-zero" as "current" would skip the publish on an
 # ERROR, the fail-open direction (a reviewer measured it with a stub that
 # returned 3). 0 = needed, 2 = current, anything else = could not decide.
-pkg_publish_needed() {
+pkg_publish_needed() {   # <site-dist> <source-input-sha> [pkg name, default Kosmos.pkg]
   local dist="${1:?pkg_publish_needed needs the site dist dir}"
   local want="${2:?pkg_publish_needed needs the source input sha}"
-  local pkg="$dist/Kosmos.pkg" side="$dist/Kosmos.pkg.inputs" sum="$dist/Kosmos.pkg.sha256"
+  local name="${3:-Kosmos.pkg}"
+  local pkg="$dist/$name" side="$dist/$name.inputs" sum="$dist/$name.sha256"
   local have real pub vouch
-  [ -f "$pkg" ]  || { echo "no Kosmos.pkg in the site dist"; return 0; }
-  [ -f "$side" ] || { echo "Kosmos.pkg has no input sidecar (it predates the guard)"; return 0; }
+  [ -f "$pkg" ]  || { echo "no $name in the site dist"; return 0; }
+  [ -f "$side" ] || { echo "$name has no input sidecar (it predates the guard)"; return 0; }
   have="$(pkg_sidecar_inputs "$side")"
   [ "$have" = "$want" ] || { echo "the pkg's inputs (${have:0:12}) differ from source (${want:0:12})"; return 0; }
-  [ -f "$sum" ] || { echo "Kosmos.pkg has no .sha256 beside it"; return 0; }
+  [ -f "$sum" ] || { echo "$name has no .sha256 beside it"; return 0; }
   real="$(_pkg_hash < "$pkg" | awk '{print $1}')"
   pub="$(awk '{print $1}' < "$sum")"
-  [ "$real" = "$pub" ] || { echo "Kosmos.pkg and Kosmos.pkg.sha256 disagree"; return 0; }
+  [ "$real" = "$pub" ] || { echo "$name and $name.sha256 disagree"; return 0; }
   vouch="$(pkg_sidecar_pkgsha "$side")"
-  [ "$vouch" = "$real" ] || { echo "the sidecar vouches for other bytes (${vouch:0:12}) than Kosmos.pkg's (${real:0:12})"; return 0; }
+  [ "$vouch" = "$real" ] || { echo "the sidecar vouches for other bytes (${vouch:0:12}) than $name's (${real:0:12})"; return 0; }
   echo "current: inputs match source (${want:0:12}), the pair agrees, the sidecar vouches for these bytes"
   return 2
+}
+
+# kosmos#8167: the pkg name follows the channel, as /setup does (#5032). The public Download button
+# links /dist/Kosmos.pkg, so only a PROD cut or a promote may write it. A staging cut writes
+# Kosmos-staging.pkg. Both names hold the same build: same bytes, signature and notarisation.
+PKG_PROD_NAME="Kosmos.pkg"
+PKG_STAGING_NAME="Kosmos-staging.pkg"
+PKG_ALL_NAMES="$PKG_PROD_NAME $PKG_STAGING_NAME"
+
+# The names a cut on <channel> publishes. A prod cut writes both, so staging is never older than prod.
+pkg_names_for_channel() {   # <staging|prod>
+  case "${1:?pkg_names_for_channel needs the channel}" in
+    staging) printf '%s\n' "$PKG_STAGING_NAME" ;;
+    prod) printf '%s\n%s\n' "$PKG_PROD_NAME" "$PKG_STAGING_NAME" ;;
+    *) echo "pkg_names_for_channel: unknown channel '$1'" >&2; return 1 ;;
+  esac
+}
+
+# Is <dir>/<name> a whole, self-consistent triple? Prints the pkg's sha256 and returns 0, or names
+# what is wrong on stderr and returns 1. Used before a copy, and by promote before its first write.
+pkg_triple_check() {   # <dir> <name>
+  local d="${1:?}" n="${2:?}" f real pub vouch
+  for f in "$n" "$n.sha256" "$n.inputs"; do
+    [ -f "$d/$f" ] || { echo "$d/$f is missing; a pkg triple is whole or not at all" >&2; return 1; }
+  done
+  real="$(_pkg_hash < "$d/$n" | awk '{print $1}')"
+  pub="$(awk '{print $1}' < "$d/$n.sha256")"
+  vouch="$(pkg_sidecar_pkgsha "$d/$n.inputs")"
+  [ -n "$real" ] && [ "$real" = "$pub" ] || { echo "$n and $n.sha256 disagree (${real:0:12} vs ${pub:0:12})" >&2; return 1; }
+  [ "$vouch" = "$real" ] || { echo "$n.inputs vouches for other bytes (${vouch:0:12}) than $n's (${real:0:12})" >&2; return 1; }
+  printf '%s\n' "$real"
+}
+
+# Copy a pkg triple from <src-dir>/<src-name> to <dst-dir>/<dst-name>. The .inputs sidecar is copied
+# as it is: it names input and byte shas, not a file name. The .sha256 is WRITTEN under the destination
+# name, so `shasum -c` and the served "names the file it describes" check hold for each name. Refused
+# (returns 1) unless pkg_triple_check passes on the source and the copied bytes hash the same. The files
+# are staged in a temp dir in <dst-dir>, so a refusal before the final moves leaves the destination as it
+# was. The three moves are separate renames: a failure between them can leave a new .inputs or .sha256
+# beside the old pkg, which the next pkg_publish_needed or pkg_triple_check reports as broken.
+pkg_triple_copy() {   # <src-dir> <src-name> <dst-dir> <dst-name>
+  local sd="${1:?}" sn="${2:?}" dd="${3:?}" dn="${4:?}" real got t
+  real="$(pkg_triple_check "$sd" "$sn")" || { echo "pkg_triple_copy: not copying $sd/$sn (above)" >&2; return 1; }
+  find "$dd" -maxdepth 1 -type d -name '.pkgcopy.*' -mmin +10 -exec rm -rf {} + 2>/dev/null   # a copy killed 10+ min ago
+  t="$(mktemp -d "$dd/.pkgcopy.XXXXXX")" || { echo "pkg_triple_copy: cannot make a temp dir in $dd" >&2; return 1; }
+  cp "$sd/$sn" "$t/pkg" && cp "$sd/$sn.inputs" "$t/inputs" && printf '%s  %s\n' "$real" "$dn" > "$t/sha256" \
+    || { rm -rf "$t"; echo "pkg_triple_copy: copying into $dd failed" >&2; return 1; }
+  got="$(_pkg_hash < "$t/pkg" | awk '{print $1}')"
+  [ "$got" = "$real" ] || { rm -rf "$t"; echo "pkg_triple_copy: the copied bytes (${got:0:12}) are not the source's (${real:0:12})" >&2; return 1; }
+  mv "$t/inputs" "$dd/$dn.inputs" && mv "$t/sha256" "$dd/$dn.sha256" && mv "$t/pkg" "$dd/$dn" \
+    || { rm -rf "$t"; echo "pkg_triple_copy: moving the triple into place in $dd failed" >&2; return 1; }
+  rm -rf "$t"
+  return 0
 }
 
 # Does a gitignore-style upload filter (Vercel's .vercelignore) let the pkg
@@ -248,7 +302,9 @@ pkg_upload_filter_excludes() {   # <filter-file>
     cp "$filter" .gitignore
     mkdir -p dist
     : > dist/Kosmos.pkg; : > dist/Kosmos.pkg.sha256; : > dist/Kosmos.pkg.inputs
-    for f in dist/Kosmos.pkg dist/Kosmos.pkg.sha256 dist/Kosmos.pkg.inputs; do
+    : > dist/Kosmos-staging.pkg; : > dist/Kosmos-staging.pkg.sha256; : > dist/Kosmos-staging.pkg.inputs
+    for f in dist/Kosmos.pkg dist/Kosmos.pkg.sha256 dist/Kosmos.pkg.inputs \
+             dist/Kosmos-staging.pkg dist/Kosmos-staging.pkg.sha256 dist/Kosmos-staging.pkg.inputs; do
       git check-ignore -q "$f" && rc=0 || rc=$?
       case "$rc" in (0) printf '%s' "$f"; exit 0;; (1) ;; (*) exit 3;; esac
     done

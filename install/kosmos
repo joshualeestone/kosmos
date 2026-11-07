@@ -3651,10 +3651,11 @@ cmd_post() {
 
 # ---- kosmos reply-channel <where> | --clear      (kosmos#5805 part 2)
 # An agent whose instructions say to answer the person somewhere other than `kosmos reply` (Discord, say) declares it,
-# so Kosmos stops reminding it that nothing reached the person: Kosmos cannot see that channel. --clear goes back.
+# so Kosmos stops reminding it that nothing reached the person, and the person's thread says it answers there (#8141): Kosmos
+# cannot see that channel. --clear goes back.
 # Bare prints the usage and exits 2, like the other argument-taking verbs (the --help guard reuses it).
 cmd_reply_channel() {
-  local usage="Usage: kosmos reply-channel <where you answer the person>   (for an agent whose instructions say to answer somewhere other than kosmos reply, Discord say: Kosmos then stops reminding you that nothing reached them, since it cannot see that channel; kosmos reply-channel --clear goes back to kosmos reply)"
+  local usage="Usage: kosmos reply-channel <where you answer the person>   (for an agent whose instructions say to answer somewhere other than kosmos reply, Discord say: Kosmos then stops reminding you that nothing reached them, and their thread with you says you answer there, since it cannot see that channel; kosmos reply-channel --clear goes back to kosmos reply)"
   [ "$#" -gt 0 ] || { say "$usage"; exit 2; }
   local channel _tok="" _bt rc=0 body because esc_ch esc_pane
   if [ "$#" -eq 1 ] && [ "$1" = "--clear" ]; then channel=""; else channel="$*"; fi
@@ -5500,8 +5501,9 @@ cmd_room() {
   # #4891 N8: `-n N` / `--limit N` (or `--limit=N`) reads only the last N rows (1 to 200; 40 without it). Before
   # this, -n was ignored and the whole tail printed. Either side of the project id.
   # #4926: --unanswered lists only the posts that asked you something and that no post of yours answers by id.
+  # An agent's post the reader has since posted after, not citing an older post, is named on its own line instead.
   # #7848: and that no other agent they asked has claimed (the board decides; this only passes the flag).
-  # kosmos#7969: --all (with --unanswered) lists the asks older than the board's few days too.
+  # kosmos#7969: --all (with --unanswered) shows the asks older than the board's few days too.
   local _n="" _ngiven=0 _arg _unans="" _all=0
   project=""
   while [ $# -gt 0 ]; do
@@ -5517,7 +5519,7 @@ cmd_room() {
     esac
   done
   if [ -z "$project" ]; then
-    say "Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too); or: kosmos room reopen <project-id> to clear a loop-guard hold)"
+    say "Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too), and an agent's ask you posted after, not citing an older post, is named on its own line instead; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
     exit 2
   fi
   if [ "$_all" = 1 ]; then

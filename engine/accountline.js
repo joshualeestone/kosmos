@@ -32,6 +32,13 @@ function accountState(a, now = Date.now()) {
     return 'its sign-in has run out; its agents keep working until ' + when + ', then stop. The person signs in again in Settings > AI Models';
   }
   if (c.badge === 'working') return 'signed in';
+  // #8159: a sign-in nothing has renewed or used for days says since when, never "signed in".
+  if (c.badge === 'signed_in_unverified' && Number.isFinite(c.notConfirmedSince)) {
+    return 'not confirmed since ' + new Date(c.notConfirmedSince).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })   // the same words as grokaccounts.sinceWords
+      // Review 4: as the page says it: Sign in again needs the row's email, so without one the account is added again.
+      // #8173: only a Grok row with no email lacks Sign in again; a Muse row (no email by design) has its own.
+      + '; if its agents stop at a sign-in screen, the person ' + (str(a.email) || a.authMode !== 'subscription' ? 'signs in again' : 'adds the Grok account again') + ' in Settings > AI Models';
+  }
   if (c.badge === 'signed_in_unverified') return 'signed in by Kosmos\'s record, not yet confirmed by a real request';
   if (c.badge === 'rejected') return 'not signed in: its last request was refused. The person signs in again in Settings > AI Models';
   if (c.badge === 'signed_out') return 'not signed in' + why;

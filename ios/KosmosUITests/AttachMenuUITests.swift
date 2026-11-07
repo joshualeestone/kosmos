@@ -177,6 +177,9 @@ final class AttachMenuUITests: XCTestCase {
     }
 
     func testTheRowFitsAtTheLargestText() throws {
+        // kosmos#7609: "Timed out while evaluating UI query" on CI, and passes on a Mac; why that screen is slow is open on the card.
+        // ui-sample.sh sets this, so it reads as skipped there. Alone on a Mac (no variable, KOSMOS_UI_PLUS set) it runs.
+        if ProcessInfo.processInfo.environment["KOSMOS_UI_SAMPLE"] == "1" { throw XCTSkip("kosmos#7609: times out on CI; run alone on a Mac") }
         let app = try launch(args: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         openTray(app, plus: chatPlus)
         let screen = app.windows.firstMatch.frame

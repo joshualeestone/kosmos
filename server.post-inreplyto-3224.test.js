@@ -118,11 +118,69 @@ test('#3224 NON-REGRESSION: a post with NO in_reply_to is unchanged (the common 
     'a proactive post must be unaffected by the in_reply_to guard: ' + (r.json.delivery.because || ''));
 });
 
-test('#3224 AGED-OUT: an in_reply_to that names no known post falls through to the explicit project (never blocks a legit reply)', async () => {
-  const a = room('Alpha aged 3224');
-  const r = await post({ project: a.id, text: 'answering a citation that rolled off the record', from_pane: '', in_reply_to: 'm999999' }, { 'x-kosmos-agent-token': tok() });
-  assert.ok(['placed', 'unconfirmed'].includes(r.json.delivery.state),
-    'an unresolvable in_reply_to must not block a legitimate reply; it should proceed with the explicit project: ' + (r.json.delivery.because || ''));
+/* kosmos#8165 reversed this test's rule ("an id that names no known post falls through, never blocks a legit reply").
+   Such an id is usually a typo or a direct message's id (review 5: not always: a restart can lose a post's row). Posted, it read as citing
+   nothing, and an uncited post moves every earlier ask off the reader's waiting list (#4926). The sender believes it
+   answered something, so it is told. */
+test('kosmos#8165: an in_reply_to that names no post is REFUSED on the live route, and nothing is posted', async () => {
+  const a = room('Alpha unknown 8165');
+  const before = messagesEngine.record().rows.length;
+  const r = await post({ project: a.id, text: 'answering a citation with a typo', from_pane: '', in_reply_to: 'm999999' }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(r.json.delivery.state, 'could_not', JSON.stringify(r.json));
+  assert.match(r.json.delivery.because, /we could not find post m999999 in any room, so nothing was posted/);
+  assert.doesNotMatch(r.json.delivery.because, /"/, 'no double quote: the bash CLI reads because with a sed that stops at one');
+  assert.equal(messagesEngine.record().rows.length, before, 'a refused post wrote a row');
+  // A stray id that is not of the m-number shape is named as "that id", never echoed.
+  const odd = await post({ project: a.id, text: 'odd id', from_pane: '', in_reply_to: '[q"12]' }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(odd.json.delivery.state, 'could_not');
+  assert.match(odd.json.delivery.because, /that id names no post in any room/);
+  // Review 1: an id copied from kosmos room with its brackets ("[m530]") is that post.
+  const seed = await post({ project: a.id, text: 'seed for brackets', from_pane: '' }, { 'x-kosmos-agent-token': tok() });
+  const br = await post({ project: a.id, text: 'bracketed', from_pane: '', in_reply_to: '[' + seed.json.delivery.id + ']' }, { 'x-kosmos-agent-token': tok() });
+  assert.notEqual(br.json.delivery.state, 'could_not', JSON.stringify(br.json.delivery));
+  // Review 1: a post the person deleted is said to be deleted, not to have never existed.
+  const gone = await post({ project: a.id, text: 'to be deleted', from_pane: '' }, { 'x-kosmos-agent-token': tok() });
+  fs.appendFileSync(messagesEngine.LOG, JSON.stringify({ kind: 'post-deleted', operator: true, project: a.id, of: gone.json.delivery.id, at: new Date().toISOString() }) + '\n');
+  const del = await post({ project: a.id, text: 'answering a deleted post', from_pane: '', in_reply_to: gone.json.delivery.id }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(del.json.delivery.state, 'could_not', JSON.stringify(del.json.delivery));
+  assert.match(del.json.delivery.because, /^post m\d+ was deleted, so nothing was posted/);
+  // Review 3: a deletion in another room is none of this sender's business: the generic answer, not "deleted".
+  const z = room('Zeta deleted 8165');
+  const far = await post({ project: z.id, text: 'answering another room deleted post', from_pane: '', in_reply_to: gone.json.delivery.id }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(far.json.delivery.state, 'could_not');
+  assert.doesNotMatch(far.json.delivery.because, /deleted/);
+  assert.match(far.json.delivery.because, /^we could not find post m\d+/, 'review 7: and says it could not find it');
+});
+
+test('kosmos#8165 review 3: an unknown id within the ids handed out is "could not find", never "no post in any room"', async () => {
+  const a = room('Alpha unknown-in-range 8165');
+  const seed = await post({ project: a.id, text: 'seed in range', from_pane: '' }, { 'x-kosmos-agent-token': tok() });
+  const high = Number(seed.json.delivery.id.slice(1));
+  // A row five ids on leaves the four between handed out and unrecorded, as when a restart loses posts' rows.
+  fs.appendFileSync(messagesEngine.LOG, JSON.stringify({ id: 'm' + (high + 5), kind: 'message', from: 'erin', to: 'frank', text: 'later', at: new Date().toISOString(), state: 'placed' }) + '\n');
+  const gap = high + 2;
+  assert.equal(messagesEngine.record().parsed.some((x) => x && x.id === 'm' + gap), false, 'CONTROL: the cited id names nothing');
+  const lost = await post({ project: a.id, text: 'in range', from_pane: '', in_reply_to: 'm' + gap }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(lost.json.delivery.state, 'could_not', JSON.stringify(lost.json.delivery));
+  assert.match(lost.json.delivery.because, /^we could not find post m\d+, so nothing was posted\. It may never have been recorded/);
+  // CONTROL: above every id handed out is the generic sentence (review 5: never "there is no post": a restart can lose one).
+  const none = await post({ project: a.id, text: 'above', from_pane: '', in_reply_to: 'm' + (high + 500000) }, { 'x-kosmos-agent-token': tok() });
+  assert.match(none.json.delivery.because, /^we could not find post m\d+ in any room, so nothing was posted/);
+  assert.doesNotMatch(none.json.delivery.because, /there is no post/);
+});
+
+test('kosmos#8165: an in_reply_to that names a DIRECT MESSAGE is refused, and tells a party to it how to answer it', async () => {
+  const a = room('Alpha dm 8165');
+  fs.appendFileSync(messagesEngine.LOG, JSON.stringify({ id: 'm888801', kind: 'message', from: 'erin', to: 'dana', text: 'a direct one', at: new Date().toISOString(), state: 'placed' }) + '\n');
+  const r = await post({ project: a.id, text: 'answering a DM in a room', from_pane: '', in_reply_to: 'm888801' }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(r.json.delivery.state, 'could_not', JSON.stringify(r.json));
+  assert.match(r.json.delivery.because, /m888801 is a direct message, not a room post, so nothing was posted\. Answer it with kosmos msg --in-reply-to m888801/);
+  // Review 1: to anyone not a party to it, a direct message is named as nothing (no tell about other agents' DMs).
+  fs.appendFileSync(messagesEngine.LOG, JSON.stringify({ id: 'm888802', kind: 'message', from: 'erin', to: 'frank', text: 'not dana', at: new Date().toISOString(), state: 'placed' }) + '\n');
+  const other = await post({ project: a.id, text: 'probing', from_pane: '', in_reply_to: 'm888802' }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(other.json.delivery.state, 'could_not');
+  assert.doesNotMatch(other.json.delivery.because, /direct message/);
+  assert.match(other.json.delivery.because, /we could not find post m888802 in any room/);
 });
 
 test('#3224 TYPE-CHECK: a non-string in_reply_to is refused with 400 before any side-effect (parity with reply_expected)', async () => {
@@ -155,13 +213,12 @@ test('#3745: an agent\'s in_reply_to is kept on its post as replyTo, so the room
   const mB = seed.json.delivery.id;
   const r = await post({ project: b.id, text: 'the answer', from_pane: '', in_reply_to: mB }, { 'x-kosmos-agent-token': tok() });
   const aged = await post({ project: b.id, text: 'aged out', from_pane: '', in_reply_to: 'm999999' }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(aged.json.delivery.state, 'could_not', 'kosmos#8165: a citation that names no post is refused, not posted as citing nothing');
   const rows = messagesEngine.record().rows;
   const reply = rows.find((m) => m.id === r.json.delivery.id);
   assert.ok(reply, 'the reply was not posted: ' + JSON.stringify(r.json));
   assert.equal(reply.replyTo, mB, 'the agent\'s reply does not say what it answers');
-  const agedRow = rows.find((m) => m.id === aged.json.delivery.id);
-  assert.ok(agedRow, 'CONTROL: a citation that names no post still posts');
-  assert.equal(agedRow.replyTo, undefined, 'a post that names nothing known carries no replyTo');
+  assert.equal(rows.some((m) => m.kind === 'post' && m.text === 'aged out'), false, 'a refused post wrote a row');
 });
 
 // LAST test in this file: it makes the message log unreadable, so nothing may run after it.
