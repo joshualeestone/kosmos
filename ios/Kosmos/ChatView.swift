@@ -48,9 +48,10 @@ struct ChatView: View {
     @State private var listEpoch = 0
     @State private var rebuilds: [Date] = []
     // kosmos#7420: a rebuilt list draws its oldest rows for a moment before it reaches the newest (video, 11-07, about two frames at 30 a
-    // second: "Message 42 of 260"). So it stays out of sight until the end shows, for at most rebuildHideAtMost.
+    // second: "Message 42 of 260"). So it stays out of sight until the end shows, or for rebuildHideAfterLastAsk after the last
+    // ask to go there, when the rows show wherever they are.
     @State private var rebuildHiding = false
-    static let rebuildHideAtMost: Double = 0.6
+    static let rebuildHideAfterLastAsk: Double = 0.35
     #if DEBUG
     static let sampleNoRebuildHide = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOREBUILDHIDE"] == "1"   // the control
     #else
@@ -668,6 +669,7 @@ struct ChatView: View {
                 }
                 .modifier(PositionById(on: Self.idAnchor, id: $positionId))
                 .opacity(rebuildHiding ? 0 : 1)
+                .allowsHitTesting(!rebuildHiding)
                 .id(listEpoch)   // kosmos#7420: a new epoch is a new list (recoverEmpty's .rebuild)
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(PersonScroll(scrolling: $personScrolling) {
@@ -1352,12 +1354,14 @@ struct ChatView: View {
             listEpoch &+= 1
             let listAt = listEpoch, chatAt = epoch
             rebuildHiding = !Self.sampleNoRebuildHide
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.rebuildHideAtMost) { if listEpoch == listAt, epoch == chatAt { rebuildHiding = false } }
             for at in [0.05, 0.4] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + at) {
                     guard listEpoch == listAt, epoch == chatAt, !personScrolling, !scrollBox.underFinger else { return }
                     goNewest(proxy)
                 }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {   // queued after the last ask, so a slow layout cannot lift the hide ahead of it
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.rebuildHideAfterLastAsk) { if listEpoch == listAt { rebuildHiding = false } }
             }
             // A new list that draws no row never has a row leave, so nothing would check it: one check once the grace is over.
             DispatchQueue.main.asyncAfter(deadline: .now() + Board.rebuildGrace + Board.rebuildCheckBump) {
