@@ -7938,7 +7938,10 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 .pv-grid-wrap { overflow: auto; min-height: 0; max-height: 100%; width: fit-content; max-width: 100%; border-radius: 6px; background: #fff; }   /* as wide as its table, never a white slab past the last column */
 .pv-grid { border-collapse: separate; border-spacing: 0; font: 13px/1.35 var(--font-ui); color: #1c1b19; }
 .pv-grid th, .pv-grid td { padding: 4px 8px; border-right: 1px solid #e6e3dc; border-bottom: 1px solid #e6e3dc; text-align: left;
-  white-space: pre; max-width: 24rem; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+  white-space: pre; vertical-align: top; }
+/* A table cell ignores max-width, so a long value is cut inside its own block (review 1): one line, an ellipsis, the
+   whole value on hover. */
+.pv-cell { display: block; max-width: 24rem; overflow: hidden; text-overflow: ellipsis; }
 .pv-grid thead th { position: sticky; top: 0; z-index: 1; background: #f3f1ec; color: #6b6862; font-weight: 600; text-align: center; }
 .pv-grid tbody th { position: sticky; left: 0; background: #f3f1ec; color: #6b6862; font-weight: 600; text-align: right; }
 .pv-grid thead th:first-child { left: 0; z-index: 2; }
@@ -77420,7 +77423,11 @@ function pvSheetInto(stage, data) {
     const body = t.createTBody();
     sh.rows.forEach((r, ri) => {
       const tr = body.insertRow(); const th = document.createElement('th'); th.scope = 'row'; th.textContent = String((Number(sh.firstRow) || 1) + ri); tr.appendChild(th);   // firstRow: data starting past row 200 (Kitty's reader)
-      r.forEach((v) => { const td = tr.insertCell(); td.textContent = v; if (v && /^-?[0-9][0-9.,]*$/.test(v)) td.className = 'num'; });
+      r.forEach((v) => {
+        const td = tr.insertCell(); if (v && /^-?[0-9][0-9.,]*$/.test(v)) td.className = 'num';
+        if (v === '' || v == null) return;
+        const c = document.createElement('span'); c.className = 'pv-cell'; c.textContent = v; if (String(v).length > 40) c.title = v; td.appendChild(c);
+      });
     });
     panel.appendChild(t);
     if (sh.cut) notes.appendChild(note('Showing the first 200 rows and 50 columns. Download it to see the rest.'));

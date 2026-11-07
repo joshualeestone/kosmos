@@ -538,7 +538,7 @@ async function runSheet(engine, say) {
       const u = new URL(route.request().url());
       if (u.pathname === '/') return route.fulfill({ status: 200, contentType: 'text/html', body: HTML });
       if (u.pathname === '/api/attachment/' + OK + '/sheet') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true,
-        sheets: [{ name: 'Budget', rows: [['Item', 'Cost'], ['<img src=x onerror="window.__ran=1">', '12.5']], cut: true }, { name: 'Notes', rows: [['done']], cut: false, firstRow: 301 }, { name: 'Chart', rows: [], cut: false, notGrid: true }],
+        sheets: [{ name: 'Budget', rows: [['Item', 'Cost'], ['<img src=x onerror="window.__ran=1">', '12.5'], ['A very long note that runs on and on past any sensible column width, '.repeat(4), '3']], cut: true }, { name: 'Notes', rows: [['done']], cut: false, firstRow: 301 }, { name: 'Chart', rows: [], cut: false, notGrid: true }],
         moreSheets: 0, noValues: false, someNoValues: true, empty: false }) });
       if (u.pathname === '/api/attachment/' + BIG + '/sheet') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, because: 'This spreadsheet is too large to preview.', tooLarge: true }) });
       return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
@@ -568,6 +568,11 @@ async function runSheet(engine, say) {
     }));
     say(JSON.stringify(g.tabs) === '["Budget*","Notes","Chart"]' && g.cells[0] === 'Item' && g.cells[3] === '12.5', T + ': a spreadsheet opens as a grid, its sheets as tabs', JSON.stringify(g));
     say(g.cells[2] === '<img src=x onerror="window.__ran=1">' && g.imgs === 0 && !g.ran, T + ': a cell\'s words are text, never markup', JSON.stringify(g.cells));
+    // A long value is cut to one line with an ellipsis, the whole value on hover (review 1: max-width on a td is ignored).
+    const lc = await pg.evaluate(() => { const c = [...document.querySelectorAll('#pv-preview .pv-grid .pv-cell')].find((x) => /very long note/.test(x.textContent));
+      if (!c) return null; const r = c.getBoundingClientRect(), fs = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      return { w: r.width, max: 24 * fs, cut: c.scrollWidth > c.clientWidth + 1, oneLine: r.height < 30, title: (c.title || '').length, ell: getComputedStyle(c).textOverflow }; });
+    say(!!lc && lc.w <= lc.max + 0.5 && lc.cut && lc.oneLine && lc.title > 200 && lc.ell === 'ellipsis', T + ': a long cell is cut to one line at 24rem with an ellipsis, the whole value on hover', JSON.stringify(lc));
     say(g.notes.some((n) => /first 200 rows/.test(n)) && g.notes.some((n) => /no saved value/.test(n)) && g.below && g.name === 'Budget 2026.xlsx', T + ': it says when it is cut short or values are missing; the name and the gold button are under it', JSON.stringify(g));
     // The keyboard reaches the sheets: Tab from the X goes to the selected tab, then the grid (review 1).
     await pg.focus('#pv-x'); await pg.keyboard.press('Tab');
