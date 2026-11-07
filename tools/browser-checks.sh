@@ -1096,6 +1096,11 @@ run_one "render-member-modal" node docs/browser-checks/render-member-modal.js
 # so it is the engine that exercises the JPEG fallback).
 run_one "render-picture-fit-4885" env ENGINES=chromium,webkit node docs/browser-checks/render-picture-fit-4885.js
 
+# --- 11-06: message line spacing 1.6 in the project room (Josh) --------------
+# Needs no board: it draws a real room row from pjRoomRow over file:// and measures the drawn line height.
+# Its own run_one line, not a gated.txt entry (#3929), because it passes ENGINES=chromium,webkit.
+run_one "render-msg-linespacing-1106" env ENGINES=chromium,webkit node docs/browser-checks/render-msg-linespacing-1106.js
+
 # --- #4930: click a file a message carries to see it full page ---------------
 # Needs no board: it serves the real page with every /api call stubbed and draws real attachment cards.
 # Its own run_one line, not a gated.txt entry (#3929), because it passes ENGINES=chromium,webkit: gated.txt
