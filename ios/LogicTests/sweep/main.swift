@@ -176,7 +176,18 @@ do {
     //   whatever its spacing or value.
     // - Making's WaitOrb is in madeScreen's last branch (the wait), not the seen or timed-out branches.
     // - WaitOrb draws at its side(...) (132 pt, 66 at the accessibility text sizes and in landscape).
-    let agentsCode = repoText("ios/Kosmos/AgentsView.swift").split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+    // Comments are cut first (review 4: `retry: false) // orb: gone` read as an orb): /* */ blocks, then a line's tail from
+    // " //" on, then whole // lines.
+    func codeOnly(_ text: String) -> String {
+        var t = text
+        while let a = t.range(of: "/*"), let b = t.range(of: "*/", range: a.upperBound..<t.endIndex) { t.removeSubrange(a.lowerBound..<b.upperBound) }
+        return t.split(separator: "\n", omittingEmptySubsequences: false).map { line -> Substring in
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("//") { return "" }
+            if let c = line.range(of: " //") { return line[..<c.lowerBound] }
+            return line
+        }.joined(separator: "\n")
+    }
+    let agentsCode = codeOnly(repoText("ios/Kosmos/AgentsView.swift"))
     func between(_ text: String, _ from: String, _ to: String) -> Range<String.Index>? {
         guard let a = text.range(of: from), let b = text.range(of: to, range: a.upperBound..<text.endIndex) else { return nil }
         return a.upperBound..<b.lowerBound
@@ -196,8 +207,10 @@ do {
     var outside = agentsCode
     if let c = connR { outside.removeSubrange(c) }
     if let a = between(outside, "case .waitingForAllow(", "case .connecting(") { outside.removeSubrange(a) }
-    let allowHas = allowR.map { orbColons(agentsCode[$0]) } ?? -1
-    let connectingHas = connR.map { orbColons(agentsCode[$0]) } ?? -1
+    // Each case passes the orb its exact label, once (review 4: a count also took `orb: nil`).
+    let theOrb = "orb: \"Waiting for your Mac\")"
+    let allowHas = allowR.map { orbColons(agentsCode[$0]) == 1 && agentsCode[$0].components(separatedBy: theOrb).count == 2 ? 1 : 0 } ?? -1
+    let connectingHas = connR.map { orbColons(agentsCode[$0]) == 1 && agentsCode[$0].components(separatedBy: theOrb).count == 2 ? 1 : 0 } ?? -1
     let outsideHas = orbColons(outside[...])
     let making = repoText("ios/Kosmos/NewAgentView.swift").split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
     let waitBranch: Substring = {
@@ -206,6 +219,11 @@ do {
         return making[e.upperBound..<s.lowerBound]
     }()
     let orbSrc = repoText("ios/Kosmos/KosmosOrb.swift")
+    // KosmosOrb.swift is skipped by the offender scan, so it may declare only the orb, WaitOrb and WaitTick at its top level:
+    // no other type, alias, extension or function a fourth screen could draw the orb through (review 4).
+    let topLevel = orbSrc.split(separator: "\n").filter { l in ["struct ", "class ", "enum ", "typealias ", "extension ", "func ", "let ", "var ", "private ", "fileprivate ", "public ", "final ", "actor "].contains(where: { l.hasPrefix($0) }) }.map(String.init)
+    let orbFileOk = topLevel == ["struct KosmosOrb: View {", "struct WaitOrb: View {", "struct WaitTick: View {"]
+    check(orbFileOk, "KosmosOrb.swift declares only KosmosOrb, WaitOrb and WaitTick at its top level (\(topLevel))")
     check(waitOrbs == ["AgentsView.swift": 1, "NewAgentView.swift": 1] && allowHas == 1 && connectingHas == 1 && outsideHas == 1
           && waitBranch.contains("WaitOrb(label:") && orbSrc.contains("KosmosOrb(size: WaitOrb.side(typeSize")
           && orbSrc.contains("static let side: CGFloat = 132") && orbSrc.contains("static let sideAtLargeText: CGFloat = 66"),
