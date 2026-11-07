@@ -844,5 +844,41 @@ run_deploy "$S61" "$L61" --promote
 { [ "$RC" = 1 ] && has "$out" "this freeze was never pushed" && ! has "$out" "pull it"; } \
   && pass "#6620: a freeze committed here and never pushed is told so, with the command that pushes it" || bad "#6620 unpushed advice (rc=$RC) out=$out"
 
+# =============================================================================================
+# kosmos#8167: the staging installer pkg. A staging cut serves Kosmos-staging.pkg; promote-channel.sh copies it onto
+# Kosmos.pkg in the site dist; deploy-site.sh --promote must SHIP that copy, not fetch the old served Kosmos.pkg back.
+serve_pkg() {   # <dir> <name> <bytes>: a whole triple (the .sha256 names its own file, the sidecar vouches)
+  printf '%s' "$3" > "$1/dist/$2"; local h; h="$(sha_of "$1/dist/$2")"
+  printf '%s  %s\n' "$h" "$2" > "$1/dist/$2.sha256"; printf 'in\npkg:%s\n' "$h" > "$1/dist/$2.inputs"
+}
+# A) the promoted copy is kept and served.
+OLD=0.7.47 NEW=0.7.49 OLDART=kosmos-0.7.47-arm64.tar.gz NEWART=kosmos-0.7.49-arm64.tar.gz
+read -r S81 L81 <<<"$(make_scenario)"
+serve_pkg "$L81" Kosmos-staging.pkg "STAGING-PKG-BYTES"
+serve_pkg "$S81" Kosmos.pkg "STAGING-PKG-BYTES"            # what promote-channel.sh left: the staging bytes under the prod name
+run_deploy "$S81" "$L81" --promote
+[ "$RC" = 0 ] && [ "$(cat "$L81/dist/Kosmos.pkg")" = "STAGING-PKG-BYTES" ] && has "$out" "is the promoted copy of the served Kosmos-staging.pkg" \
+  && pass "8167: --promote ships the promoted Kosmos.pkg (the staging bytes), not the old served one" || bad "8167 promoted pkg (rc=$RC, live Kosmos.pkg: $(cat "$L81/dist/Kosmos.pkg"), out=$out)"
+[ "$(cat "$L81/dist/Kosmos-staging.pkg")" = "STAGING-PKG-BYTES" ] && pass "8167: and the staging pkg still serves beside it" || bad "8167: the staging pkg stopped serving after the promote"
+# A, CONTROL) a local Kosmos.pkg that is NOT the served staging pkg is replaced by the served one, as before (#4745).
+read -r S82 L82 <<<"$(make_scenario)"
+serve_pkg "$L82" Kosmos-staging.pkg "STAGING-PKG-BYTES"
+serve_pkg "$S82" Kosmos.pkg "SOMETHING-ELSE"
+run_deploy "$S82" "$L82" --promote
+[ "$RC" = 0 ] && [ "$(cat "$L82/dist/Kosmos.pkg")" = "PKG-BYTES" ] && ! has "$out" "is the promoted copy" \
+  && pass "8167: CONTROL a local Kosmos.pkg that is not the served staging pkg is pinned to the served one" || bad "8167 control (rc=$RC, live Kosmos.pkg: $(cat "$L82/dist/Kosmos.pkg"), out=$out)"
+# B) a local staging pkg the host does not serve is refused, nothing deployed.
+read -r S83 L83 <<<"$(make_scenario)"
+serve_pkg "$S83" Kosmos-staging.pkg "NEVER-SERVED"
+run_deploy "$S83" "$L83" --promote
+[ "$RC" = 1 ] && has "$out" "holds a Kosmos-staging.pkg file but the host serves none" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L83/dist/latest.json")" = "$OLD" ] && [ ! -e "$L83/dist/Kosmos-staging.pkg" ] \
+  && pass "8167: a local staging pkg the host never served refuses the deploy, live untouched" || bad "8167 unserved staging pkg (rc=$RC, out=$out)"
+# C) a served staging pkg with no local copy is fetched and carried (a deploy from another box keeps it).
+read -r S84 L84 <<<"$(make_scenario)"
+serve_pkg "$L84" Kosmos-staging.pkg "STAGING-PKG-BYTES"
+run_deploy "$S84" "$L84" --promote
+[ "$RC" = 0 ] && [ "$(cat "$L84/dist/Kosmos-staging.pkg")" = "STAGING-PKG-BYTES" ] && [ -f "$S84/dist/Kosmos-staging.pkg.inputs" ] \
+  && pass "8167: a served staging pkg is fetched and still served after a deploy from a box without it" || bad "8167 fetch staging pkg (rc=$RC, out=$out)"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

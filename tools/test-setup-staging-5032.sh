@@ -203,5 +203,38 @@ Sr2="$(promote_site yes)"; node -e 'const f=process.argv[1];const p=JSON.parse(r
 bash "$HERE/publish-staging-pointer.sh" "$Sr2" >/dev/null 2>&1
 ! grep -q setup_sha256 "$Sr2/dist/latest-staging.json" && pass "publish-staging: CONTROL a republish of a DIFFERENT build names no installer" || bad "publish-staging carried an installer name across builds: $(cat "$Sr2/dist/latest-staging.json")"
 
+# ---- kosmos#8167: the installer PKG moves with the promote too ----------------------------------------------
+. "$REPO/tools/lib/pkg-inputs.sh"
+mkpkg() {   # <site> <name> <bytes> <input-sha>
+  printf '%s' "$3" > "$1/dist/$2"
+  printf '%s  %s\n' "$(shasum -a 256 < "$1/dist/$2" | awk '{print $1}')" "$2" > "$1/dist/$2.sha256"
+  pkg_sidecar_write "$1/dist/$2" "$4" "$1/dist/$2.inputs"
+}
+IN_OLD="$(printf 'old' | shasum -a 256 | awk '{print $1}')"; IN_NEW="$(printf 'new' | shasum -a 256 | awk '{print $1}')"
+Sk="$(promote_site yes)"; mkpkg "$Sk" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sk" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"
+[ "$(cat "$Sk/dist/Kosmos.pkg")" = "PROD-PKG" ] && pass "8167 promote: CONTROL before the promote Kosmos.pkg is the prod pkg" || bad "8167 fixture: Kosmos.pkg is not the prod pkg"
+out="$(bash "$HERE/promote-channel.sh" "$Sk" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && cmp -s "$Sk/dist/Kosmos-staging.pkg" "$Sk/dist/Kosmos.pkg" && cmp -s "$Sk/dist/Kosmos-staging.pkg.inputs" "$Sk/dist/Kosmos.pkg.inputs" \
+  && pass "8167 promote: Kosmos.pkg and its sidecar are now the staging pkg's" || bad "8167 promote did not copy the staging pkg (rc=$rc, out=$out)"
+[ "$(awk '{print $2}' "$Sk/dist/Kosmos.pkg.sha256")" = Kosmos.pkg ] && [ "$(awk '{print $1}' "$Sk/dist/Kosmos.pkg.sha256")" = "$(shasum -a 256 < "$Sk/dist/Kosmos.pkg" | awk '{print $1}')" ] \
+  && pass "8167 promote: the promoted Kosmos.pkg.sha256 names Kosmos.pkg and its bytes" || bad "8167 promote: Kosmos.pkg.sha256 reads '$(cat "$Sk/dist/Kosmos.pkg.sha256")'"
+has "$out" "copied the staging installer pkg onto Kosmos.pkg" && pass "8167 promote: says it copied the pkg" || bad "8167 promote did not say so (out=$out)"
+# No staging pkg (before the first staging cut after #8167): Kosmos.pkg is left alone and the promote goes on.
+Sn="$(promote_site yes)"; mkpkg "$Sn" Kosmos.pkg "PROD-PKG" "$IN_OLD"
+out="$(bash "$HERE/promote-channel.sh" "$Sn" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$Sn/dist/Kosmos.pkg")" = "PROD-PKG" ] && grep -q '"9.9.9"' "$Sn/dist/latest.json" && pass "8167 promote: CONTROL with no staging pkg, Kosmos.pkg is left as it is and the pointer still promotes" || bad "8167 promote no-staging-pkg arm (rc=$rc, out=$out)"
+# Already the same pkg: nothing to copy.
+Ss="$(promote_site yes)"; mkpkg "$Ss" Kosmos.pkg "SAME-PKG" "$IN_NEW"; mkpkg "$Ss" Kosmos-staging.pkg "SAME-PKG" "$IN_NEW"
+out="$(bash "$HERE/promote-channel.sh" "$Ss" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && has "$out" "already the staging pkg" && pass "8167 promote: an identical staging pkg is not copied again" || bad "8167 promote identical arm (rc=$rc, out=$out)"
+# A broken staging triple refuses BEFORE any write: the pointer, /setup and Kosmos.pkg are all untouched.
+Sb8="$(promote_site yes)"; mkpkg "$Sb8" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sb8" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"; printf 'TAMPERED' > "$Sb8/dist/Kosmos-staging.pkg"
+out="$(bash "$HERE/promote-channel.sh" "$Sb8" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$Sb8/dist/latest.json")" = '{"version":"1.0.0"}' ] && [ "$(cat "$Sb8/setup")" = "PROD-INSTALLER KOSMOS_READONLY_APP" ] && [ "$(cat "$Sb8/dist/Kosmos.pkg")" = "PROD-PKG" ] && has "$out" "not a whole, self-consistent triple" \
+  && pass "8167 promote: a tampered staging pkg refuses the promote, nothing written" || bad "8167 promote tampered arm (rc=$rc, latest.json: $(cat "$Sb8/dist/latest.json"), out=$out)"
+rm -f "$Sb8/dist/Kosmos-staging.pkg.inputs"; mkpkg "$Sb8" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"; rm -f "$Sb8/dist/Kosmos-staging.pkg.inputs"
+out="$(bash "$HERE/promote-channel.sh" "$Sb8" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$Sb8/dist/latest.json")" = '{"version":"1.0.0"}' ] && has "$out" "is missing" && pass "8167 promote: a staging pkg missing its sidecar refuses, nothing written" || bad "8167 promote partial arm (rc=$rc, out=$out)"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-setup-staging-5032: ALL PASS"; else echo "test-setup-staging-5032: FAILURES above"; exit 1; fi

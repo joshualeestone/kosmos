@@ -366,5 +366,16 @@ PGATE="$T/stub-port-gate.sh"; printf '#!/usr/bin/env bash\nprintf "%%s %%s\\n" "
 S="$(newsite)"; out="$(KOSMOS_PROMOTE_GATE_CMD="bash $PGATE" bash "$HERE/promote-channel.sh" "$S" 16999 --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$T/port.log")" = "9.9.8 16999" ] && pass "named: <site> <port> --version: the gate gets the port and expects V" || bad "named with a port (rc=$rc, gate saw '$(cat "$T/port.log" 2>/dev/null)', out=$out)"
 
+# ---- kosmos#8167: a named promote cannot tell which build the staging pkg belongs to, so it leaves Kosmos.pkg ----
+. "$HERE/lib/pkg-inputs.sh"
+mkpkg() { printf '%s' "$3" > "$1/dist/$2"; printf '%s  %s\n' "$(shasum -a 256 < "$1/dist/$2" | awk '{print $1}')" "$2" > "$1/dist/$2.sha256"; pkg_sidecar_write "$1/dist/$2" "$(printf '%s' "$3" | shasum -a 256 | awk '{print $1}')" "$1/dist/$2.inputs"; }
+S="$(newsite)"; mkpkg "$S" Kosmos.pkg "PROD-PKG"; mkpkg "$S" Kosmos-staging.pkg "STAGING-PKG"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && [ "$(cat "$S/dist/Kosmos.pkg")" = "PROD-PKG" ] && has "$out" "a named promote cannot tell whether it belongs to 9.9.8" \
+  && pass "8167 named: the pointer promotes, Kosmos.pkg is left as it is, and it says why" || bad "8167 named (rc=$rc, Kosmos.pkg: $(cat "$S/dist/Kosmos.pkg"), out=$out)"
+S="$(newsite)"; mkpkg "$S" Kosmos.pkg "PROD-PKG"; mkpkg "$S" Kosmos-staging.pkg "STAGING-PKG"
+out="$(bash "$HERE/promote-channel.sh" "$S" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$S/dist/Kosmos.pkg")" = "STAGING-PKG" ] && pass "8167 named: CONTROL the same site promoted without --version DOES copy the staging pkg" || bad "8167 named control (rc=$rc, Kosmos.pkg: $(cat "$S/dist/Kosmos.pkg"), out=$out)"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-promote-named-7005: ALL PASS"; else echo "test-promote-named-7005: FAILURES above"; exit 1; fi

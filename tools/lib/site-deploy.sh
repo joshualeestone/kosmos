@@ -22,6 +22,7 @@
 #                             still ask for the version it named. Pruning old
 #                             versions is a separate decision, not this one.
 #   dist/Kosmos.pkg, .sha256, .inputs   the installer package triple (#638)
+#   dist/Kosmos-staging.pkg, .sha256, .inputs   a staging cut's triple (#8167)
 #   .vercel/                  the project link the CLI deploys to
 # Everything else comes from the commit.
 #
@@ -94,7 +95,7 @@ _site_served_versions() {
 
 site_deploy_export() {
   local site="${1:?site_deploy_export needs the site checkout}" out="${2:?site_deploy_export needs an output dir}" want="${3:-HEAD}"
-  local head f n bytes tarf
+  local head f n bytes tarf _pn _pkg_carried
   git -C "$site" rev-parse --verify HEAD >/dev/null 2>&1 || { echo "site_deploy_export: $site is not a git checkout with a HEAD" >&2; return 1; }
   [ -f "$site/.vercel/project.json" ] || { echo "site_deploy_export: no .vercel/project.json in $site; the CLI would not know the project" >&2; return 1; }
   head="$(git -C "$site" rev-parse --verify "$want^{commit}" 2>/dev/null)" || { echo "site_deploy_export: $want is not a commit in $site" >&2; return 1; }
@@ -138,24 +139,29 @@ site_deploy_export() {
   # sidecar is what 9c reds on, ten minutes later. The release's 3c writes
   # all three before this runs; a partial set here means something else put
   # a pkg in the site dist, and that is a refusal, not a carry.
-  if [ -f "$site/dist/Kosmos.pkg" ]; then
-    for f in Kosmos.pkg.sha256 Kosmos.pkg.inputs; do
-      [ -f "$site/dist/$f" ] || { echo "site_deploy_export: dist/Kosmos.pkg is present without dist/$f; the triple deploys whole or not at all. Inside a cut, 3c publishes all three before this runs; by hand, run the release or remove the orphan pair." >&2; rm -rf "$out"; return 1; }
+  # kosmos#8167: two names, each its own triple. Kosmos.pkg is the one the Download button serves (a prod
+  # cut or a promote writes it); Kosmos-staging.pkg is a staging cut's (tools/lib/pkg-inputs.sh,
+  # PKG_ALL_NAMES). Each is carried whole or not at all, and a site dist with neither carries no pkg.
+  _pkg_carried=""
+  for _pn in Kosmos.pkg Kosmos-staging.pkg; do
+    [ -f "$site/dist/$_pn" ] || continue
+    for f in "$_pn.sha256" "$_pn.inputs"; do
+      [ -f "$site/dist/$f" ] || { echo "site_deploy_export: dist/$_pn is present without dist/$f; the triple deploys whole or not at all. Inside a cut, 3c publishes all three before this runs; by hand, run the release or remove the orphan pair." >&2; rm -rf "$out"; return 1; }
     done
     # COPIED, not linked: 9c compares the served pkg to this copy after the
     # deploy, and a hard link would follow an in-place overwrite of the
-    # shared dist (3c's own cp is one; a concurrent cut is another) and re-aim
+    # shared dist (3c's own copy is one; a concurrent cut is another) and re-aim
     # 9c at bytes this cut never deployed (measured: link count 2, new bytes
-    # on both). The triple is 21 KB; the link only earns its keep on the
+    # on both). The triple is about 115 KB; the link only earns its keep on the
     # tarball set, whose served copy 9b compares against the frozen tree.
-    for f in Kosmos.pkg Kosmos.pkg.sha256 Kosmos.pkg.inputs; do
+    for f in "$_pn" "$_pn.sha256" "$_pn.inputs"; do
       _site_carry_allowed "$site" "dist/$f" || { rm -rf "$out"; return 1; }
       cp "$site/dist/$f" "$out/dist/" || { rm -rf "$out"; return 1; }; _SITE_CARRIED="${_SITE_CARRIED}dist/$f${_SITE_NL}"
     done
-    echo "   carried: the pkg triple (Kosmos.pkg, .sha256, .inputs)"
-  else
-    echo "   carried: no pkg (dist/Kosmos.pkg is not in the site dist)"
-  fi
+    echo "   carried: the pkg triple ($_pn, .sha256, .inputs)"
+    _pkg_carried="$_pkg_carried $_pn"
+  done
+  [ -n "$_pkg_carried" ] || echo "   carried: no pkg (neither dist/Kosmos.pkg nor dist/Kosmos-staging.pkg is in the site dist)"
   cp -R "$site/.vercel/." "$out/.vercel/" || { rm -rf "$out"; return 1; }
   echo "   carried: .vercel/ (project link)"
   echo "   pages:   commit $head$( [ "${_SITE_SERVED_REBUILT:-0}" = 1 ] && echo ', except api/_servedversions.js (rebuilt from its history, above)')"
