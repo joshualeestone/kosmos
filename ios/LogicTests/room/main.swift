@@ -650,7 +650,7 @@ check(chatSource.contains("if visible { settleAtNewest(proxy, boxMoved: true) }\
       "kosmos#7817: every did-show of the chat on screen asks the settled put-back, before the keep-the-newest guard")
 check(chatSource.contains("rebuildHiding = !Self.sampleNoRebuildHide") && chatSource.contains("endVisible = true\n                                rebuildHiding = false")
       && chatSource.contains(".opacity(rebuildHiding ? 0 : 1)\n                .allowsHitTesting(!rebuildHiding)\n                .accessibilityHidden(rebuildHiding)")
-      && chatSource.contains("asyncAfter(deadline: .now() + Self.rebuildHideAfterLastAsk) { if listEpoch == listAt { rebuildHiding = false } }")
+      && chatSource.contains("asyncAfter(deadline: .now() + Self.rebuildHideAfterLastAsk) {\n                    guard listEpoch == listAt else { return }")
       && chatSource.contains("endVisible = true; rebuildHiding = false; rebuilds = []"),
       "kosmos#7420: a rebuilt list is hidden and untouchable until the end shows, so the oldest rows are not flashed")
 check(chatSource.contains("guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching, scenePhase == .active else { return }\n        let place = scrollBox.reading()?.place ?? \"unread\"\n        guard place == \"past the end\" else {")
