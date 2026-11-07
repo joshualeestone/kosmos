@@ -535,6 +535,11 @@ function plan(name, opts) {
     if (!seen.known) {
       return { ok: false, because: `we could not check whether anything still starts ${shown} at login, so we have not offered to delete anything. Try again in a moment.` };
     }
+    /* kosmos#8177 review 1: Task Scheduler ignores letter case, so a task found under ANOTHER spelling is that agent's
+       (`cai`'s, for `Cai`), and deleting `Kosmos\agent-Cai` would delete it. Refuse rather than touch another agent. */
+    if (seen.registered && seen.spelledOtherwise) {
+      return { ok: false, because: `a startup task with the same name in other letter case (${seen.spelledOtherwise}) belongs to another agent, so we have not offered to delete anything.` };
+    }
     if (seen.registered) job = { path: null, label: win32job.taskName(clean), task: true, trash: false };
   } else if (fs.existsSync(jobPath)) {
     const isLinux = platform === 'linux';
