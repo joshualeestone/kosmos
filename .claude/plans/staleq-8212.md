@@ -12,8 +12,8 @@ other than Claude, nothing keeps a typed line out of an open question.
 ## Change
 - REMINDED_STATES = ['blocked', 'needs_you'] (the WAITING_ON_A_PERSON pair).
 - A needs_you gets its own line: "Kosmos here, a reminder, not an answer from the person: ...
-  If what it waited on has gone away, clear it with: kosmos report clear. If you still need the
-  person, leave it."
+  If nobody needs to answer it any more, clear it with: kosmos report clear. If you still need
+  the person, leave it, and there is nothing to send them."
 - A needs_you is reminded only when the agent wrote it (by: agent): a line with no writer may
   be an old permission wait, and a person's own line is theirs (review iteration 2).
 - Unchanged guards that make this safe: Claude cards only and never one reached through a
