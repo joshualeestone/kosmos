@@ -231,10 +231,10 @@ const selfreport = require('./selfreport');
 const PROMPT = fs.readFileSync(path.join(__dirname, '..', 'test-support', 'claude-screens', 'permission-prompt-bash-2.1.296.txt'), 'utf8');
 const NEXT_PROMPT = PROMPT.replace(' /usr/bin/uuidgen\n╌', ' /usr/bin/whoami\n╌');
 const IDLE_SCREEN = '⏺ Done.\n\n────────\n❯ \n────────\n  ⏸ manual mode on';
-async function withPrompt(name, { afterKey = IDLE_SCREEN, onKey = null, reportFirst }, fn) {
+async function withPrompt(name, { screen = PROMPT, afterKey = IDLE_SCREEN, onKey = null, reportFirst }, fn) {
   const board = fleet.install([fleet.agent(name, { state: 'idle', runner: 'claude', command: 'claude' })]);
   messages.setRunner(() => ({ ok: true, session: name + '-discord' }));
-  let shown = PROMPT;
+  let shown = screen;
   const keys = [];
   chat.setRunner((args) => {
     const done = (out) => ({ ran: true, spawnFailed: false, status: 0, out: out || '', err: '' });
@@ -325,6 +325,18 @@ test('kosmos#8036: a newer report written during the press stands, though the sc
     const now = selfreport.read('during');
     assert.equal(now.state, 'needs_you');
     assert.match(now.because, /whoami/);
+  });
+});
+
+test('kosmos#8036: a press on another menu does not end a permission wait standing beside it', async () => {
+  const menu = fs.readFileSync(path.join(__dirname, '..', 'test-support', 'claude-screens', 'question-menu-2.1.29x.txt'), 'utf8');
+  await withPrompt('othermenu', { screen: menu, reportFirst: hookWait }, async ({ read }) => {
+    const back = await read();
+    assert.ok(back.asked && back.options && back.options.length, 'premise: the thread offers the menu: ' + JSON.stringify(back.options));
+    const res = await fetch(base + '/api/agent/othermenu/thread', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ text: String(back.options[0].n), chose: back.options[0].label, asked: back.asked }) });
+    assert.equal(res.status, 200, await res.clone().text());
+    assert.equal(selfreport.read('othermenu').state, 'needs_you');
   });
 });
 
