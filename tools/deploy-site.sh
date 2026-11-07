@@ -829,7 +829,15 @@ if [ "$_pkg_scode" = 200 ]; then
   fetch "$HOST/dist/Kosmos-staging.pkg.inputs" "$SITE/dist/Kosmos-staging.pkg.inputs"
   verify_sha "$SITE/dist/Kosmos-staging.pkg" "$HOST/dist/Kosmos-staging.pkg.sha256"
 elif [ -e "$SITE/dist/Kosmos-staging.pkg" ] || [ -e "$SITE/dist/Kosmos-staging.pkg.sha256" ] || [ -e "$SITE/dist/Kosmos-staging.pkg.inputs" ]; then
-  echo "deploy-site: $SITE/dist/ holds a Kosmos-staging.pkg file but the host serves none, so this deploy would publish a staging installer no cut has checked on the wire -- refusing; nothing was deployed. Deploy from the cut box, or move the staging pkg triple aside (kosmos#8167)"; exit 1
+  # The host serves no staging pkg, so this one is a staging cut's output that never deployed (an aborted cut). It is
+  # never shipped unchecked: it is MOVED ASIDE (kept, not deleted) and this deploy goes on without it. The next staging
+  # cut publishes its own. Refusing instead would block every site deploy until someone cleaned up by hand.
+  _pkg_aside="$SITE/dist/.unserved-staging-pkg.$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$_pkg_aside" || { echo "deploy-site: could not make $_pkg_aside to move the unserved staging pkg aside -- refusing; nothing was deployed (kosmos#8167)"; exit 1; }
+  for _f in Kosmos-staging.pkg Kosmos-staging.pkg.sha256 Kosmos-staging.pkg.inputs; do
+    [ ! -e "$SITE/dist/$_f" ] || mv "$SITE/dist/$_f" "$_pkg_aside/" || { echo "deploy-site: could not move dist/$_f aside -- refusing; nothing was deployed (kosmos#8167)"; exit 1; }
+  done
+  echo "deploy-site: WARNING the host serves no Kosmos-staging.pkg, so the local one (a staging cut that never deployed?) was moved to $_pkg_aside and is not deployed (kosmos#8167)" >&2
 fi
 
 # The Windows zip (and its .sha256) are TRACKED, so git archive ships the COMMITTED copies and the
@@ -911,6 +919,12 @@ kosmos_setup_floor_tree_ok "deploy-site's export" "$EXPORT" || { echo "deploy-si
 [ -f "$EXPORT/dist/kosmos-arm64.tar.gz" ] || { echo "deploy-site: the export did not carry the unversioned alias kosmos-arm64.tar.gz -- refusing (setup.sh's cache-busted fallback; #2014 review)"; rm -rf "$EXPORT"; exit 1; }
 # the .sha256 sidecars the installer verifies each gitignored tarball against: gitignored and
 # glob-carried like the tarballs, so a missing one drops the same way. Check them too.
+# kosmos#8167: a served staging pkg must be carried too, or this deploy would stop serving it.
+if [ "${_pkg_scode:-}" = 200 ]; then
+  for s in Kosmos-staging.pkg Kosmos-staging.pkg.sha256 Kosmos-staging.pkg.inputs; do
+    [ -f "$EXPORT/dist/$s" ] || { echo "deploy-site: the host serves Kosmos-staging.pkg but the export did not carry $s -- refusing (kosmos#8167)"; rm -rf "$EXPORT"; exit 1; }
+  done
+fi
 for s in "$ART.sha256" Kosmos.pkg.sha256 tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz.sha256; do
   [ -f "$EXPORT/dist/$s" ] || { echo "deploy-site: the export did not carry the checksum $s -- refusing (the installer verifies against it)"; rm -rf "$EXPORT"; exit 1; }
 done

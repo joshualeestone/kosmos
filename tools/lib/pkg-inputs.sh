@@ -260,7 +260,7 @@ pkg_triple_check() {   # <dir> <name>
 pkg_triple_copy() {   # <src-dir> <src-name> <dst-dir> <dst-name>
   local sd="${1:?}" sn="${2:?}" dd="${3:?}" dn="${4:?}" real got t
   real="$(pkg_triple_check "$sd" "$sn")" || { echo "pkg_triple_copy: not copying $sd/$sn (above)" >&2; return 1; }
-  find "$dd" -maxdepth 1 -type d -name '.pkgcopy.*' -exec rm -rf {} + 2>/dev/null   # an earlier copy that was killed
+  find "$dd" -maxdepth 1 -type d -name '.pkgcopy.*' -mmin +10 -exec rm -rf {} + 2>/dev/null   # a copy killed 10+ min ago
   t="$(mktemp -d "$dd/.pkgcopy.XXXXXX")" || { echo "pkg_triple_copy: cannot make a temp dir in $dd" >&2; return 1; }
   cp "$sd/$sn" "$t/pkg" && cp "$sd/$sn.inputs" "$t/inputs" && printf '%s  %s\n' "$real" "$dn" > "$t/sha256" \
     || { rm -rf "$t"; echo "pkg_triple_copy: copying into $dd failed" >&2; return 1; }

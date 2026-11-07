@@ -116,3 +116,18 @@ Deferred, with reasons:
   the pointer, as #5032 records `setup_sha256`.
 - Deferred: the three renames in `pkg_triple_copy` are separate. A crash between them leaves a mixed triple that
   `pkg_triple_check` and `pkg_publish_needed` both report as broken, so the next reader refuses rather than ships it.
+
+## Review round 5
+
+- WARNING, fixed: a promote deployed from elsewhere during a staging cut's long gates moves the served `Kosmos.pkg`;
+  the export, pinned to the 3c reading, would roll it back. The served sha is now read again right before the export
+  guard, and a change refuses the deploy.
+- WARNING, fixed: an aborted staging cut's unserved staging triple no longer blocks every later site deploy.
+  deploy-site moves it to `dist/.unserved-staging-pkg.<time>/` (kept, not deleted), warns, and deploys without it.
+- NITs, fixed: `-L` on 3c's probe; deploy-site checks the export carried the staging triple whenever one is served;
+  `pkg_triple_copy` clears only `.pkgcopy.*` dirs older than 10 minutes, so a concurrent copy is never deleted;
+  `check-served.js --pkg` with no value is a usage error; a test comment; a test arm for 3c's "promote's copy was
+  never deployed" warning.
+- Deferred: a local `Kosmos.pkg.inputs` with another inputs line that vouches for the same bytes. The bytes users
+  download cannot change that way. And a deploy-site run on the cut box during a cut can put the served staging
+  triple back over 3c's: the export guard and 9c then refuse, fail closed, as `Kosmos.pkg` always has (#4745).

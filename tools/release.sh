@@ -1424,7 +1424,7 @@ PKG_PUBLISHED=0; PKG_NAMES_PUBLISHED=""; _pkg_built=0; PKG_PROD_SERVED_SHA=""
 # counts as served; a 404 or any other answer stops the cut, because there is no Download button pkg to keep.
 if [ "$CUT_CHANNEL" = staging ]; then
   _pkg_srv="$(mktemp -d "$BUILD_ROOT/pkgsrv.XXXXXX")"
-  _pkg_code="$(curl -sS -m 30 -o "$_pkg_srv/sha256" -w '%{http_code}' -H 'Cache-Control: no-cache' "${HOST:-https://installkosmos.com}/dist/$PKG_PROD_NAME.sha256" 2>/dev/null)" || _pkg_code="${_pkg_code:-000}"
+  _pkg_code="$(curl -sS -L -m 30 -o "$_pkg_srv/sha256" -w '%{http_code}' -H 'Cache-Control: no-cache' "${HOST:-https://installkosmos.com}/dist/$PKG_PROD_NAME.sha256" 2>/dev/null)" || _pkg_code="${_pkg_code:-000}"
   [ "$_pkg_code" = 200 ] || { echo "could not read the served $PKG_PROD_NAME.sha256 (HTTP ${_pkg_code:-none}); a staging cut must know which installer the Download button serves before it deploys (kosmos#8167)"; exit 1; }
   PKG_PROD_SERVED_SHA="$(awk '{print $1; exit}' "$_pkg_srv/sha256")"
   case "$PKG_PROD_SERVED_SHA" in ""|*[!0-9a-f]*) _pkg_shaok=0 ;; *) _pkg_shaok=1 ;; esac
@@ -1991,6 +1991,12 @@ site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not expo
 # here can change dist/Kosmos.pkg. On a staging cut the export's Kosmos.pkg must still be exactly the one served before
 # this cut (3c recorded it), or nothing deploys. 9c then confirms the result on the wire.
 if [ "$CUT_CHANNEL" = staging ]; then
+  # The served Kosmos.pkg is read AGAIN here: a promote deployed from another box during this cut's long gates moves
+  # it, and an export pinned to the 3c reading would then roll the Download button BACK to the older installer.
+  _pkg_now="$(curl -fsSL -m 30 -H 'Cache-Control: no-cache' "${HOST:-https://installkosmos.com}/dist/$PKG_PROD_NAME.sha256" 2>/dev/null)" || _pkg_now=""
+  _pkg_now="${_pkg_now%%[[:space:]]*}"
+  [ "$_pkg_now" = "$PKG_PROD_SERVED_SHA" ] \
+    || { echo "the served $PKG_PROD_NAME is now ${_pkg_now:-unreadable} (${PKG_PROD_SERVED_SHA:0:12} at step 3c): it moved during this cut, a promote deployed elsewhere, or it could not be read. Deploying now would put the older one back; nothing was deployed. Re-run the cut (kosmos#8167)"; exit 1; }
   _pkg_exp="$(pkg_triple_check "$_site_export/dist" "$PKG_PROD_NAME")" \
     || { echo "the site export has no whole $PKG_PROD_NAME triple (above), so this staging cut would drop or break the Download button's installer; nothing was deployed (kosmos#8167)"; exit 1; }
   [ "$_pkg_exp" = "$PKG_PROD_SERVED_SHA" ] \
