@@ -166,3 +166,12 @@ test('#8215: two long questions that differ only after the 160-character cut are
   assert.equal(count(html, /pn-same/g), 0);
   assert.equal(count(html, /\u2026\u201d/g), 2, 'each shown cut, separately');
 });
+
+test('#8215: every question sentence, pinned with its words (a change to a reason must change this test)', () => {
+  const also = (extra) => pjNeedsNotice([{ ...ask('ada', 'X?'), needsYouHere: null, ...extra }], () => true);
+  assert.match(also({ stateProject: 'p-other' }), /Waiting for your answer about another project: “X\?”/);
+  assert.match(also({ stateProject: 'p-other', stateHeld: true }), /Held until you are back, about another project: “X\?”/);
+  assert.match(also({ stateProject: null }), /Waiting for you\. It did not say which project\. It asks: “X\?”/);
+  assert.match(pjNeedsNotice([ask('ada', 'X?')]), /Waiting for your answer: “X\?”/);
+  assert.match(pjNeedsNotice([ask('ada', 'X?', { stateHeld: true })]), /Held until you are back: “X\?”/);
+});

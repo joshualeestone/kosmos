@@ -8915,6 +8915,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .pnacts { display: flex; gap: 6px; align-items: center; flex: 0 0 auto; }
 /* #8215: a member under a "same thing" line has no words of its own, so its buttons line up with the other rows' at the end. */
 .pn-in > .pnacts { margin-left: auto; }
+.pn-same + .pn-in { border-top: 0; padding-top: 0; }
 .pnotice .qopt.pn-dismiss { background: none; border-color: transparent; color: var(--k-ink-2); font-weight: 500; }
 .pnotice .qopt.pn-dismiss:hover { color: var(--k-ink); text-decoration: underline; }
 .pj-member.unseen { border-style: dashed; }
@@ -69912,7 +69913,7 @@ function pjNeedsNotice(roster, redHere) {
   const keyOf = (m) => m.needsYouKey || (m.needsYouHere === 'question' ? 'question:' + keyWords(m.because) : m.needsYouHere);
   /* #8215 (a user report: three agents in Question for days, all on one stuck process, read as three separate reds): an
      agent's own question is shown in its words, and members whose rows would say the same thing are said once, above
-     their names. Words only on a row that is about a question the agent reported itself (by:'agent'): a needs-you read
+     their names. Words only on a row that is about a question the agent reported itself (stateReportedBy 'agent'): a needs-you read
      off its screen has no words of its own. Rows group on their reason and the whole question (case and spacing
      ignored), so a held question never merges with the same words asked for real; the 160-character cut is display only. */
   // A failed restart or a crash loop is not a question (pjAlsoWhy says them first, as the agent card does).
@@ -69924,7 +69925,7 @@ function pjNeedsNotice(roster, redHere) {
     const groups = new Map();
     for (const it of items) {
       const said = saidOf(it);
-      const k = said ? it.why + '\u0001' + said.toLowerCase() : '\u0000' + order.length;   // no words: a group of its own
+      const k = said ? it.why + '\u0001' + it.act + '\u0001' + said.toLowerCase() : '\u0000' + order.length;   // no words: a group of its own
       if (!groups.has(k)) { groups.set(k, []); order.push(k); }
       groups.get(k).push(Object.assign({ said }, it));
     }
