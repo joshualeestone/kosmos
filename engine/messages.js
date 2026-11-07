@@ -1341,15 +1341,18 @@ function unrecordedTwin(key, log, projectId) {
 let ID_HIGH = 0;
 /* kosmos#8178 item 1: the id file, read once per board (and again after a test reset). It raises ID_HIGH to the highest
    id ever handed out, and puts back the room posts from the last PENDING_POST_MAX_MS that have no line in the record
-   at all (round 1: a recorded post, and so a deleted one, is the record's to answer for). Then the file is rewritten
-   to those posts and the highest id; between restarts it only grows. Any failure leaves the board as it was before
-   #8178 (ids from the log alone), never a refusal. */
+   at all (round 1: a recorded post, and so a deleted one, is the record's to answer for). Past IDS_COMPACT_AT bytes the
+   file is rewritten to those posts and the highest id, plus any line appended after it was read (round 2). With the
+   record unreadable it writes nothing and is read again on the next call (round 2: compacting then would drop every
+   post it could have put back). Any failure leaves ids from the log alone, as before #8178, never a refusal. */
+const IDS_COMPACT_AT = 64 * 1024;
 let IDS_LOADED = false;
 function loadIds() {
   if (IDS_LOADED) return;
   IDS_LOADED = true;
   let text;
   try { text = fs.readFileSync(IDS, 'utf8'); } catch { return; }
+  const readBytes = Buffer.byteLength(text, 'utf8');
   const rows = [];
   for (const line of text.split('\n')) {
     if (!line) continue;
@@ -1364,21 +1367,33 @@ function loadIds() {
       for (const x of r.parsed) { if (x && x.id) inRecord.add(String(x.id)); if (x && x.kind === 'post-deleted' && x.of) inRecord.add(String(x.of)); }
     }
   } catch { inRecord = null; }
-  const high = rows.reduce((h, x) => Math.max(h, Number(x.id.slice(1))), 0);
+  const high0 = rows.reduce((h, x) => Math.max(h, Number(x.id.slice(1))), 0);
+  if (inRecord === null) { ID_HIGH = Math.max(ID_HIGH, high0); IDS_LOADED = false; return; }
+  const high = high0;
   const now = Date.now();
-  const keep = inRecord === null ? [] : rows.filter((x) => x.gone !== true && !gone.has(x.id) && !inRecord.has(x.id)
+  const keep = rows.filter((x) => x.gone !== true && !gone.has(x.id) && !inRecord.has(x.id)
     && typeof x.project === 'string' && x.project
     && typeof x.at === 'number' && now - x.at >= 0 && now - x.at <= PENDING_POST_MAX_MS).slice(-PENDING_POST_MAX);
-  /* A stand-in row, so a reply records what it answers (replyTo) and wakes its author: the id file holds no text, so it
-     quotes nothing and asks no one (withPending leaves it out). */
+  /* A stand-in row, so a reply records what it answers (replyTo) and is read as its row would be (round 2: its author,
+     whether it is the person's, and whom it addressed). The id file holds no text, so withPending leaves it out. */
+  const names = (a) => (Array.isArray(a) ? a.filter((n) => typeof n === 'string' && n).slice(0, 200) : []);
   for (const x of keep) {
     if (PENDING_POSTS.has(x.id)) continue;
     PENDING_POSTS.set(x.id, { projectId: x.project, at: x.at, restored: true, row: { kind: 'post', id: x.id, project: x.project,
-      ...(typeof x.from === 'string' && x.from ? { from: x.from } : {}), to: [], text: '', at: new Date(x.at).toISOString(), pending: true, restored: true } });
+      ...(typeof x.from === 'string' && x.from ? { from: x.from } : {}),
+      ...(x.operator === true ? { operator: true } : {}),
+      ...(names(x.addressed).length ? { addressed: names(x.addressed) } : {}),
+      ...(names(x.mentioned).length ? { mentioned: names(x.mentioned) } : {}),
+      to: [], text: '', at: new Date(x.at).toISOString(), pending: true, restored: true } });
   }
   ID_HIGH = Math.max(ID_HIGH, high);
+  if (readBytes < IDS_COMPACT_AT) return;
   // Owner-only and flushed, as the log is (#5434: no bare rename in this file).
-  try { require('./securewrite').writeSecret(IDS, keep.concat(high ? [{ id: 'm' + high, at: now }] : []).map((x) => JSON.stringify(x)).join('\n') + '\n', 0o600); } catch { /* the next read compacts it */ }
+  try {
+    let tail = '';
+    try { const now2 = fs.readFileSync(IDS); if (now2.length > readBytes) tail = now2.subarray(readBytes).toString('utf8'); } catch { /* nothing added */ }
+    require('./securewrite').writeSecret(IDS, keep.concat(high ? [{ id: 'm' + high, at: now }] : []).map((x) => JSON.stringify(x)).join('\n') + '\n' + tail, 0o600);
+  } catch { /* the next read compacts it */ }
 }
 function noteId(row) {
   try { fs.appendFileSync(IDS, JSON.stringify(row) + '\n', { mode: 0o600 }); } catch { /* a restart may then reuse it, as before #8178 */ }
@@ -1389,13 +1404,13 @@ function nextIdForTests() {
   const inLog = record().parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0);
   return 'm' + (Math.max(inLog, ID_HIGH) + 1);
 }
-function mintId(parsed, projectId, from) {
+function mintId(parsed, projectId, post) {
   loadIds();
   // Over the PARSE-ONLY rows: a foreign append that fails shape still burns the id it names.
   const inLog = parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0);
   ID_HIGH = Math.max(inLog, ID_HIGH) + 1;
   noteId(typeof projectId === 'string' && projectId
-    ? { id: 'm' + ID_HIGH, project: projectId, ...(typeof from === 'string' && from ? { from } : {}), at: Date.now() }
+    ? { id: 'm' + ID_HIGH, project: projectId, ...(post && typeof post === 'object' ? post : {}), at: Date.now() }
     : { id: 'm' + ID_HIGH, at: Date.now() });
   return 'm' + ID_HIGH;
 }
@@ -3092,7 +3107,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     }
   }
 
-  const id = mintId(rec.parsed, projectId, from);
+  // Names only, never text: who a reply to it should wake, should the board restart before its row is written.
+  const id = mintId(rec.parsed, projectId, { ...(typeof from === 'string' && from ? { from } : {}), ...(operator === true ? { operator: true } : {}),
+    ...(atNamed.mentioned.size ? { mentioned: [...atNamed.mentioned] } : {}), ...(operator !== true && namedHere.size ? { addressed: [...namedHere] } : {}) });
   /* kosmos#8165: cited before its row exists. Review 2: with the fields a reply reads off the post it answers (who sent
      it, who it asked, whether it is the person's), as its row will carry them, so a fast reply wakes the asker exactly
      as a late one does (a bare id woke nobody). */

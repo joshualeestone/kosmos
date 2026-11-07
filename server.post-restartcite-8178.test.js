@@ -103,8 +103,7 @@ test('kosmos#8178: the id file is read as it says: this room, the last hour, nev
   assert.equal(messages.projectOfPost('m8'), null, 'a post that reached nobody is not put back');
   assert.equal(messages.projectOfPost('m9'), null, 'a post older than the hour is not put back');
   assert.equal(messages._nextIdForTests(), 'm13', 'the next id is above every id handed out, a direct message included');
-  const kept = fs.readFileSync(ids, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.deepEqual(kept.map((x) => x.id), ['m7', 'm12'], 'compacted to what it still needs');
+  assert.ok(fs.readFileSync(ids, 'utf8').startsWith(JSON.stringify({ id: 'm7', project: 'proj-a', at: now - 1000 })), 'a small file is left as it is');
   // CONTROL: with no id file a restarted board knows only the log (the first test's posts).
   messages.resetForTests();
   messages._restartForTests();
@@ -149,4 +148,72 @@ test('kosmos#8178 round 1: a post that reached nobody is written gone, and a res
   assert.ok(lines.some((x) => x.id === minted[0] && x.gone === true), 'the send path did not write it gone');
   messages._restartForTests();
   assert.equal(messages.projectOfPost(minted[0]), null, 'a post that reached nobody came back after a restart');
+});
+
+test('kosmos#8178 round 2: a restored post keeps whose it was and whom it addressed, so a reply is read as it would be', async () => {
+  messages.resetForTests();
+  const p = projects.create({ name: 'Restored names 8178' });
+  projects.addAgent(p.id, 'dana');
+  projects.addAgent(p.id, 'mara');
+  const a = await post({ project: p.id, text: '@dana what do you think?', from_pane: '' }, { 'x-kosmos-agent-token': sendertoken.mint('mara').token });
+  const lines = fs.readFileSync(messages._idsPathForTests(), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const row = lines.find((x) => x.id === a.json.delivery.id);
+  assert.equal(row.from, 'mara');
+  assert.deepEqual(row.mentioned, ['dana'], 'the id row names whom the post asked: ' + JSON.stringify(row));
+  assert.equal(row.text, undefined, 'never the text');
+  // As if the board restarted before the row was written: a stand-in carries the names.
+  const ids = messages._idsPathForTests();
+  fs.writeFileSync(ids, JSON.stringify({ id: 'm90', project: p.id, from: 'mara', operator: true, mentioned: ['dana'], at: Date.now() }) + '\n');
+  messages._restartForTests();
+  const r = await post({ project: p.id, text: 'answer to a restored ask', from_pane: '', in_reply_to: 'm90' }, { 'x-kosmos-agent-token': sendertoken.mint('dana').token });
+  assert.notEqual(r.json.delivery.state, 'could_not', JSON.stringify(r.json.delivery));
+  const rec = messages.record().rows.find((x) => x && x.kind === 'post' && x.text === 'answer to a restored ask');
+  assert.equal(rec.replyTo, 'm90');
+  assert.equal(r.json.delivery.repliesToPerson, true, 'a reply to the person\'s restored post is not said to answer the person (the phone seam, #6254): ' + JSON.stringify(r.json.delivery));
+});
+
+test('kosmos#8178 round 2: an unreadable record leaves the id file whole, and it is read again next time', () => {
+  messages.resetForTests();
+  const ids = messages._idsPathForTests();
+  const log = path.join(path.dirname(ids), 'messages.jsonl');
+  const now = Date.now();
+  const big = Array.from({ length: 2000 }, (_, i) => JSON.stringify({ id: 'm' + (i + 1), at: now - 50 })).join('\n') + '\n';
+  const body = big + JSON.stringify({ id: 'm3000', project: 'proj-c', at: now - 10 }) + '\n';
+  assert.ok(Buffer.byteLength(body) > 64 * 1024, 'CONTROL: big enough to be compacted');
+  fs.writeFileSync(ids, body);
+  fs.rmSync(log, { force: true });
+  fs.mkdirSync(log);   // the record cannot be read
+  try {
+    messages._restartForTests();
+    assert.ok(messages.record().ok !== true, 'CONTROL: the record reads as unreadable');
+    assert.equal(messages._nextIdForTests(), 'm3001', 'ids still rise above the file');
+    assert.equal(fs.readFileSync(ids, 'utf8'), body, 'the id file was rewritten while the record could not be read');
+  } finally { fs.rmSync(log, { recursive: true, force: true }); }
+  // Readable again: the post comes back, and the big file is compacted to what it still needs.
+  assert.equal(messages.projectOfPost('m3000'), 'proj-c');
+  const kept = fs.readFileSync(ids, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).map((x) => x.id);
+  assert.deepEqual(kept, ['m3000', 'm3000'], 'compacted to the restored post and the highest id');
+});
+
+test('kosmos#8178 round 2: a line appended while the file is being compacted is kept', () => {
+  messages.resetForTests();
+  const ids = messages._idsPathForTests();
+  const now = Date.now();
+  const body = Array.from({ length: 2000 }, (_, i) => JSON.stringify({ id: 'm' + (i + 1), at: now - 50 })).join('\n') + '\n';
+  assert.ok(Buffer.byteLength(body) > 64 * 1024, 'CONTROL: big enough to be compacted');
+  fs.writeFileSync(ids, body);
+  const late = JSON.stringify({ id: 'm5000', project: 'proj-d', at: now }) + '\n';
+  const real = fs.readFileSync;
+  let reads = 0;
+  // Another writer appends right after the loader's first read of the id file, before it rewrites it.
+  fs.readFileSync = function (p, ...rest) {
+    const out = real.call(fs, p, ...rest);
+    if (p === ids && ++reads === 1) fs.appendFileSync(ids, late);
+    return out;
+  };
+  try { messages._restartForTests(); messages._nextIdForTests(); }
+  finally { fs.readFileSync = real; }
+  assert.ok(reads >= 2, 'CONTROL: the loader read the file again before rewriting it');
+  assert.ok(fs.readFileSync(ids, 'utf8').includes(late), 'the line appended during compaction was lost');
+  assert.ok(Buffer.byteLength(fs.readFileSync(ids, 'utf8')) < 64 * 1024, 'CONTROL: it was compacted');
 });
