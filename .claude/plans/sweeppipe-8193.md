@@ -20,3 +20,8 @@ PR #8190 attempt 2 (0.375 s fail, attempt 1 passed on the same commit).
 - New file + cli.agent-remove-7362: 29 pass, 0 fail.
 - Perturbation 1 (put grep -q back): guard red. Perturbation 2 (no ; cut): guard and control red.
 - ios.board-parity-7084 sweep suite on the fixed script: pass.
+
+## Scope, decided
+The guard covers ios/LogicTests only. The same class exists in tools/ build scripts (a review found
+security, otool and tar --version writers into grep -q under pipefail); that is kosmos#8195, not this branch,
+so this guard must not be read as covering the repo.
