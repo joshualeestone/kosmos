@@ -566,6 +566,29 @@ async function runSheet(engine, say) {
     await pg.route('**/*', routes);
     await pg.goto('http://kosmos-remote.test/', { waitUntil: 'load' });
     await pg.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvSheetInto === 'function');
+    /* kosmos#8188: every path of the sheet view says a cut. Rendered straight through the shipped pvSheetInto into a
+       detached stage, each case beside its uncut control. */
+    {
+      const notesFor = (sheet) => pg.evaluate((sh) => { const st = document.createElement('div'); pvSheetInto(st, { sheets: [sh] }); return [...st.querySelectorAll('.pv-note')].map((x) => x.textContent); }, sheet);
+      const big = Array.from({ length: 200 }, (_, r) => [String(r)]);
+      const c = {
+        notGridCut: await notesFor({ name: 'A', rows: [], cut: true, notGrid: true }),
+        notGrid: await notesFor({ name: 'A', rows: [], cut: false, notGrid: true }),
+        emptyCut: await notesFor({ name: 'A', rows: [], cut: true }),
+        empty: await notesFor({ name: 'A', rows: [], cut: false }),
+        smallCut: await notesFor({ name: 'A', rows: [['1', '2']], cut: true }),
+        bigCut: await notesFor({ name: 'A', rows: big, cut: true }),
+        whole: await notesFor({ name: 'A', rows: [['1', '2']], cut: false }),
+      };
+      const has = (a, re) => a.some((t) => re.test(t));
+      say(has(c.notGridCut, /Part of this file could not be read, so this sheet is not shown here/) && !has(c.notGridCut, /not a table of values/), engine + ' sheet #8188: a cut sheet that is not a grid says part of the file could not be read', JSON.stringify(c.notGridCut));
+      say(has(c.notGrid, /not a table of values/) && !has(c.notGrid, /could not be read/), engine + ' sheet #8188 control: an uncut sheet that is not a grid still says so', JSON.stringify(c.notGrid));
+      say(has(c.emptyCut, /could not be read, so nothing of this sheet is shown/) && !has(c.emptyCut, /This sheet is empty/), engine + ' sheet #8188: a cut sheet with no rows never says it is empty', JSON.stringify(c.emptyCut));
+      say(has(c.empty, /This sheet is empty/), engine + ' sheet #8188 control: an uncut sheet with no rows says it is empty', JSON.stringify(c.empty));
+      say(has(c.smallCut, /Not all of this sheet could be read here/) && !has(c.smallCut, /200 rows and 50 columns/), engine + ' sheet #8188: a small cut sheet does not claim the 200 x 50 limit', JSON.stringify(c.smallCut));
+      say(has(c.bigCut, /up to 200 rows and 50 columns/), engine + ' sheet #8188: a sheet cut at 200 rows keeps the limit sentence', JSON.stringify(c.bigCut));
+      say(c.whole.length === 0, engine + ' sheet #8188 control: a whole sheet says nothing', JSON.stringify(c.whole));
+    }
     const open = async (id, name, extra) => {
       await pg.evaluate(([id, name, extra]) => {
         pvClose(); document.querySelectorAll('[data-pv-test]').forEach((n) => n.remove());
@@ -606,7 +629,8 @@ async function runSheet(engine, say) {
       if (!c) return null; const r = c.getBoundingClientRect(), fs = parseFloat(getComputedStyle(document.documentElement).fontSize);
       return { w: r.width, max: 24 * fs, cut: c.scrollWidth > c.clientWidth + 1, oneLine: r.height < 30, title: (c.title || '').length, ell: getComputedStyle(c).textOverflow }; });
     say(!!lc && lc.w <= lc.max + 0.5 && lc.cut && lc.oneLine && lc.title > 200 && lc.ell === 'ellipsis', T + ': a long cell is cut to one line at 24rem with an ellipsis, the whole value on hover', JSON.stringify(lc));
-    say(g.notes.some((n) => /goes on past what is shown/.test(n)) && g.notes.some((n) => /no saved value/.test(n)) && g.below && g.name === 'Budget 2026.xlsx', T + ': it says when it is cut short or values are missing; the name and the gold button are under it', JSON.stringify(g));
+    // kosmos#8188: Budget is a small sheet marked cut, so it gets the words true for any cut, not the 200 x 50 sentence.
+    say(g.notes.some((n) => /Not all of this sheet could be read here/.test(n)) && !g.notes.some((n) => /goes on past what is shown/.test(n)) && g.notes.some((n) => /no saved value/.test(n)) && g.below && g.name === 'Budget 2026.xlsx', T + ': it says when it is cut short or values are missing; the name and the gold button are under it', JSON.stringify(g));
     // The keyboard reaches the sheets: Tab from the X goes to the selected tab, then the grid (review 1).
     await pg.focus('#pv-x'); await pg.keyboard.press('Tab');
     const t1 = await pg.evaluate(() => document.activeElement.className + ':' + document.activeElement.textContent.slice(0, 12));
