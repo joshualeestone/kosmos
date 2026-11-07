@@ -4,7 +4,7 @@ Card: kosmos#8195. Stacked on sweeppipe-8193 (#8198), which adds test-support/ea
 
 ## Decision (on the card)
 The triage found no non-test site that is a measured live false fail today, so the shipping scripts are not
-rewritten, with two exceptions found in review round 1 (below). Instead, a ratchet: today's hits (382, after review round 1) become test-support/pipefail-baseline-8195.txt, and
+rewritten, with two exceptions found in review round 1 (below). Instead, a ratchet: today's hits (382 entries plus 4 header lines, after review round 1) become test-support/pipefail-baseline-8195.txt, and
 shell.pipefail-ratchet-8195.test.js fails on any NEW hit and on any listed line that is gone.
 
 ## Change
@@ -32,3 +32,8 @@ A script that gets pipefail only from whoever sources it; the helper's known gap
   Tests: test-browser-check-surface-gate.sh and test-release-detached.sh rc=0; release-freeze-notice and
   bundle.execbit node tests 12/12.
 - One failure message now prints NEW and GONE together, and names a listed line that changed.
+
+## Review round 2 (decided)
+- Scripts are every tracked *.sh plus any tracked file whose #! names a shell (install/kosmos, .githooks/*,
+  install/pkg-scripts/postinstall), with a CONTROL that .githooks/prepare-commit-msg is read. They add no hits today.
+- `set +o pipefail` (turning it off) no longer counts: the pattern needs `-...o pipefail`.

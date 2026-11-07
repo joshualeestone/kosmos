@@ -21,19 +21,28 @@ const ROOT = __dirname;
 const BASELINE = path.join(ROOT, 'test-support', 'pipefail-baseline-8195.txt');
 
 // `set ... pipefail` or `bash ... pipefail` on a line that is not a comment (after && or in a subshell too), or in #!.
-const SETS_PIPEFAIL = /^[^#\n]*\b(?:set|bash)[ \t][^\n#]*\bpipefail\b|^#![^\n]*\bpipefail\b/m;
+const SETS_PIPEFAIL = /^[^#\n]*\b(?:set|bash)(?:[ \t]+-[A-Za-z-]+)*[ \t]+-[A-Za-z]*o[ \t]+pipefail\b|^#![^\n]*-[A-Za-z]*o[ \t]+pipefail\b/m;
 
-/** Tracked shell scripts (and install/kosmos, a shell script with no .sh) that set pipefail, plus tools/lib/. */
+const SHEBANG_SH = /^#![^\n]*\b(?:ba|z|k|da)?sh\b/;
+
+/** Tracked shell scripts that set pipefail, plus tools/lib/. A shell script is a *.sh file or any tracked file whose
+    #! line names a shell (install/kosmos, .githooks/*). Files are listed by git, so an untracked script is not scanned. */
 function scripts() {
-  const r = spawnSync('git', ['-C', ROOT, 'ls-files', '-z', '--', '*.sh', 'install/kosmos'], { encoding: 'utf8' });
+  const r = spawnSync('git', ['-C', ROOT, 'ls-files', '-z'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   assert.equal(r.status, 0, 'git ls-files failed: ' + r.stderr);
-  return r.stdout.split('\0').filter(Boolean)
-    .map((rel) => {
-      const abs = path.join(ROOT, rel);
-      assert.ok(fs.existsSync(abs), rel + ' is tracked but not on disk (a rename or delete not yet staged?)');
-      return { rel, text: fs.readFileSync(abs, 'utf8') };
-    })
-    .filter((s) => s.rel.startsWith('tools/lib/') || SETS_PIPEFAIL.test(s.text));
+  const out = [];
+  for (const rel of r.stdout.split('\0').filter(Boolean)) {
+    const abs = path.join(ROOT, rel);
+    if (!rel.endsWith('.sh')) {
+      let head = '';
+      try { const fd = fs.openSync(abs, 'r'); const b = Buffer.alloc(128); const n = fs.readSync(fd, b, 0, 128, 0); fs.closeSync(fd); head = b.subarray(0, n).toString('utf8'); } catch { continue; }
+      if (!SHEBANG_SH.test(head)) continue;
+    }
+    assert.ok(fs.existsSync(abs), rel + ' is tracked but not on disk (a rename or delete not yet staged?)');
+    const text = fs.readFileSync(abs, 'utf8');
+    if (rel.startsWith('tools/lib/') || SETS_PIPEFAIL.test(text)) out.push({ rel, text });
+  }
+  return out;
 }
 
 /** Each hit as "path<TAB>line", one entry per occurrence (a line repeated in a file counts twice). */
@@ -60,6 +69,7 @@ test('#8195: no NEW pipeline under pipefail ends in a reader that can stop early
   const list = scripts();
   assert.ok(list.length >= 100, 'CONTROL: the scripts are actually listed (' + list.length + ')');
   assert.ok(list.some((s) => s.rel === 'install/kosmos'), 'CONTROL: install/kosmos is read');
+  assert.ok(list.some((s) => s.rel === '.githooks/prepare-commit-msg'), 'CONTROL: an extensionless script found by its #! line is read');
   const now = hits(list), base = baseline();
   assert.ok(now.length > 0 && base.length > 0, 'CONTROL: the scan and the list both found something');
   if (process.env.KOSMOS_PRINT_PIPEFAIL_BASELINE === '1') process.stdout.write(now.join('\n') + '\n');
