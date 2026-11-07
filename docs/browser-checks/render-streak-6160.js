@@ -3,13 +3,18 @@
 /**
  * #6160 (Josh, 10-14): the streak in the Kosmos. engine/streak.js counts the days in a row this person opened the
  * board; POST /api/streak records a visit on the page's own local date and answers { count, congrats }. The page puts
- * the count in a label under the K mark (shown on hover, focus, or a long press on a phone) and, when congrats is
- * true, a notice in #topnotes (#streak-slot) in Josh's words. This drives the REAL page with /api/streak stubbed:
+ * the count in a label under the K mark (shown on hover, focus, or a long press on a phone). When congrats is true,
+ * kosmos#6397 (option A): a gold pill out of the K mark says Josh's words for about 6 s, then folds into a gold count
+ * badge on the mark for the rest of that day; where the mark is hidden (Kosmos+ remote on a phone) the words are a
+ * notice in #topnotes (#streak-slot) instead. This drives the REAL page with /api/streak stubbed:
  *
- *   note       -> 12 days, congrats: the notice says "Congrats you've been in the Kosmos for 12 days!", in the notice
- *                 stack (not under the K mark), gold-toned; the page sent ITS local date
- *   together   -> with the restart notice also showing, the two never overlap
- *   dismiss    -> the X empties the slot; from the keyboard, focus moves to the K mark
+ *   pill       -> 12 days, congrats: the pill says "Congrats you've been in the Kosmos for 12 days!", beside the K
+ *                 mark, read out (role=status), gold; no notice in the stack; the page sent ITS local date; after
+ *                 about 6 s it folds into the badge "12"
+ *   Escape     -> folds the pill at once into the badge
+ *   reload     -> the same day, the badge is back with no pill; a badge folded yesterday is not (control)
+ *   together   -> with the restart notice also showing, the pill and the notice never overlap
+ *   reduced    -> with reduced motion the pill shows with no transition
  *   no note    -> 12 days, no congrats: no note (the control for the arm above); hovering shows the label
  *   day 1      -> "1 day in the Kosmos", and no note even if the board said congrats (nothing to congratulate yet)
  *   (the retry, hidden-load and midnight arms are listed where they run)
@@ -21,7 +26,8 @@
  *   long press -> on a touch screen, a long press shows the label and does NOT navigate; a tap still does (control)
  *   midnight   -> a page left open across the person's midnight, with the person there, asks again with the new
  *                 date; a hidden page does not (it counts when the person comes back)
- *   narrow     -> at 360px the note stays inside the screen
+ *   narrow     -> at 360px there is no room beside the mark: the words are the notice, inside the screen, and the
+ *                 badge follows when it goes
  *
  *   AGENT_WORKFORCE_DATA=/tmp/st PORT=17372 node server.js &
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" \
@@ -51,7 +57,11 @@ const NOON = (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d.ge
 
 /** A page with /api/streak answering `answer` (a function of the posted body), recording every body it was sent. */
 async function open(b, answer, opts = {}) {
-  const pg = await b.newPage({ viewport: opts.viewport || { width: 1400, height: 800 }, hasTouch: Boolean(opts.touch), isMobile: Boolean(opts.touch) });
+  // `b` is the browser, or (kosmos#6397) a context made with its own options; a context's newPage takes none.
+  const vp = opts.viewport || { width: 1400, height: 800 };
+  const pg = typeof b.newContext === 'function'
+    ? await b.newPage({ viewport: vp, hasTouch: Boolean(opts.touch), isMobile: Boolean(opts.touch) })
+    : await b.newPage().then(async (p) => { await p.setViewportSize(vp); return p; });
   const errs = [], posts = [];
   pg.on('pageerror', (e) => errs.push(e.message));
   if (opts.clockInstall) await pg.clock.install({ time: opts.clockInstall }); else await pg.clock.setFixedTime(new Date(opts.at || NOON));
@@ -65,7 +75,8 @@ async function open(b, answer, opts = {}) {
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
   say(await asked, (opts.key || 'page') + ': the page asked the board for the streak');
   // Measure the app, not its loading screen: the K mark is visible once the board view is up.
-  say(await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).then(() => true, () => false), (opts.key || 'page') + ': the app is up (the K mark is visible)');
+  if (opts.markHidden) say(await pg.waitForSelector('#klink', { state: 'attached', timeout: 15000 }).then(() => true, () => false), (opts.key || 'page') + ': the app is up (the K mark is in the page, hidden by design)');   // kosmos#6397: Kosmos+ remote on a phone
+  else say(await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).then(() => true, () => false), (opts.key || 'page') + ': the app is up (the K mark is visible)');
   await pg.waitForTimeout(250);
   return { pg, errs, posts };
 }
@@ -77,6 +88,10 @@ const read = (pg) => pg.evaluate(() => {
     slot: Boolean(document.getElementById('streak-slot')),
     note: note ? { hidden: false, text: (note.querySelector('.utxt b') || {}).textContent, role: words ? words.getAttribute('role') : null, x: (note.querySelector('.ux') || { getAttribute: () => null }).getAttribute('aria-label'), right: r.right, left: r.left, top: r.top, bottom: r.bottom, tone: getComputedStyle(note).getPropertyValue('--utone').trim(), gold: getComputedStyle(note).getPropertyValue('--gold-edge').trim(), inStack: Boolean(note.closest('#topnotes')) } : { hidden: true },
     label: lab ? { hidden: lab.hidden, text: lab.textContent, display: getComputedStyle(lab).display, opacity: getComputedStyle(lab).opacity } : null,
+    pill: (() => { const e = document.getElementById('kpill'); if (!e || e.hidden || !e.classList.contains('in')) return { shown: false }; const pr = e.getBoundingClientRect(), kr = k.getBoundingClientRect(); return { shown: true, text: e.textContent, role: e.getAttribute('role'), left: pr.left, right: pr.right, top: pr.top, bottom: pr.bottom, kRight: kr.right, kMid: (kr.top + kr.bottom) / 2, bg: getComputedStyle(e).backgroundColor, transition: getComputedStyle(e).transitionDuration }; })(),
+    badge: (() => { const e = document.getElementById('kbadge'); return e ? { hidden: e.hidden, text: e.textContent, ariaHidden: e.getAttribute('aria-hidden') } : null; })(),
+    glow: Boolean(document.querySelector('.kmark.kglow')),
+    gold: getComputedStyle(document.documentElement).getPropertyValue('--gold-bright').trim(),
     described: k ? k.getAttribute('aria-describedby') : null,
     vw: window.innerWidth,
     tab: (document.querySelector('#tabs [aria-selected="true"]') || {}).dataset ? document.querySelector('#tabs [aria-selected="true"]').dataset.tab : null,
@@ -86,27 +101,65 @@ const read = (pg) => pg.evaluate(() => {
 (async () => {
   const b = await chromium.launch({ headless: process.env.HEADED === '0' });
 
-  // note + dismiss
+  // pill (kosmos#6397): the day's words come out of the K mark, then fold into the badge
   {
-    const { pg, errs, posts } = await open(b, () => ({ count: 12, congrats: true }), { key: 'note' });
+    const { pg, errs, posts } = await open(b, () => ({ count: 12, congrats: true }), { key: 'pill' });
+    await pg.waitForTimeout(400);   // the pill slides in over .35 s
     const g = await read(pg);
-    say(g.slot && !g.note.hidden, 'note: it shows');
-    say(g.note.inStack, 'note: it is a notice in the stack under the navigation (#5018), not under the K mark');
-    say(g.note.tone !== '' && g.note.tone === g.note.gold, 'note: gold-toned (--gold-edge)', g.note.tone + ' vs ' + g.note.gold);
-    say(g.note && g.note.text === JOSH, "note: Josh's sentence, word for word", JSON.stringify(g.note && g.note.text));
-    say(g.note && g.note.role === 'status' && g.note.x === 'Dismiss', 'note: role=status on the words, and the X is labelled Dismiss', JSON.stringify(g.note));
-    say(g.label && g.label.text === '12 days in a row in the Kosmos', 'note: the label carries the count', JSON.stringify(g.label));
-    say(posts.length >= 1 && posts[0].method === 'POST' && posts[0].body.today === localDay(NOON), "note: the page sent its own local date", JSON.stringify(posts[0]));
-    await pg.screenshot({ path: path.join(OUT, 'streak-note.png') }).catch(() => {});
-    await pg.focus('#streak-slot .ux');
-    await pg.keyboard.press('Enter');
-    await pg.waitForTimeout(200);
+    say(g.pill.shown, 'pill: it shows', JSON.stringify(g.pill));
+    say(g.pill.text === JOSH, "pill: Josh's sentence, word for word", JSON.stringify(g.pill.text));
+    say(g.pill.role === 'status', 'pill: read out once (role=status)', JSON.stringify(g.pill.role));
+    say(g.pill.left >= g.pill.kRight && Math.abs((g.pill.top + g.pill.bottom) / 2 - g.pill.kMid) < 4, 'pill: it sits beside the K mark, centred on it', JSON.stringify(g.pill));
+    const goldRgb = await pg.evaluate((c) => { const d = document.createElement('i'); d.style.color = c; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; }, g.gold);
+    say(g.pill.bg === goldRgb, 'pill: the bright gold (--gold-bright), so its dark words read', g.pill.bg + ' vs ' + goldRgb);
+    say(g.glow, 'pill: the K mark lights up while it shows');
+    say(g.note.hidden, 'pill: no notice in the stack as well (the K mark is shown)', JSON.stringify(g.note));
+    say(g.badge && g.badge.hidden, 'pill: no badge while the pill is out', JSON.stringify(g.badge));
+    say(g.label && g.label.text === '12 days in a row in the Kosmos', 'pill: the label carries the count', JSON.stringify(g.label));
+    say(posts.length >= 1 && posts[0].method === 'POST' && posts[0].body.today === localDay(NOON), "pill: the page sent its own local date", JSON.stringify(posts[0]));
+    await pg.screenshot({ path: path.join(OUT, 'streak-pill.png') }).catch(() => {});
+    await pg.mouse.move(700, 700);
+    await pg.waitForTimeout(6600);   // setFixedTime pins Date only: the 6 s fold runs in real time
     const after = await read(pg);
-    say(after.note.hidden, 'dismiss: the X empties the slot');
-    const focus = await pg.evaluate(() => (document.activeElement || {}).id || null);
-    say(focus === 'klink', 'dismiss: focus moves to the K mark', JSON.stringify(focus));
-    say(errs.length === 0, 'note: no page errors', errs.join(' | '));
+    say(!after.pill.shown && !after.glow, 'fold: after about 6 s the pill and the glow are gone', JSON.stringify({ pill: after.pill, glow: after.glow }));
+    say(after.badge && !after.badge.hidden && after.badge.text === '12' && after.badge.ariaHidden === 'true', 'fold: the badge says 12 on the mark (hidden from screen readers: the label says it)', JSON.stringify(after.badge));
+    await pg.screenshot({ path: path.join(OUT, 'streak-badge.png') }).catch(() => {});
+    say(errs.length === 0, 'pill: no page errors', errs.join(' | '));
     await pg.close();
+  }
+
+  // Escape folds the pill at once (WCAG 1.4.13)
+  {
+    const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'Escape' });
+    await pg.waitForTimeout(400);
+    const up = (await read(pg)).pill.shown;
+    await pg.keyboard.press('Escape');
+    await pg.waitForTimeout(450);
+    const g = await read(pg);
+    say(up && !g.pill.shown && g.badge && !g.badge.hidden, 'Escape: the pill folds at once into the badge', JSON.stringify({ up, pill: g.pill, badge: g.badge }));
+    await pg.close();
+  }
+
+  // reload the same day: the badge is back, with no pill; a badge folded yesterday is not (control)
+  for (const [when, want] of [['today', true], ['yesterday', false]]) {
+    const ctx = await b.newContext();
+    const day = localDay(when === 'today' ? NOON : NOON - 24 * 3600 * 1000);
+    await ctx.addInitScript((d) => { try { localStorage.setItem('kosmos.streakBadgeDay', d); } catch { /* no storage */ } }, day);
+    const { pg } = await open(ctx, () => ({ count: 12, congrats: false }), { key: 'reload ' + when });
+    const g = await read(pg);
+    if (want) say(!g.pill.shown && g.badge && !g.badge.hidden && g.badge.text === '12', 'reload: folded today, the badge is back and no pill', JSON.stringify({ pill: g.pill, badge: g.badge }));
+    else say(g.badge && g.badge.hidden, 'reload (control): folded yesterday, no badge today until the day\'s pill', JSON.stringify(g.badge));
+    await pg.close(); await ctx.close();
+  }
+
+  // reduced motion: the pill shows with no transition
+  {
+    const ctx = await b.newContext({ reducedMotion: 'reduce' });
+    const { pg } = await open(ctx, () => ({ count: 12, congrats: true }), { key: 'reduced' });
+    await pg.waitForTimeout(150);
+    const g = await read(pg);
+    say(g.pill.shown && /^0s(, 0s)*$/.test(g.pill.transition), 'reduced: the pill shows, with no transition', JSON.stringify(g.pill));
+    await pg.close(); await ctx.close();
   }
 
   // together: the restart notice and the streak notice at once never overlap, at a desk and on a phone
@@ -120,13 +173,16 @@ const read = (pg) => pg.evaluate(() => {
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
     const up = await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).then(() => true, () => false);
     say(up, 'together (' + vp.width + 'px): the app is up (the K mark is visible)');
-    const both = await pg.waitForFunction(() => document.querySelector('#reboot-slot .utoast') && document.querySelector('#streak-slot .utoast'), null, { timeout: 12000 }).then(() => true, () => false);
-    await pg.waitForTimeout(400);   // let the stack settle before measuring it
-    say(both, 'together (' + vp.width + 'px): both notices show');
-    const boxes = await pg.evaluate(() => [...document.querySelectorAll('#reboot-slot .utoast, #streak-slot .utoast')].map((e) => { const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom }; }));
-    const [a, c] = boxes;
+    // kosmos#6397: at a desk the day's words are the K mark's pill; on a phone they stay a notice in the stack.
+    const wide = vp.width > 600, mine = wide ? '#kpill.in' : '#streak-slot .utoast';
+    const both = await pg.waitForFunction((q) => document.querySelector('#reboot-slot .utoast') && document.querySelector(q), mine, { timeout: 12000 }).then(() => true, () => false);
+    await pg.waitForTimeout(400);   // let the stack and the pill settle before measuring them
+    say(both, 'together (' + vp.width + 'px): the restart notice and the day\'s ' + (wide ? 'pill' : 'notice') + ' both show');
+    const box = (sel) => pg.evaluate((q) => { const e = document.querySelector(q); if (!e) return null; const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom }; }, sel);
+    const a = await box('#reboot-slot .utoast'), c = await box(mine);
     const overlap = a && c && a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
-    say(boxes.length === 2 && !overlap, 'together (' + vp.width + 'px): the two notices do not overlap', JSON.stringify(boxes));
+    say(a && c && !overlap, 'together (' + vp.width + 'px): the day\'s ' + (wide ? 'pill' : 'notice') + ' and the restart notice do not overlap', JSON.stringify({ notice: a, mine: c }));
+    const boxes = wide ? [a] : [a, c];   // the stack's own notices stay centred (below)
     /* The label's anchor must not capture the notice stack: #topnotes is a child of .headleft and floats centred under
        the navigation (#5018). Making .headleft positioned once squeezed every notice into a column at the left. */
     // Against the header's own centre, the box #topnotes anchors to: window.innerWidth counts a classic scrollbar
@@ -140,29 +196,32 @@ const read = (pg) => pg.evaluate(() => {
 
   // Kosmos+ remote: the K mark (and so its label) is hidden only at phone width, as on main; the note still shows there
   for (const vp of [{ width: 1400, height: 800 }, { width: 390, height: 844 }]) {
-    const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'remote ' + vp.width, viewport: vp });
+    // kremote is in place before the answer is painted, as on a remote board (kosmos#6397 decides pill or notice then)
+    const ctx = await b.newContext({ viewport: vp });
+    await ctx.addInitScript(() => { document.addEventListener('DOMContentLoaded', () => document.documentElement.classList.add('kremote')); });
+    const { pg } = await open(ctx, () => ({ count: 12, congrats: true }), { key: 'remote ' + vp.width, viewport: vp, markHidden: vp.width <= 600 });
+    await pg.waitForTimeout(400);
     const g = await pg.evaluate(() => {
-      document.documentElement.classList.add('kremote');
-      const k = document.getElementById('klink'), n = document.querySelector('#streak-slot .utoast.streak');
-      return { mark: k.getClientRects().length > 0, note: Boolean(n) && n.getClientRects().length > 0 };
+      const k = document.getElementById('klink'), n = document.querySelector('#streak-slot .utoast.streak'), pill = document.querySelector('#kpill.in');
+      return { remote: document.documentElement.classList.contains('kremote'), mark: k.getClientRects().length > 0, note: Boolean(n) && n.getClientRects().length > 0, pill: Boolean(pill) };
     });
-    if (vp.width > 600) say(g.mark, 'remote 1400: the K mark stays (only phones hide it)', JSON.stringify(g));
-    else say(!g.mark, 'remote 390: the K mark is hidden there, as on main', JSON.stringify(g));
-    say(g.note, 'remote ' + vp.width + ': the day\'s note shows', JSON.stringify(g));
-    await pg.close();
+    if (vp.width > 600) say(g.remote && g.mark && g.pill && !g.note, 'remote 1400: the K mark stays (only phones hide it), and the day\'s words are its pill', JSON.stringify(g));
+    else say(g.remote && !g.mark && g.note && !g.pill, 'remote 390: the K mark is hidden there, so the day\'s words are a notice instead (kosmos#6397)', JSON.stringify(g));
+    await ctx.close();
   }
 
   // the note waits while a pointer is on it, then goes
   {
     const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'pause', clockInstall: NOON });
-    await pg.hover('#streak-slot .utoast.streak');
+    await pg.hover('#klink');
     await pg.clock.runFor(20 * 1000);
-    const held = await pg.evaluate(() => Boolean(document.querySelector('#streak-slot .utoast.streak')));
+    const held = await pg.evaluate(() => Boolean(document.querySelector('#kpill.in')));
     await pg.mouse.move(700, 700);
-    await pg.clock.runFor(7 * 1000);
-    const gone = await pg.evaluate(() => !document.querySelector('#streak-slot .utoast'));
-    say(held, 'pause: 20 s with the pointer on it, the note is still there');
-    say(gone, 'pause: once the pointer leaves, it goes');
+    await pg.clock.runFor(4 * 1000);
+    await pg.waitForTimeout(400);
+    const gone = await pg.evaluate(() => !document.querySelector('#kpill.in') && !document.getElementById('kbadge').hidden);
+    say(held, 'pause: 20 s with the pointer on the K mark, the pill is still out');
+    say(gone, 'pause: once the pointer leaves, it folds into the badge');
     await pg.close();
   }
 
@@ -170,7 +229,7 @@ const read = (pg) => pg.evaluate(() => {
   {
     const { pg, errs } = await open(b, () => ({ count: 12, congrats: false }), { key: 'no note' });
     const g = await read(pg);
-    say(g.note && g.note.hidden, 'no note: no congrats, no note (control)');
+    say(g.note && g.note.hidden && !g.pill.shown && g.badge && g.badge.hidden, 'no note: no congrats, no pill, no notice and no badge (control)', JSON.stringify({ note: g.note, pill: g.pill, badge: g.badge }));
     say(g.label && g.label.opacity === '0', 'no note: the label waits for a hover', JSON.stringify(g.label));
     const vis = await pg.evaluate(() => getComputedStyle(document.getElementById('kstreak')).visibility);
     say(vis === 'hidden', 'no note: at rest the label is hidden, so a screen reader reads it once, as the description', vis);
@@ -211,7 +270,7 @@ const read = (pg) => pg.evaluate(() => {
     const { pg } = await open(b, () => ({ count: 1, congrats: true }), { key: 'day 1' });
     const g = await read(pg);
     say(g.label && g.label.text === '1 day in the Kosmos', 'day 1: "1 day in the Kosmos"', JSON.stringify(g.label));
-    say(g.note && g.note.hidden, 'day 1: no note, even if the board said congrats');
+    say(g.note && g.note.hidden && !g.pill.shown, 'day 1: no pill and no note, even if the board said congrats', JSON.stringify(g.pill));
     await pg.close();
   }
   {
@@ -324,9 +383,9 @@ const read = (pg) => pg.evaluate(() => {
     const whileHidden = calls;
     await pg.evaluate(() => window.__show());
     await pg.waitForTimeout(800);
-    const seen = await pg.evaluate(() => Boolean(document.querySelector('#streak-slot .utoast.streak')));
+    const seen = await pg.evaluate(() => Boolean(document.querySelector('#kpill.in')));
     say(whileHidden === 0, 'hidden load: no visit is recorded while nobody can see the page', 'calls=' + whileHidden);
-    say(calls === 1 && seen, 'hidden load: once it is shown, the day counts and the note appears', JSON.stringify({ calls, seen }));
+    say(calls === 1 && seen, 'hidden load: once it is shown, the day counts and the pill comes out', JSON.stringify({ calls, seen }));
     await pg.close();
   }
 
@@ -423,9 +482,14 @@ const read = (pg) => pg.evaluate(() => {
   // narrow: the note stays on screen at 360px
   {
     const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'narrow', viewport: { width: 360, height: 800 } });
+    await pg.waitForTimeout(400);
     const g = await read(pg);
-    say(g.note && !g.note.hidden && g.note.left >= 0 && g.note.right <= g.vw, 'narrow: the note is inside a 360px screen', JSON.stringify({ left: g.note && g.note.left, right: g.note && g.note.right, vw: g.vw }));
+    // kosmos#6397: no room beside the mark on a phone, so the day's words are the notice, inside the screen; no pill.
+    say(!g.pill.shown && g.note && !g.note.hidden && g.note.left >= 0 && g.note.right <= g.vw, 'narrow: on a phone the day\'s words are the notice, inside a 360px screen, and no pill', JSON.stringify({ pill: g.pill.shown, left: g.note && g.note.left, right: g.note && g.note.right, vw: g.vw }));
     await pg.screenshot({ path: path.join(OUT, 'streak-note-360.png') }).catch(() => {});
+    await pg.click('#streak-slot .ux'); await pg.waitForTimeout(200);
+    const after = await read(pg);
+    say(after.note.hidden && after.badge && !after.badge.hidden && after.badge.text === '12', 'narrow: when the notice goes, the badge says 12 on the mark', JSON.stringify(after.badge));
     await pg.close();
   }
 
