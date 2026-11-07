@@ -24,18 +24,28 @@ final class EndPullUITests: XCTestCase {
         app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Message Dana'")).firstMatch
     }
 
-    /// A long chat can still be finishing its open after a still moment (measured 103 pt low, twice), for longer on a slower
-    /// runner, so a fixed wait is a guess: this waits until the row has not moved for `quiet` seconds, giving up after `limit`.
-    private func openFinished(_ row: XCUIElement, quiet: TimeInterval = 6, limit: TimeInterval = 45) {
+    /// Waits for the row to stop moving before a pull: until it has not moved for `quiet` seconds, giving up after `limit`, and
+    /// says what it saw, for a failure's message. Why it may be needed is a hypothesis: see .claude/plans/pullstill-8072.md.
+    private func openFinished(_ row: XCUIElement, quiet: TimeInterval = 6, limit: TimeInterval = 45) -> String {
         let began = Date()
-        var at = row.frame.minY
+        var at = CGFloat.nan
         var stillSince = Date()
+        var moved: CGFloat = 0
         while Date().timeIntervalSince(began) < limit {
-            Thread.sleep(forTimeInterval: 0.5)
-            let now = row.frame.minY
-            if abs(now - at) > 1 { at = now; stillSince = Date() }
-            if Date().timeIntervalSince(stillSince) >= quiet { return }
+            Thread.sleep(forTimeInterval: 1)
+            let now = row.exists ? row.frame.minY : CGFloat.nan
+            if !now.isFinite || !at.isFinite {
+                at = now
+                stillSince = Date()   // gone, or no position yet: not still
+            } else if abs(now - at) > 1 {
+                moved += abs(now - at)
+                at = now
+                stillSince = Date()
+            }
+            if at.isFinite && Date().timeIntervalSince(stillSince) >= quiet { break }
         }
+        let waited = Int(Date().timeIntervalSince(began))
+        return "after waiting \(waited) s for the row, which moved \(Int(moved)) pt" + (waited >= Int(limit) ? ", still not still" : "")
     }
 
     private func pullUp(_ app: XCUIApplication, distance: CGFloat) {
@@ -65,15 +75,15 @@ final class EndPullUITests: XCTestCase {
         let app = launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_PULL_SECONDS": "10"])
         let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
-        openFinished(row)
+        let waited = openFinished(row)
         let before = row.frame.minY
         pullUp(app, distance: 420)
-        XCTAssertTrue(dots(app).waitForExistence(timeout: 3), "no dots after a long pull")
+        XCTAssertTrue(dots(app).waitForExistence(timeout: 3), "no dots after a long pull, " + waited)
         KeyboardSlideUITests.settle(row)
         XCTAssertTrue(dots(app).exists, "the dots went before the read ended")
         // A chat opens a little short of its true end and any touch settles it there, as with any scroll: up to 20 pt.
         let landed = row.frame.minY
-        XCTAssertEqual(landed, before, accuracy: 20, "the list did not bounce back")
+        XCTAssertEqual(landed, before, accuracy: 20, "the list did not bounce back, " + waited)
         // Clear of the working line, and of the box and its 18 pt fade.
         let working = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Dana is working'")).firstMatch
         XCTAssertTrue(working.exists, "CONTROL: no working line, so this checks no gap")
@@ -92,9 +102,9 @@ final class EndPullUITests: XCTestCase {
         let app = launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_PULL_SECONDS": "3"])
         let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
-        openFinished(row)
+        let waited = openFinished(row)
         pullUp(app, distance: 420)
-        XCTAssertTrue(dots(app).waitForExistence(timeout: 3), "no dots after the first pull")
+        XCTAssertTrue(dots(app).waitForExistence(timeout: 3), "no dots after the first pull, " + waited)
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dots(app))
         wait(for: [gone], timeout: 12)
         KeyboardSlideUITests.settle(row)
