@@ -21188,7 +21188,7 @@ const server = http.createServer(async (req, res) => {
               e.status = 409; throw e;
             }
             if (opt && !files.recs.length && !answered) {
-              const waitPressed = permissionWaitBeforePress(askingCard);   // kosmos#8036
+              const waitPressed = cq.permission ? permissionWaitBeforePress(askingCard) : null;   // kosmos#8036: only a press on the prompt itself
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}),
                 ...(cq.permission && requestGiven ? { request: body.request } : {}) });   // kosmos#7020: re-checked on the last look
               if (r.ok && r.answered) endPermissionWaitPressed(askingCard, waitPressed, r.screen);
