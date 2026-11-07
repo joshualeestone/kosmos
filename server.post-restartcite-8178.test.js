@@ -217,3 +217,39 @@ test('kosmos#8178 round 2: a line appended while the file is being compacted is 
   assert.ok(fs.readFileSync(ids, 'utf8').includes(late), 'the line appended during compaction was lost');
   assert.ok(Buffer.byteLength(fs.readFileSync(ids, 'utf8')) < 64 * 1024, 'CONTROL: it was compacted');
 });
+
+test('kosmos#8178 round 3: after a crash mid-append, the next post is still in the id file', async () => {
+  messages.resetForTests();
+  const p = projects.create({ name: 'Torn 8178' });
+  projects.addAgent(p.id, 'dana');
+  projects.addAgent(p.id, 'mara');
+  const ids = messages._idsPathForTests();
+  fs.writeFileSync(ids, JSON.stringify({ id: 'm200', at: Date.now() }) + '\n{"id":"m201","proj');   // torn, no newline
+  messages._restartForTests();
+  const a = await post({ project: p.id, text: '@dana after the crash', from_pane: '' }, { 'x-kosmos-agent-token': sendertoken.mint('mara').token });
+  assert.ok(/^m\d+$/.test(String(a.json.delivery.id)), 'CONTROL: the post was given an id: ' + JSON.stringify(a.json.delivery));
+  const parsed = fs.readFileSync(ids, 'utf8').split('\n').filter(Boolean).flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } });
+  assert.ok(parsed.some((x) => x.id === a.json.delivery.id && x.project === p.id), 'the first post after a torn line was lost: ' + fs.readFileSync(ids, 'utf8'));
+});
+
+test('kosmos#8178 round 3: a board that stays up compacts the id file too', async () => {
+  messages.resetForTests();
+  const p = projects.create({ name: 'Busy 8178' });
+  projects.addAgent(p.id, 'dana');
+  projects.addAgent(p.id, 'mara');
+  messages._idsCompactAtForTests(512);
+  try {
+    const ids = messages._idsPathForTests();
+    const got = [];
+    for (let i = 0; i < 30; i += 1) {
+      const a = await post({ project: p.id, text: 'note ' + i, from_pane: '' }, { 'x-kosmos-agent-token': sendertoken.mint('mara').token });
+      got.push(Number(String(a.json.delivery.id).slice(1)));
+    }
+    assert.equal(got[29] - got[0], 29, 'CONTROL: thirty posts were given thirty ids: ' + got.join(','));
+    const grown = 30 * JSON.stringify({ id: 'm30', project: p.id, from: 'mara', at: Date.now() }).length;
+    assert.ok(grown > 2 * 512, 'CONTROL: without compaction the file would pass the threshold twice over');
+    const size = fs.statSync(ids).size;
+    assert.ok(size < 512 + 200, 'the id file grew without a compaction while the board ran: ' + size + ' bytes');
+    assert.equal(messages._nextIdForTests(), 'm' + (got[29] + 1), 'the highest id survived the compaction');
+  } finally { messages._idsCompactAtForTests(null); }
+});

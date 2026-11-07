@@ -23,7 +23,10 @@ Keep the record's shape unchanged and add a sidecar, `messages.ids.jsonl`, besid
   `replyTo` and is read as a reply to the real post; `withPending` leaves stand-ins out, so they are never quoted.
 - With the record unreadable it only raises `ID_HIGH`, writes nothing, and reads the file again next call.
 - Past 64 KB the file is compacted (the restored posts plus a high-water row, plus any line appended after it was
-  read) through `securewrite.writeSecret` (owner-only, flushed, #5434). Below that it only grows.
+  read) through `securewrite.writeSecret` (owner-only, flushed, #5434). A board that stays up reads it again once it
+  has appended 64 KB since its last read, so the file stays near that size while running, not only across restarts.
+- A torn last line (a crash mid-append) is ended with a newline when the file is read, before anything is appended,
+  so the next id is not written onto the fragment.
 - Every failure falls back to the log alone, which is the pre-#8178 behaviour, never a refusal.
 - `resetForTests` removes the file (a test process never holds the real root, #5418).
 
@@ -50,7 +53,8 @@ because the worst case is the generic refusal sentence.
 
 ## Tests
 
-`server.post-restartcite-8178.test.js` (7 tests): a restart while the first post is still being typed
+`server.post-restartcite-8178.test.js` (9 tests): a restart while the first post is still being typed
 (refused, and m1 reused, on main; the reply records replyTo), the file's read rules, a recorded and a
 deleted id, a real reached-nobody post, the names on a restored post (repliesToPerson), an unreadable
-record, and a line appended during compaction. Six mutants (one per fix) each fail their test.
+record, a line appended during compaction, the first post after a torn line, and a board that stays up compacting.
+Eight mutants (one per fix) each fail their test.

@@ -287,6 +287,8 @@ const SEAMS_5548 = {
   // restart the board mid-delivery and plant an id file. Production never calls them.
   _restartForTests: 'engine/messages.js',
   _idsPathForTests: 'engine/messages.js',
+  // kosmos#8178 round 3: a small compaction threshold, so the same test can show a board that stays up compacts.
+  _idsCompactAtForTests: 'engine/messages.js',
   // kosmos#8122 review 5: forgets the remembered sheet answers, so engine/xlsxpreview-review-8122.test.js can count a read
   // from a clean start. Production never calls it.
   _forgetForTests: 'engine/sheetpreview.js',
