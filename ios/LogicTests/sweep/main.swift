@@ -143,10 +143,9 @@ do {
           "a room loading earlier posts, live and in its archive: the dots, 15 a second in the thread (RoomView.swift)")
     // Josh 11-05 18:33: "only use the dots spinner in the mobile app and scrub any other instances". The guard: no app
     // source draws the orb or the system's spinner, so neither can come back unnoticed (KosmosOrb.swift itself excepted).
-    // Josh 2026-11-06 18:14 put the orb back on three whole-screen waits only: the one KosmosOrb line in AgentsView's
-    // message() (Allow this iPhone and Connecting pass it a label) and the one in NewAgentView's Making screen. Those exact
-    // lines are allowed and counted below; any other KosmosOrb anywhere is still an offender.
-    var offenders: [String] = [], read: [String] = [], refreshable = 0, refreshControls = 0
+    // Josh 2026-11-06 18:14 put the orb back on three whole-screen waits only, drawn through WaitOrb (KosmosOrb.swift): its
+    // uses are counted per file below, so a WaitOrb anywhere else, or a second one in either file, fails too.
+    var offenders: [String] = [], read: [String] = [], refreshable = 0, refreshControls = 0, waitOrbs: [String: Int] = [:]
     for folder in ["ios/Kosmos", "ios/KosmosNotice"] {
         let names = (FileManager.default.enumerator(atPath: repo.appendingPathComponent(folder).path)?.allObjects as? [String]) ?? []
         for name in names where name.hasSuffix(".swift") && name != "KosmosOrb.swift" {
@@ -155,11 +154,9 @@ do {
             // A line whose first non-blank characters are // is skipped, so such a comment is neither an offender nor counted. A /* */ block or a trailing
             // comment is still read, so naming one there can trip the check.
             let code = text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            let orbAllowed = (name == "AgentsView.swift" || name == "NewAgentView.swift")
-            for bad in ["KosmosOrb", "ProgressView", ".progressViewStyle", "UIActivityIndicatorView"]
-                where code.contains(where: { $0.contains(bad) && !(bad == "KosmosOrb" && orbAllowed && $0.contains("KosmosOrb(size: AgentsWait.orbSide, label: ")) }) {
-                offenders.append(name + ": " + bad)
-            }
+            for bad in ["KosmosOrb", "ProgressView", ".progressViewStyle", "UIActivityIndicatorView"] where code.contains(where: { $0.contains(bad) }) { offenders.append(name + ": " + bad) }
+            let w = code.filter { $0.contains("WaitOrb(") }.count
+            if w > 0 { waitOrbs[name, default: 0] += w }
             refreshable += code.filter { $0.contains(".refreshable") }.count
             refreshControls += code.filter { $0.contains("UIRefreshControl") }.count
         }
@@ -167,13 +164,15 @@ do {
     check(read.contains("ios/Kosmos/ChatView.swift") && read.contains(where: { $0.hasPrefix("ios/KosmosNotice/") }) && read.count > 20,
           "both app folders were read, subfolders included (\(read.count) files)")
     check(offenders.isEmpty, "only the dots: no orb and no system spinner anywhere in the app (caught by these names, // comment lines skipped; a renamed type or a hand-made spinner is not caught)" + (offenders.isEmpty ? "" : ": \(offenders)"))
-    // The three orb waits are there, once each, at Josh's size (at least double 66 pt), and nowhere else.
-    let agentsSrc = repoText("ios/Kosmos/AgentsView.swift"), makingSrc = repoText("ios/Kosmos/NewAgentView.swift")
-    check(agentsSrc.components(separatedBy: "KosmosOrb(size: AgentsWait.orbSide, label: orb)").count == 2
-          && agentsSrc.components(separatedBy: "orb: \"Waiting for your Mac\")").count == 3
-          && makingSrc.components(separatedBy: "KosmosOrb(size: AgentsWait.orbSide, label: \"Loading\")").count == 2
-          && repoText("ios/Kosmos/KosmosOrb.swift").contains("static let orbSide: CGFloat = 132"),
-          "the orb on exactly three waits (Allow this iPhone, Connecting, Making), 132 pt, inside the words' group")
+    // The three orb waits, and nowhere else: one WaitOrb in AgentsView's message() and one on Making; exactly two
+    // message() calls pass it a label (Allow this iPhone and Connecting), whatever the label says (review 1: a prefix match
+    // let a stray orb through). 132 pt, 66 at the accessibility text sizes.
+    let agentsCode = repoText("ios/Kosmos/AgentsView.swift").split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+    let orbArgs = agentsCode.filter { $0.contains("message(") || $0.contains(", orb: ") }.reduce(0) { $0 + $1.components(separatedBy: ", orb: ").count - 1 }
+    let orbSrc = repoText("ios/Kosmos/KosmosOrb.swift")
+    check(waitOrbs == ["AgentsView.swift": 1, "NewAgentView.swift": 1] && orbArgs == 2
+          && orbSrc.contains("static let side: CGFloat = 132") && orbSrc.contains("static let sideAtLargeText: CGFloat = 66"),
+          "the orb on exactly three waits (Allow this iPhone, Connecting, Making), 132 pt (\(waitOrbs), \(orbArgs) message() calls with an orb)")
     // kosmos#8078: iOS's own pull to refresh always draws iOS's spinner, so none may come back. Use dotsRefresh.
     check(refreshable == 0 && refreshControls == 0, "no system pull to refresh anywhere in the app (\(refreshable) + \(refreshControls))")
     let usesDots = ["AgentInfoView", "AgentsView", "FilesView", "ProjectInfoView", "ProjectsView", "SettingsView", "TaskPageView", "TasksView", "TodayView"]

@@ -1021,9 +1021,11 @@ struct NewAgentView: View {
         return VStack(spacing: 16) {
             Spacer()
             if seen {
-                // As on the Mac, the wait ends in the green tick where the orb was (Mona Lisa's call on Josh's 18:14 ruling).
+                // As on the Mac, the wait ends in the green tick in the orb's place (Mona Lisa's call on Josh's 18:14 ruling):
+                // a 66 pt tick in a box the orb's size, so the words do not jump when it changes (review 1).
                 Image(systemName: "checkmark.circle.fill").resizable().scaledToFit().frame(width: 66, height: 66)
                     .foregroundColor(Palette.ringOk).accessibilityHidden(true)
+                    .frame(width: WaitOrb.side, height: WaitOrb.side)
                 Text(NewAgent.Words.running(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
                 Text(NewAgent.Words.hello).font(.body).foregroundColor(Palette.primary)
                 ForEach(madeWarnings, id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
@@ -1032,7 +1034,7 @@ struct NewAgentView: View {
                 Text(NewAgent.Words.notUpWhy + " " + NewAgent.Words.notUpNext).font(.body).foregroundColor(Palette.secondary)
                 ForEach(madeWarnings, id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
             } else {
-                KosmosOrb(size: AgentsWait.orbSide, label: "Loading")   // Josh 2026-11-06 18:14: the orb, at least double 66 pt
+                WaitOrb(label: "Loading")   // Josh 2026-11-06 18:14: the orb, at least double 66 pt
                 Text(NewAgent.Words.makingNamed(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
             }
             Spacer()

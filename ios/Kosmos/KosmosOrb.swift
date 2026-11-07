@@ -1,11 +1,9 @@
 import SwiftUI
 
 /// kosmos#7896 (Josh 2026-11-03), retired on the iPhone by kosmos#8058 (Josh 2026-11-05 18:33: dots only in the mobile
-/// app), then back on exactly three whole-screen waits by Josh 2026-11-06 18:14: Allow this iPhone and Connecting to your
-/// Mac (AgentsView) and Making <name> (NewAgentView), at AgentsWait.orbSide. The sweep suite fails if any other place draws it.
-
-/// The orb's side on those three waits: Josh, "at least double" the 66 pt the desktop list uses.
-enum AgentsWait { static let orbSide: CGFloat = 132 }
+/// app), then back on exactly three whole-screen waits by Josh 2026-11-06 18:14 through WaitOrb below: Allow this iPhone and
+/// Connecting to your Mac (AgentsView's message(), so every tab that shows the connection screen) and Making <name>
+/// (NewAgentView). The sweep suite fails if any other place draws it.
 /// The geometry is OrbLogic (the desktop's, same seed). 15 frames a second
 /// (the .animation schedule pauses with the app in the background; whether it also pauses for a view kept alive out of
 /// sight is not verified here); with Reduce Motion on, one still frame with the K facing. VoiceOver hears it as
@@ -67,4 +65,15 @@ struct KosmosOrb: View {
             }
         }
     }
+}
+
+/// The orb on a whole-screen wait (Josh 2026-11-06 18:14: "at least double" the desktop list's 66 pt). At the accessibility
+/// text sizes it is 66 pt instead, so the words under it (on Allow this iPhone, the code to check) keep the room they need on
+/// a screen that does not scroll (review 1). The only way the app draws the orb.
+struct WaitOrb: View {
+    static let side: CGFloat = 132
+    static let sideAtLargeText: CGFloat = 66
+    var label: String
+    @Environment(\.dynamicTypeSize) private var typeSize
+    var body: some View { KosmosOrb(size: typeSize.isAccessibilitySize ? Self.sideAtLargeText : Self.side, label: label) }
 }

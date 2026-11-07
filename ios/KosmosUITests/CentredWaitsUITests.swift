@@ -63,8 +63,9 @@ final class CentredWaitsUITests: XCTestCase {
             XCTAssertLessThanOrEqual(email.frame.maxY, keyboard.frame.minY, "the keyboard covers the email box: \(email.frame) vs \(keyboard.frame)")
             XCTAssertGreaterThanOrEqual(email.frame.minY, screen.minY + 20, "the email box went off the top: \(email.frame)")
         } else {
-            // A simulator with a hardware keyboard shows none; the centring above still holds. Said, not skipped silently.
-            XCTContext.runActivity(named: "no on-screen keyboard appeared, so the keyboard half was not measured") { _ in }
+            // A simulator with a hardware keyboard connected shows none. That is a run that did not measure the keyboard half,
+            // so it fails rather than passing (review 1): turn the hardware keyboard off in Simulator (I/O, Keyboard) and rerun.
+            XCTFail("no on-screen keyboard appeared, so the keyboard half was not measured")
         }
     }
 }

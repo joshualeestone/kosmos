@@ -440,7 +440,8 @@ struct SignInView: View {
                     content
                 }
                 .padding(.horizontal, 24)
-                .padding(.vertical, 24)
+                .padding(.top, 48)
+                .padding(.bottom, 24)
                 .frame(maxWidth: 480, alignment: .leading)
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: space.size.height, alignment: .center)
