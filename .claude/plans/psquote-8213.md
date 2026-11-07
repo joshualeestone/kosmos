@@ -95,3 +95,4 @@ Windows CI runner runs the same arms under 5.1.
 - WARNING: double quotes inside double quotes ("say "hi" now") are cut the same way. Out of this card's scope (single
   quotes); named in the comment as not checked.
 - NIT not taken: 'x' with a backtick continuation touching it is refused. Rare, and a refusal sends nothing.
+- Mutants: no RBracket -> the $h['k'] arm fails; no Dot -> the 'abc'.Length arm fails.
