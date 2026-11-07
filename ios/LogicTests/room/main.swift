@@ -649,7 +649,9 @@ check(chatSource.contains("if visible { settleAtNewest(proxy, boxMoved: true) }\
       && chatSource.contains("private func settleAtNewest(_ proxy: ScrollViewProxy, boxMoved: Bool) {\n        kbSettleTick &+= 1\n        // Review 6: a thread read inside a box change's looks replaces them, and keeps that the box moved.\n        if boxMoved { boxAskedAt = Date() }\n        let moved = boxMoved || (boxAskedAt.map { Date().timeIntervalSince($0) < Self.boxAskCarries } ?? false)\n        let tick = kbSettleTick, chatAt = epoch, listAt = listEpoch, boxMoved = moved\n        for at in Self.keyboardSettleLooks {\n            DispatchQueue.main.asyncAfter(deadline: .now() + at) { settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, boxMoved: boxMoved) }"),
       "kosmos#7817: every did-show of the chat on screen asks the settled put-back, before the keep-the-newest guard")
 check(chatSource.contains("rebuildHiding = !Self.sampleNoRebuildHide") && chatSource.contains("endVisible = true\n                                rebuildHiding = false")
-      && chatSource.contains(".opacity(rebuildHiding ? 0 : 1)\n                .allowsHitTesting(!rebuildHiding)"),
+      && chatSource.contains(".opacity(rebuildHiding ? 0 : 1)\n                .allowsHitTesting(!rebuildHiding)\n                .accessibilityHidden(rebuildHiding)")
+      && chatSource.contains("asyncAfter(deadline: .now() + Self.rebuildHideAfterLastAsk) { if listEpoch == listAt { rebuildHiding = false } }")
+      && chatSource.contains("endVisible = true; rebuildHiding = false; rebuilds = []"),
       "kosmos#7420: a rebuilt list is hidden and untouchable until the end shows, so the oldest rows are not flashed")
 check(chatSource.contains("guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching, scenePhase == .active else { return }\n        let place = scrollBox.reading()?.place ?? \"unread\"\n        guard place == \"past the end\" else {")
       && chatSource.contains("} else if place != \"within\" { Self.trace(\"keyboard settled: \\(place)\") }")

@@ -670,6 +670,7 @@ struct ChatView: View {
                 .modifier(PositionById(on: Self.idAnchor, id: $positionId))
                 .opacity(rebuildHiding ? 0 : 1)
                 .allowsHitTesting(!rebuildHiding)
+                .accessibilityHidden(rebuildHiding)
                 .id(listEpoch)   // kosmos#7420: a new epoch is a new list (recoverEmpty's .rebuild)
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(PersonScroll(scrolling: $personScrolling) {
