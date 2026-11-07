@@ -28,7 +28,7 @@ test('#8021: "read as sent" and "could not read the box" are two different lines
 
 test('#8021: an Enter that did not take, one pressed into other text, and one never pressed are each said as such', () => {
   const unsent = run({ ...confirmedVerdict(placed, { outcome: 'unsent', retried: true }), unsentSeq: 3 });   // settle adds the seq
-  assert.equal(promptLogLine(unsent), 'autohandoff: mara at 86%: handoff prompt left in its box: its Enter did not take; kept as a numbered unsent line, to be pressed later' + AGAIN);
+  assert.equal(promptLogLine(unsent), 'autohandoff: mara at 86%: handoff prompt left in its box: it still held the prompt when checked after the Enter; kept as a numbered unsent line, to be pressed later' + AGAIN);
   const other = run(confirmedVerdict(placed, { outcome: 'other', retried: false }));
   assert.equal(promptLogLine(other), 'autohandoff: mara at 86%: handoff prompt not confirmed: Enter was pressed and its box then held something besides the prompt (other text, or a folded paste)' + AGAIN);
   // chat.js deliver, the box already held other text before the Enter (UNSENT_NOT_PRESSED_BECAUSE): never pressed.
@@ -42,8 +42,13 @@ test('#8021: held by text already in the box says so, not "not kept"; a plain co
   assert.equal(promptLogLine(held), 'autohandoff: mara at 86%: handoff prompt not typed: its box already holds unsent text' + AGAIN);
   assert.equal(promptLogLine(run({ state: DELIVERY.COULD_NOT, because: 'x' })), 'autohandoff: mara at 86%: handoff prompt could not be typed (x)' + AGAIN);
   // Review 2: a menu hold (deliverystreak) names itself and its reason.
-  assert.equal(promptLogLine(run({ state: DELIVERY.COULD_NOT, held: true, heldBy: 'menu', because: 'it is at a\npermission menu' })),
-    'autohandoff: mara at 86%: handoff prompt could not be typed, held by menu (it is at a permission menu)' + AGAIN);
+  // chat.js's own hold reasons read 'held: <why>' (menu, quota, limit): said once.
+  assert.equal(promptLogLine(run({ state: DELIVERY.COULD_NOT, held: true, heldBy: 'menu', because: 'held: it is at a\npermission menu' })),
+    'autohandoff: mara at 86%: handoff prompt could not be typed (it is at a permission menu)' + AGAIN);
+  assert.equal(promptLogLine(run({ state: DELIVERY.COULD_NOT, held: true, heldBy: 'quota', because: 'out of usage' })),
+    'autohandoff: mara at 86%: handoff prompt could not be typed (out of usage)' + AGAIN);
+  assert.equal(promptLogLine(run({ state: DELIVERY.COULD_NOT, held: true, heldBy: 'menu' })),
+    'autohandoff: mara at 86%: handoff prompt could not be typed (held: menu)' + AGAIN);
   // A verdict with no confirm (a path that does not check after the Enter) says only its state.
   assert.equal(promptLogLine(run({ state: DELIVERY.PLACED })), 'autohandoff: mara at 86%: handoff prompt placed, with no check after the Enter\n');
   assert.equal(promptLogLine(run({ state: DELIVERY.UNCONFIRMED, because: 'its window changed' })), 'autohandoff: mara at 86%: handoff prompt not confirmed as sent (its window changed)' + AGAIN);
