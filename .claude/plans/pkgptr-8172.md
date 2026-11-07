@@ -51,3 +51,16 @@ name the same sha, which is correct: the installer is the same file.
   build's pkg differs, a prod verify now reds on Kosmos.pkg. That red is intended: it says the Download button is not
   serving the frozen build's installer, which is true, and the freeze tool already says to replace the pkg by hand.
 - NITs, fixed: two stale comments; tests for the staging-pointer red arm and both cross-channel arms.
+
+## Review round 2
+
+- WARNING, fixed: a named promote compares the cut's commit with a later same-build republish ignoring only
+  setup_sha256, so a republish that dropped pkg_sha256 would have been refused. pkg_sha256 is ignored there too; a
+  test proves the pair still "points at the same build", and the nested-field refusal test still refuses.
+- WARNING, fixed: both promote warnings that leave latest.json naming a pkg the Download button does not serve now
+  say a prod verify will red until it is put right; the "neither" warning says "missing or broken".
+- WARNING, settled by reading: a freeze cannot fail a cut's own verify, because no cut starts while the site is
+  frozen (release.sh, kosmos#6620 block).
+- CONVENTION, settled by reading: the pointer write (step 4) always runs after 3c in the one linear script; a re-run
+  runs 3c again.
+- NIT, settled by reading: the cut passes KOSMOS_VERIFY_POINTER="$POINTER_FILE" to verify-served (step 9).
