@@ -7929,8 +7929,8 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 .pv-file span { color: rgba(255, 255, 255, .62); font: var(--text-caption) var(--font-ui); }
 /* #8122 (Josh 11-06: "It's a spreadsheet so I don't know why we couldn't render a spreadsheet view. Obviously they
    couldn't edit it or change it"): a read-only look at a workbook, as a light sheet on the dark, its sheets as tabs. */
-.pv-sheet { display: flex; flex-direction: column; gap: 8px; width: min(100%, 72rem); min-height: 0; max-height: 100%; }
-.pv-tabs { display: flex; gap: 4px; overflow-x: auto; flex: none; }
+.pv-sheet { display: flex; flex-direction: column; align-items: center; gap: 8px; width: min(100%, 72rem); min-height: 0; max-height: 100%; }   /* a narrow grid sits centred over the name and the gold button (measured against the real reader) */
+.pv-tabs { display: flex; gap: 4px; overflow-x: auto; flex: none; max-width: 100%; }
 .pv-tab { flex: none; min-height: 32px; padding: 6px 12px; border: 0; border-radius: 6px; background: rgba(255, 255, 255, .10);
   color: rgba(255, 255, 255, .78); font: 600 .8125rem var(--font-ui); cursor: pointer; white-space: nowrap; }
 .pv-tab[aria-selected="true"] { background: #fff; color: #14161a; }

@@ -579,6 +579,10 @@ async function runSheet(engine, say) {
     }));
     say(JSON.stringify(g.tabs) === '["Budget*","Notes","Chart"]' && g.cells[0] === 'Item' && g.cells[3] === '12.5', T + ': a spreadsheet opens as a grid, its sheets as tabs', JSON.stringify(g));
     say(g.cells[2] === '<img src=x onerror="window.__ran=1">' && g.imgs === 0 && !g.ran, T + ': a cell\'s words are text, never markup', JSON.stringify(g.cells));
+    // A narrow grid is centred over the name and the gold button, not left in the corner (the real reader's small CSV).
+    const mid = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap').getBoundingClientRect(), d = document.getElementById('pv-do').getBoundingClientRect();
+      return { grid: Math.round(w.left + w.width / 2), button: Math.round(d.left + d.width / 2), narrow: w.width < innerWidth / 2 }; });
+    say(mid.narrow && Math.abs(mid.grid - mid.button) <= 2, T + ': a narrow grid sits centred over the gold button', JSON.stringify(mid));
     // A long value is cut to one line with an ellipsis, the whole value on hover (review 1: max-width on a td is ignored).
     const lc = await pg.evaluate(() => { const c = [...document.querySelectorAll('#pv-preview .pv-grid .pv-cell')].find((x) => /very long note/.test(x.textContent));
       if (!c) return null; const r = c.getBoundingClientRect(), fs = parseFloat(getComputedStyle(document.documentElement).fontSize);
