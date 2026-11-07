@@ -1288,15 +1288,20 @@ function withPending(log, projectId, ownId) {
   const own = typeof ownId === 'string' && /^m\d+$/.test(ownId) ? Number(ownId.slice(1)) : Infinity;
   const earlier = (r) => !(r && /^m\d+$/.test(String(r.id))) || Number(String(r.id).slice(1)) < own;
   for (const p of PENDING_POSTS.values()) {
-    if (p.projectId !== projectId || !p.row || Date.now() - p.at > PENDING_POST_MAX_MS) continue;
+    if (p.projectId !== projectId || !p.row || p.unrecorded === true || Date.now() - p.at > PENDING_POST_MAX_MS) continue;   // r6: never one the room will not show
     if (earlier(p.row)) extra.push(p.row);
   }
   const rows = Array.isArray(log) ? (own === Infinity ? log : log.filter(earlier)) : [];
   if (!extra.length) return rows;
   /* Review 5: in id order, as the rows were posted: a reader takes a quote's origin as the first row carrying the words,
      and rows are recorded when their deliveries finish, in any order. Stable for rows with no m-number. */
+  // Review 6: the m-rows are sorted into the m-rows' own slots and every row with no m-number keeps its place (a
+  // comparator mixing the two is not transitive, so a valve row between posts left them out of order).
   const num = (r) => (r && /^m\d+$/.test(String(r.id)) ? Number(String(r.id).slice(1)) : -1);
-  return rows.concat(extra).map((r, i) => [r, i]).sort((a, b) => (num(a[0]) < 0 || num(b[0]) < 0 ? a[1] - b[1] : num(a[0]) - num(b[0]) || a[1] - b[1])).map((x) => x[0]);
+  const all = rows.concat(extra);
+  const ms = all.filter((r) => num(r) >= 0).map((r, i) => [r, i]).sort((a, b) => num(a[0]) - num(b[0]) || a[1] - b[1]).map((x) => x[0]);
+  let k = 0;
+  return all.map((r) => (num(r) >= 0 ? ms[k++] : r));
 }
 function pendingPost(id) {
   for (const [k, p] of PENDING_POSTS) if (Date.now() - p.at > PENDING_POST_MAX_MS) PENDING_POSTS.delete(k);   // pruned on every look
@@ -2179,7 +2184,6 @@ function quotedSegments(text, from, projectId, rows) {
     const independent = rows.some((m) => m && m !== origin && m.kind === 'post' && m.project === projectId
       && typeof m.text === 'string' && (m.operator === true ? 'you' : m.from) !== author
       && chat.cleanMessage(m.text).includes(words)
-      && m.pending !== true   // kosmos#8165 review 5: a post still being delivered has no quotes yet, so it proves nothing
       && !(Array.isArray(m.quotes) && m.quotes.some((q) => q.of === origin.id)));
     if (independent) continue;
     sourced.push({ of: origin.id, from: author, start: seg.start, end: seg.end });
@@ -3038,6 +3042,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     ...(atNamed.mentioned.size ? { mentioned: [...atNamed.mentioned] } : {}),
     ...(operator !== true && namedHere.size ? { addressed: [...namedHere] } : {}),
     ...(operator === true ? { operator: true } : {}) } });
+  /* Review 6: and its own quote tags, judged as its row will be (a copy with none read as an untagged second author, or,
+     excused, let a third post be tagged where a late one is not). Recomputed when it is recorded, against the room then. */
+  try { const q = quotedSegments(stored, from, projectId, withPending(log, projectId, id)); if (q.length) PENDING_POSTS.get(id).row.quotes = q; } catch { /* untagged */ }
 
   /* #2239: the STORED text keeps paragraph breaks (storeText keeps newlines, and
      since #3679 also indentation and fenced code), so the room
@@ -3401,6 +3408,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   } catch (err) {
     try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
     const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', unrecorded: true, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
+    // kosmos#8165 review 6: still citable (its members hold the id), but the room never shows it, so it is no longer a
+    // source for a later post's quote tag or claim line.
+    if (PENDING_POSTS.has(id)) PENDING_POSTS.get(id).unrecorded = true;
     /* Review 2: an agent's retry folds. Review 4 (Sonnet): NOT the person's. Folded, the page says "Posted." again for a
        post the room never shows, so the person's every repeat vanished until the window passed; a second delivery in
        this rare case (the record could not be written) is the lesser harm. */

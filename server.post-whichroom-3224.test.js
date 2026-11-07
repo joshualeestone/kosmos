@@ -270,3 +270,12 @@ test('#3224 round 3: a kept --new post replayed by the drain is not marked (it w
   assert.equal(r.json.delivery.code, 'which_room', 'the later question is still owed');
 });
 
+test('kosmos#8165: on the outbox DRAIN an in_reply_to that names no post is still delivered (the live route refuses it)', () => {
+  const a = room('Alpha draincite 8165');
+  fs.rmSync(outbox.outboxDir(), { recursive: true, force: true });
+  assert.equal(outbox.keep({ verb: 'post', body: { project: a.id, text: 'kept with a bad citation', from_pane: '', in_reply_to: 'm999999' }, from: 'dana' }).ok, true);
+  assert.equal(drainOutboxNow().delivered, 1, 'a kept post citing no post was not delivered on the drain');
+  const row = messagesEngine.readLog().find((m) => m && m.kind === 'post' && m.text === 'kept with a bad citation');
+  assert.ok(row, 'the kept post is in the room');
+  assert.equal(row.replyTo, undefined, 'it cites nothing');
+});
