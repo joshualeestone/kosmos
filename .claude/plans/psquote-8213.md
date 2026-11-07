@@ -76,3 +76,15 @@ Windows CI runner runs the same arms under 5.1.
   use the here-string every time.
 - Mutants: parse errors ignored -> the here-string-closer arm fails; no backtick strip -> the backtick arm fails;
   the old touch list -> the 'well'-known arm fails.
+
+## Review round 5
+- WARNING: expressions inside ( ), $( ), @( ) were read: ('n'+1) and ('abc'.ToUpper()) were refused though PowerShell
+  delivers exactly their values. The rules now read only tokens at this call's own level.
+- WARNING: 'the agents' 'til noon' arrives as [the agents] [til noon] and is not caught (two quoted pieces that do
+  not touch). Named in the kosmos.ps1 comment as the second shape not covered. No rule is added: two separate quoted
+  words are also how an agent passes two arguments on purpose, so a rule would refuse correct calls. The doctrine's
+  "the usual cases" and "use the here-string every time" stay true.
+- NITs fixed: a Comment token is a separator ('hi'#note passes); the refusal sentence says "single-quoted part"; the
+  comment gives the true reason a here-string passes (the first line is a parse error, so it fails open); the test's
+  count sentence is narrowed.
+- Mutants: no level rule -> the two expression arms fail; Comment not a separator -> the comment arm fails.
