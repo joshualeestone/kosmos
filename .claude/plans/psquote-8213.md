@@ -44,7 +44,9 @@ Windows CI runner runs the same arms under 5.1.
 ## Review round 2
 - WARNING: the refusal sentence fitted only the cut-into-pieces shape; a quoted part joined to a word (foo'bar') is
   refused too. The sentence now names both, and the test reads its new opening words.
-- WARNING: -title:'a b'x went out; only = was read. The value after = or : is read now, with an arm for it.
+- WARNING (not real, measured): -title:'a b'x was said to go out. It does not: pwsh tokenizes -title: as a Parameter,
+  then 'a b' and a touching x, so rule (a) already refuses it. A change to read the value after : made no mutant
+  fail, so it was taken back. The arm stays, pinning that the colon form is refused.
 - NITs: the PowerShell detection has a 20 s timeout; the always-passing summary test is gone (with no PowerShell
   every arm is a skip); the test header no longer hard-codes counts.
 - Kept: about 100 s per shell for this file. The arms spawn a real PowerShell each, which is what proves "nothing was

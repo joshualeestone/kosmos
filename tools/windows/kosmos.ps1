@@ -88,8 +88,9 @@ if ($pipedIn -and $PSCommandPath) {
 # parser, and two shapes refuse before anything is sent:
 #   (a) a single-quoted string with a word touching its end ('I can't  ->  'I can' then t);
 #   (b) a bare word still holding an apostrophe once doubled ones ('') and double-quoted parts are set aside
-#       (won't do it'  or  Bob's'). In an --option=value or -option:value word only the value is read, and a value
-#       that is one quoted string ('eng', 'Bob''s') is fine.
+#       (won't do it'  or  Bob's'). In an --option=value word only the value is read, and a value that is one quoted
+#       string ('eng', 'Bob''s') is fine. (-option:'value' is not one word: PowerShell gives a Parameter token and then
+#       the value's own tokens, so (a) and (b) read it as they read any text.)
 # This call's words run from where it starts on the line to the first | ; && || or newline, or to a ) or } it did not
 # open (so a later word in the same if, block or array is not read). A here-string never holds a StringLiteral token,
 # and 'it''s' is one token, so neither refuses. Not covered, so a mangled text can still go out there: a command
@@ -120,7 +121,7 @@ try {
         $w = $mine[$i].Text
         $optValue = $false
         if ($w.StartsWith('-')) {
-          $eq = $w.IndexOfAny([char[]]@('=', ':'))
+          $eq = $w.IndexOf('=')
           if ($eq -lt 0) { $w = '' } else { $w = $w.Substring($eq + 1); $optValue = $true }
         }
         $w = ($w -replace '"[^"]*"', '').Replace("''", '')
