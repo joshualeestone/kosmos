@@ -1278,7 +1278,7 @@ const UNRECORDED_SENDS = new Map();
    --in-reply-to mN") BEFORE its row is written, which waits for every member's delivery; and a post the record could
    not take never gets a row. So the id of every post minted and not yet recorded is kept here, with its room, until
    its row is written, or for PENDING_POST_MAX_MS: a reply citing it is a reply to a real post. In memory, and since
-   kosmos#8178 also in the id file (IDS), so a board restart puts back its room, without its row (row: null). */
+   kosmos#8178 also in the id file (IDS), so a board restart puts back its room, with a stand-in row (loadIds). */
 const PENDING_POSTS = new Map();   // id -> { projectId, at, row } (row: the fields a reply reads, as its row will carry them)
 const PENDING_POST_MAX_MS = 60 * 60 * 1000;
 const PENDING_POST_MAX = 2000;   // r3: while the record keeps failing (a full disk) nothing else would clear them
@@ -1296,7 +1296,7 @@ function withPending(log, projectId, ownId) {
   const own = typeof ownId === 'string' && /^m\d+$/.test(ownId) ? Number(ownId.slice(1)) : Infinity;
   const earlier = (r) => !(r && /^m\d+$/.test(String(r.id))) || Number(String(r.id).slice(1)) < own;
   for (const p of PENDING_POSTS.values()) {
-    if (p.projectId !== projectId || !p.row || p.unrecorded === true || Date.now() - p.at > PENDING_POST_MAX_MS) continue;   // r6: never one the room will not show
+    if (p.projectId !== projectId || !p.row || p.restored === true || p.unrecorded === true || Date.now() - p.at > PENDING_POST_MAX_MS) continue;   // r6: never one the room will not show
     if (earlier(p.row)) extra.push(p.row);
   }
   const rows = Array.isArray(log) ? (own === Infinity ? log : log.filter(earlier)) : [];
@@ -1340,10 +1340,10 @@ function unrecordedTwin(key, log, projectId) {
    that is then refused has used its id, and the next send takes a new one. */
 let ID_HIGH = 0;
 /* kosmos#8178 item 1: the id file, read once per board (and again after a test reset). It raises ID_HIGH to the highest
-   id ever handed out, and puts back this room's posts from the last PENDING_POST_MAX_MS that never reached the record,
-   with no row (row: null), so a reply citing one is a reply to a real post in its room and cites it by id only. Then
-   the file is rewritten to what it still needs: those posts and the highest id. Any failure leaves the board as it
-   was before #8178 (ids from the log alone), never a refusal. */
+   id ever handed out, and puts back the room posts from the last PENDING_POST_MAX_MS that have no line in the record
+   at all (round 1: a recorded post, and so a deleted one, is the record's to answer for). Then the file is rewritten
+   to those posts and the highest id; between restarts it only grows. Any failure leaves the board as it was before
+   #8178 (ids from the log alone), never a refusal. */
 let IDS_LOADED = false;
 function loadIds() {
   if (IDS_LOADED) return;
@@ -1353,14 +1353,29 @@ function loadIds() {
   const rows = [];
   for (const line of text.split('\n')) {
     if (!line) continue;
-    try { const x = JSON.parse(line); if (x && typeof x.id === 'string' && /^m\d+$/.test(x.id)) rows.push(x); } catch { /* a torn last line */ }
+    try { const x = JSON.parse(line); if (x && typeof x.id === 'string' && /^m\d{1,15}$/.test(x.id)) rows.push(x); } catch { /* a torn last line */ }
   }
   const gone = new Set(rows.filter((x) => x.gone === true).map((x) => x.id));
+  let inRecord = null;   // every id the record names (a post, a deleted post's own row and its deletion), or null if unread
+  try {
+    const r = record();
+    if (r && r.ok === true && Array.isArray(r.parsed)) {
+      inRecord = new Set();
+      for (const x of r.parsed) { if (x && x.id) inRecord.add(String(x.id)); if (x && x.kind === 'post-deleted' && x.of) inRecord.add(String(x.of)); }
+    }
+  } catch { inRecord = null; }
   const high = rows.reduce((h, x) => Math.max(h, Number(x.id.slice(1))), 0);
   const now = Date.now();
-  const keep = rows.filter((x) => x.gone !== true && !gone.has(x.id) && typeof x.project === 'string' && x.project
+  const keep = inRecord === null ? [] : rows.filter((x) => x.gone !== true && !gone.has(x.id) && !inRecord.has(x.id)
+    && typeof x.project === 'string' && x.project
     && typeof x.at === 'number' && now - x.at >= 0 && now - x.at <= PENDING_POST_MAX_MS).slice(-PENDING_POST_MAX);
-  for (const x of keep) if (!PENDING_POSTS.has(x.id)) PENDING_POSTS.set(x.id, { projectId: x.project, at: x.at, row: null, restored: true });
+  /* A stand-in row, so a reply records what it answers (replyTo) and wakes its author: the id file holds no text, so it
+     quotes nothing and asks no one (withPending leaves it out). */
+  for (const x of keep) {
+    if (PENDING_POSTS.has(x.id)) continue;
+    PENDING_POSTS.set(x.id, { projectId: x.project, at: x.at, restored: true, row: { kind: 'post', id: x.id, project: x.project,
+      ...(typeof x.from === 'string' && x.from ? { from: x.from } : {}), to: [], text: '', at: new Date(x.at).toISOString(), pending: true, restored: true } });
+  }
   ID_HIGH = Math.max(ID_HIGH, high);
   // Owner-only and flushed, as the log is (#5434: no bare rename in this file).
   try { require('./securewrite').writeSecret(IDS, keep.concat(high ? [{ id: 'm' + high, at: now }] : []).map((x) => JSON.stringify(x)).join('\n') + '\n', 0o600); } catch { /* the next read compacts it */ }
@@ -1374,12 +1389,14 @@ function nextIdForTests() {
   const inLog = record().parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0);
   return 'm' + (Math.max(inLog, ID_HIGH) + 1);
 }
-function mintId(parsed, projectId) {
+function mintId(parsed, projectId, from) {
   loadIds();
   // Over the PARSE-ONLY rows: a foreign append that fails shape still burns the id it names.
   const inLog = parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0);
   ID_HIGH = Math.max(inLog, ID_HIGH) + 1;
-  noteId(typeof projectId === 'string' && projectId ? { id: 'm' + ID_HIGH, project: projectId, at: Date.now() } : { id: 'm' + ID_HIGH, at: Date.now() });
+  noteId(typeof projectId === 'string' && projectId
+    ? { id: 'm' + ID_HIGH, project: projectId, ...(typeof from === 'string' && from ? { from } : {}), at: Date.now() }
+    : { id: 'm' + ID_HIGH, at: Date.now() });
   return 'm' + ID_HIGH;
 }
 // A twin still in flight, unless it has been in flight longer than the window (a delivery that never settles must
@@ -3075,7 +3092,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     }
   }
 
-  const id = mintId(rec.parsed, projectId);
+  const id = mintId(rec.parsed, projectId, from);
   /* kosmos#8165: cited before its row exists. Review 2: with the fields a reply reads off the post it answers (who sent
      it, who it asked, whether it is the person's), as its row will carry them, so a fast reply wakes the asker exactly
      as a late one does (a bare id woke nobody). */
