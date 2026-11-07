@@ -229,6 +229,17 @@ function firstSection(code) {
   const i = s.indexOf(';');
   return i < 0 ? s : s.slice(0, i);
 }
+/* The k-th (0-based) ";" section of a format code, with quotes and escapes respected, or null (#8147 review r4). */
+function sectionAt(code, k) {
+  const s = String(code || '').slice(0, MAX_FORMAT_CODE + 1);
+  let start = 0, n = 0;
+  for (let i = 0; i <= s.length; i++) {
+    if (i < s.length && s[i] === '\\') { i++; continue; }
+    if (i < s.length && s[i] === '"') { const j = s.indexOf('"', i + 1); if (j < 0) break; i = j; continue; }
+    if (i === s.length || s[i] === ';') { if (n === k) return s.slice(start, i); n++; start = i + 1; }
+  }
+  return null;
+}
 /* How many ";" sections a format code has, not counting a ";" inside quotes or after a backslash (review r2). */
 function countSections(code) {
   const s = String(code || '');
@@ -239,6 +250,18 @@ function countSections(code) {
     if (s[i] === ';') n++;
   }
   return n;
+}
+/* Review r4: a negative is drawn by the second section, which carries its own sign or none ("0%;[Red]0%" shows 50% in
+   red, "#,##0;(#,##0)" shows (5)). When that section is itself a simple code (colours and conditions stripped), the
+   value's size is drawn through it with no sign added; otherwise (brackets, text) it is shown as saved. */
+function negativeKind(code) {
+  if (countSections(code) < 2) return null;
+  const raw = sectionAt(code, 1);
+  // A leading colour ("[Red]", "[Color10]") only colours it; any other bracket (a currency, a condition) is not simple.
+  const second = raw === null ? null : raw.replace(/^\s*(?:\[(?:black|blue|cyan|green|magenta|red|white|yellow|color[0-9]{1,2})\]\s*){1,2}/i, '');
+  if (second === null || second.trim() === '') return null;
+  const k = formatKind(second);
+  return k && k.kind === 'number' ? k : null;
 }
 function formatKind(code) {
   const bare = bareCode(firstSection(code));
@@ -266,7 +289,7 @@ function formatKind(code) {
   // #8147: `sections` counts the code's ";" parts: the first is for positives (and zero, with fewer than three), so a
   // value another section would draw is shown as saved, never through the first one (review r1: "#,##0.00;[Red]..."
   // lost its formatting for positives when every multi-section code was shown as saved).
-  if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3], digits: ((num[1] || '').match(/0/g) || []).length, sections: countSections(code) };
+  if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3], digits: ((num[1] || '').match(/0/g) || []).length, sections: countSections(code), negative: negativeKind(code) };
   return null;
 }
 /* Built-in number formats by id (ECMA-376 18.8.30): 1 "0", 2 "0.00", 3 "#,##0", 4 "#,##0.00", 9 "0%", 10 "0.00%",
@@ -348,9 +371,15 @@ function shownNumber(raw, fmt) {
   // Review 6: only a decimal number is a number (0x1F is not 31).
   if (!isDecimal(raw) || !Number.isFinite(n)) return raw;
   if (!fmt || fmt.kind !== 'number') return String(Number(n.toPrecision(15)));
-  // A percent is drawn with its sign by the first section instead (review r2: -0.5 shown as saved read as -0.5% in a
-  // column of 25%; Excel shows (50%) or similar, so -50% is the honest near form).
-  if (fmt.sections > 1 && ((n < 0 && !fmt.percent) || (n === 0 && fmt.sections > 2))) return String(Number(n.toPrecision(15)));
+  // Review r4: a negative under a code with a second section is drawn by that section, without a sign of ours; one that
+  // is not a simple code is shown as saved (a percent then keeps its unit by the first section, -50%, as the nearest
+  // honest form: -0.5 alone read as -0.5% in a column of 25%, review r2). A zero under a code with a zero section is
+  // shown as saved.
+  if (fmt.sections > 1 && n < 0) {
+    if (fmt.negative) return shownNumber(String(-n), fmt.negative);
+    if (!fmt.percent) return String(Number(n.toPrecision(15)));
+  }
+  if (fmt.sections > 2 && n === 0) return String(Number(n.toPrecision(15)));
   const v = Number((fmt.percent ? n * 100 : n).toPrecision(15));
   const f = Math.pow(10, fmt.decimals);
   // Review 7: rounded on the 15 digits Excel keeps, not with a nudge (2.4999999995 under "0" showed 3).
@@ -361,7 +390,7 @@ function shownNumber(raw, fmt) {
   // #8147: a code with no integer digit drops the leading zero (".00" on 0.5 is .50), and a negative that rounds to zero
   // keeps its sign (-0.4 under "0" is -0), as Excel shows them.
   if (fmt.digits === 0 && fmt.decimals > 0 && text.startsWith('0.')) text = text.slice(1);   // "#.00" too (review r1)
-  if (fmt.digits === 0 && fmt.decimals === 0 && !fmt.percent && text === '0') return '';   // "#" shows no zero (review r3)
+  if (fmt.digits === 0 && fmt.decimals === 0 && !fmt.percent && text === '0') return v < 0 ? '-' : '';   // "#" shows no zero (r3)
   return (v < 0 ? '-' : '') + text + (fmt.percent ? '%' : '');
 }
 /* An elapsed time ("[h]:mm:ss"): total hours, minutes or seconds, past 24 hours (Excel shows 1.5 days as 36:00). */
@@ -524,6 +553,7 @@ function readBook(buf, budget) {
                 : kind === 'time' ? serialTime(Number(raw), fmt)
                   : kind === 'duration' ? shownDuration(Number(raw), fmt)
                     : shownNumber(raw, fmt);
+            if (text === '') { text = null; savedEmpty = true; }   // review r4: drawn as nothing ("#" on 0.4), as an empty string
           }
         }
       }
@@ -540,7 +570,7 @@ function readBook(buf, budget) {
       const rr = digits === null ? NaN : digits.length > 7 ? Infinity : Number(digits);
       // #8147: a row number past Excel's last row (1048576), however many digits, is no row of the sheet: skipped, not
       // placed on another row. Review r3: what it held is unknown to the answer (never "empty"), and an empty one is no cut.
-      if (rr > MAX_EXCEL_ROW) { if (row.body.indexOf('<c') >= 0) { cut = true; walkCut = true; } continue; }
+      if (rr > MAX_EXCEL_ROW) { if (/<(v|is|f)[\s>]/.test(row.body)) { cut = true; walkCut = true; } continue; }   // a value, formula or string
       rowAt = rr >= 1 ? rr - 1 : rowAt + 1;   // a row with no r (or one that is not a number) is the next one (review 1)
       const line = new Map();
       let colAt = -1;

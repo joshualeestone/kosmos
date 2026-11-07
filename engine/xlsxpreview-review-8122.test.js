@@ -483,15 +483,22 @@ test('#8147: formats that scale or decide by sign show the saved number, not a w
   // Review r1: a positive under a code with a section for negatives keeps the first section's formatting; a negative,
   // or a zero under a code with a zero section, is shown as saved; "#.00" has no leading zero either.
   const s = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 6, 1234.5)}${c('B1', 6, -1234.5)}${c('C1', 3, 5)}${c('D1', 7, 0.5)}${c('E1', 8, 0)}${c('F1', 8, 2)}</row>`) }, { 'xl/styles.xml': styles }));
-  assert.deepEqual(s.sheets[0].rows[0], ['1,234.50', '-1234.5', '5', '.50', '0', '2.0']);
+  // Review r4: -1234.5 under "#,##0.00;[Red]#,##0.00" is drawn by its second section, red and with no sign: 1,234.50.
+  assert.deepEqual(s.sheets[0].rows[0], ['1,234.50', '1,234.50', '5', '.50', '0', '2.0']);
   // Review r2: a negative percent keeps its percent; a ";" inside quotes is not a section.
   const st2 = STYLES('<xf numFmtId="0"/><xf numFmtId="171"/><xf numFmtId="172"/>', '<numFmts><numFmt numFmtId="171" formatCode="0%;(0%)"/><numFmt numFmtId="172" formatCode="0.00;&quot;a;b&quot;"/></numFmts>');
   const p = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, -0.5)}${c('B1', 1, 0.25)}${c('C1', 2, 0)}</row>`) }, { 'xl/styles.xml': st2 }));
-  assert.deepEqual(p.sheets[0].rows[0], ['-50%', '25%', '0.00']);
+  assert.deepEqual(p.sheets[0].rows[0], ['-50%', '25%', '0.00']);   // "(0%)" is not a simple code: -50%, the near form
+  // Review r4: "0%;[Red]0%" draws -0.5 as 50% (red, no sign), through its second section.
+  const st4 = STYLES('<xf numFmtId="0"/><xf numFmtId="175"/>', '<numFmts><numFmt numFmtId="175" formatCode="0%;[Red]0%"/></numFmts>');
+  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, -0.5)}</row>`) }, { 'xl/styles.xml': st4 })).sheets[0].rows[0], ['50%']);
   // Review r3: a percent code's zero section still decides its zero; "#" shows no zero.
   const st3 = STYLES('<xf numFmtId="0"/><xf numFmtId="173"/><xf numFmtId="174"/>', '<numFmts><numFmt numFmtId="173" formatCode="0%;-0%;&quot;-&quot;"/><numFmt numFmtId="174" formatCode="#"/></numFmts>');
   const z = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 0)}${c('B1', 2, 0.4)}${c('C1', 2, 7)}</row>`) }, { 'xl/styles.xml': st3 }));
   assert.deepEqual(z.sheets[0].rows[0], ['0', '', '7']);
+  // Review r4: a cell drawn as nothing is not a value ("empty"), as an empty string is not.
+  const st5 = STYLES('<xf numFmtId="0"/><xf numFmtId="174"/>', '<numFmts><numFmt numFmtId="174" formatCode="#"/></numFmts>');
+  assert.equal(x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 0.4)}</row>`) }, { 'xl/styles.xml': st5 })).empty, true);
   // CONTROL: an ordinary thousands code still groups.
   const g = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 1234567)}</row>`) }, { 'xl/styles.xml': STYLES('<xf numFmtId="0"/><xf numFmtId="3"/>') }));
   assert.deepEqual(g.sheets[0].rows[0], ['1,234,567']);
@@ -514,6 +521,8 @@ test('#8147: a row number past Excel\'s last row is not a row number; an empty s
   const lone = x.readXlsx(fx.book({ S: fx.SHEET('<row r="5000000"><c r="A1"><v>5</v></c></row>') }));
   assert.equal(lone.empty, false);
   assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row><row r="2000000"/>') })).sheets[0].cut, false);
+  // Review r4: nor a far row of formatted blanks.
+  assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row><row r="2000000"><c s="1"/></row>') })).sheets[0].cut, false);
   const e = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t></t></si></sst>' }));
   assert.equal(e.empty, true);
   // Review r1: but a formula whose saved value is that empty string has a saved value, so it is not "some have none".
@@ -527,6 +536,8 @@ test('#8147: a row number past Excel\'s last row is not a row number; an empty s
   // Review r3: the same formula with t="str" is answered the same way, and one beside a formula with no value says so.
   const str = x.readXlsx(fx.book({ S: fx.SHEET('<row r="500"><c r="A500" t="str"><f>A1</f><v></v></c></row><row r="600"><c r="A600"><v>1</v></c></row>') }));
   assert.equal(str.sheets[0].firstRow, 600);
+  // Review r4: and a sheet whose only formula is a t="str" "" is not "no saved values".
+  assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="str"><f>A2</f><v></v></c></row>') })).noValues, false);
   const mix = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><f>A2</f><v>0</v></c><c r="B1"><f>A9</f></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t></t></si></sst>' }));
   assert.equal(mix.someNoValues, true, 'a blank grid with no word about the formula with no saved value');
   // CONTROL: a formula with no saved value at all still is.
