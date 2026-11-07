@@ -29,6 +29,8 @@ has its job under cai). The reviewer's "the key form proves it" was not taken: r
 nameUsable allows, uppercase included (measured), so an uppercase register-only name would have become unremovable.
 Remaining premise: an adopted agent with no job whose displayName is a case variant of its machine name would let
 that variant plan; adoption writes a job (#1347, #3519), so this needs a job removed by hand.
+Correction (review 2): a register-only agent has no card unless it is started by hand (createdroster lists agents
+with a job; panelessKeys needs a live heartbeat). Round 1's fix still matters: the CLI and the API remove by name.
 
 ## Verification
 engine/remove.test.js: two #8112 tests (plan refuses the variant and still plans the exact name; resolve answers the
@@ -41,3 +43,17 @@ one listed agent, no phantom), both failing on main and passing after. 129 files
 - WARNING forgetCodexFolder ran on the variant --> FIXED (skipped when the recorded folder is another spelling's)
 - NIT the removed message read workerDir --> FIXED (folderIsExactly)
 Mutants: no displayName check (2 fail), no job check (1 fail), recorded never proves (2 fail). 129 files, 2874 tests, 0 fail.
+
+## Review 2 (applied)
+- WARNING Windows: schtasks task names ignore case, so jobFor('Cai') finds cai's task and exists() passes before
+  folderIsExactly. NOT fixed here: it predates this change, affects every agent on Windows (not only recorded ones),
+  and cannot be tested on this Mac. Filed as #8177 (unclaimed).
+- WARNING a rename rewrote displayName and stranded a register-only agent --> FIXED: connect writes connectedAs (the
+  spelling a rename never touches), compared first; an older profile falls back to displayName (the stated limit).
+  Tests: renamed agent still plans; older profile plans; mutant "connectedAs ignored" fails 1.
+- NIT the Codex trust skip has no test --> KEPT UNPINNED, measured: the step runs only when create.readJob(clean)
+  finds a codex job under that exact spelling, and readJob refuses names outside NAME_RE, so an uppercase variant
+  never reaches it. The reachable case (a lowercase variant of an uppercase register-only agent, with its own codex
+  job) needs a real codex job fixture. A test written for it passed with the guard deleted, so it was removed rather
+  than left as false coverage.
+- NIT the plan's card premise --> CORRECTED above.
