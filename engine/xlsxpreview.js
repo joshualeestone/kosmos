@@ -177,7 +177,7 @@ function nestedStart(body, name) {
   }
   return false;
 }
-/* Every element named `name` in `xml`, as { tag, body, start, end } (body '' for a self-closed one), found with
+/* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with
    indexOf (a start tag's end by startTagEnd). With `lenient` (the containers: sheetData, row), one the part never closes
    (a file cut short) yields the rest of the part, so what is there is still read; a value that is not closed is never
    read.
@@ -206,14 +206,14 @@ function* elements(xml, name, lenient = false, list = false) {
     const tagEnd = startTagEnd(xml, i);
     if (tagEnd < 0) { cutShorts++; return; }
     const tag = xml.slice(i, tagEnd + 1);
-    if (tag.endsWith('/>')) { lastEnd = at = tagEnd + 1; yield { tag, body: '', start: i, end: tagEnd + 1 }; continue; }
+    if (tag.endsWith('/>')) { lastEnd = at = tagEnd + 1; yield { tag, body: '', end: tagEnd + 1 }; continue; }
     const close = xml.indexOf(closeTag, tagEnd);
     // A container never closed (a part cut short) still yields what is there, and is counted like any other (review r2).
-    if (close < 0) { cutShorts++; if (lenient) yield { tag, body: xml.slice(tagEnd + 1), start: i, end: xml.length }; return; }
+    if (close < 0) { cutShorts++; if (lenient) yield { tag, body: xml.slice(tagEnd + 1), end: xml.length }; return; }
     const body = xml.slice(tagEnd + 1, close);
     if (nestedStart(body, name)) cutShorts++;
     lastEnd = at = close + name.length + 3;
-    yield { tag, body, start: i, end: lastEnd };
+    yield { tag, body, end: lastEnd };
   }
 }
 /* The text of a string item: every <t> run joined, but not the phonetic guide (<rPh>, review 1: a Japanese cell showed
@@ -559,10 +559,11 @@ function readBook(buf, budget) {
      MAX_SHEETS shown sheets are held (round 1: a list of a million held them all); the rest are counted. */
   const sheetsEl = elements(workbook, 'sheets', true).next().value;
   const sheetList = [];
-  let sheetTotal = 0;
+  let sheetTotal = 0, sk = 0;
   for (const s of elements(sheetsEl ? sheetsEl.body : '', 'sheet', false, true)) {
-    if ((++sheetTotal & 1023) === 0) budget();
-    if ((attr(s.tag, 'state') || '') === 'veryHidden') { sheetTotal--; continue; }   // a sheet Excel never shows, not even to unhide
+    if ((++sk & 1023) === 0) budget();
+    if ((attr(s.tag, 'state') || '') === 'veryHidden') continue;   // a sheet Excel never shows, not even to unhide
+    sheetTotal++;
     if (sheetList.length < MAX_SHEETS) sheetList.push(s);
   }
   const structureCut = cutShorts > beforeStyles || structureBeforeStrings;

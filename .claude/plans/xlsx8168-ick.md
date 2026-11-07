@@ -5,7 +5,7 @@ All of this concerns XML damaged before zipping; the zip CRC refuses a file dama
 ## Built
 
 - **W1, a cut sheet list or rels.** The sheet list is walked whole, inside `<sheets>`, before the per-sheet loop, so
-  a count it raises is in `structureCut` and every sheet, the ones kept included, says `cut: true`. Only the first
+  a count it raises is in `structureCut` and every sheet in the answer, the ones kept included, says `cut: true`. Only the first
   MAX_SHEETS shown sheets are held; the rest are counted for `moreSheets`. The two not-a-grid paths (a part that is
   not a worksheet, or one missing from the file) carry `structureCut` instead of a hard `false`.
 - **W2, a lost start tag.** `elements()` counts a `</name>` found after the last element yielded and before the next
@@ -17,7 +17,13 @@ All of this concerns XML damaged before zipping; the zip CRC refuses a file dama
 - **W3 and the CONVENTION:** tests that fail without `|| structureBeforeStrings` and without the `nearMiss()` call in
   `nestedStart`.
 
-## Not built (the card's NITs)
+## Not built
+
+- **The screen (#8188).** `pvSheetInto` in `web/index.html` returns before the cut note on a not-a-grid sheet and on
+  an empty one, so on those two paths `cut: true` is in the answer but not on screen. Kept out of this reader change
+  on purpose (a `web/index.html` change has its own gates); filed for the grid's owner.
+
+The card's NITs:
 
 - `[>100]0;[<=100]0.0` still reads as cut. Flagged, not silent; matching the leniency needs a format-code parser.
 - The `startTagEnd` comment about an unclosed quote, and `nestedStart` double counting near-misses: unchanged.
@@ -33,4 +39,5 @@ direction: a grid said to be partial, never a wrong value said whole).
 
 `engine/xlsxpreview-8168.test.js` (11 tests). On main W1 and W2 fail. Mutants each fail a test: no
 `structureBeforeStrings`, no `nearMiss()`, no stray-close count (si, c, row alone), no list mode at each of the four
-sites, no check after the last item, and a stray search from the scan point instead of the last element's end.
+sites, no check after the last item, a stray search from the scan point instead of the last element's end, and no
+MAX_SHEETS cap on the held list.
