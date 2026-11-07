@@ -36,6 +36,7 @@ function boardStdout(limit, delayMs) {
     const srv = app.server || app;
     srv.listen(0, '127.0.0.1', () => {
       const body = JSON.stringify({ dir: ${JSON.stringify(nodePath.join(sb, 'home', '.claude-neverexisted'))} });
+      const t0 = Date.now();
       const req = http.request({
         host: '127.0.0.1', port: srv.address().port,
         path: '/api/accounts/claude', method: 'DELETE',
@@ -43,7 +44,7 @@ function boardStdout(limit, delayMs) {
       }, (res) => {
         let s = ''; res.on('data', (d) => { s += d; }); res.on('end', () => {
           setTimeout(() => {
-            process.stdout.write(JSON.stringify({ code: res.statusCode }));
+            process.stdout.write(JSON.stringify({ code: res.statusCode, ms: Date.now() - t0 }));
             srv.close(); process.exit(0);
           }, 20);
         });
@@ -94,4 +95,5 @@ test("#8191: with the runner's limit, a request slower than the 5 s default leav
   assert.doesNotMatch(out, /slow request/);
   const parsed = JSON.parse(out);
   assert.equal(typeof parsed.code, 'number', 'the request got no answer: ' + out);
+  assert.ok(parsed.ms >= 5000, `the answer came after ${parsed.ms} ms, before the body was sent: the request was not slow, so this test proves nothing`);
 });
