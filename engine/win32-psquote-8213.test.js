@@ -1,0 +1,94 @@
+'use strict';
+/**
+ * kosmos#8213: in PowerShell an apostrophe inside plain single quotes ends the quote early. With an even count the line
+ * still parses and the text reaches kosmos.ps1 cut into pieces ('I can't and won't do it' arrives as "I can", "t",
+ * "and", "wont do it"), which the CLI would join and send. kosmos.ps1 now reads its own line with PowerShell's parser
+ * and refuses that shape, with a sentence naming the here-string, before anything is sent.
+ *
+ * Each arm writes the agent's command line into a driver script, runs it under every PowerShell found here (pwsh, and
+ * Windows PowerShell 5.1 on Windows), and reads the exit code and stderr. kosmos.ps1 is copied into a folder with no
+ * runtime beside it, so a call that passes the check stops at "the runtime is missing" (exit 1) on every OS: a refused
+ * call never gets that far, which is how each arm tells "refused before sending" from "went on to send".
+ * Skipped where no PowerShell exists.
+ *
+ *   node --test engine/win32-psquote-8213.test.js
+ */
+require('../test-support/tmpscope');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const SCRIPT = path.join(__dirname, '..', 'tools', 'windows', 'kosmos.ps1');
+const REFUSAL = 'An apostrophe inside single quotes ended your text early';
+const NO_RUNTIME = 'the runtime is missing';
+
+function shells() {
+  const found = [];
+  const has = (exe) => spawnSync(exe, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'], { stdio: 'ignore', windowsHide: true }).status === 0;
+  if (has('pwsh')) found.push('pwsh');
+  if (process.platform === 'win32' && has('powershell.exe')) found.push('powershell.exe');
+  return found;
+}
+const SHELLS = shells();
+
+let dir;
+let bin;
+test.before(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'psquote-8213-'));
+  bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  fs.copyFileSync(SCRIPT, path.join(bin, 'kosmos.ps1'));
+});
+test.after(() => { if (dir) fs.rmSync(dir, { recursive: true, force: true }); });
+
+/* Runs `& '<bin>\kosmos.ps1' <rest>` as the agent would type it, from a driver file, under one PowerShell. */
+function run(shell, rest, name) {
+  const target = path.join(bin, 'kosmos.ps1').replace(/'/g, "''");
+  const driver = path.join(dir, name + '.ps1');
+  fs.writeFileSync(driver, "& '" + target + "' " + rest + '\nWrite-Output ("RC=" + $LASTEXITCODE)\n', 'utf8');
+  const r = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driver], { encoding: 'utf8', windowsHide: true, timeout: 60000 });
+  const m = /RC=(-?\d+)/.exec(r.stdout || '');
+  return { rc: m ? Number(m[1]) : null, err: String(r.stderr || '') + String(r.stdout || '') };
+}
+
+const REFUSED = [
+  ['two apostrophes, the quote ends at the first', "msg bob 'I can't and won't do it'"],
+  ['a possessive then another apostrophe', "post fleet 'the agents' work and Bob's'"],
+  ['a task title cut the same way', "task add fleet 'fix what we can't and won't'"],
+];
+const ALLOWED = [
+  ['an apostrophe written twice', "msg bob 'it''s fine'"],
+  ['plain words', 'msg bob hello there'],
+  ['an option with a quoted value', "post fleet --channel='eng' hi"],
+  ['a single-quoted text with no apostrophe', "msg bob 'all good'"],
+  ['a double-quoted text holding an apostrophe', 'msg bob "it\'s fine"'],
+  ['a here-string holding apostrophes', "msg bob @'\nit's fine, can't and won't\n'@"],
+];
+
+for (const shell of SHELLS) {
+  REFUSED.forEach(([label, rest], i) => {
+    test('#8213 [' + shell + '] refused before sending: ' + label, () => {
+      const r = run(shell, rest, 'refused-' + i + '-' + shell.replace(/\W/g, ''));
+      assert.equal(r.rc, 2, 'exit 2, the usage refusal: ' + r.err);
+      assert.ok(r.err.includes(REFUSAL), 'the sentence names what happened: ' + r.err);
+      assert.ok(r.err.includes("@'"), 'and names the here-string: ' + r.err);
+      assert.ok(!r.err.includes(NO_RUNTIME), 'it stopped before reaching the runtime, so nothing could be sent: ' + r.err);
+    });
+  });
+  ALLOWED.forEach(([label, rest], i) => {
+    test('#8213 [' + shell + '] not refused: ' + label, () => {
+      const r = run(shell, rest, 'allowed-' + i + '-' + shell.replace(/\W/g, ''));
+      assert.ok(!r.err.includes(REFUSAL), 'no refusal sentence: ' + r.err);
+      assert.ok(r.err.includes(NO_RUNTIME), 'it went on to the runtime, as before: ' + r.err);
+      assert.equal(r.rc, 1, 'the missing-runtime exit, not the refusal: ' + r.err);
+    });
+  });
+}
+
+test('#8213: the arms ran under at least one PowerShell, or say why not', (t) => {
+  if (!SHELLS.length) { t.skip('no PowerShell on this machine'); return; }
+  assert.ok(SHELLS.length >= 1);
+});

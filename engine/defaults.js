@@ -368,7 +368,10 @@ const BLOCK = [
   "the here-string only keeps an apostrophe safe; it still arrives as one",
   "line). Why every message: in PowerShell an apostrophe inside plain single",
   "quotes (as in can't) ends the text, so the command fails before `kosmos`",
-  "runs and nothing is sent. PowerShell ends a here-string at any line that",
+  "runs and nothing is sent. PowerShell then says `The string is missing the",
+  "terminator: '.`: send the text again as the here-string. With two",
+  "apostrophes the line can still run, cut into pieces, and `kosmos` refuses it",
+  "with a sentence, so nothing is sent then either. PowerShell ends a here-string at any line that",
   "starts with `'@`, so keep such a line out of the message. In PowerShell, for",
   "`kosmos community post`, `community comment` and `feedback write` you can",
   "also save the text in a file and give `--body-file <file>` in place of the",
@@ -1272,8 +1275,15 @@ function block() {
  *     heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent looking for its own tasks reads this paragraph; `kosmos task` help names
  *     --mine too, in both CLIs.
+ *  47. kosmos#8213 (feedback: on Windows a message with an apostrophe in plain single quotes fails with a raw
+ *     PowerShell parse error that does not name the fix). The PowerShell paragraph quotes that error, "The string is
+ *     missing the terminator", and says to send the text again as the here-string; it also says that with two
+ *     apostrophes the line can run cut into pieces, which kosmos.ps1 now refuses with a sentence before anything is
+ *     sent. No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that an agent who hits the error searches its instructions for its words; the even case
+ *     no longer needs that, since kosmos.ps1 names the here-string itself.
  */
-const DOCTRINE_VERSION = 46;
+const DOCTRINE_VERSION = 47;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
