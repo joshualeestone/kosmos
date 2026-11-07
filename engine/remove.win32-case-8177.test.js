@@ -6,8 +6,10 @@
  * counted that as a job for `Cai`, so `plan('Cai')` answered ok under a name with no task of its own, and a removal
  * recorded `Cai` as removed while `cai` kept running (the false success #8112 fixes on the Mac, here for every agent).
  *
- * The fake schtasks below answers the way Task Scheduler does: a query in any letter case finds the one task, and the
- * answer names it in its own spelling. Run from a Mac, like remove.win32-job-570.test.js, through the win32 arm.
+ * The fake schtasks below answers the way Task Scheduler is REASONED to (not yet measured on a Windows box): a query in
+ * any letter case finds the one task, and the answer names it in the task's own stored spelling. If a real Windows
+ * echoed the query's spelling instead, the fix would not apply (and nothing would break); #8177 stays open until that is
+ * measured. Run from a Mac, like remove.win32-job-570.test.js, through the win32 arm.
  *
  *   node --test engine/remove.win32-case-8177.test.js
  */
@@ -33,9 +35,10 @@ const WIN = 'win32';
 
 /* A Task Scheduler holding one task, `real`'s, found by a query in any letter case. `shape` is the line the answer
    names it on (English, German, or none at all). */
-function taskSchedulerWith(real, shape) {
+function taskSchedulerWith(real, shape, folder) {
   const asked = [];
   const tn = job.taskName(real);
+  const shown = folder ? folder + tn.slice(tn.indexOf('\\')) : tn;   // the folder as Task Scheduler stores it
   job.setRunner((args) => {
     asked.push(args.join(' '));
     if (args[0] !== '/Query') return { ok: true, out: '' };
@@ -45,7 +48,7 @@ function taskSchedulerWith(real, shape) {
     }
     if (shape === 'none') return { ok: true, out: 'Status: Ready\n' };
     const label = shape === 'de' ? 'Aufgabenname:' : 'TaskName:';
-    return { ok: true, out: `\r\nFolder: \\Kosmos\r\nHostName:      BOX\r\n${label}      \\${tn}\r\nStatus:        Ready\r\n` };
+    return { ok: true, out: `\r\nFolder: \\Kosmos\r\nHostName:      BOX\r\n${label}      \\${shown}\r\nStatus:        Ready\r\n` };
   });
   return asked;
 }
@@ -88,7 +91,7 @@ test('#8177 an answer that names no task keeps the job: no positive evidence of 
      rather than making every agent's job vanish. */
   taskSchedulerWith('cai8177', 'none');
   assert.ok(remove.jobFor('cai8177', WIN), 'an unreadable answer made the real agent\'s job vanish');
-  assert.ok(remove.jobFor('Cai8177', WIN), 'expected the old answer when the output names no task');
+  assert.ok(remove.jobFor('Cai8177', WIN), 'the old answer when the output names no task (expected to change once measured)');
 });
 
 test('#8177 spelledOtherwise reads the task path, bounded, in any letter case', () => {
@@ -99,4 +102,28 @@ test('#8177 spelledOtherwise reads the task path, bounded, in any letter case', 
   assert.equal(job.spelledOtherwise(variant, `TaskName: ${tn}o\nStatus: Ready`), null, 'a longer task name is not this one');
   assert.equal(job.spelledOtherwise(variant, 'Status: Ready'), null, 'no task path is no evidence');
   assert.equal(job.spelledOtherwise(job.taskName('a.b'), `TaskName: \\${job.taskName('aXb')}`), null, 'a dot in the name is literal');
+});
+
+test('#8177 a folder stored in other letter case does not hide the real agent\'s own job (review 1)', () => {
+  taskSchedulerWith('cai8177', 'en', 'kosmos');
+  assert.ok(remove.jobFor('cai8177', WIN), 'the real agent lost its job because the folder is spelled kosmos');
+  assert.equal(remove.jobFor('Cai8177', WIN), null, 'the variant counted when the folder is spelled kosmos');
+});
+
+test('#8177 a variant still reads as having a job for create and import: registered stays true (review 1)', () => {
+  /* create.jobPresence is what refuses making `Cai` over `cai`'s task (and worldimport refuses on it); `/Create /F`
+     would otherwise overwrite cai's task. Only remove.jobFor treats the variant as "no job of its own". */
+  taskSchedulerWith('cai8177');
+  const create = require('./create');
+  assert.equal(create.jobPresence('Cai8177', WIN), 'yes', 'a variant read as free to create over cai8177\'s task');
+  assert.equal(job.presence('Cai8177').spelledOtherwise, job.taskName('cai8177'));
+  assert.equal(job.presence('cai8177').spelledOtherwise, undefined, 'the real spelling was marked as another');
+});
+
+test('#8177 deleting the leftovers of a variant refuses rather than delete another agent\'s task (review 1)', () => {
+  taskSchedulerWith('cai8177');
+  const leftover = require('./delete-leftover');
+  const p = leftover.plan('Cai8177', { platform: WIN });
+  assert.equal(p.ok, false, 'a leftover delete for Cai8177 was offered over cai8177\'s task');
+  assert.match(p.because || '', /other letter case/, 'refused for another reason: ' + (p.because || ''));
 });

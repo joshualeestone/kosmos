@@ -761,6 +761,10 @@ function setPresenceTtl(ms) {
  * `agent-caio`). Returns that spelling when the output names the task ONLY in spellings other than `tn`, and
  * null otherwise.
  *
+ * 📌 REASONED, NOT MEASURED: that the answer prints the task's STORED spelling (schtasks prints the registered
+ * task's own path), not the spelling it was asked for. If a Windows build echoed the query instead, this returns
+ * null and the old answer stands: no harm, and no fix (#8177 stays open until the Windows box measures it).
+ *
  * ⚠️ IT ANSWERS ONLY ON POSITIVE EVIDENCE, by design. The label in front of the name is localized ("TaskName:",
  * "Aufgabenname:"), so this never reads the label, only the path; and output that does not carry the path at all
  * (a shape not seen, a test's stub) is null, so `registered` stands as it did before. Failing the other way would
@@ -770,9 +774,13 @@ function spelledOtherwise(tn, out) {
   const text = String(out || '');
   const esc = String(tn).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp('(?:^|[\\\\\\s])(' + esc + ')(?=\\s|$)', 'gim');
+  /* Review 1: only the name after the folder is the spelling in question. The folder (`Kosmos\`) is matched without
+     case, as kosmosFolderTasks does, so a folder that exists as `kosmos` never makes a real agent's own job vanish.
+     World ids are lowercase by rule (launchidentity CLEAN_ID), so the rest is the agent's own spelling. */
+  const after = (p) => p.slice(p.indexOf('\\') + 1);
   let seen = null;
   for (let m = re.exec(text); m; m = re.exec(text)) {
-    if (m[1] === tn) return null;
+    if (after(m[1]) === after(String(tn))) return null;
     if (seen === null) seen = m[1];
   }
   return seen;
