@@ -264,10 +264,14 @@ function showLines(body, num, project) {
     field('Built', (whenWords(x.builtAt) || 'yes') + (by ? ', by ' + by : ''));
     if (typeof x.builtNote === 'string' && x.builtNote.trim()) { lines.push('Built note:'); under(x.builtNote); }
   }
-  // kosmos#6330: `task built --file` records the delivered file's fingerprint, never its path; said so, not guessed.
-  if (/^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(x.builtFingerprint || '')) {
+  /* kosmos#6330: `task built --file` records the delivered file's fingerprint. kosmos#8214: and, from a CLI that sends it,
+     its path on the computer that marked it; a mark without one says so, never guessed. */
+  if (PRINT_RE.test(x.builtFingerprint || '')) {
+    const at = typeof x.builtFilePath === 'string' && x.builtFilePath.trim() ? x.builtFilePath : null;
     field('Delivered file', x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : '')
-      + ' (its fingerprint only: Kosmos keeps no path. Check a copy with: kosmos fingerprint <file> ' + x.builtFingerprint + ')');
+      + (at ? ' (check it again: kosmos task files ' + one(project) + ')'
+        : ' (its fingerprint only: no path was recorded. Check a copy with: kosmos fingerprint <file> ' + x.builtFingerprint + ')'));
+    if (at) { lines.push('Delivered file path, on the computer that marked it:'); under(at); }
   }
   if (typeof x.landedCommit === 'string' && /^[0-9a-f]{7,64}$/.test(x.landedCommit)) {
     field('Commit', x.landedCommit + (x.landedRepo ? ' in ' + q(x.landedRepo) : '')
@@ -287,6 +291,67 @@ function showLines(body, num, project) {
   return { lines, rc: 0 };
 }
 
+const PRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
+/**
+ * kosmos#8214 (feedback: an agent used `task built --file` to catch a file rebuilt without the task being marked again,
+ * and asked for that as a sweep): `kosmos task files <project-id>` and `kosmos task files --all`. For each built task
+ * whose mark carries a delivered file, the file at its recorded path is fingerprinted again HERE, with `compare` (the
+ * engine/fileprint.js one `kosmos fingerprint` uses), and one verdict is printed: matches, CHANGED since it was marked,
+ * MISSING, cannot be read, or no path recorded (a mark from before paths were kept). It writes nothing anywhere.
+ *
+ * The board never reads these files: it may be another computer. A path is the marking computer's, so a mark made on
+ * another computer can read MISSING here; the path is printed so a reader can tell.
+ *
+ * `body` is the board's built list (GET /api/tasks?state=built, `all=1` for --all). Two lines per task: the task, then
+ * the verdict indented under it, so a title or a path can never print a verdict line of its own.
+ * Returns { lines, rc }: rc 1 for an answer that is not a built list, else 0, whatever the verdicts.
+ */
+function filesLines(body, opts = {}) {
+  const compare = typeof opts.compare === 'function' ? opts.compare : require('./fileprint').compare;
+  const every = !opts.project;
+  const tasks = body && Array.isArray(body.tasks) ? body.tasks : null;
+  if (!tasks) return { lines: ['Kosmos sent no task list, so there is nothing to check.'], rc: 1 };
+  const older = (what) => ({ lines: ['This board is older than ' + what + ', so it did not list what was asked. Update Kosmos.'], rc: 1 });
+  if (every && body.all !== true) return older('--all');
+  if (body.listState !== 'built') return older('--built');
+  const lines = [];
+  const tally = { matches: 0, changed: 0, missing: 0, unreadable: 0, nopath: 0 };
+  let noFile = 0;
+  for (const found of tasks) {
+    const x = scrub(found);
+    if (!PRINT_RE.test(x.builtFingerprint || '')) { noFile += 1; continue; }
+    lines.push((every ? one(x.projectId || '?') + '  ' : '') + '#' + (x.number != null ? x.number : '?') + '  ' + titleOf(x));
+    // The stored path as sent (never scrubbed: a changed path is another file); printed scrubbed, and only as a value.
+    const at = typeof found.builtFilePath === 'string' && found.builtFilePath ? found.builtFilePath : null;
+    const shown = at ? clean(at).replace(/\n/g, ' ') : '';
+    if (!at) { tally.nopath += 1; lines.push('    no path recorded (marked before Kosmos kept paths): kosmos fingerprint <file> ' + x.builtFingerprint); continue; }
+    let got;
+    try { got = compare(at, x.builtFingerprint); } catch (e) { got = { ok: false, words: 'unreadable (' + one((e && e.message) || e) + ')' }; }
+    if (!got || !got.ok) {
+      const why = got && typeof got.words === 'string' ? one(got.words) : 'unreadable';
+      if (/^missing\b/.test(why)) { tally.missing += 1; lines.push('    MISSING at ' + shown); }
+      else { tally.unreadable += 1; lines.push('    CANNOT READ ' + shown + ': ' + why); }
+    } else if (got.match === true) { tally.matches += 1; lines.push('    matches  ' + shown); }
+    else { tally.changed += 1; lines.push('    CHANGED since it was marked  ' + shown); }
+  }
+  const checked = tasks.length - noFile;
+  const where = every ? 'in any project' : 'in ' + one(opts.project);
+  if (!checked) {
+    lines.push(tasks.length ? 'No built task ' + where + ' names a delivered file (' + tasks.length + ' built without --file).'
+      : 'No built tasks ' + where + '.');
+  } else {
+    const bits = [tally.matches + ' match', tally.changed + ' changed', tally.missing + ' missing'];
+    if (tally.unreadable) bits.push(tally.unreadable + ' cannot be read');
+    if (tally.nopath) bits.push(tally.nopath + ' with no path recorded');
+    lines.push(checked + ' built task' + (checked === 1 ? '' : 's') + ' with a delivered file ' + (every ? 'across your projects' : where) + ': ' + bits.join(', ') + '.'
+      + (noFile ? ' ' + noFile + ' more built without --file.' : ''));
+    if (tally.changed || tally.missing) lines.push('A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.');
+    lines.push('Checked on this computer: a mark made on another computer can read missing here.');
+  }
+  if (Number.isInteger(body.count) && body.count !== tasks.length) lines.push('The board counted ' + body.count + ' but sent ' + tasks.length + ': check again to see them all.');
+  return { lines, rc: 0 };
+}
+
 /* `node tasklist.js compact <state> <project>` and (kosmos#7057) `node tasklist.js across <flag> <project or ""> [days]
    [mine]` (kosmos#7992: a last word `mine` for --mine), the board's JSON on stdin (install/kosmos). */
 if (require.main === module) {
@@ -295,6 +360,13 @@ if (require.main === module) {
     let body = null;
     try { body = JSON.parse(require('node:fs').readFileSync(0, 'utf8')); } catch { body = null; }
     const out = acrossLines(body, state, { project: project || '', days: daysArg ? Number(daysArg) : undefined, mine: mineArg === 'mine' });
+    (out.rc ? process.stderr : process.stdout).write(out.lines.join('\n') + '\n');
+    process.exit(out.rc);
+  }
+  if (verb === 'files') {   // kosmos#8214: `node tasklist.js files <project or "">`, the board's built list on stdin
+    let body = null;
+    try { body = JSON.parse(require('node:fs').readFileSync(0, 'utf8')); } catch { body = null; }
+    const out = filesLines(body, { project: state || '' });
     (out.rc ? process.stderr : process.stdout).write(out.lines.join('\n') + '\n');
     process.exit(out.rc);
   }
@@ -318,4 +390,4 @@ if (require.main === module) {
   process.exit(out.rc);
 }
 
-module.exports = { COMPACT, compactLines, acrossLines, showLines, seenWords, STALE_DAYS_DEFAULT: 7 };
+module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, seenWords, STALE_DAYS_DEFAULT: 7 };

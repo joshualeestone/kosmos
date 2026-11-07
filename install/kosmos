@@ -6018,7 +6018,7 @@ cmd_task() {
   local _tmine=""   # kosmos#7992: `task list --mine` / `task list --all --mine`: only the tasks this agent holds
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|built|done-when|hold|unhold|repeat|ran|told>"
+      say "Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|hold|unhold|repeat|ran|told>"
       say "  kosmos task list <project-id> [--state open|built|held|done]  list this project's tasks, open first"
       say "  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each"
       say "  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first"
@@ -6037,9 +6037,10 @@ cmd_task() {
       say "      --to <agent>                                             tell this agent too (several allowed); else only the assignees hear it"
       say "  kosmos task activity <project-id> <task-number>              read a task's conversation, oldest first, in this computer's local time, and whether the person has viewed it"
       say "  kosmos task show <project-id> <task-number>                  one task whole: its state, who holds it, its checks, and what it delivered"
+      say "  kosmos task files <project-id|--all>                         check each built task's delivered file again on this computer: matches, changed or missing"
       say "  kosmos task built <project-id> <task-number> [\"note\"]  mark it built; with checks, the note says how each went"
       say "      --clear                                                  take the built mark off"
-      say "      --file <path>                                            send the delivered file's fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) with the mark; another agent's mark keeps it, your own mark without --file drops it"
+      say "      --file <path>                                            send the delivered file's fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark; another agent's mark keeps them, your own mark without --file drops them"
       say "      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes"
       say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it, or --check <number> \"<wording>\" to change one"
       say "      --clear                                                  take its checks off"
@@ -6204,6 +6205,11 @@ cmd_task() {
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task show <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       _no_more_words "task show" 2 "Usage: kosmos task show <project-id> <task-number>   (the number is shown by kosmos task list)" "$@" ;;
+    files)
+      # kosmos#8214: check each built task's delivered file again. Validated before the health check, as show is.
+      [ -n "${1:-}" ] || { say "Usage: kosmos task files <project-id|--all>   (checks each built task's delivered file again on this computer)"; exit 2; }
+      [ "${1:-}" = --all ] || case "${1:-}" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task files" "Usage: kosmos task files <project-id|--all>   (checks each built task's delivered file again on this computer)" "$1" ;; esac
+      _no_more_words "task files" 1 "Usage: kosmos task files <project-id|--all>   (checks each built task's delivered file again on this computer)" "$@" ;;
     activity)
       # #5874: read a task's conversation. Validated before the health check, as close is.
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task activity <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
@@ -6351,7 +6357,7 @@ cmd_task() {
         esac
       fi ;;
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | assign | close | reopen | message | activity | show | built | done-when | hold | unhold | repeat | ran | told"
+      say "Unknown: kosmos task $sub. Try: list | add | assign | close | reopen | message | activity | show | files | built | done-when | hold | unhold | repeat | ran | told"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -6390,6 +6396,26 @@ cmd_task() {
     # yours, so --mine needs one that knows it.
     [ -z "$_tmine" ] || grep -q "older('--mine')" "$_xmod" || { say "This install of Kosmos cannot list your own tasks yet; update Kosmos." >&2; exit 1; }
     printf '%s' "$_xbody" | "$_xnode" "$_xmod" across "$_xflag" "$_xproj" "$_xdays" ${_tmine:+mine}
+    exit $?
+  fi
+  # kosmos#8214: `task files <project-id|--all>`: each built task's delivered file fingerprinted again HERE, by
+  # engine/tasklist.js filesLines (the one copy the Windows CLI runs too). Read-only: the board only lists the marks.
+  if [ "$sub" = "files" ]; then
+    local _fproj="" _fq _ftok="" _fbody _frc=0 _fnode _fmod
+    if [ "${1:-}" != "--all" ]; then require_valid_project_id "${1:-}"; _fproj="${1:-}"; fi
+    _fnode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to check those files." >&2; exit 1; }
+    _fmod="$(kosmos_engine_module tasklist).js"
+    grep -q 'filesLines' "$_fmod" 2>/dev/null || { say "This install of Kosmos cannot check delivered files yet; update Kosmos." >&2; exit 1; }
+    if [ -n "$_fproj" ]; then _fq="project=$_fproj&state=built"; else _fq="all=1&state=built"; fi
+    case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _ftok="$KOSMOS_AGENT_TOKEN" ;; esac   # as list: the agent's own token too
+    _fbody=$(kosmos_curl "$_bt" "$_ftok" -sS -m 30 "$URL/api/tasks?$_fq" 2>/dev/null) || _frc=$?
+    [ "$_frc" -eq 0 ] || { say_unreached "list the built tasks" "$_frc"; exit 1; }
+    case "$_fbody" in '{"error":'*)
+      local _fwhy; _fwhy=$(printf '%s' "$_fbody" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+      case "$_fproj:$_fwhy" in ':say which project'*) say "This board is older than --all, so it did not list what was asked. Update Kosmos."; exit 1 ;; esac
+      say "Kosmos refused that: ${_fwhy:-it did not say why}." >&2; exit 1 ;;
+    esac
+    printf '%s' "$_fbody" | "$_fnode" "$_fmod" files "$_fproj"
     exit $?
   fi
   # #3035: a project id is looked up EXACTLY, never stripped -- room and task share
@@ -6819,7 +6845,7 @@ cmd_task() {
         say "--clear takes the mark off, so it takes no note. Run it without the note."; exit 2
       fi
       # #6330 slice 2: the delivered file's sha256, hashed here; the board never reads the file.
-      local fingerprint=""
+      local fingerprint="" file_abs="" file_json=""
       if [ "$_bfile" = 2 ]; then   # given, even as "" (an unset variable): refused below as Windows refuses it (review 2)
         [ "$clear" = true ] && { say "--clear takes the mark off, so it takes no file. Run it without --file."; exit 2; }
         [ -f "$file" ] && [ -r "$file" ] || { say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2; }
@@ -6833,6 +6859,11 @@ cmd_task() {
         [ -f "$_fmod" ] || { say "Kosmos could not find its own fingerprint reader; this install looks incomplete."; exit 1; }
         fingerprint=$("$_fnode" "$_fmod" "$file" 2>/dev/null) || fingerprint=""
         case "$fingerprint" in sha256:????????????????????????????????????????????????????????????????|pdf-normalized:????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2 ;; esac
+        # kosmos#8214: and its absolute path here, so `kosmos task files` can check it again. Logical, as the Windows
+        # CLI's path.resolve. A path that cannot be written as plain JSON (control characters) is sent as none.
+        local _fdir; _fdir=$(CDPATH= cd -- "$(dirname -- "$file")" 2>/dev/null && pwd) || _fdir=""
+        case "$_fdir" in /*) file_abs="${_fdir%/}/$(basename -- "$file")" ;; *) file_abs="" ;; esac
+        case "$file_abs" in *[[:cntrl:]]*) file_abs="" ;; esac
       fi
       # #7508: the commit a code fix landed as, resolved here in this checkout: its full sha, the repository's shared git
       # directory (it outlives a removed worktree) and whether a remote branch has it. The board checks only the shape.
@@ -6859,6 +6890,7 @@ cmd_task() {
         [ -n "$(git branch -r --contains "$csha" 2>/dev/null | head -1)" ] && conremote=true
         commit_json=",\"commit\":{\"sha\":\"$csha\",\"repo\":\"$(printf '%s' "$crepo" | sed 's/\\/\\\\/g; s/"/\\"/g')\",\"onRemote\":$conremote}"
       fi
+      [ -z "$file_abs" ] || file_json=",\"file_path\":\"$(printf '%s' "$file_abs" | sed 's/\\/\\\\/g; s/"/\\"/g')\""
       local esc_note esc_pane
       # Control bytes other than tab, CR and newline would make the JSON invalid (review round 1): dropped, as
       # cmd_post drops them; tab, CR and newline become spaces.
@@ -6869,7 +6901,7 @@ cmd_task() {
       local rc=0 body
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/built" \
         -H 'content-type: application/json' \
-        --data "{\"note\":\"$esc_note\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"${fingerprint:+,\"fingerprint\":\"$fingerprint\"}$commit_json}" 2>/dev/null) || rc=$?
+        --data "{\"note\":\"$esc_note\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"${fingerprint:+,\"fingerprint\":\"$fingerprint\"}$file_json$commit_json}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "mark that task" "$rc" write; exit 1; }
       case "$body" in
         '{"task":'*)
