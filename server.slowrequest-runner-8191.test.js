@@ -35,7 +35,7 @@ function boardStdout(limit, delayMs) {
     const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
     const srv = app.server || app;
     srv.listen(0, '127.0.0.1', () => {
-      const body = JSON.stringify({ dir: ${JSON.stringify(nodePath.join(sb, 'home', '.claude-neverexisted'))} });
+      const body = '{}';   // no dir: the route reads the body and answers 400, touching no account
       const t0 = Date.now();
       const req = http.request({
         host: '127.0.0.1', port: srv.address().port,
@@ -94,6 +94,6 @@ test("#8191: with the runner's limit, a request slower than the 5 s default leav
   const out = boardStdout(limit, 5300);
   assert.doesNotMatch(out, /slow request/);
   const parsed = JSON.parse(out);
-  assert.equal(typeof parsed.code, 'number', 'the request got no answer: ' + out);
+  assert.equal(parsed.code, 400, 'the empty body did not get the route'''s 400: ' + out);
   assert.ok(parsed.ms >= 5000, `the answer came after ${parsed.ms} ms, before the body was sent: the request was not slow, so this test proves nothing`);
 });
