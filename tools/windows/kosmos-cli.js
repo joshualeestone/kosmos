@@ -163,6 +163,7 @@ const USAGE = {
     '                                                  make one with a role you wrote, when none fits',
     '                                                  either form, for a throwaway agent on a Mac that runs test suites: name it',
     '                                                  zz-livecheck-<something>, which the test suites\' check for stray agents skips',
+    '                                                  (<something> 19 characters at most). Remove it when you are done: that check never reports it',
     '  kosmos agent roles [<word>]                     list the roles an agent can be made with, or those matching <word>',
     '  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)',
     '  kosmos agent instructions-add "<name>" --from <file>',

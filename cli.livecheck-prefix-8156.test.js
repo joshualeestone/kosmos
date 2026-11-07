@@ -50,6 +50,7 @@ for (const [label, cmd, args] of [
     assert.ok(out.includes('kosmos agent create'), 'not the agent help: ' + out);   // CONTROL: the right text was read
     assert.ok(out.includes(PREFIX + '<something>'), label + ' does not name ' + PREFIX + ':\n' + out);
     assert.ok(out.includes('check for stray agents skips'), out);
+    assert.ok(out.includes('Remove it when you are done: that check never reports it'), 'the help does not say to remove the seat: ' + out);   // review 9
   });
 }
 
