@@ -4,11 +4,11 @@
 
 **Measured, from the session and report log:** the Yes approved a live prompt. The banner is the hook's report standing until the agent's next report (14 s there), served through the #2456 fallback with no menu. The doubled line is two separate waits, 18:42Z and 23:30Z.
 
-**Change:** server.js only. `permissionWaitBeforePress` before the key, `endPermissionWaitPressed` after a press that answered it: only the hook's wait, only if that report still stands (same `at`), only if the screen shows no next menu. It records working by auto and consumes the wait's marks, so no ended line follows. The ended line is skipped when the chat's last row already says it.
+**Change:** server.js only. `permissionWaitBeforePress` before the key, `endPermissionWaitPressed` after a press that answered it: only the hook's wait, only if that report still stands (same `at`), only if the screen shows no next menu. It records idle by auto (a screen showing the agent running outranks a reported idle) and consumes the wait's marks, so no ended line follows. The ended line is skipped when the chat's last row already says it.
 
 **Rejected:** hiding the reported row whenever the pane shows no prompt: a pane the reader cannot parse would bring back the original #8036 symptom, a list saying Needs permission and a chat showing nothing. Changing the phone's words: needs a TestFlight and leaves the false row. A PostToolUse report: wider than the sighting, and it would touch every agent's hook set.
 
-**Weakest premise:** pressing No. If Claude Code ends the turn without a Stop hook, the card reads working until the next report rather than needs_you. Neither is true of an agent that stopped; the new one reads busier than it is.
+**Weakest premise:** idle for the seconds after a Yes, on a screen the classifier does not read as working: the card reads idle until the next report. Rejected working: after a No the agent can sit at its prompt, reading mid-task for 5 minutes and then unknown.
 
 **What would change my mind:** a phone read that still shows the row after a placed press, or a press on a prompt whose report arrives only after the press.
 

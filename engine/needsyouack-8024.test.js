@@ -249,12 +249,12 @@ async function withPrompt(name, { afterKey = IDLE_SCREEN, onKey = null, reportFi
     posts.length = 0;
     await reportFirst();
     const read = async () => (await fetch(base + '/api/agent/' + name + '/thread', { headers: { 'sec-fetch-site': 'same-origin' } })).json();
-    const press = async () => {
+    const press = async (which = 'allow') => {
       const back = await read();
       const row = (back.messages || []).filter((m) => m && m.kind === 'question' && !m.reported && m.permission).pop();
       assert.ok(row && back.asked, 'premise: the thread serves a permission card: ' + JSON.stringify(back.messages));
       const res = await fetch(base + '/api/agent/' + name + '/thread', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
-        body: JSON.stringify({ text: String(row.permission.allow), chose: 'Yes', asked: back.asked, request: row.permission.request }) });
+        body: JSON.stringify({ text: String(row.permission[which]), chose: back.options.find((o) => o.n === row.permission[which]).label, asked: back.asked, request: row.permission.request }) });
       assert.equal(res.status, 200, await res.clone().text());
       assert.equal(keys.length, 1, 'premise: the key went');
     };
@@ -271,13 +271,32 @@ test('kosmos#8036: a press that closes the prompt ends the wait at once: no "ask
     const after = await read();
     assert.deepEqual(questionRows(after), [], 'the row the phone draws as "asked you something"');
     assert.equal(after.asking, false);
-    assert.equal(selfreport.read('pressed').state, 'working');
+    assert.equal(selfreport.read('pressed').state, 'idle');
     assert.equal(nya.due('pressed'), false, 'its push went with it');
     assert.equal(acks().length, 1, 'the coordinator is told, so no email');
     await report({ state: 'working', text: 'running Bash', auto: true });
     const words = chat.readThread(chat.DIRECT, 'pressed').messages.map((m) => m.text);
     assert.ok(!words.includes(nya.WAIT_ENDED_LINE), 'they answered it, so it did not pass by itself: ' + JSON.stringify(words));
   });
+});
+
+test('kosmos#8036: a No ends the wait too, and the agent left at its prompt does not read as working', async () => {
+  await withPrompt('denied', { reportFirst: hookWait }, async ({ read, press }) => {
+    await press('deny');
+    const after = await read();
+    assert.deepEqual(questionRows(after), []);
+    assert.equal(after.asking, false);
+    const card = require('./status').snapshot().agents.find((a) => a.sessionName === 'denied');
+    assert.equal(card.state, 'idle', JSON.stringify(card.because));
+  });
+});
+
+test('kosmos#8036: the screen outranks that idle: an agent running after the press reads as working', async () => {
+  const board = fleet.install([fleet.agent('stillgoing', { state: 'working', runner: 'claude', command: 'claude' })]);
+  try {
+    assert.equal(selfreport.record('stillgoing', { state: 'idle', because: 'its prompt was answered', auto: true }).recorded, true);
+    assert.equal(require('./status').snapshot().agents.find((a) => a.sessionName === 'stillgoing').state, 'working');
+  } finally { board.restore(); }
 });
 
 test('kosmos#8036 CONTROL: with no press, the same gone-from-screen wait still shows its words (#2456), so the case above shows the fix', async () => {
@@ -299,7 +318,7 @@ test('kosmos#8036: the next prompt already up after the press keeps the wait', a
 
 test('kosmos#8036: a newer report written during the press stands, though the screen reads clear', async () => {
   const later = () => {
-    selfreport.record('during', { state: 'needs_you', because: 'asking permission to use Bash: /usr/bin/whoami', auto: true, at: new Date(Date.now() + 5000).toISOString() });
+    selfreport.record('during', { state: 'needs_you', because: 'asking permission to use Bash: /usr/bin/whoami', auto: true });
   };
   await withPrompt('during', { onKey: later, reportFirst: hookWait }, async ({ press }) => {
     await press();
