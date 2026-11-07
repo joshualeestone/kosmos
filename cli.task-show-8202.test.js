@@ -173,6 +173,36 @@ test('#8202 Windows (review 1): a hold says what it waits for and who put it on;
   assert.match(done.out, new RegExp('^Closed: ' + local(LATER) + '$', 'm'), done.out);
 });
 
+test('#8202 Windows (review 3): parts follow the board on who reported finished; other states and lines', async () => {
+  // Built by one of two agents: that agent has reported its part finished (kosmos#8137), as the list says, while the
+  // part itself is still open.
+  const shared = tasks.create(projectId, { sentence: 'Shared work' }).number;
+  projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'ivo'], tasks: p.tasks.map((x) => (x.number === shared ? { ...x,
+    builtAt: BUILT_AT, builtBy: 'mara', builtWho: ['mara'], parts: [{ id: 1, who: 'mara' }, { id: 2, who: 'ivo' }] } : x)) }));
+  const sh = await win(['task', 'show', projectId, String(shared)]);
+  assert.match(sh.out, /^Parts:\n {4}1\) mara, reported finished\n {4}2\) ivo, not finished$/m, sh.out);
+  // A hold until a time says it in this computer's local time, as the other times on the page.
+  const AT = '2026-12-01T09:00:00.000Z';
+  const later = tasks.create(projectId, { sentence: 'Later' }).number;
+  projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === later ? { ...x, onHold: true, onHoldUntil: { at: AT } } : x)) }));
+  assert.match((await win(['task', 'show', projectId, String(later)])).out, new RegExp('^State: on hold until ' + local(AT) + '$', 'm'));
+  // Replaced by a later task; a commit recorded before it reached the remote.
+  const old = tasks.create(projectId, { sentence: 'Old plan' }).number;
+  projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === old ? { ...x, closedAt: BUILT_AT, replacedBy: later,
+    landedCommit: SHA, landedRepo: 'notes', landedOnRemote: false } : x)) }));
+  const o = await win(['task', 'show', projectId, String(old)]);
+  assert.match(o.out, new RegExp('^State: closed, replaced by task ' + later + '$', 'm'), o.out);
+  assert.match(o.out, /^Commit: [0-9a-f]{40} in notes, not on the remote when recorded$/m, o.out);
+  // A paused project: an open task reads as on hold, a built one as built.
+  const paused = projects.create({ name: 'Paused' }).id;
+  projects.mutate(paused, (p) => ({ ...p, paused: true }));
+  const a = tasks.create(paused, { sentence: 'Waiting' }).number;
+  const b = tasks.create(paused, { sentence: 'Delivered' }).number;
+  projects.mutate(paused, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === b ? { ...x, builtAt: BUILT_AT } : x)) }));
+  assert.match((await win(['task', 'show', paused, String(a)])).out, /^State: on hold \(its project is paused\)$/m);
+  assert.match((await win(['task', 'show', paused, String(b)])).out, /^State: built \(its project is paused\)$/m);
+});
+
 test('#8202 Windows: refusals and usage', async () => {
   const missing = await win(['task', 'show', projectId]);
   assert.equal(missing.code, 2);
@@ -181,6 +211,10 @@ test('#8202 Windows: refusals and usage', async () => {
   assert.equal(bad.code, 2);
   const extra = await win(['task', 'show', projectId, String(num), 'more']);
   assert.equal(extra.code, 2, extra.err);
+  // Review 3: an id outside the slug set is refused, as install/kosmos refuses it, never stripped to another project's.
+  const odd = await win(['task', 'show', projectId + ' x', String(num)]);
+  assert.equal(odd.code, 1, odd.out);
+  assert.equal(odd.err, 'there is no project by that name');
   const nosuch = await win(['task', 'show', 'no-such-project', '1']);
   assert.equal(nosuch.code, 1);
   assert.equal(nosuch.err, 'Kosmos refused that: there is no project by that name.');
@@ -225,6 +259,9 @@ test('#8202 Mac: refusals and usage', async () => {
   assert.match(bad.out + bad.err, /The task number must be a number/);
   const extra = await mac(['task', 'show', projectId, String(num), 'more']);
   assert.equal(extra.code, 2, extra.out + extra.err);
+  const odd = await mac(['task', 'show', projectId + ' x', String(num)]);
+  assert.equal(odd.code, 1, odd.out + odd.err);
+  assert.match(odd.out + odd.err, /there is no project by that name/);
   const nosuch = await mac(['task', 'show', 'no-such-project', '1']);
   assert.equal(nosuch.code, 1);
   assert.match(nosuch.err, /Kosmos refused that: there is no project by that name\./);
