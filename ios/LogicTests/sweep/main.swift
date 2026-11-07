@@ -219,12 +219,17 @@ do {
     let orbSrc = repoText("ios/Kosmos/KosmosOrb.swift")
     // KosmosOrb.swift is skipped by the offender scan, so it may declare only the orb, WaitOrb and WaitTick at its top level:
     // no other type, alias, extension or function a fourth screen could draw the orb through (review 4).
-    // Every line that starts at column 0 and is not a comment, an import or a closing brace (review 8: a keyword list missed
-    // an attribute-led line such as `@MainActor func`), so anything new at the top level shows up, however it begins.
-    let topLevel = orbSrc.split(separator: "\n").filter { l in
-        guard let c = l.first, c != " ", c != "\t" else { return false }
-        return !l.hasPrefix("//") && !l.hasPrefix("/*") && !l.hasPrefix("*") && !l.hasPrefix("import ") && l != "}"
-    }.map(String.init)
+    // The file's code with its comments cut (codeOnly: /* */ blocks, a line's tail from " //", whole // lines), read by brace
+    // depth: every line that begins at depth 0 is top level, however it is indented or what precedes it on the line (review 8:
+    // a keyword list missed `@MainActor func`; orbguard review 1: a declaration after a /* */). Imports and closing braces
+    // are skipped; a `#if` is listed on purpose, as it can wrap a declaration. Braces inside strings would miscount (none in
+    // that file).
+    var topLevel: [String] = [], depth = 0
+    for raw in codeOnly(orbSrc).split(separator: "\n") {
+        let t = raw.trimmingCharacters(in: .whitespaces)
+        if depth == 0 && !t.isEmpty && t != "}" && !(t.hasPrefix("import ") && !t.contains(";")) { topLevel.append(t) }
+        depth += raw.filter { $0 == "{" }.count - raw.filter { $0 == "}" }.count
+    }
     let orbFileOk = topLevel == ["struct KosmosOrb: View {", "struct WaitOrb: View {", "struct WaitTick: View {"]
     check(orbFileOk, "KosmosOrb.swift declares only KosmosOrb, WaitOrb and WaitTick at its top level (\(topLevel))")
     check(waitOrbs == ["AgentsView.swift": 1, "NewAgentView.swift": 1] && allowHas == 1 && connectingHas == 1 && outsideHas == 1
