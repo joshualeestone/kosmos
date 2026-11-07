@@ -57,3 +57,13 @@ Mutants: no displayName check (2 fail), no job check (1 fail), recorded never pr
   job) needs a real codex job fixture. A test written for it passed with the guard deleted, so it was removed rather
   than left as false coverage.
 - NIT the plan's card premise --> CORRECTED above.
+
+## Review 3 (applied)
+- WARNING a failed full connect left its own connectedAs (rollback restored only dir, displayName, provider) -->
+  FIXED: the rollback restores connectedAs too. Test through the real path (discover.connect register-only, then a
+  full connect as "Kfl8112" that fails at NAME_RE): the old spelling plans, the failed one does not. Mutant fails 1.
+- WARNING no test exercised discover's connectedAs write --> FIXED: a register-only connect made by
+  discover.connect, then a rename, then plan. Mutant "register-only write drops connectedAs" fails 1.
+- NIT Undo left connectedAs --> FIXED (cleared with dir); asserted in the same test; mutant fails 1.
+- Found while testing: two fixtures collided on one profile key (KUp8112 and kup8112), the lowercasing this card is
+  about; the later fixture was renamed.
