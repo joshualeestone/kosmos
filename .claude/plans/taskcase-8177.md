@@ -29,6 +29,9 @@ checks still see `cai`'s task when someone makes `Cai`.
 - Review 2 added a refusal in `plan` for a task stored in other case; review 3 measured that it stranded a real agent
   (folder `caix`, task stored `Caix`: main restarts, pauses and removes it, the branch refused all three). Removed;
   the exact-folder condition replaces it, and that agent keeps its job (tested).
+- Review 4: the check applies only in this Kosmos's own world (it reads this world's folders), so another world's
+  agent keeps its own task. Accepted gap restated: profile-recorded agents (below) are not fixed by this branch, so
+  the PR says Addresses, and #8177 stays open for them and for the Windows measurement.
 - A folder recorded in the profile (#8112's case) does not carry the spelling, so for a recorded agent this keeps
   main's answer. When #8112 lands, its folderIsExactly is the test to use there.
 

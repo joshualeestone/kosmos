@@ -539,7 +539,7 @@ function plan(name, opts) {
        folder of its own (remove.taskIsAnotherSpellings), is that spelling's (`cai`'s, for `Cai`), and deleting
        `Kosmos\agent-Cai` would delete it. Refuse rather than touch it. */
     if (remove.taskIsAnotherSpellings(clean, seen)) {
-      return { ok: false, because: `a startup task named ${seen.spelledOtherwise} is there, the same name in other letter case, so we have not offered to delete anything: deleting this name's task would delete that one.` };
+      return { ok: false, because: `nothing starts ${shown} at login, but Windows has a startup task for ${String(seen.spelledOtherwise).replace(/^.*\\agent-/, '')} (the same name in other letter case), and deleting ${shown}'s would delete that one. So we have not offered to delete anything.` };
     }
     if (seen.registered) job = { path: null, label: win32job.taskName(clean), task: true, trash: false };
   } else if (fs.existsSync(jobPath)) {

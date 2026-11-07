@@ -992,7 +992,9 @@ function jobFor(name, platform, worldId) {
     // and hit the booted world's task -- wrong whenever the caller names a non-current world (#2935).
     const wid = worldId === undefined ? launchidentity.currentWorldId() : worldId;
     const st = win32job.status(clean, wid);
-    if (taskIsAnotherSpellings(clean, st)) return null;   // kosmos#8177
+    /* kosmos#8177. Only for THIS Kosmos's own world (review 4): the test reads this world's folders and profiles, so
+       another world's agent, whose folder is not here, would lose its own task to it. */
+    if (String(wid) === String(launchidentity.currentWorldId()) && taskIsAnotherSpellings(clean, st)) return null;
     return st.registered ? { label: win32job.taskName(clean, wid), plist: null, ours: true, worldId: wid } : null;
   }
   if ((platform || process.platform) === 'linux') {
@@ -2924,10 +2926,11 @@ function forget(name) {
   return !isRemoved(clean);
 }
 
-module.exports = { taskIsAnotherSpellings,
+module.exports = {
   reapplyRemovedDisables,
   reapplyAtBoardStart,
   RESTART_CHANGED_NOTHING,   // #7470
+  taskIsAnotherSpellings,   // kosmos#8177: shared with delete-leftover
   plan,
   resolve,   // #8109: the same, saying when two or more agents answer to the name
   ambiguousRefusal,
