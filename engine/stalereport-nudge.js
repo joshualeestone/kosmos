@@ -4,9 +4,10 @@
  * #5959 slice 3 (the Windows agents' QA report, item 4: one agent carried a "blocked" from 09-26): an agent whose own
  * `blocked` report has stood over a day is told so ONCE, typed into its session the way firstreply-nudge.js does.
  * `kosmos report show` says the same thing when the agent asks (slice 1); this says it without being asked.
+ * kosmos#8212: `needs_you` too (three agents sat in a question for three days after its cause ended by itself).
  *
  * Who is told, all of:
- *  - its latest report (selfreport.read) is `blocked`, not written by Kosmos, and its waiting run began over
+ *  - its latest report (selfreport.read) is `blocked` or `needs_you`, not written by Kosmos, and its waiting run began over
  *    STALE_WAIT_MS ago
  *    (selfreport.STALE_WAIT_MS, with the comparison `kosmos report show` uses);
  *  - its `until` does not hold it back (selfreport.untilDefers, kosmos#6683: also report show's rule);
@@ -17,8 +18,8 @@
  * cannot be read: deliverAutomatic's own menu hold reads the screen only for a needs_you or working card, never for the
  * blocked cards this sweep types to. So Claude only (those readers know Claude Code's screens), and never an agent
  * reached through a channel (a Windows agent, whose screen this computer cannot read).
- * Not needs_you: that is a question waiting on the person, and for a runner other than Claude nothing holds a typed
- * line out of an open question (chat's menu hold is Claude-only), so the reminder would answer it.
+ * A needs_you is a question waiting on the person, so the line for it says it is not their answer (nudgeText). A question
+ * still open on the screen is refused by screenOpen; one held until the person is back is held back by untilDefers.
  *
  * How often: once per waiting run, kept on disk (remindedFile(), session -> the run's start, runOf below), so a board
  * restart or an update does not repeat it. Re-reporting the same question is the same run; a new question starts a new
@@ -33,8 +34,8 @@ const cardlabel = require('./cardlabel');
 
 /* Tries that reached nothing (COULD_NOT, or a throw) before a report is left alone, as in firstreply-nudge.js. */
 const MAX_TRIES = 3;
-/* The one waiting state reminded about (see the header for why not needs_you). */
-const REMINDED_STATE = 'blocked';
+/* The waiting states reminded about: the two WAITING_ON_A_PERSON states (selfreport). */
+const REMINDED_STATES = Object.freeze(['blocked', 'needs_you']);
 /* How old a record of an agent no longer on the board must be before it is dropped. */
 const PRUNE_MS = 30 * 24 * 3600 * 1000;
 
@@ -84,6 +85,12 @@ function nudgeText(rep, ageMs) {
   const age = cardlabel.standingFor(ageMs);
   // Who wrote it, as report show says it: the agent, or someone else / no writer recorded ("This").
   const whose = rep.by === 'agent' ? 'Your own `' + rep.state + '` report' : 'This `' + rep.state + '` report';
+  /* kosmos#8212: for a question, said first that this line is Kosmos and not the person answering it. */
+  if (rep.state === 'needs_you') {
+    return 'Kosmos here, a reminder, not an answer from the person: ' + whose + ' has been standing for ' + age + '. '
+      + 'If what it waited on has gone away, clear it with: kosmos report clear. If you still need the person, leave it. '
+      + 'To see your card as the person sees it, run: kosmos report show';
+  }
   return 'Kosmos here, a reminder: ' + whose + ' has been standing for ' + age + '. '
     + 'If it is no longer in your way, clear it with: kosmos report clear. If it still holds, leave it. '
     + 'To see your card as the person sees it, run: kosmos report show';
@@ -91,7 +98,7 @@ function nudgeText(rep, ageMs) {
 
 function plan(card, rep, entry, now, remindedAt) {
   if (!card || !rep || rep.found !== true) return { act: 'none', because: 'no report' };
-  if (rep.state !== REMINDED_STATE) return { act: 'none', because: 'its report is not ' + REMINDED_STATE };
+  if (!REMINDED_STATES.includes(rep.state)) return { act: 'none', because: 'its report is not ' + REMINDED_STATES.join(' or ') };
   /* Not one Kosmos wrote: for a Claude agent that is the StopFailure hook's "provider api (<kind>)" failure, and while
      the provider still fails the turn a reminder starts fails too and writes a fresh one, so it would be reminded once a
      day for the outage. */
@@ -147,7 +154,7 @@ function sweepOnce(o) {
       const session = card && card.sessionName;
       if (!session || card.isNamedOurs !== true || card.runner !== 'claude' || card.reachedByChannel === true) continue;
       if (card.activeWhileWaiting === true) continue;   // mid-turn: a later sweep tells it, between turns
-      if (card.state !== REMINDED_STATE) continue;   // read a report only for a card that could be reminded
+      if (!REMINDED_STATES.includes(card.state)) continue;   // read a report only for a card that could be reminded
       let rep = null;
       try { rep = readReport(session); } catch { rep = null; }
       const entry = book.get(session);
@@ -227,4 +234,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { untilTimeOf: selfreport.untilTimeOf, plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, remindedFile, screenOpen, MAX_TRIES, REMINDED_STATE, PRUNE_MS };
+module.exports = { untilTimeOf: selfreport.untilTimeOf, plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, remindedFile, screenOpen, MAX_TRIES, REMINDED_STATES, PRUNE_MS };

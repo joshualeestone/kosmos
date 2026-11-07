@@ -91,16 +91,51 @@ test('#5959 slice 3: an agent\'s own blocked report over a day old on its card i
   assert.equal(run([casey], reports, { book, reminded, now: NOW + DAY + 60e3 }).sent.length, 1, 'a fresh report a day later was not');
 });
 
-test('#5959 slice 3: never needs_you (a question waiting on the person), never a report Kosmos wrote (a provider failure)', () => {
-  const [q, k] = cardsFor([['quin', 'needs_you'], ['kai', 'blocked']]);
-  const { sent } = run([q, k], {
-    [q.sessionName]: { found: true, state: 'needs_you', at: iso(NOW - 3 * DAY), by: 'agent' },
+test('#5959 slice 3: never a report Kosmos wrote (a provider failure)', () => {
+  const [k] = cardsFor([['kai', 'blocked']]);
+  const { sent } = run([k], {
     // The real shape of Kosmos's automatic blocked: the StopFailure hook's provider failure.
     [k.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'auto', on: 'provider api (server_error)' },
   });
-  assert.deepEqual(sent, [], 'typed into a question, or about a provider failure whose reminder turn would fail');
+  assert.deepEqual(sent, [], 'told about a provider failure whose reminder turn would fail');
   assert.equal(run([k], { [k.sessionName]: { found: true, state: 'blocked', at: iso(NOW - 3 * DAY), by: 'agent' } }).sent.length, 1,
     'CONTROL: the same card with its own blocked is told');
+});
+
+test('kosmos#8212: an agent\'s own needs_you over a day old is told once, in words that say it is not the answer', () => {
+  const [q] = cardsFor([['quin', 'needs_you']]);
+  const reports = { [q.sessionName]: { found: true, state: 'needs_you', at: iso(NOW - 3 * DAY), by: 'agent', on: 'Should I wait for the stuck job?' } };
+  const reminded = memReminded();
+  const { sent } = run([q], reports, { reminded });
+  assert.equal(sent.length, 1, 'a three-day-old question was not told about');
+  assert.equal(sent[0].text, 'Kosmos here, a reminder, not an answer from the person: Your own `needs_you` report has been standing for 3 days. '
+    + 'If what it waited on has gone away, clear it with: kosmos report clear. If you still need the person, leave it. '
+    + 'To see your card as the person sees it, run: kosmos report show');
+  assert.ok(!sent[0].text.includes('Should I wait'), 'the agent\'s own question was repeated to it');
+  assert.equal(reminded.get(q.sessionName), reports[q.sessionName].at, 'the reminder was not recorded');
+  assert.deepEqual(run([q], reports, { reminded, now: NOW + 60e3 }).sent, [], 'told again about the same question');
+});
+
+test('kosmos#8212: a needs_you is not typed into an open question, a held question, Kosmos\'s own, or a fresh one', () => {
+  const [q] = cardsFor([['quin', 'needs_you']]);
+  const own = { found: true, state: 'needs_you', at: iso(NOW - 3 * DAY), by: 'agent' };
+  const at = (rep, opts) => run([q], { [q.sessionName]: rep }, opts).sent.length;
+  assert.equal(at(own, { screen: () => 'a menu is open on its screen' }), 0, 'typed into an open question menu');
+  assert.equal(at(own, { screen: () => 'a prompt is open on its screen' }), 0, 'typed into an open permission prompt');
+  assert.equal(at({ ...own, held: true }), 0, 'told about a question held until the person is back (#7915)');
+  assert.equal(at({ ...own, by: 'auto' }), 0, 'told about a needs_you Kosmos wrote');
+  assert.equal(at({ ...own, at: iso(NOW - DAY + 10 * 60e3) }), 0, 'told about a question under a day old');
+  assert.equal(at(own), 1, 'CONTROL: the same question with a clear screen is told');
+});
+
+test('kosmos#8212: a needs_you is told to Claude agents only', () => {
+  const [q] = cardsFor([['quin', 'needs_you']]);
+  const reports = { [q.sessionName]: { found: true, state: 'needs_you', at: iso(NOW - 3 * DAY), by: 'agent' } };
+  for (const runner of ['codex', 'gemini', 'grok', 'antigravity', 'muse']) {
+    assert.equal(run([{ ...q, runner }], reports).sent.length, 0, 'typed a question reminder into a ' + runner + ' agent');
+  }
+  assert.equal(run([{ ...q, reachedByChannel: true }], reports).sent.length, 0, 'typed into an agent reached through a channel');
+  assert.equal(run([q], reports).sent.length, 1, 'CONTROL: the Claude card is told');
 });
 
 test('#5959 slice 3: an agent mid-turn is told at a later sweep, between turns', () => {
