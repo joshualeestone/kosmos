@@ -195,7 +195,7 @@ test('kosmos#8178 round 2: an unreadable record leaves the id file whole, and it
   messages._restartForTests();
   assert.equal(messages.projectOfPost('m3000'), 'proj-c');
   const kept = fs.readFileSync(ids, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).map((x) => x.id);
-  assert.deepEqual(kept, ['m3000', 'm3000'], 'compacted to the restored post and the highest id');
+  assert.deepEqual(kept, ['m3000'], 'compacted to the restored post, which is also the highest id');
 });
 
 test('kosmos#8178 round 2: a line appended while the file is being compacted is kept', () => {
@@ -256,4 +256,19 @@ test('kosmos#8178 round 3: a board that stays up compacts the id file too', asyn
     assert.ok(size < 512 + 200, 'the id file grew without a compaction while the board ran: ' + size + ' bytes');
     assert.equal(messages._nextIdForTests(), 'm' + (got[29] + 1), 'the highest id survived the compaction');
   } finally { messages._idsCompactAtForTests(null); }
+});
+
+test('kosmos#8178 round 5: a failed read of the id file (not a missing one) is tried again, not left for the board\'s life', () => {
+  messages.resetForTests();
+  const ids = messages._idsPathForTests();
+  fs.mkdirSync(ids);   // reading it fails with EISDIR
+  messages._restartForTests();
+  try {
+    assert.equal(messages.projectOfPost('m700'), null, 'CONTROL: nothing to put back while it cannot be read');
+  } finally { fs.rmSync(ids, { recursive: true, force: true }); }
+  fs.writeFileSync(ids, JSON.stringify({ id: 'm700', project: 'proj-e', at: Date.now() }) + '\n');
+  assert.equal(messages.projectOfPost('m700'), null, 'read again before the pause passed');
+  messages._idsRetryNowForTests();
+  assert.equal(messages.projectOfPost('m700'), 'proj-e', 'a failed read was never tried again');
+  assert.ok(Number(messages._nextIdForTests().slice(1)) > 700, 'ids still rise above the file once it is read');
 });
