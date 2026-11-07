@@ -538,7 +538,7 @@ function plan(name, opts) {
     /* kosmos#8177 review 1: Task Scheduler ignores letter case, so a task found under ANOTHER spelling is that agent's
        (`cai`'s, for `Cai`), and deleting `Kosmos\agent-Cai` would delete it. Refuse rather than touch another agent. */
     if (seen.registered && seen.spelledOtherwise) {
-      return { ok: false, because: `a startup task with the same name in other letter case (${seen.spelledOtherwise}) belongs to another agent, so we have not offered to delete anything.` };
+      return { ok: false, because: `a startup task named ${seen.spelledOtherwise} is there, the same name in other letter case, so we have not offered to delete anything: deleting this name's task would delete that one.` };
     }
     if (seen.registered) job = { path: null, label: win32job.taskName(clean), task: true, trash: false };
   } else if (fs.existsSync(jobPath)) {

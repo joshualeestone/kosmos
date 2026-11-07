@@ -68,7 +68,8 @@ test('#8177 a case variant of a Windows agent\'s name finds no job, so Remove do
   assert.equal(remove.jobFor('Cai8177', WIN), null, 'cai8177\'s task was counted as a job for Cai8177');
   const p = remove.plan('Cai8177', WIN);
   assert.equal(p.ok, false, 'Remove planned Cai8177, which has no task of its own');
-  assert.match(p.because, /cannot find an agent called Cai8177/, 'refused for another reason: ' + p.because);
+  assert.match(p.because, /Cai8177 has no startup task of its own: the one Windows finds for that name is spelled Kosmos\\agent-cai8177/,
+    'refused for another reason: ' + p.because);
 });
 
 test('#8177 the agent\'s own spelling still finds its job and plans (CONTROL)', () => {
@@ -125,5 +126,24 @@ test('#8177 deleting the leftovers of a variant refuses rather than delete anoth
   const leftover = require('./delete-leftover');
   const p = leftover.plan('Cai8177', { platform: WIN });
   assert.equal(p.ok, false, 'a leftover delete for Cai8177 was offered over cai8177\'s task');
-  assert.match(p.because || '', /other letter case/, 'refused for another reason: ' + (p.because || ''));
+  assert.match(p.because || '', /named Kosmos\\agent-cai8177 is there, the same name in other letter case/, 'refused for another reason: ' + (p.because || ''));
+});
+
+test('#8177 a task stored in other letter case refuses Remove for the folder\'s own spelling too (review 2)', () => {
+  /* The reverse: the folder is `cai8177r` but the task was stored as `Cai8177r`. jobFor finds no job for `cai8177r`, so
+     a removal would go ahead and leave that task to start an agent at login. plan refuses instead. */
+  taskSchedulerWith('Cai8177r');
+  fs.mkdirSync(require('./create').workerDir('cai8177r'), { recursive: true });
+  assert.equal(remove.jobFor('cai8177r', WIN), null, 'CONTROL: the stored-case task counted for the folder spelling');
+  const p = remove.plan('cai8177r', WIN);
+  assert.equal(p.ok, false, 'Remove planned cai8177r while a task stored as Cai8177r would stay');
+  assert.match(p.because, /spelled Kosmos\\agent-Cai8177r/, 'refused for another reason: ' + p.because);
+});
+
+test('#8177 a named Kosmos\'s task (agent+world) is read the same way (review 2)', () => {
+  const tn = job.taskName('cai8177', 'qa');
+  assert.ok(tn.includes('+qa'), 'CONTROL: the world id is not in the task name: ' + tn);
+  assert.equal(job.spelledOtherwise(job.taskName('Cai8177', 'qa'), `TaskName: \\${tn}\nStatus: Ready`), tn);
+  assert.equal(job.spelledOtherwise(tn, `TaskName: \\${tn}\nStatus: Ready`), null);
+  assert.equal(job.spelledOtherwise(job.taskName('cai8177', 'qb'), `TaskName: \\${tn}\nStatus: Ready`), null, 'another world\'s task is not this one');
 });
