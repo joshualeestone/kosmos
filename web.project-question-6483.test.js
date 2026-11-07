@@ -35,7 +35,7 @@ const GLYPHS = lineOf('const kGlyph = ') + '\n' + slice('const GLYPH = ');
 const pjPillOf = new Function(GLYPHS + '\n' + slice('function pjPillOf(') + '\nreturn pjPillOf;')();
 // eslint-disable-next-line no-new-func
 const pjNeedsNotice = new Function(slice('function esc(') + '\n' + slice('const PJ_NEEDS_WHY = ') + '\n'
-  + slice('function pjAlsoWhy(') + '\n' + slice('function pjNeedsNotice(') + '\nreturn pjNeedsNotice;')();
+  + slice('function pjAlsoWhy(') + '\n' + slice('function pjSaidWords(') + '\n' + slice('function pjNeedsNotice(') + '\nreturn pjNeedsNotice;')();
 // eslint-disable-next-line no-new-func
 const GLYPH = new Function(GLYPHS + '\nreturn GLYPH;')();
 
