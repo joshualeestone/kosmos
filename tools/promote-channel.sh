@@ -273,7 +273,7 @@ if [ -n "$NAMED_VERSION" ]; then
   if [ -n "$_newest" ] && [ "$_newest" != "$NAMED_COMMIT" ]; then
     git -C "$SITE" show "${_newest}:dist/$STAGING_NAME" > "$NAMED_DIR/newest.json" 2>/dev/null
     git -C "$SITE" show "${NAMED_COMMIT}:dist/$STAGING_NAME" > "$NAMED_DIR/chosen.json" 2>/dev/null
-    if node -e 'const r=f=>{const p=JSON.parse(require("fs").readFileSync(f,"utf8"));delete p.setup_sha256;return p};process.exit(require("util").isDeepStrictEqual(r(process.argv[1]),r(process.argv[2]))?0:1)' "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json" 2>/dev/null; then
+    if node -e 'const r=f=>{const p=JSON.parse(require("fs").readFileSync(f,"utf8"));delete p.setup_sha256;return p};const A=r(process.argv[1]),B=r(process.argv[2]);if(A.pkg_sha256&&B.pkg_sha256&&A.pkg_sha256!==B.pkg_sha256)process.exit(1);delete A.pkg_sha256;delete B.pkg_sha256;process.exit(require("util").isDeepStrictEqual(A,B)?0:1)' "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json" 2>/dev/null; then
       _ns="$(read_pointer_field "$NAMED_DIR/newest.json" setup_sha256)"; _cs="$(read_pointer_field "$NAMED_DIR/chosen.json" setup_sha256)"
       if [ "$_ns" = "$_cs" ] || [ -z "$_ns" ]; then
         echo "promote-channel: NOTE using ${NAMED_COMMIT:0:10} for $NAMED_VERSION; ${_newest:0:10}, a later commit naming it, points at the same build" >&2
@@ -283,7 +283,7 @@ if [ -n "$NAMED_VERSION" ]; then
     else
       # Which of two different pointers for V is the right one is not this script's to guess: a later one may carry a
       # correction, the earlier one is the cut's own. The operator names it.
-      echo "promote-channel: ${NAMED_COMMIT:0:10} ($NAMED_VERSION's cut) and ${_newest:0:10} (a later commit naming $NAMED_VERSION) have pointers that differ in more than the installer they name - refusing; nothing was written. Name the one to promote with --commit <its sha>." >&2
+      echo "promote-channel: ${NAMED_COMMIT:0:10} ($NAMED_VERSION's cut) and ${_newest:0:10} (a later commit naming $NAMED_VERSION) have pointers that differ in more than the /setup installer they name, or name different installer pkgs - refusing; nothing was written. Name the one to promote with --commit <its sha>." >&2
       exit 1
     fi
     rm -f "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json"
@@ -784,11 +784,38 @@ fi
 
 # kosmos#8167: the installer pkg. A staging cut publishes dist/Kosmos-staging.pkg and leaves dist/Kosmos.pkg
 # (the Download button's file) alone, so a promote is what moves the installer. Decided and CHECKED here, before
-# the first write; copied below, after /setup. The pkg names no version, so only a promote of what staging
-# serves NOW may carry the staging pkg: a named promote (--version, possibly an older build) leaves Kosmos.pkg as
-# it is and says so, because the staging pkg may belong to a later cut.
+# the first write; copied below, after /setup. For a pointer that names no pkg (cut before kosmos#8172), only a
+# promote of what staging serves NOW may carry the staging pkg: a named promote (--version) then leaves Kosmos.pkg
+# as it is and says so, because the staging pkg may belong to a later cut.
 PKG_PROMOTE=0
-if [ "$FAMILY" = mac ] && [ -f "$SITE/dist/$PKG_STAGING_NAME" ]; then
+# kosmos#8172: a pointer that NAMES its pkg (pkg_sha256, written by the cut) decides the copy by that name, for a
+# named promote too (its pointer comes from its own commit). A pointer without the field keeps #8167's rule below.
+_pkg_named=""; [ "$FAMILY" != mac ] || _pkg_named="$(read_field pkg_sha256)"
+# One shape check (64 lower-case hex) and one warning: anything else present is malformed.
+if [ -n "$_pkg_named" ] && ! [[ "$_pkg_named" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "promote-channel: WARNING $SNAP_LABEL has a malformed pkg_sha256 ('${_pkg_named:0:20}'), so the installer pkg is not moved; the pointer still promotes. Fix the pointer by hand." >&2
+  _pkg_named="malformed"
+fi
+if [ "$_pkg_named" = malformed ]; then
+  :
+elif [ -n "$_pkg_named" ]; then
+  _pkg_have="$(pkg_triple_check "$SITE/dist" "$PKG_PROD_NAME" 2>/dev/null)" || _pkg_have=""
+  _pkg_ssha="$(pkg_triple_check "$SITE/dist" "$PKG_STAGING_NAME" 2>/dev/null)" || _pkg_ssha=""
+  if [ "$_pkg_have" = "$_pkg_named" ]; then
+    echo "   $PKG_PROD_NAME is already the pkg $SNAP_LABEL names (${_pkg_named:0:12}): nothing to copy"
+  elif [ "$_pkg_ssha" = "$_pkg_named" ]; then
+    _pkg_host="${KOSMOS_SITE_URL:-https://installkosmos.com}"
+    _pkg_served="$(curl -fsSL -m 30 -H 'Cache-Control: no-cache' "$_pkg_host/dist/$PKG_STAGING_NAME.sha256" 2>/dev/null)" || _pkg_served=""
+    _pkg_served="${_pkg_served%%[[:space:]]*}"
+    if [ "$_pkg_served" = "$_pkg_named" ]; then
+      PKG_PROMOTE=1
+    else
+      echo "promote-channel: WARNING dist/$PKG_STAGING_NAME is the pkg $SNAP_LABEL names (${_pkg_named:0:12}) but $_pkg_host serves no $PKG_STAGING_NAME of those bytes (it serves ${_pkg_served:-none}), so it is not copied and $PKG_PROD_NAME is left as it is; the pointer still promotes. latest.json will then name a pkg the Download button does not serve. NOTHING ALARMS ON THAT LATER: this line is the signal, and a by-hand KOSMOS_VERIFY_POINTER=latest.json tools/verify-served.sh shows it. Serve the staging pkg (deploy from the cut box), then promote again." >&2
+    fi
+  else
+    echo "promote-channel: WARNING $SNAP_LABEL names installer pkg ${_pkg_named:0:12}, and neither dist/$PKG_PROD_NAME (${_pkg_have:-missing or broken}) nor dist/$PKG_STAGING_NAME (${_pkg_ssha:-missing or broken}) is a whole triple with those bytes, so $PKG_PROD_NAME is left as it is; the pointer still promotes. latest.json will then name a pkg the Download button does not serve. NOTHING ALARMS ON THAT LATER: this line is the signal, and a by-hand KOSMOS_VERIFY_POINTER=latest.json tools/verify-served.sh shows it. To put the named pkg back: get that build's pkg triple from the box that cut it (its site dist held it as Kosmos-staging.pkg), check it hashes to ${_pkg_named:0:12}, copy it in with pkg_triple_copy (tools/lib/pkg-inputs.sh) as Kosmos.pkg, and deploy (kosmos#8172)." >&2
+  fi
+elif [ "$FAMILY" = mac ] && [ -f "$SITE/dist/$PKG_STAGING_NAME" ]; then
   # A broken staging triple (a staging cut that aborted mid-copy, a hand copy) must not block the POINTER promote,
   # which does not depend on it: the installer is left as it is, loudly, and the pointer promotes.
   if ! _pkg_ssha="$(pkg_triple_check "$SITE/dist" "$PKG_STAGING_NAME")"; then

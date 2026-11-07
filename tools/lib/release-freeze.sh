@@ -295,7 +295,9 @@ release_bundle_matches_tree() {
     echo "   could not derive the files the bundle must carry from $tree: $(cat "$tmp/.derive-err" 2>/dev/null || true)"; rm -rf "$tmp"; return 2
   fi
   expected="$(printf '%s\n' "$expected" | sort -u)"
-  printf '%s\n' "$expected" | grep -q '^app/web/' && printf '%s\n' "$expected" | grep -q '^app/engine/' || { rm -rf "$tmp"; echo "   the derived set names no web/ file or no engine/ file, so the derivation is broken (it would pass a bundle missing the page or the engine)"; return 2; }
+  # kosmos#8195: grep -c, not -q: under pipefail an early -q match SIGPIPEs printf once the list outgrows the pipe
+  # buffer (measured: 0/200 false at today's 11 KB, 50/50 at 128 times that), and this would refuse a good freeze.
+  printf '%s\n' "$expected" | grep -c '^app/web/' >/dev/null && printf '%s\n' "$expected" | grep -c '^app/engine/' >/dev/null || { rm -rf "$tmp"; echo "   the derived set names no web/ file or no engine/ file, so the derivation is broken (it would pass a bundle missing the page or the engine)"; return 2; }
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     [ -f "$tmp/$rel" ] || { echo "   missing from the bundle (the tree and the app need it): $rel"; bad=1; }

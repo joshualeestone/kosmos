@@ -584,8 +584,8 @@ const FIT_DIALOG_PICKER = (which) => {
     ok(t + ' #3029 Tasks rows (Group by: Status) name their project by its chain',
       JSON.stringify(chains.rowProjects) === JSON.stringify(['Book A', 'Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.rowProjects));
     ok(t + ' #3029 Tasks search for a parent\'s name finds its subproject\'s tasks', JSON.stringify(chains.found) === JSON.stringify(['Book A › Launch', 'Book A › Launch › Ads', 'Book B › Launch']), JSON.stringify(chains.found));
-    ok(t + ' #3029 a subproject row\'s checkbox and Not built yet labels speak the chain with commas',
-      !!chains.rowLabels && /^Select task 1 of Book A, Launch, Ads( \(|$)/.test(chains.rowLabels.sel) && chains.rowLabels.unbuild === 'Mark task 1 of Book A, Launch, Ads not built yet', JSON.stringify(chains.rowLabels));
+    ok(t + ' #3029 a subproject row\'s checkbox and Undo labels speak the chain with commas',
+      !!chains.rowLabels && /^Select task 1 of Book A, Launch, Ads( \(|$)/.test(chains.rowLabels.sel) && chains.rowLabels.unbuild === 'Undo marking task 1 of Book A, Launch, Ads built', JSON.stringify(chains.rowLabels));
     // #6523: the crumb ends at the chain; it no longer carries "· Open project".
     ok(t + ' #3029 a project door into a subproject with no tasks names it by its chain', /All tasks › Book A › Launch\s*$/.test(chains.doorCrumb), JSON.stringify(chains.doorCrumb));
     // A chain far longer than any window, PICKED (the selected text is what WebKit widened the page by): the Tasks

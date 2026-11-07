@@ -1649,7 +1649,8 @@ function registerOnly(given, name, { create, store }) {
   if (nameTaken) return { ok: false, because: nameTaken };
   /* The display name is the name they typed. There is no file to disagree with it,
      which is the whole reason this path exists. */
-  try { store.writeProfile(name, { dir: given, displayName: name }); }
+  // kosmos#8112 review 2: connectedAs keeps the exact spelling a rename (which rewrites displayName) never touches.
+  try { store.writeProfile(name, { dir: given, displayName: name, connectedAs: name }); }
   catch { return { ok: false, because: 'we could not record where that agent lives' }; }
   HELD_MEMO = { at: 0, set: null };   // #4896: a folder record changed, so the found list reads fresh
   return { ok: true, name, dir: given, displayName: name, registered: true, started: false };
@@ -2027,7 +2028,7 @@ function connect(dir, opts) {
      the ONE runner->provider map (Convention #5); a null runner (claude) writes no
      provider, unchanged, since the board's fallback for an absent provider is
      already claude. */
-  try { store.writeProfile(name, { dir: given, displayName, ...(runner ? { provider: create.runnerProvider(runner) } : {}) }); }
+  try { store.writeProfile(name, { dir: given, displayName, connectedAs: name, ...(runner ? { provider: create.runnerProvider(runner) } : {}) }); }   // kosmos#8112: the exact spelling
   catch { return { ok: false, because: 'we could not record where that agent lives' }; }
   HELD_MEMO = { at: 0, set: null };   // #4896: a folder record changed, so the found list reads fresh
 
@@ -2145,6 +2146,7 @@ function connect(dir, opts) {
         dir: before.dir || null,
         displayName: before.displayName || null,
         provider: before.provider || null,
+        connectedAs: before.connectedAs || null,   // kosmos#8112 review 3: a failed connect leaves the old spelling
       });
     }
     catch { /* the job is the thing that matters and it was not written */ }
@@ -2247,7 +2249,7 @@ function disconnect(name) {
      Clearing it first would leave `workerDir` pointing at the derived folder
      while a live launch job still names theirs -- an agent whose files and whose
      job disagree about where it lives. */
-  try { store.writeProfile(key, { dir: null }); }
+  try { store.writeProfile(key, { dir: null, connectedAs: null }); }   // kosmos#8112 review 3: the spelling goes with the folder
   catch { return { ok: false, because: 'we undid it, but could not forget where it lived' }; }
   HELD_MEMO = { at: 0, set: null };   // #4896: a folder record changed, so the found list reads fresh
 

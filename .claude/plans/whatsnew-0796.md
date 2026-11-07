@@ -1,0 +1,73 @@
+# whatsnew-0796: What's New for 0.7.96
+
+Pool PR before the 0.7.96 staging cut (release.sh step 1b-ii checks it). Branch from origin/main 2d09239de3.
+
+## Prod check
+`node tools/whats-new-pool.js prod-check`: the pool records prod 0.7.94 and Mac prod serves 0.7.94. So lastProd stays
+0.7.94 and nothing is marked shown. If Josh promotes 0.7.95 before the cut, this is rebuilt against lastProd 0.7.95.
+
+Windows prod serves 0.7.94 (latest-win.json read 11-07 ~03:00). The only pending Windows-only item, "Kosmos says when
+others can change its folder", is since 0.7.95, so the 0.7.94 window cannot have shown it: no hand retirement.
+
+## New items (since 0.7.96)
+Read from the first-parent commits 74773b2338 (the 0.7.95 bump)..2d09239de3. Josh-asked cards ranked first.
+
+| rank | title | from | platforms |
+|---|---|---|---|
+| 6 | Spreadsheets open in the file viewer | #8122 (parser f0b9f2b96f, viewer #8174), wired via pvSheetLoad | all |
+| 8 | Always Allow for downloads from your computers | #8121 (b923d98e03, native-app/main.swift) | mac |
+| 17 | A little more space in project rooms | #8160 (Josh picked 1.6) | all |
+| 17.5 | Shared tasks say who has finished | #8137 | all |
+| 18 | Agents that answer you elsewhere say so | #8141 | all |
+| 19 | An old Grok sign-in says since when | #8159 | all |
+| 19.5 | An old Meta Muse sign-in says since when | #8173 (Muse is Mac-only, musestatus.enabled) | mac |
+
+Left out on purpose: iPhone-only changes (ff0d16da29, #8146, #7420's ChatView.swift): the iPhone app is not in this cut. Fixes with no
+visible change a person would name (#8112, #8165, #8140's chip gap); #8036 (visible: a stale "asked you" line no longer shows under a Yes, but a
+fix to a glitch, not a feature) and #4926 (visible, an agent listing fix) are left out as low value, and release machinery
+(#8167, #8172). #8140's other pieces since 0.7.95 (04f6f8b63e, the hold lines offer closing a hold no longer needed;
+3dc7a74dd6, the nudge names held subtasks) are agent-facing nudge wording, so they are left out too.
+
+## Build
+`node tools/whats-new-pool.js build 0.7.96`, output committed unedited. The window: Spreadsheets, The KOSMOS orb,
+Always Allow (mac), Kosmos says when others can change its folder (windows), Gemini agents stop updating gemini (mac).
+Mac sees 4, Windows 3, Linux 2 (countsByPlatform: mac 4, windows 3).
+
+Commit carries the #1720 Browser-check trailer (data only).
+
+## Review round 1
+- Always Allow was never in a release (#8130 landed after 0.7.94 and was reverted before the 0.7.95 cut), so the item
+  now says it can be set, not that it "now lasts". Title and line rewritten; the line had to fit 140 characters.
+- "the iPhone" removed from the shared-tasks line: its iPhone half is Swift and ships with the iPhone app, not this cut.
+- Line spacing 1.55 to 1.6 is a small change: ranked 17 (below the 16.x items) and worded as a small one. Josh asking
+  for the change is a reason to make it, not to give it a window slot.
+- The quoted app words in the answers-elsewhere line are in quotes.
+
+## Review round 2
+- Grok's date is when its key ran out, not when it last worked (Muse's is when it was last seen working), so the
+  title and line now say "not renewed or seen working" and "since when they are unconfirmed" (replaced in round 3
+  by the split below).
+- The line-spacing line drops the number for plain words.
+
+## Review round 3
+- Meta Muse is Mac-only (engine/musestatus.js enabled() is false off darwin), so the sign-ins item is split: Grok
+  untagged (rank 19), Muse tagged mac (rank 19.5). Checked with `notes 0.7.96 --platform=linux|windows`: neither
+  names Meta Muse.
+- The spreadsheet line says a workbook's sheets open as tabs (one sheet draws no tab bar).
+- #7420 is iPhone-only (ios/Kosmos/ChatView.swift), so it moved to the iPhone reason.
+- Decided not to add notesOnly items for #4926 and #8140 item 3: both change wording an agent already reads in
+  context (kosmos room --unanswered, the hold and nudge lines), so a note teaches it nothing new. Weakest premise:
+  an agent that read the old --unanswered list may not notice the change. Would change my mind: an agent asking.
+- The first commit's message still carries round-0 wording; the PR body and merge message use the final wording.
+
+## Review round 4
+- c209c254b5 (#8140 item 1, a parent task says how many subtasks are on hold) shipped in 0.7.95 and the 0.7.95 pool
+  missed it, so prod users were never told. Added as since 0.7.95, rank 17.2 (below the window, cross-platform: web
+  and both CLIs).
+- #8036 is visible, so the plan no longer calls it invisible; it stays out as a glitch fix.
+
+## Review round 5
+- A stale Grok subscription row was already an amber "Signed in" in 0.7.94, never green, so the Grok line now says
+  "not \"Signed in\"". The Muse row was green, so its "not green" stays.
+- Both task items say "task lists". Left as is: .xlsm is not named in the spreadsheet line (it would pass 140
+  characters; an omission, not a false claim), and "On the Mac," stays in the two mac items (the platform-word rule).

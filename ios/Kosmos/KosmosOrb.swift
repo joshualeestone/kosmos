@@ -1,7 +1,9 @@
 import SwiftUI
 
 /// kosmos#7896 (Josh 2026-11-03), retired on the iPhone by kosmos#8058 (Josh 2026-11-05 18:33: dots only in the mobile
-/// app): no screen draws it, and the sweep suite fails if one does. Unused; deleting the file is enough (the project syncs its folder).
+/// app), then back on exactly three whole-screen waits by Josh 2026-11-06 18:14 through WaitOrb below: Allow this iPhone and
+/// Connecting to your Mac (AgentsView's message(), so every tab that shows the connection screen) and Making <name>
+/// (NewAgentView). The sweep suite fails if any other place draws it.
 /// The geometry is OrbLogic (the desktop's, same seed). 15 frames a second
 /// (the .animation schedule pauses with the app in the background; whether it also pauses for a view kept alive out of
 /// sight is not verified here); with Reduce Motion on, one still frame with the K facing. VoiceOver hears it as
@@ -62,5 +64,35 @@ struct KosmosOrb: View {
                 ctx.fill(path, with: .color(colour))
             }
         }
+    }
+}
+
+/// The orb on a whole-screen wait (Josh 2026-11-06 18:14: "at least double" the desktop list's 66 pt). At the accessibility
+/// text sizes it is 66 pt instead, so the words under it (on Allow this iPhone, the code to check) keep the room they need on
+/// a screen that does not scroll (review 1). The only way the app draws the orb.
+struct WaitOrb: View {
+    static let side: CGFloat = 132
+    static let sideAtLargeText: CGFloat = 66
+    /// 66 pt at the accessibility text sizes and in landscape (a short screen, review 3), else 132.
+    static func side(_ type: DynamicTypeSize, compactHeight: Bool) -> CGFloat {
+        type.isAccessibilitySize || compactHeight ? sideAtLargeText : side
+    }
+    var label: String
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.verticalSizeClass) private var heightClass
+    var body: some View { KosmosOrb(size: WaitOrb.side(typeSize, compactHeight: heightClass == .compact), label: label) }
+}
+
+/// Making's ending: the green tick, in a box the size WaitOrb would be on this screen, so the mark itself keeps its place
+/// and size (review 3). The words still shift when the screen adds its hello line and button (review 5); that is the
+/// screen's own layout, unchanged by this.
+struct WaitTick: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.verticalSizeClass) private var heightClass
+    var body: some View {
+        let box = WaitOrb.side(typeSize, compactHeight: heightClass == .compact)
+        Image(systemName: "checkmark.circle.fill").resizable().scaledToFit().frame(width: box / 2, height: box / 2)
+            .foregroundColor(Palette.ringOk).accessibilityHidden(true)
+            .frame(width: box, height: box)
     }
 }

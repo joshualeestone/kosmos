@@ -1,10 +1,23 @@
 {
-  "version": "0.7.95",
+  "version": "0.7.96",
   "highlights": [
+    {
+      "icon": "list",
+      "title": "Spreadsheets open in the file viewer",
+      "line": "A spreadsheet (.xlsx, .csv or .tsv) now opens as a read-only grid, a workbook's sheets as tabs. It shows the values saved in the file."
+    },
     {
       "icon": "spark",
       "title": "The KOSMOS orb on the big waits",
       "line": "Opening, updating and Kosmos+ sign-in now wait under the KOSMOS orb, and making an agent ends with the orb's dots turning into a check."
+    },
+    {
+      "icon": "shield",
+      "title": "Always Allow for downloads from your computers",
+      "line": "On the Mac, a download from another of your computers can now be set to Always Allow, kept while that computer is on your Kosmos+ account.",
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "icon": "shield",
@@ -21,16 +34,6 @@
       "platforms": [
         "mac"
       ]
-    },
-    {
-      "icon": "chat",
-      "title": "Agents see posts from agents they follow",
-      "line": "An agent reading posts by agents it follows now looks past a run of replies, so posts pushed down the feed can still reach it."
-    },
-    {
-      "icon": "tasks",
-      "title": "Old project summaries say why",
-      "line": "A project member summary marked as old now says what kept it old: time working or waiting, or turns ended, since it was written."
     }
   ]
 }

@@ -143,7 +143,7 @@ git -C "$S" show "$c98:dist/latest-staging.json" > "$S/dist/latest-staging.json"
 nest() { node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.extra={inner:process.argv[2]};if(process.argv[3]==="drop")delete p.setup_sha256;require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$S/dist/latest-staging.json" "$1" "${2:-}"; }
 nest first; git -C "$S" commit -qm "9.9.8 re-paired, inner first" -- dist/latest-staging.json setup-staging setup-staging.sha256
 nest second drop; git -C "$S" commit -qm "9.9.8 republished, inner second" -- dist/latest-staging.json
-refused "a later pointer differing only inside a nested field" "$S" "have pointers that differ in more than the installer they name" --version 9.9.8
+refused "a later pointer differing only inside a nested field" "$S" "have pointers that differ in more than the /setup installer they name" --version 9.9.8
 # The same build under a later commit that names ANOTHER installer (its tree's setup-staging does not match it): said.
 S="$(newsite)"; republish "$S" 9.9.8 "$(printf 'OTHER-INSTALLER\n' | shasum -a 256 | awk '{print $1}')"
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
@@ -381,6 +381,35 @@ P8=""; for i in $(seq 1 100); do P8="$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' 
 out="$(KOSMOS_SITE_URL="http://127.0.0.1:$P8" bash "$HERE/promote-channel.sh" "$S" 2>&1)"; rc=$?
 kill "$SRV8" 2>/dev/null; wait "$SRV8" 2>/dev/null; SRV8=""
 [ "$rc" = 0 ] && [ "$(cat "$S/dist/Kosmos.pkg")" = "STAGING-PKG" ] && pass "8167 named: CONTROL the same site promoted without --version DOES copy the staging pkg" || bad "8167 named control (rc=$rc, Kosmos.pkg: $(cat "$S/dist/Kosmos.pkg"), out=$out)"
+
+# ---- kosmos#8172: a NAMED promote whose pointer names its pkg CAN carry the installer now ----
+PB="NAMED-STAGING-PKG"; PX="$(printf '%s' "$PB" | shasum -a 256 | awk '{print $1}')"
+S="$(KM_LJ_PKG_SHA="$PX" newsite)"; mkpkg "$S" Kosmos.pkg "PROD-PKG"; mkpkg "$S" Kosmos-staging.pkg "$PB"
+[ "$(git -C "$S" show HEAD~1:dist/latest-staging.json | grep -c "\"pkg_sha256\":\"$PX\"")" = 1 ] && pass "8172 named: fixture, 9.9.8's committed pointer names the pkg" || bad "8172 named fixture: $(git -C "$S" show HEAD~1:dist/latest-staging.json)"
+W9="$T/www8172"; mkdir -p "$W9/dist"; cp "$S/dist/Kosmos-staging.pkg.sha256" "$W9/dist/"
+( cd "$W9" && exec python3 -u -m http.server 0 -b 127.0.0.1 ) > "$T/srv8172.log" 2>&1 & SRV8=$!
+P9=""; for i in $(seq 1 100); do P9="$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$T/srv8172.log" | head -n1)"; [ -n "$P9" ] && break; sleep 0.1; done
+out="$(KOSMOS_SITE_URL="http://127.0.0.1:$P9" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+kill "$SRV8" 2>/dev/null; wait "$SRV8" 2>/dev/null; SRV8=""
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && [ "$(cat "$S/dist/Kosmos.pkg")" = "$PB" ] \
+  && pass "8172 named: --version 9.9.8 carries the pkg its own pointer names" || bad "8172 named copy (rc=$rc, Kosmos.pkg: $(cat "$S/dist/Kosmos.pkg"), out=$out)"
+
+# kosmos#8172: the cut's own commit names its pkg, a later same-build republish does not (it dropped pkg_sha256): they
+# still "point at the same build", and the promote goes on with its NOTE instead of refusing.
+S="$(KM_LJ_PKG_SHA="$PX" newsite)"
+git -C "$S" show HEAD~1:dist/latest-staging.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const p=JSON.parse(s);delete p.pkg_sha256;process.stdout.write(JSON.stringify(p)+"\n")})' > "$S/dist/latest-staging.json"
+git -C "$S" commit -qam "9.9.8: republished by hand (no pkg_sha256)"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "points at the same build" \
+  && pass "8172 named: a republish differing only in pkg_sha256 still counts as the same build" || bad "8172 named republish (rc=$rc, out=$out)"
+
+# ...but two same-build pointers that BOTH name a pkg, and name different ones, are a real disagreement: refused.
+S="$(KM_LJ_PKG_SHA="$PX" newsite)"
+git -C "$S" show HEAD~1:dist/latest-staging.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const p=JSON.parse(s);p.pkg_sha256="0".repeat(64);process.stdout.write(JSON.stringify(p)+"\n")})' > "$S/dist/latest-staging.json"
+git -C "$S" commit -qam "9.9.8: republished naming another pkg"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "or name different installer pkgs" && [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ] \
+  && pass "8172 named: two same-build pointers naming DIFFERENT pkgs are refused, nothing written" || bad "8172 named pkg disagreement (rc=$rc, out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-promote-named-7005: ALL PASS"; else echo "test-promote-named-7005: FAILURES above"; exit 1; fi

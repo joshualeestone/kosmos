@@ -4595,6 +4595,8 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
   #panel-tasks .tsk-row .tsk-hit { padding: 11px 14px 17px; margin: -11px -14px -17px; }   /* 11 above stays inside the row's padding; 44 tall and wide */
   /* Short one-line buttons grow to 44px themselves. */
   #panel-tasks :is(.tsk-row .meta button:not(.tsk-chip), .tsk-row .tsk-unbuild, .tsk-crumb button) { display: inline-flex; align-items: center; min-height: 44px; vertical-align: middle; }
+  #panel-tasks .tsk-row .tsk-unbuild { min-width: 44px; }   /* kosmos#8158: "Undo" is shorter than 44px on its own */
+  #panel-tasks .tsk-row .why .tsk-unbuild.tsk-unbuild-own { display: flex; }   /* specific enough to beat the :is() rule above */
   /* The title stays an inline button, so a long one wraps like text on the line of its #12 (review: flex, and then
      inline-flex, pushed it below). Its tap area grows with padding, and an equal negative margin keeps the lines. */
   #panel-tasks .tsk-row .tl { padding-block: 11px 15px; margin-block: -11px -15px; }   /* 11 above stays inside the row's padding */
@@ -4657,9 +4659,10 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tksub.done .tksub-t { color: var(--k-ink-2); text-decoration: line-through; }
 .tksubs-done { margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .tsk-row .meta button:hover { text-decoration: underline; text-decoration-color: var(--gold); }
-/* #3951: "Not built yet" on a built row, a quiet text action like the row's other buttons. */
+/* #3951: "Undo" on a built row, a quiet text action like the row's other buttons. A verb (kosmos#8158): "Not built yet" read as a second state. */
 .tsk-row .tsk-unbuild { border: 0; background: none; padding: 0 0 0 4px; font: inherit; font-weight: 600; color: var(--k-ink); cursor: pointer; }
 .tsk-row .tsk-unbuild:hover { text-decoration: underline; text-decoration-color: var(--gold); }
+.tsk-row .tsk-unbuild-own { display: block; padding-left: 0; }   /* kosmos#8158 (Mona Lisa): after an agent's note it starts its own line, or it reads as the note's last word */
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 /* kosmos#4787 slice 2: a repeating task's line turns the error red while a run is missed (row and task page alike). */
 .tsk-row .why.tsk-repeat.missed, #tk-repeat-line.missed { color: var(--danger); }
@@ -72278,7 +72281,7 @@ function tskRow(t, at) {
       + (t.builtAt && agoWords(Date.now() - Date.parse(t.builtAt)) ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
       + (t.builtNote ? ': ' + esc(t.builtNote) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
-      + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain)) + ' not built yet">Not built yet</button></div>';
+      + ' <button type="button" class="tsk-unbuild' + (t.builtNote ? ' tsk-unbuild-own' : '') + '" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Undo marking task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain)) + ' built">Undo</button></div>';
   const whoLeft = t.state === 'closed' || typeof tkWhoLeftWords !== 'function' ? '' : tkWhoLeftWords(t, tskAgentName);   // kosmos#8137; typeof: tests lift this function alone
   const whoLeftLine = whoLeft ? '<div class="why">' + esc(whoLeft) + '</div>' : '';
   /* #7508 (Mona Lisa's words): the commit a code fix was saved as, from the agent's built mark, on open and closed rows
@@ -72327,7 +72330,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + waitLine + whoLine + forYouLine + repeatLine + builtLine + whoLeftLine + landedLine + replacedLine + '</div>'
+    + '</div>' + cannot + waitLine + whoLine + forYouLine + repeatLine + whoLeftLine + landedLine + builtLine + replacedLine + '</div>'   /* kosmos#8158: the commit line first, so Undo cannot read as undoing it */
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */
@@ -72659,6 +72662,8 @@ async function tskUnbuild(key) {
   const projectId = key.slice(0, i);
   const number = Number(key.slice(i + 1));
   TSK.busy = true;
+  /* kosmos#8158: taking the mark off also takes the "Saved as change" line off the row, so it says the change itself is not touched. */
+  const hadChange = (TSK.data || []).some((t) => t.projectId === projectId && t.number === number && t.landedCommit);
   try {
     const r = await fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + number + '/built', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clear: true }),
@@ -72667,7 +72672,7 @@ async function tskUnbuild(key) {
     /* Only "stays open" when it does: the task may have been closed since the row was drawn (review round 2). */
     said.textContent = r.ok && body.task
       ? (body.changed === false ? 'Task ' + number + ' was not marked built.'
-        : 'Task ' + number + ' is no longer marked built.' + (body.task.closedAt ? '' : ' It stays open.'))
+        : 'Task ' + number + ' is no longer marked built.' + (body.task.closedAt ? '' : ' It stays open.') + (hadChange ? ' The saved change is not touched.' : ''))
       : asSentence(body.error || 'the mark was not taken off');
   } catch {
     said.textContent = 'We could not reach Kosmos, so the mark is still there.';
@@ -77627,8 +77632,13 @@ function pvSheetInto(stage, data) {
     const sh = sheets[i]; panel.textContent = ''; notes.textContent = ''; panel.scrollTop = 0; panel.scrollLeft = 0;   // each sheet opens at its top left; emptying alone resets it only if layout runs between (review 3)
     if (sheets.length > 1 && tabs.children[i]) panel.setAttribute('aria-labelledby', tabs.children[i].id);
     // Said under the sheet, in the viewer's own (light) words colour, never inside the white panel.
-    if (sh.notGrid) { notes.appendChild(note('This sheet is not a table of values, so it is not shown here.')); panel.hidden = true; return; }
-    if (!sh.rows.length) { notes.appendChild(note('This sheet is empty.')); panel.hidden = true; return; }
+    /* kosmos#8188: a sheet the reader marks cut (since #8162/#8168, a damaged sheet list, rels or styles part cuts every
+       sheet) says so on these two paths too: "not a table" or "empty" read as the whole truth about a file that could
+       not be read whole. Said in words true whatever the cut was, since the reader does not say why (review 1: a size cut,
+       past column 50 or the reader's output budget, can also leave a cut sheet with no rows, so that path blames nothing).
+       Not a table and cut comes only from a damaged structure (#8168 sets it there), so that path says so. */
+    if (sh.notGrid) { notes.appendChild(note(sh.cut ? 'Part of this file could not be read, so this sheet is not shown here. Open the file to see it.' : 'This sheet is not a table of values, so it is not shown here.')); panel.hidden = true; return; }
+    if (!sh.rows.length) { notes.appendChild(note(sh.cut ? 'Nothing of this sheet can be shown here. Open the file to see it.' : 'This sheet is empty.')); panel.hidden = true; return; }
     panel.hidden = false;
     const t = document.createElement('table'); t.className = 'pv-grid';
     const head = t.createTHead().insertRow(); { const corner = document.createElement('th'); corner.setAttribute('aria-label', 'Row'); head.appendChild(corner); }   // the row numbers' column (review 2)
@@ -77648,7 +77658,10 @@ function pvSheetInto(stage, data) {
     // CJK). Measured now, not on the next frame: the grid is already on the page, so reading its width lays it out (a
     // deferred measure raced the first look in WebKit).
     t.querySelectorAll('.pv-cell').forEach((c) => { if (c.scrollWidth > c.clientWidth + 1) c.title = c.textContent; });
-    if (sh.cut) notes.appendChild(note('This sheet goes on past what is shown here (up to 200 rows and 50 columns). Open the file to see all of it.'));
+    /* kosmos#8188 (review 1): one sentence true for every cause of a cut. The reader does not say why a sheet is cut,
+       and guessing it from the sheet's shape was wrong both ways (a sparse sheet cut by size shows fewer than 200 rows;
+       a 200-row sheet can be cut by a damaged styles part). */
+    if (sh.cut) notes.appendChild(note('Only part of this sheet is shown here. Open the file to see all of it.'));
   };
   sheets.forEach((sh, i) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'pv-tab'; b.setAttribute('role', 'tab');

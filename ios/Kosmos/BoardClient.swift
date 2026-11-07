@@ -339,6 +339,14 @@ final class BoardClient: ObservableObject {
             // kosmos#7945 follow-up: KOSMOS_SAMPLE_REACHING=1 stays on the first wait to connect ("Connecting..."), so a
             // simulator can show it beside the launch screen and the two can be compared.
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REACHING"] == "1" { return }
+            // Josh 2026-11-06 18:14: with KOSMOS_SAMPLE_AGENTS=1, KOSMOS_SAMPLE_WAIT=allow or connecting holds the board's
+            // connection screen on that wait (every tab that shows it), for a simulator picture and the UI test; a Mac
+            // named Studio Mac, code 7K3Q.
+            switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WAIT"] {
+            case "allow": phase = .waitingForAllow(mac: "Studio Mac", code: "7K3Q"); return
+            case "connecting": phase = .connecting(mac: "Studio Mac"); return
+            default: break
+            }
             // Through the real parser, as /api/status rows from a Mac that sends its words ready-made (#7004).
             // kosmos#7030: with Today's fields (the reason, the project's name, when the wait began), times relative to now.
             let iso = { (minutes: Double) in ISO8601DateFormatter().string(from: Date().addingTimeInterval(-minutes * 60)) }

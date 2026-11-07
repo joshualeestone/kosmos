@@ -146,7 +146,7 @@ kosmos_browser_check_surface_gate() {
   scan="$(bc_surface_scan_checks "$bcdir" "$changed")" \
     || scan="$(printf '%s\n' "$ann_list" | sed "s|\$|${tab}SLOW${tab}|")"
   has_trailer=0
-  printf '%s\n' "$msgs" | grep -qiE '^browser-check-surface:' && has_trailer=1
+  printf '%s\n' "$msgs" | grep -ciE '^browser-check-surface:' >/dev/null && has_trailer=1   # -c: reads to the end (#8195); a long branch's messages outgrow the pipe
   while IFS="$tab" read -r ann verdict hit; do
     [ -n "$ann" ] || continue
     [ "$verdict" = MISS ] && [ "$has_trailer" -eq 0 ] && continue

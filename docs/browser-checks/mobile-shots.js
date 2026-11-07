@@ -241,6 +241,24 @@ async function heldCount8140(page, data, which) {
   await page.evaluate(() => document.getElementById('tk-subs').scrollIntoView({ block: 'center' }));
   await page.waitForTimeout(300);
 }
+/* kosmos#8188: open the spreadsheet viewer on a two-sheet answer, both sheets cut (a damaged file), and show sheet `which`. */
+async function sheetCut8188(page, which) {
+  const ID = 'a8'.repeat(12);
+  await page.route('**/api/attachment/' + ID + '/sheet', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true,
+    sheets: [{ name: 'Budget', rows: [['Item', 'Cost'], ['Paper', '12.50'], ['Ink', '40'], ['Postage', '8.20']], cut: true }, { name: 'Notes', rows: [], cut: true }],
+    moreSheets: 0, noValues: false, someNoValues: false, empty: false }) }));
+  await at(page, '');
+  await page.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvSheetInto === 'function', null, { timeout: 10000 });
+  await page.evaluate((id) => {
+    const strip = document.createElement('div'); strip.setAttribute('data-shot-8188', ''); strip.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:55;';
+    strip.innerHTML = pjAttachmentCard({ name: 'Budget 2026.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 68000, kind: 'file', url: '/api/attachment/' + id });
+    document.body.appendChild(strip);
+  }, ID);
+  await page.click('[data-shot-8188] a.att');
+  await page.waitForSelector('#pv-preview .pv-grid', { timeout: 10000 });
+  if (which === 1) { await page.click('#pv-preview .pv-tab:nth-child(2)'); await page.waitForSelector('#pv-preview .pv-grid-wrap[hidden]', { state: 'attached', timeout: 5000 }); }
+  await page.waitForTimeout(300);
+}
 /* A screen's throwaway project, by name, deleted after its shot (kosmos#6501: one helper for every such screen). */
 async function throwawayProjectGone(page, projectName) {
   const st = await page.evaluate(async (name) => {
@@ -1964,6 +1982,10 @@ const SCREENS = [
   /* #4637: the "wants to connect" sheet (Mona Lisa's flow outline, #4754). Two requests: another of the person's
      computers joining (#4773's joining_computer) and a phone. connect-connected is after Allow on the computer;
      connect-notice is the strip on another page. Each asserts its words, so a wrong screen fails the shot. */
+  /* kosmos#8188: the spreadsheet viewer on a damaged file: a cut grid says not all of it is shown, and a cut sheet with no
+     rows never says it is empty. The real viewer, opened from a real attachment card; the sheet answer is stubbed. */
+  { name: 'sheet-cut-8188', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await sheetCut8188(page, 0); } },
+  { name: 'sheet-cut-empty-8188', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await sheetCut8188(page, 1); } },
   { name: 'connect-sheet', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Your computer "windowsbox" wants to join/.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
   } },
@@ -2679,6 +2701,33 @@ const SCREENS = [
     await page.waitForSelector('#tsk-groups .tsk-row .tsk-waiting-who', { state: 'attached', timeout: 8000 });
     await page.evaluate(() => { const r = document.querySelector('#tsk-groups .tsk-row .tsk-waiting-who').closest('.tsk-row'); r.scrollIntoView({ block: 'center' }); });
     await page.waitForTimeout(300);
+  } },
+  /* kosmos#8158: built rows on the Tasks view with the control that takes the mark off: one the person marked, and one they did
+     not, marked from outside the page with a long note after it. That second is the harder sentence to read it in. */
+  { name: 'tasks-built-8158', owner: 'Angel', go: async (page, data) => {
+    const task = (n) => new URL('/api/project/' + encodeURIComponent(data.projectId) + '/task/' + n + '/built', page.url()).href;
+    const mine = await page.evaluate((u) => fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((r) => r.status), task(1));
+    if (mine !== 200) throw new Error('tasks-built-8158: could not mark task 1 built (status ' + mine + ')');
+    const other = await fetch(task(2), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: 'waiting on the release, then the printer signs off the final proofs' }) });
+    if (other.status !== 200) throw new Error('tasks-built-8158: could not mark task 2 built (status ' + other.status + ')');
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.click('#tsk-tiles [data-tile="built"]');
+    await page.waitForSelector('#tsk-groups .tsk-unbuild', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.querySelector('#tsk-groups .tsk-unbuild').closest('.tsk-row').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const lines = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-unbuild')].map((b) => b.closest('.why').textContent));
+    const inline = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-unbuild')].map((b) => { const c = getComputedStyle(b), r = b.getBoundingClientRect(), w = b.closest('.why').getBoundingClientRect(); return [b.closest('.why').textContent.includes('final proofs'), r.left > w.left + 1, r.left, w.left, r.width, c.display, c.paddingLeft, c.marginLeft, c.alignSelf]; }));
+    if (!inline.every(([note, beside]) => note !== beside)) throw new Error('tasks-built-8158: Undo is on the wrong line: ' + JSON.stringify(inline));
+    if (lines.length !== 2 || !lines.every((l) => l.endsWith(' Undo')) || !lines.some((l) => / by you /.test(l)) || !lines.some((l) => !/ by you /.test(l) && /final proofs/.test(l))) throw new Error('tasks-built-8158: not the two rows meant: ' + JSON.stringify(lines));
+  }, after: async (page, data) => {
+    const failed = [];
+    for (const n of [1, 2]) {
+      const st = await page.evaluate(([id, t]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + t + '/built', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }).then((r) => r.status), [data.projectId, n]);
+      if (st !== 200) failed.push(n + ' (' + st + ')');
+    }
+    if (failed.length) throw new Error('tasks-built-8158: could not take the mark off task ' + failed.join(', '));
   } },
   /* #6480: a sub-project's page, where the trail above the heading ("Parent / Launch") still shows; the control for
      project-head, where a top-level project's lone crumb is hidden in today's look. */

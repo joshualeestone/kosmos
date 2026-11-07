@@ -283,6 +283,14 @@ const SEAMS_5548 = {
   // can pin the id-order sort and the unrecorded and reached-nobody rules directly. Production never calls them.
   _withPendingForTests: 'engine/messages.js',
   _setPendingForTests: 'engine/messages.js',
+  // kosmos#8178: what a board restart forgets, and where the id file is, so server.post-restartcite-8178.test.js can
+  // restart the board mid-delivery and plant an id file. Production never calls them.
+  _restartForTests: 'engine/messages.js',
+  _idsPathForTests: 'engine/messages.js',
+  // kosmos#8178 round 3: a small compaction threshold, so the same test can show a board that stays up compacts.
+  _idsCompactAtForTests: 'engine/messages.js',
+  // kosmos#8178 round 5: ends the read-again pause, so a test can show a failed read is retried. Production never calls it.
+  _idsRetryNowForTests: 'engine/messages.js',
   // kosmos#8122 review 5: forgets the remembered sheet answers, so engine/xlsxpreview-review-8122.test.js can count a read
   // from a clean start. Production never calls it.
   _forgetForTests: 'engine/sheetpreview.js',

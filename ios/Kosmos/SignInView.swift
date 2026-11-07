@@ -430,17 +430,25 @@ struct SignInView: View {
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                content
+        // Josh 2026-11-06 18:18: "on the iphone i want all the signin stuff to be vertically centered". The column is at
+        // least as tall as the space it has and centred in it, so a short step sits in the middle and a long one still
+        // scrolls. The space shrinks to above the keyboard when it opens, so the column re-centres there and the box it
+        // is typing into stays in sight (ScrollView also scrolls a focused field into view).
+        GeometryReader { space in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    content
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 36)   // equal above and below, so a short step sits at the true centre (review 5)
+                .frame(maxWidth: 480, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: space.size.height, alignment: .center)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 48)
-            .frame(maxWidth: 480, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .scrollDismissesKeyboard(.interactively)
         }
-        .background(Palette.ground.ignoresSafeArea())
-        .scrollDismissesKeyboard(.interactively)
+        // Josh 2026-11-06 18:18: the desktop first run's floating dots behind it (FloatingDots.swift).
+        .background(ZStack { Palette.ground; FloatingDots() }.ignoresSafeArea())
     }
 
     @ViewBuilder private var content: some View {

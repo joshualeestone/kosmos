@@ -1224,6 +1224,46 @@ function hidesCard(r) {
   return Boolean(r) && (r.stopped !== false || r.leftRunningByChoice === true);
 }
 
+/* kosmos#8112: whether THIS spelling has its own folder. A folder recorded in the agent's profile does not carry the
+   spelling in its path: the profile is keyed on store.safeKey (lowercased), so workerDir('Cai') returns cai's recorded
+   folder and existsExactly on it is true. So a recorded folder proves a spelling only when
+     - it is the profile's connectedAs (written at connect, untouched by a rename), or, for a profile written before
+       connectedAs existed: its displayName is exactly it; a displayName that is another spelling of the same key
+       leaves it to the job under the lowercase name; otherwise the lowercase key form proves it; and
+     - no startup job is under the lowercase machine name when the spelling differs from it (an adopted `cai` shown
+       as "Cai" has its job under `cai`, which proves cai, so "Cai" is a variant).
+   An agent whose folder is not recorded is named by its folder, as before. */
+function folderIsExactly(clean, platform) {
+  if (!create.agentDirRecorded(clean)) return existsExactly(create.workerDir(clean));
+  let prof;
+  try { prof = store.readProfile(clean); } catch { return false; }
+  let key;
+  try { key = store.safeKey(clean); } catch { return false; }
+  /* Review 2: connectedAs (written at connect) is the spelling, and a rename never changes it. */
+  if (typeof prof.connectedAs === 'string' && prof.connectedAs) {
+    if (prof.connectedAs !== clean) return false;
+  } else {
+    /* Review 4: a profile written before connectedAs. A full connect took displayName from the instructions ("Casey
+       Jones") while the name is the folder name (casey, lowercase by NAME_RE); a register-only connect wrote the typed
+       name as displayName. So: displayName equal to it proves it; a displayName that is only a case variant of it
+       refuses it (the variant this card is about); otherwise the lowercase key form proves it. */
+    const shown = typeof prof.displayName === 'string' ? prof.displayName : '';
+    if (shown !== clean) {
+      let shownKey = null;
+      try { shownKey = shown ? store.safeKey(shown) : null; } catch { shownKey = null; }
+      if (shownKey === key) {
+        /* Review 5: the display name is another spelling of this same key ("April" for april, or "orch.main" for
+           orchmain). The profile cannot say which spelling is the agent's: an old full connect (april, shown "April")
+           has its job under the lowercase name, an old register-only agent ("orch.main") has none. So the job decides. */
+        if (!(clean === key && jobFor(clean, platform))) return false;
+      } else if (key !== clean) {
+        return false;
+      }
+    }
+  }
+  return !(key !== clean && jobFor(key, platform));
+}
+
 /**
  * Whether there is anything here to remove: a folder, a startup job, or a
  * session on the board. Any one is enough.
@@ -1232,7 +1272,7 @@ function exists(clean, platform) {
   if (jobFor(clean, platform)) return true;
   // ⚠️ Exact spelling again. Without it `exists('CASEY')` is true because
   // `casey`'s folder answers, and the removal proceeds under the wrong name.
-  if (existsExactly(create.workerDir(clean))) return true;
+  if (folderIsExactly(clean, platform)) return true;
   /**
    * ⚠️ An unreachable tmux is UNKNOWN, and the caller says so in those words.
    * Returning a bare false here made `plan` answer "we cannot find an agent
@@ -1335,7 +1375,7 @@ function resolve(name, platform, listed) {
   try { clean = create.cleanName(name); } catch { return asGiven; }
   if (!clean || unsafeToActOn(clean)) return asGiven;
   // An agent with this exact name (folder, job, or a session; an unknown session also counts, so it fails closed).
-  let exact = existsExactly(create.workerDir(clean)) || Boolean(jobFor(clean, platform));
+  let exact = folderIsExactly(clean, platform) || Boolean(jobFor(clean, platform));   // kosmos#8112: a recorded folder is no spelling
   if (!exact) {
     let found;
     try { found = sessionFor(clean); } catch { return asGiven; }
@@ -1666,6 +1706,10 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
      unchanged. */
   const ops = jobOps(platform);
   const job = jobFor(clean, platform);
+  /* kosmos#8112 review 5: whether this spelling owns the folder, decided once and used by the Codex step and the
+     removed message. (Removal disables the job and touches no files, measured, so the job still proves an old agent
+     when the message is written; one decision is simply one answer for both.) */
+  const ownsFolder = folderIsExactly(clean, platform);
   /* 🔑 READ BEFORE ANYTHING IS TAKEN APART (#1414). The codex trust entry
      lives in the home the agent RAN in, and the only record of which home
      that was is `CODEX_HOME` inside the plist. Every step below exists to
@@ -1943,7 +1987,9 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
      directories that no longer existed.
      📌 Only for an agent that actually ran on codex. The home is whatever the
      plist recorded, or null, and null means the same default the WRITE used. */
-  if (codexJob) {
+  /* kosmos#8112 review 4: no Codex step at all for a variant spelling of another agent's recorded folder, so nothing
+     reports a trust it did not take back. */
+  if (codexJob && !(create.agentDirRecorded(clean) && !ownsFolder)) {
     /* 🛑 THE LABEL IS CHOSEN AFTER THE WORK, BECAUSE THIS CARD IS ABOUT A
        LABEL THAT OVERSTATED WHAT IT DID (PigeonPete, cross-review). `step()`
        records `{label, ok}` and nothing else, so a refusal would have shown
@@ -2015,7 +2061,7 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
     // a real `casey` folder) promises "its folder is still on your computer"
     // about a folder that agent never had. The hazard was fixed in two places
     // and this third one kept the old call.
-    because: existsExactly(create.workerDir(clean))
+    because: ownsFolder   // kosmos#8112 review 1/5: never another spelling's recorded folder
       ? `${shown} has been removed from Kosmos. Its folder and everything in it is still on your computer.`
       : `${shown} has been removed from Kosmos. Nothing on your computer was deleted.`,
     steps,

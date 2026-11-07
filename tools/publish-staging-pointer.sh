@@ -84,7 +84,17 @@ KEEP_SETUP=""
 if [ -f "$SITE/dist/latest-staging.json" ]; then
   KEEP_SETUP="$(node -e 'try{const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));if(p.version===process.argv[2]&&p.artifact===process.argv[3]&&p.sha256===process.argv[4]&&/^[0-9a-f]{64}$/.test(p.setup_sha256||""))process.stdout.write(p.setup_sha256)}catch{}' "$SITE/dist/latest-staging.json" "$V" "$ARTIFACT" "$SHA" 2>/dev/null || true)"
 fi
-KM_LJ_VERSION="$V" KM_LJ_SHA="$SHA" KM_LJ_ARTIFACT="$ARTIFACT" KM_LJ_MANIFEST="$MANIFEST" KM_LJ_SETUP_SHA="$KEEP_SETUP" \
+# kosmos#8172: the installer pkg the build left (pkg_sha256), kept on the same terms as setup_sha256 AND only while
+# dist/Kosmos-staging.pkg still hashes to it: unlike setup-staging, the staging pkg has a second writer (a prod cut).
+KEEP_PKG=""
+if [ -f "$SITE/dist/latest-staging.json" ]; then
+  KEEP_PKG="$(node -e 'try{const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));if(p.version===process.argv[2]&&p.artifact===process.argv[3]&&p.sha256===process.argv[4]&&/^[0-9a-f]{64}$/.test(p.pkg_sha256||""))process.stdout.write(p.pkg_sha256)}catch{}' "$SITE/dist/latest-staging.json" "$V" "$ARTIFACT" "$SHA" 2>/dev/null || true)"
+  if [ -n "$KEEP_PKG" ]; then
+    _kp_now=""; [ -f "$SITE/dist/Kosmos-staging.pkg" ] && _kp_now="$(shasum -a 256 < "$SITE/dist/Kosmos-staging.pkg" | awk '{print $1}')"
+    [ "$_kp_now" = "$KEEP_PKG" ] || { echo "publish-staging: dist/Kosmos-staging.pkg is no longer the pkg the pointer named (${KEEP_PKG:0:12}), so pkg_sha256 is dropped" >&2; KEEP_PKG=""; }
+  fi
+fi
+KM_LJ_VERSION="$V" KM_LJ_SHA="$SHA" KM_LJ_ARTIFACT="$ARTIFACT" KM_LJ_MANIFEST="$MANIFEST" KM_LJ_SETUP_SHA="$KEEP_SETUP" KM_LJ_PKG_SHA="$KEEP_PKG" \
   node "$POINTER_WRITER" "$PTMP" \
   && mv "$PTMP" "$SITE/dist/latest-staging.json" \
   || { echo "publish-staging: could not write latest-staging.json" >&2; rm -f "$PTMP"; exit 1; }

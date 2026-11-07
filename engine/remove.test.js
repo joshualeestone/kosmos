@@ -3542,3 +3542,183 @@ test('#8113 a hidden agent\'s exact name is one more match: a listed card with t
   // CONTROL: on the cards, the exact name wins over the other card (the decided rule), so the refusal comes from hiding.
   assert.deepEqual(remove.resolve('Jhide8113', MAC, listedOf('Jhide8113', 'jsmith8113')).ambiguous, [], 'CONTROL: listed, the exact name should win');
 });
+
+/* ── kosmos#8112: a profile-recorded agent's name in other letter case is not its exact name ─────────────────────────
+ * A connected agent's folder is recorded in its profile, and the profile is keyed on store.safeKey (lowercased), so
+ * create.workerDir('Kcrec8112') finds kcrec8112's recorded folder. That folder carries no spelling, so it must not prove
+ * the exact name: plan('Kcrec8112') used to answer ok under a name with no job and no session, and remove then wrote a
+ * removed record for it and said "removed" while the real agent ran on (a false success). */
+function recordedAgent(name) {
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'Folder-' + name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), `You are **${name}**.\n`, 'utf8');
+  require('./store').writeProfile(name, { dir });
+  const jobs = nodePath.dirname(create.plistPath(name));
+  fs.mkdirSync(jobs, { recursive: true });
+  fs.writeFileSync(nodePath.join(jobs, `com.${name}.discord.plist`), '<plist/>', 'utf8');
+  return dir;
+}
+
+test('#8112 a profile-recorded agent is found by its exact name, and a case variant is refused, not planned', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = recordedAgent('kcrec8112');
+  // CONTROL: the fixture is what the card describes: the variant reaches the recorded folder.
+  assert.equal(create.workerDir('Kcrec8112'), dir, 'CONTROL: the variant does not reach the recorded folder; this fixture cannot show the bug');
+  const exact = remove.plan('kcrec8112', MAC);
+  assert.equal(exact.ok, true, 'the exact name no longer plans: ' + exact.because);
+  const variant = remove.plan('Kcrec8112', MAC);
+  assert.equal(variant.ok, false, 'a case variant of a profile-recorded agent planned as if it were the agent (the false success)');
+  assert.match(variant.because, /cannot find an agent called Kcrec8112/, 'refused for another reason: ' + variant.because);
+});
+
+test('#8112 the CLI path resolves the variant to the one listed agent, never "more than one agent" with a phantom', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  recordedAgent('kres8112');
+  const listed = [{ name: 'kres8112', shown: 'kres8112' }];
+  const r = remove.resolve('Kres8112', MAC, listed);
+  assert.deepEqual(r.ambiguous, [], 'a phantom "Kres8112" made the name ambiguous: ' + JSON.stringify(r));
+  assert.equal(r.name, 'kres8112', 'the variant did not resolve to the listed agent');
+  assert.equal(remove.resolve('kres8112', MAC, listed).name, 'kres8112', 'CONTROL: the exact name changed');
+});
+
+/* kosmos#8112 review 1: a register-only connect (discover.registerOnly) records a folder and NO job, starts nothing,
+   and writes the typed name as displayName. It must still be removable by that exact name, and only by it. */
+function registeredOnly(name) {
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'Reg-' + name);
+  fs.mkdirSync(dir, { recursive: true });
+  require('./store').writeProfile(name, { dir, displayName: name, connectedAs: name });   // as discover.registerOnly writes it
+  return dir;
+}
+
+test('#8112 review 1: a register-only agent (no job, no session) plans by its exact name; a case variant does not', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  registeredOnly('kreg8112');
+  assert.equal(fs.existsSync(nodePath.join(nodePath.dirname(create.plistPath('kreg8112')), 'com.kreg8112.discord.plist')), false, 'CONTROL: the fixture has a job, so the folder is not what is tested');
+  const exact = remove.plan('kreg8112', MAC);
+  assert.equal(exact.ok, true, 'a register-only agent can no longer be removed by its own name: ' + exact.because);
+  const variant = remove.plan('Kreg8112', MAC);
+  assert.equal(variant.ok, false, 'a case variant of a register-only agent planned');
+});
+
+test('#8112 review 1: register-only under an UPPERCASE name (nameUsable allows it) plans by that name, not the lowercase one', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  registeredOnly('KUp8112');
+  const exact = remove.plan('KUp8112', MAC);
+  assert.equal(exact.ok, true, 'the typed uppercase name no longer plans: ' + exact.because);
+  assert.equal(remove.plan('kup8112', MAC).ok, false, 'the lowercase variant planned as if it were the agent');
+});
+
+test('#8112 review 1: an adopted agent shown as a case variant of its machine name: the variant is refused', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = recordedAgent('kad8112');   // a job under kad8112
+  require('./store').writeProfile('kad8112', { dir, displayName: 'Kad8112' });
+  assert.equal(remove.plan('kad8112', MAC).ok, true, 'the machine name no longer plans');
+  const v = remove.plan('Kad8112', MAC);
+  assert.equal(v.ok, false, 'the display-name spelling planned under a name with no job (the #8109 false success)');
+});
+
+test('#8112 review 2: a register-only agent renamed later (displayName rewritten) is still removable by its exact name', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  registeredOnly('kren8112');
+  require('./store').writeProfile('kren8112', { displayName: 'Scarlet Ren' });   // the profile route / "You are" follow
+  assert.equal(remove.plan('kren8112', MAC).ok, true, 'a rename made a register-only agent unremovable');
+  assert.equal(remove.plan('Kren8112', MAC).ok, false, 'a case variant planned after the rename');
+});
+
+test('#8112 review 2/6: a profile written before connectedAs falls back to displayName (an uppercase name, so the key-form arm cannot pass it)', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'Old-KOld8112');
+  fs.mkdirSync(dir, { recursive: true });
+  require('./store').writeProfile('KOld8112', { dir, displayName: 'KOld8112' });
+  assert.equal(remove.plan('KOld8112', MAC).ok, true, 'an older register-only profile became unremovable by its displayName');
+  assert.equal(remove.plan('Kold8112', MAC).ok, false, 'another spelling of the same key planned');
+});
+
+/* kosmos#8112 review 3: the register-only connect itself (discover.connect on a folder with no instructions), not a
+   hand-written profile, so dropping connectedAs from discover.js is caught; then a rename, then plan. */
+test('#8112 review 3: a register-only connect made by discover keeps its exact name through a rename', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'bare-kdr8112');
+  fs.mkdirSync(dir, { recursive: true });   // no instructions file: connect takes the register-only path
+  const out = require('./discover').connect(dir, { name: 'kdr8112' });
+  assert.equal(out.ok, true, 'CONTROL: the register-only connect itself failed: ' + out.because);
+  assert.equal(out.registered, true, 'CONTROL: connect did not take the register-only path');
+  require('./store').writeProfile('kdr8112', { displayName: 'Renamed Kdr' });
+  assert.equal(remove.plan('kdr8112', MAC).ok, true, 'after a rename the register-only agent is not removable by its name');
+  assert.equal(remove.plan('Kdr8112', MAC).ok, false, 'a case variant planned');
+  // Undo clears the spelling with the folder (review 3 nit).
+  require('./discover').disconnect('kdr8112');
+  assert.equal(require('./store').readProfile('kdr8112').connectedAs ?? null, null, 'Undo left the spelling behind');
+});
+
+test('#8112 review 3: a full connect that fails over a register-only agent puts its spelling back', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  create.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  try {
+    const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'bare-kfl8112');
+    fs.mkdirSync(dir, { recursive: true });
+    const reg = require('./discover').connect(dir, { name: 'kfl8112' });
+    assert.equal(reg.registered, true, 'CONTROL: not a register-only connect: ' + reg.because);
+    fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'You are **Kfl8112**.\n', 'utf8');
+    const again = require('./discover').connect(dir, { name: 'Kfl8112' });
+    assert.equal(again.ok, false, 'CONTROL: the uppercase full connect succeeded, so no rollback ran: ' + JSON.stringify(again));
+    assert.equal(require('./store').readProfile('kfl8112').connectedAs, 'kfl8112', 'the failed connect left its own spelling behind');
+    assert.equal(remove.plan('kfl8112', MAC).ok, true, 'the register-only agent lost its name to a failed connect');
+    assert.equal(remove.plan('Kfl8112', MAC).ok, false, 'the failed spelling plans (the #8112 false success, back)');
+  } finally { create.setRunner(null); }
+});
+
+test('#8112 review 4: an agent connected before connectedAs (display name from its instructions) is still found by its name', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'old-kcj8112');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'You are **Casey Jones 8112**.\n', 'utf8');
+  require('./store').writeProfile('kcj8112', { dir, displayName: 'Casey Jones 8112' });   // the shape main's connect wrote
+  assert.equal(require('./store').readProfile('kcj8112').connectedAs, undefined, 'CONTROL: the fixture is not an old profile');
+  assert.equal(remove.plan('kcj8112', MAC).ok, true, 'an agent connected before this change is not found by its own name');
+  assert.equal(remove.plan('Kcj8112', MAC).ok, false, 'a case variant of an old full-connect agent planned');
+  const done = mac.remove('kcj8112');
+  assert.match(String(done.because), /Its folder and everything in it is still on your computer/, 'the removal no longer says the folder is kept: ' + done.because);
+});
+
+test('#8112 review 4: an old register-only profile whose name is not lowercase does not prove the lowercase spelling', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'old-KOr8112');
+  fs.mkdirSync(dir, { recursive: true });
+  require('./store').writeProfile('KOr8112', { dir, displayName: 'KOr8112' });   // main's register-only, no connectedAs
+  assert.equal(remove.plan('KOr8112', MAC).ok, true, 'the typed name no longer plans');
+  assert.equal(remove.plan('kor8112', MAC).ok, false, 'the lowercase key form planned for an agent named KOr8112');
+});
+
+test('#8112 review 5: an old full-connect agent shown as its own name capitalised ("Kap8112" for kap8112) keeps its folder', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = recordedAgent('kap8112');   // a job under kap8112, as a full connect installs
+  require('./store').writeProfile('kap8112', { dir, displayName: 'Kap8112' });   // main's shape: no connectedAs
+  assert.equal(remove.plan('Kap8112', MAC).ok, false, 'the capitalised spelling planned (no job of its own)');
+  const done = mac.remove('kap8112');
+  assert.match(String(done.because), /Its folder and everything in it is still on your computer/,
+    'an old agent proven only by its job was told nothing was kept (decided after the job went): ' + done.because);
+});
+
+test('#8112 review 5: an old register-only name with punctuation ("kor.d8112") does not let its key form ("kord8112") plan', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'old-kord8112');
+  fs.mkdirSync(dir, { recursive: true });
+  require('./store').writeProfile('kor.d8112', { dir, displayName: 'kor.d8112' });
+  assert.equal(require('./store').readProfile('kord8112').dir, dir, 'CONTROL: the two spellings do not share one profile');
+  assert.equal(remove.plan('kor.d8112', MAC).ok, true, 'the typed name no longer plans');
+  assert.equal(remove.plan('kord8112', MAC).ok, false, 'the key form planned for an agent named kor.d8112 (a false success)');
+});

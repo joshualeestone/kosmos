@@ -1021,6 +1021,8 @@ struct NewAgentView: View {
         return VStack(spacing: 16) {
             Spacer()
             if seen {
+                // A green tick in the orb's place, after the Mac's ending (whose orb turns into a dotted check); Mona Lisa's call.
+                WaitTick()
                 Text(NewAgent.Words.running(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
                 Text(NewAgent.Words.hello).font(.body).foregroundColor(Palette.primary)
                 ForEach(madeWarnings, id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
@@ -1029,7 +1031,7 @@ struct NewAgentView: View {
                 Text(NewAgent.Words.notUpWhy + " " + NewAgent.Words.notUpNext).font(.body).foregroundColor(Palette.secondary)
                 ForEach(madeWarnings, id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
             } else {
-                SweepDots(size: 36, label: "Loading", scales: false)
+                WaitOrb(label: "Loading")   // Josh 2026-11-06 18:14: the orb, at least double 66 pt
                 Text(NewAgent.Words.makingNamed(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
             }
             Spacer()

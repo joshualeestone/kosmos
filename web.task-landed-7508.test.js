@@ -52,3 +52,11 @@ test('#7508 review 5: a closed row still only on this computer says it in amber,
   assert.match(row(local), /<div class="why tsk-landed">Saved as change 0123456, only on this computer so far<\/div>/);
   assert.doesNotMatch(row({ ...base, landedCommit: SHA.slice(0, 41) + 'a'.repeat(9), landedOnRemote: true }), /tsk-landed/, 'a 50-character value read as a sha');
 });
+
+test('kosmos#8158: on a built row with a commit, nothing follows Undo, so it cannot read as undoing the change', () => {
+  const html = row({ builtAt: new Date().toISOString(), builtNote: 'waiting on the release', landedCommit: 'a'.repeat(40), state: 'assigned' });
+  const saved = html.indexOf('Saved as change'), undo = html.indexOf('tsk-unbuild');
+  assert.ok(saved >= 0 && undo >= 0, 'premise: the row has both: ' + html);
+  assert.ok(saved < undo, 'the commit line comes first');
+  assert.equal(html.slice(undo).includes('class="why'), false, 'no line after Undo');
+});
