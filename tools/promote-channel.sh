@@ -273,7 +273,7 @@ if [ -n "$NAMED_VERSION" ]; then
   if [ -n "$_newest" ] && [ "$_newest" != "$NAMED_COMMIT" ]; then
     git -C "$SITE" show "${_newest}:dist/$STAGING_NAME" > "$NAMED_DIR/newest.json" 2>/dev/null
     git -C "$SITE" show "${NAMED_COMMIT}:dist/$STAGING_NAME" > "$NAMED_DIR/chosen.json" 2>/dev/null
-    if node -e 'const r=f=>{const p=JSON.parse(require("fs").readFileSync(f,"utf8"));delete p.setup_sha256;return p};process.exit(require("util").isDeepStrictEqual(r(process.argv[1]),r(process.argv[2]))?0:1)' "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json" 2>/dev/null; then
+    if node -e 'const r=f=>{const p=JSON.parse(require("fs").readFileSync(f,"utf8"));delete p.setup_sha256;delete p.pkg_sha256;return p};process.exit(require("util").isDeepStrictEqual(r(process.argv[1]),r(process.argv[2]))?0:1)' "$NAMED_DIR/newest.json" "$NAMED_DIR/chosen.json" 2>/dev/null; then
       _ns="$(read_pointer_field "$NAMED_DIR/newest.json" setup_sha256)"; _cs="$(read_pointer_field "$NAMED_DIR/chosen.json" setup_sha256)"
       if [ "$_ns" = "$_cs" ] || [ -z "$_ns" ]; then
         echo "promote-channel: NOTE using ${NAMED_COMMIT:0:10} for $NAMED_VERSION; ${_newest:0:10}, a later commit naming it, points at the same build" >&2
@@ -803,10 +803,10 @@ if [ -n "$_pkg_named" ]; then
     if [ "$_pkg_served" = "$_pkg_named" ]; then
       PKG_PROMOTE=1
     else
-      echo "promote-channel: WARNING dist/$PKG_STAGING_NAME is the pkg $SNAP_LABEL names (${_pkg_named:0:12}) but $_pkg_host serves ${_pkg_served:-no} $PKG_STAGING_NAME of those bytes, so it is not copied and $PKG_PROD_NAME is left as it is; the pointer still promotes." >&2
+      echo "promote-channel: WARNING dist/$PKG_STAGING_NAME is the pkg $SNAP_LABEL names (${_pkg_named:0:12}) but $_pkg_host serves no $PKG_STAGING_NAME of those bytes (it serves ${_pkg_served:-none}), so it is not copied and $PKG_PROD_NAME is left as it is; the pointer still promotes. latest.json will then name a pkg the Download button does not serve, so a prod verify-served reds until the staging pkg is served and this is promoted again." >&2
     fi
   else
-    echo "promote-channel: WARNING $SNAP_LABEL names installer pkg ${_pkg_named:0:12}, and neither dist/$PKG_PROD_NAME (${_pkg_have:-none}) nor dist/$PKG_STAGING_NAME (${_pkg_ssha:-none}) is it, so $PKG_PROD_NAME is left as it is; the pointer still promotes. The named pkg's bytes are not on this machine (kosmos#8172)." >&2
+    echo "promote-channel: WARNING $SNAP_LABEL names installer pkg ${_pkg_named:0:12}, and neither dist/$PKG_PROD_NAME (${_pkg_have:-missing or broken}) nor dist/$PKG_STAGING_NAME (${_pkg_ssha:-missing or broken}) is a whole triple with those bytes, so $PKG_PROD_NAME is left as it is; the pointer still promotes. latest.json will then name a pkg the Download button does not serve, so a prod verify-served reds until those bytes are put back (kosmos#8172)." >&2
   fi
 elif [ "$FAMILY" = mac ] && [ -f "$SITE/dist/$PKG_STAGING_NAME" ]; then
   # A broken staging triple (a staging cut that aborted mid-copy, a hand copy) must not block the POINTER promote,

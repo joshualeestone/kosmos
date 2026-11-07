@@ -394,5 +394,14 @@ kill "$SRV8" 2>/dev/null; wait "$SRV8" 2>/dev/null; SRV8=""
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && [ "$(cat "$S/dist/Kosmos.pkg")" = "$PB" ] \
   && pass "8172 named: --version 9.9.8 carries the pkg its own pointer names" || bad "8172 named copy (rc=$rc, Kosmos.pkg: $(cat "$S/dist/Kosmos.pkg"), out=$out)"
 
+# kosmos#8172: the cut's own commit names its pkg, a later same-build republish does not (it dropped pkg_sha256): they
+# still "point at the same build", and the promote goes on with its NOTE instead of refusing.
+S="$(KM_LJ_PKG_SHA="$PX" newsite)"
+git -C "$S" show HEAD~1:dist/latest-staging.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const p=JSON.parse(s);delete p.pkg_sha256;process.stdout.write(JSON.stringify(p)+"\n")})' > "$S/dist/latest-staging.json"
+git -C "$S" commit -qam "9.9.8: republished by hand (no pkg_sha256)"
+out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "points at the same build" \
+  && pass "8172 named: a republish differing only in pkg_sha256 still counts as the same build" || bad "8172 named republish (rc=$rc, out=$out)"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-promote-named-7005: ALL PASS"; else echo "test-promote-named-7005: FAILURES above"; exit 1; fi
