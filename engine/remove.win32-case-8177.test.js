@@ -82,6 +82,15 @@ test('#8177 a third spelling is refused too, whatever case the task was stored i
   assert.ok(remove.jobFor('cai8177t', WIN), 'the agent lost its own task stored as Cai8177t');
 });
 
+test('#8177 an agent whose folder is capitalised is not found by a lowercase variant (by design, review 8)', () => {
+  /* Callers pass the agent's machine name, so `cai8177u` for an agent `Cai8177u` is a variant: it gets no job and
+     Remove does not plan it, while the agent's own spelling keeps its task. */
+  folder('Cai8177u');
+  taskSchedulerWith('Cai8177u');
+  assert.equal(remove.jobFor('cai8177u', WIN), null, 'a lowercase variant counted Cai8177u\'s task');
+  assert.ok(remove.jobFor('Cai8177u', WIN), 'Cai8177u lost its own task');
+});
+
 test('#8177 an agent asked by its folder\'s own name keeps a task stored in other letter case (review 3)', () => {
   /* The folder is `cai8177r` and the task was stored as `Cai8177r`: the task commands ignore case, so main restarts and
      removes it, and refusing would strand the agent. */

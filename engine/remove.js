@@ -958,10 +958,11 @@ function sessionOps(platform, tmuxBin) {
  * folder's agent's: the scheduler cannot hold two case variants of one task name, and a Windows folder by default
  * cannot either. Judged by the folders, never by how schtasks spells the task it printed, which is not measured.
  *
- * What it keeps, as main does (reviews 3, 5, 7, measured): an agent asked by its own exact folder name keeps its task
- * whatever case the task was stored in; an agent with no folder at all keeps its task (it is nobody else's); and a
- * folder recorded in the profile does not carry the spelling (#8112), so a recorded agent keeps main's answer
- * (#8112's folderIsExactly is the test to use there once it lands).
+ * What it keeps, as main does: an agent asked by its own exact folder name keeps its task whatever case the task was
+ * stored in; an agent with no folder at all keeps its task (it is nobody else's); a folder recorded in the profile does
+ * not carry the spelling (#8112), so a recorded agent keeps main's answer (#8112's folderIsExactly is the test to use
+ * there once it lands); and a workers folder that cannot be read keeps main's answer too. Callers pass the agent's
+ * machine name (the card's, the record's), so an agent `Cai` asked as `cai` is a variant here, by design.
  */
 function folderIsAnotherSpellings(clean) {
   /* create.agentDirRecorded's own rule (it is not exported): the profile's folder, validated by usableRecordedDir. The
