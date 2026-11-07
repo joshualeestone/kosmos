@@ -543,22 +543,25 @@ async function runSheet(engine, say) {
     const WIDE = 'eb'.repeat(12), NOVAL = 'ec'.repeat(12), EMPTY = 'ed'.repeat(12), MORE = 'ee'.repeat(12), SLOW = 'ef'.repeat(12);
     const ans = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(Object.assign({ ok: true, sheets: [], moreSheets: 0, noValues: false, someNoValues: false, empty: false }, o)) });
     const routes = async (route) => {
-      const u = new URL(route.request().url());
-      if (u.pathname === '/api/attachment/' + NOVAL + '/sheet') return route.fulfill(ans({ noValues: true }));
-      if (u.pathname === '/api/attachment/' + EMPTY + '/sheet') return route.fulfill(ans({ empty: true }));
-      if (u.pathname === '/api/attachment/' + 'f1'.repeat(12) + '/sheet') return route.fulfill(ans({}));   // no sheets, no flags (review 4)
-      if (u.pathname === '/api/attachment/' + MORE + '/sheet') return route.fulfill(ans({ sheets: [{ name: 'A', rows: [['1']], cut: false }], moreSheets: 3 }));
-      if (u.pathname === '/api/attachment/' + SLOW + '/sheet') { await new Promise((r) => setTimeout(r, 700)); return route.fulfill(ans({ sheets: [{ name: 'Late', rows: [['late']], cut: false }] })); }
-      if (u.pathname === '/api/attachment/' + WIDE + '/sheet') {
-        const rows = Array.from({ length: 200 }, (_, r) => Array.from({ length: 50 }, (_, c) => (r === 0 ? 'Head ' + c : String(r * 50 + c))));
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, sheets: [{ name: 'Big', rows, cut: true }, { name: 'Other', rows: [['x']], cut: false }], moreSheets: 0, noValues: false, someNoValues: false, empty: false }) });
-      }
-      if (u.pathname === '/') return route.fulfill({ status: 200, contentType: 'text/html', body: HTML });
-      if (u.pathname === '/api/attachment/' + OK + '/sheet') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true,
-        sheets: [{ name: 'Budget', rows: [['Item', 'Cost'], ['<img src=x onerror="window.__ran=1">', '12.5'], ['A very long note that runs on and on past any sensible column width, '.repeat(4), '3']], cut: true }, { name: 'Notes', rows: [['done']], cut: false, firstRow: 301 }, { name: 'Chart', rows: [], cut: false, notGrid: true }],
-        moreSheets: 0, noValues: false, someNoValues: true, empty: false }) });
-      if (u.pathname === '/api/attachment/' + BIG + '/sheet') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, because: 'This spreadsheet is too large to preview.', tooLarge: true }) });
-      return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+      // #6022: one answer waits 700 ms, so the page can be gone by the time any answer is sent; a late one is dropped.
+      try {
+        const u = new URL(route.request().url());
+        if (u.pathname === '/api/attachment/' + NOVAL + '/sheet') return await route.fulfill(ans({ noValues: true }));
+        if (u.pathname === '/api/attachment/' + EMPTY + '/sheet') return await route.fulfill(ans({ empty: true }));
+        if (u.pathname === '/api/attachment/' + 'f1'.repeat(12) + '/sheet') return await route.fulfill(ans({}));   // no sheets, no flags (review 4)
+        if (u.pathname === '/api/attachment/' + MORE + '/sheet') return await route.fulfill(ans({ sheets: [{ name: 'A', rows: [['1']], cut: false }], moreSheets: 3 }));
+        if (u.pathname === '/api/attachment/' + SLOW + '/sheet') { await new Promise((r) => setTimeout(r, 700)); return await route.fulfill(ans({ sheets: [{ name: 'Late', rows: [['late']], cut: false }] })); }
+        if (u.pathname === '/api/attachment/' + WIDE + '/sheet') {
+          const rows = Array.from({ length: 200 }, (_, r) => Array.from({ length: 50 }, (_, c) => (r === 0 ? 'Head ' + c : String(r * 50 + c))));
+          return await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, sheets: [{ name: 'Big', rows, cut: true }, { name: 'Other', rows: [['x']], cut: false }], moreSheets: 0, noValues: false, someNoValues: false, empty: false }) });
+        }
+        if (u.pathname === '/') return await route.fulfill({ status: 200, contentType: 'text/html', body: HTML });
+        if (u.pathname === '/api/attachment/' + OK + '/sheet') return await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true,
+          sheets: [{ name: 'Budget', rows: [['Item', 'Cost'], ['<img src=x onerror="window.__ran=1">', '12.5'], ['A very long note that runs on and on past any sensible column width, '.repeat(4), '3']], cut: true }, { name: 'Notes', rows: [['done']], cut: false, firstRow: 301 }, { name: 'Chart', rows: [], cut: false, notGrid: true }],
+          moreSheets: 0, noValues: false, someNoValues: true, empty: false }) });
+        if (u.pathname === '/api/attachment/' + BIG + '/sheet') return await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, because: 'This spreadsheet is too large to preview.', tooLarge: true }) });
+        return await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+      } catch (e) { /* the page closed at teardown */ }
     };
     await pg.route('**/*', routes);
     await pg.goto('http://kosmos-remote.test/', { waitUntil: 'load' });
