@@ -34,6 +34,7 @@ let board;
 let seen = null;
 let replyP = null;
 let roomId = null;
+let failAll = false;   // every typing fails, so a post reaches nobody
 async function post(body, headers) {
   const res = await fetch(`http://127.0.0.1:${server.address().port}/api/post`, { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, headers || {}), body: JSON.stringify(body) });
   return { status: res.status, json: await res.json() };
@@ -44,6 +45,7 @@ test.before(async () => {
   board = fleet.install([fleet.agent('dana', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
   chat.setRunner((args) => {
     if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+    if (failAll) return { ran: true, spawnFailed: false, status: 1, out: '', err: "can't find pane" };
     const m = /--in-reply-to (m\d+)/.exec(args.join(' '));
     if (m && !seen && roomId) {
       seen = { id: m[1] };
@@ -79,7 +81,10 @@ test('kosmos#8178: a reply to a post caught by a board restart posts, and the re
   assert.notEqual(r.json.delivery.id, a.json.delivery.id, 'the restarted board handed out the same id again');
   const rows = messages.record().rows.filter((x) => x && x.kind === 'post');
   assert.equal(new Set(rows.map((x) => x.id)).size, rows.length, 'two recorded posts share an id: ' + JSON.stringify(rows.map((x) => x.id)));
-  assert.ok(rows.some((x) => x.text === 'answer after a restart'), 'the reply was not recorded');
+  const reply = rows.find((x) => x.text === 'answer after a restart');
+  assert.ok(reply, 'the reply was not recorded');
+  // Round 1: and it records what it answers, so it does not read as an uncited post (#4926's waiting list).
+  assert.equal(reply.replyTo, a.json.delivery.id, 'the reply to a restored post does not say what it answers');
 });
 
 test('kosmos#8178: the id file is read as it says: this room, the last hour, never a post that reached nobody', () => {
@@ -107,4 +112,41 @@ test('kosmos#8178: the id file is read as it says: this room, the last hour, nev
   assert.ok(inLog < 12, 'CONTROL: the log alone must not already reach m13, or the assertion above proves nothing');
   assert.equal(messages._nextIdForTests(), 'm' + (inLog + 1));
   assert.equal(messages.projectOfPost('m7'), null);
+});
+
+test('kosmos#8178 round 1: a post the record already holds, or holds as deleted, is the record\'s to answer for after a restart', () => {
+  messages.resetForTests();
+  const ids = messages._idsPathForTests();
+  const log = path.join(path.dirname(ids), 'messages.jsonl');
+  const now = Date.now();
+  const line = (x) => JSON.stringify(x) + '\n';
+  fs.appendFileSync(log, line({ kind: 'post-deleted', project: 'proj-b', of: 'm40', at: new Date(now).toISOString(), operator: true })
+    + line({ kind: 'note', id: 'm41', at: new Date(now).toISOString() }));
+  fs.writeFileSync(ids, line({ id: 'm40', project: 'proj-b', at: now - 100 }) + line({ id: 'm41', project: 'proj-b', at: now - 90 })
+    + line({ id: 'm42', project: 'proj-b', from: 'mara', at: now - 80 }));
+  messages._restartForTests();
+  assert.equal(messages.projectOfPost('m40'), null, 'a deleted post came back as a post');
+  assert.equal(messages.kindOfId('m40').is, 'deleted', 'a deleted post is still said to be deleted');
+  assert.equal(messages.projectOfPost('m41'), null, 'an id the record holds is not put back from the id file');
+  // CONTROL: an id the record does not hold is put back, with its author.
+  assert.equal(messages.projectOfPost('m42'), 'proj-b');
+  assert.equal(messages._withPendingForTests([], 'proj-b').length, 0, 'a stand-in row (no text) is never quoted');
+});
+
+test('kosmos#8178 round 1: a post that reached nobody is written gone, and a restart does not put it back', async () => {
+  messages.resetForTests();
+  const p = projects.create({ name: 'Gone 8178' });
+  projects.addAgent(p.id, 'dana');
+  projects.addAgent(p.id, 'mara');
+  failAll = true;
+  let a;
+  try { a = await post({ project: p.id, text: '@dana nobody hears this', from_pane: '' }, { 'x-kosmos-agent-token': sendertoken.mint('mara').token }); }
+  finally { failAll = false; }
+  assert.equal(a.json.delivery.state, 'could_not', 'CONTROL: the post reached nobody: ' + JSON.stringify(a.json.delivery));
+  const lines = fs.readFileSync(messages._idsPathForTests(), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const minted = lines.filter((x) => x.project === p.id).map((x) => x.id);
+  assert.equal(minted.length, 1, 'the post minted one id: ' + JSON.stringify(lines));
+  assert.ok(lines.some((x) => x.id === minted[0] && x.gone === true), 'the send path did not write it gone');
+  messages._restartForTests();
+  assert.equal(messages.projectOfPost(minted[0]), null, 'a post that reached nobody came back after a restart');
 });
