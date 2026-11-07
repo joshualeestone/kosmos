@@ -5058,8 +5058,10 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
     }
     /* kosmos#8165: on the live route, a citation that names no room post is refused, not posted as citing nothing: the
        sender believes it answered something, and an uncited post moves every earlier ask off the reader's waiting
-       list (#4926). The record is unpruned, so an id it does not hold was never sent. Not on the outbox drain: a kept
-       post's sender has moved on and would never see the refusal, so it posts as before. */
+       list (#4926). A post still being delivered counts as a post (messages PENDING_POSTS). Review 5: what the record
+       does not hold is not proof it was never sent (a post in flight when the board restarted), so the sentence says
+       only that the post could not be found. Not on the outbox drain: a kept post's sender has moved on and would never
+       see the refusal, so it posts as before. */
     if (!answeredProject && citationMustResolve === true) {
       let what = null;
       try { what = messages.kindOfId(citedId); } catch {
@@ -5077,10 +5079,10 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
         return { state: 'could_not', because: named + ' is a direct message, not a room post, so nothing was posted. Answer it with kosmos msg --in-reply-to ' + named + ', or post here without --in-reply-to.' };
       }
       if (kind === 'unknown') {
-        return { state: 'could_not', because: 'we could not find post ' + named + ', so nothing was posted. If it reached you only just now, try again in a moment; otherwise check the id (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
+        return { state: 'could_not', because: 'we could not find post ' + named + ', so nothing was posted. It may have been lost when the board restarted: check the id (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
       }
       if (kind !== 'post') {
-        return { state: 'could_not', because: (named === 'that id' ? 'that id names no post' : 'there is no post ' + named) + ' in any room, so nothing was posted. Check the id in the post you meant to answer (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
+        return { state: 'could_not', because: (named === 'that id' ? 'that id names no post' : 'we could not find post ' + named) + ' in any room, so nothing was posted. Check the id in the post you meant to answer (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
       }
     }
     if (answeredProject && answeredProject !== found.id) {
