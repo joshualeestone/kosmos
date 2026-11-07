@@ -796,7 +796,7 @@ fi
 # kept: fetching would put the old installer back under the promoted pointer.
 _pkg_keep=0
 if [ "$PROMOTE" = 1 ] && _pkg_lsha="$(pkg_triple_check "$SITE/dist" Kosmos.pkg 2>/dev/null)"; then
-  _pkg_ssrv="$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null)" || _pkg_ssrv=""
+  _pkg_ssrv="$(curl -fsSL -m 30 -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null)" || _pkg_ssrv=""
   _pkg_ssrv="${_pkg_ssrv%%[[:space:]]*}"
   if [ -n "$_pkg_ssrv" ] && [ "$_pkg_ssrv" = "$_pkg_lsha" ]; then
     _pkg_keep=1
@@ -805,7 +805,7 @@ if [ "$PROMOTE" = 1 ] && _pkg_lsha="$(pkg_triple_check "$SITE/dist" Kosmos.pkg 2
 fi
 if [ "$_pkg_keep" = 0 ]; then
   if [ "$PROMOTE" = 1 ] && [ -f "$SITE/dist/Kosmos.pkg" ]; then
-    _pkg_psrv="$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos.pkg.sha256" 2>/dev/null)" || _pkg_psrv=""
+    _pkg_psrv="$(curl -fsSL -m 30 -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos.pkg.sha256" 2>/dev/null)" || _pkg_psrv=""
     _pkg_psrv="${_pkg_psrv%%[[:space:]]*}"
     _pkg_ploc="$(_sha256_of "$SITE/dist/Kosmos.pkg")"
     [ -z "$_pkg_psrv" ] || [ "$_pkg_ploc" = "$_pkg_psrv" ] \
@@ -819,7 +819,7 @@ fi
 # after kosmos#8167), a local one would ship bytes no cut's 9c ever checked, so that is a refusal, and no local one is fine.
 # Only a 404 means "none served". Anything else that is not a 200 (a timeout, a 5xx) is a refusal: read as "none", it
 # would deploy without the triple and the staging pkg would stop serving.
-_pkg_scode="$(curl -sS -L -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null)" || _pkg_scode="${_pkg_scode:-000}"
+_pkg_scode="$(curl -sS -L -m 30 -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null)" || _pkg_scode="${_pkg_scode:-000}"
 case "$_pkg_scode" in
   200|404) ;;
   *) echo "deploy-site: could not tell whether the host serves Kosmos-staging.pkg (HTTP ${_pkg_scode:-none} for its .sha256) -- refusing; nothing was deployed (kosmos#8167)"; exit 1 ;;

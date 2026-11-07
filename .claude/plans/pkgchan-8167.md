@@ -103,3 +103,16 @@ Deferred, with reasons:
   checked; 9c's temp-dir failure names its cause; the promote refusal says how to recover; the doc bullet order and
   the doc's account of what promote checks; two more deploy-site arms (an unreachable probe refuses; the control
   asserts the new WARNING).
+
+## Review round 4
+
+- WARNING, fixed: a broken local staging triple no longer refuses the whole promote. The pointer promote does not
+  depend on it, so the installer is left as it is with a WARNING and the pointer promotes.
+- WARNING, fixed: every new probe in deploy-site.sh and verify-served.sh has `-m 30`.
+- NITs, fixed: 3c requires a whole 64-character hex sha from the served `.sha256`; `pkg_triple_copy` clears a killed
+  earlier copy's `.pkgcopy.*` dir before it starts.
+- The verify-served point (the prod pkg is not held to anything while a staging pkg is served) was raised in rounds
+  2, 3 and 4. It is not a wording problem, so the decision moved to its own card, kosmos#8172: record the pkg sha in
+  the pointer, as #5032 records `setup_sha256`.
+- Deferred: the three renames in `pkg_triple_copy` are separate. A crash between them leaves a mixed triple that
+  `pkg_triple_check` and `pkg_publish_needed` both report as broken, so the next reader refuses rather than ships it.

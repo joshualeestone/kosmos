@@ -195,7 +195,7 @@ _vs_pkg() {
   rm -rf "$pdir"
 }
 # Only a 404 means "no staging pkg served". Any other failure is said as itself, not read as "none".
-_vs_scode="$(curl -sS -L -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null)" || _vs_scode="${_vs_scode:-000}"
+_vs_scode="$(curl -sS -L -m 30 -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null)" || _vs_scode="${_vs_scode:-000}"
 case "$_vs_scode" in
   200) _vs_pkg Kosmos-staging.pkg source; _vs_pkg Kosmos.pkg any ;;
   404) _vs_pkg Kosmos.pkg source ;;

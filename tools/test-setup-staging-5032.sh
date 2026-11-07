@@ -246,11 +246,11 @@ out="$(bash "$HERE/promote-channel.sh" "$Ss" 2>&1)"; rc=$?
 # A broken staging triple refuses BEFORE any write: the pointer, /setup and Kosmos.pkg are all untouched.
 Sb8="$(promote_site yes)"; mkpkg "$Sb8" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sb8" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"; printf 'TAMPERED' > "$Sb8/dist/Kosmos-staging.pkg"
 out="$(bash "$HERE/promote-channel.sh" "$Sb8" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && [ "$(cat "$Sb8/dist/latest.json")" = '{"version":"1.0.0"}' ] && [ "$(cat "$Sb8/setup")" = "PROD-INSTALLER KOSMOS_READONLY_APP" ] && [ "$(cat "$Sb8/dist/Kosmos.pkg")" = "PROD-PKG" ] && has "$out" "not a whole, self-consistent triple" \
-  && pass "8167 promote: a tampered staging pkg refuses the promote, nothing written" || bad "8167 promote tampered arm (rc=$rc, latest.json: $(cat "$Sb8/dist/latest.json"), out=$out)"
-rm -f "$Sb8/dist/Kosmos-staging.pkg.inputs"; mkpkg "$Sb8" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"; rm -f "$Sb8/dist/Kosmos-staging.pkg.inputs"
-out="$(bash "$HERE/promote-channel.sh" "$Sb8" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && [ "$(cat "$Sb8/dist/latest.json")" = '{"version":"1.0.0"}' ] && has "$out" "is missing" && pass "8167 promote: a staging pkg missing its sidecar refuses, nothing written" || bad "8167 promote partial arm (rc=$rc, out=$out)"
+[ "$rc" = 0 ] && grep -q '"9.9.9"' "$Sb8/dist/latest.json" && [ "$(cat "$Sb8/dist/Kosmos.pkg")" = "PROD-PKG" ] && has "$out" "WARNING dist/Kosmos-staging.pkg is not a whole, self-consistent triple" \
+  && pass "8167 promote: a tampered staging pkg is not copied, Kosmos.pkg is untouched, and the pointer still promotes" || bad "8167 promote tampered arm (rc=$rc, latest.json: $(cat "$Sb8/dist/latest.json"), out=$out)"
+Sb9="$(promote_site yes)"; mkpkg "$Sb9" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sb9" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"; rm -f "$Sb9/dist/Kosmos-staging.pkg.inputs"
+out="$(bash "$HERE/promote-channel.sh" "$Sb9" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -q '"9.9.9"' "$Sb9/dist/latest.json" && [ "$(cat "$Sb9/dist/Kosmos.pkg")" = "PROD-PKG" ] && has "$out" "is missing" && pass "8167 promote: a staging pkg missing its sidecar is not copied, and the pointer still promotes" || bad "8167 promote partial arm (rc=$rc, out=$out)"
 
 kill "$SRV8" 2>/dev/null; wait "$SRV8" 2>/dev/null; unset KOSMOS_SITE_URL
 
