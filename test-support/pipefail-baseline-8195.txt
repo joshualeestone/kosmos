@@ -1,5 +1,6 @@
 # kosmos#8195: early readers under pipefail that were triaged and accepted (see the card for the triage).
-# One line per hit: path, a TAB, the line as the scanner prints it. Generated 2026-11-07 from main plus #8193.
+# One line per hit: path, a TAB, then the line as the scanner prints it (the line itself may hold a TAB; compare whole lines).
+# To print a fresh list: KOSMOS_PRINT_PIPEFAIL_BASELINE=1 node --test shell.pipefail-ratchet-8195.test.js
 # A new line here needs a reason it cannot bite: one small write, or a status nothing reads.
 android/evidence/cct-warmup-4109/run-abab.sh	"$ADB" shell dumpsys package com.android.chrome | grep -m1 versionName
 android/evidence/cct-warmup-4109/run-all.sh	"$ADB" shell dumpsys package com.android.chrome | grep -m1 versionName
@@ -36,13 +37,27 @@ tools/ci-runner-setup.sh	ver="$(printf '%s' "$rel" | sed -n 's/.*"tag_name": *"v
 tools/dist-retention.sh	grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$1" 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true
 tools/dist-retention.sh	grep -o '"artifact"[[:space:]]*:[[:space:]]*"[^"]*"' "$1" 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true
 tools/dist-retention.sh	grep -o '"versioned"[[:space:]]*:[[:space:]]*"[^"]*"' "$1" 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true
+tools/lib/board-shape.sh	printf '%s\n' "$1" | sed -n 's/^[[:space:]]*working directory = //p' | head -1
+tools/lib/browser-check-gate.sh	if [ -n "$p1" ] && printf '%s\n' "$all" | grep -qx "$p1"; then printf '%s\n' "$p1"; return 0; fi
+tools/lib/browser-check-surface-gate.sh	if [ -n "$p1" ] && printf '%s\n' "$all" | grep -qx "$p1"; then printf '%s\n' "$p1"; return 0; fi
+tools/lib/browser-check-surface-gate.sh	if printf '%s\n' "$files" | grep -qE "^[AM][^${tab}]*${tab}${esc_bcdir}/${esc_base}$" 2>/dev/null; then
+tools/lib/browser-check-surface-lib.sh	sed -n 's|^[[:space:]]*//[[:space:]]*[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:[[:space:]]*\(.*\)$|\1|p' "$1" | head -1
+tools/lib/browser-check-surface-lib.sh	printf '%s\n' "$2" | grep -qE "(^|[^A-Za-z0-9_-])${esc}([^A-Za-z0-9_-]|\$)" 2>/dev/null
 tools/lib/cut-guard.sh	for p in $(/usr/sbin/lsof -n -P -t -- "$1" 2>/dev/null | head -3); do   # -n -P: no name lookups, on every poll
 tools/lib/cut-load-guard.sh	ps -Ao pid,pcpu,comm -r 2>/dev/null | awk 'NR>1 && $2+0 > 0' | head -n "$n" || true
+tools/lib/deploy-linux.sh	[ "$name" = "kosmos-$ver-linux-x64.tar.gz" ] && printf '%s' "$ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'  || { echo "deploy-site: the committed dist/$p does not name a kosmos-<version>-linux-x64.tar.gz ('$name') -- refusing (kosmos#7281)" >&2; return 1; }
+tools/lib/deploy-linux.sh	printf '%s' "$sha" | grep -qE '^[0-9a-f]{64}$' || { echo "deploy-site: the committed dist/$p names no sha256 -- refusing (kosmos#7281)" >&2; return 1; }
+tools/lib/deploy-linux.sh	200) printf '%s' "$live_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'  || { echo "deploy-site: the live dist/$p answered but names no version -- refusing for now (exit 75: try again later) (kosmos#7281)" >&2; return 75; } ;;
+tools/lib/launchd-witness.sh	if printf '%s\n' "$_lw_out" | sed -n 's/.*properties = //p' | head -1 | grep -qiE 'runatload|keepalive'; then
+tools/lib/launchd-witness.sh	if printf '%s\n' "$_lw_out" | sed -n 's/.*properties = //p' | head -1 | grep -qiE 'runatload|keepalive'; then
 tools/lib/notarize-binaries.sh	{ "$cs" -dvvv --arch "$2" "$1" 2>&1 | sed -n 's/^CDHash=\([0-9a-f]\{40\}\)$/\1/p' | head -1; } || :
 tools/lib/notarize-binaries.sh	if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -qx 'source=Notarized Developer ID'  && printf '%s\n' "$out" | grep -q "^origin=Developer ID Application: .*($KOSMOS_SIGN_TEAM_ID)\$"; then
 tools/lib/notarize-binaries.sh	if [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -qx 'source=Notarized Developer ID'  && printf '%s\n' "$out" | grep -q "^origin=Developer ID Application: .*($KOSMOS_SIGN_TEAM_ID)\$"; then
 tools/lib/notarize-binaries.sh	{ printf '%s' "$2" | grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*"\([^"]*\)"$/\1/'; } || :
+tools/lib/pointer-freeze.sh	{ git -C "$1" show "origin/main:$POINTER_FREEZE_FILE" 2>/dev/null || git -C "$1" show "HEAD:$POINTER_FREEZE_FILE" 2>/dev/null  || cat "$1/$POINTER_FREEZE_FILE" 2>/dev/null; } | sed -n "s/^$2=//p" | head -1
 tools/lib/process-fixture.sh	ppid=|pgid=) read -r v 2>/dev/null < "/proc/$pid/${field%=}" || return 1
+tools/lib/promote-linux.sh	cur="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$prod" 2>/dev/null | head -1)" || cur=""
+tools/lib/release-freeze.sh	ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tree/package.json" | head -1)"
 tools/lib/site-deploy.sh	at=$(sed -nE 's/.*"expiresAt"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "$f" 2>/dev/null | head -1)
 tools/lib/site-push.sh	if ! printf '%s' "$push_err" | grep -qiE 'fetch first|non-fast-forward|\[rejected\]|cannot lock ref|failed to (update|lock) ref'; then
 tools/lib/test-leak-guard.sh	launchctl print "gui/$1/$2" 2>/dev/null | awk -F' = ' '/^[[:space:]]+path = / { print $2; exit }'
@@ -85,7 +100,6 @@ tools/test-ci-gate-armed-2518.sh	if grep -E "$SURFACE_CALL_RE" "$RUNTESTS" | gre
 tools/test-ci-gate-armed-2518.sh	if grep -E "$RUNTESTS_CALL_RE" "$tmp/test-comment-runtests.yml" | grep -qvE '^[[:space:]]*#'; then
 tools/test-ci-gate-armed-2518.sh	if grep -E "$SURFACE_CALL_RE" "$tmp/run-tests-comment-surface.sh" | grep -qvE '^[[:space:]]*#'; then
 tools/test-ci-gate-armed-2518.sh	if grep -E "$COARSE_CALL_RE" "$tmp/run-tests-comment-coarse.sh" | grep -qvE '^[[:space:]]*#'; then
-tools/test-ci-runner-daemon-7001.sh	[ "$(rc teeshort)" = 1 ] && has teeshort "could not put $AG back (nothing was loaded): sudo -u kosmos-ci test ! -L $AG && sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-" && [ -s "$(ls "$RA".retired-* 2>/dev/null | head -n 1)" ]  && [ "$(wc -c < "$(ls "$RA".retired-* | head -n 1)")" -gt 20 ] && [ ! -e "$AG" ] && pass "a short copy on the stage's own put-back keeps the retired file and removes the short agent" || fail "teeshort: rc $(rc teeshort) $(cat "$T/teeshort.out")"
 tools/test-ci-runner-setup-4601.sh	if [ "${FX_BOOTSTRAP_NO_KA:-0}" != 1 ] && plutil -extract KeepAlive.SuccessfulExit xml1 -o - "$3" 2>/dev/null | grep -q '<false/>'; then
 tools/test-ci-runner-setup-4601.sh	if [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] && printf '%s\n' "$own" | grep -q -E -e "$pat"; then cat .svc-pid 2>/dev/null || echo 4343; hit=0; fi
 tools/test-ci-runner-setup-4601.sh	if [ -n "${FX_OLD_TOO:-}" ] && printf '%s\n' "$kh/actions-runner/bin/Runner.Listener run" | grep -q -E -e "$pat"; then echo "$FX_OLD_TOO"; hit=0; fi
@@ -328,7 +342,6 @@ tools/test-site-served-versions-6738.sh	[ "$rc7" = 0 ] && cmp -s "$T/out7/api/_s
 tools/test-site-served-versions-6738.sh	[ "$rc8" = 0 ] && cmp -s "$T/out8/api/_servedversions.js" <(git -C "$S" show "$NONE:api/_servedversions.js") && grep -q "the generator wrote no whole table" "$T/err8"  && ! printf '%s\n' "$man8" | grep -q "rebuilt api" && printf '%s\n' "$man8" | grep -q "pages:   commit $NONE\$"  && ok "a generator that writes nothing is not called a rebuild; the committed table ships" || bad "silent generator: rc=$rc8 $(cat "$T/err8") | $man8"
 tools/test-site-served-versions-6738.sh	[ "$rc8" = 0 ] && cmp -s "$T/out8/api/_servedversions.js" <(git -C "$S" show "$NONE:api/_servedversions.js") && grep -q "the generator wrote no whole table" "$T/err8"  && ! printf '%s\n' "$man8" | grep -q "rebuilt api" && printf '%s\n' "$man8" | grep -q "pages:   commit $NONE\$"  && ok "a generator that writes nothing is not called a rebuild; the committed table ships" || bad "silent generator: rc=$rc8 $(cat "$T/err8") | $man8"
 tools/test-staging-channel-2036.sh	SHA_T="$(sed -n 's/.*"sha256": *"\([^"]*\)".*/\1/p' "$Sp2/dist/latest-staging.json" | head -1)"
-tools/test-start-waits-for-starting-board-6586.sh	printf '%s\n' "$fnb" | grep -q '_await_board_up' && bad "the wait reuses _await_board_up (its launch words)" || ok "the wait does not reuse _await_board_up's launch wording"
 tools/test-stopmark-6651.sh	img_dev() { hdiutil info 2>/dev/null | awk -v want="$(basename "$TMP")/$1" '/^image-path/ { on = (index($0, want) > 0) } on && /^\/dev\/disk[0-9]+[[:space:]]/ { print $1; exit }'; }
 tools/test-stopmark-6651.sh	fnbody install/kosmos cmd_board_run | awk '/kosmos_clear_stranded_pause board-run/ { c = NR } /Kosmos was deliberately stopped; not starting/ { exit !(c) }'  && ok "board-run clears a stranded pause before it refuses" || bad "board-run does not clear a stranded pause first"
 tools/test-stopmark-6651.sh	fnbody install/kosmos cmd_start | grep -q '\[ "\$BOARD_STARTED_AT" -nt "\$_n" \] && continue'  && ok "a start does not save leftover names to put back (fresh, they would count again)" || bad "a start saves leftover names for its restore"
