@@ -80,8 +80,8 @@ const limits = require('./limits');
 
 const LOG = path.join(store.ROOT, 'messages.jsonl');
 /* kosmos#8178 item 1: every id handed out, beside the log, so a board restart neither hands one out again nor forgets
-   a room post that members already hold. A row is { id, at } (a direct message), { id, project, at } (a room post) or
-   { id, gone: true } (a post that reached nobody). Written before the id reaches any pane; read once, lazily (loadIds). */
+   a room post that members already hold. A row is { id, at } (a direct message), { id, project, at } plus the names a
+   reply needs (a room post; see mintId) or { id, gone: true } (a post that reached nobody). Written before the id reaches any pane; read once, lazily (loadIds). */
 const IDS = path.join(store.ROOT, 'messages.ids.jsonl');
 
 /* #670: the per-project read cursor. One person per Kosmos install, so the
@@ -667,6 +667,8 @@ function resetForTests() {
   PENDING_POSTS.clear();     // kosmos#8165 r3: ids start again at m1, so a pending one would answer for a later test's
   ID_HIGH = 0;               // #4888: a test that starts a new log starts its ids again
   IDS_LOADED = false;        // kosmos#8178: and so does the id file (a test process never holds the real root, #5418)
+  IDS_APPENDED = 0;
+  IDS_COMPACT_AT = 64 * 1024;
   try { fs.rmSync(IDS, { force: true }); } catch { /* best effort */ }
 }
 
@@ -1345,7 +1347,8 @@ let ID_HIGH = 0;
    file is rewritten to those posts and the highest id, plus any line appended after it was read (round 2). With the
    record unreadable it writes nothing and is read again on the next call (round 2: compacting then would drop every
    post it could have put back). Any failure leaves ids from the log alone, as before #8178, never a refusal. */
-const IDS_COMPACT_AT = 64 * 1024;
+let IDS_COMPACT_AT = 64 * 1024;
+let IDS_APPENDED = 0;   // round 3: bytes appended since the last read, so a board that stays up compacts too
 let IDS_LOADED = false;
 function loadIds() {
   if (IDS_LOADED) return;
@@ -1353,6 +1356,10 @@ function loadIds() {
   let text;
   try { text = fs.readFileSync(IDS, 'utf8'); } catch { return; }
   const readBytes = Buffer.byteLength(text, 'utf8');
+  IDS_APPENDED = 0;
+  /* Round 3: a torn last line (a crash mid-append) is ended here, before anything is appended, or the next id would
+     land on the fragment's line and never be read. */
+  if (text && !text.endsWith('\n')) { try { fs.appendFileSync(IDS, '\n'); text += '\n'; } catch { /* the next read tries again */ } }
   const rows = [];
   for (const line of text.split('\n')) {
     if (!line) continue;
@@ -1396,7 +1403,11 @@ function loadIds() {
   } catch { /* the next read compacts it */ }
 }
 function noteId(row) {
-  try { fs.appendFileSync(IDS, JSON.stringify(row) + '\n', { mode: 0o600 }); } catch { /* a restart may then reuse it, as before #8178 */ }
+  const line = JSON.stringify(row) + '\n';
+  try { fs.appendFileSync(IDS, line, { mode: 0o600 }); } catch { return; /* a restart may then reuse it, as before #8178 */ }
+  IDS_APPENDED += line.length;
+  // Round 3: read again (restoring skips what is already pending), which compacts a file past the threshold.
+  if (IDS_APPENDED >= IDS_COMPACT_AT) { IDS_LOADED = false; loadIds(); }
 }
 /* #4888: the id the next send will be given, without taking it (a test plants a file at it). */
 function nextIdForTests() {
@@ -4949,6 +4960,7 @@ module.exports = {
   /* kosmos#8178: what a board restart forgets (every id it handed out, and the posts still pending), keeping the files. */
   _restartForTests: () => { PENDING_POSTS.clear(); ID_HIGH = 0; IDS_LOADED = false; },
   _idsPathForTests: () => IDS,
+  _idsCompactAtForTests: (n) => { IDS_COMPACT_AT = n == null ? 64 * 1024 : n; },
   deletePostAsync,   // kosmos#7614
   react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji, freeClaim,
   messageIdOf, // #4631
