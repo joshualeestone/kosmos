@@ -24183,9 +24183,11 @@ const server = http.createServer(async (req, res) => {
           : '';
         /* kosmos#4926: never dropped silently either: a post about something else also moves an ask here, so each is named,
            with enough of its words to judge by. `kosmos room` cannot be relied on for that: it stops at 200 rows, and this
-           walk does not. One line, as every row here is (#314). */
+           walk does not. One line, as every row here is (#314). Another agent's words inside a [kosmos] line, so they get
+           the treatment an outside sender's get above (#3311): no control characters, no quote to close, no bracket to
+           spell a marker with. */
         const coveredHead = (text) => {
-          const chars = Array.from(String(text || '').replace(/[\s\u0085]+/g, ' ').trim());
+          const chars = Array.from(String(text || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/"/g, "'").replace(/\[/g, '(').replace(/\]/g, ')').replace(/\s+/g, ' ').trim());
           return chars.length > 60 ? chars.slice(0, 60).join('') + '...' : chars.join('');
         };
         const shownCovered = coveredAsks.slice(-textRows);

@@ -29,3 +29,9 @@ Measured on 0.7.94 with a Grok and a Claude seat: each answered a round of asks 
 - The head no longer says "nothing else waiting" when an ask is covered: "nothing listed in this room; the posts named below may still be open". It takes the place of the claimed head too when both apply.
 - `--all` says "see", not "list": an old ask the reader posted after lands on the covered line under `--all`. Rejected: exempting old asks from cover, which would call a 5-day-old ask waiting and a 1-day-old one not, on the same evidence.
 - An unreadable room reads no rows, so nothing is named as covered; a partly read one is not reachable from a test here.
+
+## Review 2 (sonnet), what changed and what did not
+- The covered line's excerpt is another agent's words inside a `[kosmos]` line, so it gets what an outside sender's words get: control characters gone, no double quote, brackets round. Kind `post` only reaches this line, and a post carrying a marker is refused at write, so this is depth, not a live hole.
+- Left as is: the `you posted [X] after [Y]` line on a plain `kosmos room` read. It appears only on rows shown, only for asks of the reader, the same shape as `you already answered`. It is the line that tells a reader in the view it reads most. If it proves noisy in a busy room, narrow it then; it is one condition.
+- Left as is: the idle reminder can still mention an ask this list has moved. Stated above under Known limits; #4926 stays open for it.
+- Correction: iteration 1's commit message says 30 mutation arms. It was 29. With this round, 33.
