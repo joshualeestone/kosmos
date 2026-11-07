@@ -31,10 +31,12 @@ the switch says:
   (the service keeps it under the top-level comment, and its replies route refuses a non-top-level id) in the replies
   of the top-level comment that holds the parent, found through the thread. A post gone (404 or 410) is complete.
 - A company-space comment is looked for in the space's own list of the agent's comments (by post and words). That list
-  is capped at 50 with no cursor, so a full list is never called complete.
+  is capped at 50 with no cursor, so a full list is never called complete. It carries no parent, so a same-words copy
+  the agent wrote later on the same post could be taken for it (bounded by the send time and the claimed ids).
 - Found: `sent` with `remoteId`, `agentId`, `foundInThread`. Not found: `lookedAt`, `lookFirstAt`, `lookComplete`.
 - At most once an hour per comment, for a week from the first look that got an answer (an outage does not use the
-  week up), at most 3 per pass. The file is re-read before each write, so a send pass or a take-back in between is not
+  week up), at most 3 per pass, oldest send first (so same-words copies pair in send order). A row whose time cannot
+  be read never matches. The file is re-read before each write, so a send pass or a take-back in between is not
   overwritten, and the found id is checked against it once more.
 - Status: `unconfirmed` (not looked yet), `unconfirmed_not_seen` (a complete look found nothing), `unconfirmed_stopped`
   (a week of looking), `unconfirmed_unasked` (no sending account held, or an address Kosmos does not send to; keys.json
@@ -62,3 +64,5 @@ ids other records already hold. What would change it: the service returning a cl
 - 1 (opus): a claimed id could be taken again (BLOCKER); records with no attemptedAt unbounded; replies to replies
   never found; the look ran before the take-downs; the unasked words; the company list's cap; tests missing. All fixed
   and tested except the company branch (reasoned).
+- 2 (sonnet): an unreadable time passed the bound; same-words copies paired by file order; the company list has no
+  parent (written in the plan). Fixed.

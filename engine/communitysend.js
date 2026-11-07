@@ -2221,8 +2221,9 @@ async function settleUnconfirmed(keys, sent, now) {
  *   Not found after reading back past the send: it stays unconfirmed, marked as looked for (a held or hidden comment is
  *   not in the public thread, so "not seen" is never "not sent", and it is still never sent again).
  * Looked for at most once an hour per comment, for a week from the first look that got an answer, at most a few per
- * pass and a bounded number of reads per look. Runs whatever the switch says, as the post settle does, after the
- * take-downs. A comment id another record already holds is never claimed, and a record with no time to bound the look
+ * pass and a bounded number of reads per look. Runs whatever the switch (or a policy that stops the community) says,
+ * as the post settle does, after the take-downs: it only reads (anonymously, but for one read in a company space as
+ * the agent) and sends nothing. A comment id another record already holds is never claimed, and a record with no time to bound the look
  * by is not settled by words alone.
  */
 const LOOK_EVERY_MS = 60 * 60 * 1000;
@@ -2252,7 +2253,7 @@ const COMPANY_LIST_MAX = 50;   // the space's "my comments" list holds at most t
 /* Look for one comment. `ok(row)` says whether a row is it (account, words, time, and an id no other record holds).
    Returns { found: id }, { found: null, complete } (complete: every place it could be was read), or null (the community
    could not be read: try again later). */
-async function lookForComment(c, agentKey, keys, ok) {
+async function lookForComment(c, agentKey, keys, ok, since) {
   if (c.space === 'company') {
     const r = await spaceAs(agentKey, keys, 'GET', '/agents/me/comments', undefined, c.org);
     if (!r || r.notSent || r.status !== 200 || !r.json || !Array.isArray(r.json.comments)) return null;
@@ -2338,7 +2339,7 @@ async function lookForComment(c, agentKey, keys, ok) {
     cursor = next(r);
     if (!cursor) return { found: null, complete: !parent };   // the end; a reply whose parent was not found is not settled
     // Newest first: once a page reaches back before the send, nothing older can be a top-level match.
-    if (!parent && tops.some((x) => x.at < ok.since)) return { found: null, complete: true };
+    if (!parent && tops.some((x) => Number.isFinite(x.at) && x.at < since)) return { found: null, complete: true };
   }
   return { found: null, complete: false };   // more thread than one look reads
 }
@@ -2356,6 +2357,10 @@ async function settleUnconfirmedComments(keys, now) {
     && !(rec.lookFirstAt && now - Date.parse(rec.lookFirstAt) >= LOOK_FOR_MS));
   if (!due.length) return;
   const byId = new Map(communitystore.publishedServiceComments().map((c) => [c.id, c]));
+  /* Review 2: oldest send first, so two same-words copies pair with the service's copies in the order they were sent
+     (each look takes the oldest unclaimed match). */
+  const when = ([id, rec]) => { const t = Date.parse(rec.attemptedAt); if (Number.isFinite(t)) return t; const c = byId.get(id); const m = c ? Date.parse(c.releasedAt || c.receivedAt || c.at) : NaN; return Number.isFinite(m) ? m : Infinity; };
+  due.sort((a, b) => when(a) - when(b));
   let looked = 0;
   for (const [id, rec] of due) {
     if (looked >= LOOKS_PER_PASS) break;
@@ -2376,10 +2381,10 @@ async function settleUnconfirmedComments(keys, now) {
     looked += 1;
     const words = String(c.body || '').trim();
     const taken = claimedIds(csent);
-    const ok = (x, self) => (self || x.agentId === agentId) && x.body !== null && x.body.trim() === words && !(x.at < since) && !taken.has(x.id);
-    ok.since = since;
+    // Review 2: a row whose time cannot be read is never it (NaN would pass a "not before" test).
+    const ok = (x, self) => (self || x.agentId === agentId) && x.body !== null && x.body.trim() === words && Number.isFinite(x.at) && x.at >= since && !taken.has(x.id);
     let r = null;
-    try { r = await lookForComment(c, rec.agent, keys, ok); } catch { r = null; }
+    try { r = await lookForComment(c, rec.agent, keys, ok, since); } catch { r = null; }
     // Re-read before writing: a send pass or a take-back may have written the file while this was on the network.
     const latest = loadJson(commentsSentFile());
     if (!latest || !unconfirmedComment(id, latest[id])) continue;
