@@ -379,9 +379,11 @@ function tellAgent(sessionName, participating, opts = {}) {
   const instructions = require('./instructions');
   /* kosmos#8156: a test seat never takes part (communityswitch.isTestSeat), so it is written as when the switch is off:
      the section comes out (or, under a policy, the lines saying it does not take part). An unloadable check reads as a
-     test seat, the side that tells nobody to post. */
+     test seat for adding nothing, never for taking a real agent's section out. */
   if (participating === true) {
-    try { if (require('./communityswitch').isTestSeat(sessionName)) participating = false; } catch { participating = false; }
+    // Review 7: a check that cannot load reads as "not a seat" here, so no real agent loses its section; the send
+    // layer still refuses to send while it cannot load.
+    try { if (require('./communityswitch').isTestSeat(sessionName)) participating = false; } catch { /* not a seat */ }
   }
   try {
     const current = instructions.read(sessionName);
@@ -475,8 +477,8 @@ function refreshEveryone(roster, participating) {
     /* kosmos#8156: a test seat is never given the section, and one written before this is taken out here too (tellAgent
        writes a seat as not taking part), after the same two checks as any agent (no file yet; a connected agent's own
        file is only refreshed). It is never reported as a change of rules, so nothing tells it about the community. */
-    let seat = true;
-    try { seat = require('./communityswitch').isTestSeat(a.sessionName); } catch { seat = true; }
+    let seat = false;   // review 7: a check that cannot load reads as "not a seat" (the send layer still sends nothing)
+    try { seat = require('./communityswitch').isTestSeat(a.sessionName); } catch { seat = false; }
     if (seat) {
       const { body: _unused, ...r } = tellAgent(a.sessionName, false, { withBody: true, onlyIfPresent: isConnected });
       told.push({ agent: a.sessionName, ...r, rulesChanged: false });
