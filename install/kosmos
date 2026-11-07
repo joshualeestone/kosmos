@@ -6618,6 +6618,11 @@ cmd_task() {
       # kosmos#8202: one task whole, from the board's task list for its project (the route `task list` reads, with the
       # agent's own token), printed by engine/tasklist.js showLines, the one copy the Windows CLI runs too.
       local num; num="${2:-}"   # validated (all digits) before the health check above
+      # The module first, as the Windows command does, so an old install says to update rather than reading the board.
+      local _snode _smod
+      _snode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to show that task." >&2; exit 1; }
+      _smod="$(kosmos_engine_module tasklist).js"
+      grep -q 'showLines' "$_smod" 2>/dev/null || { say "This install of Kosmos cannot show one task yet; update Kosmos, or use kosmos task list." >&2; exit 1; }
       local rc=0 body _stok=""
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _stok="$KOSMOS_AGENT_TOKEN" ;; esac
       body=$(kosmos_curl "$_bt" "$_stok" -sS -m 15 "$URL/api/tasks?project=$esc_project" 2>/dev/null) || rc=$?
@@ -6626,10 +6631,6 @@ cmd_task() {
         local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
         say "Kosmos refused that: ${because:-it did not say why}." >&2; exit 1 ;;
       esac
-      local _snode _smod
-      _snode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to show that task." >&2; exit 1; }
-      _smod="$(kosmos_engine_module tasklist).js"
-      grep -q 'showLines' "$_smod" 2>/dev/null || { say "This install of Kosmos cannot show one task yet; update Kosmos, or use kosmos task list." >&2; exit 1; }
       printf '%s' "$body" | "$_snode" "$_smod" show "$num" "${1:-}"
       exit $?
       ;;

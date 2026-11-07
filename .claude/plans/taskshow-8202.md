@@ -21,7 +21,7 @@ Card: kosmos#8202 (feedback 2026-11-07: no one command prints a single task whol
 - Printing raw JSON: unreadable, and a task's words would reach the terminal unquoted.
 
 ## Measured
-- cli.task-show-8202.test.js: 7 tests pass (Windows lines exact, Mac lines equal Windows, webhook quoting, done
+- cli.task-show-8202.test.js: 8 tests pass (Windows lines exact, Mac lines equal Windows, webhook quoting, done
   state, refusals and usage, help on both).
 - Perturbations: no indent on written words turns the exact-lines test red; no control-character strip turns it red.
 - Related tests, 617 pass, 0 fail: every cli.task-*.test.js, cli.unknown-flag-4889, the files that require
@@ -47,3 +47,11 @@ project pays one list read per show.
 - A task closed by all its parts finishing shows Closed from the latest part, as the board's closedAtOf does.
 - The Commit line prints landedRepo, a path on this computer: the agent-token list already sends it, and the card
   asks for where work landed. The "no path is kept" line is about the delivered file only.
+
+## Review round 3 (decided)
+- Parts read the board's whoIsLeft: an agent that marked the task built is "reported finished" while its part is open,
+  as the list says (kosmos#8137). Perturbed: without it the test is red.
+- Windows refuses a project id outside the slug set with install/kosmos's own words, rather than reading a stripped id
+  and printing one that does not match. Mac checks the module before reading the board, as Windows does.
+- A hold until a time prints local time like the page's other times; a done-when entry that is not a string prints a
+  placeholder. Tests added for replaced, paused (open and built), hold until a time, and a commit not on the remote.

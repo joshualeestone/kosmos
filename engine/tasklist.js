@@ -163,18 +163,6 @@ function acrossLines(body, flag, opts = {}) {
   return { lines, rc: 0 };
 }
 
-/**
- * kosmos#8202 (feedback: to learn what a task delivered, an agent had to search folders and messages): ONE task whole,
- * `kosmos task show <project-id> <task-number>`, from the same board answer `kosmos task list` reads
- * (GET /api/tasks?project=), so it needs no route of its own and works against any board that lists tasks. Both CLIs
- * print these lines (install/kosmos through `node tasklist.js show`, the Windows CLI through require).
- *
- * Each field is one line, `<Name>: <value>`, at the left margin. Words that people and agents wrote (a detail, a note,
- * a check, a part's own words) are printed INDENTED under their field, so they can never print a field line of their
- * own. Every string is scrubbed of control and format characters first. A webhook task's words are quoted, as the
- * list quotes them, and so is a webhook parent's title on the Under line.
- * Returns { lines, rc }: rc 1 when the answer has no task list or no task by that number, else 0.
- */
 const scrub = (v) => (typeof v === 'string' ? clean(v)
   : Array.isArray(v) ? v.map(scrub)
     : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, w]) => [k, scrub(w)])) : v);
@@ -189,7 +177,7 @@ function stateWords(x) {
   if (x.isClosed) return Number.isInteger(x.replacedBy) ? 'closed, replaced by task ' + x.replacedBy : 'done';
   if (x.onHold === true) {
     const u = x.onHoldUntil;
-    const until = u && Number.isInteger(u.task) ? ' until task ' + u.task + ' is closed' : u && typeof u.at === 'string' ? ' until ' + one(u.at) : '';
+    const until = u && Number.isInteger(u.task) ? ' until task ' + u.task + ' is closed' : u && typeof u.at === 'string' ? ' until ' + (whenWords(u.at) || one(u.at)) : '';
     return 'on hold' + until + (x.onHoldByPerson === true ? ', put on hold by the person (only they can take it off)' : '')
       + (x.onHoldForPerson === true ? ', waiting on the person' : '')
       + (x.builtAt ? '; built' : '');   // review 2: as the list's [on hold] [built], so delivered work is not hidden
@@ -198,6 +186,18 @@ function stateWords(x) {
   if (x.projectPaused === true) return 'on hold (its project is paused)';
   return 'open';
 }
+/**
+ * kosmos#8202 (feedback: to learn what a task delivered, an agent had to search folders and messages): ONE task whole,
+ * `kosmos task show <project-id> <task-number>`, from the same board answer `kosmos task list` reads
+ * (GET /api/tasks?project=), so it needs no route of its own and works against any board that lists tasks. Both CLIs
+ * print these lines (install/kosmos through `node tasklist.js show`, the Windows CLI through require).
+ *
+ * Each field is one line, `<Name>: <value>`, at the left margin. Words that people and agents wrote (a detail, a note,
+ * a check, a part's own words) are printed INDENTED under their field, so they can never print a field line of their
+ * own. Every string is scrubbed of control and format characters first. A webhook task's words are quoted, as the
+ * list quotes them, and so is a webhook parent's title on the Under line.
+ * Returns { lines, rc }: rc 1 when the answer has no task list or no task by that number, else 0.
+ */
 function showLines(body, num, project) {
   const tasks = body && Array.isArray(body.tasks) ? body.tasks : null;
   if (!tasks) return { lines: ['Kosmos sent no task list, so there is no task to show.'], rc: 1 };
@@ -218,12 +218,16 @@ function showLines(body, num, project) {
   field('Held by', ownerOf(x));
   // Review 1: who holds which part, when there is more than one (the card's "who holds which part").
   if (Array.isArray(x.parts) && x.parts.length > 1) {
+    const finishedNames = x.whoIsLeft && Array.isArray(x.whoIsLeft.finished) ? x.whoIsLeft.finished.map((w) => String(w).trim()) : null;
     lines.push('Parts:');
     x.parts.forEach((part, i) => {
       const id = Number.isInteger(part && part.id) ? part.id : i + 1;
       const who = part && typeof part.who === 'string' && part.who.trim() ? q(part.who) : 'nobody';
       const own = part && typeof part.sentence === 'string' && part.sentence.trim() && part.sentence.trim() !== String(x.sentence || '').trim();
-      lines.push('    ' + id + ') ' + who + (part && part.closedAt ? ', finished' : ', not finished')
+      // Review 3: an agent that marked the task built has reported its part finished, as the board's whoIsLeft
+      // (kosmos#8137) and the list say, even while the part itself is still open.
+      const reported = part && typeof part.who === 'string' && Array.isArray(finishedNames) && finishedNames.includes(part.who.trim());
+      lines.push('    ' + id + ') ' + who + (part && part.closedAt ? ', finished' : reported ? ', reported finished' : ', not finished')
         + (own ? ': ' + (webhook ? '"' + q(part.sentence) + '"' : one(part.sentence)) : ''));
     });
   }
@@ -239,7 +243,7 @@ function showLines(body, num, project) {
   if (Array.isArray(x.doneWhen) && x.doneWhen.length) {
     const by = x.doneWhenByPerson === true ? ', set by the person' : (x.doneWhenBy ? ', set by ' + q(x.doneWhenBy) : '');
     lines.push('Done when' + by + ':');
-    x.doneWhen.forEach((c, i) => lines.push('    ' + (i + 1) + ') ' + one(clean(c))));
+    x.doneWhen.forEach((c, i) => lines.push('    ' + (i + 1) + ') ' + (typeof c === 'string' ? one(c) : '(a check Kosmos could not read)')));
   }
   if (!x.isClosed && x.repeatWords) field('Repeats', one(x.repeatWords) + (x.repeatNextWords ? ', next ' + one(x.repeatNextWords) : ''));
   if (x.builtAt) {

@@ -1625,6 +1625,9 @@ async function taskShow(ctx, args) {
   if (!project || !num) { ctx.err(usage); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   if (tooManyWords(ctx, 'task show', 2, usage, args)) return 2;
+  // Review 3, as install/kosmos require_valid_project_id: an id outside the slug set is refused, never stripped to
+  // another project's, so the id printed is the one read.
+  if (projectSlug(project) !== project) { ctx.err('there is no project by that name'); return 1; }
   let tasklist;
   try { tasklist = require(path.join(engineDir(), 'tasklist.js')); } catch { tasklist = null; }
   if (!tasklist || typeof tasklist.showLines !== 'function') { ctx.err('This install of Kosmos cannot show one task yet; update Kosmos, or use kosmos task list.'); return 1; }
