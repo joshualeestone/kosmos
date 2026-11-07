@@ -6582,8 +6582,12 @@ function createAgentInner(opts) {
          kosmos#6908: a create that asks for `community: false` (a test agent: the promote gate's throwaway agents) gets
          no community section at all, so nothing in its instructions asks it to post in public. This covers its birth;
          a later refresh of every agent (a board restart, the Community switch changing) would write the usual block,
-         which a throwaway agent removed within a minute does not live to see. */
-      if (!(opts && opts.community === false)) {
+         which a throwaway agent removed within a minute does not live to see.
+         kosmos#8156: a test seat (a name with the live-check prefix, communityswitch.isTestSeat) gets none either, and
+         every later write leaves it out too (communityblock.tellAgent), so a seat that lives long is never told to post. */
+      let testSeat = false;
+      try { testSeat = require('./communityswitch').isTestSeat(wantedKey || name); } catch { testSeat = true; }
+      if (!(opts && opts.community === false) && !testSeat) {
         let cm = null;
         try { cm = require('./communityswitch').participating() ? require('./communityblock') : null; } catch { cm = null; }
         if (cm) {
