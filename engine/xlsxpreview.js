@@ -138,7 +138,7 @@ const nearMiss = () => { if (onNearMiss) onNearMiss(); };
    run is counted toward its own cap, with the same budget check. */
 let onTextRun = null;
 /* #8162: an element whose start tag has no ">", or that no closing tag of its name follows anywhere (a part cut short),
-   is never read, as before; and one whose body holds another start tag of its own name (its close is missing mid-part,
+   is never read, as before (a container, sheetData or row, still yields the rest of the part); and one whose body holds another start tag of its own name (its close is missing mid-part,
    so it swallowed the next one, review r1) is read as found. Each is counted (`cutShorts`, reset for each read): a sheet
    whose walk counted one is cut, and a workbook where one was counted anywhere (shared strings, the sheet list) is
    never called "empty" or "no saved values". */
@@ -146,6 +146,19 @@ let cutShorts = 0;
 /* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with indexOf. With
    `lenient` (the containers: sheetData, row), one the part never closes (a file cut short) yields the rest of the part,
    so what is there is still read; a value that is not closed is never read. */
+/* The ">" that ends the start tag at `i`, outside quotes: a raw ">" is legal inside an attribute value
+   (formatCode="[>100]0", a sheet named "A>B"), and taking the first ">" cut such a tag short (review r2). -1 if none.
+   One forward pass over the tag. */
+function startTagEnd(xml, i) {
+  let quote = null;
+  for (let j = i + 1; j < xml.length; j++) {
+    const ch = xml[j];
+    if (quote) { if (ch === quote) quote = null; }
+    else if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '>') return j;
+  }
+  return -1;
+}
 /* Whether `body` holds a start tag named `name` ("<c " or "<c>" or "<c/", not "<cols"). One forward indexOf pass. */
 function nestedStart(body, name) {
   for (let at = body.indexOf('<' + name); at >= 0; at = body.indexOf('<' + name, at + 1)) {
@@ -161,12 +174,13 @@ function* elements(xml, name, lenient = false) {
     if (i < 0) return;
     const after = xml[i + name.length + 1];
     if (after !== ' ' && after !== '>' && after !== '/' && after !== '\t' && after !== '\n' && after !== '\r') { at = i + 1; nearMiss(); continue; }
-    const tagEnd = xml.indexOf('>', i);
+    const tagEnd = startTagEnd(xml, i);
     if (tagEnd < 0) { cutShorts++; return; }
     const tag = xml.slice(i, tagEnd + 1);
     if (tag.endsWith('/>')) { yield { tag, body: '', end: tagEnd + 1 }; at = tagEnd + 1; continue; }
     const close = xml.indexOf('</' + name + '>', tagEnd);
-    if (close < 0) { if (lenient) yield { tag, body: xml.slice(tagEnd + 1), end: xml.length }; else cutShorts++; return; }
+    // A container never closed (a part cut short) still yields what is there, and is counted like any other (review r2).
+    if (close < 0) { cutShorts++; if (lenient) yield { tag, body: xml.slice(tagEnd + 1), end: xml.length }; return; }
     const body = xml.slice(tagEnd + 1, close);
     if (nestedStart(body, name)) cutShorts++;
     yield { tag, body, end: close + name.length + 3 };
