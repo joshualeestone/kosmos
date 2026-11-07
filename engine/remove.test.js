@@ -3582,3 +3582,42 @@ test('#8112 the CLI path resolves the variant to the one listed agent, never "mo
   assert.equal(r.name, 'kres8112', 'the variant did not resolve to the listed agent');
   assert.equal(remove.resolve('kres8112', MAC, listed).name, 'kres8112', 'CONTROL: the exact name changed');
 });
+
+/* kosmos#8112 review 1: a register-only connect (discover.registerOnly) records a folder and NO job, starts nothing,
+   and writes the typed name as displayName. It must still be removable by that exact name, and only by it. */
+function registeredOnly(name) {
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'Reg-' + name);
+  fs.mkdirSync(dir, { recursive: true });
+  require('./store').writeProfile(name, { dir, displayName: name });
+  return dir;
+}
+
+test('#8112 review 1: a register-only agent (no job, no session) plans by its exact name; a case variant does not', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  registeredOnly('kreg8112');
+  assert.equal(fs.existsSync(nodePath.join(nodePath.dirname(create.plistPath('kreg8112')), 'com.kreg8112.discord.plist')), false, 'CONTROL: the fixture has a job, so the folder is not what is tested');
+  const exact = remove.plan('kreg8112', MAC);
+  assert.equal(exact.ok, true, 'a register-only agent can no longer be removed by its own name: ' + exact.because);
+  const variant = remove.plan('Kreg8112', MAC);
+  assert.equal(variant.ok, false, 'a case variant of a register-only agent planned');
+});
+
+test('#8112 review 1: register-only under an UPPERCASE name (nameUsable allows it) plans by that name, not the lowercase one', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  registeredOnly('KUp8112');
+  const exact = remove.plan('KUp8112', MAC);
+  assert.equal(exact.ok, true, 'the typed uppercase name no longer plans: ' + exact.because);
+  assert.equal(remove.plan('kup8112', MAC).ok, false, 'the lowercase variant planned as if it were the agent');
+});
+
+test('#8112 review 1: an adopted agent shown as a case variant of its machine name: the variant is refused', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = recordedAgent('kad8112');   // a job under kad8112
+  require('./store').writeProfile('kad8112', { dir, displayName: 'Kad8112' });
+  assert.equal(remove.plan('kad8112', MAC).ok, true, 'the machine name no longer plans');
+  const v = remove.plan('Kad8112', MAC);
+  assert.equal(v.ok, false, 'the display-name spelling planned under a name with no job (the #8109 false success)');
+});

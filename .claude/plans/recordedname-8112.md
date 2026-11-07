@@ -20,11 +20,24 @@ before. create.agentDirRecorded is exported for this.
   already answer.
 - Folding into #8109's branch: it merged without the pin.
 
-## Weakest premise
-A profile-recorded agent with no job, no session and no card can no longer be found by name (plan says "cannot
-find"). That is the refusing direction, which the card allows; such an agent has nothing running to stop.
+## Weakest premise (revised after review 1)
+Round 1's BLOCKER: the first version made a register-only agent (discover.registerOnly: recorded folder, no job,
+nothing started, card on the board) unremovable by its own name; "nothing running" missed that removing also takes
+the card off. Revised rule: a recorded folder proves a spelling when the profile's displayName is exactly it
+(registerOnly writes the typed name) AND no job is under the lowercase machine name (an adopted `cai` shown as "Cai"
+has its job under cai). The reviewer's "the key form proves it" was not taken: registerOnly accepts any name
+nameUsable allows, uppercase included (measured), so an uppercase register-only name would have become unremovable.
+Remaining premise: an adopted agent with no job whose displayName is a case variant of its machine name would let
+that variant plan; adoption writes a job (#1347, #3519), so this needs a job removed by hand.
 
 ## Verification
 engine/remove.test.js: two #8112 tests (plan refuses the variant and still plans the exact name; resolve answers the
 one listed agent, no phantom), both failing on main and passing after. 129 files touching remove or workerDir:
 2871 tests, 0 fail.
+
+## Review 1 (applied)
+- BLOCKER register-only unremovable --> FIXED (displayName rule above; tests: exact plans, variant refused, uppercase name)
+- WARNING the fixture always had a job --> FIXED (register-only fixture with no job, its CONTROL asserts no plist)
+- WARNING forgetCodexFolder ran on the variant --> FIXED (skipped when the recorded folder is another spelling's)
+- NIT the removed message read workerDir --> FIXED (folderIsExactly)
+Mutants: no displayName check (2 fail), no job check (1 fail), recorded never proves (2 fail). 129 files, 2874 tests, 0 fail.
