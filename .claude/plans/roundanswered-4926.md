@@ -37,10 +37,12 @@ Measured on 0.7.94 with a Grok and a Claude seat: each answered a round of asks 
 - Left as is: the idle reminder can still mention an ask this list has moved. Stated above under Known limits; #4926 stays open for it.
 - Correction: iteration 1's commit message says 30 mutation arms. It was 29. With this round, 33.
 
-## Reviews 3 to 5
+## Reviews 3 to 8
 - Review 3 (opus): a test for an old ask and a covered one with nothing listed. That head reads `nothing listed from the last 3 days in this room; the posts named below may still be open`.
 - Review 4 (sonnet): nothing new, but it read only part of the test file.
 - Final validation was then red: rewording the usage line broke the words `tools.windows-kosmos-cli-gaps-4891` pins. Reworded to keep them.
 - Review 5 (opus): a reply to the reader's own newer post no longer covers: it carries on that thread, which may be about something older (the N7 rule's `x.from === member`). A citation of a post the room no longer holds still covers. Rejected: following the thread up to its root. It costs more, and the row is named either way.
-- Review 7 (opus): the words treatment is one function, shared with outside senders, the rule for which asks a later post does not move is one predicate, the excerpt length is a named constant, and quiet has a test.
 - Review 6 (sonnet): the line under a post no longer says `it needs nothing more` under an ask the list keeps showing. For the person's asks and one the reader claimed it says `cite it with --in-reply-to to take it off your list`. The reader's own posts are collected during the walk, so a reply no longer scans the room.
+- Review 7 (opus): the words treatment is one function, shared with outside senders, the rule for which asks a later post does not move is one predicate, the excerpt length is a named constant, and quiet has a test.
+- Review 8 (sonnet): one WARNING, a cost: `laterOwnPost` is asks times rows. Measured on a copy of the walk, worst case: 50,000 rows and 5,000 asks 175 ms; the largest room on one busy board today has 2,316 rows. Not changed.
+- Stopped at 8 by the fleet's usage rule (no BLOCKER open, WARNINGs go to a follow-up card): #8165 holds the review 8 WARNING, the failed citation, the idle reminder and the plain-room line. Not a natural convergence: review 8 did raise a new WARNING.
