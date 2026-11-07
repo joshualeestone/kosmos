@@ -669,6 +669,7 @@ function resetForTests() {
   IDS_LOADED = false;        // kosmos#8178: and so does the id file (a test process never holds the real root, #5418)
   IDS_APPENDED = 0;
   IDS_COMPACT_AT = 64 * 1024;
+  IDS_RETRY_AFTER = 0;
   try { fs.rmSync(IDS, { force: true }); } catch { /* best effort */ }
 }
 
@@ -1345,13 +1346,15 @@ let ID_HIGH = 0;
    id ever handed out, and puts back the room posts from the last PENDING_POST_MAX_MS that have no line in the record
    at all (round 1: a recorded post, and so a deleted one, is the record's to answer for). Past IDS_COMPACT_AT bytes the
    file is rewritten to those posts and the highest id, plus any line appended after it was read (round 2). With the
-   record unreadable it writes nothing and is read again on the next call (round 2: compacting then would drop every
-   post it could have put back). Any failure leaves ids from the log alone, as before #8178, never a refusal. */
+   record unreadable it writes nothing and is read again IDS_RETRY_MS later (round 2: compacting then would drop every
+   post it could have put back; round 4: not on every call). Any failure leaves ids from the log alone, as before #8178, never a refusal. */
 let IDS_COMPACT_AT = 64 * 1024;
 let IDS_APPENDED = 0;   // round 3: bytes appended since the last read, so a board that stays up compacts too
+const IDS_RETRY_MS = 30 * 1000;
+let IDS_RETRY_AFTER = 0;
 let IDS_LOADED = false;
 function loadIds() {
-  if (IDS_LOADED) return;
+  if (IDS_LOADED || Date.now() < IDS_RETRY_AFTER) return;
   IDS_LOADED = true;
   let text;
   try { text = fs.readFileSync(IDS, 'utf8'); } catch { return; }
@@ -1375,7 +1378,7 @@ function loadIds() {
     }
   } catch { inRecord = null; }
   const high0 = rows.reduce((h, x) => Math.max(h, Number(x.id.slice(1))), 0);
-  if (inRecord === null) { ID_HIGH = Math.max(ID_HIGH, high0); IDS_LOADED = false; return; }
+  if (inRecord === null) { ID_HIGH = Math.max(ID_HIGH, high0); IDS_LOADED = false; IDS_RETRY_AFTER = Date.now() + IDS_RETRY_MS; return; }
   const high = high0;
   const now = Date.now();
   const keep = rows.filter((x) => x.gone !== true && !gone.has(x.id) && !inRecord.has(x.id)
@@ -1405,9 +1408,10 @@ function loadIds() {
 function noteId(row) {
   const line = JSON.stringify(row) + '\n';
   try { fs.appendFileSync(IDS, line, { mode: 0o600 }); } catch { return; /* a restart may then reuse it, as before #8178 */ }
-  IDS_APPENDED += line.length;
-  // Round 3: read again (restoring skips what is already pending), which compacts a file past the threshold.
-  if (IDS_APPENDED >= IDS_COMPACT_AT) { IDS_LOADED = false; loadIds(); }
+  IDS_APPENDED += Buffer.byteLength(line, 'utf8');
+  /* Round 3: read again (restoring skips what is already pending), which compacts a file past the threshold. Round 4:
+     at the NEXT loadIds call, never from here: here a post's id is minted and its pending entry not yet set. */
+  if (IDS_APPENDED >= IDS_COMPACT_AT) IDS_LOADED = false;
 }
 /* #4888: the id the next send will be given, without taking it (a test plants a file at it). */
 function nextIdForTests() {
@@ -4958,7 +4962,7 @@ module.exports = {
   _withPendingForTests: withPending,
   _setPendingForTests: (id, entry) => { if (entry) PENDING_POSTS.set(id, entry); else PENDING_POSTS.delete(id); },
   /* kosmos#8178: what a board restart forgets (every id it handed out, and the posts still pending), keeping the files. */
-  _restartForTests: () => { PENDING_POSTS.clear(); ID_HIGH = 0; IDS_LOADED = false; },
+  _restartForTests: () => { PENDING_POSTS.clear(); ID_HIGH = 0; IDS_LOADED = false; IDS_APPENDED = 0; IDS_RETRY_AFTER = 0; },
   _idsPathForTests: () => IDS,
   _idsCompactAtForTests: (n) => { IDS_COMPACT_AT = n == null ? 64 * 1024 : n; },
   deletePostAsync,   // kosmos#7614
