@@ -33,3 +33,9 @@ Windows box (#7820, #7890 are parked needs-device); the Windows CI job runs the 
   restart only from the CLI. Left as it is.
 - #8112 (April) also edits engine/remove.js (its folderIsExactly calls jobFor with the lowercase key, which this
   leaves alone); rebase onto it if it lands first.
+
+## Review ledger (challenge loop)
+10 blind iterations, opus and sonnet alternating; converged at iteration 10 (no BLOCKER, WARNING or CONVENTION).
+Deferred NITs from 10: run the case check before the schtasks query (same behaviour); the comment's "however schtasks
+prints it" means the name asked for; the create guard test does not exercise worldimport itself.
+Left: the full suite (validation_log_run_or_skip) waits on the Mortals turn (Splinter), then the proof file and the PR.
