@@ -20,6 +20,11 @@ server.slowrequest-runner-8191.test.js: (1) the runner's export exists and is at
 limit puts the line in front of the JSON and the parse throws; (3) under the runner's limit, a request slower than the
 5 s default (5.3 s) leaves stdout as JSON. Mutants: export deleted -> (1) and (3) fail; server.js reading a different
 name -> (2) fails; runner limit 4000 -> (3) fails on its own. The child has a 60 s timeout so a hang is a fast red.
+(3) also asserts the answer came 5 s or more after the request started and was the route's 400 for an empty body (no
+account code runs). (4) under tools/run-tests.sh, the test process's own env holds the runner's value (skipped by
+hand). Measured under the runner: 4/4; with an `unset KOSMOS_SLOW_REQUEST_MS` after the export, (4) fails.
+Trade, stated: no "[slow request]" line appears in any test or CI board log now, so a slow request during a suite
+run no longer shows there.
 server.slowrequest-6721.test.js sets its own limit before loading server.js, so it is unaffected (ran green).
 
 ## Tests run
