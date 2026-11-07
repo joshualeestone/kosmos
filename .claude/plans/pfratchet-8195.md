@@ -13,7 +13,7 @@ shell.pipefail-ratchet-8195.test.js fails on any NEW hit and on any listed line 
 - test-support/pipefail-baseline-8195.txt: generated, one `path<TAB>line` per hit.
 
 ## Measured
-- 2 tests pass on this tree.
+- The ratchet passes on this tree.
 - Perturbation add (a new `printf x | grep -q y` in verify-served.sh): red, the line named.
 - Perturbation gone (a listed verify-served.sh line rewritten to grep -c): red, "no longer exist".
 
