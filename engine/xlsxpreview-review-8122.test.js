@@ -564,7 +564,6 @@ test('#8147: the answer cache is bounded by size, not only by count, and keeps t
   for (let k = 0; k < 8; k++) assert.equal(sp.fromBytes(books[k], 'b' + k + '.xlsx').ok, true);
   const { count: held } = sp._heldForTests();
   assert.ok(held <= 4, 'held ' + held + ' answers of about 1.9 MB each');
-
   let reads = 0;
   x._internal.setClockForTests(() => { reads++; return 0; });
   try {
@@ -651,7 +650,22 @@ test('#8162: a cell or value cut off before its close marks the sheet cut and ne
   for (const rows of ['<row r="1"><c r="A1"><v>5</v></c><row r="2"><c r="A2"><v>6</v></c></row>', '<row r="1"><c r="A1"><v>5</v><c r="B1"><v>6</v></c></row>']) {
     assert.equal(read(rows).sheets[0].cut, true, rows);
   }
+  // Review r2: a part truly cut short (no ">" after a start tag, or no close of a row or of sheetData) is counted too;
+  // these are raw parts, not wrapped by fx.SHEET, which would supply closing tags.
+  for (const part of ['<worksheet><sheetData><row r="1"><c r="A1" ', '<worksheet><sheetData><row r="1">', '<worksheet><sheetData>', '<worksheet><sheetData><row r="1"><c r="A1"><v>5</v></c>']) {
+    const r = x.readXlsx(fx.book({ S: part }));
+    assert.equal(r.sheets[0].cut, true, part);
+    assert.equal(r.empty, false, part);
+  }
+  // Review r2: a raw ">" inside an attribute (legal XML) is no cut-off tag: "no saved values" is still said.
+  const gt = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="1"><f>1</f></c></row>') }, { 'xl/styles.xml': '<styleSheet><numFmts><numFmt numFmtId="164" formatCode="[>100]0"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>' }));
+  assert.equal(gt.noValues, true);
+  const named = x.readXlsx(fx.book({ 'A>B': fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>') }));
+  assert.deepEqual([named.sheets[0].name, named.sheets[0].cut, named.sheets[0].rows], ['A>B', false, [['1']]]);
   // Review r1: an element lost outside the sheet walk (the shared strings, the sheet list) keeps the workbook from "empty".
+  const list = '<workbook xmlns:r="r"><sheets><sheet name="A" sheetId="1" r:id="rId1"/><sheet name="B" sheetId="2" r:id="rId2"></sheets></workbook>';
+  const lost = x.readXlsx(fx.book({ A: fx.SHEET(''), B: fx.SHEET('<row r="1"><c r="A1"><v>5</v></c></row>') }, { 'xl/workbook.xml': list }));
+  assert.equal(lost.empty, false, 'a sheet lost from the list read as an empty workbook');
   const sst = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t>hi</si></sst>' }));
   assert.equal(sst.empty, false);
   // CONTROL: a whole cell is read and the sheet is not cut.

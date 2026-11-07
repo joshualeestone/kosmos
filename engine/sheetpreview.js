@@ -197,4 +197,4 @@ function fromFile(file, name) {
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
-module.exports = { _forgetForTests: () => { answers.clear(); sizes.clear(); slowOnce.clear(); }, _heldForTests: () => ({ count: answers.size, chars: [...answers.keys()].reduce((n, k) => n + (sizes.get(k) || 0), 0) }), kindOf, capFor, readDelimited, fromBytes, fromFile, MAX_DELIMITED_BYTES, TOO_LARGE, CANNOT_READ };
+module.exports = { _forgetForTests: () => { answers.clear(); sizes.clear(); slowOnce.clear(); }, _heldForTests: () => ({ count: answers.size }), kindOf, capFor, readDelimited, fromBytes, fromFile, MAX_DELIMITED_BYTES, TOO_LARGE, CANNOT_READ };
