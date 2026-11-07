@@ -301,6 +301,24 @@ function treeOwners(tree, members) {
   }
   return out;
 }
+/* kosmos#8137: on an open task with two or more agents on it, who has finished and who has not, for the screens and the
+   CLI. An agent's mark covers only itself, so "finished" is hasOpenWork's own rule (assigner.js): every part of theirs closed,
+   or named in builtWho. null when there is nothing to tell apart: one agent, a closed or repeating task, or a task the
+   person marked built (that frees everyone, and "Marked built by you" already says so). `members` drops an agent who has
+   left the project (offProject names them). Session names, oldest part first. */
+function whoIsLeft(task, members) {
+  if (!task || task.repeat || progressOf(task).closed || (task.builtAt && task.builtFreesAll === true)) return null;
+  const parts = partsOf(task).filter((x) => x && x.who && (!(members instanceof Set) || members.has(x.who)));
+  const names = [...new Set(parts.map((x) => x.who))];
+  if (names.length < 2) return null;
+  const marked = task.builtAt && Array.isArray(task.builtWho) ? task.builtWho : [];
+  const isLeft = (n) => !marked.includes(n) && parts.some((x) => x.who === n && !x.closedAt);
+  const left = names.filter(isLeft);
+  // Everyone counted is finished but a part stays open (nobody's, or a departed agent's): "Finished: rex, amy." would read as all done.
+  if (!left.length && partsOf(task).some((x) => x && !x.closedAt && !names.includes(x.who))) return null;
+  return { finished: names.filter((n) => !isLeft(n)), left };
+}
+
 /* The names on a task's OPEN parts: who is on it now (whoOf also names holders of finished parts). */
 function openHolders(task) {
   return [...new Set(partsOf(task).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))];
@@ -2037,6 +2055,7 @@ function allTasks(everyProject) {
            given to them). The screen names them "(not on this project)". Absent when there are none, or the task is
            finished (closing leaves parts open, and a finished task is history). */
         ...(() => { const off = progressOf(t).closed ? [] : openHolders(t).filter((w) => !members.has(w)); return off.length ? { offProject: off } : {}; })(),
+        ...(() => { const w = whoIsLeft(t, members); return w ? { whoIsLeft: w } : {}; })(),   // kosmos#8137
       }));
     }
   }
@@ -2723,7 +2742,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   return out.slice(0, 3);
 }
 
-module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { whoIsLeft, runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,

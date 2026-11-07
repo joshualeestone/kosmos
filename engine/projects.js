@@ -789,6 +789,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
   const tree = tasksModEarly.treeOf({ tasks });
   const taskrepeatMod = require('./taskrepeat');   // review 1: once per call, not per task
   const holdTasks = { tasks: tasks.filter(Boolean) };   // kosmos#7184 round 2: once per call too
+  const memberSet = Array.isArray(memberOf) ? new Set(memberOf) : undefined;   // kosmos#8137
   const withParts = (t) => (t ? {
     ...t,
     parts: tasksModEarly.partsOf(t),
@@ -796,6 +797,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     parent: tree.up(t),
     parentSentence: tree.up(t) === null ? null : (tree.byNum.get(tree.up(t)).sentence || null),
     subtasks: tree.progress(t.number),
+    ...(() => { const w = tasksModEarly.whoIsLeft(t, memberSet); return w ? { whoIsLeft: w } : {}; })(),   // kosmos#8137
     // kosmos#4787 slice 1b: the task page's repeat line, in the board's words; a task its parts closed has no next run (review 1).
     ...taskrepeatMod.fieldsOf(tasksModEarly.progressOf(t).closed ? Object.assign({}, t, { isClosed: true }) : t),
     // kosmos#7184: what a held task waits for and whether it has happened, from the engine's own reading (holdUntilState

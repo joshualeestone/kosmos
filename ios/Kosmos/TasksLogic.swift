@@ -29,6 +29,8 @@ extension Board {
         var holdForYou = false
         var holdBecause: String? = nil
         var createdAt: String? = nil
+        var whoFinished: [String] = []   // kosmos#8137: tasks.whoIsLeft, on a task with several agents
+        var whoLeft: [String] = []
         var builtAt: String? = nil
         var builtBy: String? = nil
         var builtByPerson = false
@@ -107,6 +109,7 @@ extension Board {
             t.holdForYou = (row["onHold"] as? Bool) == true && (row["onHoldForPerson"] as? Bool) == true
             t.holdBecause = str(row, "onHoldBecause")
             t.createdAt = str(row, "createdAt")
+            (t.whoFinished, t.whoLeft) = Tasks.whoIsLeft(row)
             t.builtAt = str(row, "builtAt")
             t.builtBy = str(row, "builtBy")
             t.builtByPerson = (row["builtByPerson"] as? Bool) == true
@@ -511,6 +514,23 @@ enum Tasks {
             lines.append(who.map { name($0.who) + ": " + (($0.held && $0.reason == "question" ? needsWhy["held"] : needsWhy[$0.reason]) ?? needsWhy["other"]!) }.joined(separator: " "))
         }
         return lines.joined(separator: "\n")
+    }
+
+    // kosmos#8137: tasks.whoIsLeft as the board sends it, on a task with several agents; empty otherwise.
+    static func whoIsLeft(_ row: [String: Any]) -> (finished: [String], left: [String]) {
+        guard let w = row["whoIsLeft"] as? [String: Any] else { return ([], []) }
+        return ((w["finished"] as? [String]) ?? [], (w["left"] as? [String]) ?? [])
+    }
+    // kosmos#8137: the row's own line, not in rowLine, whose two-line limit would cut it off.
+    static func whoLeftLine(_ t: Board.TaskRow, name: (String) -> String) -> String {
+        t.state == "closed" ? "" : whoLeftWords(finished: t.whoFinished, left: t.whoLeft, name: name)
+    }
+    // tkWhoLeftWords.
+    static func whoLeftWords(finished: [String], left: [String], name: (String) -> String) -> String {
+        var said: [String] = []
+        if !finished.isEmpty { said.append("Reported finished: " + finished.map(name).joined(separator: ", ") + ".") }
+        if !left.isEmpty { said.append("Still to finish: " + left.map(name).joined(separator: ", ") + ".") }
+        return said.joined(separator: " ")
     }
 
     // tskRow's builtLine: "Marked built by Rex 2 hours ago: the note", "Marked built by you".

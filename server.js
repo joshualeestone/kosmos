@@ -26338,7 +26338,20 @@ const server = http.createServer(async (req, res) => {
             agent: card.name || card.sessionName, session: card.sessionName, project: pj ? pj.name : null, levelProjectId: id });   // #7210, board-only
         } catch { /* a notification is never a reason to fail the mark */ }
       }
-      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
+      /* kosmos#8137: an agent's mark covers only that agent, so its answer says who else still has their part open (an agent
+         learned the rule from a nudge after it thought it was done). Only to a named marker who holds a part: an unnamed
+         mark covers nobody, and a checker has no part of its own. Before `summary`, which the CLI reads as the last key;
+         the words carry no double quote, backslash or control character, which the CLI's sed could not read. */
+      let stillToFinish = null;
+      if (body.clear !== true && by && out.task && tasks.partsOf(out.task).some((x) => x && x.who === by)) {
+        try {
+          const stored = projects.readAll().find((x) => x && x.id === id);   // the stored record: agents are names
+          const w = tasks.whoIsLeft(out.task, new Set(stored && Array.isArray(stored.agents) ? stored.agents : []));
+          const others = w ? w.left.filter((n) => n !== by) : [];
+          if (others.length) stillToFinish = 'Still to finish: ' + others.join(', ').replace(/["\\\u0000-\u001f]/g, '') + '.';
+        } catch { /* the mark stands; the sentence is extra */ }
+      }
+      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(stillToFinish ? { stillToFinish } : {}), ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
       // #5313: the same agent, between tasks, gets one community prompt (reaches busy agents the idle
       // sweep never sees). After the response, and (kosmos#7649) awaited on its own chain, so it never holds the event loop; the
       // mark is already recorded, and the per-task dedup book makes a second built mark on the same

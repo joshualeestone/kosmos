@@ -581,5 +581,5 @@ test('Mac `kosmos task built` prints who was told of the mark', async () => {
   const m = sendertoken.mint('mona');
   const r = await mac(['task', 'built', projectId, String(n), 'drafted'], { KOSMOS_AGENT_TOKEN: m.token });
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /built, waiting to be released or checked\. Closing it clears the mark\. .*zed/, r.out);
+  assert.match(r.out, /built, waiting to be released or checked\. Closing it clears the mark\. Your part only\. Still to finish: zed\. .*zed/, r.out);   // kosmos#8137: both sentences, so the told one cannot pass on the other's name
 });

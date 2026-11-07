@@ -26,6 +26,16 @@ const q = (v) => one(String(v).normalize('NFKC'))
   .replace(/["ʺˮ′‵״〃❝❞\p{Pi}\p{Pf}]/gu, "'")
   .replace(/\p{Ps}/gu, '(').replace(/\p{Pe}/gu, ')');
 
+/* kosmos#8137: a task with several agents on it says who is still to finish. */
+function whoLeftWords(x) {
+  const w = x.whoIsLeft;
+  if (!w || !Array.isArray(w.left) || !Array.isArray(w.finished)) return '';
+  const said = [];
+  if (w.finished.length) said.push('reported finished: ' + w.finished.map(q).join(', '));
+  if (w.left.length) said.push('still to finish: ' + w.left.map(q).join(', '));
+  return said.length ? '  (' + said.join('; ') + ')' : '';
+}
+
 function titleOf(x) {
   const given = !!(x.whoNames && x.whoNames.length);
   if (x.addedVia === 'webhook') {
@@ -63,7 +73,7 @@ function compactLines(body, state, project) {
   if (body.listState !== group) {
     return { lines: ['This board is older than --' + state + ', so it listed every task. Update Kosmos, or list without --' + state + '.'], rc: 1 };
   }
-  const lines = tasks.map((x) => '#' + (x.number != null ? x.number : '?') + '  ' + state + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x)
+  const lines = tasks.map((x) => '#' + (x.number != null ? x.number : '?') + '  ' + state + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x) + whoLeftWords(x)
     + (group === 'built' ? seenWords(x) : ''));
   const n = tasks.length;
   lines.push(n + ' ' + state + ' task' + (n === 1 ? '' : 's') + ' in ' + one(project) + '.');
@@ -124,7 +134,7 @@ function acrossLines(body, flag, opts = {}) {
   if (body.listState !== group) return older('--' + flag);
   const label = stale ? 'open' : flag;
   const lines = tasks.map((x) => (every ? one(x.projectId || '?') + '  ' : '') + '#' + (x.number != null ? x.number : '?') + '  ' + label
-    + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x) + (stale ? '  (' + quietWords(x.lastActivityAt, now) + leftWords(x) + ')' : '')
+    + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x) + whoLeftWords(x) + (stale ? '  (' + quietWords(x.lastActivityAt, now) + leftWords(x) + ')' : '')
     + (group === 'built' ? seenWords(x) : ''));
   const n = tasks.length;
   const what = n + ' ' + label + ' task' + (n === 1 ? '' : 's') + (mine ? ' of yours' : '') + (stale ? ' quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more' : '');

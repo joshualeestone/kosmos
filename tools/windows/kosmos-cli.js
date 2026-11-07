@@ -1346,6 +1346,14 @@ async function taskList(ctx, args) {
       : x.builtAt ? '[built] ' + (x.projectPaused === true ? '[project paused] ' : '')
         : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep);
     if (dw) ctx.out(dw);
+    // kosmos#8137, as install/kosmos: on its own indented line, as done-when, so a task's words cannot print it.
+    const wl = x.whoIsLeft;
+    if (wl && Array.isArray(wl.left) && Array.isArray(wl.finished)) {
+      const bits = [];
+      if (wl.finished.length) bits.push('reported finished: ' + wl.finished.map(q).join(', '));
+      if (wl.left.length) bits.push('still to finish: ' + wl.left.map(q).join(', '));
+      if (bits.length) ctx.out('    ' + bits.join('; '));
+    }
     // #6330 slice 2, as install/kosmos: a built task's fingerprint, so the next agent can check its copy.
     if (x.builtAt && /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : ''));
   }
@@ -1867,8 +1875,10 @@ async function taskBuilt(ctx, args) {
   if (r.json && r.json.task) {
     // #6330: the board's own sentence about who was told of the mark (none from an older board).
     const told = typeof r.json.summary === 'string' && r.json.summary.trim() ? ' ' + r.json.summary.trim() : '';
+    // kosmos#8137, as install/kosmos: marking covers only the marker, so say who else still has their part open.
+    const left = typeof r.json.stillToFinish === 'string' && r.json.stillToFinish.trim() ? ' Your part only. ' + r.json.stillToFinish.trim() : '';
     ctx.out(clear ? (r.json.changed === false ? 'Task ' + num + ' on ' + project + ' was not marked built.' : 'Took the built mark off task ' + num + ' on ' + project + '.')
-      : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.' + told);
+      : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.' + left + told);
     // #6761, as install/kosmos: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
     if (!clear && fingerprint) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
     // #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.

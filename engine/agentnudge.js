@@ -106,7 +106,13 @@ function openParts(session, projects) {
         const subs = k.total > 0 && k.built > 0 ? { subs: { done: k.done, built: k.built, held: Number(k.held) || 0, total: k.total, others, checks } } : {};
         out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due, ...subs,
           /* kosmos#8067: a mark that does not free this agent (a colleague's, or an unnamed caller's) stays open work on purpose, so the line says it is marked. */
-          ...(t.builtAt ? { marked: { by: markedBy, checks } } : {}) });
+          ...(t.builtAt ? { marked: { by: markedBy, checks } } : {}),
+          /* kosmos#8137: the others still to finish, by the rule the screens show. */
+          ...(() => {
+            const w = tasks.whoIsLeft(t, new Set(Array.isArray(p.agents) ? p.agents : []));
+            const also = w ? w.left.filter((n) => n !== session) : [];
+            return also.length ? { alsoLeft: also } : {};
+          })() });
       }
     }
   }
@@ -173,8 +179,10 @@ function nudgeText(part) {
     : markedBy
       ? ' It is already marked built by ' + markedBy + ', but that mark does not cover your own part. If your part is done too, mark it yourself and Kosmos stops nudging you about it ' + command + '.'
       : ' It is already marked built, but the mark carries no name, so it covers nobody. If your part is done, mark it again from your own session ' + command + '.';
+  const alsoLeft = Array.isArray(part.alsoLeft) ? plainWords(part.alsoLeft.map((n) => plainWords(n, 80)).filter(Boolean).join(', '), SENTENCE_CAP) : '';
+  const others = alsoLeft ? ' Each agent on it marks its own part; also still to finish: ' + alsoLeft + '.' : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
-    + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '.' + due + sub + marked + ' Pick it up, or if you are waiting on something, '
+    + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '.' + due + sub + marked + others + ' Pick it up, or if you are waiting on something, '
     /* #5318: two states, two machines. blocked is a wait nobody chases (another agent, a deploy, a review); only
        needs_you is escalated (recommender.js, after its grace). Offering blocked alone sent person-blocked work there,
        where it went inert (0.7.22, a real install). The question is in SINGLE quotes: unquoted, a ? stops zsh with "no

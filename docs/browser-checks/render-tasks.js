@@ -49,8 +49,9 @@ const MEMBER = 'taskmate';
      column PANE_COLUMNS declares and throws when the engine grows one,
      which is the discipline the hand-typed form silently loses. */
   fs.writeFileSync(roots.DATA + '/fake-panes',
-    require('../../test-support/fleet').line({ session: 'taskmate-discord', claim: 'taskmate', title: '\u2733 idle' }) + '\n');
-  fs.writeFileSync(roots.DATA + '/fake-sessions', 'taskmate-discord\n');
+    require('../../test-support/fleet').line({ session: 'taskmate-discord', claim: 'taskmate', title: '\u2733 idle' }) + '\n'
+    + require('../../test-support/fleet').line({ session: 'taskmate2-discord', claim: 'taskmate2', title: '\u2733 idle' }) + '\n');
+  fs.writeFileSync(roots.DATA + '/fake-sessions', 'taskmate-discord\ntaskmate2-discord\n');
   fs.writeFileSync(roots.DATA + '/fake-screen',
     '\u276f \n  \u23f5\u23f5 bypass permissions on (shift+tab to cycle)\n');
   const srv = spawn('node', ['server.js'], {
@@ -494,8 +495,64 @@ const MEMBER = 'taskmate';
     if (!six || six.n !== 'Task 6 (built)') die('#6501: the built task\'s label does not say built: ' + JSON.stringify(six));
     if (!five || five.n !== 'Task 5' || /built/i.test(five.all)) die('#6501 CONTROL: a task not built reads as built: ' + JSON.stringify(five));
 
+    /* kosmos#8137: a task with two agents says who has finished and who has not, on the Tasks tab row and on its page;
+       a task with one agent says nothing. From the real server and a real part closed, with rendered text (shown). */
+    const left = await p.evaluate(async (member) => {
+      const json = { 'content-type': 'application/json' };
+      const r = await fetch('/api/projects', { method: 'POST', headers: json, body: JSON.stringify({ name: 'Who Is Left Check' }) });
+      const id = (await r.json()).project.id;
+      for (const m of [member, 'taskmate2']) await fetch('/api/project/' + id + '/agent/' + m, { method: 'POST', headers: json, body: '{}' });
+      const post = (u, b) => fetch('/api/project/' + id + u, { method: 'POST', headers: json, body: JSON.stringify(b) });
+      await post('/tasks', { sentence: 'Two agents on it', who: member });
+      const made = await (await post('/task/1/parts', { sentence: 'The second half', who: 'taskmate2' })).json();
+      await post('/tasks', { sentence: 'One agent on it', who: member });
+      const row = (await (await fetch('/api/tasks?project=' + id)).json()).tasks.find((t) => t.number === 1);
+      return { id, made, row };
+    }, MEMBER);
+    const wl = left.row && left.row.whoIsLeft;
+    if (!wl || wl.left.length !== 2 || wl.finished.length !== 0) die('#8137 FIXTURE: the task has not two agents on it: ' + JSON.stringify(left).slice(0, 400));
+    await p.evaluate(async ({ id }) => {
+      await fetch('/api/project/' + id + '/task/1/part/1/close', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    }, left);
+    const openTasksTab = async () => {
+      // The project's own door (openProjectTasks, what #pj-alltasks calls): the Tasks tab itself stays hidden under 25 tasks.
+      await p.goto('http://127.0.0.1:' + PORT + '/', { waitUntil: 'networkidle' });
+      if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
+      await p.evaluate((id) => openProjectTasks(id), left.id);
+      await p.waitForFunction(() => !document.getElementById('panel-tasks').hidden && /Two agents on it/.test(document.getElementById('tsk-groups').innerText), null, { timeout: 15000 });
+    };
+    await openTasksTab();
+    const twoRow = p.locator('#tsk-groups .tsk-row', { hasText: 'Two agents on it' }).first();
+    const tabWords = await shown(twoRow);
+    if (!/Reported finished: taskmate\.\s*Still to finish: taskmate2\./.test(tabWords)) die('#8137: the Tasks tab row does not say who is left: ' + JSON.stringify(tabWords));
+    await p.screenshot({ path: path.join(OUT, 'whoisleft-tasks-tab.png') });
+    const oneRow = await shown(p.locator('#tsk-groups .tsk-row', { hasText: 'One agent on it' }).first());
+    if (!oneRow || /Still to finish|Reported finished/.test(oneRow)) die('#8137 CONTROL: a task with one agent shows the line, or is missing: ' + JSON.stringify(oneRow));
+    await twoRow.locator('.tl').first().click();
+    await p.locator('#tk-wholeft-row').waitFor({ state: 'visible', timeout: 15000 });
+    const pageWords = await shown(p.locator('#tk-wholeft'));
+    if (!/^Reported finished: taskmate\. Still to finish: taskmate2\.$/.test(pageWords)) die('#8137: the task page does not say who is left: ' + JSON.stringify(pageWords));
+    await p.screenshot({ path: path.join(OUT, 'whoisleft-task-page.png') });
+    await openTasksTab();
+    await p.locator('#tsk-groups .tsk-row', { hasText: 'One agent on it' }).first().locator('.tl').first().click();
+    await p.waitForFunction(() => /One agent on it/.test(document.getElementById('tk-title').innerText), null, { timeout: 15000 });
+    await p.locator('#tk-state').waitFor({ state: 'visible', timeout: 15000 });
+    if (await p.locator('#tk-wholeft-row').isVisible()) die('#8137 CONTROL: a task page with one agent shows the line');
+    /* The project column: the list most people see, since the Tasks tab stays hidden under 25 tasks. */
+    await p.goto('http://127.0.0.1:' + PORT + '/', { waitUntil: 'networkidle' });
+    if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
+    await p.click('.tab[data-tab="projects"]');
+    await p.locator('#pj-list').getByText('Who Is Left Check').first().click();
+    await p.waitForSelector('#pj-one-view', { state: 'visible' });
+    await p.waitForFunction(() => /Two agents on it/.test((document.getElementById('pj-tasklist') || {}).innerText || ''), null, { timeout: 15000 });
+    const colWho = await shown(p.locator('#pj-tasklist .tkcard', { hasText: 'Two agents on it' }).first());
+    if (!/Reported finished: taskmate\.\s*Still to finish: taskmate2\./.test(colWho)) die('#8137: the project column does not say who is left: ' + JSON.stringify(colWho));
+    const colOne = await shown(p.locator('#pj-tasklist .tkcard', { hasText: 'One agent on it' }).first());
+    if (!colOne || /Still to finish/.test(colOne)) die('#8137 CONTROL: a one-agent card in the column shows the line, or is missing: ' + JSON.stringify(colOne));
+    await p.screenshot({ path: path.join(OUT, 'whoisleft-project-column.png') });
+
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('TASKS DRIVE OK: empty-box invitation centred (#2926), creation and view both pages (no trap, Escape inert, draft survives Back), column/door split, chip-is-status, THE JOIN (report -> says-line -> joined note, nothing before the report), done and reopen round trip, #3172 newest-first cap (6 tasks -> newest five, oldest hidden), fixture tmux only, 0 page errors; shots in ' + OUT);
+    console.log('TASKS DRIVE OK: empty-box invitation centred (#2926), creation and view both pages (no trap, Escape inert, draft survives Back), column/door split, chip-is-status, THE JOIN (report -> says-line -> joined note, nothing before the report), done and reopen round trip, #3172 newest-first cap (6 tasks -> newest five, oldest hidden), #8137 who is left on the row, the page and the column, fixture tmux only, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();
