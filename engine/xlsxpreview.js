@@ -146,17 +146,22 @@ let onTextRun = null;
 let cutShorts = 0;
 /* The ">" that ends the start tag at `i`, outside quotes: a raw ">" is legal inside an attribute value
    (formatCode="[>100]0", a sheet named "A>B"), and taking the first ">" cut such a tag short (review r2). -1 if none.
-   One forward pass, to the end of the tag (to the end of the part when a quote is never closed: still linear, and the
-   element is then counted as cut off; a damaged file can lose everything after such a quote). */
+   One forward pass, to the end of the tag; a quote never closed stops at the next "<" after a ">" (see below), so the
+   scan never runs on through the rest of the part. */
 function startTagEnd(xml, i) {
   let quote = null;
   let firstGt = -1;
   for (let j = i + 1; j < xml.length; j++) {
     const ch = xml[j];
-    // Review r5: "<" is never legal inside a start tag, even in a quoted value. Met inside a quote, the quote was never
-    // closed (a damaged file): the tag ends at its first ">" and is counted as cut off, rather than running on through
-    // later tags and losing their values silently. Met outside one, the tag has no end.
-    if (ch === '<') { if (quote && firstGt >= 0) { cutShorts++; return firstGt; } return -1; }
+    // Review r5/r6: "<" outside a quote means the tag has no end. Inside a quote, a "<" after a ">" means the quote was
+    // never closed (a damaged file): the tag ends at that first ">" and is counted as cut off, rather than running on
+    // through later tags and losing their values silently. A "<" inside a quote before any ">" is taken as text: some
+    // writers leave it raw in a value (formatCode="[<100]0.0"), and refusing it dropped every number format after it.
+    if (ch === '<') {
+      if (!quote) return -1;
+      if (firstGt >= 0) { cutShorts++; return firstGt; }
+      continue;
+    }
     if (quote) { if (ch === '>' && firstGt < 0) firstGt = j; if (ch === quote) quote = null; }
     else if (ch === '"' || ch === "'") quote = ch;
     else if (ch === '>') return j;
@@ -505,11 +510,17 @@ function readBook(buf, budget) {
   const sst = part('xl/sharedStrings.xml');
   if (sst) {
     let k = 0;
-    for (const si of elements(sst, 'si')) {
-      if (shared.length >= MAX_SHARED_STRINGS) { sharedCut = true; break; }
+    // #8162 r5/r6: a string cut off is marked by index, so a cell that uses it is cut. The count is read around each
+    // step of the walk, not only around the text: an <si> that swallowed the next (its close missing) counts before it
+    // is yielded, and one the part ends inside is never yielded, so every later index is lost too (as at the cap).
+    const strings = elements(sst, 'si');
+    for (;;) {
       const before = cutShorts;
-      shared.push(clip(textOf(si.body)));   // review 5: clipped once, not once per cell that uses it
-      if (cutShorts > before) sharedCutAt.add(shared.length - 1);   // #8162 r5: a string cut off inside
+      const step = strings.next();
+      if (step.done) { if (cutShorts > before) sharedCut = true; break; }
+      if (shared.length >= MAX_SHARED_STRINGS) { sharedCut = true; break; }
+      shared.push(clip(textOf(step.value.body)));   // review 5: clipped once, not once per cell that uses it
+      if (cutShorts > before) sharedCutAt.add(shared.length - 1);
       if ((++k & 1023) === 0) budget();
     }
   }

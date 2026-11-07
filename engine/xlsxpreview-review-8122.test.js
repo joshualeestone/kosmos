@@ -727,6 +727,8 @@ test('#8162 r5: an unclosed quote never loses later cells silently; a cut-off sh
   const read = (rows, extra) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }, extra));
   const q = read('<row r="1"><c r="A1" s="1><v>1</v></c><c r="B1" t="inlineStr"><is><t>it\'s "x</t></is></c></row><row r="2"><c r="A2"><v>3</v></c></row>');
   assert.equal(q.sheets[0].cut, true, JSON.stringify(q.sheets[0]));
+  // Review r6: and the cells after the damaged tag are still read (only the fallback to its first ">" does that).
+  assert.deepEqual(q.sheets[0].rows[1], ['3', ''], JSON.stringify(q.sheets[0].rows));
   const s = read('<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>', { 'xl/sharedStrings.xml': '<sst><si><t>hi</si><si><t>ok</t></si></sst>' });
   assert.equal(s.sheets[0].cut, true, 'a blank cell from a cut-off string said nothing');
   // A skipped row whose only value is an inline string still counts.
@@ -736,4 +738,22 @@ test('#8162 r5: an unclosed quote never loses later cells silently; a cut-off sh
   // CONTROL: a well-formed rich inline string (<color> starts like <c) is read whole, with no cut.
   const rich = read('<row r="1"><c r="A1" t="inlineStr"><is><r><rPr><color rgb="FFFF0000"/><b/></rPr><t>red</t></r><r><t> plain</t></r></is></c></row>');
   assert.deepEqual([rich.sheets[0].rows, rich.sheets[0].cut], [[['red plain']], false]);
+});
+
+test('#8162 r6: a shared string lost at the <si> level marks its cell; a raw "<" in a quoted format code is text', () => {
+  const read = (rows, sst) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }, { 'xl/sharedStrings.xml': sst }));
+  const cells = '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c></row>';
+  // The part ends inside the last string: C1 is lost, and says so.
+  const a = read(cells, '<sst><si><t>a</t></si><si><t>b</t></si><si><t>c</t>');
+  assert.equal(a.sheets[0].cut, true, JSON.stringify(a.sheets[0]));
+  // A string missing its close swallowed the next: the cell using it is cut.
+  const b = read(cells, '<sst><si><t>a</t><si><t>b</t></si><si><t>c</t></si></sst>');
+  assert.equal(b.sheets[0].cut, true, JSON.stringify(b.sheets[0]));
+  // CONTROL: whole strings, no cut.
+  const ok = read(cells, '<sst><si><t>a</t></si><si><t>b</t></si><si><t>c</t></si></sst>');
+  assert.deepEqual([ok.sheets[0].rows, ok.sheets[0].cut], [[['a', 'b', 'c']], false]);
+  // A raw "<" inside a quoted format code does not drop the number formats after it.
+  const styles = '<styleSheet><numFmts><numFmt numFmtId="164" formatCode="[<100]0.0"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="165"/></cellXfs></styleSheet>';
+  const d = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="2"><v>45000</v></c></row>') }, { 'xl/styles.xml': styles }));
+  assert.deepEqual(d.sheets[0].rows, [['2023-03-15']]);
 });
