@@ -405,8 +405,10 @@ function styleKinds(stylesXml, budget = () => {}) {
   // kosmos#8168: as a list, so a style whose start was lost (only its attributes left) is counted, the last one too.
   for (const x of elements(xfs.body, 'xf', false, true)) {
     const id = Number(attr(x.tag, 'numFmtId') || 0);
-    if (id >= 164 && !custom.has(id)) cutShorts++;   // kosmos#8168 r3: a custom format (164 and up) nobody defines was lost
-    if (!memo.has(id)) memo.set(id, custom.has(id) ? formatKind(custom.get(id)) : builtinKind(id));
+    /* kosmos#8168 r3/r4: a custom format (164 and up) nobody defines was lost. Marked, and counted only where a cell
+       formats a number with it, so a style no cell uses cuts nothing. */
+    const lost = id >= 164 && !custom.has(id);
+    if (!memo.has(id)) memo.set(id, lost ? { ...(builtinKind(id) || {}), lost: true } : custom.has(id) ? formatKind(custom.get(id)) : builtinKind(id));
     out.push(memo.get(id));
     if ((++k & 1023) === 0) budget();
   }
@@ -677,6 +679,7 @@ function readBook(buf, budget) {
           }
           else {
             const fmt = kinds[Number(attr(c.tag, 's') || 0)] || null;
+            if (fmt && fmt.lost) cutShorts++;   // kosmos#8168 r4: its format was lost, so this number may be shown wrong
             const kind = fmt && fmt.kind;
             // Review 4: text that is not a number under a date or time format is shown as written, never "NaN".
             text = (kind && kind !== 'number' && (!isDecimal(raw) || !Number.isFinite(Number(raw)))) ? raw

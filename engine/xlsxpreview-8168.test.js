@@ -63,11 +63,11 @@ test('#8168 W2: a start tag lost with its close left behind is cut, never anothe
   assert.equal(one('<row r="1"><c r="A1" s="1"><v>45000</v></c></row>', { 'xl/styles.xml': '<styleSheet><cellXfs><xf numFmtId="0"><alignment/></xf>\n  <xf numFmtId="14"/></cellXfs></styleSheet>' }).cut, false);
 });
 
-test('#8168: a sheet of 20,000 self-closed cells and one closed cell after them is still read in one pass (an uncached close search would rescan per cell)', () => {
-  const cells = Array.from({ length: 20000 }, (_, i) => `<c r="A${i + 1}" s="0"/>`).join('');
-  const t = Date.now();
-  const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1">' + cells + '<c r="B1"><v>7</v></c></row>') }));
-  assert.ok(Date.now() - t < 5000, 'took ' + (Date.now() - t) + ' ms');
+test('#8168: a row of 95,000 self-closed cells and one closed cell after them is read in one pass', () => {
+  // Round 4: big enough that searching for the close again per cell (no cache) runs past the work budget and is
+  // refused; one pass is milliseconds. 20,000 cells read in about a second either way, so could not tell them apart.
+  const cells = Array.from({ length: 95000 }, (_, i) => `<c r="A${i + 1}" s="0"/>`).join('');
+  const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1">' + cells + '<c r="B1"><v>7</v></c></row>') }, {}, { deflate: true }));
   assert.equal(r.sheets[0].cut, false, JSON.stringify(r.sheets[0]).slice(0, 200));
 });
 
@@ -148,6 +148,9 @@ test('#8168 r3: a custom format no <numFmt> defines (its wrapper lost) is cut, n
   const lost = '<styleSheet><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>';
   const s = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="1"><v>45000</v></c></row>') }, { 'xl/styles.xml': lost })).sheets[0];
   assert.equal(s.cut, true, JSON.stringify(s));
+  // Round 4: a lost format no cell uses cuts nothing (every sheet was marked cut by one unused style).
+  const unused = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>45000</v></c></row>') }, { 'xl/styles.xml': lost })).sheets[0];
+  assert.deepEqual([unused.rows, unused.cut], [[['45000']], false], JSON.stringify(unused));
   // CONTROL: the same format inside <numFmts> is a date, whole.
   const ok = '<styleSheet><numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>';
   const o = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="1"><v>45000</v></c></row>') }, { 'xl/styles.xml': ok })).sheets[0];
