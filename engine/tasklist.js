@@ -163,6 +163,82 @@ function acrossLines(body, flag, opts = {}) {
   return { lines, rc: 0 };
 }
 
+/**
+ * kosmos#8202 (feedback: to learn what a task delivered, an agent had to search folders and messages): ONE task whole,
+ * `kosmos task show <project-id> <task-number>`, from the same board answer `kosmos task list` reads
+ * (GET /api/tasks?project=), so it needs no route of its own and works against any board that lists tasks. Both CLIs
+ * print these lines (install/kosmos through `node tasklist.js show`, the Windows CLI through require).
+ *
+ * Each field is one line, `<Name>: <value>`, at the left margin. Words that people and agents wrote (a detail, a note,
+ * a check) are printed INDENTED under their field, with control and format characters taken out, so they can never
+ * print a field line of their own. A webhook task's words are quoted, as the list quotes them.
+ * Returns { lines, rc }: rc 1 when the answer has no task list or no task by that number, else 0.
+ */
+const clean = (v) => String(v).replace(/[\p{Cc}\p{Cf}]/gu, (c) => (/[\t\n\r]/.test(c) ? c : '')).replace(/[^\S\n]+/g, ' ').trim();
+function whenWords(s) {
+  const t = typeof s === 'string' ? new Date(s) : null;
+  if (!t || !Number.isFinite(t.getTime())) return null;
+  const two = (n) => String(n).padStart(2, '0');
+  return t.getFullYear() + '-' + two(t.getMonth() + 1) + '-' + two(t.getDate()) + ' ' + two(t.getHours()) + ':' + two(t.getMinutes());
+}
+function stateWords(x) {
+  if (x.isClosed) return Number.isInteger(x.replacedBy) ? 'closed, replaced by task ' + x.replacedBy : 'done';
+  if (x.onHold === true) return 'on hold';
+  if (x.builtAt) return 'built' + (x.projectPaused === true ? ' (its project is paused)' : '');
+  if (x.projectPaused === true) return 'on hold (its project is paused)';
+  return 'open';
+}
+function showLines(body, num, project) {
+  const tasks = body && Array.isArray(body.tasks) ? body.tasks : null;
+  if (!tasks) return { lines: ['Kosmos sent no task list, so there is no task to show.'], rc: 1 };
+  const n = Number(num);
+  const x = tasks.find((t) => t && t.number === n);
+  if (!x) return { lines: ['Kosmos refused that: there is no task by that number on this project.'], rc: 1 };
+  const webhook = x.addedVia === 'webhook';
+  const lines = [];
+  const field = (name, value) => { if (value !== null && value !== undefined && value !== '') lines.push(name + ': ' + value); };
+  const under = (text) => {
+    const words = webhook ? q(text) : clean(text);
+    for (const l of words.split('\n')) if (l.trim()) lines.push('    ' + l.trim());
+  };
+  lines.push('Task ' + n + ' in ' + one(project) + ': ' + titleOf(x));
+  field('State', stateWords(x));
+  field('Held by', ownerOf(x));
+  const wl = whoLeftWords(x);
+  if (wl) field('Parts', wl.replace(/^ {2}\((.*)\)$/, '$1'));
+  if (x.parent) field('Under', 'task ' + x.parent + (x.parentSentence ? ': ' + one(x.parentSentence) : ''));
+  if (x.subtasks && x.subtasks.total) {
+    field('Subtasks', x.subtasks.done + ' of ' + x.subtasks.total + ' done' + (Number(x.subtasks.held) > 0 ? ', ' + Number(x.subtasks.held) + ' on hold' : ''));
+  }
+  if (typeof x.detail === 'string' && x.detail.trim()) { lines.push('Detail:'); under(x.detail); }
+  if (Array.isArray(x.doneWhen) && x.doneWhen.length) {
+    const by = x.doneWhenByPerson === true ? ', set by the person' : (x.doneWhenBy ? ', set by ' + q(x.doneWhenBy) : '');
+    lines.push('Done when' + by + ':');
+    x.doneWhen.forEach((c, i) => lines.push('    ' + (i + 1) + ') ' + one(clean(c))));
+  }
+  if (!x.isClosed && x.repeatWords) field('Repeats', one(x.repeatWords) + (x.repeatNextWords ? ', next ' + one(x.repeatNextWords) : ''));
+  if (x.builtAt) {
+    const by = x.builtByPerson === true ? 'the person' : (x.builtBy ? q(x.builtBy) : null);
+    field('Built', (whenWords(x.builtAt) || 'yes') + (by ? ', by ' + by : ''));
+    if (typeof x.builtNote === 'string' && x.builtNote.trim()) { lines.push('Built note:'); under(x.builtNote); }
+  }
+  // kosmos#6330: `task built --file` records the delivered file's fingerprint, never its path; said so, not guessed.
+  if (/^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(x.builtFingerprint || '')) {
+    field('Delivered file', x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : '')
+      + ' (its fingerprint only: Kosmos keeps no path. Check a copy with: kosmos fingerprint <file> ' + x.builtFingerprint + ')');
+  }
+  if (typeof x.landedCommit === 'string' && /^[0-9a-f]{7,64}$/.test(x.landedCommit)) {
+    field('Commit', x.landedCommit + (x.landedRepo ? ' in ' + q(x.landedRepo) : '')
+      + (x.landedOnRemote === true ? ', on the remote' : x.landedOnRemote === false ? ', not on the remote when recorded' : '')
+      + (x.landedBy ? ', recorded by ' + q(x.landedBy) : '') + (whenWords(x.landedAt) ? ' at ' + whenWords(x.landedAt) : ''));
+  }
+  field('Added', [whenWords(x.createdAt), x.addedVia === 'process' && x.addedBy ? 'by ' + q(x.addedBy) : null].filter(Boolean).join(', '));
+  if (typeof x.dueDate === 'string' && x.dueDate) field('Due', one(x.dueDate));
+  if (x.isClosed) field('Closed', whenWords(x.closedAt));
+  lines.push('Its conversation: kosmos task activity ' + one(project) + ' ' + n);
+  return { lines, rc: 0 };
+}
+
 /* `node tasklist.js compact <state> <project>` and (kosmos#7057) `node tasklist.js across <flag> <project or ""> [days]
    [mine]` (kosmos#7992: a last word `mine` for --mine), the board's JSON on stdin (install/kosmos). */
 if (require.main === module) {
@@ -171,6 +247,13 @@ if (require.main === module) {
     let body = null;
     try { body = JSON.parse(require('node:fs').readFileSync(0, 'utf8')); } catch { body = null; }
     const out = acrossLines(body, state, { project: project || '', days: daysArg ? Number(daysArg) : undefined, mine: mineArg === 'mine' });
+    (out.rc ? process.stderr : process.stdout).write(out.lines.join('\n') + '\n');
+    process.exit(out.rc);
+  }
+  if (verb === 'show') {   // kosmos#8202: `node tasklist.js show <task-number> <project>`, the board's list on stdin
+    let body = null;
+    try { body = JSON.parse(require('node:fs').readFileSync(0, 'utf8')); } catch { body = null; }
+    const out = showLines(body, state, project || '');
     (out.rc ? process.stderr : process.stdout).write(out.lines.join('\n') + '\n');
     process.exit(out.rc);
   }
@@ -187,4 +270,4 @@ if (require.main === module) {
   process.exit(out.rc);
 }
 
-module.exports = { COMPACT, compactLines, acrossLines, seenWords, STALE_DAYS_DEFAULT: 7 };
+module.exports = { COMPACT, compactLines, acrossLines, showLines, seenWords, STALE_DAYS_DEFAULT: 7 };
