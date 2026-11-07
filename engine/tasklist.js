@@ -170,10 +170,14 @@ function acrossLines(body, flag, opts = {}) {
  * print these lines (install/kosmos through `node tasklist.js show`, the Windows CLI through require).
  *
  * Each field is one line, `<Name>: <value>`, at the left margin. Words that people and agents wrote (a detail, a note,
- * a check) are printed INDENTED under their field, with control and format characters taken out, so they can never
- * print a field line of their own. A webhook task's words are quoted, as the list quotes them.
+ * a check, a part's own words) are printed INDENTED under their field, so they can never print a field line of their
+ * own. Every string is scrubbed of control and format characters first. A webhook task's words are quoted, as the
+ * list quotes them, and so is a webhook parent's title on the Under line.
  * Returns { lines, rc }: rc 1 when the answer has no task list or no task by that number, else 0.
  */
+const scrub = (v) => (typeof v === 'string' ? clean(v)
+  : Array.isArray(v) ? v.map(scrub)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, w]) => [k, scrub(w)])) : v);
 const clean = (v) => String(v).replace(/[\p{Cc}\p{Cf}]/gu, (c) => (/[\t\n\r]/.test(c) ? c : '')).replace(/[^\S\n]+/g, ' ').trim();
 function whenWords(s) {
   const t = typeof s === 'string' ? new Date(s) : null;
@@ -183,7 +187,12 @@ function whenWords(s) {
 }
 function stateWords(x) {
   if (x.isClosed) return Number.isInteger(x.replacedBy) ? 'closed, replaced by task ' + x.replacedBy : 'done';
-  if (x.onHold === true) return 'on hold';
+  if (x.onHold === true) {
+    const u = x.onHoldUntil;
+    const until = u && Number.isInteger(u.task) ? ' until task ' + u.task + ' is closed' : u && typeof u.at === 'string' ? ' until ' + one(u.at) : '';
+    return 'on hold' + until + (x.onHoldByPerson === true ? ', put on hold by the person (only they can take it off)' : '')
+      + (x.onHoldForPerson === true ? ', waiting on the person' : '');
+  }
   if (x.builtAt) return 'built' + (x.projectPaused === true ? ' (its project is paused)' : '');
   if (x.projectPaused === true) return 'on hold (its project is paused)';
   return 'open';
@@ -192,25 +201,40 @@ function showLines(body, num, project) {
   const tasks = body && Array.isArray(body.tasks) ? body.tasks : null;
   if (!tasks) return { lines: ['Kosmos sent no task list, so there is no task to show.'], rc: 1 };
   const n = Number(num);
-  const x = tasks.find((t) => t && t.number === n);
-  if (!x) return { lines: ['Kosmos refused that: there is no task by that number on this project.'], rc: 1 };
+  const found = tasks.find((t) => t && t.number === n);
+  if (!found) return { lines: ['Kosmos refused that: there is no task by that number on this project.'], rc: 1 };
+  // Review 1: every string the row carries is scrubbed once, here, so no field (a title, a name, a repo) can carry an
+  // escape sequence or a direction override to the terminal, whichever helper prints it.
+  const x = scrub(found);
   const webhook = x.addedVia === 'webhook';
   const lines = [];
   const field = (name, value) => { if (value !== null && value !== undefined && value !== '') lines.push(name + ': ' + value); };
   const under = (text) => {
-    const words = webhook ? q(text) : clean(text);
-    for (const l of words.split('\n')) if (l.trim()) lines.push('    ' + l.trim());
+    for (const l of clean(text).split('\n')) if (l.trim()) lines.push('    ' + (webhook ? '"' + q(l) + '"' : l.trim()));
   };
   lines.push('Task ' + n + ' in ' + one(project) + ': ' + titleOf(x));
   field('State', stateWords(x));
   field('Held by', ownerOf(x));
-  const wl = whoLeftWords(x);
-  if (wl) field('Parts', wl.replace(/^ {2}\((.*)\)$/, '$1'));
-  if (x.parent) field('Under', 'task ' + x.parent + (x.parentSentence ? ': ' + one(x.parentSentence) : ''));
+  // Review 1: who holds which part, when there is more than one (the card's "who holds which part").
+  if (Array.isArray(x.parts) && x.parts.length > 1) {
+    lines.push('Parts:');
+    x.parts.forEach((part, i) => {
+      const id = Number.isInteger(part && part.id) ? part.id : i + 1;
+      const who = part && typeof part.who === 'string' && part.who.trim() ? q(part.who) : 'nobody';
+      const own = part && typeof part.sentence === 'string' && part.sentence.trim() && part.sentence.trim() !== String(x.sentence || '').trim();
+      lines.push('    ' + id + ') ' + who + (part && part.closedAt ? ', finished' : ', not finished')
+        + (own ? ': ' + (webhook ? '"' + q(part.sentence) + '"' : one(part.sentence)) : ''));
+    });
+  }
+  if (x.parent) {
+    // Review 1: the parent's own row, through titleOf, so a webhook parent's words are marked and quoted here too.
+    const up = tasks.find((t) => t && t.number === x.parent);
+    field('Under', 'task ' + x.parent + (up ? ': ' + titleOf(scrub(up)) : ''));
+  }
   if (x.subtasks && x.subtasks.total) {
     field('Subtasks', x.subtasks.done + ' of ' + x.subtasks.total + ' done' + (Number(x.subtasks.held) > 0 ? ', ' + Number(x.subtasks.held) + ' on hold' : ''));
   }
-  if (typeof x.detail === 'string' && x.detail.trim()) { lines.push('Detail:'); under(x.detail); }
+  if (typeof x.detail === 'string' && x.detail.trim()) { lines.push(webhook ? 'Detail (outside text from the webhook, quoted as sent):' : 'Detail:'); under(x.detail); }
   if (Array.isArray(x.doneWhen) && x.doneWhen.length) {
     const by = x.doneWhenByPerson === true ? ', set by the person' : (x.doneWhenBy ? ', set by ' + q(x.doneWhenBy) : '');
     lines.push('Done when' + by + ':');
@@ -232,7 +256,7 @@ function showLines(body, num, project) {
       + (x.landedOnRemote === true ? ', on the remote' : x.landedOnRemote === false ? ', not on the remote when recorded' : '')
       + (x.landedBy ? ', recorded by ' + q(x.landedBy) : '') + (whenWords(x.landedAt) ? ' at ' + whenWords(x.landedAt) : ''));
   }
-  field('Added', [whenWords(x.createdAt), x.addedVia === 'process' && x.addedBy ? 'by ' + q(x.addedBy) : null].filter(Boolean).join(', '));
+  field('Added', [whenWords(x.createdAt), x.addedVia === 'process' && x.addedBy ? 'by ' + q(x.addedBy) : x.addedVia === 'screen' ? 'by the person' : null].filter(Boolean).join(', '));
   if (typeof x.dueDate === 'string' && x.dueDate) field('Due', one(x.dueDate));
   if (x.isClosed) field('Closed', whenWords(x.closedAt));
   lines.push('Its conversation: kosmos task activity ' + one(project) + ' ' + n);
