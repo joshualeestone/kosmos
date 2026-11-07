@@ -24,6 +24,20 @@ final class EndPullUITests: XCTestCase {
         app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Message Dana'")).firstMatch
     }
 
+    /// A long chat can still be finishing its open after a still moment (measured 103 pt low, twice), for longer on a slower
+    /// runner, so a fixed wait is a guess: this waits until the row has not moved for `quiet` seconds, giving up after `limit`.
+    private func openFinished(_ row: XCUIElement, quiet: TimeInterval = 6, limit: TimeInterval = 45) {
+        let began = Date()
+        var at = row.frame.minY
+        var stillSince = Date()
+        while Date().timeIntervalSince(began) < limit {
+            Thread.sleep(forTimeInterval: 0.5)
+            let now = row.frame.minY
+            if abs(now - at) > 1 { at = now; stillSince = Date() }
+            if Date().timeIntervalSince(stillSince) >= quiet { return }
+        }
+    }
+
     private func pullUp(_ app: XCUIApplication, distance: CGFloat) {
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -distance)), withVelocity: .slow, thenHoldForDuration: 0.1)
@@ -51,9 +65,7 @@ final class EndPullUITests: XCTestCase {
         let app = launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_PULL_SECONDS": "10"])
         let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
-        KeyboardSlideUITests.settle(row)
-        Thread.sleep(forTimeInterval: 3)   // once measured 103 pt low: a long chat can still be finishing its open after a still moment
-        KeyboardSlideUITests.settle(row)
+        openFinished(row)
         let before = row.frame.minY
         pullUp(app, distance: 420)
         XCTAssertTrue(dots(app).waitForExistence(timeout: 3), "no dots after a long pull")
@@ -80,7 +92,7 @@ final class EndPullUITests: XCTestCase {
         let app = launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_PULL_SECONDS": "3"])
         let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
-        KeyboardSlideUITests.settle(row)
+        openFinished(row)
         pullUp(app, distance: 420)
         XCTAssertTrue(dots(app).waitForExistence(timeout: 3), "no dots after the first pull")
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dots(app))
