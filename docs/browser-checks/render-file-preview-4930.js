@@ -586,8 +586,8 @@ async function runSheet(engine, say) {
       say(has(c.emptyCut, /Nothing of this sheet can be shown here/) && !has(c.emptyCut, /This sheet is empty|could not be read/), engine + ' sheet #8188: a cut sheet with no rows never says it is empty, and blames nothing (a size cut can leave it empty)', JSON.stringify(c.emptyCut));
       say(has(c.empty, /This sheet is empty/), engine + ' sheet #8188 control: an uncut sheet with no rows says it is empty', JSON.stringify(c.empty));
       // Review 1: the same sentence for any cut, small or at the limits (guessing the cause from the shape was wrong both ways).
-      say(has(c.smallCut, /Not all of this sheet is shown here/) && !has(c.smallCut, /goes on past what is shown/), engine + ' sheet #8188: a small cut sheet says not all of it is shown, never that it goes on past the limits', JSON.stringify(c.smallCut));
-      say(c.bigCut.length === 1 && has(c.bigCut, /Not all of this sheet is shown here/), engine + ' sheet #8188: a sheet cut at 200 rows says the same, once', JSON.stringify(c.bigCut));
+      say(has(c.smallCut, /Only part of this sheet is shown here/) && !has(c.smallCut, /goes on past what is shown/), engine + ' sheet #8188: a small cut sheet says not all of it is shown, never that it goes on past the limits', JSON.stringify(c.smallCut));
+      say(c.bigCut.length === 1 && has(c.bigCut, /Only part of this sheet is shown here/), engine + ' sheet #8188: a sheet cut at 200 rows says the same, once', JSON.stringify(c.bigCut));
       say(c.whole.length === 0, engine + ' sheet #8188 control: a whole sheet says nothing', JSON.stringify(c.whole));
     }
     const open = async (id, name, extra) => {
@@ -631,7 +631,7 @@ async function runSheet(engine, say) {
       return { w: r.width, max: 24 * fs, cut: c.scrollWidth > c.clientWidth + 1, oneLine: r.height < 30, title: (c.title || '').length, ell: getComputedStyle(c).textOverflow }; });
     say(!!lc && lc.w <= lc.max + 0.5 && lc.cut && lc.oneLine && lc.title > 200 && lc.ell === 'ellipsis', T + ': a long cell is cut to one line at 24rem with an ellipsis, the whole value on hover', JSON.stringify(lc));
     // kosmos#8188: a cut sheet says so in words true for any cause (the reader does not say why).
-    say(g.notes.some((n) => /Not all of this sheet is shown here/.test(n)) && g.notes.some((n) => /no saved value/.test(n)) && g.below && g.name === 'Budget 2026.xlsx', T + ': it says when it is cut short or values are missing; the name and the gold button are under it', JSON.stringify(g));
+    say(g.notes.some((n) => /Only part of this sheet is shown here/.test(n)) && g.notes.some((n) => /no saved value/.test(n)) && g.below && g.name === 'Budget 2026.xlsx', T + ': it says when it is cut short or values are missing; the name and the gold button are under it', JSON.stringify(g));
     // The keyboard reaches the sheets: Tab from the X goes to the selected tab, then the grid (review 1).
     await pg.focus('#pv-x'); await pg.keyboard.press('Tab');
     const t1 = await pg.evaluate(() => document.activeElement.className + ':' + document.activeElement.textContent.slice(0, 12));

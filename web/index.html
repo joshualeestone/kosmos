@@ -77479,7 +77479,7 @@ function pvSheetInto(stage, data) {
     /* kosmos#8188 (review 1): one sentence true for every cause of a cut. The reader does not say why a sheet is cut,
        and guessing it from the sheet's shape was wrong both ways (a sparse sheet cut by size shows fewer than 200 rows;
        a 200-row sheet can be cut by a damaged styles part). */
-    if (sh.cut) notes.appendChild(note('Not all of this sheet is shown here (a preview shows up to 200 rows and 50 columns, and only what it can read). Open the file to see all of it.'));
+    if (sh.cut) notes.appendChild(note('Only part of this sheet is shown here. Open the file to see all of it.'));
   };
   sheets.forEach((sh, i) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'pv-tab'; b.setAttribute('role', 'tab');
