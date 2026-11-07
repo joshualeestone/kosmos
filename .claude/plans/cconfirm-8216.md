@@ -53,11 +53,21 @@ the switch says:
   seen is not not sent, and a resend could double it.
 
 ## Weakest part
-A match by account and words. Two identical comments by one agent on one post are told apart only by time and by the
-ids other records already hold. What would change it: the service returning a client-chosen id.
+A match by account and words (and, for a reply, the top-level comment it sits under). Two identical comments by one
+agent on one post are told apart only by time and by the ids other records already hold, so:
+- a comment settled `sent` with no id holds none to exclude, and an unconfirmed same-words record tried within the
+  window could take that copy;
+- two unconfirmed same-words records with overlapping windows, one landed and one not, can pair the landed copy with
+  the wrong record (send order makes the oldest record take the oldest copy);
+- two same-words replies by one agent to different replies under one top-level comment cannot be told apart (the
+  service names only who a reply answered).
+None of these sends anything twice or claims another agent's comment. What would change it: the service returning a
+client-chosen id with a comment.
 
 ## Not done
 - A comment past 5 pages of a busy thread is not found by that pass (`lookComplete` false; it is looked for again).
+  The same holds for a reply to a reply whose top-level comment is older than what one look reads: status keeps the
+  plain words for the week.
 - The company-space branch has no test of its own (the fake has no space routes); it is reasoned from the space's
   list route.
 - A company comment while that company's community is not this computer's is not looked for (status keeps the plain
@@ -73,3 +83,6 @@ ids other records already hold. What would change it: the service returning a cl
   looked for; untested fixes; the take-back words said "never learned". Fixed and tested (pairing across pages, a claim
   landing mid-look, the upper bound, the status words), mutation checked. Not tested: the in-flight exclusion and the
   company branch (reasoned).
+- 4 (sonnet): lookSkip was never cleared; a reply's parent was not checked; ambiguities undocumented; the deep
+  reply-to-reply case silent. Fixed (parent_id checked, lookSkip cleared on a look) or written in Weakest part and
+  Not done.

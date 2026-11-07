@@ -1190,7 +1190,9 @@ async function sendComment(c, keys, csent, now, from) {
   if (parent) body.parent_id = parent;
   if (!body.body.trim()) { csent[c.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   // Write-ahead: a board that stops while the POST is out finds this mark and does not send again.
-  const attemptedAt = new Date(now).toISOString();   // kosmos#8216: when, so a later look knows how far back to read
+  // kosmos#8216: when, so a later look knows how far back to read. The sweep's clock (taken at its start), so a slow
+  // sweep stamps it a little early: the ten-minute skew and the hour after cover that.
+  const attemptedAt = new Date(now).toISOString();
   csent[c.id] = { ...rec, attempted: true, attemptedAt };
   saveJson(commentsSentFile(), csent);
   // #4801 review 1: while the POST is out the owner's list says "Sending" and a removal is refused as busy, not as
@@ -2246,6 +2248,8 @@ function lookRows(list) {
     agentId: x && x.agent && typeof x.agent.id === 'string' ? x.agent.id : '',
     body: x && typeof x.body === 'string' ? x.body : null,
     at: Date.parse(x && x.created_at),
+    // Review 4: the top-level comment a reply sits under (the service keeps a reply to a reply there too); '' when absent.
+    parentId: x && typeof x.parent_id === 'string' ? x.parent_id : (x && x.parent_id === null ? null : ''),
     replies: x && Array.isArray(x.replies) ? x.replies : null,
     replyCount: x && Number.isInteger(x.reply_count) ? x.reply_count : 0,
   }));
@@ -2303,7 +2307,7 @@ async function lookForComment(c, agentKey, keys, ok, since) {
     if (direct === null) return null;
     if (direct.over) return { found: null, complete: false };
     if (!direct.gone) {
-      const hit = direct.rows.find((x) => ok(x));
+      const hit = direct.rows.find((x) => (x.parentId === '' || x.parentId === parent) && ok(x));   // review 4: under this parent
       return hit ? { found: hit.id } : { found: null, complete: true };   // the parent's replies, read whole
     }
     // The replies route refused the id: the parent is a reply itself (or gone), so it is looked for in the thread below.
@@ -2326,7 +2330,7 @@ async function lookForComment(c, agentKey, keys, ok, since) {
     if (!parent) {
       // Review 3: every match back to the bound is collected, and the oldest wins, so same-words copies pair in order
       // across pages too.
-      for (const x of tops) if (ok(x)) candidates.push(x);
+      for (const x of tops) if (x.parentId !== '' && x.parentId !== null) continue; else if (ok(x)) candidates.push(x);   // review 4: top-level only
     } else {
       for (const t of tops) {
         const embedded = lookRows(t.replies);
@@ -2334,14 +2338,14 @@ async function lookForComment(c, agentKey, keys, ok, since) {
         const holds = embedded.some((x) => x.id === parent);
         if (!holds && !(t.replyCount > embedded.length)) continue;   // every reply is here and the parent is not
         if (holds && !(t.replyCount > embedded.length)) {   // review 3: the whole thread is here already
-          const hit = embedded.find((x) => ok(x));
+          const hit = embedded.find((x) => (x.parentId === '' || x.parentId === t.id) && ok(x));
           return hit ? { found: hit.id } : { found: null, complete: true };
         }
         const all = await allReplies(t.id, parent);
         if (all === null) return null;
         if (all.over) return { found: null, complete: false };
         if (!all.sawParent) continue;
-        const hit = all.rows.find((x) => ok(x));
+        const hit = all.rows.find((x) => (x.parentId === '' || x.parentId === t.id) && ok(x));
         return hit ? { found: hit.id } : { found: null, complete: true };   // the parent's thread, read whole
       }
     }
@@ -2369,7 +2373,7 @@ async function settleUnconfirmedComments(keys, now) {
   /* Review 2: oldest send first, so two same-words copies pair with the service's copies in the order they were sent
      (each look takes the oldest unclaimed match). */
   const when = ([id, rec]) => { const t = Date.parse(rec.attemptedAt); if (Number.isFinite(t)) return t; const c = byId.get(id); const m = c ? Date.parse(c.releasedAt || c.receivedAt || c.at) : NaN; return Number.isFinite(m) ? m : Infinity; };
-  due.sort((a, b) => when(a) - when(b));
+  due.sort((a, b) => { const x = when(a); const y = when(b); return x < y ? -1 : x > y ? 1 : 0; });   // review 4: no NaN from two Infinities
   let looked = 0;
   for (const [id, rec] of due) {
     if (looked >= LOOKS_PER_PASS) break;
@@ -2414,9 +2418,11 @@ async function settleUnconfirmedComments(keys, now) {
       log(`comment ${id} for ${rec.agent}: found in the community thread, so it was sent after all`);
     } else if (r) {
       // Review 1: the week's window starts at the first look that got an answer, so an outage does not use it up.
-      latest[id] = { ...cur, lookedAt: stamp, lookFirstAt: cur.lookFirstAt || stamp, lookComplete: r.complete === true, lookTries: (cur.lookTries || 0) + 1 };
+      const { lookSkip: _s2, ...rest } = cur;   // review 4: looked for now, so no longer "cannot look"
+      latest[id] = { ...rest, lookedAt: stamp, lookFirstAt: cur.lookFirstAt || stamp, lookComplete: r.complete === true, lookTries: (cur.lookTries || 0) + 1 };
     } else {
-      latest[id] = { ...cur, lookedAt: stamp, lookTries: (cur.lookTries || 0) + 1 };   // not read: looked for again in an hour
+      const { lookSkip: _s3, ...rest } = cur;
+      latest[id] = { ...rest, lookedAt: stamp, lookTries: (cur.lookTries || 0) + 1 };   // not read: looked for again in an hour
     }
     saveJson(commentsSentFile(), latest);
     csent[id] = latest[id];
