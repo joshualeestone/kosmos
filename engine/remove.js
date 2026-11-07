@@ -1508,6 +1508,17 @@ function plan(name, platform) {
    * all count. Requiring all three would refuse the half-set-up agents this
    * feature is most useful for.
    */
+  /* kosmos#8177 review 2: on Windows, a task found for this name only in another letter case is not this agent's, and
+     it refuses BOTH ways round: asked for `Cai` when the task is `cai`'s (removing would record `Cai` while `cai` runs),
+     and asked for `cai` whose folder is `cai` when the task is stored as `Cai` (jobFor finds no job, so the removal
+     would leave that task to start an agent at login). Says the name as asked, never `shown` (see the note below). */
+  if ((platform || process.platform) === 'win32') {
+    let other = null;
+    try { other = win32job.status(clean).spelledOtherwise || null; } catch { other = null; }
+    if (other) {
+      return { ok: false, because: `${clean} has no startup task of its own: the one Windows finds for that name is spelled ${other} (Windows ignores letter case there), so we have not offered to remove ${clean}. To remove that agent, use its name as spelled there.` };
+    }
+  }
   const there = exists(clean, platform);
   if (there === UNKNOWN) {
     return { ok: false, because: `we could not check whether ${shown} is still there, so we have not offered to remove it. Try again in a moment.` };
