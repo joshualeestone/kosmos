@@ -5040,9 +5040,9 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
      project differs, this is the misroute Josh reported -- refuse rather than land
      the answer in the wrong room. A citation the record does not hold
      (projectOfPost null; the record is unpruned today, so an id that never existed)
-     is treated as absent: never block a legit reply over a stale id. The person's
-     room route refuses one instead (#3745, see its plan); a retention change must
-     revisit both. A proactive post (no in_reply_to) is unchanged. */
+     is treated as absent here; on the live route kosmos#8165 then refuses it (below), and on
+     the outbox drain it still falls through. The person's room route refuses one too (#3745);
+     a retention change must revisit both. A proactive post (no in_reply_to) is unchanged. */
   const citedId = messages.messageIdOf(inReplyTo);   // #4631: '530' and 'message 530' name m530 too
   let answeredProject = null;   // outside the block: the which-room ask below keys on it (round 3)
   if (citedId) {
@@ -5052,8 +5052,8 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
       /* The record could not be read, so we cannot verify which room the answered
          message is in. FAIL CLOSED (never post blind into a possibly-wrong room) --
          retriable, matching the fail-closed sibling gates. A citation that simply is
-         not found returns null (below) and falls through; only an unreadable record
-         throws. */
+         not found returns null (below): the live route refuses it (kosmos#8165), the drain
+         falls through; only an unreadable record throws. */
       return { state: 'could_not', because: 'we could not check which room that message is in, so nothing was posted -- try that reply again in a moment' };
     }
     /* kosmos#8165: on the live route, a citation that names no room post is refused, not posted as citing nothing: the
@@ -5061,16 +5061,22 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
        list (#4926). The record is unpruned, so an id it does not hold was never sent. Not on the outbox drain: a kept
        post's sender has moved on and would never see the refusal, so it posts as before. */
     if (!answeredProject && citationMustResolve === true) {
-      let kind = null;
-      try { kind = messages.kindOfId(citedId); } catch {
+      let what = null;
+      try { what = messages.kindOfId(citedId); } catch {
         return { state: 'could_not', because: 'we could not check which room that message is in, so nothing was posted -- try that reply again in a moment' };
       }
       const named = /^m\d+$/.test(citedId) ? citedId : 'that id';   // never echo a stray quote to the CLI's sed
-      if (kind === 'message') {
+      const kind = what && what.is;   // `is`, not `kind`: web.speech-kind-1397 reads every engine kind: literal as a row kind
+      // Review 1: a direct message is named as one only to a party to it (anyone else learns nothing of other DMs).
+      const me = sender && sender.ok && sender.card ? sender.card.sessionName : null;
+      if (kind === 'deleted') {
+        return { state: 'could_not', because: 'post ' + named + ' was deleted, so nothing was posted. If your answer still stands, post here without --in-reply-to.' };
+      }
+      if (kind === 'message' && me && what.parties.includes(me)) {
         return { state: 'could_not', because: named + ' is a direct message, not a room post, so nothing was posted. Answer it with kosmos msg --in-reply-to ' + named + ', or post here without --in-reply-to.' };
       }
       if (kind !== 'post') {
-        return { state: 'could_not', because: 'there is no post ' + named + ' in any room, so nothing was posted. Check the id in the post you meant to answer (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
+        return { state: 'could_not', because: (named === 'that id' ? 'that id names no post' : 'there is no post ' + named) + ' in any room, so nothing was posted. Check the id in the post you meant to answer (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
       }
     }
     if (answeredProject && answeredProject !== found.id) {
@@ -5099,9 +5105,9 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
        it meant (a reply is already bound above). The caller decides whether to ask at
        all: the live route does, the outbox drain does not. */
     askWhichRoom: askWhichRoom === true && !answeredProject,
-    /* ^ keyed on the citation RESOLVING, not on one being present (round 3): an id that
-       names no post (a copied "[q12]" with its brackets, a typo) is bound to nothing, so
-       it is asked like any other non-reply rather than slipping past both checks. */
+    /* ^ keyed on the citation RESOLVING, not on one being present (round 3): on the outbox drain an
+       id that names no post (a typo) is bound to nothing, so it is asked like any other non-reply
+       rather than slipping past both checks; on the live route kosmos#8165 refuses it first. */
     projectNameOf: (id) => {
       try { const p = projects.get(id, roster); return p ? p.name : null; } catch { return null; }
     },
