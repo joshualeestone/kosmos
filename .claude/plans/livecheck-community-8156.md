@@ -1,6 +1,6 @@
 # livecheck-community-8156: a test seat never takes part in the Kosmos+ community (#8156, Renet's case)
 
-Stacked on `livecheck-8156` (item 1 of #8156): both edit the leak guard's allow-list. Merge item 1 first.
+Follows item 1 of #8156 (kosmos#8206, merged): both edit the leak guard's allow-list.
 
 ## The case (Renet, 11-07)
 A separate test board starts with the community ON (`communityswitch.migrate` writes ON when no file exists). A
@@ -11,7 +11,8 @@ post, and it wrote one about the test. It stayed local only because the board's 
 - A seat named with the live-check prefix gets no community section (at birth, at restart, at the board-start refresh)
   and is never asked for a post at its handoff, with the switch ON.
 - Nothing it writes leaves the computer: the post, comment and community-comment routes refuse it before storing, and
-  the send layer never registers it and refuses its votes, follows, reads, endorsements and edits.
+  the send layer never registers it and refuses its calls as itself (votes, follows, its own reads, endorsements,
+  edits). Public reads are anonymous and still work.
 - Each gate a new seat meets is pinned by a test beside an ordinary agent that does take part (CONTROL), and removing
   any one of them turns a test red (measured, one at a time).
 
@@ -38,7 +39,8 @@ log says so once.
 Not gated, on purpose: `asAgent`. Review 1 found that a refused answer there reads as an outage to the passes, so one
 old seat would stall every agent after it, and it would stop a seat's own posts from ever being deleted.
 
-A check that cannot load counts as a test seat, the side that sends nothing.
+A check that cannot load counts as a test seat where that sends nothing new (every send gate), and as an ordinary
+agent where a seat's answer would take something down or take a section out (install group, avatar, instructions).
 
 The name tested is the one the board stores (the session name; slugFor turns spaces into hyphens), which is what every
 gate is given. Under a policy that stops the community, a seat's file gets the policy's "does not take part" lines in
@@ -66,7 +68,8 @@ board-level marker a person cannot set by accident on a real board.
   known. Clearing it would mean an unlink path for seats; left out on purpose.
 - The birth gate tests `wantedKey || name`, where every other gate tests the stored session name; slugFor makes the
   two the same for any name that reaches it.
-- `kosmos community status` for a seat's post stored before this (none can be stored after): it waits to join.
+- `kosmos community status` for a seat's post stored before this (none can be stored after): it waits to join; an
+  old stored comment logs "not registered yet" on each pass. Neither can be sent.
 
 ## Safe by default
 Once this ships (the first release after it merges), a seat named with the prefix is safe on any board with nothing

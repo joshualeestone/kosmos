@@ -317,17 +317,22 @@ function corrupt(file, why) {
  */
 let switchRead = null;          // tests inject
 /* kosmos#8156: a test seat (communityswitch.isTestSeat) gets no community identity, whatever the switch says: it is
-   refused before it registers, its calls (votes, follows, reads, endorsements, edits) are refused, and its posts and
+   refused before it registers, its calls as itself (votes, follows, its own reads, endorsements, edits) are refused, and its posts and
    comments are told so when they are written (the routes refuse them first). asAgent itself is NOT gated: its callers
    read a missing answer as an outage and would stall every agent after a seat, and its deletes must still reach the
    site. A seat registered before this shipped keeps its account; see the plan's Not done. A module that cannot be
    loaded counts as a test seat, the side that sends nothing. */
 function testSeat(agentKey) {
   try { return require('./communityswitch').isTestSeat(agentKey); } catch (e) {
-    // Every agent then reads as a test seat and nothing is sent: said once in the board's log, so the stop is seen.
-    logOnce('testseat', 'communitysend: cannot load the test-seat check (' + String((e && e.message) || e) + '), so nothing is sent to the community until it can');
+    // Every agent then reads as a test seat, so nothing new is sent: said once in the board's log, so the stop is seen.
+    logOnce('testseat', 'communitysend: cannot load the test-seat check (' + String((e && e.message) || e) + '), so nothing new is sent to the community until it can');
     return true;
   }
+}
+/* Review 7: where a seat's answer TAKES SOMETHING DOWN (its group, its picture), a check that cannot load must not read
+   every real agent as a seat, or their groups and pictures would be taken down. There it reads as "not a seat". */
+function surelyTestSeat(agentKey) {
+  try { return require('./communityswitch').isTestSeat(agentKey); } catch { return false; }
 }
 function testSeatWords() {
   let prefix = 'the reserved live-check prefix';
@@ -1414,7 +1419,7 @@ async function sweepInstallGroup(keys, on) {
     if (retireListUnreadable() && !folderGone) continue;
     // #4994: a name being retired is the deleted agent's until its key moves: treated as removed, so cleared, never sent.
     // kosmos#8156: a test seat counts as removed: never sent the group, and cleared if one registered before this was.
-    const removedNow = removedSet.has(clean(agentKey)) || folderGone || retiringListed(agentKey) || testSeat(agentKey);
+    const removedNow = removedSet.has(clean(agentKey)) || folderGone || retiringListed(agentKey) || surelyTestSeat(agentKey);
     if (k.refused) {
       // Review 11: a removed, grouped agent whose key the service refused cannot be cleared from here: said once.
       if (removedNow && (k.installGroupSent || k.installGroupUnsure) && !k.installGroupClearUnreachable) {
@@ -1992,7 +1997,7 @@ async function sweepAvatars(keys, on, { removals }) {
       }
       continue;
     }
-    const want = testSeat(agentKey) ? null : w.id;   // kosmos#8156: a test seat shows no picture; one already sent is taken down
+    const want = surelyTestSeat(agentKey) ? null : w.id;   // kosmos#8156: a test seat shows no picture; one already sent is taken down
     if (k.refused) {
       // The service refused this agent's key, so a removal the owner asked for cannot reach it. Said once in the log,
       // so it is on record (as sweepIndustry does for a clear).
