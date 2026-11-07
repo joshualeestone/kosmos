@@ -51,3 +51,16 @@ Windows CI runner runs the same arms under 5.1.
   every arm is a skip); the test header no longer hard-codes counts.
 - Kept: about 100 s per shell for this file. The arms spawn a real PowerShell each, which is what proves "nothing was
   sent"; merging them into one driver would lose the per-arm exit code.
+
+## Review round 3
+- WARNING (my own premise, wrong): I had set aside '' in a bare word as a doubled apostrophe. Outside quotes '' is an
+  EMPTY quoted string, which PowerShell drops: it''s arrives as its, C:\O''Brien as C:\OBrien (measured). A bare word
+  holding any single quote now refuses; only an --option= value that is exactly one quoted string passes.
+- WARNING: the test had pinned C:\O''Brien as allowed. It is now refused, beside a bare it''s arm.
+- WARNING: PowerShell takes curly quotes as quotes. Every quote is matched by class (U+2018 to U+201B single, U+201C
+  to U+201E double), written as regex escapes so kosmos.ps1 stays ASCII for Windows PowerShell 5.1. The test's
+  drivers carry a byte-order mark so 5.1 reads them as UTF-8.
+- NITs fixed: a dash word without = is read whole; rule (a) also refuses a quote touching a double-quoted part or a
+  variable; the curly double quote is set aside like the straight one; the doctrine paragraph is rewrapped.
+- Mutants: put the '' strip back -> exactly the two bare-'' arms fail; straight quote only -> the curly arm fails;
+  no double-quoted touch -> the 'a'"b" arm fails.
