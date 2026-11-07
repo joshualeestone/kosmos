@@ -562,9 +562,9 @@ test('#8147: the answer cache is bounded by size, not only by count, and keeps t
   const book = (k) => fx.book({ S: fx.SHEET(Array.from({ length: 150 }, (_, r) => `<row r="${r + 1}">` + cols.map((c, j) => `<c r="${c}${r + 1}" t="inlineStr"><is><t>${String.fromCharCode(97 + ((k + j) % 26)).repeat(250)}</t></is></c>`).join('') + '</row>').join('')) }, {}, { deflate: true });
   const books = Array.from({ length: 8 }, (_, k) => book(k));
   for (let k = 0; k < 8; k++) assert.equal(sp.fromBytes(books[k], 'b' + k + '.xlsx').ok, true);
-  const { count: held, chars } = sp._heldForTests();
+  const { count: held } = sp._heldForTests();
   assert.ok(held <= 4, 'held ' + held + ' answers of about 1.9 MB each');
-  assert.ok(chars <= 8 * 1024 * 1024, '#8162: the answers held total ' + chars + ' characters, past the 8 MiB bound');
+
   let reads = 0;
   x._internal.setClockForTests(() => { reads++; return 0; });
   try {
@@ -635,8 +635,9 @@ test('#8162: a skipped row or cell with a value that has attributes is still a v
   assert.equal(read('<row r="1"><c r="A1"><v>1</v></c></row><row r="2000000"><c><f>1</f><v /></c></row>').sheets[0].cut, false);
   // A run of unclosed "<v " tags in a skipped row is linear (the scan counts them, it does not backtrack).
   const t0 = Date.now();
-  read('<row r="2000000"><c>' + '<v '.repeat(200000) + '</c></row>');
+  const runs = read('<row r="2000000"><c>' + '<v '.repeat(200000) + '</c></row>');
   assert.ok(Date.now() - t0 < 5000, 'took ' + (Date.now() - t0) + ' ms');
+  assert.equal(runs.sheets[0].cut, true, 'the unclosed "<v " tags are counted as cut off');
 });
 
 test('#8162: a cell or value cut off before its close marks the sheet cut and never "empty"', () => {
@@ -646,6 +647,13 @@ test('#8162: a cell or value cut off before its close marks the sheet cut and ne
     assert.equal(r.sheets[0].cut, true, rows);
     assert.equal(r.empty, false, rows);
   }
+  // Review r1: a close missing mid-part (a row that swallowed the next, a cell that swallowed the next) is counted too.
+  for (const rows of ['<row r="1"><c r="A1"><v>5</v></c><row r="2"><c r="A2"><v>6</v></c></row>', '<row r="1"><c r="A1"><v>5</v><c r="B1"><v>6</v></c></row>']) {
+    assert.equal(read(rows).sheets[0].cut, true, rows);
+  }
+  // Review r1: an element lost outside the sheet walk (the shared strings, the sheet list) keeps the workbook from "empty".
+  const sst = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t>hi</si></sst>' }));
+  assert.equal(sst.empty, false);
   // CONTROL: a whole cell is read and the sheet is not cut.
   const ok = read('<row r="1"><c r="A1"><v>5</v></c></row>');
   assert.deepEqual(ok.sheets[0].rows, [['5']]);

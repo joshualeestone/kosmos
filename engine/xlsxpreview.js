@@ -137,13 +137,23 @@ const nearMiss = () => { if (onNearMiss) onNearMiss(); };
 /* #8147 review r3: so are a string's text runs (3.9M "<t/>" in one 16 KB file cost 0.3 to 0.5 s, unseen likewise): each
    run is counted toward its own cap, with the same budget check. */
 let onTextRun = null;
-/* #8162: an element whose start tag or closing tag is missing (a file cut short, or a hostile one) is never read, as
-   before; but the reading now counts it (`cutShorts`, reset for each read), so a sheet whose walk lost a value that way
-   says it is cut and is never called "empty" (an unclosed cell read as an empty workbook). */
+/* #8162: an element whose start tag has no ">", or that no closing tag of its name follows anywhere (a part cut short),
+   is never read, as before; and one whose body holds another start tag of its own name (its close is missing mid-part,
+   so it swallowed the next one, review r1) is read as found. Each is counted (`cutShorts`, reset for each read): a sheet
+   whose walk counted one is cut, and a workbook where one was counted anywhere (shared strings, the sheet list) is
+   never called "empty" or "no saved values". */
 let cutShorts = 0;
 /* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with indexOf. With
    `lenient` (the containers: sheetData, row), one the part never closes (a file cut short) yields the rest of the part,
    so what is there is still read; a value that is not closed is never read. */
+/* Whether `body` holds a start tag named `name` ("<c " or "<c>" or "<c/", not "<cols"). One forward indexOf pass. */
+function nestedStart(body, name) {
+  for (let at = body.indexOf('<' + name); at >= 0; at = body.indexOf('<' + name, at + 1)) {
+    const after = body[at + name.length + 1];
+    if (after === ' ' || after === '>' || after === '/' || after === '\t' || after === '\n' || after === '\r') return true;
+  }
+  return false;
+}
 function* elements(xml, name, lenient = false) {
   let at = 0;
   for (;;) {
@@ -157,7 +167,9 @@ function* elements(xml, name, lenient = false) {
     if (tag.endsWith('/>')) { yield { tag, body: '', end: tagEnd + 1 }; at = tagEnd + 1; continue; }
     const close = xml.indexOf('</' + name + '>', tagEnd);
     if (close < 0) { if (lenient) yield { tag, body: xml.slice(tagEnd + 1), end: xml.length }; else cutShorts++; return; }
-    yield { tag, body: xml.slice(tagEnd + 1, close), end: close + name.length + 3 };
+    const body = xml.slice(tagEnd + 1, close);
+    if (nestedStart(body, name)) cutShorts++;
+    yield { tag, body, end: close + name.length + 3 };
     at = close + name.length + 3;
   }
 }
@@ -516,8 +528,8 @@ function readBook(buf, budget) {
     const kept = new Map();   // row -> Map(col -> text)
     let minRow = Infinity;
     let cut = false;
+    const cutShortsBefore = cutShorts;   // review r1: before the sheetData search, which can count one too
     const data = elements(xml, 'sheetData', true).next().value;
-    const cutShortsBefore = cutShorts;
     let rowAt = -1;
     let k = 0;
     let visits = 0;
@@ -661,7 +673,7 @@ function readBook(buf, budget) {
   // Review 7: a chart or dialog sheet is something, so a workbook that has one is not "empty" (a sheet whose part is
   // missing is still nothing, review 3).
   // #8147: nor of one whose walk stopped before the end (formatted blanks, then a value, read as "empty").
-  const unread = all > MAX_SHEETS || otherSheet || walkCut;
+  const unread = all > MAX_SHEETS || otherSheet || walkCut || cutShorts > 0;   // #8162 r1: an element lost anywhere
   return { sheets, moreSheets: Math.max(0, all - MAX_SHEETS), noValues: !unread && !anyValue && anyFormula && !savedFormula, empty: !unread && !anyValue && !anyFormula,
     // Review r5: and when what was not read keeps "no saved values" unclaimed, the formulas that were read still say why.
     ...((anyValue || savedFormula || unread) && bareFormula ? { someNoValues: true } : {}) };
