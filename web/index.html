@@ -72480,6 +72480,8 @@ async function tskUnbuild(key) {
   const projectId = key.slice(0, i);
   const number = Number(key.slice(i + 1));
   TSK.busy = true;
+  /* kosmos#8158: taking the mark off also takes the "Saved as change" line off the row, so it says the change itself is not touched. */
+  const hadChange = (TSK.data || []).some((t) => t.projectId === projectId && t.number === number && t.landedCommit);
   try {
     const r = await fetch('/api/project/' + encodeURIComponent(projectId) + '/task/' + number + '/built', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clear: true }),
@@ -72488,7 +72490,7 @@ async function tskUnbuild(key) {
     /* Only "stays open" when it does: the task may have been closed since the row was drawn (review round 2). */
     said.textContent = r.ok && body.task
       ? (body.changed === false ? 'Task ' + number + ' was not marked built.'
-        : 'Task ' + number + ' is no longer marked built.' + (body.task.closedAt ? '' : ' It stays open.'))
+        : 'Task ' + number + ' is no longer marked built.' + (body.task.closedAt ? '' : ' It stays open.') + (hadChange ? ' The saved change is not touched.' : ''))
       : asSentence(body.error || 'the mark was not taken off');
   } catch {
     said.textContent = 'We could not reach Kosmos, so the mark is still there.';
