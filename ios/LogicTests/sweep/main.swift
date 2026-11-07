@@ -155,8 +155,13 @@ do {
             // comment is still read, so naming one there can trip the check.
             let code = text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             for bad in ["KosmosOrb", "ProgressView", ".progressViewStyle", "UIActivityIndicatorView"] where code.contains(where: { $0.contains(bad) }) { offenders.append(name + ": " + bad) }
-            let w = code.reduce(0) { $0 + $1.components(separatedBy: "WaitOrb(").count - 1 }   // occurrences, not lines (review 2)
-            if w > 0 { waitOrbs[name, default: 0] += w }
+            // Every mention of WaitOrb, by occurrence (review 2), however it is written (WaitOrb.init too, review 3), less its
+            // size constants (WaitOrb.side...), which WaitTick and the guard's own file name.
+            if name != "KosmosOrb.swift" {
+                let joined = code.joined(separator: "\n")
+                let w = (joined.components(separatedBy: "WaitOrb").count - 1) - (joined.components(separatedBy: "WaitOrb.side").count - 1)
+                if w > 0 { waitOrbs[name, default: 0] += w }
+            }
             refreshable += code.filter { $0.contains(".refreshable") }.count
             refreshControls += code.filter { $0.contains("UIRefreshControl") }.count
         }
@@ -164,21 +169,47 @@ do {
     check(read.contains("ios/Kosmos/ChatView.swift") && read.contains(where: { $0.hasPrefix("ios/KosmosNotice/") }) && read.count > 20,
           "both app folders were read, subfolders included (\(read.count) files)")
     check(offenders.isEmpty, "only the dots: no orb and no system spinner anywhere in the app (caught by these names, // comment lines skipped; a renamed type or a hand-made spinner is not caught)" + (offenders.isEmpty ? "" : ": \(offenders)"))
-    // The three orb waits, and nowhere else: one WaitOrb in AgentsView's message() and one on Making; message() is passed
-    // an orb in exactly two places, Allow this iPhone's case and Connecting's, each pinned inside its own case (review 2: a
-    // line count let Allow lose its orb unseen). 132 pt, 66 at the accessibility text sizes.
+    // The three orb waits, and nowhere else (reviews 2 and 3: two counts in a row could not fail on the case they named).
+    // - WaitOrb: one mention in AgentsView (message()), one in NewAgentView, none anywhere else.
+    // - message() takes an orb in Allow this iPhone's case and Connecting's, once each; with those two cases cut out, the
+    //   only `orb` followed by a colon left in AgentsView is message()'s own parameter, so any other screen passing one fails,
+    //   whatever its spacing or value.
+    // - Making's WaitOrb is in madeScreen's last branch (the wait), not the seen or timed-out branches.
+    // - WaitOrb draws at its side(...) (132 pt, 66 at the accessibility text sizes and in landscape).
     let agentsCode = repoText("ios/Kosmos/AgentsView.swift").split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
-    func caseBody(_ from: String, _ to: String) -> String {
-        guard let a = agentsCode.range(of: from), let b = agentsCode.range(of: to, range: a.upperBound..<agentsCode.endIndex) else { return "" }
-        return String(agentsCode[a.upperBound..<b.lowerBound])
+    func between(_ text: String, _ from: String, _ to: String) -> Range<String.Index>? {
+        guard let a = text.range(of: from), let b = text.range(of: to, range: a.upperBound..<text.endIndex) else { return nil }
+        return a.upperBound..<b.lowerBound
     }
-    let orbArgs = agentsCode.components(separatedBy: "orb: \"").count - 1
-    let allowHas = caseBody("case .waitingForAllow(", "case .connecting(").components(separatedBy: "orb: \"").count - 1
-    let connectingHas = caseBody("case .connecting(", "case .denied(").components(separatedBy: "orb: \"").count - 1
+    func orbColons(_ t: Substring) -> Int {
+        var n = 0, rest = t[...]
+        while let r = rest.range(of: "orb") {
+            let before = r.lowerBound == rest.startIndex ? " " : rest[rest.index(before: r.lowerBound)]
+            let after = rest[r.upperBound...].drop(while: { $0 == " " })
+            if !(before.isLetter || before.isNumber || before == "_") && after.first == ":" { n += 1 }
+            rest = rest[r.upperBound...]
+        }
+        return n
+    }
+    let allowR = between(agentsCode, "case .waitingForAllow(", "case .connecting(")
+    let connR = between(agentsCode, "case .connecting(", "case .denied(")
+    var outside = agentsCode
+    if let c = connR { outside.removeSubrange(c) }
+    if let a = between(outside, "case .waitingForAllow(", "case .connecting(") { outside.removeSubrange(a) }
+    let allowHas = allowR.map { orbColons(agentsCode[$0]) } ?? -1
+    let connectingHas = connR.map { orbColons(agentsCode[$0]) } ?? -1
+    let outsideHas = orbColons(outside[...])
+    let making = repoText("ios/Kosmos/NewAgentView.swift").split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+    let waitBranch: Substring = {
+        guard let t = making.range(of: "} else if timedOut {"), let e = making.range(of: "} else {", range: t.upperBound..<making.endIndex),
+              let s = making.range(of: "Spacer()", range: e.upperBound..<making.endIndex) else { return "" }
+        return making[e.upperBound..<s.lowerBound]
+    }()
     let orbSrc = repoText("ios/Kosmos/KosmosOrb.swift")
-    check(waitOrbs == ["AgentsView.swift": 1, "NewAgentView.swift": 1] && orbArgs == 2 && allowHas == 1 && connectingHas == 1
+    check(waitOrbs == ["AgentsView.swift": 1, "NewAgentView.swift": 1] && allowHas == 1 && connectingHas == 1 && outsideHas == 1
+          && waitBranch.contains("WaitOrb(label:") && orbSrc.contains("KosmosOrb(size: WaitOrb.side(typeSize")
           && orbSrc.contains("static let side: CGFloat = 132") && orbSrc.contains("static let sideAtLargeText: CGFloat = 66"),
-          "the orb on exactly three waits (Allow this iPhone, Connecting, Making), 132 pt (\(waitOrbs); orb arguments \(orbArgs): Allow \(allowHas), Connecting \(connectingHas))")
+          "the orb on exactly three waits (Allow this iPhone, Connecting, Making), 132 pt (\(waitOrbs); orb: Allow \(allowHas), Connecting \(connectingHas), elsewhere \(outsideHas) (the parameter); Making's wait branch \(waitBranch.contains("WaitOrb(label:")))")
     // kosmos#8078: iOS's own pull to refresh always draws iOS's spinner, so none may come back. Use dotsRefresh.
     check(refreshable == 0 && refreshControls == 0, "no system pull to refresh anywhere in the app (\(refreshable) + \(refreshControls))")
     let usesDots = ["AgentInfoView", "AgentsView", "FilesView", "ProjectInfoView", "ProjectsView", "SettingsView", "TaskPageView", "TasksView", "TodayView"]

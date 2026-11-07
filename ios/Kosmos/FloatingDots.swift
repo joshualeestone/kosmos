@@ -7,21 +7,27 @@ import SwiftUI
 /// at the ramp's half way (warmth 0.5, opacity 0.26), a pale texture behind the words and the white fields.
 ///
 /// Cost: about 40 dots on a phone, five filled paths a frame, at most 30 frames a second, and no frames at all while the
-/// app is not active. With Reduce Motion the field is settled once and drawn still, with no clock (the desktop's contract).
+/// app is not active. With Reduce Motion or Low Power Mode the field is settled once and drawn still, with no clock.
 struct FloatingDots: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var phase
     @State private var field = DotField()
+    /// Low Power Mode holds the field still too (review 3), read when the view is drawn and when the mode changes.
+    @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion || phase != .active)) { context in
+        let still = reduceMotion || lowPower
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: still || phase != .active)) { context in
             Canvas { ctx, size in
-                field.advance(to: context.date, size: size, still: reduceMotion)
+                field.advance(to: context.date, size: size, still: still)
                 field.draw(in: &ctx)
             }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)) { _ in
+            lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+        }
     }
 }
 

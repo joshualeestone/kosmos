@@ -10,7 +10,8 @@ Josh 2026-11-06 18:14 (#7896, Angel's sheet Files/iphone-loading-dots-vs-orb.png
 - The #8058 "only the dots" guard allows exactly the three orb lines and still reds on any other.
 
 - BoardStates is shared: Projects, Tasks and Today draw the same orb in those phases (accepted, review 1).
-- At accessibility text sizes the orb is 66 pt.
+- At accessibility text sizes and in landscape the orb (and Making's tick box) is 66 pt.
+- Low Power Mode holds the dots still, as Reduce Motion does.
 
 ## Out of scope
 - "Connecting..." (first connect, ConnectingWait) stays 20 pt dots to hand over from the launch picture (Josh's split keeps screen 1 dots).
@@ -18,4 +19,4 @@ Josh 2026-11-06 18:14 (#7896, Angel's sheet Files/iphone-loading-dots-vs-orb.png
 
 ## Weakest premise
 - Making is not in the UI test (needs a create); covered by source (sweep guard) and the build only.
-- Dark mode not screenshotted.
+- Dark mode screenshotted (round 3): readable. Hidden tabs' orbs may keep ticking (KosmosOrb's own unverified note); accepted.

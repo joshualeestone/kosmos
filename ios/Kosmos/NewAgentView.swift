@@ -1021,11 +1021,8 @@ struct NewAgentView: View {
         return VStack(spacing: 16) {
             Spacer()
             if seen {
-                // As on the Mac, the wait ends in the green tick in the orb's place (Mona Lisa's call on Josh's 18:14 ruling):
-                // a 66 pt tick in a box the orb's size, so the words do not jump when it changes (review 1).
-                Image(systemName: "checkmark.circle.fill").resizable().scaledToFit().frame(width: 66, height: 66)
-                    .foregroundColor(Palette.ringOk).accessibilityHidden(true)
-                    .frame(width: WaitOrb.side, height: WaitOrb.side)
+                // As on the Mac, the wait ends in the green tick in the orb's place (Mona Lisa's call on Josh's 18:14 ruling).
+                WaitTick()
                 Text(NewAgent.Words.running(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
                 Text(NewAgent.Words.hello).font(.body).foregroundColor(Palette.primary)
                 ForEach(madeWarnings, id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }

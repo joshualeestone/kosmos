@@ -73,7 +73,24 @@ struct KosmosOrb: View {
 struct WaitOrb: View {
     static let side: CGFloat = 132
     static let sideAtLargeText: CGFloat = 66
+    /// 66 pt at the accessibility text sizes and in landscape (a short screen, review 3), else 132.
+    static func side(_ type: DynamicTypeSize, compactHeight: Bool) -> CGFloat {
+        type.isAccessibilitySize || compactHeight ? sideAtLargeText : side
+    }
     var label: String
     @Environment(\.dynamicTypeSize) private var typeSize
-    var body: some View { KosmosOrb(size: typeSize.isAccessibilitySize ? Self.sideAtLargeText : Self.side, label: label) }
+    @Environment(\.verticalSizeClass) private var heightClass
+    var body: some View { KosmosOrb(size: WaitOrb.side(typeSize, compactHeight: heightClass == .compact), label: label) }
+}
+
+/// Making's ending: the green tick, in a box the size WaitOrb would be on this screen, so the words do not move (review 3).
+struct WaitTick: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.verticalSizeClass) private var heightClass
+    var body: some View {
+        let box = WaitOrb.side(typeSize, compactHeight: heightClass == .compact)
+        Image(systemName: "checkmark.circle.fill").resizable().scaledToFit().frame(width: box / 2, height: box / 2)
+            .foregroundColor(Palette.ringOk).accessibilityHidden(true)
+            .frame(width: box, height: box)
+    }
 }
