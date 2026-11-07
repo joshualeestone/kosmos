@@ -803,7 +803,7 @@ struct ChatView: View {
                     Self.trace("keepAtEnd scrollTo end")
                     // kosmos#7420 (build 33, 18:59): the whole window replaced the small first page and was measured again
                     // after this; the content shrank under the offset and left it past the end. Settle and look again.
-                    if Self.idAnchor { goNewest(proxy); settleAtNewest(proxy, boxMoved: false); return }
+                    if Self.idAnchor { goNewest(proxy); settleAtNewest(proxy, boxMoved: false, blankLook: true); return }
                     if !Self.sampleNoKeep {
                         // iOS 16: after the new rows have laid out, and once more a beat later (the else is the debug control).
                         DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
@@ -1044,6 +1044,13 @@ struct ChatView: View {
     // When it looks, after the last did-show: once settled, and once more after iOS's later moves of the list (KeyboardHold
     // guards 1.5 s for those) and a short fling.
     static let keyboardSettleLooks: [Double] = [keyboardSettle, 1.2]
+    static let blankLookAfter: Double = 0.1
+    // kosmos#7420: KOSMOS_SAMPLE_NOBLANKLOOK=1 (Debug) is the control: no early look after a read. Release reads false.
+    #if DEBUG
+    static let sampleNoBlankLook = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOBLANKLOOK"] == "1"
+    #else
+    static let sampleNoBlankLook = false
+    #endif
 
     // kosmos#7346: how far above the solid strip messages fade into it. The end marker and the New messages button
     // are both set from it, so changing it can never hide the newest message under the fade.
@@ -1209,12 +1216,19 @@ struct ChatView: View {
     // kosmos#7420: the settled looks, after a keyboard did-show (#7817), a change of the box's height at the newest, or a
     // thread read while the chat is kept at the newest (keepAtEndTick). Each new ask replaces the looks still waiting.
     // boxMoved: a did-show or a box change, the asks after which the box can cover the newest message.
-    private func settleAtNewest(_ proxy: ScrollViewProxy, boxMoved: Bool) {
+    private func settleAtNewest(_ proxy: ScrollViewProxy, boxMoved: Bool, blankLook: Bool = false) {
         kbSettleTick &+= 1
         // Review 6: a thread read inside a box change's looks replaces them, and keeps that the box moved.
         if boxMoved { boxAskedAt = Date() }
         let moved = boxMoved || (boxAskedAt.map { Date().timeIntervalSince($0) < Self.boxAskCarries } ?? false)
         let tick = kbSettleTick, chatAt = epoch, listAt = listEpoch, boxMoved = moved
+        // kosmos#7420: a read that replaced a kept copy can leave nothing drawn. Video on the simulator, 20 opens each way: empty
+        // for 0.19 to 0.36 s with only the looks below, 0.05 to 0.12 s with this one. Acts on nothing drawn only.
+        if blankLook && !Self.sampleNoBlankLook {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.blankLookAfter) {
+                if onScreen.isEmpty { settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, boxMoved: boxMoved) }
+            }
+        }
         for at in Self.keyboardSettleLooks {
             DispatchQueue.main.asyncAfter(deadline: .now() + at) { settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, boxMoved: boxMoved) }
         }
@@ -2430,11 +2444,15 @@ struct ChatView: View {
     private func startReading() {
         loop?.cancel()
         // kosmos#7810: the conversation this phone last read is drawn at once, offline too; the first read replaces it.
-        if thread == nil, let kept = client.keptThread(for: agent.session) {
+        if thread == nil, let kept = client.keptThread(for: agent.session) ?? client.sampleKept(for: agent.session) {
             thread = kept; recomputeHiddenHeads()
             Self.trace("kept copy drawn")
         }
         loop = Task {
+            #if DEBUG
+            // kosmos#7420, KOSMOS_SAMPLE_KEPTFIRST=1: the order a real open has: the kept copy first, the first read about 1.4 s later.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_KEPTFIRST"] == "1" { try? await Task.sleep(nanoseconds: 1_400_000_000) }
+            #endif
             while !Task.isCancelled {
                 let landedSmall = await read()
                 // The small first page drawn: the whole window is read straight after it, not 5 s later.

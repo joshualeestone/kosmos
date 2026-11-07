@@ -695,6 +695,15 @@ final class BoardClient: ObservableObject {
     private var threadReadKept: [String: Int] = [:]
     // kosmos#7810: the conversation this phone last read from this computer for this account, or nil. Its rows only
     // (a question's row included, as text): never its buttons (no thread read, no buttons: the question may have moved on).
+    // kosmos#7420, KOSMOS_SAMPLE_KEPTFIRST=1: a sample chat's kept copy, 8 rows short of what the first read brings.
+    func sampleKept(for session: String) -> Board.Thread? {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_KEPTFIRST"] == "1", let t = sampleThreads[session] else { return nil }
+        return Board.Thread(rows: Array(t.rows.dropLast(8)), olderCount: t.olderCount)
+        #else
+        return nil
+        #endif
+    }
     func keptThread(for session: String) -> Board.Thread? {
         guard let mac = admitted?.url.absoluteString, let file = threadFile(session, owner: chatsOwner, mac: mac),
               let data = try? Data(contentsOf: file), let t = Board.parseThread(data) else { return nil }
