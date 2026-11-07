@@ -64,3 +64,15 @@ Windows CI runner runs the same arms under 5.1.
   variable; the curly double quote is set aside like the straight one; the doctrine paragraph is rewrapped.
 - Mutants: put the '' strip back -> exactly the two bare-'' arms fail; straight quote only -> the curly arm fails;
   no double-quoted touch -> the 'a'"b" arm fails.
+
+## Review round 4
+- WARNING: a call after a here-string closes on the same line was refused; $MyInvocation.Line starts inside the
+  here-string and the parse errors were ignored. A line the parser reports errors on is now not checked (fail open,
+  as the comment always said).
+- WARNING: a backtick-escaped quote (can`'t, delivered as can't) was refused. Backtick escapes are set aside.
+- WARNING: 'well'-known arrived as [well] [-known] and went out. Rule (a) now refuses anything touching a quoted
+  string's end except a closer or separator (| ; ) } , a redirection, a newline).
+- NIT not taken: an arm for the backtick-continued line. It is the documented gap, and the doctrine tells agents to
+  use the here-string every time.
+- Mutants: parse errors ignored -> the here-string-closer arm fails; no backtick strip -> the backtick arm fails;
+  the old touch list -> the 'well'-known arm fails.
