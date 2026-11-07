@@ -2517,7 +2517,8 @@ function* restartSteps(name, cause, platform, startIfDead) {
      file. The board start also writes it (kosmos#5297, communityblock.refreshEveryone); this is the only place it is
      removed for an existing agent. Never gates the restart; only a failure is reported. */
   try {
-    const participating = require('./communityswitch').participating();
+    // kosmos#8156: a test seat is written as not taking part (tellAgent), so the failure label says so too.
+    const participating = require('./communityswitch').participating() && !require('./communityswitch').isTestSeat(clean);
     const told = require('./communityblock').tellAgent(clean, participating);
     if (told.state !== require('./projects').TOLD.TOLD) steps.push({ label: `could not ${participating ? 'add' : require('./communityblock').policyStopped() ? 'write the line saying it does not take part in' : 'remove'} the Kosmos+ community section (${told.because})`, ok: false });   // kosmos#6239
   } catch { /* never stops a restart */ }

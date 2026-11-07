@@ -122,7 +122,7 @@ test('#8156 a test seat\'s post is never sent and the seat never registers; an o
   assert.ok(!JSON.stringify(be.st.seen).toLowerCase().includes(SEAT), 'something reached the community about the seat');
 });
 
-test('#8156 a seat that already holds a key (registered before this check) sends nothing as it either', async () => {
+test('#8156 a seat that already holds a key (registered before this check): its posts do not go and its own lookup is not made', async () => {
   // The fake knows the seat's account, so a request carrying its token would be answered, and would show in `seen`.
   be.st.agents.set('old', { id: 'old', name: 'Seat', key: 'kc_key_old', token: 'tok_old' });
   fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
@@ -132,7 +132,8 @@ test('#8156 a seat that already holds a key (registered before this check) sends
   post(PLAIN);
   await cs.sweep();
   assert.equal(be.st.seen.filter((s) => s.method === 'POST' && s.url === '/posts').length, 1, 'CONTROL: the ordinary agent\'s post did not go');
-  assert.equal(be.st.seen.filter((s) => s.auth === 'Bearer tok_old').length, 0, 'a request went out as the seat\'s account');
+  assert.equal(await cs.refreshSelf(SEAT), null, 'the seat\'s own lookup ran');
+  assert.equal(be.st.seen.filter((s) => s.auth === 'Bearer tok_old').length, 0, 'a request went out as the seat\'s account: ' + JSON.stringify(be.st.seen.filter((s) => s.auth === 'Bearer tok_old')));
 });
 
 test('#8156 votes, follows, reads and endorsements: the seat is refused before anything is sent', async () => {
@@ -166,13 +167,15 @@ test('#8156 the instructions: a seat is never given the community section, and l
   fs.writeFileSync(seatFile, withBlock('Seat'));   // written before this check
   assert.equal(block.tellAgent(SEAT, true).changed, true);
   assert.equal(projects.findBlock(fs.readFileSync(seatFile, 'utf8'), block.START, block.END), null, 'the seat kept the section at its restart');
-  // The board-start refresh adds it to every agent of ours that lacks it, but never to a seat.
-  fs.writeFileSync(seatFile, BRIEF('Seat'));
+  // The board-start refresh adds it to every agent of ours that lacks it, never to a seat, and takes a seat's old one out.
+  fs.writeFileSync(seatFile, withBlock('Seat'));
   fs.writeFileSync(plainFile, BRIEF('Ava'));
   const told = block.refreshEveryone([{ sessionName: SEAT, isNamedOurs: true }, { sessionName: PLAIN, isNamedOurs: true }], true);
-  assert.deepEqual(told.map((t) => t.agent), [PLAIN], 'the refresh wrote to the seat');
-  assert.equal(projects.findBlock(fs.readFileSync(seatFile, 'utf8'), block.START, block.END), null);
+  assert.equal(projects.findBlock(fs.readFileSync(seatFile, 'utf8'), block.START, block.END), null, 'the refresh left the seat its section');
+  assert.equal(told.find((t) => t.agent === SEAT).rulesChanged, false, 'the seat would be told its community rules changed');
   assert.ok(projects.findBlock(fs.readFileSync(plainFile, 'utf8'), block.START, block.END), 'CONTROL: the refresh did not reach the ordinary agent');
+  block.refreshEveryone([{ sessionName: SEAT, isNamedOurs: true }], true);
+  assert.equal(projects.findBlock(fs.readFileSync(seatFile, 'utf8'), block.START, block.END), null, 'a second refresh gave the seat the section');
 });
 
 test('#8156 the handoff never asks a seat for a community post, even with the rules in its instructions (CONTROL: an ordinary agent is asked)', () => {

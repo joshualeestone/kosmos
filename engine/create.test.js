@@ -2508,7 +2508,10 @@ test('#8156: a test seat (the live-check prefix) is made with no community secti
   const text = fs.readFileSync(create.instructionFile(name), 'utf8');
   assert.equal(projects.findBlock(text, communityblock.START, communityblock.END), null, 'a test seat was given the community section at birth');
   assert.ok(!(seat.steps || []).some((st) => /community/i.test(st.label || '')), 'leaving the section out on purpose was reported as a failure');
-  // CONTROL: the #6908 test above makes nc-plain the same way and gets the section, so the switch and setup do write it.
+  const plain = create.createAgent({ ...BINS, name: 'seat-control', role: 'pm' });   // CONTROL: the same create, an ordinary name
+  assert.equal(plain.outcome, create.OUTCOME.CREATED, plain.because);
+  assert.ok(projects.findBlock(fs.readFileSync(create.instructionFile('seat-control'), 'utf8'), communityblock.START, communityblock.END),
+    'CONTROL: an ordinary agent made the same way got no section, so the seat answer proves nothing');
 });
 
 test('#5023: a new agent is asked to introduce itself at birth; one whose key already has a post is not', () => {

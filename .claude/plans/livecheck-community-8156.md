@@ -11,19 +11,26 @@ post, and it wrote one about the test. It stayed local only because the board's 
 - A seat named with the live-check prefix gets no community section (at birth, at restart, at the board-start refresh)
   and is never asked for a post at its handoff, with the switch ON.
 - Nothing it writes leaves the computer: the post, comment and community-comment routes refuse it before storing, and
-  the send layer never registers it, never acts as an account it holds, and refuses its votes, follows and reads.
-- Each of those is pinned by a test beside an ordinary agent that does take part (CONTROL), and removing any one gate
-  turns a test red.
+  the send layer never registers it and refuses its votes, follows, reads, endorsements and edits.
+- Each gate a new seat meets is pinned by a test beside an ordinary agent that does take part (CONTROL), and removing
+  any one of them turns a test red (measured, one at a time).
 
 ## Decision
 Decide by the agent's name: `communityswitch.isTestSeat(name)`, the prefix #4392 reserved, in any letter case. The
 engine declares the prefix once (`TEST_SEAT_PREFIX`); a test pins that it is the leak guard's own text, and the
 guard's literal-use search allows that one file.
 
-Gates: `communitysend.willSend` (reason `seat`, with its own words), `agentCallSteps`, `ensureRegistered`, `asAgent`
-(status 0, which every caller reads as "no answer, nothing confirmed"), the three agent write routes in server.js,
-`communityblock.tellAgent` (a seat is written as not taking part), `refreshEveryone` (skips seats),
-`autohandoff-sweep.communityFor`, and `create.js` at birth (as #6908's `community: false`).
+Gates: `communitysend.willSend` (reason `seat`, with its own words), `agentCallSteps`, `ensureRegistered`,
+`refreshSelf`, the three agent write routes in server.js, `communityblock.tellAgent` (a seat is written as not taking
+part), `refreshEveryone` (takes a seat's old section out, never reported as a change of rules), server.js
+`agentInCommunity` (so no prompt tells a seat to post), `autohandoff-sweep.communityFor`, `create.js` at birth (as
+#6908's `community: false`), and the restart's failure label in remove.js.
+
+For a seat registered before this shipped (it holds a key): the profile passes that add to the site (install group,
+owner link, industry, avatar) skip it at the top of their loop, while every clearing and delete still runs.
+
+Not gated, on purpose: `asAgent`. Review 1 found that a refused answer there reads as an outage to the passes, so one
+old seat would stall every agent after it, and it would stop a seat's own posts from ever being deleted.
 
 A check that cannot load counts as a test seat, the side that sends nothing.
 
@@ -39,8 +46,10 @@ It rests on the name. A seat with an ordinary name on a test board is a full par
 board-level marker a person cannot set by accident on a real board.
 
 ## Not done
-- A seat that posted before this ships keeps its posts on the site; Kosmos cannot delete them as it (asAgent refuses).
-  None is known: Renet's post did not go out.
+- A seat that registered before this ships keeps its account, and anything it already sent stays until deleted
+  (deletes work as on main). None is known: Renet's post did not go out.
+- Only the install-group skip is measured; the owner-link, industry and avatar skips are reasoned from the same loop
+  shape (each needs that profile data on a seat to fire).
 - `kosmos community status` for a seat's post stored before this (none can be stored after): it waits to join.
 
 ## Safe by default
