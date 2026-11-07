@@ -573,3 +573,28 @@ test('#8147: the answer cache is bounded by size, not only by count, and keeps t
     assert.ok(reads > 0, 'CONTROL: the oldest was evicted, so it is read again');
   } finally { x._internal.setClockForTests(null); sp._forgetForTests(); }
 });
+
+/* #8147 review r6 */
+test('#8147 r6: no format code shows a negative without a sign; a negative time is shown as saved', () => {
+  const codes = ['0;0', '0.00;[Color10]0.00', '0;[Red][<0]0', '#,##0;(#,##0);"-";@', '0%;0', '[Blue]0;[Red]0', '_(#,##0_);(#,##0)', '"$"#,##0;("$"#,##0)'];
+  const fmts = codes.map((code, i) => `<numFmt numFmtId="${180 + i}" formatCode="${code.replace(/"/g, '&quot;')}"/>`).join('');
+  const xfs = '<xf numFmtId="0"/>' + codes.map((_, i) => `<xf numFmtId="${180 + i}"/>`).join('') + '<xf numFmtId="20"/>';
+  const cells = codes.map((_, i) => `<c r="${String.fromCharCode(65 + i)}1" s="${i + 1}"><v>-5</v></c>`).join('') + `<c r="Z1" s="${codes.length + 1}"><v>-0.5</v></c>`;
+  const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${cells}</row>`) }, { 'xl/styles.xml': `<styleSheet><numFmts>${fmts}</numFmts><cellXfs>${xfs}</cellXfs></styleSheet>` }));
+  const shown = r.sheets[0].rows[0].filter((t) => t !== '');
+  assert.equal(shown.length, codes.length + 1);
+  for (const t of shown) assert.ok(/^-|^\(/.test(t), 'a negative shown with no sign: ' + JSON.stringify(t) + ' in ' + JSON.stringify(shown));
+  assert.equal(shown[shown.length - 1], '-0.5', 'h:mm on -0.5 is shown as saved, never 12:00');
+});
+
+test('#8147 r6: a row or cell whose start tag is too long to read is not placed on another row or column', () => {
+  const pad = ' z="' + 'a'.repeat(5000) + '"';
+  const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="2"><c r="A2"><v>2</v></c></row><row${pad} r="9999999"><c r="A1"><v>5</v></c></row>`) }));
+  assert.deepEqual(r.sheets[0].rows, [[''], ['2']]);
+  assert.equal(r.sheets[0].cut, true);
+  const c = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1"><c r="A1"><v>1</v></c><c${pad} r="C1"><v>3</v></c></row>`) }));
+  assert.deepEqual(c.sheets[0].rows, [['1']]);
+  assert.equal(c.sheets[0].cut, true);
+  // CONTROL: a short tag is read.
+  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c><c r="C1"><v>3</v></c></row>') })).sheets[0].rows, [['1', '', '3']]);
+});

@@ -261,9 +261,10 @@ function negativeKind(code) {
   // A leading colour ("[Red]", "[Color10]") only colours it; any other bracket (a currency, a condition) is not simple.
   let second = raw === null ? null : raw.replace(/^\s*(?:\[(?:black|blue|cyan|green|magenta|red|white|yellow|color[0-9]{1,2})\]\s*){1,2}/i, '');
   if (second === null || second.trim() === '') return null;
-  // Review r5: the sign this section draws. Brackets, "(#,##0)", are drawn as brackets; a leading "-" as a minus; a
-  // section with no sign of its own (a colour alone, "0.00;[Red]0.00") still gets a minus, because the colour is the
-  // only sign Excel shows there and this preview shows no colour (without it a loss read as a gain).
+  // Review r5/r6: the sign this section draws. Brackets, "(#,##0)", are drawn as brackets; a leading "-" as a minus; a
+  // section with no sign of its own (a colour alone, "0.00;[Red]0.00", or none at all, "0;0") still gets a minus: a
+  // colour is the only sign Excel shows there and this preview shows none, and a negative must never read as positive
+  // (in "0;0" Excel itself drops the sign; here it is kept, the safe direction).
   let sign = 'minus';
   const t = second.trim();
   if (t.length > 2 && t[0] === '(' && t[t.length - 1] === ')') { sign = 'brackets'; second = t.slice(1, -1); }
@@ -360,7 +361,8 @@ function serialDate(n, from1904 = false, fmt = null) {
 /* The time of day in a serial: HH:MM (with :SS when it has seconds); with a time format's reading (formatKind), its
    12-hour clock ("6:00 PM"), its seconds, and no hour when the code has none ("mm:ss"). */
 function serialTime(n, fmt = null) {
-  if (!Number.isFinite(n)) return String(n);
+  // #8147 review r6: a negative time is no time of day (Excel shows ####; "h:mm" on -0.5 read as 12:00): shown as saved.
+  if (!Number.isFinite(n) || n < 0) return String(n);
   const secs = Math.round((((n % 1) + 1) % 1) * 86400) % 86400;
   const h24 = Math.floor(secs / 3600);
   const mm = String(Math.floor((secs % 3600) / 60)).padStart(2, '0');
@@ -554,7 +556,10 @@ function readBook(buf, budget) {
           else if (type === 'str') { text = raw; if (text === '') { text = null; savedEmpty = true; } }
           // Review 3: an ISO date cell (t="d", as openpyxl with iso_dates, SheetJS and Strict OOXML write) is shown as its
           // date, never handed to the serial reader (it showed "NaN").
-          else if (type === 'd') text = raw.replace(/T00:00(:00(\.0+)?)?Z?$/, '').replace('T', ' ').slice(0, 16);
+          else if (type === 'd') {
+            text = raw.replace(/T00:00(:00(\.0+)?)?Z?$/, '').replace('T', ' ').slice(0, 16);
+            if (text === '') { text = null; savedEmpty = true; }   // review r6: drawn as nothing, as an empty string
+          }
           else {
             const fmt = kinds[Number(attr(c.tag, 's') || 0)] || null;
             const kind = fmt && fmt.kind;
@@ -576,19 +581,25 @@ function readBook(buf, budget) {
     rows: for (const row of data ? elements(data.body, 'row', true) : []) {
       if ((++k & 1023) === 0) budget();
       if (++visits > MAX_VISITS) { cut = true; walkCut = true; break; }
+      // Review r6: a start tag past MAX_TAG_CHARS has no attribute read (attr), so its row number is unknown: the row is
+      // not placed (it landed on the next real row), and a value in it is unknown to the answer.
+      if (row.tag.length > MAX_TAG_CHARS) { if (/<(v|is)[\s>]/.test(row.body)) { cut = true; walkCut = true; } else if (/<f[\s>]/.test(row.body)) walkCut = true; continue; }
       const rs = attr(row.tag, 'r');
       // Decimal only (r2); review r5: any length (the tag is capped), so 41 digits are past the last row, not "no r".
       const digits = rs !== null && /^[0-9]+$/.test(rs) ? rs.replace(/^0+(?=.)/, '') : null;
       const rr = digits === null ? NaN : digits.length > 7 ? Infinity : Number(digits);
       // #8147: a row number past Excel's last row (1048576), however many digits, is no row of the sheet: skipped, not
       // placed on another row. Review r3: what it held is unknown to the answer (never "empty"), and an empty one is no cut.
-      if (rr > MAX_EXCEL_ROW) { if (/<(v|is|f)[\s>]/.test(row.body)) { cut = true; walkCut = true; } continue; }   // a value, formula or string
+      // A value or a string is a cut; a formula alone only keeps the answer from claiming none (review r6).
+      if (rr > MAX_EXCEL_ROW) { if (/<(v|is)[\s>]/.test(row.body)) { cut = true; walkCut = true; } else if (/<f[\s>]/.test(row.body)) walkCut = true; continue; }
       rowAt = rr >= 1 ? rr - 1 : rowAt + 1;   // a row with no r (or one that is not a number) is the next one (review 1)
       const line = new Map();
       let colAt = -1;
       for (const c of elements(row.body, 'c')) {
         if ((++k & 1023) === 0) budget();
         if (++visits > MAX_VISITS) { cut = true; walkCut = true; if (line.size) keepRow(rowAt, line); break rows; }
+        // Review r6: likewise a cell whose start tag is too long to read has no known column: not placed.
+        if (c.tag.length > MAX_TAG_CHARS) { if (/<(v|is)[\s>]/.test(c.body)) { cut = true; walkCut = true; } continue; }
         const at = cellRef(attr(c.tag, 'r'));
         const col = at ? at[1] : colAt + 1;                          // a cell with no r is the next column
         colAt = col;
