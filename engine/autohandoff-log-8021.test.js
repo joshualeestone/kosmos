@@ -13,7 +13,10 @@ const chat = require('./chat');
 const { DELIVERY, confirmedVerdict } = chat;
 
 const ON = { enabled: true, threshold: 85 };
-const run = (verdict) => sweepOnce({ setting: ON, roster: [{ sessionName: 'mara', context: { percent: 86 } }], lastBand: new Map(),
+/* The sweep reads only an agent's sessionName and its context fill, and the fill is the variable under test, so the
+   row is shorthand, as engine/autohandoff-sweep.test.js's agentAt is (the board emits context.percent, status.js). */
+const agentAt = (sessionName, percent) => ({ sessionName, context: { percent } });
+const run = (verdict) => sweepOnce({ setting: ON, roster: [agentAt('mara', 86)], lastBand: new Map(),
   deliver: () => verdict, pathFor: (k) => '/h/' + k + '.md', autohandoff, DELIVERY }).prompted[0];
 const placed = { state: DELIVERY.PLACED, at: 'x', paneState: 'idle' };
 const AGAIN = '; asked again on the next sweep while it stays over the threshold\n';
