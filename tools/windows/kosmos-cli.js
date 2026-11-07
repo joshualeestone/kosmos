@@ -1941,6 +1941,7 @@ async function taskBuilt(ctx, args) {
       : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.' + left + told);
     // #6761, as install/kosmos: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
     if (!clear && fingerprint) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
+    if (!clear && fingerprint && !filePath) ctx.out('Its path was not sent: Kosmos keeps only a local path of 1024 characters or fewer, so kosmos task files cannot check this mark.');   // kosmos#8214 review 2, as install/kosmos
     // #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
     // Review 5: only when the board's answer carries it (an older board drops a field it does not know).
     if (!clear && commit) {

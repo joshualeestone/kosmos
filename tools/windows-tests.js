@@ -112,6 +112,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'cli.task-files-8214.test.js': 'its win32 branches only skip the Mac CLI arms (install/kosmos is bash); the Windows CLI is driven in-process in the same file, and filesLines takes the platform as an option, so its Windows rule is tested on any host (#8214)',
   'server.agent-restart-removed-8071.test.js': 'its win32 branch only picks the expected answer for a removed agent named in other case, the same answer as on the Mac: the route ignores case through one flag that is true on both (kosmos#8071), so the Mac run covers the arm Windows would take; the file boots the whole board, which the Windows runner does not',
   'engine/machinecost-7978.test.js': 'its win32 branches only skip: the module does not run on Windows, which has no tmux or ps (#7978)',
   'engine/store.mode-hardening-1760.test.js': 'its win32 branch skips every arm: it checks POSIX file modes (the data root 0700, the message log 0600), which Windows does not have; chmod there only toggles read-only (#1760).',
