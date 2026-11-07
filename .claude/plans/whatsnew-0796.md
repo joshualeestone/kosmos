@@ -45,7 +45,8 @@ Commit carries the #1720 Browser-check trailer (data only).
 
 ## Review round 2
 - Grok's date is when its key ran out, not when it last worked (Muse's is when it was last seen working), so the
-  title and line now say "not renewed or seen working" and "since when they are unconfirmed".
+  title and line now say "not renewed or seen working" and "since when they are unconfirmed" (replaced in round 3
+  by the split below).
 - The line-spacing line drops the number for plain words.
 
 ## Review round 3
@@ -64,3 +65,9 @@ Commit carries the #1720 Browser-check trailer (data only).
   missed it, so prod users were never told. Added as since 0.7.95, rank 17.2 (below the window, cross-platform: web
   and both CLIs).
 - #8036 is visible, so the plan no longer calls it invisible; it stays out as a glitch fix.
+
+## Review round 5
+- A stale Grok subscription row was already an amber "Signed in" in 0.7.94, never green, so the Grok line now says
+  "not \"Signed in\"". The Muse row was green, so its "not green" stays.
+- Both task items say "task lists". Left as is: .xlsm is not named in the spreadsheet line (it would pass 140
+  characters; an omission, not a false claim), and "On the Mac," stays in the two mac items (the platform-word rule).

@@ -1231,7 +1231,7 @@
     },
     {
       "title": "A task says how many subtasks are on hold",
-      "line": "A task with subtasks now says how many are on hold beside its done count, on the board and in kosmos task lists.",
+      "line": "A task with subtasks now says how many are on hold beside its done count, on the board and in task lists.",
       "icon": "tasks",
       "rank": 17.2,
       "since": "0.7.95",
@@ -1282,7 +1282,7 @@
     },
     {
       "title": "An old Grok sign-in says since when",
-      "line": "A Grok sign-in not renewed for over three days now reads \"not confirmed since\" a date, not green.",
+      "line": "A Grok sign-in not renewed for over three days now reads \"not confirmed since\" a date, not \"Signed in\".",
       "icon": "shield",
       "rank": 19,
       "since": "0.7.96",
