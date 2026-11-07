@@ -21,10 +21,11 @@ Keep the record's shape unchanged and add a sidecar, `messages.ids.jsonl`, besid
   does not name at all (a recorded or deleted post is the record's to answer for). Each comes back as a stand-in row
   with its room, author, whether it is the person's, and whom it named, and empty text. A reply to one records
   `replyTo` and is read as a reply to the real post; `withPending` leaves stand-ins out, so they are never quoted.
-- With the record unreadable it only raises `ID_HIGH`, writes nothing, and reads the file again next call.
+- With the record unreadable it only raises `ID_HIGH`, writes nothing, and reads the file again 30 s later.
 - Past 64 KB the file is compacted (the restored posts plus a high-water row, plus any line appended after it was
   read) through `securewrite.writeSecret` (owner-only, flushed, #5434). A board that stays up reads it again once it
-  has appended 64 KB since its last read, so the file stays near that size while running, not only across restarts.
+  has appended 64 KB since its last read (at the next `loadIds` call, never from inside a mint), so the file stays
+  near that size while running, not only across restarts.
 - A torn last line (a crash mid-append) is ended with a newline when the file is read, before anything is appended,
   so the next id is not written onto the fragment.
 - Every failure falls back to the log alone, which is the pre-#8178 behaviour, never a refusal.
@@ -57,4 +58,4 @@ because the worst case is the generic refusal sentence.
 (refused, and m1 reused, on main; the reply records replyTo), the file's read rules, a recorded and a
 deleted id, a real reached-nobody post, the names on a restored post (repliesToPerson), an unreadable
 record, a line appended during compaction, the first post after a torn line, and a board that stays up compacting.
-Eight mutants (one per fix) each fail their test.
+Nine mutants (one per behavioural fix) each fail their test.

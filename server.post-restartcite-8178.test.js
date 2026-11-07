@@ -172,7 +172,7 @@ test('kosmos#8178 round 2: a restored post keeps whose it was and whom it addres
   assert.equal(r.json.delivery.repliesToPerson, true, 'a reply to the person\'s restored post is not said to answer the person (the phone seam, #6254): ' + JSON.stringify(r.json.delivery));
 });
 
-test('kosmos#8178 round 2: an unreadable record leaves the id file whole, and it is read again next time', () => {
+test('kosmos#8178 round 2: an unreadable record leaves the id file whole, and it is read again after a pause', () => {
   messages.resetForTests();
   const ids = messages._idsPathForTests();
   const log = path.join(path.dirname(ids), 'messages.jsonl');
@@ -189,7 +189,10 @@ test('kosmos#8178 round 2: an unreadable record leaves the id file whole, and it
     assert.equal(messages._nextIdForTests(), 'm3001', 'ids still rise above the file');
     assert.equal(fs.readFileSync(ids, 'utf8'), body, 'the id file was rewritten while the record could not be read');
   } finally { fs.rmSync(log, { recursive: true, force: true }); }
-  // Readable again: the post comes back, and the big file is compacted to what it still needs.
+  // Round 4: not read again on every call; readable now, but the pause has not passed.
+  assert.equal(messages.projectOfPost('m3000'), null, 'the id file was read again at once, on every call');
+  // After the pause (a restart clears it here): the post comes back, and the big file is compacted.
+  messages._restartForTests();
   assert.equal(messages.projectOfPost('m3000'), 'proj-c');
   const kept = fs.readFileSync(ids, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).map((x) => x.id);
   assert.deepEqual(kept, ['m3000', 'm3000'], 'compacted to the restored post and the highest id');
@@ -248,6 +251,7 @@ test('kosmos#8178 round 3: a board that stays up compacts the id file too', asyn
     assert.equal(got[29] - got[0], 29, 'CONTROL: thirty posts were given thirty ids: ' + got.join(','));
     const grown = 30 * JSON.stringify({ id: 'm30', project: p.id, from: 'mara', at: Date.now() }).length;
     assert.ok(grown > 2 * 512, 'CONTROL: without compaction the file would pass the threshold twice over');
+    messages._nextIdForTests();   // the next read after the threshold is where it compacts (round 4: never mid-mint)
     const size = fs.statSync(ids).size;
     assert.ok(size < 512 + 200, 'the id file grew without a compaction while the board ran: ' + size + ' bytes');
     assert.equal(messages._nextIdForTests(), 'm' + (got[29] + 1), 'the highest id survived the compaction');
