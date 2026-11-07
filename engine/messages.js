@@ -1275,18 +1275,24 @@ const UNRECORDED_SENDS = new Map();
 const PENDING_POSTS = new Map();   // id -> { projectId, at, row } (row: the fields a reply reads, as its row will carry them)
 const PENDING_POST_MAX_MS = 60 * 60 * 1000;
 const PENDING_POST_MAX = 2000;   // r3: while the record keeps failing (a full disk) nothing else would clear them
-/* kosmos#8165 review 3: the record as a post in `projectId` should read it: its rows, then this room's posts still being
-   delivered (as their rows will be), so a fast reply quotes and claims as a late one would. */
+/* kosmos#8165 review 3/4: the record as a post in `projectId` should read it: its rows, then this room's posts still being
+   delivered (as their rows will be), for the quote tag and the person's claim line, so a fast reply reads the post it
+   answers there as a late one would. Not every reader of the post path uses it: the ack-only owner rule (#6608) still
+   reads the record as it was when the post began, so a fast "agreed" to a post being delivered is delivered rather than
+   refused as an ack (the harmless direction). Given `ownId`, only rows EARLIER than it, recorded or pending (review 4: a
+   fast reply recorded before the ask it answers is a LATER post, and the ask must not be tagged as quoting it). */
 function withPending(log, projectId, ownId) {
   const extra = [];
   /* Only posts EARLIER than the one being written (a lower id; all of them when it has none yet): the post itself is
      pending by then, and a later one (a fast reply to it) must never read as an earlier carrier of its words. */
   const own = typeof ownId === 'string' && /^m\d+$/.test(ownId) ? Number(ownId.slice(1)) : Infinity;
+  const earlier = (r) => !(r && /^m\d+$/.test(String(r.id))) || Number(String(r.id).slice(1)) < own;
   for (const p of PENDING_POSTS.values()) {
     if (p.projectId !== projectId || !p.row || Date.now() - p.at > PENDING_POST_MAX_MS) continue;
-    if (Number(String(p.row.id).slice(1)) < own) extra.push(p.row);
+    if (earlier(p.row)) extra.push(p.row);
   }
-  return extra.length ? (Array.isArray(log) ? log : []).concat(extra) : log;
+  const rows = Array.isArray(log) ? (own === Infinity ? log : log.filter(earlier)) : [];
+  return extra.length ? rows.concat(extra) : rows;
 }
 function pendingPost(id) {
   for (const [k, p] of PENDING_POSTS) if (Date.now() - p.at > PENDING_POST_MAX_MS) PENDING_POSTS.delete(k);   // pruned on every look
