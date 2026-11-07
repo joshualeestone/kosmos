@@ -224,6 +224,10 @@ do {
     check(orbFileOk, "KosmosOrb.swift declares only KosmosOrb, WaitOrb and WaitTick at its top level (\(topLevel))")
     check(waitOrbs == ["AgentsView.swift": 1, "NewAgentView.swift": 1] && allowHas == 1 && connectingHas == 1 && outsideHas == 1
           && waitBranch.contains("WaitOrb(label:") && orbSrc.contains("KosmosOrb(size: WaitOrb.side(typeSize")
+          // Review 6: the drawing line and the size rule are pinned as written, so disabling the orb (`if false, let orb`),
+          // resizing it in place, or making the rule return one size cannot pass.
+          && agentsCode.contains("if let orb { WaitOrb(label: orb).padding(.bottom, 12) }")
+          && orbSrc.contains("type.isAccessibilitySize || compactHeight ? sideAtLargeText : side\n")
           && orbSrc.contains("static let side: CGFloat = 132") && orbSrc.contains("static let sideAtLargeText: CGFloat = 66"),
           "the orb on exactly three waits (Allow this iPhone, Connecting, Making), 132 pt (\(waitOrbs); orb: Allow \(allowHas), Connecting \(connectingHas), elsewhere \(outsideHas) (the parameter); Making's wait branch \(waitBranch.contains("WaitOrb(label:")))")
     // kosmos#8078: iOS's own pull to refresh always draws iOS's spinner, so none may come back. Use dotsRefresh.
