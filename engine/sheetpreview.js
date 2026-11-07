@@ -168,6 +168,8 @@ function fromFile(file, name) {
   try {
     const before = fs.lstatSync(file, { bigint: true });
     if (before.isSymbolicLink()) return { ok: false, because: CANNOT_READ };
+    // Undefined on win32 (#1732 fs-const-platform-flag), ORed in undefined-safe: the lstat refusal above and the dev/ino
+    // identity check below refuse a swapped link on every platform, and the isFile check refuses a FIFO.
     fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
     const st = fs.fstatSync(fd, { bigint: true });
     if (!st.isFile()) return { ok: false, because: CANNOT_READ };
