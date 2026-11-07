@@ -362,7 +362,12 @@ function chk(ok, label, extra) {
            Another and the seat never meets it, and the box stays put when the run starts (#4935's rule). */
         {
           const { page, errs } = await newPage(1280);
+          /* PR #8184 CI (twice of three runs, webkit): body.consolidated read false and the list measured 0 wide. The page's
+             own paintStyles applies the board's layout when /api/style answers (applyLayout, which calls showTab again), so
+             the split view is set only once that has run, and the arm waits until the split view holds before it measures. */
+          await page.waitForFunction(() => typeof STYLE_TRIED !== 'undefined' && STYLE_TRIED === true, null, { timeout: 15000 }).catch(() => null);
           await page.evaluate(() => { document.documentElement.setAttribute('data-layout', 'consolidated'); showTab('agents'); });
+          await settle(page, () => document.body.classList.contains('consolidated'));
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           const m = await page.evaluate(() => { const li = document.querySelector('#tc-list li'); const seat = li.querySelector('.tc-seat'), nb = li.querySelector('.tc-namebox');
