@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: xlsxprev-8122-ick
-diff_hash: bc27e7be1c2bb807e6831cc8b061c82ae5568b5e2a62540cee7f7803d3ac5c85
+diff_hash: 105359b2c5e7ab6796525d4cd30f7125ec760a088eefafd3d91a6f8241f8c481
 validation: local, on a473bb3e17 (rebased on origin/main): 243 test files (every test that reads a changed engine file, every test that reads server.js's source, run from the repo root, and the 11 test files main changed since the old base), 6080 tests, 0 fail, 216 skipped (Windows-only); the full suite runs on the PR's CI
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-07T00:31:00Z
@@ -47,3 +47,6 @@ The last suite ran on a473bb3e17, the head this proof covers. Per-round detail, 
 
 #### Iteration 8 (sonnet)
 - No BLOCKER. 5 WARNINGs (about 1.2 s per distinct hostile file through non-boundary skips; empty and noValues after a walk cut; trailing-comma formats; the cache bounded by count rather than size), 2 CONVENTIONs, NITs --> CARRIED to #8147 under the cap rule
+
+#### After the loop (not reviewed by a round)
+- The PR's windows job went red on two #1732 source guards (win32-separator-guard, windows-coupling-audit-1732) that scan all of engine/ and that my name-based test selection never ran. Fixed: a format's first section by indexOf, not split(';'); fromFile's open flags classified in the INVENTORY like filepreview.js and replyfile.js. Both guards 12/12 locally. The full node suite (tools/run-tests.sh) runs on this head before merge.
