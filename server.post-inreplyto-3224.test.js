@@ -119,7 +119,7 @@ test('#3224 NON-REGRESSION: a post with NO in_reply_to is unchanged (the common 
 });
 
 /* kosmos#8165 reversed this test's rule ("an id that names no known post falls through, never blocks a legit reply").
-   The record is unpruned, so such an id was never sent: a typo, or a direct message's id. Posted, it read as citing
+   Such an id is usually a typo or a direct message's id (review 5: not always: a restart can lose a post's row). Posted, it read as citing
    nothing, and an uncited post moves every earlier ask off the reader's waiting list (#4926). The sender believes it
    answered something, so it is told. */
 test('kosmos#8165: an in_reply_to that names no post is REFUSED on the live route, and nothing is posted', async () => {
@@ -149,6 +149,7 @@ test('kosmos#8165: an in_reply_to that names no post is REFUSED on the live rout
   const far = await post({ project: z.id, text: 'answering another room deleted post', from_pane: '', in_reply_to: gone.json.delivery.id }, { 'x-kosmos-agent-token': tok() });
   assert.equal(far.json.delivery.state, 'could_not');
   assert.doesNotMatch(far.json.delivery.because, /deleted/);
+  assert.match(far.json.delivery.because, /^we could not find post m\d+/, 'review 7: and says it could not find it');
 });
 
 test('kosmos#8165 review 3: an unknown id within the ids handed out is "could not find", never "no post in any room"', async () => {
@@ -161,7 +162,7 @@ test('kosmos#8165 review 3: an unknown id within the ids handed out is "could no
   assert.equal(messagesEngine.record().parsed.some((x) => x && x.id === 'm' + gap), false, 'CONTROL: the cited id names nothing');
   const lost = await post({ project: a.id, text: 'in range', from_pane: '', in_reply_to: 'm' + gap }, { 'x-kosmos-agent-token': tok() });
   assert.equal(lost.json.delivery.state, 'could_not', JSON.stringify(lost.json.delivery));
-  assert.match(lost.json.delivery.because, /^we could not find post m\d+, so nothing was posted\. It may have been lost when the board restarted/);
+  assert.match(lost.json.delivery.because, /^we could not find post m\d+, so nothing was posted\. It may never have been recorded/);
   // CONTROL: above every id handed out is the generic sentence (review 5: never "there is no post": a restart can lose one).
   const none = await post({ project: a.id, text: 'above', from_pane: '', in_reply_to: 'm' + (high + 500000) }, { 'x-kosmos-agent-token': tok() });
   assert.match(none.json.delivery.because, /^we could not find post m\d+ in any room, so nothing was posted/);

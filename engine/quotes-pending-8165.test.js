@@ -4,6 +4,8 @@
  * one does). Its copy carries the quote tags its row will carry, computed when it is minted, so it is judged exactly as
  * a recorded row: a tagged requote does not cancel a true quote, an untagged second use of the words still does (#460:
  * ambiguity resolves to no styling). An earlier version excused every pending row, which tagged in the unsafe direction.
+ * Review 7: these pin quotedSegments' rule on rows shaped as pending copies are; that the copies carry their tags is
+ * pinned through the server tests (server.post-pendingfastlate-8165), and the view itself by pending-view-8165.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

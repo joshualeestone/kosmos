@@ -5039,7 +5039,7 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
      oracle (recorded when it was posted, independent of this reply). If the target
      project differs, this is the misroute Josh reported -- refuse rather than land
      the answer in the wrong room. A citation the record does not hold
-     (projectOfPost null; the record is unpruned today, so an id that never existed)
+     (projectOfPost null: not in the record and not being delivered; review 5: not proof it was never sent)
      is treated as absent here; on the live route kosmos#8165 then refuses it (below), and on
      the outbox drain it still falls through. The person's room route refuses one too (#3745);
      a retention change must revisit both. A proactive post (no in_reply_to) is unchanged. */
@@ -5079,7 +5079,7 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
         return { state: 'could_not', because: named + ' is a direct message, not a room post, so nothing was posted. Answer it with kosmos msg --in-reply-to ' + named + ', or post here without --in-reply-to.' };
       }
       if (kind === 'unknown') {
-        return { state: 'could_not', because: 'we could not find post ' + named + ', so nothing was posted. It may have been lost when the board restarted: check the id (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
+        return { state: 'could_not', because: 'we could not find post ' + named + ', so nothing was posted. It may never have been recorded (a board restart, or a post that reached nobody): check the id (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
       }
       if (kind !== 'post') {
         return { state: 'could_not', because: (named === 'that id' ? 'that id names no post' : 'we could not find post ' + named) + ' in any room, so nothing was posted. Check the id in the post you meant to answer (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
