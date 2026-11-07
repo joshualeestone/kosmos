@@ -31,8 +31,9 @@ final class EndPullUITests: XCTestCase {
         var at = CGFloat.nan
         var stillSince = Date()
         var moved: CGFloat = 0
+        var lastMove = 0
+        var quietReached = false
         while Date().timeIntervalSince(began) < limit {
-            Thread.sleep(forTimeInterval: 1)
             let now = row.exists ? row.frame.minY : CGFloat.nan
             if !now.isFinite || !at.isFinite {
                 at = now
@@ -41,11 +42,13 @@ final class EndPullUITests: XCTestCase {
                 moved += abs(now - at)
                 at = now
                 stillSince = Date()
+                lastMove = Int(Date().timeIntervalSince(began))
             }
-            if at.isFinite && Date().timeIntervalSince(stillSince) >= quiet { break }
+            if at.isFinite && Date().timeIntervalSince(stillSince) >= quiet { quietReached = true; break }
+            Thread.sleep(forTimeInterval: 1)
         }
-        let waited = Int(Date().timeIntervalSince(began))
-        return "after waiting \(waited) s for the row, which moved \(Int(moved)) pt" + (waited >= Int(limit) ? ", still not still" : "")
+        return "after waiting \(Int(Date().timeIntervalSince(began))) s for the row, which moved \(Int(moved)) pt, last at \(lastMove) s"
+            + (quietReached ? "" : ", and was still not still")
     }
 
     private func pullUp(_ app: XCUIApplication, distance: CGFloat) {
