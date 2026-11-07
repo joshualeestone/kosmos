@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: roomcite-8165-ick
-diff_hash: 49014f45d014a81d9342b0193680cb6d5974c394f44ec04e186b7ce54a6ebcda
+diff_hash: fb6cb7046e6cdb78d8d94a3853e4641561337335b9e8bf597d08058161251d00
 validation: local, before the rebase onto main: every test that reads a changed file plus the folder-wide guards (515 files, 9546 tests, 0 fail, 190 skipped); the full suite runs on 75b73c069e before merge, and on the PR's CI
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-07T06:23:23Z
