@@ -77427,10 +77427,14 @@ function pvSheetInto(stage, data) {
       r.forEach((v) => {
         const td = tr.insertCell(); if (typeof v === 'string' && /^[-+(]?[$\u00a3\u20ac]?[0-9][0-9.,]*%?\)?$/.test(v.trim())) td.className = 'num';   // 1,200 -3.5 $40 (12) 7%
         if (v === '' || v == null) return;
-        const c = document.createElement('span'); c.className = 'pv-cell'; c.textContent = v; if (String(v).length > 40) c.title = v; td.appendChild(c);
+        const c = document.createElement('span'); c.className = 'pv-cell'; c.textContent = v; td.appendChild(c);
       });
     });
     panel.appendChild(t);
+    // The whole value on hover wherever the cell is actually cut (review 5: a count of characters missed wide ones, such as
+    // CJK). Measured now, not on the next frame: the grid is already on the page, so reading its width lays it out (a
+    // deferred measure raced the first look in WebKit).
+    t.querySelectorAll('.pv-cell').forEach((c) => { if (c.scrollWidth > c.clientWidth + 1) c.title = c.textContent; });
     if (sh.cut) notes.appendChild(note('This sheet goes on past what is shown here (up to 200 rows and 50 columns). Open the file to see all of it.'));
   };
   sheets.forEach((sh, i) => {
@@ -77521,7 +77525,7 @@ function pvOpen(id, from) {
   } else if (how === 'textOf' || how === 'snippet') {
     pvTextStage(stage, a, how, fileCard);
   } else if (how === 'sheet') {
-    /* #8122 review 1: a CSV or TSV previewed as text before the grid; when the grid answer fails it still does. What
+    /* #8122 review 1: a CSV (and an attached TSV) previewed as text before the grid; when the grid answer fails it still does. What
        the record would show without the grid (its name hidden from pvSheetUrl), or the card. */
     const asText = pvStageKind(Object.assign({}, a, { name: '', sheetUrl: undefined }));
     const orText = (asText === 'textOf' || asText === 'snippet') ? () => pvTextStage(stage, a, asText, fileCard) : null;
@@ -77566,7 +77570,7 @@ function pvOpen(id, from) {
   // A click on the dark closes it: anything but the file, the X, the action (its row, with #8120's Show in Finder), and the words a person may want to
   // select or copy (the name, a note, an error). Only when the press began on the dark too, so selecting a text
   // file's words and letting go past them does not close it.
-  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, .pv-sheet, #pv-x, .pv-acts, .pv-name, .pv-msg, .pv-note'));
+  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, .pv-grid-wrap, .pv-tab, #pv-x, .pv-acts, .pv-name, .pv-msg, .pv-note'));
   let pressedOnFile = false;
   back.addEventListener('pointerdown', (e) => { pressedOnFile = onFile(e.target); });
   back.addEventListener('click', (e) => { if (!pressedOnFile && !onFile(e.target)) pvClose(); pressedOnFile = false; });

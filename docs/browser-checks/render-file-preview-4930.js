@@ -580,7 +580,7 @@ async function runSheet(engine, say) {
     }));
     say(JSON.stringify(g.tabs) === '["Budget*","Notes","Chart"]' && g.cells[0] === 'Item' && g.cells[3] === '12.5', T + ': a spreadsheet opens as a grid, its sheets as tabs', JSON.stringify(g));
     const nums = await pg.evaluate(() => [...document.querySelectorAll('#pv-preview .pv-grid tbody td')].map((c) => c.className === 'num'));
-    say(nums[1] === false && nums[3] === true, T + ': a number sits right and a word does not (Cost 12.5, Item)', JSON.stringify(nums));
+    say(nums[1] === false && nums[3] === true, T + ': a number sits right and a word does not (12.5, Cost)', JSON.stringify(nums));
     say(g.cells[2] === '<img src=x onerror="window.__ran=1">' && g.imgs === 0 && !g.ran, T + ': a cell\'s words are text, never markup', JSON.stringify(g.cells));
     // A narrow grid is centred over the name and the gold button, not left in the corner (the real reader's small CSV).
     const mid = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap').getBoundingClientRect(), d = document.getElementById('pv-do').getBoundingClientRect();
@@ -633,6 +633,13 @@ async function runSheet(engine, say) {
     say(ns.notes.includes('This spreadsheet is empty.') && !ns.box, T + ': an answer with no sheets and no flags reads as empty, with no empty box to tab into', JSON.stringify(ns));
     await open(MORE, 'Many.xlsx'); const mo = await words();
     say(mo.grid && mo.notes.includes('3 more sheets are not shown.'), T + ': sheets past the ones shown are counted', JSON.stringify(mo));
+    // A small grid under a wider note: a click on the dark beside the grid still closes the viewer (review 5: the sheet's box
+    // is as wide as its widest note, so the box itself must not count as the file).
+    const nb = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap').getBoundingClientRect(), n = [...document.querySelectorAll('#pv-preview .pv-note')].map((x) => x.getBoundingClientRect().width);
+      return { x: Math.round(w.left - 40), y: Math.round(w.top + w.height / 2), grid: Math.round(w.width), note: Math.round(Math.max(...n)) }; });
+    await pg.mouse.click(nb.x, nb.y); await pg.waitForTimeout(400);
+    say(nb.note > nb.grid + 80 && !(await pg.$('#pv-preview')), T + ': beside a small grid under a wider note, a click on the dark closes the viewer', JSON.stringify(nb));
+    await open(MORE, 'Many.xlsx');
     const one = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap'); return { tabs: document.querySelectorAll('#pv-preview .pv-tab').length, role: w.getAttribute('role'), name: w.getAttribute('aria-label'), by: w.getAttribute('aria-labelledby') }; });
     say(one.tabs === 0 && one.role === 'region' && one.name === 'A' && !one.by, T + ': a one-sheet workbook has no tabs and its grid is named for its sheet', JSON.stringify(one));
     // ArrowLeft from the first sheet goes round to the last.
