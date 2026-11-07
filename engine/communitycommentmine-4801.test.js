@@ -201,7 +201,7 @@ test('Delete only on a comment the service can be asked about (sent with an id) 
     assert.equal(r.ok, false, t);
     assert.equal(r.notEligible, true, t);
   }
-  assert.match(cs.requestDelete(id.unconfirmed).because, /never learned whether this comment arrived/);
+  assert.match(cs.requestDelete(id.unconfirmed).because, /does not know yet whether this comment arrived/);
   assert.deepEqual(readJson(cs._paths.commentDeletesFile()), {}, 'a refused removal was recorded');
 });
 

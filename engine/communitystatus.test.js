@@ -497,7 +497,7 @@ test('#5636, kosmos#8216: an unconfirmed comment says Kosmos looks for it and na
   assert.equal(stateOfTitle('ava', 'Queued comment.'), 'queued', 'fixture');
   const lines = status.statusText('ava').text.split('\n');
   const at = lines.findIndex((l) => l.includes('"Unsure comment."'));
-  assert.match(lines[at], /Kosmos looks for it in the post's thread on its next passes, and this line changes once it finds it; it may already be there, so do not send it again$/);
+  assert.match(lines[at], /Kosmos looks for it in the post's thread on its next passes when it can, and this line changes if it finds it; it may already be there, so do not send it again$/);
   assert.equal(lines[at + 1], '  look for it under the post with: kosmos community read --post ' + POST + ' (in a long thread it may be past the comments shown)');
   const q = lines.findIndex((l) => l.includes('"Queued comment."'));
   assert.ok(q >= 0, 'CONTROL: the queued comment is listed');

@@ -441,7 +441,7 @@ test('review 8: a comment already marked for removal but unconfirmed or untracea
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'kc_key_new', remoteId: 'r-new', name: 'ava' } });
   const r1 = cs.withdrawFor('ava', 'comment', lost.id);
   assert.equal(r1.notEligible, true, JSON.stringify(r1));
-  assert.match(r1.because, /never learned whether this comment arrived/);
+  assert.match(r1.because, /does not know yet whether this comment arrived/);
   const r2 = cs.withdrawFor('ava', 'comment', gone.id);
   assert.equal(r2.notEligible, true, JSON.stringify(r2));
   assert.match(r2.because, /no way to find this comment again/);

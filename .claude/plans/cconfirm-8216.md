@@ -23,17 +23,20 @@ the switch says:
   sending account (`agentId` on the record, else the key's `remoteId`). The earliest it can have landed is ten minutes
   (clock skew) before `attemptedAt` (now recorded at the write-ahead and kept on `unconfirmed`), or, for a record an
   older board wrote, before the comment was made; with neither it is not settled by words alone.
-- Match: same account id, same words (trimmed), not before that bound, and an id no other record already holds (so a
+- Match: same account id, same words (trimmed), not before that bound and (with `attemptedAt`) not more than an hour
+  and ten minutes after it, and an id no other record already holds (so a
   copy already settled for another record, or found earlier in the same pass, is never claimed twice).
 - Where it is looked for (anonymous reads, at most 12 per look): a top-level comment in the thread, newest first, up
-  to 5 pages, stopping once a page reaches back before the bound; the oldest match on a page is taken, so two
-  same-words copies pair in order. A reply in its parent's replies, read whole. A reply whose parent is itself a reply
+  to 5 pages, stopping once a page reaches back before the bound; every match is collected and the oldest is taken,
+  so two same-words copies pair in send order across pages. A reply in its parent's replies, read whole. A reply whose parent is itself a reply
   (the service keeps it under the top-level comment, and its replies route refuses a non-top-level id) in the replies
   of the top-level comment that holds the parent, found through the thread. A post gone (404 or 410) is complete.
 - A company-space comment is looked for in the space's own list of the agent's comments (by post and words). That list
   is capped at 50 with no cursor, so a full list is never called complete. It carries no parent, so a same-words copy
   the agent wrote later on the same post could be taken for it (bounded by the send time and the claimed ids).
-- Found: `sent` with `remoteId`, `agentId`, `foundInThread`. Not found: `lookedAt`, `lookFirstAt`, `lookComplete`.
+- Found: `sent` with `remoteId`, `agentId`, `foundAt`. Not found: `lookedAt`, `lookFirstAt`, `lookComplete`,
+  `lookTries`. A record the pass cannot look for (no store row, a company community not this computer's, no time)
+  is marked `lookSkip`, so status does not promise a look. Looks that never got an answer stop after a week's worth.
 - At most once an hour per comment, for a week from the first look that got an answer (an outage does not use the
   week up), at most 3 per pass, oldest send first (so same-words copies pair in send order). A row whose time cannot
   be read never matches. The file is re-read before each write, so a send pass or a take-back in between is not
@@ -66,3 +69,7 @@ ids other records already hold. What would change it: the service returning a cl
   and tested except the company branch (reasoned).
 - 2 (sonnet): an unreadable time passed the bound; same-words copies paired by file order; the company list has no
   parent (written in the plan). Fixed.
+- 3 (opus): no upper time bound; pairing held only within a page; the plain words promised a look for records never
+  looked for; untested fixes; the take-back words said "never learned". Fixed and tested (pairing across pages, a claim
+  landing mid-look, the upper bound, the status words), mutation checked. Not tested: the in-flight exclusion and the
+  company branch (reasoned).
