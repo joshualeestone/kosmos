@@ -390,6 +390,35 @@ test('kosmos#8036: a press that blew up did not answer the wait, so its passing 
   });
 });
 
+async function refusedPress(name, read) {
+  const back = await read();
+  const row = questionRows(back).pop();
+  const realAnswer = chat.answerQuestionMenu;
+  chat.answerQuestionMenu = async () => ({ ok: false, because: 'its question is being handled right now' });
+  try {
+    const res = await fetch(base + '/api/agent/' + name + '/thread', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ text: String(row.permission.allow), chose: back.options.find((o) => o.n === row.permission.allow).label, asked: back.asked, request: row.permission.request }) });
+    assert.equal(res.status, 409, 'premise: the press was refused');
+  } finally { chat.answerQuestionMenu = realAnswer; }
+}
+
+test('kosmos#8036: a refused press did not answer the wait, so its passing still says the line', async () => {
+  await withPrompt('refused', { reportFirst: hookWait }, async ({ read }) => {
+    await refusedPress('refused', read);
+    await report({ state: 'working', text: 'running Bash', auto: true });
+    assert.equal(endedLines('refused'), 1);
+  });
+});
+
+test('kosmos#8036: a refused second press leaves the first press in place: still no line', async () => {
+  await withPrompt('secondpress', { afterKey: PROMPT, reportFirst: hookWait }, async ({ read, press }) => {
+    await press();
+    await refusedPress('secondpress', read);
+    await report({ state: 'working', text: 'running Bash', auto: true });
+    assert.equal(endedLines('secondpress'), 0);
+  });
+});
+
 test('kosmos#8036: a press does not close a question the agent reported itself', async () => {
   const own = () => report({ state: 'needs_you', text: 'Which logo do you want?' });
   await withPrompt('ownq', { reportFirst: own }, async ({ press }) => {
