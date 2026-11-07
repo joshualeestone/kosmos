@@ -83,12 +83,17 @@ const ALLOWED = [
   ['a curly-double-quoted part holding an apostrophe', "msg bob x\u201cit's\u201d"],
   ['a backtick-escaped apostrophe in a bare word', "msg bob can`'t stop"],
   ['a call after a here-string closes on the same line', "$m = @'\nhello\n'@; {K} msg bob 'ok'"],
+  // Inside ( ) the quote touching an operator is ordinary code: PowerShell delivers exactly its value.
+  ['an expression joining a quoted string', "msg bob ('n'+1)"],
+  ['a method on a quoted string', "msg bob ('abc'.ToUpper())"],
+  ['a comment touching a quoted string', "msg bob 'hi'#note"],
   // {K} is where the call goes when the arm is a whole line: a later word on the line, outside this call, is not read.
   ['inside an if, a later word holding an apostrophe', "if ({K} msg bob 'hi') { $null = 1 } else { Write-Output Bob's' }"],
   ['inside an array, a later element holding an apostrophe', "$r = @({K} msg bob 'hi'), (Write-Output Bob's')"],
 ];
 
-/* With no PowerShell, every arm is still registered, as a skip, so the test count does not change between machines. */
+/* With no PowerShell, every arm is still registered, as a skip, so a machine with none counts the same as one with pwsh
+   only (Windows, with both shells, counts every arm twice). */
 for (const shell of (SHELLS.length ? SHELLS : ['(no PowerShell here)'])) {
   const skip = SHELLS.length ? false : 'no PowerShell on this machine';
   REFUSED.forEach(([label, rest], i) => {
