@@ -222,8 +222,10 @@ do {
     // KosmosOrb.swift's top level, by a character scan that knows strings, // comments and nested /* */ comments, counting
     // braces only in code (orbguard reviews 1 and 2: cutting comments line by line let a `/*` inside a `//` comment swallow
     // declarations). A line is listed when it begins at brace depth 0 and has code on it, however it is indented; imports
-    // and lone closing braces are skipped, and a `#if` is listed on purpose (it can wrap a declaration). Multi-line string
-    // literals are read as code (none in that file).
+    // and lone closing braces are skipped; a `#if` and a `#Preview` are listed on purpose (one can wrap a declaration, the
+    // other draws the orb). String state is tracked by counting `"` with backslash escapes, so a raw string (#"..."#), a
+    // multi-line string with an odd number of quotes, or a quoted brace inside an interpolation can desync it; in the last
+    // struct that could hide a declaration after it. None of these forms is in that file.
     func topLevelCode(_ src: String) -> [String] {
         var out: [String] = [], depth = 0, block = 0, inString = false, inLine = false, line = "", lineDepth = 0
         let c = Array(src)
@@ -251,7 +253,11 @@ do {
             if ch == "/" && next == "*" { block = 1; i += 2; continue }
             if ch == "\"" { inString = true }
             if ch == "{" { depth += 1 }
-            if ch == "}" { depth -= 1 }
+            if ch == "}" {
+                depth -= 1
+                // Back at depth 0: what follows on this line is judged on its own (orbguard review 3: `}; func x()`).
+                if depth == 0 { line.append(ch); endLine(); i += 1; continue }
+            }
             line.append(ch); i += 1
         }
         endLine()
