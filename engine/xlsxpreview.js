@@ -216,6 +216,15 @@ function* elements(xml, name, lenient = false, list = false) {
     yield { tag, body, end: lastEnd };
   }
 }
+/* kosmos#8168 r3: the items of a list read inside its container (list mode). With the container lost but its items in
+   the part, they are read from the whole part, as before #8168, and the loss is counted, so nothing reads as empty. */
+function* listItems(xml, container, item) {
+  const c = elements(xml, container, true).next().value;
+  if (c) { yield* elements(c.body, item, false, true); return; }
+  const at = xml.indexOf('<' + item);
+  if (at >= 0 && /[\s/>]/.test(xml[at + item.length + 1] || '')) cutShorts++;
+  yield* elements(xml, item);
+}
 /* The text of a string item: every <t> run joined, but not the phonetic guide (<rPh>, review 1: a Japanese cell showed
    its reading after it). */
 function textOf(body) {
@@ -383,7 +392,8 @@ function builtinKind(id) {
 function styleKinds(stylesXml, budget = () => {}) {
   const custom = new Map();
   let k = 0;
-  const fmts = elements(stylesXml, 'numFmts', true).next().value;   // kosmos#8168: read as a list, inside its container
+  // kosmos#8168: read as a list, inside its container (a <dxf> holds numFmt elements too, which are not cell formats).
+  const fmts = elements(stylesXml, 'numFmts', true).next().value;
   for (const f of elements(fmts ? fmts.body : '', 'numFmt', false, true)) {
     custom.set(Number(attr(f.tag, 'numFmtId')), attr(f.tag, 'formatCode') || '');
     if ((++k & 1023) === 0) budget();
@@ -395,6 +405,7 @@ function styleKinds(stylesXml, budget = () => {}) {
   // kosmos#8168: as a list, so a style whose start was lost (only its attributes left) is counted, the last one too.
   for (const x of elements(xfs.body, 'xf', false, true)) {
     const id = Number(attr(x.tag, 'numFmtId') || 0);
+    if (id >= 164 && !custom.has(id)) cutShorts++;   // kosmos#8168 r3: a custom format (164 and up) nobody defines was lost
     if (!memo.has(id)) memo.set(id, custom.has(id) ? formatKind(custom.get(id)) : builtinKind(id));
     out.push(memo.get(id));
     if ((++k & 1023) === 0) budget();
@@ -521,8 +532,7 @@ function readBook(buf, budget) {
   const from1904 = !!pr && /^(1|true)$/i.test(attr(pr.tag, 'date1904') || '');
   const rels = new Map();
   let rk = 0;
-  const relsList = elements(part('xl/_rels/workbook.xml.rels') || '', 'Relationships', true).next().value;   // kosmos#8168
-  for (const r of elements(relsList ? relsList.body : '', 'Relationship', false, true)) {
+  for (const r of listItems(part('xl/_rels/workbook.xml.rels') || '', 'Relationships', 'Relationship')) {   // kosmos#8168
     rels.set(attr(r.tag, 'Id'), attr(r.tag, 'Target') || '');
     if ((++rk & 1023) === 0) budget();
   }
@@ -557,10 +567,9 @@ function readBook(buf, budget) {
   /* kosmos#8168: the sheet list is walked whole first, as a list inside <sheets>, so a list cut off or a lost <sheet
      counts before any sheet is answered, and every sheet, the ones kept included, is then cut. Only the first
      MAX_SHEETS shown sheets are held (round 1: a list of a million held them all); the rest are counted. */
-  const sheetsEl = elements(workbook, 'sheets', true).next().value;
   const sheetList = [];
   let sheetTotal = 0, sk = 0;
-  for (const s of elements(sheetsEl ? sheetsEl.body : '', 'sheet', false, true)) {
+  for (const s of listItems(workbook, 'sheets', 'sheet')) {
     if ((++sk & 1023) === 0) budget();
     if ((attr(s.tag, 'state') || '') === 'veryHidden') continue;   // a sheet Excel never shows, not even to unhide
     sheetTotal++;

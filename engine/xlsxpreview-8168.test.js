@@ -63,7 +63,7 @@ test('#8168 W2: a start tag lost with its close left behind is cut, never anothe
   assert.equal(one('<row r="1"><c r="A1" s="1"><v>45000</v></c></row>', { 'xl/styles.xml': '<styleSheet><cellXfs><xf numFmtId="0"><alignment/></xf>\n  <xf numFmtId="14"/></cellXfs></styleSheet>' }).cut, false);
 });
 
-test('#8168: a sheet of self-closed cells (no closes at all) is still read in one pass', () => {
+test('#8168: a sheet of 20,000 self-closed cells and one closed cell after them is still read in one pass (an uncached close search would rescan per cell)', () => {
   const cells = Array.from({ length: 20000 }, (_, i) => `<c r="A${i + 1}" s="0"/>`).join('');
   const t = Date.now();
   const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1">' + cells + '<c r="B1"><v>7</v></c></row>') }));
@@ -129,4 +129,57 @@ test('#8168 r1: the real workbooks read as before, with no cut', () => {
     assert.ok(r.sheets.length > 0, name);
     assert.deepEqual(r.sheets.map((s) => s.cut), r.sheets.map(() => false), name + ' reads as cut: ' + JSON.stringify(r.sheets.map((s) => s.name)));
   }
+});
+
+test('#8168 r3: a list whose container was lost is read as before, and said cut, never empty', () => {
+  // The rels root lost at both ends: the sheets are still found, and the loss is counted.
+  const rels = '<Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/>';
+  const r = read({ 'xl/_rels/workbook.xml.rels': rels });
+  assert.deepEqual(r.sheets.map((s) => s.rows), [[['1']], [['2']]], 'the sheets were not read: ' + JSON.stringify(r));
+  assert.notEqual(r.empty, true);
+  assert.deepEqual(cuts(r), [true, true]);
+  // The <sheets> wrapper lost: read as before, and cut.
+  const wb = '<workbook><sheet name="A" sheetId="1" r:id="rId1"/><sheet name="B" sheetId="2" r:id="rId2"/></workbook>';
+  const w = read({ 'xl/workbook.xml': wb });
+  assert.deepEqual([w.sheets.map((s) => s.name), cuts(w)], [['A', 'B'], [true, true]]);
+});
+
+test('#8168 r3: a custom format no <numFmt> defines (its wrapper lost) is cut, never a bare number said whole', () => {
+  const lost = '<styleSheet><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>';
+  const s = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="1"><v>45000</v></c></row>') }, { 'xl/styles.xml': lost })).sheets[0];
+  assert.equal(s.cut, true, JSON.stringify(s));
+  // CONTROL: the same format inside <numFmts> is a date, whole.
+  const ok = '<styleSheet><numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>';
+  const o = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="1"><v>45000</v></c></row>') }, { 'xl/styles.xml': ok })).sheets[0];
+  assert.deepEqual([o.rows, o.cut], [[['2023-03-15']], false]);
+});
+
+test('#8168 r3: a differential format (<dxf>) never replaces a cell format of the same id', () => {
+  const st = '<styleSheet><numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs>'
+    + '<dxfs count="1"><dxf><numFmt numFmtId="164" formatCode="0.00%"/></dxf></dxfs></styleSheet>';
+  const s = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="1"><v>45000</v></c></row>') }, { 'xl/styles.xml': st })).sheets[0];
+  assert.deepEqual([s.rows, s.cut], [[['2023-03-15']], false], 'the conditional format overwrote the cell format: ' + JSON.stringify(s));
+});
+
+test('#8168 r3: an Excel 365 shaped workbook, rels and styles read with no cut', () => {
+  const wb = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="r" xmlns:mc="mc" mc:Ignorable="x15 xr xr6 xr10 xr2" xmlns:x15="x15">'
+    + '<fileVersion appName="xl" lastEdited="7" lowestEdited="7" rupBuild="27425"/><workbookPr defaultThemeVersion="202300"/>'
+    + '<mc:AlternateContent xmlns:mc="mc"><mc:Choice Requires="x15"><x15ac:absPath url="C:\\Users\\" xmlns:x15ac="x15ac"/></mc:Choice></mc:AlternateContent>'
+    + '<bookViews><workbookView xWindow="-110" yWindow="-110" windowWidth="19420" windowHeight="10300"/></bookViews>'
+    + '<sheets><sheet name="A" sheetId="1" r:id="rId1"/><sheet name="B" sheetId="2" r:id="rId2"/></sheets><calcPr calcId="191029"/>'
+    + '<extLst><ext uri="{140A7094-0E35-4892-8432-C4D2E57EDEB5}" xmlns:x15="x15"><x15:workbookPr chartTrackingRefBase="1"/></ext></extLst></workbook>';
+  const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    + '<Relationship Id="rId3" Type="t/theme" Target="theme/theme1.xml"/><Relationship Id="rId2" Type="t/worksheet" Target="worksheets/sheet2.xml"/>'
+    + '<Relationship Id="rId1" Type="t/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId4" Type="t/styles" Target="styles.xml"/></Relationships>';
+  const st = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<styleSheet xmlns="main" xmlns:mc="mc" mc:Ignorable="x14ac x16r2 xr" xmlns:x14ac="x14ac">'
+    + '<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy\\-mm\\-dd;@"/></numFmts>'
+    + '<fonts count="1" x14ac:knownFonts="1"><font><sz val="11"/><name val="Aptos Narrow"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills>'
+    + '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+    + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+    + '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"><alignment horizontal="left"/></xf></cellXfs>'
+    + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="1"><dxf><numFmt numFmtId="165" formatCode="0.0%"/></dxf></dxfs>'
+    + '<extLst><ext uri="{EB79DEF2-80B8-43e5-95BD-54CBDDF9020C}" xmlns:x14="x14"><x14:slicerStyles defaultSlicerStyle="SlicerStyleLight1"/></ext></extLst></styleSheet>';
+  const r = x.readXlsx(fx.book({ A: fx.SHEET('<row r="1" spans="1:1" x14ac:dyDescent="0.35"><c r="A1" s="1"><v>45000</v></c></row>'), B: fx.SHEET('<row r="1"><c r="A1"><v>2</v></c></row>') },
+    { 'xl/workbook.xml': wb, 'xl/_rels/workbook.xml.rels': rels, 'xl/styles.xml': st }));
+  assert.deepEqual(r.sheets.map((s) => [s.name, s.rows, s.cut]), [['A', [['2023-03-15']], false], ['B', [['2']], false]], JSON.stringify(r.sheets));
 });
