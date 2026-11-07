@@ -10,7 +10,7 @@ Card: https://github.com/joshualeestone/kosmos/issues/8156
 
 ## The guard's own search
 
-`tools/test-launchagent-leak-guard-3011.sh` fails if any tracked file other than the guard and itself names the prefix (#4392: no test may use it, or its leak would be hidden). The three files that tell a person the prefix (install/kosmos, tools/windows/kosmos-cli.js, tools/run-tests.sh) stay in the search with an exact allowed line count each (ALLOWED), so one more use in them fails, and finding all three is the search's own control (a search that finds nothing fails as missing). The pin test never spells the prefix; it reads it from the guard. Controls run by hand: an extra use in install/kosmos, a new tracked *.test.js naming the prefix, and a help line removed from the Windows CLI each fail it.
+`tools/test-launchagent-leak-guard-3011.sh` fails if any tracked file other than the guard and itself names the prefix (#4392: no test may use it, or its leak would be hidden). The three files that tell a person the prefix (install/kosmos, tools/windows/kosmos-cli.js, tools/run-tests.sh) stay in the search with an exact allowed count of uses each (ALLOWED; occurrences, not lines, so a second use on an allowed line also fails), so one more use in them fails, and finding all three is the search's own control (a search that finds nothing fails as missing). The pin test never spells the prefix; it reads it from the guard. Controls run by hand: an extra use in install/kosmos, a second use on its allowed line, a new tracked *.test.js naming the prefix, and a help line removed from the Windows CLI each fail it.
 
 ## Item 2: decision
 
