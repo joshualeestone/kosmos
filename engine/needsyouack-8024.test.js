@@ -258,7 +258,7 @@ async function withPrompt(name, { screen = PROMPT, afterKey = IDLE_SCREEN, onKey
       assert.equal(res.status, 200, await res.clone().text());
       assert.equal(keys.length, 1, 'premise: the key went');
     };
-    return await fn({ read, press, setShown: (s) => { shown = s; } });
+    return await fn({ read, press, keys, setShown: (s) => { shown = s; } });
   } finally { chat.resetForTests(); messages.setRunner(null); board.restore(); }
 }
 const hookWait = () => report({ state: 'needs_you', text: 'asking permission to use Bash: /usr/bin/uuidgen', auto: true });
@@ -291,7 +291,7 @@ test('kosmos#8036: a No ends the wait too, and the agent left at its prompt does
   });
 });
 
-test('kosmos#8036: the screen outranks that idle: an agent running after the press reads as working', async () => {
+test('kosmos#8036 premise (#1995, no press here): a screen showing it running outranks a reported idle', async () => {
   const board = fleet.install([fleet.agent('stillgoing', { state: 'working', runner: 'claude', command: 'claude' })]);
   try {
     assert.equal(selfreport.record('stillgoing', { state: 'idle', because: 'its prompt was answered', auto: true }).recorded, true);
@@ -330,13 +330,47 @@ test('kosmos#8036: a newer report written during the press stands, though the sc
 
 test('kosmos#8036: a press on another menu does not end a permission wait standing beside it', async () => {
   const menu = fs.readFileSync(path.join(__dirname, '..', 'test-support', 'claude-screens', 'question-menu-2.1.29x.txt'), 'utf8');
-  await withPrompt('othermenu', { screen: menu, reportFirst: hookWait }, async ({ read }) => {
+  await withPrompt('othermenu', { screen: menu, reportFirst: hookWait }, async ({ read, keys }) => {
     const back = await read();
     assert.ok(back.asked && back.options && back.options.length, 'premise: the thread offers the menu: ' + JSON.stringify(back.options));
     const res = await fetch(base + '/api/agent/othermenu/thread', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ text: String(back.options[0].n), chose: back.options[0].label, asked: back.asked }) });
     assert.equal(res.status, 200, await res.clone().text());
+    assert.equal(keys.length, 1, 'premise: the press went to the menu as a key');
     assert.equal(selfreport.read('othermenu').state, 'needs_you');
+  });
+});
+
+const endedLines = (name) => chat.readThread(chat.DIRECT, name).messages.filter((m) => m.text === nya.WAIT_ENDED_LINE).length;
+test('kosmos#8036: a report landing while the press settles says no line either, and the push is still acknowledged', async () => {
+  let landed = null;
+  await withPrompt('settling', { onKey: () => { landed = report({ state: 'idle', text: 'finished responding', auto: true }); }, reportFirst: hookWait }, async ({ press }) => {
+    await press('deny');
+    await landed;
+    assert.equal(selfreport.read('settling').state, 'idle');
+    assert.equal(endedLines('settling'), 0);
+    assert.equal(nya.due('settling'), false);
+    assert.equal(acks().length, 1);
+  });
+});
+
+test('kosmos#8036: a press still unconfirmed says no line when the wait then ends', async () => {
+  await withPrompt('slowdraw', { afterKey: PROMPT, reportFirst: hookWait }, async ({ press }) => {
+    await press();
+    await report({ state: 'working', text: 'running Bash', auto: true });
+    assert.equal(endedLines('slowdraw'), 0);
+    assert.equal(nya.due('slowdraw'), false);
+  });
+});
+
+test('kosmos#8036: a press names only its own wait: the next wait passing by itself still says the line', async () => {
+  await withPrompt('nextwait', { afterKey: PROMPT, reportFirst: hookWait }, async ({ press }) => {
+    await press();
+    await new Promise((r) => setTimeout(r, 5));
+    await report({ state: 'needs_you', text: 'asking permission to use Bash: /usr/bin/whoami', auto: true });
+    nya.remember('nextwait', 'report:later:nextwait', undefined, { autoWait: true });
+    await report({ state: 'working', text: 'running Bash', auto: true });
+    assert.equal(endedLines('nextwait'), 1);
   });
 });
 
