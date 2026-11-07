@@ -8,11 +8,11 @@ match; a writer still writing takes SIGPIPE (141) and pipefail makes the check F
 PR #8190 attempt 2 (0.375 s fail, attempt 1 passed on the same commit).
 
 ## Change
-1. run-sweep.sh lines 94 and 96: `grep -qE` to `grep -cE ... >/dev/null` (reads to the end, exits 1 on no match).
+1. run-sweep.sh, the Agents and Projects wait checks: `grep -qE` to `grep -cE ... >/dev/null` (reads to the end, exits 1 on no match).
 2. earlyReaders() moved from cli.agent-remove-7362.test.js to test-support/early-readers.js, shared. One change to
    it: a reader's words end at an unquoted ; && or ||, so `[ "$x" -eq 0 ]` after `| grep -v` is not read as -q.
 3. New ios.logictests-pipefail-8193.test.js: every ios/LogicTests/*.sh with pipefail has no early reader; controls
-   for the pre-fix line, the PIPESTATUS line, and ; / && cuts; a macOS-only behaviour arm (sed -l writer) where
+   for the pre-fix line, the PIPESTATUS line, and ; / && cuts; a macOS-only behaviour arm (sed -l writer over a made-up input) where
    grep -q fails on a match and grep -c does not.
 
 ## Measured

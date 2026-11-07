@@ -9,6 +9,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const { earlyReaders } = require('./test-support/early-readers');
 
@@ -35,12 +36,12 @@ test('#8193 CONTROL: the line that false-failed is caught, and the PIPESTATUS li
 });
 
 test('#8193: with a slow writer, grep -q under pipefail fails on a match and grep -c does not', { skip: process.platform === 'darwin' ? false : 'sed -l is the BSD line-buffered flag; GNU sed reads it as a wrap length. NOT checked here' }, () => {
-  // sed -l writes line by line, standing in for a writer on a loaded runner. Measured on this check: 41 of 50 false
-  // fails with grep -q, 0 of 50 with grep -c. A few rounds is enough to see the old shape fail at least once.
-  const file = path.join(__dirname, 'ios', 'Kosmos', 'ProjectsView.swift');
-  assert.match(fs.readFileSync(file, 'utf8'), /ConnectingWait\(words: "Reaching your computer\\u\{2026\}"\)/, 'CONTROL: the file holds the line');
-  const pat = `'ConnectingWait\\(words: "Reaching your computer\\\\u\\{2026\\}"\\)'`;
-  const round = (reader) => spawnSync('bash', ['-c', `set -o pipefail; n=0; for i in 1 2 3 4 5 6 7 8 9 10; do sed -l 's#//.*##' "$1" | ${reader} ${pat} >/dev/null || n=$((n+1)); done; echo $n`, 'x', file], { encoding: 'utf8' });
+  // sed -l writes line by line, standing in for a writer on a loaded runner. The input is made here (one matching
+  // line, then filler), so how far a product file's match sits from its end cannot change what this measures.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-pipefail-8193-'));
+  const file = path.join(dir, 'input.swift');
+  fs.writeFileSync(file, 'ConnectingWait(words: "x")\n' + 'filler line, long enough to need many writes\n'.repeat(5000));
+  const round = (reader) => spawnSync('bash', ['-c', `set -o pipefail; n=0; for i in 1 2 3 4 5 6 7 8 9 10; do sed -l 's#//.*##' "$1" | ${reader} 'ConnectingWait' >/dev/null || n=$((n+1)); done; echo $n`, 'x', file], { encoding: 'utf8' });
   const q = round('grep -qE'), c = round('grep -cE');
   assert.equal(q.status, 0, q.stderr); assert.equal(c.status, 0, c.stderr);
   assert.equal(c.stdout.trim(), '0', 'grep -c failed on a file that matches');
