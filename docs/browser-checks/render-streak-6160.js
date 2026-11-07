@@ -212,8 +212,66 @@ const read = (pg) => pg.evaluate(() => {
     const focused = await pg.evaluate(() => document.activeElement && document.activeElement.id);
     await pg.waitForTimeout(7200);
     const g = await read(pg);
+    say(focused === 'klink', 'click: (premise) the click left focus on the K mark', JSON.stringify(focused));
     say(!g.pill.shown && g.badge && !g.badge.hidden, 'click: a click on the K mark does not pin the pill; it folds', JSON.stringify({ focused, pill: g.pill.shown, badge: g.badge }));
     await pg.close();
+  }
+
+  // review 3: an Escape another control has already used (it called preventDefault) is not also a fold. The plain
+  // Escape arm above is the control. (The computer menu cannot stand in: opening it under the pill folds the pill.)
+  {
+    const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'Escape used' });
+    await pg.waitForTimeout(400);
+    const up = (await read(pg)).pill.shown;
+    await pg.evaluate(() => document.addEventListener('keydown', (e) => { if (e.key === 'Escape') e.preventDefault(); }, { capture: true, once: true }));
+    await pg.keyboard.press('Escape'); await pg.waitForTimeout(450);
+    const g = await read(pg);
+    say(up && g.pill.shown, 'Escape used: an Escape another control already handled leaves the pill out', JSON.stringify({ up, pill: g.pill.shown }));
+    await pg.close();
+  }
+
+  // review 3: a pill folded before its first frame (Escape, or a hidden tab) never comes out. Frames are held 900 ms.
+  {
+    const ctx = await b.newContext();
+    await ctx.addInitScript(() => { const raf = window.requestAnimationFrame.bind(window); window.requestAnimationFrame = (f) => setTimeout(() => raf(f), 900); });
+    const pg = await ctx.newPage(); await pg.setViewportSize({ width: 1400, height: 800 });
+    await pg.route('**/api/streak', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }).catch(() => {}));
+    const asked = pg.waitForResponse((r) => r.url().endsWith('/api/streak'), { timeout: 15000 }).then(() => true, () => false);
+    await gotoReady(pg);
+    await asked;
+    await pg.waitForFunction(() => typeof streakPillFold === 'function' && streakPillFold !== null, null, { timeout: 8000 }).catch(() => {});
+    const pending = await pg.evaluate(() => typeof streakPillFold === 'function' && streakPillFold !== null && !document.querySelector('#kpill.in'));
+    await pg.evaluate(() => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await pg.waitForTimeout(2200);
+    const g = await read(pg);
+    say(pending, 'fold before the frame: (premise) the pill was started and not yet out', JSON.stringify(pending));
+    say(!g.pill.shown && !g.glow && g.badge && !g.badge.hidden, 'fold before the frame: it never comes out (no pill, no glow) and the badge shows', JSON.stringify({ pill: g.pill.shown, glow: g.glow, badge: g.badge }));
+    await pg.close(); await ctx.close();
+  }
+
+  // review 3: while the pill is out, hovering the mark does not also draw the label under it
+  {
+    const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'hover during pill' });
+    await pg.waitForTimeout(400);
+    await pg.hover('#klink'); await pg.waitForTimeout(250);
+    const g = await pg.evaluate(() => ({ pill: Boolean(document.querySelector('#kpill.in')), label: getComputedStyle(document.getElementById('kstreak')).visibility }));
+    say(g.pill && g.label === 'hidden', 'hover during pill: the label stays hidden while the pill says it', JSON.stringify(g));
+    await pg.close();
+  }
+
+  // review 3: on a phone, a reload while the day's notice is up keeps the badge (the notice keeps the day when shown)
+  {
+    let calls = 0;
+    const ctx = await b.newContext({ viewport: { width: 360, height: 800 } });
+    const { pg } = await open(ctx, () => ({ count: 12, congrats: calls++ === 0 }), { key: 'phone reload mid-notice', viewport: { width: 360, height: 800 } });
+    const up = !(await read(pg)).note.hidden;
+    await pg.reload({ waitUntil: 'domcontentloaded' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
+    await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
+    await pg.waitForTimeout(800);
+    const g = await read(pg);
+    say(up && g.note.hidden && g.badge && !g.badge.hidden && g.badge.text === '12', 'phone reload mid-notice: the badge is there after the reload', JSON.stringify({ up, note: g.note.hidden, badge: g.badge, calls }));
+    await pg.close(); await ctx.close();
   }
 
   // reload the same day: the badge is back, with no pill; a badge folded yesterday is not (control)
