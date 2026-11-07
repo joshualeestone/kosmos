@@ -44,11 +44,13 @@ test.before(() => {
 });
 test.after(() => { if (dir) fs.rmSync(dir, { recursive: true, force: true }); });
 
-/* Runs `& '<bin>\kosmos.ps1' <rest>` as the agent would type it, from a driver file, under one PowerShell. */
+/* Runs the agent's line from a driver file, under one PowerShell: `& '<bin>\kosmos.ps1' <rest>`, or the whole line with the call at {K}. */
 function run(shell, rest, name) {
   const target = path.join(bin, 'kosmos.ps1').replace(/'/g, "''");
   const driver = path.join(dir, name + '.ps1');
-  fs.writeFileSync(driver, "& '" + target + "' " + rest + '\nWrite-Output ("RC=" + $LASTEXITCODE)\n', 'utf8');
+  const call = "& '" + target + "'";
+  const line = rest.includes('{K}') ? rest.replace('{K}', call) : call + ' ' + rest;
+  fs.writeFileSync(driver, line + '\nWrite-Output ("RC=" + $LASTEXITCODE)\n', 'utf8');
   const r = spawnSync(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', driver], { encoding: 'utf8', windowsHide: true, timeout: 60000 });
   const m = /RC=(-?\d+)/.exec(r.stdout || '');
   return { rc: m ? Number(m[1]) : null, err: String(r.stderr || '') + String(r.stdout || '') };
@@ -58,6 +60,7 @@ const REFUSED = [
   ['two apostrophes, the quote ends at the first', "msg bob 'I can't and won't do it'"],
   ['a possessive then another apostrophe', "post fleet 'the agents' work and Bob's'"],
   ['a task title cut the same way', "task add fleet 'fix what we can't and won't'"],
+  ['an option value cut by apostrophes', "post fleet --topic='a's'b' hi"],
 ];
 const ALLOWED = [
   ['an apostrophe written twice', "msg bob 'it''s fine'"],
@@ -66,11 +69,18 @@ const ALLOWED = [
   ['a single-quoted text with no apostrophe', "msg bob 'all good'"],
   ['a double-quoted text holding an apostrophe', 'msg bob "it\'s fine"'],
   ['a here-string holding apostrophes', "msg bob @'\nit's fine, can't and won't\n'@"],
+  ['an option value with an apostrophe written twice', "post fleet --topic='Bob''s' hi"],
+  ['a bare word with an apostrophe written twice', "msg bob C:\\O''Brien\\a.txt"],
+  // {K} is where the call goes when the arm is a whole line: a later word on the line, outside this call, is not read.
+  ['inside an if, a later word holding an apostrophe', "if ({K} msg bob 'hi') { $null = 1 } else { Write-Output Bob's' }"],
+  ['inside an array, a later element holding an apostrophe', "$r = @({K} msg bob 'hi'), (Write-Output Bob's')"],
 ];
 
-for (const shell of SHELLS) {
+/* With no PowerShell, every arm is still registered, as a skip, so the test count does not change between machines. */
+for (const shell of (SHELLS.length ? SHELLS : ['(no PowerShell here)'])) {
+  const skip = SHELLS.length ? false : 'no PowerShell on this machine';
   REFUSED.forEach(([label, rest], i) => {
-    test('#8213 [' + shell + '] refused before sending: ' + label, () => {
+    test('#8213 [' + shell + '] refused before sending: ' + label, { skip }, () => {
       const r = run(shell, rest, 'refused-' + i + '-' + shell.replace(/\W/g, ''));
       assert.equal(r.rc, 2, 'exit 2, the usage refusal: ' + r.err);
       assert.ok(r.err.includes(REFUSAL), 'the sentence names what happened: ' + r.err);
@@ -79,7 +89,7 @@ for (const shell of SHELLS) {
     });
   });
   ALLOWED.forEach(([label, rest], i) => {
-    test('#8213 [' + shell + '] not refused: ' + label, () => {
+    test('#8213 [' + shell + '] not refused: ' + label, { skip }, () => {
       const r = run(shell, rest, 'allowed-' + i + '-' + shell.replace(/\W/g, ''));
       assert.ok(!r.err.includes(REFUSAL), 'no refusal sentence: ' + r.err);
       assert.ok(r.err.includes(NO_RUNTIME), 'it went on to the runtime, as before: ' + r.err);

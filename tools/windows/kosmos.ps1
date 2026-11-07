@@ -84,12 +84,18 @@ if ($pipedIn -and $PSCommandPath) {
 # PowerShell refuses the line before this script runs ("The string is missing the terminator"), which the agent's
 # instructions now name. With an even count it PARSES, and the text arrives here cut into pieces with the apostrophes
 # gone (measured, pwsh 7: 'I can't and won't do it' arrives as "I can", "t", "and", "wont do it"), which the CLI would
-# join and send. So the line as typed ($MyInvocation.Line, this call only) is read with PowerShell's own parser, and
-# two shapes refuse before anything is sent:
+# join and send. So this call's own words on the line as typed ($MyInvocation.Line) are read with PowerShell's own
+# parser, and two shapes refuse before anything is sent:
 #   (a) a single-quoted string with a word touching its end ('I can't  ->  'I can' then t);
-#   (b) a bare word holding an apostrophe (won't do it'  or  Bob's'), unless it starts with - (--channel='eng').
-# A here-string never holds a StringLiteral token, and 'it''s' is one token, so neither refuses. When the line is not
-# readable (started with -File, or no line at all), nothing is checked and the call runs as before.
+#   (b) a bare word still holding an apostrophe once doubled ones ('') and double-quoted parts are set aside
+#       (won't do it'  or  Bob's'). In an --option=value word only the value is read, and a value that is one quoted
+#       string ('eng', 'Bob''s') is fine.
+# This call's words run from where it starts on the line to the first | ; && || or newline, or to a ) or } it did not
+# open (so a later word in the same if, block or array is not read). A here-string never holds a StringLiteral token,
+# and 'it''s' is one token, so neither refuses. Not covered, so a mangled text can still go out there: a command
+# continued onto the next line with a backtick ($MyInvocation.Line holds the first line only). When the line is not
+# readable (started with -File, or no line at all) or anything here fails, nothing is checked and the call runs as
+# before.
 $splitQuote = $false
 try {
   $line = $MyInvocation.Line
@@ -98,15 +104,29 @@ try {
     $tokens = $null; $parseErrors = $null
     [void][System.Management.Automation.Language.Parser]::ParseInput($line, [ref]$tokens, [ref]$parseErrors)
     $mine = New-Object System.Collections.ArrayList
+    $depth = 0
     foreach ($t in $tokens) {
       if ($t.Extent.StartOffset -lt ($at - 1)) { continue }
-      if (@('Pipe', 'Semi', 'NewLine', 'AndAnd', 'OrOr', 'EndOfInput') -contains [string]$t.Kind) { if ($mine.Count) { break } else { continue } }
+      $tk = [string]$t.Kind
+      if (@('Pipe', 'Semi', 'NewLine', 'AndAnd', 'OrOr', 'EndOfInput') -contains $tk -and $depth -eq 0) { if ($mine.Count) { break } else { continue } }
+      if (@('LParen', 'AtParen', 'DollarParen', 'LCurly', 'AtCurly') -contains $tk) { $depth++ }
+      if (@('RParen', 'RCurly') -contains $tk) { if ($depth -eq 0) { break } else { $depth-- } }
       [void]$mine.Add($t)
     }
     $word = @('Identifier', 'Generic', 'Number')
     for ($i = 0; $i -lt $mine.Count -and -not $splitQuote; $i++) {
       $k = [string]$mine[$i].Kind
-      if ($k -eq 'Generic' -and $mine[$i].Text.Contains("'") -and -not $mine[$i].Text.StartsWith('-')) { $splitQuote = $true }
+      if ($k -eq 'Generic') {
+        $w = $mine[$i].Text
+        $optValue = $false
+        if ($w.StartsWith('-')) {
+          $eq = $w.IndexOf('=')
+          if ($eq -lt 0) { $w = '' } else { $w = $w.Substring($eq + 1); $optValue = $true }
+        }
+        $w = ($w -replace '"[^"]*"', '').Replace("''", '')
+        if ($optValue -and $w -match "^'[^']*'$") { $w = '' }
+        if ($w.Contains("'")) { $splitQuote = $true }
+      }
       if ($k -eq 'StringLiteral' -and $i + 1 -lt $mine.Count -and $word -contains [string]$mine[$i + 1].Kind -and $mine[$i + 1].Extent.StartOffset -eq $mine[$i].Extent.EndOffset) { $splitQuote = $true }
     }
   }
