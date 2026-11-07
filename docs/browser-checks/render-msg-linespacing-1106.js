@@ -9,18 +9,20 @@
  * so the agent chat takes the body font (13px/16px, about 1.23) and this rule never
  * reaches it. The picture Josh picked from labelled both threads 1.55, which was true
  * only of the room; that is reported to Splinter and the agent chat is a separate call.
- * This check PRINTS the agent chat's measured spacing (INFO) so a later change to it is
- * visible, and asserts nothing about it.
+ * Nor a message from outside Kosmos in a shared project (`.msg.ext`, words in
+ * `.msg-ext-tx`, no <p>), also 13px/16px, before and after this change.
+ * This check PRINTS the agent chat's measured text size and spacing as INFO, whichever
+ * way it is drawn, so a later change to it shows in the log; it asserts nothing about it.
  *
  * WHAT IT MEASURES. A real row from each thread's own row builder, placed in that
  * thread's own container, so any rule scoped to one thread would show. For the
  * message paragraph it reads the computed line-height and font-size (both px) and
- * asserts their ratio is 1.6, and it measures a paragraph that wraps to several lines
- * and asserts its height divided by its line count is the same line-height, so the
+ * asserts their ratio is 1.6; then it measures a paragraph that wraps to several lines
+ * and asserts its height divided by its line count is 1.6 times the font size, so the
  * value is what is DRAWN and not only what is declared. Light and dark.
  *
- * CONTROL. On the page before this change the ratio is 1.55, and the ratio arm reds
- * (tolerance 0.01, the two values are 0.05 apart).
+ * CONTROL. On the page before this change the ratio is 1.55 (23.25px per line), and
+ * both the ratio arm (tolerance 0.01) and the drawn arm (tolerance 0.5px) red.
  *
  * Not covered: the hint and note lines that also say 1.55 (.dhint, .usage-method),
  * which are not message threads and were left alone on purpose. The iPhone app sets
@@ -84,16 +86,15 @@ const LONG = 'This message is long enough to wrap onto several lines in a narrow
             host.style.width = '420px';
             host.innerHTML = html;
             const p = host.querySelector('.msg p');
-            if (!p) {
-              const bd = host.querySelector('.msg-bd');
-              const c = bd && getComputedStyle(bd);
-              return { error: 'no .msg p in the row', bd: c ? 'text ' + c.fontSize + ' / ' + c.lineHeight : '' };
-            }
+            const bd = host.querySelector('.msg-bd');
+            const bc = bd && getComputedStyle(bd);
+            const words = p ? 'a <p>' : 'no <p>, the words sit in .msg-bd';
+            if (!p) return { error: 'no .msg p in the row', how: words, text: bc ? bc.fontSize + ' / ' + bc.lineHeight : 'no .msg-bd' };
             const cs = getComputedStyle(p);
             const lh = parseFloat(cs.lineHeight); const fs = parseFloat(cs.fontSize);
             const h = p.getBoundingClientRect().height;
             const lines = Math.round(h / lh);
-            return { lh, fs, ratio: lh / fs, h, lines, drawn: lines ? h / lines : 0 };
+            return { lh, fs, ratio: lh / fs, h, lines, drawn: lines ? h / lines : 0, how: words, text: cs.fontSize + ' / ' + cs.lineHeight };
           };
           const msg = { from: 'April', at: new Date().toISOString(), text: LONG };
           out.dm = typeof dmRow === 'function'
@@ -105,17 +106,16 @@ const LONG = 'This message is long enough to wrap onto several lines in a narrow
           return out;
         }, LONG);
         const t = `[${engine} ${theme}]`;
-        { const d = r.dm;
-          console.log(`INFO  ${t} agent conversation (not changed here): `
-            + (d.error ? d.error.split(' ')[0] + ' ' + d.error.split(' ').slice(1, 4).join(' ') + (d.bd ? ' ' + d.bd : '') : '')); }
-        for (const [where, label] of [['room', 'project room']]) {
-          const m = r[where];
-          if (m.error) { chk(false, `${t} ${label}: a message paragraph rendered`, m.error + (m.html ? ' ' + m.html : '')); continue; }
-          chk(Math.abs(m.ratio - WANT) <= 0.01, `${t} ${label}: line spacing is ${WANT}`,
+        { const d = r.dm;   // the agent chat: printed, never asserted (see the header)
+          console.log(`INFO  ${t} agent conversation (not changed here): ${d.how || d.error}, text ${d.text || '?'}`); }
+        const m = r.room;
+        if (m.error) chk(false, `${t} project room: a message paragraph rendered`, m.error + ' (' + m.how + ')');
+        else {
+          chk(Math.abs(m.ratio - WANT) <= 0.01, `${t} project room: line spacing is ${WANT}`,
             `line-height=${m.lh}px font-size=${m.fs}px ratio=${m.ratio.toFixed(3)}`);
-          chk(m.lines >= 3, `${t} ${label}: the test paragraph wraps to several lines`, `lines=${m.lines}`);
-          chk(Math.abs(m.drawn - m.lh) <= 0.75, `${t} ${label}: each drawn line is that tall`,
-            `height=${m.h.toFixed(2)} lines=${m.lines} per-line=${m.drawn.toFixed(2)}`);
+          chk(m.lines >= 3, `${t} project room: the test paragraph wraps to several lines`, `lines=${m.lines}`);
+          chk(Math.abs(m.drawn - WANT * m.fs) <= 0.5, `${t} project room: each drawn line is ${WANT} times the text size`,
+            `height=${m.h.toFixed(2)} lines=${m.lines} per-line=${m.drawn.toFixed(2)} want=${(WANT * m.fs).toFixed(2)}`);
         }
         chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
         await page.close();
