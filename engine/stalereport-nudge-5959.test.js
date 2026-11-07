@@ -128,6 +128,8 @@ test('kosmos#8212: a needs_you is not typed into an open question, a held questi
   assert.equal(at(own, { screen: () => 'a prompt is open on its screen' }), 0, 'typed into an open permission prompt');
   assert.equal(at({ ...own, held: true }), 0, 'told about a question held until the person is back (#7915)');
   assert.equal(at({ ...own, by: 'auto' }), 0, 'told about a needs_you Kosmos wrote');
+  assert.equal(at({ ...own, by: null }), 0, 'told about a needs_you with no writer recorded (maybe an old permission wait)');
+  assert.equal(at({ ...own, by: 'operator' }), 0, 'told about a needs_you a person wrote');
   assert.equal(at({ ...own, at: iso(NOW - DAY + 10 * 60e3) }), 0, 'told about a question under a day old');
   assert.equal(at(own), 1, 'CONTROL: the same question with a clear screen is told');
 });

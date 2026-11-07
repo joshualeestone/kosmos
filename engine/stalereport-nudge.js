@@ -84,7 +84,7 @@ function nudgeText(rep, ageMs) {
   const age = cardlabel.standingFor(ageMs);
   // Who wrote it, as report show says it: the agent, or someone else / no writer recorded ("This").
   const whose = rep.by === 'agent' ? 'Your own `' + rep.state + '` report' : 'This `' + rep.state + '` report';
-  /* kosmos#8212: a question is opened with "not an answer from the person", and its clear condition is report show's. */
+  /* kosmos#8212: the needs_you line opens with "not an answer from the person"; its clear condition is report show's. */
   if (rep.state === 'needs_you') {
     return 'Kosmos here, a reminder, not an answer from the person: ' + whose + ' has been standing for ' + age + '. '
       + 'If nobody needs to answer it any more, clear it with: kosmos report clear. '
@@ -103,6 +103,9 @@ function plan(card, rep, entry, now, remindedAt) {
      the provider still fails the turn a reminder starts fails too and writes a fresh one, so it would be reminded once a
      day for the outage. */
   if (rep.by === 'auto') return { act: 'none', because: 'Kosmos wrote its report (a provider failure)' };
+  /* kosmos#8212: a question only when the agent wrote it itself. A line with no writer recorded may be an old
+     permission wait, and a person's own line is theirs to clear. */
+  if (rep.state === 'needs_you' && rep.by !== 'agent') return { act: 'none', because: 'its needs_you is not one the agent wrote' };
   /* The card shows THE REPORT, not only its state: reconcile can show a screen reading of the same state over a report
      it set aside, and then stateReported is false. */
   if (card.stateReported !== true || card.state !== rep.state) return { act: 'none', because: 'its card does not show that report' };
