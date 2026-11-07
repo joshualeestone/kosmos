@@ -223,12 +223,19 @@ async function heldCount8140(page, data, which) {
     await page.evaluate((pid) => openProjectTasks(pid), id);
     await page.waitForSelector('#tsk-back:not([hidden])', { state: 'visible', timeout: 5000 });
     await page.waitForSelector('.tsk-chip', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.querySelector('#panel-tasks .tsk-chip').scrollIntoView({ block: 'center' }));   // below the group tiles on a phone
+    await page.waitForTimeout(300);
     return;
   }
   await openTab(page, 'projects');
   await page.click(`#pj-list .pj-row[data-project="${id}"]`);
   await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
-  if (which === 'card') { await page.waitForSelector('#pj-one-view .tsk-chip', { state: 'visible', timeout: 8000 }); return; }
+  if (which === 'card') {
+    await page.waitForSelector('#pj-one-view .tsk-chip', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.querySelector('#pj-one-view .tsk-chip').scrollIntoView({ block: 'center' }));   // under the room on a phone
+    await page.waitForTimeout(300);
+    return;
+  }
   await page.evaluate(async () => { await pjReload(); openTaskPage(1); });
   await page.waitForSelector('#pj-task-view:not([hidden]) #tk-subs .tksub-s', { state: 'visible', timeout: 8000 });
   await page.evaluate(() => document.getElementById('tk-subs').scrollIntoView({ block: 'center' }));

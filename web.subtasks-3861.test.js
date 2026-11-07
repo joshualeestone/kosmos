@@ -100,7 +100,7 @@ test('a parent row carries its chip; with its family in the list the chip is the
   assert.match(folded, /aria-expanded="false" aria-label="1 of 2 subtasks done\. Show them"/);
   const alone = rowHtml(one, { depth: 0, crumb: false, kids: 0 });
   assert.doesNotMatch(alone, /data-fold/);
-  assert.match(alone, /<span class="tsk-chip" title="1 of 2 subtasks done">1\/2<span class="vh"> subtasks done<\/span><\/span>/);
+  assert.match(alone, /<span class="tsk-chip" title="1 of 2 subtasks done"><span>1\/2<span class="vh"> subtasks done<\/span><\/span><\/span>/);
   assert.doesNotMatch(alone, /<span[^>]*aria-label/, 'no aria-label on a plain span: the words are in the chip');
   assert.doesNotMatch(withKids, /all subtasks done/, 'one subtask is still open');
 });
@@ -109,7 +109,7 @@ test('a parent row carries its chip; with its family in the list the chip is the
 test('kosmos#8140: a parent row says how many of its subtasks are on hold, apart from not done', () => {
   const one = Object.assign({}, rows().find((t) => t.number === 1), { subtasks: { done: 0, built: 0, held: 3, total: 4 } });
   const alone = rowHtml(one, { depth: 0, crumb: false, kids: 0 });
-  assert.match(alone, /<span class="tsk-chip" title="0 of 4 subtasks done, 3 on hold">0\/4<span class="vh"> subtasks done<\/span>, 3 on hold<\/span>/);
+  assert.match(alone, /<span class="tsk-chip" title="0 of 4 subtasks done, 3 on hold"><span>0\/4<span class="vh"> subtasks done<\/span>, 3 on hold<\/span><\/span>/);
   assert.doesNotMatch(alone, /on hold<span class="vh"> subtasks done/, 'a screen reader would hear "3 on hold subtasks done"');
   const withKids = rowHtml(one, { depth: 0, crumb: false, kids: 4 });
   assert.match(withKids, /aria-label="0 of 4 subtasks done, 3 on hold\. Hide them"/);
