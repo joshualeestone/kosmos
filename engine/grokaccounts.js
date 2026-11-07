@@ -324,15 +324,35 @@ async function checkLive(dir, _opts) {
    CONNECTED; the /api/accounts overlay in server.js badges it signed_in_unverified
    until a real grok session succeeds on it. NONE only for a sign-in that has
    provably lapsed. */
+/* #8159: how long after its key expired a sign-in grok has not renewed reads as not confirmed. Three days: grok renews
+   whenever it runs, so a sign-in in use never gets here, and the words never claim it is dead. */
+const SUBSCRIPTION_STALE_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
+/* #8159 review 1: one date wording for the reason and `kosmos accounts` (this computer's own day, with the year), so
+   the two never disagree by a day around midnight UTC. */
+function sinceWords(ms) { return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+/* #8159 review 1: the reason a subscription row shows once the free live check has answered. A sign-in not renewed
+   for days keeps its own (since when): the check's "renews on its next run" would hide the date the row is about. */
+function subscriptionReason(connection, check) {
+  const c = connection || {};
+  return check && !Number.isFinite(c.notConfirmedSince) ? check.because : c.because;
+}
 function subscriptionVerdict(dir) {
   const auth = readAuth(dir);
   if (auth.kind === 'absent') return { state: STATE.NONE, checkedLive: true, because: 'nobody has connected this account yet' };
   if (auth.kind === 'unreadable') return { state: STATE.UNKNOWN, checkedLive: true, because: 'Could not read the Grok sign-in' };
   const e = auth.entry;
+  const until = typeof e.expires_at === 'string' ? Date.parse(e.expires_at) : NaN;
   if (typeof e.refresh_token === 'string' && e.refresh_token) {
+    /* #8159: grok renews its short key (about six hours) every time it runs, so a key that expired days ago means
+       grok has not renewed this sign-in since. Its refresh token may still work or may have died (an 18-day-old one
+       did: invalid_grant, and the agent stopped at a sign-in screen). Kosmos cannot ask without spending the refresh
+       (#3391), so the row says it is NOT CONFIRMED since then. Never "expired": a long-unused token can still work. */
+    if (Number.isFinite(until) && Date.now() - until > SUBSCRIPTION_STALE_AFTER_MS) {
+      return { state: STATE.CONNECTED, checkedLive: true, notConfirmedSince: until,
+        because: 'Grok has not renewed this sign-in since its key ran out on ' + sinceWords(until) + ', so it is not confirmed. If its agents stop at a sign-in screen, sign in again' };
+    }
     return { state: STATE.CONNECTED, checkedLive: true, because: 'signed in with your Grok subscription' };
   }
-  const until = typeof e.expires_at === 'string' ? Date.parse(e.expires_at) : NaN;
   if (!Number.isFinite(until)) return { state: STATE.UNKNOWN, checkedLive: true, because: 'Could not check the Grok sign-in' };
   if (until > Date.now()) return { state: STATE.CONNECTED, checkedLive: true, because: 'signed in with your Grok subscription' };
   /* Pill-sized: a long sentence overflows the account pill (#2568). The remedy is the
@@ -1069,6 +1089,7 @@ function releaseOwnReauth(dir) {
 const listLive = inflight.collapse(listLiveNow);
 
 module.exports = {
+  sinceWords, subscriptionReason, SUBSCRIPTION_STALE_AFTER_MS,
   readApiKey,
   STATE, PROVIDER, PROVIDER_NAME, DIR_PREFIX, KEY_BASENAME, FORGOTTEN_PREFIX,
   homeDir, defaultDir, keyFile, identityOf, list,

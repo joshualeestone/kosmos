@@ -14344,7 +14344,7 @@ const server = http.createServer(async (req, res) => {
         const unverifiedSub = (a) => {
           if (!(a.authMode === 'subscription' && a.connection && a.connection.state === 'connected')) return a;
           const r = subChecks.get(a.dir);
-          const because = r ? r.because : a.connection.because;
+          const because = grokAccounts.subscriptionReason(a.connection, r);   // #8159: a stale sign-in keeps its since-when
           return { ...a, connection: { ...a.connection, because, badge: 'signed_in_unverified', liveVerdict: r ? r.verdict : null,
             ...(r && r.verdict === 'pending' ? { liveCheckPending: true } : {}) } };
         };
