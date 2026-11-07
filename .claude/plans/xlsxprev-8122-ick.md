@@ -94,3 +94,14 @@ absolutely.
   the kinds read, case-sensitive part names (Excel writes lower case), semicolon CSV, Windows lstat/open race (own store).
 - All 6 new r5 tests fail on d1c0b92367; the reworked r4 test still fails on 9a4fc1923b. Tests reading the changed engine
   files: 632, 0 fail, 84 skipped. Tests reading server.js's source, run from the repo root: 5525, 0 fail, 138 skipped.
+
+## Review round 6 (sonnet): no BLOCKER; 4 WARNINGs, 0 CONVENTIONs, 6 NITs; fixed W1-W4, N1, N3, N4, N6
+- W1 a sheet with no row kept went out as `"firstRow": null` (base was Infinity): base 0 when nothing is kept.
+- W2 a workbook with sheets past 20 could be called empty / no values: never said when sheets are left out.
+- W3 the cache held each answer's slices of the whole unpacked part (up to 16 MB an entry), and kept a busy-moment
+  refusal: answers are copied before they are kept, and a refusal for the time a read took is not kept at all.
+- W4 skipUnsafeNames did not cover a name that cannot be decoded: it does now; without the flag still refused.
+- N1 CSV blank lines past the cap set cut. N3 0x1F was 31 and indexed shared strings: decimal only. N4 an index to no
+  string counted as a value (an older test pinned the blank as a value; corrected). N6 dates past 9999 shown as saved.
+- KEPT: N2 General-format exponents and -0.0 (decided round 5); N5 hidden sheets shown (decided round 1).
+- All 6 new r6 tests fail on 8de2eb4600. Tests reading the changed engine files: 638, 0 fail, 84 skipped.

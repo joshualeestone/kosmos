@@ -204,7 +204,11 @@ function readZipDirectory(buf, limits) {
     const next = nameEnd + extraLength + commentLen;
     if (next > eocd) refuse('the archive\'s table of contents is damaged');
     const nameBytes = buf.subarray(at + CENTRAL_HEADER_BYTES, nameEnd);
-    const name = decodeName(nameBytes, flags);
+    // kosmos#8122 review 6: with `skipUnsafeNames`, a name that cannot be decoded (not UTF-8, or not ASCII without the
+    // flag, as an old tool writes) is left out like any other unsafe name, not a reason to refuse the archive.
+    let name;
+    try { name = decodeName(nameBytes, flags); }
+    catch (e) { if (l.skipUnsafeNames === true && e instanceof ZipRefusal) { at = next; continue; } throw e; }
 
     if (compressedSize === ZIP64_MARKER_32 || uncompressedSize === ZIP64_MARKER_32 || localHeaderOffset === ZIP64_MARKER_32 || startDisk === ZIP64_MARKER_16) {
       refuse(`the archive entry ${quoted(name)} uses zip64 records, which a Kosmos build never needs`);

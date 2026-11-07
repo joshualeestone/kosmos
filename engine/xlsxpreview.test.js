@@ -93,7 +93,7 @@ test('a hostile or broken file is refused in words, never a crash or a hang', ()
   assert.ok(Date.now() - t0 < 2000, 'took ' + (Date.now() - t0) + ' ms');
   assert.deepEqual(broken.sheets[0].rows, [['1']]);
   // A shared-string index past the table reads as empty, not undefined.
-  assert.deepEqual(readXlsx(book({ S: SHEET('<row r="1"><c r="A1" t="s"><v>99</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t>a</t></si></sst>' })).sheets[0].rows, [['']]);
+  assert.deepEqual(readXlsx(book({ S: SHEET('<row r="1"><c r="A1" t="s"><v>99</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t>a</t></si></sst>' })).sheets[0].rows, []);   // review 6: an index to no string is no value
 });
 
 test('XML references decode, and none can produce a lone surrogate or a code point out of range', () => {
