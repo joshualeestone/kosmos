@@ -218,7 +218,7 @@ case "$out" in *"/dist/Kosmos-staging.pkg vs latest-staging.json | NOT the pkg t
 # (c) pointers cut before #8172 name no pkg: said, not failed, and #8167's lag rule still holds.
 ptr latest-staging.json ""; ptr latest.json ""
 out="$(runvs)"
-case "$out" in *"names no pkg (cut before kosmos#8172): not checked"*"FAIL=0"*) true;; *) false;; esac && pass "8172 verify-served: CONTROL a pointer naming no pkg is reported, not failed" || bad "8172 verify-served no-field arm: $out"
+case "$out" in *"names no pkg (cut before kosmos#8172, or republished by hand): not checked"*"FAIL=0"*) true;; *) false;; esac && pass "8172 verify-served: CONTROL a pointer naming no pkg is reported, not failed" || bad "8172 verify-served no-field arm: $out"
 # (d) no staging pkg served (404): only Kosmos.pkg, held to the source as before #8167.
 serve; mk "$WWW/dist" Kosmos.pkg "PROD" "$WANT"; ptr latest.json "$(psha "$WWW/dist/Kosmos.pkg")"
 out="$(runvs)"

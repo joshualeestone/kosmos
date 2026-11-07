@@ -103,13 +103,20 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    So after the first #5032 promote, `/setup` changes only with its pointer: a hand edit to the site's
    `setup` (or a merge that touches it) needs the matching `setup.sha256` and `setup_sha256` edit, or every
    site deploy refuses until they agree. A prod-channel cut writes all three together.
-   **kosmos#8167: it also copies the staging installer PKG onto `dist/Kosmos.pkg`** (the Download button's file),
-   when `dist/Kosmos-staging.pkg` differs from it AND is the pkg the host serves as `Kosmos-staging.pkg` (its sha is
-   the served `.sha256`; otherwise `Kosmos.pkg` is left as it is, with a WARNING, and the pointer still promotes). The
-   triple is checked whole before any write (the pair agrees, the sidecar vouches for the bytes) and copied after
-   `/setup`, with the `.sha256` rewritten to name `Kosmos.pkg`. Same bytes, so no re-sign. A promote with `--version` leaves `Kosmos.pkg` as it is and says so, because the pkg names no
-   version and the staging one may belong to a later cut. `deploy-site.sh --promote` then ships that copy only if it
-   is the SERVED `Kosmos-staging.pkg`'s bytes; otherwise it keeps the served `Kosmos.pkg` and prints a WARNING.
+   **kosmos#8167 and #8172: it also copies the staging installer PKG onto `dist/Kosmos.pkg`** (the Download button's
+   file). Which pkg moves depends on the pointer being promoted:
+   - **It names its pkg (`pkg_sha256`, written by every cut since #8172):** `Kosmos.pkg` already that pkg: nothing to
+     copy. `Kosmos-staging.pkg` that pkg AND served by the host: copied. Neither: `Kosmos.pkg` is left as it is with a
+     WARNING, the pointer still promotes, and a prod verify-served then reds until those bytes are put back. This
+     holds for a promote with `--version` too, whose pointer is read from its own commit.
+   - **It names none (cut before #8172):** copied when `dist/Kosmos-staging.pkg` differs from `Kosmos.pkg` AND is the
+     pkg the host serves; otherwise left, with a WARNING. A promote with `--version` then leaves `Kosmos.pkg` as it is
+     and says so, because the staging pkg may belong to a later cut.
+   The triple is checked whole before any write (the pair agrees, the sidecar vouches for the bytes) and copied after
+   `/setup`, with the `.sha256` rewritten to name `Kosmos.pkg`. Same bytes, so no re-sign. `deploy-site.sh --promote`
+   then ships that copy only if it is the SERVED `Kosmos-staging.pkg`'s bytes; otherwise it keeps the served
+   `Kosmos.pkg` and prints a WARNING. verify-served holds each served pkg to the `pkg_sha256` of its channel's pointer:
+   strictly for the channel it is verifying (`KOSMOS_VERIFY_POINTER`), and as a report for the other one.
    **Check the first #5032 promote by hand**: staging boxes still on a build before #5032 updated with
    `/setup` (prod's installer) during that staging round, so only fresh installs from `/setup-staging`
    exercised the installer the promote puts on `/setup`.
