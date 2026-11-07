@@ -318,6 +318,11 @@ async function sweepOnce(o) {
   const results = [];
   try {
     if (!o || !Array.isArray(o.roster)) return { results, skipped: 'roster unreadable' };
+    /* kosmos#8156: a test seat is never told to answer in the community (its answers are refused anyway). Taken out of
+       the roster once, so no path in this pass (comments, a person's post, assignments) reaches it. A check that cannot
+       load keeps every agent: a nudge sends nothing by itself, and the send layer still refuses. */
+    const seat = (c) => { try { return Boolean(c && require('./communityswitch').isTestSeat(c.sessionName)); } catch { return false; } };
+    if (o.roster.some(seat)) o = { ...o, roster: o.roster.filter((c) => !seat(c)) };   // a board with no seat keeps its own roster
     const book = o.book instanceof Map ? o.book : new Map();
     const sent = Array.isArray(o.sent) ? o.sent : [];
     const clock = () => (typeof o.clock === 'function' ? o.clock() : Date.now());

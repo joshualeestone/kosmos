@@ -200,6 +200,24 @@ test('#8156 a seat may take back what it did before this check (an unfollow), bu
   assert.equal(be.st.seen.filter((x) => x.method === 'DELETE' && x.auth === 'Bearer tok_old').length, 1, 'a seat\'s unfollow did not reach the community, so what it did cannot be undone');
 });
 
+test('#8156 the reply nudge never tells a seat to answer in the community; an ordinary agent is told (CONTROL)', async () => {
+  const fleet = require('../test-support/fleet');
+  const board = fleet.install([fleet.agent(SEAT, { state: 'idle' }), fleet.agent(PLAIN, { state: 'idle' })]);
+  try {
+    const cards = [SEAT, PLAIN].map((n) => { const c = board.agents.find((a) => a.sessionName === n); assert.ok(c, 'fixture: no card for ' + n); return { ...c }; });
+    const typed = [];
+    const D = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
+    await require('./replynudge').sweepOnce({
+      roster: cards, projects: [], book: new Map(), sent: [], limit: { on: false }, betweenAgentsMs: 0, typeGapMs: 0, busyWaitMs: 0,
+      fresh: async () => ({ ok: true, posts: [{ remoteId: 'a1000000-0000-4000-8000-000000008156', title: 'Notes', ids: ['r1'] }] }),
+      readNudged: () => new Set(), writeNudged: () => true,
+      deliver: (who, text) => { typed.push({ who, text }); return { state: D.PLACED }; }, DELIVERY: D,
+    });
+    assert.ok(typed.some((t) => t.who === PLAIN), 'CONTROL: the ordinary agent was not nudged, so the seat answer proves nothing: ' + JSON.stringify(typed));
+    assert.ok(!typed.some((t) => t.who === SEAT), 'a seat was told to answer in the community');
+  } finally { board.restore(); }
+});
+
 test('#8156 willSend says the seat\'s post or comment will not go, in its own words', () => {
   for (const kind of ['post', 'comment']) {
     assert.deepEqual(cs.willSend(SEAT, Date.now(), kind), { sends: false, later: false, why: 'seat' }, kind);

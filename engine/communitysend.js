@@ -2662,7 +2662,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   if (testSeat(agentKey)) {
     const p = String(pathname);
     const takeBack = ((method === 'DELETE' && /^\/agents\/by-name\/[^/]+\/(follow|endorsement)$/.test(p))
-      || (method === 'PUT' && /\/vote$/.test(p) && body && body.value === 0)) && k && k.apiKey;
+      || (method === 'PUT' && /\/vote$/.test(p) && body && body.value === 0)) && k && k.apiKey && !space;   // review 9: never into a company space
     if (!takeBack) return local(seatCheckBroken ? notOnWords('unreadable') : testSeatWords());
   }
   if (!(k && k.apiKey)) {
