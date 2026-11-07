@@ -462,11 +462,15 @@ test('#8147: a sheet whose walk stopped before the end is never "empty" or "no s
 });
 
 test('#8147: formats that scale or decide by sign show the saved number, not a wrong one; -0, .50', () => {
-  const styles = STYLES('<xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="165"/><xf numFmtId="166"/><xf numFmtId="1"/><xf numFmtId="167"/>',
-    '<numFmts><numFmt numFmtId="164" formatCode="#,##0,"/><numFmt numFmtId="165" formatCode="0,"/><numFmt numFmtId="166" formatCode="#,##0;(#,##0)"/><numFmt numFmtId="167" formatCode=".00"/></numFmts>');
+  const styles = STYLES('<xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="165"/><xf numFmtId="166"/><xf numFmtId="1"/><xf numFmtId="167"/><xf numFmtId="168"/><xf numFmtId="169"/><xf numFmtId="170"/>',
+    '<numFmts><numFmt numFmtId="164" formatCode="#,##0,"/><numFmt numFmtId="165" formatCode="0,"/><numFmt numFmtId="166" formatCode="#,##0;(#,##0)"/><numFmt numFmtId="167" formatCode=".00"/><numFmt numFmtId="168" formatCode="#,##0.00;[Red]#,##0.00"/><numFmt numFmtId="169" formatCode="#.00"/><numFmt numFmtId="170" formatCode="0.0;-0.0;&quot;zero&quot;"/></numFmts>');
   const c = (ref, s, v) => `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
   const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 1234567.891)}${c('B1', 2, 1234567)}${c('C1', 3, -5)}${c('D1', 4, -0.4)}${c('E1', 5, 0.5)}</row>`) }, { 'xl/styles.xml': styles }));
   assert.deepEqual(r.sheets[0].rows[0], ['1234567.891', '1234567', '-5', '-0', '.50']);
+  // Review r1: a positive under a code with a section for negatives keeps the first section's formatting; a negative,
+  // or a zero under a code with a zero section, is shown as saved; "#.00" has no leading zero either.
+  const s = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 6, 1234.5)}${c('B1', 6, -1234.5)}${c('C1', 3, 5)}${c('D1', 7, 0.5)}${c('E1', 8, 0)}${c('F1', 8, 2)}</row>`) }, { 'xl/styles.xml': styles }));
+  assert.deepEqual(s.sheets[0].rows[0], ['1,234.50', '-1234.5', '5', '.50', '0', '2.0']);
   // CONTROL: an ordinary thousands code still groups.
   const g = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 1234567)}</row>`) }, { 'xl/styles.xml': STYLES('<xf numFmtId="0"/><xf numFmtId="3"/>') }));
   assert.deepEqual(g.sheets[0].rows[0], ['1,234,567']);
@@ -478,19 +482,30 @@ test('#8147: a row number past Excel\'s last row is not a row number; an empty s
   assert.equal('firstRow' in r.sheets[0], false);
   const e = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t></t></si></sst>' }));
   assert.equal(e.empty, true);
+  // Review r1: but a formula whose saved value is that empty string has a saved value, so it is not "some have none".
+  const f = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>3</v></c><c r="B1" t="s"><f>A2</f><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t></t></si></sst>' }));
+  assert.equal('someNoValues' in f, false, 'a formula that saved "" was called one with no saved value');
+  // CONTROL: a formula with no saved value at all still is.
+  assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>3</v></c><c r="B1"><f>A2</f></c></row>') })).someNoValues, true);
 });
 
-test('#8147: the answer cache is bounded by size, not only by count', () => {
+test('#8147: the answer cache is bounded by size, not only by count, and keeps the newest', () => {
   const sp = require('./sheetpreview');
   sp._forgetForTests();
-  // Each CSV answer is about 1.9 MB of JSON (150 rows of 50 cells of 250 characters, under the 2 MB input cap); 8 would
-  // be 15 MB, past the 8 MiB the cache may hold.
-  for (let i = 0; i < 8; i++) {
-    const line = Array.from({ length: 50 }, (_, j) => String.fromCharCode(97 + ((i + j) % 26)).repeat(250)).join(',');
-    assert.equal(sp.fromBytes(Buffer.from((line + '\n').repeat(150)), 'big' + i + '.csv').ok, true);
-  }
+  // Workbooks (an xlsx read reads the clock; a CSV read does not, so a CSV could not show a re-read). Each answer is
+  // about 1.9 MB of JSON: 150 rows of 50 inline strings of 250 characters. 8 would be 15 MB, past the 8 MiB kept.
+  const cols = Array.from({ length: 50 }, (_, i) => (i < 26 ? '' : 'A') + String.fromCharCode(65 + (i % 26)));
+  const book = (k) => fx.book({ S: fx.SHEET(Array.from({ length: 150 }, (_, r) => `<row r="${r + 1}">` + cols.map((c, j) => `<c r="${c}${r + 1}" t="inlineStr"><is><t>${String.fromCharCode(97 + ((k + j) % 26)).repeat(250)}</t></is></c>`).join('') + '</row>').join('')) }, {}, { deflate: true });
+  const books = Array.from({ length: 8 }, (_, k) => book(k));
+  for (let k = 0; k < 8; k++) assert.equal(sp.fromBytes(books[k], 'b' + k + '.xlsx').ok, true);
   const held = sp._heldForTests();
-  sp._forgetForTests();
   assert.ok(held <= 4, 'held ' + held + ' answers of about 1.9 MB each');
-  assert.ok(held >= 1, 'CONTROL: the latest answer is kept');
+  let reads = 0;
+  x._internal.setClockForTests(() => { reads++; return 0; });
+  try {
+    assert.equal(sp.fromBytes(books[7], 'b7.xlsx').ok, true);
+    assert.equal(reads, 0, 'the newest answer was evicted (it was read again)');
+    sp.fromBytes(books[0], 'b0.xlsx');
+    assert.ok(reads > 0, 'CONTROL: the oldest was evicted, so it is read again');
+  } finally { x._internal.setClockForTests(null); sp._forgetForTests(); }
 });

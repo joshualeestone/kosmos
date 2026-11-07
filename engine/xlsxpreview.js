@@ -23,7 +23,8 @@
  *   cells walked, shown or not (review 4: a row number that never grew walked a whole part);
  * - the whole read has a time budget (WORK_BUDGET_MS), checked every 1024 steps of the loops over parts, strings,
  *   styles, sheets, rows and cells, and after each part; past it the answer is "too large to preview". The scans that
- *   have no check inside (clean, one string's text, the skip inside `elements`) are linear in a capped part;
+ *   have no check inside (clean, one string's text) are linear in a capped part; the skip inside `elements` counts each
+ *   near-miss, with a cap and a budget check (#8147);
  * - the answer's cells are capped as JSON writes them (MAX_OUTPUT_CHARS, all sheets together), and each shared string
  *   is clipped once, however many cells use it;
  * - the grid is capped (MAX_SHEETS, MAX_ROWS, MAX_COLS, MAX_CELL_CHARS, MAX_SHARED_STRINGS).
@@ -214,7 +215,8 @@ function bareCode(code) {
 /* What a number format shows: { kind: 'date' } (a day, maybe with a time), { kind: 'time' } (a time of day),
    { kind: 'duration', unit: 'h' | 'm' | 's', seconds } ("[h]:mm": elapsed time past 24 hours, review 2), or
    { kind: 'number', decimals, thousands, percent } for the simple codes ("0.00", "#,##0", "0.0%"), or null (shown as
-   saved). The first section of a code (before ";") decides. Currency symbols, fractions and the rest are null. */
+   saved). The first section of a code (before ";") decides how; a number another section would draw is shown as saved
+   (`sections`). Currency symbols, fractions, a trailing thousands comma and the rest are null. */
 /* A number format's first section (the part before the first ";", which positive numbers use). Not a split: ";" here is
    Excel's section separator, never a path list, and indexOf says so without a separator literal (#1732). */
 function firstSection(code) {
@@ -239,15 +241,16 @@ function formatKind(code) {
   // Only a code of digit placeholders (review 3: a currency or a unit, quoted or in brackets, was dropped from the shown
   // text); anything else shows the saved number.
   if (!/^[#0.,%\s]+$/.test(firstSection(code))) return null;
-  // #8147: a code with a section for negatives (or zero, or text) decides by sign, and a comma after the last digit
-  // divides by 1000 ("#,##0," is thousands): both show the saved number rather than a wrong one.
-  if (String(code || '').indexOf(';') >= 0) return null;
-  if (/[#0],+\s*(\.|%|$)/.test(lower) && /,\s*(\.|%|$)/.test(lower)) return null;
+  // #8147: a comma after the last digit divides by 1000 ("#,##0," is thousands): shown as saved rather than wrong.
+  if (/[#0],+\s*(\.|%|$)/.test(lower)) return null;
   const num = /^\s*([#0,]*)(?:\.(0+))?\s*(%)?\s*$/.exec(lower);
   // Review 4: past 30 places (Excel's own limit) toFixed throws, which refused the whole workbook.
   if (num && num[2] && num[2].length > 30) return null;
   // Review 7: the integer zeros are the fewest digits shown ("00000" on 1234 is 01234, a ZIP code or an id).
-  if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3], digits: ((num[1] || '').match(/0/g) || []).length, intHash: (num[1] || '').indexOf('#') >= 0 };
+  // #8147: `sections` counts the code's ";" parts: the first is for positives (and zero, with fewer than three), so a
+  // value another section would draw is shown as saved, never through the first one (review r1: "#,##0.00;[Red]..."
+  // lost its formatting for positives when every multi-section code was shown as saved).
+  if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3], digits: ((num[1] || '').match(/0/g) || []).length, sections: (String(code || '').match(/;/g) || []).length + 1 };
   return null;
 }
 /* Built-in number formats by id (ECMA-376 18.8.30): 1 "0", 2 "0.00", 3 "#,##0", 4 "#,##0.00", 9 "0%", 10 "0.00%",
@@ -329,6 +332,7 @@ function shownNumber(raw, fmt) {
   // Review 6: only a decimal number is a number (0x1F is not 31).
   if (!isDecimal(raw) || !Number.isFinite(n)) return raw;
   if (!fmt || fmt.kind !== 'number') return String(Number(n.toPrecision(15)));
+  if (fmt.sections > 1 && (n < 0 || (n === 0 && fmt.sections > 2))) return String(Number(n.toPrecision(15)));
   const v = Number((fmt.percent ? n * 100 : n).toPrecision(15));
   const f = Math.pow(10, fmt.decimals);
   // Review 7: rounded on the 15 digits Excel keeps, not with a nudge (2.4999999995 under "0" showed 3).
@@ -338,8 +342,8 @@ function shownNumber(raw, fmt) {
   if (fmt.thousands) { const [i, d] = text.split('.'); text = i.replace(/\B(?=(\d{3})+$)/g, ',') + (d ? '.' + d : ''); }
   // #8147: a code with no integer digit drops the leading zero (".00" on 0.5 is .50), and a negative that rounds to zero
   // keeps its sign (-0.4 under "0" is -0), as Excel shows them.
-  if (fmt.digits === 0 && fmt.decimals > 0 && !fmt.intHash && text.startsWith('0.')) text = text.slice(1);
-  return (v < 0 && (rounded < 0 || rounded === 0) ? '-' : '') + text + (fmt.percent ? '%' : '');
+  if (fmt.digits === 0 && fmt.decimals > 0 && text.startsWith('0.')) text = text.slice(1);   // "#.00" too (review r1)
+  return (v < 0 ? '-' : '') + text + (fmt.percent ? '%' : '');
 }
 /* An elapsed time ("[h]:mm:ss"): total hours, minutes or seconds, past 24 hours (Excel shows 1.5 days as 36:00). */
 function shownDuration(n, fmt) {
@@ -366,8 +370,9 @@ function readXlsx(buf) {
   // `slow`: refused for the time it took, which a busy moment can cause (the seam does not remember it, review 6).
   const budget = () => { if (now() - started > WORK_BUDGET_MS) throw new XlsxRefusal(TOO_LARGE, true); };
   let misses = 0;
+  const outer = onNearMiss;
   onNearMiss = () => { if (++misses > MAX_NEAR_MISSES) refuse(TOO_LARGE); if ((misses & 4095) === 0) budget(); };
-  try { return readBook(buf, budget); } finally { onNearMiss = null; }
+  try { return readBook(buf, budget); } finally { onNearMiss = outer; }
 }
 function readBook(buf, budget) {
   let entries;
@@ -461,9 +466,11 @@ function readBook(buf, budget) {
     const cellText = (c, hasFormula) => {
       const type = attr(c.tag, 't') || 'n';
       let text = null;
+      let savedEmpty = false;
       if (type === 'inlineStr') {
         const is = elements(c.body, 'is').next().value;
         text = is ? textOf(is.body) : null;
+        if (text === '') { text = null; savedEmpty = true; }   // #8147: an empty inline string, as an empty shared one
       } else {
         const v = elements(c.body, 'v').next().value;
         // Review 1: an empty <v/> (as openpyxl writes beside a formula) is no saved value, not an empty one. Review 4:
@@ -474,8 +481,10 @@ function readBook(buf, budget) {
             const n = /^[0-9]{1,9}$/.test(raw.trim()) ? Number(raw) : -1;   // review 6: a decimal index, never 0x1
             // Review 4: a string past the ones read (MAX_SHARED_STRINGS) is not shown, and the sheet says it is cut.
             if (n >= shared.length && sharedCut) { cut = true; anyValue = true; }   // review 7: so a cut sheet is not "empty"
-            text = shared[n] ?? null;
-            if (text === '') text = null;   // #8147: an empty string shows nothing, so it is not a value either   // review 6: an index to no string is no value (it made a blank workbook not empty)
+            text = shared[n] ?? null;   // review 6: an index to no string is no value (it made a blank workbook not empty)
+            // #8147: an empty string shows nothing, so it is not a value for `empty`; but it IS a saved value, so a formula
+            // that saved one is not "no saved value" (review r1: it set someNoValues).
+            if (text === '') { text = null; savedEmpty = true; }
           }
           else if (type === 'b') text = raw === '1' || raw.toLowerCase() === 'true' ? 'TRUE' : 'FALSE';
           else if (type === 'e' || type === 'str') text = raw;
@@ -494,7 +503,7 @@ function readBook(buf, budget) {
           }
         }
       }
-      if (text === null) { if (hasFormula) bareFormula = true; return null; }
+      if (text === null) { if (hasFormula && !savedEmpty) bareFormula = true; return null; }
       return clip(text);
     };
     const windowEnd = () => windowStart() + MAX_ROWS;
