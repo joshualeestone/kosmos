@@ -143,7 +143,7 @@ git -C "$S" show "$c98:dist/latest-staging.json" > "$S/dist/latest-staging.json"
 nest() { node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.extra={inner:process.argv[2]};if(process.argv[3]==="drop")delete p.setup_sha256;require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$S/dist/latest-staging.json" "$1" "${2:-}"; }
 nest first; git -C "$S" commit -qm "9.9.8 re-paired, inner first" -- dist/latest-staging.json setup-staging setup-staging.sha256
 nest second drop; git -C "$S" commit -qm "9.9.8 republished, inner second" -- dist/latest-staging.json
-refused "a later pointer differing only inside a nested field" "$S" "have pointers that differ in more than the installer they name" --version 9.9.8
+refused "a later pointer differing only inside a nested field" "$S" "have pointers that differ in more than the /setup installer they name" --version 9.9.8
 # The same build under a later commit that names ANOTHER installer (its tree's setup-staging does not match it): said.
 S="$(newsite)"; republish "$S" 9.9.8 "$(printf 'OTHER-INSTALLER\n' | shasum -a 256 | awk '{print $1}')"
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
@@ -408,7 +408,7 @@ S="$(KM_LJ_PKG_SHA="$PX" newsite)"
 git -C "$S" show HEAD~1:dist/latest-staging.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const p=JSON.parse(s);p.pkg_sha256="0".repeat(64);process.stdout.write(JSON.stringify(p)+"\n")})' > "$S/dist/latest-staging.json"
 git -C "$S" commit -qam "9.9.8: republished naming another pkg"
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
-[ "$rc" = 1 ] && has "$out" "differ in more than the installer they name" && [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ] \
+[ "$rc" = 1 ] && has "$out" "or name different installer pkgs" && [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ] \
   && pass "8172 named: two same-build pointers naming DIFFERENT pkgs are refused, nothing written" || bad "8172 named pkg disagreement (rc=$rc, out=$out)"
 
 echo ""

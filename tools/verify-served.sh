@@ -89,7 +89,8 @@ echo "== what an existing install polls =="
 # caller. A staging cut passes KOSMOS_VERIFY_POINTER=latest-staging.json so the STAGING
 # pointer's version is the one verified (prod latest.json still names the prior version then,
 # which release.sh asserts separately). The versioned-artifact, sha and /setup checks above are
-# pointer-independent, so only this polled-pointer read is parameterized.
+# pointer-independent, so this polled-pointer read is parameterized, and so (kosmos#8172) is which channel's
+# pkg-against-pointer check can fail the run (see the kosmos#8172 note above _vs_pkg).
 POINTER="${KOSMOS_VERIFY_POINTER:-latest.json}"
 served=$(curl -fsS -H 'Cache-Control: no-cache' "$HOST/dist/$POINTER")
 want=$(node -e "console.log(require('$REPO/package.json').version)")
@@ -170,8 +171,10 @@ _vs_pkg() {
     # A pointer cut before #8172 names none, and that is said, not passed silently.
     case "$pn" in Kosmos.pkg) _vs_ptr=latest.json ;; *) _vs_ptr=latest-staging.json ;; esac
     if curl -fsS -m 30 -H 'Cache-Control: no-cache' "$HOST/dist/$_vs_ptr" -o "$pdir/ptr" 2>/dev/null; then
-      _vs_named=$(node -e 'try{const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(/^[0-9a-f]{64}$/.test(p.pkg_sha256||"")?p.pkg_sha256:"")}catch{}' "$pdir/ptr" 2>/dev/null)
-      if [ -z "$_vs_named" ]; then say "/dist/$pn vs $_vs_ptr" "the pointer names no pkg (cut before kosmos#8172, or republished by hand): not checked"
+      _vs_named=$(node -e 'try{const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(p.pkg_sha256===undefined?"":(/^[0-9a-f]{64}$/.test(String(p.pkg_sha256))?p.pkg_sha256:"MALFORMED"))}catch{}' "$pdir/ptr" 2>/dev/null)
+      if [ "$_vs_named" = MALFORMED ] && [ "$_vs_ptr" = "$POINTER" ]; then say "/dist/$pn vs $_vs_ptr" "the pointer's pkg_sha256 is not a sha256, so it names nothing this run can hold $pn to"; fail=1
+      elif [ "$_vs_named" = MALFORMED ]; then say "/dist/$pn vs $_vs_ptr" "the pointer's pkg_sha256 is not a sha256; not this run's channel ($POINTER), so not failed"
+      elif [ -z "$_vs_named" ]; then say "/dist/$pn vs $_vs_ptr" "the pointer names no pkg (cut before kosmos#8172, or republished by hand): not checked"
       elif [ "$_vs_named" = "$preal" ]; then say "/dist/$pn vs $_vs_ptr" "is the pkg the pointer names (${preal:0:12})"
       elif [ "$_vs_ptr" = "$POINTER" ]; then say "/dist/$pn vs $_vs_ptr" "NOT the pkg the pointer names: served ${preal:0:12}, named ${_vs_named:0:12}"; fail=1
       # The OTHER channel's pointer is not this check's to enforce: a prod cut rewrites Kosmos-staging.pkg under the
