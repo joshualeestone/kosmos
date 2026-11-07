@@ -219,17 +219,45 @@ do {
     let orbSrc = repoText("ios/Kosmos/KosmosOrb.swift")
     // KosmosOrb.swift is skipped by the offender scan, so it may declare only the orb, WaitOrb and WaitTick at its top level:
     // no other type, alias, extension or function a fourth screen could draw the orb through (review 4).
-    // The file's code with its comments cut (codeOnly: /* */ blocks, a line's tail from " //", whole // lines), read by brace
-    // depth: every line that begins at depth 0 is top level, however it is indented or what precedes it on the line (review 8:
-    // a keyword list missed `@MainActor func`; orbguard review 1: a declaration after a /* */). Imports and closing braces
-    // are skipped; a `#if` is listed on purpose, as it can wrap a declaration. Braces inside strings would miscount (none in
-    // that file).
-    var topLevel: [String] = [], depth = 0
-    for raw in codeOnly(orbSrc).split(separator: "\n") {
-        let t = raw.trimmingCharacters(in: .whitespaces)
-        if depth == 0 && !t.isEmpty && t != "}" && !(t.hasPrefix("import ") && !t.contains(";")) { topLevel.append(t) }
-        depth += raw.filter { $0 == "{" }.count - raw.filter { $0 == "}" }.count
+    // KosmosOrb.swift's top level, by a character scan that knows strings, // comments and nested /* */ comments, counting
+    // braces only in code (orbguard reviews 1 and 2: cutting comments line by line let a `/*` inside a `//` comment swallow
+    // declarations). A line is listed when it begins at brace depth 0 and has code on it, however it is indented; imports
+    // and lone closing braces are skipped, and a `#if` is listed on purpose (it can wrap a declaration). Multi-line string
+    // literals are read as code (none in that file).
+    func topLevelCode(_ src: String) -> [String] {
+        var out: [String] = [], depth = 0, block = 0, inString = false, inLine = false, line = "", lineDepth = 0
+        let c = Array(src)
+        func endLine() {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if lineDepth == 0 && !t.isEmpty && t != "}" && !(t.hasPrefix("import ") && !t.contains(";")) { out.append(t) }
+            line = ""; inLine = false; lineDepth = depth
+        }
+        var i = 0
+        while i < c.count {
+            let ch = c[i], next: Character? = i + 1 < c.count ? c[i + 1] : nil
+            if ch == "\n" { endLine(); i += 1; continue }
+            if inLine { i += 1; continue }
+            if block > 0 {
+                if ch == "/" && next == "*" { block += 1; i += 2; continue }
+                if ch == "*" && next == "/" { block -= 1; i += 2; continue }
+                i += 1; continue
+            }
+            if inString {
+                if ch == "\\" { line.append(ch); if let n = next { line.append(n) }; i += 2; continue }
+                if ch == "\"" { inString = false }
+                line.append(ch); i += 1; continue
+            }
+            if ch == "/" && next == "/" { inLine = true; i += 2; continue }
+            if ch == "/" && next == "*" { block = 1; i += 2; continue }
+            if ch == "\"" { inString = true }
+            if ch == "{" { depth += 1 }
+            if ch == "}" { depth -= 1 }
+            line.append(ch); i += 1
+        }
+        endLine()
+        return out
     }
+    let topLevel = topLevelCode(orbSrc)
     let orbFileOk = topLevel == ["struct KosmosOrb: View {", "struct WaitOrb: View {", "struct WaitTick: View {"]
     check(orbFileOk, "KosmosOrb.swift declares only KosmosOrb, WaitOrb and WaitTick at its top level (\(topLevel))")
     check(waitOrbs == ["AgentsView.swift": 1, "NewAgentView.swift": 1] && allowHas == 1 && connectingHas == 1 && outsideHas == 1
