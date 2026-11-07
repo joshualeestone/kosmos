@@ -35,3 +35,10 @@ Measured on 0.7.94 with a Grok and a Claude seat: each answered a round of asks 
 - Left as is: the `you posted [X] after [Y]` line on a plain `kosmos room` read. It appears only on rows shown, only for asks of the reader, the same shape as `you already answered`. It is the line that tells a reader in the view it reads most. If it proves noisy in a busy room, narrow it then; it is one condition.
 - Left as is: the idle reminder can still mention an ask this list has moved. Stated above under Known limits; #4926 stays open for it.
 - Correction: iteration 1's commit message says 30 mutation arms. It was 29. With this round, 33.
+
+## Reviews 3 to 5
+- Review 3 (opus): a test for an old ask and a covered one with nothing listed. That head reads `nothing listed from the last 3 days in this room; the posts named below may still be open`.
+- Review 4 (sonnet): nothing new, but it read only part of the test file.
+- Final validation was then red: rewording the usage line broke the words `tools.windows-kosmos-cli-gaps-4891` pins. Reworded to keep them.
+- Review 5 (opus): a reply to the reader's own newer post no longer covers: it carries on that thread, which may be about something older (the N7 rule's `x.from === member`). A citation of a post the room no longer holds still covers. Rejected: following the thread up to its root. It costs more, and the row is named either way.
+- Left as is: the line under a post says `it needs nothing more` for the asks the list keeps showing too. It is what the reader did next, not what the list does, and a one-sentence change if it misleads anyone on a real seat.

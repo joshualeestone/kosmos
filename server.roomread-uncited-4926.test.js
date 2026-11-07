@@ -66,7 +66,7 @@ const read = async (project, query, headers) => {
 };
 const unanswered = (project, q) => read(project, '&unanswered=1' + (q || ''));
 const onCovered = (text) => (text.split('\n').find((l) => l.startsWith('[kosmos] Not counted as waiting on you')) || '');
-const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + '] ') && !l.startsWith('[kosmos]'));
+const listed = (text, id) => text.split('\n').some((l) => l.includes('  [' + id + '] ') && !l.includes('[kosmos]'));
 
 test('a round answered in one uncited post leaves the waiting list, each ask named with the post', async () => {
   const pid = newRoom('Uncited4926a');
@@ -118,6 +118,36 @@ test('a reply citing an older ask is about that ask; one citing something newer 
   t = await unanswered(pid);
   assert.ok(onCovered(t).includes('[' + second + '] (your [' + answer + '])'), 'a reply to a newer post covers the older: ' + t);
   assert.ok(!listed(t, third), 'and the cited one is answered: ' + t);
+});
+
+test('review 5: a reply to the reader\'s own newer post carries on that thread and covers nothing; one to another agent\'s newer post covers', async () => {
+  const pid = newRoom('Uncited4926u');
+  const older = ask(pid);
+  const target = ask(pid);
+  const first = own(pid, { replyTo: older });
+  own(pid, { replyTo: first });
+  let t = await unanswered(pid);
+  assert.ok(listed(t, target), 'a follow-up in a thread about the older ask does not cover the newer: ' + t);
+  assert.ok(!onCovered(t).includes('[' + target + ']'), t);
+  const other = post(pid, { text: 'an FYI', outcomes: { [WHO]: 'placed' } });
+  const answer = own(pid, { replyTo: other });
+  t = await unanswered(pid);
+  assert.ok(onCovered(t).includes('[' + target + '] (your [' + answer + '])'), 'CONTROL: a reply to another agent\'s newer post does: ' + t);
+});
+
+test('a reply to the person\'s newer post covers: the row is theirs even under the reader\'s name', async () => {
+  const pid = newRoom('Uncited4926v');
+  const a = ask(pid);
+  const theirs = post(pid, { operator: true, from: WHO, text: 'the person, under a name', outcomes: {} });
+  const answer = own(pid, { replyTo: theirs });
+  assert.ok(onCovered(await unanswered(pid)).includes('[' + a + '] (your [' + answer + '])'));
+});
+
+test('a reply citing a post the room no longer holds still covers', async () => {
+  const pid = newRoom('Uncited4926w');
+  const a = ask(pid);
+  const answer = own(pid, { replyTo: 'm99999999' });
+  assert.ok(onCovered(await unanswered(pid)).includes('[' + a + '] (your [' + answer + '])'));
 });
 
 test('only the reader\'s own later post in this room counts', async () => {
