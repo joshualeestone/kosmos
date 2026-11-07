@@ -88,7 +88,7 @@ function nudgeText(rep, ageMs) {
   if (rep.state === 'needs_you') {
     return 'Kosmos here, a reminder, not an answer from the person: ' + whose + ' has been standing for ' + age + '. '
       + 'If nobody needs to answer it any more, clear it with: kosmos report clear. '
-      + 'If you still need the person, leave it, and there is nothing to send them. '
+      + 'If you still need the person, leave it as it is, and there is nothing to send them. '
       + 'To see your card as the person sees it, run: kosmos report show';
   }
   return 'Kosmos here, a reminder: ' + whose + ' has been standing for ' + age + '. '
