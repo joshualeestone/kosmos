@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 8
 **Converged:** Yes: round 8's two warnings are the items already deferred in rounds 3 and 6, and the rest are nits.
-**Total findings:** 22 (0 BLOCKERs, 17 WARNINGs, 1 CONVENTION, 4 CONVENTION-sized nits fixed in passing; the remaining NITs are listed)
+**Total findings:** 0 BLOCKERs, 16 WARNINGs in rounds 1 to 7 (one a duplicate), 2 CONVENTIONs, 2 duplicate WARNINGs in round 8, and the NITs listed per round.
 **Validation:** the full suite passed before the last rebase (27,685 tests, 0 failed; REAL_EXIT 0, AUDIT_EXIT 0). main then moved 46 commits, including server.js. After the rebase I reran only the focused set, 16 files, 224 pass. CI on the merge ref is the check for the rest.
 **Origin column:** 6c-bis's blame lookup was not run, so Origin is left as not classified, not stated as BRANCH or SELF. Most findings after round 1 did concern code this loop wrote.
 
