@@ -475,20 +475,17 @@ struct BoardStates<Empty: View>: View {
         case .noMac:
             message("No Mac to connect to.", detail: "Turn on remote access in Kosmos on your computer, then try again.", retry: true)
         case .waitingForAllow(let mac, let code):
-            VStack(spacing: 12) {
-                message("Allow this iPhone on \(mac).",
-                        detail: code.map { "Your Mac is showing a code. Check it matches: \($0)" } ?? "Your Mac is asking whether to let this iPhone in.")
-                SweepDots(label: "Waiting for your Mac", scales: false)
-            }
+            // Josh 2026-11-06 18:14: the orb, at least double 66 pt, above the words and centred with them as one group.
+            message("Allow this iPhone on \(mac).",
+                    detail: code.map { "Your Mac is showing a code. Check it matches: \($0)" } ?? "Your Mac is asking whether to let this iPhone in.",
+                    orb: "Waiting for your Mac")
             .accessibilityElement(children: .combine)
             // The code is spelled out character by character, as the gate page reads it.
             .accessibilityLabel("Allow this iPhone on \(mac). " + (code.map { "Your Mac is showing a code. Check it matches: \($0.map(String.init).joined(separator: " "))" } ?? "Your Mac is asking whether to let this iPhone in."))
             .accessibilityAddTraits(.updatesFrequently)
         case .connecting(let mac):
-            VStack(spacing: 12) {
-                message("Connecting to \(mac).", detail: "This can take a moment, for example just after your Mac starts.")
-                SweepDots(label: "Waiting for your Mac")   // kosmos#7954: the same wait as `reaching`, so the same dots
-            }
+            // Josh 2026-11-06 18:14: the orb, centred with the words (it was #7954's dots at the foot of the screen).
+            message("Connecting to \(mac).", detail: "This can take a moment, for example just after your Mac starts.", orb: "Waiting for your Mac")
         case .denied(let mac):
             message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.", retry: true)
         case .macRefused(let mac):
@@ -527,8 +524,11 @@ struct BoardStates<Empty: View>: View {
         ConnectingWait(words: "Connecting\u{2026}")   // kosmos#7954: the board's ring of dots, not the orb
     }
 
-    private func message(_ title: String, detail: String, retry: Bool = false) -> some View {
+    /// `orb`: Allow this iPhone and Connecting (Josh 2026-11-06 18:14) draw the orb above the words, inside this group, so
+    /// the orb and the words are centred together; it is what VoiceOver hears for the orb. Every other state passes none.
+    private func message(_ title: String, detail: String, retry: Bool = false, orb: String? = nil) -> some View {
         VStack(spacing: 12) {
+            if let orb { KosmosOrb(size: AgentsWait.orbSide, label: orb).padding(.bottom, 12) }
             VStack(spacing: 6) {
                 Text(title).font(.headline).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
                 Text(detail).font(.subheadline).foregroundColor(Palette.secondary).multilineTextAlignment(.center)

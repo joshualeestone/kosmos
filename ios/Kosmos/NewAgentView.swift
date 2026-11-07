@@ -1021,6 +1021,9 @@ struct NewAgentView: View {
         return VStack(spacing: 16) {
             Spacer()
             if seen {
+                // As on the Mac, the wait ends in the green tick where the orb was (Mona Lisa's call on Josh's 18:14 ruling).
+                Image(systemName: "checkmark.circle.fill").resizable().scaledToFit().frame(width: 66, height: 66)
+                    .foregroundColor(Palette.ringOk).accessibilityHidden(true)
                 Text(NewAgent.Words.running(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
                 Text(NewAgent.Words.hello).font(.body).foregroundColor(Palette.primary)
                 ForEach(madeWarnings, id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
@@ -1029,7 +1032,7 @@ struct NewAgentView: View {
                 Text(NewAgent.Words.notUpWhy + " " + NewAgent.Words.notUpNext).font(.body).foregroundColor(Palette.secondary)
                 ForEach(madeWarnings, id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
             } else {
-                SweepDots(size: 36, label: "Loading", scales: false)
+                KosmosOrb(size: AgentsWait.orbSide, label: "Loading")   // Josh 2026-11-06 18:14: the orb, at least double 66 pt
                 Text(NewAgent.Words.makingNamed(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
             }
             Spacer()
