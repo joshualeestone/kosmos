@@ -22,25 +22,32 @@ test('#8021: "read as sent" and "could not read the box" are two different lines
   const sent = run(confirmedVerdict(placed, { outcome: 'sent', retried: false }));
   const unread = run(confirmedVerdict(placed, { outcome: 'unread', retried: false }));
   assert.equal(sent.verdict, 'placed'); assert.equal(unread.verdict, 'placed');   // CONTROL: the state alone is the same
-  assert.equal(promptLogLine(sent), 'autohandoff: mara at 86%: handoff prompt sent (its box emptied after the Enter)\n');
+  assert.equal(promptLogLine(sent), 'autohandoff: mara at 86%: handoff prompt sent (its box no longer held the prompt after the Enter)\n');
   assert.equal(promptLogLine(unread), 'autohandoff: mara at 86%: handoff prompt probably sent, but its box could not be read after the Enter, so this is not confirmed\n');
 });
 
 test('#8021: an Enter that did not take, one pressed into other text, and one never pressed are each said as such', () => {
   const unsent = run({ ...confirmedVerdict(placed, { outcome: 'unsent', retried: true }), unsentSeq: 3 });   // settle adds the seq
-  assert.equal(promptLogLine(unsent), 'autohandoff: mara at 86%: handoff prompt not sent: its Enter did not take; kept as a numbered unsent line, to be pressed later' + AGAIN);
+  assert.equal(promptLogLine(unsent), 'autohandoff: mara at 86%: handoff prompt left in its box: its Enter did not take; kept as a numbered unsent line, to be pressed later' + AGAIN);
   const other = run(confirmedVerdict(placed, { outcome: 'other', retried: false }));
-  assert.equal(promptLogLine(other), 'autohandoff: mara at 86%: handoff prompt not sent: Enter was pressed and its box then held other text too' + AGAIN);
+  assert.equal(promptLogLine(other), 'autohandoff: mara at 86%: handoff prompt not confirmed: Enter was pressed and its box then held something besides the prompt (other text, or a folded paste)' + AGAIN);
   // chat.js deliver, the box already held other text before the Enter (UNSENT_NOT_PRESSED_BECAUSE): never pressed.
   const notPressed = run({ state: DELIVERY.UNCONFIRMED, unsubmitted: true, confirm: 'not-pressed', because: 'x', at: 'x', paneState: 'idle' });
-  assert.equal(promptLogLine(notPressed), 'autohandoff: mara at 86%: handoff prompt not sent: its box already held other text, so Enter was not pressed' + AGAIN);
+  assert.equal(promptLogLine(notPressed), 'autohandoff: mara at 86%: handoff prompt left in its box: the box already held other text, so Enter was not pressed' + AGAIN);
 });
 
 test('#8021: held by text already in the box says so, not "not kept"; a plain could-not and an unknown verdict too', () => {
   // chat.js deliverAutomatic's input hold: { ...v, held: true, heldBy: 'input' } over a COULD_NOT with inputHeld.
   const held = run({ state: DELIVERY.COULD_NOT, because: 'x', inputHeld: true, busy: true, held: true, heldBy: 'input' });
   assert.equal(promptLogLine(held), 'autohandoff: mara at 86%: handoff prompt not typed: its box already holds unsent text' + AGAIN);
-  assert.equal(promptLogLine(run({ state: DELIVERY.COULD_NOT, because: 'x' })), 'autohandoff: mara at 86%: handoff prompt could not be typed' + AGAIN);
+  assert.equal(promptLogLine(run({ state: DELIVERY.COULD_NOT, because: 'x' })), 'autohandoff: mara at 86%: handoff prompt could not be typed (x)' + AGAIN);
+  // Review 2: a menu hold (deliverystreak) names itself and its reason.
+  assert.equal(promptLogLine(run({ state: DELIVERY.COULD_NOT, held: true, heldBy: 'menu', because: 'it is at a\npermission menu' })),
+    'autohandoff: mara at 86%: handoff prompt could not be typed, held by menu (it is at a permission menu)' + AGAIN);
+  // A verdict with no confirm (a path that does not check after the Enter) says only its state.
+  assert.equal(promptLogLine(run({ state: DELIVERY.PLACED })), 'autohandoff: mara at 86%: handoff prompt placed, with no check after the Enter\n');
+  assert.equal(promptLogLine(run({ state: DELIVERY.UNCONFIRMED, because: 'its window changed' })), 'autohandoff: mara at 86%: handoff prompt not confirmed as sent (its window changed)' + AGAIN);
+  assert.equal(promptLogLine(run({ state: DELIVERY.PLACED, confirm: 'constructor' })), 'autohandoff: mara at 86%: handoff prompt placed, with no check after the Enter\n', 'an unknown confirm is not looked up as a property');
   assert.equal(promptLogLine(run(undefined)), 'autohandoff: mara at 86%: handoff prompt verdict none' + AGAIN);
   assert.equal(promptLogLine(null), '');
 });

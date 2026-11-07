@@ -54,7 +54,8 @@ const path = require('path');
  *   is asked for one community post with its handoff (autohandoff.communityAsk); absent, or a throw, asks for none
  * @param {Map<string,boolean>} [o.postAsked]  #5307: agents already asked for the post on this climb (mutated). Asked
  *   ONCE per climb: not again on the next 5-point band or on a retry, and cleared with the band when fill drops
- * @returns {{prompted: Array<{session:string,fill:number,verdict:?string,advanced:boolean}>, lastBand: Map}}
+ * @returns {{prompted: Array<{session:string,fill:number,verdict:?string,advanced:boolean,unsubmitted:boolean,remembered:boolean,
+ *   confirm:?string,heldByInput:boolean,heldBy:?string,because:?string}>, lastBand: Map}}  (the last six: kosmos#8021, for promptLogLine)
  */
 function sweepOnce({ setting, roster, lastBand, deliver, pathFor, autohandoff, DELIVERY, community, postAsked }) {
   const bands = lastBand instanceof Map ? lastBand : new Map();
@@ -96,6 +97,7 @@ function sweepOnce({ setting, roster, lastBand, deliver, pathFor, autohandoff, D
       remembered: !!(verdict && Number.isInteger(verdict.unsentSeq)),
       confirm: verdict && typeof verdict.confirm === 'string' ? verdict.confirm : null,   // chat.js confirmedVerdict
       heldByInput: !!(verdict && (verdict.inputHeld === true || verdict.heldBy === 'input')),
+      heldBy: verdict && typeof verdict.heldBy === 'string' ? verdict.heldBy : null,
       because: verdict && typeof verdict.because === 'string' ? verdict.because : null });
   }
   return { prompted, lastBand: bands };
@@ -137,19 +139,23 @@ function communityFor(session, now = Date.now()) {
    come from chat.js's own verdict: `confirm` (what the check after the Enter read), `unsubmitted`, an unsentSeq (kept
    as a numbered unsent line, which the stuck-input sweep can press later), and a hold by text already in the box. */
 const CONFIRM_WORDS = {
-  sent: 'sent (its box emptied after the Enter)',
+  sent: 'sent (its box no longer held the prompt after the Enter)',
   unread: 'probably sent, but its box could not be read after the Enter, so this is not confirmed',
-  unsent: 'not sent: its Enter did not take',
-  other: 'not sent: Enter was pressed and its box then held other text too',
-  'not-pressed': 'not sent: its box already held other text, so Enter was not pressed',
+  unsent: 'left in its box: its Enter did not take',
+  other: 'not confirmed: Enter was pressed and its box then held something besides the prompt (other text, or a folded paste)',
+  'not-pressed': 'left in its box: the box already held other text, so Enter was not pressed',
 };
 function promptLogLine(p) {
   if (!p || !p.session) return '';
   let said;
-  if (p.confirm && CONFIRM_WORDS[p.confirm]) said = CONFIRM_WORDS[p.confirm];
-  else if (p.verdict === 'could_not') said = p.heldByInput ? 'not typed: its box already holds unsent text' : 'could not be typed';
+  const why = p.because ? ' (' + String(p.because).replace(/\s+/g, ' ').slice(0, 160) + ')' : '';
+  if (p.confirm && Object.prototype.hasOwnProperty.call(CONFIRM_WORDS, p.confirm)) said = CONFIRM_WORDS[p.confirm];
+  else if (p.verdict === 'could_not') {
+    // Review 2: which hold (a menu, the account, the quota, text in the box) and why, as the delivery said it.
+    said = p.heldByInput ? 'not typed: its box already holds unsent text' : 'could not be typed' + (p.heldBy ? ', held by ' + p.heldBy : '') + why;
+  }
   else if (p.verdict === 'placed') said = 'placed, with no check after the Enter';
-  else if (p.verdict === 'unconfirmed') said = 'not confirmed as sent' + (p.because ? ' (' + String(p.because).replace(/\s+/g, ' ').slice(0, 160) + ')' : '');
+  else if (p.verdict === 'unconfirmed') said = 'not confirmed as sent' + why;
   else said = 'verdict ' + (p.verdict || 'none');
   return 'autohandoff: ' + p.session + ' at ' + Math.round(Number(p.fill)) + '%: handoff prompt ' + said
     + (p.remembered ? '; kept as a numbered unsent line, to be pressed later' : '')

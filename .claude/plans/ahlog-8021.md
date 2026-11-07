@@ -4,11 +4,11 @@ Card: kosmos#8021. Renet measured (11-07, served 0.7.96) a real seat's 85% hando
 the stuck-input sweep left it there as "too long to read whole", and nothing recorded what the delivery had said.
 
 ## Change
-- engine/autohandoff-sweep.js: each prompted entry also carries `unsubmitted` (the verdict's unsubmitted: true, its
-  Enter did not take) and `remembered` (the verdict carries an unsentSeq: chat kept it as a numbered unsent line,
-  which the stuck-input sweep can press later). New promptLogLine(p): one line, "autohandoff: <session> at N%:
-  handoff prompt <sent | not confirmed as sent | could not be typed>[, its Enter did not take][, kept as a numbered
-  unsent line, to be pressed later | , not kept as a numbered unsent line][, will be asked again next sweep]".
+- engine/chat.js: confirmedVerdict records `confirm` (what the check after the Enter read); deliver's never-pressed
+  return records confirm: 'not-pressed'. Additive. confirmedVerdict is exported for the test.
+- engine/autohandoff-sweep.js: each prompted entry also carries unsubmitted, remembered (an unsentSeq), confirm,
+  heldByInput, heldBy and because. promptLogLine(p) says, from those, what the delivery read (see the test for every
+  wording), whether the line was kept as a numbered unsent line, and whether it is asked again.
 - server.js: the sweep's result is kept and each prompted entry's line written to the board log (stdout).
 - No behaviour change: the band still advances only on PLACED; nothing is pressed or sent differently.
 
@@ -18,7 +18,7 @@ text it did not remember would risk sending a person's words; its "not ours" rul
 the evidence of which path the prompt took. This line gives it at the next occurrence.
 
 ## Measured
-- engine/autohandoff-log-8021.test.js (3 tests) plus the existing autohandoff tests: 27 pass.
+- engine/autohandoff-log-8021.test.js plus the existing autohandoff tests pass; 759 chat and delivery tests pass.
 - Perturbations: the server not writing the line, and `remembered` always false, each turn the new tests red.
 
 ## Weakest premise
@@ -37,3 +37,9 @@ falls back to the state words, which do not separate sent from unread.
   check ignores comments. Perturbed: without `confirm` the sent/unread test is red.
 - Known and accepted: while a box stays held the sweep re-delivers every minute, so one line per agent per minute
   until it clears. That is the evidence wanted; quieting it is a later choice.
+
+## Review round 2 (decided)
+- Words no stronger than the evidence: "sent" is "its box no longer held the prompt" (a sent outcome also covers
+  a box where someone started typing); "not sent" became "left in its box" or "not confirmed" (UNCONFIRMED means may
+  be there). A could-not names its hold (menu, account, quota) and its because.
+- The untested branches are tested now; the JSDoc lists the new fields.
