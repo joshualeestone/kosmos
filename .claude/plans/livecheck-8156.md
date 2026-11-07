@@ -4,13 +4,13 @@ Card: https://github.com/joshualeestone/kosmos/issues/8156
 
 ## Item 1: find the prefix without reading the guard
 
-- `kosmos agent --help`, Mac (install/kosmos cmd_agent) and Windows (tools/windows/kosmos-cli.js USAGE.agent), same two lines under `agent create`: a throwaway agent for a check, on a computer that runs test suites, is named `zz-livecheck-<something>`, which the suites' leak guard skips (#4392).
-- The #3011 LEAK message in tools/run-tests.sh says first to read the names: an agent someone made on this computer during the run, from the board or by `kosmos agent create`, is not a test's leak, so leave it in place. It used to open with "Move them out", which for a real agent breaks it.
+- `kosmos agent --help`, Mac (install/kosmos cmd_agent) and Windows (tools/windows/kosmos-cli.js USAGE.agent), same two lines under `agent create`: either form, a throwaway agent on a Mac that runs test suites is named `zz-livecheck-<something>`, which the suites' leak guard skips. "Mac", because the guard watches ~/Library/LaunchAgents only; the words are kept identical in both CLIs on purpose. No card numbers in this person-facing help.
+- The #3011 LEAK message in tools/run-tests.sh says first to read the names and working dirs (each listed line shows its working dir; a real agent's is its own folder, a test's usually a temp folder): an agent someone made on this computer during the run, from the board or by `kosmos agent create`, is not a test's leak, so leave it in place. It used to open with "Move them out", which for a real agent breaks it.
 - Pinned by `cli.livecheck-prefix-8156.test.js`: both CLIs' `agent --help` (run with a fresh HOME and no token) name the prefix the guard declares, and the LEAK message names it and says to read the names before moving anything.
 
 ## The guard's own search
 
-`tools/test-launchagent-leak-guard-3011.sh` fails if any tracked file other than the guard and itself names the prefix (#4392: no test may use it, or its leak would be hidden). It now also excludes the four files that only tell a person the prefix: install/kosmos, tools/windows/kosmos-cli.js, tools/run-tests.sh and the new pin test. None makes an agent. Control: a new tracked `*.test.js` naming the prefix still fails the search.
+`tools/test-launchagent-leak-guard-3011.sh` fails if any tracked file other than the guard and itself names the prefix (#4392: no test may use it, or its leak would be hidden). The three files that tell a person the prefix (install/kosmos, tools/windows/kosmos-cli.js, tools/run-tests.sh) stay in the search with an exact allowed line count each (ALLOWED), so one more use in them fails, and finding all three is the search's own control (a search that finds nothing fails as missing). The pin test never spells the prefix; it reads it from the guard. Controls run by hand: an extra use in install/kosmos, a new tracked *.test.js naming the prefix, and a help line removed from the Windows CLI each fail it.
 
 ## Item 2: decision
 
