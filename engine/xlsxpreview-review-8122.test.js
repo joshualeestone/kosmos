@@ -647,7 +647,8 @@ test('#8162: a cell or value cut off before its close marks the sheet cut and ne
     assert.equal(r.empty, false, rows);
   }
   // Review r1: a close missing mid-part (a row that swallowed the next, a cell that swallowed the next) is counted too.
-  for (const rows of ['<row r="1"><c r="A1"><v>5</v></c><row r="2"><c r="A2"><v>6</v></c></row>', '<row r="1"><c r="A1"><v>5</v><c r="B1"><v>6</v></c></row>']) {
+  for (const rows of ['<row r="1"><c r="A1"><v>5</v></c><row r="2"><c r="A2"><v>6</v></c></row>', '<row r="1"><c r="A1"><v>5</v><c r="B1"><v>6</v></c></row>',
+    '<row r="1"><c r="A1"><v>5</v><c/></c></row>', '<row r="1"><c r="A1"><v>5</v><c\tr="B1"><v>6</v></c></row>', '<row r="1"><c r="A1"><v>5</v><c\nr="B1"><v>6</v></c></row>']) {   // r4: "/", tab, newline
     assert.equal(read(rows).sheets[0].cut, true, rows);
   }
   // Review r2: a part truly cut short (no ">" after a start tag, or no close of a row or of sheetData) is counted too;
@@ -701,4 +702,21 @@ test('#8162 r3: a start tag with no end, alone, is counted; single quotes are qu
   const c = x.readXlsx(fx.book({ S: fx.SHEET('<row r="2000000"><c t="inlineStr"><is><t></t></is></c></row>') }));
   assert.equal(c.empty, true);
   assert.equal(c.sheets[0].cut, false);
+});
+
+test('#8162 r4: an answer that cannot be written to JSON is "too large", not a crash', () => {
+  const sp = require('./sheetpreview');
+  sp._forgetForTests();
+  const real = JSON.stringify;
+  let calls = 0;
+  // Only the seam's own write of the whole answer (the reader also writes single cells to count its output).
+  JSON.stringify = function (...args) {
+    const v = args[0];
+    if (v && typeof v === 'object' && 'ok' in v && ++calls === 1) throw new RangeError('Invalid string length');
+    return real.apply(this, args);
+  };
+  let r;
+  try { r = sp.fromBytes(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>') }), 'throw.xlsx'); } finally { JSON.stringify = real; sp._forgetForTests(); }
+  assert.equal(calls >= 1, true, 'CONTROL: the stub was reached');
+  assert.equal(r.tooLarge, true, JSON.stringify(r));
 });

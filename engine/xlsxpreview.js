@@ -166,10 +166,9 @@ function nestedStart(body, name) {
   }
   return false;
 }
-/* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with indexOf (a start
-   tag's end by startTagEnd). With
-   `lenient` (the containers: sheetData, row), one the part never closes (a file cut short) yields the rest of the part,
-   so what is there is still read; a value that is not closed is never read. */
+/* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with indexOf (a
+   start tag's end by startTagEnd). With `lenient` (the containers: sheetData, row), one the part never closes (a file
+   cut short) yields the rest of the part, so what is there is still read; a value that is not closed is never read. */
 function* elements(xml, name, lenient = false) {
   let at = 0;
   for (;;) {
@@ -465,11 +464,11 @@ function readXlsx(buf) {
   const budget = () => { if (now() - started > WORK_BUDGET_MS) throw new XlsxRefusal(TOO_LARGE, true); };
   let misses = 0;
   let runs = 0;
-  const outer = onNearMiss, outerRun = onTextRun, outerCut = cutShorts;
-  cutShorts = 0;
+  const outer = onNearMiss, outerRun = onTextRun;
+  cutShorts = 0;   // each read counts its own (a read never runs inside another)
   onNearMiss = () => { if (++misses > MAX_NEAR_MISSES) refuse(TOO_LARGE); if ((misses & 4095) === 0) budget(); };
   onTextRun = () => { if (++runs > MAX_TEXT_RUNS) refuse(TOO_LARGE); if ((runs & 4095) === 0) budget(); };
-  try { return readBook(buf, budget); } finally { onNearMiss = outer; onTextRun = outerRun; cutShorts = outerCut; }
+  try { return readBook(buf, budget); } finally { onNearMiss = outer; onTextRun = outerRun; }
 }
 function readBook(buf, budget) {
   let entries;
@@ -568,7 +567,8 @@ function readBook(buf, budget) {
        empty <v/>, as openpyxl writes it, is no value. */
     const skipped = (body) => {
       // #8162: by the reader's own scan, so a value with attributes (<v xml:space="preserve">) counts too; a pattern
-      // allowing attributes would be quadratic on a run of unclosed "<v " tags.
+      // allowing attributes would be quadratic on a run of unclosed "<v " tags. Its near-misses and text runs count
+      // toward the same caps as any other (a hostile skipped row can make the workbook "too large", as anywhere else).
       let saved = false;
       for (const v of elements(body, 'v')) if (v.body !== '') { saved = true; break; }
       if (!saved) for (const s of elements(body, 'is')) if (textOf(s.body) !== '') { saved = true; break; }
@@ -677,7 +677,7 @@ function readBook(buf, budget) {
       outputLeft -= cost;
       rows.push(out);
     }
-    if (cutShorts > cutShortsBefore) { cut = true; walkCut = true; }   // #8162: an element cut off in this sheet
+    if (cutShorts > cutShortsBefore) cut = true;   // #8162: an element cut off in this sheet (the workbook: `unread`)
     sheets.push({ name, rows, cut, ...(base ? { firstRow: base + 1 } : {}) });
     budget();
   }
