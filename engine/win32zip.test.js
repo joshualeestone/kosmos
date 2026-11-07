@@ -258,3 +258,17 @@ test('kosmos#8122: skipUnsafeNames leaves out an entry with a bad name for a rea
   assert.deepEqual(listed, ['xl/a.xml'], 'a bad name was listed, or a good one dropped');
   assert.throws(() => extractZip(buf, require('node:os').tmpdir(), { ...limits, skipUnsafeNames: true }), TypeError);
 });
+
+test('kosmos#8122 review 6: skipUnsafeNames also leaves out a name that cannot be decoded; without it the archive is refused', () => {
+  const { zip } = require('../test-support/xlsxfixture');
+  const z = Buffer.from(zip({ 'xl/a.xml': '<a/>', 'xl/media/é.png': 'x' }));
+  // Clear the UTF-8 flag (bit 11) in every local and central header alike, so the non-ASCII name is an undeclared code page.
+  for (let i = 0; i + 4 <= z.length; i++) {
+    const sig = z.readUInt32LE(i);
+    if (sig === 0x04034b50) z.writeUInt16LE(z.readUInt16LE(i + 6) & ~0x0800, i + 6);
+    if (sig === 0x02014b50) z.writeUInt16LE(z.readUInt16LE(i + 8) & ~0x0800, i + 8);
+  }
+  const limits = { allowedTopLevel: ['xl'], maxEntries: 10, maxEntryBytes: 1e6, maxTotalBytes: 1e7 };
+  assert.throws(() => win32zip.readZipDirectory(z, limits), /not plain ASCII/);
+  assert.deepEqual(win32zip.readZipDirectory(z, { ...limits, skipUnsafeNames: true }).map((e) => e.name), ['xl/a.xml']);
+});

@@ -62,7 +62,7 @@ function readDelimited(text, sep, name) {
   const endRow = () => {
     endField();
     if (rows.length < xlsx.MAX_ROWS) { rows.push(row); if (row.length > width) width = row.length; }
-    else cut = true;
+    else if (row.some((c) => c !== '')) cut = true;   // review 6: a blank line past the cap leaves no value out
     row = [];
   };
   for (let i = 0; i < s.length; i++) {
@@ -108,13 +108,18 @@ function fromBytes(buf, name) {
   if (buf.length > capFor(kind)) return { ok: false, because: TOO_LARGE, tooLarge: true };
   // Review 5: the same bytes are read once, not once per request (a hostile file could cost up to the 2 s budget every
   // time the viewer asked). Keyed by the bytes and the reader, so a renamed or changed file is read again.
-  // A CSV's sheet is named after its file, so its name is part of the key. A refusal is kept too (a hostile file is the
-  // case this is for); one that came from a busy moment rather than the file is read again once MAX_REMEMBERED others
-  // have been asked for, or on a restart. Each caller gets its own copy.
+  // A CSV's sheet is named after its file, so its name is part of the key. A refusal for what the file IS (too many
+  // bytes, not a workbook) is kept; one for the time the read took is not. Each caller gets its own copy.
   const key = kind + ':' + (kind === 'xlsx' ? '' : path.basename(String(name || ''))) + ':' + crypto.createHash('sha256').update(buf).digest('base64');
   let answer = answers.get(key);
   if (answer) answers.delete(key);
-  else answer = readFresh(buf, kind, name);
+  else {
+    const read = readFresh(buf, kind, name);
+    // Review 6: a refusal for the time it took is not remembered (a busy moment would stick), and an answer is copied
+    // before it is kept: its strings were slices of the whole unpacked part, so each entry held up to 16 MB.
+    if (read.slow) { const { slow, ...shown } = read; return shown; }
+    answer = JSON.parse(JSON.stringify(read));
+  }
   answers.set(key, answer);
   if (answers.size > MAX_REMEMBERED) answers.delete(answers.keys().next().value);
   return structuredClone(answer);
@@ -125,7 +130,7 @@ function readFresh(buf, kind, name) {
   if (kind === 'xlsx') {
     try { return fits({ ok: true, ...xlsx.readXlsx(buf) }); }
     catch (e) {
-      if (e && e.name === 'XlsxRefusal') return { ok: false, because: e.message, ...(e.message === TOO_LARGE ? { tooLarge: true } : {}) };
+      if (e && e.name === 'XlsxRefusal') return { ok: false, because: e.message, ...(e.message === TOO_LARGE ? { tooLarge: true } : {}), ...(e.slow ? { slow: true } : {}) };
       return { ok: false, because: CANNOT_READ };
     }
   }

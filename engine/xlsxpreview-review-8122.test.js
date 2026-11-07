@@ -310,3 +310,54 @@ test('#8122 r5: the same bytes are read once; changed bytes, or a CSV under anot
   assert.equal(sp.fromBytes(Buffer.from('a,b\n'), 'one.csv').sheets[0].name, 'one.csv');
   assert.equal(sp.fromBytes(Buffer.from('a,b\n'), 'two.csv').sheets[0].name, 'two.csv');
 });
+
+/* Review 6 */
+test('#8122 r6: a sheet with no row kept has no firstRow (it went out as "firstRow": null)', () => {
+  const r = x.readXlsx(fx.book({ A: fx.SHEET(''), B: fx.SHEET('<row r="1"><c r="AZ1"><v>2</v></c></row>') }));
+  for (const s of r.sheets) assert.equal('firstRow' in s, false, s.name + ': ' + JSON.stringify(s));
+  // CONTROL: a sheet that starts far down still has one.
+  assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="300"><c r="A300"><v>7</v></c></row>') })).sheets[0].firstRow, 300);
+});
+
+test('#8122 r6: a workbook with sheets left out is never called empty, or "no saved values"', () => {
+  const sheets = {};
+  for (let i = 0; i < 20; i++) sheets['E' + i] = fx.SHEET('');
+  sheets.Data = fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>');
+  const r = x.readXlsx(fx.book(sheets));
+  assert.equal(r.moreSheets, 1);
+  assert.equal(r.empty, false);
+  assert.equal(r.noValues, false);
+  // CONTROL: twenty empty sheets and nothing left out is empty.
+  delete sheets.Data;
+  assert.equal(x.readXlsx(fx.book(sheets)).empty, true);
+});
+
+test('#8122 r6: a refusal for the time a read took is not remembered; a refusal for what the file is, is', () => {
+  const sp = require('./sheetpreview');
+  sp._forgetForTests();
+  const b = fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>') });
+  let t = 0;
+  x._internal.setClockForTests(() => (t += 5000));   // every check is past the budget: a busy moment
+  let slow;
+  try { slow = sp.fromBytes(b, 'a.xlsx'); } finally { x._internal.setClockForTests(null); }
+  assert.equal(slow.ok, false);
+  assert.equal(slow.tooLarge, true);
+  assert.equal('slow' in slow, false, 'the internal mark reached the answer');
+  assert.equal(sp.fromBytes(b, 'a.xlsx').ok, true, 'a busy-moment refusal stuck');
+  sp._forgetForTests();
+});
+
+test('#8122 r6: only a decimal number is a number or a string index', () => {
+  const sst = '<sst><si><t>zero</t></si><si><t>one</t></si></sst>';
+  const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>0x1F</v></c><c r="B1" t="s"><v>0x1</v></c><c r="C1" t="s"><v>1</v></c><c r="D1"><v>1e3</v></c></row>') }, { 'xl/sharedStrings.xml': sst }));
+  assert.deepEqual(r.sheets[0].rows[0], ['0x1F', '', 'one', '1000']);
+  const blank = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>9</v></c></row>') }, { 'xl/sharedStrings.xml': sst }));
+  assert.equal(blank.empty, true, 'an index to no string made a blank workbook not empty');
+});
+
+test('#8122 r6: a CSV with blank lines past the row cap is not cut; a value there is', () => {
+  const sp = require('./sheetpreview');
+  assert.equal(sp.readDelimited('a\n'.repeat(5) + '\n'.repeat(300), ',').sheets[0].cut, false);
+  assert.equal(sp.readDelimited('a\n'.repeat(200) + '\n', ',').sheets[0].cut, false);
+  assert.equal(sp.readDelimited('a\n'.repeat(201), ',').sheets[0].cut, true);
+});

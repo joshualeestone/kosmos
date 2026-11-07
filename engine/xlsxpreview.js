@@ -47,9 +47,10 @@ const MAX_FORMAT_CODE = 255;                   // Excel's own limit on a number 
 const WORK_BUDGET_MS = 2000;                   // the whole read, on the board's one thread
 
 const TOO_LARGE = 'This spreadsheet is too large to preview.';
+const DECIMAL = /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/;   // a saved number as Excel writes one
 const CANNOT_READ = 'This file could not be read as a spreadsheet.';
 
-class XlsxRefusal extends Error { constructor(message) { super(message); this.name = 'XlsxRefusal'; } }
+class XlsxRefusal extends Error { constructor(message, slow = false) { super(message); this.name = 'XlsxRefusal'; this.slow = slow; } }
 const refuse = (m) => { throw new XlsxRefusal(m); };
 
 const ZIP_LIMITS = {
@@ -271,7 +272,7 @@ function styleKinds(stylesXml, budget = () => {}) {
    serial 60 is the 1900-02-29 that never was, and serials below it are one day later than the plain count (review 1).
    The 1904 system counts from 1904-01-01. */
 function serialDate(n, from1904 = false, fmt = null) {
-  if (!Number.isFinite(n) || n < 0 || n > 2958465) return String(n);
+  if (!Number.isFinite(n) || n < 0 || n > (from1904 ? 2957003 : 2958465)) return String(n);   // past 9999-12-31: as saved
   n = Math.round(n * 86400) / 86400;   // review 2: to the second first, so a time just before midnight carries into the next day
   const timePart = (x) => {
     const show = fmt && fmt.time !== undefined ? fmt.time : x % 1 !== 0;
@@ -304,7 +305,8 @@ function serialTime(n, fmt = null) {
    Excel does (0.075 under "0%" is 8%). */
 function shownNumber(raw, fmt) {
   const n = Number(raw);
-  if (raw.trim() === '' || !Number.isFinite(n)) return raw;
+  // Review 6: only a decimal number is a number (0x1F is not 31).
+  if (!DECIMAL.test(raw.trim()) || !Number.isFinite(n)) return raw;
   if (!fmt || fmt.kind !== 'number') return String(Number(n.toPrecision(15)));
   const v = Number((fmt.percent ? n * 100 : n).toPrecision(15));
   const f = Math.pow(10, fmt.decimals);
@@ -335,7 +337,8 @@ function readXlsx(buf) {
   if (!Buffer.isBuffer(buf)) throw new TypeError('xlsxpreview: readXlsx takes a Buffer');
   if (buf.length > MAX_FILE_BYTES) refuse(TOO_LARGE);
   const started = now();
-  const budget = () => { if (now() - started > WORK_BUDGET_MS) refuse(TOO_LARGE); };
+  // `slow`: refused for the time it took, which a busy moment can cause (the seam does not remember it, review 6).
+  const budget = () => { if (now() - started > WORK_BUDGET_MS) throw new XlsxRefusal(TOO_LARGE, true); };
   let entries;
   try { entries = readZipDirectory(buf, ZIP_LIMITS); }
   catch (e) { refuse(CANNOT_READ); }
@@ -431,10 +434,10 @@ function readXlsx(buf) {
         if (v && (v.body !== '' || type === 'str')) {
           const raw = unescapeXml(v.body);
           if (type === 's') {
-            const n = Number(raw);
+            const n = /^[0-9]{1,9}$/.test(raw.trim()) ? Number(raw) : -1;   // review 6: a decimal index, never 0x1
             // Review 4: a string past the ones read (MAX_SHARED_STRINGS) is not shown, and the sheet says it is cut.
             if (n >= shared.length && sharedCut) cut = true;
-            text = shared[n] ?? '';
+            text = shared[n] ?? null;   // review 6: an index to no string is no value (it made a blank workbook not empty)
           }
           else if (type === 'b') text = raw === '1' || raw.toLowerCase() === 'true' ? 'TRUE' : 'FALSE';
           else if (type === 'e' || type === 'str') text = raw;
@@ -445,7 +448,7 @@ function readXlsx(buf) {
             const fmt = kinds[Number(attr(c.tag, 's') || 0)] || null;
             const kind = fmt && fmt.kind;
             // Review 4: text that is not a number under a date or time format is shown as written, never "NaN".
-            text = (kind && kind !== 'number' && (raw.trim() === '' || !Number.isFinite(Number(raw)))) ? raw
+            text = (kind && kind !== 'number' && (!DECIMAL.test(raw.trim()) || !Number.isFinite(Number(raw)))) ? raw
               : kind === 'date' ? serialDate(Number(raw), from1904, fmt)
                 : kind === 'time' ? serialTime(Number(raw), fmt)
                   : kind === 'duration' ? shownDuration(Number(raw), fmt)
@@ -479,7 +482,7 @@ function readXlsx(buf) {
       }
       if (line.size) keepRow(rowAt, line);
     }
-    const base = windowStart();
+    const base = Number.isFinite(minRow) ? windowStart() : 0;   // review 6: a sheet with no row kept starts at row 1
     let width = 0;
     for (const line of kept.values()) for (const col of line.keys()) if (col + 1 > width) width = col + 1;
     const height = kept.size ? Math.max(...kept.keys()) - base + 1 : 0;
@@ -501,7 +504,10 @@ function readXlsx(buf) {
   if (!all) refuse(CANNOT_READ);
   /* someNoValues: some cells are formulas with no saved value, beside cells that have one (a workbook partly written by a
      script), so the viewer can say why those cells are blank. noValues: every value is missing that way. */
-  return { sheets, moreSheets: Math.max(0, all - MAX_SHEETS), noValues: !anyValue && anyFormula, empty: !anyValue && !anyFormula,
+  // Review 6: past MAX_SHEETS the sheets left out are never read, so nothing is known about them: neither empty nor
+  // "no saved values" is said of a workbook with sheets left out.
+  const unread = all > MAX_SHEETS;
+  return { sheets, moreSheets: Math.max(0, all - MAX_SHEETS), noValues: !unread && !anyValue && anyFormula, empty: !unread && !anyValue && !anyFormula,
     ...(anyValue && bareFormula ? { someNoValues: true } : {}) };
 }
 
