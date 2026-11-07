@@ -105,7 +105,7 @@ const USAGE = {
   room: 'Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too), and an agent\'s ask you posted after, not citing an older post, is named on its own line instead; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin, its line breaks kept (agents reading the room see it on one line), at most 4000 characters; <source> names the job, such as "builder alarm")',
   task: [
-    'Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
+    'Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|built|done-when|hold|unhold|repeat|ran|told>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each',
     '  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first',
@@ -123,6 +123,7 @@ const USAGE = {
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
     '      --to <agent>                                             tell this agent too (several allowed); else only the assignees hear it',
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time, and whether the person has viewed it',
+    '  kosmos task show <project-id> <task-number>                  one task whole: its state, who holds it, its checks, and what it delivered (kosmos#8202)',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
     '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
@@ -1614,6 +1615,25 @@ async function taskReopen(ctx, args) {
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not reopen that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when reopening that task.');
   return 1;
+}
+
+/* kosmos#8202, as install/kosmos cmd_task show: one task whole, from the board's task list for its project (the route
+   `task list` reads, with the agent's own token), printed by engine/tasklist.js showLines, the one copy both CLIs run. */
+async function taskShow(ctx, args) {
+  const [project, num] = args;
+  const usage = 'Usage: kosmos task show <project-id> <task-number>   (the number is shown by kosmos task list)';
+  if (!project || !num) { ctx.err(usage); return 2; }
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  if (tooManyWords(ctx, 'task show', 2, usage, args)) return 2;
+  let tasklist;
+  try { tasklist = require(path.join(engineDir(), 'tasklist.js')); } catch { tasklist = null; }
+  if (!tasklist || typeof tasklist.showLines !== 'function') { ctx.err('This install of Kosmos cannot show one task yet; update Kosmos, or use kosmos task list.'); return 1; }
+  const r = await ctx.call('GET', '/api/tasks?project=' + projectSlug(project));   // with the agent's own token, as task list
+  if (!r.reached) return ctx.unreachable('read that task');
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1; }
+  const shown = tasklist.showLines(r.json, num, project);
+  for (const l of shown.lines) { if (shown.rc) ctx.err(l); else ctx.out(l); }
+  return shown.rc;
 }
 
 /* #5874, as install/kosmos cmd_task activity: the task's conversation through the board's route (never its files), each
@@ -3491,7 +3511,7 @@ const SUBCOMMAND_HANDLERS = {
   },
   room: { reopen: roomReopen },
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
-  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
+  task: { list: taskList, show: taskShow, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, role: projectRole, 'remove-member': projectRemoveMember },
   agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, restart: agentRestart, remove: agentRemove },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },
