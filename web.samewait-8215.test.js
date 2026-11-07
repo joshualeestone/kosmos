@@ -160,11 +160,23 @@ test('#8215: a crash-looping agent with a question gets its crash-loop reason on
   assert.ok(shown(ok).includes('Which project'));
 });
 
-test('#8215: two long questions that differ only after the 160-character cut are not grouped', () => {
+test('#8215: two long questions that differ only after the 160-character cut are not grouped, and are shown whole', () => {
   const head = 'q'.repeat(170);
   const html = pjNeedsNotice([ask('ada', head + ' one'), ask('bo', head + ' two')]);
   assert.equal(count(html, /pn-same/g), 0);
-  assert.equal(count(html, /\u2026\u201d/g), 2, 'each shown cut, separately');
+  assert.ok(shown(html).includes(head + ' one\u201d') && shown(html).includes(head + ' two\u201d'), 'each whole, so the two rows differ');
+  // CONTROL: one long question on its own is still cut.
+  assert.ok(shown(pjNeedsNotice([ask('ada', head + ' one')])).includes('\u2026\u201d'));
+});
+
+test('#8215: a question asked without words (the engine fills in its own sentence) shows no quote and is never grouped', () => {
+  const generic = require('./engine/status').ASKING_GENERIC;
+  assert.equal(typeof generic, 'string');
+  assert.ok(PAGE.includes("const PJ_ASKING_GENERIC = '" + generic + "';"), 'the page knows the engine\'s exact sentence');
+  const html = pjNeedsNotice([ask('ada', generic), ask('bo', generic)]);
+  assert.equal(count(html, /pn-same/g), 0);
+  assert.equal(shown(html).includes(generic), false);
+  assert.equal(count(html, /Waiting for your answer\./g), 2);
 });
 
 test('#8215: every question sentence, pinned with its words (a change to a reason must change this test)', () => {

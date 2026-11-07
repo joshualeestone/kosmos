@@ -13,6 +13,11 @@ its own Answer and Dismiss.
 - **Same:** the row's reason and the whole question, case and spacing ignored, so a held question never merges with the
   same words asked for real. The 160-character cut (code-point boundary) is for display only.
 - A failed restart or a crash loop is not a question: those rows keep their own reason and show no words.
+- A question asked without words carries the engine's own sentence (status.js ASKING_GENERIC); the page treats it as no
+  words, and a test fails if the engine's sentence and the page's copy part.
+- Two different questions whose cut text would read the same are shown whole, so two rows never look identical.
+- Not done: aria-describedby linking grouped rows' buttons to the shared line (needs ids unique across every place the
+  block is drawn). Each button still names its agent.
 - **Blocked members are not added.** A blocked agent is waiting on something that is not the person, is not counted in
   the Issue pill, and has no place on this page that is allowed text. The reported case was three Questions, which this
   covers. Weakest premise: the card names blocked too; a follow-up can add a quiet "waiting on one thing" line if wanted.

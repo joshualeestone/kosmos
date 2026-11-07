@@ -8913,7 +8913,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .pnotice .qopt:disabled { cursor: default; opacity: .6; }
 /* #6341: Open (or Answer) and Dismiss sit together; Dismiss is the quieter of the two, a plain word with no box. */
 .pnacts { display: flex; gap: 6px; align-items: center; flex: 0 0 auto; }
-/* #8215: a member under a "same thing" line has no words of its own, so its buttons line up with the other rows' at the end. */
+/* #8215: a member under a "same thing" line has no words of its own. */
 .pn-in > .pnacts { margin-left: auto; }
 .pn-same + .pn-in { border-top: 0; padding-top: 0; }
 .pnotice .qopt.pn-dismiss { background: none; border-color: transparent; color: var(--k-ink-2); font-weight: 500; }
@@ -69918,8 +69918,10 @@ function pjNeedsNotice(roster, redHere) {
      ignored), so a held question never merges with the same words asked for real; the 160-character cut is display only. */
   // A failed restart or a crash loop is not a question (pjAlsoWhy says them first, as the agent card does).
   const notRed = (m) => m.restartFailed !== true && !(m.crashLoop && m.crashLoop.looping === true);
-  const saidOf = (it) => (it.asks && it.m.stateReportedBy === 'agent') ? String(it.m.because == null ? '' : it.m.because).replace(/\s+/g, ' ').trim() : '';
-  const withSaid = (why, said) => !said ? why : /^[^.]*\.$/.test(why) ? why.slice(0, -1) + ': \u201c' + pjSaidWords(said) + '\u201d' : why + ' It asks: \u201c' + pjSaidWords(said) + '\u201d';
+  // The engine's own sentence for a question asked without words (engine/status.js ASKING_GENERIC), never the agent's.
+  const PJ_ASKING_GENERIC = 'it is asking you something';
+  const saidOf = (it) => { if (!it.asks || it.m.stateReportedBy !== 'agent') return ''; const w = String(it.m.because == null ? '' : it.m.because).replace(/\s+/g, ' ').trim(); return w === PJ_ASKING_GENERIC ? '' : w; };
+  const withSaid = (why, said, full) => { if (!said) return why; const w = full ? said : pjSaidWords(said); return /^[^.]*\.$/.test(why) ? why.slice(0, -1) + ': \u201c' + w + '\u201d' : why + ' It asks: \u201c' + w + '\u201d'; };
   const say = (items) => {
     const order = [];
     const groups = new Map();
@@ -69929,10 +69931,14 @@ function pjNeedsNotice(roster, redHere) {
       if (!groups.has(k)) { groups.set(k, []); order.push(k); }
       groups.get(k).push(Object.assign({ said }, it));
     }
+    // Different questions whose shortened text would read the same are shown whole, so two rows never look identical.
+    const cuts = new Map();
+    for (const k of order) { const s = groups.get(k)[0].said; if (s) { const c = pjSaidWords(s).toLowerCase(); cuts.set(c, (cuts.get(c) || 0) + 1); } }
+    const whole = (s) => !!s && cuts.get(pjSaidWords(s).toLowerCase()) > 1;
     return order.map((k) => {
       const g = groups.get(k);
-      if (g.length === 1) return line(g[0].m, withSaid(g[0].why, g[0].said), g[0].act, g[0].reason);
-      return '<div class="pnrow pn-same"><span class="pnwhy">' + esc('These ' + g.length + ' are asking the same thing. ' + withSaid(g[0].why, g[0].said)) + '</span></div>'
+      if (g.length === 1) return line(g[0].m, withSaid(g[0].why, g[0].said, whole(g[0].said)), g[0].act, g[0].reason);
+      return '<div class="pnrow pn-same"><span class="pnwhy">' + esc('These ' + g.length + ' are asking the same thing. ' + withSaid(g[0].why, g[0].said, whole(g[0].said))) + '</span></div>'
         + g.map((it) => line(it.m, '', it.act, it.reason)).join('');
     }).join('');
   };
