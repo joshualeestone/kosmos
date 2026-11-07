@@ -93,3 +93,15 @@ Mutants: no displayName check (2 fail), no job check (1 fail), recorded never pr
   job and touches no files (the module's own header; a test's control showed the job file still there after
   removal). The single decision (ownsFolder) is kept as one answer for both uses; the test that could not fail was
   removed.
+
+## Review 6 (applied)
+- No BLOCKER. The reviewer built the full truth table; every cell is right except two, both on an OLD register-only
+  profile (no connectedAs, no job) that was RENAMED:
+  1. kxy8112 renamed to "Kxy8112": "kxy8112" refuses and "Kxy8112" plans.
+  2. KRn8112 renamed to "Mighty": "KRn8112" refuses and "krn8112" plans (the key-form arm).
+  KEPT as the stated limit, decided: such a profile is byte-identical to one typed that way, so no rule on the
+  profile can tell them apart, and refusing every no-job old profile whose displayName differs would also refuse old
+  full-connect agents found by their folder name (review 4's case). Every profile written from this change on
+  carries connectedAs and cannot reach either cell; an old one is fixed by connecting it again. Exposure: an old
+  register-only agent, renamed, then removed by name, with a session started by hand under the original spelling.
+- NIT the old-profile test passed through the key-form arm --> FIXED: an uppercase name, so only displayName proves it.
