@@ -966,6 +966,11 @@ function jobFor(name, platform, worldId) {
     // and hit the booted world's task -- wrong whenever the caller names a non-current world (#2935).
     const wid = worldId === undefined ? launchidentity.currentWorldId() : worldId;
     const st = win32job.status(clean, wid);
+    /* kosmos#8177: Task Scheduler ignores letter case, so `Cai` finds `cai`'s task. That task is `cai`'s job, not
+       one for `Cai`: counting it made plan('Cai') ok and a removal answer "removed" while `cai` kept running (the
+       false success #8112 fixes on the Mac). Only a task the answer names in a different spelling is refused; an
+       answer that names no task path keeps the job, so a real agent's job never vanishes on an unrecognised shape. */
+    if (st.registered && st.spelledOtherwise) return null;
     return st.registered ? { label: win32job.taskName(clean, wid), plist: null, ours: true, worldId: wid } : null;
   }
   if ((platform || process.platform) === 'linux') {

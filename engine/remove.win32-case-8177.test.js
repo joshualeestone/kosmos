@@ -1,0 +1,102 @@
+'use strict';
+/**
+ * kosmos#8177: on Windows, Remove must not take a case variant of an agent's name as that agent.
+ *
+ * Task Scheduler ignores letter case, so `schtasks /Query /TN Kosmos\agent-Cai` answers with `cai`'s task. `jobFor`
+ * counted that as a job for `Cai`, so `plan('Cai')` answered ok under a name with no task of its own, and a removal
+ * recorded `Cai` as removed while `cai` kept running (the false success #8112 fixes on the Mac, here for every agent).
+ *
+ * The fake schtasks below answers the way Task Scheduler does: a query in any letter case finds the one task, and the
+ * answer names it in its own spelling. Run from a Mac, like remove.win32-job-570.test.js, through the win32 arm.
+ *
+ *   node --test engine/remove.win32-case-8177.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+// Sandbox every root before requiring: this module stops agents.
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'remove-case-8177-'));
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'LaunchAgents');
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'support');
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+const remove = require('./remove');
+const job = require('./win32job');
+const status = require('./status');
+
+const WIN = 'win32';
+
+/* A Task Scheduler holding one task, `real`'s, found by a query in any letter case. `shape` is the line the answer
+   names it on (English, German, or none at all). */
+function taskSchedulerWith(real, shape) {
+  const asked = [];
+  const tn = job.taskName(real);
+  job.setRunner((args) => {
+    asked.push(args.join(' '));
+    if (args[0] !== '/Query') return { ok: true, out: '' };
+    const at = args.indexOf('/TN');
+    if (at < 0 || String(args[at + 1]).toLowerCase() !== tn.toLowerCase()) {
+      return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
+    }
+    if (shape === 'none') return { ok: true, out: 'Status: Ready\n' };
+    const label = shape === 'de' ? 'Aufgabenname:' : 'TaskName:';
+    return { ok: true, out: `\r\nFolder: \\Kosmos\r\nHostName:      BOX\r\n${label}      \\${tn}\r\nStatus:        Ready\r\n` };
+  });
+  return asked;
+}
+
+test.beforeEach(() => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');   // an empty board: no session answers for either spelling
+});
+test.after(() => { job.setRunner(null); remove.setRunner(null); status.setPaneSource(null); });
+
+test('#8177 a case variant of a Windows agent\'s name finds no job, so Remove does not plan it', () => {
+  const asked = taskSchedulerWith('cai8177');
+  // CONTROL: the fake answers the variant's query with the real task, as Task Scheduler does, so the bug is reachable.
+  assert.equal(job.status('Cai8177').registered, true, 'CONTROL: the fake did not find cai8177\'s task for Cai8177');
+  assert.ok(asked.some((a) => a.includes('agent-Cai8177')), 'CONTROL: the variant was never asked for by its own spelling');
+
+  assert.equal(remove.jobFor('Cai8177', WIN), null, 'cai8177\'s task was counted as a job for Cai8177');
+  const p = remove.plan('Cai8177', WIN);
+  assert.equal(p.ok, false, 'Remove planned Cai8177, which has no task of its own');
+  assert.match(p.because, /cannot find an agent called Cai8177/, 'refused for another reason: ' + p.because);
+});
+
+test('#8177 the agent\'s own spelling still finds its job and plans (CONTROL)', () => {
+  taskSchedulerWith('cai8177');
+  const found = remove.jobFor('cai8177', WIN);
+  assert.ok(found, 'the real agent lost its own job');
+  assert.equal(found.label, job.taskName('cai8177'));
+  const p = remove.plan('cai8177', WIN);
+  assert.equal(p.ok, true, 'Remove refused the real agent: ' + p.because);
+});
+
+test('#8177 the task\'s name is read from the value, so a German Windows refuses the variant too', () => {
+  taskSchedulerWith('cai8177', 'de');
+  assert.equal(remove.jobFor('Cai8177', WIN), null, 'the variant counted on a German Windows');
+  assert.ok(remove.jobFor('cai8177', WIN), 'the real agent lost its job on a German Windows');
+});
+
+test('#8177 an answer that names no task keeps the job: no positive evidence of another spelling', () => {
+  /* The weak side, by design: output this cannot read (a shape not seen) falls back to "registered", as before,
+     rather than making every agent's job vanish. */
+  taskSchedulerWith('cai8177', 'none');
+  assert.ok(remove.jobFor('cai8177', WIN), 'an unreadable answer made the real agent\'s job vanish');
+  assert.ok(remove.jobFor('Cai8177', WIN), 'expected the old answer when the output names no task');
+});
+
+test('#8177 spelledOtherwise reads the task path, bounded, in any letter case', () => {
+  const tn = job.taskName('cai8177');
+  const variant = job.taskName('Cai8177');
+  assert.equal(job.spelledOtherwise(variant, `TaskName: \\${tn}\nStatus: Ready`), tn);
+  assert.equal(job.spelledOtherwise(tn, `TaskName: \\${tn}\nStatus: Ready`), null, 'its own spelling is not another one');
+  assert.equal(job.spelledOtherwise(variant, `TaskName: ${tn}o\nStatus: Ready`), null, 'a longer task name is not this one');
+  assert.equal(job.spelledOtherwise(variant, 'Status: Ready'), null, 'no task path is no evidence');
+  assert.equal(job.spelledOtherwise(job.taskName('a.b'), `TaskName: \\${job.taskName('aXb')}`), null, 'a dot in the name is literal');
+});
