@@ -121,7 +121,8 @@ if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ] && [ -z "$sh
 fi
 # Only the words of tests that are still failing, once each: a test that passed on its retry is reported by flaky_report.
 stillred="$(printf '%s\n' "$tally" | sed -n 's/ failed$//p')"
-why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\] : /\1.\2: /p' "$log" | grep -F -f <(printf '%s\n' "$stillred") | awk -F: '!seen[$1]++' | head -3)"
+why=""
+[ -n "$stillred" ] && why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\] : /\1.\2: /p' "$log" | grep -F -f <(printf '%s:\n' "$stillred") | awk -F: '!seen[$1]++' | head -3)"
 echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)${short:+; per class:$short}"
 [ -n "$why" ] && printf '%s\n' "$why"
 flaky_report
