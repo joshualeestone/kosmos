@@ -9,6 +9,9 @@ Josh 2026-11-06 18:14 (#7896, Angel's sheet Files/iphone-loading-dots-vs-orb.png
 - The desktop first run's floating dots behind sign-in: readable text, Reduce Motion honoured (still), light on the battery (<= 30 fps, paused when not active).
 - The #8058 "only the dots" guard allows exactly the three orb lines and still reds on any other.
 
+- BoardStates is shared: Projects, Tasks and Today draw the same orb in those phases (accepted, review 1).
+- At accessibility text sizes the orb is 66 pt.
+
 ## Out of scope
 - "Connecting..." (first connect, ConnectingWait) stays 20 pt dots to hand over from the launch picture (Josh's split keeps screen 1 dots).
 - The dots' warmth is one constant (DotField.warmth = 0.5); a different strength is Josh's call later.
