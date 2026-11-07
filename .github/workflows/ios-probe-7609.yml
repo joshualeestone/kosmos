@@ -1,0 +1,23 @@
+name: ios-probe-7609
+# Throwaway measurement for kosmos#7609, on a branch that is never merged.
+on:
+  push:
+    branches: ["largestprobe-7609"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: probe
+        run: bash ios/tools/ci-probe-7609.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-7609
+          path: |
+            ${{ runner.temp }}/probe/*.txt
+            ${{ runner.temp }}/probe/*.log
+          retention-days: 3

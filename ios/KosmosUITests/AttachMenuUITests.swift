@@ -238,6 +238,39 @@ final class AttachMenuUITests: XCTestCase {
         checkTheBoxHolds(app, plus: roomPlus, box: app.textFields.matching(NSPredicate(format: "placeholderValue == 'Message Spring catalogue'")).firstMatch, backAllowance: 45)
     }
 
+    // PROBE, throwaway, kosmos#7609.
+    private let largest = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+    private func probe(_ arm: String, args: [String], photos: String = "all") throws {
+        continueAfterFailure = true
+        let app = try launch(photos: photos, args: args)
+        let plus = app.buttons[chatPlus]
+        XCTAssertTrue(plus.waitForExistence(timeout: 30))
+        var t = Date(); plus.tap(); print("PROBE \(arm) tap \(Date().timeIntervalSince(t))")
+        // No query for this long, so the app's own cost with the tray open is read with nothing asking it anything.
+        print("PROBE-HOLD \(arm)")
+        Thread.sleep(forTimeInterval: 18)
+        print("PROBE-QUERY \(arm)")
+        for i in 0..<3 { t = Date(); let up = panel(app).exists; print("PROBE \(arm) exists\(i) \(up) \(Date().timeIntervalSince(t))") }
+        t = Date(); let d = app.debugDescription; print("PROBE \(arm) tree lines \(d.components(separatedBy: "\n").count) bytes \(d.utf8.count) in \(Date().timeIntervalSince(t))")
+        let a = XCTAttachment(string: d); a.name = "tree-\(arm)"; a.lifetime = .keepAlways; add(a)
+        shot(app, arm)
+    }
+    // What the failing test always followed on CI: a keyboard test, whose height the tray keeps for its next open.
+    private func keyboardFirst() throws {
+        let app = try launch()
+        let search = app.buttons["Search this conversation"]
+        XCTAssertTrue(search.waitForExistence(timeout: 30))
+        search.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 15))
+        Thread.sleep(forTimeInterval: 2)
+        app.terminate()
+    }
+    func testProbeANormal() throws { try probe("normal", args: []) }
+    func testProbeBLargest() throws { try probe("largest", args: largest) }
+    func testProbeCLargestOff() throws { try probe("largestoff", args: largest, photos: "off") }
+    func testProbeDKeyboardThenLargest() throws { try keyboardFirst(); try probe("kblargest", args: largest) }
+    func testProbeEKeyboardThenNormal() throws { try keyboardFirst(); try probe("kbnormal", args: []) }
+
     private func shot(_ app: XCUIApplication, _ name: String) {
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = name; a.lifetime = .keepAlways; add(a)
     }
