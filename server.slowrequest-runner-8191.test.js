@@ -97,3 +97,11 @@ test("#8191: with the runner's limit, a request slower than the 5 s default leav
   assert.equal(parsed.code, 400, 'the empty body did not get the 400 the route gives a body with no dir: ' + out);
   assert.ok(parsed.ms >= 5000, `the answer came after ${parsed.ms} ms, before the body was sent: the request was not slow, so this test proves nothing`);
 });
+
+/* Tests 1 and 3 read the value from the script text. This one checks that it reaches a test process: KOSMOS_TEST_RUN
+   is set only by tools/run-tests.sh, so a file run by hand (which gets no export, see the plan) has nothing to check. */
+test('#8191: a test run by tools/run-tests.sh sees the runner limit in its own environment', (t) => {
+  if (!process.env.KOSMOS_TEST_RUN) { t.skip('not run by tools/run-tests.sh'); return; }
+  assert.equal(process.env.KOSMOS_SLOW_REQUEST_MS, String(runnerLimit()),
+    'tools/run-tests.sh did not hand this test its KOSMOS_SLOW_REQUEST_MS');
+});
