@@ -241,6 +241,24 @@ async function heldCount8140(page, data, which) {
   await page.evaluate(() => document.getElementById('tk-subs').scrollIntoView({ block: 'center' }));
   await page.waitForTimeout(300);
 }
+/* kosmos#8188: open the spreadsheet viewer on a two-sheet answer, both sheets cut (a damaged file), and show sheet `which`. */
+async function sheetCut8188(page, which) {
+  const ID = 'a8'.repeat(12);
+  await page.route('**/api/attachment/' + ID + '/sheet', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true,
+    sheets: [{ name: 'Budget', rows: [['Item', 'Cost'], ['Paper', '12.50'], ['Ink', '40'], ['Postage', '8.20']], cut: true }, { name: 'Notes', rows: [], cut: true }],
+    moreSheets: 0, noValues: false, someNoValues: false, empty: false }) }));
+  await at(page, '');
+  await page.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvSheetInto === 'function', null, { timeout: 10000 });
+  await page.evaluate((id) => {
+    const strip = document.createElement('div'); strip.setAttribute('data-shot-8188', ''); strip.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:55;';
+    strip.innerHTML = pjAttachmentCard({ name: 'Budget 2026.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 68000, kind: 'file', url: '/api/attachment/' + id });
+    document.body.appendChild(strip);
+  }, ID);
+  await page.click('[data-shot-8188] a.att');
+  await page.waitForSelector('#pv-preview .pv-grid', { timeout: 10000 });
+  if (which === 1) { await page.click('#pv-preview .pv-tab:nth-child(2)'); await page.waitForSelector('#pv-preview .pv-grid-wrap[hidden]', { state: 'attached', timeout: 5000 }); }
+  await page.waitForTimeout(300);
+}
 /* A screen's throwaway project, by name, deleted after its shot (kosmos#6501: one helper for every such screen). */
 async function throwawayProjectGone(page, projectName) {
   const st = await page.evaluate(async (name) => {
@@ -1952,6 +1970,10 @@ const SCREENS = [
   /* #4637: the "wants to connect" sheet (Mona Lisa's flow outline, #4754). Two requests: another of the person's
      computers joining (#4773's joining_computer) and a phone. connect-connected is after Allow on the computer;
      connect-notice is the strip on another page. Each asserts its words, so a wrong screen fails the shot. */
+  /* kosmos#8188: the spreadsheet viewer on a damaged file: a cut grid says not all of it is shown, and a cut sheet with no
+     rows never says it is empty. The real viewer, opened from a real attachment card; the sheet answer is stubbed. */
+  { name: 'sheet-cut-8188', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await sheetCut8188(page, 0); } },
+  { name: 'sheet-cut-empty-8188', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await sheetCut8188(page, 1); } },
   { name: 'connect-sheet', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Your computer "windowsbox" wants to join/.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
   } },
