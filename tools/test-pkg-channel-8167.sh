@@ -26,6 +26,8 @@ case "$C3" in *'PKG_NAMES='*'pkg_triple_copy'*'left as it is'*'fi') pass "3c: ex
 C9="$(awk '/^_pkg_served_check\(\) \{/{p=1} p&&/^step "== 9d\./{exit} p{print}' "$REL")"
 case "$C9" in *'_pkg_served_check() {'*'for _pkg_name in $PKG_NAMES'*'"$PKG_PROD_NAME" unchanged'*) pass "9c: extracted the served check by its markers" ;; *) bad "9c: could not extract the served check"; C9="exit 99" ;; esac
 case "$C9" in *'step "'*) bad "9c: the extracted region holds another step" ;; esac
+CX="$(awk '/^# kosmos#8167: what deploys is the export, and the site checkout is shared/{p=1} p{print} p&&/^fi$/{exit}' "$REL")"
+case "$CX" in *'pkg_triple_check "$_site_export/dist" "$PKG_PROD_NAME"'*'PKG_PROD_SERVED_SHA'*'fi') pass "export guard: extracted by its markers" ;; *) bad "export guard: could not extract it"; CX="exit 99" ;; esac
 
 WANT="$(printf 'source-inputs' | shasum -a 256 | awk '{print $1}')"; OLDIN="$(printf 'old-inputs' | shasum -a 256 | awk '{print $1}')"
 mk() {   # <dir> <name> <bytes> <input-sha>: a whole triple
@@ -139,6 +141,22 @@ serve; mk "$WWW/dist" Kosmos-staging.pkg "BOTH" "$WANT"; mk "$WWW/dist" Kosmos.p
 out="$(run9c prod "Kosmos.pkg Kosmos-staging.pkg" " Kosmos.pkg Kosmos-staging.pkg")"; rc=$?
 [ "$rc" = 0 ] && case "$out" in *NINE-C-OK*) true;; *) false;; esac && case "$out" in *"did not move"*) false;; *) true;; esac && pass "9c prod: both current passes, with no staging-only check" || bad "9c prod pass (rc=$rc out=$out)"
 [ -z "$(find "$BR" -name 'pkg9c.*' 2>/dev/null)" ] && pass "9c: no temp dir left behind" || bad "9c left temp dirs in BUILD_ROOT"
+
+# ---- the export guard: a staging cut refuses to deploy an export whose Kosmos.pkg is not the pre-cut served one ----
+runx() {   # <channel> <served-sha-before>
+  ( set -e; CUT_CHANNEL="$1"; PKG_PROD_SERVED_SHA="$2"; _site_export="$EXP"; eval "$CX"; echo "EXPORT-OK" ) 2>&1
+}
+serve; mk "$EXP/dist" Kosmos.pkg "PROD" "$OLDIN"; BEFORE="$(psha "$EXP/dist/Kosmos.pkg")"
+out="$(runx staging "$BEFORE")"; rc=$?
+[ "$rc" = 0 ] && case "$out" in *EXPORT-OK*) true;; *) false;; esac && pass "export guard: the pre-cut Kosmos.pkg in the export deploys" || bad "export guard pass arm (rc=$rc out=$out)"
+mk "$EXP/dist" Kosmos.pkg "CHANGED-AFTER-3C" "$WANT"
+out="$(runx staging "$BEFORE")"; rc=$?
+[ "$rc" != 0 ] && case "$out" in *"something changed the site dist after step 3c"*) true;; *) false;; esac && pass "export guard: a Kosmos.pkg changed after 3c refuses the deploy" || bad "export guard changed arm (rc=$rc out=$out)"
+rm -f "$EXP/dist/Kosmos.pkg"*; mk "$EXP/dist" Kosmos-staging.pkg "STAGING" "$WANT"
+out="$(runx staging "$BEFORE")"; rc=$?
+[ "$rc" != 0 ] && case "$out" in *"has no whole Kosmos.pkg triple"*) true;; *) false;; esac && pass "export guard: an export with only the staging pkg refuses (the Download button would 404)" || bad "export guard staging-only arm (rc=$rc out=$out)"
+out="$(runx prod "$BEFORE")"; rc=$?
+[ "$rc" = 0 ] && pass "export guard: CONTROL a prod cut is not held to the pre-cut sha" || bad "export guard prod control (rc=$rc out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-pkg-channel-8167: ALL PASS"; else echo "test-pkg-channel-8167: FAILURES above"; exit 1; fi

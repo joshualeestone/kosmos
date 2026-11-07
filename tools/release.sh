@@ -1985,6 +1985,16 @@ _site_export="$BUILD_ROOT/site-export"
 # it LANDING. The card that prompted both was filed by a careful reader who had
 # only this line to go on.
 site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
+# kosmos#8167: what deploys is the export, and the site checkout is shared, so a promote or a hand copy between 3c and
+# here can change dist/Kosmos.pkg. On a staging cut the export's Kosmos.pkg must still be exactly the one served before
+# this cut (3c recorded it), or nothing deploys. 9c then confirms the result on the wire.
+if [ "$CUT_CHANNEL" = staging ]; then
+  _pkg_exp="$(pkg_triple_check "$_site_export/dist" "$PKG_PROD_NAME")" \
+    || { echo "the site export has no whole $PKG_PROD_NAME triple (above), so this staging cut would drop or break the Download button's installer; nothing was deployed (kosmos#8167)"; exit 1; }
+  [ "$_pkg_exp" = "$PKG_PROD_SERVED_SHA" ] \
+    || { echo "the site export's $PKG_PROD_NAME (${_pkg_exp:0:12}) is not the one served before this cut (${PKG_PROD_SERVED_SHA:0:12}): something changed the site dist after step 3c (a promote, or a hand copy). A staging cut must not change the Download button's installer; nothing was deployed (kosmos#8167)"; exit 1; }
+  echo "   the export's $PKG_PROD_NAME is the one served before this cut (${PKG_PROD_SERVED_SHA:0:12})"
+fi
 # kosmos#7281 review 1 (W2): the Linux pointer is committed, its tarball is carried from the working tree; a deploy
 # without the tarball would serve a pointer that 404s. The pair must be in the export and verify there.
 if [ "$CUT_LINUX" = yes ]; then
@@ -2164,7 +2174,7 @@ step "== 9c. the served installer .pkg is the one step 3c left in the site dist 
 _pkg_served_check() {
   local name="$1" mode="$2" i real
   _pkg_ok=0; _pkg_fact=""
-  _pkg_dir="$(mktemp -d "$BUILD_ROOT/pkg9c.XXXXXX")"
+  _pkg_dir="$(mktemp -d "$BUILD_ROOT/pkg9c.XXXXXX")" || { _pkg_fact="could not make a temp dir under $BUILD_ROOT"; return 1; }
   for i in 1 2 3 4 5 6; do
     _pkg_fact="the served $name inputs sidecar could not be fetched"
     if curl -fsSL -m 30 -H 'Cache-Control: no-cache' "${HOST:-https://installkosmos.com}/dist/$name.inputs" -o "$_pkg_dir/inputs"; then

@@ -91,3 +91,15 @@ Deferred, with reasons:
   follow-up.
 - NIT, deferred: a hard kill inside `pkg_triple_copy` can leave a `.pkgcopy.*` temp dir in the site dist. The
   export carries named files only, so it never ships.
+
+## Review round 3
+
+- WARNING, fixed: the staging-cut guard ran after the deploy (9c) and at 3c, but not on what actually deploys. The
+  site checkout is shared, so a promote or a hand copy between 3c and the export could change `dist/Kosmos.pkg`, and
+  the cut would ship it before 9c saw it. Right after `site_deploy_export`, a staging cut now refuses unless the
+  export's `Kosmos.pkg` is a whole triple whose sha is the pre-cut served one. That also covers the second warning
+  (an export carrying only the staging pkg: no whole `Kosmos.pkg`, refused).
+- NITs, fixed: verify-served's probe tells a 404 from a failure and its comment says the prod pkg's inputs are not
+  checked; 9c's temp-dir failure names its cause; the promote refusal says how to recover; the doc bullet order and
+  the doc's account of what promote checks; two more deploy-site arms (an unreachable probe refuses; the control
+  asserts the new WARNING).
