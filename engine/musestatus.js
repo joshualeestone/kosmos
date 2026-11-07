@@ -301,6 +301,17 @@ function lastSeenWorking() {
   if (t === null && g === null) return null;
   return t !== null && (g === null || t >= g) ? { at: t, from: 'turn' } : { at: g, from: 'sign' };
 }
+/* #8173: how long after Kosmos last saw a Muse sign-in work its row stays green. Past it the row says it is not
+   confirmed since then (the same line as #8159's Grok rows): a sign-in that died after its last turn otherwise read
+   green "confirmed 18 days ago" until an agent tried it. Never "expired": an unused sign-in can still work. */
+const SEEN_FRESH_MS = 3 * 24 * 60 * 60 * 1000;
+/** PURE: the connection a signed-in Muse row carries, from lastSeenWorking() ({ at, from } or null). */
+function connectionFor(seen, now = Date.now()) {
+  if (!seen || !Number.isFinite(seen.at)) return { state: 'connected', checkedLive: false, badge: 'signed_in_unverified' };
+  const age = Math.max(0, now - seen.at);
+  if (age > SEEN_FRESH_MS) return { state: 'connected', checkedLive: false, badge: 'signed_in_unverified', notConfirmedSince: seen.at, observedFrom: seen.from };
+  return { state: 'connected', checkedLive: false, badge: 'working', observedFrom: seen.from, observedAgeMs: age };
+}
 /* #4569: Meta refused a turn and nothing since says it works again: the row reads Not connected instead of vanishing.
    A sign-in whose save failed is not a refusal (review round 1): no turn ran, and there may never have been a sign-in. */
 function refused() {
@@ -314,4 +325,4 @@ const REAL = { runVersion };
 function setRunnerForTests(fn, opts) { if (fn) runVersion = fn; if (opts && opts.hardCapMs) hardCapMs = opts.hardCapMs; if (opts && opts.timeoutMs) timeoutMs = opts.timeoutMs; }
 function resetForTests() { runVersion = REAL.runVersion; hardCapMs = VERSION_HARD_CAP_MS; timeoutMs = VERSION_TIMEOUT_MS; }
 
-module.exports = { installed, version, parseVersion, enabled, offMarker, OFF_MARKER, NOT_INSTALLED_BECAUSE, signedIn, lastSeenWorking, refused, signinFolder, signedInMarker, eventsFolder, latest, markSignedOut, markTurnSignedIn, markKosmosSignedIn, markSaveFailed, fileAtStart, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
+module.exports = { installed, version, parseVersion, enabled, offMarker, OFF_MARKER, NOT_INSTALLED_BECAUSE, signedIn, lastSeenWorking, connectionFor, SEEN_FRESH_MS, refused, signinFolder, signedInMarker, eventsFolder, latest, markSignedOut, markTurnSignedIn, markKosmosSignedIn, markSaveFailed, fileAtStart, authFile, VERSION_TIMEOUT_MS, VERSION_HARD_CAP_MS, VERSION_UNKNOWN_BECAUSE, CHECK_FAILED_BECAUSE, setRunnerForTests, resetForTests };
