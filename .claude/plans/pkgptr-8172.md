@@ -100,3 +100,15 @@ name the same sha, which is correct: the installer is the same file.
 - NITs, fixed: verify-served tells a malformed pkg_sha256 from an absent one, and a malformed one on this run's
   channel fails (tested); the refusal for two same-build pointers names the different-pkg case too; a stale comment on
   what $POINTER decides; the doc sentence on which commit a named promote reads.
+
+## Review round 6
+
+- WARNING, fixed: promote's malformed check repeated its warning across two branches. It is one bash regex
+  (`^[0-9a-f]{64}$`, no pipe: the script runs with pipefail) and one warning; the malformed test still passes.
+- WARNING, already decided (round 4): a promote that cannot obtain the named pkg leaves latest.json naming it, so a
+  prod verify-served stays red until the bytes are put back. The reviewer agrees the doc's wording covers it.
+- NIT, fixed: verify-served maps each pkg name to its pointer explicitly; an unknown name fails instead of being held
+  to the staging pointer.
+- NITs, deferred: the named-promote compare depends on deleting setup_sha256 first (it does, in the same expression);
+  publish-staging-pointer.sh hashes with shasum where the libs use _pkg_hash, which is shasum on this Mac
+  (_pkg_hash uses shasum when present, sha256sum otherwise, and both are plain sha256).

@@ -169,8 +169,9 @@ _vs_pkg() {
     else say "/dist/$pn" "CHECKSUM MISMATCH -- the pair a person downloads disagrees with itself"; fail=1; fi
     # kosmos#8172: the served pointer for this pkg's channel may NAME it (pkg_sha256). Then it must be those bytes.
     # A pointer cut before #8172 names none, and that is said, not passed silently.
-    case "$pn" in Kosmos.pkg) _vs_ptr=latest.json ;; *) _vs_ptr=latest-staging.json ;; esac
-    if curl -fsS -m 30 -H 'Cache-Control: no-cache' "$HOST/dist/$_vs_ptr" -o "$pdir/ptr" 2>/dev/null; then
+    case "$pn" in Kosmos.pkg) _vs_ptr=latest.json ;; Kosmos-staging.pkg) _vs_ptr=latest-staging.json ;; *) _vs_ptr="" ;; esac
+    if [ -z "$_vs_ptr" ]; then say "/dist/$pn" "has no channel pointer to be held to (kosmos#8172 knows Kosmos.pkg and Kosmos-staging.pkg)"; fail=1
+    elif curl -fsS -m 30 -H 'Cache-Control: no-cache' "$HOST/dist/$_vs_ptr" -o "$pdir/ptr" 2>/dev/null; then
       _vs_named=$(node -e 'try{const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(p.pkg_sha256===undefined?"":(/^[0-9a-f]{64}$/.test(String(p.pkg_sha256))?p.pkg_sha256:"MALFORMED"))}catch{}' "$pdir/ptr" 2>/dev/null)
       if [ "$_vs_named" = MALFORMED ] && [ "$_vs_ptr" = "$POINTER" ]; then say "/dist/$pn vs $_vs_ptr" "the pointer's pkg_sha256 is not a sha256, so it names nothing this run can hold $pn to"; fail=1
       elif [ "$_vs_named" = MALFORMED ]; then say "/dist/$pn vs $_vs_ptr" "the pointer's pkg_sha256 is not a sha256; not this run's channel ($POINTER), so not failed"
