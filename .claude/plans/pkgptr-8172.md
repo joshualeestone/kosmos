@@ -64,3 +64,16 @@ name the same sha, which is correct: the installer is the same file.
 - CONVENTION, settled by reading: the pointer write (step 4) always runs after 3c in the one linear script; a re-run
   runs 3c again.
 - NIT, settled by reading: the cut passes KOSMOS_VERIFY_POINTER="$POINTER_FILE" to verify-served (step 9).
+
+## Review round 3
+
+- WARNING, fixed: docs/staging-channel.md now gives promote's two rules (the pointer names its pkg, or it does not),
+  including that a `--version` promote whose pointer names its pkg now carries it, and says how verify-served holds
+  each pkg to its channel's pointer.
+- NITs, fixed: verify-served's comment block (no longer claims nothing records prod's pkg) and its "names no pkg"
+  message (also covers a hand republish); a comment on why an unreadable pointer fails on either channel; promote
+  validates the pointer's pkg_sha256 shape and says so when it is malformed; a test arm checks its tool's exit code.
+- NITs, deferred: verify-served fetches the channel pointer a second time instead of reusing its earlier read; a CDN
+  disagreement between the two reads is absorbed by step 9's six-read retry. publish-staging-pointer.sh names
+  `Kosmos-staging.pkg` literally because it does not load pkg-inputs.sh; it hashes the pkg bytes only, and
+  verify-served checks the whole triple.

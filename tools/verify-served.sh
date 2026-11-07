@@ -139,10 +139,11 @@ echo "== what the Download button serves =="
 pwant=$(pkg_input_sha "$REPO") || { say "/dist/Kosmos.pkg inputs" "could not compute the source input sha"; fail=1; pwant=; }
 # kosmos#8167: two names. A staging cut publishes Kosmos-staging.pkg and leaves Kosmos.pkg (the button's) alone;
 # promote copies one onto the other. So when a staging pkg is served, IT must match the source, and Kosmos.pkg is
-# checked as a whole, signed, stapled triple. kosmos#8172: each is also held to the pkg_sha256 its own channel's pointer
-# names, strictly only for the channel this run verifies ($POINTER). Its inputs are not checked here: between a staging cut
-# and its promote they are meant to lag, and nothing records which pkg prod should have. With no staging pkg served yet
+# checked as a whole, signed, stapled triple, its inputs not checked against the source: between a staging cut
+# and its promote they are meant to lag. With no staging pkg served yet
 # (before the first staging cut after kosmos#8167), Kosmos.pkg must match the source, as before.
+# kosmos#8172: each served pkg is ALSO held to the pkg_sha256 its own channel's pointer names, when it names one:
+# strictly for the channel this run verifies ($POINTER), and as a report for the other channel.
 # _vs_pkg <name> <source|any>
 _vs_pkg() {
   pn="$1"; pmode="$2"
@@ -170,13 +171,15 @@ _vs_pkg() {
     case "$pn" in Kosmos.pkg) _vs_ptr=latest.json ;; *) _vs_ptr=latest-staging.json ;; esac
     if curl -fsS -m 30 -H 'Cache-Control: no-cache' "$HOST/dist/$_vs_ptr" -o "$pdir/ptr" 2>/dev/null; then
       _vs_named=$(node -e 'try{const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(/^[0-9a-f]{64}$/.test(p.pkg_sha256||"")?p.pkg_sha256:"")}catch{}' "$pdir/ptr" 2>/dev/null)
-      if [ -z "$_vs_named" ]; then say "/dist/$pn vs $_vs_ptr" "the pointer names no pkg (cut before kosmos#8172): not checked"
+      if [ -z "$_vs_named" ]; then say "/dist/$pn vs $_vs_ptr" "the pointer names no pkg (cut before kosmos#8172, or republished by hand): not checked"
       elif [ "$_vs_named" = "$preal" ]; then say "/dist/$pn vs $_vs_ptr" "is the pkg the pointer names (${preal:0:12})"
       elif [ "$_vs_ptr" = "$POINTER" ]; then say "/dist/$pn vs $_vs_ptr" "NOT the pkg the pointer names: served ${preal:0:12}, named ${_vs_named:0:12}"; fail=1
       # The OTHER channel's pointer is not this check's to enforce: a prod cut rewrites Kosmos-staging.pkg under the
       # older latest-staging.json, and a promote that could not move the pkg leaves latest.json naming one it does not
       # serve. Neither is this run's channel, so it is said, not failed.
       else say "/dist/$pn vs $_vs_ptr" "differs from what $_vs_ptr names (served ${preal:0:12}, named ${_vs_named:0:12}); not this run's channel ($POINTER), so not failed"; fi
+    # A pointer that cannot be read IS a fault, on either channel: unlike a mismatch on the other channel, it is not a
+    # state some other cut legitimately left behind.
     else say "/dist/$_vs_ptr" "could not be fetched, so $pn was not held to it"; fail=1; fi
     # The sidecar must vouch for THESE bytes: a new sidecar beside the prior
     # pkg pair (each self-consistent) is the mixed edge state this line catches.
