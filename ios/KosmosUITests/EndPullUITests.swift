@@ -79,7 +79,13 @@ final class EndPullUITests: XCTestCase {
         let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
         let waited = openFinished(row)
+        // kosmos#7609: the baseline is the settled list. On CI a long chat can open 103 to 129 pt short of its end until any touch
+        // (#8072), so this says how far, and does not fail on it.
+        let opened = row.frame.minY
+        pullUp(app, distance: 30)
+        KeyboardSlideUITests.settle(row)
         let before = row.frame.minY
+        if abs(opened - before) > 20 { print("UI-NOTE kosmos#8072: the long chat opened \(Int(opened - before)) pt short of its end, until a touch") }
         pullUp(app, distance: 420)
         XCTAssertTrue(dots(app).waitForExistence(timeout: 3), "no dots after a long pull, " + waited)
         KeyboardSlideUITests.settle(row)

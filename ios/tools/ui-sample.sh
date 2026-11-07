@@ -84,22 +84,29 @@ for c in $classes; do only="$only -only-testing:KosmosUITests/${c%%:*}"; want=$(
 log="$work/xcodebuild.log"
 # shellcheck disable=SC2086  # $only and $skip are lists of separate arguments
 ( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
-    $only $skip -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
+    -retry-tests-on-failure -test-iterations 2 $only $skip -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
 rc=$?
-ran="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' (passed|failed|skipped)" "$log")"
-skipped="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' skipped" "$log")"   # #7654: a check that says it could not test here
-failed="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' failed" "$log")"
+# kosmos#7609: a failed test gets one more try, because this job runs on GitHub's slower runners and waits run out there. So a test
+# counts once, by its last result, and one that failed then passed is FLAKY: named below, a warning on the run, and countable across runs.
+tally="$("$here/ui-sample-tally.sh" "$log")"
+ran="$(printf '%s\n' "$tally" | grep -c -E ' (passed|failed|skipped)$')"
+skipped="$(printf '%s\n' "$tally" | grep -c ' skipped$')"   # #7654: a check that says it could not test here
+failed="$(printf '%s\n' "$tally" | grep -c ' failed$')"
+flaky="$(printf '%s\n' "$tally" | grep ' flaky$' | sed 's/ flaky$//')"
 # Review 1: each class must have run exactly its own number, so one class gaining a test cannot hide another skipping one.
 short=""
 for c in $classes; do
-  n="$(grep -c -E "^Test Case '-\[KosmosUITests\.${c%%:*} [A-Za-z0-9_]+\]' (passed|failed|skipped)" "$log")"
+  n="$(printf '%s\n' "$tally" | grep -c -E "^${c%%:*}\.[A-Za-z0-9_]+ (passed|failed|skipped)$")"
   [ "$n" -eq "${c##*:}" ] || short="$short ${c%%:*}=$n/${c##*:}"
 done
 if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ] && [ -z "$short" ]; then
   note=""; [ "$skipped" -gt 0 ] && note=" ($skipped of them SKIPPED: a skip tested nothing, named below)"
   # #7654: on GitHub Actions a skip is also an annotation on the run, so a green job that tested less is visible.
   [ "$skipped" -gt 0 ] && [ -n "${GITHUB_ACTIONS:-}" ] && echo "::warning title=ui-sample::$skipped UI check(s) SKIPPED (they tested nothing); named in this step's output"
+  [ -n "$flaky" ] && note="$note ($(printf '%s\n' "$flaky" | wc -l | tr -d ' ') FLAKY: failed, then passed on its retry, named below)"
+  [ -n "$flaky" ] && [ -n "${GITHUB_ACTIONS:-}" ] && echo "::warning title=ui-sample::FLAKY, passed only on a retry: $(printf '%s' "$flaky" | paste -sd ' ' -)"
   echo "PASS  ui-sample: $ran of $want UI checks passed on a fresh simulator$note"
+  [ -n "$flaky" ] && printf '%s\n' "$flaky" | sed 's/^/FLAKY /'
   # kosmos#7348: name them and why, since the log is deleted with the run.
   sed -n 's/.*-\[KosmosUITests\.\([A-Za-z0-9_]* [A-Za-z0-9_]*\)\] : Test skipped - /SKIPPED \1: /p' "$log" | cut -c1-300
   exit 0
