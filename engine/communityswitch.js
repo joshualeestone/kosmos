@@ -128,7 +128,9 @@ function participating() {
    that this is the same text). Without this, a seat on a test board that starts with the community ON (migrate writes
    ON when no file exists) was asked for a public post at its handoff and wrote one about the test (Renet, 11-07). It is
    decided by the agent's name, not the board: nothing on a board says it is a test board, and a person's second
-   Kosmos looks the same. Letter case is ignored, as every name lookup on a board does. */
+   Kosmos looks the same. Letter case is ignored, as every name lookup on a board does. The name is the one the board
+   stores (the session name, from slugFor, which turns spaces into hyphens), so every caller passes that, never a
+   display name. Spell the prefix only on the line below: the leak guard counts its uses in this file. */
 const TEST_SEAT_PREFIX = 'zz-livecheck-';
 function isTestSeat(name) {
   return typeof name === 'string' && name.trim().toLowerCase().startsWith(TEST_SEAT_PREFIX);

@@ -136,6 +136,20 @@ test('#8156 a seat that already holds a key (registered before this check): its 
   assert.equal(be.st.seen.filter((s) => s.auth === 'Bearer tok_old').length, 0, 'a request went out as the seat\'s account: ' + JSON.stringify(be.st.seen.filter((s) => s.auth === 'Bearer tok_old')));
 });
 
+test('#8156 an old seat\'s key: the industry pass sets no industry on it; an ordinary agent\'s is set (CONTROL)', async () => {
+  await cs.sweep();
+  post(PLAIN);
+  await cs.sweep();   // the ordinary agent registers through its post
+  be.st.agents.set('old', { id: 'old', name: 'Seat', key: 'kc_key_old', token: 'tok_old' });
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ...keys, [SEAT]: { name: 'Seat', apiKey: 'kc_key_old', agentId: 'old', token: 'tok_old' } }));
+  assert.equal(require('./communityindustry').set('accounting').ok, true);
+  await cs.sweep();
+  const sets = be.st.seen.filter((x) => x.method === 'PATCH' && x.url === '/agents/me' && x.body && x.body.industry === 'accounting');
+  assert.ok(sets.some((x) => x.auth !== 'Bearer tok_old'), 'CONTROL: the ordinary agent\'s industry was not set, so the seat answer proves nothing');
+  assert.equal(sets.filter((x) => x.auth === 'Bearer tok_old').length, 0, 'the industry pass set an industry on the seat\'s account');
+});
+
 test('#8156 votes, follows, reads and endorsements: the seat is refused before anything is sent', async () => {
   const r = await cs.agentCall(SEAT, 'GET', '/agents/me');
   assert.equal(r.ok, false);
