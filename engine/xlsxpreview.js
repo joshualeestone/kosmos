@@ -177,34 +177,43 @@ function nestedStart(body, name) {
   }
   return false;
 }
-/* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with indexOf (a
-   start tag's end by startTagEnd). With `lenient` (the containers: sheetData, row), one the part never closes (a file
-   cut short) yields the rest of the part, so what is there is still read; a value that is not closed is never read. */
-function* elements(xml, name, lenient = false) {
+/* Every element named `name` in `xml`, as { tag, body, start, end } (body '' for a self-closed one), found with
+   indexOf (a start tag's end by startTagEnd). With `lenient` (the containers: sheetData, row), one the part never closes
+   (a file cut short) yields the rest of the part, so what is there is still read; a value that is not closed is never
+   read.
+   kosmos#8168: a start tag lost with its close left behind ("<si>a</si><t>b</t></si>") is counted, so what follows reads
+   as cut, never as another item's value: a close found after the last element yielded and before the next start, or
+   after the last one. Closes are searched from the last element's end, once, and the result reused until passed, so a
+   part of self-closed elements stays one pass. With `list` (a container's body that holds only these elements:
+   sheets, Relationships, numFmts, cellXfs), any text between two of them or after the last is counted too: a lost
+   start of a SELF-CLOSED element leaves no close, only its attributes. */
+function* elements(xml, name, lenient = false, list = false) {
   let at = 0;
-  /* kosmos#8168: a close with no start before it (a lost start tag: "<si>a</si><t>b</t></si>") is counted, so what
-     follows is read as cut, never as another item's text. The next close is found once and reused until passed, so
-     self-closed elements (no closes at all) stay one pass. */
+  let lastEnd = 0;   // the end of the last element yielded
   const closeTag = '</' + name + '>';
-  let nextClose = -2;
+  let nextClose = -2;   // the first close at or after lastEnd (-1: none), or -2 before it is looked for
+  const strayBefore = (limit) => {
+    if (nextClose === -2 || (nextClose >= 0 && nextClose < lastEnd)) nextClose = xml.indexOf(closeTag, lastEnd);
+    return nextClose >= 0 && nextClose < limit;
+  };
+  const gap = (from, to) => list && /\S/.test(xml.slice(from, to));
   for (;;) {
     let i = xml.indexOf('<' + name, at);
-    if (i < 0) return;
+    if (i < 0) { if (strayBefore(xml.length) || gap(lastEnd, xml.length)) cutShorts++; return; }
     const after = xml[i + name.length + 1];
     if (after !== ' ' && after !== '>' && after !== '/' && after !== '\t' && after !== '\n' && after !== '\r') { at = i + 1; nearMiss(); continue; }
-    if (nextClose !== -1 && nextClose < at) nextClose = xml.indexOf(closeTag, at);
-    if (nextClose >= 0 && nextClose < i) { cutShorts++; nextClose = xml.indexOf(closeTag, i); }
+    if (strayBefore(i) || gap(lastEnd, i)) cutShorts++;
     const tagEnd = startTagEnd(xml, i);
     if (tagEnd < 0) { cutShorts++; return; }
     const tag = xml.slice(i, tagEnd + 1);
-    if (tag.endsWith('/>')) { yield { tag, body: '', end: tagEnd + 1 }; at = tagEnd + 1; continue; }
-    const close = xml.indexOf('</' + name + '>', tagEnd);
+    if (tag.endsWith('/>')) { lastEnd = at = tagEnd + 1; yield { tag, body: '', start: i, end: tagEnd + 1 }; continue; }
+    const close = xml.indexOf(closeTag, tagEnd);
     // A container never closed (a part cut short) still yields what is there, and is counted like any other (review r2).
-    if (close < 0) { cutShorts++; if (lenient) yield { tag, body: xml.slice(tagEnd + 1), end: xml.length }; return; }
+    if (close < 0) { cutShorts++; if (lenient) yield { tag, body: xml.slice(tagEnd + 1), start: i, end: xml.length }; return; }
     const body = xml.slice(tagEnd + 1, close);
     if (nestedStart(body, name)) cutShorts++;
-    yield { tag, body, end: close + name.length + 3 };
-    at = close + name.length + 3;
+    lastEnd = at = close + name.length + 3;
+    yield { tag, body, start: i, end: lastEnd };
   }
 }
 /* The text of a string item: every <t> run joined, but not the phonetic guide (<rPh>, review 1: a Japanese cell showed
@@ -374,7 +383,8 @@ function builtinKind(id) {
 function styleKinds(stylesXml, budget = () => {}) {
   const custom = new Map();
   let k = 0;
-  for (const f of elements(stylesXml, 'numFmt')) {
+  const fmts = elements(stylesXml, 'numFmts', true).next().value;   // kosmos#8168: read as a list, inside its container
+  for (const f of elements(fmts ? fmts.body : '', 'numFmt', false, true)) {
     custom.set(Number(attr(f.tag, 'numFmtId')), attr(f.tag, 'formatCode') || '');
     if ((++k & 1023) === 0) budget();
   }
@@ -382,13 +392,8 @@ function styleKinds(stylesXml, budget = () => {}) {
   const xfs = elements(stylesXml, 'cellXfs').next().value;
   if (!xfs) return out;
   const memo = new Map();   // review 3: one reading per format, not one per style
-  /* kosmos#8168: between two styles there is only space. Anything else is a style whose start was lost
-     ('<xf numFmtId="0"/> numFmtId="0"/><xf .../>'), which shifts every later index: counted, so every sheet is cut. */
-  let prevEnd = 0;
-  for (const x of elements(xfs.body, 'xf')) {
-    const start = x.end - (x.body === '' && x.tag.endsWith('/>') ? x.tag.length : x.tag.length + x.body.length + 5);
-    if (xfs.body.slice(prevEnd, Math.max(prevEnd, start)).trim() !== '') cutShorts++;
-    prevEnd = x.end;
+  // kosmos#8168: as a list, so a style whose start was lost (only its attributes left) is counted, the last one too.
+  for (const x of elements(xfs.body, 'xf', false, true)) {
     const id = Number(attr(x.tag, 'numFmtId') || 0);
     if (!memo.has(id)) memo.set(id, custom.has(id) ? formatKind(custom.get(id)) : builtinKind(id));
     out.push(memo.get(id));
@@ -516,7 +521,8 @@ function readBook(buf, budget) {
   const from1904 = !!pr && /^(1|true)$/i.test(attr(pr.tag, 'date1904') || '');
   const rels = new Map();
   let rk = 0;
-  for (const r of elements(part('xl/_rels/workbook.xml.rels') || '', 'Relationship')) {
+  const relsList = elements(part('xl/_rels/workbook.xml.rels') || '', 'Relationships', true).next().value;   // kosmos#8168
+  for (const r of elements(relsList ? relsList.body : '', 'Relationship', false, true)) {
     rels.set(attr(r.tag, 'Id'), attr(r.tag, 'Target') || '');
     if ((++rk & 1023) === 0) budget();
   }
@@ -548,12 +554,18 @@ function readBook(buf, budget) {
   }
   const beforeStyles = cutShorts;
   const kinds = styleKinds(part('xl/styles.xml') || '', budget);
-  /* kosmos#8168: the sheet list is read whole first, so a list cut off (or a lost <sheet) counts before any sheet is
-     answered: every sheet, the ones kept included, is then cut. */
-  const beforeList = cutShorts;
+  /* kosmos#8168: the sheet list is walked whole first, as a list inside <sheets>, so a list cut off or a lost <sheet
+     counts before any sheet is answered, and every sheet, the ones kept included, is then cut. Only the first
+     MAX_SHEETS shown sheets are held (round 1: a list of a million held them all); the rest are counted. */
+  const sheetsEl = elements(workbook, 'sheets', true).next().value;
   const sheetList = [];
-  for (const s of elements(workbook, 'sheet')) { sheetList.push(s); if ((sheetList.length & 1023) === 0) budget(); }
-  const structureCut = cutShorts > beforeStyles || structureBeforeStrings || cutShorts > beforeList;
+  let sheetTotal = 0;
+  for (const s of elements(sheetsEl ? sheetsEl.body : '', 'sheet', false, true)) {
+    if ((++sheetTotal & 1023) === 0) budget();
+    if ((attr(s.tag, 'state') || '') === 'veryHidden') { sheetTotal--; continue; }   // a sheet Excel never shows, not even to unhide
+    if (sheetList.length < MAX_SHEETS) sheetList.push(s);
+  }
+  const structureCut = cutShorts > beforeStyles || structureBeforeStrings;
 
   const sheets = [];
   const readTargets = new Set();   // review 1: a part named by several sheets is read once
@@ -563,12 +575,8 @@ function readBook(buf, budget) {
   let walkCut = false;      // #8147: something in a sheet was not read (the walk stopped at MAX_VISITS, or a row or cell
                             // could not be placed), so what it held is unknown to the answer
   let outputLeft = MAX_OUTPUT_CHARS;   // review 5: for the whole answer, every sheet together
-  let sk = 0;
   for (const s of sheetList) {
-    if ((++sk & 1023) === 0) budget();
-    if ((attr(s.tag, 'state') || '') === 'veryHidden') continue;   // a sheet Excel never shows, not even to unhide
     all++;
-    if (sheets.length >= MAX_SHEETS) continue;
     const name = attr(s.tag, 'name') || ('Sheet ' + all);
     let target = rels.get(attr(s.tag, 'id')) || '';
     target = target.replace(/^\/?xl\//, '').replace(/^\//, '');
@@ -729,6 +737,7 @@ function readBook(buf, budget) {
     sheets.push({ name, rows, cut, ...(base ? { firstRow: base + 1 } : {}) });
     budget();
   }
+  all = sheetTotal;   // kosmos#8168: every shown sheet, the ones past MAX_SHEETS that were only counted included
   if (!all) refuse(CANNOT_READ);
   /* someNoValues: some cells are formulas with no saved value, beside cells that have one or beside a part that was not
      read (so "no saved values" cannot be claimed), so the viewer can say why those cells are blank. noValues: every
