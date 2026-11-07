@@ -240,8 +240,8 @@ function workingNow(readReport, name, now, decayMs) {
   return age >= 0 && age <= decayMs;
 }
 
-/* #4624 follow-up (0.7.15 diagnostic, H7): the member's latest report is an `idle` written by its own turn-end hook
-   (by 'auto'), at any age: its last turn ended and it is waiting. Typing a colleague's un-addressed post there starts a
+/* #4624 follow-up (0.7.15 diagnostic, H7): the member's latest report is an `idle` written by its own turn-end hook,
+   or by a person's press on its permission prompt (kosmos#8036; both by 'auto'), at any age: its last turn ended and it is waiting. Typing a colleague's un-addressed post there starts a
    turn that ends in "not addressed to me". Only a hook's idle (review 1): it shows this runner's hook reports a turn's
    end, so the idle flush normally tells the member when its next turn ends, whatever woke it (a turn that errors or
    is interrupted may end without one; the posts then wait for the next). An idle the agent wrote itself shows nothing

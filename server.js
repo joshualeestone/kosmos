@@ -4963,6 +4963,13 @@ function noteTextNow(m, names) {
    that closed the prompt is what ended the wait, so it ends here, at once. Its pushes go with it and no "no longer asking" line
    follows: the person answered it. */
 const pressedWaits = new Map();   // session -> the `at` of the wait whose prompt a press is on: a report can land while the press settles
+function permissionWaitPressed(card) {
+  try {
+    if (!card || !pressedWaits.has(card.sessionName)) return false;
+    const standing = selfreport.read(card.sessionName);
+    return selfreport.isAutoPermissionWait(standing) && standing.at === pressedWaits.get(card.sessionName);
+  } catch { return false; }
+}
 function permissionWaitBeforePress(card) {
   try {
     const standing = card && card.sessionName ? selfreport.read(card.sessionName) : null;
@@ -20462,7 +20469,8 @@ const server = http.createServer(async (req, res) => {
      * board's placeholder for a needs_you with no words of its own, so it is
      * NOT offered as a question - falling through to the honest clause below.
      */
-    const reportedQuestion = (asking && !paneQuestion
+    const pressSettling = asking && !paneQuestion && permissionWaitPressed(card);   // kosmos#8036
+    const reportedQuestion = (asking && !paneQuestion && !pressSettling
       && card && card.stateReported === true
       && card.because && card.because !== ASKING_GENERIC)
       ? { text: card.because, reported: true } : null;
@@ -20470,7 +20478,7 @@ const server = http.createServer(async (req, res) => {
     // The same two sentences as the project route, and they stay two: "we read
     // its screen and the question is not in the capture" is not "we could not
     // read its screen at all". Null too once a reported question stands in.
-    const questionBecause = (asking && !question)
+    const questionBecause = (asking && !question && !pressSettling)
       ? ((view && view.noWindow === true)
         ? NO_WINDOW_QUESTION_BECAUSE
         : (!view || view.text == null)
@@ -21190,7 +21198,11 @@ const server = http.createServer(async (req, res) => {
             if (opt && !files.recs.length && !answered) {
               const waitPressed = cq.permission ? permissionWaitBeforePress(askingCard) : null;   // kosmos#8036: only a press on the prompt itself
               const markBefore = pressedWaits.get(askingCard.sessionName);   // a refused press puts back what another press had marked
-              const pressFailed = () => { if (!waitPressed) return; if (markBefore === undefined) pressedWaits.delete(askingCard.sessionName); else pressedWaits.set(askingCard.sessionName, markBefore); };
+              const pressFailed = () => {
+                if (!waitPressed) return;
+                if (markBefore === undefined) pressedWaits.delete(askingCard.sessionName);
+                else pressedWaits.set(askingCard.sessionName, markBefore);
+              };
               if (waitPressed) pressedWaits.set(askingCard.sessionName, waitPressed.at);
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}),
                 ...(cq.permission && requestGiven ? { request: body.request } : {}) }   // kosmos#7020: re-checked on the last look
