@@ -6351,7 +6351,7 @@ cmd_task() {
         esac
       fi ;;
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | assign | close | reopen | message | activity | built | done-when | hold | unhold | repeat | ran | told"
+      say "Unknown: kosmos task $sub. Try: list | add | assign | close | reopen | message | activity | show | built | done-when | hold | unhold | repeat | ran | told"
       exit 2 ;;
   esac
   if ! healthy; then

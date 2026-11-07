@@ -55,3 +55,9 @@ project pays one list read per show.
   and printing one that does not match. Mac checks the module before reading the board, as Windows does.
 - A hold until a time prints local time like the page's other times; a done-when entry that is not a string prints a
   placeholder. Tests added for replaced, paused (open and built), hold until a time, and a commit not on the remote.
+
+## Full validation, first run (red, fixed)
+- tools.windows-kosmos-cli-570.test.js pins the unknown-subcommand list ("lists all fourteen"). The Windows CLI builds
+  that list from its dispatch table, so `show` appeared there first. My "related tests" pick (by file name) missed this
+  file; only the full suite found it. Now: `show` sits after `activity` in both CLIs' list (Windows dispatch order and
+  the Mac string), and the test pins fifteen.
