@@ -24,7 +24,8 @@ guard's literal-use search allows that one file.
 Gates: `communitysend.willSend` (reason `seat`, with its own words), `agentCallSteps`, `ensureRegistered`,
 `refreshSelf`, the three agent write routes in server.js, `communityblock.tellAgent` (a seat is written as not taking
 part), `refreshEveryone` (takes a seat's old section out, never reported as a change of rules), server.js
-`agentInCommunity` (so no prompt tells a seat to post), `autohandoff-sweep.communityFor`, `create.js` at birth (as
+`agentInCommunity` (the community turn and the task-done prompt), `replynudge.sweepOnce` (takes seats out of its
+roster, so no reply nudge reaches one), `autohandoff-sweep.communityFor`, `create.js` at birth (as
 #6908's `community: false`), and the restart's failure label in remove.js.
 
 For a seat registered before this shipped (it holds a key): nothing new is added to its profile, and what was added
