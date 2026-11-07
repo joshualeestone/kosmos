@@ -58,6 +58,7 @@ struct ChatView: View {
     static let sampleNoRebuildHide = false
     #endif
     static let rebuildsMax = 3
+    static let sampleTailCap: Int? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TAILCAP"].flatMap(Int.init)   // EXPERIMENT kosmos#7420
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
     @State private var anchorLetGo = false
     // kosmos#7645: where each drawn row is on the screen (iOS 26 and later), for the keyboard hold.
@@ -567,7 +568,8 @@ struct ChatView: View {
             let rows = Board.chatFilter(loaded, agentName: shown.name, query: query)
             // kosmos#7348: pendingBubbles draws each send still on its way as the row it will become.
             let grouped = Board.chatItems(rows, pending: searching ? [] : pending, now: Date(), calendar: .current)
-            let items = grouped.items
+            // EXPERIMENT kosmos#7420: KOSMOS_SAMPLE_TAILCAP=<n> draws only the newest n items (no older loading), to see whether a short list still blanks.
+            let items = Self.sampleTailCap.map { cap in grouped.items.count > cap ? Array(grouped.items.suffix(cap)) : grouped.items } ?? grouped.items
             let pendingLayout = grouped.places
             // kosmos#7420: the list these markers are drawn in; a list since rebuilt (listEpoch) answers for nothing.
             let drawnEpoch = listEpoch
@@ -1368,6 +1370,12 @@ struct ChatView: View {
                     rebuildHiding = false
                 }
             }
+            // EXPERIMENT kosmos#7420: the new list at fixed times.
+            for at in [0.1, 0.4, 0.8, 1.2, 1.8, 2.5, 4.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + at) {
+                    Self.trace("debug after rebuild \(rebuilds.count) +\(at): rows \(onScreen.count), end \(endVisible), \(scrollBox.reading()?.line ?? "unread")")
+                }
+            }
             // A new list that draws no row never has a row leave, so nothing would check it: one check once the grace is over.
             DispatchQueue.main.asyncAfter(deadline: .now() + Board.rebuildGrace + Board.rebuildCheckBump) {
                 if listEpoch == listAt, epoch == chatAt { diagTick &+= 1 }
@@ -2024,6 +2032,27 @@ struct ChatView: View {
         .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
         // kosmos#7420: KOSMOS_SAMPLE_DIAG=1 shows the diagnostic line with a sample report, for the design shots.
         .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_DIAG"] == "1" { diagReport = "Kosmos iPhone chat diagnostic (kosmos#7420)\nwhat: sample" } }
+        // EXPERIMENT kosmos#7420: KOSMOS_SAMPLE_BOXFLIP=<n> flips the box a line n times with the keyboard up, as the 12:56 capture did.
+        .onAppear {
+            if let n = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_BOXFLIP"].flatMap(Int.init), n > 0 {
+                let wrap = String(repeating: "catalogue ", count: 6)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { composerFocused = true }
+                for i in 0..<n {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 8 + Double(i) * 0.65) {
+                        draftText = i % 2 == 0 ? wrap : ""
+                        Self.trace("debug flip \(i), rows \(onScreen.count), end \(endVisible), \(scrollBox.reading()?.line ?? "unread")")
+                    }
+                }
+                for j in 0..<60 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 24 + Double(j) * 0.2) {
+                        Self.trace("debug sample rows \(onScreen.count), end \(endVisible), rebuilds \(rebuilds.count), \(scrollBox.reading()?.line ?? "unread")")
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8 + Double(n) * 0.65 + 5) {
+                    Self.trace("debug flip done, rows \(onScreen.count), end \(endVisible), rebuilds \(rebuilds.count), \(scrollBox.reading()?.line ?? "unread")")
+                }
+            }
+        }
         // kosmos#7420: KOSMOS_SAMPLE_FOCUS=<seconds> taps the box that long after opening (the keyboard rises), as a person
         // would (nothing in the simulator can tap here).
         .onAppear {

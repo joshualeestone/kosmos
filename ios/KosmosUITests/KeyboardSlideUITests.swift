@@ -118,6 +118,22 @@ final class KeyboardSlideUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [drawn], timeout: 6), .completed, "no message drawn after the message box grew")
     }
 
+    // EXPERIMENT kosmos#7420 box-height shape, not for merge: the 22 pt flip of the 12:56 capture, repeated at the newest.
+    func testBoxFlipExperiment() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["KOSMOS_SAMPLE_AGENTS"] = "1"
+        app.launchEnvironment["KOSMOS_SAMPLE_OPEN"] = "dana"
+        app.launchEnvironment["KOSMOS_SAMPLE_LONG"] = "varied"
+        app.launchEnvironment["KOSMOS_SAMPLE_TRACE"] = "1"
+        app.launchEnvironment["KOSMOS_SAMPLE_BOXFLIP"] = "8"
+        if ProcessInfo.processInfo.environment["KOSMOS_NOTICEOVER"] == "1" { app.launchEnvironment["KOSMOS_SAMPLE_NOTICEOVER"] = "1" }
+        if let n = ProcessInfo.processInfo.environment["KOSMOS_NUDGE"] { app.launchEnvironment["KOSMOS_SAMPLE_NUDGE"] = n }
+        if let n = ProcessInfo.processInfo.environment["KOSMOS_TAILCAP"] { app.launchEnvironment["KOSMOS_SAMPLE_TAILCAP"] = n }
+        app.launch()
+        Thread.sleep(forTimeInterval: 22)   // no queries: the varied long chat timed one out at 131 s
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.name = "boxflip-end"; shot.lifetime = .keepAlways; add(shot)
+    }
+
     // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP moves
     // the reader up the thread 3 s after opening, as a reader's own scroll does.
     func testReadHigherUpStaysWhereItWas() throws {
