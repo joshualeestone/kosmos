@@ -31,7 +31,9 @@ can still be taken back. The install-group pass counts a seat as removed (never 
 grouped), the avatar pass gives a seat no picture (one already sent is taken down), the industry pass sends it no new
 industry (a clear still goes), and the owner-link pass links it to no owner; an owner link it already has stays
 (see Not done). `agentCallSteps` lets
-through only a take-back by a seat holding a key: a DELETE (unfollow, unendorse) and a vote cleared to 0.
+through only a take-back by a seat holding a key: an unfollow or an unendorse (a DELETE on those two paths) and a
+vote cleared to 0. If the test-seat check cannot load, every agent reads as a seat (nothing is sent) and the board's
+log says so once.
 
 Not gated, on purpose: `asAgent`. Review 1 found that a refused answer there reads as an outage to the passes, so one
 old seat would stall every agent after it, and it would stop a seat's own posts from ever being deleted.

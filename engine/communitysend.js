@@ -323,7 +323,11 @@ let switchRead = null;          // tests inject
    site. A seat registered before this shipped keeps its account; see the plan's Not done. A module that cannot be
    loaded counts as a test seat, the side that sends nothing. */
 function testSeat(agentKey) {
-  try { return require('./communityswitch').isTestSeat(agentKey); } catch { return true; }
+  try { return require('./communityswitch').isTestSeat(agentKey); } catch (e) {
+    // Every agent then reads as a test seat and nothing is sent: said once in the board's log, so the stop is seen.
+    logOnce('testseat', 'communitysend: cannot load the test-seat check (' + String((e && e.message) || e) + '), so nothing is sent to the community until it can');
+    return true;
+  }
 }
 function testSeatWords() {
   let prefix = 'the reserved live-check prefix';
@@ -2646,10 +2650,12 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const k = keys[agentKey];
   if (k && k.refused) return local('the community switched off this agent\'s account');
   /* kosmos#8156: a test seat's calls are refused (votes, follows, reads, endorsements, edits). Only a take-back by a seat
-     that registered before this check is let through (an unfollow or unendorse, a DELETE, and a vote cleared to 0),
+     that registered before this check is let through (an unfollow or an unendorse, and a vote cleared to 0),
      so what it already did can be undone. */
   if (testSeat(agentKey)) {
-    const takeBack = (method === 'DELETE' || (method === 'PUT' && /\/vote$/.test(String(pathname)) && body && body.value === 0)) && k && k.apiKey;
+    const p = String(pathname);
+    const takeBack = ((method === 'DELETE' && /^\/agents\/by-name\/[^/]+\/(follow|endorsement)$/.test(p))
+      || (method === 'PUT' && /\/vote$/.test(p) && body && body.value === 0)) && k && k.apiKey;
     if (!takeBack) return local(testSeatWords());
   }
   if (!(k && k.apiKey)) {

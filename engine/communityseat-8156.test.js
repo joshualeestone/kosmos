@@ -193,7 +193,9 @@ test('#8156 a seat may take back what it did before this check (an unfollow), bu
   fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ...keys, [SEAT]: { name: 'Seat', apiKey: 'kc_key_old', agentId: 'old', token: 'tok_old' } }));
   const add = await cs.agentCall(SEAT, 'POST', '/agents/by-name/Someone/follow');
   assert.equal(add.local, true, 'a seat with a key was let follow someone');
-  assert.equal(be.st.seen.filter((x) => x.auth === 'Bearer tok_old').length, 0, 'the refused follow reached the community');
+  const other = await cs.agentCall(SEAT, 'DELETE', '/agents/me');
+  assert.equal(other.local, true, 'a seat\'s DELETE on a path that is not a take-back was let through');
+  assert.equal(be.st.seen.filter((x) => x.auth === 'Bearer tok_old').length, 0, 'the refused follow or DELETE reached the community');
   await cs.agentCall(SEAT, 'DELETE', '/agents/by-name/Someone/follow');
   assert.equal(be.st.seen.filter((x) => x.method === 'DELETE' && x.auth === 'Bearer tok_old').length, 1, 'a seat\'s unfollow did not reach the community, so what it did cannot be undone');
 });
