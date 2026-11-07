@@ -87,6 +87,8 @@ const ALLOWED = [
   ['an expression joining a quoted string', "msg bob ('n'+1)"],
   ['a method on a quoted string', "msg bob ('abc'.ToUpper())"],
   ['a comment touching a quoted string', "msg bob 'hi'#note"],
+  ['a quoted key indexing a table', "$h = @{ k = 'v' }; {K} msg bob $h['k']"],
+  ['a member of a quoted string', "msg bob 'abc'.Length"],
   // {K} is where the call goes when the arm is a whole line: a later word on the line, outside this call, is not read.
   ['inside an if, a later word holding an apostrophe', "if ({K} msg bob 'hi') { $null = 1 } else { Write-Output Bob's' }"],
   ['inside an array, a later element holding an apostrophe', "$r = @({K} msg bob 'hi'), (Write-Output Bob's')"],
