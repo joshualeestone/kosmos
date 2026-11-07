@@ -52,6 +52,9 @@ const OUT = process.argv[2] || '/tmp/stshots';
 const fail = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fail.push(label); };
 const JOSH = "Congrats you've been in the Kosmos for 12 days!";
+/* review 4: wait for the pill itself (it comes out once the loading cover is gone), then for its slide (.35 s): never a
+   fixed sleep from the page load, which a slow boot outruns. */
+const pillOut = async (pg) => { const ok = await pg.waitForSelector('#kpill.in', { state: 'attached', timeout: 10000 }).then(() => true, () => false); await pg.waitForTimeout(400); return ok; };
 const localDay = (ms) => { const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
 const NOON = (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d.getTime(); })();
 
@@ -104,7 +107,7 @@ const read = (pg) => pg.evaluate(() => {
   // pill (kosmos#6397): the day's words come out of the K mark, then fold into the badge
   {
     const { pg, errs, posts } = await open(b, () => ({ count: 12, congrats: true }), { key: 'pill' });
-    await pg.waitForTimeout(400);   // the pill slides in over .35 s
+    await pillOut(pg);
     const g = await read(pg);
     say(g.pill.shown, 'pill: it shows', JSON.stringify(g.pill));
     say(g.pill.text === JOSH, "pill: Josh's sentence, word for word", JSON.stringify(g.pill.text));
@@ -131,7 +134,7 @@ const read = (pg) => pg.evaluate(() => {
   // Escape folds the pill at once (WCAG 1.4.13)
   {
     const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'Escape' });
-    await pg.waitForTimeout(400);
+    await pillOut(pg);
     const up = (await read(pg)).pill.shown;
     await pg.keyboard.press('Escape');
     await pg.waitForTimeout(450);
@@ -178,7 +181,7 @@ const read = (pg) => pg.evaluate(() => {
   // review 1: a window resized while the pill is out folds it
   {
     const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'resize' });
-    await pg.waitForTimeout(400);
+    await pillOut(pg);
     const up = (await read(pg)).pill.shown;
     await pg.setViewportSize({ width: 500, height: 800 });
     await pg.waitForTimeout(450);
@@ -192,7 +195,7 @@ const read = (pg) => pg.evaluate(() => {
     let calls = 0;
     const ctx = await b.newContext();
     const { pg } = await open(ctx, () => ({ count: 12, congrats: calls++ === 0 }), { key: 'reload mid-pill' });
-    await pg.waitForTimeout(400);
+    await pillOut(pg);
     const up = (await read(pg)).pill.shown;
     await pg.reload({ waitUntil: 'domcontentloaded' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
@@ -206,7 +209,7 @@ const read = (pg) => pg.evaluate(() => {
   // review 2: a mouse click on the K mark (which focuses it) does not pin the pill: it still folds
   {
     const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'click pin' });
-    await pg.waitForTimeout(400);
+    await pillOut(pg);
     await pg.click('#klink');
     await pg.mouse.move(700, 700);
     const focused = await pg.evaluate(() => document.activeElement && document.activeElement.id);
@@ -221,7 +224,7 @@ const read = (pg) => pg.evaluate(() => {
   // Escape arm above is the control. (The computer menu cannot stand in: opening it under the pill folds the pill.)
   {
     const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'Escape used' });
-    await pg.waitForTimeout(400);
+    await pillOut(pg);
     const up = (await read(pg)).pill.shown;
     await pg.evaluate(() => document.addEventListener('keydown', (e) => { if (e.key === 'Escape') e.preventDefault(); }, { capture: true, once: true }));
     await pg.keyboard.press('Escape'); await pg.waitForTimeout(450);
@@ -252,7 +255,7 @@ const read = (pg) => pg.evaluate(() => {
   // review 3: while the pill is out, hovering the mark does not also draw the label under it
   {
     const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'hover during pill' });
-    await pg.waitForTimeout(400);
+    await pillOut(pg);
     await pg.hover('#klink'); await pg.waitForTimeout(250);
     const g = await pg.evaluate(() => ({ pill: Boolean(document.querySelector('#kpill.in')), label: getComputedStyle(document.getElementById('kstreak')).visibility }));
     say(g.pill && g.label === 'hidden', 'hover during pill: the label stays hidden while the pill says it', JSON.stringify(g));
