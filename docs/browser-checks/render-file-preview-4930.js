@@ -534,9 +534,14 @@ async function runSheet(engine, say) {
     const pg = await ctx.newPage();
     const errors = []; pg.on('pageerror', (e) => errors.push(String(e && e.message)));
     const BIG = 'e7'.repeat(12), OK = 'e8'.repeat(12);
-    const WIDE = 'eb'.repeat(12);
+    const WIDE = 'eb'.repeat(12), NOVAL = 'ec'.repeat(12), EMPTY = 'ed'.repeat(12), MORE = 'ee'.repeat(12), SLOW = 'ef'.repeat(12);
+    const ans = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(Object.assign({ ok: true, sheets: [], moreSheets: 0, noValues: false, someNoValues: false, empty: false }, o)) });
     const routes = async (route) => {
       const u = new URL(route.request().url());
+      if (u.pathname === '/api/attachment/' + NOVAL + '/sheet') return route.fulfill(ans({ noValues: true }));
+      if (u.pathname === '/api/attachment/' + EMPTY + '/sheet') return route.fulfill(ans({ empty: true }));
+      if (u.pathname === '/api/attachment/' + MORE + '/sheet') return route.fulfill(ans({ sheets: [{ name: 'A', rows: [['1']], cut: false }], moreSheets: 3 }));
+      if (u.pathname === '/api/attachment/' + SLOW + '/sheet') { await new Promise((r) => setTimeout(r, 700)); return route.fulfill(ans({ sheets: [{ name: 'Late', rows: [['late']], cut: false }] })); }
       if (u.pathname === '/api/attachment/' + WIDE + '/sheet') {
         const rows = Array.from({ length: 200 }, (_, r) => Array.from({ length: 50 }, (_, c) => (r === 0 ? 'Head ' + c : String(r * 50 + c))));
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, sheets: [{ name: 'Big', rows, cut: true }, { name: 'Other', rows: [['x']], cut: false }], moreSheets: 0, noValues: false, someNoValues: false, empty: false }) });
@@ -604,6 +609,34 @@ async function runSheet(engine, say) {
     await open('e9'.repeat(12), 'Gone.xlsx');
     const gone = await pg.evaluate(() => ({ card: !!document.querySelector('#pv-preview .pv-file'), grid: !!document.querySelector('#pv-preview .pv-grid-wrap') }));
     say(gone.card && !gone.grid, T + ': a 404 shows the file card, not an empty grid', JSON.stringify(gone));
+    // The other answers the board gives (review 1): formulas with no saved values, an empty workbook, sheets past the
+    // ones shown. Each says so in words, under no empty white box.
+    const words = async () => pg.evaluate(() => ({ notes: [...document.querySelectorAll('#pv-preview .pv-note')].map((n) => n.textContent), grid: !!document.querySelector('#pv-preview .pv-grid'), card: !!document.querySelector('#pv-preview .pv-file') }));
+    await open(NOVAL, 'Formulas.xlsx'); const nv = await words();
+    say(nv.notes.some((n) => /no saved values/.test(n)) && !nv.grid && !nv.card, T + ': a workbook of formulas with no saved values says so', JSON.stringify(nv));
+    await open(EMPTY, 'Blank.xlsx'); const em = await words();
+    say(em.notes.includes('This spreadsheet is empty.') && !em.grid && !em.card, T + ': an empty workbook says it is empty', JSON.stringify(em));
+    await open(MORE, 'Many.xlsx'); const mo = await words();
+    say(mo.grid && mo.notes.includes('3 more sheets are not shown.'), T + ': sheets past the ones shown are counted', JSON.stringify(mo));
+    // ArrowLeft from the first sheet goes round to the last.
+    await open(OK, 'Budget 2026.xlsx');
+    await pg.focus('#pv-preview .pv-tab'); await pg.keyboard.press('ArrowLeft');
+    const wrapL = await pg.evaluate(() => ({ sel: [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => t.getAttribute('aria-selected')).join(), focus: document.activeElement.textContent }));
+    say(wrapL.sel === 'false,false,true' && wrapL.focus === 'Chart', T + ': ArrowLeft on the first sheet goes round to the last', JSON.stringify(wrapL));
+    // Closed before the answer: nothing is drawn afterwards, and nothing reopens.
+    await pg.evaluate((id) => {
+      pvClose(); document.querySelectorAll('[data-pv-test]').forEach((n) => n.remove());
+      const strip = document.createElement('div'); strip.setAttribute('data-pv-test', ''); strip.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:55;background:#fff;';
+      strip.innerHTML = pjAttachmentCard({ name: 'Late.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 68000, kind: 'file', url: '/api/attachment/' + id });
+      document.body.appendChild(strip);
+    }, SLOW);
+    await pg.click('[data-pv-test] a.att');
+    await pg.waitForSelector('#pv-preview #pv-do');
+    const waiting = await pg.evaluate(() => /Opening the spreadsheet/.test(document.getElementById('pv-stage').textContent));
+    await pg.evaluate(() => pvClose());
+    await pg.waitForTimeout(1100);
+    const late = await pg.evaluate(() => ({ viewer: !!document.getElementById('pv-preview'), sheet: !!document.querySelector('.pv-sheet'), lateCell: [...document.querySelectorAll('td')].some((c) => c.textContent === 'late') }));
+    say(waiting && !late.viewer && !late.sheet && !late.lateCell, T + ': a viewer closed before the answer draws nothing when it comes', JSON.stringify({ waiting, late }));
     // A CSV used to show as text; when its grid answer fails (here a 404) it still does, never the bare card (review 1).
     await open('ea'.repeat(12), 'list.csv', { type: 'text/csv', kind: 'text', preview: 'name,cost\nchairs,40' });
     const csv = await pg.evaluate(() => ({ text: (document.querySelector('#pv-preview .pv-text') || {}).textContent || null, card: !!document.querySelector('#pv-preview .pv-file'), grid: !!document.querySelector('#pv-preview .pv-grid-wrap') }));
