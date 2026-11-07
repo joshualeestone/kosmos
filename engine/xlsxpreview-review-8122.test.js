@@ -431,3 +431,66 @@ test('#8122 r7: a file that is slow twice running is remembered; once is not', (
   sp._forgetForTests();
   assert.equal(sp.fromBytes(b, 'a.xlsx').ok, true, 'CONTROL: forgotten, it reads');
 });
+
+/* #8147: the round-8 leftovers */
+test('#8147: tags that only start like a cell are counted: a part of millions of them is refused, not walked', () => {
+  const sp = require('./sheetpreview');
+  const parts = {};
+  for (let i = 0; i < 4; i++) parts['S' + i] = fx.SHEET('<row r="1">' + '<cx'.repeat(5e6) + '</row>');
+  const b = fx.book(parts, {}, { deflate: true });
+  assert.ok(b.length < 200000, 'a small file: ' + b.length);
+  // Counted work, not a clock: the budget clock is read every 4096 near-misses, and the read stops at the cap.
+  let reads = 0;
+  x._internal.setClockForTests(() => { reads++; return 0; });
+  let r;
+  try { r = sp.fromBytes(b, 'near.xlsx'); } finally { x._internal.setClockForTests(null); sp._forgetForTests(); }
+  assert.equal(r.tooLarge, true, JSON.stringify(r).slice(0, 200));
+  assert.ok(reads > 100, 'CONTROL: the near-misses reached the budget (' + reads + ' clock reads)');
+  // CONTROL: an ordinary file is untouched.
+  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>') })).sheets[0].rows, [['1']]);
+});
+
+test('#8147: a sheet whose walk stopped before the end is never "empty" or "no saved values"', () => {
+  const blanks = Array.from({ length: 2100 }, (_, i) => `<row r="${i + 1}">` + Array.from({ length: 50 }, (_, j) => `<c r="${String.fromCharCode(65 + (j % 26))}${i + 1}" s="1"/>`).join('') + '</row>').join('');
+  const a = x.readXlsx(fx.book({ S: fx.SHEET(blanks + '<row r="2200"><c r="A2200"><v>7</v></c></row>') }, {}, { deflate: true }));
+  assert.equal(a.sheets[0].cut, true);
+  assert.equal(a.empty, false, 'a value past the walk read as empty');
+  const f = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1">' + '<c><f>1+1</f></c>'.repeat(100001) + '</row><row r="2"><c><v>5</v></c></row>') }, {}, { deflate: true }));
+  assert.equal(f.noValues, false, 'a saved value past the walk read as "no saved values"');
+  // CONTROL: a workbook with only formulas and no walk cut still says so.
+  assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c><f>1+1</f></c></row>') })).noValues, true);
+});
+
+test('#8147: formats that scale or decide by sign show the saved number, not a wrong one; -0, .50', () => {
+  const styles = STYLES('<xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="165"/><xf numFmtId="166"/><xf numFmtId="1"/><xf numFmtId="167"/>',
+    '<numFmts><numFmt numFmtId="164" formatCode="#,##0,"/><numFmt numFmtId="165" formatCode="0,"/><numFmt numFmtId="166" formatCode="#,##0;(#,##0)"/><numFmt numFmtId="167" formatCode=".00"/></numFmts>');
+  const c = (ref, s, v) => `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
+  const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 1234567.891)}${c('B1', 2, 1234567)}${c('C1', 3, -5)}${c('D1', 4, -0.4)}${c('E1', 5, 0.5)}</row>`) }, { 'xl/styles.xml': styles }));
+  assert.deepEqual(r.sheets[0].rows[0], ['1234567.891', '1234567', '-5', '-0', '.50']);
+  // CONTROL: an ordinary thousands code still groups.
+  const g = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 1234567)}</row>`) }, { 'xl/styles.xml': STYLES('<xf numFmtId="0"/><xf numFmtId="3"/>') }));
+  assert.deepEqual(g.sheets[0].rows[0], ['1,234,567']);
+});
+
+test('#8147: a row number past Excel\'s last row is not a row number; an empty shared string is not a value', () => {
+  const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1e300"><c r="A1"><v>1</v></c></row>') }));
+  assert.deepEqual(r.sheets[0].rows, [['1']]);
+  assert.equal('firstRow' in r.sheets[0], false);
+  const e = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t></t></si></sst>' }));
+  assert.equal(e.empty, true);
+});
+
+test('#8147: the answer cache is bounded by size, not only by count', () => {
+  const sp = require('./sheetpreview');
+  sp._forgetForTests();
+  // Each CSV answer is about 1.9 MB of JSON (150 rows of 50 cells of 250 characters, under the 2 MB input cap); 8 would
+  // be 15 MB, past the 8 MiB the cache may hold.
+  for (let i = 0; i < 8; i++) {
+    const line = Array.from({ length: 50 }, (_, j) => String.fromCharCode(97 + ((i + j) % 26)).repeat(250)).join(',');
+    assert.equal(sp.fromBytes(Buffer.from((line + '\n').repeat(150)), 'big' + i + '.csv').ok, true);
+  }
+  const held = sp._heldForTests();
+  sp._forgetForTests();
+  assert.ok(held <= 4, 'held ' + held + ' answers of about 1.9 MB each');
+  assert.ok(held >= 1, 'CONTROL: the latest answer is kept');
+});

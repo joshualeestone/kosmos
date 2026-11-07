@@ -131,14 +131,26 @@ function fromBytes(buf, name) {
       if (!slowOnce.has(key)) { slowOnce.add(key); if (slowOnce.size > MAX_REMEMBERED) slowOnce.delete(slowOnce.values().next().value); return shown; }
       read = shown;
     }
-    answer = JSON.parse(JSON.stringify(read));
+    const text = JSON.stringify(read);
+    answer = JSON.parse(text);
+    sizes.set(key, text.length);
   }
   answers.set(key, answer);
-  if (answers.size > MAX_REMEMBERED) answers.delete(answers.keys().next().value);
+  // #8147: bounded by size as well as count (8 answers of up to 8 MiB each could hold about 128 MB for good).
+  let held = 0;
+  for (const k of answers.keys()) held += sizes.get(k) || 0;
+  while (answers.size > 1 && (answers.size > MAX_REMEMBERED || held > MAX_REMEMBERED_CHARS)) {
+    const oldest = answers.keys().next().value;
+    held -= sizes.get(oldest) || 0;
+    answers.delete(oldest);
+    sizes.delete(oldest);
+  }
   return structuredClone(answer);
 }
 const MAX_REMEMBERED = 8;   // answers kept, the least recently asked for goes first; each is capped (MAX_ANSWER_CHARS)
+const MAX_REMEMBERED_CHARS = 8 * 1024 * 1024;   // all remembered answers together, as JSON writes them (#8147)
 const answers = new Map();
+const sizes = new Map();   // key -> the answer's JSON length
 const slowOnce = new Set();   // keys refused once for the time taken
 function readFresh(buf, kind, name) {
   if (kind === 'xlsx') {
@@ -186,4 +198,4 @@ function fromFile(file, name) {
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
-module.exports = { _forgetForTests: () => { answers.clear(); slowOnce.clear(); }, kindOf, capFor, readDelimited, fromBytes, fromFile, MAX_DELIMITED_BYTES, TOO_LARGE, CANNOT_READ };
+module.exports = { _forgetForTests: () => { answers.clear(); sizes.clear(); slowOnce.clear(); }, _heldForTests: () => answers.size, kindOf, capFor, readDelimited, fromBytes, fromFile, MAX_DELIMITED_BYTES, TOO_LARGE, CANNOT_READ };
