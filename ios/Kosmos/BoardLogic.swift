@@ -79,16 +79,32 @@ enum Board {
         guard !host.isEmpty, !session.isEmpty, !owner.isEmpty, ![host, session, owner].contains(where: { $0.contains("\n") }) else { return nil }
         return [host, session, name.replacingOccurrences(of: "\n", with: " "), String(Int(at.timeIntervalSince1970)), owner].joined(separator: "\n")
     }
-    /// The chat to reopen on a launch, from what was kept: only on the computer and account it was kept under, within
-    /// chatReopenWithin of being opened. Nil for anything malformed, no computer or account yet, or a time in the future.
-    static func chatToReopen(kept: String?, hostNow: String?, ownerNow: String?, now: Date) -> (session: String, name: String, at: Date)? {
-        guard let kept, let hostNow, !hostNow.isEmpty, let ownerNow, !ownerNow.isEmpty else { return nil }
-        let parts = kept.components(separatedBy: "\n")
-        guard parts.count == 5, parts[0] == hostNow, !parts[1].isEmpty, parts[4] == ownerNow, let at = Double(parts[3]) else { return nil }
-        let age = now.timeIntervalSince1970 - at
-        guard age >= 0, age <= chatReopenWithin else { return nil }
-        return (parts[1], parts[2], Date(timeIntervalSince1970: at))
+    /// What a launch does with the kept chat: reopen it, or not, with why (for the device log). Nil when nothing was kept.
+    enum ChatReopen: Equatable {
+        case reopen(session: String, name: String)
+        case not(String)
     }
+    /// Only on the computer and account it was kept under, within chatReopenWithin of being opened.
+    static func chatReopen(kept: String?, hostNow: String?, ownerNow: String?, now: Date) -> ChatReopen? {
+        guard let kept, !kept.isEmpty else { return nil }
+        let parts = kept.components(separatedBy: "\n")
+        guard parts.count == 5, !parts[1].isEmpty, let at = Double(parts[3]) else { return .not("the kept record could not be read") }
+        guard let hostNow, !hostNow.isEmpty, let ownerNow, !ownerNow.isEmpty else { return .not("no computer was reached yet") }
+        guard parts[4] == ownerNow else { return .not("another account is signed in") }
+        guard parts[0] == hostNow else { return .not("this launch opened on another computer") }
+        let age = now.timeIntervalSince1970 - at
+        guard age >= 0 else { return .not("its time is in the future") }
+        guard age <= chatReopenWithin else { return .not("it was opened more than 12 hours ago") }
+        return .reopen(session: parts[1], name: parts[2])
+    }
+    /// The time a kept record says its chat was first opened, when it is this chat's (same agent, computer and account), so
+    /// an open that continues one (a reopen) keeps it.
+    static func keptOpenedAt(_ kept: String?, session: String, host: String, owner: String) -> Date? {
+        guard let parts = kept?.components(separatedBy: "\n"), parts.count == 5, parts[0] == host, parts[1] == session,
+              parts[4] == owner, let at = Double(parts[3]) else { return nil }
+        return Date(timeIntervalSince1970: at)
+    }
+    /// (A `.relaunched` result writes no line now: chatClosedCause returns nil for it.)
     /// What the Agents tab finds when it appears with no chat open: the chat it lost while gone (`was`, the open chat's
     /// epoch, with the chats' epoch and last forget now), or one recorded open before the app started again (`keptName`),
     /// or nothing. The open chat wins over the kept name, as it is this launch's.

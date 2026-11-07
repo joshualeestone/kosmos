@@ -107,6 +107,8 @@ final class BoardClient: ObservableObject {
     let createdAt = Date()
     /// kosmos#8055: the fingerprint of the Kosmos+ session the shown computer was reached under, nil before one.
     var admittedOwner: String? { admitted.map { Board.owner(of: $0.session) } }
+    /// kosmos#8055: whether the Agents tab has had its first look under this client (a reopen happens only on that one).
+    var launchReopenLooked = false
     // Who the shown list belongs to (a fingerprint of the Kosmos+ session it was read under).
     private var shownOwner: String?
     // Agent pictures by session name, fetched through this client's own session (the board's route needs it).

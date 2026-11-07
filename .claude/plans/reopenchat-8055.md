@@ -26,11 +26,15 @@ reopen the chat.
   the window does not restart on each launch.
 - Same account only: the record carries the account fingerprint (Board.owner of the session the computer was reached
   under), compared on the launch.
-- Only on a launch: the Agents tab's first look in the process, within 30 s of the client being made
+- Only on a launch: the Agents tab's first look under this client (BoardClient.launchReopenLooked; a new scene makes a new
+  client), within 30 s of the client being made
   (Board.chatReopenLaunchWindow). A later first visit (the app opened on Today) never reopens a chat by itself.
-- A launch a notification took drops the kept chat, so it does not reopen later by itself.
+- A launch a notification is still opening drops the kept chat, so it does not reopen later by itself; one already open has
+  written its own record.
+- A kept chat that is not reopened says why in the device log (no computer yet, another computer or account, too old).
+- A chat opened while no computer is reached yet is not kept (nothing to tie it to): a known gap, it reopens to the list.
 - A reopened chat whose agent the first completed list read this run (client.fresh) does not have, an empty list
-  included, closes quietly, back to the list, with a device-log line.
+  included, or whose list is another computer's, closes quietly, back to the list, with a device-log line.
 - A reopen is written to the device log ("[Chat] the app started again with a chat open on this computer: reopened").
 
 ## Weakest premise

@@ -6107,28 +6107,31 @@ do {
     let keptAt = Date(timeIntervalSince1970: 1_000_000)
     let keptAda = Board.keptChat(host: "mac1.example", session: "ada", name: "Ada", at: keptAt, owner: "own1")
     check(keptAda == "mac1.example\nada\nAda\n1000000\nown1", "kept as computer, agent, name, time, account")
-    let back = Board.chatToReopen(kept: keptAda, hostNow: "mac1.example", ownerNow: "own1", now: keptAt.addingTimeInterval(60))
-    check(back.map { $0.session + "|" + $0.name } == "ada|Ada" && back?.at == keptAt, "the same computer and account, a minute later, reopens it, with its first time")
-    check(Board.chatToReopen(kept: keptAda, hostNow: "mac2.example", ownerNow: "own1", now: keptAt) == nil, "another computer does not")
-    check(Board.chatToReopen(kept: keptAda, hostNow: "mac1.example", ownerNow: "own2", now: keptAt) == nil, "another account does not")
-    check(Board.chatToReopen(kept: keptAda, hostNow: nil, ownerNow: "own1", now: keptAt) == nil && Board.chatToReopen(kept: keptAda, hostNow: "", ownerNow: "own1", now: keptAt) == nil
-          && Board.chatToReopen(kept: keptAda, hostNow: "mac1.example", ownerNow: nil, now: keptAt) == nil, "no computer or account yet: nothing reopens")
-    check(Board.chatToReopen(kept: keptAda, hostNow: "mac1.example", ownerNow: "own1", now: keptAt.addingTimeInterval(Board.chatReopenWithin)) != nil
-          && Board.chatToReopen(kept: keptAda, hostNow: "mac1.example", ownerNow: "own1", now: keptAt.addingTimeInterval(Board.chatReopenWithin + 1)) == nil,
-          "reopens up to 12 hours after, not after that")
-    check(Board.chatToReopen(kept: keptAda, hostNow: "mac1.example", ownerNow: "own1", now: keptAt.addingTimeInterval(-1)) == nil, "a kept time in the future: nothing")
-    check(Board.chatToReopen(kept: nil, hostNow: "mac1.example", ownerNow: "own1", now: keptAt) == nil
-          && Board.chatToReopen(kept: "Eli", hostNow: "mac1.example", ownerNow: "own1", now: keptAt) == nil
-          && Board.chatToReopen(kept: "mac1.example\n\nEli\n1000000\nown1", hostNow: "mac1.example", ownerNow: "own1", now: keptAt) == nil
-          && Board.chatToReopen(kept: "mac1.example\nada\nAda\n1000000", hostNow: "mac1.example", ownerNow: "own1", now: keptAt) == nil,
-          "nothing kept, a bare name, no agent, or no account: nothing (malformed records fail closed)")
+    let re = { (kept: String?, host: String?, owner: String?, secs: Double) in Board.chatReopen(kept: kept, hostNow: host, ownerNow: owner, now: keptAt.addingTimeInterval(secs)) }
+    check(re(keptAda, "mac1.example", "own1", 60) == .reopen(session: "ada", name: "Ada"), "the same computer and account, a minute later, reopens it")
+    check(re(keptAda, "mac2.example", "own1", 0) == .not("this launch opened on another computer"), "another computer does not, and says why")
+    check(re(keptAda, "mac1.example", "own2", 0) == .not("another account is signed in"), "another account does not")
+    check(re(keptAda, nil, "own1", 0) == .not("no computer was reached yet") && re(keptAda, "", "own1", 0) == .not("no computer was reached yet")
+          && re(keptAda, "mac1.example", nil, 0) == .not("no computer was reached yet"), "no computer or account yet: nothing reopens")
+    check(re(keptAda, "mac1.example", "own1", Board.chatReopenWithin) == .reopen(session: "ada", name: "Ada")
+          && re(keptAda, "mac1.example", "own1", Board.chatReopenWithin + 1) == .not("it was opened more than 12 hours ago"), "reopens up to 12 hours after, not after that")
+    check(re(keptAda, "mac1.example", "own1", -1) == .not("its time is in the future"), "a kept time in the future: nothing")
+    check(re(nil, "mac1.example", "own1", 0) == nil && re("", "mac1.example", "own1", 0) == nil, "nothing kept: nothing to say")
+    check(re("Eli", "mac1.example", "own1", 0) == .not("the kept record could not be read")
+          && re("mac1.example\n\nEli\n1000000\nown1", "mac1.example", "own1", 0) == .not("the kept record could not be read")
+          && re("mac1.example\nada\nAda\n1000000", "mac1.example", "own1", 0) == .not("the kept record could not be read"),
+          "a bare name, no agent, or no account: not reopened (malformed records fail closed)")
+    check(Board.keptOpenedAt(keptAda, session: "ada", host: "mac1.example", owner: "own1") == keptAt, "the same chat keeps its first time")
+    check(Board.keptOpenedAt(keptAda, session: "bo", host: "mac1.example", owner: "own1") == nil && Board.keptOpenedAt(keptAda, session: "ada", host: "mac2.example", owner: "own1") == nil
+          && Board.keptOpenedAt(keptAda, session: "ada", host: "mac1.example", owner: "own2") == nil && Board.keptOpenedAt(nil, session: "ada", host: "mac1.example", owner: "own1") == nil,
+          "another agent, computer or account, or nothing kept: a new time")
     check(Board.keptChat(host: "", session: "ada", name: "Ada", at: keptAt, owner: "own1") == nil
           && Board.keptChat(host: "mac1.example", session: "", name: "Ada", at: keptAt, owner: "own1") == nil
           && Board.keptChat(host: "mac1.example", session: "ada", name: "Ada", at: keptAt, owner: "") == nil
           && Board.keptChat(host: "mac1.example", session: "a\nb", name: "Ada", at: keptAt, owner: "own1") == nil,
           "no computer, agent or account, or a line break in one: not kept")
-    check(Board.chatToReopen(kept: Board.keptChat(host: "mac1.example", session: "ada", name: "A\nda", at: keptAt, owner: "own1"), hostNow: "mac1.example",
-                             ownerNow: "own1", now: keptAt)?.name == "A da", "a line break in the name is kept as a space, so the record still reads")
+    check(re(Board.keptChat(host: "mac1.example", session: "ada", name: "A\nda", at: keptAt, owner: "own1"), "mac1.example", "own1", 0) == .reopen(session: "ada", name: "A da"),
+          "a line break in the name is kept as a space, so the record still reads")
     let lost = Board.chatFoundClosed(was: (name: "Dana", epoch: 3), epochNow: 4, forgottenWhy: "another computer answered", forgottenByPerson: false, keptName: "Eli")
     check(lost?.name == "Dana" && lost?.close == .lostWithTab(forgottenSince: true, why: "another computer answered", byPerson: false),
           "a chat lost while the tab was gone wins over a kept name, with the forget since it opened")
