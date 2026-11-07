@@ -207,12 +207,19 @@ function bareCode(code) {
    { kind: 'duration', unit: 'h' | 'm' | 's', seconds } ("[h]:mm": elapsed time past 24 hours, review 2), or
    { kind: 'number', decimals, thousands, percent } for the simple codes ("0.00", "#,##0", "0.0%"), or null (shown as
    saved). The first section of a code (before ";") decides. Currency symbols, fractions and the rest are null. */
+/* A number format's first section (the part before the first ";", which positive numbers use). Not a split: ";" here is
+   Excel's section separator, never a path list, and indexOf says so without a separator literal (#1732). */
+function firstSection(code) {
+  const s = String(code || '');
+  const i = s.indexOf(';');
+  return i < 0 ? s : s.slice(0, i);
+}
 function formatKind(code) {
-  const bare = bareCode(String(code || '').split(';')[0]);
+  const bare = bareCode(firstSection(code));
   if (bare === null) return null;
   const lower = bare.toLowerCase();
   const dur = /^(h+|m+|s+)/.exec(lower);
-  if (dur && /\[(h+|m+|s+)\]/i.test(String(code || '').split(';')[0])) return { kind: 'duration', unit: dur[1][0], seconds: /s/.test(lower.slice(dur[1].length)) || dur[1][0] === 's' };
+  if (dur && /\[(h+|m+|s+)\]/i.test(firstSection(code))) return { kind: 'duration', unit: dur[1][0], seconds: /s/.test(lower.slice(dur[1].length)) || dur[1][0] === 's' };
   // Review 4: a date code with no hour or second shows no time (yyyy-mm-dd on 45000.5 showed 12:00), and a time code says
   // whether it is 12-hour and whether it has hours and seconds (h:mm AM/PM showed 18:00, mm:ss showed the hour).
   const time = /[hs]/.test(lower);
@@ -223,7 +230,7 @@ function formatKind(code) {
   if (/m/.test(lower) && !/^[#0.,%\s]*$/.test(lower)) return { kind: 'date', time: false };   // "mmm" alone is a month
   // Only a code of digit placeholders (review 3: a currency or a unit, quoted or in brackets, was dropped from the shown
   // text); anything else shows the saved number.
-  if (!/^[#0.,%\s]+$/.test(String(code || '').split(';')[0])) return null;
+  if (!/^[#0.,%\s]+$/.test(firstSection(code))) return null;
   const num = /^\s*([#0,]*)(?:\.(0+))?\s*(%)?\s*$/.exec(lower);
   // Review 4: past 30 places (Excel's own limit) toFixed throws, which refused the whole workbook.
   if (num && num[2] && num[2].length > 30) return null;
