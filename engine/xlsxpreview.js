@@ -41,6 +41,8 @@ const MAX_ROWS = 200;                          // per sheet
 const MAX_COLS = 50;
 const MAX_CELL_CHARS = 500;
 const MAX_SHARED_STRINGS = 200000;
+const MAX_EXCEL_ROW = 1048576;
+const MAX_NEAR_MISSES = 1000000;               // tags that only start like one sought, per read (#8147)
 const MAX_VISITS = 100000;                     // rows and cells walked per sheet, shown or not (review 4)
 const MAX_OUTPUT_CHARS = 2 * 1024 * 1024;      // the answer's cells as JSON writes them, all sheets (review 5)
 const MAX_TAG_CHARS = 4096;                    // a start tag longer than this has no attributes we read
@@ -127,13 +129,19 @@ function attr(tag, name) {
 /* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with indexOf. With
    `lenient` (the containers: sheetData, row), one the part never closes (a file cut short) yields the rest of the part,
    so what is there is still read; a value that is not closed is never read. */
+/* #8147: a tag that only starts like the one sought ("<cx" when looking for "<c") is skipped one character on, and a
+   part can hold millions of them (about 1.2 s of board time a file, under the budget and unseen by the walk's visit
+   count). Each skip counts: the budget is checked every 4096, and past MAX_NEAR_MISSES in one read it is too large.
+   `onNearMiss` is set by readXlsx for the length of one read; the board's one thread runs one read at a time. */
+let onNearMiss = null;
+const nearMiss = () => { if (onNearMiss) onNearMiss(); };
 function* elements(xml, name, lenient = false) {
   let at = 0;
   for (;;) {
     let i = xml.indexOf('<' + name, at);
     if (i < 0) return;
     const after = xml[i + name.length + 1];
-    if (after !== ' ' && after !== '>' && after !== '/' && after !== '\t' && after !== '\n' && after !== '\r') { at = i + 1; continue; }
+    if (after !== ' ' && after !== '>' && after !== '/' && after !== '\t' && after !== '\n' && after !== '\r') { at = i + 1; nearMiss(); continue; }
     const tagEnd = xml.indexOf('>', i);
     if (tagEnd < 0) return;
     const tag = xml.slice(i, tagEnd + 1);
@@ -231,11 +239,15 @@ function formatKind(code) {
   // Only a code of digit placeholders (review 3: a currency or a unit, quoted or in brackets, was dropped from the shown
   // text); anything else shows the saved number.
   if (!/^[#0.,%\s]+$/.test(firstSection(code))) return null;
+  // #8147: a code with a section for negatives (or zero, or text) decides by sign, and a comma after the last digit
+  // divides by 1000 ("#,##0," is thousands): both show the saved number rather than a wrong one.
+  if (String(code || '').indexOf(';') >= 0) return null;
+  if (/[#0],+\s*(\.|%|$)/.test(lower) && /,\s*(\.|%|$)/.test(lower)) return null;
   const num = /^\s*([#0,]*)(?:\.(0+))?\s*(%)?\s*$/.exec(lower);
   // Review 4: past 30 places (Excel's own limit) toFixed throws, which refused the whole workbook.
   if (num && num[2] && num[2].length > 30) return null;
   // Review 7: the integer zeros are the fewest digits shown ("00000" on 1234 is 01234, a ZIP code or an id).
-  if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3], digits: ((num[1] || '').match(/0/g) || []).length };
+  if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3], digits: ((num[1] || '').match(/0/g) || []).length, intHash: (num[1] || '').indexOf('#') >= 0 };
   return null;
 }
 /* Built-in number formats by id (ECMA-376 18.8.30): 1 "0", 2 "0.00", 3 "#,##0", 4 "#,##0.00", 9 "0%", 10 "0.00%",
@@ -324,7 +336,10 @@ function shownNumber(raw, fmt) {
   let text = Math.abs(rounded).toFixed(fmt.decimals);
   if (fmt.digits > 1 && !/e/.test(text)) { const [i, d] = text.split('.'); text = i.padStart(fmt.digits, '0') + (d ? '.' + d : ''); }
   if (fmt.thousands) { const [i, d] = text.split('.'); text = i.replace(/\B(?=(\d{3})+$)/g, ',') + (d ? '.' + d : ''); }
-  return (rounded < 0 ? '-' : '') + text + (fmt.percent ? '%' : '');
+  // #8147: a code with no integer digit drops the leading zero (".00" on 0.5 is .50), and a negative that rounds to zero
+  // keeps its sign (-0.4 under "0" is -0), as Excel shows them.
+  if (fmt.digits === 0 && fmt.decimals > 0 && !fmt.intHash && text.startsWith('0.')) text = text.slice(1);
+  return (v < 0 && (rounded < 0 || rounded === 0) ? '-' : '') + text + (fmt.percent ? '%' : '');
 }
 /* An elapsed time ("[h]:mm:ss"): total hours, minutes or seconds, past 24 hours (Excel shows 1.5 days as 36:00). */
 function shownDuration(n, fmt) {
@@ -350,6 +365,11 @@ function readXlsx(buf) {
   const started = now();
   // `slow`: refused for the time it took, which a busy moment can cause (the seam does not remember it, review 6).
   const budget = () => { if (now() - started > WORK_BUDGET_MS) throw new XlsxRefusal(TOO_LARGE, true); };
+  let misses = 0;
+  onNearMiss = () => { if (++misses > MAX_NEAR_MISSES) refuse(TOO_LARGE); if ((misses & 4095) === 0) budget(); };
+  try { return readBook(buf, budget); } finally { onNearMiss = null; }
+}
+function readBook(buf, budget) {
   let entries;
   try { entries = readZipDirectory(buf, ZIP_LIMITS); }
   catch (e) { refuse(CANNOT_READ); }
@@ -390,6 +410,7 @@ function readXlsx(buf) {
   const readTargets = new Set();   // review 1: a part named by several sheets is read once
   let all = 0, anyValue = false, anyFormula = false, bareFormula = false;
   let otherSheet = false;   // a chart or dialog sheet that is in the file
+  let walkCut = false;      // #8147: a sheet's walk stopped at MAX_VISITS, so what lies past it is unknown
   let outputLeft = MAX_OUTPUT_CHARS;   // review 5: for the whole answer, every sheet together
   let sk = 0;
   for (const s of elements(workbook, 'sheet')) {
@@ -453,7 +474,8 @@ function readXlsx(buf) {
             const n = /^[0-9]{1,9}$/.test(raw.trim()) ? Number(raw) : -1;   // review 6: a decimal index, never 0x1
             // Review 4: a string past the ones read (MAX_SHARED_STRINGS) is not shown, and the sheet says it is cut.
             if (n >= shared.length && sharedCut) { cut = true; anyValue = true; }   // review 7: so a cut sheet is not "empty"
-            text = shared[n] ?? null;   // review 6: an index to no string is no value (it made a blank workbook not empty)
+            text = shared[n] ?? null;
+            if (text === '') text = null;   // #8147: an empty string shows nothing, so it is not a value either   // review 6: an index to no string is no value (it made a blank workbook not empty)
           }
           else if (type === 'b') text = raw === '1' || raw.toLowerCase() === 'true' ? 'TRUE' : 'FALSE';
           else if (type === 'e' || type === 'str') text = raw;
@@ -478,14 +500,15 @@ function readXlsx(buf) {
     const windowEnd = () => windowStart() + MAX_ROWS;
     rows: for (const row of data ? elements(data.body, 'row', true) : []) {
       if ((++k & 1023) === 0) budget();
-      if (++visits > MAX_VISITS) { cut = true; break; }
+      if (++visits > MAX_VISITS) { cut = true; walkCut = true; break; }
       const rr = Number(attr(row.tag, 'r'));
-      rowAt = Number.isInteger(rr) && rr >= 1 ? rr - 1 : rowAt + 1;   // a row with no r is the next one (review 1)
+      // A row with no r is the next one (review 1); #8147: an r past Excel's last row (1048576), "1e300", is no row number.
+      rowAt = Number.isInteger(rr) && rr >= 1 && rr <= MAX_EXCEL_ROW ? rr - 1 : rowAt + 1;
       const line = new Map();
       let colAt = -1;
       for (const c of elements(row.body, 'c')) {
         if ((++k & 1023) === 0) budget();
-        if (++visits > MAX_VISITS) { cut = true; if (line.size) keepRow(rowAt, line); break rows; }
+        if (++visits > MAX_VISITS) { cut = true; walkCut = true; if (line.size) keepRow(rowAt, line); break rows; }
         const at = cellRef(attr(c.tag, 'r'));
         const col = at ? at[1] : colAt + 1;                          // a cell with no r is the next column
         colAt = col;
@@ -524,7 +547,8 @@ function readXlsx(buf) {
   // "no saved values" is said of a workbook with sheets left out.
   // Review 7: a chart or dialog sheet is something, so a workbook that has one is not "empty" (a sheet whose part is
   // missing is still nothing, review 3).
-  const unread = all > MAX_SHEETS || otherSheet;
+  // #8147: nor of one whose walk stopped before the end (formatted blanks, then a value, read as "empty").
+  const unread = all > MAX_SHEETS || otherSheet || walkCut;
   return { sheets, moreSheets: Math.max(0, all - MAX_SHEETS), noValues: !unread && !anyValue && anyFormula, empty: !unread && !anyValue && !anyFormula,
     ...(anyValue && bareFormula ? { someNoValues: true } : {}) };
 }

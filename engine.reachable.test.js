@@ -282,6 +282,8 @@ const SEAMS_5548 = {
   // kosmos#8122 review 5: forgets the remembered sheet answers, so engine/xlsxpreview-review-8122.test.js can count a read
   // from a clean start. Production never calls it.
   _forgetForTests: 'engine/sheetpreview.js',
+  // kosmos#8147: how many sheet answers are remembered, so the size bound on the cache can be counted. Production never calls it.
+  _heldForTests: 'engine/sheetpreview.js',
   // kosmos#7404 personalswitch-7404: forgets when the personal follow-up last refreshed, so each test in
   // engine/personalbackup-7404.test.js can count the hourly refresh from a clean start. Production never calls it.
   _resetFollowUpForTests: 'engine/personalbackup.js',
