@@ -540,6 +540,7 @@ async function runSheet(engine, say) {
       const u = new URL(route.request().url());
       if (u.pathname === '/api/attachment/' + NOVAL + '/sheet') return route.fulfill(ans({ noValues: true }));
       if (u.pathname === '/api/attachment/' + EMPTY + '/sheet') return route.fulfill(ans({ empty: true }));
+      if (u.pathname === '/api/attachment/' + 'f1'.repeat(12) + '/sheet') return route.fulfill(ans({}));   // no sheets, no flags (review 4)
       if (u.pathname === '/api/attachment/' + MORE + '/sheet') return route.fulfill(ans({ sheets: [{ name: 'A', rows: [['1']], cut: false }], moreSheets: 3 }));
       if (u.pathname === '/api/attachment/' + SLOW + '/sheet') { await new Promise((r) => setTimeout(r, 700)); return route.fulfill(ans({ sheets: [{ name: 'Late', rows: [['late']], cut: false }] })); }
       if (u.pathname === '/api/attachment/' + WIDE + '/sheet') {
@@ -628,6 +629,8 @@ async function runSheet(engine, say) {
     say(nv.notes.some((n) => /no saved values/.test(n)) && !nv.grid && !nv.card, T + ': a workbook of formulas with no saved values says so', JSON.stringify(nv));
     await open(EMPTY, 'Blank.xlsx'); const em = await words();
     say(em.notes.includes('This spreadsheet is empty.') && !em.grid && !em.card, T + ': an empty workbook says it is empty', JSON.stringify(em));
+    await open('f1'.repeat(12), 'NoSheets.xlsx'); const ns = await pg.evaluate(() => ({ notes: [...document.querySelectorAll('#pv-preview .pv-note')].map((n) => n.textContent), box: !!document.querySelector('#pv-preview .pv-grid-wrap') }));
+    say(ns.notes.includes('This spreadsheet is empty.') && !ns.box, T + ': an answer with no sheets and no flags reads as empty, with no empty box to tab into', JSON.stringify(ns));
     await open(MORE, 'Many.xlsx'); const mo = await words();
     say(mo.grid && mo.notes.includes('3 more sheets are not shown.'), T + ': sheets past the ones shown are counted', JSON.stringify(mo));
     const one = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap'); return { tabs: document.querySelectorAll('#pv-preview .pv-tab').length, role: w.getAttribute('role'), name: w.getAttribute('aria-label'), by: w.getAttribute('aria-labelledby') }; });

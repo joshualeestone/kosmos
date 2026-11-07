@@ -77411,7 +77411,7 @@ function pvSheetInto(stage, data) {
   const notes = document.createElement('div');
   const show = (i) => {
     [...tabs.children].forEach((t, k) => { t.setAttribute('aria-selected', String(k === i)); t.tabIndex = k === i ? 0 : -1; });
-    const sh = sheets[i]; panel.textContent = ''; notes.textContent = ''; panel.scrollTop = 0; panel.scrollLeft = 0;   // each sheet opens at its top left (review 3)
+    const sh = sheets[i]; panel.textContent = ''; notes.textContent = ''; panel.scrollTop = 0; panel.scrollLeft = 0;   // each sheet opens at its top left; emptying alone resets it only if layout runs between (review 3)
     if (sheets.length > 1 && tabs.children[i]) panel.setAttribute('aria-labelledby', tabs.children[i].id);
     // Said under the sheet, in the viewer's own (light) words colour, never inside the white panel.
     if (sh.notGrid) { notes.appendChild(note('This sheet is not a table of values, so it is not shown here.')); panel.hidden = true; return; }
