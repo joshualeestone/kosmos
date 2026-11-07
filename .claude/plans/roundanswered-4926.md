@@ -41,4 +41,4 @@ Measured on 0.7.94 with a Grok and a Claude seat: each answered a round of asks 
 - Review 4 (sonnet): nothing new, but it read only part of the test file.
 - Final validation was then red: rewording the usage line broke the words `tools.windows-kosmos-cli-gaps-4891` pins. Reworded to keep them.
 - Review 5 (opus): a reply to the reader's own newer post no longer covers: it carries on that thread, which may be about something older (the N7 rule's `x.from === member`). A citation of a post the room no longer holds still covers. Rejected: following the thread up to its root. It costs more, and the row is named either way.
-- Left as is: the line under a post says `it needs nothing more` for the asks the list keeps showing too. It is what the reader did next, not what the list does, and a one-sentence change if it misleads anyone on a real seat.
+- Review 6 (sonnet): the line under a post no longer says `it needs nothing more` under an ask the list keeps showing. For the person's asks and one the reader claimed it says `cite it with --in-reply-to to take it off your list`. The reader's own posts are collected during the walk, so a reply no longer scans the room.

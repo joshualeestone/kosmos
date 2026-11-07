@@ -68,6 +68,12 @@ const unanswered = (project, q) => read(project, '&unanswered=1' + (q || ''));
 const onCovered = (text) => (text.split('\n').find((l) => l.startsWith('[kosmos] Not counted as waiting on you')) || '');
 const listed = (text, id) => text.split('\n').some((l) => l.includes('  [' + id + '] ') && !l.includes('[kosmos]'));
 
+/* A claim, as react() writes one (`claim: true` is what makes a 🙋 a claim). */
+const claim = (project, of, from) => {
+  clock += 1000;
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'reaction', project, of, at: new Date(clock).toISOString(), emoji: '\u{1F64B}', op: 'add', from, claim: true }) + '\n');
+};
+
 test('a round answered in one uncited post leaves the waiting list, each ask named with the post', async () => {
   const pid = newRoom('Uncited4926a');
   const a = [ask(pid), ask(pid), ask(pid)];
@@ -190,6 +196,23 @@ test('kosmos room says it under the post, for the reader only, and not under one
   assert.ok(!nobody.includes('without citing it'), nobody);
 });
 
+test('review 6: the line says what clears an ask the list keeps, and that an ask it moved needs nothing more', async () => {
+  const pid = newRoom('Uncited4926x');
+  const moved = ask(pid);
+  const person = post(pid, { operator: true, from: 'you', text: 'please do this', outcomes: { [WHO]: 'placed' } });
+  const claimedByMe = ask(pid);
+  claim(pid, claimedByMe, WHO);
+  const claimedByOther = ask(pid);
+  claim(pid, claimedByOther, OTHER);
+  own(pid);
+  const lines = (await read(pid)).split('\n');
+  const under = (id) => lines.find((l) => l.includes('after [' + id + '] without citing it.')) || '';
+  const KEEP = 'cite it with --in-reply-to to take it off your list.';
+  const DONE = 'it needs nothing more.';
+  for (const id of [person, claimedByMe]) { assert.ok(under(id).endsWith(KEEP), id + ': ' + under(id)); }
+  for (const id of [moved, claimedByOther]) { assert.ok(under(id).endsWith(DONE), id + ': ' + under(id)); }
+});
+
 test('a post that asked the reader nothing gets no line: an FYI is not an ask', async () => {
   const pid = newRoom('Uncited4926k');
   const fyi = post(pid, { text: 'an FYI for the room', outcomes: { [WHO]: 'placed' } });
@@ -246,12 +269,6 @@ test('asks still open and covered ones show together, and the count is only the 
   assert.ok(listed(t, open), t);
   assert.ok(onCovered(t).includes('[' + covered + ']'), t);
 });
-
-/* A claim, as react() writes one (`claim: true` is what makes a 🙋 a claim). */
-const claim = (project, of, from) => {
-  clock += 1000;
-  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'reaction', project, of, at: new Date(clock).toISOString(), emoji: '\u{1F64B}', op: 'add', from, claim: true }) + '\n');
-};
 
 test('review 1: an ask the reader claimed stays listed after it posts without citing it', async () => {
   const pid = newRoom('Uncited4926l');
