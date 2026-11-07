@@ -4,7 +4,7 @@
     {
       "icon": "list",
       "title": "Spreadsheets open in the file viewer",
-      "line": "A spreadsheet (.xlsx, .csv or .tsv) now opens as a read-only grid, with each sheet as a tab. It shows the values saved in the file."
+      "line": "A spreadsheet (.xlsx, .csv or .tsv) now opens as a read-only grid, a workbook's sheets as tabs. It shows the values saved in the file."
     },
     {
       "icon": "spark",

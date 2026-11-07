@@ -19,10 +19,11 @@ Read from the first-parent commits 74773b2338 (the 0.7.95 bump)..2d09239de3. Jos
 | 17 | A little more space in project rooms | #8160 (Josh picked 1.6) | all |
 | 17.5 | Shared tasks say who has finished | #8137 | all |
 | 18 | Agents that answer you elsewhere say so | #8141 | all |
-| 19 | Old sign-ins say since when they are unconfirmed | #8159 (Grok), #8173 (Muse) | all |
+| 19 | An old Grok sign-in says since when | #8159 | all |
+| 19.5 | An old Meta Muse sign-in says since when | #8173 (Muse is Mac-only, musestatus.enabled) | mac |
 
-Left out on purpose: iPhone-only changes (ff0d16da29, #8146): the iPhone app is not in this cut. Fixes with no
-visible change a person would name (#8112, #8165, #7420, #8036, #8140's chip gap), and #4926 (visible, an agent
+Left out on purpose: iPhone-only changes (ff0d16da29, #8146, #7420's ChatView.swift): the iPhone app is not in this cut. Fixes with no
+visible change a person would name (#8112, #8165, #8036, #8140's chip gap), and #4926 (visible, an agent
 listing fix, but low value beside the six), and release machinery
 (#8167, #8172). #8140's other pieces since 0.7.95 (04f6f8b63e, the hold lines offer closing a hold no longer needed;
 3dc7a74dd6, the nudge names held subtasks) are agent-facing nudge wording, so they are left out too.
@@ -46,3 +47,14 @@ Commit carries the #1720 Browser-check trailer (data only).
 - Grok's date is when its key ran out, not when it last worked (Muse's is when it was last seen working), so the
   title and line now say "not renewed or seen working" and "since when they are unconfirmed".
 - The line-spacing line drops the number for plain words.
+
+## Review round 3
+- Meta Muse is Mac-only (engine/musestatus.js enabled() is false off darwin), so the sign-ins item is split: Grok
+  untagged (rank 19), Muse tagged mac (rank 19.5). Checked with `notes 0.7.96 --platform=linux|windows`: neither
+  names Meta Muse.
+- The spreadsheet line says a workbook's sheets open as tabs (one sheet draws no tab bar).
+- #7420 is iPhone-only (ios/Kosmos/ChatView.swift), so it moved to the iPhone reason.
+- Decided not to add notesOnly items for #4926 and #8140 item 3: both change wording an agent already reads in
+  context (kosmos room --unanswered, the hold and nudge lines), so a note teaches it nothing new. Weakest premise:
+  an agent that read the old --unanswered list may not notice the change. Would change my mind: an agent asking.
+- The first commit's message still carries round-0 wording; the PR body and merge message use the final wording.
