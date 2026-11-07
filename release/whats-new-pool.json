@@ -1231,7 +1231,7 @@
     },
     {
       "title": "Spreadsheets open in the file viewer",
-      "line": "A spreadsheet (.xlsx, .csv or .tsv) now opens as a read-only grid, with each sheet as a tab. It shows the values saved in the file.",
+      "line": "A spreadsheet (.xlsx, .csv or .tsv) now opens as a read-only grid, a workbook's sheets as tabs. It shows the values saved in the file.",
       "icon": "list",
       "rank": 6,
       "since": "0.7.96",
@@ -1273,10 +1273,21 @@
       "status": "pending"
     },
     {
-      "title": "Old sign-ins say since when they are unconfirmed",
-      "line": "A Grok or Meta Muse sign-in not renewed or seen working for over three days now reads \"not confirmed since\" a date, not green.",
+      "title": "An old Grok sign-in says since when",
+      "line": "A Grok sign-in not renewed for over three days now reads \"not confirmed since\" a date, not green.",
       "icon": "shield",
       "rank": 19,
+      "since": "0.7.96",
+      "status": "pending"
+    },
+    {
+      "title": "An old Meta Muse sign-in says since when",
+      "line": "On the Mac, a Meta Muse sign-in not seen working for over three days now reads \"not confirmed since\" a date, not green.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 19.5,
       "since": "0.7.96",
       "status": "pending"
     }
