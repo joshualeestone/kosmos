@@ -1292,7 +1292,7 @@ function withPending(log, projectId, ownId) {
     if (earlier(p.row)) extra.push(p.row);
   }
   const rows = Array.isArray(log) ? (own === Infinity ? log : log.filter(earlier)) : [];
-  if (!extra.length) return rows;
+  // Review 7: sorted whether or not anything is pending, or a post's tag would turn on an unrelated post being in flight.
   /* Review 5: in id order, as the rows were posted: a reader takes a quote's origin as the first row carrying the words,
      and rows are recorded when their deliveries finish, in any order. Stable for rows with no m-number. */
   // Review 6: the m-rows are sorted into the m-rows' own slots and every row with no m-number keeps its place (a
@@ -2739,7 +2739,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      in a room shared with another computer (a claim there is this computer's alone), and not when no reply is wanted. */
   const claimOpen = operator === true && replyExpected !== false && federated !== true
     && claimAskedMembers({ text: stored, from, mentioned: [...atNamed.mentioned], ambiguousMentions: [...ambiguousWords],
-      ...(answered ? { replyTo: answered.id } : {}) }, withPending(log, projectId), projectId, recipients).length === 0;   // #8165 r3
+      ...(answered ? { replyTo: answered.id } : {}) },
+      // #8165 r3/r7: the room as it will read, and the very post answered (an unrecorded one is left out of the view,
+      // but it is still the post this reply answers, so the guard must find it, as the reply path does).
+      ((rows) => (answered && answered.pending === true && !rows.includes(answered) ? rows.concat([answered]) : rows))(withPending(log, projectId)),
+      projectId, recipients).length === 0;
   const note4653 = ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '';
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
@@ -4863,6 +4867,8 @@ module.exports = {
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, kindOfId, owedElsewhere,
+  _withPendingForTests: withPending,
+  _setPendingForTests: (id, entry) => { if (entry) PENDING_POSTS.set(id, entry); else PENDING_POSTS.delete(id); },
   deletePostAsync,   // kosmos#7614
   react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji, freeClaim,
   messageIdOf, // #4631
