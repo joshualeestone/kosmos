@@ -2478,7 +2478,7 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .kpill.measure { transform: translate(0, -50%) scale(1); transition: none; }   /* review 3: measured at rest */
 .kpill.below.measure { transform: none; }
 /* Review 3: while the pill is out it says what the label says; the label would only sit under it (hovering holds the pill). */
-.kmark.kglow .kstreak { visibility: hidden !important; opacity: 0 !important; }
+.kmark.kglow .kstreak:not(.show) { visibility: hidden !important; opacity: 0 !important; }   /* review 5: a long press still shows it */
 .kmark.kglow .klink img { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold-bright, #e3b341) 60%, transparent), 0 0 18px 4px color-mix(in srgb, var(--gold-bright, #e3b341) 65%, transparent);
   transition: box-shadow .3s ease; }
 .kmark.kglow::before, .kmark.kglow::after { content: "\2726" / ""; position: absolute; color: var(--gold-edge); font-size: 11px; line-height: 1;
@@ -39669,7 +39669,7 @@ function streakBadge(n) {
   badge.textContent = on ? String(n) : '';
   badge.hidden = !on;
 }
-let streakPillTimer = null, streakPillFold = null;
+let streakPillTimer = null, streakPillFold = null, streakPillWidth = null;
 /* Review 1: where the pill can go, MEASURED, not assumed. Beside the mark if it covers no header control (the computer
    switcher, the tabs, a header button); else below the mark if it covers no notice in the stack; else nowhere (false),
    and the day's words keep their notice. The pill is measured in place while it is still invisible. */
@@ -39708,19 +39708,24 @@ function streakPill(n) {
   /* Review 2: kept NOW, not at the fold: the board says congrats once a day, so a reload while the pill is out would
      otherwise lose both the pill and the badge for the day. The badge still shows only once this pill folds. */
   streakBadgeKeep(day);
-  const fold = () => {
-    clearTimeout(streakPillTimer); streakPillFold = null;
+  /* Review 5: `toNote` (the watch found no room left) hands the day's words to the notice instead of the badge, so a
+     sentence on show for under half a second is not the day's only sight of it; the badge follows when the notice goes. */
+  const fold = (toNote) => {
+    clearTimeout(streakPillTimer); streakPillFold = null; streakPillWidth = null;
     pill.classList.remove('in'); mark.classList.remove('kglow');
     setTimeout(() => { if (!pill.classList.contains('in')) { pill.textContent = ''; const say = document.getElementById('kpill-say'); if (say) say.textContent = ''; } }, 400);
+    if (toNote === true) { streakNote(n, document.getElementById('streak-slot')); return; }
     streakBadgeKeep(day); streakBadge(n);
   };
-  streakPillFold = fold;
+  streakPillFold = fold; streakPillWidth = window.innerWidth;
   /* Review 1: the words are announced from a status region that is always in the page and always exposed (.vh,
      visually hidden), so writing the sentence into it is what a screen reader reads, once. The pill is only what is
      seen (aria-hidden): a region that is revealed and filled in one update is often skipped. */
   const say = document.getElementById('kpill-say');
   // Review 2: keyboard focus holds it (:focus-visible); the focus a mouse click leaves on the mark does not, or it would never fold.
-  const held = () => k.matches(':hover') || pill.matches(':hover') || k.matches(':focus-visible');
+  // Review 5: hover holds it only on a screen that hovers; a tap leaves :hover stuck on a touch screen (an iPad).
+  const hovers = window.matchMedia('(hover: hover)').matches;
+  const held = () => (hovers && (k.matches(':hover') || pill.matches(':hover'))) || k.matches(':focus-visible');
   const later = (ms) => { clearTimeout(streakPillTimer); streakPillTimer = setTimeout(() => { if (held()) later(1500); else fold(); }, ms); };
   /* Review 1: something can arrive under the pill after it was placed (the computer switcher shows once the computers
      are read). While it is out, it looks again every 400 ms; covering something, it moves below the mark if that is
@@ -39736,7 +39741,7 @@ function streakPill(n) {
         pill.classList.remove('measure');
         if (clear) return;
       }
-      clearInterval(watch); fold();
+      clearInterval(watch); fold(true);
     }, 400);
   };
   /* Review 4: its 6 s and its watch start when it is really out (in this frame), not when it was queued: a frame that
@@ -39756,7 +39761,8 @@ document.addEventListener('keydown', (e) => {
   streakPillFold();
 });
 // Review 1: a window resized while the pill is out folds it, rather than leave it where it was placed for another width.
-window.addEventListener('resize', () => { if (streakPillFold) streakPillFold(); });
+// Review 5: the WIDTH it was placed for; a height-only resize (a tablet's toolbar while scrolling) is not one.
+window.addEventListener('resize', () => { if (streakPillFold && window.innerWidth !== streakPillWidth) streakPillFold(); });
 function paintStreak(got) {
   const lab = document.getElementById('kstreak'), k = document.getElementById('klink'), slot = document.getElementById('streak-slot');
   if (!lab || !k) return;
