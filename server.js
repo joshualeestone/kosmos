@@ -1324,6 +1324,7 @@ const communitytaskdone = require('./engine/communitytaskdone'); // #5313: one c
    initialised long before any request or timer calls it. Never throws (an unreadable read is "no"). */
 function agentInCommunity(session) {
   try {
+    if (require('./engine/communityswitch').isTestSeat(session)) return false;   // kosmos#8156: never prompted to post
     const cb = require('./engine/communityblock');
     const cur = instructions.read(session);
     if (!cur || !cur.exists) return false;
@@ -12260,7 +12261,7 @@ const server = http.createServer(async (req, res) => {
         }
         const agentId = sender.card.sessionName;
         // kosmos#8156: a test seat writes nothing to the community, refused before anything is stored
-        if (communityswitch.isTestSeat(agentId)) { sendJson(res, 403, { error: 'Kosmos did not take that: ' + communitysend.testSeatWords() + '. Do not try again.' }); return; }
+        if (communityswitch.isTestSeat(agentId)) { sendJson(res, 403, { error: 'Kosmos did not take that: ' + communitysend.testSeatWords() + ', so do not try again' }); return; }
         // Build the candidate from the content only (strip the envelope), then bind
         // its `agent` to the AUTHENTICATED identity so attribution == the trust key.
         let candidate;
@@ -12384,7 +12385,7 @@ const server = http.createServer(async (req, res) => {
         }
         const agentId = sender.card.sessionName;
         // kosmos#8156: a test seat writes nothing to the community, refused before anything is stored
-        if (communityswitch.isTestSeat(agentId)) { sendJson(res, 403, { error: 'Kosmos did not take that: ' + communitysend.testSeatWords() + '. Do not try again.' }); return; }
+        if (communityswitch.isTestSeat(agentId)) { sendJson(res, 403, { error: 'Kosmos did not take that: ' + communitysend.testSeatWords() + ', so do not try again' }); return; }
         // Keep postId/parentId (the primitive strips them for the guard, re-attaches
         // after); strip only the transport envelope. Bind agent to the authenticated id.
         let candidate;
@@ -12513,7 +12514,7 @@ const server = http.createServer(async (req, res) => {
         }
         const agentId = sender.card.sessionName;
         // kosmos#8156: a test seat writes nothing to the community, refused before anything is stored
-        if (communityswitch.isTestSeat(agentId)) { sendJson(res, 403, { error: 'Kosmos did not take that: ' + communitysend.testSeatWords() + '. Do not try again.' }); return; }
+        if (communityswitch.isTestSeat(agentId)) { sendJson(res, 403, { error: 'Kosmos did not take that: ' + communitysend.testSeatWords() + ', so do not try again' }); return; }
         const { token: _t, from_pane: _fp, board: _b, candidate: _c, ...content } = body;
         if (communityValveTripped(agentId)) {
           sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
@@ -30094,7 +30095,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
   _autobalanceSweepDepsForTest: autobalanceSweepDeps, // kosmos#7152 slice 3: the sweep's wiring, for its test
-  _promptCommunityOnTaskDoneForTest: promptCommunityOnTaskDone,   // kosmos#7649: the task-done chain, for its test
+  _promptCommunityOnTaskDoneForTest: promptCommunityOnTaskDone, _agentInCommunityForTest: agentInCommunity /* kosmos#8156 */,   // kosmos#7649: the task-done chain, for its test
   _tellOwnBoundForTest: tellOwnBound, _ownBoundToldForTest: ownBoundTold, _ownboundsPushedForTest: ownboundsPushed, _ownboundsPushKeyForTest: ownboundsPushKey, // kosmos#7633: the stall push's own-bounds question, for its test
   _automoveDepsForTest: automoveDeps, _accountMoveDepsForTest: accountMoveDeps, // kosmos#7548: the mover's wiring, for its test
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,

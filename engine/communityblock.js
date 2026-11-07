@@ -464,8 +464,16 @@ function refreshEveryone(roster, participating) {
   const told = [];
   for (const a of roster) {
     if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
-    // kosmos#8156: a test seat is never given the section; its own restart takes out one written before (tellAgent).
-    try { if (require('./communityswitch').isTestSeat(a.sessionName)) continue; } catch { continue; }
+    /* kosmos#8156: a test seat is never given the section, and one written before this is taken out here too (tellAgent
+       writes a seat as not taking part). It is never reported as a change of rules, so nothing tells it about the
+       community. */
+    let seat = true;
+    try { seat = require('./communityswitch').isTestSeat(a.sessionName); } catch { seat = true; }
+    if (seat) {
+      const { body: _unused, ...r } = tellAgent(a.sessionName, false, { withBody: true });
+      told.push({ agent: a.sessionName, ...r, rulesChanged: false });
+      continue;
+    }
     let before = null;
     let cur = null;
     try { cur = instructions.read(a.sessionName); } catch { cur = null; }

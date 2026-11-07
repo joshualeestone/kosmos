@@ -22,7 +22,8 @@ process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw
 process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-community-testseat-work-'));
 process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-community-testseat-launch-'));
 
-const { start, server } = require('./server');
+const serverModule = require('./server');
+const { start, server } = serverModule;
 const fleet = require('./test-support/fleet');
 const sendertoken = require('./engine/sendertoken');
 const cs = require('./engine/communitystore');
@@ -80,4 +81,17 @@ test('#8156 a test seat is refused a post, a comment and a community comment; an
     assert.ok(j.error.includes(communityswitch.TEST_SEAT_PREFIX), route + ': the refusal does not name the prefix');
   }
   assert.equal(cs.publicFeed().length, stored, 'something the seat wrote was stored');
+});
+
+test('#8156 a test seat whose instructions still carry the community section is not a member, so nothing prompts it to post', () => {
+  const instructions = require('./engine/instructions');
+  const block = require('./engine/communityblock');
+  const text = (who) => '# ' + who + '\n\nA test agent for checking the community gate.\n\n' + block.START + '\n' + block.blockBody() + '\n' + block.END + '\n';
+  for (const who of [SEAT, 'ava8156']) {
+    const p = instructions.read(who).path;
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, text(who));
+  }
+  assert.equal(serverModule._agentInCommunityForTest('ava8156'), true, 'CONTROL: an ordinary agent with the section is not a member');
+  assert.equal(serverModule._agentInCommunityForTest(SEAT), false, 'a test seat with the section counts as a member');
 });

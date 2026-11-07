@@ -316,10 +316,12 @@ function corrupt(file, why) {
  * never cached. A missing module sends nothing, as OFF does (#5435: its words say it cannot be read, not switched off).
  */
 let switchRead = null;          // tests inject
-/* kosmos#8156: a test seat (communityswitch.isTestSeat) gets no community identity and nothing is sent as it, whatever
-   the switch says: it is refused before it registers, before it acts as an account it already holds, and its posts
-   and comments are told so when they are written. A module that cannot be loaded counts as a test seat, the side that
-   sends nothing. */
+/* kosmos#8156: a test seat (communityswitch.isTestSeat) gets no community identity, whatever the switch says: it is
+   refused before it registers, its calls (votes, follows, reads, endorsements, edits) are refused, and its posts and
+   comments are told so when they are written (the routes refuse them first). asAgent itself is NOT gated: its callers
+   read a missing answer as an outage and would stall every agent after a seat, and its deletes must still reach the
+   site. A seat registered before this shipped keeps its account; see the plan's Not done. A module that cannot be
+   loaded counts as a test seat, the side that sends nothing. */
 function testSeat(agentKey) {
   try { return require('./communityswitch').isTestSeat(agentKey); } catch { return true; }
 }
@@ -871,9 +873,6 @@ async function ensureRegistered(agentKey, keys, now, ctx = {}) {
 
 // A request as the agent, re-logging in once if the token has expired.
 async function asAgent(agentKey, keys, method, pathname, body, ctx = {}) {
-  /* kosmos#8156: a seat that registered before this check holds a key; nothing is sent as it either. Status 0 is the
-     answer every caller already reads as "no answer, nothing confirmed", so none of them records a send. */
-  if (testSeat(agentKey)) return { status: 0, json: null, testSeat: true };
   const k = keys[agentKey];
   let r = await request(method, pathname, { ...ctx, token: k.token, body });
   if (r.status !== 401) return r;
@@ -1397,6 +1396,7 @@ async function sweepInstallGroup(keys, on) {
   for (let idx = 0; idx < order.length; idx++) {
     const agentKey = order[(start + idx) % order.length];
     const stopHere = () => installGroupFrom.set(ep, (start + idx + 1) % order.length);
+    if (on && testSeat(agentKey)) continue;   // kosmos#8156: a test seat adds nothing to the site (a seat registered before this check holds a key); clearing still runs
     if (Date.now() > until) break;   // the rest wait for the next sweep
     const k = keys[agentKey];
     if (!k || !k.apiKey) continue;
@@ -1607,6 +1607,7 @@ async function sweepOwnerLink(keys, on) {
     for (let idx = 0; idx < order.length; idx++) {
       const agentKey = order[(start + idx) % order.length];
       const stopHere = () => ownerLinkFrom.set(ep, (start + idx + 1) % order.length);   // after this agent
+      if (on && testSeat(agentKey)) continue;    // kosmos#8156: a test seat adds nothing to the site (a seat registered before this check holds a key); clearing still runs
       const resumeHere = () => ownerLinkFrom.set(ep, (start + idx) % order.length);    // at this agent, not yet tried
       if (Date.now() > until) { resumeHere(); break; }   // the rest wait for the next sweep, which starts here
       // #4994: a deleted agent's old account, or a name being retired, is not linked.
@@ -1845,6 +1846,7 @@ async function sweepIndustry(keys, on) {
     if (!k || !k.apiKey) continue;
     // #4994: a deleted agent's profile is only cleared, including one whose retirement lands during this pass.
     if (!clearing && (agentKey.startsWith(RETIRED_PREFIX) || retiring(agentKey))) continue;
+    if (!clearing && testSeat(agentKey)) continue;   // kosmos#8156: a test seat adds nothing to the site (a seat registered before this check holds a key); clearing still runs
     if (k.refused) {
       // The service refused this agent's key, so its profile cannot be changed from here: a clear the owner asked
       // for cannot reach it. Said once in the log, so it is on record.
@@ -1974,6 +1976,7 @@ async function sweepAvatars(keys, on, { removals }) {
   for (const agentKey of Object.keys(keys)) {
     const k = keys[agentKey];
     if (!k || !k.apiKey) continue;
+    if (on && testSeat(agentKey)) continue;   // kosmos#8156: a test seat adds nothing to the site (a seat registered before this check holds a key); clearing still runs
     const w = avatarWanted(agentKey);
     if (w.busy) {
       // A picture that cannot be read is said once, so an agent that never syncs again is not silent about why.
@@ -2700,6 +2703,7 @@ function applySelf(json, k) {
   return { id, name, changed: !had || (name === k.name ? k.currentName !== undefined : k.currentName !== name) };
 }
 async function refreshSelf(agentKey, { deadline = null } = {}) {
+  if (testSeat(agentKey)) return null;   // kosmos#8156: no request as a seat's account
   if (switchState() !== 'on' || !endpointAllowed() || (!sender && underTest())) return null;
   const keys = loadJson(keysFile());
   const k = keys && keys[agentKey];
