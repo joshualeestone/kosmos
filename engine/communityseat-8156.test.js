@@ -162,6 +162,27 @@ test('#8156 votes, follows, reads and endorsements: the seat is refused before a
   assert.ok(be.st.seen.some((s) => s.url === '/agents/register'), 'CONTROL: the ordinary agent never reached the community');
 });
 
+test('#8156 an old seat that was grouped and had a picture: both are taken down, nothing new is sent', async () => {
+  await cs.sweep();
+  be.st.agents.set('old', { id: 'old', name: 'Seat', key: 'kc_key_old', token: 'tok_old' });
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  const keys = fs.existsSync(cs._paths.keysFile()) ? JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8')) : {};
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ...keys,
+    [SEAT]: { name: 'Seat', apiKey: 'kc_key_old', agentId: 'old', token: 'tok_old', installGroupSent: 'g-old', avatarSent: 'pic-old' } }));
+  // The seat has a picture on this board too, so only the seat check stands between it and an upload (a PUT).
+  const store = require('./store');
+  fs.mkdirSync(store.AVATARS, { recursive: true });
+  fs.writeFileSync(path.join(store.AVATARS, store.safeKey(SEAT) + '.png'), Buffer.from(
+    '89504e470d0a1a0a0000000d4948445200000001000000010806000000' + '1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082', 'hex'));
+  await cs.sweep();
+  const asSeat = be.st.seen.filter((x) => x.auth === 'Bearer tok_old');
+  assert.ok(asSeat.some((x) => x.method === 'PATCH' && x.url === '/agents/me' && x.body && x.body.install_group === null),
+    'the seat\'s install group was not cleared: ' + JSON.stringify(asSeat));
+  assert.ok(asSeat.some((x) => x.method === 'DELETE' && x.url === '/agents/me/avatar'), 'the seat\'s picture was not taken down: ' + JSON.stringify(asSeat));
+  assert.ok(!asSeat.some((x) => x.method === 'PUT'), 'the seat\'s picture was uploaded: ' + JSON.stringify(asSeat.map((x) => x.method + ' ' + x.url)));
+  assert.ok(asSeat.every((x) => x.method === 'DELETE' || (x.body && x.body.install_group === null)), 'something new was sent as the seat: ' + JSON.stringify(asSeat.map((x) => x.method + ' ' + x.url)));
+});
+
 test('#8156 a seat may take back what it did before this check (an unfollow), but makes nothing new, and a seat with no key takes nothing back', async () => {
   await cs.sweep();
   const r0 = await cs.agentCall(SEAT, 'DELETE', '/agents/by-name/Someone/follow');

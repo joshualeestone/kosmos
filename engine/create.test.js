@@ -2502,6 +2502,10 @@ test('#8156: a test seat (the live-check prefix) is made with no community secti
   const communityblock = require('./communityblock');
   const projects = require('./projects');
   fs.rmSync(sw.FILE, { force: true });   // no community.json: the default, ON
+  /* A real agent named with the reserved prefix, on purpose: the leak guard skips such a plist, which is why #4392 says
+     no test names an agent with it. Safe here because every root is this file's sandbox (AGENT_WORKFORCE_LAUNCH among
+     them) and #3605's launch guard refuses any write to the real LaunchAgents under node --test. Do not copy it
+     without both. */
   const name = sw.TEST_SEAT_PREFIX + 'birth';   // built from the engine's constant: no test spells the prefix
   const seat = create.createAgent({ ...BINS, name, role: 'pm' });
   assert.equal(seat.outcome, create.OUTCOME.CREATED, seat.because);
