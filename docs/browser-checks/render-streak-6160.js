@@ -70,6 +70,7 @@ async function open(b, answer, opts = {}) {
     : await b.newPage().then(async (p) => { await p.setViewportSize(vp); return p; });
   const errs = [], posts = [];
   pg.on('pageerror', (e) => errs.push(e.message));
+  if (opts.init) await pg.addInitScript(opts.init);
   if (opts.clockInstall) await pg.clock.install({ time: opts.clockInstall }); else await pg.clock.setFixedTime(new Date(opts.at || NOON));
   await pg.route('**/api/streak', (route) => {
     let body = {}; try { body = JSON.parse(route.request().postData() || '{}'); } catch { /* recorded as empty */ }
@@ -109,13 +110,20 @@ const read = (pg) => pg.evaluate(() => {
 
   // pill (kosmos#6397): the day's words come out of the K mark, then fold into the badge
   {
-    const { pg, errs, posts } = await open(b, () => ({ count: 12, congrats: true }), { key: 'pill' });
-    // Review 6: it slides out (its transform moves after .in), it does not only fade
-    await pg.waitForSelector('#kpill.in', { state: 'attached', timeout: 10000 }).catch(() => {});
-    const t0 = await pg.evaluate(() => getComputedStyle(document.getElementById('kpill')).transform);
+    // Review 6: it slides out (its transform moves after .in), it does not only fade. The first transform is read in
+    // the page at the moment .in is added (#8184 CI: read later, a slow runner saw the slide already over, t0 === t1).
+    const atIn = () => {
+      const watch = (el) => new MutationObserver(() => {
+        if (el.classList.contains('in') && window.__kpillT0 === undefined) window.__kpillT0 = getComputedStyle(el).transform;
+      }).observe(el, { attributes: true, attributeFilter: ['class'] });
+      const find = new MutationObserver(() => { const el = document.getElementById('kpill'); if (el) { find.disconnect(); watch(el); } });
+      find.observe(document, { childList: true, subtree: true });
+    };
+    const { pg, errs, posts } = await open(b, () => ({ count: 12, congrats: true }), { key: 'pill', init: atIn });
     await pillOut(pg);
+    const t0 = await pg.evaluate(() => window.__kpillT0);
     const t1 = await pg.evaluate(() => getComputedStyle(document.getElementById('kpill')).transform);
-    say(t0 !== t1, 'pill: it slides out (its transform moves after it comes out)', JSON.stringify({ t0, t1 }));
+    say(typeof t0 === 'string' && t0 !== 'none' && t0 !== t1, 'pill: it slides out (its transform moves after it comes out)', JSON.stringify({ t0, t1 }));
     const g = await read(pg);
     say(g.pill.shown, 'pill: it shows', JSON.stringify(g.pill));
     say(g.pill.text === JOSH, "pill: Josh's sentence, word for word", JSON.stringify(g.pill.text));
