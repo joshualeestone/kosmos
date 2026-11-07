@@ -32,3 +32,10 @@ Mutant (the refusal disabled): exactly the 3 refusal arms fail, 7 pass.
 
 Weakest premise: Windows PowerShell 5.1 tokenizes these lines as pwsh 7 does. Measured only on pwsh here; the
 Windows CI runner runs the same arms under 5.1.
+
+## Review round 1
+- WARNING: a later word on the line, in the same if or array, refused a correct call. The check now stops at a ) or } this call did not open.
+- WARNING: --topic='a's'b' slipped through (every - word was skipped). An --option=value word is now read by its value; a value that is one quoted string passes.
+- WARNING: the doctrine said "two" and "refuses it". It now says an even number, "the usual cases", and names the continued-line case the check cannot see (MyInvocation.Line holds the first line only), also in the kosmos.ps1 comment.
+- NITs fixed: doubled apostrophes and double-quoted parts in a bare word are set aside (C:\O''Brien, x"it's"); with no PowerShell every arm is registered as a skip, so the count is stable.
+- Mutants: drop the ) and } stop -> exactly the two later-word arms fail; skip every - word again -> exactly the option-value arm fails.
