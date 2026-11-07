@@ -299,6 +299,31 @@ final class AttachMenuUITests: XCTestCase {
             app.terminate()
         }
     }
+    // kosmos#8200: three ways to the same open, same harness. tap: XCTest finds and taps it (the control, known hot).
+    // query: XCTest only finds it, and the app taps itself. xy: XCTest taps a screen point, with no element query for the +.
+    func testProbeSweepWays() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set") }
+        continueAfterFailure = true
+        for way in ["tap", "query", "xy"] { for h in [192, 204, 212, 224, 232, 248, 264, 272, 196, 216] {
+            let app = XCUIApplication()
+            var e = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_PHOTOS": "all", "KOSMOS_PROBE_TRAY": "\(h)"]
+            if way == "query" { e["KOSMOS_SAMPLE_PLUS"] = "6" }
+            app.launchEnvironment = e
+            app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+            app.launch()
+            switch way {
+            case "tap": let plus = app.buttons[chatPlus]; _ = plus.waitForExistence(timeout: 30); plus.tap()
+            case "query": _ = app.buttons[chatPlus].waitForExistence(timeout: 30); Thread.sleep(forTimeInterval: 7)
+            default:
+                // Where the + sits on this phone at this text size, read off a recording: x 90/924, y 1845/2000 of the screen.
+                Thread.sleep(forTimeInterval: 5)
+                app.coordinate(withNormalizedOffset: CGVector(dx: 90.0 / 924, dy: 1845.0 / 2000)).tap()
+            }
+            print("SWEEP-HOLD \(way) \(h)")
+            Thread.sleep(forTimeInterval: 6)
+            app.terminate()
+        } }
+    }
     func testProbeANormal() throws { try probe("normal", args: []) }
     func testProbeBLargest() throws { try probe("largest", args: largest) }
     func testProbeCLargestOff() throws { try probe("largestoff", args: largest, photos: "off") }
