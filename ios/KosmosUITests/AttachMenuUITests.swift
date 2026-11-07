@@ -284,6 +284,21 @@ final class AttachMenuUITests: XCTestCase {
             }
         }
     }
+    // kosmos#8200: the runner attached, its session live, but the app taps its own +. Same heights as the sweep that ran hot.
+    func testProbeSweepSelfTap() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set") }
+        continueAfterFailure = true
+        for h in [192, 204, 212, 224, 232, 248, 264, 272, 196, 216] {
+            let app = XCUIApplication()
+            app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_PHOTOS": "all", "KOSMOS_PROBE_TRAY": "\(h)", "KOSMOS_SAMPLE_PLUS": "2"]
+            app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+            app.launch()
+            Thread.sleep(forTimeInterval: 3)
+            print("SWEEP-HOLD self \(h)")
+            Thread.sleep(forTimeInterval: 6)
+            app.terminate()
+        }
+    }
     func testProbeANormal() throws { try probe("normal", args: []) }
     func testProbeBLargest() throws { try probe("largest", args: largest) }
     func testProbeCLargestOff() throws { try probe("largestoff", args: largest, photos: "off") }
