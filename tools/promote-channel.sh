@@ -797,7 +797,16 @@ if [ "$FAMILY" = mac ] && [ -f "$SITE/dist/$PKG_STAGING_NAME" ]; then
   elif [ -n "$NAMED_VERSION" ]; then
     echo "promote-channel: NOTE dist/$PKG_STAGING_NAME (${_pkg_ssha:0:12}) differs from $PKG_PROD_NAME, but a named promote cannot tell whether it belongs to $NAMED_VERSION, so $PKG_PROD_NAME is left as it is. To move the installer too, promote what staging serves (no --version), or copy the triple by hand: pkg_triple_copy in tools/lib/pkg-inputs.sh." >&2
   else
-    PKG_PROMOTE=1
+    # Only a staging pkg the host SERVES has been through a cut's 9c. A local one that is not served (a staging cut
+    # that aborted after 3c) is never copied: the pointer still promotes, and Kosmos.pkg stays as it is, loudly.
+    _pkg_host="${KOSMOS_SITE_URL:-https://installkosmos.com}"
+    _pkg_served="$(curl -fsSL -m 30 -H 'Cache-Control: no-cache' "$_pkg_host/dist/$PKG_STAGING_NAME.sha256" 2>/dev/null)" || _pkg_served=""
+    _pkg_served="${_pkg_served%%[[:space:]]*}"
+    if [ -n "$_pkg_served" ] && [ "$_pkg_served" = "$_pkg_ssha" ]; then
+      PKG_PROMOTE=1
+    else
+      echo "promote-channel: WARNING dist/$PKG_STAGING_NAME (${_pkg_ssha:0:12}) is not what $_pkg_host serves as $PKG_STAGING_NAME (served: ${_pkg_served:-nothing read}), so it is not copied onto $PKG_PROD_NAME and the Download button keeps its installer. Promote again once the staging pkg is served, or deploy it from the cut box first." >&2
+    fi
   fi
 fi
 

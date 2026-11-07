@@ -21,7 +21,7 @@ export KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=0.0.0
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/setup-staging-5032.XXXXXXXX")"
-trap 'rm -rf "$T"' EXIT
+SRV8=""; trap '[ -z "$SRV8" ] || kill "$SRV8" 2>/dev/null; rm -rf "$T"' EXIT
 fail=0
 pass() { printf 'PASS  %s\n' "$*"; }
 bad()  { printf 'FAIL  %s\n' "$*"; fail=1; }
@@ -211,7 +211,14 @@ mkpkg() {   # <site> <name> <bytes> <input-sha>
   pkg_sidecar_write "$1/dist/$2" "$4" "$1/dist/$2.inputs"
 }
 IN_OLD="$(printf 'old' | shasum -a 256 | awk '{print $1}')"; IN_NEW="$(printf 'new' | shasum -a 256 | awk '{print $1}')"
-Sk="$(promote_site yes)"; mkpkg "$Sk" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sk" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"
+# A stand-in host: promote copies the staging pkg only when the HOST serves it (its .sha256 equals the local one).
+WWW8="$T/www8167"; mkdir -p "$WWW8/dist"
+( cd "$WWW8" && exec python3 -u -m http.server 0 -b 127.0.0.1 ) > "$T/srv8167.log" 2>&1 & SRV8=$!
+P8=""; for i in $(seq 1 100); do P8="$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$T/srv8167.log" | head -n1)"; [ -n "$P8" ] && break; sleep 0.1; done
+[ -n "$P8" ] && pass "8167 promote: the stand-in host is up" || bad "8167 promote: the stand-in host did not start"
+export KOSMOS_SITE_URL="http://127.0.0.1:$P8"
+served8() { rm -f "$WWW8/dist/"*; [ -z "${1:-}" ] || cp "$1/dist/Kosmos-staging.pkg.sha256" "$WWW8/dist/"; }
+Sk="$(promote_site yes)"; mkpkg "$Sk" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sk" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"; served8 "$Sk"
 [ "$(cat "$Sk/dist/Kosmos.pkg")" = "PROD-PKG" ] && pass "8167 promote: CONTROL before the promote Kosmos.pkg is the prod pkg" || bad "8167 fixture: Kosmos.pkg is not the prod pkg"
 out="$(bash "$HERE/promote-channel.sh" "$Sk" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && cmp -s "$Sk/dist/Kosmos-staging.pkg" "$Sk/dist/Kosmos.pkg" && cmp -s "$Sk/dist/Kosmos-staging.pkg.inputs" "$Sk/dist/Kosmos.pkg.inputs" \
@@ -219,6 +226,15 @@ out="$(bash "$HERE/promote-channel.sh" "$Sk" 2>&1)"; rc=$?
 [ "$(awk '{print $2}' "$Sk/dist/Kosmos.pkg.sha256")" = Kosmos.pkg ] && [ "$(awk '{print $1}' "$Sk/dist/Kosmos.pkg.sha256")" = "$(shasum -a 256 < "$Sk/dist/Kosmos.pkg" | awk '{print $1}')" ] \
   && pass "8167 promote: the promoted Kosmos.pkg.sha256 names Kosmos.pkg and its bytes" || bad "8167 promote: Kosmos.pkg.sha256 reads '$(cat "$Sk/dist/Kosmos.pkg.sha256")'"
 has "$out" "copied the staging installer pkg onto Kosmos.pkg" && pass "8167 promote: says it copied the pkg" || bad "8167 promote did not say so (out=$out)"
+# A staging pkg the host does NOT serve (a staging cut that aborted after 3c) is not copied: the pointer promotes, loudly.
+Sv="$(promote_site yes)"; mkpkg "$Sv" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sv" Kosmos-staging.pkg "UNSERVED-PKG" "$IN_NEW"; served8
+out="$(bash "$HERE/promote-channel.sh" "$Sv" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$Sv/dist/Kosmos.pkg")" = "PROD-PKG" ] && grep -q '"9.9.9"' "$Sv/dist/latest.json" && has "$out" "is not what http://127.0.0.1:$P8 serves" \
+  && pass "8167 promote: an UNSERVED staging pkg is not copied, the pointer still promotes, and it says why" || bad "8167 promote unserved arm (rc=$rc, Kosmos.pkg: $(cat "$Sv/dist/Kosmos.pkg"), out=$out)"
+# ...and one the host serves under OTHER bytes is not copied either.
+Sw="$(promote_site yes)"; mkpkg "$Sw" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sw" Kosmos-staging.pkg "LOCAL-PKG" "$IN_NEW"; served8 "$Sw"; printf '%064d  Kosmos-staging.pkg\n' 7 > "$WWW8/dist/Kosmos-staging.pkg.sha256"
+out="$(bash "$HERE/promote-channel.sh" "$Sw" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$Sw/dist/Kosmos.pkg")" = "PROD-PKG" ] && pass "8167 promote: a staging pkg the host serves under other bytes is not copied" || bad "8167 promote other-bytes arm (rc=$rc, out=$out)"
 # No staging pkg (before the first staging cut after #8167): Kosmos.pkg is left alone and the promote goes on.
 Sn="$(promote_site yes)"; mkpkg "$Sn" Kosmos.pkg "PROD-PKG" "$IN_OLD"
 out="$(bash "$HERE/promote-channel.sh" "$Sn" 2>&1)"; rc=$?
@@ -235,6 +251,8 @@ out="$(bash "$HERE/promote-channel.sh" "$Sb8" 2>&1)"; rc=$?
 rm -f "$Sb8/dist/Kosmos-staging.pkg.inputs"; mkpkg "$Sb8" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"; rm -f "$Sb8/dist/Kosmos-staging.pkg.inputs"
 out="$(bash "$HERE/promote-channel.sh" "$Sb8" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ "$(cat "$Sb8/dist/latest.json")" = '{"version":"1.0.0"}' ] && has "$out" "is missing" && pass "8167 promote: a staging pkg missing its sidecar refuses, nothing written" || bad "8167 promote partial arm (rc=$rc, out=$out)"
+
+kill "$SRV8" 2>/dev/null; wait "$SRV8" 2>/dev/null; unset KOSMOS_SITE_URL
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-setup-staging-5032: ALL PASS"; else echo "test-setup-staging-5032: FAILURES above"; exit 1; fi

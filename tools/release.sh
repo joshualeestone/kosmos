@@ -1434,6 +1434,9 @@ if [ "$CUT_CHANNEL" = staging ]; then
     echo "   $PKG_PROD_NAME in the site dist is the served one (${PKG_PROD_SERVED_SHA:0:12})"
   else
     echo "   $PKG_PROD_NAME in the site dist (${_pkg_local:-absent}) is not a whole copy of the served one (${PKG_PROD_SERVED_SHA:0:12}); putting the served triple back so this staging cut cannot ship another"
+    if [ -n "$_pkg_local" ] && [ -f "$SITE/dist/$PKG_STAGING_NAME" ] && cmp -s "$SITE/dist/$PKG_PROD_NAME" "$SITE/dist/$PKG_STAGING_NAME"; then
+      echo "   WARNING: that local $PKG_PROD_NAME is a copy of the local $PKG_STAGING_NAME, so it looks like a promote's copy that was never deployed. This staging cut drops it; the promote's move of the installer has NOT happened. Deploy a promote before cutting, or promote again after this cut."
+    fi
     for _f in "$PKG_PROD_NAME" "$PKG_PROD_NAME.inputs"; do
       curl -fsSL -m 120 -H 'Cache-Control: no-cache' "${HOST:-https://installkosmos.com}/dist/$_f" -o "$_pkg_srv/$_f" || { echo "could not fetch the served $_f"; exit 1; }
     done

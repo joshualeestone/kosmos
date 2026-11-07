@@ -74,3 +74,20 @@ Deferred, with reasons:
 - A named promote that follows an un-named promote which was never deployed: the local `Kosmos.pkg` is then the
   staging pkg, and deploy-site keeps it because it is the served staging pkg's bytes. It needs two promotes with
   no deploy between them, and the result is an installer that staging serves and a cut has checked.
+
+## Review round 2
+
+- WARNING, fixed (raised in both rounds): promote copied the working tree's `Kosmos-staging.pkg` whatever the host
+  served. It now copies only when that pkg's sha is the served `Kosmos-staging.pkg.sha256` (from `KOSMOS_SITE_URL`,
+  default installkosmos.com). Otherwise it leaves `Kosmos.pkg` and prints a WARNING, and the pointer still
+  promotes. The tests serve the staging `.sha256` from a stand-in host.
+- WARNING, fixed: a staging cut's 3c now warns when the `Kosmos.pkg` it replaces is a copy of the local staging pkg
+  (a promote's copy that was never deployed).
+- NIT, fixed: the export warns when it carries the staging pkg without `Kosmos.pkg`.
+- WARNING, deferred: verify-served checks `Kosmos.pkg` whole, signed and stapled, but not against the source, while
+  a staging pkg is served. Between a staging cut and its promote the prod pkg is meant to lag, and nothing records
+  which pkg prod should have. Requiring it to equal the staging pkg or the source would red every staging round.
+  Recording the pkg sha in the prod pointer (as #5032 records `setup_sha256`) would make it checkable, as a
+  follow-up.
+- NIT, deferred: a hard kill inside `pkg_triple_copy` can leave a `.pkgcopy.*` temp dir in the site dist. The
+  export carries named files only, so it never ships.
