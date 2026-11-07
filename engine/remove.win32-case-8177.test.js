@@ -166,3 +166,15 @@ test('#8177 another Kosmos\'s job is not judged by this Kosmos\'s folders (revie
   assert.equal(job.status('cai8177w', 'otherw').spelledOtherwise, tn, 'CONTROL: the stored case was not read as another spelling');
   assert.ok(remove.jobFor('cai8177w', WIN, 'otherw'), 'another world\'s agent lost its own task');
 });
+
+test('#8177 KNOWN GAP, pinned so it is not forgotten: a profile-recorded agent\'s variant still finds its task', () => {
+  /* A folder recorded in the profile does not carry the spelling, and the profile is read without case, so this
+     branch keeps main's answer for a recorded agent: jobFor('Cai8177p') counts cai8177p's task. #8112's folderIsExactly
+     is the test to use here once it lands; when it does, this assertion flips (null), and that is the fix. */
+  const store = require('./store');
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'recorded-'));
+  store.writeProfile('cai8177p', { dir });
+  assert.ok(create.usableRecordedDir(store.readProfile('Cai8177p').dir), 'CONTROL: the profile is not read for the variant');
+  taskSchedulerWith('cai8177p');
+  assert.ok(remove.jobFor('Cai8177p', WIN), 'the known gap changed: update this test and the card');
+});
