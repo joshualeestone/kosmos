@@ -702,6 +702,33 @@ test('kosmos#8140: built plus held subtasks, nothing else open: "N is on hold", 
   } finally { w.restore(); }
 });
 
+/* kosmos#8140 follow-up: no subtask built, some held: the held ones are still said (before, the line said nothing about
+   subtasks, so an agent could take up pieces nobody was given). */
+test('kosmos#8140 follow-up: held subtasks with none built are said, with what is left, and never "mark it built"', () => {
+  const w = world([{ name: 'parentallheld' }]);
+  try {
+    const n = taskOn(w, w.key.parentallheld, 'ship a held release');
+    const a = childOf(w, n, 'sign the build', false);
+    const b = childOf(w, n, 'notarize the build', false);
+    tasks.setOnHold(w.pid, a, true);
+    tasks.setOnHold(w.pid, b, true);
+    let t = pass(w).calls[0].text;
+    assert.match(t, / 2 of its 2 subtasks are on hold\./, t);
+    assert.doesNotMatch(t, /not finished|built|Every subtask/, t);
+  } finally { w.restore(); }
+  // One held, one not finished: both said, in that order.
+  const w2 = world([{ name: 'parentsomeheld' }]);
+  try {
+    const n = taskOn(w2, w2.key.parentsomeheld, 'ship a part-held release');
+    const a = childOf(w2, n, 'sign the build', false);
+    childOf(w2, n, 'notarize the build', false);
+    tasks.setOnHold(w2.pid, a, true);
+    const t = pass(w2).calls[0].text;
+    assert.match(t, / 1 of its 2 subtasks is on hold; 1 is not finished\./, t);
+    assert.doesNotMatch(t, /kosmos task built|Every subtask/, t);
+  } finally { w2.restore(); }
+});
+
 test('#6421: the agent\'s own second part is not another\'s: it is still told to mark the parent built', () => {
   const w = world([{ name: 'parenttwo' }]);
   try {

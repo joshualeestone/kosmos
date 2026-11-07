@@ -103,7 +103,9 @@ function openParts(session, projects) {
         const markedBy = t.builtAt && Array.isArray(t.builtWho) ? t.builtWho : [];
         const others = prog.parts.some((y) => y.who !== session && !y.closedAt && !markedBy.includes(y.who));
         const checks = Array.isArray(t.doneWhen) ? t.doneWhen.length : 0;
-        const subs = k.total > 0 && k.built > 0 ? { subs: { done: k.done, built: k.built, held: Number(k.held) || 0, total: k.total, others, checks } } : {};
+        /* kosmos#8140 follow-up: held subtasks are said even with none built, so an agent nudged about a parent whose open
+           pieces are on hold is not left to redo them (nobody is given a held one). */
+        const subs = k.total > 0 && (k.built > 0 || Number(k.held) > 0) ? { subs: { done: k.done, built: k.built, held: Number(k.held) || 0, total: k.total, others, checks } } : {};
         out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due, ...subs,
           /* kosmos#8067: a mark that does not free this agent (a colleague's, or an unnamed caller's) stays open work on purpose, so the line says it is marked. */
           ...(t.builtAt ? { marked: { by: markedBy, checks } } : {}) });
@@ -144,12 +146,16 @@ function nudgeText(part) {
   /* #6421: a parent whose subtasks are built says why it is still open. Built is waiting for the person to check and
      close, not unfinished; with nothing below left unfinished, the next step is the parent's own mark. */
   const s = part.subs;
-  const sub = s && s.built > 0
+  const sub = s && (s.built > 0 || Number(s.held) > 0)
     ? (() => {
       /* kosmos#8140: held subtasks are said apart: an agent is never told to finish what is on hold (no one is given it). */
       const held = Number(s.held) || 0;
       const left = s.total - s.done - s.built - held;   // built never counts a closed or held subtask (tasks.treeOf isBuilt)
       const are = (c) => (c === 1 ? ' is' : ' are');
+      /* kosmos#8140 follow-up: none built, some held: the held ones first (what the agent must not take up), then what is
+         left. No built arm applies, so nothing here says to mark the parent built. */
+      if (s.built === 0) return ' ' + held + ' of its ' + s.total + ' subtasks' + are(held) + ' on hold'
+        + (left > 0 ? '; ' + left + are(left) + ' not finished' : '') + '.';
       const waiting = ' built, waiting for the person to check and close ' + (s.built === 1 ? 'it' : 'them');
       if (left > 0 || held > 0) return ' ' + s.built + ' of its ' + s.total + ' subtasks' + are(s.built) + ' built, waiting for the person; '
         + [left > 0 ? left + are(left) + ' not finished' : '', held > 0 ? held + are(held) + ' on hold' : ''].filter(Boolean).join(', ') + '.';
