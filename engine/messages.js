@@ -79,6 +79,10 @@ const store = require('./store');
 const limits = require('./limits');
 
 const LOG = path.join(store.ROOT, 'messages.jsonl');
+/* kosmos#8178 item 1: every id handed out, beside the log, so a board restart neither hands one out again nor forgets
+   a room post that members already hold. A row is { id, at } (a direct message), { id, project, at } (a room post) or
+   { id, gone: true } (a post that reached nobody). Written before the id reaches any pane; read once, lazily (loadIds). */
+const IDS = path.join(store.ROOT, 'messages.ids.jsonl');
 
 /* #670: the per-project read cursor. One person per Kosmos install, so the
    cursor is keyed by project alone. "Unread" is every post to that room
@@ -662,6 +666,8 @@ function resetForTests() {
   UNRECORDED_POSTS.length = 0;
   PENDING_POSTS.clear();     // kosmos#8165 r3: ids start again at m1, so a pending one would answer for a later test's
   ID_HIGH = 0;               // #4888: a test that starts a new log starts its ids again
+  IDS_LOADED = false;        // kosmos#8178: and so does the id file (a test process never holds the real root, #5418)
+  try { fs.rmSync(IDS, { force: true }); } catch { /* best effort */ }
 }
 
 function tmuxBin() {
@@ -1271,7 +1277,8 @@ const UNRECORDED_SENDS = new Map();
 /* kosmos#8165 review 1 (Opus): a post's id reaches the members (their envelope says "to answer, run: kosmos post
    --in-reply-to mN") BEFORE its row is written, which waits for every member's delivery; and a post the record could
    not take never gets a row. So the id of every post minted and not yet recorded is kept here, with its room, until
-   its row is written, or for PENDING_POST_MAX_MS: a reply citing it is a reply to a real post. In memory, as ID_HIGH. */
+   its row is written, or for PENDING_POST_MAX_MS: a reply citing it is a reply to a real post. In memory, and since
+   kosmos#8178 also in the id file (IDS), so a board restart puts back its room, without its row (row: null). */
 const PENDING_POSTS = new Map();   // id -> { projectId, at, row } (row: the fields a reply reads, as its row will carry them)
 const PENDING_POST_MAX_MS = 60 * 60 * 1000;
 const PENDING_POST_MAX = 2000;   // r3: while the record keeps failing (a full disk) nothing else would clear them
@@ -1282,6 +1289,7 @@ const PENDING_POST_MAX = 2000;   // r3: while the record keeps failing (a full d
    refused as an ack (the harmless direction). Given `ownId`, only rows EARLIER than it, recorded or pending (review 4: a
    fast reply recorded before the ask it answers is a LATER post, and the ask must not be tagged as quoting it). */
 function withPending(log, projectId, ownId) {
+  loadIds();
   const extra = [];
   /* Only posts EARLIER than the one being written (a lower id; all of them when it has none yet): the post itself is
      pending by then, and a later one (a fast reply to it) must never read as an earlier carrier of its words. */
@@ -1304,6 +1312,7 @@ function withPending(log, projectId, ownId) {
   return all.map((r) => (num(r) >= 0 ? ms[k++] : r));
 }
 function pendingPost(id) {
+  loadIds();
   for (const [k, p] of PENDING_POSTS) if (Date.now() - p.at > PENDING_POST_MAX_MS) PENDING_POSTS.delete(k);   // pruned on every look
   return PENDING_POSTS.get(id) || null;
 }
@@ -1312,7 +1321,7 @@ function pendingPost(id) {
 const UNRECORDED_POSTS = [];
 let unrecordedSeq = 0;
 /* Review 3 (Opus): the same quiet rule as the record's fold: anything posted in the room since breaks it (a repeat
-   after others spoke is a real second post). Agents' posts only (review 4: see where it is kept). In memory only: a board restart forgets it (and after a restart the next post can reuse the unrecorded post's id: #4888's ID_HIGH stops reuse only while the board runs). */
+   after others spoke is a real second post). Agents' posts only (review 4: see where it is kept). In memory only: a board restart forgets it (the post's id is not reused after one: kosmos#8178's id file). */
 function unrecordedTwin(key, log, projectId) {
   for (const [k, u] of UNRECORDED_SENDS) if (Date.now() - u.keptAt > SEND_DEDUP_WINDOW_MS) UNRECORDED_SENDS.delete(k);   // pruned on every look
   for (let i = UNRECORDED_POSTS.length - 1; i >= 0; i -= 1) if (Date.now() - UNRECORDED_POSTS[i].keptAt > SEND_DEDUP_WINDOW_MS) UNRECORDED_POSTS.splice(i, 1);
@@ -1330,15 +1339,47 @@ function unrecordedTwin(key, log, projectId) {
    the log's highest, plus one. An id is taken before any await, so overlapping sends never share one. A send
    that is then refused has used its id, and the next send takes a new one. */
 let ID_HIGH = 0;
+/* kosmos#8178 item 1: the id file, read once per board (and again after a test reset). It raises ID_HIGH to the highest
+   id ever handed out, and puts back this room's posts from the last PENDING_POST_MAX_MS that never reached the record,
+   with no row (row: null), so a reply citing one is a reply to a real post in its room and cites it by id only. Then
+   the file is rewritten to what it still needs: those posts and the highest id. Any failure leaves the board as it
+   was before #8178 (ids from the log alone), never a refusal. */
+let IDS_LOADED = false;
+function loadIds() {
+  if (IDS_LOADED) return;
+  IDS_LOADED = true;
+  let text;
+  try { text = fs.readFileSync(IDS, 'utf8'); } catch { return; }
+  const rows = [];
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    try { const x = JSON.parse(line); if (x && typeof x.id === 'string' && /^m\d+$/.test(x.id)) rows.push(x); } catch { /* a torn last line */ }
+  }
+  const gone = new Set(rows.filter((x) => x.gone === true).map((x) => x.id));
+  const high = rows.reduce((h, x) => Math.max(h, Number(x.id.slice(1))), 0);
+  const now = Date.now();
+  const keep = rows.filter((x) => x.gone !== true && !gone.has(x.id) && typeof x.project === 'string' && x.project
+    && typeof x.at === 'number' && now - x.at >= 0 && now - x.at <= PENDING_POST_MAX_MS).slice(-PENDING_POST_MAX);
+  for (const x of keep) if (!PENDING_POSTS.has(x.id)) PENDING_POSTS.set(x.id, { projectId: x.project, at: x.at, row: null, restored: true });
+  ID_HIGH = Math.max(ID_HIGH, high);
+  // Owner-only and flushed, as the log is (#5434: no bare rename in this file).
+  try { require('./securewrite').writeSecret(IDS, keep.concat(high ? [{ id: 'm' + high, at: now }] : []).map((x) => JSON.stringify(x)).join('\n') + '\n', 0o600); } catch { /* the next read compacts it */ }
+}
+function noteId(row) {
+  try { fs.appendFileSync(IDS, JSON.stringify(row) + '\n', { mode: 0o600 }); } catch { /* a restart may then reuse it, as before #8178 */ }
+}
 /* #4888: the id the next send will be given, without taking it (a test plants a file at it). */
 function nextIdForTests() {
+  loadIds();
   const inLog = record().parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0);
   return 'm' + (Math.max(inLog, ID_HIGH) + 1);
 }
-function mintId(parsed) {
+function mintId(parsed, projectId) {
+  loadIds();
   // Over the PARSE-ONLY rows: a foreign append that fails shape still burns the id it names.
   const inLog = parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0);
   ID_HIGH = Math.max(inLog, ID_HIGH) + 1;
+  noteId(typeof projectId === 'string' && projectId ? { id: 'm' + ID_HIGH, project: projectId, at: Date.now() } : { id: 'm' + ID_HIGH, at: Date.now() });
   return 'm' + ID_HIGH;
 }
 // A twin still in flight, unless it has been in flight longer than the window (a delivery that never settles must
@@ -3034,7 +3075,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     }
   }
 
-  const id = mintId(rec.parsed);
+  const id = mintId(rec.parsed, projectId);
   /* kosmos#8165: cited before its row exists. Review 2: with the fields a reply reads off the post it answers (who sent
      it, who it asked, whether it is the person's), as its row will carry them, so a fast reply wakes the asker exactly
      as a late one does (a bare id woke nobody). */
@@ -3354,6 +3395,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        rule). */
     /* #4447: every member's spill was removed as its delivery failed (above), so none is left here. */
     PENDING_POSTS.delete(id);   // kosmos#8165 review 2: it reached nobody, so no member holds its id to cite
+    noteId({ id, gone: true });  // kosmos#8178: nor after a restart
     const failed = refuse('we could not get this post to anybody on ' + shownProject);
     failed.outcomes = outcomes;
     if (oneThrough) require('./roomloop').pairRefund(projectId, from, askedHere[0]);   // kosmos#7461: no wake, so no slot
@@ -4627,12 +4669,13 @@ function projectOfPost(id) {
   return pending ? pending.projectId : null;
 }
 /* kosmos#8165: what an id names, for the live route's refusal of a citation that names no room post: { is: 'post' }
-   (a recorded post, or one still being delivered, or never recorded and within the hour, while this board runs: PENDING_POSTS), { is: 'deleted' } (a post the
+   (a recorded post, or one still being delivered, or never recorded and within the hour: PENDING_POSTS, which a restart
+   restores from the id file, kosmos#8178), { is: 'deleted' } (a post the
    person deleted, #7614, with its room), { is: 'message', parties } (a direct message, with its two ends), { is: 'unknown' }
    (not found, but within the ids handed out: perhaps a post typed before a restart and never recorded), or null
-   (above every id this board has handed out since it started and every id in the record). Review 5: null is not proof
-   that nothing was sent: a post in flight when the board restarted has an id above both, so the route says only that
-   it could not find it. Throws on an unreadable record, as projectOfPost does, so a caller can fail closed. */
+   (above every id handed out, which since kosmos#8178 the id file keeps across a restart, and every id in the record).
+   Review 5: null is still not proof that nothing was sent (an id file that could not be written), so the route says
+   only that it could not find it. Throws on an unreadable record, as projectOfPost does, so a caller can fail closed. */
 function kindOfId(id) {
   const wanted = String(id == null ? '' : id).trim();
   if (!wanted) return null;
@@ -4869,6 +4912,9 @@ module.exports = {
   projectOfPost, kindOfId, owedElsewhere,
   _withPendingForTests: withPending,
   _setPendingForTests: (id, entry) => { if (entry) PENDING_POSTS.set(id, entry); else PENDING_POSTS.delete(id); },
+  /* kosmos#8178: what a board restart forgets (every id it handed out, and the posts still pending), keeping the files. */
+  _restartForTests: () => { PENDING_POSTS.clear(); ID_HIGH = 0; IDS_LOADED = false; },
+  _idsPathForTests: () => IDS,
   deletePostAsync,   // kosmos#7614
   react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji, freeClaim,
   messageIdOf, // #4631
