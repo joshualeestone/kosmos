@@ -911,6 +911,9 @@ struct ChatView: View {
                         guard !trayFromKeyboard, atBottom, !searchMode else { return }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                             guard trayOpen, visible, !personScrolling else { return }   // a reader's finger is never moved
+                            let probe = ProcessInfo.processInfo.environment["KOSMOS_PROBE_ARM"] ?? ""
+                            if probe == "nomove" { return }
+                            if probe == "nopos" { proxy.scrollTo("end", anchor: .bottom); return }
                             if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy, animated: true) }
                         }
                     } else if !composerFocused {
