@@ -58,6 +58,7 @@ test('#8156: the #3011 LEAK message names the prefix, and says to read the names
   const msg = lines[0];
   assert.ok(msg.includes(PREFIX + '<something>'), msg);
   const read = msg.indexOf('Read the names and working dirs first');
+  assert.ok(msg.includes('before you leave it in place'), 'the message no longer says to leave a confirmed real agent in place: ' + msg);
   const move = msg.indexOf('Move any other out');
   assert.ok(read > 0 && move > read, 'the message must say to read the names before it says to move files out: ' + msg);
 });

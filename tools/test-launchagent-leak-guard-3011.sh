@@ -152,9 +152,11 @@ fi
 ALLOWED='install/kosmos:1
 tools/run-tests.sh:1
 tools/windows/kosmos-cli.js:1'
-# -o prints one `path:match` line per occurrence; captured whole first, so the exit status is git grep's own.
-hits="$(git -C "$REPO_ROOT" grep -o 'zz-livecheck' -- . ':!tools/lib/launchagent-leak-guard.sh' ':!tools/test-launchagent-leak-guard-3011.sh' ':!.claude/plans/' 2>/dev/null)"; used_rc=$?
-counts="$(printf '%s\n' "$hits" | sed '/^$/d; s/:zz-livecheck$//' | sort | uniq -c | awk '{ print $2 ":" $1 }')"
+# -o prints one `path:match` line per occurrence; captured whole first, so the exit status is git grep's own. The
+# output shape is pinned: a person's grep.lineNumber, grep.column or color.grep would otherwise add fields or colour
+# codes, and every allowed file would read as an unexpected use.
+hits="$(git -C "$REPO_ROOT" -c grep.lineNumber=false -c grep.column=false -c color.grep=never grep -o 'zz-livecheck' -- . ':!tools/lib/launchagent-leak-guard.sh' ':!tools/test-launchagent-leak-guard-3011.sh' ':!.claude/plans/' 2>/dev/null)"; used_rc=$?
+counts="$(printf '%s\n' "$hits" | sed '/^$/d; s/:zz-livecheck$//' | sort | uniq -c | sed -E 's/^ *([0-9]+) (.*)$/\2:\1/')"
 used="$(printf '%s\n' "$counts" | grep -v -x -F "$ALLOWED" | sed '/^$/d')"
 # An empty pattern list makes grep -F match every line, so a search that found nothing would read as nothing missing.
 if [ -z "$counts" ]; then missing="$ALLOWED"; else missing="$(printf '%s\n' "$ALLOWED" | grep -v -x -F "$counts")"; fi
