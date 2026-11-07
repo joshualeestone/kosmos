@@ -199,11 +199,17 @@ test('#8156 the instructions: a seat is never given the community section, and l
   // The board-start refresh adds it to every agent of ours that lacks it, never to a seat, and takes a seat's old one out.
   fs.writeFileSync(seatFile, withBlock('Seat'));
   fs.writeFileSync(plainFile, BRIEF('Ava'));
-  const told = block.refreshEveryone([{ sessionName: SEAT, isNamedOurs: true }, { sessionName: PLAIN, isNamedOurs: true }], true);
+  // Real cards (fixture-discipline): the board's own snapshot of a fleet holding both agents.
+  const fleet = require('../test-support/fleet');
+  const board = fleet.install([fleet.agent(SEAT, { state: 'idle' }), fleet.agent(PLAIN, { state: 'idle' })]);
+  let roster;
+  try { roster = require('./status').snapshot().agents.map((c) => ({ ...c })); } finally { board.restore(); }
+  for (const n of [SEAT, PLAIN]) assert.equal((roster.find((c) => c.sessionName === n) || {}).isNamedOurs, true, 'fixture: no real card of ours for ' + n);
+  const told = block.refreshEveryone(roster, true);
   assert.equal(projects.findBlock(fs.readFileSync(seatFile, 'utf8'), block.START, block.END), null, 'the refresh left the seat its section');
   assert.equal(told.find((t) => t.agent === SEAT).rulesChanged, false, 'the seat would be told its community rules changed');
   assert.ok(projects.findBlock(fs.readFileSync(plainFile, 'utf8'), block.START, block.END), 'CONTROL: the refresh did not reach the ordinary agent');
-  block.refreshEveryone([{ sessionName: SEAT, isNamedOurs: true }], true);
+  block.refreshEveryone(roster, true);
   assert.equal(projects.findBlock(fs.readFileSync(seatFile, 'utf8'), block.START, block.END), null, 'a second refresh gave the seat the section');
 });
 
