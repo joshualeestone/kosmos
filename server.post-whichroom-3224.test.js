@@ -252,7 +252,7 @@ test('#3224 round 3 / kosmos#8165: an in_reply_to that names no post never slips
   for (const cite of ['[' + q + ']', 'm999999']) {
     const r = await post({ project: a.id, text: 'misrouted with a bad citation', from_pane: '', in_reply_to: cite }, H());
     assert.equal(r.json.delivery.state, 'could_not', cite + ': an unresolvable citation must not slip past both checks: ' + JSON.stringify(r.json.delivery));
-    assert.match(r.json.delivery.because, /there is no post (m999999|that id) in any room, so nothing was posted/);
+    assert.match(r.json.delivery.because, /(there is no post m999999|that id names no post) in any room, so nothing was posted/);
   }
 });
 

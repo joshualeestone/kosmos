@@ -133,15 +133,31 @@ test('kosmos#8165: an in_reply_to that names no post is REFUSED on the live rout
   // A stray id that is not of the m-number shape is named as "that id", never echoed.
   const odd = await post({ project: a.id, text: 'odd id', from_pane: '', in_reply_to: '[q"12]' }, { 'x-kosmos-agent-token': tok() });
   assert.equal(odd.json.delivery.state, 'could_not');
-  assert.match(odd.json.delivery.because, /there is no post that id in any room/);
+  assert.match(odd.json.delivery.because, /that id names no post in any room/);
+  // Review 1: an id copied from kosmos room with its brackets ("[m530]") is that post.
+  const seed = await post({ project: a.id, text: 'seed for brackets', from_pane: '' }, { 'x-kosmos-agent-token': tok() });
+  const br = await post({ project: a.id, text: 'bracketed', from_pane: '', in_reply_to: '[' + seed.json.delivery.id + ']' }, { 'x-kosmos-agent-token': tok() });
+  assert.notEqual(br.json.delivery.state, 'could_not', JSON.stringify(br.json.delivery));
+  // Review 1: a post the person deleted is said to be deleted, not to have never existed.
+  const gone = await post({ project: a.id, text: 'to be deleted', from_pane: '' }, { 'x-kosmos-agent-token': tok() });
+  fs.appendFileSync(messagesEngine.LOG, JSON.stringify({ kind: 'post-deleted', operator: true, project: a.id, of: gone.json.delivery.id, at: new Date().toISOString() }) + '\n');
+  const del = await post({ project: a.id, text: 'answering a deleted post', from_pane: '', in_reply_to: gone.json.delivery.id }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(del.json.delivery.state, 'could_not', JSON.stringify(del.json.delivery));
+  assert.match(del.json.delivery.because, /^post m\d+ was deleted, so nothing was posted/);
 });
 
-test('kosmos#8165: an in_reply_to that names a DIRECT MESSAGE is refused, and says how to answer it', async () => {
+test('kosmos#8165: an in_reply_to that names a DIRECT MESSAGE is refused, and tells a party to it how to answer it', async () => {
   const a = room('Alpha dm 8165');
   fs.appendFileSync(messagesEngine.LOG, JSON.stringify({ id: 'm888801', kind: 'message', from: 'erin', to: 'dana', text: 'a direct one', at: new Date().toISOString(), state: 'placed' }) + '\n');
   const r = await post({ project: a.id, text: 'answering a DM in a room', from_pane: '', in_reply_to: 'm888801' }, { 'x-kosmos-agent-token': tok() });
   assert.equal(r.json.delivery.state, 'could_not', JSON.stringify(r.json));
   assert.match(r.json.delivery.because, /m888801 is a direct message, not a room post, so nothing was posted\. Answer it with kosmos msg --in-reply-to m888801/);
+  // Review 1: to anyone not a party to it, a direct message is named as nothing (no tell about other agents' DMs).
+  fs.appendFileSync(messagesEngine.LOG, JSON.stringify({ id: 'm888802', kind: 'message', from: 'erin', to: 'frank', text: 'not dana', at: new Date().toISOString(), state: 'placed' }) + '\n');
+  const other = await post({ project: a.id, text: 'probing', from_pane: '', in_reply_to: 'm888802' }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(other.json.delivery.state, 'could_not');
+  assert.doesNotMatch(other.json.delivery.because, /direct message/);
+  assert.match(other.json.delivery.because, /there is no post m888802 in any room/);
 });
 
 test('#3224 TYPE-CHECK: a non-string in_reply_to is refused with 400 before any side-effect (parity with reply_expected)', async () => {

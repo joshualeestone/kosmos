@@ -1267,6 +1267,16 @@ const IN_FLIGHT_SENDS = new Map();
 /* #4926 review 2 (Sonnet): a post the members got whose record could not be written has no row for recentSameSend to
    fold a retry into, so its answer is kept here for the dedup window. */
 const UNRECORDED_SENDS = new Map();
+/* kosmos#8165 review 1 (Opus): a post's id reaches the members (their envelope says "to answer, run: kosmos post
+   --in-reply-to mN") BEFORE its row is written, which waits for every member's delivery; and a post the record could
+   not take never gets a row. So the id of every post minted and not yet recorded is kept here, with its room, until
+   its row is written, or for PENDING_POST_MAX_MS: a reply citing it is a reply to a real post. In memory, as ID_HIGH. */
+const PENDING_POSTS = new Map();   // id -> { projectId, at }
+const PENDING_POST_MAX_MS = 60 * 60 * 1000;
+function pendingPost(id) {
+  for (const [k, p] of PENDING_POSTS) if (Date.now() - p.at > PENDING_POST_MAX_MS) PENDING_POSTS.delete(k);   // pruned on every look
+  return PENDING_POSTS.get(id) || null;
+}
 /* Review 7 (Opus): EVERY post the record could not take (the person's too), by room, with its start: when the record
    keeps failing (a full disk) no later post leaves a row, so these are what break a twin's quiet. */
 const UNRECORDED_POSTS = [];
@@ -2529,7 +2539,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
      refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
   const answered = (typeof replyTo === 'string' && /^m\d+$/.test(replyTo))
-    ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId) || null)
+    ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId)
+      // kosmos#8165 review 1: or one of this room's posts still being delivered (its row comes when it finishes).
+      || ((pendingPost(replyTo) || {}).projectId === projectId ? { id: replyTo } : null))
     : null;
   /* #4580: the same post again (sender, room, text and the post it answers) is folded into the first, before the
      room valve. The answered post is part of it: "yes" to two different questions is two answers. The flags
@@ -2988,6 +3000,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   }
 
   const id = mintId(rec.parsed);
+  PENDING_POSTS.set(id, { projectId, at: Date.now() });   // kosmos#8165: cited before its row exists
 
   /* #2239: the STORED text keeps paragraph breaks (storeText keeps newlines, and
      since #3679 also indentation and fenced code), so the room
@@ -3344,6 +3357,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       ...(answered ? { replyTo: answered.id } : {}),
       ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
       ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
+    PENDING_POSTS.delete(id);   // kosmos#8165: recorded now; an unrecorded one stays pending (it was delivered)
   } catch (err) {
     try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
     const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', unrecorded: true, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
@@ -3988,7 +4002,8 @@ function freeClaim({ project, of, by, members }) {
 function messageIdOf(value) {
   const s = String(value == null ? '' : value).trim();
   /* No '#': '#4631' is how a card is written, and a card number must not quietly name a message. */
-  const hit = /^(?:message\s+)?m?(\d{1,15})(?:\s+in\s+\S.*)?[.,;:!?]?$/i.exec(s);   // a sentence's own full stop too
+  // kosmos#8165 review 1: and one surrounding bracket pair, as kosmos room prints every id ("[m530]").
+  const hit = /^(?:message\s+)?\[?m?(\d{1,15})\]?(?:\s+in\s+\S.*)?[.,;:!?]?$/i.exec(s);   // a sentence's own full stop too
   return hit ? 'm' + String(Number(hit[1])) : s;
 }
 
@@ -4533,18 +4548,6 @@ function owedElsewhere(agent, targetProject, now, opts) {
  * 'post' record answers; a direct message (kind 'message') has no room and returns
  * null. Used by sendRoomPostAsAgent to verify a reply's target against the room the
  * triggering message came from. */
-/* kosmos#8165: what an id names in the record: 'post' (a room post), 'message' (a direct message), or null (nothing:
-   the record is unpruned, so an id it does not hold was never sent). Throws on an unreadable record, as projectOfPost
-   does, so a caller can fail closed. */
-function kindOfId(id) {
-  const wanted = String(id == null ? '' : id).trim();
-  if (!wanted) return null;
-  const r = record();
-  if (!r || r.ok !== true) throw new Error('the message record could not be read');
-  if (!Array.isArray(r.rows)) return null;
-  const m = r.rows.find((x) => x && (x.kind === 'post' || x.kind === 'message') && String(x.id) === wanted);
-  return m ? m.kind : null;
-}
 function projectOfPost(id) {
   const wanted = String(id == null ? '' : id).trim();
   if (!wanted) return null;
@@ -4563,7 +4566,29 @@ function projectOfPost(id) {
      two oracles disagreeing on the same id. */
   if (!Array.isArray(r.rows)) return null;
   const m = r.rows.find((x) => x && x.kind === 'post' && String(x.id) === wanted);
-  return m && typeof m.project === 'string' && m.project ? m.project : null;
+  if (m && typeof m.project === 'string' && m.project) return m.project;
+  // kosmos#8165 review 1: a post still being delivered (or never recorded) is in its room too, so the misroute guard
+  // holds for a fast reply as for a late one.
+  const pending = pendingPost(wanted);
+  return pending ? pending.projectId : null;
+}
+/* kosmos#8165: what an id names, for the live route's refusal of a citation that names no room post: { is: 'post' }
+   (a recorded post, or one still being delivered or never recorded: PENDING_POSTS), { is: 'deleted' } (a post the
+   person deleted, #7614), { is: 'message', parties } (a direct message, with its two ends), or null (nothing ever
+   minted under it: a typo). Throws on an unreadable record, as projectOfPost does, so a caller can fail closed. */
+function kindOfId(id) {
+  const wanted = String(id == null ? '' : id).trim();
+  if (!wanted) return null;
+  if (pendingPost(wanted)) return { is: 'post' };
+  const r = record();
+  if (!r || r.ok !== true) throw new Error('the message record could not be read');
+  const rows = Array.isArray(r.rows) ? r.rows : [];
+  const m = rows.find((x) => x && (x.kind === 'post' || x.kind === 'message') && String(x.id) === wanted);
+  if (m && m.kind === 'post') return { is: 'post' };
+  if (m) return { is: 'message', parties: [m.from, m.to].filter((n) => typeof n === 'string') };
+  const parsed = Array.isArray(r.parsed) ? r.parsed : [];
+  if (parsed.some((x) => x && x.kind === 'post-deleted' && x.of === wanted)) return { is: 'deleted' };
+  return null;
 }
 
 /**
