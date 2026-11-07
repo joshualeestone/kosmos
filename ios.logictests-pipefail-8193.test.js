@@ -41,9 +41,9 @@ test('#8193: with a slow writer, grep -q under pipefail fails on a match and gre
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-pipefail-8193-'));
   const file = path.join(dir, 'input.swift');
   fs.writeFileSync(file, 'ConnectingWait(words: "x")\n' + 'filler line, long enough to need many writes\n'.repeat(5000));
-  const round = (reader) => spawnSync('bash', ['-c', `set -o pipefail; n=0; for i in 1 2 3 4 5 6 7 8 9 10; do sed -l 's#//.*##' "$1" | ${reader} 'ConnectingWait' >/dev/null || n=$((n+1)); done; echo $n`, 'x', file], { encoding: 'utf8' });
+  const round = (reader) => spawnSync('bash', ['-c', `set -o pipefail; n=0; for i in 1 2 3 4 5 6 7 8 9 10; do sed -l 's#//.*##' "$1" | ${reader} 'ConnectingWait' >/dev/null || n=$((n+1)); done; echo $n`, 'x', file], { encoding: 'utf8', timeout: 60 * 1000 });
   const q = round('grep -qE'), c = round('grep -cE');
-  assert.equal(q.status, 0, q.stderr); assert.equal(c.status, 0, c.stderr);
+  assert.equal(q.status, 0, 'grep -q round: ' + (q.signal || q.stderr)); assert.equal(c.status, 0, 'grep -c round: ' + (c.signal || c.stderr));
   assert.equal(c.stdout.trim(), '0', 'grep -c failed on a file that matches');
   assert.ok(Number(q.stdout.trim()) > 0, 'CONTROL: grep -q never failed, so this test cannot tell the two apart here');
 });

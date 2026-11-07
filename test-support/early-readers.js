@@ -5,7 +5,7 @@
    assignments, `command`, a path, quotes and a `{` or `(`; its words end at an unquoted ; && or || (kosmos#8193).
    Early: head, read, grep -q / -m / --quiet / --max-count, a sed that quits, an awk that exits outside END. Quoted
    text is blanked first, so a `|` or `#` inside quotes is not a pipe or a comment. A heuristic, not a shell parser.
-   Known gaps (review 2): a `|` in a case pattern can read as a pipe; a reader behind a wrapper (timeout, exec,
+   Known gaps: a `|` in a case pattern can read as a pipe; a reader behind a wrapper (timeout, exec,
    xargs) and grep -l / -L are not recognised. */
 function earlyReaders(text) {
   const joined = text.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
