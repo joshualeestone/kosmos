@@ -93,7 +93,10 @@ function sweepOnce({ setting, roster, lastBand, deliver, pathFor, autohandoff, D
        unsentSeq), which is what lets the stuck-input sweep press a long box later. */
     prompted.push({ session: key, fill, verdict: state || null, advanced,
       unsubmitted: !!(verdict && verdict.unsubmitted === true),
-      remembered: !!(verdict && Number.isInteger(verdict.unsentSeq)) });
+      remembered: !!(verdict && Number.isInteger(verdict.unsentSeq)),
+      confirm: verdict && typeof verdict.confirm === 'string' ? verdict.confirm : null,   // chat.js confirmedVerdict
+      heldByInput: !!(verdict && (verdict.inputHeld === true || verdict.heldBy === 'input')),
+      because: verdict && typeof verdict.because === 'string' ? verdict.because : null });
   }
   return { prompted, lastBand: bands };
 }
@@ -130,16 +133,27 @@ function communityFor(session, now = Date.now()) {
 }
 
 /* kosmos#8021 (a real seat's 85% prompt sat unsent and nothing said what the board thought had happened): one board-log
-   line per prompt delivered, naming the delivery's verdict, so the next stuck box can be read against it. */
+   line per prompt delivered, saying what the delivery read, so the next stuck box can be read against it. The words
+   come from chat.js's own verdict: `confirm` (what the check after the Enter read), `unsubmitted`, an unsentSeq (kept
+   as a numbered unsent line, which the stuck-input sweep can press later), and a hold by text already in the box. */
+const CONFIRM_WORDS = {
+  sent: 'sent (its box emptied after the Enter)',
+  unread: 'probably sent, but its box could not be read after the Enter, so this is not confirmed',
+  unsent: 'not sent: its Enter did not take',
+  other: 'not sent: Enter was pressed and its box then held other text too',
+  'not-pressed': 'not sent: its box already held other text, so Enter was not pressed',
+};
 function promptLogLine(p) {
   if (!p || !p.session) return '';
-  const words = { placed: 'sent', unconfirmed: 'not confirmed as sent', could_not: 'could not be typed' };
-  const said = words[p.verdict] || ('verdict ' + (p.verdict || 'none'));
+  let said;
+  if (p.confirm && CONFIRM_WORDS[p.confirm]) said = CONFIRM_WORDS[p.confirm];
+  else if (p.verdict === 'could_not') said = p.heldByInput ? 'not typed: its box already holds unsent text' : 'could not be typed';
+  else if (p.verdict === 'placed') said = 'placed, with no check after the Enter';
+  else if (p.verdict === 'unconfirmed') said = 'not confirmed as sent' + (p.because ? ' (' + String(p.because).replace(/\s+/g, ' ').slice(0, 160) + ')' : '');
+  else said = 'verdict ' + (p.verdict || 'none');
   return 'autohandoff: ' + p.session + ' at ' + Math.round(Number(p.fill)) + '%: handoff prompt ' + said
-    + (p.unsubmitted ? ', its Enter did not take' : '')
-    // A line kept only lightly (an unread box after the Enter) has no number, so only the numbered keep is claimed.
-    + (p.remembered ? ', kept as a numbered unsent line, to be pressed later' : (p.verdict === 'placed' ? '' : ', not kept as a numbered unsent line'))
-    + (p.advanced ? '' : ', will be asked again next sweep') + '\n';
+    + (p.remembered ? '; kept as a numbered unsent line, to be pressed later' : '')
+    + (p.advanced ? '' : '; asked again on the next sweep while it stays over the threshold') + '\n';
 }
 
 module.exports = { sweepOnce, handoffPathFor, communityFor, promptLogLine };

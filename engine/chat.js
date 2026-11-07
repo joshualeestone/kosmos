@@ -1121,12 +1121,15 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
   }
 }
 /* The verdict a confirm turns a placed one into. */
+/* kosmos#8021: `confirm` says which outcome the check after the Enter read ('sent', 'unread': no box to read, 'unsent',
+   'other'), so a sender's log can tell "read as sent" from "could not read the box", which the state alone does not. */
 function confirmedVerdict(placed, result) {
   if (!result || result.outcome === 'sent' || result.outcome === 'unread') {
-    return result && result.retried ? { ...placed, enterRetried: true } : placed;
+    const seen = result ? { ...placed, confirm: result.outcome } : placed;
+    return result && result.retried ? { ...seen, enterRetried: true } : seen;
   }
   return {
-    ...placed, state: DELIVERY.UNCONFIRMED, queued: false, unsubmitted: true,
+    ...placed, state: DELIVERY.UNCONFIRMED, queued: false, unsubmitted: true, confirm: result.outcome,
     because: result.outcome === 'other' ? UNSENT_OTHER_BECAUSE : UNSENT_BECAUSE,
   };
 }
@@ -2762,7 +2765,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       if (isChipBox(box.text, wire) && foldedFromOurs(squash(box.text), wire)) ourChip = squash(box.text);
     }
     if (box.ok && composerHolds(box.text, wire, ourChip || chipTie) === 'other') {
-      return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, because: UNSENT_NOT_PRESSED_BECAUSE, at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };
+      return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, confirm: 'not-pressed', because: UNSENT_NOT_PRESSED_BECAUSE, at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };   // kosmos#8021: Enter never pressed
     }
   }
   const entered = tmux(['send-keys', '-t', target, 'Enter']);
@@ -5488,6 +5491,7 @@ async function deleteDirectAsync(agent, at, roster) {
 }
 
 module.exports = {
+  confirmedVerdict,   // kosmos#8021: its verdict shapes are what the auto-handoff log line is tested against
   retryDmBegin, retryDmFinish,   // kosmos#6720
   setEarlierSubmittedHook,   // #6256 item 2
   inputBoxReads, inputBoxEmpty,   // #6256 item 1

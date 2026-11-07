@@ -22,6 +22,18 @@ the evidence of which path the prompt took. This line gives it at the next occur
 - Perturbations: the server not writing the line, and `remembered` always false, each turn the new tests red.
 
 ## Weakest premise
-That the verdict's unsentSeq is the right signal for "kept": a line kept only lightly (an unread box after the
-Enter) has no number, and the line says only "not kept as a numbered unsent line", which is true but not the
-whole story for that case.
+That `confirm` is set on every path the auto-handoff delivery can take. A path that returns a verdict without it
+falls back to the state words, which do not separate sent from unread.
+
+## Review round 1 (decided)
+- BLOCKER, fixed: "read as sent" and "could not read the box after the Enter" both came back as the same PLACED
+  verdict, so the first version logged both as "sent", which is the very question the card asks. chat.js
+  confirmedVerdict now records `confirm` (sent / unread / unsent / other), and deliver's never-pressed return records
+  confirm: 'not-pressed'. Additive fields only; 759 chat and delivery tests pass unchanged.
+- The line's words come from those markers: an Enter that did not take, one pressed into other text, one never
+  pressed, a box already holding unsent text (COULD_NOT held by input), each said as such. The "not kept" clause is
+  gone (it described this attempt, not the box). The retry clause says "while it stays over the threshold".
+- Tests build the verdicts with chat.js's confirmedVerdict (exported for that) or copy its return shapes; the wiring
+  check ignores comments. Perturbed: without `confirm` the sent/unread test is red.
+- Known and accepted: while a box stays held the sweep re-delivers every minute, so one line per agent per minute
+  until it clears. That is the evidence wanted; quieting it is a later choice.
