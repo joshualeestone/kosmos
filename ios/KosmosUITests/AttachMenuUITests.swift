@@ -265,6 +265,25 @@ final class AttachMenuUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 2)
         app.terminate()
     }
+    // Hold the tray at one height, with no slide to land in the band by chance. A loop shows as queries of 30 s.
+    func testProbeSweep() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set") }
+        continueAfterFailure = true
+        for size in ["UICTContentSizeCategoryAccessibilityXXXL", "UICTContentSizeCategoryL"] {
+            for h in stride(from: 180, through: 280, by: 4) {
+                let app = XCUIApplication()
+                app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_PHOTOS": "all", "KOSMOS_PROBE_TRAY": "\(h)"]
+                app.launchArguments = ["-UIPreferredContentSizeCategoryName", size]
+                app.launch()
+                let plus = app.buttons[chatPlus]
+                guard plus.waitForExistence(timeout: 30) else { print("SWEEP \(size) \(h) noplus"); continue }
+                plus.tap()
+                Thread.sleep(forTimeInterval: 2.5)
+                let t = Date(); let up = panel(app).exists
+                print("SWEEP \(size.suffix(6)) \(h) found \(up) \(String(format: "%.2f", Date().timeIntervalSince(t)))")
+            }
+        }
+    }
     func testProbeANormal() throws { try probe("normal", args: []) }
     func testProbeBLargest() throws { try probe("largest", args: largest) }
     func testProbeCLargestOff() throws { try probe("largestoff", args: largest, photos: "off") }

@@ -76,6 +76,7 @@ enum PhotoTrayMotion {
     }
     static func watchKeyboard() { _ = watchers }
     static var height: CGFloat {
+        if let h = ProcessInfo.processInfo.environment["KOSMOS_PROBE_TRAY"].flatMap(Double.init) { return CGFloat(h) }
         let window = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
         return min(max(216, keyboard - (window?.safeAreaInsets.bottom ?? 0)), (window?.bounds.height ?? 800) / 2)
     }
