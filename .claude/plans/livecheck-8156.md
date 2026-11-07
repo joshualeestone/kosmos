@@ -22,6 +22,6 @@ Weakest part: it still costs a person a rerun when someone makes a real agent mi
 
 Out of scope: `kosmos agent remove` leaving its plist in place (the card says not yet measured whether that is by design; a removed agent can be put back).
 
-A release note or doc for this change must not spell the prefix: the guard searches every tracked file except `.claude/plans/` and allows it only on the ALLOWED lines.
+A release note or doc for this change must not spell the prefix: the guard searches every tracked file except `.claude/plans/` and allows it only in the ALLOWED files, exactly as many times as ALLOWED says for each.
 
 Accepted cost: the two help lines reach every install, including people whose computer runs no test suites and Windows, where the check does not exist. Kept identical across the CLIs on purpose.

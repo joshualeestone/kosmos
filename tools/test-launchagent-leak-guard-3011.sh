@@ -167,7 +167,7 @@ elif [ -n "$used" ]; then
 elif [ -n "$missing" ]; then
   fail "#4392 control: the search did not find the prefix where it is told to a person, exactly as often as allowed: $(printf '%s' "$missing" | tr '\n' ' ')(found: $(printf '%s' "$counts" | tr '\n' ' '))"
 else
-  pass "#4392: no tracked file other than the guard and this test uses the reserved zz-livecheck- prefix, beyond the three that tell a person it, each on its allowed lines (#8156)"
+  pass "#4392: no tracked file other than the guard and this test uses the reserved zz-livecheck- prefix, beyond the three that tell a person it, each exactly as many times as ALLOWED says (#8156)"
 fi
 
 # #5092: the machine's LIVE Kosmos rewriting one of its OWN agents' plists during the run is not a leak, but only
