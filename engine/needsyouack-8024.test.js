@@ -275,6 +275,7 @@ test('kosmos#8036: a press that closes the prompt ends the wait at once: no "ask
     assert.equal(nya.due('pressed'), false, 'its push went with it');
     assert.equal(acks().length, 1, 'the coordinator is told, so no email');
     await report({ state: 'working', text: 'running Bash', auto: true });
+    assert.equal(selfreport.read('pressed').state, 'working', 'the agent\'s next report replaces the idle the press left');
     const words = chat.readThread(chat.DIRECT, 'pressed').messages.map((m) => m.text);
     assert.ok(!words.includes(nya.WAIT_ENDED_LINE), 'they answered it, so it did not pass by itself: ' + JSON.stringify(words));
   });
