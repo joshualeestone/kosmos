@@ -229,7 +229,7 @@ struct ChatView: View {
         print("START pid=\(getpid()) args=\(ProcessInfo.processInfo.arguments.dropFirst()) photos=\(ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PHOTOS"] ?? "-")")
     }
     var body: some View {
-        let _ = { Self.probeOpen(); Self._printChanges() }()
+        let _ = { Self.probeOpen(); Self._printChanges(); ChatProbePlace.start(scrollBox) }()
         // Read here so the end of an arm window or an answered lock redraws the buttons (redraw(after:)).
         let _ = tick
         VStack(spacing: 0) {
@@ -616,7 +616,7 @@ struct ChatView: View {
                         Color.clear.frame(height: ChatView.fadeHeight + 8).id("end")   // the fade plus 8 pt (kosmos#7346): at the end, the newest message sits clear of it
                             .onAppear {
                                 guard drawnEpoch == listEpoch else { return }
-                                Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
+                                print("END appear"); Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
                                 endVisible = true
                                 rebuildHiding = false
                                 atBottom = true; unseenNew = false; endSeen = true
@@ -628,7 +628,7 @@ struct ChatView: View {
                             }
                             .onDisappear {
                                 guard drawnEpoch == listEpoch else { return }
-                                Self.trace("end disappear (personScrolling \(personScrolling))")
+                                print("END disappear"); Self.trace("end disappear (personScrolling \(personScrolling))")
                                 endVisible = false
                                 if !Self.followsScrollPhase || personScrolling { atBottom = false }
                             }
@@ -3588,7 +3588,7 @@ struct RowTop: ViewModifier {
         if #available(iOS 26.0, *) {
             content.onGeometryChange(for: RowReading.self) {
                 RowReading(top: Double($0.frame(in: .global).minY), content: Double($0.frame(in: .named(ContentSpace.name)).minY), end: Double($0.frame(in: .named(ContentSpace.name)).maxY))
-            } action: { rows.set(id, $0) }
+            } action: { print("ROW \(id.suffix(8)) \(Int($0.top))"); rows.set(id, $0) }
                 .onDisappear { rows.set(id, nil) }
         } else { content }
     }
@@ -3779,3 +3779,19 @@ struct PositionById: ViewModifier {
     }
 }
 
+
+
+// PROBE, throwaway, kosmos#7609: where the list is, twice a second, off the main thread so a busy main thread cannot stop it.
+enum ChatProbePlace {
+    private static var timer: DispatchSourceTimer?
+    static func start(_ box: ScrollBox) {
+        guard timer == nil else { return }
+        let t = DispatchSource.makeTimerSource(queue: .global())
+        t.schedule(deadline: .now() + 1, repeating: 0.5)
+        t.setEventHandler { [weak box] in
+            guard let v = box?.view else { return }
+            print("PLACE y=\(Int(v.contentOffset.y)) contentH=\(Int(v.contentSize.height)) boundsH=\(Int(v.bounds.height)) inset=\(Int(v.adjustedContentInset.bottom))")
+        }
+        t.resume(); timer = t
+    }
+}

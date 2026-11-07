@@ -26,9 +26,9 @@ watch_marker() { # $1 marker, $2 file prefix
 watch_marker PROBE-HOLD hold & W1=$!
 watch_marker PROBE-QUERY query & W2=$!
 cd "$GITHUB_WORKSPACE/ios" || exit 3
-only="-only-testing:KosmosUITests/AttachMenuUITests"
+only=""; for x in testProbeANormal testProbeBLargest testProbeCLargestOff testProbeDKeyboardThenLargest; do only="$only -only-testing:KosmosUITests/AttachMenuUITests/$x"; done
 # shellcheck disable=SC2086
-TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$U" $only -test-iterations 3 -parallel-testing-enabled NO -derivedDataPath "$D/dd" -resultBundlePath "$D/res.xcresult" > "$L" 2>&1
+TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$U" $only -test-iterations 4 -parallel-testing-enabled NO -derivedDataPath "$D/dd" -resultBundlePath "$D/res.xcresult" > "$L" 2>&1
 echo "REAL_EXIT=$?"
 DATA=$(xcrun simctl get_app_container "$U" io.kosmos.app data); wc -l "$DATA/Documents/changes.txt"
 cp "$DATA/Documents/changes.txt" "$D/changes.txt"
