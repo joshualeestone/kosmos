@@ -157,12 +157,12 @@ used="$(printf '%s\n' "$counts" | grep -v -x -F "$ALLOWED" | sed '/^$/d')"
 if [ -z "$counts" ]; then missing="$ALLOWED"; else missing="$(printf '%s\n' "$ALLOWED" | grep -v -x -F "$counts")"; fi
 if [ "$used_rc" -gt 1 ]; then
   fail "#4392: the reserved-prefix search could not run (git grep exit $used_rc)"
+elif [ -n "$used" ]; then
+  fail "#4392: the reserved live-check prefix appears in $(printf '%s' "$used" | tr '\n' ' ')(file:lines; a test must never name an agent with it; ALLOWED lists the lines that tell a person it)"
 elif [ -n "$missing" ]; then
   fail "#4392 control: the search did not find the prefix where it is told to a person, exactly as often as allowed: $(printf '%s' "$missing" | tr '\n' ' ')(found: $(printf '%s' "$counts" | tr '\n' ' '))"
-elif [ -z "$used" ]; then
-  pass "#4392: no tracked file other than the guard and this test uses the reserved zz-livecheck- prefix, beyond the three that tell a person it, each on its allowed lines (#8156)"
 else
-  fail "#4392: the reserved live-check prefix appears in $(printf '%s' "$used" | tr '\n' ' ')(file:lines; a test must never name an agent with it)"
+  pass "#4392: no tracked file other than the guard and this test uses the reserved zz-livecheck- prefix, beyond the three that tell a person it, each on its allowed lines (#8156)"
 fi
 
 # #5092: the machine's LIVE Kosmos rewriting one of its OWN agents' plists during the run is not a leak, but only
