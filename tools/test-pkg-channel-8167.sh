@@ -81,6 +81,11 @@ out="$(run3c staging "$D")"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$D/Kosmos.pkg")" = "SERVED-PKG" ] && cmp -s "$D/Kosmos.pkg.inputs" "$WWW/dist/Kosmos.pkg.inputs" && case "$out" in *"putting the served triple back"*) true;; *) false;; esac \
   && pass "3c staging: a site dist Kosmos.pkg that differs from the served one is replaced by the served triple" || bad "3c staging leftover arm (rc=$rc, Kosmos.pkg: $(cat "$D/Kosmos.pkg"), out=$out)"
 [ "$(awk '{print $2}' "$D/Kosmos.pkg.sha256")" = Kosmos.pkg ] && pass "3c staging: the restored .sha256 names Kosmos.pkg" || bad "3c staging restored sha256: $(cat "$D/Kosmos.pkg.sha256")"
+# 3b2) the leftover is a promote's copy that was never deployed (Kosmos.pkg == the local staging pkg): replaced, and said.
+D="$(newsite)"; mk "$D" Kosmos.pkg "SERVED-PKG" "$OLDIN"; serve_prod "$D"; mk "$D" Kosmos-staging.pkg "PROMOTED-NOT-DEPLOYED" "$WANT"; mk "$D" Kosmos.pkg "PROMOTED-NOT-DEPLOYED" "$WANT"
+out="$(run3c staging "$D")"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$D/Kosmos.pkg")" = "SERVED-PKG" ] && case "$out" in *"looks like a promote's copy that was never deployed"*) true;; *) false;; esac \
+  && pass "3c staging: an undeployed promote copy is replaced, with a WARNING that the promote has not happened" || bad "3c staging promote-copy arm (rc=$rc out=$out)"
 # 3c) no local Kosmos.pkg at all: restored from the host too.
 D="$(newsite)"; mk "$D" Kosmos.pkg "SERVED-PKG" "$OLDIN"; serve_prod "$D"; rm -f "$D/Kosmos.pkg"*
 out="$(run3c staging "$D")"; rc=$?
@@ -144,9 +149,10 @@ out="$(run9c prod "Kosmos.pkg Kosmos-staging.pkg" " Kosmos.pkg Kosmos-staging.pk
 
 # ---- the export guard: a staging cut refuses to deploy an export whose Kosmos.pkg is not the pre-cut served one ----
 runx() {   # <channel> <served-sha-before>
-  ( set -e; CUT_CHANNEL="$1"; PKG_PROD_SERVED_SHA="$2"; _site_export="$EXP"; eval "$CX"; echo "EXPORT-OK" ) 2>&1
+  ( set -e; CUT_CHANNEL="$1"; PKG_PROD_SERVED_SHA="$2"; _site_export="$EXP"; HOST="http://127.0.0.1:$PORT"; eval "$CX"; echo "EXPORT-OK" ) 2>&1
 }
-serve; mk "$EXP/dist" Kosmos.pkg "PROD" "$OLDIN"; BEFORE="$(psha "$EXP/dist/Kosmos.pkg")"
+# The host serves what the export holds, unless an arm moves it.
+serve; mk "$EXP/dist" Kosmos.pkg "PROD" "$OLDIN"; BEFORE="$(psha "$EXP/dist/Kosmos.pkg")"; cp "$EXP/dist/Kosmos.pkg.sha256" "$WWW/dist/"
 out="$(runx staging "$BEFORE")"; rc=$?
 [ "$rc" = 0 ] && case "$out" in *EXPORT-OK*) true;; *) false;; esac && pass "export guard: the pre-cut Kosmos.pkg in the export deploys" || bad "export guard pass arm (rc=$rc out=$out)"
 mk "$EXP/dist" Kosmos.pkg "CHANGED-AFTER-3C" "$WANT"
@@ -155,6 +161,9 @@ out="$(runx staging "$BEFORE")"; rc=$?
 rm -f "$EXP/dist/Kosmos.pkg"*; mk "$EXP/dist" Kosmos-staging.pkg "STAGING" "$WANT"
 out="$(runx staging "$BEFORE")"; rc=$?
 [ "$rc" != 0 ] && case "$out" in *"has no whole Kosmos.pkg triple"*) true;; *) false;; esac && pass "export guard: an export with only the staging pkg refuses (the Download button would 404)" || bad "export guard staging-only arm (rc=$rc out=$out)"
+serve; mk "$EXP/dist" Kosmos.pkg "PROD" "$OLDIN"; mk "$WWW/dist" Kosmos.pkg "PROMOTED-ELSEWHERE" "$WANT"
+out="$(runx staging "$(psha "$EXP/dist/Kosmos.pkg")")"; rc=$?
+[ "$rc" != 0 ] && case "$out" in *"it moved during this cut"*) true;; *) false;; esac && pass "export guard: a served Kosmos.pkg that moved during the cut refuses (no rollback)" || bad "export guard moved arm (rc=$rc out=$out)"
 out="$(runx prod "$BEFORE")"; rc=$?
 [ "$rc" = 0 ] && pass "export guard: CONTROL a prod cut is not held to the pre-cut sha" || bad "export guard prod control (rc=$rc out=$out)"
 

@@ -243,7 +243,7 @@ out="$(bash "$HERE/promote-channel.sh" "$Sn" 2>&1)"; rc=$?
 Ss="$(promote_site yes)"; mkpkg "$Ss" Kosmos.pkg "SAME-PKG" "$IN_NEW"; mkpkg "$Ss" Kosmos-staging.pkg "SAME-PKG" "$IN_NEW"
 out="$(bash "$HERE/promote-channel.sh" "$Ss" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "already the staging pkg" && pass "8167 promote: an identical staging pkg is not copied again" || bad "8167 promote identical arm (rc=$rc, out=$out)"
-# A broken staging triple refuses BEFORE any write: the pointer, /setup and Kosmos.pkg are all untouched.
+# A broken staging triple is not copied, and does not block the pointer: Kosmos.pkg is untouched and the pointer promotes.
 Sb8="$(promote_site yes)"; mkpkg "$Sb8" Kosmos.pkg "PROD-PKG" "$IN_OLD"; mkpkg "$Sb8" Kosmos-staging.pkg "STAGING-PKG" "$IN_NEW"; printf 'TAMPERED' > "$Sb8/dist/Kosmos-staging.pkg"
 out="$(bash "$HERE/promote-channel.sh" "$Sb8" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && grep -q '"9.9.9"' "$Sb8/dist/latest.json" && [ "$(cat "$Sb8/dist/Kosmos.pkg")" = "PROD-PKG" ] && has "$out" "WARNING dist/Kosmos-staging.pkg is not a whole, self-consistent triple" \

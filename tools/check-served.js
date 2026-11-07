@@ -57,6 +57,7 @@ function argAll(name) {
   return out;
 }
 // kosmos#8167: which served installer the pkg_* markers read. Checked at start, so a typo stops every run.
+if (process.argv.includes('--pkg') && !arg('pkg')) { console.error('FAIL  --pkg needs a value: Kosmos.pkg or Kosmos-staging.pkg'); process.exit(2); }
 const pkgName = arg('pkg') || 'Kosmos.pkg';
 if (pkgName !== 'Kosmos.pkg' && pkgName !== 'Kosmos-staging.pkg') {
   console.error('FAIL  --pkg must be Kosmos.pkg or Kosmos-staging.pkg (got ' + pkgName + ')');

@@ -867,12 +867,13 @@ serve_pkg "$S82" Kosmos.pkg "SOMETHING-ELSE"
 run_deploy "$S82" "$L82" --promote
 [ "$RC" = 0 ] && [ "$(cat "$L82/dist/Kosmos.pkg")" = "PKG-BYTES" ] && ! has "$out" "is the promoted copy" && has "$out" "is neither the served Kosmos.pkg" \
   && pass "8167: CONTROL a local Kosmos.pkg that is not the served staging pkg is pinned to the served one" || bad "8167 control (rc=$RC, live Kosmos.pkg: $(cat "$L82/dist/Kosmos.pkg"), out=$out)"
-# B) a local staging pkg the host does not serve is refused, nothing deployed.
+# B) a local staging pkg the host does not serve (an aborted staging cut) is moved aside, kept, and NOT deployed.
 read -r S83 L83 <<<"$(make_scenario)"
 serve_pkg "$S83" Kosmos-staging.pkg "NEVER-SERVED"
 run_deploy "$S83" "$L83" --promote
-[ "$RC" = 1 ] && has "$out" "holds a Kosmos-staging.pkg file but the host serves none" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L83/dist/latest.json")" = "$OLD" ] && [ ! -e "$L83/dist/Kosmos-staging.pkg" ] \
-  && pass "8167: a local staging pkg the host never served refuses the deploy, live untouched" || bad "8167 unserved staging pkg (rc=$RC, out=$out)"
+_aside="$(find "$S83/dist" -maxdepth 1 -type d -name '.unserved-staging-pkg.*' | head -n1)"
+[ "$RC" = 0 ] && has "$out" "was moved to" && [ ! -e "$L83/dist/Kosmos-staging.pkg" ] && [ ! -e "$S83/dist/Kosmos-staging.pkg" ] && [ -n "$_aside" ] && [ "$(cat "$_aside/Kosmos-staging.pkg" 2>/dev/null)" = "NEVER-SERVED" ] \
+  && pass "8167: an unserved local staging pkg is moved aside (kept), not deployed, and the deploy goes on" || bad "8167 unserved staging pkg (rc=$RC, aside='$_aside', out=$out)"
 # B2) the staging probe answers neither 200 nor 404 (an unreachable edge): refuse, never read it as "none served".
 read -r S85 L85 <<<"$(make_scenario)"
 serve_pkg "$L85" Kosmos-staging.pkg "STAGING-PKG-BYTES"; : > "$L85/dist/Kosmos-staging.pkg.sha256.down"
