@@ -162,6 +162,9 @@ site_deploy_export() {
     _pkg_carried="$_pkg_carried $_pn"
   done
   [ -n "$_pkg_carried" ] || echo "   carried: no pkg (neither dist/Kosmos.pkg nor dist/Kosmos-staging.pkg is in the site dist)"
+  case "$_pkg_carried" in
+    *Kosmos-staging.pkg*) case " $_pkg_carried " in *" Kosmos.pkg "*) ;; *) echo "site_deploy_export: WARNING the staging pkg is carried but dist/Kosmos.pkg is not, so this export would drop the Download button's installer (kosmos#8167)" >&2 ;; esac ;;
+  esac
   cp -R "$site/.vercel/." "$out/.vercel/" || { rm -rf "$out"; return 1; }
   echo "   carried: .vercel/ (project link)"
   echo "   pages:   commit $head$( [ "${_SITE_SERVED_REBUILT:-0}" = 1 ] && echo ', except api/_servedversions.js (rebuilt from its history, above)')"
