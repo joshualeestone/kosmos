@@ -50,6 +50,22 @@ test('#4997: an image row in an agent\'s Files opens the preview with the Files 
   assert.equal(typeof a.reveal, 'function');
 });
 
+test('#8122: a workbook, a TSV and a CSV in a Files list open the grid, at their list\'s sheet route', () => {
+  const { fn, opened, PV_ATTS } = lift();
+  assert.equal(fn(row('Q3 plan/v2.xlsx'), { agent: 'ava b' }, plain), true);
+  let a = PV_ATTS.get('files-preview');
+  assert.equal(a.kind, 'file', 'a workbook is not an image, a PDF or text');
+  assert.equal(a.sheetUrl, '/api/agent/ava%20b/files/sheet?name=Q3%20plan%2Fv2.xlsx');
+  assert.equal(fn(row('list.tsv'), { project: 'p-1' }, plain), true);
+  a = PV_ATTS.get('files-preview');
+  assert.equal(a.sheetUrl, '/api/project/p-1/file-sheet?name=list.tsv');
+  assert.equal(fn(row('names.csv'), { agent: 'ana' }, plain), true);
+  a = PV_ATTS.get('files-preview');
+  assert.equal(a.kind, 'text', 'a CSV keeps its text route too, for when the grid fails');
+  assert.equal(a.sheetUrl, '/api/agent/ana/files/sheet?name=names.csv');
+  assert.equal(opened.length, 3);
+});
+
 test('#4997: a PDF in a project subfolder opens with the project routes; the shown name is the file\'s own', () => {
   const { fn, PV_ATTS } = lift();
   assert.equal(fn(row('reports/Q3.pdf'), { project: 'p-1' }, plain), true);

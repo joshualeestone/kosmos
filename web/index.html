@@ -7929,7 +7929,7 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 .pv-file span { color: rgba(255, 255, 255, .62); font: var(--text-caption) var(--font-ui); }
 /* #8122 (Josh 11-06: "It's a spreadsheet so I don't know why we couldn't render a spreadsheet view. Obviously they
    couldn't edit it or change it"): a read-only look at a workbook, as a light sheet on the dark, its sheets as tabs. */
-.pv-sheet { display: flex; flex-direction: column; align-items: center; gap: 8px; width: fit-content; max-width: min(100%, 72rem); min-height: 0; max-height: 100%; }   /* as wide as its grid, so a click on the dark beside a small one closes the viewer (review 2) */   /* a narrow grid sits centred over the name and the gold button (measured against the real reader) */
+.pv-sheet { display: flex; flex-direction: column; align-items: center; gap: 8px; width: fit-content; max-width: min(100%, 72rem); min-height: 0; max-height: 100%; }   /* as wide as its grid and centred over the name and gold button: a click on the dark beside a small one closes the viewer */
 .pv-tabs { display: flex; gap: 4px; overflow-x: auto; flex: none; max-width: 100%; }
 .pv-tab { flex: none; min-height: 32px; padding: 6px 12px; border: 0; border-radius: 6px; background: rgba(255, 255, 255, .10);
   color: rgba(255, 255, 255, .78); font: 600 .8125rem var(--font-ui); cursor: pointer; white-space: nowrap; }
@@ -7942,7 +7942,7 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
   white-space: pre; vertical-align: top; }
 /* A table cell ignores max-width, so a long value is cut inside its own block (review 1): one line, an ellipsis, the
    whole value on hover. */
-.pv-cell { display: block; max-width: 24rem; overflow: hidden; text-overflow: ellipsis; }
+.pv-cell { display: block; max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }   /* one line, even for a cell with line breaks in it (review 3) */
 .pv-grid thead th { position: sticky; top: 0; z-index: 1; background: #f3f1ec; color: #6b6862; font-weight: 600; text-align: center; }
 .pv-grid tbody th { position: sticky; left: 0; background: #f3f1ec; color: #6b6862; font-weight: 600; text-align: right; }
 .pv-grid thead th:first-child { left: 0; z-index: 2; }
@@ -77399,9 +77399,9 @@ const PV_HTML = '<div class="rm-back pv-back" id="pv-preview">'
 const PV_COL = (n) => { let s = ''; for (n++; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
 function pvSheetInto(stage, data) {
   const note = (text) => { const p = document.createElement('p'); p.className = 'pv-note'; p.textContent = text; return p; };
-  if (!data || data.empty) { stage.appendChild(note('This spreadsheet is empty.')); return; }
+  if (!data || data.empty || !(Array.isArray(data.sheets) && data.sheets.length) && !data.noValues) { stage.appendChild(note('This spreadsheet is empty.')); return; }   // no sheets reads as empty, never an empty focusable box (review 3)
   if (data.noValues) {
-    stage.appendChild(note('This spreadsheet has formulas but no saved values, so there is nothing to show here. Download it and open it to see them.'));
+    stage.appendChild(note('This spreadsheet has formulas but no saved values, so there is nothing to show here. Open the file in your spreadsheet app to see them.'));   // "Open", not "Download": at the computer the button is Open in Finder (review 3)
     return;
   }
   const box = document.createElement('div'); box.className = 'pv-sheet';
@@ -77411,7 +77411,7 @@ function pvSheetInto(stage, data) {
   const notes = document.createElement('div');
   const show = (i) => {
     [...tabs.children].forEach((t, k) => { t.setAttribute('aria-selected', String(k === i)); t.tabIndex = k === i ? 0 : -1; });
-    const sh = sheets[i]; panel.textContent = ''; notes.textContent = '';
+    const sh = sheets[i]; panel.textContent = ''; notes.textContent = ''; panel.scrollTop = 0; panel.scrollLeft = 0;   // each sheet opens at its top left (review 3)
     if (sheets.length > 1 && tabs.children[i]) panel.setAttribute('aria-labelledby', tabs.children[i].id);
     // Said under the sheet, in the viewer's own (light) words colour, never inside the white panel.
     if (sh.notGrid) { notes.appendChild(note('This sheet is not a table of values, so it is not shown here.')); panel.hidden = true; return; }
@@ -77431,7 +77431,7 @@ function pvSheetInto(stage, data) {
       });
     });
     panel.appendChild(t);
-    if (sh.cut) notes.appendChild(note('This sheet goes on past what is shown here (up to 200 rows and 50 columns). Download it to see all of it.'));
+    if (sh.cut) notes.appendChild(note('This sheet goes on past what is shown here (up to 200 rows and 50 columns). Open the file to see all of it.'));
   };
   sheets.forEach((sh, i) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'pv-tab'; b.setAttribute('role', 'tab');
@@ -77462,7 +77462,8 @@ function pvTextStage(stage, a, how, fileCard) {
   const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The start of the file'; stage.appendChild(c);
 }
 /* #8122: fetches the grid and draws it; a file the board cannot draw shows its card with the board's sentence (the gold
-   button stays under it); a failed look shows the card. An answer that arrives after the viewer closed draws nothing. */
+   button stays under it); a failed look shows the card, or a CSV's text (orText). An answer that arrives after the viewer
+   closed draws nothing. */
 function pvSheetLoad(stage, url, fileCard, orText) {
   const wait = document.createElement('p'); wait.className = 'pv-note'; wait.setAttribute('role', 'status'); wait.textContent = 'Opening the spreadsheet\u2026';
   stage.appendChild(wait);
@@ -77476,11 +77477,11 @@ function pvSheetLoad(stage, url, fileCard, orText) {
     if ((m = /^\/api\/project\/([^/?]+)\/file-sheet\?name=([^&]*)$/.exec(u))) return fetch('/api/project/' + m[1] + '/file-sheet?name=' + m[2], { cache: 'no-store' });
     return Promise.reject(new Error('not a spreadsheet address'));
   };
-  ask(url).then(async (r) => ({ status: r.ok, j: await r.json().catch(() => null) })).then(({ status, j }) => {
+  ask(url).then(async (r) => ({ ok: r.ok, j: await r.json().catch(() => null) })).then(({ ok, j }) => {
     if (!stage.isConnected && !wait.isConnected) return;
     // Only a real grid answer draws (review 1): a 404 ({ error }), an older board without the route, or no sheets list
     // shows the card, with the board's sentence when it gave one.
-    if (!status || !j || j.ok !== true || !Array.isArray(j.sheets)) { card(j && j.ok === false && typeof j.because === 'string' ? j.because : ''); return; }
+    if (!ok || !j || j.ok !== true || !Array.isArray(j.sheets)) { card(j && j.ok === false && typeof j.because === 'string' ? j.because : ''); return; }
     stage.textContent = ''; pvSheetInto(stage, j);
   }).catch(() => { if (stage.isConnected || wait.isConnected) card(''); });
 }

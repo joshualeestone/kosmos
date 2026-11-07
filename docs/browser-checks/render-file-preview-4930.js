@@ -578,6 +578,8 @@ async function runSheet(engine, say) {
       below: (() => { const w = document.querySelector('.pv-grid-wrap').getBoundingClientRect(), d = document.getElementById('pv-do').getBoundingClientRect(); return d.top >= w.bottom - 1 && d.bottom <= innerHeight; })(),
     }));
     say(JSON.stringify(g.tabs) === '["Budget*","Notes","Chart"]' && g.cells[0] === 'Item' && g.cells[3] === '12.5', T + ': a spreadsheet opens as a grid, its sheets as tabs', JSON.stringify(g));
+    const nums = await pg.evaluate(() => [...document.querySelectorAll('#pv-preview .pv-grid tbody td')].map((c) => c.className === 'num'));
+    say(nums[1] === false && nums[3] === true, T + ': a number sits right and a word does not (Cost 12.5, Item)', JSON.stringify(nums));
     say(g.cells[2] === '<img src=x onerror="window.__ran=1">' && g.imgs === 0 && !g.ran, T + ': a cell\'s words are text, never markup', JSON.stringify(g.cells));
     // A narrow grid is centred over the name and the gold button, not left in the corner (the real reader's small CSV).
     const mid = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap').getBoundingClientRect(), d = document.getElementById('pv-do').getBoundingClientRect();
@@ -650,10 +652,13 @@ async function runSheet(engine, say) {
     await pg.click('[data-pv-test] a.att');
     await pg.waitForSelector('#pv-preview #pv-do');
     const waiting = await pg.evaluate(() => /Opening the spreadsheet/.test(document.getElementById('pv-stage').textContent));
-    await pg.evaluate(() => pvClose());
+    // The closed stage is kept, so a late answer drawn into it (off the page) is seen (review 3: the page alone cannot see it).
+    await pg.evaluate(() => { window.__lateStage = document.getElementById('pv-stage'); pvClose(); });
     await pg.waitForTimeout(1100);
-    const late = await pg.evaluate(() => ({ viewer: !!document.getElementById('pv-preview'), sheet: !!document.querySelector('.pv-sheet'), lateCell: [...document.querySelectorAll('td')].some((c) => c.textContent === 'late') }));
-    say(waiting && !late.viewer && !late.sheet && !late.lateCell, T + ': a viewer closed before the answer draws nothing when it comes', JSON.stringify({ waiting, late }));
+    const late = await pg.evaluate(() => ({ viewer: !!document.getElementById('pv-preview'), sheet: !!document.querySelector('.pv-sheet'),
+      lateCell: [...document.querySelectorAll('td')].some((c) => c.textContent === 'late'),
+      stageDrawn: !!window.__lateStage.querySelector('.pv-sheet, .pv-file, .pv-grid'), stageText: window.__lateStage.textContent }));
+    say(waiting && !late.viewer && !late.sheet && !late.lateCell && !late.stageDrawn && /Opening the spreadsheet/.test(late.stageText), T + ': a viewer closed before the answer draws nothing when it comes', JSON.stringify({ waiting, late }));
     // A CSV used to show as text; when its grid answer fails (here a 404) it still does, never the bare card (review 1).
     await open('ea'.repeat(12), 'list.csv', { type: 'text/csv', kind: 'text', preview: 'name,cost\nchairs,40' });
     const csv = await pg.evaluate(() => ({ text: (document.querySelector('#pv-preview .pv-text') || {}).textContent || null, card: !!document.querySelector('#pv-preview .pv-file'), grid: !!document.querySelector('#pv-preview .pv-grid-wrap') }));
