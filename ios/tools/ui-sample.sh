@@ -37,6 +37,7 @@ done
 # kosmos#8072: EndPullUITests, pulling a chat past its newest message: the dots, ending, staying put, a second pull (6 checks).
 # kosmos#8053: BlankRingUITests, the ring's real timing with the blank held back, and a normal open never showing it (5 checks).
 classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 BlankRingUITests:5 SendMovesOnceUITests:3 EndPullUITests:6"
+# kosmos#7609: AttachMenuUITests.testTheRowFitsAtTheLargestText skips itself in this run (TEST_RUNNER_KOSMOS_UI_SAMPLE) and is named as skipped.
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest
 # "Timed out while evaluating UI query" on both CI runs, iOS 26.5, while it passes here). Run it alone on a Mac:
 #   TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/ChatOpensAtNewestUITests
@@ -81,7 +82,7 @@ only=""; want=0
 for c in $classes; do only="$only -only-testing:KosmosUITests/${c%%:*}"; want=$((want + ${c##*:})); done
 log="$work/xcodebuild.log"
 # shellcheck disable=SC2086  # $only and $skip are lists of separate arguments
-( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
+( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
     $only $skip -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
 rc=$?
 ran="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' (passed|failed|skipped)" "$log")"
