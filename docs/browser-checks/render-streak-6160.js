@@ -338,6 +338,20 @@ const read = (pg) => pg.evaluate(() => {
     await pg.close();
   }
 
+  // review 8: the first-run welcome opening over a pill that is already out holds it (its seconds are not spent unseen).
+  // The welcome is shown by un-hiding #firstrun, the element the page itself tests (a real late open raced the pill).
+  {
+    const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'welcome after' });
+    const out = await pillOut(pg);
+    await pg.mouse.move(700, 700);
+    const opened = await pg.evaluate(() => { const f = document.getElementById('firstrun'); if (!f) return false; f.hidden = false; return f.getClientRects().length > 0; });
+    await pg.waitForTimeout(8000);
+    const still = await pg.evaluate(() => Boolean(document.querySelector('#kpill.in')));
+    say(out && opened, 'welcome after: (premise) the pill was out, then the welcome opened over it', JSON.stringify({ out, opened }));
+    say(still, 'welcome after: 8 s later, with the welcome still open, the pill is still out (held)', JSON.stringify(still));
+    await pg.close();
+  }
+
   // reload the same day: the badge is back, with no pill; a badge folded yesterday is not (control)
   for (const [when, want] of [['today', true], ['yesterday', false]]) {
     const ctx = await b.newContext();
