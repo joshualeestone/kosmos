@@ -257,6 +257,7 @@ async function withPrompt(name, { screen = PROMPT, afterKey = IDLE_SCREEN, onKey
         body: JSON.stringify({ text: String(row.permission[which]), chose: back.options.find((o) => o.n === row.permission[which]).label, asked: back.asked, request: row.permission.request }) });
       assert.equal(res.status, 200, await res.clone().text());
       assert.equal(keys.length, 1, 'premise: the key went');
+      return { text: String(row.permission[which]), chose: back.options.find((o) => o.n === row.permission[which]).label, asked: back.asked, request: row.permission.request, delivery: (await res.json()).delivery };
     };
     return await fn({ read, press, keys, setShown: (s) => { shown = s; } });
   } finally { chat.resetForTests(); messages.setRunner(null); board.restore(); }
@@ -311,7 +312,8 @@ test('kosmos#8036 CONTROL: with no press, the same gone-from-screen wait still s
 
 test('kosmos#8036: the next prompt already up after the press keeps the wait', async () => {
   await withPrompt('nextup', { afterKey: NEXT_PROMPT, reportFirst: hookWait }, async ({ read, press }) => {
-    await press();
+    const pressed = await press();
+    assert.equal(pressed.delivery && pressed.delivery.state, 'placed', 'premise: it read as answered, so the menu check is what kept the wait');
     assert.equal(selfreport.read('nextup').state, 'needs_you');
     assert.equal(questionRows(await read()).length, 1);
   });
@@ -339,6 +341,27 @@ test('kosmos#8036: a press on another menu does not end a permission wait standi
     assert.equal(res.status, 200, await res.clone().text());
     assert.equal(keys.length, 1, 'premise: the press went to the menu as a key');
     assert.equal(selfreport.read('othermenu').state, 'needs_you');
+  });
+});
+
+test('kosmos#8036: a read while the press settles shows no "asked you something" and no "cannot find the question"', async () => {
+  let during = null;
+  await withPrompt('midsettle', { onKey: () => { during = fetch(base + '/api/agent/midsettle/thread', { headers: { 'sec-fetch-site': 'same-origin' } }).then((r) => r.json()); }, reportFirst: hookWait }, async ({ press }) => {
+    await press();
+    const seen = await during;
+    assert.equal(seen.asking, true, 'premise: the report still stood when this read ran');
+    assert.deepEqual(questionRows(seen), []);
+    assert.equal(seen.questionBecause, null);
+  });
+});
+
+test('kosmos#8036: a stale second tap after the wait ended is refused, and nothing is typed', async () => {
+  await withPrompt('secondtap', { reportFirst: hookWait }, async ({ press, keys }) => {
+    const { delivery, ...again } = await press();
+    assert.ok(delivery, 'premise: the first press was delivered');
+    const res = await fetch(base + '/api/agent/secondtap/thread', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(again) });
+    assert.equal(res.status, 409, await res.clone().text());
+    assert.equal(keys.length, 1);
   });
 });
 
