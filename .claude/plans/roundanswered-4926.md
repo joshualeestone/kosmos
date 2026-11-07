@@ -1,0 +1,24 @@
+# roundanswered-4926: one post that answers several no longer leaves them listed as waiting (kosmos#4926)
+
+Measured on 0.7.94 with a Grok and a Claude seat: each answered a round of asks in one post citing none, and `kosmos room --unanswered` still listed them all. The cause is the shape of the answer, not the family. Full table and design on the card.
+
+## What
+- `messages.laterOwnPost(rows, i, reader)`: the reader's later post in the room that may have dealt with an ask.
+- `--unanswered`: an agent's ask with such a post moves off the list onto its own `[kosmos]` line, named by id with the post.
+- `kosmos room`: the same fact on a line under the post, for the person's asks too.
+
+## Decided
+- Named, never hidden: a post about something else also moves an ask, so it must stay findable. Rejected: hiding, matching on words, requiring a citation, a multi-id `--in-reply-to` as the whole fix.
+- A post citing an older ask is about that ask, and covers nothing newer. One citing something newer does, the direction of #6164.
+- Only an ask typed to the reader (placed or unconfirmed) counts. Held, quiet, undelivered and no outcome stay listed, the safe direction.
+- The person's asks stay listed, with the factual line. Age comes first for an agent's ask, so an old one is counted under the list, not named.
+- The header's words stay as they are: `no post of yours cites it` remains true of the listed ones, and a test pins them.
+
+## Weakest premises
+- A later post usually means the reader dealt with what it was sent. A status post also moves an ask; the cost is one line to read, not a lost ask.
+- Row order is delivery order. An ask typed while the reader was writing an unrelated post reads as covered. Named on the line, so visible.
+- A post held and told later stays listed after an uncited answer, because the row does not record when it was told. Not fixed here.
+
+## Known limits
+- The idle reminder and `roomhold` are untouched.
+- The live check runs on a board started from this worktree with its own data.
