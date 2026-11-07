@@ -471,6 +471,10 @@ test('#8147: formats that scale or decide by sign show the saved number, not a w
   // or a zero under a code with a zero section, is shown as saved; "#.00" has no leading zero either.
   const s = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 6, 1234.5)}${c('B1', 6, -1234.5)}${c('C1', 3, 5)}${c('D1', 7, 0.5)}${c('E1', 8, 0)}${c('F1', 8, 2)}</row>`) }, { 'xl/styles.xml': styles }));
   assert.deepEqual(s.sheets[0].rows[0], ['1,234.50', '-1234.5', '5', '.50', '0', '2.0']);
+  // Review r2: a negative percent keeps its percent; a ";" inside quotes is not a section.
+  const st2 = STYLES('<xf numFmtId="0"/><xf numFmtId="171"/><xf numFmtId="172"/>', '<numFmts><numFmt numFmtId="171" formatCode="0%;(0%)"/><numFmt numFmtId="172" formatCode="0.00;&quot;a;b&quot;"/></numFmts>');
+  const p = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, -0.5)}${c('B1', 1, 0.25)}${c('C1', 2, 0)}</row>`) }, { 'xl/styles.xml': st2 }));
+  assert.deepEqual(p.sheets[0].rows[0], ['-50%', '25%', '0.00']);
   // CONTROL: an ordinary thousands code still groups.
   const g = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 1234567)}</row>`) }, { 'xl/styles.xml': STYLES('<xf numFmtId="0"/><xf numFmtId="3"/>') }));
   assert.deepEqual(g.sheets[0].rows[0], ['1,234,567']);
@@ -480,11 +484,19 @@ test('#8147: a row number past Excel\'s last row is not a row number; an empty s
   const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1e300"><c r="A1"><v>1</v></c></row>') }));
   assert.deepEqual(r.sheets[0].rows, [['1']]);
   assert.equal('firstRow' in r.sheets[0], false);
+  // Review r2: "0x10" is not row 16; a row past the last never lands on a real row.
+  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET('<row r="0x10"><c r="A1"><v>1</v></c></row>') })).sheets[0].rows, [['1']]);
+  const far = x.readXlsx(fx.book({ S: fx.SHEET('<row r="2"><c r="A2"><v>2</v></c></row><row r="5000000"><c r="A1"><v>5</v></c></row><row r="3"><c r="A3"><v>9</v></c></row>') }));
+  assert.deepEqual(far.sheets[0].rows, [[''], ['2'], ['9']]);
+  assert.equal(far.sheets[0].cut, true);
   const e = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t></t></si></sst>' }));
   assert.equal(e.empty, true);
   // Review r1: but a formula whose saved value is that empty string has a saved value, so it is not "some have none".
   const f = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>3</v></c><c r="B1" t="s"><f>A2</f><v>0</v></c></row>') }, { 'xl/sharedStrings.xml': '<sst><si><t></t></si></sst>' }));
   assert.equal('someNoValues' in f, false, 'a formula that saved "" was called one with no saved value');
+  // Review r2: and a workbook whose only formula saved "" is not "no saved values".
+  const only = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="inlineStr"><f>1</f><is><t/></is></c></row>') }));
+  assert.equal(only.noValues, false);
   // CONTROL: a formula with no saved value at all still is.
   assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>3</v></c><c r="B1"><f>A2</f></c></row>') })).someNoValues, true);
 });
