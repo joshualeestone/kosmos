@@ -22,3 +22,10 @@ Measured on 0.7.94 with a Grok and a Claude seat: each answered a round of asks 
 ## Known limits
 - The idle reminder and `roomhold` are untouched.
 - The live check runs on a board started from this worktree with its own data.
+
+## Review 1 (opus), what changed
+- The covered line carries each ask's first 60 characters. It used to point at `kosmos room`, which stops at 200 rows while this walk does not. Rejected: keeping such asks listed, which brings back the false "waiting" in a busy room.
+- An ask the reader claimed is not moved by a later post: its own claim is no answer (#7848), and a post can be about something else.
+- The head no longer says "nothing else waiting" when an ask is covered: "nothing listed in this room; the posts named below may still be open". It takes the place of the claimed head too when both apply.
+- `--all` says "see", not "list": an old ask the reader posted after lands on the covered line under `--all`. Rejected: exempting old asks from cover, which would call a 5-day-old ask waiting and a 1-day-old one not, on the same evidence.
+- An unreadable room reads no rows, so nothing is named as covered; a partly read one is not reachable from a test here.

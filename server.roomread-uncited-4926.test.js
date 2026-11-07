@@ -77,7 +77,7 @@ test('a round answered in one uncited post leaves the waiting list, each ask nam
     assert.ok(!listed(t, id), id + ' is not listed: ' + t);
     assert.ok(onCovered(t).includes('[' + id + '] (your [' + mine + '])'), id + ' is named: ' + t);
   }
-  assert.ok(t.startsWith('Waiting on an answer from you: nothing else waiting on you in this room.\n'), t);
+  assert.ok(t.startsWith('Waiting on an answer from you: nothing listed in this room; the posts named below may still be open.\n'), t);
 });
 
 test('the control: before the reader posts, the same round is all waiting, and no line says otherwise', async () => {
@@ -200,6 +200,111 @@ test('asks still open and covered ones show together, and the count is only the 
   assert.ok(t.startsWith('Waiting on an answer from you: 1 post in this room'), t);
   assert.ok(listed(t, open), t);
   assert.ok(onCovered(t).includes('[' + covered + ']'), t);
+});
+
+/* A claim, as react() writes one (`claim: true` is what makes a 🙋 a claim). */
+const claim = (project, of, from) => {
+  clock += 1000;
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'reaction', project, of, at: new Date(clock).toISOString(), emoji: '\u{1F64B}', op: 'add', from, claim: true }) + '\n');
+};
+
+test('review 1: an ask the reader claimed stays listed after it posts without citing it', async () => {
+  const pid = newRoom('Uncited4926l');
+  const mineClaimed = ask(pid);
+  claim(pid, mineClaimed, WHO);
+  const plain = ask(pid);
+  own(pid);
+  const t = await unanswered(pid);
+  assert.ok(listed(t, mineClaimed), 'its own claim is no answer: ' + t);
+  assert.ok(!onCovered(t).includes('[' + mineClaimed + ']'), t);
+  assert.ok(onCovered(t).includes('[' + plain + ']'), 'CONTROL: the unclaimed one still moves: ' + t);
+  assert.ok(t.startsWith('Waiting on an answer from you: 1 post in this room'), t);
+});
+
+test('review 1: a claim by an agent the post did not ask is not the reader\'s, so a later post still moves the ask', async () => {
+  const pid = newRoom('Uncited4926r');
+  const a = ask(pid);
+  claim(pid, a, OTHER);
+  own(pid);
+  const t = await unanswered(pid);
+  assert.ok(onCovered(t).includes('[' + a + ']'), t);
+  assert.ok(!listed(t, a), t);
+  assert.ok(!t.includes('[kosmos] Claimed, each by'), t);
+});
+
+test('review 1: another agent\'s claim wins over a later post, and both show under one head that settles nothing', async () => {
+  const pid = newRoom('Uncited4926m');
+  const claimedAsk = post(pid, { text: '@grokseat @poster please', mentioned: [WHO, OTHER], outcomes: { [WHO]: 'placed' } });
+  claim(pid, claimedAsk, OTHER);
+  const plain = ask(pid);
+  own(pid);
+  const t = await unanswered(pid);
+  assert.ok(t.startsWith('Waiting on an answer from you: nothing listed in this room; the posts named below may still be open.\n'), t);
+  assert.ok(t.includes('[kosmos] Claimed, each by an agent the post also asked') && t.includes('[' + claimedAsk + '] by ' + OTHER), t);
+  assert.ok(!onCovered(t).includes('[' + claimedAsk + ']'), 'named once, as claimed: ' + t);
+  assert.ok(onCovered(t).includes('[' + plain + ']'), t);
+});
+
+test('review 1: the line carries each ask\'s first words on one line, so it can be judged past the 200 rows kosmos room reads', async () => {
+  const pid = newRoom('Uncited4926n');
+  const long = ask(pid, { text: '@grokseat one\n\ntwo ' + 'x'.repeat(100) });
+  for (let i = 0; i < 201; i++) post(pid, { kind: 'post', text: 'filler ' + i, to: [], outcomes: {} });
+  const short = ask(pid, { text: '@grokseat short one' });
+  own(pid);
+  const t = await unanswered(pid);
+  const line = onCovered(t);
+  assert.ok(line.includes('[' + long + '] (your ['), t);
+  assert.ok(line.includes('"@grokseat one two ' + 'x'.repeat(42) + '..."'), 'flattened and cut at 60: ' + line);
+  assert.ok(!line.includes('x'.repeat(43)), line);
+  assert.ok(line.includes('"@grokseat short one"'), 'a short one is whole, with no dots: ' + line);
+  assert.ok(!line.includes('kosmos room shows it'), line);
+  assert.ok(!(await read(pid, '&n=200')).includes('[' + long + '] '), 'CONTROL: kosmos room really cannot reach it');
+});
+
+test('review 1: with --all an old ask the reader posted after is named on the line, and an old open one is listed', async () => {
+  const pid = newRoom('Uncited4926o');
+  const saved = clock;
+  clock = Date.now() - 5 * 24 * 60 * 60000;
+  const old = ask(pid);
+  clock = saved;
+  const t0 = await unanswered(pid);
+  assert.ok(t0.includes('Add --all to see it too.'), t0);
+  const open = await unanswered(pid, '&all=1');
+  assert.ok(listed(open, old), 'CONTROL: before any post of mine, --all lists it: ' + open);
+  own(pid);
+  const t = await unanswered(pid, '&all=1');
+  assert.ok(onCovered(t).includes('[' + old + ']'), t);
+  assert.ok(!listed(t, old), t);
+  assert.ok(!t.includes('more than 3 days ago'), 't: ' + t);
+});
+
+test('review 1: an unreadable room names nothing as covered and says it may be wrong', async () => {
+  const pid = newRoom('Uncited4926p');
+  ask(pid);
+  own(pid);
+  assert.notEqual(onCovered(await unanswered(pid)), '', 'CONTROL: readable, it is named');
+  ask(pid);   // grows the log, so the next read re-reads it
+  fs.chmodSync(messages.LOG, 0o000);
+  let t;
+  try { t = await unanswered(pid); } finally { fs.chmodSync(messages.LOG, 0o644); }
+  assert.match(t, /^We could not read some of this room/m, 'fixture: the room log was read after all: ' + t);
+  assert.match(t, /^Waiting on an answer from you: none found, but this room could not be read/m, t);
+  assert.equal(onCovered(t), '', t);
+});
+
+test('review 1: rows written by the real send path behave as the fixtures do', async () => {
+  const pid = newRoom('Uncited4926q');
+  const as = (name) => ({ ok: true, card: roster.find((c) => c.sessionName === name) });
+  const typed = () => ({ state: 'placed' });
+  const sent = messages._sendPostWithDelivery({ sender: as(OTHER), project: pid, text: '@grokseat a real ask' }, roster, [WHO, OTHER], typed);
+  assert.ok(sent && sent.id, 'fixture: the ask was sent: ' + JSON.stringify(sent));
+  const before = await unanswered(pid);
+  assert.ok(listed(before, sent.id), 'CONTROL: before my post it waits: ' + before);
+  const mine = messages._sendPostWithDelivery({ sender: as(WHO), project: pid, text: 'an answer citing nothing' }, roster, [WHO, OTHER], typed);
+  assert.ok(mine && mine.id, 'fixture: my post was sent: ' + JSON.stringify(mine));
+  const t = await unanswered(pid);
+  assert.ok(onCovered(t).includes('[' + sent.id + '] (your [' + mine.id + ']) "@grokseat a real ask"'), t);
+  assert.ok(!listed(t, sent.id), t);
 });
 
 test('laterOwnPost refuses what it cannot judge', () => {

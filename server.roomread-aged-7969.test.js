@@ -61,7 +61,7 @@ const room = async (project, query) => {
 };
 const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + ']') && !l.startsWith('[kosmos]'));
 const AGED = (n) => '[kosmos] ' + n + (n === 1 ? ' post' : ' posts') + ' that asked you something more than 3 days ago '
-  + (n === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). Add --all to list ' + (n === 1 ? 'it' : 'them') + ' too.';
+  + (n === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). Add --all to see ' + (n === 1 ? 'it' : 'them') + ' too.';
 
 test('kosmos#7969: an agent\'s ask older than 3 days is counted under the list, not in it; a recent one is listed', async () => {
   const pid = newRoom('Aged7969a');

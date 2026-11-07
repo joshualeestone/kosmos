@@ -5501,6 +5501,7 @@ cmd_room() {
   # #4891 N8: `-n N` / `--limit N` (or `--limit=N`) reads only the last N rows (1 to 200; 40 without it). Before
   # this, -n was ignored and the whole tail printed. Either side of the project id.
   # #4926: --unanswered lists only the posts that asked you something and that no post of yours answers by id.
+  # An agent's post the reader has since posted after, not citing an older post, is named on its own line instead.
   # #7848: and that no other agent they asked has claimed (the board decides; this only passes the flag).
   # kosmos#7969: --all (with --unanswered) lists the asks older than the board's few days too.
   local _n="" _ngiven=0 _arg _unans="" _all=0
@@ -5518,7 +5519,7 @@ cmd_room() {
     esac
   done
   if [ -z "$project" ]; then
-    say "Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id or came after and that no other agent they asked has claimed, from the last few days (--all: older ones too); or: kosmos room reopen <project-id> to clear a loop-guard hold)"
+    say "Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too; an agent's post you posted after, not citing an older post, is named on its own line instead); or: kosmos room reopen <project-id> to clear a loop-guard hold)"
     exit 2
   fi
   if [ "$_all" = 1 ]; then

@@ -1425,14 +1425,11 @@ function staleHeld(projectId, ids, log, now, member) {
   return out;
 }
 
-/* kosmos#7246 slice 2 (round 7): who a row asked by name: its @-names (`mentioned`) and the header names an agent's post
-   addressed (`addressed`, which never holds @all). For the readers that decide who was asked (the claim guard, the
-   #6608 owner rule, who an answer's quote goes to); owed answers and the #185 nudge keep to @-names. */
 /* kosmos#4926: the reader's own later post that may have dealt with the ask at rows[i], or null. Seats answer a round of
    asks in one post that cites none of them (measured on a Grok and a Claude seat, 0.7.94), and `--unanswered` then listed
    them all as waiting. A post citing nothing counts, and so does one citing a post newer than the ask. One citing the ask's
    elders is about those. Only an ask that was typed to the reader counts: a held, quiet or undelivered one, or a row
-   with no outcome, had not reached it. rows are one room's rows in the order written. */
+   with no outcome, had not reached it. rows are one room's rows, oldest first. */
 function laterOwnPost(rows, i, reader) {
   const ask = rows && rows[i];
   if (!ask || !reader) return null;
@@ -1447,6 +1444,9 @@ function laterOwnPost(rows, i, reader) {
   return null;
 }
 
+/* kosmos#7246 slice 2 (round 7): who a row asked by name: its @-names (`mentioned`) and the header names an agent's post
+   addressed (`addressed`, which never holds @all). For the readers that decide who was asked (the claim guard, the
+   #6608 owner rule, who an answer's quote goes to); owed answers and the #185 nudge keep to @-names. */
 function namedIn(row) {
   const out = new Set();
   for (const k of ['mentioned', 'addressed']) if (row && Array.isArray(row[k])) for (const n of row[k]) if (typeof n === 'string' && n) out.add(n);
