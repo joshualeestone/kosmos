@@ -81,7 +81,7 @@ const limits = require('./limits');
 const LOG = path.join(store.ROOT, 'messages.jsonl');
 /* kosmos#8178 item 1: every id handed out, beside the log, so a board restart neither hands one out again nor forgets
    a room post that members already hold. A row is { id, at } (a direct message), { id, project, at } plus the names a
-   reply needs (a room post; see mintId) or { id, gone: true } (a post that reached nobody). Written before the id reaches any pane; read once, lazily (loadIds). */
+   reply needs (a room post; see mintId) or { id, gone: true } (a post that reached nobody). Written before the id reaches any pane; read lazily (loadIds). */
 const IDS = path.join(store.ROOT, 'messages.ids.jsonl');
 
 /* #670: the per-project read cursor. One person per Kosmos install, so the
@@ -1342,7 +1342,7 @@ function unrecordedTwin(key, log, projectId) {
    the log's highest, plus one. An id is taken before any await, so overlapping sends never share one. A send
    that is then refused has used its id, and the next send takes a new one. */
 let ID_HIGH = 0;
-/* kosmos#8178 item 1: the id file, read once per board (and again after a test reset). It raises ID_HIGH to the highest
+/* kosmos#8178 item 1: the id file, read when a board first needs it (and again as below). It raises ID_HIGH to the highest
    id ever handed out, and puts back the room posts from the last PENDING_POST_MAX_MS that have no line in the record
    at all (round 1: a recorded post, and so a deleted one, is the record's to answer for). Past IDS_COMPACT_AT bytes the
    file is rewritten to those posts and the highest id, plus any line appended after it was read (round 2). With the
@@ -1357,7 +1357,11 @@ function loadIds() {
   if (IDS_LOADED || Date.now() < IDS_RETRY_AFTER) return;
   IDS_LOADED = true;
   let text;
-  try { text = fs.readFileSync(IDS, 'utf8'); } catch { return; }
+  try { text = fs.readFileSync(IDS, 'utf8'); } catch (err) {
+    // Round 5: only a missing file is final; any other error is read again later, never left for the board's life.
+    if (!(err && err.code === 'ENOENT')) { IDS_LOADED = false; IDS_RETRY_AFTER = Date.now() + IDS_RETRY_MS; }
+    return;
+  }
   const readBytes = Buffer.byteLength(text, 'utf8');
   IDS_APPENDED = 0;
   /* Round 3: a torn last line (a crash mid-append) is ended here, before anything is appended, or the next id would
@@ -1402,7 +1406,8 @@ function loadIds() {
   try {
     let tail = '';
     try { const now2 = fs.readFileSync(IDS); if (now2.length > readBytes) tail = now2.subarray(readBytes).toString('utf8'); } catch { /* nothing added */ }
-    require('./securewrite').writeSecret(IDS, keep.concat(high ? [{ id: 'm' + high, at: now }] : []).map((x) => JSON.stringify(x)).join('\n') + '\n' + tail, 0o600);
+    const keptHigh = keep.reduce((h, x) => Math.max(h, Number(x.id.slice(1))), 0);
+    require('./securewrite').writeSecret(IDS, keep.concat(high > keptHigh ? [{ id: 'm' + high, at: now }] : []).map((x) => JSON.stringify(x)).join('\n') + '\n' + tail, 0o600);
   } catch { /* the next read compacts it */ }
 }
 function noteId(row) {
@@ -4962,6 +4967,7 @@ module.exports = {
   _withPendingForTests: withPending,
   _setPendingForTests: (id, entry) => { if (entry) PENDING_POSTS.set(id, entry); else PENDING_POSTS.delete(id); },
   /* kosmos#8178: what a board restart forgets (every id it handed out, and the posts still pending), keeping the files. */
+  _idsRetryNowForTests: () => { IDS_RETRY_AFTER = 0; },   // kosmos#8178 round 5: the pause has passed
   _restartForTests: () => { PENDING_POSTS.clear(); ID_HIGH = 0; IDS_LOADED = false; IDS_APPENDED = 0; IDS_RETRY_AFTER = 0; },
   _idsPathForTests: () => IDS,
   _idsCompactAtForTests: (n) => { IDS_COMPACT_AT = n == null ? 64 * 1024 : n; },
