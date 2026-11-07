@@ -791,11 +791,11 @@ PKG_PROMOTE=0
 # kosmos#8172: a pointer that NAMES its pkg (pkg_sha256, written by the cut) decides the copy by that name, for a
 # named promote too (its pointer comes from its own commit). A pointer without the field keeps #8167's rule below.
 _pkg_named=""; [ "$FAMILY" != mac ] || _pkg_named="$(read_field pkg_sha256)"
-case "$_pkg_named" in
-  "") ;;
-  *[!0-9a-f]*) echo "promote-channel: WARNING $SNAP_LABEL has a malformed pkg_sha256 ('${_pkg_named:0:20}'), so the installer pkg is not moved; the pointer still promotes. Fix the pointer by hand." >&2; _pkg_named="malformed" ;;
-  *) [ "${#_pkg_named}" = 64 ] || { echo "promote-channel: WARNING $SNAP_LABEL has a malformed pkg_sha256 ('${_pkg_named:0:20}'), so the installer pkg is not moved; the pointer still promotes. Fix the pointer by hand." >&2; _pkg_named="malformed"; } ;;
-esac
+# One shape check (64 lower-case hex) and one warning: anything else present is malformed.
+if [ -n "$_pkg_named" ] && ! [[ "$_pkg_named" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "promote-channel: WARNING $SNAP_LABEL has a malformed pkg_sha256 ('${_pkg_named:0:20}'), so the installer pkg is not moved; the pointer still promotes. Fix the pointer by hand." >&2
+  _pkg_named="malformed"
+fi
 if [ "$_pkg_named" = malformed ]; then
   :
 elif [ -n "$_pkg_named" ]; then
