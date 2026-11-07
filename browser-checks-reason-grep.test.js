@@ -431,6 +431,7 @@ const SITE_COUNTS = {
   'render-model-restart-interstitial.js': [1, 1],
   'render-model-spinners-2365.js': [2, 2],
   'render-msg-counter-3403.js': [1, 0],
+  'render-msg-linespacing-1106.js': [1, 0],
   'render-msgdelete-7614.js': [1, 1],
   'render-muse-signin-3939.js': [2, 2],
   'render-needsyou-dealarm-2808.js': [2, 2],
