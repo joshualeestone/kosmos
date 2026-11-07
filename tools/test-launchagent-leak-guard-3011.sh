@@ -163,7 +163,7 @@ if [ -z "$counts" ]; then missing="$ALLOWED"; else missing="$(printf '%s\n' "$AL
 if [ "$used_rc" -gt 1 ]; then
   fail "#4392: the reserved-prefix search could not run (git grep exit $used_rc)"
 elif [ -n "$used" ]; then
-  fail "#4392: the reserved live-check prefix appears in $(printf '%s' "$used" | tr '\n' ' ')(file:uses; a test must never name an agent with it; ALLOWED lists the uses that tell a person it)"
+  fail "#4392: the reserved live-check prefix appears in $(printf '%s' "$used" | tr '\n' ' ')(file:uses, beyond what ALLOWED lists. In a file ALLOWED lists, it is one use too many: a file that tells a person the prefix names it exactly as often as ALLOWED says, so change both together. Anywhere else, it must go: a test must never name an agent with it)"
 elif [ -n "$missing" ]; then
   fail "#4392 control: the search did not find the prefix where it is told to a person, exactly as often as allowed: $(printf '%s' "$missing" | tr '\n' ' ')(found: $(printf '%s' "$counts" | tr '\n' ' '))"
 else
