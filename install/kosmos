@@ -7483,7 +7483,7 @@ cmd_agent() {
       say "  kosmos agent create \"<name>\" --new-role \"<label>\" --from <file> [\"<why>\"]"
       say "                                                  make one with a role you wrote, when none fits"
       say "                                                  either form, for a throwaway agent on a Mac that runs test suites: name it"
-      say "                                                  zz-livecheck-<something>, which the suites' leak guard skips"
+      say "                                                  zz-livecheck-<something>, which the test suites' check for stray agents skips"
       say "  kosmos agent roles [<word>]                     list the roles an agent can be made with, or those matching <word>"
       say "  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)"
       say "  kosmos agent instructions-add \"<name>\" --from <file>"
