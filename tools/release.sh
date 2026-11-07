@@ -1427,7 +1427,9 @@ if [ "$CUT_CHANNEL" = staging ]; then
   _pkg_code="$(curl -sS -m 30 -o "$_pkg_srv/sha256" -w '%{http_code}' -H 'Cache-Control: no-cache' "${HOST:-https://installkosmos.com}/dist/$PKG_PROD_NAME.sha256" 2>/dev/null)" || _pkg_code="${_pkg_code:-000}"
   [ "$_pkg_code" = 200 ] || { echo "could not read the served $PKG_PROD_NAME.sha256 (HTTP ${_pkg_code:-none}); a staging cut must know which installer the Download button serves before it deploys (kosmos#8167)"; exit 1; }
   PKG_PROD_SERVED_SHA="$(awk '{print $1; exit}' "$_pkg_srv/sha256")"
-  case "$PKG_PROD_SERVED_SHA" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;; *) echo "the served $PKG_PROD_NAME.sha256 names no sha (read '${PKG_PROD_SERVED_SHA:0:20}'); refusing to guess which installer the Download button serves"; exit 1 ;; esac
+  case "$PKG_PROD_SERVED_SHA" in ""|*[!0-9a-f]*) _pkg_shaok=0 ;; *) _pkg_shaok=1 ;; esac
+  [ "$_pkg_shaok" = 1 ] && [ "${#PKG_PROD_SERVED_SHA}" = 64 ] \
+    || { echo "the served $PKG_PROD_NAME.sha256 names no sha256 (read '${PKG_PROD_SERVED_SHA:0:20}'); refusing to guess which installer the Download button serves"; exit 1; }
   _pkg_local=""
   [ -f "$SITE/dist/$PKG_PROD_NAME" ] && _pkg_local="$(_pkg_hash < "$SITE/dist/$PKG_PROD_NAME" | awk '{print $1}')"
   if [ "$_pkg_local" = "$PKG_PROD_SERVED_SHA" ] && pkg_triple_check "$SITE/dist" "$PKG_PROD_NAME" >/dev/null 2>&1; then

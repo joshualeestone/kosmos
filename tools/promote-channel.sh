@@ -789,9 +789,11 @@ fi
 # it is and says so, because the staging pkg may belong to a later cut.
 PKG_PROMOTE=0
 if [ "$FAMILY" = mac ] && [ -f "$SITE/dist/$PKG_STAGING_NAME" ]; then
-  _pkg_ssha="$(pkg_triple_check "$SITE/dist" "$PKG_STAGING_NAME")" \
-    || { echo "promote-channel: dist/$PKG_STAGING_NAME is not a whole, self-consistent triple (above) - refusing; nothing was written. If a staging cut aborted mid-copy, move the $PKG_STAGING_NAME files aside (deploy-site.sh fetches the served triple back) and promote again." >&2; exit 1; }
-  if [ -f "$SITE/dist/$PKG_PROD_NAME" ] && cmp -s "$SITE/dist/$PKG_STAGING_NAME" "$SITE/dist/$PKG_PROD_NAME" \
+  # A broken staging triple (a staging cut that aborted mid-copy, a hand copy) must not block the POINTER promote,
+  # which does not depend on it: the installer is left as it is, loudly, and the pointer promotes.
+  if ! _pkg_ssha="$(pkg_triple_check "$SITE/dist" "$PKG_STAGING_NAME")"; then
+    echo "promote-channel: WARNING dist/$PKG_STAGING_NAME is not a whole, self-consistent triple (above), so it is not copied and $PKG_PROD_NAME is left as it is; the pointer still promotes. Move the $PKG_STAGING_NAME files aside (deploy-site.sh fetches the served triple back) and promote again to move the installer." >&2
+  elif [ -f "$SITE/dist/$PKG_PROD_NAME" ] && cmp -s "$SITE/dist/$PKG_STAGING_NAME" "$SITE/dist/$PKG_PROD_NAME" \
      && cmp -s "$SITE/dist/$PKG_STAGING_NAME.inputs" "$SITE/dist/$PKG_PROD_NAME.inputs"; then
     echo "   $PKG_PROD_NAME is already the staging pkg (${_pkg_ssha:0:12}): nothing to copy"
   elif [ -n "$NAMED_VERSION" ]; then
