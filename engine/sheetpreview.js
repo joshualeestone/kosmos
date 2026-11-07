@@ -126,8 +126,9 @@ function fromBytes(buf, name) {
       if (!slowOnce.has(key)) { slowOnce.add(key); if (slowOnce.size > MAX_REMEMBERED) slowOnce.delete(slowOnce.values().next().value); return shown; }
       read = shown;
     }
-    // #8162: written once, here, both to measure it (the seam's MAX_ANSWER_CHARS, which `fits` checked with a second
-    // stringify) and to copy it before it is kept.
+    // #8162: written once, here, both to measure it (MAX_ANSWER_CHARS) and to copy it before it is kept. The copy is a
+    // memory property (the reader's strings are slices of the whole unpacked part, review 6), which no behavioural test
+    // can see: a caller only ever gets a structuredClone. An answer that cannot be written at all is "too large".
     let text = null;
     try { text = JSON.stringify(read); } catch { /* past the longest string: too large */ }
     if (text === null || text.length > MAX_ANSWER_CHARS) { read = { ok: false, because: TOO_LARGE, tooLarge: true }; text = JSON.stringify(read); }
