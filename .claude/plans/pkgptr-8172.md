@@ -88,7 +88,9 @@ name the same sha, which is correct: the installer is the same file.
 - WARNING, decided: when the pointer names a pkg that is not obtainable (not served as Kosmos-staging.pkg, or not on
   the machine), the promote still moves the pointer, leaves Kosmos.pkg, and warns that a prod verify will red. Not
   refused, because Josh's word is for the APP version: refusing that promote over an installer problem would hold
-  every prod user's update back for something the Download button alone is affected by. The red verify is the alarm.
+  every prod user's update back for something the Download button alone is affected by. (Corrected in round 7: no
+  automated job runs a prod verify after a promote, so the WARNING itself is the signal, and it now says so and gives
+  the recipe for putting the named pkg back.)
 - NIT, settled by reading: step 9's six-read loop wraps the whole verify-served run (release.sh, step 9), so one
   transient fetch inside it is retried.
 - NIT, fixed: the writer's comment says what promote does with a pointer that names no pkg.
@@ -112,3 +114,14 @@ name the same sha, which is correct: the installer is the same file.
 - NITs, deferred: the named-promote compare depends on deleting setup_sha256 first (it does, in the same expression);
   publish-staging-pointer.sh hashes with shasum where the libs use _pkg_hash, which is shasum on this Mac
   (_pkg_hash uses shasum when present, sha256sum otherwise, and both are plain sha256).
+
+## Review round 7
+
+- WARNING, fixed: the round-4 decision called the red prod verify "the alarm", but nothing runs a prod verify-served
+  after a promote (step 9 is its only automated caller, and neither cut kind trips it). Both promote warnings and the
+  doc now say the WARNING is the only signal and name the by-hand verify that shows the state.
+- WARNING, fixed: the "neither" warning now gives the recipe for putting the named pkg back (that build's triple from
+  the box that cut it, checked against the named sha, copied in with pkg_triple_copy, deployed).
+- NITs, deferred: verify-served's unknown-name arm cannot be reached today (only the two names are dispatched);
+  publish-staging-pointer.sh checks the pkg bytes, not the whole triple (verify-served checks the triple); the
+  named-promote compare is a dense one-liner, tested both ways.
