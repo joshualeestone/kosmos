@@ -37,7 +37,7 @@ project pays one list read per show.
 - Every string scrubbed at entry (scrub); perturbed: without it the control-character test is red.
 - Under prints the parent through titleOf (a webhook parent quoted); perturbed: the raw sentence turns it red.
 - A hold says until what, whether the person put it on (only they can take it off), and whether it waits on them.
-  The hold's reason is not stored on the task (it is said in the conversation), so show cannot print it.
+  (Round 1 wrongly said the reason is not stored; it is, as onHoldBecause since kosmos#7749. Round 5 added it.)
 - Parts: one line each, who holds it and whether it is finished, when a task has more than one.
 - A webhook detail keeps its lines, each quoted, under a heading that says whose words they are; Added says "by the
   person" for a task added on the screen.
@@ -61,3 +61,9 @@ project pays one list read per show.
   that list from its dispatch table, so `show` appeared there first. My "related tests" pick (by file name) missed this
   file; only the full suite found it. Now: `show` sits after `activity` in both CLIs' list (Windows dispatch order and
   the Mac string), and the test pins fifteen.
+
+## Review round 5 (decided)
+- Why on hold: onHoldBecause, printed indented under its own heading (written words). My round-1 claim that it was not
+  stored came from grepping for "because" and seeing no field; the field is onHoldBecause.
+- A task's own hold in a paused project says the project is paused too; a webhook task's Added says by the webhook.
+- The help line carries no card number (no sibling help line does); a test comment I had garbled is restored.
