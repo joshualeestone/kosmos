@@ -53,14 +53,15 @@ function backend() {
         if (thread[1] !== POST) return send(404, { detail: 'post not found' });
         const tops = st.comments.filter((c) => !c.parent).slice().sort((a, b) => (u.searchParams.get('order') === 'newest' ? b.at.localeCompare(a.at) : a.at.localeCompare(b.at)));
         const p = page(tops);
-        // As the service: each top-level comment carries its first replies (3 here) and the true count.
+        if (typeof st.mode.onGet === 'function') st.mode.onGet(req.url);
+        // As the service: each top-level comment carries its first replies (2, its preview) and the true count.
         const under = (id) => st.comments.filter((x) => x.parent === id).sort((a, b) => a.at.localeCompare(b.at));
-        return send(200, { comments: p.rows.map((c) => ({ ...shown(c), replies: under(c.id).slice(0, 3).map(shown), reply_count: under(c.id).length, replies_cursor: null })), next_cursor: p.next_cursor });
+        return send(200, { comments: p.rows.map((c) => ({ ...shown(c), replies: under(c.id).slice(0, 2).map(shown), reply_count: under(c.id).length, replies_cursor: null })), next_cursor: p.next_cursor });
       }
       if (req.method === 'GET' && replies) {
         // As the service: the id must be a top-level comment of this post, else 404 "comment not found".
         const top = st.comments.find((c) => c.id === replies[2]);
-        if (!top || top.parent) return send(404, { detail: 'comment not found' });
+        if (replies[1] !== POST || !top || top.parent) return send(404, { detail: 'comment not found' });
         const rows = st.comments.filter((c) => c.parent === replies[2]).sort((a, b) => a.at.localeCompare(b.at));
         const p = page(rows);
         return send(200, { replies: p.rows.map(shown), next_cursor: p.next_cursor });
@@ -338,4 +339,81 @@ test('#8216 review 2: a row whose time cannot be read is never taken for the com
   fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(recs));
   await cs.sweep(t0 + 2000);
   assert.equal(recOf(c.id).state, 'sent', 'CONTROL: with a readable time it was not found');
+});
+
+test('#8216 review 3: same-words copies pair in send order, across pages of the thread', async () => {
+  await cs.sweep();
+  const t0 = Date.now();
+  const a = comment('ava', 'Twice over.');
+  const b = comment('ava', 'Twice over.');
+  be.st.mode.lose = 'stored';
+  await cs.sweep(t0);   // both go out in one pass, in order, and both answers are lost
+  be.st.mode.lose = null;
+  assert.deepEqual([recOf(a.id).state, recOf(b.id).state], ['unconfirmed', 'unconfirmed'], 'fixture');
+  // Their sends a minute apart, and the copies at the same times (the service kept them in that order).
+  const [copyA, copyB] = be.st.comments.filter((x) => x.body === 'Twice over.');
+  copyA.at = new Date(t0).toISOString();
+  copyB.at = new Date(t0 + 60 * 1000).toISOString();
+  const recs = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+  // The file lists the newer send first, so the order cannot come from the file.
+  const reordered = { [b.id]: { ...recs[b.id], attemptedAt: copyB.at }, [a.id]: { ...recs[a.id], attemptedAt: copyA.at } };
+  for (const [k, v] of Object.entries(recs)) if (!(k in reordered)) reordered[k] = v;
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(reordered));
+  // 20 newer comments between them put the older copy on the second page, newest first.
+  for (let i = 0; i < 20; i++) be.st.comments.push({ id: crypto.randomUUID(), parent: null, agentId: 'other' + i, body: 'Between ' + i, at: new Date(t0 + 1000 + i).toISOString() });
+  await cs.sweep(t0 + 2 * 60 * 1000);
+  assert.equal(recOf(a.id).remoteId, copyA.id, 'the older record took the newer copy');
+  assert.equal(recOf(b.id).remoteId, copyB.id, 'the newer record took the older copy');
+});
+
+test('#8216 review 3: an id another record claims while the look is out is refused at the write', async () => {
+  await cs.sweep();
+  const c = comment('ava', 'Raced.');
+  be.st.mode.lose = 'stored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  const copy = be.st.comments.find((x) => x.body === 'Raced.');
+  be.st.mode.onGet = () => {   // another writer settles a record with this id while the thread read is on the network
+    const recs = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+    recs['someone-else'] = { state: 'sent', agent: 'ava', post: POST, remoteId: copy.id };
+    fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(recs));
+    be.st.mode.onGet = null;
+  };
+  await cs.sweep(t0 + 1000);
+  assert.equal(recOf(c.id).state, 'unconfirmed', 'an id claimed meanwhile was taken again');
+  assert.equal(recOf('someone-else').remoteId, copy.id, 'the other writer\'s record was overwritten');
+});
+
+test('#8216 review 3: a copy much later than the try is another send, never this one', async () => {
+  await cs.sweep();
+  const c = comment('ava', 'Later copy.');
+  be.st.mode.lose = 'unstored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  const agentId = [...be.st.agents.values()][0].id;
+  be.st.comments.push({ id: crypto.randomUUID(), parent: null, agentId, body: 'Later copy.', at: new Date(t0 + 3 * HOUR).toISOString() });
+  await cs.sweep(t0 + 4 * HOUR);
+  assert.equal(recOf(c.id).state, 'unconfirmed', 'a copy three hours after the try was taken for it');
+});
+
+test('#8216 review 3: status says so when Kosmos cannot look, and when it has stopped', async () => {
+  const status = require('./communitystatus');
+  await cs.sweep();
+  const c = comment('ava', 'No key to look with.');
+  be.st.mode.lose = 'unstored';
+  await cs.sweep();
+  be.st.mode.lose = null;
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  delete keys.ava.remoteId;
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  const line = () => status.statusText('ava').text.split('\n').find((l) => l.includes('"No key to look with."'));
+  assert.match(line(), /Kosmos cannot look for it from this board/, 'no account held, and status still promised a look');
+  keys.ava.remoteId = [...be.st.agents.values()][0].id;
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  const recs = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+  recs[c.id].lookFirstAt = new Date(Date.now() - 8 * 24 * HOUR).toISOString();
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(recs));
+  assert.match(line(), /looked for it in the post's thread for a week without finding it/, 'a week of looking is not said');
 });
