@@ -139,8 +139,9 @@ echo "== what the Download button serves =="
 pwant=$(pkg_input_sha "$REPO") || { say "/dist/Kosmos.pkg inputs" "could not compute the source input sha"; fail=1; pwant=; }
 # kosmos#8167: two names. A staging cut publishes Kosmos-staging.pkg and leaves Kosmos.pkg (the button's) alone;
 # promote copies one onto the other. So when a staging pkg is served, IT must match the source, and Kosmos.pkg is
-# checked as a whole signed, stapled triple whose inputs are prod's. With no staging pkg served yet (before the first
-# staging cut after kosmos#8167), Kosmos.pkg must match the source, as before.
+# checked as a whole, signed, stapled triple. Its inputs are NOT checked against anything then: between a staging cut
+# and its promote they are meant to lag, and nothing records which pkg prod should have. With no staging pkg served yet
+# (before the first staging cut after kosmos#8167), Kosmos.pkg must match the source, as before.
 # _vs_pkg <name> <source|any>
 _vs_pkg() {
   pn="$1"; pmode="$2"
@@ -193,12 +194,13 @@ _vs_pkg() {
   else say "/dist/$pn" "could not be fetched"; fail=1; fi
   rm -rf "$pdir"
 }
-if curl -fsS -o /dev/null -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null; then
-  _vs_pkg Kosmos-staging.pkg source
-  _vs_pkg Kosmos.pkg any
-else
-  _vs_pkg Kosmos.pkg source
-fi
+# Only a 404 means "no staging pkg served". Any other failure is said as itself, not read as "none".
+_vs_scode="$(curl -sS -L -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null)" || _vs_scode="${_vs_scode:-000}"
+case "$_vs_scode" in
+  200) _vs_pkg Kosmos-staging.pkg source; _vs_pkg Kosmos.pkg any ;;
+  404) _vs_pkg Kosmos.pkg source ;;
+  *) say "/dist/Kosmos-staging.pkg.sha256" "could not tell whether it is served (HTTP ${_vs_scode:-none}), so neither pkg was judged"; fail=1 ;;
+esac
 
 echo
 [ "$fail" = "0" ] && echo "every artifact a user can receive matches the repo" || { echo "SOMETHING A USER RECEIVES IS WRONG"; exit 1; }

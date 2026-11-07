@@ -865,7 +865,7 @@ read -r S82 L82 <<<"$(make_scenario)"
 serve_pkg "$L82" Kosmos-staging.pkg "STAGING-PKG-BYTES"
 serve_pkg "$S82" Kosmos.pkg "SOMETHING-ELSE"
 run_deploy "$S82" "$L82" --promote
-[ "$RC" = 0 ] && [ "$(cat "$L82/dist/Kosmos.pkg")" = "PKG-BYTES" ] && ! has "$out" "is the promoted copy" \
+[ "$RC" = 0 ] && [ "$(cat "$L82/dist/Kosmos.pkg")" = "PKG-BYTES" ] && ! has "$out" "is the promoted copy" && has "$out" "is neither the served Kosmos.pkg" \
   && pass "8167: CONTROL a local Kosmos.pkg that is not the served staging pkg is pinned to the served one" || bad "8167 control (rc=$RC, live Kosmos.pkg: $(cat "$L82/dist/Kosmos.pkg"), out=$out)"
 # B) a local staging pkg the host does not serve is refused, nothing deployed.
 read -r S83 L83 <<<"$(make_scenario)"
@@ -873,6 +873,12 @@ serve_pkg "$S83" Kosmos-staging.pkg "NEVER-SERVED"
 run_deploy "$S83" "$L83" --promote
 [ "$RC" = 1 ] && has "$out" "holds a Kosmos-staging.pkg file but the host serves none" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L83/dist/latest.json")" = "$OLD" ] && [ ! -e "$L83/dist/Kosmos-staging.pkg" ] \
   && pass "8167: a local staging pkg the host never served refuses the deploy, live untouched" || bad "8167 unserved staging pkg (rc=$RC, out=$out)"
+# B2) the staging probe answers neither 200 nor 404 (an unreachable edge): refuse, never read it as "none served".
+read -r S85 L85 <<<"$(make_scenario)"
+serve_pkg "$L85" Kosmos-staging.pkg "STAGING-PKG-BYTES"; : > "$L85/dist/Kosmos-staging.pkg.sha256.down"
+run_deploy "$S85" "$L85" --promote
+[ "$RC" = 1 ] && has "$out" "could not tell whether the host serves Kosmos-staging.pkg (HTTP 000" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L85/dist/latest.json")" = "$OLD" ] \
+  && pass "8167: an unreachable staging-pkg probe refuses the deploy, live untouched" || bad "8167 unreachable probe (rc=$RC, out=$out)"
 # C) a served staging pkg with no local copy is fetched and carried (a deploy from another box keeps it).
 read -r S84 L84 <<<"$(make_scenario)"
 serve_pkg "$L84" Kosmos-staging.pkg "STAGING-PKG-BYTES"

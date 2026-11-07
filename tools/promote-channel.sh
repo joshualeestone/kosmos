@@ -790,7 +790,7 @@ fi
 PKG_PROMOTE=0
 if [ "$FAMILY" = mac ] && [ -f "$SITE/dist/$PKG_STAGING_NAME" ]; then
   _pkg_ssha="$(pkg_triple_check "$SITE/dist" "$PKG_STAGING_NAME")" \
-    || { echo "promote-channel: dist/$PKG_STAGING_NAME is not a whole, self-consistent triple (above) - refusing; nothing was written." >&2; exit 1; }
+    || { echo "promote-channel: dist/$PKG_STAGING_NAME is not a whole, self-consistent triple (above) - refusing; nothing was written. If a staging cut aborted mid-copy, move the $PKG_STAGING_NAME files aside (deploy-site.sh fetches the served triple back) and promote again." >&2; exit 1; }
   if [ -f "$SITE/dist/$PKG_PROD_NAME" ] && cmp -s "$SITE/dist/$PKG_STAGING_NAME" "$SITE/dist/$PKG_PROD_NAME" \
      && cmp -s "$SITE/dist/$PKG_STAGING_NAME.inputs" "$SITE/dist/$PKG_PROD_NAME.inputs"; then
     echo "   $PKG_PROD_NAME is already the staging pkg (${_pkg_ssha:0:12}): nothing to copy"

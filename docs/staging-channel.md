@@ -24,12 +24,12 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    no prior install** -- NOT the build machine (it holds a token, the 0.6.25 blindness):
    - fresh install: `curl -fsSL https://installkosmos.com/setup-staging | KOSMOS_UPDATE_CHANNEL=staging sh`
      (#5032: a staging cut publishes its installer as `/setup-staging`; `/setup` stays prod's until the promote)
+     (the var MUST be on the `sh`, right of the pipe -- an env prefix binds to the LEFT of a pipe, so
+     `KOSMOS_UPDATE_CHANNEL=staging curl ... | sh` sets it for curl and setup installs PROD, not staging)
    - fresh install through the Mac installer: download `https://installkosmos.com/dist/Kosmos-staging.pkg`
      (kosmos#8167: a staging cut publishes its installer pkg under that name and leaves `/dist/Kosmos.pkg`, the
      Download button's file, to the promote). Its postinstall runs the prod `/setup`, as `Kosmos.pkg`'s does: it
      tests the installer pages and the postinstall, not the staging app.
-     (the var MUST be on the `sh`, right of the pipe -- an env prefix binds to the LEFT of a pipe, so
-     `KOSMOS_UPDATE_CHANNEL=staging curl ... | sh` sets it for curl and setup installs PROD, not staging)
    - an existing box's auto-updater: set `AGENT_WORKFORCE_UPDATE_CHANNEL=staging` for it (e.g. in
      its launchd env). update.js then fetches `latest-staging.json` and hands the same channel to
      the installer it spawns, so both read the staging pointer and the staging **versioned**
@@ -104,9 +104,10 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    `setup` (or a merge that touches it) needs the matching `setup.sha256` and `setup_sha256` edit, or every
    site deploy refuses until they agree. A prod-channel cut writes all three together.
    **kosmos#8167: it also copies the staging installer PKG onto `dist/Kosmos.pkg`** (the Download button's file),
-   when `dist/Kosmos-staging.pkg` differs from it. The triple is checked whole before any write (the pair agrees, the
-   sidecar vouches for the bytes) and copied after `/setup`, with the `.sha256` rewritten to name `Kosmos.pkg`. Same
-   bytes, so no re-sign. A promote with `--version` leaves `Kosmos.pkg` as it is and says so, because the pkg names no
+   when `dist/Kosmos-staging.pkg` differs from it AND is the pkg the host serves as `Kosmos-staging.pkg` (its sha is
+   the served `.sha256`; otherwise `Kosmos.pkg` is left as it is, with a WARNING, and the pointer still promotes). The
+   triple is checked whole before any write (the pair agrees, the sidecar vouches for the bytes) and copied after
+   `/setup`, with the `.sha256` rewritten to name `Kosmos.pkg`. Same bytes, so no re-sign. A promote with `--version` leaves `Kosmos.pkg` as it is and says so, because the pkg names no
    version and the staging one may belong to a later cut. `deploy-site.sh --promote` then ships that copy only if it
    is the SERVED `Kosmos-staging.pkg`'s bytes; otherwise it keeps the served `Kosmos.pkg` and prints a WARNING.
    **Check the first #5032 promote by hand**: staging boxes still on a build before #5032 updated with
