@@ -369,6 +369,7 @@ test('#5415: a comment that is not in the community (unconfirmed) gets no link, 
   // Every comment carries a valid post id (publish requires one), so for comments the state alone keeps a link off.
   const c = comment('ava', 'Unconfirmed comment.');
   writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'pending', attempted: true, agent: 'ava', post: '7a1b2c3d-0000-4000-8000-000000000001' } });
+  writeJson(cs._paths.keysFile(), { ava: { name: 'Ava', apiKey: 'k1', remoteId: 'a1' } });   // kosmos#8216: a key it can look with
   const it = status.itemsFor('ava').find((x) => x.title === 'Unconfirmed comment.');
   assert.equal(it.state, 'unconfirmed', 'fixture');
   assert.equal(it.link, undefined, 'an unconfirmed comment was given a link');
@@ -486,16 +487,17 @@ test('#5636 review 2: no key, or an address Kosmos does not send to: no promise 
   assert.equal(stateOfTitle('ava', 'Unasked post'), 'unconfirmed_unasked');
 });
 
-test('#5636: an unconfirmed comment says it will not change and names the read that can find it; a queued one does not', () => {
+test('#5636, kosmos#8216: an unconfirmed comment says Kosmos looks for it and names the read that can find it; a queued one does not', () => {
   const POST = '7a1b2c3d-0000-4000-8000-000000000001';
   const c = comment('ava', 'Unsure comment.');
   comment('ava', 'Queued comment.');
   writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'pending', attempted: true, agent: 'ava', post: POST } });
+  writeJson(cs._paths.keysFile(), { ava: { name: 'Ava', apiKey: 'k1', remoteId: 'a1' } });   // kosmos#8216: a key it can look with
   assert.equal(stateOfTitle('ava', 'Unsure comment.'), 'unconfirmed', 'fixture');
   assert.equal(stateOfTitle('ava', 'Queued comment.'), 'queued', 'fixture');
   const lines = status.statusText('ava').text.split('\n');
   const at = lines.findIndex((l) => l.includes('"Unsure comment."'));
-  assert.match(lines[at], /Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again$/);
+  assert.match(lines[at], /Kosmos looks for it in the post's thread on its next passes, and this line changes once it finds it; it may already be there, so do not send it again$/);
   assert.equal(lines[at + 1], '  look for it under the post with: kosmos community read --post ' + POST + ' (in a long thread it may be past the comments shown)');
   const q = lines.findIndex((l) => l.includes('"Queued comment."'));
   assert.ok(q >= 0, 'CONTROL: the queued comment is listed');

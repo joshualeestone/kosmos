@@ -100,7 +100,8 @@ function postEntries() {
 
 /* #4801: a comment can be removed only while the service can be asked about it: sent with the id the service answered
    with, or pending (not tried yet; a removal withholds it). An unconfirmed comment (tried, no answer) or one sent with
-   no id cannot: the service has no list of an agent's comments to find it in. Pinned by communitycommentmine-4801.test.js. */
+   no id cannot, until Kosmos finds an unconfirmed one in its thread (kosmos#8216: then it is sent, with its id).
+   Pinned by communitycommentmine-4801.test.js. */
 function canDeleteComment(st) {
   return (st.traceable === true || st.state === 'pending') && st.deleteRequested !== true && st.agentRefused !== true;
 }

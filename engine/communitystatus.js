@@ -57,6 +57,9 @@ const POST_WORDS = Object.freeze({
   /* #5636 review 2: settleUnconfirmed also skips an agent with no key (none kept, or its name held by an earlier try),
      and the sweep sends nothing to an address it does not send to, so nothing asks; it may resume once that changes. */
   unconfirmed_unasked: 'sent, but the community did not confirm it, and Kosmos cannot ask about it just now; this line changes once it can. It may already be there, so do not post it again',
+  // kosmos#8216: comment-only states (stateOf gates them on kind); here because every state must have words for both kinds.
+  unconfirmed_not_seen: 'sent, but the community has not confirmed it yet; it may already be there, so do not post it again',
+  unconfirmed_stopped: 'sent, but the community has not confirmed it yet; it may already be there, so do not post it again',
   /* #5636 follow-up: taken back (by the agent or the person) while its send was unanswered: the sweep withholds it
      before any resend, and a copy that did arrive may be out of reach (a lost or replaced registration). */
   unconfirmed_taken_back: 'taken back, so it will not be sent again. Kosmos never heard whether it arrived; if it did, that copy may still be up',
@@ -94,14 +97,17 @@ const COMMENT_WORDS = Object.freeze(Object.assign({}, POST_WORDS, {
   policy: 'not sent, and it will not be: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers. Do not send it again, and do not try to take part in the community another way',   // kosmos#6239
   // #5435 review 9: a comment is sent again, not posted again.
   switch_unreadable: 'not sent, and it will not be: Kosmos could not read this board\'s community switch, so it stopped sending. Tell your person; once the community is on again you can send it again',
-  /* #5636 F3b: a comment is never checked again: the community has no way to look one up (sendComment, "AT MOST ONCE"),
-     so the words say this will not change, and statusText names the read that can find it. */
-  unconfirmed: 'sent, but the community did not confirm it, and Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again',
-  // The two post-only states never reach a comment (stateOf gates them on kind); they are here because every state stateOf
+  /* kosmos#8216: an unconfirmed comment is looked for in its post's thread on later passes (communitysend
+     settleUnconfirmedComments); found, it reads as sent. Until then the words say what the look has seen. It is never
+     sent again, and statusText still names the read where the agent can look itself. */
+  unconfirmed: 'sent, but the community has not confirmed it yet. Kosmos looks for it in the post\'s thread on its next passes, and this line changes once it finds it; it may already be there, so do not send it again',
+  unconfirmed_not_seen: 'sent, but the community did not confirm it, and Kosmos has not found it in the post\'s thread so far. A comment the community holds back does not show there, so it may still have arrived; Kosmos keeps looking for a week. Do not send it again',
+  unconfirmed_stopped: 'sent, but the community did not confirm it, and Kosmos looked for it in the post\'s thread for a week without finding it, so this will not change. It may still have arrived and be held back; do not send it again',
+  unconfirmed_unasked: 'sent, but the community did not confirm it, and Kosmos cannot look for it, since this board no longer holds the community account that sent it; it may already be there, so do not send it again',
+  // The post-only states never reach a comment (stateOf gates them on kind); they are here because every state stateOf
   // can return must have words for both kinds (the coverage test reads them from the source).
-  unconfirmed_refused: 'sent, but the community did not confirm it, and Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again',
-  unconfirmed_unasked: 'sent, but the community did not confirm it, and Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again',
-  unconfirmed_taken_back: 'sent, but the community did not confirm it, and Kosmos has no way to ask about a comment later, so this will not change; it may already be there, so do not send it again',
+  unconfirmed_refused: 'sent, but the community did not confirm it, and it has since refused this agent; it may already be there, so do not send it again',
+  unconfirmed_taken_back: 'sent, but the community did not confirm it; it may already be there, so do not send it again',
 }));
 
 /* The send layer's files, read raw so a MISSING file (nothing recorded yet: empty) is told from a CORRUPT one (null:
@@ -170,6 +176,12 @@ function stateOf(kind, rec, item, ctx) {
     // has no key (review 3: the record's, as for the refusal above, not the reader's: a retired account's post is asked
     // about with the retired key).
     if (st === 'unconfirmed' && kind === 'post' && (!ctx.addressOk || rec.agentKeyless)) return 'unconfirmed_unasked';
+    // kosmos#8216: what the comment's look has seen so far (commentRecords' fields).
+    if (st === 'unconfirmed' && kind === 'comment') {
+      if (rec.canLook === false || !ctx.addressOk) return 'unconfirmed_unasked';
+      if (rec.lookStopped === true) return 'unconfirmed_stopped';
+      if (rec.lookedAt && rec.lookComplete === true) return 'unconfirmed_not_seen';
+    }
     return st;
   }
   // Not sent yet. Each check below is one the sweep makes before sending (communitysend sendPost / sendComment).
@@ -302,7 +314,7 @@ function statusText(sessionName, { limit } = {}) {
     lines.push('- ' + x.kind + ' ' + JSON.stringify(x.title || '(no title)') + (x.at ? ' (' + x.at.slice(0, 16).replace('T', ' ') + ' UTC)' : '') + ': ' + words);
     if (x.link) lines.push('  ' + (x.kind === 'comment' ? 'on the post at ' : 'see it at ') + x.link);   // #5415
     // #5636 F3b: nothing will check an unconfirmed comment, so name the read where the agent can look for it itself.
-    else if (x.kind === 'comment' && x.state === 'unconfirmed' && PLAIN_ID.test(String(x.post || ''))) lines.push('  look for it under the post with: kosmos community read --post ' + x.post + ' (in a long thread it may be past the comments shown)');
+    else if (x.kind === 'comment' && String(x.state).startsWith('unconfirmed') && PLAIN_ID.test(String(x.post || ''))) lines.push('  look for it under the post with: kosmos community read --post ' + x.post + ' (in a long thread it may be past the comments shown)');
   }
   if (items.length > shown) lines.push('', '(and ' + (items.length - shown) + ' older' + (shown < SHOWN ? '; without --limit, status shows up to ' + SHOWN : '') + ')');
   return { ok: true, count: items.length, text: lines.join('\n') };
