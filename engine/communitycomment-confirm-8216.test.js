@@ -417,3 +417,46 @@ test('#8216 review 3: status says so when Kosmos cannot look, and when it has st
   fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(recs));
   assert.match(line(), /looked for it in the post's thread for a week without finding it/, 'a week of looking is not said');
 });
+
+test('#8216 review 4: a "cannot look" mark is cleared once a look is made', async () => {
+  const status = require('./communitystatus');
+  await cs.sweep();
+  const c = comment('ava', 'Marked once.');
+  be.st.mode.lose = 'unstored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  const recs = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+  recs[c.id].lookSkip = 'company';   // as if its company community had not been this computer's
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(recs));
+  assert.equal(status.itemsFor('ava').find((x) => x.title === 'Marked once.').state, 'unconfirmed_unasked', 'fixture');
+  await cs.sweep(t0 + 1000);
+  assert.equal(recOf(c.id).lookSkip, undefined, 'the mark survived a look');
+  assert.equal(status.itemsFor('ava').find((x) => x.title === 'Marked once.').state, 'unconfirmed_not_seen');
+});
+
+test('#8216 review 4: unreadable keys keep the plain words, never "cannot look"', async () => {
+  const status = require('./communitystatus');
+  await cs.sweep();
+  const c = comment('ava', 'Keys broken.');
+  be.st.mode.lose = 'unstored';
+  await cs.sweep();
+  be.st.mode.lose = null;
+  fs.writeFileSync(cs._paths.keysFile(), '{ not json');
+  assert.equal(cs.commentRecords()[c.id].canLook, null, 'unreadable keys read as a known "no account"');
+  const it = status.itemsFor('ava').find((x) => x.title === 'Keys broken.');
+  assert.ok(it, 'fixture: status could not list it');
+  assert.notEqual(it.state, 'unconfirmed_unasked', 'unreadable keys read as "cannot look"');   // status says its records cannot be read
+});
+
+test('#8216 review 4: a copy whose words were edited on the site is never taken for it', async () => {
+  await cs.sweep();
+  const c = comment('ava', 'Before the edit.');
+  be.st.mode.lose = 'stored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  be.st.comments.find((x) => x.body === 'Before the edit.').body = 'After the edit.';
+  await cs.sweep(t0 + 1000);
+  assert.equal(recOf(c.id).state, 'unconfirmed', 'a copy with other words was taken for it');
+});
