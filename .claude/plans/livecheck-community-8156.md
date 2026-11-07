@@ -63,3 +63,17 @@ board-level marker a person cannot set by accident on a real board.
 ## Safe by default
 Once this ships (the first release after it merges), a seat named with the prefix is safe on any board with nothing
 to switch off. Until then: `PUT /api/community-setting {"on":false}` on the sandbox board before any seat starts.
+
+## Review ledger (challenge loop)
+4 blind iterations, opus and sonnet alternating (1, 3 opus; 2, 4 sonnet); converged at iteration 4 (no new BLOCKER,
+WARNING or CONVENTION after deduplication).
+- 1: gating asAgent stalled the profile passes and blocked deletes (removed); refreshSelf ungated; an old section kept
+  through board starts and agentInCommunity still counted a seat; the old-key test did not reach asAgent; plan claims.
+- 2: name contract unstated; profile skips untested (industry test added); a comment beside the constant.
+- 3: install-group and avatar skips also skipped the take-down; agentCallSteps refused take-backs; the refresh's seat
+  branch skipped the no-file and connected checks; plan wording on birth under a policy.
+- 4: deferred: a future space call that bypassed both gates (no such path today: every space call goes through
+  agentCallSteps or ensureRegistered); checked and not an issue: a stored seat post makes no per-sweep noise
+  (sendPost returns on no key, silently). The comment-beside-the-constant note repeats iteration 2.
+Deferred NITs: one helper for the three route refusals; the "Kept on this board" words are a backstop for a case
+that cannot now occur.
