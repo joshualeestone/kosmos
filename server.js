@@ -28493,7 +28493,7 @@ function start(port = PORT) {
           const setting = autohandoff.settingFrom(store.readSettings());
           if (!setting.enabled) return;
           const roster = safeRoster();
-          autohandoffSweep.sweepOnce({
+          const swept = autohandoffSweep.sweepOnce({
             setting,
             roster,
             lastBand: autohandoffBands,
@@ -28507,6 +28507,10 @@ function start(port = PORT) {
             community: (session) => autohandoffSweep.communityFor(session),   // #5307
             postAsked: autohandoffPostAsked,
           });
+          // kosmos#8021: each prompt's delivery verdict in the board log, so a box left full can be read against it.
+          for (const p of (swept && swept.prompted) || []) {
+            try { const line = autohandoffSweep.promptLogLine(p); if (line) process.stdout.write(line); } catch { /* best effort */ }
+          }
         } catch { /* best-effort, like the nudge sweep */ }
       }, Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) : 60 * 1000); // the env is the test seam only
       if (ahSweep && typeof ahSweep.unref === 'function') ahSweep.unref();
