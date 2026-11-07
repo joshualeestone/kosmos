@@ -80,3 +80,16 @@ Mutants: no displayName check (2 fail), no job check (1 fail), recorded never pr
 - WARNING the skipped Codex step still said "took back the codex folder trust" --> FIXED: the step is left out
   entirely for a variant spelling of another agent's recorded folder.
 233 related files: 5022 tests, 0 fail.
+
+## Review 5 (applied)
+- BLOCKER an old full-connect agent shown as its own name capitalised ("April" for april) failed its own name in
+  folderIsExactly (the Codex step skipped, the message said nothing was kept) --> FIXED: when displayName is another
+  spelling of the same key, the job under the lowercase name decides (an old register-only agent has none). Test:
+  kap8112 shown "Kap8112" with its job; the variant does not plan; removal says the folder is kept. Mutant "shared
+  key always refuses" fails 1.
+- WARNING an old register-only "orch.main" let "orchmain" plan --> FIXED: the variant check compares safeKey forms,
+  not lowercase. Test: "kor.d8112" plans, "kord8112" does not.
+- The reviewer's "decide it before the job is removed" premise was measured false: removal bootouts and disables the
+  job and touches no files (the module's own header; a test's control showed the job file still there after
+  removal). The single decision (ownsFolder) is kept as one answer for both uses; the test that could not fail was
+  removed.

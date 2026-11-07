@@ -3700,3 +3700,25 @@ test('#8112 review 4: an old register-only profile whose name is not lowercase d
   assert.equal(remove.plan('KOr8112', MAC).ok, true, 'the typed name no longer plans');
   assert.equal(remove.plan('kor8112', MAC).ok, false, 'the lowercase key form planned for an agent named KOr8112');
 });
+
+test('#8112 review 5: an old full-connect agent shown as its own name capitalised ("Kap8112" for kap8112) keeps its folder', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = recordedAgent('kap8112');   // a job under kap8112, as a full connect installs
+  require('./store').writeProfile('kap8112', { dir, displayName: 'Kap8112' });   // main's shape: no connectedAs
+  assert.equal(remove.plan('Kap8112', MAC).ok, false, 'the capitalised spelling planned (no job of its own)');
+  const done = mac.remove('kap8112');
+  assert.match(String(done.because), /Its folder and everything in it is still on your computer/,
+    'an old agent proven only by its job was told nothing was kept (decided after the job went): ' + done.because);
+});
+
+test('#8112 review 5: an old register-only name with punctuation ("kor.d8112") does not let its key form ("kord8112") plan', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'old-kord8112');
+  fs.mkdirSync(dir, { recursive: true });
+  require('./store').writeProfile('kor.d8112', { dir, displayName: 'kor.d8112' });
+  assert.equal(require('./store').readProfile('kord8112').dir, dir, 'CONTROL: the two spellings do not share one profile');
+  assert.equal(remove.plan('kor.d8112', MAC).ok, true, 'the typed name no longer plans');
+  assert.equal(remove.plan('kord8112', MAC).ok, false, 'the key form planned for an agent named kor.d8112 (a false success)');
+});
