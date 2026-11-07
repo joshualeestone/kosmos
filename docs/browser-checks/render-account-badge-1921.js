@@ -128,6 +128,13 @@ const grokSubRow = (email, dir, state, because) => ({
 });
 const GROK_SUB_LAPSED = grokSubRow('grok-lapsed@example.com', '/home/.grok-gl', 'none', 'Grok sign-in expired');
 const GROK_SUB_UNKNOWN = grokSubRow('grok-unk@example.com', '/home/.grok-gu', 'unknown', 'Could not check the Grok sign-in');
+/* #8159: a Grok sign-in grok has not renewed for days (its key ran out 18 days ago). Still connected, so still amber,
+   but the pill says since when, the title names the remedy, and there is no Check now (it could only say "renews when
+   Grok runs"). Without an email the row has no Sign in again, so the title must not name one. */
+const STALE_AT = Date.now() - 18 * 86400000;
+const GROK_SUB_STALE = { ...GROK_SUB_ROW, email: 'grok-stale@example.com', label: 'grok-stale@example.com', dir: '/home/.grok-gst',
+  connection: { ...GROK_SUB_ROW.connection, notConfirmedSince: STALE_AT, because: 'Grok has not renewed this sign-in since its key ran out' } };
+const GROK_SUB_STALE_NOEMAIL = { ...GROK_SUB_STALE, email: null, label: 'stalenoemail', name: 'Stale No Email Grok', dir: '/home/.grok-gsn' };
 const ACCOUNTS = [
   row('work@example.com', 'working', 'wd'),
   /* #4139: a green that came from Check now, not from an agent's request. */
@@ -148,6 +155,8 @@ const ACCOUNTS = [
   GROK_SUB_NOEMAIL,
   GROK_SUB_LAPSED,
   GROK_SUB_UNKNOWN,
+  GROK_SUB_STALE,
+  GROK_SUB_STALE_NOEMAIL,
 ];
 
 (async () => {
@@ -397,6 +406,12 @@ const ACCOUNTS = [
     // and keep the pill short (#2568). #3391 part 2: the remedy is the row's Sign in again button.
     { email: 'grok-lapsed@example.com', text: /^Grok sign-in expired$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true, checkSignin: '' },
     { email: 'grok-unk@example.com', text: /^Could not check the Grok sign-in$/, honesty: true, notText: /sign in again|please/i, checkNow: false, grokReauth: true, checkSignin: '' },
+    // #8159: not renewed for days: amber "Not confirmed since <date>", never "Signed in", never green; the title says
+    // what to do; no Check now; Sign in again only with an email, and the title says so either way.
+    { email: 'grok-stale@example.com', cls: 'acct-unverified', text: /^Not confirmed since [A-Z][a-z]{2} \d{1,2}/, notText: /^Signed in/, honesty: true,
+      titleText: /^This sign-in has not been renewed since its key ran out on .+press Sign in again\.$/, checkNow: false, grokReauth: true, checkSignin: '' },
+    { email: 'Stale No Email Grok', cls: 'acct-unverified', text: /^Not confirmed since /, honesty: true,
+      titleText: /add the Grok account again here\.$/, notTitle: /press Sign in again/, checkNow: false, grokReauth: false, checkSignin: '' },
   ];
   for (const w of want) {
     const got = (r.byEmail || {})[w.email];

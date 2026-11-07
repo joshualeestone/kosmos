@@ -30728,7 +30728,10 @@ async function paintAccounts(opts) {
     /* #3997: a ChatGPT sign-in and a Grok subscription each have a FREE live check, so they get Check now too. */
     /* A Grok sign-in that has lapsed, or that could not be read, has nothing a check could confirm: no button there. */
     const signInCheck = isOpenai && a.authMode === 'chatgpt' ? 'openai'
-      : (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected') ? 'grok'
+      /* #8159 review 4: nor one not renewed for days: its key ran out, so the check can only say "renews when Grok runs",
+         the opposite of the row's advice (Sign in again). */
+      : (acctProvider(a) === 'xai' && a.authMode === 'subscription' && a.connection && a.connection.state === 'connected'
+        && (a.connection.badge === 'working' || !Number.isFinite(a.connection.notConfirmedSince))) ? 'grok'   // review 5: a row seen working keeps it
         : (acctProvider(a) === 'deepseek' || acctProvider(a) === 'glm' || acctProvider(a) === 'minimax') ? 'compat' : '';   // #7206: asks the vendor's own model list with the key, free
     const canCheckSignIn = !!signInCheck;
     /* #2095: the human-chosen name is the primary label (was key-last-4-only). */
@@ -30933,6 +30936,17 @@ async function paintAccounts(opts) {
       connBadge = '<span class="acct-connected" title="' + esc(workingWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in' + (ageStr ? (fromCheck ? ' · checked ' : ' · active ') + esc(ageStr) : '') + '</span>';
     } else if (badge === 'rejected') {
       connBadge = '<span class="acct-none" title="' + esc(rejectedWhy) + '"><span class="dot" aria-hidden="true"></span>Not connected' + (ageStr ? ' · rejected ' + esc(ageStr) : '') + '</span>';
+    } else if (badge === 'signed_in_unverified' && a.connection && Number.isFinite(a.connection.notConfirmedSince)) {
+      /* #8159: nothing has renewed or used this sign-in for days (Grok's, today), so the pill says since when instead of
+         "Signed in", and the title says what to do. The row's own Sign in again is the remedy. */
+      const sinceAt = new Date(a.connection.notConfirmedSince);
+      // Review 1: the year when it is not this year, as the login dates above do.
+      const since = sinceAt.toLocaleDateString(undefined, sinceAt.getFullYear() === new Date().getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+      // Review 1: "renewed", not "used": the date is when the key ran out, and Kosmos cannot see every use.
+      // Review 3: the row's Sign in again shows only with an email (the engine needs it), so it is named only then.
+      const sinceWhy = 'This sign-in has not been renewed since its key ran out on ' + since + ', so Kosmos cannot say it still works. If its agents stop at a sign-in screen, '
+        + (a.email ? 'press Sign in again.' : 'add the Grok account again here.');
+      connBadge = '<span class="acct-unverified" title="' + esc(sinceWhy) + '"><span class="dot" aria-hidden="true"></span>Not confirmed since ' + esc(since) + '<span class="vh"> (' + esc(sinceWhy) + ')</span></span>';
     } else if (badge === 'signed_in_unverified') {
       connBadge = '<span class="acct-unverified" title="' + esc(unverifiedTitle || unverifiedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>';
     } else if (badge === 'signed_out') {
@@ -48748,13 +48762,21 @@ async function paintConnLive() {
         : 'Nothing is connected yet.';
       return;
     }
-    const what = list.length === 1
-      ? 'One account is connected and thinking for your agents'
-      : list.length + ' accounts are connected and thinking for your agents';
+    /* #8159 review 2: a sign-in not confirmed for days (a Grok one not renewed since) is not "thinking for your agents":
+       it is counted on its own, and when it is all there is the box says that, never "Nothing is connected". */
+    // Review 3: only while still unconfirmed; a row seen working is green on its pill, so it counts as working here too.
+    const notConfirmed = list.filter((a) => a.connection && a.connection.badge === 'signed_in_unverified' && Number.isFinite(a.connection.notConfirmedSince)).length;
+    const good = list.length - notConfirmed;
+    const ncWords = notConfirmed === 1 ? 'one sign-in is not confirmed' : notConfirmed + ' sign-ins are not confirmed';
+    // Written out, not capitalized inline (web.open-sentence-1199 counts those copies and they must not grow).
+    const what = good === 0
+      ? (notConfirmed === 1 ? 'One sign-in is not confirmed' : notConfirmed + ' sign-ins are not confirmed') + ' and may need signing in again'
+      : (good === 1 ? 'One account is connected and thinking for your agents' : good + ' accounts are connected and thinking for your agents')
+        + (notConfirmed ? ', and ' + ncWords : '');
     el.append(what + ': ');
     const go = document.createElement('button');
     go.type = 'button'; go.className = 'linkish';
-    go.textContent = 'see them in AI Models';
+    go.textContent = list.length === 1 ? 'see it in AI Models' : 'see them in AI Models';   // #8159 review 3: one is "it"
     go.addEventListener('click', () => settingsGo('accounts'));
     el.append(go, document.createTextNode('.'));
   } catch {
@@ -63069,7 +63091,10 @@ function fillCreateAccounts(given) {
   const acctQual = accountQualifiers(usable);
   const qualOf = (x) => { const q = acctQual.get(String(x.dir || '')); return q ? ' (' + q + ')' : ''; };
   const nameOf = (x) => acctPrimaryName(x) + qualOf(x);  /* #2095: human-chosen name is the primary label; the qualifier (now name-aware) keeps same-named accounts distinct */
-  const labelOf = (x) => acctUnknownLive(x) ? esc(nameOf(x)) + ' (could not check just now)' : esc(nameOf(x));  // #1959: badge vocabulary (unchecked / state unknown), consistent with the offer filter above
+  /* #8159 review 5: a sign-in not confirmed for days says so where the agent is made, not only in Settings. */
+  const ncOf = (x) => { const c = x && x.connection; return c && c.badge === 'signed_in_unverified' && Number.isFinite(c.notConfirmedSince)
+    ? ' (not confirmed since ' + new Date(c.notConfirmedSince).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ')' : ''; };
+  const labelOf = (x) => acctUnknownLive(x) ? esc(nameOf(x)) + ' (could not check just now)' : esc(nameOf(x)) + esc(ncOf(x));  // #1959: badge vocabulary (unchecked / state unknown), consistent with the offer filter above
   asel.innerHTML = usable.length
     ? usable.map((x) =>
       `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${labelOf(x)}</option>`).join('')
