@@ -19248,7 +19248,7 @@ const server = http.createServer(async (req, res) => {
         if (autoWaitBefore && body.state !== 'needs_you' && kept && kept.recorded === true) {
           try {
             const nya = require('./engine/needsyouack');
-            /* A person pressed this wait's prompt, so it did not pass by itself: its pushes are acknowledged and no line is said. */
+            /* A person pressed this wait's prompt: its pushes are acknowledged and no line is said, unconfirmed presses included (they were told so). */
             const pressed = pressedWaits.get(who) === autoWaitAt;
             pressedWaits.delete(who);
             if (nya.ended(who, (id) => phonenotify.acked(id)) && !pressed) {
@@ -21189,11 +21189,13 @@ const server = http.createServer(async (req, res) => {
             }
             if (opt && !files.recs.length && !answered) {
               const waitPressed = cq.permission ? permissionWaitBeforePress(askingCard) : null;   // kosmos#8036: only a press on the prompt itself
+              const markBefore = pressedWaits.get(askingCard.sessionName);   // a refused press puts back what another press had marked
+              const pressFailed = () => { if (!waitPressed) return; if (markBefore === undefined) pressedWaits.delete(askingCard.sessionName); else pressedWaits.set(askingCard.sessionName, markBefore); };
               if (waitPressed) pressedWaits.set(askingCard.sessionName, waitPressed.at);
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}),
                 ...(cq.permission && requestGiven ? { request: body.request } : {}) }   // kosmos#7020: re-checked on the last look
-              ).catch((err) => { pressedWaits.delete(askingCard.sessionName); throw err; });
-              if (waitPressed && !r.ok) pressedWaits.delete(askingCard.sessionName);
+              ).catch((err) => { pressFailed(); throw err; });
+              if (!r.ok) pressFailed();
               if (r.ok && r.answered) endPermissionWaitPressed(askingCard, waitPressed, r.screen);
               // kosmos#6239: refused for quiet hours is the person's act, reported like a refused message.
               if (!r.ok && r.quiet === true) { try { require('./engine/agentevents').recordRefusal({ agent: name, rule: 'quiet-hours' }); } catch { /* not reported */ } }
