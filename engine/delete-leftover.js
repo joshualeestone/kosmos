@@ -535,9 +535,10 @@ function plan(name, opts) {
     if (!seen.known) {
       return { ok: false, because: `we could not check whether anything still starts ${shown} at login, so we have not offered to delete anything. Try again in a moment.` };
     }
-    /* kosmos#8177 review 1: Task Scheduler ignores letter case, so a task found under ANOTHER spelling is that agent's
-       (`cai`'s, for `Cai`), and deleting `Kosmos\agent-Cai` would delete it. Refuse rather than touch another agent. */
-    if (seen.registered && seen.spelledOtherwise) {
+    /* kosmos#8177: Task Scheduler ignores letter case, so a task found under ANOTHER spelling, for a name with no exact
+       folder of its own (remove.taskIsAnotherSpellings), is that spelling's (`cai`'s, for `Cai`), and deleting
+       `Kosmos\agent-Cai` would delete it. Refuse rather than touch it. */
+    if (remove.taskIsAnotherSpellings(clean, seen)) {
       return { ok: false, because: `a startup task named ${seen.spelledOtherwise} is there, the same name in other letter case, so we have not offered to delete anything: deleting this name's task would delete that one.` };
     }
     if (seen.registered) job = { path: null, label: win32job.taskName(clean), task: true, trash: false };
