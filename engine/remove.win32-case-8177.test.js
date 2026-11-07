@@ -91,7 +91,6 @@ test('#8177 an answer that names no task keeps the job: no positive evidence of 
      rather than making every agent's job vanish. */
   taskSchedulerWith('cai8177', 'none');
   assert.ok(remove.jobFor('cai8177', WIN), 'an unreadable answer made the real agent\'s job vanish');
-  assert.ok(remove.jobFor('Cai8177', WIN), 'the old answer when the output names no task (expected to change once measured)');
 });
 
 test('#8177 spelledOtherwise reads the task path, bounded, in any letter case', () => {
@@ -125,7 +124,7 @@ test('#8177 deleting the leftovers of a variant refuses rather than delete anoth
   const leftover = require('./delete-leftover');
   const p = leftover.plan('Cai8177', { platform: WIN });
   assert.equal(p.ok, false, 'a leftover delete for Cai8177 was offered over cai8177\'s task');
-  assert.match(p.because || '', /named Kosmos\\agent-cai8177 is there, the same name in other letter case/, 'refused for another reason: ' + (p.because || ''));
+  assert.match(p.because || '', /Windows has a startup task for cai8177 \(the same name in other letter case\)/, 'refused for another reason: ' + (p.because || ''));
 });
 
 test('#8177 an agent whose task is stored in other letter case keeps its own job (review 3)', () => {
@@ -149,4 +148,19 @@ test('#8177 a named Kosmos\'s task (agent+world) is read the same way (review 2)
   assert.equal(job.spelledOtherwise(job.taskName('Cai8177', 'qa'), `TaskName: \\${tn}\nStatus: Ready`), tn);
   assert.equal(job.spelledOtherwise(tn, `TaskName: \\${tn}\nStatus: Ready`), null);
   assert.equal(job.spelledOtherwise(job.taskName('cai8177', 'qb'), `TaskName: \\${tn}\nStatus: Ready`), null, 'another world\'s task is not this one');
+});
+
+test('#8177 another Kosmos\'s job is not judged by this Kosmos\'s folders (review 4)', () => {
+  /* jobFor(name, platform, worldId) for a world this board does not serve: that agent's folder is not in this world's
+     workers dir, so the exact-folder test would read its own task (stored as Cai8177w) as another spelling's. */
+  const asked = [];
+  const tn = job.taskName('Cai8177w', 'otherw');
+  job.setRunner((args) => {
+    asked.push(args.join(' '));
+    const at = args.indexOf('/TN');
+    if (args[0] === '/Query' && at >= 0 && String(args[at + 1]).toLowerCase() === tn.toLowerCase()) return { ok: true, out: `TaskName: \\${tn}\r\nStatus: Ready\r\n` };
+    return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
+  });
+  assert.equal(job.status('cai8177w', 'otherw').spelledOtherwise, tn, 'CONTROL: the stored case was not read as another spelling');
+  assert.ok(remove.jobFor('cai8177w', WIN, 'otherw'), 'another world\'s agent lost its own task');
 });
