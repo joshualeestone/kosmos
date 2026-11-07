@@ -155,13 +155,11 @@ do {
             // comment is still read, so naming one there can trip the check.
             let code = text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             for bad in ["KosmosOrb", "ProgressView", ".progressViewStyle", "UIActivityIndicatorView"] where code.contains(where: { $0.contains(bad) }) { offenders.append(name + ": " + bad) }
-            // Every mention of WaitOrb, by occurrence (review 2), however it is written (WaitOrb.init too, review 3), less its
-            // size constants (WaitOrb.side...), which WaitTick and the guard's own file name.
-            if name != "KosmosOrb.swift" {
-                let joined = code.joined(separator: "\n")
-                let w = (joined.components(separatedBy: "WaitOrb").count - 1) - (joined.components(separatedBy: "WaitOrb.side").count - 1)
-                if w > 0 { waitOrbs[name, default: 0] += w }
-            }
+            // Every mention of WaitOrb, by occurrence (review 2), however it is written (WaitOrb.init too, review 3), less
+            // mentions of its size function (WaitOrb.side), which are not drawings. KosmosOrb.swift is skipped by the loop.
+            let joined = code.joined(separator: "\n")
+            let w = (joined.components(separatedBy: "WaitOrb").count - 1) - (joined.components(separatedBy: "WaitOrb.side").count - 1)
+            if w > 0 { waitOrbs[name, default: 0] += w }
             refreshable += code.filter { $0.contains(".refreshable") }.count
             refreshControls += code.filter { $0.contains("UIRefreshControl") }.count
         }

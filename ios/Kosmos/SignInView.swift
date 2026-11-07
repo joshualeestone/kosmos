@@ -440,8 +440,7 @@ struct SignInView: View {
                     content
                 }
                 .padding(.horizontal, 24)
-                .padding(.top, 48)
-                .padding(.bottom, 24)
+                .padding(.vertical, 36)   // equal above and below, so a short step sits at the true centre (review 5)
                 .frame(maxWidth: 480, alignment: .leading)
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: space.size.height, alignment: .center)

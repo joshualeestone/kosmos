@@ -83,7 +83,9 @@ struct WaitOrb: View {
     var body: some View { KosmosOrb(size: WaitOrb.side(typeSize, compactHeight: heightClass == .compact), label: label) }
 }
 
-/// Making's ending: the green tick, in a box the size WaitOrb would be on this screen, so the words do not move (review 3).
+/// Making's ending: the green tick, in a box the size WaitOrb would be on this screen, so the mark itself keeps its place
+/// and size (review 3). The words still shift when the screen adds its hello line and button (review 5); that is the
+/// screen's own layout, unchanged by this.
 struct WaitTick: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.verticalSizeClass) private var heightClass

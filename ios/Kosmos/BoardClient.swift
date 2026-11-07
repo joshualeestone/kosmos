@@ -339,8 +339,9 @@ final class BoardClient: ObservableObject {
             // kosmos#7945 follow-up: KOSMOS_SAMPLE_REACHING=1 stays on the first wait to connect ("Connecting..."), so a
             // simulator can show it beside the launch screen and the two can be compared.
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REACHING"] == "1" { return }
-            // Josh 2026-11-06 18:14: KOSMOS_SAMPLE_WAIT=allow or connecting holds the Agents tab on that whole-screen wait
-            // (the orb and its words), for a simulator picture and the UI test; a Mac named Studio Mac, code 7K3Q.
+            // Josh 2026-11-06 18:14: with KOSMOS_SAMPLE_AGENTS=1, KOSMOS_SAMPLE_WAIT=allow or connecting holds the board's
+            // connection screen on that wait (every tab that shows it), for a simulator picture and the UI test; a Mac
+            // named Studio Mac, code 7K3Q.
             switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WAIT"] {
             case "allow": phase = .waitingForAllow(mac: "Studio Mac", code: "7K3Q"); return
             case "connecting": phase = .connecting(mac: "Studio Mac"); return
