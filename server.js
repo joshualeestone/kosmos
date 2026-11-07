@@ -4957,10 +4957,6 @@ function noteTextNow(m, names) {
   } catch { return m.text || null; }
 }
 
-/* Record an agent's reply in its thread with the person: the one write both
-   /api/reply and the outbox drain make, so a drained reply is exactly a reply.
-   `at` is the original send time for a drained reply, now for the route, and the daily-limit sweep's own `now`
-   for its notice (#4354: the clock the pause's pausedAt is written with). */
 /* kosmos#8036 (Josh's iPhone 11-06 20:25): he pressed Yes on a live permission prompt and it worked, and directly under his Yes
    the chat said the agent had asked him something. The hook's report only ends at the agent's next report (14 s there; as long
    as the agent thinks, in general), and until then the thread falls back to its words (#2456) with no menu to offer. A press
@@ -4979,11 +4975,16 @@ function endPermissionWaitPressed(card, before, screenAfter) {
     const session = card.sessionName;
     const now = selfreport.read(session);
     if (!selfreport.isAutoPermissionWait(now) || now.at !== before.at) return;   // a newer report during the press: it stands
-    selfreport.record(session, { state: 'working', because: 'carrying on after your answer', auto: true });
-    require('./engine/needsyouack').ended(session, (id) => phonenotify.acked(id));
+    /* Idle, for a Yes and a No alike: a No can leave the agent at its prompt, and a screen that shows it running outranks a reported idle. */
+    const kept = selfreport.record(session, { state: 'idle', because: 'its prompt was answered', auto: true });
+    if (kept && kept.recorded === true) require('./engine/needsyouack').ended(session, (id) => phonenotify.acked(id));
   } catch { /* the answer went; the agent's next report ends the wait as before */ }
 }
 
+/* Record an agent's reply in its thread with the person: the one write both
+   /api/reply and the outbox drain make, so a drained reply is exactly a reply.
+   `at` is the original send time for a drained reply, now for the route, and the daily-limit sweep's own `now`
+   for its notice (#4354: the clock the pause's pausedAt is written with). */
 function keepAgentReply(who, text, at, opts) {
   return chat.appendMessage(chat.DIRECT, who, {
     text: guideMasked(who, text),
