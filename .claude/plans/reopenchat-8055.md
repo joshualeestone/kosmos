@@ -14,7 +14,7 @@ reopen the chat.
 - Board.chatClosedCause(.relaunched) returns nil: no line on a cold start. The other causes (popped soon after a return,
   popped while away, lost with the tab) keep their line: those are our screen closing a chat, and a sighting of one is how
   the warm-return bug is found.
-- Kept in this phone's defaults (key kosmos.openChatKept) as "<computer host>\n<agent session>\n<name>\n<seconds when kept>"
+- Kept in this phone's defaults (key kosmos.openChatKept) as "<computer host>\n<agent session>\n<name>\n<seconds when first opened>\n<account fingerprint>"
   (Board.keptChat), written when a chat opens,
   removed when it closes, on an account change (blankOpenChat) and once the Agents tab has looked.
 - Reopened (Board.chatToReopen) only when the computer this launch opens on (client.macURL host) is the one it was kept
@@ -22,8 +22,15 @@ reopen the chat.
   guard in findClosedChat). The agent is taken from the list if there, otherwise opened by its session, as a
   notification's chat is.
 - No computer known yet at that moment: nothing reopens and the record goes, so the person gets the list (no line).
-- Reopens only within 12 hours of being kept (Board.chatReopenWithin); after that the person comes back to the list.
-- A reopened chat whose agent the first list read does not have (removed while away) closes quietly, back to the list.
+- Reopens only within 12 hours of the chat first being opened (Board.chatReopenWithin); a reopen keeps that first time, so
+  the window does not restart on each launch.
+- Same account only: the record carries the account fingerprint (Board.owner of the session the computer was reached
+  under), compared on the launch.
+- Only on a launch: the Agents tab's first look in the process, within 30 s of the client being made
+  (Board.chatReopenLaunchWindow). A later first visit (the app opened on Today) never reopens a chat by itself.
+- A launch a notification took drops the kept chat, so it does not reopen later by itself.
+- A reopened chat whose agent the first completed list read this run (client.fresh) does not have, an empty list
+  included, closes quietly, back to the list, with a device-log line.
 - A reopen is written to the device log ("[Chat] the app started again with a chat open on this computer: reopened").
 
 ## Weakest premise

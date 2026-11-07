@@ -67,23 +67,27 @@ enum Board {
     }
 
     /// kosmos#8055: the open chat kept across a cold start, as "<computer host>\n<agent session>\n<name>\n<seconds since
-    /// 1970 when kept>", so a launch after iOS ended the app reopens it, on the same computer only, and not long after.
+    /// 1970 when first opened>\n<account fingerprint>", so a launch after iOS ended the app reopens it: same computer and
+    /// account only, and not long after it was opened.
     static let openChatKeptKey = "kosmos.openChatKept"
-    /// How long after it was kept a chat still reopens: past this the person comes back to the list.
+    /// How long after the chat was opened it still reopens: past this the person comes back to the list.
     static let chatReopenWithin: TimeInterval = 12 * 60 * 60
-    static func keptChat(host: String, session: String, name: String, at: Date) -> String? {
-        guard !host.isEmpty, !session.isEmpty, !host.contains("\n"), !session.contains("\n") else { return nil }
-        return host + "\n" + session + "\n" + name.replacingOccurrences(of: "\n", with: " ") + "\n" + String(Int(at.timeIntervalSince1970))
+    /// How soon after the app starts the Agents tab must first look for a reopen to happen (a later first visit, as when
+    /// the app opened on Today, never reopens a chat by itself).
+    static let chatReopenLaunchWindow: TimeInterval = 30
+    static func keptChat(host: String, session: String, name: String, at: Date, owner: String) -> String? {
+        guard !host.isEmpty, !session.isEmpty, !owner.isEmpty, ![host, session, owner].contains(where: { $0.contains("\n") }) else { return nil }
+        return [host, session, name.replacingOccurrences(of: "\n", with: " "), String(Int(at.timeIntervalSince1970)), owner].joined(separator: "\n")
     }
-    /// The chat to reopen on a launch, from what was kept: only on the computer it was kept on, and within chatReopenWithin
-    /// of being kept. Nil for anything malformed, no computer yet, or a time in the future.
-    static func chatToReopen(kept: String?, hostNow: String?, now: Date) -> (session: String, name: String)? {
-        guard let kept, let hostNow, !hostNow.isEmpty else { return nil }
+    /// The chat to reopen on a launch, from what was kept: only on the computer and account it was kept under, within
+    /// chatReopenWithin of being opened. Nil for anything malformed, no computer or account yet, or a time in the future.
+    static func chatToReopen(kept: String?, hostNow: String?, ownerNow: String?, now: Date) -> (session: String, name: String, at: Date)? {
+        guard let kept, let hostNow, !hostNow.isEmpty, let ownerNow, !ownerNow.isEmpty else { return nil }
         let parts = kept.components(separatedBy: "\n")
-        guard parts.count == 4, parts[0] == hostNow, !parts[1].isEmpty, let at = Double(parts[3]) else { return nil }
+        guard parts.count == 5, parts[0] == hostNow, !parts[1].isEmpty, parts[4] == ownerNow, let at = Double(parts[3]) else { return nil }
         let age = now.timeIntervalSince1970 - at
         guard age >= 0, age <= chatReopenWithin else { return nil }
-        return (parts[1], parts[2])
+        return (parts[1], parts[2], Date(timeIntervalSince1970: at))
     }
     /// What the Agents tab finds when it appears with no chat open: the chat it lost while gone (`was`, the open chat's
     /// epoch, with the chats' epoch and last forget now), or one recorded open before the app started again (`keptName`),
