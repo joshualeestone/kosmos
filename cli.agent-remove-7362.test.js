@@ -14,9 +14,9 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const fs = require('node:fs');
-const { earlyReaders } = require('./test-support/early-readers');
 const os = require('node:os');
 const run = promisify(execFile);
+const { earlyReaders } = require('./test-support/early-readers');
 
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-agentrm-')));
 fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
