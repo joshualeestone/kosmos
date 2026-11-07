@@ -7929,7 +7929,7 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 .pv-file span { color: rgba(255, 255, 255, .62); font: var(--text-caption) var(--font-ui); }
 /* #8122 (Josh 11-06: "It's a spreadsheet so I don't know why we couldn't render a spreadsheet view. Obviously they
    couldn't edit it or change it"): a read-only look at a workbook, as a light sheet on the dark, its sheets as tabs. */
-.pv-sheet { display: flex; flex-direction: column; align-items: center; gap: 8px; width: min(100%, 72rem); min-height: 0; max-height: 100%; }   /* a narrow grid sits centred over the name and the gold button (measured against the real reader) */
+.pv-sheet { display: flex; flex-direction: column; align-items: center; gap: 8px; width: fit-content; max-width: min(100%, 72rem); min-height: 0; max-height: 100%; }   /* as wide as its grid, so a click on the dark beside a small one closes the viewer (review 2) */   /* a narrow grid sits centred over the name and the gold button (measured against the real reader) */
 .pv-tabs { display: flex; gap: 4px; overflow-x: auto; flex: none; max-width: 100%; }
 .pv-tab { flex: none; min-height: 32px; padding: 6px 12px; border: 0; border-radius: 6px; background: rgba(255, 255, 255, .10);
   color: rgba(255, 255, 255, .78); font: 600 .8125rem var(--font-ui); cursor: pointer; white-space: nowrap; }
@@ -77418,7 +77418,7 @@ function pvSheetInto(stage, data) {
     if (!sh.rows.length) { notes.appendChild(note('This sheet is empty.')); panel.hidden = true; return; }
     panel.hidden = false;
     const t = document.createElement('table'); t.className = 'pv-grid';
-    const head = t.createTHead().insertRow(); head.appendChild(document.createElement('th'));
+    const head = t.createTHead().insertRow(); { const corner = document.createElement('th'); corner.setAttribute('aria-label', 'Row'); head.appendChild(corner); }   // the row numbers' column (review 2)
     const width = sh.rows[0].length;
     for (let c = 0; c < width; c++) { const th = document.createElement('th'); th.scope = 'col'; th.textContent = PV_COL(c); head.appendChild(th); }
     const body = t.createTBody();
@@ -77437,6 +77437,7 @@ function pvSheetInto(stage, data) {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'pv-tab'; b.setAttribute('role', 'tab');
     b.id = 'pv-tab-' + i; b.textContent = sh.name; b.setAttribute('aria-controls', 'pv-sheet-panel'); b.addEventListener('click', () => show(i));
     b.addEventListener('keydown', (e) => {   // the tab pattern: arrows move between sheets
+      if (e.altKey || e.ctrlKey || e.metaKey) return;   // Alt and Cmd arrows stay the browser's (review 2)
       const to = { ArrowRight: (i + 1) % sheets.length, ArrowLeft: (i - 1 + sheets.length) % sheets.length, Home: 0, End: sheets.length - 1 }[e.key];
       if (to === undefined) return;
       e.preventDefault(); show(to); tabs.children[to].focus();
@@ -77444,15 +77445,13 @@ function pvSheetInto(stage, data) {
     tabs.appendChild(b);
   });
   if (sheets.length > 1) box.appendChild(tabs);
-  else { panel.removeAttribute('role'); panel.setAttribute('role', 'region'); panel.setAttribute('aria-label', sheets[0] ? sheets[0].name : 'Sheet'); }   // one sheet: no tabs, so the grid is named for its sheet (review 1)
+  else { panel.setAttribute('role', 'region'); panel.setAttribute('aria-label', sheets[0] ? sheets[0].name : 'Sheet'); }   // one sheet: no tabs, so the grid is named for its sheet (review 1)
   box.appendChild(panel); box.appendChild(notes);
   if (data.someNoValues) box.appendChild(note('Some cells hold formulas with no saved value, so they are blank here.'));
   if (data.moreSheets) box.appendChild(note(data.moreSheets === 1 ? 'One more sheet is not shown.' : data.moreSheets + ' more sheets are not shown.'));
   stage.appendChild(box);
   if (sheets.length) show(0);
 }
-/* #8122: fetches the grid and draws it; a file the board cannot draw shows its card with the board's sentence (the gold
-   button stays under it); a failed look shows the card. An answer that arrives after the viewer closed draws nothing. */
 /* #6724: a text file's start in the viewer, read from the board (textOf) or the attachment's own first words (snippet). */
 function pvTextStage(stage, a, how, fileCard) {
   if (how === 'textOf') { pvTextInto(stage, a.textOf, fileCard); return; }   // #6724: a Files-list text file
@@ -77462,6 +77461,8 @@ function pvTextStage(stage, a, how, fileCard) {
   stage.appendChild(pre);
   const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The start of the file'; stage.appendChild(c);
 }
+/* #8122: fetches the grid and draws it; a file the board cannot draw shows its card with the board's sentence (the gold
+   button stays under it); a failed look shows the card. An answer that arrives after the viewer closed draws nothing. */
 function pvSheetLoad(stage, url, fileCard, orText) {
   const wait = document.createElement('p'); wait.className = 'pv-note'; wait.setAttribute('role', 'status'); wait.textContent = 'Opening the spreadsheet\u2026';
   stage.appendChild(wait);

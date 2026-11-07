@@ -583,6 +583,12 @@ async function runSheet(engine, say) {
     const mid = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap').getBoundingClientRect(), d = document.getElementById('pv-do').getBoundingClientRect();
       return { grid: Math.round(w.left + w.width / 2), button: Math.round(d.left + d.width / 2), narrow: w.width < innerWidth / 2 }; });
     say(mid.narrow && Math.abs(mid.grid - mid.button) <= 2, T + ': a narrow grid sits centred over the gold button', JSON.stringify(mid));
+    // A click on the dark beside a narrow grid closes the viewer, as any click on the dark does (review 2: the sheet's box
+    // was wider than its grid and kept it open). Clicked 40 px left of the grid, level with it; reopened after.
+    const beside = await pg.evaluate(() => { const w = document.querySelector('#pv-preview .pv-grid-wrap').getBoundingClientRect(); return { x: Math.round(w.left - 40), y: Math.round(w.top + w.height / 2) }; });
+    await pg.mouse.click(beside.x, beside.y); await pg.waitForTimeout(400);
+    say(!(await pg.$('#pv-preview')), T + ': a click on the dark beside a narrow grid closes the viewer', JSON.stringify(beside));
+    await open(OK, 'Budget 2026.xlsx');
     // A long value is cut to one line with an ellipsis, the whole value on hover (review 1: max-width on a td is ignored).
     const lc = await pg.evaluate(() => { const c = [...document.querySelectorAll('#pv-preview .pv-grid .pv-cell')].find((x) => /very long note/.test(x.textContent));
       if (!c) return null; const r = c.getBoundingClientRect(), fs = parseFloat(getComputedStyle(document.documentElement).fontSize);
