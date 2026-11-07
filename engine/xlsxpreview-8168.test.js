@@ -108,18 +108,17 @@ test('#8168 r1: a lost start of a self-closed <sheet>, <numFmt>, <Relationship> 
   assert.deepEqual(cuts(read({ 'xl/workbook.xml': okWb })), [false, false]);
 });
 
-test('#8168 r1: a list of a million sheets holds only the ones it shows', () => {
+test('#8168 r1: a list of 300,000 sheets answers MAX_SHEETS and counts the rest', () => {
+  // Round 2: structure, not the heap (a synchronous read cannot be sampled). Holding every entry is what the cap stops,
+  // and a list read without it answers every sheet.
   const many = '<workbook><sheets>' + '<sheet name="S" sheetId="1" r:id="rId1"/>'.repeat(300000) + '</sheets></workbook>';
-  global.gc && global.gc();
-  const before = process.memoryUsage().heapUsed;
-  let peak = before;
-  const timer = setInterval(() => { peak = Math.max(peak, process.memoryUsage().heapUsed); }, 1);
-  let r;
-  try { r = x.readXlsx(fx.book(TWO, { 'xl/workbook.xml': many }, { deflate: true })); peak = Math.max(peak, process.memoryUsage().heapUsed); } finally { clearInterval(timer); }
-  assert.equal(r.sheets.length, x.MAX_SHEETS, 'CONTROL: capped at MAX_SHEETS');
+  const r = x.readXlsx(fx.book(TWO, { 'xl/workbook.xml': many }, { deflate: true }));
+  assert.equal(r.sheets.length, x.MAX_SHEETS, 'answered more than MAX_SHEETS');
   assert.equal(r.moreSheets, 300000 - x.MAX_SHEETS, 'the rest are counted');
-  // Held whole, 300,000 tag objects are tens of MB; streamed, the list itself is a few MB of string.
-  assert.ok(peak - before < 40 * 1024 * 1024, 'the sheet list was held whole: ' + Math.round((peak - before) / 1048576) + ' MB');
+  // veryHidden sheets are neither shown nor counted.
+  const hidden = '<workbook><sheets><sheet name="H" state="veryHidden" sheetId="9" r:id="rId2"/><sheet name="A" sheetId="1" r:id="rId1"/></sheets></workbook>';
+  const h = read({ 'xl/workbook.xml': hidden });
+  assert.deepEqual([h.sheets.map((s) => s.name), h.moreSheets], [['A'], 0]);
 });
 
 test('#8168 r1: the real workbooks read as before, with no cut', () => {
