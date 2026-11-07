@@ -23,8 +23,8 @@ Read from the first-parent commits 74773b2338 (the 0.7.95 bump)..2d09239de3. Jos
 | 19.5 | An old Meta Muse sign-in says since when | #8173 (Muse is Mac-only, musestatus.enabled) | mac |
 
 Left out on purpose: iPhone-only changes (ff0d16da29, #8146, #7420's ChatView.swift): the iPhone app is not in this cut. Fixes with no
-visible change a person would name (#8112, #8165, #8036, #8140's chip gap), and #4926 (visible, an agent
-listing fix, but low value beside the six), and release machinery
+visible change a person would name (#8112, #8165, #8140's chip gap); #8036 (visible: a stale "asked you" line no longer shows under a Yes, but a
+fix to a glitch, not a feature) and #4926 (visible, an agent listing fix) are left out as low value, and release machinery
 (#8167, #8172). #8140's other pieces since 0.7.95 (04f6f8b63e, the hold lines offer closing a hold no longer needed;
 3dc7a74dd6, the nudge names held subtasks) are agent-facing nudge wording, so they are left out too.
 
@@ -58,3 +58,9 @@ Commit carries the #1720 Browser-check trailer (data only).
   context (kosmos room --unanswered, the hold and nudge lines), so a note teaches it nothing new. Weakest premise:
   an agent that read the old --unanswered list may not notice the change. Would change my mind: an agent asking.
 - The first commit's message still carries round-0 wording; the PR body and merge message use the final wording.
+
+## Review round 4
+- c209c254b5 (#8140 item 1, a parent task says how many subtasks are on hold) shipped in 0.7.95 and the 0.7.95 pool
+  missed it, so prod users were never told. Added as since 0.7.95, rank 17.2 (below the window, cross-platform: web
+  and both CLIs).
+- #8036 is visible, so the plan no longer calls it invisible; it stays out as a glitch fix.

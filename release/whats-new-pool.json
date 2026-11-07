@@ -1230,6 +1230,14 @@
       "notesOnly": true
     },
     {
+      "title": "A task says how many subtasks are on hold",
+      "line": "A task with subtasks now says how many are on hold beside its done count, on the board and in kosmos task lists.",
+      "icon": "tasks",
+      "rank": 17.2,
+      "since": "0.7.95",
+      "status": "pending"
+    },
+    {
       "title": "Spreadsheets open in the file viewer",
       "line": "A spreadsheet (.xlsx, .csv or .tsv) now opens as a read-only grid, a workbook's sheets as tabs. It shows the values saved in the file.",
       "icon": "list",
