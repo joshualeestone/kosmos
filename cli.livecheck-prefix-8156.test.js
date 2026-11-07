@@ -22,10 +22,15 @@ const ROOT = __dirname;
 const GUARD = fs.readFileSync(path.join(ROOT, 'tools', 'lib', 'launchagent-leak-guard.sh'), 'utf8');
 const m = GUARD.match(/^LAUNCHAGENT_LIVECHECK_PREFIX='([^']+)'$/m);
 const PREFIX = m && m[1];
+/* The help says how long <something> may be: the cap on an agent's name (create.js NAME_RE, read as text so this test
+   loads no engine) less the prefix. Derived, so a change to either makes the help's number fail here. */
+const CAP = fs.readFileSync(path.join(ROOT, 'engine', 'create.js'), 'utf8').match(/^const NAME_RE = \/\^\[a-z0-9\]\[a-z0-9_-\]\{1,(\d+)\}\$\/;$/m);
+const ROOM = CAP && PREFIX ? 1 + Number(CAP[1]) - PREFIX.length : null;
 
 test('#8156: the guard declares the reserved prefix this test pins (CONTROL)', () => {
   assert.ok(PREFIX && PREFIX.endsWith('-'), 'the guard no longer declares LAUNCHAGENT_LIVECHECK_PREFIX: ' + PREFIX);   // never spelled out here: the guard's own search refuses a test that names it
   assert.ok(GUARD.includes('! -name "com.kosmos.agent.${LAUNCHAGENT_LIVECHECK_PREFIX}*.plist"'), 'the guard no longer skips the prefix');
+  assert.ok(Number.isInteger(ROOM) && ROOM > 0, 'NAME_RE in engine/create.js no longer reads as this test expects, so the help\'s length cannot be checked: ' + ROOM);
 });
 
 /* Each CLI's `agent --help`, with the env cli.agent-create-3734.test.js gives install/kosmos: a fresh HOME and
@@ -50,7 +55,9 @@ for (const [label, cmd, args] of [
     assert.ok(out.includes('kosmos agent create'), 'not the agent help: ' + out);   // CONTROL: the right text was read
     assert.ok(out.includes(PREFIX + '<something>'), label + ' does not name ' + PREFIX + ':\n' + out);
     assert.ok(out.includes('check for stray agents skips'), out);
-    assert.ok(out.includes('Remove it when you are done: that check never reports it'), 'the help does not say to remove the seat: ' + out);   // review 9
+    // A seat lives on after the run, unseen by that check, so the help says to remove it.
+    assert.ok(out.includes('Remove it when you are done: that check never reports it'), 'the help does not say to remove the seat: ' + out);
+    assert.ok(out.includes('(<something> ' + ROOM + ' characters at most)'), label + ' does not give the room the name cap leaves after the prefix (' + ROOM + '):\n' + out);
   });
 }
 
