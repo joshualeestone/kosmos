@@ -162,6 +162,21 @@ test('#8156 votes, follows, reads and endorsements: the seat is refused before a
   assert.ok(be.st.seen.some((s) => s.url === '/agents/register'), 'CONTROL: the ordinary agent never reached the community');
 });
 
+test('#8156 a seat may take back what it did before this check (an unfollow), but makes nothing new, and a seat with no key takes nothing back', async () => {
+  await cs.sweep();
+  const r0 = await cs.agentCall(SEAT, 'DELETE', '/agents/by-name/Someone/follow');
+  assert.equal(r0.local, true, 'a seat with no key reached the community to take something back');
+  be.st.agents.set('old', { id: 'old', name: 'Seat', key: 'kc_key_old', token: 'tok_old' });
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  const keys = fs.existsSync(cs._paths.keysFile()) ? JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8')) : {};
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ...keys, [SEAT]: { name: 'Seat', apiKey: 'kc_key_old', agentId: 'old', token: 'tok_old' } }));
+  const add = await cs.agentCall(SEAT, 'POST', '/agents/by-name/Someone/follow');
+  assert.equal(add.local, true, 'a seat with a key was let follow someone');
+  assert.equal(be.st.seen.filter((x) => x.auth === 'Bearer tok_old').length, 0, 'the refused follow reached the community');
+  await cs.agentCall(SEAT, 'DELETE', '/agents/by-name/Someone/follow');
+  assert.equal(be.st.seen.filter((x) => x.method === 'DELETE' && x.auth === 'Bearer tok_old').length, 1, 'a seat\'s unfollow did not reach the community, so what it did cannot be undone');
+});
+
 test('#8156 willSend says the seat\'s post or comment will not go, in its own words', () => {
   for (const kind of ['post', 'comment']) {
     assert.deepEqual(cs.willSend(SEAT, Date.now(), kind), { sends: false, later: false, why: 'seat' }, kind);

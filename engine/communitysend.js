@@ -1396,7 +1396,6 @@ async function sweepInstallGroup(keys, on) {
   for (let idx = 0; idx < order.length; idx++) {
     const agentKey = order[(start + idx) % order.length];
     const stopHere = () => installGroupFrom.set(ep, (start + idx + 1) % order.length);
-    if (on && testSeat(agentKey)) continue;   // kosmos#8156: a test seat adds nothing to the site (a seat registered before this check holds a key); clearing still runs
     if (Date.now() > until) break;   // the rest wait for the next sweep
     const k = keys[agentKey];
     if (!k || !k.apiKey) continue;
@@ -1410,7 +1409,8 @@ async function sweepInstallGroup(keys, on) {
     // nothing is sent and nothing cleared for an agent whose folder is there.
     if (retireListUnreadable() && !folderGone) continue;
     // #4994: a name being retired is the deleted agent's until its key moves: treated as removed, so cleared, never sent.
-    const removedNow = removedSet.has(clean(agentKey)) || folderGone || retiringListed(agentKey);
+    // kosmos#8156: a test seat counts as removed: never sent the group, and cleared if one registered before this was.
+    const removedNow = removedSet.has(clean(agentKey)) || folderGone || retiringListed(agentKey) || testSeat(agentKey);
     if (k.refused) {
       // Review 11: a removed, grouped agent whose key the service refused cannot be cleared from here: said once.
       if (removedNow && (k.installGroupSent || k.installGroupUnsure) && !k.installGroupClearUnreachable) {
@@ -1607,7 +1607,7 @@ async function sweepOwnerLink(keys, on) {
     for (let idx = 0; idx < order.length; idx++) {
       const agentKey = order[(start + idx) % order.length];
       const stopHere = () => ownerLinkFrom.set(ep, (start + idx + 1) % order.length);   // after this agent
-      if (on && testSeat(agentKey)) continue;    // kosmos#8156: a test seat adds nothing to the site (a seat registered before this check holds a key); clearing still runs
+      if (on && testSeat(agentKey)) continue;   // kosmos#8156: a test seat links to no owner (unlinking is its own loop)
       const resumeHere = () => ownerLinkFrom.set(ep, (start + idx) % order.length);    // at this agent, not yet tried
       if (Date.now() > until) { resumeHere(); break; }   // the rest wait for the next sweep, which starts here
       // #4994: a deleted agent's old account, or a name being retired, is not linked.
@@ -1846,7 +1846,7 @@ async function sweepIndustry(keys, on) {
     if (!k || !k.apiKey) continue;
     // #4994: a deleted agent's profile is only cleared, including one whose retirement lands during this pass.
     if (!clearing && (agentKey.startsWith(RETIRED_PREFIX) || retiring(agentKey))) continue;
-    if (!clearing && testSeat(agentKey)) continue;   // kosmos#8156: a test seat adds nothing to the site (a seat registered before this check holds a key); clearing still runs
+    if (!clearing && testSeat(agentKey)) continue;   // kosmos#8156: a test seat is given no industry; a clear still goes
     if (k.refused) {
       // The service refused this agent's key, so its profile cannot be changed from here: a clear the owner asked
       // for cannot reach it. Said once in the log, so it is on record.
@@ -1976,7 +1976,6 @@ async function sweepAvatars(keys, on, { removals }) {
   for (const agentKey of Object.keys(keys)) {
     const k = keys[agentKey];
     if (!k || !k.apiKey) continue;
-    if (on && testSeat(agentKey)) continue;   // kosmos#8156: a test seat adds nothing to the site (a seat registered before this check holds a key); clearing still runs
     const w = avatarWanted(agentKey);
     if (w.busy) {
       // A picture that cannot be read is said once, so an agent that never syncs again is not silent about why.
@@ -1989,7 +1988,7 @@ async function sweepAvatars(keys, on, { removals }) {
       }
       continue;
     }
-    const want = w.id;
+    const want = testSeat(agentKey) ? null : w.id;   // kosmos#8156: a test seat shows no picture; one already sent is taken down
     if (k.refused) {
       // The service refused this agent's key, so a removal the owner asked for cannot reach it. Said once in the log,
       // so it is on record (as sweepIndustry does for a clear).
@@ -2631,7 +2630,6 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const local = (because) => ({ ok: false, local: true, because });
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
-  if (testSeat(agentKey)) return local(testSeatWords());   // kosmos#8156: votes, follows, reads, endorsements
   const sw = switchState();
   if (sw === 'policy') reportPolicyRefusal(agentKey);   // nothing here waits for the period, so it is only reported
   if (sw !== 'on') return local(notOnWords(sw));
@@ -2647,6 +2645,13 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   if (!keys) return local('this board\'s community keys cannot be read, so it cannot act as the agent');
   const k = keys[agentKey];
   if (k && k.refused) return local('the community switched off this agent\'s account');
+  /* kosmos#8156: a test seat's calls are refused (votes, follows, reads, endorsements, edits). Only a take-back by a seat
+     that registered before this check is let through (an unfollow or unendorse, a DELETE, and a vote cleared to 0),
+     so what it already did can be undone. */
+  if (testSeat(agentKey)) {
+    const takeBack = (method === 'DELETE' || (method === 'PUT' && /\/vote$/.test(String(pathname)) && body && body.value === 0)) && k && k.apiKey;
+    if (!takeBack) return local(testSeatWords());
+  }
   if (!(k && k.apiKey)) {
     if (!register) return { ok: true, status: 0, json: null, unregistered: true, joining: joiningWords(agentKey, k) };
     if (beforeRegister) {
