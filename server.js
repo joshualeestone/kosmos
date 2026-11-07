@@ -5016,7 +5016,7 @@ function keepAgentReply(who, text, at, opts) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, replyExpected, inReplyTo, askWhichRoom, newPost }, roster, asynchronousDelivery) {
+function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, replyExpected, inReplyTo, askWhichRoom, newPost, citationMustResolve }, roster, asynchronousDelivery) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -5055,6 +5055,23 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
          not found returns null (below) and falls through; only an unreadable record
          throws. */
       return { state: 'could_not', because: 'we could not check which room that message is in, so nothing was posted -- try that reply again in a moment' };
+    }
+    /* kosmos#8165: on the live route, a citation that names no room post is refused, not posted as citing nothing: the
+       sender believes it answered something, and an uncited post moves every earlier ask off the reader's waiting
+       list (#4926). The record is unpruned, so an id it does not hold was never sent. Not on the outbox drain: a kept
+       post's sender has moved on and would never see the refusal, so it posts as before. */
+    if (!answeredProject && citationMustResolve === true) {
+      let kind = null;
+      try { kind = messages.kindOfId(citedId); } catch {
+        return { state: 'could_not', because: 'we could not check which room that message is in, so nothing was posted -- try that reply again in a moment' };
+      }
+      const named = /^m\d+$/.test(citedId) ? citedId : 'that id';   // never echo a stray quote to the CLI's sed
+      if (kind === 'message') {
+        return { state: 'could_not', because: named + ' is a direct message, not a room post, so nothing was posted. Answer it with kosmos msg --in-reply-to ' + named + ', or post here without --in-reply-to.' };
+      }
+      if (kind !== 'post') {
+        return { state: 'could_not', because: 'there is no post ' + named + ' in any room, so nothing was posted. Check the id in the post you meant to answer (kosmos room shows each as [m...]), or post here without --in-reply-to.' };
+      }
     }
     if (answeredProject && answeredProject !== found.id) {
       /* Do NOT name the answered project here. The answering agent already holds its
@@ -19998,6 +20015,7 @@ const server = http.createServer(async (req, res) => {
           inReplyTo: body.in_reply_to,   // #3224: bind an answer to the room the message came from
           askWhichRoom: body.new_post !== true,   // #3224: ask which room a non-reply meant, unless --new
           newPost: body.new_post === true,        // #3224: recorded on the row (acknowledges; not a suspected misroute)
+          citationMustResolve: true,              // kosmos#8165: a citation naming no room post is refused here (not on drain)
         }, roster, true);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
@@ -24288,7 +24306,8 @@ const server = http.createServer(async (req, res) => {
            the treatment an outside sender's get above (#3311): no control characters, no quote to close, no bracket to
            spell a marker with. */
         const coveredHead = (text) => {
-          const chars = Array.from(othersWordsOneLine(String(text || '').replace(/"/g, "'")).trim());
+          // kosmos#8165: and no bidirectional mark or override, which could reorder the line it sits in.
+          const chars = Array.from(othersWordsOneLine(String(text || '').replace(/"/g, "'").replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')).trim());
           return chars.length > COVERED_EXCERPT_CHARS ? chars.slice(0, COVERED_EXCERPT_CHARS).join('') + '...' : chars.join('');
         };
         const shownCovered = coveredAsks.slice(-textRows);

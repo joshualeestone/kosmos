@@ -390,3 +390,14 @@ test('laterOwnPost refuses what it cannot judge', () => {
   assert.equal(messages.laterOwnPost([{ id: 'm1', outcomes: { a: 'placed' } }, { id: 'm3', kind: 'note', from: 'a' }], 0, 'a'), null, 'a note is not a post');
   assert.equal(messages.laterOwnPost([{ id: 'm1', outcomes: { a: 'placed' } }, { id: 'm2', kind: 'post', from: 'a', operator: true }], 0, 'a'), null, 'the person\'s row under a name');
 });
+
+test('kosmos#8165: the covered line carries no bidirectional mark or override from the ask it quotes', async () => {
+  const p = newRoom('Bidi covered 8165');
+  ask(p, { text: '@grokseat ple\u202ease\u2066 answer \u200fthis' });
+  own(p);
+  const body = await unanswered(p);
+  const line = onCovered(body);
+  assert.ok(line, 'CONTROL: the covered line is shown: ' + body);
+  assert.doesNotMatch(line, /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u, JSON.stringify(line));
+  assert.match(line, /please answer this/);
+});

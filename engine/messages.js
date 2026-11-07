@@ -4533,6 +4533,18 @@ function owedElsewhere(agent, targetProject, now, opts) {
  * 'post' record answers; a direct message (kind 'message') has no room and returns
  * null. Used by sendRoomPostAsAgent to verify a reply's target against the room the
  * triggering message came from. */
+/* kosmos#8165: what an id names in the record: 'post' (a room post), 'message' (a direct message), or null (nothing:
+   the record is unpruned, so an id it does not hold was never sent). Throws on an unreadable record, as projectOfPost
+   does, so a caller can fail closed. */
+function kindOfId(id) {
+  const wanted = String(id == null ? '' : id).trim();
+  if (!wanted) return null;
+  const r = record();
+  if (!r || r.ok !== true) throw new Error('the message record could not be read');
+  if (!Array.isArray(r.rows)) return null;
+  const m = r.rows.find((x) => x && (x.kind === 'post' || x.kind === 'message') && String(x.id) === wanted);
+  return m ? m.kind : null;
+}
 function projectOfPost(id) {
   const wanted = String(id == null ? '' : id).trim();
   if (!wanted) return null;
@@ -4767,7 +4779,7 @@ module.exports = {
   setSenderTextFilter, filteredText, // #3769
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
-  projectOfPost, owedElsewhere,
+  projectOfPost, kindOfId, owedElsewhere,
   deletePostAsync,   // kosmos#7614
   react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji, freeClaim,
   messageIdOf, // #4631
