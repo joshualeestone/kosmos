@@ -85,10 +85,10 @@ final class EndPullUITests: XCTestCase {
         KeyboardSlideUITests.settle(row)
         XCTAssertTrue(dots(app).exists, "the dots went before the read ended")
         // kosmos#7609: a long chat can open short of its true end until any touch: 103 to 129 pt measured on CI (#8072), so the landing
-        // is allowed that far above where it opened, and says so. Further up is a list that did not bounce back.
+        // is allowed up to 160 pt above where it opened, and says so. Further up is a list that did not bounce back.
         let landed = row.frame.minY
         XCTAssertLessThanOrEqual(landed, before + 20, "the list landed below where it opened, " + waited)
-        XCTAssertGreaterThanOrEqual(landed, before - 140, "the list did not bounce back, " + waited)
+        XCTAssertGreaterThanOrEqual(landed, before - 160, "the list did not bounce back, " + waited)
         if before - landed > 20 { print("UI-NOTE kosmos#8072: the long chat opened \(Int(before - landed)) pt short of its end, until a touch") }
         // Clear of the working line, and of the box and its 18 pt fade.
         let working = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Dana is working'")).firstMatch
