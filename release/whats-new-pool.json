@@ -1238,8 +1238,8 @@
       "status": "pending"
     },
     {
-      "title": "Always Allow holds for your own computers",
-      "line": "On the Mac, Always Allow for downloads from another of your computers now lasts across launches while it is on your Kosmos+ account.",
+      "title": "Always Allow for downloads from your computers",
+      "line": "On the Mac, a download from another of your computers can now be set to Always Allow, kept while that computer is on your Kosmos+ account.",
       "icon": "shield",
       "platforms": [
         "mac"
@@ -1249,16 +1249,16 @@
       "status": "pending"
     },
     {
-      "title": "Roomier project room messages",
-      "line": "Messages in a project room now sit at line spacing 1.6, so long posts are easier to read.",
+      "title": "A little more space in project rooms",
+      "line": "Posts in a project room now sit at line spacing 1.6, a little more spaced than before.",
       "icon": "chat",
-      "rank": 15,
+      "rank": 17,
       "since": "0.7.96",
       "status": "pending"
     },
     {
       "title": "Shared tasks say who has finished",
-      "line": "A task with several agents now says which have finished and who is still on it, on the board, the iPhone and in task lists.",
+      "line": "A task with several agents now says which of them have finished and who is still on it, on the board and in task lists.",
       "icon": "tasks",
       "rank": 17.5,
       "since": "0.7.96",
@@ -1266,7 +1266,7 @@
     },
     {
       "title": "Agents that answer you elsewhere say so",
-      "line": "When an agent says it answers you on another channel, its chat now says so in place of Nothing back yet.",
+      "line": "When an agent says it answers you on another channel, its chat now says so in place of \"Nothing back yet.\"",
       "icon": "chat",
       "rank": 18,
       "since": "0.7.96",

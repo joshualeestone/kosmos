@@ -13,8 +13,8 @@
     },
     {
       "icon": "shield",
-      "title": "Always Allow holds for your own computers",
-      "line": "On the Mac, Always Allow for downloads from another of your computers now lasts across launches while it is on your Kosmos+ account.",
+      "title": "Always Allow for downloads from your computers",
+      "line": "On the Mac, a download from another of your computers can now be set to Always Allow, kept while that computer is on your Kosmos+ account.",
       "platforms": [
         "mac"
       ]
@@ -28,9 +28,12 @@
       ]
     },
     {
-      "icon": "chat",
-      "title": "Roomier project room messages",
-      "line": "Messages in a project room now sit at line spacing 1.6, so long posts are easier to read."
+      "icon": "shield",
+      "title": "Gemini agents stop updating gemini",
+      "line": "A new Gemini agent turns off gemini's updates unless you chose to keep them. On your default account that includes gemini you run yourself.",
+      "platforms": [
+        "mac"
+      ]
     }
   ]
 }
