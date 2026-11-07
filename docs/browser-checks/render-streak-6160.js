@@ -107,7 +107,12 @@ const read = (pg) => pg.evaluate(() => {
   // pill (kosmos#6397): the day's words come out of the K mark, then fold into the badge
   {
     const { pg, errs, posts } = await open(b, () => ({ count: 12, congrats: true }), { key: 'pill' });
+    // Review 6: it slides out (its transform moves after .in), it does not only fade
+    await pg.waitForSelector('#kpill.in', { state: 'attached', timeout: 10000 }).catch(() => {});
+    const t0 = await pg.evaluate(() => getComputedStyle(document.getElementById('kpill')).transform);
     await pillOut(pg);
+    const t1 = await pg.evaluate(() => getComputedStyle(document.getElementById('kpill')).transform);
+    say(t0 !== t1, 'pill: it slides out (its transform moves after it comes out)', JSON.stringify({ t0, t1 }));
     const g = await read(pg);
     say(g.pill.shown, 'pill: it shows', JSON.stringify(g.pill));
     say(g.pill.text === JOSH, "pill: Josh's sentence, word for word", JSON.stringify(g.pill.text));
@@ -177,7 +182,12 @@ const read = (pg) => pg.evaluate(() => {
     if (tipSeen && vp.width === 1400) say(g.pill && g.below && !g.tip, tag + ': the pill comes out below the mark', JSON.stringify(g));
     // Review 5: arriving late with the tip showing, there is no room left anywhere: the day's words go to the notice,
     // not straight to the badge (a sentence seen for under half a second is not seen).
-    if (late && !tipSeen) say(g.note && !g.pill, tag + ': with no room left, the day\'s words are handed to the notice', JSON.stringify(g));
+    if (late && !tipSeen) {
+      say(g.note && !g.pill, tag + ': with no room left, the day\'s words are handed to the notice', JSON.stringify(g));
+      // Review 6: the pill already read the words out; the notice it hands to must not read them again
+      const role = await pg.evaluate(() => { const u = document.querySelector('#streak-slot .utxt'); return u ? u.getAttribute('role') : 'no notice'; });
+      say(role === null, tag + ': the handed-over notice is not read out a second time (no role=status)', JSON.stringify(role));
+    }
     await pg.screenshot({ path: path.join(OUT, 'streak-switcher-' + vp.width + (tipSeen ? '-seen' : '') + '.png') }).catch(() => {});
     await pg.close(); await ctx.close();
   }

@@ -39649,7 +39649,10 @@ function streakPillPlace(pill) {
     if (fits(r) && !streakPillHits(r, STREAK_PILL_HEADER + ', #topnotes > * > *')) return true;
     pill.classList.remove('below');
     return false;
-  } finally { pill.classList.remove('measure'); void pill.offsetWidth; }   // review 4: flushed back to the entrance pose, so .in slides
+  } finally {
+    // Review 6: back to the entrance pose with no transition (so it snaps there), then the frame's .in slides it out.
+    pill.style.transition = 'none'; pill.classList.remove('measure'); void pill.offsetWidth; pill.style.transition = '';
+  }
 }
 /* The pill: Josh's sentence out of the K for about 6 s (it waits while the pointer is on the mark or the pill, or the
    keyboard on the mark), then it folds into the badge. Escape folds it at once (WCAG 1.4.13). Returns false when
@@ -39671,7 +39674,7 @@ function streakPill(n) {
     clearTimeout(streakPillTimer); streakPillFold = null; streakPillWidth = null;
     pill.classList.remove('in'); mark.classList.remove('kglow');
     setTimeout(() => { if (!pill.classList.contains('in')) { pill.textContent = ''; const say = document.getElementById('kpill-say'); if (say) say.textContent = ''; } }, 400);
-    if (toNote === true) { streakNote(n, document.getElementById('streak-slot')); return; }
+    if (toNote === true) { streakNote(n, document.getElementById('streak-slot'), { said: true }); return; }   // review 6: already read out
     streakBadgeKeep(day); streakBadge(n);
   };
   streakPillFold = fold; streakPillWidth = window.innerWidth;
@@ -39738,20 +39741,23 @@ function paintStreak(got) {
   });
 }
 // Review 3: run `fn` once the full-screen loading cover (#boot-cover, revealBoot) is gone.
+let streakUncoverWait = null;
 function streakWhenUncovered(fn) {
-  const c = document.getElementById('boot-cover');
+  clearTimeout(streakUncoverWait);   // review 6: one wait at a time
+  const up = (id) => { const e = document.getElementById(id); return Boolean(e && !e.hidden && e.getClientRects().length > 0); };
   // Review 4: nor in a tab nobody is looking at (a background tab gets no frames; the day's words would be spent unseen).
-  if (!document.hidden && (!c || c.hidden || c.getClientRects().length === 0)) { fn(); return; }
-  setTimeout(() => streakWhenUncovered(fn), 200);
+  // Review 6: nor behind the first-run welcome, which dims the whole page.
+  if (!document.hidden && !up('boot-cover') && !up('firstrun')) { fn(); return; }
+  streakUncoverWait = setTimeout(() => streakWhenUncovered(fn), 200);
 }
-function streakNote(n, slot) {
+function streakNote(n, slot, opts = {}) {
   streakNoteCount = n;
   // Review 3: the day is kept when the notice SHOWS (as the pill's is), so a reload during it keeps the badge.
   streakBadgeKeep(streakDay || streakLocalDay(new Date()));
   if (slot) {
     slot.innerHTML = '<div class="utoast streak">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt" role="status"><b>' + esc(streakCongrats(n)) + '</b></div>'
+      + '<div class="utxt"' + (opts.said ? '' : ' role="status"') + '><b>' + esc(streakCongrats(n)) + '</b></div>'   // review 6: a pill that handed over has already said it
       + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
       + '</div>';
     slot.querySelector('.ux').addEventListener('click', streakNoteGone);
