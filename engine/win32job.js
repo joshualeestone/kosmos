@@ -751,6 +751,33 @@ function setPresenceTtl(ms) {
   PRESENCE_MEMO.clear();
 }
 
+/**
+ * kosmos#8177: the task's own spelling, when the query found it under ANOTHER one.
+ *
+ * Task Scheduler ignores letter case, so `/Query /TN Kosmos\agent-Cai` answers with `cai`'s task, and a bare
+ * "registered" says an agent `Cai` has a job when only `cai` does. The answer names the task it found, in the
+ * task's own spelling, so this reads that name back: every place the output carries our task path, compared
+ * without case (bounded by a backslash, a space or the line's edge, so `agent-cai` is not found inside
+ * `agent-caio`). Returns that spelling when the output names the task ONLY in spellings other than `tn`, and
+ * null otherwise.
+ *
+ * ⚠️ IT ANSWERS ONLY ON POSITIVE EVIDENCE, by design. The label in front of the name is localized ("TaskName:",
+ * "Aufgabenname:"), so this never reads the label, only the path; and output that does not carry the path at all
+ * (a shape not seen, a test's stub) is null, so `registered` stands as it did before. Failing the other way would
+ * make a real agent's own job vanish on any output this does not recognise.
+ */
+function spelledOtherwise(tn, out) {
+  const text = String(out || '');
+  const esc = String(tn).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp('(?:^|[\\\\\\s])(' + esc + ')(?=\\s|$)', 'gim');
+  let seen = null;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (m[1] === tn) return null;
+    if (seen === null) seen = m[1];
+  }
+  return seen;
+}
+
 function presenceNow(tn) {
   const r = run(['/Query', '/TN', tn, '/FO', 'LIST']);
   if (r.ok) {
@@ -759,7 +786,10 @@ function presenceNow(tn) {
        stable across the shapes seen, and defaulting to enabled-when-unsure would
        claim a job is running when we could not tell. Fail toward the honest
        answer. */
-    return { known: true, registered: true, enabled: !/disabled/i.test(r.out || '') };
+    const answer = { known: true, registered: true, enabled: !/disabled/i.test(r.out || '') };
+    const other = spelledOtherwise(tn, r.out);
+    if (other) answer.spelledOtherwise = other;
+    return answer;
   }
   if (NO_SUCH_TASK.test(r.out || '')) return { known: true, registered: false };
   return { known: false, registered: false, because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' };
@@ -886,7 +916,9 @@ function list() {
  */
 function status(name, worldId) {
   const p = presence(name, worldId);
-  return p.registered ? { registered: true, enabled: p.enabled } : { registered: false };
+  if (!p.registered) return { registered: false };
+  // kosmos#8177: the task found is spelled differently (Task Scheduler ignores case); the caller decides what that means.
+  return p.spelledOtherwise ? { registered: true, enabled: p.enabled, spelledOtherwise: p.spelledOtherwise } : { registered: true, enabled: p.enabled };
 }
 
 /* The reverse of xmlEscape. `&amp;` is undone LAST: xmlEscape escapes `&` FIRST,
@@ -1113,7 +1145,7 @@ function configDirFor(name) {
 
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
-  install, installSteps, disable, enable, end, start, endSteps, startSteps, runningSteps, win32StepResult, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
+  install, installSteps, disable, enable, end, start, endSteps, startSteps, runningSteps, win32StepResult, remove, status, presence, spelledOtherwise, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
   cachedTaskSpec, taskEnabled, taskEnabledFromQuery, taskEnabledSteps, csvFields, commandsAreReal, REFUSED_IN_TEST,
   schtasksMayRunInThisProcess,
   setRunner, setAnchorer, setLiveness, setRunningClock, setPresenceTtl, PRESENCE_TTL_MS,
