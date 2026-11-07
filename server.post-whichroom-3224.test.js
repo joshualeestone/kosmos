@@ -243,13 +243,16 @@ test('#3224 round 2: new_post with in_reply_to is not marked --new, so it does n
   assert.equal(r.json.delivery.code, 'which_room', 'the question owed in Beta must still hold this post');
 });
 
-test('#3224 round 3: an in_reply_to that names no post is bound to nothing, so it is held like any other non-reply', async () => {
+/* Round 3's point stands: an unresolvable citation must not slip past both checks. Since kosmos#8165 it is refused
+   outright on the live route (the sender believed it answered something) rather than held to ask which room. */
+test('#3224 round 3 / kosmos#8165: an in_reply_to that names no post never slips past: it is refused before the which-room ask', async () => {
   const a = room('Alpha badcite 3224');
   const b = room('Beta badcite 3224');
   const q = operatorAsk(b.id);
   for (const cite of ['[' + q + ']', 'm999999']) {
     const r = await post({ project: a.id, text: 'misrouted with a bad citation', from_pane: '', in_reply_to: cite }, H());
-    assert.equal(r.json.delivery.code, 'which_room', cite + ': an unresolvable citation must not slip past both checks: ' + JSON.stringify(r.json.delivery));
+    assert.equal(r.json.delivery.state, 'could_not', cite + ': an unresolvable citation must not slip past both checks: ' + JSON.stringify(r.json.delivery));
+    assert.match(r.json.delivery.because, /there is no post (m999999|that id) in any room, so nothing was posted/);
   }
 });
 

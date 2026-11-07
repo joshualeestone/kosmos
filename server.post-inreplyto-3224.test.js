@@ -118,11 +118,30 @@ test('#3224 NON-REGRESSION: a post with NO in_reply_to is unchanged (the common 
     'a proactive post must be unaffected by the in_reply_to guard: ' + (r.json.delivery.because || ''));
 });
 
-test('#3224 AGED-OUT: an in_reply_to that names no known post falls through to the explicit project (never blocks a legit reply)', async () => {
-  const a = room('Alpha aged 3224');
-  const r = await post({ project: a.id, text: 'answering a citation that rolled off the record', from_pane: '', in_reply_to: 'm999999' }, { 'x-kosmos-agent-token': tok() });
-  assert.ok(['placed', 'unconfirmed'].includes(r.json.delivery.state),
-    'an unresolvable in_reply_to must not block a legitimate reply; it should proceed with the explicit project: ' + (r.json.delivery.because || ''));
+/* kosmos#8165 reversed this test's rule ("an id that names no known post falls through, never blocks a legit reply").
+   The record is unpruned, so such an id was never sent: a typo, or a direct message's id. Posted, it read as citing
+   nothing, and an uncited post moves every earlier ask off the reader's waiting list (#4926). The sender believes it
+   answered something, so it is told. */
+test('kosmos#8165: an in_reply_to that names no post is REFUSED on the live route, and nothing is posted', async () => {
+  const a = room('Alpha unknown 8165');
+  const before = messagesEngine.record().rows.length;
+  const r = await post({ project: a.id, text: 'answering a citation with a typo', from_pane: '', in_reply_to: 'm999999' }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(r.json.delivery.state, 'could_not', JSON.stringify(r.json));
+  assert.match(r.json.delivery.because, /there is no post m999999 in any room, so nothing was posted/);
+  assert.doesNotMatch(r.json.delivery.because, /"/, 'no double quote: the bash CLI reads because with a sed that stops at one');
+  assert.equal(messagesEngine.record().rows.length, before, 'a refused post wrote a row');
+  // A stray id that is not of the m-number shape is named as "that id", never echoed.
+  const odd = await post({ project: a.id, text: 'odd id', from_pane: '', in_reply_to: '[q"12]' }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(odd.json.delivery.state, 'could_not');
+  assert.match(odd.json.delivery.because, /there is no post that id in any room/);
+});
+
+test('kosmos#8165: an in_reply_to that names a DIRECT MESSAGE is refused, and says how to answer it', async () => {
+  const a = room('Alpha dm 8165');
+  fs.appendFileSync(messagesEngine.LOG, JSON.stringify({ id: 'm888801', kind: 'message', from: 'erin', to: 'dana', text: 'a direct one', at: new Date().toISOString(), state: 'placed' }) + '\n');
+  const r = await post({ project: a.id, text: 'answering a DM in a room', from_pane: '', in_reply_to: 'm888801' }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(r.json.delivery.state, 'could_not', JSON.stringify(r.json));
+  assert.match(r.json.delivery.because, /m888801 is a direct message, not a room post, so nothing was posted\. Answer it with kosmos msg --in-reply-to m888801/);
 });
 
 test('#3224 TYPE-CHECK: a non-string in_reply_to is refused with 400 before any side-effect (parity with reply_expected)', async () => {
@@ -155,13 +174,12 @@ test('#3745: an agent\'s in_reply_to is kept on its post as replyTo, so the room
   const mB = seed.json.delivery.id;
   const r = await post({ project: b.id, text: 'the answer', from_pane: '', in_reply_to: mB }, { 'x-kosmos-agent-token': tok() });
   const aged = await post({ project: b.id, text: 'aged out', from_pane: '', in_reply_to: 'm999999' }, { 'x-kosmos-agent-token': tok() });
+  assert.equal(aged.json.delivery.state, 'could_not', 'kosmos#8165: a citation that names no post is refused, not posted as citing nothing');
   const rows = messagesEngine.record().rows;
   const reply = rows.find((m) => m.id === r.json.delivery.id);
   assert.ok(reply, 'the reply was not posted: ' + JSON.stringify(r.json));
   assert.equal(reply.replyTo, mB, 'the agent\'s reply does not say what it answers');
-  const agedRow = rows.find((m) => m.id === aged.json.delivery.id);
-  assert.ok(agedRow, 'CONTROL: a citation that names no post still posts');
-  assert.equal(agedRow.replyTo, undefined, 'a post that names nothing known carries no replyTo');
+  assert.equal(rows.some((m) => m.kind === 'post' && m.text === 'aged out'), false, 'a refused post wrote a row');
 });
 
 // LAST test in this file: it makes the message log unreadable, so nothing may run after it.
