@@ -54,6 +54,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
 const JOSH = "Congrats you've been in the Kosmos for 12 days!";
 /* review 4: wait for the pill itself (it comes out once the loading cover is gone), then for its slide (.35 s): never a
    fixed sleep from the page load, which a slow boot outruns. */
+/* review 7: for an arm asserting NOTHING comes out: wait until it could have (the loading cover gone, then past a frame
+   and the slide), so "no pill" is not just "too early to tell". */
+const settled = async (pg) => { await pg.waitForFunction(() => { const c = document.getElementById('boot-cover'); return !c || c.hidden || c.getClientRects().length === 0; }, null, { timeout: 10000 }).catch(() => {}); await pg.waitForTimeout(900); };
 const pillOut = async (pg) => { const ok = await pg.waitForSelector('#kpill.in', { state: 'attached', timeout: 10000 }).then(() => true, () => false); await pg.waitForTimeout(400); return ok; };
 const localDay = (ms) => { const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
 const NOON = (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d.getTime(); })();
@@ -177,7 +180,8 @@ const read = (pg) => pg.evaluate(() => {
     });
     const tag = 'switcher (' + vp.width + 'px' + (tipSeen ? ', tip seen' : ', tip showing') + (late ? ', arriving late' : '') + ')';
     if (late) say(before && before.pill && !before.below && !before.switcher, tag + ': (premise) the pill was out beside the mark before the switcher arrived', JSON.stringify(before));
-    say(g.switcher && (g.pill || g.note || g.badge) && !g.coversSwitcher && !g.coversTabs, tag + ': the day\'s words show, and the pill covers neither the computer switcher nor the tabs', JSON.stringify(g));
+    // review 7: a badge alone means the words were never seen, so it does not count here
+    say(g.switcher && (g.pill || g.note) && !g.coversSwitcher && !g.coversTabs, tag + ': the day\'s words show, and the pill covers neither the computer switcher nor the tabs', JSON.stringify(g));
     // With the tip already seen at a desk, the pill has room below the mark: a person with two computers sees the pill.
     if (tipSeen && vp.width === 1400) say(g.pill && g.below && !g.tip, tag + ': the pill comes out below the mark', JSON.stringify(g));
     // Review 5: arriving late with the tip showing, there is no room left anywhere: the day's words go to the notice,
@@ -301,6 +305,8 @@ const read = (pg) => pg.evaluate(() => {
     const hovers = await pg.evaluate(() => matchMedia('(hover: hover)').matches);
     const out = await pillOut(pg);
     await pg.tap('#klink').catch(() => {});
+    const stuck = await pg.evaluate(() => document.getElementById('klink').matches(':hover'));
+    say(stuck, 'tablet: (premise) the tap left :hover on the K mark, the case this guards', JSON.stringify(stuck));
     await pg.waitForTimeout(7500);
     const g = await read(pg);
     say(!hovers && out, 'tablet: (premise) a screen with no hover, and the pill came out', JSON.stringify({ hovers, out }));
@@ -315,6 +321,20 @@ const read = (pg) => pg.evaluate(() => {
     await pg.setViewportSize({ width: 1400, height: 640 }); await pg.waitForTimeout(450);
     const g = await read(pg);
     say(g.pill.shown, 'height resize: the pill stays out when only the height changes', JSON.stringify(g.pill.shown));
+    await pg.close();
+  }
+
+  // review 7: keyboard focus on the mark holds the pill (the click arm is the control: a mouse's focus does not)
+  {
+    const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'keyboard hold' });
+    await pillOut(pg);
+    await pg.mouse.move(700, 700);
+    for (let i = 0; i < 12; i++) { if (await pg.evaluate(() => document.activeElement && document.activeElement.id === 'klink')) break; await pg.keyboard.press('Tab'); }
+    const fv = await pg.evaluate(() => { const k = document.getElementById('klink'); return document.activeElement === k && k.matches(':focus-visible'); });
+    await pg.waitForTimeout(7500);
+    const g = await read(pg);
+    say(fv, 'keyboard hold: (premise) the K mark has keyboard focus (:focus-visible)', JSON.stringify(fv));
+    say(g.pill.shown, 'keyboard hold: 7.5 s later the pill is still out while the keyboard is on the mark', JSON.stringify(g.pill.shown));
     await pg.close();
   }
 
@@ -406,6 +426,7 @@ const read = (pg) => pg.evaluate(() => {
   // no note (control) + hover
   {
     const { pg, errs } = await open(b, () => ({ count: 12, congrats: false }), { key: 'no note' });
+    await settled(pg);
     const g = await read(pg);
     say(g.note && g.note.hidden && !g.pill.shown && g.badge && g.badge.hidden, 'no note: no congrats, no pill, no notice and no badge (control)', JSON.stringify({ note: g.note, pill: g.pill, badge: g.badge }));
     say(g.label && g.label.opacity === '0', 'no note: the label waits for a hover', JSON.stringify(g.label));
@@ -446,6 +467,7 @@ const read = (pg) => pg.evaluate(() => {
   // day 1, and no streak
   {
     const { pg } = await open(b, () => ({ count: 1, congrats: true }), { key: 'day 1' });
+    await settled(pg);
     const g = await read(pg);
     say(g.label && g.label.text === '1 day in the Kosmos', 'day 1: "1 day in the Kosmos"', JSON.stringify(g.label));
     say(g.note && g.note.hidden && !g.pill.shown, 'day 1: no pill and no note, even if the board said congrats', JSON.stringify(g.pill));
