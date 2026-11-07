@@ -134,6 +134,8 @@ else
 fi
 # #4392: no TEST may use the reserved prefix, or a real test leak under it would go unseen. Every tracked file is
 # searched except the two that define and pin the skip.
+# #8156: and four that only TELL a person the prefix (so a throwaway agent on a shared box is named with it): the
+# agent help in both CLIs, the #3011 LEAK message, and the test pinning those three. None makes an agent.
 # It catches LITERAL use only: a name built at runtime ('zz-live' + 'check') evades it. That is accepted because the
 # count guards against accidental reuse, and #3605 (launch-guard.js) already refuses any test's write to the real
 # LaunchAgents under node --test, whatever the name.
@@ -145,11 +147,11 @@ if [ "$ctl_rc" -eq 0 ] && [ -n "$ctl" ]; then
 else
   fail "#4392 control: the search could not find a string that is there (rc=$ctl_rc), so its zero below would mean nothing"
 fi
-used="$(git -C "$REPO_ROOT" grep -l 'zz-livecheck' -- . ':!tools/lib/launchagent-leak-guard.sh' ':!tools/test-launchagent-leak-guard-3011.sh' ':!.claude/plans/' 2>/dev/null)"; used_rc=$?
+used="$(git -C "$REPO_ROOT" grep -l 'zz-livecheck' -- . ':!tools/lib/launchagent-leak-guard.sh' ':!tools/test-launchagent-leak-guard-3011.sh' ':!.claude/plans/' ':!install/kosmos' ':!tools/windows/kosmos-cli.js' ':!tools/run-tests.sh' ':!cli.livecheck-prefix-8156.test.js' 2>/dev/null)"; used_rc=$?
 if [ "$used_rc" -gt 1 ]; then
   fail "#4392: the reserved-prefix search could not run (git grep exit $used_rc)"
 elif [ -z "$used" ]; then
-  pass "#4392: no tracked file other than the guard and this test uses the reserved zz-livecheck- prefix"
+  pass "#4392: no tracked file other than the guard, this test and the four that only tell a person the prefix (#8156) uses the reserved zz-livecheck- prefix"
 else
   fail "#4392: the reserved live-check prefix appears in $used (a test must never name an agent with it)"
 fi
