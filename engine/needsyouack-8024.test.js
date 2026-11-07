@@ -374,6 +374,22 @@ test('kosmos#8036: a press names only its own wait: the next wait passing by its
   });
 });
 
+test('kosmos#8036: a press that blew up did not answer the wait, so its passing still says the line', async () => {
+  const realAnswer = chat.answerQuestionMenu;
+  await withPrompt('blewup', { reportFirst: hookWait }, async ({ read }) => {
+    const back = await read();
+    const row = questionRows(back).pop();
+    chat.answerQuestionMenu = async () => { throw new Error('the pane went away'); };
+    try {
+      const res = await fetch(base + '/api/agent/blewup/thread', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+        body: JSON.stringify({ text: String(row.permission.allow), chose: back.options.find((o) => o.n === row.permission.allow).label, asked: back.asked, request: row.permission.request }) });
+      assert.notEqual(res.status, 200, 'premise: the press failed');
+    } finally { chat.answerQuestionMenu = realAnswer; }
+    await report({ state: 'working', text: 'running Bash', auto: true });
+    assert.equal(endedLines('blewup'), 1);
+  });
+});
+
 test('kosmos#8036: a press does not close a question the agent reported itself', async () => {
   const own = () => report({ state: 'needs_you', text: 'Which logo do you want?' });
   await withPrompt('ownq', { reportFirst: own }, async ({ press }) => {

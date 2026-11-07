@@ -21191,7 +21191,8 @@ const server = http.createServer(async (req, res) => {
               const waitPressed = cq.permission ? permissionWaitBeforePress(askingCard) : null;   // kosmos#8036: only a press on the prompt itself
               if (waitPressed) pressedWaits.set(askingCard.sessionName, waitPressed.at);
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}),
-                ...(cq.permission && requestGiven ? { request: body.request } : {}) });   // kosmos#7020: re-checked on the last look
+                ...(cq.permission && requestGiven ? { request: body.request } : {}) }   // kosmos#7020: re-checked on the last look
+              ).catch((err) => { pressedWaits.delete(askingCard.sessionName); throw err; });
               if (waitPressed && !r.ok) pressedWaits.delete(askingCard.sessionName);
               if (r.ok && r.answered) endPermissionWaitPressed(askingCard, waitPressed, r.screen);
               // kosmos#6239: refused for quiet hours is the person's act, reported like a refused message.
