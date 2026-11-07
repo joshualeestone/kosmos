@@ -127,15 +127,15 @@ function attr(tag, name) {
   const m = new RegExp('\\s(?:[A-Za-z_][A-Za-z0-9_.-]{0,40}:)?' + name + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')').exec(tag);
   return m ? unescapeXml(m[1] !== undefined ? m[1] : m[2]) : null;
 }
-/* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with indexOf. With
-   `lenient` (the containers: sheetData, row), one the part never closes (a file cut short) yields the rest of the part,
-   so what is there is still read; a value that is not closed is never read. */
 /* #8147: a tag that only starts like the one sought ("<cx" when looking for "<c") is skipped one character on, and a
-   part can hold millions of them (about 1.2 s of board time a file, under the budget and unseen by the walk's visit
+   part can hold millions of them (1 to 2 s of board time a file, under the budget and unseen by the walk's visit
    count). Each skip counts: the budget is checked every 4096, and past MAX_NEAR_MISSES in one read it is too large.
    `onNearMiss` is set by readXlsx for the length of one read; the board's one thread runs one read at a time. */
 let onNearMiss = null;
 const nearMiss = () => { if (onNearMiss) onNearMiss(); };
+/* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with indexOf. With
+   `lenient` (the containers: sheetData, row), one the part never closes (a file cut short) yields the rest of the part,
+   so what is there is still read; a value that is not closed is never read. */
 function* elements(xml, name, lenient = false) {
   let at = 0;
   for (;;) {
@@ -214,7 +214,7 @@ function bareCode(code) {
 }
 /* What a number format shows: { kind: 'date' } (a day, maybe with a time), { kind: 'time' } (a time of day),
    { kind: 'duration', unit: 'h' | 'm' | 's', seconds } ("[h]:mm": elapsed time past 24 hours, review 2), or
-   { kind: 'number', decimals, thousands, percent } for the simple codes ("0.00", "#,##0", "0.0%"), or null (shown as
+   { kind: 'number', decimals, thousands, percent, digits, sections } for the simple codes ("0.00", "#,##0", "0.0%"), or null (shown as
    saved). The first section of a code (before ";") decides how; a number another section would draw is shown as saved
    (`sections`). Currency symbols, fractions, a trailing thousands comma and the rest are null. */
 /* A number format's first section (the part before the first ";", which positive numbers use). Not a split: ";" here is
@@ -223,6 +223,17 @@ function firstSection(code) {
   const s = String(code || '');
   const i = s.indexOf(';');
   return i < 0 ? s : s.slice(0, i);
+}
+/* How many ";" sections a format code has, not counting a ";" inside quotes or after a backslash (review r2). */
+function countSections(code) {
+  const s = String(code || '');
+  let n = 1;
+  for (let i = 0; i < s.length && i <= MAX_FORMAT_CODE; i++) {
+    if (s[i] === '\\') { i++; continue; }
+    if (s[i] === '"') { const j = s.indexOf('"', i + 1); if (j < 0) break; i = j; continue; }
+    if (s[i] === ';') n++;
+  }
+  return n;
 }
 function formatKind(code) {
   const bare = bareCode(firstSection(code));
@@ -250,7 +261,7 @@ function formatKind(code) {
   // #8147: `sections` counts the code's ";" parts: the first is for positives (and zero, with fewer than three), so a
   // value another section would draw is shown as saved, never through the first one (review r1: "#,##0.00;[Red]..."
   // lost its formatting for positives when every multi-section code was shown as saved).
-  if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3], digits: ((num[1] || '').match(/0/g) || []).length, sections: (String(code || '').match(/;/g) || []).length + 1 };
+  if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3], digits: ((num[1] || '').match(/0/g) || []).length, sections: countSections(code) };
   return null;
 }
 /* Built-in number formats by id (ECMA-376 18.8.30): 1 "0", 2 "0.00", 3 "#,##0", 4 "#,##0.00", 9 "0%", 10 "0.00%",
@@ -332,7 +343,9 @@ function shownNumber(raw, fmt) {
   // Review 6: only a decimal number is a number (0x1F is not 31).
   if (!isDecimal(raw) || !Number.isFinite(n)) return raw;
   if (!fmt || fmt.kind !== 'number') return String(Number(n.toPrecision(15)));
-  if (fmt.sections > 1 && (n < 0 || (n === 0 && fmt.sections > 2))) return String(Number(n.toPrecision(15)));
+  // A percent is drawn with its sign by the first section instead (review r2: -0.5 shown as saved read as -0.5% in a
+  // column of 25%; Excel shows (50%) or similar, so -50% is the honest near form).
+  if (fmt.sections > 1 && !fmt.percent && (n < 0 || (n === 0 && fmt.sections > 2))) return String(Number(n.toPrecision(15)));
   const v = Number((fmt.percent ? n * 100 : n).toPrecision(15));
   const f = Math.pow(10, fmt.decimals);
   // Review 7: rounded on the 15 digits Excel keeps, not with a nudge (2.4999999995 under "0" showed 3).
@@ -415,6 +428,7 @@ function readBook(buf, budget) {
   const readTargets = new Set();   // review 1: a part named by several sheets is read once
   let all = 0, anyValue = false, anyFormula = false, bareFormula = false;
   let otherSheet = false;   // a chart or dialog sheet that is in the file
+  let savedFormula = false; // #8147: a formula whose saved value is an empty string
   let walkCut = false;      // #8147: a sheet's walk stopped at MAX_VISITS, so what lies past it is unknown
   let outputLeft = MAX_OUTPUT_CHARS;   // review 5: for the whole answer, every sheet together
   let sk = 0;
@@ -503,16 +517,19 @@ function readBook(buf, budget) {
           }
         }
       }
-      if (text === null) { if (hasFormula && !savedEmpty) bareFormula = true; return null; }
+      // #8147 review r2: a formula that saved "" has a saved value, so it is never "no saved values" either.
+      if (text === null) { if (hasFormula && !savedEmpty) bareFormula = true; if (hasFormula && savedEmpty) savedFormula = true; return null; }
       return clip(text);
     };
     const windowEnd = () => windowStart() + MAX_ROWS;
     rows: for (const row of data ? elements(data.body, 'row', true) : []) {
       if ((++k & 1023) === 0) budget();
       if (++visits > MAX_VISITS) { cut = true; walkCut = true; break; }
-      const rr = Number(attr(row.tag, 'r'));
-      // A row with no r is the next one (review 1); #8147: an r past Excel's last row (1048576), "1e300", is no row number.
-      rowAt = Number.isInteger(rr) && rr >= 1 && rr <= MAX_EXCEL_ROW ? rr - 1 : rowAt + 1;
+      const rs = attr(row.tag, 'r');
+      const rr = rs !== null && /^[0-9]{1,7}$/.test(rs) ? Number(rs) : NaN;   // review r2: decimal only ("0x10", "1e3")
+      // #8147: a row number past Excel's last row (1048576) is no row of the sheet: skipped, not placed on another row.
+      if (rr > MAX_EXCEL_ROW) { cut = true; continue; }
+      rowAt = rr >= 1 ? rr - 1 : rowAt + 1;   // a row with no r (or one that is not a number) is the next one (review 1)
       const line = new Map();
       let colAt = -1;
       for (const c of elements(row.body, 'c')) {
@@ -558,7 +575,7 @@ function readBook(buf, budget) {
   // missing is still nothing, review 3).
   // #8147: nor of one whose walk stopped before the end (formatted blanks, then a value, read as "empty").
   const unread = all > MAX_SHEETS || otherSheet || walkCut;
-  return { sheets, moreSheets: Math.max(0, all - MAX_SHEETS), noValues: !unread && !anyValue && anyFormula, empty: !unread && !anyValue && !anyFormula,
+  return { sheets, moreSheets: Math.max(0, all - MAX_SHEETS), noValues: !unread && !anyValue && anyFormula && !savedFormula, empty: !unread && !anyValue && !anyFormula,
     ...(anyValue && bareFormula ? { someNoValues: true } : {}) };
 }
 
