@@ -23947,6 +23947,7 @@ const server = http.createServer(async (req, res) => {
           return asked ? c : null;
         };
         const claimedAsks = [];
+        const coveredAsks = [];   // kosmos#4926: an agent's ask the reader posted after without citing, named on its own line
         const askedOfReader = (m) => !!readerName && m && m.kind === 'post'
           && (m.operator === true || m.from !== readerName)
           && (namedReader.has(String(m.id))
@@ -23981,6 +23982,9 @@ const server = http.createServer(async (req, res) => {
               if (c) { claimedAsks.unshift({ id: String(rows[i].id), by: c.by, at: c.at }); continue; }
               // kosmos#7969: after the claim check on purpose: a claimed ask is named on the claimed line whatever its age.
               if (aged(rows[i])) { agedAsks += 1; continue; }
+              // kosmos#4926: after age, so an old ask is counted there. The person's asks stay listed, as they never age out.
+              const own = rows[i].operator === true ? null : messages.laterOwnPost(rows, i, readerName);
+              if (own) { coveredAsks.unshift({ id: String(rows[i].id), own }); continue; }
               openAsks += 1;
               if (tail.length < textRows) tail.unshift(rows[i]);
             }
@@ -24098,7 +24102,12 @@ const server = http.createServer(async (req, res) => {
           const youAnswered = mine && (m.operator === true || m.from !== readerName)
             ? [when + '  [kosmos] you already answered [' + m.id + '] in ' + mine.map((x) => '[' + x + ']').join(', ') + '.']
             : [];
-          return [line, ...youAnswered, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
+          // kosmos#4926: said for the person's asks too, which stay listed: it is only what the reader did next.
+          const ownAfter = !mine && askedOfReader(m) ? messages.laterOwnPost(rows, rows.indexOf(m), readerName) : null;
+          const youPosted = ownAfter
+            ? [when + '  [kosmos] you posted [' + ownAfter + '] after [' + m.id + '] without citing it. If that answered it, it needs nothing more.']
+            : [];
+          return [line, ...youAnswered, ...youPosted, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
@@ -24145,10 +24154,11 @@ const server = http.createServer(async (req, res) => {
             + (openAsks > tail.length ? (tail.length === 1 ? '; the newest is below' : '; the newest ' + tail.length + ' are below') : '') + ':\n'
           : rec.ok === false ? UNANSWERED_HEAD + 'none found' + (agedAsks ? ' from the last ' + UNANSWERED_DAYS + ' days' : '')   // kosmos#7969
             + ', but this room could not be read, so that may be wrong.\n'
-          : agedAsks && !claimedAsks.length ? UNANSWERED_HEAD + 'nothing from the last ' + UNANSWERED_DAYS + ' days in this room.\n'   // kosmos#7969
+          : agedAsks && !claimedAsks.length && !coveredAsks.length ? UNANSWERED_HEAD + 'nothing from the last ' + UNANSWERED_DAYS + ' days in this room.\n'   // kosmos#7969
           : claimedAsks.length ? UNANSWERED_HEAD + 'nothing else ' + (agedAsks ? 'from the last ' + UNANSWERED_DAYS + ' days ' : '')   // kosmos#7848, #7969
             + 'waiting on you in this room; '
             + (claimedAsks.length === 1 ? 'the ask below is claimed by another agent it also asked.\n' : 'the asks named below are claimed by agents they also asked.\n')
+          : coveredAsks.length ? UNANSWERED_HEAD + 'nothing else ' + (agedAsks ? 'from the last ' + UNANSWERED_DAYS + ' days ' : '') + 'waiting on you in this room.\n'   // kosmos#4926
           : UNANSWERED_HEAD + 'nothing in this room.\n';
         /* kosmos#7848: the asks left out because another agent they asked has claimed them, newest last, so the reader can
            still read them (kosmos room shows them in full). */
@@ -24165,13 +24175,22 @@ const server = http.createServer(async (req, res) => {
             + (moreClaimed ? ', and ' + moreClaimed + ' older' : '')
             + '. They are still in the room, and one comes back here if its claim ends.\n'
           : '';
+        /* kosmos#4926: never dropped silently either: a post about something else also moves an ask here, so each is named. */
+        const shownCovered = coveredAsks.slice(-textRows);
+        const moreCovered = coveredAsks.length - shownCovered.length;
+        const coveredLine = coveredAsks.length
+          ? '[kosmos] Not counted as waiting on you, because you posted here after each without citing it: '
+            + shownCovered.map((x) => '[' + x.id + '] (your [' + x.own + '])').join(', ')
+            + (moreCovered ? ', and ' + moreCovered + ' older' : '')
+            + '. If one is still open, answer it; kosmos room shows it.\n'
+          : '';
         /* kosmos#7969: the older asks are said, never dropped silently, with the way to see them. */
         const agedLine = agedAsks
           ? '[kosmos] ' + agedAsks + (agedAsks === 1 ? ' post' : ' posts') + ' that asked you something more than '
             + UNANSWERED_DAYS + ' days ago ' + (agedAsks === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). '
             + 'Add --all to list ' + (agedAsks === 1 ? 'it' : 'them') + ' too.\n'
           : '';
-        res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + agedLine);
+        res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + coveredLine + agedLine);
         return;
       }
       if (jsonRows !== null) {   // kosmos#7032: a page (see the cursor note where n is read)
