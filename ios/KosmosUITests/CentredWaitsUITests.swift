@@ -24,24 +24,18 @@ final class CentredWaitsUITests: XCTestCase {
             XCTAssertTrue(tabs.waitForExistence(timeout: 10), "\(wait): the tab bar is not showing")
             let bottom = tabs.frame.minY
             let top = screen.minY + 100   // under the top bar (the K and the buttons)
-            if wait == "allow" {
-                // One combined element (the orb and the words, as VoiceOver reads them).
-                let group = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Allow this iPhone on Studio Mac.'")).firstMatch
-                XCTAssertTrue(group.waitForExistence(timeout: 10), "allow: the wait is not showing")
-                keep(app, "wait-allow")
-                XCTAssertGreaterThanOrEqual(group.frame.height, 132, "allow: the group is not tall enough to hold the orb: \(group.frame)")
-                XCTAssertLessThan(offCentre(group.frame.midY, top: top, bottom: bottom), 0.08, "allow: the orb and words are not centred: \(group.frame) between \(top) and \(bottom)")
-            } else {
-                let orb = app.otherElements["Waiting for your Mac"]
-                let title = app.staticTexts["Connecting to Studio Mac."]
-                XCTAssertTrue(orb.waitForExistence(timeout: 10) && title.exists, "connecting: the orb or the words are not showing")
-                keep(app, "wait-connecting")
-                XCTAssertGreaterThanOrEqual(orb.frame.width, 131.5, "connecting: the orb is under 132 pt: \(orb.frame)")
-                XCTAssertLessThanOrEqual(orb.frame.maxY, title.frame.minY, "connecting: the orb is not above the words")
-                XCTAssertLessThan(abs(orb.frame.midX - title.frame.midX), 2, "connecting: the orb is not centred over the words")
-                let groupMid = (orb.frame.minY + title.frame.maxY) / 2
-                XCTAssertLessThan(offCentre(groupMid, top: top, bottom: bottom), 0.1, "connecting: the orb and words are not centred together")
-            }
+            // Both waits are measured by the orb and the title themselves (review 3: Allow's combined element fills the whole
+            // space, so its frame said nothing about the orb). The children are still in the hierarchy under .combine.
+            let titleText = wait == "allow" ? "Allow this iPhone on Studio Mac." : "Connecting to Studio Mac."
+            let orb = app.otherElements["Waiting for your Mac"]
+            let title = app.staticTexts[titleText]
+            XCTAssertTrue(orb.waitForExistence(timeout: 10) && title.exists, "\(wait): the orb or the words are not showing")
+            keep(app, "wait-" + wait)
+            XCTAssertGreaterThanOrEqual(orb.frame.width, 131.5, "\(wait): the orb is under 132 pt: \(orb.frame)")
+            XCTAssertLessThanOrEqual(orb.frame.maxY, title.frame.minY, "\(wait): the orb is not above the words")
+            XCTAssertLessThan(abs(orb.frame.midX - title.frame.midX), 2, "\(wait): the orb is not centred over the words")
+            let groupMid = (orb.frame.minY + title.frame.maxY) / 2
+            XCTAssertLessThan(offCentre(groupMid, top: top, bottom: bottom), 0.1, "\(wait): the orb and words are not centred together")
             app.terminate()
         }
     }
