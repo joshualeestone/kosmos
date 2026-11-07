@@ -143,14 +143,17 @@ const read = (pg) => pg.evaluate(() => {
   // review 1: with a second computer, the pill covers neither the computer switcher nor the tabs (beside or below the
   // mark, measured), at a desk and at a middle width
   // Each width twice: the switcher's one-time tip showing (it sits under the switcher), and already seen (the usual case).
-  for (const [vp, tipSeen] of [[{ width: 1400, height: 800 }, false], [{ width: 1400, height: 800 }, true], [{ width: 800, height: 800 }, false], [{ width: 800, height: 800 }, true]]) {
+  // `late`: the computers answer is held 2 s, so the switcher arrives AFTER the pill is out (only the pill's watch can
+  // then move it; measured: without the delay the switcher usually arrived first and the watch was never exercised).
+  for (const [vp, tipSeen, late] of [[{ width: 1400, height: 800 }, false, false], [{ width: 1400, height: 800 }, true, false], [{ width: 1400, height: 800 }, true, true], [{ width: 800, height: 800 }, false, false], [{ width: 800, height: 800 }, true, false]]) {
     const ctx = await b.newContext({ viewport: vp });
     if (tipSeen) await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch { /* no storage */ } });
     // Two computers, as /api/remote/computers answers on a Kosmos+ account with a second Mac (render-computers-4648's shape).
-    await ctx.route('**/api/remote/computers', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, domain: 'kosmosplus.example', computers: [
+    await ctx.route('**/api/remote/computers', async (route) => { if (late) await new Promise((r) => setTimeout(r, 2000)); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, domain: 'kosmosplus.example', computers: [
       { name: 'Office Mac mini', address: 'office.kosmosplus.example', this: true, online: true },
-      { name: 'Home Mac mini', address: 'home.kosmosplus.example', this: false, online: true }] }) }).catch(() => {}));
-    const { pg } = await open(ctx, () => ({ count: 12, congrats: true }), { key: 'switcher ' + vp.width + (tipSeen ? ', tip seen' : ''), viewport: vp });
+      { name: 'Home Mac mini', address: 'home.kosmosplus.example', this: false, online: true }] }) }).catch(() => {}); });
+    const { pg } = await open(ctx, () => ({ count: 12, congrats: true }), { key: 'switcher ' + vp.width + (tipSeen ? ', tip seen' : '') + (late ? ', late' : ''), viewport: vp });
+    const before = late ? await pg.evaluate(() => { const p = document.querySelector('#kpill.in'); const w = document.getElementById('worldsw'); return { pill: Boolean(p), below: Boolean(p && p.classList.contains('below')), switcher: Boolean(w && !w.hidden && w.getClientRects().length) }; }) : null;
     await pg.waitForFunction(() => { const w = document.getElementById('worldsw'); return w && !w.hidden && w.getClientRects().length > 0; }, null, { timeout: 8000 }).catch(() => {});
     await pg.waitForTimeout(900);   // past a 400 ms look, so a pill the switcher arrived under has had its chance to fold
     const g = await pg.evaluate(() => {
@@ -163,7 +166,8 @@ const read = (pg) => pg.evaluate(() => {
       return { switcher: Boolean(sw && !sw.hidden && sw.getClientRects().length), tip: Boolean(tip && !tip.hidden && tip.getClientRects().length), pill: Boolean(pill), note: Boolean(note), badge: Boolean(badge && !badge.hidden), below: Boolean(pill && pill.classList.contains('below')),
         coversSwitcher: Boolean(p && sw && over(p, box(sw))), coversTabs: Boolean(p && tabs && over(p, box(tabs))) };
     });
-    const tag = 'switcher (' + vp.width + 'px' + (tipSeen ? ', tip seen' : ', tip showing') + ')';
+    const tag = 'switcher (' + vp.width + 'px' + (tipSeen ? ', tip seen' : ', tip showing') + (late ? ', arriving late' : '') + ')';
+    if (late) say(before && before.pill && !before.below && !before.switcher, tag + ': (premise) the pill was out beside the mark before the switcher arrived', JSON.stringify(before));
     say(g.switcher && (g.pill || g.note || g.badge) && !g.coversSwitcher && !g.coversTabs, tag + ': the day\'s words show, and the pill covers neither the computer switcher nor the tabs', JSON.stringify(g));
     // With the tip already seen at a desk, the pill has room below the mark: a person with two computers sees the pill.
     if (tipSeen && vp.width === 1400) say(g.pill && g.below && !g.tip, tag + ': the pill comes out below the mark', JSON.stringify(g));
