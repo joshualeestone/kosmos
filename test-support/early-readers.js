@@ -1,15 +1,12 @@
 'use strict';
-// Finds shell pipelines whose reader can exit before its writer is done, so that under `set -o pipefail` the writer's
-// SIGPIPE (141) fails the pipeline even when the reader got what it wanted. First written for kosmos#7946 (the CLI's
-// agent remove), shared since kosmos#8193 (ios/LogicTests/run-sweep.sh false-failed a check because it matched).
 /* kosmos#7946: on macOS CI the CLI exited 141 (SIGPIPE under `set -euo pipefail`) with no output, before the DELETE,
-   on unrelated PRs. A caller asserts that a block of shell keeps no pipeline whose reader can exit before its producer
-   is done, so no producer there can take SIGPIPE. earlyReaders() finds such pipelines: continued lines are joined, each line is
-   split on real pipes (`|` and `|&`, never `||`), and the reader is read past env, assignments, `command`, a path,
-   quotes and a `{` or `(`. Early: head, read, grep -q / -m / --quiet / --max-count, a sed that quits, an awk that
-   exits outside END. Quoted text is blanked first, so a `|` or `#` inside quotes is not a pipe or a comment.
-   A heuristic, not a shell parser. Known gaps (review 2): a `|` in a case pattern can read as a pipe (its words
-   are flagged only if they look like a reader); a reader behind a wrapper (timeout, exec, xargs) and grep -l / -L are not recognised. */
+   on unrelated PRs. earlyReaders() finds pipelines whose reader can exit before its producer is done: continued lines
+   are joined, each line is split on real pipes (`|` and `|&`, never `||`), and the reader is read past env,
+   assignments, `command`, a path, quotes and a `{` or `(`; its words end at an unquoted ; && or || (kosmos#8193).
+   Early: head, read, grep -q / -m / --quiet / --max-count, a sed that quits, an awk that exits outside END. Quoted
+   text is blanked first, so a `|` or `#` inside quotes is not a pipe or a comment. A heuristic, not a shell parser.
+   Known gaps (review 2): a `|` in a case pattern can read as a pipe; a reader behind a wrapper (timeout, exec,
+   xargs) and grep -l / -L are not recognised. */
 function earlyReaders(text) {
   const joined = text.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
     .replace(/\\\n\s*/g, ' ').replace(/(\|&?)\s*\n\s*/g, '$1 ');
