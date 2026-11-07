@@ -340,3 +340,12 @@ test('kosmos#8036: a second wait does not repeat the line under itself; a row be
     assert.equal(said(), 2, 'a row between: this one is news again');
   });
 });
+
+test('kosmos#8036: a press still unconfirmed (the same prompt on screen) keeps the wait', async () => {
+  await withPrompt('stillup', { afterKey: PROMPT, reportFirst: hookWait }, async ({ read, press }) => {
+    await press();
+    assert.equal(selfreport.read('stillup').state, 'needs_you');
+    assert.equal(nya.due('stillup'), true);
+    assert.equal(questionRows(await read()).length, 1);
+  });
+});
