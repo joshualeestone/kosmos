@@ -949,37 +949,6 @@ function sessionOps(platform, tmuxBin) {
   };
 }
 
-/**
- * kosmos#8177: on Windows, whether a task found for `clean` is another spelling's, judged by the folders alone.
- *
- * Task Scheduler ignores letter case, so `Cai` finds `cai`'s task. Counting it as `Cai`'s job made plan('Cai') ok and a
- * removal answer "removed" while `cai` kept running (the false success #8112 fixes on the Mac). So when `clean` has no
- * folder of its own and a folder with the same name in other letter case exists, any task found for `clean` is that
- * folder's agent's: the scheduler cannot hold two case variants of one task name, and a Windows folder by default
- * cannot either. Judged by the folders, never by how schtasks spells the task it printed, which is not measured.
- *
- * What it keeps, as main does: an agent asked by its own exact folder name keeps its task whatever case the task was
- * stored in; an agent with no folder at all keeps its task (it is nobody else's); a folder recorded in the profile does
- * not carry the spelling (#8112), so a recorded agent keeps main's answer (#8112's folderIsExactly is the test to use
- * there once it lands); and a workers folder that cannot be read keeps main's answer too. Callers pass the agent's
- * machine name (the card's, the record's), so an agent `Cai` asked as `cai` is a variant here, by design.
- */
-function folderIsAnotherSpellings(clean) {
-  /* create.agentDirRecorded's own rule (it is not exported): the profile's folder, validated by usableRecordedDir. The
-     profile is keyed without case, so `Cai` reads `cai`'s, which is the #8112 case this defers. */
-  let recorded = null;
-  try { recorded = store.readProfile(clean).dir; } catch { recorded = null; }
-  try {
-    if (create.usableRecordedDir(recorded)) return false;
-    const full = create.workerDir(clean);
-    const base = path.basename(full);
-    const names = fs.readdirSync(path.dirname(full));
-    if (names.includes(base)) return false;
-    const lower = base.toLowerCase();
-    return names.some((n) => n !== base && n.toLowerCase() === lower);
-  } catch { return false; }
-}
-
 /* `worldId` (#1704 PR4 review round 3): the same answer about ANOTHER Kosmos --
    an import asks it of the Kosmos it copies INTO, which is not always the one this
    board serves. Absent means this process's own world, which is every other caller. */
@@ -997,11 +966,13 @@ function jobFor(name, platform, worldId) {
     // and hit the booted world's task -- wrong whenever the caller names a non-current world (#2935).
     const wid = worldId === undefined ? launchidentity.currentWorldId() : worldId;
     const st = win32job.status(clean, wid);
-    /* kosmos#8177. Only for THIS Kosmos's own world (review 4): the test reads this world's folders, so another world's
-       agent, whose folder is not here, would lose its own task to it. */
-    const cur = launchidentity.currentWorldId();
-    const here = String(wid) === String(cur) || (launchidentity.isDefaultWorld(wid) && launchidentity.isDefaultWorld(cur));
-    if (st.registered && here && folderIsAnotherSpellings(clean)) return null;
+    /* kosmos#8177: Task Scheduler ignores letter case, so `Cai` finds `cai`'s task, and counting it made plan('Cai') ok
+       and a removal answer "removed" while `cai` kept running (the false success #8112 fixes on the Mac). Every task
+       Kosmos registers is named from a machine name, and a machine name is lowercase (create.NAME_RE, enforced by
+       installJob since agents were first built), so a name with a capital letter has no task of its own: whatever
+       schtasks found for it is another agent's. Decided by the name alone, so it holds whatever the folder is called
+       (renamed `cai` to `Cai` in Explorer), wherever it is recorded, in every world, and however schtasks prints it. */
+    if (st.registered && clean !== clean.toLowerCase()) return null;
     return st.registered ? { label: win32job.taskName(clean, wid), plist: null, ours: true, worldId: wid } : null;
   }
   if ((platform || process.platform) === 'linux') {
@@ -2937,7 +2908,6 @@ module.exports = {
   reapplyRemovedDisables,
   reapplyAtBoardStart,
   RESTART_CHANGED_NOTHING,   // #7470
-  folderIsAnotherSpellings,   // kosmos#8177: exported for its test
   plan,
   resolve,   // #8109: the same, saying when two or more agents answer to the name
   ambiguousRefusal,
