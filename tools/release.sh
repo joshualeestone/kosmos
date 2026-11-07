@@ -1410,22 +1410,50 @@ _pkg_want="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input 
 # ⚠️ THE VERDICT IS THE EXIT CODE (0 needed, 2 current), read under set +e so
 # an ERROR inside the decision (exit 1, or anything else) stops the cut instead
 # of reading as "current" and skipping the publish: fail closed.
-set +e; _pkg_why="$(pkg_publish_needed "$SITE/dist" "$_pkg_want")"; _pkg_rc=$?; set -e
-if [ "$_pkg_rc" = 0 ]; then
-  echo "   rebuilding Kosmos.pkg: $_pkg_why"
-  # Built FROM THE FROZEN TREE (REPO is the detached worktree from 2b), signed,
-  # notarised, stapled; the script refuses to build unsigned. It writes
-  # Kosmos.pkg + .sha256 + .inputs into $REPO/dist.
-  ( cd "$REPO" && OUT_DIR="$REPO/dist" bash tools/build-installer-pkg.sh "$V" )
-  [ "$(pkg_sidecar_inputs "$REPO/dist/Kosmos.pkg.inputs")" = "$_pkg_want" ] || { echo "the built pkg's input sidecar is not the sha this step computed; the build script and the guard disagree"; exit 1; }
-  cp "$REPO/dist/Kosmos.pkg" "$REPO/dist/Kosmos.pkg.sha256" "$REPO/dist/Kosmos.pkg.inputs" "$SITE/dist/"
-  PKG_PUBLISHED=1
-  echo "   published to the site dist: Kosmos.pkg $(awk '{print substr($1,1,12)}' < "$SITE/dist/Kosmos.pkg.sha256"), inputs ${_pkg_want:0:12}"
-elif [ "$_pkg_rc" = 2 ] && case "$_pkg_why" in current:*) true;; *) false;; esac; then
-  PKG_PUBLISHED=0
-  echo "   Kosmos.pkg not rebuilt: $_pkg_why"
-else
-  echo "could not decide whether the pkg needs publishing (rc=$_pkg_rc: ${_pkg_why:-no reason printed}); refusing to guess"; exit 1
+# kosmos#8167: the NAME follows the channel. /dist/Kosmos.pkg is the one file the public Download
+# button links, so a STAGING cut must not write it: it writes Kosmos-staging.pkg, and promote copies
+# that onto Kosmos.pkg. A prod cut writes both. Each name is decided on its own, the build runs at
+# most once, and a name whose inputs another name in the site dist already has current is a COPY of
+# that triple (same bytes, no second sign + notarise). PKG_NAMES_PUBLISHED lists what this step wrote.
+PKG_NAMES="$(pkg_names_for_channel "$CUT_CHANNEL")" || { echo "could not work out the pkg names for channel $CUT_CHANNEL"; exit 1; }
+PKG_PUBLISHED=0; PKG_NAMES_PUBLISHED=""; _pkg_built=0
+for _pkg_name in $PKG_NAMES; do
+  set +e; _pkg_why="$(pkg_publish_needed "$SITE/dist" "$_pkg_want" "$_pkg_name")"; _pkg_rc=$?; set -e
+  if [ "$_pkg_rc" = 2 ] && case "$_pkg_why" in current:*) true;; *) false;; esac; then
+    echo "   $_pkg_name not rebuilt: $_pkg_why"
+    continue
+  elif [ "$_pkg_rc" != 0 ]; then
+    echo "could not decide whether $_pkg_name needs publishing (rc=$_pkg_rc: ${_pkg_why:-no reason printed}); refusing to guess"; exit 1
+  fi
+  # Needed. A current triple under another name in the site dist is the same build: copy it.
+  _pkg_from_dir=""; _pkg_from_name=""
+  for _pkg_other in $PKG_ALL_NAMES; do
+    [ "$_pkg_other" = "$_pkg_name" ] && continue
+    set +e; _pkg_owhy="$(pkg_publish_needed "$SITE/dist" "$_pkg_want" "$_pkg_other")"; _pkg_orc=$?; set -e
+    if [ "$_pkg_orc" = 2 ] && case "$_pkg_owhy" in current:*) true;; *) false;; esac; then
+      _pkg_from_dir="$SITE/dist"; _pkg_from_name="$_pkg_other"; break
+    fi
+  done
+  if [ -z "$_pkg_from_name" ]; then
+    if [ "$_pkg_built" = 0 ]; then
+      echo "   rebuilding the pkg for $_pkg_name: $_pkg_why"
+      # Built FROM THE FROZEN TREE (REPO is the detached worktree from 2b), signed,
+      # notarised, stapled; the script refuses to build unsigned. It writes
+      # Kosmos.pkg + .sha256 + .inputs into $REPO/dist.
+      ( cd "$REPO" && OUT_DIR="$REPO/dist" bash tools/build-installer-pkg.sh "$V" )
+      [ "$(pkg_sidecar_inputs "$REPO/dist/Kosmos.pkg.inputs")" = "$_pkg_want" ] || { echo "the built pkg's input sidecar is not the sha this step computed; the build script and the guard disagree"; exit 1; }
+      _pkg_built=1
+    fi
+    _pkg_from_dir="$REPO/dist"; _pkg_from_name="Kosmos.pkg"
+  else
+    echo "   $_pkg_name needs publishing ($_pkg_why); copying the current $_pkg_from_name triple, the same build"
+  fi
+  pkg_triple_copy "$_pkg_from_dir" "$_pkg_from_name" "$SITE/dist" "$_pkg_name" || { echo "could not publish $_pkg_name into the site dist"; exit 1; }
+  PKG_PUBLISHED=1; PKG_NAMES_PUBLISHED="$PKG_NAMES_PUBLISHED $_pkg_name"
+  echo "   published to the site dist: $_pkg_name $(awk '{print substr($1,1,12)}' < "$SITE/dist/$_pkg_name.sha256"), inputs ${_pkg_want:0:12}"
+done
+if [ "$CUT_CHANNEL" = staging ]; then
+  echo "   $PKG_PROD_NAME left as it is: a staging cut does not touch the file the Download button serves (kosmos#8167)"
 fi
 
 
@@ -1504,7 +1532,7 @@ else
   # harness died before its first check, or refused at its staged-trees line)
   # would abort here with the headline and no reason; print its tail instead.
   grep -E '^FAIL|^   |passed, |SKIP' "$_gate_log" | sed 's/^/   /' || tail -15 "$_gate_log" | sed 's/^/   /'
-  [ "${PKG_PUBLISHED:-0}" = 1 ] && echo "   (3c already put a rebuilt Kosmos.pkg triple in $SITE/dist; a site deploy before the next cut would carry it; verify-served.sh is the check that applies)"
+  [ "${PKG_PUBLISHED:-0}" = 1 ] && echo "   (3c already put the${PKG_NAMES_PUBLISHED} pkg triple in $SITE/dist; a site deploy before the next cut would carry it; verify-served.sh is the check that applies)"
   echo "   (full log: $_gate_log)"; exit 1
 fi
 
@@ -1550,7 +1578,7 @@ if [ "$_cmp_rc" -eq 0 ]; then
 else
   if [ "$_cmp_rc" -eq 2 ]; then echo "THE BUNDLE JUST BUILT COULD NOT BE CHECKED AGAINST THE TREE (the lines above say why). No bundle was copied to the site."
   else echo "THE BUNDLE JUST BUILT IS NOT THE TREE THAT WAS TESTED, OR LACKS A FILE THE APP NEEDS (the lines above name it). No bundle was copied to the site."; fi
-  [ "${PKG_PUBLISHED:-0}" = 1 ] && echo "   (3c already put a rebuilt Kosmos.pkg triple in $SITE/dist; a site deploy before the next cut would carry it; verify-served.sh is the check that applies)"
+  [ "${PKG_PUBLISHED:-0}" = 1 ] && echo "   (3c already put the${PKG_NAMES_PUBLISHED} pkg triple in $SITE/dist; a site deploy before the next cut would carry it; verify-served.sh is the check that applies)"
   exit 1
 fi
 # #1548: this overwrites the served unversioned pointer. Back the pre-cut copy up
@@ -2096,41 +2124,66 @@ step "== 9c. the served installer .pkg is the one step 3c left in the site dist 
 # if chain, the same shape as step 4's tar guard and step 9b. The temp dir
 # lives under BUILD_ROOT so the EXIT trap from 2b removes it on an errexit
 # inside the loop.
-_pkg_ok=0; _pkg_dir="$(mktemp -d "$BUILD_ROOT/pkg9c.XXXXXX")"; _pkg_fact=""
-for i in 1 2 3 4 5 6; do
-  _pkg_fact="the served inputs sidecar could not be fetched"
-  if curl -fsSL -m 30 -H 'Cache-Control: no-cache' "${HOST:-https://installkosmos.com}/dist/Kosmos.pkg.inputs" -o "$_pkg_dir/inputs"; then
-    _pkg_fact="the served inputs ($(pkg_sidecar_inputs "$_pkg_dir/inputs" | cut -c1-12)) are not the source's (${_pkg_want:0:12})"
-    if [ "$(pkg_sidecar_inputs "$_pkg_dir/inputs")" = "$_pkg_want" ]; then
-      _pkg_fact="the served Kosmos.pkg or its .sha256 could not be fetched"
-      if curl -fsSL -m 120 "${HOST:-https://installkosmos.com}/dist/Kosmos.pkg" -o "$_pkg_dir/Kosmos.pkg" \
-         && curl -fsSL -m 30 "${HOST:-https://installkosmos.com}/dist/Kosmos.pkg.sha256" -o "$_pkg_dir/sha256"; then
-        _pkg_real="$(_pkg_hash < "$_pkg_dir/Kosmos.pkg" | awk '{print $1}')"
-        _pkg_fact="the served Kosmos.pkg's bytes (${_pkg_real:0:12}) are not its served checksum's ($(awk '{print substr($1,1,12)}' "$_pkg_dir/sha256"))"
-        if [ "$_pkg_real" = "$(awk '{print $1}' "$_pkg_dir/sha256")" ]; then
-          _pkg_fact="the served sidecar vouches for other bytes ($(pkg_sidecar_pkgsha "$_pkg_dir/inputs" | cut -c1-12)) than the served pkg's (${_pkg_real:0:12})"
-          if [ "$(pkg_sidecar_pkgsha "$_pkg_dir/inputs")" = "$_pkg_real" ]; then
-            _pkg_fact="the served Kosmos.pkg is not the one the export deployed (an edge is holding the prior pair)"
-            # Against the EXPORT's copy (the file that deployed; a real copy
-            # under BUILD_ROOT, not a link), not the shared working tree, which
-            # can be replaced in place during the ten-minute wait.
-            if cmp -s "$_pkg_dir/Kosmos.pkg" "$_site_export/dist/Kosmos.pkg"; then _pkg_ok=1; break; fi
+# kosmos#8167: checked PER NAME. Each name 3c manages for this channel must serve the SOURCE's inputs.
+# On a staging cut, Kosmos.pkg (the Download button's file) is also read, and must be the bytes the
+# export carried, which are the ones the staging cut found and left alone. A staging cut that rewrote
+# it reds here.
+# _pkg_served_check <name> <source|unchanged>: 0 = the six-read loop agreed, 1 = it did not; the
+# failing fact is left in _pkg_fact.
+_pkg_served_check() {
+  local name="$1" mode="$2" i real
+  _pkg_ok=0; _pkg_fact=""
+  _pkg_dir="$(mktemp -d "$BUILD_ROOT/pkg9c.XXXXXX")"
+  for i in 1 2 3 4 5 6; do
+    _pkg_fact="the served $name inputs sidecar could not be fetched"
+    if curl -fsSL -m 30 -H 'Cache-Control: no-cache' "${HOST:-https://installkosmos.com}/dist/$name.inputs" -o "$_pkg_dir/inputs"; then
+      _pkg_fact="the served $name inputs ($(pkg_sidecar_inputs "$_pkg_dir/inputs" | cut -c1-12)) are not the source's (${_pkg_want:0:12})"
+      if [ "$mode" = unchanged ] || [ "$(pkg_sidecar_inputs "$_pkg_dir/inputs")" = "$_pkg_want" ]; then
+        _pkg_fact="the served $name or its .sha256 could not be fetched"
+        if curl -fsSL -m 120 "${HOST:-https://installkosmos.com}/dist/$name" -o "$_pkg_dir/pkg" \
+           && curl -fsSL -m 30 "${HOST:-https://installkosmos.com}/dist/$name.sha256" -o "$_pkg_dir/sha256"; then
+          real="$(_pkg_hash < "$_pkg_dir/pkg" | awk '{print $1}')"
+          _pkg_fact="the served $name's bytes (${real:0:12}) are not its served checksum's ($(awk '{print substr($1,1,12)}' "$_pkg_dir/sha256"))"
+          if [ "$real" = "$(awk '{print $1}' "$_pkg_dir/sha256")" ]; then
+            _pkg_fact="the served $name sidecar vouches for other bytes ($(pkg_sidecar_pkgsha "$_pkg_dir/inputs" | cut -c1-12)) than the served pkg's (${real:0:12})"
+            if [ "$(pkg_sidecar_pkgsha "$_pkg_dir/inputs")" = "$real" ]; then
+              _pkg_fact="the served $name is not the one the export deployed (an edge is holding the prior pair, or this cut changed a file it must not)"
+              # Against the EXPORT's copy (the file that deployed; a real copy
+              # under BUILD_ROOT, not a link), not the shared working tree, which
+              # can be replaced in place during the ten-minute wait.
+              if cmp -s "$_pkg_dir/pkg" "$_site_export/dist/$name"; then _pkg_ok=1; break; fi
+            fi
           fi
         fi
       fi
     fi
+    echo "   (attempt $i, $name: $_pkg_fact; waiting)"
+    sleep 10
+  done
+  rm -rf "$_pkg_dir"
+  [ "$_pkg_ok" = 1 ]
+}
+for _pkg_name in $PKG_NAMES; do
+  if _pkg_served_check "$_pkg_name" source; then
+    case " $PKG_NAMES_PUBLISHED " in
+      *" $_pkg_name "*) echo "   the served $_pkg_name is the one published in 3c: inputs ${_pkg_want:0:12}, checksum agrees, sidecar vouches for these bytes" ;;
+      *) echo "   the served $_pkg_name is current: inputs ${_pkg_want:0:12} match source, checksum agrees, sidecar vouches for these bytes" ;;
+    esac
+  else
+    case " $PKG_NAMES_PUBLISHED " in
+      *" $_pkg_name "*) echo "THE SERVED INSTALLER $_pkg_name IS NOT THE ONE 3c PUBLISHED, AFTER SIX READS: $_pkg_fact." ;;
+      *) echo "THE SERVED INSTALLER $_pkg_name IS NOT THE SITE DIST'S (3c did not rebuild it), AFTER SIX READS: $_pkg_fact." ;;
+    esac
+    echo "   Either the deploy did not carry dist/$_pkg_name* or an edge is holding the prior pair."; exit 1
   fi
-  echo "   (attempt $i: $_pkg_fact; waiting)"
-  sleep 10
 done
-rm -rf "$_pkg_dir"
-if [ "$_pkg_ok" = 1 ]; then
-  if [ "${PKG_PUBLISHED:-0}" = 1 ]; then echo "   the served Kosmos.pkg is the one published in 3c: inputs ${_pkg_want:0:12}, checksum agrees, sidecar vouches for these bytes"
-  else echo "   the served Kosmos.pkg is current: inputs ${_pkg_want:0:12} match source, checksum agrees, sidecar vouches for these bytes"; fi
-else
-  if [ "${PKG_PUBLISHED:-0}" = 1 ]; then echo "THE SERVED INSTALLER PKG IS NOT THE ONE 3c PUBLISHED, AFTER SIX READS: $_pkg_fact."
-  else echo "THE SERVED INSTALLER PKG IS NOT THE SITE DIST'S (nothing was rebuilt this cut), AFTER SIX READS: $_pkg_fact."; fi
-  echo "   Either the deploy did not carry dist/Kosmos.pkg* or an edge is holding the prior pair."; exit 1
+if [ "$CUT_CHANNEL" = staging ]; then
+  if _pkg_served_check "$PKG_PROD_NAME" unchanged; then
+    echo "   the served $PKG_PROD_NAME is the one this staging cut left alone: the Download button's installer did not move (kosmos#8167)"
+  else
+    echo "THE SERVED $PKG_PROD_NAME IS NOT THE ONE THIS STAGING CUT LEFT IN THE SITE DIST, AFTER SIX READS: $_pkg_fact."
+    echo "   A staging cut must not change the installer the Download button serves (kosmos#8167)."; exit 1
+  fi
 fi
 
 step "== 9d. the served manifest answers for the served bytes (#776) =="
