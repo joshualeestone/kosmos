@@ -187,6 +187,35 @@ const read = (pg) => pg.evaluate(() => {
     await pg.close();
   }
 
+  // review 2: a reload while the pill is out keeps the day's badge (the board answers congrats once a day)
+  {
+    let calls = 0;
+    const ctx = await b.newContext();
+    const { pg } = await open(ctx, () => ({ count: 12, congrats: calls++ === 0 }), { key: 'reload mid-pill' });
+    await pg.waitForTimeout(400);
+    const up = (await read(pg)).pill.shown;
+    await pg.reload({ waitUntil: 'domcontentloaded' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
+    await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
+    await pg.waitForTimeout(800);
+    const g = await read(pg);
+    say(up && !g.pill.shown && g.badge && !g.badge.hidden && g.badge.text === '12', 'reload mid-pill: the badge is there after the reload (no second pill)', JSON.stringify({ up, pill: g.pill.shown, badge: g.badge, calls }));
+    await pg.close(); await ctx.close();
+  }
+
+  // review 2: a mouse click on the K mark (which focuses it) does not pin the pill: it still folds
+  {
+    const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'click pin' });
+    await pg.waitForTimeout(400);
+    await pg.click('#klink');
+    await pg.mouse.move(700, 700);
+    const focused = await pg.evaluate(() => document.activeElement && document.activeElement.id);
+    await pg.waitForTimeout(7200);
+    const g = await read(pg);
+    say(!g.pill.shown && g.badge && !g.badge.hidden, 'click: a click on the K mark does not pin the pill; it folds', JSON.stringify({ focused, pill: g.pill.shown, badge: g.badge }));
+    await pg.close();
+  }
+
   // reload the same day: the badge is back, with no pill; a badge folded yesterday is not (control)
   for (const [when, want] of [['today', true], ['yesterday', false]]) {
     const ctx = await b.newContext();

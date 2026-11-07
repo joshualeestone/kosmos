@@ -39676,19 +39676,13 @@ const streakPillHits = (r, sel) => [...document.querySelectorAll(sel)].some((e) 
   return o.width > 0 && o.height > 0 && r.left < o.right && o.left < r.right && r.top < o.bottom && o.top < r.bottom;
 });
 function streakPillPlace(pill) {
-  const hits = (r, sel) => [...document.querySelectorAll(sel)].some((e) => {
-    if (e.closest('.kmark') || e.getClientRects().length === 0) return false;
-    const o = e.getBoundingClientRect();
-    return o.width > 0 && o.height > 0 && r.left < o.right && o.left < r.right && r.top < o.bottom && o.top < r.bottom;
-  });
   const fits = (r) => r.left >= 0 && r.right <= document.documentElement.clientWidth;
-  const header = '.apphead header button, .apphead header a, .apphead header select, #tabs, .worldsw:not([hidden])';
   pill.classList.remove('below');
   let r = pill.getBoundingClientRect();
-  if (fits(r) && !hits(r, header)) return true;
+  if (fits(r) && !streakPillHits(r, STREAK_PILL_HEADER)) return true;
   pill.classList.add('below');
   r = pill.getBoundingClientRect();
-  if (fits(r) && !hits(r, header + ', #topnotes > * > *')) return true;
+  if (fits(r) && !streakPillHits(r, STREAK_PILL_HEADER + ', #topnotes > * > *')) return true;
   pill.classList.remove('below');
   return false;
 }
@@ -39698,10 +39692,14 @@ function streakPillPlace(pill) {
 function streakPill(n) {
   const mark = document.querySelector('.kmark'), pill = document.getElementById('kpill'), k = document.getElementById('klink');
   if (!mark || !pill || !k) return false;
+  if (streakPillFold) return true;   // review 2: one is already out; a second never restarts it
   pill.textContent = streakCongrats(n);   // measured with its words; it is still invisible (visibility: hidden)
   if (!streakPillPlace(pill)) { pill.textContent = ''; return false; }
   pill.textContent = '';
   const day = streakDay || streakLocalDay(new Date());   // review 1: the day the visit counted, not the day it folds
+  /* Review 2: kept NOW, not at the fold: the board says congrats once a day, so a reload while the pill is out would
+     otherwise lose both the pill and the badge for the day. The badge still shows only once this pill folds. */
+  streakBadgeKeep(day);
   const fold = () => {
     clearTimeout(streakPillTimer); streakPillFold = null;
     pill.classList.remove('in'); mark.classList.remove('kglow');
@@ -39714,7 +39712,8 @@ function streakPill(n) {
      seen (aria-hidden): a region that is revealed and filled in one update is often skipped. */
   const say = document.getElementById('kpill-say');
   requestAnimationFrame(() => { pill.textContent = streakCongrats(n); pill.classList.add('in'); mark.classList.add('kglow'); if (say) say.textContent = streakCongrats(n); });
-  const held = () => k.matches(':hover') || pill.matches(':hover') || document.activeElement === k;
+  // Review 2: keyboard focus holds it (:focus-visible); the focus a mouse click leaves on the mark does not, or it would never fold.
+  const held = () => k.matches(':hover') || pill.matches(':hover') || k.matches(':focus-visible');
   const later = (ms) => { clearTimeout(streakPillTimer); streakPillTimer = setTimeout(() => { if (held()) later(1500); else fold(); }, ms); };
   later(6000);
   /* Review 1: something can arrive under the pill after it was placed (the computer switcher shows once the computers
