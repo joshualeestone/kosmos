@@ -866,7 +866,7 @@ if [ "$PKG_PROMOTE" = 1 ]; then
     || { echo "promote-channel: could not copy dist/$PKG_STAGING_NAME onto dist/$PKG_PROD_NAME ($PROD_NAME is promoted; the Download button's installer is NOT yet). Finish by hand before any deploy: pkg_triple_copy \"$SITE/dist\" $PKG_STAGING_NAME \"$SITE/dist\" $PKG_PROD_NAME (tools/lib/pkg-inputs.sh)." >&2; exit 1; }
   cmp -s "$SITE/dist/$PKG_STAGING_NAME" "$SITE/dist/$PKG_PROD_NAME" && [ "$(pkg_triple_check "$SITE/dist" "$PKG_PROD_NAME")" = "$_pkg_ssha" ] \
     || { echo "promote-channel: dist/$PKG_PROD_NAME does not read back as the verified staging pkg - check it by hand before any deploy" >&2; exit 1; }
-  echo "   copied the staging installer pkg onto $PKG_PROD_NAME (sha256 ${_pkg_ssha:0:12}; same bytes, no re-sign)"
+  echo "   copied the staging installer pkg onto $PKG_PROD_NAME (sha256 ${_pkg_ssha:0:12}; same bytes, no re-sign). deploy-site.sh --promote ships it only if these are the SERVED Kosmos-staging.pkg's bytes; otherwise it keeps the served $PKG_PROD_NAME and says so."
 fi
 # Prove the promote landed: the prod pointer now names the same artifact + sha as the snapshot.
 PROD_ART="$(read_pointer_field "$SITE/dist/$PROD_NAME" "$ARTIFACT_FIELD")"

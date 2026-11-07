@@ -52,3 +52,25 @@ Pieces:
 ## Tonight
 
 No change to the live pkg (Splinter, 21:34). This branch changes what the NEXT cut does.
+
+## Review round 1
+
+- BLOCKER, fixed: on a staging cut the export carries whatever `Kosmos.pkg` the site dist holds, so a leftover
+  (for example from a prod cut that aborted after 3c) would have shipped to the Download button while 9c, which
+  compared the served copy with the export, passed. 3c now reads the served `Kosmos.pkg.sha256` first (a 200 is
+  required) and, if the site dist copy is missing or differs, puts the served triple back. 9c then holds the
+  served `Kosmos.pkg` to that pre-cut sha as well as to the export.
+- deploy-site.sh: only a 404 means "no staging pkg served"; any other non-200 refuses. A `--promote` that drops a
+  local `Kosmos.pkg` which is neither served file says so with a WARNING.
+- `check-served.js` gains `--pkg Kosmos-staging.pkg` so installer markers can be checked on staging. Its value is
+  checked at start.
+- `docs/staging-channel.md` describes the staging pkg and the promote copy.
+
+Deferred, with reasons:
+- The site's `.vercelignore`: measured against origin/main with `pkg_upload_filter_excludes`, it excludes neither
+  name (a `dist/*.pkg` control shows the check can see an exclusion). No site change is needed for the upload.
+- `serve-watch.js` and the site's hourly served-sidecar row: both would alarm on a staging pkg that is not served
+  yet. Added after the first staging cut under this change has published one.
+- A named promote that follows an un-named promote which was never deployed: the local `Kosmos.pkg` is then the
+  staging pkg, and deploy-site keeps it because it is the served staging pkg's bytes. It needs two promotes with
+  no deploy between them, and the result is an installer that staging serves and a cut has checked.

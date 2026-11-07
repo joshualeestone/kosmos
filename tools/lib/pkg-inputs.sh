@@ -235,12 +235,6 @@ pkg_names_for_channel() {   # <staging|prod>
   esac
 }
 
-# Copy a pkg triple from <src-dir>/<src-name> to <dst-dir>/<dst-name>. The .inputs sidecar is copied
-# as it is: it names input and byte shas, not a file name. The .sha256 is WRITTEN under the destination
-# name, so `shasum -c` and the served "names the file it describes" check hold for each name. The
-# copy is refused (returns 1) unless the source pair agrees, the sidecar vouches for the source bytes,
-# and the copied bytes hash the same. The three files are written to a temp dir in <dst-dir> and only
-# then moved into place, so a refusal leaves the destination's old triple untouched.
 # Is <dir>/<name> a whole, self-consistent triple? Prints the pkg's sha256 and returns 0, or names
 # what is wrong on stderr and returns 1. Used before a copy, and by promote before its first write.
 pkg_triple_check() {   # <dir> <name>
@@ -256,6 +250,13 @@ pkg_triple_check() {   # <dir> <name>
   printf '%s\n' "$real"
 }
 
+# Copy a pkg triple from <src-dir>/<src-name> to <dst-dir>/<dst-name>. The .inputs sidecar is copied
+# as it is: it names input and byte shas, not a file name. The .sha256 is WRITTEN under the destination
+# name, so `shasum -c` and the served "names the file it describes" check hold for each name. Refused
+# (returns 1) unless pkg_triple_check passes on the source and the copied bytes hash the same. The files
+# are staged in a temp dir in <dst-dir>, so a refusal before the final moves leaves the destination as it
+# was. The three moves are separate renames: a failure between them can leave a new .inputs or .sha256
+# beside the old pkg, which the next pkg_publish_needed or pkg_triple_check reports as broken.
 pkg_triple_copy() {   # <src-dir> <src-name> <dst-dir> <dst-name>
   local sd="${1:?}" sn="${2:?}" dd="${3:?}" dn="${4:?}" real got t
   real="$(pkg_triple_check "$sd" "$sn")" || { echo "pkg_triple_copy: not copying $sd/$sn (above)" >&2; return 1; }

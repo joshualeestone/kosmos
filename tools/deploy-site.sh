@@ -796,20 +796,35 @@ fi
 # kept: fetching would put the old installer back under the promoted pointer.
 _pkg_keep=0
 if [ "$PROMOTE" = 1 ] && _pkg_lsha="$(pkg_triple_check "$SITE/dist" Kosmos.pkg 2>/dev/null)"; then
-  _pkg_ssrv="$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null | awk '{print $1; exit}')"
+  _pkg_ssrv="$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null)" || _pkg_ssrv=""
+  _pkg_ssrv="${_pkg_ssrv%%[[:space:]]*}"
   if [ -n "$_pkg_ssrv" ] && [ "$_pkg_ssrv" = "$_pkg_lsha" ]; then
     _pkg_keep=1
     echo "deploy-site: dist/Kosmos.pkg is the promoted copy of the served Kosmos-staging.pkg (${_pkg_lsha:0:12}) -- kept, not fetched (kosmos#8167)"
   fi
 fi
 if [ "$_pkg_keep" = 0 ]; then
+  if [ "$PROMOTE" = 1 ] && [ -f "$SITE/dist/Kosmos.pkg" ]; then
+    _pkg_psrv="$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos.pkg.sha256" 2>/dev/null)" || _pkg_psrv=""
+    _pkg_psrv="${_pkg_psrv%%[[:space:]]*}"
+    _pkg_ploc="$(_sha256_of "$SITE/dist/Kosmos.pkg")"
+    [ -z "$_pkg_psrv" ] || [ "$_pkg_ploc" = "$_pkg_psrv" ] \
+      || echo "deploy-site: WARNING the local dist/Kosmos.pkg (${_pkg_ploc:0:12}) is neither the served Kosmos.pkg (${_pkg_psrv:0:12}) nor the served Kosmos-staging.pkg, so it is replaced by the served Kosmos.pkg and the Download button keeps its current installer. If promote-channel.sh just copied a staging pkg here, that pkg was never served (kosmos#8167)." >&2
+  fi
   fetch_verified "$HOST/dist/Kosmos.pkg" "$SITE/dist/Kosmos.pkg"   # Kosmos.pkg + Kosmos.pkg.sha256 (#4745)
   fetch "$HOST/dist/Kosmos.pkg.inputs" "$SITE/dist/Kosmos.pkg.inputs"
   verify_sha "$SITE/dist/Kosmos.pkg" "$HOST/dist/Kosmos.pkg.sha256"
 fi
 # Kosmos-staging.pkg: pinned to the served one when there is one. When none is served yet (before the first staging cut
 # after kosmos#8167), a local one would ship bytes no cut's 9c ever checked, so that is a refusal, and no local one is fine.
-if curl -fsSL -o /dev/null -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null; then
+# Only a 404 means "none served". Anything else that is not a 200 (a timeout, a 5xx) is a refusal: read as "none", it
+# would deploy without the triple and the staging pkg would stop serving.
+_pkg_scode="$(curl -sS -L -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' "$HOST/dist/Kosmos-staging.pkg.sha256" 2>/dev/null)" || _pkg_scode="${_pkg_scode:-000}"
+case "$_pkg_scode" in
+  200|404) ;;
+  *) echo "deploy-site: could not tell whether the host serves Kosmos-staging.pkg (HTTP ${_pkg_scode:-none} for its .sha256) -- refusing; nothing was deployed (kosmos#8167)"; exit 1 ;;
+esac
+if [ "$_pkg_scode" = 200 ]; then
   fetch_verified "$HOST/dist/Kosmos-staging.pkg" "$SITE/dist/Kosmos-staging.pkg"
   fetch "$HOST/dist/Kosmos-staging.pkg.inputs" "$SITE/dist/Kosmos-staging.pkg.inputs"
   verify_sha "$SITE/dist/Kosmos-staging.pkg" "$HOST/dist/Kosmos-staging.pkg.sha256"
