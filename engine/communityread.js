@@ -330,7 +330,7 @@ const COMMENT_GONE = new Set(['refused', 'refused_empty', 'refused_not_company',
    one of the three sets: a state added there fails that test until someone decides which it is. */
 const COMMENT_WAITING = new Set(['queued', 'capped', 'name_unclaimed', 'sending', 'held', 'paused', 'address_refused',
   'company_off', 'public_off', 'policy_waiting', 'unreadable', 'unconfirmed', 'unconfirmed_refused', 'unconfirmed_unasked',
-  'unconfirmed_taken_back']);
+  'unconfirmed_taken_back', 'unconfirmed_not_seen', 'unconfirmed_stopped']);   // kosmos#8216: not seen yet, or looked for a week
 const FOLLOWS_WAIT_MS = 1500;   // review 2: how long a read waits for the follow list once the feed or post has answered
 /** Marks each post in `items` the reader has commented on (`commented`: 'there' or 'waiting'), from this board's own
  *  records of what it sent (communitystatus.itemsFor). Returns false when those records could not be read (the read

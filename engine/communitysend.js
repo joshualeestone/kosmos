@@ -1189,7 +1189,8 @@ async function sendComment(c, keys, csent, now, from) {
   if (parent) body.parent_id = parent;
   if (!body.body.trim()) { csent[c.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   // Write-ahead: a board that stops while the POST is out finds this mark and does not send again.
-  csent[c.id] = { ...rec, attempted: true };
+  const attemptedAt = new Date(now).toISOString();   // kosmos#8216: when, so a later look knows how far back to read
+  csent[c.id] = { ...rec, attempted: true, attemptedAt };
   saveJson(commentsSentFile(), csent);
   // #4801 review 1: while the POST is out the owner's list says "Sending" and a removal is refused as busy, not as
   // "never learned whether it arrived": in a minute it has an answer. In memory on purpose: a board that stopped
@@ -1242,7 +1243,7 @@ async function sendComment(c, keys, csent, now, from) {
     csent[c.id] = settle(rec, { state: 'refused', reasons: ['http_' + r.status] });
     log(`comment for ${agentKey}: refused with ${r.status}`);
   } else {
-    csent[c.id] = settle(rec, { state: 'unconfirmed', ...(r.status ? { lastStatus: r.status } : {}) });
+    csent[c.id] = settle(rec, { state: 'unconfirmed', attemptedAt, ...(r.status ? { lastStatus: r.status } : {}) });
     log(`comment for ${agentKey}: no usable answer (status ${r.status || 'none'}); it may be on the server, so it is not sent again`);
   }
 }
@@ -1290,8 +1291,9 @@ async function sweepComments(keys, from, now) {
  * #4801: the owner removed a comment that went out. DELETE /posts/{post}/comments/{remoteId} as the agent that sent it
  * (kosmos-community #24: the service lets only the comment's own agent remove it). 204, or 404 (already gone), settles
  * it as deleted; anything else keeps deleteStatus and is tried again next sweep, like sweepDeletes. Only a comment the
- * service answered with its id can be found: an unconfirmed one, or a sent one with no id, is never asked about, since
- * the service has no list of an agent's comments to look it up in. Runs whatever the switch says.
+ * service answered with its id can be found: a sent one with no id is never asked about, and an unconfirmed one only
+ * once settleUnconfirmedComments has found it in its thread (kosmos#8216: then it is sent, with its id). Runs whatever
+ * the switch says.
  */
 async function sweepCommentDeletes(keys) {
   const cdel = loadJson(commentDeletesFile());
@@ -2113,6 +2115,9 @@ async function sweepOnce(now) {
     await settleUnconfirmed(keys, sent, now);
     saveJson(sentFile(), sent);
   } catch (e) { log(`unconfirmed sends: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  // kosmos#8216: unconfirmed comments are looked for in their threads, as posts are settled just above.
+  try { await settleUnconfirmedComments(keys, now); }
+  catch (e) { log(`unconfirmed comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   let from = null;
   if (on && st) {
     from = sinceForOnPeriod(st);
@@ -2199,6 +2204,114 @@ async function settleUnconfirmed(keys, sent, now) {
     // the record keeps that doubt (unverified) for status and a repeat take-back to say.
     else sent[id] = String(rec.agent).startsWith(RETIRED_PREFIX) ? settle(rec, { state: 'not_sent', reasons: ['agent_deleted'] })
       : settle(rec, knownOtherRegistration(rec, k) ? { unverified: true } : {});
+  }
+}
+
+/**
+ * kosmos#8216: a comment whose send got no answer (`unconfirmed`, or still `attempted` after a board stopped mid-send)
+ * is never sent again, since a doubled public comment is the worse failure. Until now nothing ever looked for it, so
+ * its agent could not learn whether it landed. This looks for it the way an unconfirmed post is settled, but in the
+ * post's thread, since the public community has no list of one agent's comments: the thread (or, for a reply, its
+ * parent's replies) is read anonymously, newest first, back to just before the send was tried, for a comment by the
+ * same community account with the same words. A company-space comment is looked for in the space's own list of the
+ * agent's comments.
+ *   Found: it settles as sent, with its id, so status links to it and a take-back can reach it.
+ *   Not found after reading back past the send: it stays unconfirmed, marked as looked for (a held or hidden comment is
+ *   not in the public thread, so "not seen" is never "not sent", and it is still never sent again).
+ * Looked for at most once an hour per comment, for a week from the first look, and at most a few per pass, so a slow
+ * thread never holds up the sweep. Runs whatever the switch says, as the post settle does.
+ */
+const LOOK_EVERY_MS = 60 * 60 * 1000;
+const LOOK_FOR_MS = 7 * 24 * 60 * 60 * 1000;
+const LOOKS_PER_PASS = 3;
+const LOOK_PAGES = 5;
+const LOOK_PAGE = 20;   // the service pages a thread at most 20
+const LOOK_CAP = 1024 * 1024;
+const LOOK_CURSOR_RE = /^[A-Za-z0-9_=.-]{1,200}$/;
+function unconfirmedComment(id, rec) {
+  return Boolean(rec) && (rec.state === 'unconfirmed' || (rec.state === 'pending' && rec.attempted === true && !commentsInFlight.has(String(id))));
+}
+/* The comments a thread read returns, as { id, agentId, body, at } (at in ms, NaN if unreadable). */
+function lookRows(list) {
+  return (Array.isArray(list) ? list : []).map((x) => ({
+    id: x && typeof x.id === 'string' ? x.id : '',
+    agentId: x && x.agent && typeof x.agent.id === 'string' ? x.agent.id : '',
+    body: x && typeof x.body === 'string' ? x.body : null,
+    at: Date.parse(x && x.created_at),
+  }));
+}
+/* Look for one comment. Returns { found: id } , { found: null, complete } (complete: the read went back past `since`, or
+   to the end of the thread), or null (the community could not be read: try again later). */
+async function lookForComment(c, agentKey, keys, agentId, since) {
+  const words = String(c.body || '').trim();
+  const match = (x) => x.agentId === agentId && x.body !== null && x.body.trim() === words && (since === null || !(x.at < since));
+  if (c.space === 'company') {
+    const r = await spaceAs(agentKey, keys, 'GET', '/agents/me/comments', undefined, c.org);
+    if (!r || r.notSent || r.status !== 200 || !r.json || !Array.isArray(r.json.comments)) return null;
+    // The space's list is this agent's own comments, newest first: the post is checked, not the author.
+    const mine = r.json.comments.filter((x) => x && String(x.post_id || '') === String(c.remotePostId));
+    const hit = lookRows(mine).find((x) => x.body !== null && x.body.trim() === words && (since === null || !(x.at < since)));
+    return { found: hit ? hit.id : null, complete: true };
+  }
+  const post = encodeURIComponent(String(c.remotePostId));
+  const parent = typeof c.remoteParentId === 'string' && c.remoteParentId ? encodeURIComponent(c.remoteParentId) : null;
+  let cursor = '';
+  for (let page = 0; page < LOOK_PAGES; page++) {
+    const base = parent ? '/posts/' + post + '/comments/' + parent + '/replies?limit=' + LOOK_PAGE
+      : '/posts/' + post + '/comments?order=newest&limit=' + LOOK_PAGE;
+    const r = await request('GET', base + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''), { cap: LOOK_CAP });
+    if (r.status === 404) return { found: null, complete: true };   // the post (or the parent) is gone from the public thread
+    const list = r.status === 200 && r.json ? (parent ? r.json.replies : r.json.comments) : null;
+    if (!Array.isArray(list)) return null;
+    const rows = lookRows(list);
+    // A top-level comment arrives with its first replies; a reply is looked for under its own parent only.
+    const hit = rows.find(match);
+    if (hit) return { found: hit.id };
+    const next = typeof r.json.next_cursor === 'string' && LOOK_CURSOR_RE.test(r.json.next_cursor) ? r.json.next_cursor : '';
+    if (!next) return { found: null, complete: true };   // the end of the thread
+    // Newest first: once a page reaches back before the send, nothing older can be it. Replies come oldest first, so
+    // they are read to the end (a thread's replies are capped).
+    if (!parent && since !== null && rows.some((x) => x.at < since)) return { found: null, complete: true };
+    cursor = next;
+  }
+  return { found: null, complete: false };   // more thread than this pass reads
+}
+async function settleUnconfirmedComments(keys, now) {
+  const csent = loadJson(commentsSentFile());
+  if (!csent) return;
+  const due = Object.entries(csent).filter(([id, rec]) => unconfirmedComment(id, rec)
+    && !(rec.lookedAt && now - Date.parse(rec.lookedAt) < LOOK_EVERY_MS)
+    && !(rec.lookFirstAt && now - Date.parse(rec.lookFirstAt) >= LOOK_FOR_MS));
+  if (!due.length) return;
+  const byId = new Map(communitystore.publishedServiceComments().map((c) => [c.id, c]));
+  let looked = 0;
+  for (const [id, rec] of due) {
+    if (looked >= LOOKS_PER_PASS) break;
+    if (retiring(rec.agent) || String(rec.agent).startsWith(RETIRED_PREFIX)) continue;   // #4994: the retired account's
+    const c = byId.get(id);
+    const k = keys[rec.agent];
+    // The account that sent it: the record's, else the key this board holds (an unconfirmed send records none).
+    const agentId = rec.agentId || (k && k.remoteId) || '';
+    if (!c || !agentId || !c.remotePostId) continue;
+    if (c.space === 'company' && !(k && k.apiKey && companyPostGoesNow(c, now))) continue;
+    looked += 1;
+    const tried = Date.parse(rec.attemptedAt);
+    const since = Number.isFinite(tried) ? tried - REGISTER_CLOCK_SKEW_MS : null;
+    let r = null;
+    try { r = await lookForComment(c, rec.agent, keys, agentId, since); } catch { r = null; }
+    // Re-read before writing: a send pass or a take-back may have written the file while this was on the network.
+    const latest = loadJson(commentsSentFile());
+    if (!latest || !unconfirmedComment(id, latest[id])) continue;
+    const cur = latest[id];
+    const stamp = new Date(now).toISOString();
+    if (r && r.found) {
+      latest[id] = settle(cur, { state: 'sent', remoteId: String(r.found), agentId, sentAt: cur.attemptedAt || stamp, foundInThread: stamp,
+        ...(c.space === 'company' ? { space: 'company', org: c.org } : {}) });
+      log(`comment ${id} for ${rec.agent}: found in the community thread, so it was sent after all`);
+    } else {
+      latest[id] = { ...cur, lookedAt: stamp, lookFirstAt: cur.lookFirstAt || stamp, ...(r ? { lookComplete: r.complete === true } : {}) };
+    }
+    saveJson(commentsSentFile(), latest);
   }
 }
 
@@ -3321,6 +3434,15 @@ function commentRecords() {
       // whether it is cannot be told from a record with no agentId ('registration-unknown'). Null otherwise.
       untraceableReason: state !== 'sent' ? null : !hasHandle ? 'no-id'
         : keysRead ? registrationMismatch(rec, k) : null,
+      /* kosmos#8216: for an unconfirmed comment, whether Kosmos can look for it (it knows the sending account), when it
+         last looked, whether that look read back past the send, and whether it has stopped looking (a week on). */
+      ...(state === 'unconfirmed' ? {
+        canLook: Boolean(rec.agentId || (k && k.remoteId)),
+        lookedAt: typeof rec.lookedAt === 'string' ? rec.lookedAt : null,
+        lookComplete: rec.lookComplete === true,
+        lookStopped: typeof rec.lookFirstAt === 'string' && Date.now() - Date.parse(rec.lookFirstAt) >= LOOK_FOR_MS,
+      } : {}),
+      ...(state === 'sent' && typeof rec.foundInThread === 'string' ? { foundInThread: rec.foundInThread } : {}),
     };
   }
   return out;
