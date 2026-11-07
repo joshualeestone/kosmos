@@ -96,14 +96,9 @@ function readDelimited(text, sep, name) {
   return { sheets: [{ name: name || 'Sheet 1', rows: grid, cut, ...(base ? { firstRow: base + 1 } : {}) }], moreSheets: 0, noValues: false, empty: !any };
 }
 
-/* Review 5: an answer too large to send is "too large to preview", decided here, whichever reader made it (the xlsx
-   reader caps its own answer; this is the seam's own line, and it covers CSV, whose input cap bounds it). */
+/* Review 5: an answer too large to send is "too large to preview", decided in fromBytes whichever reader made it (the
+   xlsx reader caps its own answer; this is the seam's own line, and it covers CSV, whose input cap bounds it). */
 const MAX_ANSWER_CHARS = 8 * 1024 * 1024;
-function fits(answer) {
-  let size = Infinity;
-  try { size = JSON.stringify(answer).length; } catch { /* past the longest string: too large */ }
-  return size <= MAX_ANSWER_CHARS ? answer : { ok: false, because: TOO_LARGE, tooLarge: true };
-}
 
 /**
  * A spreadsheet's bytes to `{ ok: true, ...shape }` or `{ ok: false, because, tooLarge? }`. `name` decides the reader.
@@ -131,7 +126,11 @@ function fromBytes(buf, name) {
       if (!slowOnce.has(key)) { slowOnce.add(key); if (slowOnce.size > MAX_REMEMBERED) slowOnce.delete(slowOnce.values().next().value); return shown; }
       read = shown;
     }
-    const text = JSON.stringify(read);
+    // #8162: written once, here, both to measure it (the seam's MAX_ANSWER_CHARS, which `fits` checked with a second
+    // stringify) and to copy it before it is kept.
+    let text = null;
+    try { text = JSON.stringify(read); } catch { /* past the longest string: too large */ }
+    if (text === null || text.length > MAX_ANSWER_CHARS) { read = { ok: false, because: TOO_LARGE, tooLarge: true }; text = JSON.stringify(read); }
     answer = JSON.parse(text);
     sizes.set(key, text.length);
   }
@@ -154,7 +153,7 @@ const sizes = new Map();   // key -> the answer's JSON length
 const slowOnce = new Set();   // keys refused once for the time taken
 function readFresh(buf, kind, name) {
   if (kind === 'xlsx') {
-    try { return fits({ ok: true, ...xlsx.readXlsx(buf) }); }
+    try { return { ok: true, ...xlsx.readXlsx(buf) }; }
     catch (e) {
       if (e && e.name === 'XlsxRefusal') return { ok: false, because: e.message, ...(e.message === TOO_LARGE ? { tooLarge: true } : {}), ...(e.slow ? { slow: true } : {}) };
       return { ok: false, because: CANNOT_READ };
@@ -163,7 +162,7 @@ function readFresh(buf, kind, name) {
   // A NUL byte means this is not text, whatever its name says.
   if (buf.includes(0)) return { ok: false, because: CANNOT_READ };
   const base = path.basename(String(name || ''));
-  try { return fits({ ok: true, ...readDelimited(buf.toString('utf8'), kind === 'tsv' ? '\t' : ',', base) }); }
+  try { return { ok: true, ...readDelimited(buf.toString('utf8'), kind === 'tsv' ? '\t' : ',', base) }; }
   catch { return { ok: false, because: CANNOT_READ }; }
 }
 
@@ -198,4 +197,4 @@ function fromFile(file, name) {
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
-module.exports = { _forgetForTests: () => { answers.clear(); sizes.clear(); slowOnce.clear(); }, _heldForTests: () => answers.size, kindOf, capFor, readDelimited, fromBytes, fromFile, MAX_DELIMITED_BYTES, TOO_LARGE, CANNOT_READ };
+module.exports = { _forgetForTests: () => { answers.clear(); sizes.clear(); slowOnce.clear(); }, _heldForTests: () => ({ count: answers.size, chars: [...answers.keys()].reduce((n, k) => n + (sizes.get(k) || 0), 0) }), kindOf, capFor, readDelimited, fromBytes, fromFile, MAX_DELIMITED_BYTES, TOO_LARGE, CANNOT_READ };

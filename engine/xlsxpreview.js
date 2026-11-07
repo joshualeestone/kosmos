@@ -137,6 +137,10 @@ const nearMiss = () => { if (onNearMiss) onNearMiss(); };
 /* #8147 review r3: so are a string's text runs (3.9M "<t/>" in one 16 KB file cost 0.3 to 0.5 s, unseen likewise): each
    run is counted toward its own cap, with the same budget check. */
 let onTextRun = null;
+/* #8162: an element whose start tag or closing tag is missing (a file cut short, or a hostile one) is never read, as
+   before; but the reading now counts it (`cutShorts`, reset for each read), so a sheet whose walk lost a value that way
+   says it is cut and is never called "empty" (an unclosed cell read as an empty workbook). */
+let cutShorts = 0;
 /* Every element named `name` in `xml`, as { tag, body, end } (body '' for a self-closed one), found with indexOf. With
    `lenient` (the containers: sheetData, row), one the part never closes (a file cut short) yields the rest of the part,
    so what is there is still read; a value that is not closed is never read. */
@@ -148,11 +152,11 @@ function* elements(xml, name, lenient = false) {
     const after = xml[i + name.length + 1];
     if (after !== ' ' && after !== '>' && after !== '/' && after !== '\t' && after !== '\n' && after !== '\r') { at = i + 1; nearMiss(); continue; }
     const tagEnd = xml.indexOf('>', i);
-    if (tagEnd < 0) return;
+    if (tagEnd < 0) { cutShorts++; return; }
     const tag = xml.slice(i, tagEnd + 1);
     if (tag.endsWith('/>')) { yield { tag, body: '', end: tagEnd + 1 }; at = tagEnd + 1; continue; }
     const close = xml.indexOf('</' + name + '>', tagEnd);
-    if (close < 0) { if (lenient) yield { tag, body: xml.slice(tagEnd + 1), end: xml.length }; return; }
+    if (close < 0) { if (lenient) yield { tag, body: xml.slice(tagEnd + 1), end: xml.length }; else cutShorts++; return; }
     yield { tag, body: xml.slice(tagEnd + 1, close), end: close + name.length + 3 };
     at = close + name.length + 3;
   }
@@ -432,10 +436,11 @@ function readXlsx(buf) {
   const budget = () => { if (now() - started > WORK_BUDGET_MS) throw new XlsxRefusal(TOO_LARGE, true); };
   let misses = 0;
   let runs = 0;
-  const outer = onNearMiss, outerRun = onTextRun;
+  const outer = onNearMiss, outerRun = onTextRun, outerCut = cutShorts;
+  cutShorts = 0;
   onNearMiss = () => { if (++misses > MAX_NEAR_MISSES) refuse(TOO_LARGE); if ((misses & 4095) === 0) budget(); };
   onTextRun = () => { if (++runs > MAX_TEXT_RUNS) refuse(TOO_LARGE); if ((runs & 4095) === 0) budget(); };
-  try { return readBook(buf, budget); } finally { onNearMiss = outer; onTextRun = outerRun; }
+  try { return readBook(buf, budget); } finally { onNearMiss = outer; onTextRun = outerRun; cutShorts = outerCut; }
 }
 function readBook(buf, budget) {
   let entries;
@@ -512,6 +517,7 @@ function readBook(buf, budget) {
     let minRow = Infinity;
     let cut = false;
     const data = elements(xml, 'sheetData', true).next().value;
+    const cutShortsBefore = cutShorts;
     let rowAt = -1;
     let k = 0;
     let visits = 0;
@@ -532,7 +538,12 @@ function readBook(buf, budget) {
        keeps it from "no saved values" and is counted as one with none (so the viewer can say why the grid is blank); an
        empty <v/>, as openpyxl writes it, is no value. */
     const skipped = (body) => {
-      if (/<v>[^<]|<is[\s>]/.test(body)) { cut = true; walkCut = true; }
+      // #8162: by the reader's own scan, so a value with attributes (<v xml:space="preserve">) counts too; a pattern
+      // allowing attributes would be quadratic on a run of unclosed "<v " tags.
+      let saved = false;
+      for (const v of elements(body, 'v')) if (v.body !== '') { saved = true; break; }
+      if (!saved) for (const s of elements(body, 'is')) if (textOf(s.body) !== '') { saved = true; break; }
+      if (saved) { cut = true; walkCut = true; }
       else if (/<f[\s>]/.test(body)) { walkCut = true; bareFormula = true; }
     };
     /* A cell's shown text, or null when it holds no saved value. */
@@ -637,6 +648,7 @@ function readBook(buf, budget) {
       outputLeft -= cost;
       rows.push(out);
     }
+    if (cutShorts > cutShortsBefore) { cut = true; walkCut = true; }   // #8162: an element cut off in this sheet
     sheets.push({ name, rows, cut, ...(base ? { firstRow: base + 1 } : {}) });
     budget();
   }
