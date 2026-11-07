@@ -219,9 +219,10 @@ function bareCode(code) {
 /* What a number format shows: { kind: 'date' } (a day, maybe with a time), { kind: 'time' } (a time of day),
    { kind: 'duration', unit: 'h' | 'm' | 's', seconds } ("[h]:mm": elapsed time past 24 hours, review 2), or
    { kind: 'number', decimals, thousands, percent, digits, sections } for the simple codes ("0.00", "#,##0", "0.0%"), or null (shown as
-   saved). The first section of a code (before ";") decides how; a number another section would draw is shown as saved,
-   except a negative under a percent code, drawn by the first section with its sign so it keeps its percent
-   (`sections`). Currency symbols, fractions, a trailing thousands comma and the rest are null. */
+   saved), with `negative` (the second section's reading and its sign) when a code has one. The first section decides
+   positives; a negative is drawn by a simple second section (see negativeKind), else shown as saved (a percent: -N% by
+   the first section); a zero under a code with a zero section is shown as saved. Currency symbols, fractions, a
+   trailing thousands comma and the rest are null. */
 /* A number format's first section (the part before the first ";", which positive numbers use). Not a split: ";" here is
    Excel's section separator, never a path list, and indexOf says so without a separator literal (#1732). */
 function firstSection(code) {
@@ -258,10 +259,17 @@ function negativeKind(code) {
   if (countSections(code) < 2) return null;
   const raw = sectionAt(code, 1);
   // A leading colour ("[Red]", "[Color10]") only colours it; any other bracket (a currency, a condition) is not simple.
-  const second = raw === null ? null : raw.replace(/^\s*(?:\[(?:black|blue|cyan|green|magenta|red|white|yellow|color[0-9]{1,2})\]\s*){1,2}/i, '');
+  let second = raw === null ? null : raw.replace(/^\s*(?:\[(?:black|blue|cyan|green|magenta|red|white|yellow|color[0-9]{1,2})\]\s*){1,2}/i, '');
   if (second === null || second.trim() === '') return null;
+  // Review r5: the sign this section draws. Brackets, "(#,##0)", are drawn as brackets; a leading "-" as a minus; a
+  // section with no sign of its own (a colour alone, "0.00;[Red]0.00") still gets a minus, because the colour is the
+  // only sign Excel shows there and this preview shows no colour (without it a loss read as a gain).
+  let sign = 'minus';
+  const t = second.trim();
+  if (t.length > 2 && t[0] === '(' && t[t.length - 1] === ')') { sign = 'brackets'; second = t.slice(1, -1); }
+  else if (t[0] === '-') second = t.slice(1);
   const k = formatKind(second);
-  return k && k.kind === 'number' ? k : null;
+  return k && k.kind === 'number' ? { ...k, sign } : null;
 }
 function formatKind(code) {
   const bare = bareCode(firstSection(code));
@@ -286,9 +294,9 @@ function formatKind(code) {
   // Review 4: past 30 places (Excel's own limit) toFixed throws, which refused the whole workbook.
   if (num && num[2] && num[2].length > 30) return null;
   // Review 7: the integer zeros are the fewest digits shown ("00000" on 1234 is 01234, a ZIP code or an id).
-  // #8147: `sections` counts the code's ";" parts: the first is for positives (and zero, with fewer than three), so a
-  // value another section would draw is shown as saved, never through the first one (review r1: "#,##0.00;[Red]..."
-  // lost its formatting for positives when every multi-section code was shown as saved).
+  // #8147: `sections` counts the code's ";" parts: the first is for positives (and zero, with fewer than three); a value
+  // another section draws goes through that section when it is simple (`negative`), else is shown as saved (review r1:
+  // "#,##0.00;[Red]..." lost its formatting for positives when every multi-section code was shown as saved).
   if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3], digits: ((num[1] || '').match(/0/g) || []).length, sections: countSections(code), negative: negativeKind(code) };
   return null;
 }
@@ -371,12 +379,15 @@ function shownNumber(raw, fmt) {
   // Review 6: only a decimal number is a number (0x1F is not 31).
   if (!isDecimal(raw) || !Number.isFinite(n)) return raw;
   if (!fmt || fmt.kind !== 'number') return String(Number(n.toPrecision(15)));
-  // Review r4: a negative under a code with a second section is drawn by that section, without a sign of ours; one that
-  // is not a simple code is shown as saved (a percent then keeps its unit by the first section, -50%, as the nearest
+  // Review r4/r5: a negative under a code with a second section is drawn by that section, with that section's sign
+  // (brackets, or a minus: see negativeKind); one that is not a simple code is shown as saved (a percent then keeps its unit by the first section, -50%, as the nearest
   // honest form: -0.5 alone read as -0.5% in a column of 25%, review r2). A zero under a code with a zero section is
   // shown as saved.
   if (fmt.sections > 1 && n < 0) {
-    if (fmt.negative) return shownNumber(String(-n), fmt.negative);
+    if (fmt.negative) {
+      const drawn = shownNumber(String(-n), fmt.negative);
+      return fmt.negative.sign === 'brackets' ? '(' + drawn + ')' : '-' + drawn;
+    }
     if (!fmt.percent) return String(Number(n.toPrecision(15)));
   }
   if (fmt.sections > 2 && n === 0) return String(Number(n.toPrecision(15)));
@@ -566,7 +577,8 @@ function readBook(buf, budget) {
       if ((++k & 1023) === 0) budget();
       if (++visits > MAX_VISITS) { cut = true; walkCut = true; break; }
       const rs = attr(row.tag, 'r');
-      const digits = rs !== null && /^[0-9]{1,40}$/.test(rs) ? rs.replace(/^0+(?=.)/, '') : null;   // decimal only (r2)
+      // Decimal only (r2); review r5: any length (the tag is capped), so 41 digits are past the last row, not "no r".
+      const digits = rs !== null && /^[0-9]+$/.test(rs) ? rs.replace(/^0+(?=.)/, '') : null;
       const rr = digits === null ? NaN : digits.length > 7 ? Infinity : Number(digits);
       // #8147: a row number past Excel's last row (1048576), however many digits, is no row of the sheet: skipped, not
       // placed on another row. Review r3: what it held is unknown to the answer (never "empty"), and an empty one is no cut.
@@ -618,7 +630,8 @@ function readBook(buf, budget) {
   // #8147: nor of one whose walk stopped before the end (formatted blanks, then a value, read as "empty").
   const unread = all > MAX_SHEETS || otherSheet || walkCut;
   return { sheets, moreSheets: Math.max(0, all - MAX_SHEETS), noValues: !unread && !anyValue && anyFormula && !savedFormula, empty: !unread && !anyValue && !anyFormula,
-    ...((anyValue || savedFormula) && bareFormula ? { someNoValues: true } : {}) };
+    // Review r5: and when what was not read keeps "no saved values" unclaimed, the formulas that were read still say why.
+    ...((anyValue || savedFormula || unread) && bareFormula ? { someNoValues: true } : {}) };
 }
 
 module.exports = {

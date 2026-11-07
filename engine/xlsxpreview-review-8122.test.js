@@ -470,6 +470,11 @@ test('#8147: a sheet whose walk stopped before the end is never "empty" or "no s
   assert.equal(a.empty, false, 'a value past the walk read as empty');
   const f = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1">' + '<c><f>1+1</f></c>'.repeat(100001) + '</row><row r="2"><c><v>5</v></c></row>') }, {}, { deflate: true }));
   assert.equal(f.noValues, false, 'a saved value past the walk read as "no saved values"');
+  // Review r5: and the formulas that were read still say why the cells are blank.
+  assert.equal(f.someNoValues, true, 'the formulas read have no saved value, and a saved value exists: "some" is true');
+  const g = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1">' + '<c><f>1+1</f></c>'.repeat(100001) + '</row>') }, {}, { deflate: true }));
+  assert.equal(g.noValues, false);
+  assert.equal(g.someNoValues, true, 'a capped sheet of formulas with no saved values said nothing');
   // CONTROL: a workbook with only formulas and no walk cut still says so.
   assert.equal(x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c><f>1+1</f></c></row>') })).noValues, true);
 });
@@ -479,19 +484,23 @@ test('#8147: formats that scale or decide by sign show the saved number, not a w
     '<numFmts><numFmt numFmtId="164" formatCode="#,##0,"/><numFmt numFmtId="165" formatCode="0,"/><numFmt numFmtId="166" formatCode="#,##0;(#,##0)"/><numFmt numFmtId="167" formatCode=".00"/><numFmt numFmtId="168" formatCode="#,##0.00;[Red]#,##0.00"/><numFmt numFmtId="169" formatCode="#.00"/><numFmt numFmtId="170" formatCode="0.0;-0.0;&quot;zero&quot;"/></numFmts>');
   const c = (ref, s, v) => `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
   const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 1234567.891)}${c('B1', 2, 1234567)}${c('C1', 3, -5)}${c('D1', 4, -0.4)}${c('E1', 5, 0.5)}</row>`) }, { 'xl/styles.xml': styles }));
-  assert.deepEqual(r.sheets[0].rows[0], ['1234567.891', '1234567', '-5', '-0', '.50']);
+  assert.deepEqual(r.sheets[0].rows[0], ['1234567.891', '1234567', '(5)', '-0', '.50']);   // r5: "(#,##0)" draws brackets
   // Review r1: a positive under a code with a section for negatives keeps the first section's formatting; a negative,
   // or a zero under a code with a zero section, is shown as saved; "#.00" has no leading zero either.
   const s = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 6, 1234.5)}${c('B1', 6, -1234.5)}${c('C1', 3, 5)}${c('D1', 7, 0.5)}${c('E1', 8, 0)}${c('F1', 8, 2)}</row>`) }, { 'xl/styles.xml': styles }));
-  // Review r4: -1234.5 under "#,##0.00;[Red]#,##0.00" is drawn by its second section, red and with no sign: 1,234.50.
-  assert.deepEqual(s.sheets[0].rows[0], ['1,234.50', '1,234.50', '5', '.50', '0', '2.0']);
+  // Review r4/r5: -1234.5 under "#,##0.00;[Red]#,##0.00" is drawn by its second section; Excel's only sign there is the
+  // red, which this preview cannot show, so it gets a minus (without one a loss read as a gain).
+  assert.deepEqual(s.sheets[0].rows[0], ['1,234.50', '-1,234.50', '5', '.50', '0', '2.0']);
   // Review r2: a negative percent keeps its percent; a ";" inside quotes is not a section.
   const st2 = STYLES('<xf numFmtId="0"/><xf numFmtId="171"/><xf numFmtId="172"/>', '<numFmts><numFmt numFmtId="171" formatCode="0%;(0%)"/><numFmt numFmtId="172" formatCode="0.00;&quot;a;b&quot;"/></numFmts>');
   const p = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, -0.5)}${c('B1', 1, 0.25)}${c('C1', 2, 0)}</row>`) }, { 'xl/styles.xml': st2 }));
-  assert.deepEqual(p.sheets[0].rows[0], ['-50%', '25%', '0.00']);   // "(0%)" is not a simple code: -50%, the near form
+  assert.deepEqual(p.sheets[0].rows[0], ['(50%)', '25%', '0.00']);   // r5: "(0%)" draws brackets, as Excel does
   // Review r4: "0%;[Red]0%" draws -0.5 as 50% (red, no sign), through its second section.
   const st4 = STYLES('<xf numFmtId="0"/><xf numFmtId="175"/>', '<numFmts><numFmt numFmtId="175" formatCode="0%;[Red]0%"/></numFmts>');
-  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, -0.5)}</row>`) }, { 'xl/styles.xml': st4 })).sheets[0].rows[0], ['50%']);
+  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, -0.5)}</row>`) }, { 'xl/styles.xml': st4 })).sheets[0].rows[0], ['-50%']);
+  // Review r5: a "-" written in the second section is drawn as a minus, and "0.00;[Red]0.00" never shows a loss as a gain.
+  const st6 = STYLES('<xf numFmtId="0"/><xf numFmtId="176"/><xf numFmtId="177"/>', '<numFmts><numFmt numFmtId="176" formatCode="#,##0.00;-#,##0.00"/><numFmt numFmtId="177" formatCode="0.00;[Red]0.00"/></numFmts>');
+  assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, -1234.5)}${c('B1', 2, -5)}${c('C1', 2, 5)}</row>`) }, { 'xl/styles.xml': st6 })).sheets[0].rows[0], ['-1,234.50', '-5.00', '5.00']);
   // Review r3: a percent code's zero section still decides its zero; "#" shows no zero.
   const st3 = STYLES('<xf numFmtId="0"/><xf numFmtId="173"/><xf numFmtId="174"/>', '<numFmts><numFmt numFmtId="173" formatCode="0%;-0%;&quot;-&quot;"/><numFmt numFmtId="174" formatCode="#"/></numFmts>');
   const z = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 0)}${c('B1', 2, 0.4)}${c('C1', 2, 7)}</row>`) }, { 'xl/styles.xml': st3 }));
@@ -510,7 +519,7 @@ test('#8147: a row number past Excel\'s last row is not a row number; an empty s
   assert.equal('firstRow' in r.sheets[0], false);
   // Review r2: "0x10" is not row 16; a row past the last never lands on a real row.
   assert.deepEqual(x.readXlsx(fx.book({ S: fx.SHEET('<row r="0x10"><c r="A1"><v>1</v></c></row>') })).sheets[0].rows, [['1']]);
-  for (const big of ['5000000', '50000000', '0000000000000000000099999999']) {
+  for (const big of ['5000000', '50000000', '0000000000000000000099999999', '9'.repeat(41)]) {   // r5: 41 digits too
     const far = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="2"><c r="A2"><v>2</v></c></row><row r="${big}"><c r="A1"><v>5</v></c></row><row r="3"><c r="A3"><v>9</v></c></row>`) }));
     assert.deepEqual(far.sheets[0].rows, [[''], ['2'], ['9']], big);
     assert.equal(far.sheets[0].cut, true, big);
@@ -533,7 +542,7 @@ test('#8147: a row number past Excel\'s last row is not a row number; an empty s
   // Review r2: and a workbook whose only formula saved "" is not "no saved values".
   const only = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="inlineStr"><f>1</f><is><t/></is></c></row>') }));
   assert.equal(only.noValues, false);
-  // Review r3: the same formula with t="str" is answered the same way, and one beside a formula with no value says so.
+  // Review r3: the same formula with t="str" is answered the same way (the case beside a formula with no value is `mix`).
   const str = x.readXlsx(fx.book({ S: fx.SHEET('<row r="500"><c r="A500" t="str"><f>A1</f><v></v></c></row><row r="600"><c r="A600"><v>1</v></c></row>') }));
   assert.equal(str.sheets[0].firstRow, 600);
   // Review r4: and a sheet whose only formula is a t="str" "" is not "no saved values".
