@@ -224,7 +224,7 @@ do {
     // declarations). A line is listed when it begins at brace depth 0 and has code on it, however it is indented; imports
     // and lone closing braces are skipped; a `#if` and a `#Preview` are listed on purpose (one can wrap a declaration, the
     // other draws the orb). String state is tracked by counting `"` with backslash escapes, so a raw string (#"..."#), a
-    // multi-line string with an odd number of quotes, or a quoted brace inside an interpolation can desync it; in the last
+    // multi-line string with quotes inside it, or a quoted brace inside an interpolation can desync it; in the last
     // struct that could hide a declaration after it. None of these forms is in that file.
     func topLevelCode(_ src: String) -> [String] {
         var out: [String] = [], depth = 0, block = 0, inString = false, inLine = false, line = "", lineDepth = 0

@@ -9,5 +9,5 @@ Follow-up to PR #8164 (round 8 residual, on #8153). Stacked on iphone-orbsignin;
 - Anything outside ios/LogicTests/sweep/main.swift.
 
 ## Weakest premise
-- String state is tracked by counting quotes with backslash escapes: a raw string, a multi-line string with an odd number of quotes, or a quoted brace inside an interpolation can desync it, and in the last struct that could hide a declaration after it. None of these forms is in KosmosOrb.swift. Windows line endings red the check (fails safe). A `#if` / `#endif` reds the check on purpose (it can wrap a declaration), so adding one means updating the guard.
+- String state is tracked by counting quotes with backslash escapes: a raw string, a multi-line string with quotes inside it, or a quoted brace inside an interpolation can desync it, and in the last struct that could hide a declaration after it. None of these forms is in KosmosOrb.swift. Windows line endings red the check (fails safe). A `#if` / `#endif` reds the check on purpose (it can wrap a declaration), so adding one means updating the guard.
 - Not changed here: AgentsView's pins use the shared codeOnly, where a `/*` inside a // comment swallows code up to the next `*/`. That fails safe (swallowed code drops the pinned lines) unless a fourth orb sits exactly in the swallowed span.
