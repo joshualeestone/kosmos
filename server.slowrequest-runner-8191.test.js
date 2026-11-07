@@ -94,6 +94,6 @@ test("#8191: with the runner's limit, a request slower than the 5 s default leav
   const out = boardStdout(limit, 5300);
   assert.doesNotMatch(out, /slow request/);
   const parsed = JSON.parse(out);
-  assert.equal(parsed.code, 400, 'the empty body did not get the route'''s 400: ' + out);
+  assert.equal(parsed.code, 400, 'the empty body did not get the 400 the route gives a body with no dir: ' + out);
   assert.ok(parsed.ms >= 5000, `the answer came after ${parsed.ms} ms, before the body was sent: the request was not slow, so this test proves nothing`);
 });
