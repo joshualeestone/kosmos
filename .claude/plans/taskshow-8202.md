@@ -29,6 +29,10 @@ Card: kosmos#8202 (feedback 2026-11-07: no one command prints a single task whol
   test's pinned Mac subcommands gain show). cli.task-assign-4914 matches the help's `list|add|assign|close`, so show
   is placed after activity in the help rather than changing that test.
 
+## Known limit (review 6)
+The list route sends no claim or waiting-on-the-person state (only the Tasks view pays for those), so show cannot say
+whether an agent is waiting on the person about the task; its conversation pointer is the way to find out.
+
 ## Weakest premise
 That fetching the whole project's list per show is cheap enough. The list form reads no transcripts; a very large
 project pays one list read per show.
@@ -67,3 +71,8 @@ project pays one list read per show.
   stored came from grepping for "because" and seeing no field; the field is onHoldBecause.
 - A task's own hold in a paused project says the project is paused too; a webhook task's Added says by the webhook.
 - The help line carries no card number (no sibling help line does); a test comment I had garbled is restored.
+
+## Review round 6 (decided)
+- Last run of a repeating task (when, by whom, late or after a missed run, its note indented).
+- Held by names an agent holding an open part who has left the project (offProject), as the page does.
+- clean keeps zero-width (non-)joiners, which emoji and right-to-left names need; direction overrides still go.
