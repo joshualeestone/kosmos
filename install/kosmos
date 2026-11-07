@@ -5518,7 +5518,7 @@ cmd_room() {
     esac
   done
   if [ -z "$project" ]; then
-    say "Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too; an agent's post you posted after, not citing an older post, is named on its own line instead); or: kosmos room reopen <project-id> to clear a loop-guard hold)"
+    say "Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too), and an agent's post you posted after, not citing an older post, is named on its own line instead; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
     exit 2
   fi
   if [ "$_all" = 1 ]; then
