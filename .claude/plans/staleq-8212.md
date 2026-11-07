@@ -14,6 +14,8 @@ other than Claude, nothing keeps a typed line out of an open question.
 - A needs_you gets its own line: "Kosmos here, a reminder, not an answer from the person: ...
   If what it waited on has gone away, clear it with: kosmos report clear. If you still need the
   person, leave it."
+- A needs_you is reminded only when the agent wrote it (by: agent): a line with no writer may
+  be an old permission wait, and a person's own line is theirs (review iteration 2).
 - Unchanged guards that make this safe: Claude cards only and never one reached through a
   channel; screenOpen refuses an open question menu or permission prompt; by:'auto' excluded;
   untilDefers holds back a held question (#7915) and one with an until.
