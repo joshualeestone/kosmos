@@ -195,6 +195,17 @@ test('#8202 Windows (review 3): parts follow the board on who reported finished;
   const o = await win(['task', 'show', projectId, String(old)]);
   assert.match(o.out, new RegExp('^State: closed, replaced by task ' + later + '$', 'm'), o.out);
   assert.match(o.out, /^Commit: [0-9a-f]{40} in notes, not on the remote when recorded$/m, o.out);
+  // Review 6: a repeating task's last run; an agent holding a part who has left the project; a ZWJ emoji kept.
+  const rep = tasks.create(projectId, { sentence: 'Daily check \u{1F469}\u200D\u{1F4BB}', who: 'mara' }).number;
+  projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === rep ? { ...x,
+    lastRunAt: BUILT_AT, lastRunBy: 'mara', lastRunLate: true, lastRunNote: 'all clear\nState: open' } : x)) }));
+  projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'mara') }));
+  const rp = await win(['task', 'show', projectId, String(rep)]);
+  projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'ivo'] }));
+  assert.equal(rp.code, 0, rp.err);
+  assert.match(rp.out, /^Task \d+ in .*: Daily check \u{1F469}\u200D\u{1F4BB}$/mu, 'the emoji lost its joiner: ' + JSON.stringify(rp.out.split('\n')[0]));
+  assert.match(rp.out, new RegExp('^Last run: ' + local(BUILT_AT) + ', by mara, late\nLast run note:\n {4}all clear\n {4}State: open$', 'm'), rp.out);
+  assert.match(rp.out, /^Held by: mara \(not on this project: mara\)$/m, rp.out);
   // A paused project: an open task reads as on hold, a built one as built.
   const paused = projects.create({ name: 'Paused' }).id;
   projects.mutate(paused, (p) => ({ ...p, paused: true }));

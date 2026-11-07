@@ -166,7 +166,9 @@ function acrossLines(body, flag, opts = {}) {
 const scrub = (v) => (typeof v === 'string' ? clean(v)
   : Array.isArray(v) ? v.map(scrub)
     : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, w]) => [k, scrub(w)])) : v);
-const clean = (v) => String(v).replace(/[\p{Cc}\p{Cf}]/gu, (c) => (/[\t\n\r]/.test(c) ? c : '')).replace(/[^\S\n]+/g, ' ').trim();
+// Review 6: zero-width (non-)joiners stay (an emoji or a right-to-left name needs them, as setBuilt keeps them);
+// direction overrides and every other format or control character go.
+const clean = (v) => String(v).replace(/[\p{Cc}\p{Cf}]/gu, (c) => (/[\t\n\r\u200c\u200d]/.test(c) ? c : '')).replace(/[^\S\n]+/g, ' ').trim();
 function whenWords(s) {
   const t = typeof s === 'string' ? new Date(s) : null;
   if (!t || !Number.isFinite(t.getTime())) return null;
@@ -216,7 +218,9 @@ function showLines(body, num, project) {
   };
   lines.push('Task ' + n + ' in ' + one(project) + ': ' + titleOf(x));
   field('State', stateWords(x));
-  field('Held by', ownerOf(x));
+  // Review 6: an agent holding an open part who is no longer on the project is named as such, as the page does.
+  const off = Array.isArray(x.offProject) ? x.offProject.map((w) => String(w).trim()) : [];
+  field('Held by', ownerOf(x) + (off.length ? ' (not on this project: ' + off.map(q).join(', ') + ')' : ''));
   // Review 1: who holds which part, when there is more than one (the card's "who holds which part").
   if (Array.isArray(x.parts) && x.parts.length > 1) {
     const finishedNames = x.whoIsLeft && Array.isArray(x.whoIsLeft.finished) ? x.whoIsLeft.finished.map((w) => String(w).trim()) : null;
@@ -249,6 +253,12 @@ function showLines(body, num, project) {
     x.doneWhen.forEach((c, i) => lines.push('    ' + (i + 1) + ') ' + (typeof c === 'string' ? one(c) : '(a check Kosmos could not read)')));
   }
   if (!x.isClosed && x.repeatWords) field('Repeats', one(x.repeatWords) + (x.repeatNextWords ? ', next ' + one(x.repeatNextWords) : ''));
+  // Review 6: a repeating task's last run (what `task ran` records), so its latest delivery is part of the task whole.
+  if (typeof x.lastRunAt === 'string' && whenWords(x.lastRunAt)) {
+    const by = x.lastRunByPerson === true ? 'the person' : (x.lastRunBy ? q(x.lastRunBy) : null);
+    field('Last run', whenWords(x.lastRunAt) + (by ? ', by ' + by : '') + (x.lastRunLate === true ? ', late' : '') + (x.lastRunRecovered === true ? ', after a missed run' : ''));
+    if (typeof x.lastRunNote === 'string' && x.lastRunNote.trim()) { lines.push('Last run note:'); under(x.lastRunNote); }
+  }
   if (x.builtAt) {
     const by = x.builtByPerson === true ? 'the person' : (x.builtBy ? q(x.builtBy) : null);
     field('Built', (whenWords(x.builtAt) || 'yes') + (by ? ', by ' + by : ''));
