@@ -27,3 +27,27 @@ A release note or doc for this change must not spell the prefix: the guard searc
 Accepted cost: the two help lines reach every install, including people whose computer runs no test suites and Windows, where the check does not exist. Kept identical across the CLIs on purpose.
 
 Accepted trade (review 9): advertising the prefix makes the guard's one exemption easy to find, so a seat someone forgets is never reported by any later suite. The help says to remove the seat when done, and that the check never reports it; nothing stronger is built, since the exemption exists so a live check can run beside a suite.
+
+## Review ledger (challenge loop)
+11 blind iterations, opus and sonnet alternating (odd opus, even sonnet); converged at iteration 11 (no new BLOCKER,
+WARNING or CONVENTION after deduplication).
+- 1: the search excluded four whole files (one of them makes agents) and its control was not moved; the Windows help
+  named a guard Windows does not have; a plan commit lacked the attribution line. Fixed (d0aa1c0d66, then c4050bfb95:
+  an exact per-file count of uses in ALLOWED replaces the exclusions; the help says "on a Mac").
+- 2: the LEAK message told the reader to leave a plist that only looks real, the shape #5092 says cannot be told apart.
+  Fixed (3f0e4d46d3): read the names and working dirs first, leave in place only an agent confirmed as made during the
+  run, move any other out.
+- 3: the test's comment claimed nothing on the computer is read, while install/kosmos picks a tmux. Fixed (8cfe0693c1):
+  the fake tmux, and the comment says what the env is.
+- 4: the help reaches every install. Accepted cost, written in the plan.
+- 5: the count depended on git grep's output shape under a person's git config. Fixed (fbcf7328b1): lineNumber, column
+  and color pinned. 6 raised the same concern for other git settings: duplicate.
+- 7 (after the suite caught the #3628 exit-code guard on the new cli test, fixed in 91af6d2592): two places said
+  "allowed lines" where the check counts uses per file. Fixed (971e6eb996).
+- 8: an extra use in an allowed file failed with words about tests. Fixed (6545407c61).
+- 9: advertising the prefix makes a forgotten seat invisible to every later suite. Fixed (7bfc8536ee): the help says to
+  remove the seat when done, and how long the rest of the name may be; the trade is written above.
+- 10: that length was hard-coded. Fixed (26e523a2ef): the test derives it from NAME_RE and the prefix (negative control
+  run: 18 in the help turns it red).
+- 11: the help reaching every install again (duplicate of 4, accepted cost). NITs deferred: one help line is about 137
+  characters; the LEAK message is long; the NAME_RE match is strict on purpose (it fails loudly).
