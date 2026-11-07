@@ -1,54 +1,37 @@
 # taskcase-8177: Windows Remove does not take a case variant of an agent's name as the agent (#8177)
 
 ## Done when
-- On win32, `jobFor('Cai')` is null when the only task is `cai`'s, so `plan('Cai')` refuses with "cannot find".
+- On win32, `jobFor('Cai')` is null when the agent is `cai` (folder `cai`), so `plan('Cai')` refuses with "cannot find".
 - `jobFor('cai')` and `plan('cai')` still find and plan the real agent (control).
 - Pinned by engine/remove.win32-case-8177.test.js, red without the remove.js change.
 
-## Decision
-`schtasks /Query /TN <name> /FO LIST` answers a query in any letter case, and its answer carries the task's path in
-the task's own spelling. `win32job.spelledOtherwise(tn, out)` reads that path (bounded, compared without case) and
-returns the real spelling when the output names the task only in spellings other than the one asked for.
-`presenceNow` adds it as `spelledOtherwise` (only when set, so existing deep-equals are untouched); `status` passes it
-through; `jobFor` returns null for it only when `remove.taskIsAnotherSpellings` says the task is another spelling's:
-the answer names it in another spelling, this spelling has no exact folder of its own, AND the task's own spelling
-does (Windows cannot hold `cai` and `Cai` side by side). `delete-leftover.js` is unchanged. Nothing else changes meaning: `registered` stays true, so create's collision
-checks still see `cai`'s task when someone makes `Cai`.
+## Decision (after review 7)
+Judge by the folders, never by how schtasks spells the task it prints. `remove.folderIsAnotherSpellings(clean)`: on
+win32, in this Kosmos's own world, when `clean` has no folder of its own and a folder with the same name in other
+letter case exists, any task found for `clean` is that folder's agent's (Task Scheduler cannot hold two case variants
+of one task name, and a Windows folder by default cannot either), so `jobFor` returns null. Only `jobFor` changes;
+win32job.js, `presence`/`status` (`registered` stays true, so create and import still see the task) and
+delete-leftover.js are main's.
+
+## Kept as main does (measured in reviews 3, 5, 6, 7)
+- An agent asked by its own exact folder name keeps its task, whatever case the task was stored in.
+- An agent with no folder at all keeps its task (it is nobody else's; refusing would leave a task nothing can clear).
+- Another Kosmos's job (a non-current worldId) is not judged by this Kosmos's folders.
 
 ## Rejected
-- Comparing against `win32job.list()` (the card's suggestion): it lists only the CURRENT world, while `jobFor` takes a
-  worldId, and it costs a second schtasks call per lookup.
-- `machineTaskPaths()`: locale-proof but a whole-machine listing per lookup, and a second call that can fail on its
-  own, leaving an "unknown" arm to decide.
-- Making `presence.registered` false for a variant: create.js relies on it to see the other spelling's task.
+- Reading the task's spelling back from the `/Query /FO LIST` answer (rounds 1 to 6): it rests on schtasks printing
+  the stored spelling, which is not measured, and it misses a third spelling (folder `cai`, task stored `Cai`, asked
+  `CAI`). The folder rule needs neither.
+- A refusal in `plan` for a task stored in other case (round 2): it stranded a real agent (folder `caix`, task `Caix`).
+- A refusal in delete-leftover (round 1): realCaseName already turns `Cai` into `cai` when cai's folder exists, so it
+  could only fire on a task nobody owns.
+- `win32job.list()` or `machineTaskPaths()`: current world only, or a whole-machine listing per lookup.
 
-## Review decisions
-- Review 1: only the name after the Task Scheduler folder is compared exactly (a folder stored as `kosmos` must not
-  hide a job); a leftover delete refused (dropped in review 5); a test pins that create still
-  sees the variant's task.
-- Review 2 added a refusal in `plan` for a task stored in other case; review 3 measured that it stranded a real agent
-  (folder `caix`, task stored `Caix`: main restarts, pauses and removes it, the branch refused all three). Removed;
-  the exact-folder condition replaces it, and that agent keeps its job (tested).
-- Review 4: the check applies only in this Kosmos's own world (it reads this world's folders), so another world's
-  agent keeps its own task. Accepted gap restated: profile-recorded agents (below) are not fixed by this branch, so
-  the PR says Addresses, and #8177 stays open for them and for the Windows measurement.
-- Review 5: a missing folder is not evidence either (a folderless agent, or a leftover task, lost its own task, and
-  the leftover refusal blocked deleting a task nobody owns). The task now counts as another spelling's only when that
-  spelling has its own exact folder. The leftover refusal is dropped: delete-leftover's realCaseName already turns
-  `Cai` into `cai` when cai's folder exists, so it could only ever fire on a task nobody else owns.
-- Review 6: probed main and the branch over seven task/folder/asked spellings; only the card's case changed. The
-  recorded-agent gap is now pinned by a KNOWN GAP test that flips when #8112's check is used. Deferred, stated: a
-  non-current world keeps main's answer for a variant, and a task stored as `Cai` for folder `cai` asked as `Cai` is an
-  exact task match (rare: needs the task stored in another case than its folder).
-- A folder recorded in the profile (#8112's case) does not carry the spelling, so for a recorded agent this keeps
-  main's answer. When #8112 lands, its folderIsExactly is the test to use there.
-
-## Weakest part
-It answers only on positive evidence: output that does not carry the task path at all keeps the old answer
-(registered). If a real Windows build printed the name somewhere this does not read, the fix would quietly not apply.
-Read from source and the fixtures in this repo (win32board.test.js carries the real LIST shape); not measured on the
-Windows box. The Windows CI job runs the new file (its name carries win32).
-
-## Not done
-- Measuring on a real Windows box (#7820, #7890 are parked needs-device for it).
-- #8112 (April) also edits engine/remove.js (folderIsExactly calls jobFor); rebase onto it if it lands first.
+## Weakest part / known gaps
+- A folder recorded in the profile does not carry the spelling (#8112), so a recorded agent keeps main's answer: its
+  variant still finds its task. Pinned by a KNOWN GAP test; #8112's folderIsExactly is the test to use there once it
+  lands. So the PR says Addresses, and #8177 stays open for it.
+- A Windows folder made case-sensitive by hand (fsutil setCaseSensitiveInfo) could hold `cai` and `Cai` side by side;
+  then the exact-folder look is still right for each.
+- Not measured on a Windows box (#7820, #7890 are parked needs-device for it). The Windows CI job runs the new file.
+- #8112 (April) also edits engine/remove.js; rebase onto it if it lands first.
