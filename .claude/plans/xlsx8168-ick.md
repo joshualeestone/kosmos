@@ -17,7 +17,8 @@ All of this concerns XML damaged before zipping; the zip CRC refuses a file dama
 - **A lost container.** With `<sheets>` or `<Relationships>` lost but its items in the part, they are read from the
   whole part as before #8168 and the loss is counted (`listItems`), so nothing reads as empty. `numFmt` cannot take
   that rule (a `<dxf>` holds them legitimately), so a style naming a custom format (id 164 and up) that no `<numFmt>`
-  defines is counted instead: it covers a lost `<numFmts>` and any other lost format.
+  defines is marked lost, and counted where a cell formats a number with it: it covers a lost `<numFmts>` and any
+  other lost format, and a style no cell uses cuts nothing.
 - **Found on the way:** reading `numFmt` only inside `<numFmts>` stops a `<dxf>` (a conditional format) overwriting the
   cell format of the same id; on main a date read as `4500000.00%`. Pinned by a test.
 - **W3 and the CONVENTION:** tests that fail without `|| structureBeforeStrings` and without the `nearMiss()` call in
@@ -50,4 +51,5 @@ direction: a grid said to be partial, never a wrong value said whole).
 `structureBeforeStrings`, no `nearMiss()`, no stray-close count (si, c, row alone), no list mode at each of the four
 sites, no check after the last item, a stray search from the scan point instead of the last element's end, and no
 MAX_SHEETS cap on the held list, no count or no fallback read for a lost container, no lost-format check, and
-`numFmt` read from the whole styles part. An Excel 365 shaped workbook, rels and styles read with no cut.
+`numFmt` read from the whole styles part, no per-cell lost-format count, and no cached close search (95,000
+self-closed cells then pass the work budget and are refused). An Excel 365 shaped workbook, rels and styles read with no cut.
