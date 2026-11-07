@@ -562,8 +562,9 @@ test('#8147: the answer cache is bounded by size, not only by count, and keeps t
   const book = (k) => fx.book({ S: fx.SHEET(Array.from({ length: 150 }, (_, r) => `<row r="${r + 1}">` + cols.map((c, j) => `<c r="${c}${r + 1}" t="inlineStr"><is><t>${String.fromCharCode(97 + ((k + j) % 26)).repeat(250)}</t></is></c>`).join('') + '</row>').join('')) }, {}, { deflate: true });
   const books = Array.from({ length: 8 }, (_, k) => book(k));
   for (let k = 0; k < 8; k++) assert.equal(sp.fromBytes(books[k], 'b' + k + '.xlsx').ok, true);
-  const held = sp._heldForTests();
+  const { count: held, chars } = sp._heldForTests();
   assert.ok(held <= 4, 'held ' + held + ' answers of about 1.9 MB each');
+  assert.ok(chars <= 8 * 1024 * 1024, '#8162: the answers held total ' + chars + ' characters, past the 8 MiB bound');
   let reads = 0;
   x._internal.setClockForTests(() => { reads++; return 0; });
   try {
@@ -618,4 +619,35 @@ test('#8147 r7: a row or cell that is not placed answers by what it held', () =>
   assert.equal(c.sheets[0].cut, true);
   // " 5" is row 5.
   assert.deepEqual(read('<row r=" 2"><c r="A2"><v>1</v></c></row>').sheets[0].rows, [[''], ['1']]);
+});
+
+/* #8162 */
+test('#8162: a skipped row or cell with a value that has attributes is still a value', () => {
+  const pad = ' z="' + 'a'.repeat(5000) + '"';
+  const read = (rows) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }));
+  const a = read('<row r="2000000"><c><v xml:space="preserve">5</v></c></row>');
+  assert.equal(a.empty, false);
+  assert.equal(a.sheets[0].cut, true);
+  const b = read(`<row r="1"><c${pad}><v >5</v></c></row>`);
+  assert.equal(b.empty, false);
+  assert.equal(b.sheets[0].cut, true);
+  // CONTROL: an empty <v/> (openpyxl) is still no value.
+  assert.equal(read('<row r="1"><c r="A1"><v>1</v></c></row><row r="2000000"><c><f>1</f><v /></c></row>').sheets[0].cut, false);
+  // A run of unclosed "<v " tags in a skipped row is linear (the scan counts them, it does not backtrack).
+  const t0 = Date.now();
+  read('<row r="2000000"><c>' + '<v '.repeat(200000) + '</c></row>');
+  assert.ok(Date.now() - t0 < 5000, 'took ' + (Date.now() - t0) + ' ms');
+});
+
+test('#8162: a cell or value cut off before its close marks the sheet cut and never "empty"', () => {
+  const read = (rows) => x.readXlsx(fx.book({ S: fx.SHEET(rows) }));
+  for (const rows of ['<row r="1"><c r="A1"><v>5</v>', '<row r="1"><c r="A1"><v>5</c></row>', '<row r="1"><c r="A1" ']) {
+    const r = read(rows);
+    assert.equal(r.sheets[0].cut, true, rows);
+    assert.equal(r.empty, false, rows);
+  }
+  // CONTROL: a whole cell is read and the sheet is not cut.
+  const ok = read('<row r="1"><c r="A1"><v>5</v></c></row>');
+  assert.deepEqual(ok.sheets[0].rows, [['5']]);
+  assert.equal(ok.sheets[0].cut, false);
 });
