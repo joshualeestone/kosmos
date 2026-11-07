@@ -1301,14 +1301,14 @@
     },
     {
       "title": "Your streak note comes out of the K mark",
-      "line": "On a wide screen, the daily note of how many days in a row you have used Kosmos slides out of the K mark, then stays on it that day.",
+      "line": "On a wide screen, your daily days-in-a-row note slides out of the K mark, then folds into a count badge that stays that day.",
       "icon": "spark",
       "rank": 7.5,
       "since": "0.7.97",
       "status": "pending"
     },
     {
-      "title": "Agents can show one task whole",
+      "title": "kosmos task show prints one task whole",
       "line": "kosmos task show <project-id> <task-number> prints one task: its state, who holds it, its detail and checks, and the commit it landed as.",
       "icon": "list",
       "rank": 67,

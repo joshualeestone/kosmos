@@ -27,6 +27,10 @@ Commit carries the #1720 Browser-check trailer (data only).
 
 ## Review round 1 (NITs only)
 - task show line uses the CLI's own placeholders, <project-id> <task-number>.
-- The streak line says the badge stays "that day" (it is gone the next day until that day's pill folds).
+- The streak line was made to say "that day" (round 2 found it then named the note, not the badge; fixed there).
 - #8177's reason for leaving it out is corrected above.
 - Kept: the streak at rank 7.5, above Always Allow (8). Both are Josh-asked; the streak's design was drawn for him.
+
+## Review round 2
+- The streak line said the note stays on the mark all day; the note leaves after about 6 s and a separate count badge stays. It now names the badge.
+- The task show title names the command.
