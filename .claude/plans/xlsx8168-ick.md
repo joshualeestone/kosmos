@@ -34,6 +34,8 @@ The card's NITs:
 
 - `[>100]0;[<=100]0.0` still reads as cut. Flagged, not silent; matching the leniency needs a format-code parser.
 - The `startTagEnd` comment about an unclosed quote, and `nestedStart` double counting near-misses: unchanged.
+- `listItems` decides a lost container from the first `<item` it finds, so a near-miss name ahead of the real items
+  (no writer puts one there) would read the items without counting the loss.
 - `si` is not read in list mode: `<sst>` may hold an `<extLst>` after its items, which list mode would count as cut.
   So a lost start of an empty self-closed `<si/>` (only `/>` left) still shifts later indexes silently, as on main.
 
@@ -47,9 +49,9 @@ direction: a grid said to be partial, never a wrong value said whole).
 
 ## Tests
 
-`engine/xlsxpreview-8168.test.js` (15 tests). On main W1 and W2 fail. Mutants each fail a test: no
+`engine/xlsxpreview-8168.test.js` (16 tests). On main W1 and W2 fail. Mutants each fail a test: no
 `structureBeforeStrings`, no `nearMiss()`, no stray-close count (si, c, row alone), no list mode at each of the four
 sites, no check after the last item, a stray search from the scan point instead of the last element's end, and no
 MAX_SHEETS cap on the held list, no count or no fallback read for a lost container, no lost-format check, and
-`numFmt` read from the whole styles part, no per-cell lost-format count, and no cached close search (95,000
+`numFmt` read from the whole styles part, no per-cell lost-format count, a hard `false` on the missing-part path, and no cached close search (95,000
 self-closed cells then pass the work budget and are refused). An Excel 365 shaped workbook, rels and styles read with no cut.

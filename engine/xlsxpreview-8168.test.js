@@ -186,3 +186,14 @@ test('#8168 r3: an Excel 365 shaped workbook, rels and styles read with no cut',
     { 'xl/workbook.xml': wb, 'xl/_rels/workbook.xml.rels': rels, 'xl/styles.xml': st }));
   assert.deepEqual(r.sheets.map((s) => [s.name, s.rows, s.cut]), [['A', [['2023-03-15']], false], ['B', [['2']], false]], JSON.stringify(r.sheets));
 });
+
+test('#8168 r5: a sheet whose part is missing from the file is cut too when the list or rels is damaged', () => {
+  // Sheet B's rel names a worksheet the zip does not hold (the second not-a-grid path), and a third rel is cut short.
+  const rels = '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet9.xml"/><Relationship Id="rId9" Target="work';
+  const r = read({ 'xl/_rels/workbook.xml.rels': rels });
+  assert.equal(r.sheets[1].notGrid, true, 'CONTROL: sheet B\'s part is not in the file: ' + JSON.stringify(r.sheets[1]));
+  assert.deepEqual(cuts(r), [true, true], JSON.stringify(r.sheets));
+  // CONTROL: the same missing part with whole rels is not cut (nothing was damaged, the part is simply absent).
+  const whole = read({ 'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet9.xml"/></Relationships>' });
+  assert.deepEqual([whole.sheets[1].notGrid, cuts(whole)], [true, [false, false]]);
+});
