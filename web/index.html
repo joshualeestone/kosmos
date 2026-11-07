@@ -39741,6 +39741,10 @@ function streakPill(n) {
   const watchIt = () => {
     const watch = setInterval(() => {
       if (streakPillFold !== fold) { clearInterval(watch); return; }
+      /* Review 5: a change of the WIDTH it was placed for folds it (a height-only resize, a tablet's toolbar while
+         scrolling, is not one). Read here rather than in a resize listener of its own: web.consolidated-breakpoint
+         reads the page's resize listener and must find the rails' one. */
+      if (window.innerWidth !== streakPillWidth) { clearInterval(watch); fold(); return; }
       if (!covering()) return;
       if (!pill.classList.contains('below')) {
         pill.classList.add('below', 'measure');
@@ -39768,8 +39772,6 @@ document.addEventListener('keydown', (e) => {
   streakPillFold();
 });
 // Review 1: a window resized while the pill is out folds it, rather than leave it where it was placed for another width.
-// Review 5: the WIDTH it was placed for; a height-only resize (a tablet's toolbar while scrolling) is not one.
-window.addEventListener('resize', () => { if (streakPillFold && window.innerWidth !== streakPillWidth) streakPillFold(); });
 function paintStreak(got) {
   const lab = document.getElementById('kstreak'), k = document.getElementById('klink'), slot = document.getElementById('streak-slot');
   if (!lab || !k) return;
