@@ -3542,3 +3542,43 @@ test('#8113 a hidden agent\'s exact name is one more match: a listed card with t
   // CONTROL: on the cards, the exact name wins over the other card (the decided rule), so the refusal comes from hiding.
   assert.deepEqual(remove.resolve('Jhide8113', MAC, listedOf('Jhide8113', 'jsmith8113')).ambiguous, [], 'CONTROL: listed, the exact name should win');
 });
+
+/* ── kosmos#8112: a profile-recorded agent's name in other letter case is not its exact name ─────────────────────────
+ * A connected agent's folder is recorded in its profile, and the profile is keyed on store.safeKey (lowercased), so
+ * create.workerDir('Kcrec8112') finds kcrec8112's recorded folder. That folder carries no spelling, so it must not prove
+ * the exact name: plan('Kcrec8112') used to answer ok under a name with no job and no session, and remove then wrote a
+ * removed record for it and said "removed" while the real agent ran on (a false success). */
+function recordedAgent(name) {
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'Folder-' + name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), `You are **${name}**.\n`, 'utf8');
+  require('./store').writeProfile(name, { dir });
+  const jobs = nodePath.dirname(create.plistPath(name));
+  fs.mkdirSync(jobs, { recursive: true });
+  fs.writeFileSync(nodePath.join(jobs, `com.${name}.discord.plist`), '<plist/>', 'utf8');
+  return dir;
+}
+
+test('#8112 a profile-recorded agent is found by its exact name, and a case variant is refused, not planned', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = recordedAgent('kcrec8112');
+  // CONTROL: the fixture is what the card describes: the variant reaches the recorded folder.
+  assert.equal(create.workerDir('Kcrec8112'), dir, 'CONTROL: the variant does not reach the recorded folder; this fixture cannot show the bug');
+  const exact = remove.plan('kcrec8112', MAC);
+  assert.equal(exact.ok, true, 'the exact name no longer plans: ' + exact.because);
+  const variant = remove.plan('Kcrec8112', MAC);
+  assert.equal(variant.ok, false, 'a case variant of a profile-recorded agent planned as if it were the agent (the false success)');
+  assert.match(variant.because, /cannot find an agent called Kcrec8112/, 'refused for another reason: ' + variant.because);
+});
+
+test('#8112 the CLI path resolves the variant to the one listed agent, never "more than one agent" with a phantom', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  recordedAgent('kres8112');
+  const listed = [{ name: 'kres8112', shown: 'kres8112' }];
+  const r = remove.resolve('Kres8112', MAC, listed);
+  assert.deepEqual(r.ambiguous, [], 'a phantom "Kres8112" made the name ambiguous: ' + JSON.stringify(r));
+  assert.equal(r.name, 'kres8112', 'the variant did not resolve to the listed agent');
+  assert.equal(remove.resolve('kres8112', MAC, listed).name, 'kres8112', 'CONTROL: the exact name changed');
+});

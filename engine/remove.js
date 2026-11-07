@@ -1224,6 +1224,15 @@ function hidesCard(r) {
   return Boolean(r) && (r.stopped !== false || r.leftRunningByChoice === true);
 }
 
+/* kosmos#8112: whether THIS spelling has its own folder. A folder recorded in the agent's profile carries no spelling:
+   the profile is keyed on store.safeKey (lowercased), so workerDir('Cai') returns cai's recorded folder and
+   existsExactly on it is true. Such a folder never proves the name by itself; the job, the session, or (in resolve) a
+   listed card with exactly this name must. An agent whose folder is not recorded is named by its folder, as before. */
+function folderIsExactly(clean) {
+  if (create.agentDirRecorded(clean)) return false;
+  return existsExactly(create.workerDir(clean));
+}
+
 /**
  * Whether there is anything here to remove: a folder, a startup job, or a
  * session on the board. Any one is enough.
@@ -1232,7 +1241,7 @@ function exists(clean, platform) {
   if (jobFor(clean, platform)) return true;
   // ⚠️ Exact spelling again. Without it `exists('CASEY')` is true because
   // `casey`'s folder answers, and the removal proceeds under the wrong name.
-  if (existsExactly(create.workerDir(clean))) return true;
+  if (folderIsExactly(clean)) return true;
   /**
    * ⚠️ An unreachable tmux is UNKNOWN, and the caller says so in those words.
    * Returning a bare false here made `plan` answer "we cannot find an agent
@@ -1335,7 +1344,7 @@ function resolve(name, platform, listed) {
   try { clean = create.cleanName(name); } catch { return asGiven; }
   if (!clean || unsafeToActOn(clean)) return asGiven;
   // An agent with this exact name (folder, job, or a session; an unknown session also counts, so it fails closed).
-  let exact = existsExactly(create.workerDir(clean)) || Boolean(jobFor(clean, platform));
+  let exact = folderIsExactly(clean) || Boolean(jobFor(clean, platform));   // kosmos#8112: a recorded folder is no spelling
   if (!exact) {
     let found;
     try { found = sessionFor(clean); } catch { return asGiven; }
