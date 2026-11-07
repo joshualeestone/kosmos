@@ -6263,7 +6263,7 @@ function listedFileVerb(req, res, verb, folder, where, opts) {
     filepreview.sheet(folder, named, where, opts).then((r) => {
       if (!r.ok && r.notFound) { sendJson(res, 404, { ok: false, because: r.because }); return; }
       sendJson(res, 200, r.ok ? r : { ok: false, because: r.because, ...(r.tooLarge ? { tooLarge: true } : {}) });
-    }).catch(() => sendJson(res, 200, { ok: false, because: 'This file could not be read as a spreadsheet.' }));
+    }).catch(() => sendJson(res, 200, { ok: false, because: sheetpreview.CANNOT_READ }));
     return true;
   }
   const sandbox = "default-src 'none'; sandbox";
@@ -21793,10 +21793,10 @@ const server = http.createServer(async (req, res) => {
       const refusedRead = crossSiteRead(req);
       if (refusedRead) { sendJson(res, 403, { ok: false, because: refusedRead }); return; }
       let r;
-      try { r = sheetpreview.fromFile(rec.file, rec.name); } catch { r = { ok: false, because: 'This file could not be read as a spreadsheet.' }; }
+      try { r = sheetpreview.fromFile(rec.file, rec.name); } catch { r = { ok: false, because: sheetpreview.CANNOT_READ }; }
       // Review 5: an answer that cannot be written must not reach the async handler uncaught (it ended the board).
       try { sendJson(res, 200, r.ok ? r : { ok: false, because: r.because, ...(r.tooLarge ? { tooLarge: true } : {}) }); }
-      catch { sendJson(res, 200, { ok: false, because: 'This spreadsheet is too large to preview.', tooLarge: true }); }
+      catch { sendJson(res, 200, { ok: false, because: sheetpreview.TOO_LARGE, tooLarge: true }); }
       return;
     }
     if (attachGet[2]) {

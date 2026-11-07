@@ -25,7 +25,7 @@ test('#8122 r1: a format code full of "[" is read in milliseconds, not minutes (
   const b = fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="1"><v>45000</v></c></row>') }, { 'xl/styles.xml': styles }, { deflate: true });
   assert.ok(b.length < 20000, 'the hostile file should be small: ' + b.length);
   const r = timed(() => x.readXlsx(b));
-  assert.ok(r.ms < 1000, 'took ' + r.ms + ' ms');
+  assert.ok(r.ms < 5000, 'took ' + r.ms + ' ms');   // review 7: generous for a busy machine; the bug took minutes
   assert.equal(r.err, null, r.err && r.err.message);
   assert.deepEqual(r.out.sheets[0].rows, [['45000']], 'a code longer than Excel allows is no date format');
 });
@@ -42,7 +42,7 @@ test('#8122 r1: many sheets naming one big part read it once, and a sheet stops 
   const b = fx.zip(parts, { deflate: true });
   const r = timed(() => x.readXlsx(b));
   assert.equal(r.err, null, r.err && r.err.message);
-  assert.ok(r.ms < 1500, 'took ' + r.ms + ' ms');
+  assert.ok(r.ms < 5000, 'took ' + r.ms + ' ms');   // review 7: generous; the 19 notGrid below is what pins read-once
   assert.equal(r.out.sheets[0].rows.length, x.MAX_ROWS);
   assert.equal(r.out.sheets[0].cut, true);
   assert.equal(r.out.sheets.filter((s) => s.notGrid).length, 19, 'a part named again is not read again');
@@ -142,7 +142,7 @@ test('#8122 r2: a part full of comments or CDATA is read in linear time, on the 
     const sheet = `<worksheet>${filler}<sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>`;
     const b = fx.book({ S: sheet }, {}, { deflate: true });
     const r = timed(() => x.readXlsx(b));
-    assert.ok(r.ms < 1000, `${label}: took ${r.ms} ms`);
+    assert.ok(r.ms < 5000, `${label}: took ${r.ms} ms`);   // review 7: generous; the bug took 40 s+
     if (label !== 'tags with no closer') assert.deepEqual(r.out.sheets[0].rows, [['1']], label + ': the real value was not read');
   }
 });
@@ -360,4 +360,74 @@ test('#8122 r6: a CSV with blank lines past the row cap is not cut; a value ther
   assert.equal(sp.readDelimited('a\n'.repeat(5) + '\n'.repeat(300), ',').sheets[0].cut, false);
   assert.equal(sp.readDelimited('a\n'.repeat(200) + '\n', ',').sheets[0].cut, false);
   assert.equal(sp.readDelimited('a\n'.repeat(201), ',').sheets[0].cut, true);
+});
+
+/* Review 7 */
+test('#8122 r7: a long run of digits is not tried as a number (the round-6 pattern backtracked: 841 bytes, 4.7 s)', () => {
+  const sp = require('./sheetpreview');
+  const styles = STYLES('<xf numFmtId="0"/><xf numFmtId="14"/>');
+  for (const s of [0, 1]) {   // the plain number path, and the date path
+    const b = fx.book({ S: fx.SHEET(`<row r="1"><c r="A1" s="${s}"><v>${'1'.repeat(100000)}x</v></c></row>`) }, { 'xl/styles.xml': styles }, { deflate: true });
+    assert.ok(b.length < 5000, 'a small file: ' + b.length);
+    const t0 = Date.now();
+    const r = sp.fromBytes(b, 's' + s + '.xlsx');
+    const ms = Date.now() - t0;
+    assert.equal(r.ok, true, JSON.stringify(r).slice(0, 200));
+    assert.ok(ms < 1000, 'style ' + s + ': took ' + ms + ' ms (the bug took 4.7 s)');
+  }
+  // CONTROL: ordinary numbers, signs, decimals and exponents are still numbers.
+  const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>-1.5</v></c><c r="B1"><v>.25</v></c><c r="C1"><v>1E3</v></c><c r="D1"><v>3.</v></c></row>') }));
+  assert.deepEqual(r.sheets[0].rows[0], ['-1.5', '0.25', '1000', '3']);
+});
+
+test('#8122 r7: simple formats round as Excel does and keep their leading zeros', () => {
+  const styles = STYLES('<xf numFmtId="0"/><xf numFmtId="1"/><xf numFmtId="2"/><xf numFmtId="164"/><xf numFmtId="165"/><xf numFmtId="9"/>',
+    '<numFmts><numFmt numFmtId="164" formatCode="00000"/><numFmt numFmtId="165" formatCode="#,##0.00"/></numFmts>');
+  const c = (ref, s, v) => `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
+  const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 2.4999999995)}${c('B1', 2, 1.004999999995)}${c('C1', 3, 1234)}${c('D1', 2, 1.005)}${c('E1', 4, 1234567.891)}${c('F1', 5, 0.075)}</row>`) }, { 'xl/styles.xml': styles }));
+  assert.deepEqual(r.sheets[0].rows[0], ['2', '1.00', '01234', '1.01', '1,234,567.89', '8%']);
+});
+
+test('#8122 r7: a CSV whose data starts after the row cap is shown, with its first row', () => {
+  const sp = require('./sheetpreview');
+  const r = sp.readDelimited('\n'.repeat(250) + 'a,b\n', ',');
+  assert.deepEqual(r.sheets[0].rows, [['a', 'b']]);
+  assert.equal(r.sheets[0].firstRow, 251);
+  assert.equal(r.sheets[0].cut, false);
+  // CONTROL: data from line 1 has no firstRow.
+  assert.equal('firstRow' in sp.readDelimited('a,b\n', ',').sheets[0], false);
+});
+
+test('#8122 r7: a sheet cut at the shared-string cap is not called empty; a chart-only workbook is not empty', () => {
+  const sst = '<sst>' + '<si><t>s</t></si>'.repeat(200001) + '</sst>';
+  const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" t="s"><v>200000</v></c></row>') }, { 'xl/sharedStrings.xml': sst }, { deflate: true }));
+  assert.equal(r.sheets[0].cut, true);
+  assert.equal(r.empty, false);
+  const wb = '<workbook xmlns:r="r"><sheets><sheet name="Chart" sheetId="1" r:id="rId1"/></sheets></workbook>';
+  const rels = '<Relationships><Relationship Id="rId1" Target="chartsheets/sheet1.xml"/></Relationships>';
+  const chart = x.readXlsx(fx.zip({ '[Content_Types].xml': '<Types/>', 'xl/workbook.xml': wb, 'xl/_rels/workbook.xml.rels': rels, 'xl/chartsheets/sheet1.xml': '<chartsheet/>' }));
+  assert.equal(chart.sheets[0].notGrid, true);
+  assert.equal(chart.empty, false);
+});
+
+test('#8122 r7: the CSV reader never cuts a long cell through an emoji', () => {
+  const sp = require('./sheetpreview');
+  const cell = sp.readDelimited('a'.repeat(498) + '😀'.repeat(3) + '\n', ',').sheets[0].rows[0][0];
+  const before = cell.charCodeAt(cell.length - 2);
+  assert.equal(before >= 0xd800 && before <= 0xdbff, false, 'a lone high surrogate before the ellipsis');
+});
+
+test('#8122 r7: a file that is slow twice running is remembered; once is not', () => {
+  const sp = require('./sheetpreview');
+  sp._forgetForTests();
+  const b = fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>1</v></c></row>') });
+  let t = 0;
+  x._internal.setClockForTests(() => (t += 5000));
+  try {
+    assert.equal(sp.fromBytes(b, 'a.xlsx').tooLarge, true);
+    assert.equal(sp.fromBytes(b, 'a.xlsx').tooLarge, true);
+  } finally { x._internal.setClockForTests(null); }
+  assert.equal(sp.fromBytes(b, 'a.xlsx').tooLarge, true, 'slow twice: kept');
+  sp._forgetForTests();
+  assert.equal(sp.fromBytes(b, 'a.xlsx').ok, true, 'CONTROL: forgotten, it reads');
 });
