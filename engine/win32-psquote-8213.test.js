@@ -70,6 +70,7 @@ const REFUSED = [
   // PowerShell takes the curly quotes as quotes too, so the same cut happens with them.
   ['curly apostrophes cutting the text', "post fleet 'the agents\u2019 work and Bob\u2019s\u2019"],
   ['a quoted part touching a double-quoted part', "msg bob 'a'\"b\""],
+  ['a quoted word with a hyphenated word touching it', "msg bob 'well'-known"],
 ];
 const ALLOWED = [
   ['an apostrophe written twice', "msg bob 'it''s fine'"],
@@ -80,6 +81,8 @@ const ALLOWED = [
   ['a here-string holding apostrophes', "msg bob @'\nit's fine, can't and won't\n'@"],
   ['an option value with an apostrophe written twice', "post fleet --topic='Bob''s' hi"],
   ['a curly-double-quoted part holding an apostrophe', "msg bob x\u201cit's\u201d"],
+  ['a backtick-escaped apostrophe in a bare word', "msg bob can`'t stop"],
+  ['a call after a here-string closes on the same line', "$m = @'\nhello\n'@; {K} msg bob 'ok'"],
   // {K} is where the call goes when the arm is a whole line: a later word on the line, outside this call, is not read.
   ['inside an if, a later word holding an apostrophe', "if ({K} msg bob 'hi') { $null = 1 } else { Write-Output Bob's' }"],
   ['inside an array, a later element holding an apostrophe', "$r = @({K} msg bob 'hi'), (Write-Output Bob's')"],

@@ -86,9 +86,11 @@ if ($pipedIn -and $PSCommandPath) {
 # gone (measured, pwsh 7: 'I can't and won't do it' arrives as "I can", "t", "and", "wont do it"), which the CLI would
 # join and send. So this call's own words on the line as typed ($MyInvocation.Line) are read with PowerShell's own
 # parser, and two shapes refuse before anything is sent:
-#   (a) a single-quoted string touching, with no space, a bare word, a number, a double-quoted string or a variable
-#       ('I can't  ->  'I can' then t;  'a'"b";  'a'$x), which PowerShell splits or joins;
-#   (b) a bare word holding a single quote once its double-quoted parts are set aside (won't do it', Bob's', and also
+#   (a) a single-quoted string with anything touching its end except a closer or separator (| ; ) } , a redirection,
+#       a newline), or a double-quoted string or variable touching its start ('I can't  ->  'I can' then t;
+#       'well'-known;  'a'"b";  $x'a'), which PowerShell splits or joins;
+#   (b) a bare word holding a single quote once its double-quoted parts and backtick escapes (can`'t, which PowerShell
+#       delivers as can't) are set aside (won't do it', Bob's', and also
 #       it''s or O''Brien: outside quotes '' is an EMPTY quoted string, which PowerShell drops, so it''s arrives as its).
 #       In an --option=value word only the value is read, and a value that is exactly one quoted string ('eng',
 #       'Bob''s', where '' inside the quotes IS an apostrophe) is fine. (-option:'value' is not one word: PowerShell
@@ -100,15 +102,16 @@ if ($pipedIn -and $PSCommandPath) {
 # open (so a later word in the same if, block or array is not read). A here-string never holds a StringLiteral token,
 # and the quoted 'it''s' is one token, so neither refuses. Not covered, so a mangled text can still go out there: a command
 # continued onto the next line with a backtick ($MyInvocation.Line holds the first line only). When the line is not
-# readable (started with -File, or no line at all) or anything here fails, nothing is checked and the call runs as
-# before.
+# readable (started with -File, no line at all, or a line PowerShell's parser reports errors on, such as one that
+# starts inside a here-string another command opened) or anything here fails, nothing is checked and the call runs
+# as before.
 $splitQuote = $false
 try {
   $line = $MyInvocation.Line
   $at = $MyInvocation.OffsetInLine
-  if ($line -and $at -gt 0) {
-    $tokens = $null; $parseErrors = $null
-    [void][System.Management.Automation.Language.Parser]::ParseInput($line, [ref]$tokens, [ref]$parseErrors)
+  $tokens = $null; $parseErrors = $null
+  if ($line -and $at -gt 0) { [void][System.Management.Automation.Language.Parser]::ParseInput($line, [ref]$tokens, [ref]$parseErrors) }
+  if ($tokens -and -not $parseErrors.Count) {
     $mine = New-Object System.Collections.ArrayList
     $depth = 0
     foreach ($t in $tokens) {
@@ -122,11 +125,11 @@ try {
     $sq = "['\u2018\u2019\u201A\u201B]"
     $dq = '["\u201C\u201D\u201E]'
     $oneQuoted = '^' + $sq + '(?:(?!' + $sq + ').|' + $sq + $sq + ')*' + $sq + '$'
-    $touch = @('Identifier', 'Generic', 'Number', 'StringExpandable', 'Variable')
+    $apart = @('Pipe', 'Semi', 'RParen', 'RCurly', 'Comma', 'NewLine', 'EndOfInput', 'AndAnd', 'OrOr', 'Redirection', 'RedirectInStd')
     for ($i = 0; $i -lt $mine.Count -and -not $splitQuote; $i++) {
       $k = [string]$mine[$i].Kind
       if ($k -eq 'Generic') {
-        $w = $mine[$i].Text -replace ($dq + '(?:(?!' + $dq + ').)*' + $dq), ''
+        $w = ($mine[$i].Text -replace ($dq + '(?:(?!' + $dq + ').)*' + $dq), '') -replace ('`' + $sq), ''
         $eq = $w.IndexOf('=')
         if ($w.StartsWith('-') -and $eq -ge 0) {
           $v = $w.Substring($eq + 1)
@@ -136,7 +139,7 @@ try {
       }
       if ($i + 1 -lt $mine.Count -and $mine[$i + 1].Extent.StartOffset -eq $mine[$i].Extent.EndOffset) {
         $k2 = [string]$mine[$i + 1].Kind
-        if (($k -eq 'StringLiteral' -and $touch -contains $k2) -or ($k2 -eq 'StringLiteral' -and @('StringExpandable', 'Variable') -contains $k)) { $splitQuote = $true }
+        if (($k -eq 'StringLiteral' -and $apart -notcontains $k2) -or ($k2 -eq 'StringLiteral' -and @('StringExpandable', 'Variable') -contains $k)) { $splitQuote = $true }
       }
     }
   }
