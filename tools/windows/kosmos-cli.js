@@ -1901,7 +1901,7 @@ async function taskBuilt(ctx, args) {
     const got = fileprint.fingerprint(typeof whole === 'string' ? whole : file);
     if (!fileprint.isPrint(got)) { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
     fingerprint = got;
-    filePath = typeof whole === 'string' && whole.length <= 1024 && !/[\u0000-\u001f\u007f]/.test(whole) && !/^[\\/]{2}/.test(whole) ? whole : null;
+    filePath = typeof whole === 'string' && whole.length <= 1024 && !/[\u0000-\u001f\u007f]/.test(whole) && !/^(?:[\\/]{2}|\/(?:net|network)(?:[\\/]|$))/i.test(whole) ? whole : null;
   }
   /* #7508, as install/kosmos: the commit a code fix landed as, resolved here in this checkout: its full sha, the
      repository's shared git directory (it outlives a removed worktree) and whether a remote branch has it. */
@@ -1941,7 +1941,7 @@ async function taskBuilt(ctx, args) {
       : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.' + left + told);
     // #6761, as install/kosmos: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
     if (!clear && fingerprint) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
-    if (!clear && fingerprint && !filePath) ctx.out('Its path was not sent: Kosmos keeps only a local path of 1024 characters or fewer, so kosmos task files cannot check this mark.');   // kosmos#8214 review 2, as install/kosmos
+    if (!clear && fingerprint && !filePath) ctx.out('Its path was not sent (Kosmos keeps only a plain local path, so not one with control characters, a network path, or one over 1024 characters), so kosmos task files cannot check this mark.');   // kosmos#8214 review 2, as install/kosmos
     // #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
     // Review 5: only when the board's answer carries it (an older board drops a field it does not know).
     if (!clear && commit) {

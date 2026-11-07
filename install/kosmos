@@ -6863,7 +6863,12 @@ cmd_task() {
         # characters, a network path, over 1024 characters) is sent as none, and the mark goes without it.
         local _fdir; _fdir=$(CDPATH= cd -P -- "$(dirname -- "$file")" 2>/dev/null && pwd -P) || _fdir=""
         case "$_fdir" in /*) file_abs="${_fdir%/}/$(basename -- "$file")" ;; *) file_abs="" ;; esac
+        # $( ) strips a trailing newline from a folder or a name, which would name another file (review 3): a path
+        # given with any control character is sent as none, and the file is hashed by the path as given.
+        case "$file" in *[[:cntrl:]]*) file_abs="" ;; esac
         case "$file_abs" in *[[:cntrl:]]*|//*) file_abs="" ;; esac
+        # As the board's NETWORK_PATH_RE: an automount root mounts from a host when looked up (review 3).
+        case "$(printf '%s' "$file_abs" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in /net|/net/*|/network|/network/*) file_abs="" ;; esac
         # Counted in bytes: never fewer than the board's UTF-16 count, so a path that passes here passes there.
         [ "$(printf '%s' "$file_abs" | LC_ALL=C wc -c | tr -d ' ')" -le 1024 ] || file_abs=""
         fingerprint=$("$_fnode" "$_fmod" "${file_abs:-$file}" 2>/dev/null) || fingerprint=""
@@ -6894,7 +6899,7 @@ cmd_task() {
         [ -n "$(git branch -r --contains "$csha" 2>/dev/null | head -1)" ] && conremote=true
         commit_json=",\"commit\":{\"sha\":\"$csha\",\"repo\":\"$(printf '%s' "$crepo" | sed 's/\\/\\\\/g; s/"/\\"/g')\",\"onRemote\":$conremote}"
       fi
-      [ -z "$file_abs" ] || file_json=",\"file_path\":\"$(printf '%s' "$file_abs" | sed 's/\\/\\\\/g; s/"/\\"/g')\""
+      [ -z "$file_abs" ] || file_json=",\"file_path\":\"$(printf '%s' "$file_abs" | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g')\""
       local esc_note esc_pane
       # Control bytes other than tab, CR and newline would make the JSON invalid (review round 1): dropped, as
       # cmd_post drops them; tab, CR and newline become spaces.
@@ -6922,7 +6927,7 @@ cmd_task() {
             say "Marked task $num on ${project:-the project} built, waiting to be released or checked. Closing it clears the mark.${_left:+ Your part only. $_left}${told:+ $told}"
             # #6761: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
             [ -z "$fingerprint" ] || say "Fingerprint sent: $fingerprint for $file"
-            [ -z "$fingerprint" ] || [ -n "$file_abs" ] || say "Its path was not sent: Kosmos keeps only a local path of 1024 characters or fewer, so kosmos task files cannot check this mark."   # kosmos#8214 review 2: a path dropped is said, not silent
+            [ -z "$fingerprint" ] || [ -n "$file_abs" ] || say "Its path was not sent (Kosmos keeps only a plain local path, so not one with control characters, a network path, or one over 1024 characters), so kosmos task files cannot check this mark."   # kosmos#8214 review 2: a path dropped is said, not silent
             # #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
             # Review 5: only when the board's answer carries it (an older board drops a field it does not know).
             if [ -n "$csha" ]; then

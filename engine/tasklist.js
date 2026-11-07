@@ -311,8 +311,11 @@ function filesLines(body, opts = {}) {
   const compare = typeof opts.compare === 'function' ? opts.compare : require('./fileprint').compare;
   // Review 2: what is absolute depends on this computer. C:\x is relative on a Mac, and /x has no drive on Windows.
   const windows = (opts.platform || process.platform) === 'win32';
-  const local = (p) => !/^[\\/]{2}/.test(p) && (windows ? /^[A-Za-z]:[\\/]/.test(p) : p.startsWith('/'));
-  const foreign = (p) => !/^[\\/]{2}/.test(p) && (windows ? p.startsWith('/') : /^[A-Za-z]:[\\/]/.test(p));
+  // A network path, or an automount root that mounts from a host when looked up (/net/<host>), is never opened: as
+  // engine/tasks.js refuses them, for a store written before or around that check.
+  const network = (p) => /^(?:[\\/]{2}|\/(?:net|network)(?:[\\/]|$))/i.test(p);
+  const local = (p) => !network(p) && (windows ? /^[A-Za-z]:[\\/]/.test(p) : p.startsWith('/'));
+  const foreign = (p) => !network(p) && (windows ? p.startsWith('/') : /^[A-Za-z]:[\\/]/.test(p));
   const every = !opts.project;
   const tasks = body && Array.isArray(body.tasks) ? body.tasks : null;
   if (!tasks) return { lines: ['Kosmos sent no task list, so there is nothing to check.'], rc: 1 };
@@ -320,7 +323,7 @@ function filesLines(body, opts = {}) {
   if (every && body.all !== true) return older('--all');
   if (body.listState !== 'built') return older('--built');
   const lines = [];
-  const tally = { matches: 0, changed: 0, missing: 0, unreadable: 0, nopath: 0, elsewhere: 0 };
+  const tally = { matches: 0, changed: 0, missing: 0, unreadable: 0, nopath: 0, elsewhere: 0, unchecked: 0 };
   let noFile = 0;
   for (const found of tasks) {
     const x = scrub(found);
@@ -334,7 +337,7 @@ function filesLines(body, opts = {}) {
     // absolute. The board refuses the last two; an older or edited store may still hold one.
     if (foreign(at)) { tally.elsewhere += 1; lines.push('    NOT CHECKED ' + shown + ': marked on a ' + (windows ? 'Mac or Linux' : 'Windows') + ' computer, so it is not on this one'); continue; }
     if (!local(at)) {
-      tally.unreadable += 1; lines.push('    NOT CHECKED ' + shown + ': not a local absolute path, so Kosmos does not open it'); continue;
+      tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': not a local absolute path, so Kosmos does not open it'); continue;
     }
     let got;
     try { got = compare(at, x.builtFingerprint); } catch (e) { got = { ok: false, words: 'unreadable (' + one((e && e.message) || e) + ')' }; }
@@ -355,6 +358,7 @@ function filesLines(body, opts = {}) {
     if (tally.unreadable) bits.push(tally.unreadable + ' cannot be read');
     if (tally.nopath) bits.push(tally.nopath + ' with no path recorded');
     if (tally.elsewhere) bits.push(tally.elsewhere + ' marked on another kind of computer');
+    if (tally.unchecked) bits.push(tally.unchecked + ' not a local path, not opened');
     lines.push(checked + ' built task' + (checked === 1 ? '' : 's') + ' with a delivered file ' + (every ? 'across your projects' : where) + ': ' + bits.join(', ') + '.'
       + (noFile ? ' ' + noFile + ' more built without --file.' : ''));
     if (tally.changed || tally.missing) lines.push('A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.');

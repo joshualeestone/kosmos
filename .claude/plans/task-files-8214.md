@@ -16,5 +16,13 @@ verb that fingerprints each built task's file again on the agent's own computer.
 Rejected: a board-side sweep (the board may be remote and must not read arbitrary paths); re-marking on a mismatch.
 Weakest premise: a path is the marking computer's; a mark from another computer reads MISSING here (said in the output).
 
-Tests: cli.task-files-8214.test.js (7). Perturbed: BUILT_FIELDS without the path, the Tasks view not stripping it, the
-Mac CLI not sending it: each turned one test red.
+Tests: cli.task-files-8214.test.js. Perturbed: BUILT_FIELDS without the path, the Tasks view not stripping it, the
+Mac CLI not sending it, the network-path refusals, the Mac's physical resolve, the platform rule: each turned a test red.
+
+Review calls (challenge loop):
+- A network path is refused by the board and never opened by task files: //host, \\host, and the automount roots
+  /net and /Network (macOS mounts /net/<host> on lookup). Other automount roots configured by hand are not covered.
+- task files opens other markers' paths too: deliberate, it is the sweep the card asks for. It reads only what this
+  agent can already read, and only this agent sees the output.
+- task files exits 0 whatever the verdicts: it is a report like task list, and exit 1 already means it could not list.
+- A path the board would refuse is dropped by the CLI, which says so, and the mark still goes.

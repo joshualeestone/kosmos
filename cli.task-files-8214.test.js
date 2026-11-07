@@ -95,7 +95,10 @@ test('#8214 engine: the path is kept with its fingerprint, kept by a checker, dr
     { fingerprint: A, filePath: '/' + 'x'.repeat(1024) }, { fingerprint: A, filePath: ['/x'] },
     // Review 1: a network path, in either spelling, would make `task files` connect to a host the marker chose.
     { fingerprint: A, filePath: '//attacker.example/share/x' }, { fingerprint: A, filePath: '\\\\attacker\\share\\x' },
-    { fingerprint: A, filePath: '\\\\?\\C:\\x' }]) {
+    { fingerprint: A, filePath: '\\\\?\\C:\\x' },
+    // Review 3: macOS mounts /net/<host> from that host when it is looked up; APFS is case-blind.
+    { fingerprint: A, filePath: '/net/attacker.example/share/x' }, { fingerprint: A, filePath: '/NET/attacker/x' },
+    { fingerprint: A, filePath: '/Network/Servers/attacker/x' }]) {
     const r = tasks.setBuilt(projectId, n, { by: 'mona', ...bad });
     assert.equal(r.ok, false, JSON.stringify(bad));
     assert.match(r.because, /file path/);
@@ -140,7 +143,7 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
     // Review 1: a network or relative path in the store (an older board, an edited file) is never opened.
     row(8, { builtFilePath: '//attacker.example/share/x' }), row(9, { builtFilePath: '\\\\attacker\\share\\x' }), row(10, { builtFilePath: 'rel/x' }),
     // Review 2: a Windows path is not absolute on a Mac, so it is never resolved against the folder the command runs in.
-    row(11, { builtFilePath: 'C:\\out\\x.txt' })] };
+    row(11, { builtFilePath: 'C:\\out\\x.txt' }), row(12, { builtFilePath: '/Net/attacker/x' })] };
   const out = tasklist.filesLines(body, { project: 'files', compare, platform: 'darwin' });
   assert.equal(out.rc, 0);
   assert.deepEqual(out.lines, [
@@ -154,7 +157,8 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
     '#9  Task 9', '    NOT CHECKED \\\\attacker\\share\\x: not a local absolute path, so Kosmos does not open it',
     '#10  Task 10', '    NOT CHECKED rel/x: not a local absolute path, so Kosmos does not open it',
     '#11  Task 11', '    NOT CHECKED C:\\out\\x.txt: marked on a Windows computer, so it is not on this one',
-    '10 built tasks with a delivered file in files: 2 match, 1 changed, 1 missing, 4 cannot be read, 1 with no path recorded, 1 marked on another kind of computer. 1 more built without --file.',
+    '#12  Task 12', '    NOT CHECKED /Net/attacker/x: not a local absolute path, so Kosmos does not open it',
+    '11 built tasks with a delivered file in files: 2 match, 1 changed, 1 missing, 1 cannot be read, 1 with no path recorded, 1 marked on another kind of computer, 4 not a local path, not opened. 1 more built without --file.',
     'A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.',
     'Checked on this computer: a mark made on another computer can read missing here.',
   ]);
@@ -221,6 +225,17 @@ test('#8214 Windows: built --file sends the absolute path; task files says match
   // task show prints the kept path, indented under its own heading.
   const show = await win(['task', 'show', otherId, String(n)], { token: tok });
   assert.match(show.out, new RegExp('^Delivered file: ' + sha('version one') + ', sent by mona \\(check it again: kosmos task files ' + otherId + '\\)\nDelivered file path, on the computer that marked it:\n {4}' + file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'm'), show.out);
+});
+
+test('#8214 Windows (review 3): a path the board would refuse is dropped, said, and the mark still goes', async () => {
+  const name = 'win\nodd.txt';
+  fs.writeFileSync(path.join(OUT, name), 'win odd');
+  const n = tasks.create(otherId, { sentence: 'Windows odd name', who: 'mona' }).number;
+  const r = await win(['task', 'built', otherId, String(n), 'done', '--file', name], { token: tokenOf('mona'), cwd: OUT });
+  assert.equal(r.code, 0, r.err);
+  assert.equal(stored(otherId, n).builtFingerprint, sha('win odd'));
+  assert.equal('builtFilePath' in stored(otherId, n), false);
+  assert.match(r.out, /Its path was not sent \(Kosmos keeps only a plain local path/, r.out);
 });
 
 test('#8214 Windows: refusals and usage', async () => {
@@ -294,8 +309,16 @@ test('#8214 Mac (review 1): link/.. is hashed and recorded as the same file; a p
   assert.equal(o.code, 0, o.out + o.err);
   assert.equal(stored(projectId, m).builtFingerprint, sha('odd'));
   assert.equal('builtFilePath' in stored(projectId, m), false);
-  assert.match(o.out, /Its path was not sent: Kosmos keeps only a local path of 1024 characters or fewer, so kosmos task files cannot check this mark\./, 'a dropped path was silent: ' + o.out);
+  assert.match(o.out, /Its path was not sent \(Kosmos keeps only a plain local path, so not one with control characters, a network path, or one over 1024 characters\), so kosmos task files cannot check this mark\./, 'a dropped path was silent: ' + o.out);
   assert.doesNotMatch(r.out, /Its path was not sent/, 'a path that was sent was said to be dropped');
+  // Review 3: a trailing newline, which $( ) strips: the file named is hashed, never its newline-less neighbour.
+  fs.writeFileSync(path.join(OUT, 'trail\n'), 'with the newline');
+  fs.writeFileSync(path.join(OUT, 'trail'), 'the neighbour');
+  const t = tasks.create(projectId, { sentence: 'Trailing newline', who: 'mona' }).number;
+  const tr = await mac(['task', 'built', projectId, String(t), 'done', '--file', 'trail\n'], { token: tok, cwd: OUT });
+  assert.equal(tr.code, 0, tr.out + tr.err);
+  assert.equal(stored(projectId, t).builtFingerprint, sha('with the newline'), 'the neighbour was hashed');
+  assert.equal('builtFilePath' in stored(projectId, t), false, 'a path naming the neighbour was recorded');
 });
 
 test('#8214 Mac: refusals and usage', { skip: process.platform === 'win32' && 'the Mac CLI' }, async () => {
