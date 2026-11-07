@@ -181,6 +181,21 @@ test('an agent\'s old ask is counted as aged, not named on the line', async () =
   assert.ok(t.includes('1 post that asked you something more than 3 days ago'), t);
 });
 
+test('review 3: an old ask and a covered one with nothing listed: the head says neither nothing nor nothing waiting', async () => {
+  const pid = newRoom('Uncited4926t');
+  const saved = clock;
+  clock = Date.now() - 5 * 24 * 60 * 60000;
+  const old = ask(pid);
+  clock = saved;
+  const recent = ask(pid);
+  own(pid);
+  const t = await unanswered(pid);
+  assert.ok(t.startsWith('Waiting on an answer from you: nothing listed from the last 3 days in this room; the posts named below may still be open.\n'), t);
+  assert.ok(onCovered(t).includes('[' + recent + ']'), t);
+  assert.ok(!onCovered(t).includes('[' + old + ']'), t);
+  assert.ok(t.includes('1 post that asked you something more than 3 days ago'), t);
+});
+
 test('the line is capped by -n, newest kept, and says how many more', async () => {
   const pid = newRoom('Uncited4926i');
   const a = [ask(pid), ask(pid), ask(pid)];

@@ -23935,7 +23935,7 @@ const server = http.createServer(async (req, res) => {
            it too); the person's post that names nobody asked every agent it was delivered to, not one it went quiet or
            could not reach. */
         /* kosmos#7848: only while the project's members could be read. With no member list a departed agent's claim is
-           not filtered out (claimMembers fails toward "held", right for the page's pill), so here the ask stays listed. */
+           not filtered out (claimMembers fails toward "held", right for the page's pill), so here the claim does not move the ask. */
         const membersKnown = !!(roomRecord && Array.isArray(roomRecord.agents));
         const claimedByOther = (m) => {
           if (!membersKnown) return null;
