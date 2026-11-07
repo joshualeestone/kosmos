@@ -19,7 +19,9 @@ users can say what they see. Apart from that, a 44px minimum width on a phone, s
 - Rejected: a button-shaped control. A heavier row for an action nobody needs often; the word alone may do it. Mona Lisa's to overrule.
 
 ## Named, not fixed
-- The Tasks and subproject checks are updated to the new words (render-tasks-view-3559, render-subprojects-1994).
+- Pressing Undo also takes the "Saved as change" line off the row (clearBuilt, a mark taken off means the work is not done), so its message says the change is not touched.
+- After a note, Undo is alone on its line with nothing naming what it undoes; the spoken name does.
+- The design screen's outside mark tells the sample agent and leaves history on its throwaway board.
 - The shots show a row marked by the person and an unnamed one, not a named agent's or a Needs Your Decision row: a named mark needs an agent token.
 - That a row with no note keeps Undo beside its sentence is checked only by the design screen's verify, which runs by hand: the Tasks check's fixture has one built row, with a note.
 
