@@ -583,10 +583,11 @@ async function runSheet(engine, say) {
       const has = (a, re) => a.some((t) => re.test(t));
       say(has(c.notGridCut, /Part of this file could not be read, so this sheet is not shown here/) && !has(c.notGridCut, /not a table of values/), engine + ' sheet #8188: a cut sheet that is not a grid says part of the file could not be read', JSON.stringify(c.notGridCut));
       say(has(c.notGrid, /not a table of values/) && !has(c.notGrid, /could not be read/), engine + ' sheet #8188 control: an uncut sheet that is not a grid still says so', JSON.stringify(c.notGrid));
-      say(has(c.emptyCut, /could not be read, so nothing of this sheet is shown/) && !has(c.emptyCut, /This sheet is empty/), engine + ' sheet #8188: a cut sheet with no rows never says it is empty', JSON.stringify(c.emptyCut));
+      say(has(c.emptyCut, /Nothing of this sheet can be shown here/) && !has(c.emptyCut, /This sheet is empty|could not be read/), engine + ' sheet #8188: a cut sheet with no rows never says it is empty, and blames nothing (a size cut can leave it empty)', JSON.stringify(c.emptyCut));
       say(has(c.empty, /This sheet is empty/), engine + ' sheet #8188 control: an uncut sheet with no rows says it is empty', JSON.stringify(c.empty));
-      say(has(c.smallCut, /Not all of this sheet could be read here/) && !has(c.smallCut, /200 rows and 50 columns/), engine + ' sheet #8188: a small cut sheet does not claim the 200 x 50 limit', JSON.stringify(c.smallCut));
-      say(has(c.bigCut, /up to 200 rows and 50 columns/), engine + ' sheet #8188: a sheet cut at 200 rows keeps the limit sentence', JSON.stringify(c.bigCut));
+      // Review 1: the same sentence for any cut, small or at the limits (guessing the cause from the shape was wrong both ways).
+      say(has(c.smallCut, /Not all of this sheet is shown here/) && !has(c.smallCut, /goes on past what is shown/), engine + ' sheet #8188: a small cut sheet says not all of it is shown, never that it goes on past the limits', JSON.stringify(c.smallCut));
+      say(c.bigCut.length === 1 && has(c.bigCut, /Not all of this sheet is shown here/), engine + ' sheet #8188: a sheet cut at 200 rows says the same, once', JSON.stringify(c.bigCut));
       say(c.whole.length === 0, engine + ' sheet #8188 control: a whole sheet says nothing', JSON.stringify(c.whole));
     }
     const open = async (id, name, extra) => {
@@ -629,8 +630,8 @@ async function runSheet(engine, say) {
       if (!c) return null; const r = c.getBoundingClientRect(), fs = parseFloat(getComputedStyle(document.documentElement).fontSize);
       return { w: r.width, max: 24 * fs, cut: c.scrollWidth > c.clientWidth + 1, oneLine: r.height < 30, title: (c.title || '').length, ell: getComputedStyle(c).textOverflow }; });
     say(!!lc && lc.w <= lc.max + 0.5 && lc.cut && lc.oneLine && lc.title > 200 && lc.ell === 'ellipsis', T + ': a long cell is cut to one line at 24rem with an ellipsis, the whole value on hover', JSON.stringify(lc));
-    // kosmos#8188: Budget is a small sheet marked cut, so it gets the words true for any cut, not the 200 x 50 sentence.
-    say(g.notes.some((n) => /Not all of this sheet could be read here/.test(n)) && !g.notes.some((n) => /goes on past what is shown/.test(n)) && g.notes.some((n) => /no saved value/.test(n)) && g.below && g.name === 'Budget 2026.xlsx', T + ': it says when it is cut short or values are missing; the name and the gold button are under it', JSON.stringify(g));
+    // kosmos#8188: a cut sheet says so in words true for any cause (the reader does not say why).
+    say(g.notes.some((n) => /Not all of this sheet is shown here/.test(n)) && g.notes.some((n) => /no saved value/.test(n)) && g.below && g.name === 'Budget 2026.xlsx', T + ': it says when it is cut short or values are missing; the name and the gold button are under it', JSON.stringify(g));
     // The keyboard reaches the sheets: Tab from the X goes to the selected tab, then the grid (review 1).
     await pg.focus('#pv-x'); await pg.keyboard.press('Tab');
     const t1 = await pg.evaluate(() => document.activeElement.className + ':' + document.activeElement.textContent.slice(0, 12));

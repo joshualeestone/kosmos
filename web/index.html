@@ -77452,9 +77452,11 @@ function pvSheetInto(stage, data) {
     // Said under the sheet, in the viewer's own (light) words colour, never inside the white panel.
     /* kosmos#8188: a sheet the reader marks cut (since #8162/#8168, a damaged sheet list, rels or styles part cuts every
        sheet) says so on these two paths too: "not a table" or "empty" read as the whole truth about a file that could
-       not be read whole. Said in words true whatever the cut was, since the reader does not say why. */
+       not be read whole. Said in words true whatever the cut was, since the reader does not say why (review 1: a size cut,
+       past column 50 or the reader's output budget, can also leave a cut sheet with no rows, so that path blames nothing).
+       Not a table and cut comes only from a damaged structure (#8168 sets it there), so that path says so. */
     if (sh.notGrid) { notes.appendChild(note(sh.cut ? 'Part of this file could not be read, so this sheet is not shown here. Open the file to see it.' : 'This sheet is not a table of values, so it is not shown here.')); panel.hidden = true; return; }
-    if (!sh.rows.length) { notes.appendChild(note(sh.cut ? 'Part of this file could not be read, so nothing of this sheet is shown here. Open the file to see it.' : 'This sheet is empty.')); panel.hidden = true; return; }
+    if (!sh.rows.length) { notes.appendChild(note(sh.cut ? 'Nothing of this sheet can be shown here. Open the file to see it.' : 'This sheet is empty.')); panel.hidden = true; return; }
     panel.hidden = false;
     const t = document.createElement('table'); t.className = 'pv-grid';
     const head = t.createTHead().insertRow(); { const corner = document.createElement('th'); corner.setAttribute('aria-label', 'Row'); head.appendChild(corner); }   // the row numbers' column (review 2)
@@ -77474,11 +77476,10 @@ function pvSheetInto(stage, data) {
     // CJK). Measured now, not on the next frame: the grid is already on the page, so reading its width lays it out (a
     // deferred measure raced the first look in WebKit).
     t.querySelectorAll('.pv-cell').forEach((c) => { if (c.scrollWidth > c.clientWidth + 1) c.title = c.textContent; });
-    /* kosmos#8188: the size sentence only where the sheet reached the limits; any other cut (a damaged part, the reader's
-       output budget) gets words true for every cause. */
-    const atLimit = sh.rows.length >= 200 || width >= 50;
-    if (sh.cut) notes.appendChild(note(atLimit ? 'This sheet goes on past what is shown here (up to 200 rows and 50 columns). Open the file to see all of it.'
-      : 'Not all of this sheet could be read here. Open the file to see all of it.'));
+    /* kosmos#8188 (review 1): one sentence true for every cause of a cut. The reader does not say why a sheet is cut,
+       and guessing it from the sheet's shape was wrong both ways (a sparse sheet cut by size shows fewer than 200 rows;
+       a 200-row sheet can be cut by a damaged styles part). */
+    if (sh.cut) notes.appendChild(note('Not all of this sheet is shown here (a preview shows up to 200 rows and 50 columns, and only what it can read). Open the file to see all of it.'));
   };
   sheets.forEach((sh, i) => {
     const b = document.createElement('button'); b.type = 'button'; b.className = 'pv-tab'; b.setAttribute('role', 'tab');
