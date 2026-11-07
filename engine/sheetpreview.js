@@ -35,7 +35,7 @@ function kindOf(name) {
 /* The size cap for a kind, checked before any byte is read. */
 function capFor(kind) { return kind === 'xlsx' ? xlsx.MAX_FILE_BYTES : MAX_DELIMITED_BYTES; }
 
-const clip = (s) => (s.length > xlsx.MAX_CELL_CHARS ? s.slice(0, xlsx.MAX_CELL_CHARS - 1) + '…' : s);
+const clip = xlsx.clip;   // review 7: one cut for both readers (this one halved an emoji)
 
 /**
  * A delimited text file (CSV or TSV) to the viewer's shape. RFC 4180 quoting: a field in double quotes may hold the
@@ -59,10 +59,18 @@ function readDelimited(text, sep, name) {
     if (field !== '') any = true;
     field = '';
   };
+  // Review 7: as the xlsx reader, the rows shown start at the first line with a value when that line is past the cap
+  // (a CSV after 250 blank lines showed an empty grid that said "more").
+  let line = 0;
+  let base = null;
   const endRow = () => {
     endField();
-    if (rows.length < xlsx.MAX_ROWS) { rows.push(row); if (row.length > width) width = row.length; }
-    else if (row.some((c) => c !== '')) cut = true;   // review 6: a blank line past the cap leaves no value out
+    const blank = row.every((c) => c === '');
+    if (base === null && !blank) { base = line >= xlsx.MAX_ROWS ? line : 0; if (base) { rows.length = 0; width = 0; } }
+    if (base === null && line >= xlsx.MAX_ROWS) { /* a blank line before the first value: not kept */ }
+    else if (rows.length < xlsx.MAX_ROWS) { rows.push(row); if (row.length > width) width = row.length; }
+    else if (!blank) cut = true;   // review 6: a blank line past the cap leaves no value out
+    line++;
     row = [];
   };
   for (let i = 0; i < s.length; i++) {
@@ -84,9 +92,8 @@ function readDelimited(text, sep, name) {
   if (field !== '' || row.length) endRow();
   // A trailing empty line is not a row.
   while (rows.length && rows[rows.length - 1].every((c) => c === '')) rows.pop();
-  if (rows.length > xlsx.MAX_ROWS) { rows.length = xlsx.MAX_ROWS; cut = true; }
   const grid = rows.map((r) => Array.from({ length: width }, (_, k) => r[k] || ''));
-  return { sheets: [{ name: name || 'Sheet 1', rows: grid, cut }], moreSheets: 0, noValues: false, empty: !any };
+  return { sheets: [{ name: name || 'Sheet 1', rows: grid, cut, ...(base ? { firstRow: base + 1 } : {}) }], moreSheets: 0, noValues: false, empty: !any };
 }
 
 /* Review 5: an answer too large to send is "too large to preview", decided here, whichever reader made it (the xlsx
@@ -107,17 +114,23 @@ function fromBytes(buf, name) {
   if (!Buffer.isBuffer(buf)) return { ok: false, because: CANNOT_READ };
   if (buf.length > capFor(kind)) return { ok: false, because: TOO_LARGE, tooLarge: true };
   // Review 5: the same bytes are read once, not once per request (a hostile file could cost up to the 2 s budget every
-  // time the viewer asked). Keyed by the bytes and the reader, so a renamed or changed file is read again.
+  // time the viewer asked). Keyed by the bytes and the reader (and a CSV's name), so a changed file is read again.
   // A CSV's sheet is named after its file, so its name is part of the key. A refusal for what the file IS (too many
   // bytes, not a workbook) is kept; one for the time the read took is not. Each caller gets its own copy.
   const key = kind + ':' + (kind === 'xlsx' ? '' : path.basename(String(name || ''))) + ':' + crypto.createHash('sha256').update(buf).digest('base64');
   let answer = answers.get(key);
   if (answer) answers.delete(key);
   else {
-    const read = readFresh(buf, kind, name);
+    let read = readFresh(buf, kind, name);
     // Review 6: a refusal for the time it took is not remembered (a busy moment would stick), and an answer is copied
     // before it is kept: its strings were slices of the whole unpacked part, so each entry held up to 16 MB.
-    if (read.slow) { const { slow, ...shown } = read; return shown; }
+    // Review 7: but a file that is slow twice running is slow because of what it is, and is kept from then on (a
+    // file always past the budget cost the whole budget on every request).
+    if (read.slow) {
+      const { slow, ...shown } = read;
+      if (!slowOnce.has(key)) { slowOnce.add(key); if (slowOnce.size > MAX_REMEMBERED) slowOnce.delete(slowOnce.values().next().value); return shown; }
+      read = shown;
+    }
     answer = JSON.parse(JSON.stringify(read));
   }
   answers.set(key, answer);
@@ -126,6 +139,7 @@ function fromBytes(buf, name) {
 }
 const MAX_REMEMBERED = 8;   // answers kept, the least recently asked for goes first; each is capped (MAX_ANSWER_CHARS)
 const answers = new Map();
+const slowOnce = new Set();   // keys refused once for the time taken
 function readFresh(buf, kind, name) {
   if (kind === 'xlsx') {
     try { return fits({ ok: true, ...xlsx.readXlsx(buf) }); }
@@ -152,18 +166,22 @@ function fromFile(file, name) {
   if (!kind) return { ok: false, because: 'There is no spreadsheet preview for this kind of file.' };
   let fd = null;
   try {
-    if (fs.lstatSync(file).isSymbolicLink()) return { ok: false, because: CANNOT_READ };
+    const before = fs.lstatSync(file, { bigint: true });
+    if (before.isSymbolicLink()) return { ok: false, because: CANNOT_READ };
     fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
-    const st = fs.fstatSync(fd);
+    const st = fs.fstatSync(fd, { bigint: true });
     if (!st.isFile()) return { ok: false, because: CANNOT_READ };
-    if (st.size > capFor(kind)) return { ok: false, because: TOO_LARGE, tooLarge: true };
-    const bytes = Buffer.alloc(st.size);
+    // Review 7: the file opened is the one looked at (Windows has no O_NOFOLLOW, so a link swapped in between is caught here).
+    if (st.ino !== before.ino || st.dev !== before.dev) return { ok: false, because: CANNOT_READ };
+    const size = Number(st.size);   // read as a bigint, for the identity check above
+    if (size > capFor(kind)) return { ok: false, because: TOO_LARGE, tooLarge: true };
+    const bytes = Buffer.alloc(size);
     let off = 0;
-    while (off < st.size) { const n = fs.readSync(fd, bytes, off, st.size - off, off); if (n <= 0) break; off += n; }
-    if (off !== st.size) return { ok: false, because: 'That file changed while it was being read.' };
+    while (off < size) { const n = fs.readSync(fd, bytes, off, size - off, off); if (n <= 0) break; off += n; }
+    if (off !== size) return { ok: false, because: 'That file changed while it was being read.' };
     return fromBytes(bytes, name || file);
   } catch { return { ok: false, because: 'That file could not be read.' }; }
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
-module.exports = { _forgetForTests: () => answers.clear(), kindOf, capFor, readDelimited, fromBytes, fromFile, MAX_DELIMITED_BYTES, TOO_LARGE, CANNOT_READ };
+module.exports = { _forgetForTests: () => { answers.clear(); slowOnce.clear(); }, kindOf, capFor, readDelimited, fromBytes, fromFile, MAX_DELIMITED_BYTES, TOO_LARGE, CANNOT_READ };

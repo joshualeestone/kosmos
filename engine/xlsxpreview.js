@@ -16,8 +16,8 @@
  * - the zip is read by engine/win32zip.js's checked reader (entry count, sizes, overlapping entries, a deflate capped
  *   at its declared size);
  * - every XML part is capped in size and scanned forward with indexOf; the patterns that run on a whole part or body
- *   (the prefix strip, the entity decode) have no nested repetition, so they are linear; the rest run on a short, capped
- *   piece (a start tag, a format code);
+ *   (the prefix strip, the entity decode, the ISO date tidy) have no nested repetition, so they are linear; the rest run
+ *   on a short, capped piece (a start tag, a format code, a saved number of at most MAX_NUMBER_CHARS);
  * - comments are cut and CDATA unwrapped first, so neither can hide or fake a value; namespace prefixes are dropped;
  * - each worksheet part is read once, however many sheets name it, and reading a sheet stops after MAX_VISITS rows and
  *   cells walked, shown or not (review 4: a row number that never grew walked a whole part);
@@ -32,6 +32,7 @@
  * Built-ins only (package.json has no dependencies; SheetJS was considered and rejected on the card).
  */
 const { readZipDirectory, entryContents } = require('./win32zip');
+const { cutUnits } = require('./textcut');
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;      // over this, "too large to preview" (the button still downloads it)
 const MAX_PART_BYTES = 16 * 1024 * 1024;      // one XML part, unpacked
@@ -47,7 +48,12 @@ const MAX_FORMAT_CODE = 255;                   // Excel's own limit on a number 
 const WORK_BUDGET_MS = 2000;                   // the whole read, on the board's one thread
 
 const TOO_LARGE = 'This spreadsheet is too large to preview.';
-const DECIMAL = /^[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$/;   // a saved number as Excel writes one
+/* A saved number as Excel writes one. Review 7: the round-6 pattern put [0-9]+ beside [0-9]* and backtracked on a long
+   run of digits (an 841-byte file blocked the board 4.7 s, 300k digits 43 s, inside one step the budget cannot see), so
+   the pattern is unambiguous AND a value longer than any number Excel writes is not tried at all. */
+const DECIMAL = /^[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?$/;
+const MAX_NUMBER_CHARS = 400;
+const isDecimal = (raw) => raw.length <= MAX_NUMBER_CHARS && DECIMAL.test(raw.trim());
 const CANNOT_READ = 'This file could not be read as a spreadsheet.';
 
 class XlsxRefusal extends Error { constructor(message, slow = false) { super(message); this.name = 'XlsxRefusal'; this.slow = slow; } }
@@ -171,14 +177,9 @@ function cellRef(ref) {
   if (row < 1) return null;
   return [row - 1, col - 1];
 }
-/* A cell cut to MAX_CELL_CHARS, never through the middle of a character outside the BMP (review 5: an emoji was halved). */
-const clip = (s) => {
-  if (s.length <= MAX_CELL_CHARS) return s;
-  let n = MAX_CELL_CHARS - 1;
-  const last = s.charCodeAt(n - 1);
-  if (last >= 0xd800 && last <= 0xdbff) n--;
-  return s.slice(0, n) + '…';
-};
+/* A cell cut to MAX_CELL_CHARS, never through the middle of a character outside the BMP (review 5: an emoji was halved);
+   the one cut the CSV reader uses too (review 7), on engine/textcut.js's cutUnits. */
+const clip = (s) => (s.length > MAX_CELL_CHARS ? cutUnits(s, MAX_CELL_CHARS - 1) + '…' : s);
 
 /* A format code without its quoted text and bracketed parts ("[Red]", "[$-409]", "[h]" stays: elapsed hours), by a
    forward scan (review 1: a pattern here was quadratic on a code full of "["). Codes longer than Excel allows are not
@@ -223,10 +224,11 @@ function formatKind(code) {
   // Only a code of digit placeholders (review 3: a currency or a unit, quoted or in brackets, was dropped from the shown
   // text); anything else shows the saved number.
   if (!/^[#0.,%\s]+$/.test(String(code || '').split(';')[0])) return null;
-  const num = /^\s*(#,##0|#,#|0|#)?(?:\.(0+))?\s*(%)?\s*$/.exec(lower);
+  const num = /^\s*([#0,]*)(?:\.(0+))?\s*(%)?\s*$/.exec(lower);
   // Review 4: past 30 places (Excel's own limit) toFixed throws, which refused the whole workbook.
   if (num && num[2] && num[2].length > 30) return null;
-  if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3] };
+  // Review 7: the integer zeros are the fewest digits shown ("00000" on 1234 is 01234, a ZIP code or an id).
+  if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3], digits: ((num[1] || '').match(/0/g) || []).length };
   return null;
 }
 /* Built-in number formats by id (ECMA-376 18.8.30): 1 "0", 2 "0.00", 3 "#,##0", 4 "#,##0.00", 9 "0%", 10 "0.00%",
@@ -306,12 +308,14 @@ function serialTime(n, fmt = null) {
 function shownNumber(raw, fmt) {
   const n = Number(raw);
   // Review 6: only a decimal number is a number (0x1F is not 31).
-  if (!DECIMAL.test(raw.trim()) || !Number.isFinite(n)) return raw;
+  if (!isDecimal(raw) || !Number.isFinite(n)) return raw;
   if (!fmt || fmt.kind !== 'number') return String(Number(n.toPrecision(15)));
   const v = Number((fmt.percent ? n * 100 : n).toPrecision(15));
   const f = Math.pow(10, fmt.decimals);
-  const rounded = Math.sign(v) * Math.round(Math.abs(v) * f + 1e-9) / f;
+  // Review 7: rounded on the 15 digits Excel keeps, not with a nudge (2.4999999995 under "0" showed 3).
+  const rounded = Math.sign(v) * Math.round(Number((Math.abs(v) * f).toPrecision(15))) / f;
   let text = Math.abs(rounded).toFixed(fmt.decimals);
+  if (fmt.digits > 1 && !/e/.test(text)) { const [i, d] = text.split('.'); text = i.padStart(fmt.digits, '0') + (d ? '.' + d : ''); }
   if (fmt.thousands) { const [i, d] = text.split('.'); text = i.replace(/\B(?=(\d{3})+$)/g, ',') + (d ? '.' + d : ''); }
   return (rounded < 0 ? '-' : '') + text + (fmt.percent ? '%' : '');
 }
@@ -378,6 +382,7 @@ function readXlsx(buf) {
   const sheets = [];
   const readTargets = new Set();   // review 1: a part named by several sheets is read once
   let all = 0, anyValue = false, anyFormula = false, bareFormula = false;
+  let otherSheet = false;   // a chart or dialog sheet that is in the file
   let outputLeft = MAX_OUTPUT_CHARS;   // review 5: for the whole answer, every sheet together
   let sk = 0;
   for (const s of elements(workbook, 'sheet')) {
@@ -390,7 +395,11 @@ function readXlsx(buf) {
     target = target.replace(/^\/?xl\//, '').replace(/^\//, '');
     // Only a part inside xl/worksheets/ (a chart sheet or a dialog sheet is not a grid; a path that climbs out is not
     // read), and only once.
-    if (!/^worksheets\/[A-Za-z0-9_.-]+\.xml$/.test(target) || readTargets.has(target)) { sheets.push({ name, rows: [], cut: false, notGrid: true }); continue; }
+    if (!/^worksheets\/[A-Za-z0-9_.-]+\.xml$/.test(target) || readTargets.has(target)) {
+      if (!readTargets.has(target) && byName.has('xl/' + target)) otherSheet = true;
+      sheets.push({ name, rows: [], cut: false, notGrid: true });
+      continue;
+    }
     readTargets.add(target);
     const xml = part('xl/' + target);
     // Review 3: a part that is not in the file (damaged, or a name the lister leaves out) is not a grid, never "empty".
@@ -436,7 +445,7 @@ function readXlsx(buf) {
           if (type === 's') {
             const n = /^[0-9]{1,9}$/.test(raw.trim()) ? Number(raw) : -1;   // review 6: a decimal index, never 0x1
             // Review 4: a string past the ones read (MAX_SHARED_STRINGS) is not shown, and the sheet says it is cut.
-            if (n >= shared.length && sharedCut) cut = true;
+            if (n >= shared.length && sharedCut) { cut = true; anyValue = true; }   // review 7: so a cut sheet is not "empty"
             text = shared[n] ?? null;   // review 6: an index to no string is no value (it made a blank workbook not empty)
           }
           else if (type === 'b') text = raw === '1' || raw.toLowerCase() === 'true' ? 'TRUE' : 'FALSE';
@@ -448,7 +457,7 @@ function readXlsx(buf) {
             const fmt = kinds[Number(attr(c.tag, 's') || 0)] || null;
             const kind = fmt && fmt.kind;
             // Review 4: text that is not a number under a date or time format is shown as written, never "NaN".
-            text = (kind && kind !== 'number' && (!DECIMAL.test(raw.trim()) || !Number.isFinite(Number(raw)))) ? raw
+            text = (kind && kind !== 'number' && (!isDecimal(raw) || !Number.isFinite(Number(raw)))) ? raw
               : kind === 'date' ? serialDate(Number(raw), from1904, fmt)
                 : kind === 'time' ? serialTime(Number(raw), fmt)
                   : kind === 'duration' ? shownDuration(Number(raw), fmt)
@@ -506,12 +515,14 @@ function readXlsx(buf) {
      script), so the viewer can say why those cells are blank. noValues: every value is missing that way. */
   // Review 6: past MAX_SHEETS the sheets left out are never read, so nothing is known about them: neither empty nor
   // "no saved values" is said of a workbook with sheets left out.
-  const unread = all > MAX_SHEETS;
+  // Review 7: a chart or dialog sheet is something, so a workbook that has one is not "empty" (a sheet whose part is
+  // missing is still nothing, review 3).
+  const unread = all > MAX_SHEETS || otherSheet;
   return { sheets, moreSheets: Math.max(0, all - MAX_SHEETS), noValues: !unread && !anyValue && anyFormula, empty: !unread && !anyValue && !anyFormula,
     ...(anyValue && bareFormula ? { someNoValues: true } : {}) };
 }
 
 module.exports = {
-  readXlsx, XlsxRefusal, MAX_FILE_BYTES, MAX_ROWS, MAX_COLS, MAX_SHEETS, MAX_CELL_CHARS, WORK_BUDGET_MS, TOO_LARGE, CANNOT_READ,
+  readXlsx, XlsxRefusal, clip, MAX_FILE_BYTES, MAX_ROWS, MAX_COLS, MAX_SHEETS, MAX_CELL_CHARS, WORK_BUDGET_MS, TOO_LARGE, CANNOT_READ,
   _internal: { unescapeXml, cellRef, serialDate, serialTime, styleKinds, formatKind, builtinKind, bareCode, clean, attr, shownNumber, shownDuration, setClockForTests: (fn) => { now = fn || (() => Date.now()); } },
 };

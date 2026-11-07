@@ -105,3 +105,21 @@ absolutely.
   string counted as a value (an older test pinned the blank as a value; corrected). N6 dates past 9999 shown as saved.
 - KEPT: N2 General-format exponents and -0.0 (decided round 5); N5 hidden sheets shown (decided round 1).
 - All 6 new r6 tests fail on 8de2eb4600. Tests reading the changed engine files: 638, 0 fail, 84 skipped.
+
+## Review round 7 (opus): 1 BLOCKER, 6 WARNINGs, 3 CONVENTIONs, 6 NITs; all fixed except N5
+- B1 MY round-6 DECIMAL pattern ([0-9]+ beside [0-9]*) backtracked on an uncapped <v>: 841 bytes blocked the board
+  4.7 s, 300k digits 43 s, inside one step the budget cannot see. Unambiguous pattern, and nothing over 400 chars is tried.
+  Test: under 1 s now; 7.0 s on efd904b948.
+- W1 a file always past the budget was never cached: kept after its second slow read (once is still retried).
+- W2 the header said every pattern was linear: true again, and it names the capped number.
+- W2a rounding nudge (2.4999999995 under "0" showed 3): rounded on 15 digits instead.
+- W3 "00000" lost leading zeros: integer zeros are the minimum digits.
+- W4 CSV after 250 blank lines showed empty: windowed like the xlsx reader, with firstRow.
+- W5 a sheet cut at the shared-string cap was called empty: counted as a value.
+- C1 wall-clock limits raised to 5 s where the bug took minutes or the count pins it. C2 one clip (textcut.cutUnits) for
+  both readers; the CSV one halved an emoji. C3 server.js uses sheetpreview.CANNOT_READ / TOO_LARGE.
+- NITs: N1/N2 comments corrected; N3 dead code removed; N4 a chart-only workbook is not empty (a missing part still is,
+  review 3); N6 fromFile compares the lstat and fstat identity (bigint), so a swapped-in link is caught on Windows.
+- KEPT: N5 a second sheet naming the same part stays notGrid (reading a part once is the review-1 DoS fix).
+- All 6 new r7 tests fail on efd904b948. Touched engine tests: 644, 0 fail, 84 skipped. server.js source tests from the
+  repo root: 5526, 0 fail, 138 skipped.

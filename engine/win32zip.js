@@ -220,7 +220,7 @@ function readZipDirectory(buf, limits) {
     }
     /* kosmos#8122: `skipUnsafeNames` (a READ-ONLY lister, never extractZip, which refuses the flag) leaves out an entry whose
        NAME breaks the rules above, rather than refusing the archive, since nothing is written to disk. A skipped entry has
-       had only the checks above it (zip64, encryption, method, a link); the size, total, duplicate, header and overlap
+       had only the checks above it (none at all for a name that could not be decoded); the size, total, duplicate, header and overlap
        checks below are not run for it, which is safe only because a skipped entry is never read. */
     let segments;
     try { segments = checkEntryName(name, l.allowedTopLevel); }
