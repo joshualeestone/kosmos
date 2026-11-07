@@ -1227,10 +1227,11 @@ function hidesCard(r) {
 /* kosmos#8112: whether THIS spelling has its own folder. A folder recorded in the agent's profile does not carry the
    spelling in its path: the profile is keyed on store.safeKey (lowercased), so workerDir('Cai') returns cai's recorded
    folder and existsExactly on it is true. So a recorded folder proves a spelling only when
-     - the profile's displayName is exactly it (register-only connect writes the name as typed, and has no job or
-       session to prove it otherwise, review 1), and
-     - no startup job is under the lowercase machine name (an adopted `cai` shown as "Cai" has its job under `cai`,
-       which proves cai, so "Cai" is a variant).
+     - it is the profile's connectedAs (written at connect, untouched by a rename), or, for a profile written before
+       connectedAs existed: its displayName is exactly it; a displayName that is another spelling of the same key
+       leaves it to the job under the lowercase name; otherwise the lowercase key form proves it; and
+     - no startup job is under the lowercase machine name when the spelling differs from it (an adopted `cai` shown
+       as "Cai" has its job under `cai`, which proves cai, so "Cai" is a variant).
    An agent whose folder is not recorded is named by its folder, as before. */
 function folderIsExactly(clean, platform) {
   if (!create.agentDirRecorded(clean)) return existsExactly(create.workerDir(clean));
@@ -2060,7 +2061,7 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
     // a real `casey` folder) promises "its folder is still on your computer"
     // about a folder that agent never had. The hazard was fixed in two places
     // and this third one kept the old call.
-    because: ownsFolder   // kosmos#8112 review 1/5: never another spelling's recorded folder; decided before the job went
+    because: ownsFolder   // kosmos#8112 review 1/5: never another spelling's recorded folder
       ? `${shown} has been removed from Kosmos. Its folder and everything in it is still on your computer.`
       : `${shown} has been removed from Kosmos. Nothing on your computer was deleted.`,
     steps,
