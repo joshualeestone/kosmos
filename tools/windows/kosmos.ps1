@@ -88,8 +88,8 @@ if ($pipedIn -and $PSCommandPath) {
 # parser, and two shapes refuse before anything is sent:
 #   (a) a single-quoted string with a word touching its end ('I can't  ->  'I can' then t);
 #   (b) a bare word still holding an apostrophe once doubled ones ('') and double-quoted parts are set aside
-#       (won't do it'  or  Bob's'). In an --option=value word only the value is read, and a value that is one quoted
-#       string ('eng', 'Bob''s') is fine.
+#       (won't do it'  or  Bob's'). In an --option=value or -option:value word only the value is read, and a value
+#       that is one quoted string ('eng', 'Bob''s') is fine.
 # This call's words run from where it starts on the line to the first | ; && || or newline, or to a ) or } it did not
 # open (so a later word in the same if, block or array is not read). A here-string never holds a StringLiteral token,
 # and 'it''s' is one token, so neither refuses. Not covered, so a mangled text can still go out there: a command
@@ -120,7 +120,7 @@ try {
         $w = $mine[$i].Text
         $optValue = $false
         if ($w.StartsWith('-')) {
-          $eq = $w.IndexOf('=')
+          $eq = $w.IndexOfAny([char[]]@('=', ':'))
           if ($eq -lt 0) { $w = '' } else { $w = $w.Substring($eq + 1); $optValue = $true }
         }
         $w = ($w -replace '"[^"]*"', '').Replace("''", '')
@@ -132,7 +132,7 @@ try {
   }
 } catch { $splitQuote = $false }
 if ($splitQuote) {
-  [Console]::Error.WriteLine("An apostrophe inside single quotes ended your text early, so PowerShell cut it into pieces and dropped the apostrophe. Nothing was sent. Pass the text as one single-quoted here-string: @' at the end of the command's line, the text, then '@ at the start of its own line. (Inside plain single quotes, an apostrophe is written twice: can''t.)")
+  [Console]::Error.WriteLine("PowerShell would have changed this text before kosmos saw it: an apostrophe inside single quotes ends the quote early (the text is cut into pieces and the apostrophe dropped), and a quoted part touching a word is joined to it or split from it. Nothing was sent. Pass the text as one single-quoted here-string: @' at the end of the command's line, the text, then '@ at the start of its own line. (Inside plain single quotes, an apostrophe is written twice: can''t.)")
   exit 2
 }
 $pipeFlag = @()

@@ -3,7 +3,8 @@
  * kosmos#8213: in PowerShell an apostrophe inside plain single quotes ends the quote early. With an even count the line
  * still parses and the text reaches kosmos.ps1 cut into pieces ('I can't and won't do it' arrives as "I can", "t",
  * "and", "wont do it"), which the CLI would join and send. kosmos.ps1 now reads its own line with PowerShell's parser
- * and refuses that shape, with a sentence naming the here-string, before anything is sent.
+ * and refuses those shapes, with a sentence naming the here-string, before anything is sent. The
+ * REFUSED and ALLOWED lists below each run under every PowerShell found.
  *
  * Each arm writes the agent's command line into a driver script, runs it under every PowerShell found here (pwsh, and
  * Windows PowerShell 5.1 on Windows), and reads the exit code and stderr. kosmos.ps1 is copied into a folder with no
@@ -22,12 +23,12 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const SCRIPT = path.join(__dirname, '..', 'tools', 'windows', 'kosmos.ps1');
-const REFUSAL = 'An apostrophe inside single quotes ended your text early';
+const REFUSAL = 'PowerShell would have changed this text before kosmos saw it';
 const NO_RUNTIME = 'the runtime is missing';
 
 function shells() {
   const found = [];
-  const has = (exe) => spawnSync(exe, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'], { stdio: 'ignore', windowsHide: true }).status === 0;
+  const has = (exe) => spawnSync(exe, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'], { stdio: 'ignore', windowsHide: true, timeout: 20000 }).status === 0;
   if (has('pwsh')) found.push('pwsh');
   if (process.platform === 'win32' && has('powershell.exe')) found.push('powershell.exe');
   return found;
@@ -61,6 +62,7 @@ const REFUSED = [
   ['a possessive then another apostrophe', "post fleet 'the agents' work and Bob's'"],
   ['a task title cut the same way', "task add fleet 'fix what we can't and won't'"],
   ['an option value cut by apostrophes', "post fleet --topic='a's'b' hi"],
+  ['a colon option value with a word touching it', "post fleet -topic:'a b'x hi"],
 ];
 const ALLOWED = [
   ['an apostrophe written twice', "msg bob 'it''s fine'"],
@@ -98,7 +100,3 @@ for (const shell of (SHELLS.length ? SHELLS : ['(no PowerShell here)'])) {
   });
 }
 
-test('#8213: the arms ran under at least one PowerShell, or say why not', (t) => {
-  if (!SHELLS.length) { t.skip('no PowerShell on this machine'); return; }
-  assert.ok(SHELLS.length >= 1);
-});

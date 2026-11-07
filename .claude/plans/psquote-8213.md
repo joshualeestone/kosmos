@@ -28,7 +28,8 @@ from words meant as separate. The raw line is only visible in kosmos.ps1.
 engine/win32-psquote-8213.test.js runs kosmos.ps1 (copied beside no runtime) under every PowerShell found: pwsh,
 and powershell.exe 5.1 on Windows. 3 shapes refuse with exit 2 before the runtime. 6 shapes pass on to the runtime:
 a doubled apostrophe, plain words, an option with a quoted value, plain single quotes, double quotes, a here-string.
-Mutant (the refusal disabled): exactly the 3 refusal arms fail, 7 pass.
+Mutant (the refusal disabled): exactly the 3 refusal arms fail, 7 pass. (The first version; rounds 1 and 2 below
+added arms. The current lists are REFUSED and ALLOWED in the test file.)
 
 Weakest premise: Windows PowerShell 5.1 tokenizes these lines as pwsh 7 does. Measured only on pwsh here; the
 Windows CI runner runs the same arms under 5.1.
@@ -39,3 +40,12 @@ Windows CI runner runs the same arms under 5.1.
 - WARNING: the doctrine said "two" and "refuses it". It now says an even number, "the usual cases", and names the continued-line case the check cannot see (MyInvocation.Line holds the first line only), also in the kosmos.ps1 comment.
 - NITs fixed: doubled apostrophes and double-quoted parts in a bare word are set aside (C:\O''Brien, x"it's"); with no PowerShell every arm is registered as a skip, so the count is stable.
 - Mutants: drop the ) and } stop -> exactly the two later-word arms fail; skip every - word again -> exactly the option-value arm fails.
+
+## Review round 2
+- WARNING: the refusal sentence fitted only the cut-into-pieces shape; a quoted part joined to a word (foo'bar') is
+  refused too. The sentence now names both, and the test reads its new opening words.
+- WARNING: -title:'a b'x went out; only = was read. The value after = or : is read now, with an arm for it.
+- NITs: the PowerShell detection has a 20 s timeout; the always-passing summary test is gone (with no PowerShell
+  every arm is a skip); the test header no longer hard-codes counts.
+- Kept: about 100 s per shell for this file. The arms spawn a real PowerShell each, which is what proves "nothing was
+  sent"; merging them into one driver would lose the per-arm exit code.
