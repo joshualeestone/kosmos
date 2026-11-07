@@ -89,13 +89,16 @@ final class EndPullUITests: XCTestCase {
         let landed = row.frame.minY
         XCTAssertLessThanOrEqual(landed, before + 20, "the list landed below where it opened, " + waited)
         XCTAssertGreaterThanOrEqual(landed, before - 160, "the list did not bounce back, " + waited)
-        if before - landed > 20 { print("UI-NOTE kosmos#8072: the long chat opened \(Int(before - landed)) pt short of its end, until a touch") }
+        if before - landed > 20 { print("UI-NOTE kosmos#8072: the long chat landed \(Int(before - landed)) pt above where it opened") }
         // Clear of the working line, and of the box and its 18 pt fade.
         let working = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Dana is working'")).firstMatch
         XCTAssertTrue(working.exists, "CONTROL: no working line, so this checks no gap")
         let dot = dots(app).frame, above = dot.minY - working.frame.maxY, below = Self.box(app).frame.minY - dot.maxY
         XCTAssertGreaterThanOrEqual(above, 8, "the dots hang off the working line: \(above) above, \(below) below")
         XCTAssertGreaterThanOrEqual(below, 18, "the box's fade cuts the dots: \(above) above, \(below) below")
+        // kosmos#7609: and not stuck high, which the allowance above cannot see: the true landing has 11.5 above and 21.5 below.
+        XCTAssertLessThanOrEqual(above, 40, "the list did not come back to its end: \(above) above, \(below) below")
+        XCTAssertLessThanOrEqual(below, 40, "the list did not come back to its end: \(above) above, \(below) below")
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "end-pull-dots-long"; shot.lifetime = .keepAlways; add(shot)
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dots(app))
         wait(for: [gone], timeout: 20)

@@ -112,7 +112,7 @@ if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ] && [ -z "$sh
   note=""; [ "$skipped" -gt 0 ] && note=" ($skipped of them SKIPPED: a skip tested nothing, named below)"
   # #7654: on GitHub Actions a skip is also an annotation on the run, so a green job that tested less is visible.
   [ "$skipped" -gt 0 ] && [ -n "${GITHUB_ACTIONS:-}" ] && echo "::warning title=ui-sample::$skipped UI check(s) SKIPPED (they tested nothing); named in this step's output"
-  [ -n "$flaky" ] && note="$note ($(printf '%s\n' "$flaky" | wc -l | tr -d ' ') FLAKY: failed, then passed on its retry, named below)"
+  [ -n "$flaky" ] && note="$note ($(printf '%s\n' "$flaky" | wc -l | tr -d ' ') FLAKY: failed once, then did not, named below)"
   echo "PASS  ui-sample: $ran of $want UI checks passed on a fresh simulator$note"
   flaky_report
   # kosmos#7348: name them and why, since the log is deleted with the run.
@@ -122,9 +122,10 @@ fi
 # Only the words of tests that are still failing, once each: a test that passed on its retry is reported by flaky_report.
 stillred="$(printf '%s\n' "$tally" | sed -n 's/ failed$//p')"
 why=""
-[ -n "$stillred" ] && why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\] : /\1.\2: /p' "$log" | grep -F -f <(printf '%s:\n' "$stillred") | awk -F: '!seen[$1]++' | head -3)"
+[ -n "$stillred" ] && why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\] : /\1.\2: /p' "$log" | grep -F -f <(printf '%s\n' "$stillred" | sed 's/$/:/') | awk -F: '!seen[$1]++' | head -3)"
 echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)${short:+; per class:$short}"
 [ -n "$why" ] && printf '%s\n' "$why"
+[ -n "$stillred" ] && printf '%s\n' "$stillred" | sed 's/^/STILLRED /'
 flaky_report
 # kosmos#7609: as ui-keyboard.sh does, the read-higher-up check's scroll trace, read from the app's own data container
 # before cleanup deletes the simulator (--keep keeps the log, not the simulator). The bundle id is the built app's.
