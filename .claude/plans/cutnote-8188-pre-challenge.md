@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: cutnote-8188
-diff_hash: b140a5c5b72006a02ab3f19062d985e3ce47b91ad8d71354665ebdaca4c3358e
+diff_hash: 255915984180b189564b13c1d097b1886071e49b8fdccb20efae4dc5282beb91
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-07T10:18:15Z
@@ -33,3 +33,7 @@ passed on the rerun.
 - [WARNING] the notGrid + cut path cannot fire until #8168 --> KNOWN, said on the PR
 - [WARNING] "and only what it can read" is broad for CSV --> LEFT (true; a CSV has nothing unreadable, but nothing false)
 - [NIT] notes not aria-live --> LEFT (older; a follow-up)
+
+### After iteration 2: design review (Mona Lisa)
+- [NIT] shorten the cut grid note --> FIXED ("Only part of this sheet is shown here. Open the file to see all of it.")
+- [NIT] use the not-a-table "could not be read" sentence on the empty path too --> NOT TAKEN: a size cut (past column 50, the output budget) can leave a cut sheet empty, where "could not be read" is false (review 1)
