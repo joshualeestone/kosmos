@@ -35,7 +35,10 @@ function scripts() {
     const abs = path.join(ROOT, rel);
     if (!rel.endsWith('.sh')) {
       let head = '';
-      try { const fd = fs.openSync(abs, 'r'); const b = Buffer.alloc(128); const n = fs.readSync(fd, b, 0, 128, 0); fs.closeSync(fd); head = b.subarray(0, n).toString('utf8'); } catch { continue; }
+      try {
+        const fd = fs.openSync(abs, 'r'), b = Buffer.alloc(128);
+        try { head = b.subarray(0, fs.readSync(fd, b, 0, 128, 0)).toString('utf8'); } finally { fs.closeSync(fd); }
+      } catch { continue; }
       if (!SHEBANG_SH.test(head)) continue;
     }
     assert.ok(fs.existsSync(abs), rel + ' is tracked but not on disk (a rename or delete not yet staged?)');
@@ -72,7 +75,10 @@ test('#8195: no NEW pipeline under pipefail ends in a reader that can stop early
   assert.ok(list.some((s) => s.rel === '.githooks/prepare-commit-msg'), 'CONTROL: an extensionless script found by its #! line is read');
   const now = hits(list), base = baseline();
   assert.ok(now.length > 0 && base.length > 0, 'CONTROL: the scan and the list both found something');
-  if (process.env.KOSMOS_PRINT_PIPEFAIL_BASELINE === '1') process.stdout.write(now.join('\n') + '\n');
+  if (process.env.KOSMOS_PRINT_PIPEFAIL_BASELINE === '1') {   // the whole file, header included, ready to replace it
+    const header = fs.readFileSync(BASELINE, 'utf8').split('\n').filter((l) => l.startsWith('#'));
+    process.stdout.write(header.concat(now).join('\n') + '\n');
+  }
   const added = minus(now, base), gone = minus(base, now);
   const paths = (l) => new Set(l.map((x) => x.split('\t')[0]));
   const changed = [...paths(added)].filter((p) => paths(gone).has(p));

@@ -33,7 +33,9 @@ bc_surface_tokens_of() {
 bc_surface_token_hits() {
   local esc
   esc="$(printf '%s' "$1" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
-  printf '%s\n' "$2" | grep -qE "(^|[^A-Za-z0-9_-])${esc}([^A-Za-z0-9_-]|\$)" 2>/dev/null
+  # kosmos#8195: -c, not -q. $2 can be a large diff, and under a caller's pipefail an early -q match SIGPIPEs printf,
+  # which read as "token not changed" and skipped a check.
+  printf '%s\n' "$2" | grep -cE "(^|[^A-Za-z0-9_-])${esc}([^A-Za-z0-9_-]|\$)" >/dev/null 2>&1
 }
 
 # #5907: every annotated check in ONE pass, for a consumer that would otherwise call bc_surface_tokens_of and
