@@ -105,7 +105,7 @@ const USAGE = {
   room: 'Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too), and an agent\'s ask you posted after, not citing an older post, is named on its own line instead; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin, its line breaks kept (agents reading the room see it on one line), at most 4000 characters; <source> names the job, such as "builder alarm")',
   task: [
-    'Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|built|done-when|hold|unhold|repeat|ran|told>',
+    'Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|hold|unhold|repeat|ran|told>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each',
     '  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first',
@@ -124,9 +124,10 @@ const USAGE = {
     '      --to <agent>                                             tell this agent too (several allowed); else only the assignees hear it',
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time, and whether the person has viewed it',
     '  kosmos task show <project-id> <task-number>                  one task whole: its state, who holds it, its checks, and what it delivered',
+    '  kosmos task files <project-id|--all>                         check each built task\'s delivered file again on this computer: matches, changed or missing',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
-    '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
+    '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark; another agent\'s mark keeps them, your own mark without --file drops them',
     '      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it, or --check <number> "<wording>" to change one',
     '      --clear                                                  take its checks off',
@@ -1620,6 +1621,31 @@ async function taskReopen(ctx, args) {
   return 1;
 }
 
+/* kosmos#8214, as install/kosmos cmd_task files: each built task's delivered file fingerprinted again on this computer,
+   from the board's built list (with the agent's own token, as task list), printed by engine/tasklist.js filesLines, the
+   one copy both CLIs run. Read-only. */
+async function taskFiles(ctx, args) {
+  const usage = 'Usage: kosmos task files <project-id|--all>   (checks each built task\'s delivered file again on this computer)';
+  const [project] = args;
+  if (!project) { ctx.err(usage); return 2; }
+  if (project !== '--all' && /^--[A-Za-z]/.test(project)) { refuseOption(ctx, 'task files', usage, project); return 2; }
+  if (tooManyWords(ctx, 'task files', 1, usage, args)) return 2;
+  const every = project === '--all';
+  if (!every && projectSlug(project) !== project) { ctx.err('there is no project by that name'); return 1; }
+  let tasklist;
+  try { tasklist = require(path.join(engineDir(), 'tasklist.js')); } catch { tasklist = null; }
+  if (!tasklist || typeof tasklist.filesLines !== 'function') { ctx.err('This install of Kosmos cannot check delivered files yet; update Kosmos.'); return 1; }
+  const r = await ctx.call('GET', '/api/tasks?' + (every ? 'all=1' : 'project=' + projectSlug(project)) + '&state=built');
+  if (!r.reached) return ctx.unreachable('list the built tasks');
+  if (ctx.refusedBy(r)) {
+    if (every && /^say which project/.test(ctx.refusedBy(r))) { ctx.err('This board is older than --all, so it did not list what was asked. Update Kosmos.'); return 1; }
+    ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1;
+  }
+  const shown = tasklist.filesLines(r.json, { project: every ? '' : project });
+  for (const l of shown.lines) { if (shown.rc) ctx.err(l); else ctx.out(l); }
+  return shown.rc;
+}
+
 /* kosmos#8202, as install/kosmos cmd_task show: one task whole, from the board's task list for its project (the route
    `task list` reads, with the agent's own token), printed by engine/tasklist.js showLines, the one copy both CLIs run. */
 async function taskShow(ctx, args) {
@@ -1861,13 +1887,20 @@ async function taskBuilt(ctx, args) {
   /* #6330 slice 2: the delivered file's fingerprint, worked out here; the board never reads the file. kosmos#6849: the one
      engine/fileprint.js gives, as the Mac and `kosmos fingerprint` do (a PDF's own dates and document ID left out). */
   let fingerprint = null;
+  let filePath = null;
   if (file !== null) {
     if (clear) { ctx.err('--clear takes the mark off, so it takes no file. Run it without --file.'); return 2; }
     let fileprint;
     try { fileprint = ctx.engine('fileprint'); } catch { ctx.err('Kosmos could not find its own fingerprint reader; this install looks incomplete.'); return 1; }
-    const got = fileprint.fingerprint(file);
+    /* kosmos#8214, as install/kosmos: and its absolute path here, so `kosmos task files` can check it again. Resolved
+       first and fingerprinted by that path, so the two always name the same file. A path with control characters is
+       sent as none, as the Mac command sends it. */
+    let whole = null;
+    try { whole = (ctx.pathRules || path).resolve(ctx.cwd(), file); } catch (_) { whole = null; }
+    const got = fileprint.fingerprint(typeof whole === 'string' ? whole : file);
     if (!fileprint.isPrint(got)) { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
     fingerprint = got;
+    filePath = typeof whole === 'string' && !/[\u0000-\u001f\u007f]/.test(whole) ? whole : null;
   }
   /* #7508, as install/kosmos: the commit a code fix landed as, resolved here in this checkout: its full sha, the
      repository's shared git directory (it outlives a removed worktree) and whether a remote branch has it. */
@@ -1893,7 +1926,7 @@ async function taskBuilt(ctx, args) {
     if (/[\u0000-\u001f\u007f]/.test(repo)) { ctx.err('Kosmos cannot record a commit from a repository whose path has control characters in it.'); return 2; }   // review 3: as the Mac
     commit = { sha, repo, onRemote: git(['branch', '-r', '--contains', sha]) !== '' };
   }
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}), ...(commit ? { commit } : {}) });
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}), ...(filePath ? { file_path: filePath } : {}), ...(commit ? { commit } : {}) });
   if (!r.reached) {
     return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
       : ctx.unreachable('mark that task');
@@ -3517,7 +3550,7 @@ const SUBCOMMAND_HANDLERS = {
   },
   room: { reopen: roomReopen },
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
-  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
+  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, role: projectRole, 'remove-member': projectRemoveMember },
   agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, restart: agentRestart, remove: agentRemove },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },

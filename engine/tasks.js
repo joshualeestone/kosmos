@@ -859,11 +859,19 @@ const BUILT_NOTE_MAX = 300;
    store even when the callback changes nothing, so a looping repeat mark rewrote it on every call). */
 const NO_WRITE = Symbol('no write');
 const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote', 'builtFingerprint',
-  'builtFingerprintBy'];
+  'builtFingerprintBy', 'builtFilePath'];
 /* #6330 slice 2: a built mark can carry the deliverable's fingerprint, so the next agent can check it has the exact
    thing delivered. The CLI hashes the file; the board only checks the shape (the algorithm is named in the value).
    #7213: a PDF's fingerprint says pdf-normalized:, so it is never read as the plain sha256 an approval cites. */
 const FINGERPRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
+/* kosmos#8214: the delivered file's absolute path, as the CLI resolved it on the computer that marked it, kept beside its
+   fingerprint so `kosmos task files` can check the file again there. The board never reads it; it checks the shape as
+   landedValue checks a repository's. */
+const FILE_PATH_MAX = 1024;
+function filePathValue(v) {
+  if (typeof v !== 'string' || !v || v.length > FILE_PATH_MAX || /[\u0000-\u001f\u007f]/.test(v)) return null;
+  return v.startsWith('/') || /^[A-Za-z]:[\\/]/.test(v) ? v : null;
+}
 /* #7508: the commit a code fix landed as, from `kosmos task built --commit <ref>`. Its own fields, not built ones:
    closing keeps them (the check on a closed task needs them), while a clear, a reopen or new work drops them. The CLI
    resolved the ref in the agent's checkout; the board checks the shape. The repository is its shared git directory,
@@ -910,17 +918,22 @@ function withoutBuilt(t) {
  *                          keep it; the sender's own mark without one drops it, as that is a new version sent without
  *                          its fingerprint (review 5: keeping it presented the old one as current), and so does an
  *                          unnamed agent's (review 6). A clear drops both
+ *   builtFilePath          (kosmos#8214) the file's absolute path on the marking computer, sent with the fingerprint as
+ *                          `filePath`; kept and dropped with it. A fingerprint sent without one (an older CLI) has none
  * The same mark again (same marker, same note, same fingerprint) records nothing (`changed: false`). `refusePersonMark` refuses a
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
  */
-function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null, commit = null } = {}) {
+function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null, commit = null, filePath = null } = {}) {
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
   const landed = commit == null ? null : landedValue(commit);
   if (commit != null && !landed) return { ok: false, because: 'a commit is its full sha (40 or 64 lowercase hex characters), the absolute path of its repository, and whether a remote has it' };
   const print = fingerprint == null ? '' : fingerprint;
   // Only a string of the shape: String() would make ['sha256:...'] one (review 1), and '' is not one (review 3).
   if (fingerprint != null && !(typeof print === 'string' && FINGERPRINT_RE.test(print))) return { ok: false, because: 'a fingerprint is "sha256:" or "pdf-normalized:" followed by 64 lowercase hex characters' };
+  // kosmos#8214: a path only with the fingerprint it locates, and only an absolute one.
+  const sentPath = filePath == null ? '' : filePathValue(filePath);
+  if (filePath != null && (!sentPath || !print)) return { ok: false, because: 'a file path is sent with the fingerprint, as the absolute path of that file' };
   /* #5705 review 3: format characters (zero-width and the like) are not a note, so a note of only those is none. Checked
      on a copy (review 4): the stored note keeps them, as an emoji or a right-to-left name needs them. */
   const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
@@ -957,8 +970,9 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       const keep = !print && t.builtAt && t.builtFingerprint && (isPerson || (who !== null && (t.builtFingerprintBy || null) !== who));
       const kept = print || (keep ? t.builtFingerprint : '');
       const keptBy = print ? who : (keep ? t.builtFingerprintBy || null : null);
+      const keptPath = print ? sentPath : (keep ? t.builtFilePath || '' : '');   // kosmos#8214: the path goes with its fingerprint
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
-        && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who)
+        && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who) && (t.builtFilePath || '') === keptPath
         && (!landed || (t.landedCommit === landed.sha && t.landedRepo === landed.repo && t.landedOnRemote === landed.onRemote))) {
         same = true; changed = t; throw NO_WRITE;
       }
@@ -969,7 +983,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         ...(isPerson ? { builtByPerson: true } : {}), builtWho,
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
-        ...(kept ? { builtFingerprint: kept, builtFingerprintBy: keptBy } : {}),
+        ...(kept ? { builtFingerprint: kept, builtFingerprintBy: keptBy, ...(keptPath ? { builtFilePath: keptPath } : {}) } : {}),
         // #7508: a mark without --commit keeps a commit already recorded (a checker's mark is not new work).
         ...(landed ? { landedCommit: landed.sha, landedRepo: landed.repo, landedOnRemote: landed.onRemote, landedBy: who, landedAt: new Date().toISOString() } : {}),
       };

@@ -92,7 +92,7 @@ const WANT = () => {
     'Built note:',
     '    read both aloud',
     '    Delivered file: forged',
-    'Delivered file: ' + FP + ', sent by mara (its fingerprint only: Kosmos keeps no path. Check a copy with: kosmos fingerprint <file> ' + FP + ')',
+    'Delivered file: ' + FP + ', sent by mara (its fingerprint only: no path was recorded. Check a copy with: kosmos fingerprint <file> ' + FP + ')',
     'Commit: ' + SHA + ' in notes, on the remote, recorded by mara at ' + local(BUILT_AT),
     'Added: ' + local(created) + ', by the person',
     'Its conversation: kosmos task activity ' + projectId + ' ' + num,

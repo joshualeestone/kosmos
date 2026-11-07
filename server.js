@@ -22981,7 +22981,7 @@ const server = http.createServer(async (req, res) => {
        closed row carries 'kept' / 'missing' / 'unknown'. No answer (none recorded, the budget spent) leaves the row as
        stored. The Tasks view does not send the repository's path: the page never needs it. */
     const sendRows = () => {
-      for (const row of rows) delete row.landedRepo;
+      for (const row of rows) { delete row.landedRepo; delete row.builtFilePath; }   // kosmos#8214: nor a delivered file's path
       /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
          read its "false" as "nobody needs you". It says it could not tell. */
       /* kosmos#7797 item 1: an agent's question no row carries (it holds no open task in the project it asks about, or
@@ -26272,7 +26272,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
-     { note?, clear?, from_pane?, fingerprint? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
+     { note?, clear?, from_pane?, fingerprint?, file_path?, commit? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
      (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
      advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
      a proof (an enforcing board still needs the board token, or the agent's own token via
@@ -26464,6 +26464,8 @@ const server = http.createServer(async (req, res) => {
         : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '',
           // #6330 slice 2: an agent's mark may carry the deliverable's fingerprint; the screen sends none.
           fingerprint: !viaScreen && body.fingerprint != null ? body.fingerprint : null,
+          // kosmos#8214: and that file's absolute path on the agent's computer, which the board only stores.
+          filePath: !viaScreen && body.file_path != null ? body.file_path : null,
           // #7508: an agent's mark may name the commit a code fix landed as (the CLI resolved it); the screen sends none.
           commit: !viaScreen && body.commit != null ? body.commit : null });
       if (!out.ok) {
