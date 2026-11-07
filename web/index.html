@@ -2445,8 +2445,8 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
    shows how many days in a row the person has used Kosmos, in a label floating below the mark, out of the header's
    flow (absolute in .kmark, the mark's own wrapper), so the header never grows. ⚠️ NOT .headleft: #topnotes is a
    child of .headleft and anchors to the header; making .headleft positioned squeezed every notice into its corner. The once-a-day note is a notice in #topnotes
-   (#streak-slot, .utoast.streak), not under the mark: #5018 keeps notices off the left column.
-   kosmos#6397: since then the day's note is the mark's own pill (.kpill below); #streak-slot is only where the mark is hidden. */
+   (#streak-slot, .utoast.streak) where the mark's own pill (.kpill below, kosmos#6397) has no room: a phone, a hidden
+   mark, or a header where the pill would cover a control. */
 .kmark { position: relative; display: block; line-height: 0; }
 .kstreak { position: absolute; top: calc(100% + 8px); left: 0; z-index: 5; padding: 6px 10px;
   background: var(--bg-elevated); color: var(--label); border: 1px solid var(--separator); border-radius: 9px;
@@ -2467,14 +2467,17 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
    mark, the notice stack, so there (and where the mark is hidden, Kosmos+ remote) the sentence keeps its notice in
    #streak-slot, and the badge follows when the notice goes. */
 .kpill { position: absolute; left: calc(100% + 10px); top: 50%; z-index: 6; transform: translate(-6px, -50%) scale(.96);
-  opacity: 0; transition: opacity .25s ease, transform .35s cubic-bezier(.2,.9,.3,1.2); pointer-events: none;
+  opacity: 0; visibility: hidden; transition: opacity .25s ease, transform .35s cubic-bezier(.2,.9,.3,1.2), visibility 0s linear .35s; pointer-events: none;
   width: max-content; max-width: calc(100vw - 80px); padding: 7px 14px; border-radius: 999px; line-height: 1.3;
   background: var(--gold-bright, #e3b341); color: #1c1710; font: 600 .8125rem/1.3 var(--font-ui);   /* the bright gold, so the dark words read in both themes (--gold-edge is a dark line colour in light) */
   box-shadow: 0 6px 22px rgba(20,22,26,.18), 0 0 0 3px color-mix(in srgb, var(--gold-bright, #e3b341) 30%, transparent); }
-.kpill.in { opacity: 1; transform: translate(0, -50%) scale(1); }
+.kpill.in { opacity: 1; visibility: visible; transform: translate(0, -50%) scale(1); pointer-events: auto; transition-delay: 0s; }
+/* Review 1: when beside the mark would cover a header control (the computer switcher, the tabs), it comes out below it. */
+.kpill.below { left: 0; top: calc(100% + 16px); transform: translateY(-4px) scale(.96); }   /* clears the switcher's box (measured: 6 px short at +8) */
+.kpill.below.in { transform: none; pointer-events: none; }   /* over the page's own controls, it never takes their clicks */
 .kmark.kglow .klink img { box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold-bright, #e3b341) 60%, transparent), 0 0 18px 4px color-mix(in srgb, var(--gold-bright, #e3b341) 65%, transparent);
   transition: box-shadow .3s ease; }
-.kmark.kglow::before, .kmark.kglow::after { content: "\2726"; position: absolute; color: var(--gold-edge); font-size: 11px; line-height: 1;
+.kmark.kglow::before, .kmark.kglow::after { content: "\2726" / ""; position: absolute; color: var(--gold-edge); font-size: 11px; line-height: 1;
   pointer-events: none; animation: kspark 1.6s ease-in-out infinite; }
 .kmark.kglow::before { top: -7px; right: -6px; }
 .kmark.kglow::after { bottom: -6px; left: -7px; font-size: 8px; animation-delay: .5s; }
@@ -2483,7 +2486,7 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
   border-radius: 999px; background: var(--gold-bright, #e3b341); color: #1c1710; font: 700 .6875rem/18px var(--font-ui); text-align: center;
   font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--bg); pointer-events: none; }
 .kbadge[hidden] { display: none; }
-@media (prefers-reduced-motion: reduce) { .kpill { transition: none; } .kmark.kglow::before, .kmark.kglow::after { animation: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .kpill { transition: none; } .kmark.kglow .klink img { transition: none; } .kmark.kglow::before, .kmark.kglow::after { animation: none; opacity: 1; } }
 /* ---- grid / list toggle. One component, each instance NAMES its scope with
    data-scope (the control says what it operates on rather than assuming there
    is only one of it). `.vt` colour is --label-2, the measured AA pair. */
@@ -13033,7 +13036,7 @@ window.kosmosMeasureScrollbarWidth();
     <!-- #6160: the streak's label (engine/streak.js). kosmos#6397: its daily note is the pill below; #streak-slot only where the mark is hidden. -->
     <span class="kstreak" id="kstreak" role="tooltip" hidden></span>
     <!-- kosmos#6397: the day's pill (Josh's sentence, read out once) and the count it folds into. -->
-    <span class="kpill" id="kpill" role="status" hidden></span><span class="kbadge" id="kbadge" aria-hidden="true" hidden></span></span>
+    <span class="kpill" id="kpill" aria-hidden="true"></span><span class="vh" id="kpill-say" role="status"></span><span class="kbadge" id="kbadge" aria-hidden="true" hidden></span></span>
     <!-- ⚠️ `tabindex="-1"` so it can be FOCUSED programmatically without joining
          the tab order. Without it `h1.focus()` is a silent no-op, and the fallback
          that sends the keyboard here after a removal would do nothing at all --
@@ -39647,7 +39650,7 @@ function streakNoteGone() {
   const had = Boolean(slot.firstElementChild);
   slot.innerHTML = ''; clearTimeout(streakNoteTimer);
   // kosmos#6397: as the pill does, the day's notice leaves the count on the mark for the rest of the day.
-  if (had && streakNoteCount >= 2) { streakBadgeKeep(streakLocalDay(new Date())); streakBadge(streakNoteCount); }
+  if (had && streakNoteCount >= 2) { streakBadgeKeep(streakDay || streakLocalDay(new Date())); streakBadge(streakNoteCount); }
   if (held) rebootFocusAway();   // the K mark, as the other notices do
 }
 /* kosmos#6397: the badge the day's pill folds into stays for the rest of THAT day, on this browser: the day it was
@@ -39663,24 +39666,80 @@ function streakBadge(n) {
   badge.hidden = !on;
 }
 let streakPillTimer = null, streakPillFold = null;
-/* The pill: Josh's sentence out of the K for about 6 s (it waits while the pointer or keyboard is on the mark), then it
-   folds into the badge. Escape folds it at once (WCAG 1.4.13: put away without moving the pointer). */
+/* Review 1: where the pill can go, MEASURED, not assumed. Beside the mark if it covers no header control (the computer
+   switcher, the tabs, a header button); else below the mark if it covers no notice in the stack; else nowhere (false),
+   and the day's words keep their notice. The pill is measured in place while it is still invisible. */
+const STREAK_PILL_HEADER = '.apphead header button, .apphead header a, .apphead header select, #tabs, .worldsw:not([hidden])';
+const streakPillHits = (r, sel) => [...document.querySelectorAll(sel)].some((e) => {
+  if (e.closest('.kmark') || e.getClientRects().length === 0) return false;
+  const o = e.getBoundingClientRect();
+  return o.width > 0 && o.height > 0 && r.left < o.right && o.left < r.right && r.top < o.bottom && o.top < r.bottom;
+});
+function streakPillPlace(pill) {
+  const hits = (r, sel) => [...document.querySelectorAll(sel)].some((e) => {
+    if (e.closest('.kmark') || e.getClientRects().length === 0) return false;
+    const o = e.getBoundingClientRect();
+    return o.width > 0 && o.height > 0 && r.left < o.right && o.left < r.right && r.top < o.bottom && o.top < r.bottom;
+  });
+  const fits = (r) => r.left >= 0 && r.right <= document.documentElement.clientWidth;
+  const header = '.apphead header button, .apphead header a, .apphead header select, #tabs, .worldsw:not([hidden])';
+  pill.classList.remove('below');
+  let r = pill.getBoundingClientRect();
+  if (fits(r) && !hits(r, header)) return true;
+  pill.classList.add('below');
+  r = pill.getBoundingClientRect();
+  if (fits(r) && !hits(r, header + ', #topnotes > * > *')) return true;
+  pill.classList.remove('below');
+  return false;
+}
+/* The pill: Josh's sentence out of the K for about 6 s (it waits while the pointer is on the mark or the pill, or the
+   keyboard on the mark), then it folds into the badge. Escape folds it at once (WCAG 1.4.13). Returns false when
+   there is nowhere it can go without covering something (the caller then shows the notice). */
 function streakPill(n) {
   const mark = document.querySelector('.kmark'), pill = document.getElementById('kpill'), k = document.getElementById('klink');
-  if (!mark || !pill || !k) return;
+  if (!mark || !pill || !k) return false;
+  pill.textContent = streakCongrats(n);   // measured with its words; it is still invisible (visibility: hidden)
+  if (!streakPillPlace(pill)) { pill.textContent = ''; return false; }
+  pill.textContent = '';
+  const day = streakDay || streakLocalDay(new Date());   // review 1: the day the visit counted, not the day it folds
   const fold = () => {
     clearTimeout(streakPillTimer); streakPillFold = null;
     pill.classList.remove('in'); mark.classList.remove('kglow');
-    setTimeout(() => { if (!pill.classList.contains('in')) { pill.hidden = true; pill.textContent = ''; } }, 300);
-    streakBadgeKeep(streakLocalDay(new Date())); streakBadge(n);
+    setTimeout(() => { if (!pill.classList.contains('in')) { pill.textContent = ''; const say = document.getElementById('kpill-say'); if (say) say.textContent = ''; } }, 400);
+    streakBadgeKeep(day); streakBadge(n);
   };
   streakPillFold = fold;
-  pill.hidden = false;   // the live region is in the page before its words change, so the sentence is read out once
-  requestAnimationFrame(() => { pill.textContent = streakCongrats(n); pill.classList.add('in'); mark.classList.add('kglow'); });
-  const later = (ms) => { clearTimeout(streakPillTimer); streakPillTimer = setTimeout(() => { if (k.matches(':hover') || document.activeElement === k) later(1500); else fold(); }, ms); };
+  /* Review 1: the words are announced from a status region that is always in the page and always exposed (.vh,
+     visually hidden), so writing the sentence into it is what a screen reader reads, once. The pill is only what is
+     seen (aria-hidden): a region that is revealed and filled in one update is often skipped. */
+  const say = document.getElementById('kpill-say');
+  requestAnimationFrame(() => { pill.textContent = streakCongrats(n); pill.classList.add('in'); mark.classList.add('kglow'); if (say) say.textContent = streakCongrats(n); });
+  const held = () => k.matches(':hover') || pill.matches(':hover') || document.activeElement === k;
+  const later = (ms) => { clearTimeout(streakPillTimer); streakPillTimer = setTimeout(() => { if (held()) later(1500); else fold(); }, ms); };
   later(6000);
+  /* Review 1: something can arrive under the pill after it was placed (the computer switcher shows once the computers
+     are read). While it is out, it looks again every 400 ms and folds if it now covers a header control or a notice. */
+  const watch = setInterval(() => {
+    if (streakPillFold !== fold) { clearInterval(watch); return; }
+    if (!streakPillHits(pill.getBoundingClientRect(), STREAK_PILL_HEADER + ', #topnotes > * > *')) return;
+    // Covering something now: move below the mark if that is clear there, else fold into the badge.
+    if (!pill.classList.contains('below')) {
+      pill.classList.add('below');
+      if (!streakPillHits(pill.getBoundingClientRect(), STREAK_PILL_HEADER + ', #topnotes > * > *')) return;
+    }
+    clearInterval(watch); fold();
+  }, 400);
+  return true;
 }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && streakPillFold) streakPillFold(); });
+document.addEventListener('keydown', (e) => {
+  // Review 1: an Escape another control used (a menu or dialog closing) is not also a fold.
+  if (e.key !== 'Escape' || !streakPillFold || e.defaultPrevented) return;
+  const a = document.activeElement;
+  if (a && a.closest && a.closest('[role="dialog"], [role="menu"], [aria-modal="true"], .worldsw')) return;
+  streakPillFold();
+});
+// Review 1: a window resized while the pill is out folds it, rather than leave it where it was placed for another width.
+window.addEventListener('resize', () => { if (streakPillFold) streakPillFold(); });
 function paintStreak(got) {
   const lab = document.getElementById('kstreak'), k = document.getElementById('klink'), slot = document.getElementById('streak-slot');
   if (!lab || !k) return;
@@ -39691,7 +39750,7 @@ function paintStreak(got) {
   streakBadge(n);
   // kosmos#6397: where the K mark is shown with room beside it, the day's note is the mark's pill; on a phone (or where
   // the mark is hidden, Kosmos+ remote) the sentence keeps its notice below, and the badge follows when it goes.
-  if (n >= 2 && got.congrats === true && k.getClientRects().length > 0 && window.matchMedia('(min-width: 601px)').matches) { streakPill(n); return; }
+  if (n >= 2 && got.congrats === true && k.getClientRects().length > 0 && window.matchMedia('(min-width: 601px)').matches && streakPill(n)) return;
   streakNoteCount = n;
   if (slot && n >= 2 && got.congrats === true) {
     slot.innerHTML = '<div class="utoast streak">'

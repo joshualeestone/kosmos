@@ -88,7 +88,7 @@ const read = (pg) => pg.evaluate(() => {
     slot: Boolean(document.getElementById('streak-slot')),
     note: note ? { hidden: false, text: (note.querySelector('.utxt b') || {}).textContent, role: words ? words.getAttribute('role') : null, x: (note.querySelector('.ux') || { getAttribute: () => null }).getAttribute('aria-label'), right: r.right, left: r.left, top: r.top, bottom: r.bottom, tone: getComputedStyle(note).getPropertyValue('--utone').trim(), gold: getComputedStyle(note).getPropertyValue('--gold-edge').trim(), inStack: Boolean(note.closest('#topnotes')) } : { hidden: true },
     label: lab ? { hidden: lab.hidden, text: lab.textContent, display: getComputedStyle(lab).display, opacity: getComputedStyle(lab).opacity } : null,
-    pill: (() => { const e = document.getElementById('kpill'); if (!e || e.hidden || !e.classList.contains('in')) return { shown: false }; const pr = e.getBoundingClientRect(), kr = k.getBoundingClientRect(); return { shown: true, text: e.textContent, role: e.getAttribute('role'), left: pr.left, right: pr.right, top: pr.top, bottom: pr.bottom, kRight: kr.right, kMid: (kr.top + kr.bottom) / 2, bg: getComputedStyle(e).backgroundColor, transition: getComputedStyle(e).transitionDuration }; })(),
+    pill: (() => { const e = document.getElementById('kpill'); if (!e || e.hidden || !e.classList.contains('in')) return { shown: false }; const pr = e.getBoundingClientRect(), kr = k.getBoundingClientRect(); const say = document.getElementById('kpill-say'); return { shown: true, text: e.textContent, ariaHidden: e.getAttribute('aria-hidden'), said: say ? say.textContent : null, sayRole: say ? say.getAttribute('role') : null, sayVisible: say ? say.getBoundingClientRect().width > 2 : null, left: pr.left, right: pr.right, top: pr.top, bottom: pr.bottom, kRight: kr.right, kMid: (kr.top + kr.bottom) / 2, bg: getComputedStyle(e).backgroundColor, transition: getComputedStyle(e).transitionDuration }; })(),
     badge: (() => { const e = document.getElementById('kbadge'); return e ? { hidden: e.hidden, text: e.textContent, ariaHidden: e.getAttribute('aria-hidden') } : null; })(),
     glow: Boolean(document.querySelector('.kmark.kglow')),
     gold: getComputedStyle(document.documentElement).getPropertyValue('--gold-bright').trim(),
@@ -108,7 +108,7 @@ const read = (pg) => pg.evaluate(() => {
     const g = await read(pg);
     say(g.pill.shown, 'pill: it shows', JSON.stringify(g.pill));
     say(g.pill.text === JOSH, "pill: Josh's sentence, word for word", JSON.stringify(g.pill.text));
-    say(g.pill.role === 'status', 'pill: read out once (role=status)', JSON.stringify(g.pill.role));
+    say(g.pill.sayRole === 'status' && g.pill.said === JOSH && g.pill.sayVisible === false && g.pill.ariaHidden === 'true', 'pill: the words are in an always-present status region (visually hidden); the pill itself is aria-hidden', JSON.stringify({ role: g.pill.sayRole, said: g.pill.said, visible: g.pill.sayVisible, ariaHidden: g.pill.ariaHidden }));
     say(g.pill.left >= g.pill.kRight && Math.abs((g.pill.top + g.pill.bottom) / 2 - g.pill.kMid) < 4, 'pill: it sits beside the K mark, centred on it', JSON.stringify(g.pill));
     const goldRgb = await pg.evaluate((c) => { const d = document.createElement('i'); d.style.color = c; document.body.appendChild(d); const v = getComputedStyle(d).color; d.remove(); return v; }, g.gold);
     say(g.pill.bg === goldRgb, 'pill: the bright gold (--gold-bright), so its dark words read', g.pill.bg + ' vs ' + goldRgb);
@@ -137,6 +137,49 @@ const read = (pg) => pg.evaluate(() => {
     await pg.waitForTimeout(450);
     const g = await read(pg);
     say(up && !g.pill.shown && g.badge && !g.badge.hidden, 'Escape: the pill folds at once into the badge', JSON.stringify({ up, pill: g.pill, badge: g.badge }));
+    await pg.close();
+  }
+
+  // review 1: with a second computer, the pill covers neither the computer switcher nor the tabs (beside or below the
+  // mark, measured), at a desk and at a middle width
+  // Each width twice: the switcher's one-time tip showing (it sits under the switcher), and already seen (the usual case).
+  for (const [vp, tipSeen] of [[{ width: 1400, height: 800 }, false], [{ width: 1400, height: 800 }, true], [{ width: 800, height: 800 }, false], [{ width: 800, height: 800 }, true]]) {
+    const ctx = await b.newContext({ viewport: vp });
+    if (tipSeen) await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch { /* no storage */ } });
+    // Two computers, as /api/remote/computers answers on a Kosmos+ account with a second Mac (render-computers-4648's shape).
+    await ctx.route('**/api/remote/computers', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, domain: 'kosmosplus.example', computers: [
+      { name: 'Office Mac mini', address: 'office.kosmosplus.example', this: true, online: true },
+      { name: 'Home Mac mini', address: 'home.kosmosplus.example', this: false, online: true }] }) }).catch(() => {}));
+    const { pg } = await open(ctx, () => ({ count: 12, congrats: true }), { key: 'switcher ' + vp.width + (tipSeen ? ', tip seen' : ''), viewport: vp });
+    await pg.waitForFunction(() => { const w = document.getElementById('worldsw'); return w && !w.hidden && w.getClientRects().length > 0; }, null, { timeout: 8000 }).catch(() => {});
+    await pg.waitForTimeout(900);   // past a 400 ms look, so a pill the switcher arrived under has had its chance to fold
+    const g = await pg.evaluate(() => {
+      const box = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom }; };
+      const pill = document.querySelector('#kpill.in'), note = document.querySelector('#streak-slot .utoast'), badge = document.getElementById('kbadge');
+      const sw = document.getElementById('worldsw'), tabs = document.getElementById('tabs');
+      const over = (a, c) => a.l < c.r && c.l < a.r && a.t < c.b && c.t < a.b;
+      const p = pill && box(pill);
+      const tip = document.getElementById('worldsw-tip');
+      return { switcher: Boolean(sw && !sw.hidden && sw.getClientRects().length), tip: Boolean(tip && !tip.hidden && tip.getClientRects().length), pill: Boolean(pill), note: Boolean(note), badge: Boolean(badge && !badge.hidden), below: Boolean(pill && pill.classList.contains('below')),
+        coversSwitcher: Boolean(p && sw && over(p, box(sw))), coversTabs: Boolean(p && tabs && over(p, box(tabs))) };
+    });
+    const tag = 'switcher (' + vp.width + 'px' + (tipSeen ? ', tip seen' : ', tip showing') + ')';
+    say(g.switcher && (g.pill || g.note || g.badge) && !g.coversSwitcher && !g.coversTabs, tag + ': the day\'s words show, and the pill covers neither the computer switcher nor the tabs', JSON.stringify(g));
+    // With the tip already seen at a desk, the pill has room below the mark: a person with two computers sees the pill.
+    if (tipSeen && vp.width === 1400) say(g.pill && g.below && !g.tip, tag + ': the pill comes out below the mark', JSON.stringify(g));
+    await pg.screenshot({ path: path.join(OUT, 'streak-switcher-' + vp.width + (tipSeen ? '-seen' : '') + '.png') }).catch(() => {});
+    await pg.close(); await ctx.close();
+  }
+
+  // review 1: a window resized while the pill is out folds it
+  {
+    const { pg } = await open(b, () => ({ count: 12, congrats: true }), { key: 'resize' });
+    await pg.waitForTimeout(400);
+    const up = (await read(pg)).pill.shown;
+    await pg.setViewportSize({ width: 500, height: 800 });
+    await pg.waitForTimeout(450);
+    const g = await read(pg);
+    say(up && !g.pill.shown && g.badge && !g.badge.hidden, 'resize: the pill folds into the badge when the window changes size', JSON.stringify({ up, pill: g.pill.shown, badge: g.badge }));
     await pg.close();
   }
 
@@ -487,7 +530,15 @@ const read = (pg) => pg.evaluate(() => {
     // kosmos#6397: no room beside the mark on a phone, so the day's words are the notice, inside the screen; no pill.
     say(!g.pill.shown && g.note && !g.note.hidden && g.note.left >= 0 && g.note.right <= g.vw, 'narrow: on a phone the day\'s words are the notice, inside a 360px screen, and no pill', JSON.stringify({ pill: g.pill.shown, left: g.note && g.note.left, right: g.note && g.note.right, vw: g.vw }));
     await pg.screenshot({ path: path.join(OUT, 'streak-note-360.png') }).catch(() => {});
-    await pg.click('#streak-slot .ux'); await pg.waitForTimeout(200);
+    // review 1: the phone's notice keeps everything it had (its words, its status role, its labelled X, its gold tone)
+    say(g.note.text === JOSH, "narrow: the notice is Josh's sentence, word for word", JSON.stringify(g.note.text));
+    say(g.note.role === 'status' && g.note.x === 'Dismiss', 'narrow: role=status on the words, and the X is labelled Dismiss', JSON.stringify({ role: g.note.role, x: g.note.x }));
+    const edge = await pg.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--gold-edge').trim());
+    say(g.note.tone !== '' && g.note.tone === edge, 'narrow: the notice is gold-toned (--gold-edge)', g.note.tone + ' vs ' + edge);
+    // and from the keyboard, the X sends focus to the K mark
+    await pg.focus('#streak-slot .ux'); await pg.keyboard.press('Enter'); await pg.waitForTimeout(200);
+    const focus = await pg.evaluate(() => (document.activeElement || {}).id || null);
+    say(focus === 'klink', 'narrow: dismissed from the keyboard, focus moves to the K mark', JSON.stringify(focus));
     const after = await read(pg);
     say(after.note.hidden && after.badge && !after.badge.hidden && after.badge.text === '12', 'narrow: when the notice goes, the badge says 12 on the mark', JSON.stringify(after.badge));
     await pg.close();
