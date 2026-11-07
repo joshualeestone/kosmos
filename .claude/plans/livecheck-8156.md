@@ -25,3 +25,5 @@ Out of scope: `kosmos agent remove` leaving its plist in place (the card says no
 A release note or doc for this change must not spell the prefix: the guard searches every tracked file except `.claude/plans/` and allows it only in the ALLOWED files, exactly as many times as ALLOWED says for each.
 
 Accepted cost: the two help lines reach every install, including people whose computer runs no test suites and Windows, where the check does not exist. Kept identical across the CLIs on purpose.
+
+Accepted trade (review 9): advertising the prefix makes the guard's one exemption easy to find, so a seat someone forgets is never reported by any later suite. The help says to remove the seat when done, and that the check never reports it; nothing stronger is built, since the exemption exists so a live check can run beside a suite.
