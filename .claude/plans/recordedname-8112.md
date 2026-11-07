@@ -67,3 +67,16 @@ Mutants: no displayName check (2 fail), no job check (1 fail), recorded never pr
 - NIT Undo left connectedAs --> FIXED (cleared with dir); asserted in the same test; mutant fails 1.
 - Found while testing: two fixtures collided on one profile key (KUp8112 and kup8112), the lowercasing this card is
   about; the later fixture was renamed.
+
+## Review 4 (applied)
+- BLOCKER: a profile written before connectedAs fell back to displayName, but a full connect took displayName from the
+  instructions ("Casey Jones") while the name is the folder name (casey). Every agent connected before this branch
+  failed its own exact name: plan "cannot find" without a job, the Codex trust step skipped while reporting success,
+  the removed message said nothing was kept. FIXED: for an old profile, displayName equal to the name proves it; a
+  displayName that is only a case variant refuses it; otherwise the lowercase key form proves it (full-connect names
+  are lowercase by NAME_RE). Tests: an old full-connect agent plans, its variant does not, and the removal says the
+  folder is kept; an old register-only "KOr8112" does not prove "kor8112". Mutants: fallback needs displayName only
+  (fails 1); no case-variant refusal (fails 1).
+- WARNING the skipped Codex step still said "took back the codex folder trust" --> FIXED: the step is left out
+  entirely for a variant spelling of another agent's recorded folder.
+233 related files: 5022 tests, 0 fail.

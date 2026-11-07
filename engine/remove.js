@@ -1236,13 +1236,22 @@ function folderIsExactly(clean, platform) {
   if (!create.agentDirRecorded(clean)) return existsExactly(create.workerDir(clean));
   let prof;
   try { prof = store.readProfile(clean); } catch { return false; }
-  /* Review 2: connectedAs (written at connect) is the spelling, and a rename never changes it. A profile written before
-     it existed falls back to displayName, which a rename does rewrite (a renamed old register-only agent stays the
-     stated limit). */
-  const spelled = typeof prof.connectedAs === 'string' && prof.connectedAs ? prof.connectedAs : prof.displayName;
-  if (spelled !== clean) return false;
   let key;
   try { key = store.safeKey(clean); } catch { return false; }
+  /* Review 2: connectedAs (written at connect) is the spelling, and a rename never changes it. */
+  if (typeof prof.connectedAs === 'string' && prof.connectedAs) {
+    if (prof.connectedAs !== clean) return false;
+  } else {
+    /* Review 4: a profile written before connectedAs. A full connect took displayName from the instructions ("Casey
+       Jones") while the name is the folder name (casey, lowercase by NAME_RE); a register-only connect wrote the typed
+       name as displayName. So: displayName equal to it proves it; a displayName that is only a case variant of it
+       refuses it (the variant this card is about); otherwise the lowercase key form proves it. */
+    const shown = typeof prof.displayName === 'string' ? prof.displayName : '';
+    if (shown !== clean) {
+      if (shown.toLowerCase() === clean.toLowerCase()) return false;
+      if (key !== clean) return false;
+    }
+  }
   return !(key !== clean && jobFor(key, platform));
 }
 
@@ -1965,7 +1974,9 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
      directories that no longer existed.
      📌 Only for an agent that actually ran on codex. The home is whatever the
      plist recorded, or null, and null means the same default the WRITE used. */
-  if (codexJob) {
+  /* kosmos#8112 review 4: no Codex step at all for a variant spelling of another agent's recorded folder, so nothing
+     reports a trust it did not take back. */
+  if (codexJob && !(create.agentDirRecorded(clean) && !folderIsExactly(clean, platform))) {
     /* 🛑 THE LABEL IS CHOSEN AFTER THE WORK, BECAUSE THIS CARD IS ABOUT A
        LABEL THAT OVERSTATED WHAT IT DID (PigeonPete, cross-review). `step()`
        records `{label, ok}` and nothing else, so a refusal would have shown
@@ -1980,10 +1991,7 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
     if (DRY_RUN && !runner) {
       got = { ok: true, removed: false, because: null };
     } else {
-      /* kosmos#8112 review 1: a variant spelling that passed plan on its own job or session must not clear the Codex
-         trust of the folder recorded for ANOTHER spelling (the real agent's). */
-      if (create.agentDirRecorded(clean) && !folderIsExactly(clean, platform)) got = { ok: true, removed: false, because: null };
-      else try { got = create.forgetCodexFolder(create.workerDir(clean), codexHome, !codexHome); }
+      try { got = create.forgetCodexFolder(create.workerDir(clean), codexHome, !codexHome); }
       catch { threw = true; }
     }
     const leftAlone = !threw && got && got.ok === false

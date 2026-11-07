@@ -3676,3 +3676,27 @@ test('#8112 review 3: a full connect that fails over a register-only agent puts 
     assert.equal(remove.plan('Kfl8112', MAC).ok, false, 'the failed spelling plans (the #8112 false success, back)');
   } finally { create.setRunner(null); }
 });
+
+test('#8112 review 4: an agent connected before connectedAs (display name from its instructions) is still found by its name', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'old-kcj8112');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'You are **Casey Jones 8112**.\n', 'utf8');
+  require('./store').writeProfile('kcj8112', { dir, displayName: 'Casey Jones 8112' });   // the shape main's connect wrote
+  assert.equal(require('./store').readProfile('kcj8112').connectedAs, undefined, 'CONTROL: the fixture is not an old profile');
+  assert.equal(remove.plan('kcj8112', MAC).ok, true, 'an agent connected before this change is not found by its own name');
+  assert.equal(remove.plan('Kcj8112', MAC).ok, false, 'a case variant of an old full-connect agent planned');
+  const done = mac.remove('kcj8112');
+  assert.match(String(done.because), /Its folder and everything in it is still on your computer/, 'the removal no longer says the folder is kept: ' + done.because);
+});
+
+test('#8112 review 4: an old register-only profile whose name is not lowercase does not prove the lowercase spelling', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'old-KOr8112');
+  fs.mkdirSync(dir, { recursive: true });
+  require('./store').writeProfile('KOr8112', { dir, displayName: 'KOr8112' });   // main's register-only, no connectedAs
+  assert.equal(remove.plan('KOr8112', MAC).ok, true, 'the typed name no longer plans');
+  assert.equal(remove.plan('kor8112', MAC).ok, false, 'the lowercase key form planned for an agent named KOr8112');
+});
