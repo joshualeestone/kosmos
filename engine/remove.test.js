@@ -3631,14 +3631,14 @@ test('#8112 review 2: a register-only agent renamed later (displayName rewritten
   assert.equal(remove.plan('Kren8112', MAC).ok, false, 'a case variant planned after the rename');
 });
 
-test('#8112 review 2: a profile written before connectedAs existed falls back to displayName', () => {
+test('#8112 review 2/6: a profile written before connectedAs falls back to displayName (an uppercase name, so the key-form arm cannot pass it)', () => {
   remove.setRunner(() => ({ ok: true, stdout: '' }));
   status.setPaneSource(() => '');
-  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'Old-kold8112');
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'Old-KOld8112');
   fs.mkdirSync(dir, { recursive: true });
-  require('./store').writeProfile('kold8112', { dir, displayName: 'kold8112' });
-  assert.equal(remove.plan('kold8112', MAC).ok, true, 'an older register-only profile became unremovable');
-  assert.equal(remove.plan('Kold8112', MAC).ok, false);
+  require('./store').writeProfile('KOld8112', { dir, displayName: 'KOld8112' });
+  assert.equal(remove.plan('KOld8112', MAC).ok, true, 'an older register-only profile became unremovable by its displayName');
+  assert.equal(remove.plan('Kold8112', MAC).ok, false, 'another spelling of the same key planned');
 });
 
 /* kosmos#8112 review 3: the register-only connect itself (discover.connect on a folder with no instructions), not a
