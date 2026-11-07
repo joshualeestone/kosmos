@@ -11,7 +11,7 @@ Josh 2026-11-06 18:14 (#7896, Angel's sheet Files/iphone-loading-dots-vs-orb.png
 
 - BoardStates is shared: Projects, Tasks and Today draw the same orb in those phases (accepted, review 1).
 - At accessibility text sizes and in landscape the orb (and Making's tick box) is 66 pt.
-- Low Power Mode holds the dots still, as Reduce Motion does.
+- Low Power Mode holds the dots still, as Reduce Motion does. The three orbs keep turning in Low Power Mode (only Reduce Motion stills them), as every orb did before; accepted.
 
 ## Out of scope
 - "Connecting..." (first connect, ConnectingWait) stays 20 pt dots to hand over from the launch picture (Josh's split keeps screen 1 dots).
