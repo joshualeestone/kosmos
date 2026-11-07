@@ -5,8 +5,10 @@
    pipefail were triaged on #8195 and are listed in test-support/pipefail-baseline-8195.txt, so this file is a RATCHET:
    a NEW early reader fails here and its author judges it (rewrite it, e.g. grep -c ... >/dev/null, or add the line
    with a reason it cannot bite), and a listed line that no longer exists fails too, so the list stays exact.
-   ios/LogicTests is held to zero by ios.logictests-pipefail-8193.test.js. Not covered: a script that gets pipefail
-   only from whoever sources it (no pipefail of its own), and the helper's own known gaps (see early-readers.js). */
+   ios/LogicTests is held to zero by ios.logictests-pipefail-8193.test.js. Scanned: a script that sets pipefail anywhere
+   outside a comment (a set or bash line, a subshell included) or in its #! line, and every file under tools/lib/ (sourced by scripts that set it). Not covered: any
+   other sourced file with no pipefail of its own, and the helper's own known gaps (see early-readers.js).
+   To print a fresh list (after a change to the helper): KOSMOS_PRINT_PIPEFAIL_BASELINE=1 node --test <this file>. */
 require('./test-support/tmpscope');
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -18,13 +20,20 @@ const { earlyReaders } = require('./test-support/early-readers');
 const ROOT = __dirname;
 const BASELINE = path.join(ROOT, 'test-support', 'pipefail-baseline-8195.txt');
 
-/** Tracked shell scripts (and install/kosmos, a shell script with no .sh) that set pipefail. */
+// `set ... pipefail` or `bash ... pipefail` on a line that is not a comment (after && or in a subshell too), or in #!.
+const SETS_PIPEFAIL = /^[^#\n]*\b(?:set|bash)[ \t][^\n#]*\bpipefail\b|^#![^\n]*\bpipefail\b/m;
+
+/** Tracked shell scripts (and install/kosmos, a shell script with no .sh) that set pipefail, plus tools/lib/. */
 function scripts() {
   const r = spawnSync('git', ['-C', ROOT, 'ls-files', '-z', '--', '*.sh', 'install/kosmos'], { encoding: 'utf8' });
   assert.equal(r.status, 0, 'git ls-files failed: ' + r.stderr);
   return r.stdout.split('\0').filter(Boolean)
-    .map((rel) => ({ rel, text: fs.readFileSync(path.join(ROOT, rel), 'utf8') }))
-    .filter((s) => /\bpipefail\b/.test(s.text));
+    .map((rel) => {
+      const abs = path.join(ROOT, rel);
+      assert.ok(fs.existsSync(abs), rel + ' is tracked but not on disk (a rename or delete not yet staged?)');
+      return { rel, text: fs.readFileSync(abs, 'utf8') };
+    })
+    .filter((s) => s.rel.startsWith('tools/lib/') || SETS_PIPEFAIL.test(s.text));
 }
 
 /** Each hit as "path<TAB>line", one entry per occurrence (a line repeated in a file counts twice). */
@@ -53,11 +62,17 @@ test('#8195: no NEW pipeline under pipefail ends in a reader that can stop early
   assert.ok(list.some((s) => s.rel === 'install/kosmos'), 'CONTROL: install/kosmos is read');
   const now = hits(list), base = baseline();
   assert.ok(now.length > 0 && base.length > 0, 'CONTROL: the scan and the list both found something');
+  if (process.env.KOSMOS_PRINT_PIPEFAIL_BASELINE === '1') process.stdout.write(now.join('\n') + '\n');
   const added = minus(now, base), gone = minus(base, now);
-  assert.deepEqual(added, [], 'a pipeline here can fail because it matched (kosmos#8195). Rewrite it so the reader reads to the end '
-    + '(grep -c ... >/dev/null, or capture first), or, only if it cannot bite (one small write, or its status is never read), add the line '
-    + 'exactly as printed to test-support/pipefail-baseline-8195.txt:\n' + added.join('\n'));
-  assert.deepEqual(gone, [], 'these listed lines no longer exist; remove them from test-support/pipefail-baseline-8195.txt:\n' + gone.join('\n'));
+  const paths = (l) => new Set(l.map((x) => x.split('\t')[0]));
+  const changed = [...paths(added)].filter((p) => paths(gone).has(p));
+  assert.ok(added.length === 0 && gone.length === 0, [
+    'early readers under pipefail (kosmos#8195) do not match test-support/pipefail-baseline-8195.txt.',
+    changed.length ? 'A listed line in ' + changed.join(', ') + ' changed: replace its old entry with the new one (both are below).' : '',
+    added.length ? 'NEW, can fail because it matched. Rewrite it so the reader reads to the end (grep -c ... >/dev/null, or capture '
+      + 'first), or, only if it cannot bite (one small write, or a status nothing reads), add it exactly as printed:\n' + added.join('\n') : '',
+    gone.length ? 'GONE, no longer in the scanned scripts; remove from the list:\n' + gone.join('\n') : '',
+  ].filter(Boolean).join('\n'));
 });
 
 test('#8195 CONTROL: the comparison catches one new hit and one gone line, and counts a repeated line twice', () => {
