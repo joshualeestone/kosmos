@@ -278,9 +278,9 @@ final class AttachMenuUITests: XCTestCase {
                 let plus = app.buttons[chatPlus]
                 guard plus.waitForExistence(timeout: 30) else { print("SWEEP \(size) \(h) noplus"); continue }
                 plus.tap()
-                Thread.sleep(forTimeInterval: 2.5)
-                let t = Date(); let up = panel(app).exists
-                print("SWEEP \(size.suffix(6)) \(h) found \(up) \(String(format: "%.2f", Date().timeIntervalSince(t)))")
+                print("SWEEP-HOLD \(size.suffix(6)) \(h)")
+                Thread.sleep(forTimeInterval: 6)
+                app.terminate()
             }
         }
     }
