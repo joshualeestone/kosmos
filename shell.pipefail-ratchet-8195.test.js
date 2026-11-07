@@ -8,7 +8,8 @@
    ios/LogicTests is held to zero by ios.logictests-pipefail-8193.test.js. Scanned: a script that sets pipefail anywhere
    outside a comment (a set or bash line, a subshell included) or in its #! line, and every shell file under tools/lib/ (sourced by scripts that set it). Not covered: any
    other sourced file with no pipefail of its own, and the helper's own known gaps (see early-readers.js).
-   To print a fresh list (after a change to the helper): KOSMOS_PRINT_PIPEFAIL_BASELINE=1 node --test <this file>. */
+   A `#` earlier on the same line (n=${#a[@]}; set -o pipefail) hides a real set from the file test; none today.
+   To write a fresh list: KOSMOS_WRITE_PIPEFAIL_BASELINE=<path> node --test <this file>, then read it and move it over. */
 require('./test-support/tmpscope');
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -33,6 +34,7 @@ function scripts() {
   const out = [];
   for (const rel of r.stdout.split('\0').filter(Boolean)) {
     const abs = path.join(ROOT, rel);
+    assert.ok(fs.existsSync(abs), rel + ' is tracked but not on disk (a rename or delete not yet staged?)');
     if (!rel.endsWith('.sh')) {
       let head = '';
       try {
@@ -41,7 +43,6 @@ function scripts() {
       } catch { continue; }
       if (!SHEBANG_SH.test(head)) continue;
     }
-    assert.ok(fs.existsSync(abs), rel + ' is tracked but not on disk (a rename or delete not yet staged?)');
     const text = fs.readFileSync(abs, 'utf8');
     if (rel.startsWith('tools/lib/') || SETS_PIPEFAIL.test(text)) out.push({ rel, text });
   }
@@ -75,9 +76,10 @@ test('#8195: no NEW pipeline under pipefail ends in a reader that can stop early
   assert.ok(list.some((s) => s.rel === '.githooks/prepare-commit-msg'), 'CONTROL: an extensionless script found by its #! line is read');
   const now = hits(list), base = baseline();
   assert.ok(now.length > 0 && base.length > 0, 'CONTROL: the scan and the list both found something');
-  if (process.env.KOSMOS_PRINT_PIPEFAIL_BASELINE === '1') {   // the whole file, header included, ready to replace it
+  const out = process.env.KOSMOS_WRITE_PIPEFAIL_BASELINE;   // a path: the list as it should be, header included
+  if (out) {
     const header = fs.readFileSync(BASELINE, 'utf8').split('\n').filter((l) => l.startsWith('#'));
-    process.stdout.write(header.concat(now).join('\n') + '\n');
+    fs.writeFileSync(out, header.concat(now).join('\n') + '\n');
   }
   const added = minus(now, base), gone = minus(base, now);
   const paths = (l) => new Set(l.map((x) => x.split('\t')[0]));

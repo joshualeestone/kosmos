@@ -1,6 +1,6 @@
 # kosmos#8195: early readers under pipefail that were triaged and accepted (see the card for the triage).
 # One line per hit: path, a TAB, then the line as the scanner prints it (the line itself may hold a TAB; compare whole lines).
-# To print a fresh list: KOSMOS_PRINT_PIPEFAIL_BASELINE=1 node --test shell.pipefail-ratchet-8195.test.js
+# To write a fresh list: KOSMOS_WRITE_PIPEFAIL_BASELINE=<path> node --test shell.pipefail-ratchet-8195.test.js
 # A new line here needs a reason it cannot bite: one small write, or a status nothing reads.
 android/evidence/cct-warmup-4109/run-abab.sh	"$ADB" shell dumpsys package com.android.chrome | grep -m1 versionName
 android/evidence/cct-warmup-4109/run-all.sh	"$ADB" shell dumpsys package com.android.chrome | grep -m1 versionName
