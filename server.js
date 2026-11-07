@@ -4961,6 +4961,29 @@ function noteTextNow(m, names) {
    /api/reply and the outbox drain make, so a drained reply is exactly a reply.
    `at` is the original send time for a drained reply, now for the route, and the daily-limit sweep's own `now`
    for its notice (#4354: the clock the pause's pausedAt is written with). */
+/* kosmos#8036 (Josh's iPhone 11-06 20:25): he pressed Yes on a live permission prompt and it worked, and directly under his Yes
+   the chat said the agent had asked him something. The hook's report only ends at the agent's next report (14 s there; as long
+   as the agent thinks, in general), and until then the thread falls back to its words (#2456) with no menu to offer. A press
+   that closed the prompt is what ended the wait, so it ends here, at once. Its pushes go with it and no "no longer asking" line
+   follows: the person answered it. */
+function permissionWaitBeforePress(card) {
+  try {
+    const standing = card && card.sessionName ? selfreport.read(card.sessionName) : null;
+    return selfreport.isAutoPermissionWait(standing) ? standing : null;
+  } catch { return null; }
+}
+function endPermissionWaitPressed(card, before, screenAfter) {
+  if (!before) return;   // only the hook's wait: an agent's own question is the agent's to close (#5943)
+  try {
+    if (typeof screenAfter !== 'string' || require('./engine/status').claudeAnswerableMenu(screenAfter)) return;   // the next prompt is up
+    const session = card.sessionName;
+    const now = selfreport.read(session);
+    if (!selfreport.isAutoPermissionWait(now) || now.at !== before.at) return;   // a newer report during the press: it stands
+    selfreport.record(session, { state: 'working', because: 'carrying on after your answer', auto: true });
+    require('./engine/needsyouack').ended(session, (id) => phonenotify.acked(id));
+  } catch { /* the answer went; the agent's next report ends the wait as before */ }
+}
+
 function keepAgentReply(who, text, at, opts) {
   return chat.appendMessage(chat.DIRECT, who, {
     text: guideMasked(who, text),
@@ -19218,7 +19241,13 @@ const server = http.createServer(async (req, res) => {
         if (autoWaitBefore && body.state !== 'needs_you' && kept && kept.recorded === true) {
           try {
             const nya = require('./engine/needsyouack');
-            if (nya.ended(who, (id) => phonenotify.acked(id))) keepAgentReply(who, nya.WAIT_ENDED_LINE, undefined, { kosmos: true });
+            if (nya.ended(who, (id) => phonenotify.acked(id))) {
+              /* kosmos#8036 (Josh's iPhone 11-06): two waits hours apart said the same sentence one under the other, and it read
+                 as a fault. While the chat's last row already says it, the second adds nothing. Any row between lets it speak. */
+              const rows = chat.readThread(chat.DIRECT, who).messages || [];
+              const last = rows.length ? rows[rows.length - 1] : null;
+              if (!last || last.text !== nya.WAIT_ENDED_LINE) keepAgentReply(who, nya.WAIT_ENDED_LINE, undefined, { kosmos: true });
+            }
           } catch { /* the report still stands */ }
         }
         /* #7756: `kosmos report clear "why"` over a question: the person sees it closed, not just gone. A line in the agent's
@@ -21149,8 +21178,10 @@ const server = http.createServer(async (req, res) => {
               e.status = 409; throw e;
             }
             if (opt && !files.recs.length && !answered) {
+              const waitPressed = permissionWaitBeforePress(askingCard);   // kosmos#8036
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}),
                 ...(cq.permission && requestGiven ? { request: body.request } : {}) });   // kosmos#7020: re-checked on the last look
+              if (r.ok && r.answered) endPermissionWaitPressed(askingCard, waitPressed, r.screen);
               // kosmos#6239: refused for quiet hours is the person's act, reported like a refused message.
               if (!r.ok && r.quiet === true) { try { require('./engine/agentevents').recordRefusal({ agent: name, rule: 'quiet-hours' }); } catch { /* not reported */ } }
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
