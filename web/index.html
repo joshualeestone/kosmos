@@ -18103,6 +18103,8 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tmeta"><span>Project</span><b id="tk-project"></b></div>
         <div class="tmeta"><span>Added</span><b id="tk-added"></b></div>
         <div class="tmeta"><span>State</span><b id="tk-state"></b></div>
+        <!-- kosmos#8137: on a task with several agents, who has finished and who has not. Hidden otherwise. -->
+        <div class="tmeta" id="tk-wholeft-row" hidden><span>Who</span><b id="tk-wholeft"></b></div>
         <!-- #3861 part 2: the task this one is part of, a way up. Hidden when it stands alone. -->
         <div class="tmeta" id="tk-partof-row" hidden><span>Part of</span><b><button class="linkish" type="button" id="tk-partof"></button></b></div>
         <!-- #768: the task's DUE DATE (Josh's #768: "on the right we could have
@@ -71562,6 +71564,9 @@ function paintProjectTasks(p) {
          function and run it alone. The Tasks view row carries the same line (tsk-from). */
       + (t.addedVia === 'webhook' ? '<span class="tkcard-from">' + (t.addedBy ? 'From ' + esc(t.addedBy) + ' (a webhook)' : 'From a webhook') + '</span>' : '')
       + who + (builtOpen ? '<span class="tkcard-built">Built, waiting for you to check it</span>' : '')
+      /* kosmos#8137: this column is the list most people see (the Tasks tab stays hidden under 25 tasks). typeof: tests lift this function alone. */
+      + (typeof tkWhoLeftWords === 'function' && tkWhoLeftWords(t, (m) => tkMemberName(p, m))
+        ? '<span class="tkcard-status tkcard-wholeft">' + esc(tkWhoLeftWords(t, (m) => tkMemberName(p, m))) + '</span>' : '')
       /* kosmos#7797: an agent's hold for the person says it waits on them, as the Tasks row does (tsk-for-you). */
       + (t.onHold === true && t.onHoldForPerson === true
         ? '<span class="tkcard-from tkcard-for-you" style="overflow-wrap:anywhere;">On hold until you answer' + (typeof t.onHoldBecause === 'string' && t.onHoldBecause ? ': ' + esc(t.onHoldBecause) : '') + '</span>'
@@ -72039,6 +72044,8 @@ function tskRow(t, at) {
       + (t.builtNote ? ': ' + esc(t.builtNote) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
       + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain)) + ' not built yet">Not built yet</button></div>';
+  const whoLeft = t.state === 'closed' || typeof tkWhoLeftWords !== 'function' ? '' : tkWhoLeftWords(t, tskAgentName);   // kosmos#8137; typeof: tests lift this function alone
+  const whoLeftLine = whoLeft ? '<div class="why">' + esc(whoLeft) + '</div>' : '';
   /* #7508 (Mona Lisa's words): the commit a code fix was saved as, from the agent's built mark, on open and closed rows
      alike, in the row's quiet text; the short sha stays, for whoever checks it. A closed row also carries the board's
      check of that commit now (landedCheck): 'missing' says it plainly in place of the saved line, 'unknown' says what
@@ -72085,7 +72092,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + waitLine + whoLine + forYouLine + repeatLine + builtLine + landedLine + replacedLine + '</div>'
+    + '</div>' + cannot + waitLine + whoLine + forYouLine + repeatLine + builtLine + whoLeftLine + landedLine + replacedLine + '</div>'
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */
@@ -72656,6 +72663,16 @@ document.getElementById('pj-tasklist').addEventListener('click', (e) => {
        any more (marking done drops it out of the column), which is exactly
        why the old closer had to fall back to the New task button. */
 let TK_ACT = null;   // the act the visible label promises; see the click handler
+/* kosmos#8137: on a task with several agents, who has finished and who has not, in names from `nameOf`. Empty otherwise (the
+   server sends whoIsLeft only then: tasks.whoIsLeft). Plain text: the caller escapes it for its own place. */
+function tkWhoLeftWords(t, nameOf) {
+  const w = t && t.whoIsLeft;
+  if (!w || !Array.isArray(w.left) || !Array.isArray(w.finished)) return '';
+  const said = [];
+  if (w.finished.length) said.push('Reported finished: ' + w.finished.map(nameOf).join(', ') + '.');
+  if (w.left.length) said.push('Still to finish: ' + w.left.map(nameOf).join(', ') + '.');
+  return said.join(' ');
+}
 function tkStateWord(t) {
   /* 🔑 THE COUNT, NOT A WORD, ONCE THERE IS MORE THAN ONE PART. Mona Lisa's
      spec: the parent's state is DERIVED from its parts, which is why it cannot
@@ -72731,6 +72748,10 @@ function paintTaskPage() {
   const stateWord = tkStateWord(t);
   const replacedLink = Number.isInteger(t.replacedBy) && Boolean(t.progress ? t.progress.closed : t.closedAt);   // as tkStateWord decides it
   const builtWords = t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '';
+  { const words = typeof tkWhoLeftWords === 'function' ? tkWhoLeftWords(t, (n) => tkMemberName(p, n)) : '';   // typeof: tests lift this function alone
+    const row = document.getElementById('tk-wholeft-row');
+    const el = document.getElementById('tk-wholeft');
+    if (row && el) { el.textContent = words; row.hidden = !words; } }
   const stateEl = document.getElementById('tk-state');
   if (!replacedLink && !replaces.length) { stateEl.textContent = stateWord + builtWords; stateEl.tkPainted = null; }   // plain words when there is no link
   else {

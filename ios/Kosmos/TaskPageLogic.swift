@@ -60,6 +60,8 @@ extension Board {
         let builtBy: String?
         let builtByPerson: Bool
         let builtNote: String?
+        var whoFinished: [String] = []   // kosmos#8137
+        var whoLeft: [String] = []
         let parts: [TaskPart]
         let claim: TaskClaim?
         // A task from before parts: the one agent on it.
@@ -116,6 +118,7 @@ extension Board {
                       neverReported: c["neverReported"] as? Bool == true)
         }
         let closed = isClosed(t)
+        let whoIsLeft = Tasks.whoIsLeft(t)
         let kids = tasks.filter { integer($0["parent"]) == number }.sorted { (integer($0["number"]) ?? 0) < (integer($1["number"]) ?? 0) }
         func built(_ x: [String: Any]) -> Bool { !isClosed(x) && x["onHold"] as? Bool != true && text(x["builtAt"]) != nil }
         let subtasks = kids.compactMap { x -> SubtaskRow? in
@@ -138,7 +141,7 @@ extension Board {
             onHold: t["onHold"] as? Bool == true, onHoldByPerson: t["onHoldByPerson"] as? Bool == true,
             onHoldForPerson: t["onHold"] as? Bool == true && t["onHoldForPerson"] as? Bool == true,
             builtAt: text(t["builtAt"]), builtBy: text(t["builtBy"]), builtByPerson: t["builtByPerson"] as? Bool == true,
-            builtNote: text(t["builtNote"]), parts: parts, claim: claim, legacyWho: text(t["who"]),
+            builtNote: text(t["builtNote"]), whoFinished: whoIsLeft.finished, whoLeft: whoIsLeft.left, parts: parts, claim: claim, legacyWho: text(t["who"]),
             parentNumber: parent == nil ? nil : parentNumber, parentSentence: parent.flatMap { text($0["sentence"]) },
             subtasks: subtasks,
             allSubtasksDone: !kids.isEmpty && kids.allSatisfy(isClosed) && !closed,
@@ -163,6 +166,12 @@ extension Board.TaskPage {
         if closed, let r = replacedBy { return "Replaced by task \(r)" }
         if partsTotal > 1 { return "\(partsDone) of \(partsTotal) parts done" }
         return closed ? "Done" : "Open"
+    }
+
+    // kosmos#8137: tkWhoLeftWords; nil on a task with one agent, or a closed one (the board sends none then).
+    func whoLeftLine(roster: [String: String]) -> String? {
+        let w = Tasks.whoLeftWords(finished: whoFinished, left: whoLeft) { name($0, roster: roster) }
+        return w.isEmpty ? nil : w
     }
 
     func stateLine(roster: [String: String]) -> String {

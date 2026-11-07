@@ -368,12 +368,13 @@ struct TasksView: View {
 
     private func row(_ t: Board.TaskRow, depth: Int, crumb: Bool, projectShown: Bool) -> some View {
         let line = Tasks.rowLine(t, now: Date(), name: agentName)
+        let whoLeft = Tasks.whoLeftLine(t, name: agentName)   // kosmos#8137
         let large = typeSize >= .accessibility1
         let decision = t.state == "decision" && !t.waitingOn.isEmpty
         return VStack(alignment: .leading, spacing: 6) {
-            Button { open(t) } label: { rowText(t, line: line, crumb: crumb, projectShown: projectShown, large: large) }
+            Button { open(t) } label: { rowText(t, line: line, whoLeft: whoLeft, crumb: crumb, projectShown: projectShown, large: large) }
                 .buttonStyle(.plain)
-                .accessibilityLabel(Tasks.spoken(t, line: line, projectShown: projectShown)
+                .accessibilityLabel(Tasks.spoken(t, line: whoLeft.isEmpty ? line : (line.isEmpty ? whoLeft : line + "\n" + whoLeft), projectShown: projectShown)
                     + (crumb ? ", " + Tasks.partOf(t) : ""))
                 .accessibilityHint("Opens the task")
                 .modifier(AnswerAction(on: decision) { answer(t) })
@@ -394,7 +395,7 @@ struct TasksView: View {
         .listRowSeparatorTint(Palette.separator)
     }
 
-    private func rowText(_ t: Board.TaskRow, line: String, crumb: Bool, projectShown: Bool, large: Bool) -> some View {
+    private func rowText(_ t: Board.TaskRow, line: String, whoLeft: String, crumb: Bool, projectShown: Bool, large: Bool) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             if crumb {
                 Text(Tasks.partOf(t)).font(.footnote).foregroundColor(Palette.secondary)
@@ -409,6 +410,11 @@ struct TasksView: View {
             if !line.isEmpty {
                 Text(line).font(.footnote).foregroundColor(Palette.secondary)
                     .lineLimit(large ? nil : 2).multilineTextAlignment(.leading)
+            }
+            if !whoLeft.isEmpty {
+                // Its own Text, with no line limit: on the two-line one above a long built note would cut it off.
+                Text(whoLeft).font(.footnote).foregroundColor(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true).multilineTextAlignment(.leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -583,6 +583,16 @@ func modelTests() async {
     await firstActivity.value
     check(o.activity == [], "an older activity read landing after a newer one does not replace it")
 }
+section("#8137: the task page says who is still to finish")
+let whoJSON = #"{"projects":[{"id":"p1","name":"Launch","tasks":[{"number":7,"sentence":"Two agents","createdAt":"2026-10-24T12:00:00.000Z","parts":[{"id":1,"who":"dana"},{"id":2,"who":"gus"}],"whoIsLeft":{"finished":["dana"],"left":["gus"]}},{"number":8,"sentence":"One agent","createdAt":"2026-10-24T12:00:00.000Z","parts":[{"id":1,"who":"dana"}]}]}]}"#
+func whoPage(_ n: Int) -> Board.TaskPage? {
+    if case .page(let p) = Board.parseTaskPage(Data(whoJSON.utf8), project: "p1", number: n) { return p }
+    return nil
+}
+check(whoPage(7)?.whoLeftLine(roster: roster) == "Reported finished: Dana (roster). Still to finish: Gus.", "names from the roster, as the part lines have them")
+check(whoPage(7) != nil && whoPage(8) != nil, "premise: both pages parsed")
+check(whoPage(8)?.whoLeftLine(roster: roster) == nil, "control: one agent, no line")
+
 await modelTests()
 
 print("")

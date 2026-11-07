@@ -155,6 +155,9 @@ struct TaskPageView: View {
             }
             Text(p.stateLine(roster: roster)).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary)
                 .padding(.top, 4)
+            if let w = p.whoLeftLine(roster: roster) {
+                Text(w).font(.subheadline).foregroundColor(Palette.primary).fixedSize(horizontal: false, vertical: true)
+            }
             Group {
                 Text(p.addedLine(now: Date()))
                 if let due = p.dueLine() { Text(due) }

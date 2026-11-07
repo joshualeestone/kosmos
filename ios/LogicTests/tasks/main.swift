@@ -323,6 +323,27 @@ check(Tasks.askWait(heldNoStart.asking[0], now: now) == "Held until you are back
 check(Tasks.askWait(heldNoStart.asking[1], now: now) == "", "control: unheld with no start has no line")
 check(page.contains("' asks you something'") && page.contains("' asks about '") && page.contains("'Waiting for your answer for '"), "premise: the board's tskAskRow says the same words")
 
+section("#8137: who has finished and who has not")
+let nm: (String) -> String = { ["rex": "Rex", "amy": "Amy"][$0] ?? $0 }
+check(Tasks.whoLeftWords(finished: ["rex"], left: ["amy"], name: nm) == "Reported finished: Rex. Still to finish: Amy.", "one of each, by display name")
+check(Tasks.whoLeftWords(finished: [], left: ["rex", "amy"], name: nm) == "Still to finish: Rex, Amy.", "nobody has finished")
+check(Tasks.whoLeftWords(finished: ["rex", "amy"], left: [], name: nm) == "Reported finished: Rex, Amy.", "everyone has finished")
+check(Tasks.whoLeftWords(finished: [], left: [], name: nm) == "", "one agent: nothing")
+let parsedWho = Tasks.whoIsLeft(["whoIsLeft": ["finished": ["rex"], "left": ["amy"]]])
+check(parsedWho.finished == ["rex"] && parsedWho.left == ["amy"], "read from the board's field")
+check(Tasks.whoIsLeft([:]).left.isEmpty, "control: an older board, or one agent, sends no field")
+let rowJSON = #"{"tasks":[{"projectId":"p1","projectName":"Launch","number":7,"sentence":"Two agents","state":"working","whoIsLeft":{"finished":["rex"],"left":["amy"]}},{"projectId":"p1","projectName":"Launch","number":8,"sentence":"One agent","state":"working"}]}"#
+let readWho = Board.parseTasks(Data(rowJSON.utf8))
+check(readWho?.tasks.first?.whoFinished == ["rex"] && readWho?.tasks.first?.whoLeft == ["amy"], "a real read fills the row")
+check(readWho?.tasks.last?.whoLeft == [], "control: the one-agent row has none")
+var rowWho = row(7, "working")
+rowWho.whoFinished = ["rex"]; rowWho.whoLeft = ["amy"]
+check(Tasks.whoLeftLine(rowWho, name: nm) == "Reported finished: Rex. Still to finish: Amy.", "the row's own line")
+let closedWho = row(7, "closed") { $0.whoFinished = ["rex"]; $0.whoLeft = ["amy"] }
+check(Tasks.whoLeftLine(closedWho, name: nm) == "", "control: a closed row has none")
+check(repoText("ios/Kosmos/TasksView.swift").contains("Tasks.whoLeftLine(t, name: agentName)"), "the row draws it")
+check(page.contains("'Reported finished: '") && page.contains("'Still to finish: '"), "the words are the board's (tkWhoLeftWords)")
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
