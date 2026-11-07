@@ -229,7 +229,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   const s8215 = r.same8215 || {};
   if (!s8215.shown) fail.push('#8215: three members asking the same question get no shared line in the needs-you block');
   if (s8215.sameRows !== 1) fail.push('#8215: the shared question is said ' + s8215.sameRows + ' times, not once');
-  if (!/These 3 are asking the same thing: \u201cCan I restart the build server\?/.test(s8215.sameText || '')) fail.push('#8215: the shared line does not say how many and what (' + JSON.stringify(s8215.sameText) + ')');
+  if (!/These 3 are asking the same thing\. Waiting for your answer: \u201cCan I restart the build server\?/.test(s8215.sameText || '')) fail.push('#8215: the shared line does not say how many and what (' + JSON.stringify(s8215.sameText) + ')');
   if (s8215.answersVisible !== 4) fail.push('#8215: not every member kept a visible Answer (' + s8215.answersVisible + ' of 4)');
   if (!/Waiting for your answer: \u201cWhich folder\?\u201d/.test(s8215.otherText || '')) fail.push('#8215 CONTROL: the member with other words is not on its own row with its words (' + JSON.stringify(s8215.otherText) + ')');
   if (s8215.overflow > 0) fail.push('#8215: at phone width the notice overflows by ' + s8215.overflow + 'px');

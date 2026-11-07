@@ -10,7 +10,9 @@ its own Answer and Dismiss.
   (#3131, #3212, #3437); the block is where reasons are already said (#5688).
 - **Which words:** only a question the agent reported (stateReportedBy 'agent', no failed restart). A needs-you read off
   the screen has no words of its own.
-- **Same:** case and spacing ignored. Words cut at 160 characters on a code-point boundary.
+- **Same:** the row's reason and the whole question, case and spacing ignored, so a held question never merges with the
+  same words asked for real. The 160-character cut (code-point boundary) is for display only.
+- A failed restart or a crash loop is not a question: those rows keep their own reason and show no words.
 - **Blocked members are not added.** A blocked agent is waiting on something that is not the person, is not counted in
   the Issue pill, and has no place on this page that is allowed text. The reported case was three Questions, which this
   covers. Weakest premise: the card names blocked too; a follow-up can add a quiet "waiting on one thing" line if wanted.

@@ -69911,29 +69911,32 @@ function pjNeedsNotice(roster, redHere) {
   const keyWords = (t) => { const w = String(t || '').slice(0, 300); const c = w.charCodeAt(w.length - 1); return c >= 0xD800 && c <= 0xDBFF ? w.slice(0, -1) : w; };
   const keyOf = (m) => m.needsYouKey || (m.needsYouHere === 'question' ? 'question:' + keyWords(m.because) : m.needsYouHere);
   /* #8215 (a user report: three agents in Question for days, all on one stuck process, read as three separate reds): an
-     agent's own question is shown in its words, and members asking the same thing are said once, above their names.
-     Only a question the agent reported itself (by:'agent'): a needs-you read off its screen has no words of its own,
-     and a failed restart is not a question. Same words means the same text with case and spacing ignored. */
-  const saidOf = (m) => (m.state === 'needs_you' && m.stateReportedBy === 'agent' && m.restartFailed !== true) ? pjSaidWords(m.because) : '';
-  const withSaid = (why, said) => !said ? why : /^[^.]*\.$/.test(why) ? why.slice(0, -1) + ': “' + said + '”' : why + ' It asks: “' + said + '”';
+     agent's own question is shown in its words, and members whose rows would say the same thing are said once, above
+     their names. Words only on a row that is about a question the agent reported itself (by:'agent'): a needs-you read
+     off its screen has no words of its own. Rows group on their reason and the whole question (case and spacing
+     ignored), so a held question never merges with the same words asked for real; the 160-character cut is display only. */
+  // A failed restart or a crash loop is not a question (pjAlsoWhy says them first, as the agent card does).
+  const notRed = (m) => m.restartFailed !== true && !(m.crashLoop && m.crashLoop.looping === true);
+  const saidOf = (it) => (it.asks && it.m.stateReportedBy === 'agent') ? String(it.m.because == null ? '' : it.m.because).replace(/\s+/g, ' ').trim() : '';
+  const withSaid = (why, said) => !said ? why : /^[^.]*\.$/.test(why) ? why.slice(0, -1) + ': \u201c' + pjSaidWords(said) + '\u201d' : why + ' It asks: \u201c' + pjSaidWords(said) + '\u201d';
   const say = (items) => {
     const order = [];
     const groups = new Map();
     for (const it of items) {
-      const said = saidOf(it.m);
-      const k = said ? said.toLowerCase() : '\u0000' + order.length;   // no words: a group of its own
+      const said = saidOf(it);
+      const k = said ? it.why + '\u0001' + said.toLowerCase() : '\u0000' + order.length;   // no words: a group of its own
       if (!groups.has(k)) { groups.set(k, []); order.push(k); }
       groups.get(k).push(Object.assign({ said }, it));
     }
     return order.map((k) => {
       const g = groups.get(k);
       if (g.length === 1) return line(g[0].m, withSaid(g[0].why, g[0].said), g[0].act, g[0].reason);
-      return '<div class="pnrow pn-same"><span class="pnwhy">These ' + g.length + ' are asking the same thing: “' + esc(g[0].said) + '”</span></div>'
+      return '<div class="pnrow pn-same"><span class="pnwhy">' + esc('These ' + g.length + ' are asking the same thing. ' + withSaid(g[0].why, g[0].said)) + '</span></div>'
         + g.map((it) => line(it.m, '', it.act, it.reason)).join('');
     }).join('');
   };
-  const counted = say(rows.map((m) => { const [why, act] = (m.needsYouHere === 'question' && m.stateHeld === true ? PJ_NEEDS_WHY.held : PJ_NEEDS_WHY[m.needsYouHere]) || PJ_NEEDS_WHY.other; /* #7916: a held question says held */ return { m, why, act, reason: keyOf(m) }; }));
-  const extra = say(also.map((m) => { const [why, act] = pjAlsoWhy(m); return { m, why, act, reason: 'elsewhere' }; }));
+  const counted = say(rows.map((m) => { const [why, act] = (m.needsYouHere === 'question' && m.stateHeld === true ? PJ_NEEDS_WHY.held : PJ_NEEDS_WHY[m.needsYouHere]) || PJ_NEEDS_WHY.other; /* #7916: a held question says held */ return { m, why, act, reason: keyOf(m), asks: m.needsYouHere === 'question' && notRed(m) }; }));
+  const extra = say(also.map((m) => { const [why, act] = pjAlsoWhy(m); return { m, why, act, reason: 'elsewhere', asks: m.state === 'needs_you' && notRed(m) }; }));
   const n = rows.length || also.length;
   const who = n === 1 ? esc(nameOf((rows.length ? rows : also)[0])) + ' needs you' : n + ' agents need you';
   // Review 1: the uncounted rows are not known to be about another project, so the words never claim they are.

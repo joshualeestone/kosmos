@@ -2,7 +2,7 @@
 
 /**
  * #8215: the project's needs-you block shows an agent's own question in its words, and members asking the same thing
- * are said once, above their names ("3 waiting on one thing", not three separate reds). pjNeedsNotice is extracted
+ * are said once, above their names ("These 3 are asking the same thing. ...", not three separate reds). pjNeedsNotice is extracted
  * from the page and CALLED, with the real esc(), on real member rows (fixture discipline).
  */
 
@@ -73,8 +73,8 @@ test('#8215: three asking the same thing are said once, above their names, each 
   ]);
   assert.match(html, /<b>3 agents need you on this project\.<\/b>/);
   assert.equal(count(html, /class="pnrow pn-same"/g), 1, 'one line for the shared question');
-  assert.match(html, /These 3 are asking the same thing: “Can I restart the build server\?”/);
-  assert.equal(count(html, /Waiting for your answer/g), 0, 'the words are not said again on each row');
+  assert.match(html, /These 3 are asking the same thing\. Waiting for your answer: “Can I restart the build server\?”/);
+  assert.equal(count(html, /Waiting for your answer/g), 1, 'said once, on the shared line, not again on each row');
   for (const s of ['ada', 'bo', 'cy']) {
     assert.equal(count(html, new RegExp('data-pn-open="' + s + '"', 'g')), 1, s + ' keeps its Answer');
     assert.equal(count(html, new RegExp('data-pn-dismiss="' + s + '"', 'g')), 1, s + ' keeps its Dismiss');
@@ -93,7 +93,7 @@ test('#8215: different questions stay separate rows, each with its words', () =>
 
 test('#8215: two the same and one different: one shared line, then the other on its own', () => {
   const html = pjNeedsNotice([ask('ada', 'Same?'), ask('bo', 'Other?'), ask('cy', 'Same?')]);
-  assert.match(html, /These 2 are asking the same thing: “Same\?”/);
+  assert.match(html, /These 2 are asking the same thing\. Waiting for your answer: “Same\?”/);
   assert.match(html, /Waiting for your answer: “Other\?”/);
 });
 
@@ -137,5 +137,32 @@ test('#8215: the words are escaped, and nothing has an em dash', () => {
   const html = pjNeedsNotice([ask('ada', '<img src=x onerror=alert(1)> ok?'), ask('bo', '<img src=x onerror=alert(1)> ok?')]);
   assert.equal(html.includes('<img'), false);
   assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt; ok\?/);
-  assert.equal(html.includes('—'), false);
+  assert.equal(html.includes('\u2014'), false);
+});
+
+test('#8215: a held question and the same words asked for real are not merged (each row keeps what it says)', () => {
+  const html = pjNeedsNotice([ask('ada', 'Ship it?', { stateHeld: true }), ask('bo', 'Ship it?')]);
+  assert.equal(count(html, /pn-same/g), 0);
+  assert.match(html, /Held until you are back: \u201cShip it\?\u201d/);
+  assert.match(html, /Waiting for your answer: \u201cShip it\?\u201d/);
+  // CONTROL: two held with the same words do group, and the shared line says held.
+  const both = pjNeedsNotice([ask('ada', 'Ship it?', { stateHeld: true }), ask('bo', 'Ship it?', { stateHeld: true })]);
+  assert.match(both, /These 2 are asking the same thing\. Held until you are back: \u201cShip it\?\u201d/);
+});
+
+test('#8215: a crash-looping agent with a question gets its crash-loop reason only, never the question pinned to it', () => {
+  const m = { ...ask('ada', 'Which project?'), needsYouHere: null, crashLoop: { looping: true } };
+  const html = pjNeedsNotice([m], () => true);
+  assert.match(html, /keeps restarting it/);
+  assert.equal(shown(html).includes('Which project'), false);
+  // CONTROL: the same row without the crash loop shows the words.
+  const ok = pjNeedsNotice([{ ...m, crashLoop: null }], () => true);
+  assert.ok(shown(ok).includes('Which project'));
+});
+
+test('#8215: two long questions that differ only after the 160-character cut are not grouped', () => {
+  const head = 'q'.repeat(170);
+  const html = pjNeedsNotice([ask('ada', head + ' one'), ask('bo', head + ' two')]);
+  assert.equal(count(html, /pn-same/g), 0);
+  assert.equal(count(html, /\u2026\u201d/g), 2, 'each shown cut, separately');
 });
