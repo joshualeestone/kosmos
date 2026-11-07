@@ -49,3 +49,8 @@ falls back to the state words, which do not separate sent from unread.
   ("it still held the prompt when checked after the Enter"), not why, since a slow submit and a swallowed Enter read
   the same; chat.js's own hold reasons start "held: ", so the line says the reason once. Left: two collected fields
   promptLogLine does not need (unsubmitted, heldByInput beside heldBy), and the retry wording's rare band case.
+
+## Full validation, run 1 (red, fixed)
+- fixture-discipline.test.js: "no test builds an agent card or a roster row by hand" caught my roster row literal
+  `{ sessionName: 'mara', ... }`. The row is now the shorthand agentAt, as engine/autohandoff-sweep.test.js builds it
+  and for its reason: the sweep reads only sessionName and context.percent, and the fill is the variable under test.
