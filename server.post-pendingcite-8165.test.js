@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // #4273: contains every temp dir below, so none outlives the run
 /**
  * kosmos#8165 review 1 (Opus): a post's id reaches the members (their envelope says "to answer, run: kosmos post
  * --in-reply-to mN") before its row is written, which waits for every member's delivery. A member who answers at once
@@ -61,7 +62,7 @@ test.after(() => {
   if (board) board.restore();
   server.closeAllConnections();
   server.close();
-  for (const d of [SANDBOX, process.env.HOME]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const d of [SANDBOX, process.env.HOME, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGENT_WORKFORCE_PROJECTS, process.env.AGENT_WORKFORCE_LAUNCH]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
 });
 
 test('kosmos#8165: a reply citing a post that is still being delivered posts, and records what it answers', async () => {

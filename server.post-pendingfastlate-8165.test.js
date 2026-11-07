@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // #4273: contains every temp dir below, so none outlives the run
 /**
  * kosmos#8165 review 3 (Opus): a reply to a post still being delivered reads the room as a late reply does. Two readers
  * scanned only the record, which takes a post when its deliveries finish: the quote tag (quotedSegments), and the
@@ -62,7 +63,7 @@ test.after(() => {
   if (board) board.restore();
   server.closeAllConnections();
   server.close();
-  for (const d of [SANDBOX, process.env.HOME]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const d of [SANDBOX, process.env.HOME, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGENT_WORKFORCE_PROJECTS, process.env.AGENT_WORKFORCE_LAUNCH]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
 });
 
 const LONG = 'the signing step on the release branch failed with an expired certificate this morning';

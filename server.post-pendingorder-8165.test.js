@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope'); // #4273: contains every temp dir below, so none outlives the run
 /**
  * kosmos#8165 review 4 (Sonnet): the quote tag reads the record as it is when a post is written, so a LATER post that
  * finished first (a fast reply recorded before the ask it answers, in a room the ask takes long to reach) was in it,
@@ -57,7 +58,7 @@ test.after(() => {
   if (board) board.restore();
   server.closeAllConnections();
   server.close();
-  for (const d of [SANDBOX, process.env.HOME]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const d of [SANDBOX, process.env.HOME, process.env.AGENT_WORKFORCE_WORKERS, process.env.AGENT_WORKFORCE_PROJECTS, process.env.AGENT_WORKFORCE_LAUNCH]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
 });
 
 const LONG = 'the signing step on the release branch failed with an expired certificate this morning';
