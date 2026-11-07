@@ -1405,7 +1405,7 @@ elif [ "$_pkg_frc" != 0 ]; then
 elif [ -n "$_pkg_dropped" ]; then
   echo "the site's .vercelignore excludes $_pkg_dropped; the deploy would not carry the pkg triple"; exit 1
 fi
-echo "   .vercelignore carries dist/Kosmos.pkg, .sha256 and .inputs (evaluated by git)"
+echo "   .vercelignore carries the Kosmos.pkg and Kosmos-staging.pkg triples (evaluated by git)"
 _pkg_want="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input sha from the frozen tree"; exit 1; }
 # ⚠️ THE VERDICT IS THE EXIT CODE (0 needed, 2 current), read under set +e so
 # an ERROR inside the decision (exit 1, or anything else) stops the cut instead
@@ -1416,7 +1416,35 @@ _pkg_want="$(pkg_input_sha "$REPO")" || { echo "could not compute the pkg input 
 # most once, and a name whose inputs another name in the site dist already has current is a COPY of
 # that triple (same bytes, no second sign + notarise). PKG_NAMES_PUBLISHED lists what this step wrote.
 PKG_NAMES="$(pkg_names_for_channel "$CUT_CHANNEL")" || { echo "could not work out the pkg names for channel $CUT_CHANNEL"; exit 1; }
-PKG_PUBLISHED=0; PKG_NAMES_PUBLISHED=""; _pkg_built=0
+PKG_PUBLISHED=0; PKG_NAMES_PUBLISHED=""; _pkg_built=0; PKG_PROD_SERVED_SHA=""
+# A staging cut deploys whatever Kosmos.pkg sits in the site dist, and never rebuilds it, so that file must BE the
+# served one: a prior prod cut that aborted after 3c leaves its own pkg there, and the deploy would ship it to the
+# Download button. So the served Kosmos.pkg's sha is recorded here (9c holds the served file to it after the deploy),
+# and a site dist copy that is missing or differs is replaced by the served triple, fetched and checked. Only a 200
+# counts as served; a 404 or any other answer stops the cut, because there is no Download button pkg to keep.
+if [ "$CUT_CHANNEL" = staging ]; then
+  _pkg_srv="$(mktemp -d "$BUILD_ROOT/pkgsrv.XXXXXX")"
+  _pkg_code="$(curl -sS -m 30 -o "$_pkg_srv/sha256" -w '%{http_code}' -H 'Cache-Control: no-cache' "${HOST:-https://installkosmos.com}/dist/$PKG_PROD_NAME.sha256" 2>/dev/null)" || _pkg_code="${_pkg_code:-000}"
+  [ "$_pkg_code" = 200 ] || { echo "could not read the served $PKG_PROD_NAME.sha256 (HTTP ${_pkg_code:-none}); a staging cut must know which installer the Download button serves before it deploys (kosmos#8167)"; exit 1; }
+  PKG_PROD_SERVED_SHA="$(awk '{print $1; exit}' "$_pkg_srv/sha256")"
+  case "$PKG_PROD_SERVED_SHA" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;; *) echo "the served $PKG_PROD_NAME.sha256 names no sha (read '${PKG_PROD_SERVED_SHA:0:20}'); refusing to guess which installer the Download button serves"; exit 1 ;; esac
+  _pkg_local=""
+  [ -f "$SITE/dist/$PKG_PROD_NAME" ] && _pkg_local="$(_pkg_hash < "$SITE/dist/$PKG_PROD_NAME" | awk '{print $1}')"
+  if [ "$_pkg_local" = "$PKG_PROD_SERVED_SHA" ] && pkg_triple_check "$SITE/dist" "$PKG_PROD_NAME" >/dev/null 2>&1; then
+    echo "   $PKG_PROD_NAME in the site dist is the served one (${PKG_PROD_SERVED_SHA:0:12})"
+  else
+    echo "   $PKG_PROD_NAME in the site dist (${_pkg_local:-absent}) is not a whole copy of the served one (${PKG_PROD_SERVED_SHA:0:12}); putting the served triple back so this staging cut cannot ship another"
+    for _f in "$PKG_PROD_NAME" "$PKG_PROD_NAME.inputs"; do
+      curl -fsSL -m 120 -H 'Cache-Control: no-cache' "${HOST:-https://installkosmos.com}/dist/$_f" -o "$_pkg_srv/$_f" || { echo "could not fetch the served $_f"; exit 1; }
+    done
+    cp "$_pkg_srv/sha256" "$_pkg_srv/$PKG_PROD_NAME.sha256"
+    _pkg_got="$(pkg_triple_check "$_pkg_srv" "$PKG_PROD_NAME")" && [ "$_pkg_got" = "$PKG_PROD_SERVED_SHA" ] \
+      || { echo "the served $PKG_PROD_NAME triple is not whole and self-consistent (above); refusing to deploy beside it"; exit 1; }
+    pkg_triple_copy "$_pkg_srv" "$PKG_PROD_NAME" "$SITE/dist" "$PKG_PROD_NAME" || { echo "could not put the served $PKG_PROD_NAME back in the site dist"; exit 1; }
+    echo "   $PKG_PROD_NAME in the site dist is now the served one (${PKG_PROD_SERVED_SHA:0:12})"
+  fi
+  rm -rf "$_pkg_srv"
+fi
 for _pkg_name in $PKG_NAMES; do
   set +e; _pkg_why="$(pkg_publish_needed "$SITE/dist" "$_pkg_want" "$_pkg_name")"; _pkg_rc=$?; set -e
   if [ "$_pkg_rc" = 2 ] && case "$_pkg_why" in current:*) true;; *) false;; esac; then
@@ -2122,12 +2150,12 @@ step "== 9c. the served installer .pkg is the one step 3c left in the site dist 
 # step's first run) would kill the script before the loop retried, and the
 # six-read message would never print. Every fetch lands in a file inside the
 # if chain, the same shape as step 4's tar guard and step 9b. The temp dir
-# lives under BUILD_ROOT so the EXIT trap from 2b removes it on an errexit
-# inside the loop.
+# lives under BUILD_ROOT so the EXIT trap from 2b removes it if the cut dies
+# before the function's own rm runs.
 # kosmos#8167: checked PER NAME. Each name 3c manages for this channel must serve the SOURCE's inputs.
-# On a staging cut, Kosmos.pkg (the Download button's file) is also read, and must be the bytes the
-# export carried, which are the ones the staging cut found and left alone. A staging cut that rewrote
-# it reds here.
+# On a staging cut, Kosmos.pkg (the Download button's file) is also read: it must be the bytes the
+# export carried AND hash to PKG_PROD_SERVED_SHA, the served sha 3c recorded before this cut deployed.
+# The export alone is not enough, because the export copies whatever the site dist held.
 # _pkg_served_check <name> <source|unchanged>: 0 = the six-read loop agreed, 1 = it did not; the
 # failing fact is left in _pkg_fact.
 _pkg_served_check() {
@@ -2151,7 +2179,10 @@ _pkg_served_check() {
               # Against the EXPORT's copy (the file that deployed; a real copy
               # under BUILD_ROOT, not a link), not the shared working tree, which
               # can be replaced in place during the ten-minute wait.
-              if cmp -s "$_pkg_dir/pkg" "$_site_export/dist/$name"; then _pkg_ok=1; break; fi
+              if cmp -s "$_pkg_dir/pkg" "$_site_export/dist/$name"; then
+                _pkg_fact="the served $name (${real:0:12}) is not the one served before this cut (${PKG_PROD_SERVED_SHA:0:12})"
+                if [ "$mode" != unchanged ] || [ "$real" = "$PKG_PROD_SERVED_SHA" ]; then _pkg_ok=1; break; fi
+              fi
             fi
           fi
         fi

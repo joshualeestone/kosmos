@@ -41,28 +41,56 @@ printf 'BUILT-PKG' > "\$OUT_DIR/Kosmos.pkg"
 printf '%s  Kosmos.pkg\n' "\$(_pkg_hash < "\$OUT_DIR/Kosmos.pkg" | awk '{print \$1}')" > "\$OUT_DIR/Kosmos.pkg.sha256"
 pkg_sidecar_write "\$OUT_DIR/Kosmos.pkg" "$WANT" "\$OUT_DIR/Kosmos.pkg.inputs"
 EOF
+# A local HTTP server stands in for the host (3c reads the served Kosmos.pkg on a staging cut; 9c reads everything).
+PY3="$(command -v python3)"
+WWW="$T/www"; mkdir -p "$WWW/dist"; EXP="$T/export"; mkdir -p "$EXP/dist"; BR="$T/build"; mkdir -p "$BR"
+( cd "$WWW" && exec "$PY3" -u -m http.server 0 -b 127.0.0.1 ) > "$T/srv.log" 2>&1 & SRV=$!
+PORT=""; for i in $(seq 1 100); do PORT="$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$T/srv.log" | head -n1)"; [ -n "$PORT" ] && break; sleep 0.1; done
+[ -n "$PORT" ] && pass "the stand-in host is up" || bad "the stand-in host did not start: $(cat "$T/srv.log")"
+serve() { rm -f "$WWW/dist/"* "$EXP/dist/"*; }   # reset both sides
+# serve_prod <site-dist>: the host serves exactly the site dist's Kosmos.pkg triple (the usual, consistent state)
+serve_prod() { serve; cp "$1/Kosmos.pkg" "$1/Kosmos.pkg.sha256" "$1/Kosmos.pkg.inputs" "$WWW/dist/"; }
 run3c() {   # <channel> <site-dist>: runs the extracted 3c in a subshell; prints its output, rc is its own
   : > "$T/builds"; rm -f "$FR/dist/Kosmos.pkg"*
-  ( set -e; CUT_CHANNEL="$1"; SITE="$(dirname "$2")"; REPO="$FR"; V=9.9.9; _pkg_want="$WANT"; eval "$C3"; echo "PUBLISHED=[$PKG_NAMES_PUBLISHED]" ) 2>&1
+  ( set -e; CUT_CHANNEL="$1"; SITE="$(dirname "$2")"; REPO="$FR"; V=9.9.9; _pkg_want="$WANT"; HOST="http://127.0.0.1:$PORT"; BUILD_ROOT="$BR"; eval "$C3"; echo "PUBLISHED=[$PKG_NAMES_PUBLISHED] SERVED=[$PKG_PROD_SERVED_SHA]" ) 2>&1
 }
 builds() { grep -c built "$T/builds" 2>/dev/null || true; }
 newsite() { local s; s="$(mktemp -d "$T/site.XXXXXX")"; mkdir -p "$s/dist"; printf '%s/dist' "$s"; }
 
 # 1) staging, Kosmos.pkg holds the OLD prod installer, no staging pkg: build once, publish ONLY Kosmos-staging.pkg.
-D="$(newsite)"; mk "$D" Kosmos.pkg "PROD-PKG" "$OLDIN"; cp "$D/Kosmos.pkg" "$T/prod.before"; cp "$D/Kosmos.pkg.sha256" "$T/prodsum.before"
+D="$(newsite)"; mk "$D" Kosmos.pkg "PROD-PKG" "$OLDIN"; cp "$D/Kosmos.pkg" "$T/prod.before"; cp "$D/Kosmos.pkg.sha256" "$T/prodsum.before"; serve_prod "$D"
 out="$(run3c staging "$D")"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$D/Kosmos-staging.pkg" 2>/dev/null)" = "BUILT-PKG" ] && [ "$(builds)" = 1 ] && pass "3c staging: builds once and publishes Kosmos-staging.pkg" || bad "3c staging publish (rc=$rc builds=$(builds) out=$out)"
 cmp -s "$D/Kosmos.pkg" "$T/prod.before" && cmp -s "$D/Kosmos.pkg.sha256" "$T/prodsum.before" && pass "3c staging: Kosmos.pkg (the Download button's file) is untouched" || bad "3c staging CHANGED Kosmos.pkg"
 [ "$(awk '{print $2}' "$D/Kosmos-staging.pkg.sha256")" = Kosmos-staging.pkg ] && pass "3c staging: the staging .sha256 names its own file" || bad "3c staging .sha256: $(cat "$D/Kosmos-staging.pkg.sha256")"
-case "$out" in *"PUBLISHED=[ Kosmos-staging.pkg]"*) pass "3c staging: PKG_NAMES_PUBLISHED names only the staging pkg" ;; *) bad "3c staging published list: $out" ;; esac
+case "$out" in *"PUBLISHED=[ Kosmos-staging.pkg] SERVED=[$(_pkg_hash < "$D/Kosmos.pkg" | awk '{print $1}')]"*) pass "3c staging: PKG_NAMES_PUBLISHED names only the staging pkg, and the served prod sha is recorded" ;; *) bad "3c staging published list: $out" ;; esac
 case "$out" in *"Kosmos.pkg left as it is"*) pass "3c staging: says Kosmos.pkg was left alone" ;; *) bad "3c staging did not say so: $out" ;; esac
 # 2) staging again, now current: nothing built, nothing published.
 out="$(run3c staging "$D")"; rc=$?
 [ "$rc" = 0 ] && [ "$(builds)" = 0 ] && case "$out" in *"PUBLISHED=[]"*) true;; *) false;; esac && pass "3c staging: a current staging pkg is not rebuilt" || bad "3c staging re-run (rc=$rc builds=$(builds) out=$out)"
 # 3) staging, Kosmos.pkg is ALREADY current (inputs = source) and no staging pkg: copied, not rebuilt.
-D="$(newsite)"; mk "$D" Kosmos.pkg "CURRENT-PKG" "$WANT"
+D="$(newsite)"; mk "$D" Kosmos.pkg "CURRENT-PKG" "$WANT"; serve_prod "$D"
 out="$(run3c staging "$D")"; rc=$?
 [ "$rc" = 0 ] && [ "$(builds)" = 0 ] && cmp -s "$D/Kosmos.pkg" "$D/Kosmos-staging.pkg" && pass "3c staging: a current Kosmos.pkg is COPIED to the staging name, no second sign + notarise" || bad "3c staging copy arm (rc=$rc builds=$(builds) out=$out)"
+# 3b) THE ABORTED-PROD-CUT LEFTOVER: the site dist's Kosmos.pkg is NOT what the host serves. A staging cut must put
+#     the served triple back, never deploy the leftover to the Download button.
+D="$(newsite)"; mk "$D" Kosmos.pkg "SERVED-PKG" "$OLDIN"; serve_prod "$D"; mk "$D" Kosmos.pkg "LEFTOVER-FROM-ABORTED-PROD-CUT" "$WANT"
+out="$(run3c staging "$D")"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$D/Kosmos.pkg")" = "SERVED-PKG" ] && cmp -s "$D/Kosmos.pkg.inputs" "$WWW/dist/Kosmos.pkg.inputs" && case "$out" in *"putting the served triple back"*) true;; *) false;; esac \
+  && pass "3c staging: a site dist Kosmos.pkg that differs from the served one is replaced by the served triple" || bad "3c staging leftover arm (rc=$rc, Kosmos.pkg: $(cat "$D/Kosmos.pkg"), out=$out)"
+[ "$(awk '{print $2}' "$D/Kosmos.pkg.sha256")" = Kosmos.pkg ] && pass "3c staging: the restored .sha256 names Kosmos.pkg" || bad "3c staging restored sha256: $(cat "$D/Kosmos.pkg.sha256")"
+# 3c) no local Kosmos.pkg at all: restored from the host too.
+D="$(newsite)"; mk "$D" Kosmos.pkg "SERVED-PKG" "$OLDIN"; serve_prod "$D"; rm -f "$D/Kosmos.pkg"*
+out="$(run3c staging "$D")"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$D/Kosmos.pkg" 2>/dev/null)" = "SERVED-PKG" ] && pass "3c staging: a missing Kosmos.pkg is restored from the host" || bad "3c staging missing arm (rc=$rc out=$out)"
+# 3d) the host serves no Kosmos.pkg.sha256 (404): the staging cut stops; there is no Download button pkg to keep.
+D="$(newsite)"; mk "$D" Kosmos.pkg "PROD-PKG" "$OLDIN"; serve
+out="$(run3c staging "$D")"; rc=$?
+[ "$rc" != 0 ] && [ ! -e "$D/Kosmos-staging.pkg" ] && case "$out" in *"HTTP 404"*) true;; *) false;; esac && pass "3c staging: a 404 for the served Kosmos.pkg.sha256 stops the cut, nothing published" || bad "3c staging 404 arm (rc=$rc out=$out)"
+# 3e) the served .sha256 names no sha: stops too.
+D="$(newsite)"; mk "$D" Kosmos.pkg "PROD-PKG" "$OLDIN"; serve_prod "$D"; printf 'not a checksum\n' > "$WWW/dist/Kosmos.pkg.sha256"
+out="$(run3c staging "$D")"; rc=$?
+[ "$rc" != 0 ] && [ ! -e "$D/Kosmos-staging.pkg" ] && pass "3c staging: a served .sha256 with no sha stops the cut" || bad "3c staging bad-sha arm (rc=$rc out=$out)"
 # 4) prod, empty dist: build once, publish both names.
 D="$(newsite)"
 out="$(run3c prod "$D")"; rc=$?
@@ -77,28 +105,30 @@ D="$(newsite)"
 out="$( CUT_CHANNEL=bogus; SITE="$(dirname "$D")"; REPO="$FR"; V=9.9.9; _pkg_want="$WANT"; eval "$C3" ) 2>&1"; rc=$?
 [ "$rc" != 0 ] && [ ! -e "$D/Kosmos.pkg" ] && pass "3c: an unknown channel stops the step, nothing published" || bad "3c bogus channel (rc=$rc out=$out)"
 
-# ---- 9c, against a local HTTP server standing in for the host ----
-PY3="$(command -v python3)"
-WWW="$T/www"; mkdir -p "$WWW/dist"; EXP="$T/export"; mkdir -p "$EXP/dist"; BR="$T/build"; mkdir -p "$BR"
-( cd "$WWW" && exec "$PY3" -u -m http.server 0 -b 127.0.0.1 ) > "$T/srv.log" 2>&1 & SRV=$!
-PORT=""; for i in $(seq 1 100); do PORT="$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$T/srv.log" | head -n1)"; [ -n "$PORT" ] && break; sleep 0.1; done
-[ -n "$PORT" ] && pass "9c: the stand-in host is up" || bad "9c: the stand-in host did not start: $(cat "$T/srv.log")"
-run9c() {   # <channel> <names> <published>: the extracted 9c, sleeps stubbed out
-  ( set -e; sleep(){ :; }; CUT_CHANNEL="$1"; PKG_NAMES="$2"; PKG_NAMES_PUBLISHED="$3"; HOST="http://127.0.0.1:$PORT"; BUILD_ROOT="$BR"; _site_export="$EXP"; _pkg_want="$WANT"; eval "$C9"; echo "NINE-C-OK" ) 2>&1
+# ---- 9c ----
+run9c() {   # <channel> <names> <published> [served prod sha before the cut]: the extracted 9c, sleeps stubbed out
+  ( set -e; sleep(){ :; }; CUT_CHANNEL="$1"; PKG_NAMES="$2"; PKG_NAMES_PUBLISHED="$3"; PKG_PROD_SERVED_SHA="${4:-}"; HOST="http://127.0.0.1:$PORT"; BUILD_ROOT="$BR"; _site_export="$EXP"; _pkg_want="$WANT"; eval "$C9"; echo "NINE-C-OK" ) 2>&1
 }
-serve() { rm -f "$WWW/dist/"* "$EXP/dist/"*; }   # reset both sides
+psha() { _pkg_hash < "$1" | awk '{print $1}'; }
 # 7) staging: the served staging pkg is the source's and the export's, the served Kosmos.pkg is the export's: passes.
 serve; mk "$WWW/dist" Kosmos-staging.pkg "STAGING" "$WANT"; mk "$WWW/dist" Kosmos.pkg "PROD" "$OLDIN"; cp "$WWW/dist/"* "$EXP/dist/"
-out="$(run9c staging Kosmos-staging.pkg " Kosmos-staging.pkg")"; rc=$?
+out="$(run9c staging Kosmos-staging.pkg " Kosmos-staging.pkg" "$(psha "$WWW/dist/Kosmos.pkg")")"; rc=$?
 [ "$rc" = 0 ] && case "$out" in *NINE-C-OK*"Download button's installer did not move"*|*"Download button's installer did not move"*NINE-C-OK*) true;; *) false;; esac && pass "9c staging: passes, and says the Download button's installer did not move" || bad "9c staging pass arm (rc=$rc out=$out)"
-# 8) staging: the served Kosmos.pkg is NOT what the export carried (the cut changed it, or it never deployed): red.
-serve; mk "$WWW/dist" Kosmos-staging.pkg "STAGING" "$WANT"; mk "$WWW/dist" Kosmos.pkg "PROD" "$OLDIN"; cp "$WWW/dist/"* "$EXP/dist/"
+# 8) staging: the export CARRIED a different Kosmos.pkg and it went live (the leftover shape the export cannot see,
+#    because export and served agree): red, because it is not the sha served before the cut.
+serve; mk "$WWW/dist" Kosmos-staging.pkg "STAGING" "$WANT"; mk "$WWW/dist" Kosmos.pkg "PROD" "$OLDIN"; BEFORE="$(psha "$WWW/dist/Kosmos.pkg")"
+mk "$WWW/dist" Kosmos.pkg "SHIPPED-BY-THIS-CUT" "$WANT"; cp "$WWW/dist/"* "$EXP/dist/"
+out="$(run9c staging Kosmos-staging.pkg " Kosmos-staging.pkg" "$BEFORE")"; rc=$?
+[ "$rc" != 0 ] && case "$out" in *"THE SERVED Kosmos.pkg IS NOT THE ONE THIS STAGING CUT LEFT"*"not the one served before this cut"*|*"not the one served before this cut"*"THE SERVED Kosmos.pkg IS NOT THE ONE THIS STAGING CUT LEFT"*) true;; *) false;; esac \
+  && pass "9c staging: a Kosmos.pkg this cut shipped (export and served agree) reds, against the pre-cut served sha" || bad "9c staging shipped-prod arm (rc=$rc out=$out)"
+# 8b) staging: an edge serving something the export did not carry: red too.
+serve; mk "$WWW/dist" Kosmos-staging.pkg "STAGING" "$WANT"; mk "$WWW/dist" Kosmos.pkg "PROD" "$OLDIN"; cp "$WWW/dist/"* "$EXP/dist/"; BEFORE="$(psha "$WWW/dist/Kosmos.pkg")"
 mk "$WWW/dist" Kosmos.pkg "SOMETHING-NEW" "$WANT"
-out="$(run9c staging Kosmos-staging.pkg " Kosmos-staging.pkg")"; rc=$?
-[ "$rc" != 0 ] && case "$out" in *"THE SERVED Kosmos.pkg IS NOT THE ONE THIS STAGING CUT LEFT"*) true;; *) false;; esac && pass "9c staging: a served Kosmos.pkg that moved reds the cut" || bad "9c staging moved-prod arm (rc=$rc out=$out)"
+out="$(run9c staging Kosmos-staging.pkg " Kosmos-staging.pkg" "$BEFORE")"; rc=$?
+[ "$rc" != 0 ] && case "$out" in *"THE SERVED Kosmos.pkg IS NOT THE ONE THIS STAGING CUT LEFT"*) true;; *) false;; esac && pass "9c staging: a served Kosmos.pkg that is not the export's reds the cut" || bad "9c staging edge arm (rc=$rc out=$out)"
 # 9) staging: the served STAGING pkg has old inputs: red, and it names the staging pkg.
 serve; mk "$WWW/dist" Kosmos-staging.pkg "STAGING" "$OLDIN"; mk "$WWW/dist" Kosmos.pkg "PROD" "$OLDIN"; cp "$WWW/dist/"* "$EXP/dist/"
-out="$(run9c staging Kosmos-staging.pkg " Kosmos-staging.pkg")"; rc=$?
+out="$(run9c staging Kosmos-staging.pkg " Kosmos-staging.pkg" "$(psha "$WWW/dist/Kosmos.pkg")")"; rc=$?
 [ "$rc" != 0 ] && case "$out" in *"THE SERVED INSTALLER Kosmos-staging.pkg IS NOT THE ONE 3c PUBLISHED"*) true;; *) false;; esac && pass "9c staging: a stale served staging pkg reds and names it" || bad "9c stale staging arm (rc=$rc out=$out)"
 # 10) CONTROL: a prod cut does NOT accept an old Kosmos.pkg (prod must match the source).
 serve; mk "$WWW/dist" Kosmos-staging.pkg "STAGING" "$WANT"; mk "$WWW/dist" Kosmos.pkg "PROD" "$OLDIN"; cp "$WWW/dist/"* "$EXP/dist/"
