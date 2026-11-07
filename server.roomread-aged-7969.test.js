@@ -1,7 +1,7 @@
 'use strict';
 /**
  * kosmos#7969 (the 0.7.88 cross-seat report: 39, 41 and 102 historical posts on three seats' --unanswered): an agent's ask
- * older than UNANSWERED_DAYS is counted under `kosmos room <id> --unanswered`, not listed; --all lists it too. The
+ * older than UNANSWERED_DAYS is counted under `kosmos room <id> --unanswered`, not listed; --all shows it too. The
  * person's asks never age out. Follows #4926 and #7848.
  */
 require('./test-support/tmpscope');

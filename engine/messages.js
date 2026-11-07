@@ -1427,7 +1427,7 @@ function staleHeld(projectId, ids, log, now, member) {
 
 /* kosmos#4926: the reader's own later post that may have dealt with the ask at rows[i], or null. Seats answer a round of
    asks in one post that cites none of them (measured on a Grok and a Claude seat, 0.7.94), and `--unanswered` then listed
-   them all as waiting. A post citing nothing counts, and so does one citing a post newer than the ask. One citing the ask's
+   them all as waiting. A post citing nothing counts, and so does one citing someone else's post newer than the ask. One citing the ask's
    elders is about those. Only an ask that was typed to the reader counts: a held, quiet or undelivered one, or a row
    with no outcome, had not reached it. rows are one room's rows, oldest first. */
 function laterOwnPost(rows, i, reader) {
@@ -1439,7 +1439,12 @@ function laterOwnPost(rows, i, reader) {
   for (let j = i + 1; j < rows.length; j++) {
     const r = rows[j];
     if (!r || r.kind !== 'post' || r.operator === true || r.from !== reader) continue;
-    if (typeof r.replyTo !== 'string' || order(r.replyTo) > order(ask.id)) return String(r.id);
+    if (typeof r.replyTo !== 'string') return String(r.id);
+    if (!(order(r.replyTo) > order(ask.id))) continue;
+    // A reply to the reader's own post carries on that thread, which may be about something older (as N7's x.from === member).
+    const cited = rows.find((x) => x && x.id === r.replyTo);
+    if (cited && cited.operator !== true && cited.from === reader) continue;
+    return String(r.id);
   }
   return null;
 }
