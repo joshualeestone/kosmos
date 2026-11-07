@@ -6,7 +6,7 @@
    a NEW early reader fails here and its author judges it (rewrite it, e.g. grep -c ... >/dev/null, or add the line
    with a reason it cannot bite), and a listed line that no longer exists fails too, so the list stays exact.
    ios/LogicTests is held to zero by ios.logictests-pipefail-8193.test.js. Scanned: a script that sets pipefail anywhere
-   outside a comment (a set or bash line, a subshell included) or in its #! line, and every file under tools/lib/ (sourced by scripts that set it). Not covered: any
+   outside a comment (a set or bash line, a subshell included) or in its #! line, and every shell file under tools/lib/ (sourced by scripts that set it). Not covered: any
    other sourced file with no pipefail of its own, and the helper's own known gaps (see early-readers.js).
    To print a fresh list (after a change to the helper): KOSMOS_PRINT_PIPEFAIL_BASELINE=1 node --test <this file>. */
 require('./test-support/tmpscope');
@@ -21,7 +21,7 @@ const ROOT = __dirname;
 const BASELINE = path.join(ROOT, 'test-support', 'pipefail-baseline-8195.txt');
 
 // `set ... pipefail` or `bash ... pipefail` on a line that is not a comment (after && or in a subshell too), or in #!.
-const SETS_PIPEFAIL = /^[^#\n]*\b(?:set|bash)(?:[ \t]+-[A-Za-z-]+)*[ \t]+-[A-Za-z]*o[ \t]+pipefail\b|^#![^\n]*-[A-Za-z]*o[ \t]+pipefail\b/m;
+const SETS_PIPEFAIL = /^[^#\n]*\b(?:set|bash)(?:[ \t]+(?:-o[ \t]+\w+|-[A-Za-z-]+))*[ \t]+-[A-Za-z]*o[ \t]+pipefail\b|^#![^\n]*-[A-Za-z]*o[ \t]+pipefail\b/m;
 
 const SHEBANG_SH = /^#![^\n]*\b(?:ba|z|k|da)?sh\b/;
 
@@ -78,11 +78,19 @@ test('#8195: no NEW pipeline under pipefail ends in a reader that can stop early
   const changed = [...paths(added)].filter((p) => paths(gone).has(p));
   assert.ok(added.length === 0 && gone.length === 0, [
     'early readers under pipefail (kosmos#8195) do not match test-support/pipefail-baseline-8195.txt.',
-    changed.length ? 'A listed line in ' + changed.join(', ') + ' changed: replace its old entry with the new one (both are below).' : '',
+    changed.length ? 'A listed line in ' + changed.join(', ') + ' may have changed: if so, replace its old entry with the new one (both are below).' : '',
     added.length ? 'NEW, can fail because it matched. Rewrite it so the reader reads to the end (grep -c ... >/dev/null, or capture '
       + 'first), or, only if it cannot bite (one small write, or a status nothing reads), add it exactly as printed:\n' + added.join('\n') : '',
     gone.length ? 'GONE, no longer in the scanned scripts; remove from the list:\n' + gone.join('\n') : '',
   ].filter(Boolean).join('\n'));
+});
+
+test('#8195 CONTROL: each way of turning pipefail on is seen, and turning it off or mentioning it is not', () => {
+  for (const on of ['set -euo pipefail', 'set -o pipefail', 'set -e -u -o pipefail', 'set -Eeuo pipefail', 'set -o errexit -o pipefail',
+    'set -o nounset -o errexit -o pipefail', '[ -n "$BASH_VERSION" ] && set -o pipefail || true', 'out="$(set -euo pipefail; f)"',
+    'bash --noprofile -eo pipefail x.sh', '#!/bin/bash -eo pipefail']) assert.ok(SETS_PIPEFAIL.test(on), 'not seen: ' + on);
+  for (const off of ['set +o pipefail', '# then set -o pipefail', '  # set -euo pipefail', 'pipefail is off here', 'set -eu'])
+    assert.equal(SETS_PIPEFAIL.test(off), false, 'seen, wrongly: ' + off);
 });
 
 test('#8195 CONTROL: the comparison catches one new hit and one gone line, and counts a repeated line twice', () => {
