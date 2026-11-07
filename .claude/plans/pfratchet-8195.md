@@ -37,3 +37,9 @@ A script that gets pipefail only from whoever sources it; the helper's known gap
 - Scripts are every tracked *.sh plus any tracked file whose #! names a shell (install/kosmos, .githooks/*,
   install/pkg-scripts/postinstall), with a CONTROL that .githooks/prepare-commit-msg is read. They add no hits today.
 - `set +o pipefail` (turning it off) no longer counts: the pattern needs `-...o pipefail`.
+
+## Review round 3 (decided)
+- The pattern takes `-o <name>` pairs, so `set -o errexit -o pipefail` counts; a unit control lists the spellings
+  seen and the ones not seen (+o, comments).
+- browser-check-surface-gate.sh line 168 (`printf "$files" | grep -qE`) stays listed on purpose: a false fail there
+  makes the gate REFUSE (the safe direction), while line 149's false fail meant "no trailer", which skips checks.
