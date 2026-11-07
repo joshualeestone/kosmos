@@ -7429,6 +7429,7 @@ module.exports = {
   workerDir,
   workersDir,   // #4896: discover's one-folder rule asks whether a folder is a created agent's default home
   usableRecordedDir,
+  agentDirRecorded,   // kosmos#8112: remove.js asks whether a folder came from the profile (which carries no spelling)
   recordedDirSpelling,   // #7232: replyfile keptRoots, no lstat
   /* #923: the ONE home resolver (AGENT_WORKFORCE_HOME || os.homedir(), #1780),
      exported so server.js's startup chdir reuses it rather than deriving
