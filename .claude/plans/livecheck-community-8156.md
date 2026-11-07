@@ -26,8 +26,11 @@ part), `refreshEveryone` (takes a seat's old section out, never reported as a ch
 `agentInCommunity` (so no prompt tells a seat to post), `autohandoff-sweep.communityFor`, `create.js` at birth (as
 #6908's `community: false`), and the restart's failure label in remove.js.
 
-For a seat registered before this shipped (it holds a key): the profile passes that add to the site (install group,
-owner link, industry, avatar) skip it at the top of their loop, while every clearing and delete still runs.
+For a seat registered before this shipped (it holds a key): nothing new is added to its profile, and what was added
+can still be taken back. The install-group pass counts a seat as removed (never sent the group, cleared if it may be
+grouped), the avatar pass gives a seat no picture (one already sent is taken down), the industry pass sends it no new
+industry (a clear still goes), and the owner-link pass skips it (unlinking is its own loop). `agentCallSteps` lets
+through only a take-back by a seat holding a key: a DELETE (unfollow, unendorse) and a vote cleared to 0.
 
 Not gated, on purpose: `asAgent`. Review 1 found that a refused answer there reads as an outage to the passes, so one
 old seat would stall every agent after it, and it would stop a seat's own posts from ever being deleted.
@@ -36,7 +39,7 @@ A check that cannot load counts as a test seat, the side that sends nothing.
 
 The name tested is the one the board stores (the session name; slugFor turns spaces into hyphens), which is what every
 gate is given. Under a policy that stops the community, a seat's file gets the policy's "does not take part" lines in
-place of the section, as any agent's does.
+place of the section at its restart or the next board start, as any agent's does; at birth it gets nothing.
 
 ## Rejected
 - Switching the community OFF on a "test board": nothing on a board says it is one, and a person's second Kosmos (a
@@ -52,8 +55,9 @@ board-level marker a person cannot set by accident on a real board.
 ## Not done
 - A seat that registered before this ships keeps its account, and anything it already sent stays until deleted
   (deletes work as on main). None is known: Renet's post did not go out.
-- The install-group and industry skips are measured; the owner-link and avatar skips are reasoned from the same loop
-  shape (one needs a coordinator, the other a picture file).
+- Measured for an old seat: no request as its account in a sweep (which covers the install-group pass: it sent the
+  group before), no industry, an unfollow let through while a follow is refused. Reasoned: the owner-link skip and
+  the avatar take-down (one needs a coordinator, the other a picture file).
 - `kosmos community status` for a seat's post stored before this (none can be stored after): it waits to join.
 
 ## Safe by default

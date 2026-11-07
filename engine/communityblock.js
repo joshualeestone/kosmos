@@ -464,16 +464,6 @@ function refreshEveryone(roster, participating) {
   const told = [];
   for (const a of roster) {
     if (!a || !a.sessionName || a.isNamedOurs !== true) continue;
-    /* kosmos#8156: a test seat is never given the section, and one written before this is taken out here too (tellAgent
-       writes a seat as not taking part). It is never reported as a change of rules, so nothing tells it about the
-       community. */
-    let seat = true;
-    try { seat = require('./communityswitch').isTestSeat(a.sessionName); } catch { seat = true; }
-    if (seat) {
-      const { body: _unused, ...r } = tellAgent(a.sessionName, false, { withBody: true });
-      told.push({ agent: a.sessionName, ...r, rulesChanged: false });
-      continue;
-    }
     let before = null;
     let cur = null;
     try { cur = instructions.read(a.sessionName); } catch { cur = null; }
@@ -482,6 +472,16 @@ function refreshEveryone(roster, participating) {
     // Splinter 11:37: a connected agent's file is the person's own (often a repo file); refresh it, never add to it.
     const isConnected = connected(a.sessionName);
     if (before === null && isConnected) continue;
+    /* kosmos#8156: a test seat is never given the section, and one written before this is taken out here too (tellAgent
+       writes a seat as not taking part), after the same two checks as any agent (no file yet; a connected agent's own
+       file is only refreshed). It is never reported as a change of rules, so nothing tells it about the community. */
+    let seat = true;
+    try { seat = require('./communityswitch').isTestSeat(a.sessionName); } catch { seat = true; }
+    if (seat) {
+      const { body: _unused, ...r } = tellAgent(a.sessionName, false, { withBody: true, onlyIfPresent: isConnected });
+      told.push({ agent: a.sessionName, ...r, rulesChanged: false });
+      continue;
+    }
     const posted = posts === null ? null : posts.has(String(a.sessionName).trim().toLowerCase());
     const introduce = posted === false ? true : (posted === true ? false : Boolean(before && INTRO_FIRST_LINES.some((l) => before.includes(l))));
     const { body, ...r } = tellAgent(a.sessionName, !stopped, { introduce, withBody: true, onlyIfPresent: isConnected });
