@@ -1362,7 +1362,11 @@ struct ChatView: View {
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {   // queued after the last ask, so a slow layout cannot lift the hide ahead of it
-                DispatchQueue.main.asyncAfter(deadline: .now() + Self.rebuildHideAfterLastAsk) { if listEpoch == listAt { rebuildHiding = false } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.rebuildHideAfterLastAsk) {
+                    guard listEpoch == listAt else { return }
+                    if rebuildHiding { Self.trace("rebuild: the end had not shown, list shown anyway") }
+                    rebuildHiding = false
+                }
             }
             // A new list that draws no row never has a row leave, so nothing would check it: one check once the grace is over.
             DispatchQueue.main.asyncAfter(deadline: .now() + Board.rebuildGrace + Board.rebuildCheckBump) {
