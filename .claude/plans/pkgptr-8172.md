@@ -36,3 +36,18 @@ promote. Nothing records which pkg belongs to which build, so:
 
 That a pointer naming its pkg is right when the pkg did not change between two builds. Two consecutive pointers then
 name the same sha, which is correct: the installer is the same file.
+
+## Review round 1
+
+- BLOCKER, fixed: a prod cut writes BOTH pkg names but only latest.json, so latest-staging.json keeps naming the older
+  staging pkg, and verify-served would have failed the prod cut's step 9 after its deploy. verify-served now holds a
+  served pkg to its pointer strictly only for the channel this run verifies (`KOSMOS_VERIFY_POINTER`, default
+  latest.json); the other channel's mismatch is said, not failed.
+- WARNING, fixed by the same rule: a promote that could not move the pkg leaves latest.json naming a pkg it does not
+  serve; a later staging cut's verify no longer fails on it (a staging cut can neither cause nor repair it).
+- WARNING, fixed: a same-build republish keeps pkg_sha256 only while dist/Kosmos-staging.pkg still hashes to it,
+  because a prod cut also writes that file.
+- WARNING, decided: a pointer freeze copies an older pointer over both channels and leaves Kosmos.pkg. If the frozen
+  build's pkg differs, a prod verify now reds on Kosmos.pkg. That red is intended: it says the Download button is not
+  serving the frozen build's installer, which is true, and the freeze tool already says to replace the pkg by hand.
+- NITs, fixed: two stale comments; tests for the staging-pointer red arm and both cross-channel arms.
