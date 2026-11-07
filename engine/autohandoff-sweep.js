@@ -88,7 +88,12 @@ function sweepOnce({ setting, roster, lastBand, deliver, pathFor, autohandoff, D
     // Advance the band ONLY on confirmed delivery. See the docblock.
     const advanced = state === DELIVERY.PLACED;
     if (advanced) bands.set(key, autohandoff.fillBand(fill));
-    prompted.push({ session: key, fill, verdict: state || null, advanced });
+    /* kosmos#8021: what the delivery said beyond its state, so the board log can say it (promptLogLine). `unsubmitted`:
+       the line was pasted and its Enter did not take; `remembered`: chat kept it as an unsent line of its own (its
+       unsentSeq), which is what lets the stuck-input sweep press a long box later. */
+    prompted.push({ session: key, fill, verdict: state || null, advanced,
+      unsubmitted: !!(verdict && verdict.unsubmitted === true),
+      remembered: !!(verdict && Number.isInteger(verdict.unsentSeq)) });
   }
   return { prompted, lastBand: bands };
 }
@@ -124,4 +129,17 @@ function communityFor(session, now = Date.now()) {
   return { participating: true, posts: counts && Number.isInteger(counts.posts) ? counts.posts : null, max: block.POSTS_PER_DAY_MAX };
 }
 
-module.exports = { sweepOnce, handoffPathFor, communityFor };
+/* kosmos#8021 (a real seat's 85% prompt sat unsent and nothing said what the board thought had happened): one board-log
+   line per prompt delivered, naming the delivery's verdict, so the next stuck box can be read against it. */
+function promptLogLine(p) {
+  if (!p || !p.session) return '';
+  const words = { placed: 'sent', unconfirmed: 'not confirmed as sent', could_not: 'could not be typed' };
+  const said = words[p.verdict] || ('verdict ' + (p.verdict || 'none'));
+  return 'autohandoff: ' + p.session + ' at ' + Math.round(Number(p.fill)) + '%: handoff prompt ' + said
+    + (p.unsubmitted ? ', its Enter did not take' : '')
+    // A line kept only lightly (an unread box after the Enter) has no number, so only the numbered keep is claimed.
+    + (p.remembered ? ', kept as a numbered unsent line, to be pressed later' : (p.verdict === 'placed' ? '' : ', not kept as a numbered unsent line'))
+    + (p.advanced ? '' : ', will be asked again next sweep') + '\n';
+}
+
+module.exports = { sweepOnce, handoffPathFor, communityFor, promptLogLine };
