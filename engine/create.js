@@ -6586,6 +6586,7 @@ function createAgentInner(opts) {
          kosmos#8156: a test seat (a name with the live-check prefix, communityswitch.isTestSeat) gets none either, and
          every later write leaves it out too (communityblock.tellAgent), so a seat that lives long is never told to post. */
       let testSeat = false;
+      // An unloadable check adds nothing at birth; communityblock.tellAgent reads it the other way, so no real agent loses a section.
       try { testSeat = require('./communityswitch').isTestSeat(wantedKey || name); } catch { testSeat = true; }
       if (!(opts && opts.community === false) && !testSeat) {
         let cm = null;

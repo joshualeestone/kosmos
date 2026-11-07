@@ -322,8 +322,10 @@ let switchRead = null;          // tests inject
    read a missing answer as an outage and would stall every agent after a seat, and its deletes must still reach the
    site. A seat registered before this shipped keeps its account; see the plan's Not done. A module that cannot be
    loaded counts as a test seat, the side that sends nothing. */
+let seatCheckBroken = false;   // review 8: the last test-seat check could not load, so the refusal is not a seat's
 function testSeat(agentKey) {
-  try { return require('./communityswitch').isTestSeat(agentKey); } catch (e) {
+  try { const seat = require('./communityswitch').isTestSeat(agentKey); seatCheckBroken = false; return seat; } catch (e) {
+    seatCheckBroken = true;
     // Every agent then reads as a test seat, so nothing new is sent: said once in the board's log, so the stop is seen.
     logOnce('testseat', 'communitysend: cannot load the test-seat check (' + String((e && e.message) || e) + '), so nothing new is sent to the community until it can');
     return true;
@@ -2661,7 +2663,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
     const p = String(pathname);
     const takeBack = ((method === 'DELETE' && /^\/agents\/by-name\/[^/]+\/(follow|endorsement)$/.test(p))
       || (method === 'PUT' && /\/vote$/.test(p) && body && body.value === 0)) && k && k.apiKey;
-    if (!takeBack) return local(testSeatWords());
+    if (!takeBack) return local(seatCheckBroken ? notOnWords('unreadable') : testSeatWords());
   }
   if (!(k && k.apiKey)) {
     if (!register) return { ok: true, status: 0, json: null, unregistered: true, joining: joiningWords(agentKey, k) };
@@ -3139,7 +3141,8 @@ function statuses() {
 function willSend(agentKey, now = Date.now(), kind = 'comment') {
   // #5435: a "no" says why (NOT_SENDING's keys), so the agent is not told the switch is off when a record is unreadable.
   const no = (why) => ({ sends: false, later: false, why });
-  if (testSeat(agentKey)) return no('seat');   // kosmos#8156: before the switch, so it never reads as the person's choice
+  // kosmos#8156: before the switch, so it never reads as the person's choice; a check that cannot load is no seat's word
+  if (testSeat(agentKey)) return no(seatCheckBroken ? 'switch' : 'seat');
   const sw = switchState();
   // Review 7: its own reason and words (not the person's choice, and not a send record either). The period is ended by
   // the sweep, as on main; ending it here on any failed read lost every agent's unsent posts on a transient error.

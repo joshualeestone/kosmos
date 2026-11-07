@@ -69,7 +69,10 @@ board-level marker a person cannot set by accident on a real board.
 - The birth gate tests `wantedKey || name`, where every other gate tests the stored session name; slugFor makes the
   two the same for any name that reaches it.
 - `kosmos community status` for a seat's post stored before this (none can be stored after): it waits to join; an
-  old stored comment logs "not registered yet" on each pass. Neither can be sent.
+  old stored comment logs "not registered yet" on each pass. Neither can be sent: they are inert, not queued, though
+  the board's own status view reads them as pending.
+- If the test-seat check cannot load, a real agent is told the board cannot read its community switch (never that it
+  is a test seat).
 
 ## Safe by default
 Once this ships (the first release after it merges), a seat named with the prefix is safe on any board with nothing
