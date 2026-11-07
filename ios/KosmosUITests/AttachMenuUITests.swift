@@ -342,6 +342,22 @@ final class AttachMenuUITests: XCTestCase {
             app.terminate()
         } }
     }
+    // kosmos#8200: with the id anchor off it ran hot 10 of 10, so one round can judge a change.
+    func testProbeSweepNoId() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set") }
+        continueAfterFailure = true
+        for arm in ["control", "nowork", "workhid", "endhid"] { for h in [192, 204, 212, 224, 232, 248, 264, 272, 196, 216] {
+            let app = XCUIApplication()
+            app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_PHOTOS": "all", "KOSMOS_PROBE_TRAY": "\(h)", "KOSMOS_SAMPLE_PLUS": "6", "KOSMOS_SAMPLE_NOPOSID": "1", "KOSMOS_PROBE_ARM2": arm]
+            app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+            app.launch()
+            _ = app.buttons[chatPlus].waitForExistence(timeout: 30)
+            Thread.sleep(forTimeInterval: 7)
+            print("SWEEP-HOLD \(arm) \(h)")
+            Thread.sleep(forTimeInterval: 6)
+            app.terminate()
+        } }
+    }
     func testProbeANormal() throws { try probe("normal", args: []) }
     func testProbeBLargest() throws { try probe("largest", args: largest) }
     func testProbeCLargestOff() throws { try probe("largestoff", args: largest, photos: "off") }

@@ -221,6 +221,7 @@ struct ChatView: View {
 
     // PROBE, throwaway, kosmos#7609: SwiftUI's own account of why this body ran, in Documents/changes.txt.
     private static var probeOpened = false
+    static func probe2(_ name: String) -> Bool { ProcessInfo.processInfo.environment["KOSMOS_PROBE_ARM2"] == name }
     static func probeOpen() {
         guard !probeOpened else { return }
         probeOpened = true
@@ -610,10 +611,11 @@ struct ChatView: View {
                         // when an agent picked up a message just sent). Hidden, so VoiceOver does not hear it, and drawn with
                         // still dots, so no animation runs in every chat that is not working.
                         ZStack {
-                            if working { WorkingLine(name: shown.name) } else { WorkingLine(name: shown.name, animated: false).hidden() }
+                            if working && !Self.probe2("nowork") { WorkingLine(name: shown.name) } else { WorkingLine(name: shown.name, animated: false).hidden() }
                         }
+                        .accessibilityHidden(Self.probe2("workhid"))
                         .padding(.top, 12).id("working")
-                        Color.clear.frame(height: ChatView.fadeHeight + 8).id("end")   // the fade plus 8 pt (kosmos#7346): at the end, the newest message sits clear of it
+                        Color.clear.frame(height: ChatView.fadeHeight + 8).accessibilityHidden(Self.probe2("endhid")).id("end")   // the fade plus 8 pt (kosmos#7346): at the end, the newest message sits clear of it
                             .onAppear {
                                 guard drawnEpoch == listEpoch else { return }
                                 print("END appear"); Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
