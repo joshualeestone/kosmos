@@ -182,11 +182,18 @@ function nestedStart(body, name) {
    cut short) yields the rest of the part, so what is there is still read; a value that is not closed is never read. */
 function* elements(xml, name, lenient = false) {
   let at = 0;
+  /* kosmos#8168: a close with no start before it (a lost start tag: "<si>a</si><t>b</t></si>") is counted, so what
+     follows is read as cut, never as another item's text. The next close is found once and reused until passed, so
+     self-closed elements (no closes at all) stay one pass. */
+  const closeTag = '</' + name + '>';
+  let nextClose = -2;
   for (;;) {
     let i = xml.indexOf('<' + name, at);
     if (i < 0) return;
     const after = xml[i + name.length + 1];
     if (after !== ' ' && after !== '>' && after !== '/' && after !== '\t' && after !== '\n' && after !== '\r') { at = i + 1; nearMiss(); continue; }
+    if (nextClose !== -1 && nextClose < at) nextClose = xml.indexOf(closeTag, at);
+    if (nextClose >= 0 && nextClose < i) { cutShorts++; nextClose = xml.indexOf(closeTag, i); }
     const tagEnd = startTagEnd(xml, i);
     if (tagEnd < 0) { cutShorts++; return; }
     const tag = xml.slice(i, tagEnd + 1);
@@ -375,7 +382,13 @@ function styleKinds(stylesXml, budget = () => {}) {
   const xfs = elements(stylesXml, 'cellXfs').next().value;
   if (!xfs) return out;
   const memo = new Map();   // review 3: one reading per format, not one per style
+  /* kosmos#8168: between two styles there is only space. Anything else is a style whose start was lost
+     ('<xf numFmtId="0"/> numFmtId="0"/><xf .../>'), which shifts every later index: counted, so every sheet is cut. */
+  let prevEnd = 0;
   for (const x of elements(xfs.body, 'xf')) {
+    const start = x.end - (x.body === '' && x.tag.endsWith('/>') ? x.tag.length : x.tag.length + x.body.length + 5);
+    if (xfs.body.slice(prevEnd, Math.max(prevEnd, start)).trim() !== '') cutShorts++;
+    prevEnd = x.end;
     const id = Number(attr(x.tag, 'numFmtId') || 0);
     if (!memo.has(id)) memo.set(id, custom.has(id) ? formatKind(custom.get(id)) : builtinKind(id));
     out.push(memo.get(id));
@@ -535,7 +548,12 @@ function readBook(buf, budget) {
   }
   const beforeStyles = cutShorts;
   const kinds = styleKinds(part('xl/styles.xml') || '', budget);
-  const structureCut = cutShorts > beforeStyles || structureBeforeStrings;
+  /* kosmos#8168: the sheet list is read whole first, so a list cut off (or a lost <sheet) counts before any sheet is
+     answered: every sheet, the ones kept included, is then cut. */
+  const beforeList = cutShorts;
+  const sheetList = [];
+  for (const s of elements(workbook, 'sheet')) { sheetList.push(s); if ((sheetList.length & 1023) === 0) budget(); }
+  const structureCut = cutShorts > beforeStyles || structureBeforeStrings || cutShorts > beforeList;
 
   const sheets = [];
   const readTargets = new Set();   // review 1: a part named by several sheets is read once
@@ -546,7 +564,7 @@ function readBook(buf, budget) {
                             // could not be placed), so what it held is unknown to the answer
   let outputLeft = MAX_OUTPUT_CHARS;   // review 5: for the whole answer, every sheet together
   let sk = 0;
-  for (const s of elements(workbook, 'sheet')) {
+  for (const s of sheetList) {
     if ((++sk & 1023) === 0) budget();
     if ((attr(s.tag, 'state') || '') === 'veryHidden') continue;   // a sheet Excel never shows, not even to unhide
     all++;
@@ -558,13 +576,13 @@ function readBook(buf, budget) {
     // read), and only once.
     if (!/^worksheets\/[A-Za-z0-9_.-]+\.xml$/.test(target) || readTargets.has(target)) {
       if (!readTargets.has(target) && byName.has('xl/' + target)) otherSheet = true;
-      sheets.push({ name, rows: [], cut: false, notGrid: true });
+      sheets.push({ name, rows: [], cut: structureCut, notGrid: true });   // kosmos#8168: a cut list or rels says so here too
       continue;
     }
     readTargets.add(target);
     const xml = part('xl/' + target);
     // Review 3: a part that is not in the file (damaged, or a name the lister leaves out) is not a grid, never "empty".
-    if (xml === null) { sheets.push({ name, rows: [], cut: false, notGrid: true }); continue; }
+    if (xml === null) { sheets.push({ name, rows: [], cut: structureCut, notGrid: true }); continue; }
     // Review 4/5: rows are gathered by number, and the window shown is placed only once the walk is done: at row 1, or at
     // the smallest row holding a value when that is past the cap (data starting at row 300 showed as empty; a far row
     // first in the file hid row 1). Only rows inside a window of the smallest so far are kept, so at most MAX_ROWS rows
