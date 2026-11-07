@@ -53,6 +53,10 @@ function taskSchedulerWith(real, shape, folder) {
   return asked;
 }
 
+/* The real agent `cai8177` is a folder here, as on a Windows box: that folder is what says the task is cai8177's. */
+const create = require('./create');
+fs.mkdirSync(create.workerDir('cai8177'), { recursive: true });
+
 test.beforeEach(() => {
   remove.setRunner(() => ({ ok: true, stdout: '' }));
   status.setPaneSource(() => '');   // an empty board: no session answers for either spelling
@@ -113,18 +117,9 @@ test('#8177 a variant still reads as having a job for create and import: registe
   /* create.jobPresence is what refuses making `Cai` over `cai`'s task (and worldimport refuses on it); `/Create /F`
      would otherwise overwrite cai's task. Only remove.jobFor treats the variant as "no job of its own". */
   taskSchedulerWith('cai8177');
-  const create = require('./create');
   assert.equal(create.jobPresence('Cai8177', WIN), 'yes', 'a variant read as free to create over cai8177\'s task');
   assert.equal(job.presence('Cai8177').spelledOtherwise, job.taskName('cai8177'));
   assert.equal(job.presence('cai8177').spelledOtherwise, undefined, 'the real spelling was marked as another');
-});
-
-test('#8177 deleting the leftovers of a variant refuses rather than delete another agent\'s task (review 1)', () => {
-  taskSchedulerWith('cai8177');
-  const leftover = require('./delete-leftover');
-  const p = leftover.plan('Cai8177', { platform: WIN });
-  assert.equal(p.ok, false, 'a leftover delete for Cai8177 was offered over cai8177\'s task');
-  assert.match(p.because || '', /Windows has a startup task for cai8177 \(the same name in other letter case\)/, 'refused for another reason: ' + (p.because || ''));
 });
 
 test('#8177 an agent whose task is stored in other letter case keeps its own job (review 3)', () => {
@@ -132,14 +127,21 @@ test('#8177 an agent whose task is stored in other letter case keeps its own job
      `Cai8177r` folder beside it), and the task commands ignore case, so main restarts and removes it. Refusing it
      would strand the agent: restart, pause and Remove would all say Kosmos did not start it. */
   taskSchedulerWith('Cai8177r');
-  fs.mkdirSync(require('./create').workerDir('cai8177r'), { recursive: true });
+  fs.mkdirSync(create.workerDir('cai8177r'), { recursive: true });
   assert.equal(job.status('cai8177r').spelledOtherwise, job.taskName('Cai8177r'), 'CONTROL: the stored case was not read as another spelling');
   assert.ok(remove.jobFor('cai8177r', WIN), 'the agent lost its own job because the task is stored in other case');
   const p = remove.plan('cai8177r', WIN);
   assert.equal(p.ok, true, 'Remove refused the agent over its own task: ' + p.because);
   assert.equal(remove.taskIsAnotherSpellings('cai8177r', job.status('cai8177r')), false);
-  // and the variant with no folder of its own is still refused
-  assert.equal(remove.taskIsAnotherSpellings('Cai8177q', { registered: true, spelledOtherwise: 'Kosmos\\agent-cai8177q' }), true);
+});
+
+test('#8177 an agent whose folder is gone keeps a task stored in other letter case (review 5)', () => {
+  /* No folder for either spelling: the task is nobody else's, it is the agent's own (or its leftover), and main
+     restarts and removes it. Refusing would leave a task nothing in Kosmos can clear. */
+  taskSchedulerWith('Cai8177n');
+  assert.equal(job.status('cai8177n').spelledOtherwise, job.taskName('Cai8177n'), 'CONTROL: the stored case was not read as another spelling');
+  assert.ok(remove.jobFor('cai8177n', WIN), 'a folderless agent lost its own task');
+  assert.equal(remove.plan('cai8177n', WIN).ok, true, 'Remove refused a folderless agent over its own task');
 });
 
 test('#8177 a named Kosmos\'s task (agent+world) is read the same way (review 2)', () => {

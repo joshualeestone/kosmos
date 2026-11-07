@@ -11,8 +11,8 @@ the task's own spelling. `win32job.spelledOtherwise(tn, out)` reads that path (b
 returns the real spelling when the output names the task only in spellings other than the one asked for.
 `presenceNow` adds it as `spelledOtherwise` (only when set, so existing deep-equals are untouched); `status` passes it
 through; `jobFor` returns null for it only when `remove.taskIsAnotherSpellings` says the task is another spelling's:
-the answer names it in another spelling AND this spelling has no exact folder of its own (Windows cannot hold `cai`
-and `Cai` side by side). `delete-leftover.plan` refuses on the same test. Nothing else changes meaning: `registered` stays true, so create's collision
+the answer names it in another spelling, this spelling has no exact folder of its own, AND the task's own spelling
+does (Windows cannot hold `cai` and `Cai` side by side). `delete-leftover.js` is unchanged. Nothing else changes meaning: `registered` stays true, so create's collision
 checks still see `cai`'s task when someone makes `Cai`.
 
 ## Rejected
@@ -24,7 +24,7 @@ checks still see `cai`'s task when someone makes `Cai`.
 
 ## Review decisions
 - Review 1: only the name after the Task Scheduler folder is compared exactly (a folder stored as `kosmos` must not
-  hide a job); a leftover delete refuses rather than delete another spelling's task; a test pins that create still
+  hide a job); a leftover delete refused (dropped in review 5); a test pins that create still
   sees the variant's task.
 - Review 2 added a refusal in `plan` for a task stored in other case; review 3 measured that it stranded a real agent
   (folder `caix`, task stored `Caix`: main restarts, pauses and removes it, the branch refused all three). Removed;
@@ -32,6 +32,10 @@ checks still see `cai`'s task when someone makes `Cai`.
 - Review 4: the check applies only in this Kosmos's own world (it reads this world's folders), so another world's
   agent keeps its own task. Accepted gap restated: profile-recorded agents (below) are not fixed by this branch, so
   the PR says Addresses, and #8177 stays open for them and for the Windows measurement.
+- Review 5: a missing folder is not evidence either (a folderless agent, or a leftover task, lost its own task, and
+  the leftover refusal blocked deleting a task nobody owns). The task now counts as another spelling's only when that
+  spelling has its own exact folder. The leftover refusal is dropped: delete-leftover's realCaseName already turns
+  `Cai` into `cai` when cai's folder exists, so it could only ever fire on a task nobody else owns.
 - A folder recorded in the profile (#8112's case) does not carry the spelling, so for a recorded agent this keeps
   main's answer. When #8112 lands, its folderIsExactly is the test to use there.
 

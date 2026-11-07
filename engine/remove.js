@@ -956,12 +956,14 @@ function sessionOps(platform, tmuxBin) {
  * removal answer "removed" while `cai` kept running (the false success #8112 fixes on the Mac). `st` is
  * win32job.status's answer; its `spelledOtherwise` is set only when the answer names the task in another spelling.
  *
- * ⚠️ ANOTHER SPELLING ALONE IS NOT ENOUGH (review 3, measured): an agent whose folder is `caix` and whose task was
- * stored as `Caix` owns that task, and main restarts, pauses and removes it (the task commands ignore case too). So
- * the task is another spelling's only when this spelling has no exact folder of its own; Windows cannot hold `cai`
- * and `Cai` folders side by side, so an exact folder settles it. A folder recorded in the profile does not carry the
- * spelling (#8112), so for a recorded agent this keeps main's answer: #8112's folderIsExactly is the test to use there
- * once it lands. An answer that names no task path keeps the job, so a job never vanishes on an unrecognised shape.
+ * ⚠️ ANOTHER SPELLING ALONE IS NOT ENOUGH, and neither is a missing folder (reviews 3 and 5, measured). An agent whose
+ * folder is `caix` and whose task was stored as `Caix` owns that task, and so does one whose folder is gone: main
+ * restarts, pauses and removes both (the task commands ignore case too). So the task is another spelling's only when
+ * that other spelling is an agent here, by its own exact folder, and this spelling has none. Windows cannot hold `cai`
+ * and `Cai` folders side by side, so the two folder looks settle it. A folder recorded in the profile does not carry
+ * the spelling (#8112), so for a recorded agent this keeps main's answer: #8112's folderIsExactly is the test to use
+ * there once it lands. An answer that names no task path keeps the job, so a job never vanishes on an unrecognised
+ * shape.
  */
 function taskIsAnotherSpellings(clean, st) {
   if (!st || !st.registered || !st.spelledOtherwise) return false;
@@ -971,7 +973,10 @@ function taskIsAnotherSpellings(clean, st) {
   try { recorded = store.readProfile(clean).dir; } catch { recorded = null; }
   try {
     if (create.usableRecordedDir(recorded)) return false;
-    return !existsExactly(create.workerDir(clean));
+    if (existsExactly(create.workerDir(clean))) return false;
+    // The task's own spelling, as an agent name: the part after the prefix, without a named Kosmos's `+world`.
+    const other = launchidentity.parseKey(String(st.spelledOtherwise).replace(/^.*\\agent-/, '')).name;
+    return Boolean(other) && other !== clean && existsExactly(create.workerDir(other));
   } catch { return false; }
 }
 
