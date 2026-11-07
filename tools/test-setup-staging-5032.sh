@@ -276,9 +276,13 @@ out="$(bash "$HERE/promote-channel.sh" "$Sd8" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$Sd8/dist/Kosmos.pkg")" = "PROD-PKG" ] && has "$out" "serves no Kosmos-staging.pkg of those bytes" \
   && pass "8172 promote: a named staging pkg the host does not serve is not copied" || bad "8172 promote unserved-named arm (rc=$rc, out=$out)"
 # publish-staging-pointer.sh keeps pkg_sha256 only for the same build, as it does setup_sha256.
-Sp8="$(promote_site yes)"; name_pkg "$Sp8" "$IN_NEW"
+Sp8="$(promote_site yes)"; printf 'new' > "$Sp8/dist/Kosmos-staging.pkg"; name_pkg "$Sp8" "$IN_NEW"   # IN_NEW is sha256("new")
 bash "$HERE/publish-staging-pointer.sh" "$Sp8" >/dev/null 2>&1
-grep -q "\"pkg_sha256\":\"$IN_NEW\"" "$Sp8/dist/latest-staging.json" && pass "8172 publish-staging: republishing the same build keeps pkg_sha256" || bad "8172 publish-staging dropped pkg_sha256: $(cat "$Sp8/dist/latest-staging.json")"
+grep -q "\"pkg_sha256\":\"$IN_NEW\"" "$Sp8/dist/latest-staging.json" && pass "8172 publish-staging: republishing the same build keeps pkg_sha256 while the staging pkg is still it" || bad "8172 publish-staging dropped pkg_sha256: $(cat "$Sp8/dist/latest-staging.json")"
+printf 'rewritten-by-a-prod-cut' > "$Sp8/dist/Kosmos-staging.pkg"
+bash "$HERE/publish-staging-pointer.sh" "$Sp8" >/dev/null 2>&1
+! grep -q pkg_sha256 "$Sp8/dist/latest-staging.json" && pass "8172 publish-staging: a staging pkg that changed since (a prod cut) drops pkg_sha256" || bad "8172 publish-staging kept a stale pkg_sha256: $(cat "$Sp8/dist/latest-staging.json")"
+printf 'new' > "$Sp8/dist/Kosmos-staging.pkg"; name_pkg "$Sp8" "$IN_NEW"
 node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.version="9.9.8";require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$Sp8/dist/latest-staging.json"
 bash "$HERE/publish-staging-pointer.sh" "$Sp8" >/dev/null 2>&1
 ! grep -q pkg_sha256 "$Sp8/dist/latest-staging.json" && pass "8172 publish-staging: CONTROL a different build drops pkg_sha256" || bad "8172 publish-staging carried pkg_sha256 across builds"

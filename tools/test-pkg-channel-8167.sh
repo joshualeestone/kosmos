@@ -189,9 +189,9 @@ printf 'tampered' > "$D/Kosmos-staging.pkg"
 # pkgutil and xcrun stubbed so the signature and staple lines answer for the fixture.
 VS="$(awk '/^_vs_pkg\(\) \{/{p=1} p{print} p&&/^esac$/{exit}' "$REPO_REAL/tools/verify-served.sh")"
 case "$VS" in *'_vs_pkg() {'*'_vs_ptr'*'esac') pass "8172 verify-served: extracted the pkg block" ;; *) bad "8172 verify-served: could not extract it"; VS="exit 99" ;; esac
-runvs() {   # prints the say lines, then FAIL=<n>
+runvs() {   # [pointer this run verifies, default latest.json]: prints the say lines, then FAIL=<n>
   ( fail=0; say(){ printf '%s | %s\n' "$1" "$2"; }; pkgutil(){ printf '%s\n' "$KOSMOS_SIGN_INSTALLER_DEFAULT"; }; xcrun(){ return 0; }
-    HOST="http://127.0.0.1:$PORT"; REPO="$REPO_REAL"; pwant="$WANT"; eval "$VS"; echo "FAIL=$fail" ) 2>&1
+    POINTER="${1:-latest.json}"; HOST="http://127.0.0.1:$PORT"; REPO="$REPO_REAL"; pwant="$WANT"; eval "$VS"; echo "FAIL=$fail" ) 2>&1
 }
 ptr() { printf '{"version":"9","sha256":"x","artifact":"a","manifest":"m"%s}\n' "${2:+,\"pkg_sha256\":\"$2\"}" > "$WWW/dist/$1"; }
 # (a) a staging pkg served, both pointers naming exactly what is served: clean.
@@ -200,10 +200,21 @@ ptr latest-staging.json "$(psha "$WWW/dist/Kosmos-staging.pkg")"; ptr latest.jso
 out="$(runvs)"
 case "$out" in *"FAIL=0"*) true;; *) false;; esac && case "$out" in *"/dist/Kosmos.pkg vs latest.json | is the pkg the pointer names"*) true;; *) false;; esac && case "$out" in *"/dist/Kosmos-staging.pkg vs latest-staging.json | is the pkg the pointer names"*) true;; *) false;; esac \
   && pass "8172 verify-served: each served pkg is the one its pointer names, and it says so" || bad "8172 verify-served clean arm: $out"
-# (b) the served Kosmos.pkg is NOT the one latest.json names: red, the defect #8172 exists for.
+# (b) the served Kosmos.pkg is NOT the one latest.json names: red on a prod verify, the defect #8172 exists for.
 ptr latest.json "$(psha "$WWW/dist/Kosmos-staging.pkg")"
-out="$(runvs)"
-case "$out" in *"NOT the pkg the pointer names"*"FAIL=1"*) true;; *) false;; esac && pass "8172 verify-served: a Kosmos.pkg that is not latest.json's pkg reds" || bad "8172 verify-served mismatch arm: $out"
+out="$(runvs latest.json)"
+case "$out" in *"NOT the pkg the pointer names"*"FAIL=1"*) true;; *) false;; esac && pass "8172 verify-served: a Kosmos.pkg that is not latest.json's pkg reds a prod verify" || bad "8172 verify-served mismatch arm: $out"
+# (b2) the same state on a STAGING verify is said, not failed (a promote that could not move the pkg leaves it so,
+#      and a staging cut can neither cause nor repair it).
+out="$(runvs latest-staging.json)"
+case "$out" in *"not this run's channel (latest-staging.json), so not failed"*"FAIL=0"*) true;; *) false;; esac && pass "8172 verify-served: the same Kosmos.pkg mismatch does not red a staging verify" || bad "8172 verify-served cross-channel arm: $out"
+# (e) THE PROD-CUT SHAPE: a prod cut rewrote Kosmos-staging.pkg under the older latest-staging.json. Its own (prod)
+#     verify must stay green; a staging verify reds.
+ptr latest.json "$(psha "$WWW/dist/Kosmos.pkg")"; ptr latest-staging.json "$(printf 'older' | shasum -a 256 | awk '{print $1}')"
+out="$(runvs latest.json)"
+case "$out" in *"/dist/Kosmos-staging.pkg vs latest-staging.json | differs"*"FAIL=0"*) true;; *) false;; esac && pass "8172 verify-served: a prod cut's verify is not failed by the staging pointer naming an older pkg" || bad "8172 verify-served prod-cut arm: $out"
+out="$(runvs latest-staging.json)"
+case "$out" in *"/dist/Kosmos-staging.pkg vs latest-staging.json | NOT the pkg the pointer names"*"FAIL=1"*) true;; *) false;; esac && pass "8172 verify-served: CONTROL a staging verify does red a staging pkg that is not its pointer's" || bad "8172 verify-served staging red arm: $out"
 # (c) pointers cut before #8172 name no pkg: said, not failed, and #8167's lag rule still holds.
 ptr latest-staging.json ""; ptr latest.json ""
 out="$(runvs)"

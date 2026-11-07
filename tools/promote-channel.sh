@@ -784,9 +784,9 @@ fi
 
 # kosmos#8167: the installer pkg. A staging cut publishes dist/Kosmos-staging.pkg and leaves dist/Kosmos.pkg
 # (the Download button's file) alone, so a promote is what moves the installer. Decided and CHECKED here, before
-# the first write; copied below, after /setup. The pkg names no version, so only a promote of what staging
-# serves NOW may carry the staging pkg: a named promote (--version, possibly an older build) leaves Kosmos.pkg as
-# it is and says so, because the staging pkg may belong to a later cut.
+# the first write; copied below, after /setup. For a pointer that names no pkg (cut before kosmos#8172), only a
+# promote of what staging serves NOW may carry the staging pkg: a named promote (--version) then leaves Kosmos.pkg
+# as it is and says so, because the staging pkg may belong to a later cut.
 PKG_PROMOTE=0
 # kosmos#8172: a pointer that NAMES its pkg (pkg_sha256, written by the cut) decides the copy by that name, for a
 # named promote too (its pointer comes from its own commit). A pointer without the field keeps #8167's rule below.
