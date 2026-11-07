@@ -99,9 +99,13 @@ if ($pipedIn -and $PSCommandPath) {
 #   as double), so every quote here is matched by class. They are written as regex escapes: this file stays ASCII,
 #   because Windows PowerShell 5.1 reads a .ps1 with no byte-order mark in the ANSI code page.
 # This call's words run from where it starts on the line to the first | ; && || or newline, or to a ) or } it did not
-# open (so a later word in the same if, block or array is not read). A here-string never holds a StringLiteral token,
-# and the quoted 'it''s' is one token, so neither refuses. Not covered, so a mangled text can still go out there: a command
-# continued onto the next line with a backtick ($MyInvocation.Line holds the first line only). When the line is not
+# open (so a later word in the same if, block or array is not read). The rules read only this call's own words, not
+# the code inside its ( ), $( ) or @( ): there 'a'+$x or 'abc'.ToUpper() is an ordinary expression whose value is what
+# was meant. A here-string passes because $MyInvocation.Line holds only its first line, an unterminated here-string the
+# parser reports an error on (see below); the quoted 'it''s' is one token, so it passes too. Not covered, so a mangled
+# text can still go out there: a command continued onto the next line with a backtick ($MyInvocation.Line holds the
+# first line only), and two quoted pieces that do not touch ('the agents' 'til noon' arrives as [the agents]
+# [til noon], one apostrophe at the end of a word and one at the start of the next). When the line is not
 # readable (started with -File, no line at all, or a line PowerShell's parser reports errors on, such as one that
 # starts inside a here-string another command opened) or anything here fails, nothing is checked and the call runs
 # as before.
@@ -113,20 +117,22 @@ try {
   if ($line -and $at -gt 0) { [void][System.Management.Automation.Language.Parser]::ParseInput($line, [ref]$tokens, [ref]$parseErrors) }
   if ($tokens -and -not $parseErrors.Count) {
     $mine = New-Object System.Collections.ArrayList
+    $level = New-Object System.Collections.ArrayList
     $depth = 0
     foreach ($t in $tokens) {
       if ($t.Extent.StartOffset -lt ($at - 1)) { continue }
       $tk = [string]$t.Kind
       if (@('Pipe', 'Semi', 'NewLine', 'AndAnd', 'OrOr', 'EndOfInput') -contains $tk -and $depth -eq 0) { if ($mine.Count) { break } else { continue } }
-      if (@('LParen', 'AtParen', 'DollarParen', 'LCurly', 'AtCurly') -contains $tk) { $depth++ }
       if (@('RParen', 'RCurly') -contains $tk) { if ($depth -eq 0) { break } else { $depth-- } }
-      [void]$mine.Add($t)
+      [void]$mine.Add($t); [void]$level.Add($depth)
+      if (@('LParen', 'AtParen', 'DollarParen', 'LCurly', 'AtCurly') -contains $tk) { $depth++ }
     }
     $sq = "['\u2018\u2019\u201A\u201B]"
     $dq = '["\u201C\u201D\u201E]'
     $oneQuoted = '^' + $sq + '(?:(?!' + $sq + ').|' + $sq + $sq + ')*' + $sq + '$'
-    $apart = @('Pipe', 'Semi', 'RParen', 'RCurly', 'Comma', 'NewLine', 'EndOfInput', 'AndAnd', 'OrOr', 'Redirection', 'RedirectInStd')
+    $apart = @('Pipe', 'Semi', 'RParen', 'RCurly', 'Comma', 'NewLine', 'EndOfInput', 'AndAnd', 'OrOr', 'Redirection', 'RedirectInStd', 'Comment')
     for ($i = 0; $i -lt $mine.Count -and -not $splitQuote; $i++) {
+      if ($level[$i] -gt 0) { continue }
       $k = [string]$mine[$i].Kind
       if ($k -eq 'Generic') {
         $w = ($mine[$i].Text -replace ($dq + '(?:(?!' + $dq + ').)*' + $dq), '') -replace ('`' + $sq), ''
@@ -145,7 +151,7 @@ try {
   }
 } catch { $splitQuote = $false }
 if ($splitQuote) {
-  [Console]::Error.WriteLine("PowerShell would have changed this text before kosmos saw it: an apostrophe inside single quotes ends the quote early (the text is cut into pieces and the apostrophe dropped), and a quoted part touching a word is joined to it or split from it. Nothing was sent. Pass the text as one single-quoted here-string: @' at the end of the command's line, the text, then '@ at the start of its own line. (Inside plain single quotes, an apostrophe is written twice: can''t.)")
+  [Console]::Error.WriteLine("PowerShell would have changed this text before kosmos saw it: an apostrophe inside single quotes ends the quote early (the text is cut into pieces and the apostrophe dropped), and a single-quoted part touching other text is joined to it or split from it. Nothing was sent. Pass the text as one single-quoted here-string: @' at the end of the command's line, the text, then '@ at the start of its own line. (Inside plain single quotes, an apostrophe is written twice: can''t.)")
   exit 2
 }
 $pipeFlag = @()
