@@ -2935,7 +2935,7 @@ module.exports = {
   reapplyRemovedDisables,
   reapplyAtBoardStart,
   RESTART_CHANGED_NOTHING,   // #7470
-  taskIsAnotherSpellings,   // kosmos#8177: shared with delete-leftover
+  taskIsAnotherSpellings,   // kosmos#8177: exported for its test
   plan,
   resolve,   // #8109: the same, saying when two or more agents answer to the name
   ambiguousRefusal,

@@ -36,6 +36,10 @@ checks still see `cai`'s task when someone makes `Cai`.
   the leftover refusal blocked deleting a task nobody owns). The task now counts as another spelling's only when that
   spelling has its own exact folder. The leftover refusal is dropped: delete-leftover's realCaseName already turns
   `Cai` into `cai` when cai's folder exists, so it could only ever fire on a task nobody else owns.
+- Review 6: probed main and the branch over seven task/folder/asked spellings; only the card's case changed. The
+  recorded-agent gap is now pinned by a KNOWN GAP test that flips when #8112's check is used. Deferred, stated: a
+  non-current world keeps main's answer for a variant, and a task stored as `Cai` for folder `cai` asked as `Cai` is an
+  exact task match (rare: needs the task stored in another case than its folder).
 - A folder recorded in the profile (#8112's case) does not carry the spelling, so for a recorded agent this keeps
   main's answer. When #8112 lands, its folderIsExactly is the test to use there.
 
