@@ -78,4 +78,10 @@ test('kosmos#8165: a reply citing a post that is still being delivered posts, an
   const row = messages.record().rows.find((x) => x && x.kind === 'post' && x.text === 'fast answer');
   assert.ok(row, 'the fast reply was not recorded');
   assert.equal(row.replyTo, a.json.delivery.id, 'the fast reply does not say what it answers');
+  // Review 2: and it wakes the asker exactly as a late reply does (a bare id made mara "quiet", so it reached nobody).
+  assert.notEqual(row.outcomes && row.outcomes.mara, 'quiet', 'the asker was not woken by a fast reply: ' + JSON.stringify(row.outcomes));
+  const late = await post({ project: p.id, text: 'late answer', from_pane: '', in_reply_to: a.json.delivery.id }, { 'x-kosmos-agent-token': sendertoken.mint('dana').token });
+  assert.notEqual(late.json.delivery.state, 'could_not');
+  const lateRow = messages.record().rows.find((x) => x && x.kind === 'post' && x.text === 'late answer');
+  assert.equal(row.outcomes.mara, lateRow.outcomes.mara, 'CONTROL: a late reply to the same post is the measure');
 });

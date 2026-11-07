@@ -2540,8 +2540,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
   const answered = (typeof replyTo === 'string' && /^m\d+$/.test(replyTo))
     ? (log.find((r) => r && r.kind === 'post' && r.id === replyTo && r.project === projectId)
-      // kosmos#8165 review 1: or one of this room's posts still being delivered (its row comes when it finishes).
-      || ((pendingPost(replyTo) || {}).projectId === projectId ? { id: replyTo } : null))
+      // kosmos#8165 review 1/2: or one of this room's posts still being delivered: its row as it will be written (the
+      // fields a reply reads), since the record takes it only when every delivery has finished.
+      || ((pendingPost(replyTo) || {}).projectId === projectId ? pendingPost(replyTo).row : null))
     : null;
   /* #4580: the same post again (sender, room, text and the post it answers) is folded into the first, before the
      room valve. The answered post is part of it: "yes" to two different questions is two answers. The flags
@@ -3000,7 +3001,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   }
 
   const id = mintId(rec.parsed);
-  PENDING_POSTS.set(id, { projectId, at: Date.now() });   // kosmos#8165: cited before its row exists
+  /* kosmos#8165: cited before its row exists. Review 2: with the fields a reply reads off the post it answers (who sent
+     it, who it asked, whether it is the person's), as its row will carry them, so a fast reply wakes the asker exactly
+     as a late one does (a bare id woke nobody). */
+  PENDING_POSTS.set(id, { projectId, at: Date.now(), row: { kind: 'post', id, project: projectId, from, to: recipients.slice(), text: stored, at,
+    ...(atNamed.mentioned.size ? { mentioned: [...atNamed.mentioned] } : {}),
+    ...(operator !== true && namedHere.size ? { addressed: [...namedHere] } : {}),
+    ...(operator === true ? { operator: true } : {}) } });
 
   /* #2239: the STORED text keeps paragraph breaks (storeText keeps newlines, and
      since #3679 also indentation and fenced code), so the room
@@ -3305,6 +3312,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        was typed anywhere, so nothing is logged (send()'s typed-only
        rule). */
     /* #4447: every member's spill was removed as its delivery failed (above), so none is left here. */
+    PENDING_POSTS.delete(id);   // kosmos#8165 review 2: it reached nobody, so no member holds its id to cite
     const failed = refuse('we could not get this post to anybody on ' + shownProject);
     failed.outcomes = outcomes;
     if (oneThrough) require('./roomloop').pairRefund(projectId, from, askedHere[0]);   // kosmos#7461: no wake, so no slot
@@ -4574,7 +4582,7 @@ function projectOfPost(id) {
 }
 /* kosmos#8165: what an id names, for the live route's refusal of a citation that names no room post: { is: 'post' }
    (a recorded post, or one still being delivered or never recorded: PENDING_POSTS), { is: 'deleted' } (a post the
-   person deleted, #7614), { is: 'message', parties } (a direct message, with its two ends), or null (nothing ever
+   person deleted, #7614, with its room), { is: 'message', parties } (a direct message, with its two ends), or null (nothing ever
    minted under it: a typo). Throws on an unreadable record, as projectOfPost does, so a caller can fail closed. */
 function kindOfId(id) {
   const wanted = String(id == null ? '' : id).trim();
@@ -4587,7 +4595,8 @@ function kindOfId(id) {
   if (m && m.kind === 'post') return { is: 'post' };
   if (m) return { is: 'message', parties: [m.from, m.to].filter((n) => typeof n === 'string') };
   const parsed = Array.isArray(r.parsed) ? r.parsed : [];
-  if (parsed.some((x) => x && x.kind === 'post-deleted' && x.of === wanted)) return { is: 'deleted' };
+  const gone = parsed.find((x) => x && x.kind === 'post-deleted' && x.of === wanted);
+  if (gone) return { is: 'deleted', project: gone.project };
   return null;
 }
 

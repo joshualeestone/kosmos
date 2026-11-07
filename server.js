@@ -5069,7 +5069,8 @@ function sendRoomPostAsAgent({ fromPane, sender, senderByToken, project, text, r
       const kind = what && what.is;   // `is`, not `kind`: web.speech-kind-1397 reads every engine kind: literal as a row kind
       // Review 1: a direct message is named as one only to a party to it (anyone else learns nothing of other DMs).
       const me = sender && sender.ok && sender.card ? sender.card.sessionName : null;
-      if (kind === 'deleted') {
+      // Review 2: "deleted" only for a post of this room (a deletion in another room is none of this sender's business).
+      if (kind === 'deleted' && what.project === found.id) {
         return { state: 'could_not', because: 'post ' + named + ' was deleted, so nothing was posted. If your answer still stands, post here without --in-reply-to.' };
       }
       if (kind === 'message' && me && what.parties.includes(me)) {
