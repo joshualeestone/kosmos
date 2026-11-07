@@ -91,9 +91,12 @@ order=$(printf '%s\n' "$wait_view" | grep -oE 'SweepDots\([^)]*\)|\.overlay\(ali
 # Both first waits that can follow the launch screen draw it: Agents (its reaching wait) and Projects (a launch from a
 # room notification opens there).
 reaching=$(awk '/private var reaching: some View/{on=1} on{print} on&&/^    }$/{exit}' "$src/AgentsView.swift" | sed 's#//.*##')
-printf '%s\n' "$reaching" | grep -qE '^[[:space:]]*ConnectingWait\(words: "Connecting\\u\{2026\}"\)[[:space:]]*$' \
+# kosmos#8193: grep -c, not grep -q, after a pipe. Under pipefail, grep -q stops reading at its first match, the writer
+# then dies of SIGPIPE (141) and the pipeline reads as a failure: the check failed precisely because it matched. grep -c
+# reads to the end and still exits 1 when nothing matches.
+printf '%s\n' "$reaching" | grep -cE '^[[:space:]]*ConnectingWait\(words: "Connecting\\u\{2026\}"\)[[:space:]]*$' >/dev/null \
   || { echo "VERDICT: FAIL (the Agents tab's wait to connect is no longer ConnectingWait, so it would not sit where the launch mark is)"; exit 1; }
-sed 's#//.*##' "$src/ProjectsView.swift" | grep -qE 'ConnectingWait\(words: "Reaching your computer\\u\{2026\}"\)' \
+sed 's#//.*##' "$src/ProjectsView.swift" | grep -cE 'ConnectingWait\(words: "Reaching your computer\\u\{2026\}"\)' >/dev/null \
   || { echo "VERDICT: FAIL (the Projects tab's first wait, where a launch from a room notification opens, is no longer ConnectingWait)"; exit 1; }
 # One place draws the wait (BoardStates' body): two would be two view identities, and a phase change from one to the
 # other mid-wait would restart the loop at its first frame (SweepDots runs from when it appears).
