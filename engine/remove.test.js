@@ -3588,7 +3588,7 @@ test('#8112 the CLI path resolves the variant to the one listed agent, never "mo
 function registeredOnly(name) {
   const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'Reg-' + name);
   fs.mkdirSync(dir, { recursive: true });
-  require('./store').writeProfile(name, { dir, displayName: name });
+  require('./store').writeProfile(name, { dir, displayName: name, connectedAs: name });   // as discover.registerOnly writes it
   return dir;
 }
 
@@ -3620,4 +3620,23 @@ test('#8112 review 1: an adopted agent shown as a case variant of its machine na
   assert.equal(remove.plan('kad8112', MAC).ok, true, 'the machine name no longer plans');
   const v = remove.plan('Kad8112', MAC);
   assert.equal(v.ok, false, 'the display-name spelling planned under a name with no job (the #8109 false success)');
+});
+
+test('#8112 review 2: a register-only agent renamed later (displayName rewritten) is still removable by its exact name', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  registeredOnly('kren8112');
+  require('./store').writeProfile('kren8112', { displayName: 'Scarlet Ren' });   // the profile route / "You are" follow
+  assert.equal(remove.plan('kren8112', MAC).ok, true, 'a rename made a register-only agent unremovable');
+  assert.equal(remove.plan('Kren8112', MAC).ok, false, 'a case variant planned after the rename');
+});
+
+test('#8112 review 2: a profile written before connectedAs existed falls back to displayName', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'Old-kold8112');
+  fs.mkdirSync(dir, { recursive: true });
+  require('./store').writeProfile('kold8112', { dir, displayName: 'kold8112' });
+  assert.equal(remove.plan('kold8112', MAC).ok, true, 'an older register-only profile became unremovable');
+  assert.equal(remove.plan('Kold8112', MAC).ok, false);
 });

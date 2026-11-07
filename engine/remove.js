@@ -1234,9 +1234,13 @@ function hidesCard(r) {
    An agent whose folder is not recorded is named by its folder, as before. */
 function folderIsExactly(clean, platform) {
   if (!create.agentDirRecorded(clean)) return existsExactly(create.workerDir(clean));
-  let shown;
-  try { shown = store.readProfile(clean).displayName; } catch { return false; }
-  if (shown !== clean) return false;
+  let prof;
+  try { prof = store.readProfile(clean); } catch { return false; }
+  /* Review 2: connectedAs (written at connect) is the spelling, and a rename never changes it. A profile written before
+     it existed falls back to displayName, which a rename does rewrite (a renamed old register-only agent stays the
+     stated limit). */
+  const spelled = typeof prof.connectedAs === 'string' && prof.connectedAs ? prof.connectedAs : prof.displayName;
+  if (spelled !== clean) return false;
   let key;
   try { key = store.safeKey(clean); } catch { return false; }
   return !(key !== clean && jobFor(key, platform));
