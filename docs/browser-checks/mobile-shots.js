@@ -2668,6 +2668,33 @@ const SCREENS = [
     await page.evaluate(() => { const r = document.querySelector('#tsk-groups .tsk-row .tsk-waiting-who').closest('.tsk-row'); r.scrollIntoView({ block: 'center' }); });
     await page.waitForTimeout(300);
   } },
+  /* kosmos#8158: built rows on the Tasks view with the control that takes the mark off: one the person marked, and one they did
+     not, marked from outside the page with a long note after it. That second is the harder sentence to read it in. */
+  { name: 'tasks-built-8158', owner: 'Angel', go: async (page, data) => {
+    const task = (n) => new URL('/api/project/' + encodeURIComponent(data.projectId) + '/task/' + n + '/built', page.url()).href;
+    const mine = await page.evaluate((u) => fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((r) => r.status), task(1));
+    if (mine !== 200) throw new Error('tasks-built-8158: could not mark task 1 built (status ' + mine + ')');
+    const other = await fetch(task(2), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: 'waiting on the release, then the printer signs off the final proofs' }) });
+    if (other.status !== 200) throw new Error('tasks-built-8158: could not mark task 2 built (status ' + other.status + ')');
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.click('#tsk-tiles [data-tile="built"]');
+    await page.waitForSelector('#tsk-groups .tsk-unbuild', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => document.querySelector('#tsk-groups .tsk-unbuild').closest('.tsk-row').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const lines = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-unbuild')].map((b) => b.closest('.why').textContent));
+    const inline = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-unbuild')].map((b) => { const c = getComputedStyle(b), r = b.getBoundingClientRect(), w = b.closest('.why').getBoundingClientRect(); return [b.closest('.why').textContent.includes('final proofs'), r.left > w.left + 1, r.left, w.left, r.width, c.display, c.paddingLeft, c.marginLeft, c.alignSelf]; }));
+    if (!inline.every(([note, beside]) => note !== beside)) throw new Error('tasks-built-8158: Undo is on the wrong line: ' + JSON.stringify(inline));
+    if (lines.length !== 2 || !lines.every((l) => l.endsWith(' Undo')) || !lines.some((l) => / by you /.test(l)) || !lines.some((l) => !/ by you /.test(l) && /final proofs/.test(l))) throw new Error('tasks-built-8158: not the two rows meant: ' + JSON.stringify(lines));
+  }, after: async (page, data) => {
+    const failed = [];
+    for (const n of [1, 2]) {
+      const st = await page.evaluate(([id, t]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + t + '/built', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }).then((r) => r.status), [data.projectId, n]);
+      if (st !== 200) failed.push(n + ' (' + st + ')');
+    }
+    if (failed.length) throw new Error('tasks-built-8158: could not take the mark off task ' + failed.join(', '));
+  } },
   /* #6480: a sub-project's page, where the trail above the heading ("Parent / Launch") still shows; the control for
      project-head, where a top-level project's lone crumb is hidden in today's look. */
   { name: 'subproject-head', owner: 'PigeonPete', go: async (page, data) => {

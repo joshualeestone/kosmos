@@ -230,7 +230,7 @@ function chk(ok, label, extra) {
           for (const y of [r.top + 0.5, r.bottom - 0.5]) { const e = document.elementFromPoint(x, y); if (!e || e.closest('[data-open-task]') !== tl) hitMiss.push(['title', tl.textContent.slice(0, 20), Math.round(y - r.top), e && (e.className || e.tagName)]); }
         }
         /* The checkbox's label and the meta line's buttons too, at their own edges (review round 3). */
-        for (const [sel, own] of [['#tsk-groups .tsk-row .tsk-hit', (e, t) => e.closest('.tsk-hit') === t], ['#tsk-groups .tsk-row .meta button:not(.tsk-chip)', (e, t) => e.closest('button') === t]]) {
+        for (const [sel, own] of [['#tsk-groups .tsk-row .tsk-hit', (e, t) => e.closest('.tsk-hit') === t], ['#tsk-groups .tsk-row .meta button:not(.tsk-chip)', (e, t) => e.closest('button') === t], ['#tsk-groups .tsk-row .tsk-unbuild', (e, t) => e.closest('button') === t]]) {
           for (const t of [...document.querySelectorAll(sel)].filter(vis)) {
             t.scrollIntoView({ block: 'center' }); const r = t.getBoundingClientRect(); const x = r.left + Math.min(r.width / 2, 20);
             for (const y of [r.top + 0.5, r.bottom - 0.5]) { const e = document.elementFromPoint(x, y); if (!e || !own(e, t)) hitMiss.push([sel.split(' ').pop(), Math.round(y - r.top), e && (e.className || e.tagName)]); }
@@ -243,15 +243,19 @@ function chk(ok, label, extra) {
         scrollTo(0, 0);
         const tlH = Math.max(0, ...[...document.querySelectorAll('#tsk-groups .tsk-row .tl')].filter(vis).map((e) => box(e)[1]));
         const hover = matchMedia('(hover: none)').matches;
-        return { hover, fields, targets, pills, lines, searchW, tlH, hitMiss, sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+        /* kosmos#8158: on a touch screen, the rule that puts Undo on its own line after a note (the plain page below is not touch). */
+        const undoOwn = (() => { const b = document.querySelector('#tsk-groups [data-unbuild]'); if (!b) return null; const w = b.closest('.why'); const r = document.createRange(); r.selectNodeContents(w.firstChild); return { btnTop: b.getBoundingClientRect().top, btnLeft: b.getBoundingClientRect().left, whyLeft: w.getBoundingClientRect().left, textBottom: r.getBoundingClientRect().bottom, width: b.getBoundingClientRect().width, whyWidth: w.getBoundingClientRect().width, display: getComputedStyle(b).display }; })();
+        return { hover, fields, targets, pills, lines, searchW, tlH, hitMiss, undoOwn, sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth };
       });
       if (label.startsWith('phone')) {
         chk(m.hover, `[${label}] the phone reports hover: none (so the touch rules apply)`, String(m.hover));
         const small = m.fields.filter(([, px]) => px < 16);
         chk(m.fields.length >= 5 && small.length === 0, `[${label}] every Tasks field is 16px or more (no iOS zoom) (#4226)`, JSON.stringify(m.fields));
         const shortOnes = m.targets.filter(([, , [, h]]) => h < 44);
-        const narrowHit = m.targets.filter(([q, , [w]]) => /tsk-hit/.test(q) && w < 44);
-        chk(m.targets.length >= 6 && shortOnes.length === 0 && narrowHit.length === 0, `[${label}] every Tasks tap target is 44px tall, the checkbox's tap area 44px wide too (#4226)`, JSON.stringify(shortOnes.concat(narrowHit).slice(0, 6)));
+        const narrowHit = m.targets.filter(([q, , [w]]) => /tsk-hit|tsk-unbuild/.test(q) && w < 44);
+        chk(m.undoOwn && m.undoOwn.btnTop >= m.undoOwn.textBottom - 1 && Math.abs(m.undoOwn.btnLeft - m.undoOwn.whyLeft) < 1 && m.undoOwn.width < m.undoOwn.whyWidth / 2, `[${label}] after an agent's note, Undo starts its own line on a touch screen, without taking the whole line (kosmos#8158)`, JSON.stringify(m.undoOwn));
+        chk(m.targets.some(([q]) => /tsk-unbuild/.test(q)), `[${label}] a built row's Undo is among the targets measured (kosmos#8158)`, JSON.stringify(m.targets.map(([q]) => q).slice(0, 12)));
+        chk(m.targets.length >= 6 && shortOnes.length === 0 && narrowHit.length === 0, `[${label}] every Tasks tap target is 44px tall, the checkbox's tap area and Undo 44px wide too (#4226, kosmos#8158)`, JSON.stringify(shortOnes.concat(narrowHit).slice(0, 6)));
         chk(m.lines.length > 0 && m.lines.every(Boolean), `[${label}] each task title stays on the line of its task number (#4226 review)`, JSON.stringify(m.lines));
         chk(m.searchW >= 44, `[${label}] the collapsed search is 44px wide (#4226 review)`, String(m.searchW));
         chk(m.pills.length > 0 && m.pills.every(([, hit]) => hit >= 44), `[${label}] drawn pills keep their size and get a 44px tap overlay (#4226 review)`, JSON.stringify(m.pills));
@@ -653,17 +657,19 @@ function chk(ok, label, extra) {
         await page.waitForTimeout(200);
         const builtRows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row')].map((r) => ({
           t: r.querySelector('.tl').textContent, why: [...r.querySelectorAll('.why')].map((x) => x.textContent).join(' ') })));
-        chk(builtRows.length === 1 && builtRows[0].t === 'Ship the signup form' && /^Marked built by Rex .+: waiting on the release Not built yet$/.test(builtRows[0].why),
+        chk(builtRows.length === 1 && builtRows[0].t === 'Ship the signup form' && /^Marked built by Rex .+: waiting on the release Undo$/.test(builtRows[0].why),
           `${tag} the Built but waiting tile shows the marked task, with who marked it and what is left`, JSON.stringify(builtRows));
         /* Review round 1: the person takes a mistaken mark off from the row; the task stays open (Assigned), and the
            tile is at 0. Marked again by the engine after, so the checks below see the fixture as it was. */
+        const undoAt = await page.evaluate(() => { const b = document.querySelector('#tsk-groups [data-unbuild]'); const w = b.closest('.why'); const r = document.createRange(); r.selectNodeContents(w.firstChild); return { btnTop: b.getBoundingClientRect().top, btnLeft: b.getBoundingClientRect().left, whyLeft: w.getBoundingClientRect().left, textBottom: r.getBoundingClientRect().bottom }; });
+        chk(undoAt.btnTop >= undoAt.textBottom - 1 && Math.abs(undoAt.btnLeft - undoAt.whyLeft) < 1, `${tag} after an agent's note, Undo starts its own line (kosmos#8158)`, JSON.stringify(undoAt));
         await page.click('#tsk-groups [data-unbuild]');
         await page.waitForFunction(() => document.querySelector('#tsk-tiles [data-tile="built"] .num').textContent === '0', null, { timeout: 5000 }).catch(() => {});
         const after = await page.evaluate(() => ({ n: document.querySelector('#tsk-tiles [data-tile="built"] .num').textContent,
           msg: document.getElementById('tsk-msg').textContent,
           row: (TSK.data || []).find((t) => t.sentence === 'Ship the signup form') }));
         chk(after.n === '0' && after.row && after.row.state === 'assigned' && /no longer marked built/.test(after.msg),
-          `${tag} Not built yet takes the mark off and the task stays open`, JSON.stringify({ n: after.n, state: after.row && after.row.state, msg: after.msg }));
+          `${tag} Undo takes the mark off and the task stays open`, JSON.stringify({ n: after.n, state: after.row && after.row.state, msg: after.msg }));
         await page.click('#tsk-tiles [data-tile="built"]'); // back to everything
         tasks.setBuilt(news.id, 3, { by: 'rex', note: 'waiting on the release' });
         await page.evaluate(() => tskLoad());
