@@ -1119,7 +1119,19 @@ const SCREENS = [
   { name: 'streak-congrats', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/streak', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }));
     await at(page, '');
-    await page.waitForSelector('#streak-slot .utoast.streak', { state: 'visible', timeout: 12000 });
+    // kosmos#6397: at a desk the day's words are the K mark's gold pill; on a phone they stay the notice.
+    await page.waitForSelector('#kpill.in, #streak-slot .utoast.streak', { state: 'attached', timeout: 12000 });
+    await page.waitForTimeout(500);   // past the pill's slide
+  } },
+  /* kosmos#6397: the pill folded into the day's gold count badge on the K mark (Escape folds it at once). */
+  { name: 'streak-badge-6397', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/streak', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }));
+    await at(page, '');
+    await page.waitForSelector('#kpill.in, #streak-slot .utoast.streak', { state: 'attached', timeout: 12000 });
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => { const x = document.querySelector('#streak-slot .ux'); if (x) x.click(); });   // a phone: the notice's X
+    await page.waitForSelector('#kbadge:not([hidden])', { state: 'attached', timeout: 5000 });
+    await page.waitForTimeout(450);
   } },
   { name: 'streak-hover', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/streak', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: false }) }));
