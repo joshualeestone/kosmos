@@ -3640,3 +3640,39 @@ test('#8112 review 2: a profile written before connectedAs existed falls back to
   assert.equal(remove.plan('kold8112', MAC).ok, true, 'an older register-only profile became unremovable');
   assert.equal(remove.plan('Kold8112', MAC).ok, false);
 });
+
+/* kosmos#8112 review 3: the register-only connect itself (discover.connect on a folder with no instructions), not a
+   hand-written profile, so dropping connectedAs from discover.js is caught; then a rename, then plan. */
+test('#8112 review 3: a register-only connect made by discover keeps its exact name through a rename', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'bare-kdr8112');
+  fs.mkdirSync(dir, { recursive: true });   // no instructions file: connect takes the register-only path
+  const out = require('./discover').connect(dir, { name: 'kdr8112' });
+  assert.equal(out.ok, true, 'CONTROL: the register-only connect itself failed: ' + out.because);
+  assert.equal(out.registered, true, 'CONTROL: connect did not take the register-only path');
+  require('./store').writeProfile('kdr8112', { displayName: 'Renamed Kdr' });
+  assert.equal(remove.plan('kdr8112', MAC).ok, true, 'after a rename the register-only agent is not removable by its name');
+  assert.equal(remove.plan('Kdr8112', MAC).ok, false, 'a case variant planned');
+  // Undo clears the spelling with the folder (review 3 nit).
+  require('./discover').disconnect('kdr8112');
+  assert.equal(require('./store').readProfile('kdr8112').connectedAs ?? null, null, 'Undo left the spelling behind');
+});
+
+test('#8112 review 3: a full connect that fails over a register-only agent puts its spelling back', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  create.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  try {
+    const dir = nodePath.join(SANDBOX, 'elsewhere-8112', 'bare-kfl8112');
+    fs.mkdirSync(dir, { recursive: true });
+    const reg = require('./discover').connect(dir, { name: 'kfl8112' });
+    assert.equal(reg.registered, true, 'CONTROL: not a register-only connect: ' + reg.because);
+    fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'You are **Kfl8112**.\n', 'utf8');
+    const again = require('./discover').connect(dir, { name: 'Kfl8112' });
+    assert.equal(again.ok, false, 'CONTROL: the uppercase full connect succeeded, so no rollback ran: ' + JSON.stringify(again));
+    assert.equal(require('./store').readProfile('kfl8112').connectedAs, 'kfl8112', 'the failed connect left its own spelling behind');
+    assert.equal(remove.plan('kfl8112', MAC).ok, true, 'the register-only agent lost its name to a failed connect');
+    assert.equal(remove.plan('Kfl8112', MAC).ok, false, 'the failed spelling plans (the #8112 false success, back)');
+  } finally { create.setRunner(null); }
+});

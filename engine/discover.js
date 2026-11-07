@@ -2146,6 +2146,7 @@ function connect(dir, opts) {
         dir: before.dir || null,
         displayName: before.displayName || null,
         provider: before.provider || null,
+        connectedAs: before.connectedAs || null,   // kosmos#8112 review 3: a failed connect leaves the old spelling
       });
     }
     catch { /* the job is the thing that matters and it was not written */ }
@@ -2248,7 +2249,7 @@ function disconnect(name) {
      Clearing it first would leave `workerDir` pointing at the derived folder
      while a live launch job still names theirs -- an agent whose files and whose
      job disagree about where it lives. */
-  try { store.writeProfile(key, { dir: null }); }
+  try { store.writeProfile(key, { dir: null, connectedAs: null }); }   // kosmos#8112 review 3: the spelling goes with the folder
   catch { return { ok: false, because: 'we undid it, but could not forget where it lived' }; }
   HELD_MEMO = { at: 0, set: null };   // #4896: a folder record changed, so the found list reads fresh
 
