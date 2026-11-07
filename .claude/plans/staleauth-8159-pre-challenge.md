@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: staleauth-8159
-diff_hash: 853008bdca48d25b3a73ea74e84e2ac9bd46e7d9e152b3169873f33d3319adfe
+diff_hash: b6f6d0146d94c516832ab5fc1bfceae3edcb83fc7e2d4557d7b720e57b270846
 validation: local (engine/grokaccounts.stale-8159.test.js 13/13; 57 related test files: 1540 tests, 0 fail; docs/browser-checks/render-account-badge-1921.js rc=0 in Chromium); the full suite runs in PR CI
 subdir_audit: passed
 timestamp: 2026-11-07T02:14:44Z
@@ -61,3 +61,6 @@ docs/browser-checks/render-account-badge-1921.js (a stale Grok row with and with
 queued-heavy on Agent1s in Chromium, rc=0, not skipped. No product code changed after round 6.
 PR CI's node suite then failed web.open-sentence-1199 (inline capitalizer copies pinned at 8; the summary added a
 ninth). The two sentence forms are now written out; the words are identical. 18/18 on that guard and the 8159 tests.
+Then squashed to one commit and rebased onto main (56 commits on, touching server.js, web/index.html and
+engine.reachable.test.js; one conflict in a seam list that the final change no longer uses). On the rebased tree:
+494 related and web test files, 4969 tests, 0 fail. No product change.
