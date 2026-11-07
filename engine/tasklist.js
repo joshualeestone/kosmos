@@ -297,7 +297,8 @@ const PRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
  * and asked for that as a sweep): `kosmos task files <project-id>` and `kosmos task files --all`. For each built task
  * whose mark carries a delivered file, the file at its recorded path is fingerprinted again HERE, with `compare` (the
  * engine/fileprint.js one `kosmos fingerprint` uses), and one verdict is printed: matches, CHANGED since it was marked,
- * MISSING, cannot be read, or no path recorded (a mark from before paths were kept). It writes nothing anywhere.
+ * MISSING, cannot be read, not checked (a path from the other kind of computer, a network path), or no path recorded.
+ * It writes nothing anywhere.
  *
  * The board never reads these files: it may be another computer. A path is the marking computer's, so a mark made on
  * another computer can read MISSING here; the path is printed so a reader can tell.
@@ -308,6 +309,10 @@ const PRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
  */
 function filesLines(body, opts = {}) {
   const compare = typeof opts.compare === 'function' ? opts.compare : require('./fileprint').compare;
+  // Review 2: what is absolute depends on this computer. C:\x is relative on a Mac, and /x has no drive on Windows.
+  const windows = (opts.platform || process.platform) === 'win32';
+  const local = (p) => !/^[\\/]{2}/.test(p) && (windows ? /^[A-Za-z]:[\\/]/.test(p) : p.startsWith('/'));
+  const foreign = (p) => !/^[\\/]{2}/.test(p) && (windows ? p.startsWith('/') : /^[A-Za-z]:[\\/]/.test(p));
   const every = !opts.project;
   const tasks = body && Array.isArray(body.tasks) ? body.tasks : null;
   if (!tasks) return { lines: ['Kosmos sent no task list, so there is nothing to check.'], rc: 1 };
@@ -315,7 +320,7 @@ function filesLines(body, opts = {}) {
   if (every && body.all !== true) return older('--all');
   if (body.listState !== 'built') return older('--built');
   const lines = [];
-  const tally = { matches: 0, changed: 0, missing: 0, unreadable: 0, nopath: 0 };
+  const tally = { matches: 0, changed: 0, missing: 0, unreadable: 0, nopath: 0, elsewhere: 0 };
   let noFile = 0;
   for (const found of tasks) {
     const x = scrub(found);
@@ -324,10 +329,11 @@ function filesLines(body, opts = {}) {
     // The stored path as sent (never scrubbed: a changed path is another file); printed scrubbed, and only as a value.
     const at = typeof found.builtFilePath === 'string' && found.builtFilePath ? found.builtFilePath : null;
     const shown = at ? clean(at).replace(/\n/g, ' ') : '';
-    if (!at) { tally.nopath += 1; lines.push('    no path recorded (marked before Kosmos kept paths): kosmos fingerprint <file> ' + x.builtFingerprint); continue; }
-    // Never opened: a network path (a marker's choice of host) or one not absolute. The board refuses both; an older or
-    // edited store may still hold one.
-    if (/^[\\/]{2}/.test(at) || !(at.startsWith('/') || /^[A-Za-z]:[\\/]/.test(at))) {
+    if (!at) { tally.nopath += 1; lines.push('    no path recorded (an older Kosmos, or a path Kosmos does not keep): kosmos fingerprint <file> ' + x.builtFingerprint); continue; }
+    // Never opened: a path marked on the other kind of computer, a network path (a marker's choice of host), or one not
+    // absolute. The board refuses the last two; an older or edited store may still hold one.
+    if (foreign(at)) { tally.elsewhere += 1; lines.push('    NOT CHECKED ' + shown + ': marked on a ' + (windows ? 'Mac or Linux' : 'Windows') + ' computer, so it is not on this one'); continue; }
+    if (!local(at)) {
       tally.unreadable += 1; lines.push('    NOT CHECKED ' + shown + ': not a local absolute path, so Kosmos does not open it'); continue;
     }
     let got;
@@ -348,6 +354,7 @@ function filesLines(body, opts = {}) {
     const bits = [tally.matches + ' match', tally.changed + ' changed', tally.missing + ' missing'];
     if (tally.unreadable) bits.push(tally.unreadable + ' cannot be read');
     if (tally.nopath) bits.push(tally.nopath + ' with no path recorded');
+    if (tally.elsewhere) bits.push(tally.elsewhere + ' marked on another kind of computer');
     lines.push(checked + ' built task' + (checked === 1 ? '' : 's') + ' with a delivered file ' + (every ? 'across your projects' : where) + ': ' + bits.join(', ') + '.'
       + (noFile ? ' ' + noFile + ' more built without --file.' : ''));
     if (tally.changed || tally.missing) lines.push('A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.');

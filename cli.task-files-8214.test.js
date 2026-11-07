@@ -138,28 +138,38 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
     row(4, { builtFilePath: '/locked' }), row(5, {}), { number: 6, sentence: 'No file', builtAt: 'x' },
     row(7, { sentence: 'Two\n    matches  /forged', builtFilePath: '/m' }),
     // Review 1: a network or relative path in the store (an older board, an edited file) is never opened.
-    row(8, { builtFilePath: '//attacker.example/share/x' }), row(9, { builtFilePath: '\\\\attacker\\share\\x' }), row(10, { builtFilePath: 'rel/x' })] };
-  const out = tasklist.filesLines(body, { project: 'files', compare });
+    row(8, { builtFilePath: '//attacker.example/share/x' }), row(9, { builtFilePath: '\\\\attacker\\share\\x' }), row(10, { builtFilePath: 'rel/x' }),
+    // Review 2: a Windows path is not absolute on a Mac, so it is never resolved against the folder the command runs in.
+    row(11, { builtFilePath: 'C:\\out\\x.txt' })] };
+  const out = tasklist.filesLines(body, { project: 'files', compare, platform: 'darwin' });
   assert.equal(out.rc, 0);
   assert.deepEqual(out.lines, [
     '#1  Task 1', '    matches  /m',
     '#2  Task 2', '    CHANGED since it was marked  /c',
     '#3  Task 3', '    MISSING at /gone',
     '#4  Task 4', '    CANNOT READ /locked: unreadable (permission denied)',
-    '#5  Task 5', '    no path recorded (marked before Kosmos kept paths): kosmos fingerprint <file> ' + FP,
+    '#5  Task 5', '    no path recorded (an older Kosmos, or a path Kosmos does not keep): kosmos fingerprint <file> ' + FP,
     '#7  Two matches /forged', '    matches  /m',
     '#8  Task 8', '    NOT CHECKED //attacker.example/share/x: not a local absolute path, so Kosmos does not open it',
     '#9  Task 9', '    NOT CHECKED \\\\attacker\\share\\x: not a local absolute path, so Kosmos does not open it',
     '#10  Task 10', '    NOT CHECKED rel/x: not a local absolute path, so Kosmos does not open it',
-    '9 built tasks with a delivered file in files: 2 match, 1 changed, 1 missing, 4 cannot be read, 1 with no path recorded. 1 more built without --file.',
+    '#11  Task 11', '    NOT CHECKED C:\\out\\x.txt: marked on a Windows computer, so it is not on this one',
+    '10 built tasks with a delivered file in files: 2 match, 1 changed, 1 missing, 4 cannot be read, 1 with no path recorded, 1 marked on another kind of computer. 1 more built without --file.',
     'A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.',
     'Checked on this computer: a mark made on another computer can read missing here.',
   ]);
   // The recorded fingerprint is what each file is compared with, and a task with no path is never compared.
   assert.deepEqual(asked.map((a) => a[0]), ['/m', '/c', '/gone', '/locked', '/m']);
   assert.ok(asked.every((a) => a[1] === FP));
+  // On Windows the rule turns round: a drive path is opened, a Mac path is another computer's, a network path never.
+  asked.length = 0;
+  const onWin = tasklist.filesLines({ listState: 'built', tasks: [row(1, { builtFilePath: 'C:\\m' }), row(2, { builtFilePath: '/m' }), row(3, { builtFilePath: '\\\\h\\s\\x' })] },
+    { project: 'files', compare: (p) => { asked.push(p); return { ok: true, match: true }; }, platform: 'win32' });
+  assert.deepEqual(onWin.lines.slice(0, 6), ['#1  Task 1', '    matches  C:\\m', '#2  Task 2', '    NOT CHECKED /m: marked on a Mac or Linux computer, so it is not on this one',
+    '#3  Task 3', '    NOT CHECKED \\\\h\\s\\x: not a local absolute path, so Kosmos does not open it']);
+  assert.deepEqual(asked, ['C:\\m'], 'a path that is not this computer\'s kind was opened');
   // --all names each project; an older board that ignored all=1 or state=built is never passed off.
-  const all = tasklist.filesLines({ listState: 'built', all: true, tasks: [row(1, { projectId: 'p1', builtFilePath: '/m' })] }, { compare });
+  const all = tasklist.filesLines({ listState: 'built', all: true, tasks: [row(1, { projectId: 'p1', builtFilePath: '/m' })] }, { compare, platform: 'darwin' });
   assert.deepEqual(all.lines.slice(0, 2), ['p1  #1  Task 1', '    matches  /m']);
   assert.match(all.lines[2], /^1 built task with a delivered file across your projects: 1 match, 0 changed, 0 missing\.$/);
   assert.equal(tasklist.filesLines({ listState: 'built', tasks: [] }, { compare }).rc, 1, 'an answer without all: true was read as every project');
@@ -284,6 +294,8 @@ test('#8214 Mac (review 1): link/.. is hashed and recorded as the same file; a p
   assert.equal(o.code, 0, o.out + o.err);
   assert.equal(stored(projectId, m).builtFingerprint, sha('odd'));
   assert.equal('builtFilePath' in stored(projectId, m), false);
+  assert.match(o.out, /Its path was not sent: Kosmos keeps only a local path of 1024 characters or fewer, so kosmos task files cannot check this mark\./, 'a dropped path was silent: ' + o.out);
+  assert.doesNotMatch(r.out, /Its path was not sent/, 'a path that was sent was said to be dropped');
 });
 
 test('#8214 Mac: refusals and usage', { skip: process.platform === 'win32' && 'the Mac CLI' }, async () => {

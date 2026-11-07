@@ -6864,7 +6864,8 @@ cmd_task() {
         local _fdir; _fdir=$(CDPATH= cd -P -- "$(dirname -- "$file")" 2>/dev/null && pwd -P) || _fdir=""
         case "$_fdir" in /*) file_abs="${_fdir%/}/$(basename -- "$file")" ;; *) file_abs="" ;; esac
         case "$file_abs" in *[[:cntrl:]]*|//*) file_abs="" ;; esac
-        [ "${#file_abs}" -le 1024 ] || file_abs=""
+        # Counted in bytes: never fewer than the board's UTF-16 count, so a path that passes here passes there.
+        [ "$(printf '%s' "$file_abs" | LC_ALL=C wc -c | tr -d ' ')" -le 1024 ] || file_abs=""
         fingerprint=$("$_fnode" "$_fmod" "${file_abs:-$file}" 2>/dev/null) || fingerprint=""
         case "$fingerprint" in sha256:????????????????????????????????????????????????????????????????|pdf-normalized:????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2 ;; esac
       fi
@@ -6921,6 +6922,7 @@ cmd_task() {
             say "Marked task $num on ${project:-the project} built, waiting to be released or checked. Closing it clears the mark.${_left:+ Your part only. $_left}${told:+ $told}"
             # #6761: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
             [ -z "$fingerprint" ] || say "Fingerprint sent: $fingerprint for $file"
+            [ -z "$fingerprint" ] || [ -n "$file_abs" ] || say "Its path was not sent: Kosmos keeps only a local path of 1024 characters or fewer, so kosmos task files cannot check this mark."   # kosmos#8214 review 2: a path dropped is said, not silent
             # #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
             # Review 5: only when the board's answer carries it (an older board drops a field it does not know).
             if [ -n "$csha" ]; then
