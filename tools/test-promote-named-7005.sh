@@ -382,5 +382,17 @@ out="$(KOSMOS_SITE_URL="http://127.0.0.1:$P8" bash "$HERE/promote-channel.sh" "$
 kill "$SRV8" 2>/dev/null; wait "$SRV8" 2>/dev/null; SRV8=""
 [ "$rc" = 0 ] && [ "$(cat "$S/dist/Kosmos.pkg")" = "STAGING-PKG" ] && pass "8167 named: CONTROL the same site promoted without --version DOES copy the staging pkg" || bad "8167 named control (rc=$rc, Kosmos.pkg: $(cat "$S/dist/Kosmos.pkg"), out=$out)"
 
+# ---- kosmos#8172: a NAMED promote whose pointer names its pkg CAN carry the installer now ----
+PB="NAMED-STAGING-PKG"; PX="$(printf '%s' "$PB" | shasum -a 256 | awk '{print $1}')"
+S="$(KM_LJ_PKG_SHA="$PX" newsite)"; mkpkg "$S" Kosmos.pkg "PROD-PKG"; mkpkg "$S" Kosmos-staging.pkg "$PB"
+[ "$(git -C "$S" show HEAD~1:dist/latest-staging.json | grep -c "\"pkg_sha256\":\"$PX\"")" = 1 ] && pass "8172 named: fixture, 9.9.8's committed pointer names the pkg" || bad "8172 named fixture: $(git -C "$S" show HEAD~1:dist/latest-staging.json)"
+W9="$T/www8172"; mkdir -p "$W9/dist"; cp "$S/dist/Kosmos-staging.pkg.sha256" "$W9/dist/"
+( cd "$W9" && exec python3 -u -m http.server 0 -b 127.0.0.1 ) > "$T/srv8172.log" 2>&1 & SRV8=$!
+P9=""; for i in $(seq 1 100); do P9="$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$T/srv8172.log" | head -n1)"; [ -n "$P9" ] && break; sleep 0.1; done
+out="$(KOSMOS_SITE_URL="http://127.0.0.1:$P9" bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
+kill "$SRV8" 2>/dev/null; wait "$SRV8" 2>/dev/null; SRV8=""
+[ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && [ "$(cat "$S/dist/Kosmos.pkg")" = "$PB" ] \
+  && pass "8172 named: --version 9.9.8 carries the pkg its own pointer names" || bad "8172 named copy (rc=$rc, Kosmos.pkg: $(cat "$S/dist/Kosmos.pkg"), out=$out)"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-promote-named-7005: ALL PASS"; else echo "test-promote-named-7005: FAILURES above"; exit 1; fi

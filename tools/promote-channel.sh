@@ -788,7 +788,27 @@ fi
 # serves NOW may carry the staging pkg: a named promote (--version, possibly an older build) leaves Kosmos.pkg as
 # it is and says so, because the staging pkg may belong to a later cut.
 PKG_PROMOTE=0
-if [ "$FAMILY" = mac ] && [ -f "$SITE/dist/$PKG_STAGING_NAME" ]; then
+# kosmos#8172: a pointer that NAMES its pkg (pkg_sha256, written by the cut) decides the copy by that name, for a
+# named promote too (its pointer comes from its own commit). A pointer without the field keeps #8167's rule below.
+_pkg_named=""; [ "$FAMILY" != mac ] || _pkg_named="$(read_field pkg_sha256)"
+if [ -n "$_pkg_named" ]; then
+  _pkg_have="$(pkg_triple_check "$SITE/dist" "$PKG_PROD_NAME" 2>/dev/null)" || _pkg_have=""
+  _pkg_ssha="$(pkg_triple_check "$SITE/dist" "$PKG_STAGING_NAME" 2>/dev/null)" || _pkg_ssha=""
+  if [ "$_pkg_have" = "$_pkg_named" ]; then
+    echo "   $PKG_PROD_NAME is already the pkg $SNAP_LABEL names (${_pkg_named:0:12}): nothing to copy"
+  elif [ "$_pkg_ssha" = "$_pkg_named" ]; then
+    _pkg_host="${KOSMOS_SITE_URL:-https://installkosmos.com}"
+    _pkg_served="$(curl -fsSL -m 30 -H 'Cache-Control: no-cache' "$_pkg_host/dist/$PKG_STAGING_NAME.sha256" 2>/dev/null)" || _pkg_served=""
+    _pkg_served="${_pkg_served%%[[:space:]]*}"
+    if [ "$_pkg_served" = "$_pkg_named" ]; then
+      PKG_PROMOTE=1
+    else
+      echo "promote-channel: WARNING dist/$PKG_STAGING_NAME is the pkg $SNAP_LABEL names (${_pkg_named:0:12}) but $_pkg_host serves ${_pkg_served:-no} $PKG_STAGING_NAME of those bytes, so it is not copied and $PKG_PROD_NAME is left as it is; the pointer still promotes." >&2
+    fi
+  else
+    echo "promote-channel: WARNING $SNAP_LABEL names installer pkg ${_pkg_named:0:12}, and neither dist/$PKG_PROD_NAME (${_pkg_have:-none}) nor dist/$PKG_STAGING_NAME (${_pkg_ssha:-none}) is it, so $PKG_PROD_NAME is left as it is; the pointer still promotes. The named pkg's bytes are not on this machine (kosmos#8172)." >&2
+  fi
+elif [ "$FAMILY" = mac ] && [ -f "$SITE/dist/$PKG_STAGING_NAME" ]; then
   # A broken staging triple (a staging cut that aborted mid-copy, a hand copy) must not block the POINTER promote,
   # which does not depend on it: the installer is left as it is, loudly, and the pointer promotes.
   if ! _pkg_ssha="$(pkg_triple_check "$SITE/dist" "$PKG_STAGING_NAME")"; then

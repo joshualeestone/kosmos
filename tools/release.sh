@@ -1692,7 +1692,12 @@ KM_ARTIFACT_SHA="$(awk '{print $1}' "$REPO/dist/kosmos-arm64.tar.gz.sha256")"
 KM_SETUP_SHA="$(awk 'NR==1{print $1}' "$REPO/dist/setup.sha256")"
 [ -n "$KM_SETUP_SHA" ] && [ "$KM_SETUP_SHA" = "$(shasum -a 256 < "$REPO/dist/setup" | awk '{print $1}')" ] \
   || { echo "dist/setup.sha256 does not name dist/setup's bytes" >&2; exit 1; }
-KM_LJ_VERSION="$V" KM_LJ_SHA="$KM_ARTIFACT_SHA" KM_LJ_SETUP_SHA="$KM_SETUP_SHA" \
+# kosmos#8172: and the installer pkg it leaves for its channel (pkg_sha256): Kosmos-staging.pkg on a staging cut,
+# Kosmos.pkg on a prod cut, as step 3c published or kept it. Read through pkg_triple_check, so a broken triple stops
+# the cut here instead of being named.
+if [ "$CUT_CHANNEL" = staging ]; then KM_PKG_NAME="$PKG_STAGING_NAME"; else KM_PKG_NAME="$PKG_PROD_NAME"; fi
+KM_PKG_SHA="$(pkg_triple_check "$SITE/dist" "$KM_PKG_NAME")" || { echo "the site dist's $KM_PKG_NAME is not a whole triple (above); the pointer cannot name its installer pkg" >&2; exit 1; }
+KM_LJ_VERSION="$V" KM_LJ_SHA="$KM_ARTIFACT_SHA" KM_LJ_SETUP_SHA="$KM_SETUP_SHA" KM_LJ_PKG_SHA="$KM_PKG_SHA" \
 KM_LJ_ARTIFACT="kosmos-$V-arm64.tar.gz" KM_LJ_MANIFEST="kosmos-$V-arm64.manifest.json" \
   node "$(cd "$(dirname "$0")" && pwd)/lib/write-latest-pointer.js" "$SITE/dist/$POINTER_FILE"
 echo "   $POINTER_FILE ($CUT_CHANNEL) -> $(cat "$SITE/dist/$POINTER_FILE")"
