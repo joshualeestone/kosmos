@@ -371,6 +371,8 @@ struct ChatView: View {
             if visible, failedSeenFor == agent.session, !now.subtracting(failedSeen).isEmpty { Haptics.failed() }
             failedSeen = now; failedSeenFor = agent.session
         }
+        // A chat that changes agent in place starts from the new agent's failures (either order with the watch is safe).
+        .onChange(of: agent.session) { s in failedSeen = Board.failedPendingIDs(pending); failedSeenFor = s }
         #if DEBUG
         // KOSMOS_SAMPLE_INFO=profile|ai|files with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
         .onAppear {
