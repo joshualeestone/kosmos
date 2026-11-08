@@ -33,7 +33,7 @@ const fileprint = require('./engine/fileprint');
 const windrives = require('./engine/windrives');
 const cli = require('./tools/windows/kosmos-cli');
 
-const ON_WINDOWS = process.platform !== 'win32' && 'needs a real Windows host (a Mac cannot read a C:\\ file)';
+const NEEDS_WINDOWS = process.platform !== 'win32' && 'needs a real Windows host (a Mac cannot read a C:\\ file)';
 const sha = (text) => 'sha256:' + crypto.createHash('sha256').update(text).digest('hex');
 const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-taskfiles-win-')));
 const OUT = path.join(SANDBOX, 'out');
@@ -73,6 +73,7 @@ test('#8227 item 1: driveKind is the one verdict both sides read', () => {
   assert.equal(tasklist.driveKind(LOCAL), 'local');
   assert.equal(tasklist.driveKind(REMOTE), 'network');
   assert.equal(tasklist.driveKind(ABSENT), 'absent');
+  assert.equal(tasklist.driveKind(tasklist.DRIVE_KINDS_OLD), 'old');
   for (const odd of [null, undefined, {}, { kind: 'something new' }]) assert.equal(tasklist.driveKind(odd), 'unknown', JSON.stringify(odd));
 });
 
@@ -159,7 +160,7 @@ test('#8227 item 1: with no seam, task files asks engine/windrives.js (the #7232
 });
 
 // ── item 1: the record side and the real table, on Windows ──────────────────
-test('#8227 item 1 Windows: built --file sends a local drive path, and never one on a network drive', { skip: ON_WINDOWS }, async () => {
+test('#8227 item 1 Windows: built --file sends a local drive path, and never one on a network drive', { skip: NEEDS_WINDOWS }, async () => {
   const file = path.join(OUT, 'drive.txt');
   fs.writeFileSync(file, 'on a drive');
   const FP = sha('on a drive');
@@ -179,6 +180,7 @@ test('#8227 item 1 Windows: built --file sends a local drive path, and never one
     [{ driveInfo: () => null }, 'Kosmos could not read what kind of drive ' + letter + ': is'],
     [{ driveInfo: () => { throw new Error('reader broke'); } }, 'Kosmos could not read what kind of drive ' + letter + ': is'],
     [{ engine: { windrives: {} } }, 'this install of Kosmos cannot tell a network drive from a local one yet; update Kosmos'],
+    [{ engine: { tasklist: { ...tasklist, driveKind: undefined } } }, 'this install of Kosmos cannot tell a network drive from a local one yet; update Kosmos'],
   ]) {
     const r = await win(['task', 'built', 'proj-1', '1', 'done', '--file', 'drive.txt'], { cwd: OUT, ...opts });
     assert.equal(r.code, 0, r.err);
@@ -192,13 +194,16 @@ test('#8227 item 1 Windows: built --file sends a local drive path, and never one
   assert.ok(files.out.split('\n').includes('    matches  ' + file), files.out + files.err);
   const netFiles = await win(['task', 'files', 'proj-1'], { built: [builtRow(file, FP)], driveInfo: () => REMOTE });
   assert.ok(netFiles.out.split('\n').includes('    NOT CHECKED ' + file + ': a network drive, so Kosmos does not open it'), netFiles.out);
+  // An install whose windrives cannot tell: task files says to update, as task built --file does (review 5).
+  const oldFiles = await win(['task', 'files', 'proj-1'], { built: [builtRow(file, FP)], engine: { windrives: {} } });
+  assert.ok(oldFiles.out.split('\n').includes('    NOT CHECKED ' + file + ': this install of Kosmos cannot tell a network drive from a local one yet, so it does not open it; update Kosmos'), oldFiles.out);
   // o.engine.windrives reaches task files too (one seam for both verbs).
   const engFiles = await win(['task', 'files', 'proj-1'], { built: [builtRow(file, FP)], engine: { windrives: { infoOf: () => REMOTE } } });
   assert.ok(engFiles.out.split('\n').includes('    NOT CHECKED ' + file + ': a network drive, so Kosmos does not open it'), engFiles.out);
 });
 
 // ── item 4: the CLI seam under Windows rules, on Windows ────────────────────
-test('#8227 item 4 Windows: pathRules.resolve then keptPath, for a drive path, a UNC path and a folder link', { skip: ON_WINDOWS }, async () => {
+test('#8227 item 4 Windows: pathRules.resolve then keptPath, for a drive path, a UNC path and a folder link', { skip: NEEDS_WINDOWS }, async () => {
   const w = path.win32;
   // A drive path: resolved against the folder it runs in, kept whole.
   const drive = w.resolve(OUT, 'sub\\..\\x.txt');
