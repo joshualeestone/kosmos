@@ -179,7 +179,8 @@ function whenWords(s) {
    engine/holdtold.js keeps. Not told: says how to tell them so Kosmos sees it. */
 function toldWords(x) {
   if (x.onHoldByPerson === true) return '';   // the person's own hold is never theirs to be told about
-  const told = typeof x.onHoldToldAt === 'string' ? whenWords(x.onHoldToldAt) || one(x.onHoldToldAt) : '';
+  const last = typeof x.onHoldLastToldAt === 'string' ? x.onHoldLastToldAt : x.onHoldToldAt;   // round 3: the latest ask
+  const told = typeof last === 'string' ? whenWords(last) || one(last) : '';
   // An answer counts until you ask again (engine/holdtold.js answeredOpen), as the person's Tasks row reads it.
   const answered = typeof x.onHoldAnsweredAt === 'string' && !require('./holdtold').answeredOpen(x)
     ? whenWords(x.onHoldAnsweredAt) || one(x.onHoldAnsweredAt) : '';

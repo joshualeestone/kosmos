@@ -114,8 +114,10 @@ function noteTold(who, msg, o = {}) {
       let first = false;
       const wrote = stamp(p.id, t.number, (x) => isForYou(x) && holdsPart(x, who), (x) => {
         first = !x.onHoldToldAt;
-        /* Round 2: a reply drained from the outbox carries its original send time, which can be older than this hold or
-           than a tell already recorded; the marks never move back in time, so it counts as a tell now. */
+        /* Round 2: a reply drained from the outbox carries its original send time, which can be older than a tell already
+           recorded; the latest tell never moves back before an earlier one, so such a reply counts as a tell now. A first
+           tell keeps its own time, even one from before the hold (the outbox holds only replies written while Kosmos was
+           closed, and the person sees the reply at that time in the thread). */
         const floor = Math.max(Date.parse(x.onHoldLastToldAt) || 0, Date.parse(x.onHoldToldAt) || 0);
         const when = Date.parse(at) < floor ? new Date(Math.max(floor, Date.now())).toISOString() : at;
         const next = { ...x, onHoldLastToldAt: when, onHoldToldVia: msg.via };
@@ -149,21 +151,21 @@ function answeredTargets(projectList, { via, projectId, task, text, to }) {
   if (via === 'task') {
     const p = (projectList || []).find((x) => x && x.id === projectId);
     const t = p && (p.tasks || []).find((x) => x && x.number === Number(task));
-    if (p && isForYou(t)) out.push({ p, t });
+    if (p && isForYou(t)) out.push({ p, t, named: true });
     return out;
   }
   const named = namedNumbers(text, via === 'reply');
   if (via === 'room') {
     const p = (projectList || []).find((x) => x && x.id === projectId);
     for (const t of p && Array.isArray(p.tasks) ? p.tasks : []) {
-      if (isForYou(t) && (named.has(t.number) || t.onHoldToldVia === 'room')) out.push({ p, t });
+      if (isForYou(t) && (named.has(t.number) || t.onHoldToldVia === 'room')) out.push({ p, t, named: named.has(t.number) });
     }
     return out;
   }
   // 'reply': the person writing to one agent directly answers that agent's holds it told there, or one it names.
   if (typeof to !== 'string' || !to) return out;
   for (const x of forYouHoldsOf(projectList, to)) {
-    if (x.t.onHoldToldVia === 'reply' || named.has(x.t.number)) out.push(x);
+    if (x.t.onHoldToldVia === 'reply' || named.has(x.t.number)) out.push({ ...x, named: named.has(x.t.number) });
   }
   return out;
 }
@@ -171,9 +173,10 @@ function answeredTargets(projectList, { via, projectId, task, text, to }) {
 /**
  * The person wrote. Returns the for-you holds it answers as [{ projectId, project, n, holders }], so the caller can add
  * clauseFor to the line it types each holder, and then mark them (markAnswered) once the line went. In the task's own
- * conversation every message of the person's answers (it is the item itself). Directly or in the room, only the first
- * message after the latest tell does (answeredOpen), as the standing-question note of #5943 is said once per ask: a person
- * chatting about other things is not asked again and again, and an agent that asks again is. In the room, only holders
+ * conversation every message of the person's answers (it is the item itself), and so does any message that names the task
+ * (round 3: the person saying "#12: yes" is answering #12 whatever came before). Otherwise, directly or in the room, only
+ * the first message after the latest tell does (answeredOpen), as the standing-question note of #5943 is said once per
+ * ask: a person chatting about other things is not asked again and again, and an agent that asks again is. In the room, only holders
  * the post reaches (`to`, when given). `msg`: { via, projectId, task, text, to? }. Never throws.
  */
 function noteAnswered(msg, o = {}) {
@@ -184,8 +187,8 @@ function noteAnswered(msg, o = {}) {
     const list = Array.isArray(o.projects) ? o.projects : projects.readAll();
     const reach = Array.isArray(msg.to) ? new Set(msg.to) : null;
     const out = [];
-    for (const { p, t } of answeredTargets(list, msg)) {
-      if (msg.via !== 'task' && !answeredOpen(t)) continue;
+    for (const { p, t, named } of answeredTargets(list, msg)) {
+      if (!named && !answeredOpen(t)) continue;
       let holders = [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))];
       if (msg.via === 'reply') holders = holders.filter((h) => h === msg.to);
       if (msg.via === 'room' && reach) holders = holders.filter((h) => reach.has(h));
@@ -222,14 +225,14 @@ function clauseFor(answered, who) {
   if (mine.length === 1) {
     const x = mine[0];
     return ' [kosmos] you have ' + one(x) + ' on hold waiting on this person. If this message answers it, act on the answer and take it off hold: '
-      + off(x) + '. If it does not, tell them what you still need.';
+      + off(x) + '. If it does not, tell them what you still need, and say task ' + x.n + ' when you do.';
   }
   /* Round 2: typed after the length checks (a DM's or room post's trailer), so bounded: SHOWN holds by name, the rest
      counted and pointed at the list. */
   const shown = mine.slice(0, CLAUSE_SHOWN);
   const more = mine.length - shown.length;
   return ' [kosmos] you have ' + shown.map(one).join(', ') + (more ? ' and ' + more + ' more' : '') + ' on hold waiting on this person. For each this message answers, act on the answer and take it off hold ('
-    + shown.map(off).join(', ') + (more ? '; the rest: kosmos task list' : '') + '). For the rest, tell them what you still need.';
+    + shown.map(off).join(', ') + (more ? '; the rest: kosmos task list' : '') + '). For the rest, tell them what you still need, naming the task.';
 }
 
 module.exports = { CLAUSE_SHOWN, answeredOpen, namedNumbers, forYouHoldsOf, toldTargets, noteTold, answeredTargets, noteAnswered, markAnswered, clauseFor };
