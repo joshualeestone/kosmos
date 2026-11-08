@@ -25,8 +25,8 @@ reopen the chat.
 - No computer known yet at that moment: nothing reopens and the record goes, so the person gets the list (no line).
 - Reopens only within 12 hours of the chat first being opened (Board.chatReopenWithin); a reopen keeps that first time, so
   the window does not restart on each launch.
-- The computer's host is kept hashed (Board.keptHostKey), so plain app storage holds neither the host nor the account
-  fingerprint.
+- The computer's host and the account are kept hashed (Board.keptHostKey, BoardClient.keptChatOwner), so neither is stored
+  as plain text. The host hash is unsalted and a host is guessable: this hides it from a glance, not from a guess.
 - Same account only: the record carries BoardClient.keptChatOwner, a hash of the session's fingerprint with the
   computer's address (never the fingerprint itself, which stays out of plain app storage), compared on the launch.
 - A cold launch a room or board-page notification takes counts as the launch (ContentView sets launchReopenLooked), so
@@ -55,6 +55,12 @@ reopen the chat.
   that arrives later finds the chat already reopened under what it opens; the chat is then found on Close.
 - Any first look that cannot reopen (no computer yet, signed out) uses up the launch and drops the record: known gap,
   and the reason the card is not done until a real iPhone shows a reopen.
+
+- A cold launch a notification routes to a board page marks the launch used and does not drop the kept record: the next
+  cold launch within 12 hours, same account and computer, may reopen the chat the person last had open. Accepted: that is
+  this card's own aim (come back where you were).
+- The 12 hours count from when the chat was first opened, not from last use, by design: a chat held open all day and
+  then ended by iOS comes back to the list. Revisit if a real phone shows it is wrong.
 
 ## Weakest premise
 That client.macURL is set by the time the Agents tab's first findClosedChat runs on a cold start (admitted is restored
