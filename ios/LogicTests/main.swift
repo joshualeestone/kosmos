@@ -1327,7 +1327,10 @@ do {
         var b = Board.PendingSend(id: "b", text: "y", at: Date()); b.state = .failed(reason: nil)
         var c = Board.PendingSend(id: "c", text: "z", at: Date()); c.state = .unconfirmed
         let d = Board.PendingSend(id: "d", text: "w", at: Date())
-        check(Board.failedPendingIDs([a, b, c, d]) == ["a", "b"], "refused and unanswered sends are failed; not confirmed and sending are not")
+        var e = Board.PendingSend(id: "e", text: "v", at: Date()); e.state = .keptUndelivered(at: "T", note: Board.failedWords)
+        var f = Board.PendingSend(id: "f", text: "u", at: Date()); f.state = .keptUndelivered(at: "T", note: "Waiting to send")
+        check(Board.failedPendingIDs([a, b, c, d, e, f]) == ["a", "b", "e"],
+              "refused, unanswered and Not sent are failed; not confirmed, sending and held to send are not")
         check(Board.failedPendingIDs([]).isEmpty, "CONTROL: nothing pending, nothing failed")
     }
     check(Board.notSentLine(agentRunning: true, name: "Dana") == ("Not sent. Tap to try again.", true)

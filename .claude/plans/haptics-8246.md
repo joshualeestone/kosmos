@@ -21,7 +21,7 @@ when a swipe stars or unstars an agent. Each once per action, and nothing else n
 - ChatView.tryAgain: `failed()` when a row's Try again is refused.
 - ChatView.press(): `decided()` only when an Allow or Deny on a request's card comes back `.sent` (not on the arming
   press, not when not sure, not when nothing went); `failed()` when any press is refused.
-- RoomView: `sent()` in send(); `failed()` when the room store hands a post's words back because the computer refused
+- RoomView: `sent()` in send(); `failed()`, while the room is on screen, when the room store hands a post's words back because the computer refused
   it (Returned.refused); a post not confirmed (it may have gone) stays silent, as a chat's not-sure answer does.
 - AgentsView: `snapped()` only for the swipe's star or unstar (a full swipe or the revealed button); the long-press
   menu's same button stays silent.
@@ -51,5 +51,7 @@ not six digits), except the person cancelling the passkey prompt themselves (Sig
 excluded by name. A new note written into that line later would buzz too.
 
 ## Tests
-- The app builds for the simulator; all ios/LogicTests suites pass (no logic changed: Haptics has no decisions to test).
+- The app builds for the simulator; all ios/LogicTests suites pass .
+- Board.failedPendingIDs is new logic, tested in ios/LogicTests/main.swift (refused, no answer, Not sent in; not
+  confirmed, sending, held to send out). The room suite guards the star swipe and that no haptic line is DEBUG-only.
 - The feel is only checkable on a real iPhone (the simulator has no haptics): TestFlight, then Josh.

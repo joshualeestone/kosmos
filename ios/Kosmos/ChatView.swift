@@ -366,7 +366,7 @@ struct ChatView: View {
         }, label: { EmptyView() }).hidden())
         // kosmos#8246: a message the computer refused, or that got no answer, buzzes once as it fails (a retry that fails
         // again buzzes again); "not confirmed" stays silent. Only the chat on screen buzzes (the same agent can be open
-        // under two tabs); the set is kept current either way, and seeded as the chat shows or changes agent.
+        // under two tabs); the set is kept current either way, seeded as the chat shows, and never compared across agents.
         .onChange(of: Board.failedPendingIDs(pending)) { now in
             if visible, failedSeenFor == agent.session, !now.subtracting(failedSeen).isEmpty { Haptics.failed() }
             failedSeen = now; failedSeenFor = agent.session
@@ -2409,7 +2409,7 @@ struct ChatView: View {
         // A press in the air: the words wait in the box, and the line says why (dmChoiceBlocksSend).
         if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
         composerNote = nil
-        Haptics.sent()   // kosmos#8246: past this view's guards (a press in the air, nothing to send) taps nothing
+        Haptics.sent()   // kosmos#8246: taps once past this view's guards; a press in the air or nothing to send taps nothing
         if trayOpen { PhotoTrayMotion.change(overKeyboard: false) { trayOpen = false } }   // kosmos#8045: sent, back to reading
         dictation.stop()   // kosmos#7268 review 1: before the box is cleared, so no late result brings the words back
         // The composer line goes on the next send or press (Mona Lisa's spec, section 1).
