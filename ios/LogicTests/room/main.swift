@@ -448,6 +448,20 @@ check(agentsSrc.contains(".swipeActions(edge: .leading, allowsFullSwipe: true) {
 // kosmos#8246 (Josh's pick 5): the swipe's star clicks, the long-press menu's same button does not.
 check(agentsSrc.contains("if swiped { Haptics.snapped() }") && !agentsSrc.contains(".contextMenu { starButton(agent, swiped: true) }"),
       "kosmos#8246: only the swipe's star or unstar clicks")
+// kosmos#8246 round 4: the failed-send buzz must be in the Release build, never inside a DEBUG-only block.
+do {
+    let chatSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
+    // A stack of the open #if blocks (true for a DEBUG one), so a nested #if inside DEBUG does not end it early.
+    var open: [Bool] = []; var seen = 0; var inDebug = 0
+    for line in chatSrc.components(separatedBy: "\n") {
+        let s = line.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("#if ") { open.append(s == "#if DEBUG") } else if s == "#endif", !open.isEmpty { open.removeLast() }
+        if s.hasPrefix(".onChange(of: Board.failedPendingIDs(pending))") || s.hasPrefix("failedSeen = Board.failedPendingIDs(pending)") {
+            seen += 1; if open.contains(true) { inDebug += 1 }
+        }
+    }
+    check(seen == 2 && inDebug == 0, "kosmos#8246: the failed-send watch and its seeding are outside every #if DEBUG block")
+}
 // kosmos#7419: the long-press sheet. The seven quick reactions in Mona Lisa's order, each one the board's own (the 80 the
 // phone keeps as ComposerExtras.emoji, PJ_EMOJI); every message long-press opens the sheet, and no reaction menu is left.
 check(Board.quickReactions == ["👍", "❤️", "🔥", "😂", "👀", "✅", "🎉"], "kosmos#7419: the sheet's seven quick reactions, Josh's three first")

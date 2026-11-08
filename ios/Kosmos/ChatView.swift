@@ -363,16 +363,15 @@ struct ChatView: View {
         .background(NavigationLink(isActive: $infoOpen, destination: {
             AgentInfoView(client: client, agent: agent, openOnBoard: openOnBoard)
         }, label: { EmptyView() }).hidden())
-        #if DEBUG
-        // KOSMOS_SAMPLE_INFO=profile|ai|files with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
         // kosmos#8246: a message the computer refused, or that got no answer, buzzes once as it fails (a retry that fails
-        // again buzzes again); "not confirmed" stays silent.
+        // again buzzes again); "not confirmed" stays silent. Seeded as the chat shows (below), so earlier failures do not.
         .onChange(of: Board.failedPendingIDs(pending)) { now in
             if !now.subtracting(failedSeen).isEmpty { Haptics.failed() }
             failedSeen = now
         }
+        #if DEBUG
+        // KOSMOS_SAMPLE_INFO=profile|ai|files with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
         .onAppear {
-            failedSeen = Board.failedPendingIDs(pending)
             rowTops.isChat = true   // kosmos#7420: the height lines and the walk measure this chat's list, never a room's
             let env = ProcessInfo.processInfo.environment
             // Once a launch, so Back leaves the page (review 2: it pushed again each time the chat reappeared).
@@ -383,6 +382,7 @@ struct ChatView: View {
         }
         #endif
         .onAppear {
+            failedSeen = Board.failedPendingIDs(pending)   // kosmos#8246
             visible = true
             // kosmos#7420 review 1 and 2: the record starts with this chat's first showing (a return from the info page keeps
             // what came before), and a list blank from its first draw is checked too, since no row ever leaves it.

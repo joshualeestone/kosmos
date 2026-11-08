@@ -12,7 +12,9 @@ when a swipe stars or unstars an agent. Each once per action, and nothing else n
   own guard keeps a send back (the words are put back).
 - ChatView: `failed()` when a message the computer refused or did not answer turns failed (Board.failedPendingIDs gains
   an id while the chat is open; a retry that fails again buzzes again; "not confirmed" stays silent). The send call
-  itself returns true once it goes, so this is where a real failed send is seen.
+  itself returns true once it goes, so this is where a real failed send is seen. The watch and its seeding are in the
+  Release build: the room suite fails if either sits inside an #if DEBUG block (round 4 found them in one). Each agent
+  gets its own ChatView (AgentsView's .id(agent.session)), so the onAppear seeding covers a change of agent.
 - ChatView.press(): `decided()` only when an Allow or Deny on a request's card comes back `.sent` (not on the arming
   press, not when not sure, not when nothing went); `failed()` when any press is refused.
 - RoomView: `sent()` in send(); `failed()` when the room store hands a post's words back because the computer refused
@@ -28,8 +30,8 @@ when a swipe stars or unstars an agent. Each once per action, and nothing else n
 ## Decisions
 - Allow and Deny both get the firm tap: Josh's pick 1 is "Allow and Deny on an agent's request". It comes after the
   answer is sure to have gone, so a refused press gets only the error buzz.
-- A chat message that fails gets the light tap as it is sent and the error buzz when it comes back: the card asks for
-  both, and the tap belongs to the press. Rejected: tapping only on success (the send would feel dead for a moment).
+- A chat message that fails gets the light tap as it is sent and the error buzz when it fails (the computer refused it,
+  did not answer, or the client's own guard held it back): the card asks for both, and the tap belongs to the press. Rejected: tapping only on success (the send would feel dead for a moment).
 - A refused answer and a room post handed back buzz too (pick 3, "something failing").
 - Not built: pick 2 (task-done buzz), anything per incoming message, streamed line, scroll or keystroke. No Kosmos
   setting; iOS's own system-haptics switch silences all of it.
