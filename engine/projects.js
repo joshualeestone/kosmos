@@ -1421,6 +1421,8 @@ function describe(project, roster, all) {
     paused: project.paused === true,
     // #4771: whose pause it is, so the page can say when an agent paused it (the person's is lifted only on the screen).
     pausedByPerson: project.paused === true && project.pausedByPerson === true,
+    // kosmos#8236: a test project; a record written before the field reads as not one.
+    testOnly: project.testOnly === true,
     // #7210: what reaches the person from this project; a record written before the field reads as 'all'.
     notify: notifyOfRecord(project),
     // Gated on the healed flag AND the value: a hand-edited record carrying
@@ -3347,6 +3349,10 @@ function edit(id, fields = {}) {
   if (fields.paused !== undefined && typeof fields.paused !== 'boolean') {
     throw new Error('paused must be true or false');
   }
+  // kosmos#8236: a test project: the Assigner asks no one to draft tasks for it, and members are told to do only what is asked.
+  if (fields.testOnly !== undefined && typeof fields.testOnly !== 'boolean') {
+    throw new Error('testOnly must be true or false');
+  }
   // #1994: parent validated (self/cycle/missing refused) BEFORE the write, like
   // every other carried field, so a body mixing parent with name or description
   // still applies whole or not at all. `undefined` = not carried; cleanParent
@@ -3355,7 +3361,7 @@ function edit(id, fields = {}) {
   if (fields.parent !== undefined) parentWant = cleanParent(fields.parent, id);
   const notifyWant = fields.notify === undefined ? undefined : cleanNotify(fields.notify);   // #7210
   if (!Object.keys(want).length && fields.archived === undefined && fields.paused === undefined && fields.parent === undefined
-    && notifyWant === undefined) {
+    && notifyWant === undefined && fields.testOnly === undefined) {
     // A save that would move nothing is refused, not answered "saved": a
     // typo'd key reporting success is a save the person believes happened.
     throw new Error('nothing here we can change');
@@ -3393,6 +3399,8 @@ function edit(id, fields = {}) {
     if (fields.parent !== undefined) next.parent = parentWant;
     // #7210: 'all' is the default and is never stored, so a record reads the same as before the field existed.
     if (notifyWant !== undefined) { if (notifyWant === 'all') delete next.notify; else next.notify = notifyWant; }
+    // kosmos#8236: absent = not a test project, as every older record reads.
+    if (fields.testOnly !== undefined) { if (fields.testOnly) next.testOnly = true; else delete next.testOnly; }
     return next;
   });
 }
@@ -3537,6 +3545,12 @@ function cleanArchivedAt(value) {
 /* #4771: a paused project: the Prompter nudges nobody about its tasks and the Assigner hands none of them out. */
 function isPaused(record) {
   return Boolean(record && record.paused === true);
+}
+
+/* kosmos#8236: a project set up for testing (`kosmos project test <id> on`). Its members do only what they are asked:
+   the Assigner sends no goal nudge for it, and each member's instructions say so on its line. */
+function isTestOnly(record) {
+  return Boolean(record && record.testOnly === true);
 }
 
 /**
@@ -3947,7 +3961,9 @@ function blockBody(projects, sessionName) {
       ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
       : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`)
       + subtaskLine + whoLine;
-    const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + (p.id
+    // kosmos#8236: first under the name, so it is read before the commands that invite new tasks.
+    const testLine = isTestOnly(p) ? '\n  - A test project: do only what you are asked here. Add no tasks, plans or posts of your own.' : '';
+    const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + testLine + (p.id
       ? `\n  - Post to the room (it wakes only the members it addresses: start with 'YourName -> Name:', @-name them, or use @all): \`${cliShown}${projectPostKey(p.id)}\``   // kosmos#7246 slice 2: an agent's post wakes only who it addresses
         + taskLine
       : '');
@@ -4445,7 +4461,7 @@ module.exports = { heldOwnQuestion /* #7916 */, exactPathStat, windowsProjectFol
   NOTIFY_LEVELS, notifyLevel,
   changedFileTimes,
   offWriteIsQuiet, WROTE_WHY,
-  joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
+  joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isTestOnly, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, CARRIED_NOTES_START, CARRIED_NOTES_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, needsYouReason, needsYouReasonPastUsage, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX, roleHereOf, reviewOnlyHere,
   list, get, projectsFor, namesFor, create, edit, moveFolder, renameFolderToName, folderRenameTarget, rename, addAgent, removeAgent, remove, mutate,

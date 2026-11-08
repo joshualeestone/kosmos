@@ -23524,6 +23524,9 @@ const server = http.createServer(async (req, res) => {
         /* #4771: paused, carried like archived (a boolean, validated by the engine): the Prompter and the Assigner skip
            a paused project's tasks, and the members' instructions mark them, so a pause re-tells the members (below). */
         if (body.paused !== undefined) { fields.paused = body.paused; fields.viaScreen = isViaScreen(req, body); }
+        /* kosmos#8236: testOnly, carried like paused (a boolean the engine validates). An agent may set it: the people who
+           set up test boards are agents. It changes each member's instructions, so it re-tells them (below). */
+        if (body.testOnly !== undefined) fields.testOnly = body.testOnly;
         /* #4771 review 3/4: an agent's pause silences every member, and the Prompter's nudge now names the verb to an
            idle agent. So a pause or a resume that did not come from the screen is said in the project's room, naming
            the agent when its token says exactly which (its display name), else "Someone" (a person's own terminal
@@ -23576,7 +23579,7 @@ const server = http.createServer(async (req, res) => {
         // Only when the name or the pause moved: the managed block carries the name, the folder and (#4771) which
         // tasks are on hold, which a pause changes.
         try {
-          if (body.name !== undefined || body.paused !== undefined) {
+          if (body.name !== undefined || body.paused !== undefined || body.testOnly !== undefined) {
             for (const a of (reRead ? reRead.agents : [])) projects.syncAgent(a, roster);
           }
         } catch { /* reported by the row's own told verdict on the next read */ }

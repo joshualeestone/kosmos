@@ -146,11 +146,12 @@ const USAGE = {
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
-    'Usage: kosmos project <list|show|who|create|pause|role|remove-member>',
+    'Usage: kosmos project <list|show|who|create|pause|test|role|remove-member>',
     '  kosmos project list                                             every project: members, model families, tasks',
     '  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member\'s family and summary',
     '  kosmos project create "<name>" <folder> ["<description>"]   make a new project (it shows on your board, tagged as made by you)',
     '  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)',
+    '  kosmos project test <project-id> on|off                         a test project: its agents do only what they are asked (Kosmos asks none of them to add tasks for it)',
     '  kosmos project role <project-id> "<what you do here>"         say what you do on this project, 60 characters at most; project show lists it beside you ("" clears it)',
     '  kosmos project remove-member <project-id> "<name>" [--yes]   take a member off a project, after a confirm (--yes for scripts)',
     '  kosmos project who <file>                                       one project file: the agent Kosmos last saw about to change it, its owner, and whether a change came after that Kosmos did not see',
@@ -2209,6 +2210,32 @@ async function projectPause(ctx, args) {
   return 1;
 }
 
+/* kosmos#8236, as install/kosmos cmd_project test: mark a project as a test project, or not, through the route pause uses
+   (the board token opens it, the agent token rides). An older board ignores the field, which is said, not claimed. */
+async function projectTest(ctx, args) {
+  const usage = 'Usage: kosmos project test <project-id> on|off   (a test project: its agents do only what they are asked)';
+  if (args.length !== 2 || !args[0]) { ctx.err(usage); return 2; }
+  const [project, word] = args;
+  const slug = projectSlug(project);
+  if (slug !== project || !slug.replace(/\./g, '')) { ctx.err('there is no project by that name'); return 1; }
+  if (word !== 'on' && word !== 'off') { ctx.err('Usage: kosmos project test <project-id> on|off   (on or off, nothing else)'); return 2; }
+  const on = word === 'on';
+  const r = await ctx.call('PUT', '/api/project/' + slug, { testOnly: on }, { person: true });
+  if (!r.reached) {
+    return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
+      : ctx.unreachable('mark that project');
+  }
+  if (r.status === 200 && r.json && Object.prototype.hasOwnProperty.call(r.json, 'project')) {
+    if (!(r.json.project && r.json.project.testOnly === on)) { ctx.err('This Kosmos did not record it: it may be older than kosmos project test. Update it, then run this again.'); return 1; }
+    ctx.out(on ? project + ' is a test project now. Its agents are told to do only what they are asked, and Kosmos asks none of them to add tasks for it.'
+      : project + ' is not a test project any more. Kosmos may ask its agents to add tasks toward its goal again.');
+    return 0;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that project: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when marking that project.');
+  return 1;
+}
+
 /* kosmos#5805 part 2, as install/kosmos cmd_reply_channel: an agent declares where it answers the person, for itself
    only (the board names the caller from its token). --clear goes back to kosmos reply. */
 async function verbReplyChannel(ctx, args) {
@@ -3553,7 +3580,7 @@ const SUBCOMMAND_HANDLERS = {
   room: { reopen: roomReopen },
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
-  project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, role: projectRole, 'remove-member': projectRemoveMember },
+  project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, test: projectTest, role: projectRole, 'remove-member': projectRemoveMember },
   agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, restart: agentRestart, remove: agentRemove },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
