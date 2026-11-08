@@ -67,6 +67,8 @@ const crypto = require('node:crypto');
 
 const DEFAULT_TIMEOUT_MS = 8000;   // SessionStart: needs its delivery verdict
 const SHORT_TIMEOUT_MS = 3000;     // every other event: a fire-report, keep the turn snappy
+const TURN_END_RETRY_MIN_MS = 1000;   // kosmos#8230: a retry needs at least this much of the window left
+const TURN_END_RETRY_PAUSE_MS = 2000;  // kosmos#8230: as the bash hook's KOSMOS_REPORT_RETRY_S default
 const HEARTBEAT_SECONDS = 60;
 const DEFAULT_PORT = 16180;
 
@@ -128,14 +130,15 @@ function reportFor(evt, ctx) {
       const cmd = field(evt, 'tool_input.command').slice(0, 200);
       return { ...base, state: 'needs_you', text: 'asking permission to use ' + tool + (cmd ? ': ' + cmd : '') };
     }
+    // kosmos#8230: turnEnd marks the three reports that end a turn (see timeoutFor and noteTurnEnd).
     case 'Stop':
-      return { ...base, state: 'idle', text: 'finished responding' };
+      return { ...base, state: 'idle', text: 'finished responding', turnEnd: true };
     case 'StopFailure': {
       const kind = field(evt, 'matcher') || field(evt, 'error_type') || 'an api error';
-      return { ...base, state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider' };
+      return { ...base, state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider', turnEnd: true };
     }
     case 'SessionEnd':
-      return { ...base, state: 'stopped' };
+      return { ...base, state: 'stopped', turnEnd: true };
     default:
       return null;
   }
@@ -309,7 +312,57 @@ async function toolFailed(req, io) {
  *  harmless (the next event re-reports), so it uses a short window to bound the
  *  latency it can add to the person's own turn if the board accepts-but-hangs. */
 function timeoutFor(report) {
-  return (report && report.loud) ? DEFAULT_TIMEOUT_MS : SHORT_TIMEOUT_MS;
+  /* kosmos#8230: a turn-ending report gets the full window too. It is the one report no later event repeats, so a
+     card left on "working" stays wrong until the next turn. */
+  return (report && (report.loud || report.turnEnd)) ? DEFAULT_TIMEOUT_MS : SHORT_TIMEOUT_MS;
+}
+
+/* kosmos#8230: the Windows twin of install/kosmos-report-hook.sh's report_turn_end (kosmos#7977), with the same
+   outcomes, so the two hooks read one way:
+   - a keep the board meant (its record kept a standing wait, `skipped`), a report it cannot tie to an agent, or
+     another account's report: no retry, no note (TURN_END_KEEP);
+   - no board at the address (it is not running, or is mid-restart): retried, not noted;
+   - a board that did not answer the proof in time (too busy): noted at once, not retried, so a stall gets no second
+     send from every agent;
+   - anything else: retried once after a pause, and noted when the second try is lost too.
+   The note goes where the bash hook writes it: turn-end-failures.log in the throttle folder, the same line shape,
+   capped the same way. Only an agent's own session notes (it carries an agent token): the person's own Claude
+   sessions run this hook too, and a line for each of their turns would bury the rare real loss. */
+const TURN_END_LOG = 'turn-end-failures.log';
+const TURN_END_LOG_MAX_LINES = 400;
+const TURN_END_LOG_KEEP_LINES = 200;
+const TURN_END_KEEP = /did not overwrite|could not match that to one of your agents|cannot tell which agent|could not tell which agent that was|does not look like something we can identify you by|from the account that started it; run/;
+
+/** What a turn-end verdict means for a retry and a note: 'ok', 'keep', 'quiet', 'busy' or 'lost'. */
+function turnEndOutcome(v) {
+  if (!v || v.ok || v.wrongWorld) return 'ok';
+  if (v.skipped || TURN_END_KEEP.test(String(v.because || ''))) return 'keep';
+  if (v.notProven) {
+    // boardproof counts 'timed out' as nothing there too, so it is read first, as proofRefusalReason reads it.
+    if (v.proofWhy === 'timed out') return 'busy';
+    return v.nothingThere ? 'quiet' : 'lost';
+  }
+  return 'lost';
+}
+
+/** The reason a verdict carries, in the hook's own words, for the note. */
+function turnEndReason(v) {
+  if (v.notProven) return v.notProven;
+  if (v.error) return 'the board could not be reached (' + v.error + ')';
+  if (v.because) return 'the board did not record it (' + v.because + ')';
+  return v.status ? 'the board answered ' + v.status + ' and did not record it' : 'the report was not recorded';
+}
+
+function noteTurnEnd(ctx, key, report, verdict, how) {
+  const file = path.join(ctx.throttleDir, TURN_END_LOG);
+  const line = (new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') + ' agent ' + key + ': ' + report.state
+    + ' not delivered' + how + ': ' + turnEndReason(verdict)).replace(/[\r\n]+/g, ' ').slice(0, 400);
+  try {
+    fs.mkdirSync(ctx.throttleDir, { recursive: true });
+    fs.appendFileSync(file, line + '\n');
+    const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+    if (lines.length > TURN_END_LOG_MAX_LINES) fs.writeFileSync(file, lines.slice(-TURN_END_LOG_KEEP_LINES).join('\n') + '\n');
+  } catch { /* a note never fails the turn */ }
 }
 
 /** The per-launch agent token, only when it is a bare hex string (#570 step
@@ -363,7 +416,9 @@ async function deliver(report, io) {
        stale by the time it opens -- and it is not a failure to tell the person
        about, so `main` stays silent on it. */
     const wrongWorld = Boolean(res) && res.status === 421 && /"wrongWorld"\s*:\s*true/.test(body);
-    return { ok: !!(res && res.ok) && recorded, status: res && res.status, recorded, body, because: m ? m[1] : '', wrongWorld };
+    // kosmos#8230: the board's own skip (a standing wait it kept), told apart from a refusal.
+    const skipped = /"skipped"\s*:\s*"[^"]+"/.test(body);
+    return { ok: !!(res && res.ok) && recorded, status: res && res.status, recorded, body, because: m ? m[1] : '', wrongWorld, skipped };
   } catch (err) {
     return { ok: false, error: (err && err.message) ? err.message : String(err) };
   } finally {
@@ -595,15 +650,13 @@ async function main(io) {
   if (!report) return 0;
 
   const c = connection();
-  const p = await proven(c, o.timeoutMs || timeoutFor(report));
-  let verdict;
-  if (!p.ok) {
-    // #1765: nothing was sent. A board that is down reads as before; a listener that could not prove itself says so.
-    verdict = { ok: false, notProven: proofRefusalReason(p) };
-  } else if (p.leftMs <= 0) {
-    verdict = { ok: false, error: 'out of time before the report could be sent' };
-  } else {
-    verdict = await deliver(report, {
+  /* One proof and send within boundMs. #1765: a listener that did not prove itself gets nothing; a board that is down
+     reads as before. */
+  const sendOnce = async (boundMs) => {
+    const p = await proven(c, boundMs);
+    if (!p.ok) return { ok: false, notProven: proofRefusalReason(p), proofWhy: p.why, nothingThere: p.nothingThere };
+    if (p.leftMs <= 0) return { ok: false, error: 'out of time before the report could be sent' };
+    return deliver(report, {
       url: c.url,
       boardToken: c.boardToken,
       agentToken: c.agentToken,
@@ -612,6 +665,30 @@ async function main(io) {
       fromPane: env.TMUX_PANE || '',
       world: c.world,
     });
+  };
+  const budget = o.timeoutMs || timeoutFor(report);
+  const t0 = Date.now();
+  let verdict = await sendOnce(budget);
+
+  // kosmos#8230: a turn end follows the bash hook's rules (see TURN_END_KEEP above).
+  if (report.turnEnd) {
+    const noting = Boolean(agentToken(env));
+    const key = throttleKey(env, ppid);
+    let outcome = turnEndOutcome(verdict);
+    if (outcome === 'busy') {
+      if (noting) noteTurnEnd(ctx, key, report, verdict, ', the board was too busy (not retried)');
+    } else if (outcome === 'quiet' || outcome === 'lost') {
+      const left = budget - (Date.now() - t0);
+      const pause = Math.min(o.retryPauseMs !== undefined ? o.retryPauseMs : TURN_END_RETRY_PAUSE_MS, Math.floor(left / 2));
+      if (left - pause >= TURN_END_RETRY_MIN_MS) {
+        await (o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms))))(pause);
+        verdict = await sendOnce(left - pause);
+        outcome = turnEndOutcome(verdict);
+        if (noting && (outcome === 'lost' || outcome === 'busy')) noteTurnEnd(ctx, key, report, verdict, ' after a retry');
+      } else if (noting && outcome === 'lost') {
+        noteTurnEnd(ctx, key, report, verdict, ' (no time left to retry)');
+      }
+    }
   }
 
   /* #1704 PR2: a board serving another Kosmos (421) is not reporting being off:
@@ -690,6 +767,7 @@ module.exports = {
   readBoardToken, agentToken, deliver, timeoutFor, throttleKey, heartbeatDue,
   attachStdin, main, kosmosAllows, proverFor, proofRefusalReason, keepRequestFor, keepCopy, KEEP_TIMEOUT_MS, failureRequestFor, toolFailed,
   HEARTBEAT_SECONDS, DEFAULT_PORT, DEFAULT_TIMEOUT_MS, SHORT_TIMEOUT_MS,
+  turnEndOutcome, turnEndReason, noteTurnEnd, TURN_END_LOG, TURN_END_KEEP, TURN_END_RETRY_MIN_MS, TURN_END_RETRY_PAUSE_MS,   // kosmos#8230
 };
 
 /* Run only when invoked directly (Claude Code spawns node with this file as its
