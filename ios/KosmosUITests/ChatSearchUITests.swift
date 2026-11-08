@@ -4,7 +4,7 @@ import XCTest
 // with the newest match on screen; one with no match says so; clearing it brings the whole conversation back at the newest
 // message. KOSMOS_SAMPLE_LONG: Dana's chat is "Message 41 of 260." to "Message 260 of 260.", so "Message 15" matches
 // exactly 150 to 159.
-// On the lazy list this failed 2 runs in 6 on 11-08 (#8221): the list drew nothing under the search, and its blank recovery
+// On the lazy list this failed 3 runs in 7 on 11-08 (#8221): the list drew nothing under the search, and its blank recovery
 // is off while searching (Board.listBlank). That red is the lazy list's blank, not this check.
 final class ChatSearchUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }

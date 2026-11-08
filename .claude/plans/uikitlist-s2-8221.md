@@ -18,7 +18,8 @@ only the few "New message" rows and single labels, which is not measured on a CI
 - ChatView.conversationUIKit: computes that row and draws the marker.
 - NewMessagesUITests (item 5): a reader higher up (by the hook, and by a real drag) gets the capsule as messages arrive
   (KOSMOS_SAMPLE_GROW); pressing it takes them to the newest and the next arrival shows with no capsule. Control: a
-  reader at the newest never gets it, looked at after every arrival and polled 6 s more.
+  reader at the newest never gets it, looked at after every arrival and polled 6 s more. While the capsule shows, an older
+  message is on screen and Message 260 and the newest arrival are not; after the press, that older message is not.
 - ChatSearchUITests (item 7): matches only, newest match on screen, the no-match line, clearing brings the chat back at
   the newest.
 - ChatDragUITests (item 8): a drag down takes the keyboard down and leaves messages drawn above the box.
@@ -26,15 +27,15 @@ only the few "New message" rows and single labels, which is not measured on a CI
 ## Measured (iPhone 17 Pro Max, iOS 26.5, one simulator, 11-08)
 | check | UIKit | lazy | shown able to fail (UIKit arm only) |
 |---|---|---|---|
-| capsule, hook scroll-up | 5 of 5 | 5 of 5 | red with unseenNew never set on a new message |
-| capsule, real drag up | 3 of 3 | 3 of 3 | red with endSlack 100000 (the list read the drag as at the end and pinned the reader back) |
-| capsule control, at the newest | 5 of 5 | 5 of 5 | (control) |
-| search | 4 of 4 | **4 of 6** | red with Board.chatFilter ignoring the query ("Message 260 still drawn") |
-| drag down dismisses | 4 of 4 | 5 of 5 | red with keyboardDismissMode .none |
+| capsule, hook scroll-up | 6 of 6 | 6 of 6 | red with unseenNew never set on a new message |
+| capsule, real drag up | 4 of 4 | 4 of 4 | red with endSlack 100000 (the list read the drag as at the end and pinned the reader back) |
+| capsule control, at the newest | 6 of 6 | 6 of 6 | (control) |
+| search | 5 of 5 | **4 of 7** | red with Board.chatFilter ignoring the query ("Message 260 still drawn") |
+| drag down dismisses | 5 of 5 | 6 of 6 | red with keyboardDismissMode .none |
 
 Not shown able to fail on the lazy arm: none of these was perturbed there.
 
-**The lazy search failures are the lazy list, not the check.** Both recordings end on the search field reading
+**The lazy search failures are the lazy list, not the check.** All three recordings end on the search field reading
 "Message 15", ten loaded matches, and an empty message area: the lazy list drew nothing. Its blank recovery is off while
 searching (Board.listBlank's `searching`), so nothing rebuilt it. The UIKit list never blanked. Recorded on #8221 as more
 evidence for the new list; no separate card, since the fix for this class is the list replacement itself.
