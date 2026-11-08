@@ -134,6 +134,25 @@ test('#8236 review 1: a running agent owes a re-read when its project becomes a 
   projects.removeAgent(t.id, 'mara');
 });
 
+test('#8236 review 3: joining or leaving a test project owes no re-read (its own line announces it); a swap of two does', () => {
+  const a = onProject('Swap A');
+  projects.syncAgent('mara', board.agents);
+  const t = projects.create({ name: 'Joined Test' });
+  projects.edit(t.id, { testOnly: true });
+  projects.addAgent(t.id, 'mara', board.agents);
+  assert.notEqual(projects.syncAgent('mara', board.agents).rulesChanged, true, 'joining a test project owed a re-read as well as its join line');
+  projects.removeAgent(t.id, 'mara');
+  assert.notEqual(projects.syncAgent('mara', board.agents).rulesChanged, true, 'leaving a test project owed a re-read');
+  // A swap: one on, another off, in one write. The count is unchanged; the projects are not.
+  const b = onProject('Swap B');
+  projects.edit(a.id, { testOnly: true });
+  projects.syncAgent('mara', board.agents);
+  projects.edit(a.id, { testOnly: false });
+  projects.edit(b.id, { testOnly: true });
+  assert.equal(projects.syncAgent('mara', board.agents).rulesChanged, true, 'a swap of two test projects owed no re-read');
+  projects.removeAgent(a.id, 'mara'); projects.removeAgent(b.id, 'mara');
+});
+
 test('#8236 review 1: a goal give-up on a test project is not shown as stalled; on an ordinary one it is (control)', () => {
   const now = Date.parse('2026-11-08T08:00:00Z');
   const rec = { at: now - 60000, tries: 3, agent: 'Mara', session: 'mara', because: 'could_not' };
@@ -236,8 +255,8 @@ const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
 fs.mkdirSync(path.join(MAC_HOME, 'runtime', 'bin'), { recursive: true });
 fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));
 fs.symlinkSync(path.join(__dirname, 'engine'), path.join(MAC_HOME, 'engine'));
-function mac(args) {
-  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: '' };
+function mac(args, port = server.address().port) {
+  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: '' };
   return new Promise((resolve, reject) => {
     execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code: ' + (stderr || err.signal))); return; }
@@ -245,6 +264,31 @@ function mac(args) {
     });
   });
 }
+
+test('#8236 Mac review 3: an older board says to update; a 200 with an empty re-read is still a success; a dropped field is not', { skip: process.platform === 'win32' && 'the Mac CLI' }, async () => {
+  const answers = [];
+  const stub = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url.startsWith('/api/health')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"app":"kosmos"}'); return; }
+    const a = answers.shift() || { status: 500, body: { error: 'unexpected' } };
+    res.writeHead(a.status, { 'content-type': 'application/json' }); res.end(JSON.stringify(a.body));
+  });
+  await new Promise((r) => stub.listen(0, '127.0.0.1', r));
+  try {
+    const port = stub.address().port;
+    answers.push({ status: 400, body: { error: 'nothing here we can change' } });
+    const old = await mac(['project', 'test', 'p1', 'on'], port);
+    assert.equal(old.code, 1, old.out);
+    assert.equal(old.out.trim(), 'This Kosmos is older than kosmos project test. Update it, then run this again.');
+    answers.push({ status: 200, body: { project: null } });
+    const empty = await mac(['project', 'test', 'p1', 'on'], port);
+    assert.equal(empty.code, 0, empty.out);
+    assert.match(empty.out.trim(), /^p1 is a test project now\./);
+    answers.push({ status: 200, body: { project: { id: 'p1' } } });
+    const dropped = await mac(['project', 'test', 'p1', 'on'], port);
+    assert.equal(dropped.code, 1, 'CONTROL: an answer without the flag read as recorded: ' + dropped.out);
+    assert.match(dropped.out, /did not record it/);
+  } finally { stub.close(); }
+});
 
 test('#8236 Mac: project test on and off say what Windows says, and its refusals', { skip: process.platform === 'win32' && 'the Mac CLI' }, async () => {
   const p = projects.create({ name: 'Mac Board' });

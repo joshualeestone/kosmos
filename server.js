@@ -23591,8 +23591,8 @@ const server = http.createServer(async (req, res) => {
         const roster = safeRoster();
         // Same reason as create and delete: the rename HAPPENED. A failure
         // re-telling the members is a different fact from a failed rename.
-        // Only when the name or the pause moved: the managed block carries the name, the folder and (#4771) which
-        // tasks are on hold, which a pause changes.
+        // Only when the name, the pause or (kosmos#8236) the test flag moved: the managed block carries the name, the
+        // folder, (#4771) which tasks are on hold, which a pause changes, and the test-project line.
         try {
           if (body.name !== undefined || body.paused !== undefined || body.testOnly !== undefined) {
             for (const a of (reRead ? reRead.agents : [])) projects.syncAgent(a, roster);

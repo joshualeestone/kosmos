@@ -26,5 +26,10 @@ any agent, on or off; the testers are agents and turn it off after a test, and e
 the room (a note row, which types into no pane). Membership is not checked, as for pause. The page does not show the
 flag yet: the person sees it through the room note and `kosmos project show`.
 
+Review round 3: the re-read compares per project present in both blocks, so joining or leaving a test project (which
+its own line announces) owes none, and a swap of two does. Not changed: a Windows agent holds no board token, and PUT
+/api/project is not an agent-token route, so it cannot run `project test` (nor `project pause`); that is pause's
+existing limit, not new here.
+
 Tests: cli.project-test-8236.test.js. Perturbed: the Assigner skip, the instruction line, the re-tell, the Mac
 CLI's field; each turned a test red.
