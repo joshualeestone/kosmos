@@ -21216,7 +21216,8 @@ const server = http.createServer(async (req, res) => {
         }
         /* kosmos#8259: the person writing to an agent that told them about a for-you hold here (or naming it) is asked,
            once per tell, whether this answers it. Under the same rule as the question note: never on the automatic
-           hello, never on a numbered menu answer. Marked answered only once it is placed or kept to be typed. */
+           hello, never on a numbered menu answer, and never on a message kept to be typed later (by then the hold may be
+           gone, as #5943 says of its note). Marked answered only once the message carrying it is placed. */
         const holdtold = require('./engine/holdtold');
         const holdAnswered = !automatic && chat.dmNoteMayRide(body.text, chose) ? holdtold.noteAnswered({ via: 'reply', to: name, text: body.text }) : [];
         const holdNote = holdtold.clauseFor(holdAnswered, name);
@@ -21374,7 +21375,7 @@ const server = http.createServer(async (req, res) => {
             const at = new Date().toISOString();
             const signin = !!hold && hold.heldFor === 'signin';   // #5948: no reset to wait for, only a sign-in
             const until = hold && !signin && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
-            const trailer = (attachments.wireNote(files.recs) || '') + news.note + holdNote;   // #5943 review 1: no question note in a held message: by the reset it may be untrue
+            const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // #5943 review 1: no question note in a held message: by the reset it may be untrue (nor kosmos#8259's hold note)
             const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');   // two sends in one millisecond stay two
             /* #6774: kept behind messages any of which were kept for the box, it is released by the box rule too, is
                matched as a re-send, and is told that reason: one rule for the flag and the words. */
@@ -21395,7 +21396,6 @@ const server = http.createServer(async (req, res) => {
                 ...(answered ? { replyTo: answered.at } : {}),
               });
               if (keptRow.recorded === true) {
-                holdtold.markAnswered(holdAnswered);   // kosmos#8259: kept to be typed, its note with it
                 sendJson(res, 200, { delivery: heldDelivery, recorded: true, recordedBecause: null });
                 return;
               }
@@ -21438,7 +21438,7 @@ const server = http.createServer(async (req, res) => {
             && delivery.state === chat.DELIVERY.COULD_NOT && delivery.inputHeld === true) {
           const limitqueue = require('./engine/limitqueue');
           const at = delivery.at || new Date().toISOString();
-          const trailer = (attachments.wireNote(files.recs) || '') + news.note + holdNote;   // as the held path above: no question note
+          const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // as the held path above: no question note, no hold note
           const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');
           const plain = !(files.recs && files.recs.length) && !answered;
           // Looked for again now: the same words sent twice at once both reach here after their refusals, the second
@@ -21492,7 +21492,8 @@ const server = http.createServer(async (req, res) => {
           chat.markDmReactionsTold(name, news.named);
         }
         if (questionAsk && delivery && delivery.state === chat.DELIVERY.PLACED) chat.markDmQuestionTold(askingCard.sessionName, questionAsk);   // #5943: once per ask
-        if (holdAnswered.length && delivery && (delivery.state === chat.DELIVERY.PLACED || delivery.held === true)) holdtold.markAnswered(holdAnswered);   // kosmos#8259
+        // kosmos#8259: only a message typed now carried the hold note; a kept one did not, so the answer stays open for the next.
+        if (holdAnswered.length && delivery && delivery.state === chat.DELIVERY.PLACED) holdtold.markAnswered(holdAnswered);
         if (retryOf !== null) {
           /* kosmos#6720: the same row, its new verdict. Not written (the thread busy past its lock wait) is said, as
              the append's own failure is: the agent may have it while the row still reads failed. */
@@ -26815,7 +26816,7 @@ const server = http.createServer(async (req, res) => {
              and the minute sweep types it after the reset, as for `kosmos msg`, through the automatic gate
              (limitqueue.sweepHooks), so a kept line also waits on that gate's menu and quota holds. */
           // The sender's own name, not the cleaned one in the line: a drop notice is addressed to it.
-          const kept = messages.keepTaskLine(one, lineTo(one), roster, viaScreen ? '' : String((senderCard && senderCard.sessionName) || ''), 'task ' + t.number + ' in ' + projName,
+          const kept = messages.keepTaskLine(one, line, roster, viaScreen ? '' : String((senderCard && senderCard.sessionName) || ''), 'task ' + t.number + ' in ' + projName,
             { projectId: id, task: t.number, person: viaScreen });   // #5842: so the task's conversation records it sent or dropped, and whose
           if (kept) outcome = kept;
           else {
@@ -26827,7 +26828,9 @@ const server = http.createServer(async (req, res) => {
             ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}),
             ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) });
         }
-        holdtold.markAnswered(answered);   // kosmos#8259: the person's words are in the task's record whoever was reached
+        /* kosmos#8259: the person's words are in the task's record whoever was reached, so the hold reads answered; the
+           clause rides only lines typed now, never one kept to be typed later (by then the hold may be gone). */
+        holdtold.markAnswered(answered);
         const finalWord = !viaScreen && senderCard ? taskFinalWordHint(t, senderCard.sessionName, id, byKey) : '';   // #6066
         sendJson(res, 200, { ok: true, delivered, ...(body.to !== undefined ? { to: toNames } : {}),
           // #7408 review 1: a sender that named only itself on a task nobody holds hears "Nobody is assigned", not "Nobody else".

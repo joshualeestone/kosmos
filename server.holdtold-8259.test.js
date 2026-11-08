@@ -36,6 +36,18 @@ const chat = require('./engine/chat');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const sendertoken = require('./engine/sendertoken');
+const limitqueue = require('./engine/limitqueue');
+
+/* As server.limittask-5805.test.js: a Claude screen out of its weekly usage until three days from now. */
+function chicagoDay(ms) {
+  const p = {};
+  for (const x of new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric' }).formatToParts(new Date(ms))) p[x.type] = x.value;
+  return `${p.month} ${p.day}`;
+}
+const RULE = '\u2500'.repeat(80) + '\n';
+const LIMIT_SCREEN = '\u276f hello\n'
+  + `  \u23bf  You've hit your weekly limit \u00b7 resets ${chicagoDay(Date.now() + 3 * 24 * 3600e3)} at 3pm (America/Chicago)\n`
+  + '\u273b Saut\u00e9ed for 0s \u00b7 done 10:35 PM\n' + RULE + '\u276f \n' + RULE + '  leo \u00b7 Opus 4.8 \u00b7 7d 100%\n';
 
 let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
@@ -44,12 +56,13 @@ test.after(() => { try { server.close(); } catch { /* closed */ } fs.rmSync(SAND
 let seq = 0;
 /* A board with leo, a project with leo on it, and a task leo holds, on hold (for the person when forYou). Sends one
    message to it with `headers` and returns the response and everything pasted into a pane. */
-async function send(forYou, headers, text = 'yes, go with 40') {
-  const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);
+async function send(forYou, headers, text = 'yes, go with 40', limited = false) {
+  const board = fleet.install([fleet.agent('leo', limited ? { state: 'rate_limited', runner: 'claude', command: 'claude', screen: LIMIT_SCREEN } : { state: 'idle' })]);
   const calls = [];
   chat.setRunner((args) => {
     calls.push(args);
     if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+    if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: limited ? LIMIT_SCREEN : '', err: '' };
     return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
   });
   chat.setDryRun(false);
@@ -64,7 +77,7 @@ async function send(forYou, headers, text = 'yes, go with 40') {
     });
     const json = JSON.parse(await res.text());
     const pasted = calls.filter((a) => a[0] === 'set-buffer').map((a) => a[a.length - 1]).join('');
-    return { code: res.status, json, pasted, id: p.id, n: t.number, after: tasks.byNumber(projects.get(p.id), t.number) };
+    return { code: res.status, json, pasted, kept: limitqueue.list('leo'), id: p.id, n: t.number, after: tasks.byNumber(projects.get(p.id), t.number) };
   } finally {
     chat.setRunner(null); chat.setDryRun(true); board.restore();
   }
@@ -133,4 +146,14 @@ test('directly: a reply naming the hold marks the person told; the person\'s nex
   } finally {
     chat.setRunner(null); chat.setDryRun(true); board.restore();
   }
+});
+
+test('round 1 W2: a holder out of usage gets the line kept for later, and the kept line carries no unhold sentence', async () => {
+  limitqueue.resetForTests(); fs.rmSync(limitqueue.dir(), { recursive: true, force: true });
+  const r = await send(true, { 'sec-fetch-site': 'same-origin' }, 'yes, go with 40', true);
+  assert.equal(r.code, 200, JSON.stringify(r.json));
+  assert.equal(r.kept.length, 1, 'CONTROL: the line was kept for leo, so the absence below means something: ' + JSON.stringify(r.json.delivered));
+  assert.match(r.kept[0].envelope, /The person said: "yes, go with 40"/);
+  assert.doesNotMatch(r.kept[0].envelope + (r.kept[0].trailer || ''), /unhold/);
+  assert.doesNotMatch(r.pasted, /unhold/);
 });

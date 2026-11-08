@@ -48,18 +48,60 @@ test('a holder writing in the task\'s conversation tells the person: told-at, ap
   const { id, n } = held();
   assert.equal(read(id, n).onHoldToldAt, undefined, 'set is not told');
   const marked = holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, at: '2026-11-08T12:00:00.000Z' });
-  assert.deepEqual(marked, [{ projectId: id, n }]);
+  assert.deepEqual(marked, [{ projectId: id, n, first: true }]);
   const t = read(id, n);
   assert.equal(t.onHoldToldAt, '2026-11-08T12:00:00.000Z');
   assert.equal(t.onHoldToldVia, 'task');
   assert.ok(taskchat.read(id, n).some((e) => e.kind === 'hold-told' && e.who === 'leo' && e.via === 'task'));
 });
 
-test('only the first tell is kept: it is the age of the ask', () => {
+test('the first tell is the age of the ask; the latest tell moves on beside it', () => {
   const { id, n } = held();
-  holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, at: '2026-11-08T10:00:00.000Z' });
-  assert.deepEqual(holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, at: '2026-11-08T11:00:00.000Z' }), []);
-  assert.equal(read(id, n).onHoldToldAt, '2026-11-08T10:00:00.000Z');
+  assert.equal(holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, at: '2026-11-08T10:00:00.000Z' })[0].first, true);
+  assert.equal(holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, at: '2026-11-08T11:00:00.000Z' })[0].first, false);
+  const t = read(id, n);
+  assert.equal(t.onHoldToldAt, '2026-11-08T10:00:00.000Z');
+  assert.equal(t.onHoldLastToldAt, '2026-11-08T11:00:00.000Z');
+  assert.equal(taskchat.read(id, n).filter((e) => e.kind === 'hold-told').length, 1, 'the history records the first ask once');
+});
+
+test('round 1 W1: tell, answer, tell again, answer again: the second answer prompts too (directly and in the room)', () => {
+  const p = projects.create({ name: 'Again ' + (++seq), agents: ['eve'] });
+  const t = tasks.create(p.id, { sentence: 'price', who: 'eve' });
+  tasks.setOnHold(p.id, t.number, true, { forPerson: true });
+  holdtold.noteTold('eve', { via: 'reply', text: 'task ' + t.number + ': 40?', at: Date.now() - 4000 });
+  const a1 = holdtold.noteAnswered({ via: 'reply', to: 'eve', text: 'maybe' });
+  assert.equal(a1.length, 1);
+  holdtold.markAnswered(a1, Date.now() - 3000);
+  assert.deepEqual(holdtold.noteAnswered({ via: 'reply', to: 'eve', text: 'thinking' }), [], 'CONTROL: answered and not asked again: quiet');
+  holdtold.noteTold('eve', { via: 'reply', text: 'task ' + t.number + ': I need a yes or no', at: Date.now() - 2000 });
+  assert.equal(holdtold.noteAnswered({ via: 'reply', to: 'eve', text: 'yes' }).length, 1, 'asked again, so the next answer prompts');
+  // Told in the room, then asked again directly: the direct answer prompts (the via follows the latest ask).
+  // gus holds one for-you hold only (leo holds a task 1 in most projects here, which a direct reply cannot tell apart).
+  const rp = projects.create({ name: 'Again Room ' + (++seq), agents: ['gus'] });
+  const rt = tasks.create(rp.id, { sentence: 'price', who: 'gus' });
+  tasks.setOnHold(rp.id, rt.number, true, { forPerson: true });
+  holdtold.noteTold('gus', { via: 'room', projectId: rp.id, text: '#' + rt.number + '?', at: Date.now() - 2000 });
+  holdtold.noteTold('gus', { via: 'reply', text: 'about task ' + rt.number + ', still need it', at: Date.now() - 1000 });
+  assert.equal(read(rp.id, rt.number).onHoldToldVia, 'reply');
+  assert.equal(holdtold.noteAnswered({ via: 'reply', to: 'gus', text: 'yes' }).length, 1);
+});
+
+test('round 1 NIT: directly, a bare #N is not a tell (it is more often a card number); task N is', () => {
+  const p = projects.create({ name: 'Bare ' + (++seq), agents: ['fay'] });
+  const t = tasks.create(p.id, { sentence: 'one', who: 'fay' });
+  tasks.setOnHold(p.id, t.number, true, { forPerson: true });
+  assert.deepEqual(holdtold.noteTold('fay', { via: 'reply', text: 'merged #' + t.number }), []);
+  assert.equal(read(p.id, t.number).onHoldToldAt, undefined);
+  assert.equal(holdtold.noteTold('fay', { via: 'reply', text: 'task #' + t.number + '?' }).length, 1, 'CONTROL: task #N is');
+});
+
+test('round 1 W4: markAnswered marks only holds it reached', () => {
+  const { id, n } = held();
+  holdtold.markAnswered([{ projectId: id, n, holders: ['leo'] }], Date.now(), (h) => h === 'mara');
+  assert.equal(read(id, n).onHoldAnsweredAt, undefined, 'not typed to leo, so the answer stays open');
+  holdtold.markAnswered([{ projectId: id, n, holders: ['leo'] }], Date.now(), (h) => h === 'leo');
+  assert.equal(typeof read(id, n).onHoldAnsweredAt, 'string', 'CONTROL: typed to leo');
 });
 
 test('controls: an ordinary hold and a non-holder are never told', () => {
@@ -75,7 +117,7 @@ test('a room post tells only when it names the task', () => {
   const { id, n } = held();
   assert.deepEqual(holdtold.noteTold('leo', { via: 'room', projectId: id, text: 'can you decide the price?' }), []);
   assert.equal(read(id, n).onHoldToldAt, undefined);
-  assert.deepEqual(holdtold.noteTold('leo', { via: 'room', projectId: id, text: 'on #' + n + ': can you decide?', id: 'm42' }), [{ projectId: id, n }]);
+  assert.deepEqual(holdtold.noteTold('leo', { via: 'room', projectId: id, text: 'on #' + n + ': can you decide?', id: 'm42' }), [{ projectId: id, n, first: true }]);
   assert.equal(read(id, n).onHoldToldVia, 'room');
   assert.equal(read(id, n).onHoldToldId, 'm42');
 });
@@ -91,7 +133,7 @@ test('a direct reply tells when exactly one of the agent\'s for-you holds has th
   const lone = projects.create({ name: 'Solo ' + (++seq), agents: ['ada'] });
   const t = tasks.create(lone.id, { sentence: 'one', who: 'ada' });
   tasks.setOnHold(lone.id, t.number, true, { forPerson: true });
-  assert.deepEqual(holdtold.noteTold('ada', { via: 'reply', text: 'about task ' + t.number + ': yes or no?' }), [{ projectId: lone.id, n: t.number }]);
+  assert.deepEqual(holdtold.noteTold('ada', { via: 'reply', text: 'about task ' + t.number + ': yes or no?' }), [{ projectId: lone.id, n: t.number, first: true }]);
   assert.equal(read(lone.id, t.number).onHoldToldVia, 'reply');
   // Two projects whose for-you holds share a number: the reply names neither for certain, so neither is marked.
   const p1 = projects.create({ name: 'Twin A ' + (++seq), agents: ['bo'] });
@@ -101,17 +143,22 @@ test('a direct reply tells when exactly one of the agent\'s for-you holds has th
   assert.equal(t1.number, t2.number);
   tasks.setOnHold(p1.id, t1.number, true, { forPerson: true });
   tasks.setOnHold(p2.id, t2.number, true, { forPerson: true });
-  assert.deepEqual(holdtold.noteTold('bo', { via: 'reply', text: 'see #' + t1.number }), []);
+  assert.deepEqual(holdtold.noteTold('bo', { via: 'reply', text: 'see task ' + t1.number }), []);
   assert.equal(read(p1.id, t1.number).onHoldToldAt, undefined);
   assert.equal(read(p2.id, t2.number).onHoldToldAt, undefined);
 });
 
-test('the marks go with the hold: off, unmarked, closed, or newly marked; a changed reason keeps them', () => {
-  const marked = (id, n) => { holdtold.noteTold('leo', { via: 'task', projectId: id, task: n }); holdtold.markAnswered([{ projectId: id, n }]); };
+test('the marks go with the hold: off, unmarked, closed, newly marked or a new reason; a re-hold keeps them', () => {
+  const marked = (id, n) => { holdtold.noteTold('leo', { via: 'task', projectId: id, task: n }); holdtold.markAnswered([{ projectId: id, n, holders: ['leo'] }]); };
   const has = (t) => tasks.HOLD_TOLD_FIELDS.filter((k) => k in t);
+  const ALL = ['onHoldToldAt', 'onHoldLastToldAt', 'onHoldToldVia', 'onHoldAnsweredAt'];
   const a = held(); marked(a.id, a.n);
-  assert.deepEqual(has(read(a.id, a.n)), ['onHoldToldAt', 'onHoldToldVia', 'onHoldAnsweredAt'], 'control: both marks are there');
-  assert.deepEqual(has(tasks.setOnHold(a.id, a.n, true, { because: 'still need your yes' })), ['onHoldToldAt', 'onHoldToldVia', 'onHoldAnsweredAt']);
+  assert.deepEqual(has(read(a.id, a.n)), ALL, 'control: both marks are there');
+  assert.deepEqual(has(tasks.setOnHold(a.id, a.n, true)), ALL, 'a bare re-hold is the same ask');
+  assert.deepEqual(has(tasks.setOnHold(a.id, a.n, true, { because: 'needs your yes' })), ALL, 'the same reason restated is the same ask');
+  // Round 1 NIT: a new reason is a new question, not yet asked.
+  assert.deepEqual(has(tasks.setOnHold(a.id, a.n, true, { because: 'now: which supplier?' })), []);
+  marked(a.id, a.n);
   assert.deepEqual(has(tasks.setOnHold(a.id, a.n, false)), []);
   const b = held(); marked(b.id, b.n);
   assert.deepEqual(has(tasks.setOnHold(b.id, b.n, true, { forPerson: false })), []);
@@ -177,7 +224,7 @@ test('the agent\'s task show says whether the person was told, and how to tell t
   assert.match(words(), new RegExp('Kosmos has not seen you tell them: ask them in the task, or name task ' + n));
   holdtold.noteTold('leo', { via: 'task', projectId: id, task: n });
   assert.match(words(), /waiting on the person \(you told them /);
-  holdtold.markAnswered([{ projectId: id, n }]);
+  holdtold.markAnswered([{ projectId: id, n, holders: ['leo'] }], Date.now() + 1000);
   assert.match(words(), /\(they answered [^)]*: if that settles it, take it off hold\)/);
 });
 
@@ -186,5 +233,5 @@ test('noteTold and noteAnswered never throw on nonsense', () => {
   assert.deepEqual(holdtold.noteTold('leo', { via: 'carrier pigeon' }), []);
   assert.deepEqual(holdtold.noteTold('leo', null), []);
   assert.deepEqual(holdtold.noteAnswered({ via: 'task', projectId: 'no-such', task: 1 }), []);
-  assert.doesNotThrow(() => holdtold.markAnswered([{ projectId: 'no-such', n: 1 }]));
+  assert.doesNotThrow(() => holdtold.markAnswered([{ projectId: 'no-such', n: 1, holders: ['leo'] }]));
 });

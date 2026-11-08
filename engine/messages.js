@@ -3163,7 +3163,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   const spilled = {};
   /* kosmos#8259: the person's post naming a for-you hold, or the first one after its holder told them here, asks each
      holder it reaches whether it answers the hold. The words ride the trailer (typed after the post, outside the length
-     checks, as an attachment's facts do), and the hold is marked answered once the post is recorded. */
+     checks, as an attachment's facts do), and the hold is marked answered once the post is recorded, for the holders it
+     was typed to. A post held for a member (roomhold) is told later from the post itself, without the trailer, so the
+     clause never goes stale in a queue; that member's answer just stays open. */
   const holdAnswered = operator === true ? require('./holdtold').noteAnswered({ via: 'room', projectId, text: stored, to: recipients }) : [];
   const trailerFor = (name) => {
     const extra = holdAnswered.length ? require('./holdtold').clauseFor(holdAnswered, name) : '';
@@ -3521,7 +3523,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     /* kosmos#8259: an agent's post naming one of its for-you holds has told the person; the person's answered the holds
        it asked about (holdAnswered, above). Best-effort: holdtold never throws. */
     if (operator !== true && typeof from === 'string' && from) require('./holdtold').noteTold(from, { via: 'room', projectId, text: stored, id, at });
-    else if (holdAnswered.length) require('./holdtold').markAnswered(holdAnswered, at);
+    /* Only for holders it was typed to now (placed, or unconfirmed: it may have landed). One it could not reach, or whose
+       post was held to be told later (roomhold re-tells the post, not its trailer), never saw the clause, so its answer
+       stays open for the next post. */
+    else if (holdAnswered.length) require('./holdtold').markAnswered(holdAnswered, at, (h) => outcomes[h] === chat.DELIVERY.PLACED || outcomes[h] === chat.DELIVERY.UNCONFIRMED);
   } catch (err) {
     try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
     const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', unrecorded: true, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
