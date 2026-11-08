@@ -1,9 +1,10 @@
 'use strict';
 /**
  * kosmos#4926 (the live check on 0.7.96, 11-07): a held post keeps `held` on its row after it is told, so a seat's
- * uncited answer never took it off --unanswered. roomhold now keeps when each held post reached its member, and
- * messages.laterOwnPost counts the member's posts made after that moment. This file covers the record and the two engine
- * paths that tell (the idle flush and a typed arrival); the server's read path is in server.roomread-uncited-4926.test.js.
+ * uncited answer never took it off --unanswered. roomhold now keeps when the member's own room read showed it each held
+ * post, and messages.laterOwnPost counts the member's posts made after that moment. This file covers the record, and pins
+ * that the two engine paths that tell (the idle flush, a typed arrival) record nothing; the read path is in
+ * server.roomread-uncited-4926.test.js.
  */
 
 const os = require('node:os');
@@ -72,21 +73,17 @@ test('a member removed, or taken off one room, keeps no tellings there', () => {
   assert.equal(roomhold.toldIn('mara', 'other').size, 0, 'a removed member kept its tellings');
 });
 
-test('the idle flush records a telling only when the line was typed', async () => {
-  const deps = (state) => ({ deliver: async () => ({ state }), roster: [], DELIVERY: chat.DELIVERY, env: {}, shownOf: () => 'Room' });
+/* Only the member's own room read records a telling (server.roomread-uncited-4926.test.js). The idle line and an
+   arrival's line name held posts by id and never carry their words, so a member cannot have answered one before it read
+   the room, and a post it makes in between must not move the ask off its list (review 1). */
+test('the idle flush tells but records no telling: its line names ids, not words', async () => {
   roomhold.hold('mara', P, 'm3');
-  roomhold.hold('mara', P, roomhold.addressedId('m4'));
-  await roomhold.flushOnIdle('mara', deps(chat.DELIVERY.COULD_NOT));
-  assert.equal(roomhold.toldIn('mara', P).size, 0, 'a line that was not typed counted as told');
-  assert.deepEqual(roomhold.heldIn('mara', P).map(roomhold.plainId), ['m3', 'm4'], 'CONTROL: the refused flush must have put them back');
-  const before = Date.now();
-  await roomhold.flushOnIdle('mara', deps(chat.DELIVERY.PLACED));
-  const told = roomhold.toldIn('mara', P);
-  assert.deepEqual([...told.keys()].sort(), ['m3', 'm4']);
-  assert.ok(told.get('m3') >= before && told.get('m3') <= Date.now(), 'not stamped with the moment of telling');
-  roomhold.hold('mara', 'r2', 'm9');
-  await roomhold.flushOnIdle('mara', deps(chat.DELIVERY.UNCONFIRMED));
-  assert.deepEqual([...roomhold.toldIn('mara', 'r2').keys()], ['m9'], 'an unconfirmed line is counted as typed, as laterOwnPost counts it');
+  const typed = [];
+  await roomhold.flushOnIdle('mara', { deliver: async (n, text) => { typed.push(text); return { state: chat.DELIVERY.PLACED }; }, roster: [], DELIVERY: chat.DELIVERY, env: {}, shownOf: () => 'Room' });
+  assert.equal(typed.length, 1, 'CONTROL: the flush must really have typed its line');
+  assert.ok(typed[0].includes('m3'), typed[0]);
+  assert.deepEqual(roomhold.heldIn('mara', P), [], 'CONTROL: the post must have been told');
+  assert.equal(roomhold.toldIn('mara', P).size, 0, 'the idle line was counted as the member having read the post');
 });
 
 function fakeTmux() {
@@ -98,7 +95,7 @@ function report(name, state) { assert.equal(selfreport.record(name, { state, bec
 const MEMBERS = ['leo', 'mara', 'april'];
 const room3 = () => [fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' }), fleet.agent('april', { state: 'idle' })];
 
-test('held posts carried on a typed arrival are recorded as told; a failed arrival records nothing', () => {
+test('held posts carried on a typed arrival are told but record no telling', () => {
   const board = fleet.install(room3());
   try {
     messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
@@ -106,22 +103,10 @@ test('held posts carried on a typed arrival are recorded as told; a failed arriv
     chat.setDryRun(false);
     report('mara', 'idle');
     roomhold.hold('mara', P, 'm900');
-    const failing = (args) => {
-      const target = args.find((x) => typeof x === 'string' && x.startsWith('=mara-discord:'));
-      if (target && args[0] !== 'display-message') return { ran: true, spawnFailed: false, status: 1, out: '', err: 'no pane' };
-      return fakeTmux()(args);
-    };
-    chat.setRunner(failing);
-    const lost = messages.sendPost({ fromPane: '%7', project: P, text: '@mara one' }, board.agents, MEMBERS);
-    assert.equal(lost.outcomes.mara, chat.DELIVERY.COULD_NOT, 'CONTROL: the arrival must really have failed');
-    assert.equal(roomhold.toldIn('mara', P).size, 0, 'a failed arrival counted the held post as told');
-    chat.setRunner(fakeTmux());
-    const before = Date.now();
     const sent = messages.sendPost({ fromPane: '%7', project: P, text: '@mara two' }, board.agents, MEMBERS);
     assert.equal(sent.outcomes.mara, chat.DELIVERY.PLACED, 'CONTROL: the arrival must have been typed');
     assert.deepEqual(roomhold.heldIn('mara', P), [], 'CONTROL: the held post must have ridden on it');
-    const t = roomhold.toldIn('mara', P).get('m900');
-    assert.ok(Number.isFinite(t) && t >= before, 'the carried post was not recorded as told: ' + t);
+    assert.equal(roomhold.toldIn('mara', P).size, 0, 'the arrival line was counted as the member having read the post');
   } finally { board.restore(); }
 });
 

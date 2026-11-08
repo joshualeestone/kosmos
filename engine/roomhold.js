@@ -391,11 +391,12 @@ function dropShown(name, projectId, shownIds) {
 
 /* kosmos#4926 (the live check on 0.7.96, 11-07): a held post keeps the outcome `held` on its row after it is told, so
    messages.laterOwnPost never counted the reader's later post for it, and seven asks a seat had answered stayed on its
-   --unanswered list for good. When a held post reaches its member (told by the idle flush or the timed retry, carried on
-   a typed arrival, or shown by the member's own `kosmos room` read), the moment is kept here, per member, project and
-   post id. The earliest wins, since that is when the member first had it. Entries go after TOLD_KEEP_MS (longer than
-   --unanswered's age rule, so no ask young enough to be listed loses its record), at most TOLD_MAX per project, the
-   newest kept. A write that fails keeps nothing, and the post stays listed: the safe direction. */
+   --unanswered list for good. When the member's own `kosmos room` read shows it a held post, the moment is kept here,
+   per member, project and post id. Only that read: the idle line and an arrival's line name a held post by id, never
+   its words, so a member cannot have answered it before reading the room. The earliest read wins. Entries go after
+   TOLD_KEEP_MS (longer than --unanswered's age rule; under --all an older ask can go back on the list), at most
+   TOLD_MAX per project, the newest kept. A write that fails keeps nothing, and the post stays listed: the safe
+   direction. */
 const TOLD_KEEP_MS = 4 * 24 * 60 * 60 * 1000;
 const TOLD_MAX = 500;
 function toldFileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '.told.json'); }
@@ -649,10 +650,7 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     // #5805: a usage limit held this flush: its ids keep their marks, and the reset is recorded for withoutStale.
     if (limitUntil) noteLimit(name, projectId, ids.filter(isAddressed), limitUntil);
     if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
-    else if (due) noteDigest(name, projectId, now);
-    // kosmos#4926: told, so a post the member makes from now on may be about these (messages.laterOwnPost). The real
-    // clock, not `now`: the telling happens at this moment, whatever time the sweep was called with.
-    if (state === DELIVERY.PLACED || state === DELIVERY.UNCONFIRMED) noteTold(name, projectId, ids);   // #7246: a digest was typed (or held for typing): the next waits an hour
+    else if (due) noteDigest(name, projectId, now);   // #7246: a digest was typed (or held for typing): the next waits an hour
     if (capped && !agyCard(name, roster)) for (const x of ids) noteCap(name, projectId, x);   // kosmos#7406: retried by flushReleased once the cap frees
     // A digest the gate refused is tried again in DIGEST_RETRY_MS, not at the next minute's sweep.
     if (due && (!state || state === DELIVERY.COULD_NOT)) noteDigest(name, projectId, now - DIGEST_MS + DIGEST_RETRY_MS);

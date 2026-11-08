@@ -1563,9 +1563,9 @@ function staleHeld(projectId, ids, log, now, member) {
    them all as waiting. A post citing nothing counts, and so does one citing someone else's post newer than the ask. One citing the ask's
    elders is about those. Only an ask that was typed to the reader counts: a held, quiet or undelivered one, or a row
    with no outcome, had not reached it. rows are one room's rows, oldest first.
-   kosmos#4926 (11-07, seen live on 0.7.96): a held ask that was told later (roomhold.noteTold) reached the reader at
-   `toldAt` (ms), so only the reader's posts made after that moment count for it; a held ask with no such record, or
-   a post with no readable time, counts nothing, as before. */
+   kosmos#4926 (11-07, seen live on 0.7.96): a held ask the reader has since read in the room (roomhold.noteTold)
+   reached it at `toldAt` (ms), so only the reader's posts made after that moment count for it; a held ask with no
+   such record, or a post with no readable time, counts nothing, as before. */
 function laterOwnPost(rows, i, reader, toldAt) {
   const ask = rows && rows[i];
   if (!ask || !reader) return null;
@@ -3380,10 +3380,6 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       }
       outcomes[name] = sent.state;
       logCarried(sent.state);   // #4926 N7: told unless COULD_NOT (then put back below)
-      // kosmos#4926: the held posts carried on this arrival reached the member now (laterOwnPost counts from here).
-      if (heldIds.length && (sent.state === chat.DELIVERY.PLACED || sent.state === chat.DELIVERY.UNCONFIRMED)) {
-        try { roomhold.noteTold(name, projectId, heldIds); } catch { /* the asks stay listed */ }
-      }
       if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
       else {
         restoreHeld(name, projectId, heldIds);
