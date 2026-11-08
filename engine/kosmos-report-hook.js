@@ -56,9 +56,10 @@
  * the hook returns instantly, guarding against the board bouncing mid-UPDATE
  * (every unthrottled hook would otherwise stall at the 15s curl ceiling). This
  * hook awaits the POST instead, under a timeout (< the hook entry's own 15s):
- * SessionStart and an agent's Stop get DEFAULT_TIMEOUT_MS, every other report
- * SHORT_TIMEOUT_MS, and so does the Windows supervisor's noRetry Stop (kosmos#8233). A local 127.0.0.1 board answers in milliseconds; the
- * timeout bounds only the board-down or busy case. Windows does update in place
+ * SessionStart and an agent's Stop get DEFAULT_TIMEOUT_MS; every other report,
+ * and the Windows supervisor's noRetry Stop (kosmos#8233), SHORT_TIMEOUT_MS.
+ * A local 127.0.0.1 board answers in milliseconds; the timeout bounds only the
+ * board-down or busy case. Windows does update in place
  * (engine/win32update.js), so the board-down case includes an update restart:
  * then every report waits out its timeout, and an agent's Stop also waits the
  * kosmos#8230 retry's pause (TURN_END_RETRY_PAUSE_MS) before trying again,
@@ -351,7 +352,7 @@ const TURN_END_LOG_MAX_LINES = 400;
 const TURN_END_LOG_KEEP_LINES = 200;
 const TURN_END_KEEP = /did not overwrite|could not match that to one of your agents|cannot tell which agent|could not tell which agent that was|does not look like something we can identify you by|from the account that started it; run/;
 
-/** What a turn-end verdict means for a retry and a note: 'ok', 'keep', 'quiet', 'busy' or 'lost'. */
+/** What a turn-end verdict means for a retry and a note: 'ok', 'keep', 'quiet', 'busy', 'cut' or 'lost'. */
 function turnEndOutcome(v) {
   if (!v || v.ok || v.wrongWorld) return 'ok';
   if (v.skipped || TURN_END_KEEP.test(String(v.because || ''))) return 'keep';
@@ -361,6 +362,7 @@ function turnEndOutcome(v) {
     return v.nothingThere ? 'quiet' : 'lost';
   }
   if (v.timedOut) return 'busy';   // the send itself ran out of time: the bash hook's "too busy to answer"
+  if (v.cutOff) return 'cut';      // kosmos#8233: answered, but the answer was cut off: not resent, noted as unknown
   return 'lost';
 }
 
@@ -368,6 +370,7 @@ function turnEndOutcome(v) {
 function turnEndReason(v) {
   if (v.notProven) return v.notProven;
   if (v.timedOut) return 'the board did not answer the report in time';
+  if (v.cutOff) return v.error;
   if (v.error) return 'the board could not be reached (' + v.error + ')';
   if (v.because) return 'the board did not record it (' + v.because + ')';
   return v.status ? 'the board answered ' + v.status + ' and did not record it' : 'the report was not recorded';
@@ -376,7 +379,7 @@ function turnEndReason(v) {
 function noteTurnEnd(ctx, key, report, verdict, how) {
   const file = path.join(ctx.throttleDir, TURN_END_LOG);
   const line = (new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') + ' agent ' + key + ': ' + report.state
-    + ' not delivered' + how + ': ' + turnEndReason(verdict)).replace(/[\r\n]+/g, ' ').slice(0, 400);
+    + (verdict && verdict.cutOff ? ' unconfirmed' : ' not delivered') + how + ': ' + turnEndReason(verdict)).replace(/[\r\n]+/g, ' ').slice(0, 400);
   try {
     fs.mkdirSync(ctx.throttleDir, { recursive: true });
     fs.appendFileSync(file, line + '\n');
@@ -426,9 +429,10 @@ async function deliver(report, io) {
     });
     let body = '';
     try { body = await res.text(); } catch (err) {
-      // kosmos#8233: our own timeout while the body was still arriving is a busy board, as an abort before the headers is.
+      // kosmos#8233: our own timeout after the headers. The board writes its head and body together, once it has
+      // decided, so it did answer: whether it recorded is unknown. Not resent (a second idle), and named as such.
       if (err && err.name === 'AbortError') {
-        return { ok: false, status: res && res.status, error: err.message || 'aborted', timedOut: true };
+        return { ok: false, status: res.status, cutOff: true, error: 'the board answered ' + res.status + ' but its answer was cut off' };
       }
       body = '';
     }
@@ -706,6 +710,8 @@ async function main(io) {
     let outcome = turnEndOutcome(verdict);
     if (outcome === 'busy') {
       noteTurnEnd(ctx, key, report, verdict, ', the board was too busy (not retried)');
+    } else if (outcome === 'cut') {
+      noteTurnEnd(ctx, key, report, verdict, ' (not retried)');
     } else if (outcome === 'quiet' || outcome === 'lost') {
       const left = budget - (Date.now() - t0);
       const pause = Math.min(o.retryPauseMs !== undefined ? o.retryPauseMs : TURN_END_RETRY_PAUSE_MS, Math.floor(left / 2));
@@ -713,7 +719,7 @@ async function main(io) {
         await (o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms))))(pause);
         verdict = await sendOnce(left - pause);
         outcome = turnEndOutcome(verdict);
-        if (outcome === 'lost' || outcome === 'busy') noteTurnEnd(ctx, key, report, verdict, ' after a retry');
+        if (outcome === 'lost' || outcome === 'busy' || outcome === 'cut') noteTurnEnd(ctx, key, report, verdict, ' after a retry');
       } else if (outcome === 'lost') {
         noteTurnEnd(ctx, key, report, verdict, ' (no time left to retry)');
       }
@@ -721,7 +727,7 @@ async function main(io) {
   } else if (agentStop) {
     // kosmos#8233: a caller that does not wait (noRetry) gets no retry, but a lost or busy Stop is still noted.
     const outcome = turnEndOutcome(verdict);
-    if (outcome === 'lost' || outcome === 'busy') {
+    if (outcome === 'lost' || outcome === 'busy' || outcome === 'cut') {
       noteTurnEnd(ctx, throttleKey(env, ppid), report, verdict, ' (not retried: its caller does not wait)');
     }
   }
@@ -737,6 +743,8 @@ async function main(io) {
     // is the actionable sentence, so it wins over the bare status.
     const reason = verdict.notProven
       ? verdict.notProven
+      : verdict.cutOff
+      ? verdict.error
       : verdict.error
       ? ('the board could not be reached (' + verdict.error + ')')
       : verdict.because

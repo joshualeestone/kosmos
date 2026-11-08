@@ -9,7 +9,7 @@
  *   - the board's own keep (`skipped`), a report it cannot tie to an agent, another account's: no retry, no note;
  *   - only an agent's session (it carries an agent token) notes;
  *   - a caller that does not wait (noRetry): sent once in the short window, and a loss noted at once (kosmos#8233);
- *   - our own timeout while the answer's body is arriving is a busy board, like one before the headers (kosmos#8233);
+ *   - our own timeout while the answer's body is arriving (the board did answer): not resent, noted as unconfirmed (kosmos#8233);
  *   - the note is one line in turn-end-failures.log in the throttle folder, capped as the bash hook caps it.
  * And the board names its skip (`skipped`) and logs an automatic turn end it refuses before the record.
  *   node --test engine/kosmos-report-hook.turnend-8230.test.js
@@ -185,6 +185,8 @@ test('kosmos#8230/#8233: a caller that does not wait for the hook (noRetry) send
   assert.equal(landed.note, null);
   const person = await run('Stop', { proofs: [bad], noRetry: true, env: {} });
   assert.equal(person.note, null, 'the person\'s own noRetry Stop was noted');
+  const kept = await run('Stop', { noRetry: true, answers: [reply('{"recorded":false,"skipped":"a standing wait"}')] });
+  assert.equal(kept.note, null, 'the board\'s own keep was noted for a noRetry Stop');
   const src = fs.readFileSync(path.join(__dirname, 'win32codexsup.js'), 'utf8');
   assert.match(src, /hook_event_name: 'Stop' \}\), env, stdout: \(\) => \{\}, noRetry: true \}/, 'the supervisor\'s in-process idle does not pass noRetry');
 });
@@ -255,12 +257,13 @@ test('kosmos#8233: a busy board on the retry, after a refused first try, is note
   assert.equal(twice.note, null, 'a closed board was noted');
 });
 
-test('kosmos#8233: our own timeout while the answer\'s body is still arriving is a busy board: noted at once, not retried', async () => {
+test('kosmos#8233: our own timeout while the answer\'s body is still arriving: not resent, noted as unconfirmed', async () => {
   const abortErr = () => { const e = new Error('This operation was aborted'); e.name = 'AbortError'; return e; };
   const slowBody = { ok: true, status: 200, text: async () => { throw abortErr(); } };
   const r = await run('Stop', { answers: [slowBody, slowBody] });
   assert.equal(r.sent.length, 1, 'a send cut off mid-body was sent again');
-  assert.match(r.note || '', /idle not delivered, the board was too busy \(not retried\): the board did not answer the report in time/);
+  assert.match(r.note || '', /idle unconfirmed \(not retried\): the board answered 200 but its answer was cut off/);
+  assert.doesNotMatch(r.note || '', /not delivered|too busy/, 'a board that answered was noted as busy or not delivered');
   // CONTROL: a body that fails for any other reason is an ordinary loss, retried once.
   const broken = { ok: true, status: 200, text: async () => { throw new Error('terminated'); } };
   const c = await run('Stop', { answers: [broken, broken] });
