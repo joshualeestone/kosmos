@@ -6,8 +6,8 @@ Rebase onto main as each merges.
 ## Finished looks like
 
 On a TestFlight build, Settings has a switch that makes chats open on the UIKit list. It is off by default, so nothing
-changes for a phone that never touches it. Each chat open writes which list drew it to the chat's record ("list: uikit"
-or "list: lazy"). Counting reports per list is slice 6 (see Decided, review 3), not this slice.
+changes for a phone that never touches it. Each chat open writes which list drew it to the chat's record ("list chosen: uikit"
+or "list chosen: lazy"). Counting reports per list is slice 6 (see Decided, review 3), not this slice.
 
 ## Decided
 
@@ -28,7 +28,7 @@ or "list: lazy"). Counting reports per list is slice 6 (see Decided, review 3), 
   an open chat. The next open uses the new value.
 - Storage: UserDefaults via @AppStorage, key "kosmos.chat.uikitlist" (the ProjectsView "kosmos.projects.sort" pattern).
   Debug keeps KOSMOS_SAMPLE_UIKITLIST=1 as an override so every UI check still picks its list by environment.
-- Diagnostic: right after "chat shown", a fixed-word trace line, "list: uikit" or "list: lazy" (two literals in an
+- Diagnostic: right after "chat shown", a fixed-word trace line, "list chosen: uikit" or "list chosen: lazy" (two literals in an
   if/else, so the room suite's trace allow-list needs no new value). Check run-room.sh still passes, and that a check
   pins the two literals.
 
@@ -39,7 +39,7 @@ or "list: lazy"). Counting reports per list is slice 6 (see Decided, review 3), 
 2. SettingsView: a "Chat" section with the switch. Copy (no em dashes): label "New chat list", footer (as built) "A test of a new way
    to draw your chats. Earlier messages, holding a message to copy or delete it, and some of the scrolling are not in it yet. Applies to the next
    chat you open." Check it at the largest text size.
-3. ChatView trace "list: uikit" / "list: lazy" after "chat shown" (line ~380).
+3. ChatView trace "list chosen: uikit" / "list chosen: lazy" after "chat shown" (line ~380).
 4. A LogicTests or source check pinning: default off, the key name, the trace literals.
 5. A UI test: turn the switch on in Settings, open Dana's chat, and see the UIKit list drew it (find a way to tell: an
    accessibility identifier on ChatList's collection view, Debug or not).

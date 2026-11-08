@@ -598,10 +598,10 @@ let settingsViewSource = (try? String(contentsOf: repo.appendingPathComponent("i
 check(settingsViewSource.contains("@AppStorage(ChatView.uikitListKey) private var newChatList = false"), "kosmos#8221 slice 5: the Settings switch is off by default and writes the key ChatView reads")
 check(chatSource.contains("static let uikitListKey = \"kosmos.chat.uikitlist\"") && chatSource.contains("return UserDefaults.standard.bool(forKey: uikitListKey)"), "kosmos#8221 slice 5: ChatView reads the switch's key, false when never set")
 check(chatSource.contains("@State private var uikitList = ChatView.uikitListChosen()") && !chatSource.contains("static let uikitList ="), "kosmos#8221 slice 5: the list is chosen once per chat open, not per draw")
-let listTraceAt = chatSource.range(of: "if uikitList { Self.trace(\"list: uikit\") } else { Self.trace(\"list: lazy\") }")
+let listTraceAt = chatSource.range(of: "if uikitList { Self.trace(\"list chosen: uikit\") } else { Self.trace(\"list chosen: lazy\") }")
 let shownTraceAt = chatSource.range(of: "Self.trace(\"chat shown\")")
 check(listTraceAt != nil && shownTraceAt != nil && shownTraceAt!.upperBound < listTraceAt!.lowerBound
-      && chatSource[shownTraceAt!.upperBound..<listTraceAt!.lowerBound].count < 200, "kosmos#8221 slice 5: right after chat shown, the record says which list drew the chat")
+      && chatSource[shownTraceAt!.upperBound..<listTraceAt!.lowerBound].count < 200, "kosmos#8221 slice 5: right after chat shown, the record says which list this open chose")
 check(chatSource.contains("if env[\"KOSMOS_SAMPLE_AGENTS\"] == \"1\", env[\"KOSMOS_SAMPLE_UIKITLIST_SWITCH\"] != \"1\" { return false }"), "kosmos#8221 slice 5: a Debug sample run ignores a switch left on, unless the check asks for it")
 // kosmos#7420: Self.heightLine is admitted by name, so its body is pinned: Int(...) point values, a count and fixed words.
 check(chatSource.contains("\"content \\(Int(size)), y \\(Int(sv.contentOffset.y)), drawn \\(at.count), from \\(Int(first)) to \\(Int(last)), past last \\(Int(size - last))\""), "kosmos#7420: the height line in the record is points and a count and nothing else")

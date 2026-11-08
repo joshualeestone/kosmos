@@ -46,7 +46,7 @@ done
 # kosmos#8072: EndPullUITests, pulling a chat past its newest message: the dots, ending, staying put, a second pull (6 checks).
 # kosmos#8053: BlankRingUITests, the ring's real timing with the blank held back, and a normal open never showing it (5 checks).
 # kosmos#8221 slice 5: NewChatListSwitchUITests, Settings' "New chat list" switch choosing the list for the next chat (1 check;
-#   it sets no list by environment, so it runs the same in both arms and is listed in this one only).
+#   it sets no list by environment, so it runs in this lazy-arm run only).
 classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 BlankRingUITests:5 SendMovesOnceUITests:3 EndPullUITests:6 NewChatListSwitchUITests:1"
 # kosmos#7609: AttachMenuUITests.testTheRowFitsAtTheLargestText skips itself in this run (TEST_RUNNER_KOSMOS_UI_SAMPLE) and is named as skipped.
 #   Alone on a Mac it runs: TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/AttachMenuUITests/testTheRowFitsAtTheLargestText
