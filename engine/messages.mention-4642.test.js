@@ -191,6 +191,44 @@ test('#4653: the post answer tells the sender who an ambiguous @-word could mean
   assert.equal(post('no mention at all', CLASH(), CLASH_ROOM).note, undefined);
 });
 
+// kosmos#8270: homer is an agent on this board but not on the project; "Pat" is on neither.
+const WITH_OUTSIDER = () => [...FLEET(), fleet.agent('homer', { state: 'idle' }), fleet.agent('icecream', { state: 'idle', displayName: 'Ice Cream' })];
+test('#8270: a header or @-word for an agent off the project says so, and how to reach them; nobody is typed to', () => {
+  const head = post('Leo -> Homer: please check the Windows job', WITH_OUTSIDER());
+  assert.deepEqual(head.addressed, [], 'CONTROL: an outsider was typed to');
+  assert.equal(head.note, 'homer is not on this project, so this post did not reach them. To reach them: kosmos msg homer.');
+  assert.equal(Object.keys(head.sent).pop(), 'ambiguousNote', 'the note is no longer the last key, which kosmos post reads anchored');
+  const at = post('@homer can you look', WITH_OUTSIDER());
+  assert.equal(at.note, 'homer is not on this project, so this post did not reach them. To reach them: kosmos msg homer.');
+  // A display name is what is shown, the session name what is typed.
+  assert.equal(post('Leo -> Ice Cream: hello', WITH_OUTSIDER()).note, 'Ice Cream is not on this project, so this post did not reach them. To reach them: kosmos msg icecream.');
+});
+test('#8270: a header name no agent here has is said without a command; a member beside it is still reached', () => {
+  const r = post('Leo -> Pat Smith, Kano: the numbers', WITH_OUTSIDER());
+  assert.deepEqual(r.addressed, ['kano'], 'the member beside the outsider was not reached');
+  assert.equal(r.note, 'Pat Smith is not on this project, so this post did not reach them. Add them to the project, or reach them another way.');
+});
+test('#8270: nothing is said for what is not clearly someone off the project (controls)', () => {
+  for (const text of ['Leo -> Kano: the numbers', 'Leo -> all: the numbers', 'Leo -> the team: the numbers', 'a note for later: nothing here',
+    'no address at all', '@notanagent please', 'see `@homer` in the log', '@kano please']) {
+    assert.equal(post(text, WITH_OUTSIDER()).note, undefined, text);
+  }
+});
+test('#8270: an outsider beside an ambiguous word gets both sentences, in one note', () => {
+  const agents = [...CLASH(), fleet.agent('homer', { state: 'idle' })];
+  const r = post('@Sub-Zero and @homer please', agents, CLASH_ROOM);
+  assert.match(r.note, /^@Sub-Zero could mean .* homer is not on this project, so this post did not reach them\. To reach them: kosmos msg homer\.$/, r.note);
+});
+test('#8270: a person\'s own post gets no such note (their page shows who is on the project)', () => {
+  const board = fleet.install(WITH_OUTSIDER());
+  try {
+    messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    arm();
+    const sent = messages.sendPost({ operator: true, project: PROJECT, text: '@homer please' }, board.agents, MEMBERS);
+    assert.equal(sent.ambiguousNote, undefined);
+  } finally { board.restore(); }
+});
+
 test('#4653: when the post also names one of them exactly, the note says only who was not asked', () => {
   const r = post('@Sub-Zero and @frost please', CLASH(), CLASH_ROOM);
   assert.deepEqual(r.addressed, ['frost']);

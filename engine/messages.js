@@ -2503,6 +2503,45 @@ function ambiguousNote(ambiguous, mentioned, shown) {
   return out.join(' ');
 }
 
+/* kosmos#8270: the sentence that tells an agent its post addressed someone who is not on this project, so it reached
+   them nowhere (a colleague's request sat unread until it was passed on by hand). Reads a post the way addressedMembers
+   does, and names only what is clearly a person: a name in a "Sender -> Name:" header that resolves to no member, or a
+   header name or @-word that resolves to an agent on this board outside the project. So "-> the team:", a "for" header
+   and an @-word that is no agent's name say nothing. Never throws; '' when there is nothing to say. Printed by both CLIs
+   through the post answer's ambiguousNote, so the same rules as that sentence apply (printableName). */
+function outsidersNote(cleaned, recipients, roster, from, raw) {
+  try {
+    const members = Array.isArray(recipients) ? recipients : [];
+    const cards = Array.isArray(roster) ? roster : [];
+    const outside = cards.map((c) => c && c.sessionName).filter((s) => typeof s === 'string' && s && !members.includes(s) && s !== from);
+    const found = new Map();   // what the sentence names -> the handle to reach it with, or ''
+    const known = (word) => {
+      const hit = targetResolves(word, outside, roster);
+      if (hit.length !== 1) return false;
+      const card = cards.find((c) => c && c.sessionName === hit[0]);
+      const shown = printableName(card && card.name) || printableName(hit[0]);
+      if (shown) found.set(shown, /^[A-Za-z0-9._-]+$/.test(hit[0]) ? hit[0] : '');
+      return true;
+    };
+    const poster = from === undefined || from === null ? [] : [String(from)];
+    const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => !h.word || nameResolves(h.sender, poster, roster).length);
+    for (const part of head ? head.targets : []) {
+      const bare = part.replace(/^@/, '');
+      if (/^(all|everyone)$/i.test(bare) || targetResolves(bare, members, roster).length || known(bare)) continue;
+      // Only an arrow header names people for certain ("for" and "to" headers are ordinary sentences too), and only a
+      // capitalised run is a name ("-> the team:" is not).
+      const name = head.word ? '' : printableName((/^(?:[A-Z][\w.'-]*(?:\s+|$)){1,3}/.exec(bare) || [''])[0]);
+      if (name && !found.has(name)) found.set(name, '');
+    }
+    for (const m of String(cleaned || '').replace(/`[^`]*`/g, ' ').matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
+      const word = m[2].replace(/[._-]+$/, '');
+      if (word && !/^(all|everyone)$/i.test(word) && !targetResolves(word, members, roster).length) known(word);
+    }
+    return [...found].map(([name, handle]) => name + ' is not on this project, so this post did not reach them. '
+      + (handle ? 'To reach them: kosmos msg ' + handle + '.' : 'Add them to the project, or reach them another way.')).join(' ');
+  } catch { return ''; }
+}
+
 function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
@@ -2842,7 +2881,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       // but it is still the post this reply answers, so the guard must find it, as the reply path does).
       ((rows) => (answered && answered.pending === true && !rows.includes(answered) ? rows.concat([answered]) : rows))(withPending(log, projectId)),
       projectId, recipients).length === 0;
-  const note4653 = ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '';
+  /* kosmos#8270: an agent's post that addressed someone off the project is told so, in the same sentence slot. */
+  const note4653 = [ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '',
+    operator === true ? '' : outsidersNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
@@ -5003,5 +5044,5 @@ module.exports = {
   suspectedMisrouteCount, confirmedNewPostCount,
   resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, roomHeld, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
-  setRunner, resetForTests, mentionedMembers, addressedMembers, reachedCount, ambiguousNote,
+  setRunner, resetForTests, mentionedMembers, addressedMembers, reachedCount, ambiguousNote, outsidersNote,
 };
