@@ -124,7 +124,6 @@ final class KeyboardSlideUITests: XCTestCase {
     // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP moves
     // the reader up the thread 3 s after opening, as a reader's own scroll does.
     func testReadHigherUpStaysWhereItWas() throws {
-        if UIKitListArm.on { throw XCTSkip("a reader higher up keeping their place is a later slice of kosmos#8221") }
         let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
@@ -201,7 +200,6 @@ final class KeyboardSlideUITests: XCTestCase {
     // kosmos#7817: a reader higher up is not pulled to the newest message as the box grows (only one at the newest is).
     // A regression guard for the follow's own condition (it passes with the follow off too).
     func testReadHigherUpStaysWhileTheBoxGrows() throws {
-        if UIKitListArm.on { throw XCTSkip("a reader higher up keeping their place is a later slice of kosmos#8221") }
         let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_BOXFOLLOW": "1"])
         let box = Self.box(app)
         let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))

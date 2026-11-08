@@ -5,8 +5,9 @@ import UIKit
 // behind ChatView.uikitList. Measured on the simulator 11-07 (batch 1 and 2 on #8221): the lazy SwiftUI list drew nothing
 // in 15 of 15 box-flip runs and needed a rebuild in 8 of 30; this list showed text in every one of 2,490 samples and never
 // rebuilt. Slice 1 (.claude/plans/uikitlist-s1-8221.md): it opens at the newest message and stays there while the reader
-// is there, whatever changes (new rows, a row growing, the box or the keyboard taking room). A reader the person moved
-// higher up is left where they are; keeping their exact place as rows land above is a later slice.
+// is there, whatever changes (new rows, a row growing, the box or the keyboard taking room). Slice 3
+// (.claude/plans/uikitlist-s3-8221.md): a reader the person moved higher up keeps their exact place, the row at the top of
+// the screen held at the same height, as rows land or drop off above it and as the box or the keyboard takes room.
 struct ChatList: UIViewRepresentable {
     // The cells top to bottom: messages, then sends on their way, then the working line, then the room at the end.
     let ids: [String]
@@ -40,8 +41,14 @@ struct ChatList: UIViewRepresentable {
         var ids: [String] = []
         var newest = 0
         // At the newest message: the list is kept at its end through every change until the person scrolls away.
-        var atEnd = true { didSet { if atEnd != oldValue { let v = atEnd; DispatchQueue.main.async { [weak self] in self?.told?(v) } } } }
+        var atEnd = true { didSet {
+            if atEnd { place = nil }
+            if atEnd != oldValue { let v = atEnd; DispatchQueue.main.async { [weak self] in self?.told?(v) } }
+        } }
         var pinning = false
+        // A reader higher up: the highest row on screen and how far below the top of the list it is drawn. Held through every
+        // change; taken again when the person scrolls, and on the next layout after a scroll by code (nil until then).
+        var place: (id: String, dy: CGFloat)?
 
         func configure(_ c: UICollectionViewCell, _ id: String) {
             guard let cell else { return }
@@ -74,6 +81,7 @@ struct ChatList: UIViewRepresentable {
             }
             ChatList.sampleUpDone = true
             atEnd = false
+            place = nil
             list.scrollToItem(at: ip, at: .top, animated: false)
             ChatView.trace("uikit list: debug scroll-up done")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { rested?() }
@@ -88,18 +96,50 @@ struct ChatList: UIViewRepresentable {
         func scrollViewDidScroll(_ sv: UIScrollView) {
             guard sv.isTracking || sv.isDragging || sv.isDecelerating else { return }
             atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
+            place = nil
         }
-        func scrollViewDidEndDecelerating(_ sv: UIScrollView) { atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack }
-        func scrollViewDidEndDragging(_ sv: UIScrollView, willDecelerate: Bool) {
-            if !willDecelerate { atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack }
+        func scrollViewDidEndDecelerating(_ sv: UIScrollView) { scrolled(sv) }
+        func scrollViewDidEndDragging(_ sv: UIScrollView, willDecelerate: Bool) { if !willDecelerate { scrolled(sv) } }
+        func scrollViewDidScrollToTop(_ sv: UIScrollView) { scrolled(sv) }   // a tap on the status bar
+        func scrolled(_ sv: UIScrollView) {
+            atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
+            if !atEnd { place = top() }
+        }
+
+        // The highest row on screen (any part of it below the top of the list) and its distance below that top, from the
+        // rows drawn now. `keep`, when given, skips rows that are not in it: a row about to go cannot hold the place.
+        func top(keep: Set<String>? = nil) -> (id: String, dy: CGFloat)? {
+            guard let list, let source else { return nil }
+            let edge = list.contentOffset.y + list.adjustedContentInset.top
+            for ip in list.indexPathsForVisibleItems.sorted() {
+                guard let a = list.layoutAttributesForItem(at: ip), a.frame.maxY > edge,
+                      let id = source.itemIdentifier(for: ip), keep?.contains(id) ?? true else { continue }
+                return (id, a.frame.minY - list.contentOffset.y)
+            }
+            return nil
+        }
+
+        // A reader higher up put back where they were: the held row at its old distance below the top of the list, within the
+        // list's own range. A held row that is gone leaves the offset as it is until the next place is taken.
+        func hold() {
+            guard let list, let source, let p = place, let ip = source.indexPath(for: p.id),
+                  let a = list.layoutAttributesForItem(at: ip) else { return }
+            let y = min(max(a.frame.minY - p.dy, -list.adjustedContentInset.top), maxY(list))
+            guard abs(list.contentOffset.y - y) > 0.5 else { return }
+            pinning = true
+            list.contentOffset = CGPoint(x: 0, y: y)
+            pinning = false
         }
 
         // After every layout: a reader at the newest message is put back at the end wherever the offset is. Never under the
         // person's finger or fling.
+        // A reader higher up is held at their place (taken here first if a scroll by code left none). Neither under the
+        // person's finger or fling.
         func laidOut() {
             guard let list, !pinning else { return }
-            guard atEnd, list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
-            pin()
+            guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
+            if atEnd { pin(); return }
+            if place == nil { place = top() } else { hold() }
         }
 
         func pin() {
@@ -133,6 +173,8 @@ struct ChatList: UIViewRepresentable {
                 s = source.snapshot()
             }
             let kept = Set(now)
+            // A reader higher up whose top row is about to go holds the next row on screen that stays, as it is drawn now.
+            if !atEnd, let p = place, !kept.contains(p.id) { place = top(keep: kept) }
             let again = shown.filter { kept.contains($0) }
             if !again.isEmpty { s.reconfigureItems(again) }
             source.apply(s, animatingDifferences: false)

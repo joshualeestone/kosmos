@@ -2,7 +2,8 @@ import XCTest
 
 // kosmos#8221 slice 2: the New messages capsule, on both lists (UIKitListArm). For a reader higher up it shows as messages
 // arrive, and pressing it takes them to the newest message and goes away. A reader at the newest message never gets it.
-// Keeping a higher-up reader's exact place as rows come and go above is not checked here (slice 3). KOSMOS_SAMPLE_GROW brings one new message per read of the chat
+// Slice 3: a higher-up reader keeps their exact place as rows come and go above (testAReaderHigherUpKeepsTheirPlace...).
+// KOSMOS_SAMPLE_GROW brings one new message per read of the chat, and drops the oldest
 // ("New message <n> after the window slid."), so arrivals come on the chat's own reads, as a busy agent's do.
 // Two ways up: KOSMOS_SAMPLE_SCROLLUP (a fixed place, set by the app itself) and a real drag down the chat (which goes
 // through the list's own reading of the person's scroll).
@@ -117,6 +118,30 @@ final class NewMessagesUITests: XCTestCase {
         let after = Self.newestGrown(app)
         XCTAssertFalse(after?.element.isHittable ?? false, "CONTROL: New message \(after?.n ?? 0) is on screen after the drags")
         checkCapsule(app, shot: "capsule-drag")
+    }
+
+    // kosmos#8221 slice 3: every read drops the oldest message off the top and adds one at the end, and a reader higher up
+    // stays exactly where they were: the highest row on screen at the same height, within 4 pt, read every second for 15 s.
+    // The capsule showing is the control that arrivals came in that time (it shows only as messages arrive).
+    func testAReaderHigherUpKeepsTheirPlaceAsRowsComeAndGo() {
+        let app = Self.launch(["KOSMOS_SAMPLE_SCROLLUP": "40"])
+        let rested = app.descendants(matching: .any).matching(identifier: "sample-scroll-rested").firstMatch
+        XCTAssertTrue(rested.waitForExistence(timeout: 30), "CONTROL: the sample scroll-up never came to rest")
+        let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
+        KeyboardSlideUITests.settle(rows.firstMatch)
+        let header = app.navigationBars.firstMatch.frame.maxY
+        guard let top = rows.allElementsBoundByIndex.filter({ $0.isHittable && $0.frame.minY > header }).min(by: { $0.frame.minY < $1.frame.minY }) else {
+            XCTFail("no row on screen after the scroll up"); return
+        }
+        let row = app.staticTexts.matching(NSPredicate(format: "label == %@", top.label)).firstMatch
+        let y0 = row.frame.minY
+        for s in 1...15 {
+            Thread.sleep(forTimeInterval: 1)
+            XCTAssertTrue(row.exists && row.isHittable, "after \(s) s: '\(top.label)', read higher up, left the screen as messages came and went")
+            XCTAssertEqual(row.frame.minY, y0, accuracy: 4, "after \(s) s: '\(top.label)' moved from \(Int(y0)) to \(Int(row.frame.minY)) as messages came and went")
+        }
+        XCTAssertTrue(Self.capsule(app).exists, "CONTROL: no New messages capsule, so no message arrived during the check")
+        let a = XCTAttachment(screenshot: app.screenshot()); a.name = "kept-place"; a.lifetime = .keepAlways; add(a)
     }
 
     // The control: the same arrivals, the reader left at the newest message. Each shows, and the capsule never does, not even
