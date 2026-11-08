@@ -223,12 +223,13 @@ test('#8270 review 1: a terminal session that is not one of our agents, a word o
   assert.equal(post('@cream please', WITH_OUTSIDER()).note, undefined, 'one word of a display name after @ named an agent');
   assert.equal(post('Leo -> Cream: please', WITH_OUTSIDER()).note, undefined, 'one word of a display name in a header named an agent');
   assert.equal(post('Leo -> Homer on m702: please', WITH_OUTSIDER()).note, HOMER, 'CONTROL: the words after a whole name lost it');
-  assert.equal(post('Leo -> Sub-Zero: hello', CLASH(), CLASH_ROOM).note, undefined, 'a name two members share was called off the project');
   // The guard's real case: two members share the name and an agent off the project has it too.
   const twins = [fleet.agent('leo', { state: 'idle' }), fleet.agent('a1', { state: 'idle', displayName: 'Twin' }), fleet.agent('a2', { state: 'idle', displayName: 'Twin' }),
     fleet.agent('a3', { state: 'idle', displayName: 'Twin' }), fleet.agent('homer', { state: 'idle' })];
   const room = ['leo', 'a1', 'a2'];
   assert.equal(post('Leo -> Twin: hello', twins, room).note, undefined, 'a name members answer to was reported as the outsider\'s');
+  assert.equal(post('Leo -> Twin on m702: hello', twins, room).note, undefined, 'the words after a name got past the guard');
+  assert.equal(post('@twin hello', twins, room).note, undefined, 'an @-word members answer to was reported as the outsider\'s');
   assert.equal(post('Leo -> Homer: hello', twins, room).note, HOMER, 'CONTROL: an outsider with no shared name went unsaid');
 });
 test('#8270: an outsider beside an ambiguous word gets both sentences, in one note', () => {
