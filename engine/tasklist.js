@@ -16,6 +16,8 @@
  * (GET /api/tasks?state=), so the rows are the board's, never filtered here.
  */
 
+const { localStamp } = require('./localstamp');
+
 /** The flags, and the board group each asks for. */
 const COMPACT = { open: 'open', blocked: 'held', built: 'built' };
 
@@ -301,7 +303,6 @@ function automountsHere(platform) {
   try {
     if (platform === 'win32') return new Set();
     if (platform === 'darwin') {
-const { localStamp } = require('./localstamp');
       const out = require('node:child_process').execFileSync('/sbin/mount', [], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
       const found = new Set();
       for (const line of out.split('\n')) {
