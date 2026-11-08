@@ -223,7 +223,8 @@ test('#8270 review 1: a terminal session that is not one of our agents, a word o
   assert.equal(post('@cream please', WITH_OUTSIDER()).note, undefined, 'one word of a display name after @ named an agent');
   assert.equal(post('@all please', [...FLEET(), fleet.agent('all', { state: 'idle' })]).note, undefined, 'a broadcast was reported as an agent named all');
   assert.equal(post('Leo -> Cream: please', WITH_OUTSIDER()).note, undefined, 'one word of a display name in a header named an agent');
-  assert.equal(post('Leo -> Homer on m702: please', WITH_OUTSIDER()).note, HOMER, 'CONTROL: the words after a whole name lost it');
+  assert.equal(post('Leo -> Homer on m702: please', WITH_OUTSIDER()).note, undefined, 'a run of leading words named an agent (review 5)');
+  assert.equal(post('Leo -> Homer team: please', WITH_OUTSIDER()).note, undefined, 'a phrase starting with an agent name named it');
   // The guard's real case: two members share the name and an agent off the project has it too.
   const twins = [fleet.agent('leo', { state: 'idle' }), fleet.agent('a1', { state: 'idle', displayName: 'Twin' }), fleet.agent('a2', { state: 'idle', displayName: 'Twin' }),
     fleet.agent('a3', { state: 'idle', displayName: 'Twin' }), fleet.agent('homer', { state: 'idle' })];
