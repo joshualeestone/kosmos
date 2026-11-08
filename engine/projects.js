@@ -4102,7 +4102,8 @@ function rulesChangedIn(oldText, newText, sessionName) {
   if (pieces.some((p) => now.includes(p.join('\n')) && !old.includes(p.join('\n')))) return true;
   // kosmos#8236 review 1: a project that became a test project is read again, as a pause is: the room is not told of
   // one set on the screen, and an agent already running would otherwise keep making plans of its own until it restarts.
-  if (now.includes(TEST_PROJECT_LINE) && now.split(TEST_PROJECT_LINE).length > old.split(TEST_PROJECT_LINE).length) return true;
+  // Review 2: and one that stopped being one, as a resume is told: the agent would otherwise keep holding back.
+  if (now.split(TEST_PROJECT_LINE).length !== old.split(TEST_PROJECT_LINE).length) return true;
   const holds = holdsOf(old);
   for (const [task, marks] of holdsOf(now)) {
     const had = holds.get(task);
