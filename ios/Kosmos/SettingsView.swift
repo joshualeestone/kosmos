@@ -256,8 +256,7 @@ struct SettingsView: View {
 
     // MARK: The board's own Settings
 
-    // kosmos#8221 slice 5: the UIKit chat list, chosen here for the phone's reports to compare the two lists. Off by default;
-    // ChatView reads it once when a chat opens.
+    // kosmos#8221 slice 5: the UIKit chat list, chosen here. Off by default; ChatView reads it when a chat opens.
     private var chat: some View {
         Section {
             Toggle("New chat list", isOn: $newChatList).foregroundColor(Palette.primary)
