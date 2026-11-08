@@ -335,11 +335,10 @@ function automountsHere(platform) {
  * drive has now, refused too, since nothing there can be checked and opening it is not needed to say so. A share on
  * THIS computer is refused as well (placeOf reads it as local; this check never opens a network drive at all).
  *
- * driveKind: a windrives entry as one verdict, 'local', 'network', 'absent', 'old' (the CLI's marker for an install whose
- * windrives cannot tell, DRIVE_KINDS_OLD) or 'unknown' (null, or a kind this does not know). The CLI and task files both
+ * driveKind: a windrives entry as one verdict, 'local', 'network', 'absent', 'old' (the CLI's entry { kind: 'old' } for an
+ * install whose windrives cannot tell) or 'unknown' (null, or a kind this does not know). The CLI and task files both
  * read it, so the two never disagree.
  */
-const DRIVE_KINDS_OLD = Object.freeze({ kind: 'old', share: null });
 function driveKind(info) {
   const k = info && info.kind;
   return k === 'local' ? 'local' : k === 'remote' ? 'network' : k === 'absent' ? 'absent' : k === 'old' ? 'old' : 'unknown';
@@ -545,4 +544,4 @@ if (require.main === module) {
   process.exit(out.rc);
 }
 
-module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, driveKind, driveRefusal, DRIVE_KINDS_OLD, seenWords, STALE_DAYS_DEFAULT: 7 };
+module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, driveKind, driveRefusal, seenWords, STALE_DAYS_DEFAULT: 7 };
