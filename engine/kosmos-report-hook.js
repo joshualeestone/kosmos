@@ -328,7 +328,8 @@ function timeoutFor(report) {
    - no board at the address (it is not running, or is mid-restart): retried, not noted;
    - a board that did not answer the proof in time (too busy): noted at once, not retried, so a stall gets no second
      send from every agent;
-   - anything else: retried once after a pause, and noted when the second try is lost too.
+   - anything else: retried once after a pause, and noted when the second try is lost too;
+   - a board serving another Kosmos (421 wrongWorld): neither, as the hook is already silent on it (#1704).
    The note goes in the bash hook's file (turn-end-failures.log in the throttle folder), capped the same way; its line
    names the agent's throttle key and the reason, where the bash line names the pane and the CLI's exit code.
    Only an agent's own session (it carries an agent token) gets any of this: the person's own Claude sessions run
