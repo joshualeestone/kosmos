@@ -9,19 +9,26 @@ Windows job of PR #8220 ran the same file green in 438 s, so those durations are
 failed at 362 s, a file that starts a PowerShell for each of 54 arms ran in 28 s, so PowerShell was starting promptly.
 
 ## The cause, as far as it can be seen from here
-holdExclusively's PowerShell makes ONE attempt: [IO.File]::Open(file, Open, Read, None). FileShare.None fails at once if
-anything else has the file open at that moment. The script then ends, and the test polls 30 s for a hold that can no
-longer come. Measured with pwsh on this Mac: while another process holds the file, the old one-shot form dies with a
-MethodInvocationException, and the retrying form gets the hold once it is free. The lock file is freshly written just
-before the hook, which is when a scanner on a Windows runner would have it open.
+holdExclusively's PowerShell made ONE attempt: [IO.File]::Open(file, Open, Read, None). FileShare.None fails at once if
+anything else has the file open at that moment, and the one opener the code guarantees is the helper's own poll, which
+opens the lock with fs.readFileSync every 50 ms from the moment the child starts. A failed .NET call does not end a
+PowerShell script: it went on to its long sleep holding nothing (measured with pwsh), and the test ran out its wait.
 
 ## The call
-The holder's script retries the open every 50 ms for up to 25 s, inside the test's existing 30 s wait. Test-only; no
-product code. Nothing else in the three holdExclusively callers changes.
+One shared script (holdScript) for the holder and the skip probe, which had the same one-shot open and could silently
+skip both tests. It retries the open every 50 ms for up to 25 s. It writes how far it got to a state file in the
+sandbox ("started, no hold yet", "held", "no hold in 25 s"), and the failure names that and the last read, so a
+recurrence can be told apart: never started, no hold in 25 s, or something else. The wait is 60 s (HOLD_WAIT_MS),
+to cover the file's documented stall of about 34 s plus the 25 s retry. Test-only; no product code.
 
-Rejected: raising the 30 s limit (it waits on a script that has already ended, so more time buys nothing).
+Measured with pwsh, from the generated script: with the file free and an apostrophe in its path it records "held";
+with another process holding the file throughout, it records "no hold in 25 s".
 
 ## Weakest premise
-What held the file open on the runner is inferred, not observed: the log has only the final error. The test is
-WINDOWS_ONLY, so it cannot run here; the Windows CI job is its check. If the red recurs with this change, the retry
-ran 25 s against something holding the lock throughout, and the next step is to log what the open threw.
+What collided with the open on the runner is inferred, not observed: the old log has only the final error. The poll
+is the likeliest. The test is WINDOWS_ONLY, so it cannot run here; the Windows CI job is its check. If the red recurs,
+the new message says which case it was.
+
+## Review round 1
+Corrected: the failed open did not end the script (it slept holding nothing); the guaranteed opener is the poll, not a
+scanner; the probe needed the same retry; a recurrence needed to say which case it was; the wait now covers a stall.
