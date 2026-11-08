@@ -28,7 +28,7 @@ const evt = (name) => JSON.stringify({ hook_event_name: name, session_id: 's' })
 const reply = (body, status) => ({ ok: (status || 200) < 300, status: status || 200, text: async () => body });
 
 /* One hook run: proofs answer from `proofs` in turn (true, or { ok, why }), fetches from `answers` in turn. */
-async function run(event, { proofs = [true, true], answers = [], env = { KOSMOS_AGENT_TOKEN: AGENT } } = {}) {
+async function run(event, { proofs = [true, true], answers = [], env = { KOSMOS_AGENT_TOKEN: AGENT }, timeoutMs, noRetry } = {}) {
   const throttleDir = fs.mkdtempSync(path.join(SANDBOX, 'thr-'));
   const asked = [];
   const sent = [];
@@ -37,7 +37,7 @@ async function run(event, { proofs = [true, true], answers = [], env = { KOSMOS_
   const slept = [];
   await hook.main({
     input: evt(event), env, uid: -1, url: 'http://127.0.0.1:1', boardToken: BOARD, platform: 'win32', ppid: 4242,
-    throttleDir, now: () => 1000, stdout: () => {}, retryPauseMs: 5,
+    throttleDir, now: () => 1000, stdout: () => {}, retryPauseMs: 5, timeoutMs, noRetry,
     sleep: async (ms) => { slept.push(ms); },
     proveBoard: async (url, token, timeoutMs) => { asked.push(timeoutMs); return proofs[pi++]; },
     fetchImpl: async (u, init) => { sent.push(JSON.parse(init.body).state); return answers[fi++] || reply('{"recorded":true}'); },
@@ -47,16 +47,21 @@ async function run(event, { proofs = [true, true], answers = [], env = { KOSMOS_
   return { asked, sent, slept, note, throttleDir };
 }
 
-test('kosmos#8230: Stop, StopFailure and SessionEnd end a turn and get the full window; other reports do not', () => {
-  for (const e of ['Stop', 'StopFailure', 'SessionEnd']) {
-    const r = hook.reportFor({ hook_event_name: e });
-    assert.equal(r.turnEnd, true, e + ' is not marked as a turn end');
-    assert.equal(hook.timeoutFor(r), hook.DEFAULT_TIMEOUT_MS, e + ' does not get the full window');
+test('kosmos#8230: only Stop is a turn end, as the bash hook sends only Stop through report_turn_end', () => {
+  assert.equal(hook.reportFor({ hook_event_name: 'Stop' }).turnEnd, true);
+  for (const e of ['StopFailure', 'SessionEnd', 'UserPromptSubmit']) {
+    assert.equal(hook.reportFor({ hook_event_name: e }).turnEnd, undefined, e + ' is marked as a turn end');
   }
-  const prompt = hook.reportFor({ hook_event_name: 'UserPromptSubmit' });
-  assert.equal(prompt.turnEnd, undefined);
-  assert.equal(hook.timeoutFor(prompt), hook.SHORT_TIMEOUT_MS, 'CONTROL: a prompt keeps the short window');
   assert.equal(hook.buildBody(hook.reportFor({ hook_event_name: 'Stop' })).turnEnd, undefined, 'the mark went on the wire');
+});
+
+test('kosmos#8230: an agent\'s Stop gets the full window; the person\'s own Stop and an agent\'s SessionEnd keep the short one', async () => {
+  const agent = await run('Stop');
+  assert.ok(agent.asked[0] > hook.SHORT_TIMEOUT_MS / 2 && agent.asked[0] <= hook.DEFAULT_TIMEOUT_MS / 2, 'agent Stop proof window: ' + agent.asked[0]);
+  const person = await run('Stop', { env: {} });
+  assert.ok(person.asked[0] <= hook.SHORT_TIMEOUT_MS / 2, 'the person\'s Stop got the long window: ' + person.asked[0]);
+  const end = await run('SessionEnd');
+  assert.ok(end.asked[0] <= hook.SHORT_TIMEOUT_MS / 2, 'SessionEnd got the long window: ' + end.asked[0]);
 });
 
 test('kosmos#8230: CONTROL, a turn end that lands is sent once, asked once, and leaves no note', async () => {
@@ -100,9 +105,9 @@ test('kosmos#8230: no board at the address is retried but not noted (closed, or 
 });
 
 test('kosmos#8230: a not-recorded answer is retried and noted; the board\'s own keep and a stranger are neither', async () => {
-  const lost = await run('SessionEnd', { answers: [reply('{"recorded":false,"because":"we could not save that report"}'), reply('{"recorded":false,"because":"we could not save that report"}')] });
-  assert.deepEqual(lost.sent, ['stopped', 'stopped']);
-  assert.match(lost.note || '', /stopped not delivered after a retry: the board did not record it \(we could not save that report\)/);
+  const lost = await run('Stop', { answers: [reply('{"recorded":false,"because":"we could not save that report"}'), reply('{"recorded":false,"because":"we could not save that report"}')] });
+  assert.deepEqual(lost.sent, ['idle', 'idle']);
+  assert.match(lost.note || '', /idle not delivered after a retry: the board did not record it \(we could not save that report\)/);
 
   const kept = await run('Stop', { answers: [reply('{"recorded":false,"skipped":"waiting","because":"it is waiting on a person, so an automatic idle did not overwrite it"}')] });
   assert.deepEqual(kept.sent, ['idle'], 'the board\'s keep was retried');
@@ -113,10 +118,10 @@ test('kosmos#8230: a not-recorded answer is retried and noted; the board\'s own 
   assert.equal(stranger.note, null);
 });
 
-test('kosmos#8230: a session with no agent token (the person\'s own Claude) retries but never notes', async () => {
+test('kosmos#8230: a session with no agent token (the person\'s own Claude) neither retries nor notes, as on the Mac', async () => {
   const bad = { ok: false, why: 'answer is not a proof' };
   const r = await run('Stop', { proofs: [bad, bad], env: {} });
-  assert.equal(r.asked.length, 2);
+  assert.equal(r.asked.length, 1, 'the person\'s own Stop was retried');
   assert.equal(r.note, null);
   const control = await run('Stop', { proofs: [bad, bad] });
   assert.notEqual(control.note, null, 'CONTROL: the same loss in an agent session is noted');
@@ -155,4 +160,26 @@ test('kosmos#8230: the board names its skip and logs an automatic turn end it re
   assert.match(route.slice(0, 20000), /skipped: String\(kept\.skipped\)/, 'the record\'s skip is not named in the answer');
   const refusals = route.slice(0, 20000).match(/noteTurnEndRefusal\(body, /g) || [];
   assert.equal(refusals.length, 2, 'the roster and sender refusals should both log a refused turn end');
+  assert.match(route.slice(0, 3000), /if \(!req\.headers\['x-kosmos-agent-token'\]\) return;/, 'the board log is not limited to agent-token requests');
+});
+
+test('kosmos#8230: a caller that does not wait for the hook (noRetry) sends once and notes nothing', async () => {
+  const bad = { ok: false, why: 'answer is not a proof' };
+  const r = await run('Stop', { proofs: [bad, bad], noRetry: true });
+  assert.equal(r.asked.length, 1, 'a noRetry Stop was retried');
+  assert.equal(r.note, null);
+  const src = fs.readFileSync(path.join(__dirname, 'win32codexsup.js'), 'utf8');
+  assert.match(src, /hook_event_name: 'Stop' \}\), env, stdout: \(\) => \{\}, noRetry: true \}/, 'the supervisor\'s in-process idle does not pass noRetry');
+});
+
+test('kosmos#8230: lost with no time left to retry is noted as such', async () => {
+  const r = await run('Stop', { proofs: [{ ok: false, why: 'answer is not a proof' }, true], timeoutMs: 900 });
+  assert.equal(r.asked.length, 1, 'retried with under a second left');
+  assert.match(r.note || '', /idle not delivered \(no time left to retry\): /);
+});
+
+test('kosmos#8230: a retry that meets a busy board is noted after a retry', async () => {
+  const r = await run('Stop', { proofs: [{ ok: false, why: 'answer is not a proof' }, { ok: false, why: 'timed out' }] });
+  assert.equal(r.asked.length, 2);
+  assert.match(r.note || '', /idle not delivered after a retry: the board did not answer in time/);
 });

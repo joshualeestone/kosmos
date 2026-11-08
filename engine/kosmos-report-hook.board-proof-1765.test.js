@@ -170,7 +170,7 @@ test('#1765: no production caller hands main a fetch of its own (which would sta
   // The hook's own entry: the event only.
   assert.match(src('kosmos-report-hook.js'), /const run = \(input\) => main\(\{ input \}\)/);
   // The Codex supervisor's idle report: the event, its env and a quiet stdout, nothing else.
-  assert.match(src('win32codexsup.js'), /require\('\.\/kosmos-report-hook'\)\s*\.main\(\{ input: JSON\.stringify\(\{ hook_event_name: 'Stop' \}\), env, stdout: \(\) => \{\} \}\)\)/);
+  assert.match(src('win32codexsup.js'), /require\('\.\/kosmos-report-hook'\)\s*\.main\(\{ input: JSON\.stringify\(\{ hook_event_name: 'Stop' \}\), env, stdout: \(\) => \{\}, noRetry: true \}\)\)/);
   // Nothing else outside the tests calls main, anywhere in the repo (kosmos#6464: not only engine/*.js).
   assert.deepEqual(reportHookMainCallers(), ['engine/win32codexsup.js']);
 });

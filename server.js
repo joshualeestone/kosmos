@@ -19170,11 +19170,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/report' && req.method === 'POST') {
-    /* kosmos#8230: an AUTOMATIC report that ends a turn (idle, stopped, or the provider's blocked), refused before it
-       reaches the record, says so in the board log: the card it was for stays on "working", and nothing else would
-       tell why. Reports an agent sends itself are answered to it directly, so they are not logged. */
+    /* kosmos#8230: an agent's AUTOMATIC turn end (idle, stopped, or the provider's blocked), refused before it reaches
+       the record, says so in the board log: the card it was for stays on "working", and nothing else would tell why.
+       Only a request carrying an agent token: the person's own Claude sessions send a turn end the board cannot tie to
+       an agent on every turn, by design, and a line for each would bury the real loss. A report an agent sends itself
+       is answered to it directly, so it is not logged either. */
     const noteTurnEndRefusal = (body, why) => {
       if (!body || body.auto !== true || !['idle', 'stopped', 'blocked'].includes(body.state)) return;
+      if (!req.headers['x-kosmos-agent-token']) return;
       try { process.stdout.write('report: refused an automatic ' + body.state + ' (' + String(why || '').replace(/[\r\n]+/g, ' ') + ')\n'); } catch { /* logging never refuses a report */ }
     };
     /* #188's third verb: records rather than delivers. The agent says what

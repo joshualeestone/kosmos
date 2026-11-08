@@ -9,18 +9,23 @@ SessionStart speaks) and exits 0. The board also answers two early refusals of /
 kosmos#7977 gave the Mac's bash hook (install/kosmos-report-hook.sh, report_turn_end) a retry and a
 turn-end-failures.log. The Windows JS hook (engine/kosmos-report-hook.js) never got it. This branch gives it the same
 rules:
-- a turn end (Stop, StopFailure, SessionEnd) is marked `turnEnd` and gets the 8 s window (proof 4 s);
+- Stop is marked `turnEnd`, as the bash hook routes only Stop through report_turn_end (StopFailure and SessionEnd keep
+  the single short send);
+- an agent's Stop (an agent token, and a caller that waits for the hook) gets the 8 s window (proof 4 s) and the rules
+  below; the person's own sessions keep the single 3 s send, and the Windows supervisor's in-process idle
+  (engine/win32codexsup.js, not awaited) passes noRetry so a late retry cannot land after the next turn's working;
 - the board's keep (`skipped`), a report it cannot tie to an agent, another account's: no retry, no note;
 - no board at the address: retried after 2 s, not noted;
 - proof timed out (busy): noted at once, not retried;
 - anything else: retried after 2 s, noted when lost again;
-- only a session with an agent token notes;
-- note: one line in <throttle folder>/turn-end-failures.log, capped past 400 lines to the last 200.
+- note: one line in <throttle folder>/turn-end-failures.log, capped past 400 lines to the last 200 (the bash hook's
+  file and cap; the line names the agent's throttle key and the reason, not a pane and an exit code).
 
 ## Board side (server.js POST /api/report)
 - a not-recorded answer from the record carries `skipped` when the record kept a standing wait;
 - an automatic idle/stopped/blocked refused before the record (roster unreadable, sender not resolved) writes one
-  line to the board log.
+  line to the board log, only for a request carrying an agent token (the person's own sessions are refused by
+  design on every turn).
 
 ## Tests
 engine/kosmos-report-hook.turnend-8230.test.js: each outcome with its control, the note's shape and cap, the window,
