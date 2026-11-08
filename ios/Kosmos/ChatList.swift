@@ -125,14 +125,33 @@ struct ChatList: UIViewRepresentable {
                 movedAt = CACurrentMediaTime()
             }
         }
+        // Whether the person has put a finger on the list since a scroll last ended.
+        var dragged = false
+        // Where the reader was last at the end (this list's pin or hold, or a scroll of theirs ending there): a scroll the
+        // person did not make that ends there or further down has not taken the reader away from the newest message.
+        var pinnedY: CGFloat = -.greatestFiniteMagnitude
+        func scrollViewWillBeginDragging(_ sv: UIScrollView) { dragged = true }
         func scrollViewDidEndDecelerating(_ sv: UIScrollView) { scrolled(sv) }
         func scrollViewDidEndDragging(_ sv: UIScrollView, willDecelerate: Bool) { if !willDecelerate { scrolled(sv) } }
         func scrollViewDidEndScrollingAnimation(_ sv: UIScrollView) { scrolled(sv) }
         func scrollViewDidScrollToTop(_ sv: UIScrollView) { scrolled(sv) }
         func scrolled(_ sv: UIScrollView) {
             movedAt = 0   // a scroll that has ended is at rest: the next layout holds the place taken here
+            let byPerson = dragged
+            dragged = false
+            // kosmos#8221 slice 4 (CI run 42533329564): on a slow device a scroll nobody asked for (UIKit's own, as the rows
+            // size themselves when the chat opens) ended 50 pt short of an end that had grown under it, and the list stopped
+            // following the newest message, so the keyboard covered it. Such a scroll, ending where the list last pinned
+            // itself or further down, keeps a reader at the newest there and puts them at the end. A scroll the person made, or
+            // one that went up the thread (VoiceOver's, the status-bar tap), decides as before.
+            if atEnd, !byPerson, sv.contentOffset.y >= pinnedY - 0.5 {
+                pin()
+                ChatView.trace("uikit list: scroll ended, not the person's and not up, kept at the end (\(geometry(sv)))", ring: false)
+                return
+            }
             atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
-            ChatView.trace("uikit list: scroll ended, at end \(atEnd) (\(geometry(sv)))", ring: false)
+            if atEnd { pinnedY = sv.contentOffset.y }
+            ChatView.trace("uikit list: scroll ended, at end \(atEnd), by the person \(byPerson) (\(geometry(sv)))", ring: false)
             if !atEnd { place = top() }
         }
 
@@ -159,7 +178,7 @@ struct ChatList: UIViewRepresentable {
             pinning = true
             list.contentOffset = CGPoint(x: 0, y: y)
             pinning = false
-            if y >= maxY(list) - ChatList.endSlack { atEnd = true }
+            if y >= maxY(list) - ChatList.endSlack { atEnd = true; pinnedY = y }
         }
 
         // After every layout, never under the person's finger or fling: a reader at the newest message is put back at the end
@@ -188,6 +207,7 @@ struct ChatList: UIViewRepresentable {
         func pin() {
             guard let list else { return }
             let y = maxY(list)
+            pinnedY = y
             guard abs(list.contentOffset.y - y) > 0.5 else { return }
             pinning = true
             list.contentOffset = CGPoint(x: 0, y: y)
