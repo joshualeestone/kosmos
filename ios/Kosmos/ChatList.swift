@@ -15,8 +15,8 @@ struct ChatList: UIViewRepresentable {
     let newest: Int
     // Whether the reader is at the newest message, told when it changes (never during a layout pass).
     let atEnd: (Bool) -> Void
-    // Debug only (KOSMOS_SAMPLE_SCROLLUP): the row put at the top 3 s after the list opens, as a reader's own scroll up would
-    // be (nothing in the simulator can drag), and what to run once it has come to rest. Nil in a release build.
+    // Debug only (KOSMOS_SAMPLE_SCROLLUP): the row put at the top 3 s after the list opens, and what to run once it is there.
+    // ChatView passes nil and an empty closure in a release build.
     var sampleUp: String? = nil
     var sampleRested: (() -> Void)? = nil
 
@@ -59,8 +59,10 @@ struct ChatList: UIViewRepresentable {
         }
 
         #if DEBUG
-        // kosmos#8221 slice 2: KOSMOS_SAMPLE_SCROLLUP on this list. Counts as the person's own scroll: the reader is no longer
-        // at the newest message, so new rows bring the capsule and the list is not kept at its end.
+        // kosmos#8221 slice 2: KOSMOS_SAMPLE_SCROLLUP on this list, a fixed place to start a check from. It sets atEnd itself
+        // and skips the scroll delegate, so it does not test how a person's scroll decides atEnd (NewMessagesUITests' drag
+        // check does). atEnd is set before the scroll, so the layout the scroll causes cannot pin the list back to the end;
+        // the rested call then needs no wait for the end to leave (unlike the lazy list's sampleScrollRest).
         func sampleScrollUp(_ id: String, rested: (() -> Void)?) {
             guard let list, let source, let ip = source.indexPath(for: id) else {
                 ChatView.trace("uikit list: debug scroll-up found no row \(id)"); return

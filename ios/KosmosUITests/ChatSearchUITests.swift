@@ -35,6 +35,8 @@ final class ChatSearchUITests: XCTestCase {
         app.buttons["Search this conversation"].firstMatch.tap()
         let field = app.textFields["Search this conversation"].firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5), "no search field after the search button")
+        // The field is focused a turn after it shows: type only once the keyboard is up.
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "no keyboard for the search field")
         field.typeText("Message 15")
         XCTAssertTrue(Self.gone(newest), "Message 260 still drawn under a search it does not match")
         let last = Self.message(app, 159)
