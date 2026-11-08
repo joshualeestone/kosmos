@@ -44,6 +44,11 @@ const cli = require('./tools/windows/kosmos-cli');
 const sha = (text) => 'sha256:' + crypto.createHash('sha256').update(text).digest('hex');
 const OUT = path.join(SANDBOX, 'out');
 fs.mkdirSync(OUT, { recursive: true });
+// A stand-in automount folder, and a link elsewhere that points into it (as /home points into /System/Volumes/Data/home).
+const AUTO = path.join(SANDBOX, 'automount');
+fs.mkdirSync(AUTO);
+const VIA = path.join(SANDBOX, 'via');
+fs.symlinkSync(AUTO, VIA);
 
 let base;
 let projectId;
@@ -150,8 +155,10 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
     // Review 4: a format character is printed without it, and the line says so; the file opened is the path as stored.
     row(13, { builtFilePath: '/m\u202e' }),
     // Review 5: a dot segment reaching /net, and /home, which is an automount root on a Mac reader.
-    row(14, { builtFilePath: '/tmp/../net/attacker/x' }), row(15, { builtFilePath: '/home/u/x' })] };
-  const out = tasklist.filesLines(body, { project: 'files', compare, platform: 'darwin' });
+    row(14, { builtFilePath: '/tmp/../net/attacker/x' }),
+    // Review 6: an automount folder from this computer's table (here a stand-in), reached directly and through a link.
+    row(15, { builtFilePath: AUTO + '/x' }), row(16, { builtFilePath: VIA + '/x' })] };
+  const out = tasklist.filesLines(body, { project: 'files', compare, platform: 'darwin', automounts: new Set([AUTO]) });
   assert.equal(out.rc, 0);
   assert.deepEqual(out.lines, [
     '#1  Task 1', '    matches  /m',
@@ -167,8 +174,9 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
     '#12  Task 12', '    NOT CHECKED /Net/attacker/x: not a local absolute path, so Kosmos does not open it',
     '#13  Task 13', '    matches  /m (printed without characters it cannot show)',
     '#14  Task 14', '    NOT CHECKED /tmp/../net/attacker/x: not a local absolute path, so Kosmos does not open it',
-    '#15  Task 15', '    NOT CHECKED /home/u/x: not a local absolute path, so Kosmos does not open it',
-    '14 built tasks with a delivered file in files: 3 match, 1 changed, 1 missing, 1 cannot be read, 1 with no path recorded, 1 marked on another kind of computer, 6 not a local path, not opened. 1 more built without --file.',
+    '#15  Task 15', '    NOT CHECKED ' + AUTO + '/x: it reaches an automount folder, which would mount it from elsewhere',
+    '#16  Task 16', '    NOT CHECKED ' + VIA + '/x: it reaches an automount folder, which would mount it from elsewhere',
+    '15 built tasks with a delivered file in files: 3 match, 1 changed, 1 missing, 1 cannot be read, 1 with no path recorded, 1 marked on another kind of computer, 7 not a local path, not opened. 1 more built without --file.',
     'A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.',
     'Checked on this computer: a mark made on another computer can read missing here.',
   ]);
@@ -177,8 +185,17 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
   assert.ok(asked.every((a) => a[1] === FP));
   // On Linux /home is where homes are, so it is opened; a reader's error words are cleaned as a path is.
   const onLinux = tasklist.filesLines({ listState: 'built', tasks: [row(1, { builtFilePath: '/home/u/x' })] },
-    { project: 'files', compare: () => ({ ok: false, words: 'could not be read (bad \u001b[2J/home/u/x)' }), platform: 'linux' });
+    { project: 'files', compare: () => ({ ok: false, words: 'could not be read (bad \u001b[2J/home/u/x)' }), platform: 'linux', automounts: new Set() });
   assert.equal(onLinux.lines[1], '    CANNOT READ /home/u/x: could not be read (bad [2J/home/u/x)', onLinux.lines.join('\n'));
+  // A mount table that cannot be read opens nothing, and says why.
+  const blind = tasklist.filesLines({ listState: 'built', tasks: [row(1, { builtFilePath: '/m' })] }, { project: 'files', compare, platform: 'darwin', automounts: null });
+  assert.equal(blind.lines[1], '    NOT CHECKED /m: Kosmos could not read this computer\'s automount table, so it opens no path');
+  // The walk never looks a name up inside the automount folder: a recording lstat sees nothing below it.
+  const seen = [];
+  const spy = { lstatSync: (q) => { seen.push(q); return fs.lstatSync(q); }, readlinkSync: (q) => fs.readlinkSync(q) };
+  assert.equal(tasklist.reachesAutomount(VIA + '/deep/er', new Set([AUTO]), spy), true);
+  assert.ok(seen.length > 0 && seen.every((q) => !q.startsWith(AUTO + '/')), 'a name inside the automount folder was looked up: ' + seen.join(', '));
+  assert.equal(tasklist.reachesAutomount(OUT + '/x', new Set([AUTO])), false, 'CONTROL: a plain folder read as an automount');
   // On Windows the rule turns round: a drive path is opened, a Mac path is another computer's, a network path never.
   asked.length = 0;
   const onWin = tasklist.filesLines({ listState: 'built', tasks: [row(1, { builtFilePath: 'C:\\m' }), row(2, { builtFilePath: '/m' }), row(3, { builtFilePath: '\\\\h\\s\\x' })] },
