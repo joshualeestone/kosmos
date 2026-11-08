@@ -141,15 +141,20 @@ final class NewMessagesUITests: XCTestCase {
         let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
         KeyboardSlideUITests.settle(rows.firstMatch)
         let header = app.navigationBars.firstMatch.frame.maxY
-        guard let top = rows.allElementsBoundByIndex.filter({ $0.isHittable && $0.frame.minY > header }).min(by: { $0.frame.minY < $1.frame.minY }) else {
+        let bottom = app.frame.maxY
+        // By frame, not isHittable: rows leave the list every read here, and asking a row that is going whether it can be
+        // hit fails the check itself ("Activation point invalid", 1 of 4 runs on 11-08).
+        func onScreen(_ f: CGRect) -> Bool { !f.isEmpty && f.minY > header && f.maxY < bottom }
+        guard let top = rows.allElementsBoundByIndex.map({ ($0.label, $0.frame) }).filter({ onScreen($0.1) }).min(by: { $0.1.minY < $1.1.minY }) else {
             XCTFail("no row on screen after the scroll up"); return
         }
-        let row = app.staticTexts.matching(NSPredicate(format: "label == %@", top.label)).firstMatch
+        let label = top.0
+        let row = app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
         let y0 = row.frame.minY
         for s in 1...15 {
             Thread.sleep(forTimeInterval: 1)
-            XCTAssertTrue(row.exists && row.isHittable, "after \(s) s: '\(top.label)', read higher up, left the screen as messages came and went")
-            XCTAssertEqual(row.frame.minY, y0, accuracy: 4, "after \(s) s: '\(top.label)' moved from \(Int(y0)) to \(Int(row.frame.minY)) as messages came and went")
+            XCTAssertTrue(row.exists && onScreen(row.frame), "after \(s) s: '\(label)', read higher up, left the screen as messages came and went")
+            XCTAssertEqual(row.frame.minY, y0, accuracy: 4, "after \(s) s: '\(label)' moved from \(Int(y0)) to \(Int(row.frame.minY)) as messages came and went")
         }
         XCTAssertTrue(Self.capsule(app).exists, "CONTROL: no New messages capsule, so no message arrived during the check")
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = "kept-place"; a.lifetime = .keepAlways; add(a)
