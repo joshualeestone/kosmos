@@ -1404,7 +1404,7 @@
     },
     {
       "title": "kosmos task files skips network drives",
-      "line": "On Windows, kosmos task files never opens a file on a network drive: it says NOT CHECKED instead.",
+      "line": "On Windows, kosmos task files does not open a path on a mapped network drive: it says NOT CHECKED instead.",
       "icon": "shield",
       "platforms": [
         "windows"
