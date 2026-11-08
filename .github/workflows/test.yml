@@ -161,12 +161,13 @@ jobs:
           # KOSMOS_CI_SHELL_SHARDS ("1/2", "2/2" or "1/2,2/2") AND the node part goes there (the same own-code and
           # kill-switch rules, inherited through $mac). Measured 2026-10-09 (numbers on #4601): a shell shard queued a
           # median 56 to 77 min for macos-latest.
-          # #6791: otherwise, the variable unset included, shells 1/2 and 2/2 run on Linux (ubuntu-24.04, #8244): they hold only the
+          # #6791: otherwise, the variable unset included, shells 1/2 and 2/2 run on Linux: they hold only the
           # test:shell commands measured to pass on Linux (every one not in tools/shell-macos-only.txt), and GitHub's
           # Linux pool is far larger than its macOS one. The macOS-only commands run in their own job (see suite).
-          # kosmos#8244: pinned to ubuntu-24.04, not ubuntu-latest. ubuntu-latest moved to 26.04 on 11-08, where
-          # tools/test-install-sbroot-6275.sh's negative control can no longer produce the '//' it guards against, so
-          # every run went red. Unpinned once that control is rebuilt to fail on 26.04 too (same card).
+          # kosmos#8244: pinned to ubuntu-24.04, not ubuntu-latest. ubuntu-latest moved to 26.04 on 11-08, and there
+          # tools/test-install-sbroot-6275.sh's negative control was measured red (it no longer got the '//' it guards
+          # against; which tool changed is still to be measured, on the card). Unpinned once that control is rebuilt to
+          # fail on 26.04 too (same card).
           s1='"ubuntu-24.04"'; s2='"ubuntu-24.04"'
           # Whole tokens only, split on commas and whitespace: "1/2x" or "v1/2" name no shard. Only the names that
           # matched are logged, so the log line can never carry a workflow command. Shell builtins only (no tr), so
@@ -275,7 +276,7 @@ jobs:
       # starts its own tmux server (#5073) and reads it through status.snapshot();
       # macos-latest ships no tmux, so without this that test cannot start a server.
       # (The no-server path is covered in engine/status.test.js.)
-      # #6791: a Linux shell shard gets the tools its commands use (as linux.yml installs them); ubuntu-latest ships
+      # #6791: a Linux shell shard gets the tools its commands use (as linux.yml installs them); the Ubuntu runner ships
       # no tmux. The step below then finds tmux and does nothing.
       - name: Linux tools for test:shell (#6791)
         if: runner.os == 'Linux'
