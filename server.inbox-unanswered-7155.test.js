@@ -227,3 +227,25 @@ test('#7155: with a filter, rows stored out of order are kept oldest by TIME, so
     assert.equal((await res.text()).trimEnd().split('\n').pop(), '1 later message not shown: add --limit 50 to see more.');
   } finally { sendertoken.revoke(name); board.restore(); }
 });
+
+test('kosmos#8258: a row shows this computer\'s date first, the UTC beside it, and the local stamp reads back as --since', async () => {
+  const zoneBefore = process.env.TZ;
+  const systemZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  process.env.TZ = 'Asia/Tokyo';
+  try {
+    chat.appendMessage(chat.DIRECT, WHO, { text: 'tz row', at: '2027-01-05T15:20:00.000Z', delivery: { state: chat.DELIVERY.PLACED } });
+    const r = await get('/api/inbox?as=text&since=' + encodeURIComponent('2027-01-05T15:20:00Z'));
+    assert.equal(r.text.trimEnd(), '2027-01-06 00:20:00 local (2027-01-05 15:20:00Z) the person: tz row');
+    const same = await get('/api/inbox?as=text&since=' + encodeURIComponent('2027-01-06 00:20:00'));
+    assert.match(same.text, /the person: tz row$/m, 'the printed local stamp did not read back as --since');
+    const after = await get('/api/inbox?as=text&since=' + encodeURIComponent('2027-01-06 00:20:01'));
+    assert.doesNotMatch(after.text, /tz row/, 'CONTROL: one second later leaves it out, so the stamp is what selected it');
+  } finally { process.env.TZ = zoneBefore === undefined ? systemZone : zoneBefore; }
+});
+
+test('kosmos#8258: a stored time that is the right shape but no real date is left out of the row', async () => {
+  chat.appendMessage(chat.DIRECT, WHO, { text: 'odd date row', at: '2028-13-45T10:00:00Z', delivery: { state: chat.DELIVERY.PLACED } });
+  const r = await get('/api/inbox?as=text&limit=50');
+  assert.ok(r.text.split('\n').includes('the person: odd date row'), JSON.stringify(r.text));
+  assert.doesNotMatch(r.text, /NaN/);
+});

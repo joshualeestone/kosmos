@@ -195,7 +195,7 @@ test('#5959: a waiting question re-reported since is aged from when it was first
     backdate(WHO, 'blocked', new Date(Date.now() - 3 * 24 * 3600e3).toISOString());
     backdate(WHO, 'blocked', new Date(Date.now() - 3600e3).toISOString());   // the same question, re-reported an hour ago
     const t = await get('/api/report?as=text', { headers: { 'x-kosmos-agent-token': tok } });
-    assert.match(t.text, /has been standing for 3 days \(first made 20\d\d-\d\d-\d\dT[0-9:.]+Z\)\./, t.text);
+    assert.match(t.text, /has been standing for 3 days \(first made 20\d\d-\d\d-\d\d \d\d:\d\d:\d\d local \(20\d\d-\d\d-\d\d \d\d:\d\d:\d\dZ\)\)\./, t.text);
     // CONTROL: a different question an hour ago is a new run, so it is not stale.
     clearStores();
     backdate(WHO, 'blocked', new Date(Date.now() - 3 * 24 * 3600e3).toISOString());
