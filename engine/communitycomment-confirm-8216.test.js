@@ -592,3 +592,52 @@ test('#8216 review 9: after a week of looks that got no answer, it is marked unr
   assert.equal(row.looking, false, 'the board row still promises a look');
   assert.match(cs.requestDelete(c.id).because || '', /cannot look for it/, 'the removal refusal still promises a look');
 });
+
+test('#8216 review 13: two same-words sends in one pass pair in send order, though they share the pass\'s time', async () => {
+  await cs.sweep();
+  const a = comment('ava', 'One pass twice.');
+  const b = comment('ava', 'One pass twice.');
+  be.st.mode.lose = 'stored';
+  const t0 = Date.now();
+  await cs.sweep(t0);   // a then b, both stamped with this pass's time
+  be.st.mode.lose = null;
+  assert.equal(recOf(a.id).attemptedAt, recOf(b.id).attemptedAt, 'fixture: the two do not share the pass\'s time');
+  const [copyA, copyB] = be.st.comments.filter((x) => x.body === 'One pass twice.');
+  copyA.at = new Date(t0 + 10).toISOString();
+  copyB.at = new Date(t0 + 20).toISOString();
+  // The file lists b first, so file order would pair them the wrong way round.
+  const recs = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+  const reordered = { [b.id]: recs[b.id], [a.id]: recs[a.id] };
+  for (const [k, v] of Object.entries(recs)) if (!(k in reordered)) reordered[k] = v;
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(reordered));
+  await cs.sweep(t0 + 1000);
+  assert.equal(recOf(a.id).remoteId, copyA.id, 'the first send took the second copy');
+  assert.equal(recOf(b.id).remoteId, copyB.id, 'the second send took the first copy');
+});
+
+test('#8216 review 13: a read cut short settles a sole match only when no same-words sibling is waiting', async () => {
+  await cs.sweep();
+  const a = comment('ava', 'Sibling waits.');
+  const b = comment('ava', 'Sibling waits.');
+  be.st.mode.lose = 'stored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  const [copyA, copyB] = be.st.comments.filter((x) => x.body === 'Sibling waits.');
+  be.st.comments.splice(be.st.comments.indexOf(copyB), 1);   // only one of the two landed
+  copyA.at = new Date(t0 + 10).toISOString();
+  // 30 newer comments put it on page two; 100 older ones still inside the window keep the read from ending in 5 pages.
+  for (let i = 0; i < 30; i++) be.st.comments.push({ id: crypto.randomUUID(), parent: null, agentId: 'n' + i, body: 'Newer ' + i, at: new Date(t0 + 100 + i).toISOString() });
+  for (let i = 0; i < 100; i++) be.st.comments.push({ id: crypto.randomUUID(), parent: null, agentId: 'o' + i, body: 'Older ' + i, at: new Date(t0 - 5 * 60 * 1000 + i).toISOString() });
+  await cs.sweep(t0 + 1000);
+  assert.equal(recOf(a.id).state, 'unconfirmed', 'a cut-short read settled with a same-words sibling waiting');
+  assert.equal(recOf(b.id).state, 'unconfirmed');
+  // CONTROL: with the sibling gone (taken back, say), the same cut-short read settles on its sole match.
+  const recs = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+  delete recs[b.id];
+  for (const id of Object.keys(recs)) delete recs[id].lookedAt;
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(recs));
+  await cs.sweep(t0 + 2000);
+  assert.equal(recOf(a.id).state, 'sent', 'CONTROL: with no sibling the sole match was not settled');
+  assert.equal(recOf(a.id).remoteId, copyA.id);
+});
