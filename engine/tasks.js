@@ -865,16 +865,10 @@ const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtF
    #7213: a PDF's fingerprint says pdf-normalized:, so it is never read as the plain sha256 an approval cites. */
 const FINGERPRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
 /* kosmos#8214: the delivered file's absolute path, as the CLI resolved it on the computer that marked it, kept beside its
-   fingerprint so `kosmos task files` can check the file again there. The board never reads it; it checks the shape as
-   landedValue checks a repository's. Only a local path: `kosmos task files` opens every path on a project, including
-   other markers', so a network one would make it connect where a marker chose. Refused: //host and \\host, and the
-   automount roots /net and /Network (review 3: macOS mounts /net/<host> from that host when it is looked up). */
-const FILE_PATH_MAX = 1024;
-const NETWORK_PATH_RE = /^(?:[\\/]{2}|\/(?:net|network)(?:[\\/]|$))/i;   // as engine/tasklist.js filesLines (case-blind: APFS is)
+   fingerprint so `kosmos task files` can check the file again there. The board never reads it. `kosmos task files`
+   opens every path on a project, other markers' too, so only a path engine/fileprint.js keptPath allows is kept. */
 function filePathValue(v) {
-  if (typeof v !== 'string' || !v || v.length > FILE_PATH_MAX || /[\u0000-\u001f\u007f]/.test(v)) return null;
-  if (NETWORK_PATH_RE.test(v)) return null;
-  return v.startsWith('/') || /^[A-Za-z]:[\\/]/.test(v) ? v : null;
+  return require('./fileprint').keptPath(v) ? v : null;
 }
 /* #7508: the commit a code fix landed as, from `kosmos task built --commit <ref>`. Its own fields, not built ones:
    closing keeps them (the check on a closed task needs them), while a clear, a reopen or new work drops them. The CLI

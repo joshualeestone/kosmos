@@ -6866,11 +6866,9 @@ cmd_task() {
         # $( ) strips a trailing newline from a folder or a name, which would name another file (review 3): a path
         # given with any control character is sent as none, and the file is hashed by the path as given.
         case "$file" in *[[:cntrl:]]*) file_abs="" ;; esac
-        case "$file_abs" in *[[:cntrl:]]*|//*) file_abs="" ;; esac
-        # As the board's NETWORK_PATH_RE: an automount root mounts from a host when looked up (review 3).
-        case "$(printf '%s' "$file_abs" | LC_ALL=C tr '[:upper:]' '[:lower:]')" in /net|/net/*|/network|/network/*) file_abs="" ;; esac
-        # Counted in bytes: never fewer than the board's UTF-16 count, so a path that passes here passes there.
-        [ "$(printf '%s' "$file_abs" | LC_ALL=C wc -c | tr -d ' ')" -le 1024 ] || file_abs=""
+        # The board's own rule (engine/fileprint.js keptPath), asked of the same module that fingerprints the file: a path
+        # it would refuse goes as none. An older module without the rule sends none either.
+        [ -z "$file_abs" ] || "$_fnode" -e 'process.exit(require(process.argv[1]).keptPath?.(process.argv[2]) ? 0 : 1)' "$_fmod" "$file_abs" 2>/dev/null || file_abs=""
         fingerprint=$("$_fnode" "$_fmod" "${file_abs:-$file}" 2>/dev/null) || fingerprint=""
         case "$fingerprint" in sha256:????????????????????????????????????????????????????????????????|pdf-normalized:????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2 ;; esac
       fi

@@ -20,8 +20,11 @@ Tests: cli.task-files-8214.test.js. Perturbed: BUILT_FIELDS without the path, th
 Mac CLI not sending it, the network-path refusals, the Mac's physical resolve, the platform rule: each turned a test red.
 
 Review calls (challenge loop):
-- A network path is refused by the board and never opened by task files: //host, \\host, and the automount roots
-  /net and /Network (macOS mounts /net/<host> on lookup). Other automount roots configured by hand are not covered.
+- One rule for a kept path, engine/fileprint.js keptPath, asked by the board, both CLIs and task files: absolute, no
+  control character, 1024 at most, no empty, . or .. segment, not //host, \\host, /net or /Network. On a Mac reader
+  task files also never opens /home (in the stock auto_master). A prefix check alone was walked round by
+  /tmp/../net/host, which is why it reads every segment. Not covered: an automount root configured by hand, and a
+  symlink planted on the reader's own disk (that needs write access to it, a different trust level).
 - task files opens other markers' paths too: deliberate, it is the sweep the card asks for. It reads only what this
   agent can already read, and only this agent sees the output.
 - task files exits 0 whatever the verdicts: it is a report like task list, and exit 1 already means it could not list.
