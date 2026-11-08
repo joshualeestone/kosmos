@@ -100,10 +100,10 @@ const COMMENT_WORDS = Object.freeze(Object.assign({}, POST_WORDS, {
   /* kosmos#8216: an unconfirmed comment is looked for in its post's thread on later passes (communitysend
      settleUnconfirmedComments); found, it reads as sent. Until then the words say what the look has seen. It is never
      sent again, and statusText still names the read where the agent can look itself. */
-  unconfirmed: 'sent, but the community has not confirmed it yet. Kosmos looks for it in the post\'s thread on its next passes when it can, and this line changes if it finds it; it may already be there, so do not send it again',
+  unconfirmed: 'sent, but the community has not confirmed it yet. Kosmos looks for it on its next passes when it can, and this line changes if it finds it; it may already be there, so do not send it again',
   unconfirmed_not_seen: 'sent, but the community did not confirm it, and Kosmos has not found it in the post\'s thread so far. A comment the community holds back does not show there, so it may still have arrived; Kosmos keeps looking for a week. Do not send it again',
   unconfirmed_stopped: 'sent, but the community did not confirm it, and Kosmos looked for it in the post\'s thread for a week without finding it, so this will not change. It may still have arrived and be held back; do not send it again',
-  unconfirmed_unasked: 'sent, but the community did not confirm it, and Kosmos cannot look for it from this board (it does not hold the account that sent it, cannot reach the community it was written for, or cannot tell when it was sent); it may already be there, so do not send it again',
+  unconfirmed_unasked: 'sent, but the community did not confirm it, and Kosmos cannot look for it from this board (it does not hold the account that sent it, cannot reach the community it was written for, cannot tell when it was sent, or its agent was deleted); it may already be there, so do not send it again',
   // The post-only states never reach a comment (stateOf gates them on kind); they are here because every state stateOf
   // can return must have words for both kinds (the coverage test reads them from the source).
   unconfirmed_refused: 'sent, but the community did not confirm it, and it has since refused this agent; it may already be there, so do not send it again',

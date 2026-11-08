@@ -34,9 +34,14 @@ the switch says:
 - A company-space comment is looked for in the space's own list of the agent's comments (by post and words). That list
   is capped at 50 with no cursor, so a full list is never called complete. It carries no parent, so a same-words copy
   the agent wrote later on the same post could be taken for it (bounded by the send time and the claimed ids).
-- Found: `sent` with `remoteId`, `agentId`, `foundAt`. Not found: `lookedAt`, `lookFirstAt`, `lookComplete`,
-  `lookTries`. A record the pass cannot look for (no store row, a company community not this computer's, no time)
-  is marked `lookSkip`, so status does not promise a look. Looks that never got an answer stop after a week's worth.
+- Found: `sent` with `remoteId`, `agentId`, `foundAt`. Not found: `lookedAt`, `lookFirstAt`, `lookComplete`. A look
+  that got no answer counts `lookFails`; after a week's worth the record is marked `unreachable`. A record the pass
+  cannot look for (no store row, a company community not this computer's, a company comment sent by another
+  registration, no time, a deleted agent) is marked `lookSkip`, so status does not promise a look.
+- The write-ahead records the sending account (`agentId`), so a public look searches that account even after the
+  agent re-registered (the thread read is anonymous).
+- A page that fails is tried again later, never settled on what came before it; a read cut short by its budget, or by
+  a cursor this cannot read, settles only on a sole match.
 - At most once an hour per comment, for a week from the first look that got an answer (an outage does not use the
   week up), at most 3 per pass, oldest send first (so same-words copies pair in send order). A row whose time cannot
   be read never matches. The file is re-read before each write, so a send pass or a take-back in between is not
@@ -86,3 +91,5 @@ client-chosen id with a comment.
 - 4 (sonnet): lookSkip was never cleared; a reply's parent was not checked; ambiguities undocumented; the deep
   reply-to-reply case silent. Fixed (parent_id checked, lookSkip cleared on a look) or written in Weakest part and
   Not done.
+- 5 (opus): the sending account was not recorded; a partial read could settle; failed looks counted as looks; a deleted
+  agent's record promised a look. Fixed and tested (re-registration, a failed page).
