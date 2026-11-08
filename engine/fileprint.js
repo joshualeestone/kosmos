@@ -249,7 +249,8 @@ const isPrint = (s) => typeof s === 'string' && PRINT_RE.test(s);
    character (C0 or C1), at most 1024 characters, and plain: no empty, . or .. segment, so the path is read the way the
    kernel will walk it. Not a network path: //host or \\host, nor the automount roots /net and /Network, which mount
    from a host when looked up (case-blind, as APFS is). A check of the start alone was walked round by /tmp/../net/host
-   (review 5), which is why every segment is read. */
+   (review 5), which is why every segment is read. Not caught by name: a Windows drive letter mapped to a network share
+   (Z:\\share\\x reads as local), which only the drive's type could tell. */
 const KEPT_PATH_MAX = 1024;
 function keptPath(p) {
   if (typeof p !== 'string' || !p || p.length > KEPT_PATH_MAX || /\p{Cc}/u.test(p)) return false;

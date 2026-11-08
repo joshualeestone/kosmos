@@ -209,7 +209,7 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
     '#3  Task 3', '    NOT CHECKED \\\\h\\s\\x: not a local absolute path, so Kosmos does not open it']);
   assert.deepEqual(asked, ['C:\\m'], 'a path that is not this computer\'s kind was opened');
   // --all names each project; an older board that ignored all=1 or state=built is never passed off.
-  const all = tasklist.filesLines({ listState: 'built', all: true, tasks: [row(1, { projectId: 'p1', builtFilePath: '/m' })] }, { compare, platform: 'darwin' });
+  const all = tasklist.filesLines({ listState: 'built', all: true, tasks: [row(1, { projectId: 'p1', builtFilePath: '/m' })] }, { compare, platform: 'darwin', automounts: new Set() });
   assert.deepEqual(all.lines.slice(0, 2), ['p1  #1  Task 1', '    matches  /m']);
   assert.match(all.lines[2], /^1 built task with a delivered file across your projects: 1 match, 0 changed, 0 missing\.$/);
   assert.equal(tasklist.filesLines({ listState: 'built', tasks: [] }, { compare }).rc, 1, 'an answer without all: true was read as every project');
