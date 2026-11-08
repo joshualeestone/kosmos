@@ -8,8 +8,8 @@ print it with no change, older CLIs included: "<name> is not on this project, so
 "To reach them: kosmos msg <handle>." when the name is an agent on this board, else "Add them to the project, or reach
 them another way."
 
-What counts (engine/messages.js outsidersNote): read as addressedMembers reads a post. A name in a "Sender -> Name:" header
-that resolves to no member, or a header name or @-word that resolves to an agent on this board outside the project.
+What counts (engine/messages.js outsidersNote): read as addressedMembers reads a post. A capitalised name in the post's header
+(a "Sender to Name:" header only when Sender is the poster) that resolves to no member, or a header name or @-word that resolves to an agent on this board outside the project.
 Agents' posts only; the person's page already shows who is on the project.
 
 Rejected: warning on every @-word that matches no member (an @-word is often not a person); a new answer field (both
