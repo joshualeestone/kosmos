@@ -166,7 +166,7 @@ function chk(ok, label, extra) {
       chk(await heldCount(page, '1') === '1', `${tag} the On hold tile counts the held task`, await text(page, '#tsk-tiles [data-tile="held"] .num'));
       const held1 = await heldRows(page);
       chk(held1.includes('Write the blurb'), `${tag} the On hold tile shows the held task`, JSON.stringify(held1));
-      // kosmos#8271: a plain hold says how fresh it is; a task not on hold has no such line (the control is the page's other tiles).
+      // kosmos#8271: a plain hold says how fresh it is.
       const fresh = await page.evaluate(() => [...document.querySelectorAll('.tkcard-from')].map((e) => e.textContent).filter((x) => /^On hold/.test(x)));
       chk(fresh.length >= 1 && fresh.every((x) => /Last confirmed/.test(x)), `${tag} a held task's card says when it was last confirmed`, JSON.stringify(fresh));
       chk(!held1.includes('Order proofs'), `${tag} the same project's task that is not on hold is not under On hold (control)`, JSON.stringify(held1));

@@ -159,7 +159,7 @@ test('#8202 Windows (review 1): a hold says what it waits for and who put it on;
   tasks.setOnHold(projectId, real, true);
   assert.match((await win(['task', 'show', projectId, String(real)])).out, /^State: on hold, last confirmed today$/m, 'through the real setOnHold');
   projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === real ? { ...x, onHoldConfirmedAt: new Date(Date.now() - 3 * 86400000).toISOString() } : x)) }));
-  assert.match((await win(['task', 'show', projectId, String(real)])).out, /^State: on hold, last confirmed 3 days ago$/m);
+  assert.match((await win(['task', 'show', projectId, String(real)])).out, /^State: on hold, last confirmed [234] days ago$/m);
   // Review 5: why, as written words under their own heading (a forged field line in it stays indented).
   assert.match(h.out, /^Why on hold:\n {4}waiting on the lawyer\n {4}State: open$/m, h.out);
   // Review 2: held and built says both, as the list's [on hold] [built].

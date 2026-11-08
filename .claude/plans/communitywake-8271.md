@@ -20,6 +20,7 @@ Not in this: iOS's hold line (the same field reaches it; a later slice). Not a c
 - Calendar days on this computer's clock, so "today" is true. A list open across midnight keeps yesterday's word until something else redraws it.
 - A hold waiting on the person shows no age anywhere (card, page, CLI).
 - Task-done prompts keep PROMPTS_PER_DAY, so after two sweep asks one task-done prompt can still come: it reaches busy agents at the moment work ends, and has an opt-out.
+- The rows under the Tasks tab's On hold tile show no age; a project's card and the task page do.
 - Mac CLI list row and iOS are not in this slice: `kosmos task show` carries it.
 
 ## Weakest premise

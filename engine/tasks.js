@@ -1375,7 +1375,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       forCleared = isOnHold(t) && t.onHoldForPerson === true && changed.onHoldForPerson !== true;
       /* kosmos#8271: a hold call says it still stands (a new hold, a repeat, a new reason or condition). Moving only the for-you
          mark confirms nothing, and only the person can confirm the person's own hold, so in those cases the old time stays. */
-      const onlyMark = isOnHold(t) && (t.onHoldForPerson === true) !== (changed.onHoldForPerson === true) && sameUntil
+      const onlyMark = viaScreen !== true && isOnHold(t) && (t.onHoldForPerson === true) !== (changed.onHoldForPerson === true) && sameUntil
         && (changed.onHoldBecause || null) === (t.onHoldBecause || null);
       if (!onlyMark && !(isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true)) changed.onHoldConfirmedAt = new Date().toISOString();
       /* The person's hold on the screen is theirs even over an agent's earlier hold (else the agent could still lift it);
