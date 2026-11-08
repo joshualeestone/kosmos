@@ -66,7 +66,7 @@ struct ChatView: View {
     // .claude/plans/uikitlist-s1-8221.md). Kept in an @State, so the switch never swaps the list under an open chat.
     // Debug: KOSMOS_SAMPLE_UIKITLIST, when set, wins over the switch ("1" UIKit, anything else lazy), and a sample run
     // (KOSMOS_SAMPLE_AGENTS=1) reads the switch only with KOSMOS_SAMPLE_UIKITLIST_SWITCH=1, so a switch a check left on
-    // never moves another check onto the UIKit list.
+    // never moves another check onto the UIKit list. A Debug run with neither variable (your own phone) reads the switch.
     static let uikitListKey = "kosmos.chat.uikitlist"
     static func uikitListChosen() -> Bool {
         #if DEBUG
@@ -400,8 +400,8 @@ struct ChatView: View {
             // what came before), and a list blank from its first draw is checked too, since no row ever leaves it.
             if !diagShownOnce {
                 diagShownOnce = true; Self.diagRing = []; Self.trace("chat shown")
-                // kosmos#8221 slice 5: which list drew this chat.
-                if uikitList { Self.trace("list: uikit") } else { Self.trace("list: lazy") }
+                // kosmos#8221 slice 5: which list this open chose (the chat is drawn by it once its rows have come).
+                if uikitList { Self.trace("list chosen: uikit") } else { Self.trace("list chosen: lazy") }
             } else { Self.trace("chat back") }
             rebuilds = []   // kosmos#7420: the rebuild budget is per showing, so a chat kept alive under another tab gets it again
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { diagTick &+= 1 }
