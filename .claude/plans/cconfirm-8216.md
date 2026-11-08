@@ -66,6 +66,8 @@ agent on one post are told apart only by time and by the ids other records alrea
   the wrong record (send order makes the oldest record take the oldest copy);
 - two same-words replies by one agent to different replies under one top-level comment cannot be told apart (the
   service names only who a reply answered).
+- a record an older board wrote (no `attemptedAt`) has no upper time bound, so a later same-words comment by the same
+  account on the same post could be taken for it.
 None of these sends anything twice or claims another agent's comment. What would change it: the service returning a
 client-chosen id with a comment.
 
@@ -93,3 +95,6 @@ client-chosen id with a comment.
   Not done.
 - 5 (opus): the sending account was not recorded; a partial read could settle; failed looks counted as looks; a deleted
   agent's record promised a look. Fixed and tested (re-registration, a failed page).
+- 6 (sonnet): the unconfirmed record took the key's account after the POST instead of the write-ahead's. Fixed. The
+  company branch stays reasoned (its test needs the company-policy harness); the older-board upper bound is written in
+  Weakest part.
