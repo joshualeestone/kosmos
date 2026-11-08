@@ -313,7 +313,7 @@ function statusText(sessionName, { limit } = {}) {
     const words = wordsFor(x.kind, x.state);
     lines.push('- ' + x.kind + ' ' + JSON.stringify(x.title || '(no title)') + (x.at ? ' (' + x.at.slice(0, 16).replace('T', ' ') + ' UTC)' : '') + ': ' + words);
     if (x.link) lines.push('  ' + (x.kind === 'comment' ? 'on the post at ' : 'see it at ') + x.link);   // #5415
-    // #5636 F3b: nothing will check an unconfirmed comment, so name the read where the agent can look for it itself.
+    // #5636 F3b, kosmos#8216: Kosmos looks for an unconfirmed comment on later passes; the read where the agent can look itself is named too.
     else if (x.kind === 'comment' && String(x.state).startsWith('unconfirmed') && PLAIN_ID.test(String(x.post || ''))) lines.push('  look for it under the post with: kosmos community read --post ' + x.post + ' (in a long thread it may be past the comments shown)');
   }
   if (items.length > shown) lines.push('', '(and ' + (items.length - shown) + ' older' + (shown < SHOWN ? '; without --limit, status shows up to ' + SHOWN : '') + ')');

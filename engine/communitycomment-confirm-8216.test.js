@@ -534,3 +534,61 @@ test('#8216 review 7: a reply on a post taken down (410) ends the look as comple
   assert.equal(recOf(c.id).state, 'unconfirmed');
   assert.equal(recOf(c.id).lookComplete, true, 'a reply on a taken-down post was not called complete');
 });
+
+test('#8216 review 9: a reply to a reply under a busy top-level comment (more than its preview) is found', async () => {
+  await cs.sweep();
+  const t = Date.now();
+  const top = { id: crypto.randomUUID(), parent: null, agentId: 'someone-else', body: 'Busy question.', at: new Date(t - 9000).toISOString() };
+  be.st.comments.push(top);
+  // Four replies before the one being answered: the preview of two does not hold it.
+  for (let i = 0; i < 4; i++) be.st.comments.push({ id: crypto.randomUUID(), parent: top.id, agentId: 'r' + i, body: 'Reply ' + i, at: new Date(t - 8000 + i).toISOString() });
+  const mid = { id: crypto.randomUUID(), parent: top.id, agentId: 'someone-else', body: 'The one answered.', at: new Date(t - 7000).toISOString() };
+  be.st.comments.push(mid);
+  const c = comment('ava', 'Answering a busy thread.', { serviceParentId: mid.id });
+  be.st.mode.lose = 'stored';
+  await cs.sweep(t);
+  be.st.mode.lose = null;
+  await cs.sweep(t + 1000);
+  assert.equal(recOf(c.id).state, 'sent', 'a reply to a reply past the preview was not found: ' + JSON.stringify(recOf(c.id)));
+  assert.ok(looks().some((s) => s.url.includes('/comments/' + top.id + '/replies')), 'the busy top-level comment\'s replies were not read');
+});
+
+test('#8216 review 9: at most three comments are looked for in one pass', async () => {
+  await cs.sweep();
+  const ids = [];
+  for (let i = 0; i < 5; i++) ids.push(comment('ava', 'Many ' + i).id);
+  be.st.mode.lose = 'unstored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  await cs.sweep(t0 + 1000);
+  const lookedNow = ids.filter((id) => typeof recOf(id).lookedAt === 'string');
+  assert.equal(lookedNow.length, 3, 'looked for ' + lookedNow.length + ' in one pass');
+});
+
+test('#8216 review 9: after a week of looks that got no answer, it is marked unreachable and no look is promised', async () => {
+  const mine = require('./communitymine');
+  await cs.sweep();
+  const c = comment('ava', 'Never answered.');
+  be.st.mode.lose = 'unstored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  const recs = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+  recs[c.id].lookFails = 7 * 24 - 1;
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(recs));
+  be.st.mode.postGone = false;
+  be.server.closeAllConnections();
+  const realSender = (url, init) => fetch(url, init);
+  cs.setSender(async () => { throw Object.assign(new Error('down'), { code: 'ECONNREFUSED' }); });   // the community cannot be reached
+  await cs.sweep(t0 + 1000);
+  cs.setSender(realSender);
+  assert.equal(recOf(c.id).lookSkip, 'unreachable', 'a week of unanswered looks was not marked');
+  assert.equal(cs.commentStillLooked(cs.commentRecords()[c.id]), false);
+  const rows = mine.mineAll().comments;
+  assert.ok(Array.isArray(rows) && rows.length, 'fixture: the board has no comment rows');
+  const row = rows.find((x) => x.looking !== undefined);
+  assert.ok(row, 'no unconfirmed row carries whether it is still looked for');
+  assert.equal(row.looking, false, 'the board row still promises a look');
+  assert.match(cs.requestDelete(c.id).because || '', /cannot look for it/, 'the removal refusal still promises a look');
+});

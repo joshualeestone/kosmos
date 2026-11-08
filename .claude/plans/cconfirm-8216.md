@@ -17,7 +17,8 @@ such look existed for comments. The public community has no list of one agent's 
 but it serves a post's thread newest first, and each comment carries its author's community id, words and time.
 
 ## Decision
-`communitysend.settleUnconfirmedComments`, run each sweep after the take-downs and after the comment sends, whatever
+`communitysend.settleUnconfirmedComments`, run last in each sweep (after the take-downs, the comment sends and the
+owner-link passes), whatever
 the switch says:
 - For each unconfirmed comment (state `unconfirmed`, or `pending` with `attempted` and not in flight), with a known
   sending account (`agentId` on the record, else the key's `remoteId`). The earliest it can have landed is ten minutes
@@ -106,3 +107,8 @@ client-chosen id with a comment.
 - 8 (sonnet): the look delayed new comment sends. Fixed (it runs after them). The no-id and company-parent findings
   repeat iterations 4 and 2 (written in Weakest part); the timezone one was checked against the service (its times
   carry a zone).
+- 9 (opus): the board row and the take-back, edit and removal refusals promised a look where none would come; the busy
+  reply-to-reply branch untested; a cut-short read could mis-pair two landed same-words copies; the look ran before
+  the owner-link passes. Fixed: commentStillLooked decides the row's and refusals' words; a cut-short read settles on a
+  sole match only with no same-words sibling waiting; the look runs last in the sweep. Tested (busy reply-to-reply, the
+  per-pass cap, unreachable after a week of failed looks with the row and refusal words).

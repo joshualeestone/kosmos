@@ -141,6 +141,8 @@ function commentEntries() {
       deleteRetrying: rec.deleteRetrying === true,
       agentRefused: rec.agentRefused === true,
       untraceable: rec.state === 'unconfirmed' || (rec.state === 'sent' && rec.traceable === false),
+      // kosmos#8216 review 9: whether an unconfirmed one will still be looked for, so the row promises a look only then.
+      ...(rec.state === 'unconfirmed' ? { looking: communitysend.commentStillLooked(rec) } : {}),
       // Review 3: why a sent comment is untraceable ('no-id' | 'other-registration' | review 4: 'registration-unknown'),
       // no ids; null otherwise.
       untraceableReason: rec.state === 'sent' && rec.traceable === false ? rec.untraceableReason || 'no-id' : null,
