@@ -77,8 +77,9 @@ struct SettingsView: View {
                 .onAppear {
                     #if DEBUG
                     // Screenshots of the lower sections (KOSMOS_SAMPLE_SCROLL=account, a Debug build only).
-                    if Self.sample && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLL"] == "account" {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { scroller.scrollTo("account", anchor: .top) }
+                    // kosmos#8221 slice 5: =chat for the Chat section, which is below the screen at the largest text sizes.
+                    if Self.sample, let to = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLL"], to == "account" || to == "chat" {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { scroller.scrollTo(to, anchor: .top) }
                     }
                     #endif
                 }
@@ -262,7 +263,7 @@ struct SettingsView: View {
             Toggle("New chat list", isOn: $newChatList).foregroundColor(Palette.primary)
                 .accessibilityIdentifier("settings-new-chat-list")
         } header: {
-            Text("Chat")
+            Text("Chat").id("chat")
         } footer: {
             Text("A test of a new way to draw your chats. Earlier messages, and holding a message to copy or delete it, are not in it yet. Applies to the next chat you open.")
                 .font(.footnote).foregroundColor(Palette.secondary)

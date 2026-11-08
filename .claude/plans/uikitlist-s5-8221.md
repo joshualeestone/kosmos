@@ -52,4 +52,9 @@ slices, with his phone's counts comparing the two before the old one goes").
   collapsed the tab bar to "Settings" alone (value Collapsed, read from the failure's UI hierarchy), so no Agents tab. Fixed
   by swiping down until Agents is back. Run 2 (13:21-13:23, iPhone 16e simulator): PASS. The arms control each other: the
   on arm finds "chat-list-uikit", so the off arms' absence is not a missing identifier.
-- [ ] Steps 6-8.
+- [x] Step 6: design shots, native (mobile-shots.js shoots the web board only, so taken from the iPhone 16e simulator with
+  simctl, Debug sample board, KOSMOS_SAMPLE_TAB=settings KOSMOS_SAMPLE_SCROLL=chat; =chat is new, Debug only, since at the
+  largest text the account scroll leaves the Chat section below the screen). ~/work/design-shots/kosmos-8221-s5/: light and
+  dark, off and on, and the largest text (label wraps to two lines, the switch keeps its place, the footer reads in full).
+  All five looked at 13:41.
+- [ ] Steps 7-8.
