@@ -1361,6 +1361,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
     changed = { ...t };
     if (onHold) {
       changed.onHold = true;
+      changed.onHoldConfirmedAt = new Date().toISOString();   // kosmos#8271: every hold call that succeeds says it still stands
       if (want) changed.onHoldUntil = want; else delete changed.onHoldUntil;
       if (wantBecause) changed.onHoldBecause = wantBecause; else delete changed.onHoldBecause;
       const keepFor = forPerson === undefined && isOnHold(t) && t.onHoldForPerson === true;
@@ -1377,7 +1378,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
          an agent's hold never takes the person's away. */
       if (viaScreen === true) changed.onHoldByPerson = true;
       else if (isOnHold(t) !== onHold) delete changed.onHoldByPerson;   // kosmos#7180: only a new hold, never a changed condition
-    } else { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; dropHoldTold(changed); }
+    } else { delete changed.onHold; delete changed.onHoldConfirmedAt; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; dropHoldTold(changed); }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),

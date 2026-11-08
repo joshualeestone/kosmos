@@ -26356,6 +26356,14 @@ function freshWords(seconds) {
    Worded as what Kosmos has seen, never as a fact about the agent: an ask that named no task is not seen. Branches on
    whether each mark is there, not on its age words: agoWords gives '' for a time ahead of this clock (a slow phone), and
    a recorded ask must never read as none. An answer counts only while the agent has not asked again since. */
+/* kosmos#8271: how fresh a plain hold is, so one confirmed today does not read like one untouched for weeks. Empty for a
+   hold made before this was recorded, or a time ahead of this clock: never a guessed age. */
+function tskHoldConfirmedWords(t) {
+  if (!t || t.onHold !== true || typeof t.onHoldConfirmedAt !== 'string') return '';
+  const ms = Date.parse(t.onHoldConfirmedAt);
+  const age = Number.isFinite(ms) ? agoWords(Date.now() - ms) : '';
+  return age ? 'Last confirmed ' + age + '.' : '';
+}
 function tskHoldToldWords(t) {
   if (!t || t.onHold !== true || t.onHoldForPerson !== true) return '';
   const at = (v) => (typeof v === 'string' && Number.isFinite(Date.parse(v)) ? Date.parse(v) : null);
@@ -71872,7 +71880,7 @@ function paintProjectTasks(p) {
       /* kosmos#7797: an agent's hold for the person says it waits on them, as the Tasks row does (tsk-for-you). */
       + (t.onHold === true && t.onHoldForPerson === true
         ? '<span class="tkcard-from tkcard-for-you" style="overflow-wrap:anywhere;">On hold until you answer' + (typeof t.onHoldBecause === 'string' && t.onHoldBecause ? ': ' + esc(t.onHoldBecause) : '') + '</span>'
-        : t.onHold === true && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tkcard-from" style="overflow-wrap:anywhere;">On hold: ' + esc(t.onHoldBecause) + '</span>' : '')   // kosmos#7749
+        : t.onHold === true && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tkcard-from" style="overflow-wrap:anywhere;">On hold: ' + esc(t.onHoldBecause) + (tskHoldConfirmedWords(t) ? '. ' + esc(tskHoldConfirmedWords(t)) : '') + '</span>' : t.onHold === true && tskHoldConfirmedWords(t) ? '<span class="tkcard-from">On hold. ' + esc(tskHoldConfirmedWords(t)) + '</span>' : '')   // kosmos#7749
       + chip + '</button>';
   }).join('');
   // ⚠️ Change-guarded, the removed-list's own pattern: the five-second poll

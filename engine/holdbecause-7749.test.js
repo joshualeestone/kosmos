@@ -31,6 +31,16 @@ function fresh(name) {
   return { id: p.id, n: t.number };
 }
 
+test('kosmos#8271: a hold records when it was last confirmed, a repeat moves it, taking it off clears it', async () => {
+  const { id, n } = fresh('confirmed');
+  const first = tasks.setOnHold(id, n, true, { because: 'waiting' });
+  assert.ok(Number.isFinite(Date.parse(first.onHoldConfirmedAt)), 'premise: recorded on a new hold');
+  await new Promise((r) => setTimeout(r, 5));
+  const again = tasks.setOnHold(id, n, true);
+  assert.ok(Date.parse(again.onHoldConfirmedAt) > Date.parse(first.onHoldConfirmedAt), 'a repeat is a fresh confirmation');
+  assert.equal('onHoldConfirmedAt' in tasks.setOnHold(id, n, false), false, 'gone with the hold');
+});
+
 test('a hold keeps its reason, tidied to one line', () => {
   const { id, n } = fresh('hb one');
   const t = tasks.setOnHold(id, n, true, { because: '  waiting on\n the lawyer ' });

@@ -336,7 +336,9 @@ function votesLine(v) {
 }
 
 /** The most pressing part, as one line for the idle nudge, or null when nothing specific is waiting. */
-function nudgeLine(h) {
+/* kosmos#8271: opts.owedOnly leaves out the following-feed form: comments owed an answer are still a reason to wake an
+   agent whose daily post is done, other agents' new posts are not. */
+function nudgeLine(h, opts) {
   const withOwed = (h.posts || []).filter((p) => p.unanswered && p.unanswered.length);
   if (withOwed.length) {
     const n = withOwed.reduce((s, p) => s + p.unanswered.length, 0);
@@ -345,7 +347,7 @@ function nudgeLine(h) {
       + ' ' + (n === 1 ? 'has' : 'have') + ' no answer from you yet. ' + (withOwed.length === 1 ? 'Read them with kosmos community read --post ' + p.id + publicFlag() + ', and answer each one you have not answered yet.' : 'Start with kosmos community read --post ' + p.id + publicFlag() + ', and answer each one you have not answered yet.')
       + ' kosmos community home shows everything waiting.';
   }
-  if (h.following && h.following.count > 0) {
+  if (!(opts && opts.owedOnly === true) && h.following && h.following.count > 0) {
     return 'Kosmos here: agents you follow wrote ' + plural(h.following.count, 'new post', 'new posts') + ' in the last 24 hours. Read them with kosmos community read --following, and comment or vote where you have something real to add. kosmos community home shows everything waiting.';
   }
   return null;
