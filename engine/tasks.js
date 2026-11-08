@@ -1177,17 +1177,17 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
   return changed;
 }
 
+/* kosmos#8259: drop a for-you hold's told and answered marks (engine/holdtold.js), wherever the mark itself goes. */
+const HOLD_TOLD_FIELDS = Object.freeze(['onHoldToldAt', 'onHoldLastToldAt', 'onHoldToldVia', 'onHoldToldId', 'onHoldAnsweredAt']);
+function dropHoldTold(changed) {
+  for (const k of HOLD_TOLD_FIELDS) delete changed[k];
+}
+
 /**
  * #4771: whether a task is on hold (waiting on the person, or deliberately parked). The Prompter never nudges an agent
  * about it and the Assigner never hands it out (engine/agentnudge.js openParts, engine/assigner.js); it stays on its
  * owner's list for everything else.
  */
-/* kosmos#8259: drop a for-you hold's told and answered marks (engine/holdtold.js), wherever the mark itself goes. */
-const HOLD_TOLD_FIELDS = Object.freeze(['onHoldToldAt', 'onHoldToldVia', 'onHoldToldId', 'onHoldAnsweredAt']);
-function dropHoldTold(changed) {
-  for (const k of HOLD_TOLD_FIELDS) delete changed[k];
-}
-
 function isOnHold(t) {
   return Boolean(t && t.onHold === true);
 }
@@ -1365,9 +1365,11 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       if (wantBecause) changed.onHoldBecause = wantBecause; else delete changed.onHoldBecause;
       const keepFor = forPerson === undefined && isOnHold(t) && t.onHoldForPerson === true;
       if (viaScreen !== true && (forPerson === true || keepFor)) changed.onHoldForPerson = true; else delete changed.onHoldForPerson;
-      /* kosmos#8259: told and answered belong to the for-you hold: kept while it stays marked (a changed condition or
-         reason is the same ask), dropped when the mark comes off or is newly put on (a new ask, not yet told). */
-      if (changed.onHoldForPerson !== true || !(isOnHold(t) && t.onHoldForPerson === true)) dropHoldTold(changed);
+      /* kosmos#8259: told and answered belong to the for-you hold: kept while it stays marked with the same reason (a
+         changed condition is the same ask), dropped when the mark comes off, is newly put on, or the reason changes (a
+         new question, not yet asked). */
+      if (changed.onHoldForPerson !== true || !(isOnHold(t) && t.onHoldForPerson === true)
+        || (changed.onHoldBecause || null) !== (t.onHoldBecause || null)) dropHoldTold(changed);
       // kosmos#7788 review 1: marking or unmarking it moves the task between groups, so the history records it.
       if (isOnHold(t) && (t.onHoldForPerson === true) !== (changed.onHoldForPerson === true)) { markOnly = !didChange && viaScreen !== true; didChange = true; }   // review 3: the person's hold on the screen (a takeover too) is a new hold
       forCleared = isOnHold(t) && t.onHoldForPerson === true && changed.onHoldForPerson !== true;

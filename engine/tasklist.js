@@ -180,7 +180,9 @@ function whenWords(s) {
 function toldWords(x) {
   if (x.onHoldByPerson === true) return '';   // the person's own hold is never theirs to be told about
   const told = typeof x.onHoldToldAt === 'string' ? whenWords(x.onHoldToldAt) || one(x.onHoldToldAt) : '';
-  const answered = typeof x.onHoldAnsweredAt === 'string' ? whenWords(x.onHoldAnsweredAt) || one(x.onHoldAnsweredAt) : '';
+  // An answer counts until you ask again (engine/holdtold.js answeredOpen), as the person's Tasks row reads it.
+  const answered = typeof x.onHoldAnsweredAt === 'string' && !require('./holdtold').answeredOpen(x)
+    ? whenWords(x.onHoldAnsweredAt) || one(x.onHoldAnsweredAt) : '';
   if (answered) return ' (they answered ' + answered + ': if that settles it, take it off hold)';
   if (told) return ' (you told them ' + told + ')';
   return ' (Kosmos has not seen you tell them: ask them in the task, or name task ' + x.number + ' when you ask)';
