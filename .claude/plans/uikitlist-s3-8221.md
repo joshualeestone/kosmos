@@ -61,14 +61,17 @@ edge, which is right for keeping the pixels still but would not be if a later ch
 | check | UIKit, with slice 3 | UIKit, without (slice 2's ChatList.swift) | lazy |
 |---|---|---|---|
 | rows leave the top (NOKEEP) | **pass 9 of 10** (1 lost to the check's own query, fixed, then 4 of 4) | **red 3 of 3**: "after 4 s: 'Message 225 of 260.' left the screen"; "after 4 s: moved from 206 to 138" (one row); "after 4 s: 'Message 224 of 260.' left the screen" (frame-based version) | pass 1 of 1 |
-| scroll with no finger (SCROLLBY), UIKit only | pass 4 of 5 alone or in its class (the 5th: 228 of 300 pt, the hold stopping the scroll, fixed by the rest rule; re-run below) | **red 2 of 2** on the hold before review iteration 1: "moved 0 pt, not about 300" | skips (no SCROLLBY hook) |
+| scroll with no finger (SCROLLBY), UIKit only | pass 7 of 8 (the miss: 228 of 300 pt in a full class run, the hold stopping the scroll; fixed, then 3 of 3 alone and in 2 of 2 class runs on the final code) | **red 2 of 2** on the hold before review iteration 1: "moved 0 pt, not about 300" | skips (no SCROLLBY hook) |
+| SCROLLBY while rows leave the top (NOKEEP), UIKit only | pass 3 of 3 (final code) | not run without the change (it reaches the same fix as the row above) | skips |
+| reader who dragged up, rows leave the top | pass 2 of 2 (final code) | **pass 2 of 2** on the iteration 4 code it was added for, so a regression guard for the drag path, not evidence: the stale rest reference it was meant to catch never showed (later layouts held the place anyway), and the final code has no rest reference at all | pass 1 of 1 (in the lazy class run) |
 | rows come and go (as the app runs) | pass 1 of 1 | pass 1 of 1 (regression guard) | pass 1 of 1 |
 | read higher up, keyboard up | pass 1 of 1 | pass 1 of 1 (regression guard) | pass 1 of 1 |
 | read higher up, box grows | pass 1 of 1 | pass 1 of 1 (regression guard) | not run |
 
 Every UIKit-arm chat class with slice 3 (one run each): NewMessages 5, KeyboardSlide 9 (3 skipped: the lazy list's
 rebuild), ChatSearch 1, ChatDrag 1, ChatOpensAtNewest 2, SendMovesOnce 3, ComposerSend 3, DotsRefresh 9, StopAdding 2:
-35 run, 0 failures.
+35 run, 0 failures. On the final code (after review iteration 7): NewMessages 8 of 8 twice and KeyboardSlide 9 (3
+skipped) on the UIKit list; NewMessages on the lazy list 8 (2 skipped: the SCROLLBY checks), 0 failures.
 
 The one lost run: picking the top row asked every row isHittable, and a row leaving the list that moment failed the check
 itself ("Activation point invalid"). The pick and the on-screen test are now by frame.
