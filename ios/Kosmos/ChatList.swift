@@ -56,6 +56,10 @@ struct ChatList: UIViewRepresentable {
         // change; dropped whenever the list is scrolled (by the person, by code, or by iOS itself, such as VoiceOver's page
         // scroll), and taken again on the next layout once nobody is scrolling.
         var place: (id: String, dy: CGFloat)?
+        // The offset at the end of the last layout. A place is taken only where the list has come to rest (the same offset two
+        // layouts running, or the end of a scroll): taken mid-scroll, the hold would set the offset and stop the scroll there.
+        var lastY: CGFloat?
+        func resting(_ list: UIScrollView) -> Bool { lastY.map { abs($0 - list.contentOffset.y) <= 0.5 } ?? false }
 
         func configure(_ c: UICollectionViewCell, _ id: String) {
             guard let cell else { return }
@@ -109,9 +113,9 @@ struct ChatList: UIViewRepresentable {
             max(-sv.adjustedContentInset.top, sv.contentSize.height - sv.bounds.height + sv.adjustedContentInset.bottom)
         }
 
-        // The person's own scroll decides where the reader is; a scroll by code never does.
-        // Any move that is not this list's own (pin, hold, or a layout pass) drops the reader's place, so a scroll iOS makes
-        // with no finger on the list (VoiceOver's page scroll, an animated scroll by code) is followed, not put back.
+        // Whether the reader is at the newest is read during the person's own scroll and when any scroll ends (scrolled()).
+        // For a reader higher up, any move that is not this list's own (pin, hold, a layout pass, an update) drops the place,
+        // so a scroll with no finger on the list is followed (NewMessagesUITests' SCROLLBY check).
         func scrollViewDidScroll(_ sv: UIScrollView) {
             if sv.isTracking || sv.isDragging || sv.isDecelerating {
                 atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
@@ -159,8 +163,8 @@ struct ChatList: UIViewRepresentable {
         func laidOut() {
             guard let list, !pinning else { return }
             guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
-            if atEnd { pin(); return }
-            if place == nil { place = top() } else { hold() }
+            if atEnd { pin() } else if place == nil { if resting(list) { place = top() } } else { hold() }
+            lastY = list.contentOffset.y
         }
 
         func pin() {
@@ -196,7 +200,8 @@ struct ChatList: UIViewRepresentable {
             }
             let kept = Set(now)
             // A reader higher up whose top row is about to go holds the next row on screen that stays, as it is drawn now.
-            if !atEnd, place.map({ !kept.contains($0.id) }) ?? true { place = top(keep: kept) }
+            let heldGoes = place.map { !kept.contains($0.id) } ?? (list.map(resting) ?? false)
+            if !atEnd, heldGoes { place = top(keep: kept) }
             let again = shown.filter { kept.contains($0) }
             if !again.isEmpty { s.reconfigureItems(again) }
             applying = true
