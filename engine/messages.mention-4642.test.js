@@ -207,6 +207,9 @@ test('#8270: a header name no agent here has is said without a command; a member
   const r = post('Leo -> Pat Smith, Kano: the numbers', WITH_OUTSIDER());
   assert.deepEqual(r.addressed, ['kano'], 'the member beside the outsider was not reached');
   assert.equal(r.note, 'Pat Smith is not on this project, so this post did not reach them. Add them to the project, or reach them another way.');
+  // "Sender to Name:" is a header only when Sender is the poster; then its name counts too.
+  assert.match(post('Leo to Pat: the numbers', WITH_OUTSIDER()).note, /^Pat is not on this project/);
+  assert.equal(post('Mara to Pat: the numbers', WITH_OUTSIDER()).note, undefined, 'CONTROL: a sentence naming someone else as its subject read as this poster\'s header');
 });
 test('#8270: nothing is said for what is not clearly someone off the project (controls)', () => {
   for (const text of ['Leo -> Kano: the numbers', 'Leo -> all: the numbers', 'Leo -> the team: the numbers', 'a note for later: nothing here',

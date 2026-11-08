@@ -2505,9 +2505,9 @@ function ambiguousNote(ambiguous, mentioned, shown) {
 
 /* kosmos#8270: the sentence that tells an agent its post addressed someone who is not on this project, so it reached
    them nowhere (a colleague's request sat unread until it was passed on by hand). Reads a post the way addressedMembers
-   does, and names only what is clearly a person: a name in a "Sender -> Name:" header that resolves to no member, or a
-   header name or @-word that resolves to an agent on this board outside the project. So "-> the team:", a "for" header
-   and an @-word that is no agent's name say nothing. Never throws; '' when there is nothing to say. Printed by both CLIs
+   does, and names only what is clearly a person: a capitalised name in the post's header (a "Sender to Name:" header
+   counts only when Sender is the poster) that resolves to no member, or a header name or @-word that resolves to an
+   agent on this board outside the project. So "-> the team:" and an @-word that is no agent's name say nothing. Never throws; '' when there is nothing to say. Printed by both CLIs
    through the post answer's ambiguousNote, so the same rules as that sentence apply (printableName). */
 function outsidersNote(cleaned, recipients, roster, from, raw) {
   try {
@@ -2528,9 +2528,8 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
     for (const part of head ? head.targets : []) {
       const bare = part.replace(/^@/, '');
       if (/^(all|everyone)$/i.test(bare) || targetResolves(bare, members, roster).length || known(bare)) continue;
-      // Only an arrow header names people for certain ("for" and "to" headers are ordinary sentences too), and only a
-      // capitalised run is a name ("-> the team:" is not).
-      const name = head.word ? '' : printableName((/^(?:[A-Z][\w.'-]*(?:\s+|$)){1,3}/.exec(bare) || [''])[0]);
+      // Only a capitalised run is a name ("-> the team:" is not).
+      const name = printableName((/^(?:[A-Z][\w.'-]*(?:\s+|$)){1,3}/.exec(bare) || [''])[0]);
       if (name && !found.has(name)) found.set(name, '');
     }
     for (const m of String(cleaned || '').replace(/`[^`]*`/g, ' ').matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
