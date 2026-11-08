@@ -334,7 +334,10 @@ function timeoutFor(report) {
      which always has time for its retry, a loss that leaves under TURN_END_RETRY_MIN_MS of the window is noted
      without one;
    - a board that proves itself but serves another Kosmos (421 wrongWorld): neither, as the hook is already silent on
-     that answer (#1704). Something at the port that cannot prove itself is a loss like any other.
+     that answer (#1704);
+   - an answer cut off after its headers (our own timeout while the body arrived): not resent, as the board did answer,
+     and noted as unconfirmed (kosmos#8233). With the body cut off, a keep or a 421 wrongWorld cannot be told apart,
+     so one of those is noted too: the visible direction. Something at the port that cannot prove itself is a loss like any other.
    The note goes in the bash hook's file (turn-end-failures.log in the throttle folder), capped the same way; its line
    names the agent's throttle key and the reason, where the bash line names the pane and the CLI's exit code.
    Only an agent's own session (it carries an agent token) gets any of this: the person's own Claude sessions run
@@ -756,9 +759,11 @@ async function main(io) {
         : (verdict.recorded === false || !verdict.status)
           ? 'the report was not recorded'
           : ('the board answered ' + verdict.status);
+    // kosmos#8233: a cut-off answer came from a board that answered, so it may well have recorded: unconfirmed, not OFF.
     stdout(JSON.stringify({
-      systemMessage: 'Kosmos reporting is OFF for this session: ' + reason
-        + '. The board is falling back to reading the screen.',
+      systemMessage: verdict.cutOff
+        ? 'Kosmos could not confirm that reporting works for this session: ' + reason + '.'
+        : 'Kosmos reporting is OFF for this session: ' + reason + '. The board is falling back to reading the screen.',
     }) + '\n');
   }
 
