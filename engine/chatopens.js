@@ -14,6 +14,8 @@
  * page. A person may force-quit a blank chat more than a fine one, so blankOpens / opens can err either way. Compare builds
  * with enough showings, do not quote it.
  *
+ * #8221: a chat drawn by the iPhone's new UIKit list (Settings, New chat list) sends no record, so it is in no count.
+ *
  * Read with GET /api/phone/chat-opens (the board's token, as its sibling chat-shifts) or from the file itself on this Mac.
  *
  * Kept on the board (store.ROOT/phone-chat-opens.json). Never throws to a caller. A file that cannot be read reads as
@@ -25,7 +27,7 @@ const store = require('./store');
 
 const MAX_BUILDS = 30;
 // Sent with the numbers, for whoever reads them without this file.
-const NOTE = 'Compare builds with enough showings; do not quote a rate. blankOpens is a floor on blanks, and lost showings can move blankOpens/opens either way. ok false means the file is unreadable and counting has stopped until it is removed. Definitions: engine/chatopens.js.';
+const NOTE = 'Compare builds with enough showings; do not quote a rate. blankOpens is a floor on blanks, and lost showings can move blankOpens/opens either way. ok false means the file is unreadable and counting has stopped until it is removed. Definitions: engine/chatopens.js. From iPhone builds with the New chat list switch (#8221), a chat drawn by that list is not counted.';
 const MAX_REBUILDS = 100;   // the app's own budget is far lower; a bad record cannot move a rate by much
 const FIELDS = ['opens', 'blankOpens', 'rebuilds', 'closedBlank'];
 // Digits and dots, with the build in brackets: no room for a word.
