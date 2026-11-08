@@ -19172,7 +19172,8 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/report' && req.method === 'POST') {
     /* kosmos#8230: an agent's AUTOMATIC turn end (idle, stopped, or the provider's blocked), refused before it reaches
        the record, says so in the board log: the card it was for stays on "working", and nothing else would tell why.
-       Only a request that presents an agent token (its presence: the sender is not resolved yet, so a local process
+       Only a request that presents an agent token in its header, as the report hook sends it (its presence: the
+       sender is not resolved yet, so a local process
        could present a bogus one and earn a line): the person's own Claude sessions send a turn end the board cannot
        tie to an agent on every turn, by design, and a line for each would bury the real loss. A report an agent sends itself
        is answered to it directly, so it is not logged either. */
