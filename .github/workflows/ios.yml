@@ -274,7 +274,7 @@ jobs:
 
   # kosmos#8221: the same sample-board run on the UIKit chat list (ui-sample.sh --uikit), which a release build does not draw
   # yet, so a change that breaks it goes red here before the slice that lets a phone choose it. Its own job, beside the
-  # lazy list's, so neither waits on the other. Its name holds no "ui tests", so ui-flaky-count.sh keeps reading the lazy job.
+  # lazy list's, so neither waits on the other. ui-flaky-count.sh reads a job by its exact name: pass this one's to count it.
   uikit:
     name: uikit list (sample board)
     runs-on: macos-latest

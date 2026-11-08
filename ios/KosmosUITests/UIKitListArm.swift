@@ -4,8 +4,7 @@ import XCTest
 // otherwise the lazy SwiftUI list. Set just before launch, after any whole-dictionary assignment of the launch environment.
 // A check of something the UIKit list does not have yet skips itself on that arm (XCTSkip), so a UIKit run's failures are
 // all about what it does have. A launch that opens a project room is unaffected by the switch.
-// Nothing runs this arm by itself yet: CI runs the lazy list, which is what a release build draws. It is run by hand with
-// TEST_RUNNER_KOSMOS_UIKITLIST=1 until the slice that lets a phone choose the UIKit list, which adds it to a runner.
+// ios/tools/ui-sample.sh --uikit runs this arm (CI's "uikit list (sample board)" job); its header names the classes.
 enum UIKitListArm {
     static var on: Bool { ProcessInfo.processInfo.environment["KOSMOS_UIKITLIST"] == "1" }
     static func set(_ app: XCUIApplication) {
