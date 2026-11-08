@@ -40,10 +40,17 @@ edge, which is right for keeping the pixels still but would not be if a later ch
 ## Measured (iPhone 17 Pro Max simulator, iOS 26.5, 11-08, by hand; nothing runs the UIKit arm in CI)
 | check | UIKit, with slice 3 | UIKit, without (slice 2's ChatList.swift) | lazy |
 |---|---|---|---|
-| rows leave the top (NOKEEP) | pass (see repeats below) | **red 2 of 2**: "after 4 s: 'Message 225 of 260.' left the screen"; "after 4 s: moved from 206 to 138" (one row) | pass 1 of 1 |
+| rows leave the top (NOKEEP) | **pass 9 of 10** (1 lost to the check's own query, fixed, then 4 of 4) | **red 3 of 3**: "after 4 s: 'Message 225 of 260.' left the screen"; "after 4 s: moved from 206 to 138" (one row); "after 4 s: 'Message 224 of 260.' left the screen" (frame-based version) | pass 1 of 1 |
 | rows come and go (as the app runs) | pass 1 of 1 | pass 1 of 1 (regression guard) | pass 1 of 1 |
 | read higher up, keyboard up | pass 1 of 1 | pass 1 of 1 (regression guard) | pass 1 of 1 |
 | read higher up, box grows | pass 1 of 1 | pass 1 of 1 (regression guard) | not run |
+
+Every UIKit-arm chat class with slice 3 (one run each): NewMessages 5, KeyboardSlide 9 (3 skipped: the lazy list's
+rebuild), ChatSearch 1, ChatDrag 1, ChatOpensAtNewest 2, SendMovesOnce 3, ComposerSend 3, DotsRefresh 9, StopAdding 2:
+35 run, 0 failures.
+
+The one lost run: picking the top row asked every row isHittable, and a row leaving the list that moment failed the check
+itself ("Activation point invalid"). The pick and the on-screen test are now by frame.
 
 Why the two keyboard checks pass without the change on the UIKit list: the keyboard and the box take room from the bottom
 of the list, and a UICollectionView keeps its offset, so the top row does not move. They guard against a later change that
