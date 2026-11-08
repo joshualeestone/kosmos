@@ -2503,41 +2503,41 @@ function ambiguousNote(ambiguous, mentioned, shown) {
   return out.join(' ');
 }
 
-/* kosmos#8270: the sentence that tells an agent its post addressed someone who is not on this project, so it reached
-   them nowhere (a colleague's request sat unread until it was passed on by hand). Reads a post the way addressedMembers
-   does, and names only what is clearly a person: a capitalised name in the post's header (a "Sender to Name:" header
-   counts only when Sender is the poster) that resolves to no member, or a header name or @-word that resolves to an
-   agent on this board outside the project. So "-> the team:" and an @-word that is no agent's name say nothing. Never throws; '' when there is nothing to say. Printed by both CLIs
-   through the post answer's ambiguousNote, so the same rules as that sentence apply (printableName). */
+/* kosmos#8270: the sentence that tells an agent its post addressed another Kosmos agent on this computer who is not on
+   this project, so it reached them nowhere. Read as addressedMembers reads a post, but it speaks only of someone it can
+   identify: a real agent's card here (not a stray terminal session, which `kosmos msg` refuses), named in a header that
+   is this poster's own, or by a whole-word @-mention. A name it cannot identify says nothing: that could be the person,
+   a member on another computer, or not a name at all, and a false "did not reach them" is worse than none. Never throws;
+   '' when there is nothing to say. */
 function outsidersNote(cleaned, recipients, roster, from, raw) {
   try {
+    const nameKey = require('./agentnames').nameKey;
     const members = Array.isArray(recipients) ? recipients : [];
-    const cards = Array.isArray(roster) ? roster : [];
-    const outside = cards.map((c) => c && c.sessionName).filter((s) => typeof s === 'string' && s && !members.includes(s) && s !== from);
-    const found = new Map();   // what the sentence names -> the handle to reach it with, or ''
-    const known = (word) => {
-      const hit = targetResolves(word, outside, roster);
-      if (hit.length !== 1) return false;
-      const card = cards.find((c) => c && c.sessionName === hit[0]);
+    const cards = (Array.isArray(roster) ? roster : []).filter((c) => c && c.isNamedOurs === true && typeof c.sessionName === 'string' && c.sessionName !== from);
+    const outside = cards.filter((c) => !members.includes(c.sessionName)).map((c) => c.sessionName);
+    // A word any member (or the poster) answers to is not about an outsider, even when it is too ambiguous to address one.
+    const insideKeys = new Set();
+    const addKeys = (v) => { if (typeof v === 'string' && v) { insideKeys.add(nameKey(v)); v.split(/\s+/).forEach((w) => insideKeys.add(nameKey(w))); } };
+    for (const c of Array.isArray(roster) ? roster : []) if (c && (members.includes(c.sessionName) || c.sessionName === from)) { addKeys(c.sessionName); addKeys(c.name); }
+    members.forEach(addKeys); addKeys(from);
+    const found = new Map();   // the name shown -> the handle to type
+    const add = (hit) => {
+      if (hit.length !== 1 || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(hit[0])) return;
+      const card = cards.find((c) => c.sessionName === hit[0]);
       const shown = printableName(card && card.name) || printableName(hit[0]);
-      if (shown) found.set(shown, /^[A-Za-z0-9._-]+$/.test(hit[0]) ? hit[0] : '');
-      return true;
+      if (shown) found.set(shown, hit[0]);
     };
     const poster = from === undefined || from === null ? [] : [String(from)];
-    const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => !h.word || nameResolves(h.sender, poster, roster).length);
+    const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => h.sender && nameResolves(h.sender, poster, roster).length);
     for (const part of head ? head.targets : []) {
       const bare = part.replace(/^@/, '');
-      if (/^(all|everyone)$/i.test(bare) || targetResolves(bare, members, roster).length || known(bare)) continue;
-      // Only a capitalised run is a name ("-> the team:" is not).
-      const name = printableName((/^(?:[A-Z][\w.'-]*(?:\s+|$)){1,3}/.exec(bare) || [''])[0]);
-      if (name && !found.has(name)) found.set(name, '');
+      if (!/^(all|everyone)$/i.test(bare) && !targetResolves(bare, members, roster).length && !insideKeys.has(nameKey(bare))) add(targetResolves(bare, outside, roster));
     }
     for (const m of String(cleaned || '').replace(/`[^`]*`/g, ' ').matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
       const word = m[2].replace(/[._-]+$/, '');
-      if (word && !/^(all|everyone)$/i.test(word) && !targetResolves(word, members, roster).length) known(word);
+      if (word && !insideKeys.has(nameKey(word))) add([...mentionedMembers('@' + word, outside, roster).mentioned]);
     }
-    return [...found].map(([name, handle]) => name + ' is not on this project, so this post did not reach them. '
-      + (handle ? 'To reach them: kosmos msg ' + handle + '.' : 'Add them to the project, or reach them another way.')).join(' ');
+    return [...found].map(([name, handle]) => name + ' is not on this project, so this post did not reach them. To reach them: kosmos msg ' + handle + '.').join(' ');
   } catch { return ''; }
 }
 
@@ -3594,8 +3594,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          `posted` seam needs from here (the route has no other way to know; the person is never an @mention).
          A boolean, never the posts' words. Only present on a reply, so an ordinary post's answer is unchanged. */
       ...(answered ? { repliesToPerson: answered.operator === true } : {}),
-      /* #4653: an ambiguous @-word reached nobody as a request; the sender is told, in these words. It stays
-         the LAST key: kosmos post reads it anchored on the end of the answer. */
+      /* #4653: an ambiguous @-word reached nobody as a request; the sender is told, in these words (kosmos#8270: and an
+         agent named who is not on the project). It stays the LAST key: kosmos post reads it anchored on the end of the answer. */
       ...(note4653 ? { ambiguousNote: note4653 } : {}) };
   };
 
