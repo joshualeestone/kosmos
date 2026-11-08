@@ -24108,6 +24108,10 @@ const server = http.createServer(async (req, res) => {
         let agedAsks = 0;
         const agedBefore = Date.now() - UNANSWERED_DAYS * 24 * 60 * 60 * 1000;
         const aged = (m) => !unansweredAll && m.operator !== true && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) < agedBefore;
+        /* kosmos#4926 (11-07): when each held post reached this reader, read once, before this read records its own (below):
+           a post the reader makes later counts for a held ask from that moment (messages.laterOwnPost). */
+        let toldFor = new Map();
+        if (readerName) { try { toldFor = roomhold.toldIn(readerName, id); } catch { toldFor = new Map(); } }
         for (let i = rows.length - 1; i >= archivedCount && (onlyUnanswered || tail.length < textRows); i--) {
           /* #4926: --unanswered walks the whole live room, not just the last N rows, so an ask further back that is still
              open is found; N then caps how many are listed (the newest), and the count says how many there are. */
@@ -24118,7 +24122,7 @@ const server = http.createServer(async (req, res) => {
               // kosmos#7969: after the claim check on purpose: a claimed ask is named on the claimed line whatever its age.
               if (aged(rows[i])) { agedAsks += 1; continue; }
               // kosmos#4926: after age, so an old ask is counted there.
-              const own = listKeepsAsk(rows[i]) ? null : messages.laterOwnPost(rows, i, readerName);
+              const own = listKeepsAsk(rows[i]) ? null : messages.laterOwnPost(rows, i, readerName, toldFor.get(String(rows[i].id)));
               if (own) { coveredAsks.unshift({ id: String(rows[i].id), own, text: rows[i].text }); continue; }
               openAsks += 1;
               if (tail.length < textRows) tail.unshift(rows[i]);
@@ -24146,6 +24150,10 @@ const server = http.createServer(async (req, res) => {
                this agent something: archived messages leave what agents read here (the design's confirm copy). */
             for (let i = 0; i < archivedCount; i++) if (rows[i] && rows[i].kind === 'post' && typeof rows[i].id === 'string') shownIds.push(rows[i].id);
             if (who && shownIds.length) roomhold.dropShown(who, id, shownIds);
+            /* kosmos#4926 (11-07): a post held for this reader that this read showed has now reached it, so its later
+               posts may be about it. Only the shown rows, not the archived ones (not shown here). */
+            const heldShown = tail.filter((m) => m && m.kind === 'post' && typeof m.id === 'string' && m.outcomes && m.outcomes[who] === roomhold.HELD).map((m) => m.id);
+            if (who && heldShown.length) roomhold.noteTold(who, id, heldShown);
           } catch { /* the posts stay held */ }
         }
         const rowAt = new Map(readerName ? rows.map((r, n) => [r, n]) : []);   // kosmos#4926: a read walks up to 200 rows of a long room
@@ -24240,7 +24248,7 @@ const server = http.createServer(async (req, res) => {
             : [];
           /* kosmos#4926: said for the person's asks too, which stay listed: it is only what the reader did next. What it
              means for the reader differs: the list moves an agent's ask, and keeps the person's and one the reader claimed. */
-          const ownAfter = !mine && askedOfReader(m) ? messages.laterOwnPost(rows, rowAt.get(m), readerName) : null;
+          const ownAfter = !mine && askedOfReader(m) ? messages.laterOwnPost(rows, rowAt.get(m), readerName, toldFor.get(String(m.id))) : null;
           const youPosted = ownAfter
             ? [when + '  [kosmos] you posted [' + ownAfter + '] after [' + m.id + '] without citing it. '
               + (listKeepsAsk(m)

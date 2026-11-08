@@ -360,6 +360,10 @@ function forgetProject(name, projectId) {
     const all = readLimits(name);
     if (all[projectId]) { delete all[projectId]; writeLimits(name, all); }
   } catch { /* pruned a day after its reset anyway */ }
+  try {   // kosmos#4926: and nothing of a left room's tellings is kept either
+    const told = readTold(name);
+    if (told[projectId]) { delete told[projectId]; writeTold(name, told); }
+  } catch { /* pruned after TOLD_KEEP_MS anyway */ }
   return take(name, projectId).length;
 }
 
@@ -385,10 +389,69 @@ function dropShown(name, projectId, shownIds) {
   } catch { return 0; }
 }
 
+/* kosmos#4926 (the live check on 0.7.96, 11-07): a held post keeps the outcome `held` on its row after it is told, so
+   messages.laterOwnPost never counted the reader's later post for it, and seven asks a seat had answered stayed on its
+   --unanswered list for good. When a held post reaches its member (told by the idle flush or the timed retry, carried on
+   a typed arrival, or shown by the member's own `kosmos room` read), the moment is kept here, per member, project and
+   post id. The earliest wins, since that is when the member first had it. Entries go after TOLD_KEEP_MS (longer than
+   --unanswered's age rule, so no ask young enough to be listed loses its record), at most TOLD_MAX per project, the
+   newest kept. A write that fails keeps nothing, and the post stays listed: the safe direction. */
+const TOLD_KEEP_MS = 4 * 24 * 60 * 60 * 1000;
+const TOLD_MAX = 500;
+function toldFileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '.told.json'); }
+function readTold(name) {
+  const out = Object.create(null);
+  try {
+    const got = JSON.parse(fs.readFileSync(toldFileFor(name), 'utf8'));
+    if (got && typeof got === 'object' && !Array.isArray(got)) {
+      for (const p of Object.keys(got)) {
+        const v = got[p];
+        if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+        const m = Object.create(null);
+        for (const id of Object.keys(v)) if (/^m\d+$/.test(id) && Number.isFinite(v[id])) m[id] = v[id];
+        out[p] = m;
+      }
+    }
+  } catch { /* nothing told */ }
+  return out;
+}
+function writeTold(name, all) {
+  const file = toldFileFor(name);
+  const keys = Object.keys(all).filter((p) => all[p] && Object.keys(all[p]).length);
+  if (!keys.length) { try { fs.rmSync(file, { force: true }); } catch { /* nothing to remove */ } return true; }
+  const kept = Object.create(null);
+  for (const p of keys) kept[p] = all[p];
+  fs.mkdirSync(dir(), { recursive: true });
+  require('./securewrite').writeSecret(file, JSON.stringify(kept), 0o600, { atomicOnly: true });
+  return true;
+}
+function noteTold(name, projectId, ids, at = Date.now()) {
+  try {
+    if (typeof projectId !== 'string' || !projectId || !Number.isFinite(at)) return false;
+    const fresh = (Array.isArray(ids) ? ids : []).filter((x) => typeof x === 'string').map(plainId).filter((x) => /^m\d+$/.test(x));
+    if (!fresh.length) return true;
+    const all = readTold(name);
+    const cut = at - TOLD_KEEP_MS;
+    for (const p of Object.keys(all)) for (const id of Object.keys(all[p])) if (all[p][id] < cut) delete all[p][id];
+    const mine = all[projectId] || Object.create(null);
+    for (const id of fresh) if (!(id in mine) || mine[id] > at) mine[id] = at;
+    const capped = Object.create(null);
+    for (const id of Object.keys(mine).sort((a, b) => mine[a] - mine[b]).slice(-TOLD_MAX)) capped[id] = mine[id];
+    all[projectId] = capped;
+    return writeTold(name, all);
+  } catch { return false; }
+}
+/* When each held post in this project reached this member, as id -> ms. Empty when none, or unreadable. */
+function toldIn(name, projectId) {
+  const m = readTold(name)[projectId];
+  return new Map(m ? Object.keys(m).map((id) => [id, m[id]]) : []);
+}
+
 /* The member was removed: nothing held for it is told to anyone who later takes its name. */
 function forget(name) {
   forgetInput(name);   // #6256 item 1
   forgetCap(name);   // kosmos#7406
+  try { fs.rmSync(toldFileFor(name), { force: true }); } catch { /* the held file is what matters */ }   // kosmos#4926
   try { fs.rmSync(limitFileFor(name), { force: true }); } catch { /* the held file is what matters */ }
   try { fs.rmSync(fileFor(name), { force: true }); return true; } catch { return false; }
 }
@@ -586,7 +649,10 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     // #5805: a usage limit held this flush: its ids keep their marks, and the reset is recorded for withoutStale.
     if (limitUntil) noteLimit(name, projectId, ids.filter(isAddressed), limitUntil);
     if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
-    else if (due) noteDigest(name, projectId, now);   // #7246: a digest was typed (or held for typing): the next waits an hour
+    else if (due) noteDigest(name, projectId, now);
+    // kosmos#4926: told, so a post the member makes from now on may be about these (messages.laterOwnPost). The real
+    // clock, not `now`: the telling happens at this moment, whatever time the sweep was called with.
+    if (state === DELIVERY.PLACED || state === DELIVERY.UNCONFIRMED) noteTold(name, projectId, ids);   // #7246: a digest was typed (or held for typing): the next waits an hour
     if (capped && !agyCard(name, roster)) for (const x of ids) noteCap(name, projectId, x);   // kosmos#7406: retried by flushReleased once the cap frees
     // A digest the gate refused is tried again in DIGEST_RETRY_MS, not at the next minute's sweep.
     if (due && (!state || state === DELIVERY.COULD_NOT)) noteDigest(name, projectId, now - DIGEST_MS + DIGEST_RETRY_MS);
@@ -769,4 +835,4 @@ function carriedLine(name, projectId, ids, after, state) {
     : `room-hold: ${name} could not yet be told of ${ids.length} held post(s) in ${projectId} on an arrival there (delivery=${state || 'none'})\n`;
 }
 
-module.exports = { QUIET, capKept, NOTICE_MODES, BIG_ROOM, DIGEST_MS, DIGEST_RETRY_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, noteCap, capProjects, forgetCap, agyCard, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };
+module.exports = { QUIET, capKept, NOTICE_MODES, BIG_ROOM, DIGEST_MS, DIGEST_RETRY_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, noteTold, toldIn, TOLD_KEEP_MS, TOLD_MAX, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, noteCap, capProjects, forgetCap, agyCard, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };
