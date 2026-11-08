@@ -612,7 +612,6 @@ struct ChatView: View {
         .onAppear {
             diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty
             openCount.messagesArrived(rowsDrawn: !onScreen.isEmpty)
-            atBottom = true; endVisible = true
         }
         // A reader higher up is not moved by a new message; the capsule offers the jump (not over a search).
         .onChange(of: Board.followKey(thread)) { _ in if !atBottom && !searching { unseenNew = true } }
