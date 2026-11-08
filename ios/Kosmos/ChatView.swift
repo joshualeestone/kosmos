@@ -591,6 +591,8 @@ struct ChatView: View {
         // rows can share its id with one in the new read (parseRows numbers rows per read). The first is kept, as byId keeps it.
         var seen = Set<String>()
         let ids = (top + items.map(\.id) + sends.map(\.id) + ["working", "end"]).filter { seen.insert($0).inserted }
+        // row() also records each row's place for the keyboard hold (RowTop), read in the lazy list's content space; a hosted
+        // cell has no such space, so those readings are not to be used here.
         ChatList(ids: ids, cell: { id in
             if let item = byId[id] { return AnyView(row(item)) }
             if let p = sends.first(where: { $0.id == id }) { return AnyView(pendingBubble(p, layout)) }
@@ -601,7 +603,8 @@ struct ChatView: View {
                 return AnyView(ZStack {
                     if working { WorkingLine(name: shown.name) } else { WorkingLine(name: shown.name, animated: false).hidden() }
                 }.padding(.top, 12))
-            default: return AnyView(Color.clear.frame(height: ChatView.fadeHeight + 8).accessibilityHidden(true))   // "end"
+            case "end": return AnyView(Color.clear.frame(height: ChatView.fadeHeight + 8).accessibilityHidden(true))
+            default: return AnyView(EmptyView())   // an id with no cell draws nothing, never a gap
             }
         }, newest: uikitNewest, atEnd: { now in
             atBottom = now; endVisible = now
@@ -618,7 +621,11 @@ struct ChatView: View {
         .onChange(of: working) { now in if now && !atBottom && !searching { unseenNew = true } }
         // Only a message just sent goes to the newest message, as on the lazy list (searching too).
         .onChange(of: pending.count) { n in
-            if visible, n > lastPendingCount { Self.trace("send: \(pending.last?.text.count ?? 0) chars, pending \(pending.count) (atBottom \(atBottom))") }
+            // The same lines as the lazy list's, so a capture from either list reads alike.
+            if visible {
+                if n > lastPendingCount { Self.trace("send: \(pending.last?.text.count ?? 0) chars, pending \(pending.count) (atBottom \(atBottom), end \(endVisible))") }
+                else if n < lastPendingCount { Self.trace("pending down to \(pending.count)") }
+            }
             if n > lastPendingCount { uikitNewest &+= 1 }
             lastPendingCount = n
         }

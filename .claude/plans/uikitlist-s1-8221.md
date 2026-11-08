@@ -51,3 +51,8 @@ every sample), not on Josh's phone; the phone counts compare the two lists in th
        queries on the 260-message chat (documented in ui-sample.sh). Everything else passes.
 4. [x] iOS repo tests that read Swift: 15 node files (one trace value fixed), all 13 LogicTests suites PASS.
 5. [ ] Challenge loop, PR, merge on green.
+
+## Owed by later slices (from review)
+- A runner for the UIKit arm (ui-sample.sh or its own script) before the slice that lets a phone choose this list.
+- The keystroke cost, read from the "uikit list: N updates, M cells drawn again" trace line, before that slice too.
+- row()'s RowTop readings are in no usable space inside a hosted cell; the keyboard-hold slice must not build on them.
