@@ -334,9 +334,10 @@ function automountsHere(platform) {
  * remembered mapping whose server is gone (missing from GetDrives, named by the redirector); 'absent' is a letter no
  * drive has now, refused too, since nothing there can be checked and opening it is not needed to say so. A share on
  * THIS computer is refused as well (placeOf reads it as local; this check never opens a network drive at all).
+ *
+ * driveKind: a windrives entry as one verdict, 'local', 'network', 'absent' or 'unknown' (null, or a kind this does not
+ * know). The CLI and task files both read it, so the two never disagree.
  */
-/* kosmos#8227 item 1: a windrives entry as one verdict, 'local', 'network', 'absent' or 'unknown' (null, or a kind this
-   does not know). The CLI and task files both read it, so the two never disagree. */
 function driveKind(info) {
   const k = info && info.kind;
   return k === 'local' ? 'local' : k === 'remote' ? 'network' : k === 'absent' ? 'absent' : 'unknown';
@@ -451,7 +452,8 @@ function filesLines(body, opts = {}) {
       tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': not a local absolute path, so Kosmos does not open it'); continue;
     }
     if (windows) {
-      const info = driveInfo(at.charAt(0));
+      let info = null;
+      try { info = driveInfo(at.charAt(0)); } catch { info = null; }   // a reader that throws is a table that could not be read
       if (!info) {
         tally.unchecked += 1;
         lines.push('    NOT CHECKED ' + shown + (saidNoTypes ? ': the drive types again (above)' : ': Kosmos could not read what kind of drive each letter is on this computer, so it opens no path'));
