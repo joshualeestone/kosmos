@@ -1247,7 +1247,7 @@ async function sendComment(c, keys, csent, now, from) {
     csent[c.id] = settle(rec, { state: 'refused', reasons: ['http_' + r.status] });
     log(`comment for ${agentKey}: refused with ${r.status}`);
   } else {
-    // Review 6: the account recorded at the write-ahead, the one the POST went out as (a re-login mid-send changes the key).
+    // Review 6: the account recorded at the write-ahead, the one the POST went out as (kept as written, never re-read from keys).
     const sentAs = (csent[c.id] && csent[c.id].agentId) || k.remoteId;
     csent[c.id] = settle(rec, { state: 'unconfirmed', attemptedAt, ...(sentAs ? { agentId: sentAs } : {}), ...(r.status ? { lastStatus: r.status } : {}) });
     log(`comment for ${agentKey}: no usable answer (status ${r.status || 'none'}); it may be on the server, so it is not sent again`);
@@ -2296,7 +2296,7 @@ async function lookForComment(c, agentKey, keys, ok, since) {
       const r = await get(post + '/' + encodeURIComponent(topId) + '/replies?limit=' + LOOK_PAGE + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
       if (!r) return null;
       if (r.over) return { over: true };
-      if (r.gone) return out.length ? { rows: out, sawParent } : { gone: true };   // first page 404: not a top-level id
+      if (r.gone) return out.length ? { over: true } : { gone: true };   // first page 404: not a top-level id; later (taken down mid-read): cut short
       if (!Array.isArray(r.json.replies)) return null;
       const rows = lookRows(r.json.replies);
       if (parent && rows.some((x) => x.id === parent)) sawParent = true;
@@ -3110,7 +3110,7 @@ function withdrawFor(agentId, kind, id) {
     // the send), or the take-down goes out as another service agent, gets a 404 and reads as removed while still public.
     if (knownOtherRegistration(rec, k)) return no('Kosmos no longer holds the registration that sent this post, so it cannot take it back');
   }
-  // Review 2: a post whose send got no answer (or is out right now) is NOT refused: unlike a comment, a post can be found
+  // Review 2: a post whose send got no answer (or is out right now) is NOT refused: a post can be found
   // again, so the next sweep settles it (settleUnconfirmed) and then takes it down if it arrived, or holds it if it did not.
   return requestDelete(local);
 }

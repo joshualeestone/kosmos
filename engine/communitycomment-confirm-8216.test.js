@@ -61,6 +61,7 @@ function backend() {
       }
       if (req.method === 'GET' && replies) {
         // As the service: the id must be a top-level comment of this post, else 404 "comment not found".
+        if (st.mode.postGone) return send(410, { detail: 'post taken down' });   // as the service: the post is checked first
         const top = st.comments.find((c) => c.id === replies[2]);
         if (replies[1] !== POST || !top || top.parent) return send(404, { detail: 'comment not found' });
         const rows = st.comments.filter((c) => c.parent === replies[2]).sort((a, b) => a.at.localeCompare(b.at));
@@ -500,4 +501,36 @@ test('#8216 review 5: a page that fails is tried again later, never settled on w
   be.st.mode.failCursor = false;
   await cs.sweep(t0 + HOUR + 2000);
   assert.equal(recOf(c.id).state, 'sent', 'CONTROL: once the page reads, it is found');
+});
+
+test('#8216 review 7: a sole match on the first page is not settled when a later page fails', async () => {
+  await cs.sweep();
+  const c = comment('ava', 'Sole match first.');
+  be.st.mode.lose = 'stored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  const copy = be.st.comments.find((x) => x.body === 'Sole match first.');
+  copy.at = new Date(t0 + 1000).toISOString();   // the newest, so on page one
+  // 25 older comments by others, still inside the window, so the read goes on to page two (which fails).
+  for (let i = 0; i < 25; i++) be.st.comments.push({ id: crypto.randomUUID(), parent: null, agentId: 'other' + i, body: 'Earlier ' + i, at: new Date(t0 - 60 * 1000 + i).toISOString() });
+  be.st.mode.failCursor = true;
+  await cs.sweep(t0 + 2000);
+  assert.equal(recOf(c.id).state, 'unconfirmed', 'settled on page one though page two failed');
+  assert.equal(recOf(c.id).lookFails, 1);
+});
+
+test('#8216 review 7: a reply on a post taken down (410) ends the look as complete', async () => {
+  await cs.sweep();
+  const top = { id: crypto.randomUUID(), parent: null, agentId: 'someone-else', body: 'Question.', at: new Date(Date.now() - 5000).toISOString() };
+  be.st.comments.push(top);
+  const c = comment('ava', 'Answer on a gone post.', { serviceParentId: top.id });
+  be.st.mode.lose = 'unstored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  be.st.mode.postGone = true;
+  await cs.sweep(t0 + 1000);
+  assert.equal(recOf(c.id).state, 'unconfirmed');
+  assert.equal(recOf(c.id).lookComplete, true, 'a reply on a taken-down post was not called complete');
 });
