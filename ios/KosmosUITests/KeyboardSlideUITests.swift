@@ -123,6 +123,8 @@ final class KeyboardSlideUITests: XCTestCase {
 
     // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP moves
     // the reader up the thread 3 s after opening, as a reader's own scroll does.
+    // On the UIKit list (kosmos#8221) a regression guard only: it passed there without slice 3's place-keeping too (11-08),
+    // as the keyboard takes room from the bottom and the list keeps its offset. Rows leaving the top: NewMessagesUITests.
     func testReadHigherUpStaysWhereItWas() throws {
         let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
@@ -198,7 +200,8 @@ final class KeyboardSlideUITests: XCTestCase {
     }
 
     // kosmos#7817: a reader higher up is not pulled to the newest message as the box grows (only one at the newest is).
-    // A regression guard for the follow's own condition (it passes with the follow off too).
+    // A regression guard for the follow's own condition (it passes with the follow off too), and on the UIKit list
+    // (kosmos#8221) it passed without slice 3's place-keeping as well (11-08).
     func testReadHigherUpStaysWhileTheBoxGrows() throws {
         let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_BOXFOLLOW": "1"])
         let box = Self.box(app)
