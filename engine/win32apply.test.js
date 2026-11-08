@@ -1544,9 +1544,14 @@ test('SAFETY 3: ensureAnchored never points engine-path into the updater\'s fold
  * A PowerShell child holding `file` open with no sharing at all (FileShare.None), as a scanner or a
  * backup tool can: every read of it fails with EBUSY until `release()` ends the child. The round 4
  * reviewer measured exactly this handle making the live helper walk away (probe P6).
+ *
+ * kosmos#8265: the open is retried. FileShare.None fails at once if anything else has the file open at that moment
+ * (a scanner on a file just written, say), and one failed attempt ended the script, so the wait below ran out on a
+ * hold that could no longer come ("the holder never held the file").
  */
 function holdExclusively(file) {
-  const script = `$held = [IO.File]::Open('${file.replace(/'/g, "''")}', 'Open', 'Read', 'None'); Start-Sleep -Seconds 600`;
+  const quoted = file.replace(/'/g, "''");
+  const script = `$held = $null; $end = (Get-Date).AddSeconds(25); while (-not $held -and (Get-Date) -lt $end) { try { $held = [IO.File]::Open('${quoted}', 'Open', 'Read', 'None') } catch { Start-Sleep -Milliseconds 50 } }; Start-Sleep -Seconds 600`;
   const child = cp.spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'ignore', windowsHide: true });
   child.on('error', () => { /* exclusiveHoldSkipReason has already proved PowerShell starts here */ });
   const readCode = () => { try { fs.readFileSync(file); return null; } catch (e) { return e.code; } };
