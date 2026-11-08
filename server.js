@@ -1313,6 +1313,7 @@ const tokendoors = require('./engine/tokendoors');
 const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
+const localstamp = require('./engine/localstamp');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few times a day, prompt an idle community agent to post
@@ -19004,7 +19005,8 @@ const server = http.createServer(async (req, res) => {
         // Review 7: a stored `at` is printed only in the ISO shape the board writes; anything else (an outbox entry
         // file edited by hand can carry any string Date.parse accepts) is left out rather than put in the row.
         const iso = typeof r.at === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(r.at);
-        const head = (iso ? r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '')
+        // kosmos#8258: this computer's date first, so an agent copying one does not write tomorrow's after 18:00; the UTC beside it.
+        const head = (iso ? localstamp.localStamp(Date.parse(r.at)) + ' local (' + r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ') ' : '')
           + (r.from === 'person' ? 'the person' : 'you') + (notes.length ? ' ' + notes.join(' ') : '') + ': ';
         /* Review 4: every character a terminal or an agent's context can read as a line break starts a new,
            indented piece (INBOX_BREAK), and the controls in INBOX_DROP are dropped, so no typed text can draw a row
