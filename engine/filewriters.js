@@ -176,6 +176,13 @@ function ownerNoticeText({ name, owner, writer }) {
     + 'A notice, not a lock: ' + owner + ', read it again before you build on what you last saw in it. For the next hour, '
     + 'Kosmos will not post a separate notice for each other file ' + writer + ' changes that you were the first seen changing.';
 }
+/* kosmos#8235: the room's copy also says when the owner gets its own, so a check made just after the change does not
+   read as the notice never arriving. Not in the owner's copy, which is that delivery. FILE_NOTICE_EVERY in both report
+   hooks (engine/kosmos-report-hook.js, install/kosmos-report-hook.sh) is the five minutes. */
+function roomNoticeText(n) {
+  return ownerNoticeText(n) + ' ' + n.owner + ' is handed this notice too, at a prompt of its own; Kosmos looks for it at most '
+    + 'once every five minutes, so a prompt sooner than that may not carry it yet.';
+}
 const HELD_BACK_TEXT = 'Kosmos has posted its limit of file-owner notices in this room for the hour and is holding back the '
   + 'rest for now. Read a shared file again before you build on what you last saw in it.';
 /* Whether `owner` is on the project, asked only when a notice is due. The members are kept for ROOTS_TTL_MS, as the roots
@@ -199,7 +206,7 @@ function onProject(projectId, owner, now = Date.now()) {
 function ownerNotice(n) {
   try {
     const messages = require('./messages');
-    messages.roomNote(n.projectId, n.heldBack ? HELD_BACK_TEXT : ownerNoticeText(n), { audience: messages.NOTE_AUDIENCE_AGENTS });
+    messages.roomNote(n.projectId, n.heldBack ? HELD_BACK_TEXT : roomNoticeText(n), { audience: messages.NOTE_AUDIENCE_AGENTS });
   } catch { /* the write stands */ }
   /* kosmos#7989 slice 3: the same notice also waits for the owner itself (engine/filenotices.js), which Kosmos's Claude
      Code hook hands to it at its next turn. Not the held-back note: that one names no owner. Separate from the room note,
@@ -329,4 +336,4 @@ function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
   } catch { return { ok: false, because: 'unreadable' }; }
 }
 
-module.exports = { about, noteWrite, writerOf, annotate, projectOf, fileFor, resetForTests, ownerNoticeText, HELD_BACK_TEXT, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS, NOTICE_EVERY_MS, NOTICE_ROOM_MAX };
+module.exports = { about, noteWrite, writerOf, annotate, projectOf, fileFor, resetForTests, ownerNoticeText, roomNoticeText /* kosmos#8235 */, HELD_BACK_TEXT, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS, NOTICE_EVERY_MS, NOTICE_ROOM_MAX };
