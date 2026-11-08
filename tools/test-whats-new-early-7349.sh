@@ -48,7 +48,9 @@ done
 # The committed list the build stand-in reproduces (only its highlights are compared).
 mkdir -p "$RS/web"; printf '{"version":"0.0.0","highlights":[{"title":"one"},{"title":"two"}]}\n' > "$RS/web/whats-new.json"
 CURV="$(sed -n 's/.*"version":[[:space:]]*"\([0-9.]*\)".*/\1/p' "$HERE/../package.json" | head -1)"
-_p=$(( 10#${CURV##*.} + 1 )); NEXTV="${CURV%.*}.$(printf '%02d' "$_p")"   # the next patch: past the version-jump guard
+# The next version by release.sh's own rule: at a patch of 99 or more, the next line at .00 (#8254: 0.7.99 asked for
+# 0.7.100, refused before the cut home). The same NEXTV-RULE line is in tools/test-pointer-freeze.sh, which checks they match.
+_cm="${CURV%.*}"; _cp=$(( 10#${CURV##*.} )); if [ "$_cp" -ge 99 ]; then NEXTV="${_cm%.*}.$(( 10#${_cm##*.} + 1 )).00"; else NEXTV="$_cm.$(printf '%02d' $(( _cp + 1 )))"; fi   # NEXTV-RULE (#8254)
 
 run() {  # <check rc> <pool rc> [env...] : sets RC, OUT, LOG; each run gets a fresh HOME, TMPDIR and marker dir
   local crc="$1" prc="$2"; shift 2

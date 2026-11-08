@@ -10,8 +10,10 @@
 # setup.sh's KOSMOS_HOME normalization and its board label line, under TMPDIRs a cut shell can have, and compares the
 # two labels.
 #
-# Arms: each TMPDIR shape gives a $SB with no '//' and one label on both sides; a REVERTED derivation (the slash handling
-# removed) is caught on the macOS shape, so a clean result is not a silent instrument.
+# Arms: each TMPDIR shape gives a $SB with no '//' and one label on both sides; so does the macOS shape under a mktemp
+# that keeps '//' as macOS's does (MACOS_MKTEMP, checked to keep it, #8244); and a REVERTED derivation (the slash
+# handling removed) is caught on the macOS shape under that same mktemp, so a clean result is not a silent instrument on
+# any platform's mktemp.
 #
 #   bash tools/test-install-sbroot-6275.sh
 set -u
@@ -81,9 +83,10 @@ printf "%s\n" "$_board_label"')"
   printf '%s\n%s\n%s\n' "$sb" "$hl" "$sl"
 }
 # One arm: a $SB was made, under the squeezed TMPDIR, with no '//', and both sides name the same login job.
-arm() {   # $1 label  $2 TMPDIR  $3 the parent $SB must have
+arm() {   # $1 label  $2 TMPDIR  $3 the parent $SB must have  [$4 lines run before the derivation, e.g. MACOS_MKTEMP]
   local out sb hl sl
-  out="$(run "$derive" "$2")" || { bad "$1: the harness refused or failed (TMPDIR=$2): $out"; return; }
+  out="$(run "${4:+$4
+}$derive" "$2")" || { bad "$1: the harness refused or failed (TMPDIR=$2): $out"; return; }
   sb="$(printf '%s\n' "$out" | sed -n 1p)"; hl="$(printf '%s\n' "$out" | sed -n 2p)"; sl="$(printf '%s\n' "$out" | sed -n 3p)"
   case "$sb" in *//*) bad "$1: \$SB has '//' ($sb)"; return ;; esac
   [ -d "$sb" ] && [ "$(dirname "$sb")" = "$3" ] || { bad "$1: \$SB is not a new folder under $3 ($sb)"; return; }
@@ -96,17 +99,43 @@ arm "a macOS TMPDIR (ends in '/')"   "$T/mac/"       "$T/mac"
 arm "a '//' inside TMPDIR"           "$T//in//ner/"  "$T/in/ner"
 arm "CONTROL: a TMPDIR with no slash at the end" "$T/plain" "$T/plain"
 
+# kosmos#8244: macOS's mktemp (and GNU's on ubuntu-24.04: run 42473035158 passed this control) keeps a '//' in the
+# template it is given. On ubuntu-26.04 the reverted derivation's $SB came back with no '//' (run 42473275263's log), so
+# there this check could see nothing; with the tr gone, mktemp is the only step left that could have squeezed it.
+# MACOS_MKTEMP stands in for mktemp -d in the runs below that ask for it: the folder is made at the template exactly as
+# given, its ten X's filled in, as macOS does. It refuses any other call, so a template that changed shape fails here.
+# Its suffix reads a fixed 256 bytes, so no pipe in it relies on a signal to end (a runner that ignores SIGPIPE would
+# otherwise leave tr reading /dev/urandom for ever).
+MACOS_MKTEMP='mktemp() {
+  [ "$#" -eq 2 ] && [ "$1" = -d ] || { echo "MACOS_MKTEMP: only mktemp -d <template> is stood in for: $*" >&2; return 1; }
+  case "$2" in *XXXXXXXXXX) ;; *) echo "MACOS_MKTEMP: the template does not end in ten X: $2" >&2; return 1 ;; esac
+  local _r; _r="$(head -c 256 /dev/urandom | LC_ALL=C tr -dc A-Za-z0-9 2>/dev/null | cut -c1-10)"
+  [ "${#_r}" -eq 10 ] || { echo "MACOS_MKTEMP: no random suffix" >&2; return 1; }
+  mkdir "${2%XXXXXXXXXX}$_r" && printf "%s\n" "${2%XXXXXXXXXX}$_r"
+}'
+# The stand-in itself, checked on the shape that matters: it keeps the '//' it is handed.
+sim="$(TMPDIR="$T/mac/" bash -c "$MACOS_MKTEMP"'
+mktemp -d "$TMPDIR/x.XXXXXXXXXX"
+')"
+case "$sim" in "$T/mac//x."??????????) [ -d "$sim" ] && ok "CONTROL: the macOS mktemp stand-in keeps '//' ($sim)" \
+    || bad "CONTROL: the macOS mktemp stand-in made no folder ($sim)" ;;
+  *) bad "CONTROL: the macOS mktemp stand-in did not keep the template as given ($sim)" ;; esac
+# The fixed derivation under the stand-in: it squeezes before mktemp, so it holds on macOS's mktemp too.
+arm "under macOS's mktemp: a TMPDIR ending in '/'" "$T/mac/" "$T/mac" "$MACOS_MKTEMP"
+
 # NEGATIVE CONTROL: the derivation with its slash handling taken out (the #4298 shape: template at "$TMPDIR/x" as
 # given, no refusal) must be caught on the macOS shape. Each removal is checked to have happened, so a lift that no
-# longer matches these lines cannot turn this arm into a pass.
+# longer matches these lines cannot turn this arm into a pass. It runs under the macOS mktemp stand-in (#8244), so it
+# shows the defect whichever mktemp this machine has.
 reverted="$(printf '%s\n' "$derive" | sed -e '/^_ti_tmp="\${_ti_tmp%\/}"$/d' -e 's#| /usr/bin/tr -s ./.##' -e '/^case "\$SB" in/d')"
 if [ "$reverted" = "$derive" ] || printf '%s' "$reverted" | grep -q 'tr -s' || printf '%s' "$reverted" | grep -q '_ti_tmp%/'; then
   bad "NEGATIVE CONTROL: could not build the reverted derivation (the lines it removes changed)"
 else
-  out="$(run "$reverted" "$T/mac/")"
+  out="$(run "$MACOS_MKTEMP
+$reverted" "$T/mac/")"
   sb="$(printf '%s\n' "$out" | sed -n 1p)"; hl="$(printf '%s\n' "$out" | sed -n 2p)"; sl="$(printf '%s\n' "$out" | sed -n 3p)"
-  case "$sb" in *//*) [ -n "$hl" ] && [ "$hl" != "$sl" ] && ok "NEGATIVE CONTROL: a reverted derivation gives '//' and two different labels ($hl, $sl)" \
-      || bad "NEGATIVE CONTROL: '//' in \$SB but the labels agreed ($hl, $sl), so this check could not see the #6252 failure" ;;
+  case "$sb" in *//*) [ -d "$sb" ] && [ -n "$hl" ] && [ "$hl" != "$sl" ] && ok "NEGATIVE CONTROL: a reverted derivation gives '//' and two different labels ($hl, $sl)" \
+      || bad "NEGATIVE CONTROL: '//' in \$SB but no folder there or the labels agreed ($hl, $sl), so this check could not see the #6252 failure" ;;
     *) bad "NEGATIVE CONTROL: the reverted derivation had no '//' under a trailing-slash TMPDIR ($sb), so this check proves nothing" ;;
   esac
 fi
