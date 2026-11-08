@@ -21,5 +21,10 @@ Review round 1: a running agent re-reads its instructions when its project becom
 an agent's change is said in the room; a test project's entry leaves out the lines that invite new tasks; the
 instructions teach the verb where they teach pause; the goal give-up and goal read skip a test project.
 
+Review round 2: turning it off also owes a running agent a re-read (as a resume is told). Who may set it: the person or
+any agent, on or off; the testers are agents and turn it off after a test, and every change an agent makes is said in
+the room (a note row, which types into no pane). Membership is not checked, as for pause. The page does not show the
+flag yet: the person sees it through the room note and `kosmos project show`.
+
 Tests: cli.project-test-8236.test.js. Perturbed: the Assigner skip, the instruction line, the re-tell, the Mac
 CLI's field; each turned a test red.

@@ -127,8 +127,10 @@ test('#8236 review 1: a running agent owes a re-read when its project becomes a 
   projects.edit(t.id, { testOnly: true });
   assert.equal(projects.syncAgent('mara', board.agents).rulesChanged, true, 'becoming a test project owed no re-read, so a running agent never learns it');
   assert.notEqual(projects.syncAgent('mara', board.agents).rulesChanged, true, 'the same block again owed a re-read');
+  // Review 2: turning it off is read again too, as a resume is told, or a running agent keeps holding back.
   projects.edit(t.id, { testOnly: false });
-  assert.notEqual(projects.syncAgent('mara', board.agents).rulesChanged, true, 'turning it off (a line taken out) owed a re-read');
+  assert.equal(projects.syncAgent('mara', board.agents).rulesChanged, true, 'turning it off owed no re-read');
+  assert.notEqual(projects.syncAgent('mara', board.agents).rulesChanged, true, 'CONTROL: the same block again owed a re-read');
   projects.removeAgent(t.id, 'mara');
 });
 

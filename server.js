@@ -23565,20 +23565,6 @@ const server = http.createServer(async (req, res) => {
             ? (who || 'Someone') + ' paused this project: nobody is nudged about its tasks or handed them. The person can resume it on the project\'s page.'
             : (who || 'Someone') + ' resumed this project, not from the project\'s page: its tasks can be nudged about and handed out again.');
         }
-        /* kosmos#8236 review 1: an agent's test flag quiets every member's own initiative, as an agent's pause does, and the
-           page does not show it yet, so a change not made on the screen is said in the room, naming the agent its token
-           names (else "Someone"). Only on a change. */
-        if (fields.testOnly !== undefined && fields.testOnly !== wasTestOnly && !isViaScreen(req, body)) {
-          let who = null;
-          try {
-            const res = sendertoken.resolve(presentedAgentToken(req, body), safeRoster());
-            const card = (res && res.ok === true && res.card) ? res.card : null;
-            who = (card && typeof card.name === 'string' && card.name.trim()) || null;
-          } catch { who = null; }
-          messages.roomNote(id, fields.testOnly
-            ? (who || 'Someone') + ' made this a test project: its agents do only what they are asked, and Kosmos asks none of them to add tasks for it. Turn it off: kosmos project test ' + id + ' off'
-            : (who || 'Someone') + ' turned off test mode for this project: Kosmos may ask its agents to add tasks toward its goal again.');
-        }
         // The block names the project, so a rename has to reach the agents that
         // were told the old name -- otherwise their instructions describe a
         // project that no longer goes by that. Archiving does NOT re-tell: the
@@ -23610,6 +23596,20 @@ const server = http.createServer(async (req, res) => {
               if (fresh) messages.tellResumed(resumed.id, resumed.name, resumed.agents, fresh);
             } catch { /* told at their next idle check, as before */ }
           });
+        }
+        /* kosmos#8236 review 1: an agent's test flag quiets every member's own initiative, as an agent's pause does, and the
+           page does not show it yet, so a change not made on the screen is said in the room, naming the agent its token
+           names (else "Someone"). Only on a change. */
+        if (fields.testOnly !== undefined && fields.testOnly !== wasTestOnly && !isViaScreen(req, body)) {
+          let who = null;
+          try {
+            const res = sendertoken.resolve(presentedAgentToken(req, body), safeRoster());
+            const card = (res && res.ok === true && res.card) ? res.card : null;
+            who = (card && typeof card.name === 'string' && card.name.trim()) || null;
+          } catch { who = null; }
+          messages.roomNote(id, fields.testOnly
+            ? (who || 'Someone') + ' made this a test project: its agents do only what they are asked, and Kosmos asks none of them to add tasks for it. Turn it off: kosmos project test ' + id + ' off'
+            : (who || 'Someone') + ' turned off test mode for this project: Kosmos may ask its agents to add tasks toward its goal again.');
         }
         let project = null;
         try { project = projects.get(id, roster); } catch { project = null; }
