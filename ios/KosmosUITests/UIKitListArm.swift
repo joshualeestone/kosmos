@@ -8,7 +8,8 @@ import XCTest
 enum UIKitListArm {
     static var on: Bool { ProcessInfo.processInfo.environment["KOSMOS_UIKITLIST"] == "1" }
     static func set(_ app: XCUIApplication) {
-        // Both arms set it: a set value wins over Settings' "New chat list" switch, which a run may have left on.
+        // Both arms set it, so a check that calls this ignores Settings' "New chat list" switch (a check that does not call it
+        // reads the switch; NewChatListSwitchUITests puts it back off in its teardown).
         app.launchEnvironment["KOSMOS_SAMPLE_UIKITLIST"] = on ? "1" : "0"
     }
 }

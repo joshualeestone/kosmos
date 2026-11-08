@@ -3,9 +3,25 @@ import XCTest
 // kosmos#8221 slice 5: Settings' "New chat list" switch. Off, a chat opens on the lazy list; on, the next chat opened is drawn
 // by the UIKit list (ChatList's collection view, "chat-list-uikit"). This check deliberately does NOT call UIKitListArm.set:
 // KOSMOS_SAMPLE_UIKITLIST, when set, wins over the switch, so the switch is only what decides here. It turns the switch
-// back off at the end, so a later check on the same simulator starts from the default (the arm sets the variable anyway).
+// back off in its teardown, which runs whether or not the check passed: several classes open a direct chat without
+// UIKitListArm (EndPull, DeleteMessage, LongPressKeyboard, AttachMenu's chat arm), and on a simulator reused by hand they
+// would otherwise run on the UIKit list.
 final class NewChatListSwitchUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
+
+    // A fresh launch straight onto the Chat section (KOSMOS_SAMPLE_SCROLL=chat), and the switch put back off if it is on.
+    override func tearDown() {
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "settings", "KOSMOS_SAMPLE_SCROLL": "chat"]
+        app.launch()
+        let sw = app.switches["settings-new-chat-list"]
+        if sw.waitForExistence(timeout: 20), sw.value as? String == "1" {
+            sw.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        }
+        XCTAssertEqual(sw.value as? String, "0", "teardown could not put the New chat list switch back off")
+        app.terminate()
+        super.tearDown()
+    }
 
     private func openDana(_ app: XCUIApplication, _ when: String) {
         // Measured 11-08: after the swipes up to the switch, iOS 26 collapses the tab bar to the selected tab alone ("Settings",
