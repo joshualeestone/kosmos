@@ -154,7 +154,9 @@ room_check="RoomKeyboardUITests testRoomReadHigherUpStaysWhereItWas"
 # kosmos#7645: and the room's newest-above-the-box check, which traces too since 11-04.
 room_newest="RoomKeyboardUITests testRoomNewestStaysAboveTheBox"
 room_drag="RoomKeyboardUITests testRoomReadHigherUpAfterADragStaysWhereItWas"
-if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check|$room_newest|$room_drag)\]' failed" "$log"; then
+# kosmos#8221 slice 4: and the long chat's grow check, red on CI's UIKit arm only.
+dm_grow="KeyboardSlideUITests testNewestStaysJustAboveTheBoxAsItGrowsAndShrinks"
+if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check|$room_newest|$room_drag|$dm_grow)\]' failed" "$log"; then
   app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
