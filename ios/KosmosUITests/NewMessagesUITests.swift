@@ -120,11 +120,22 @@ final class NewMessagesUITests: XCTestCase {
         checkCapsule(app, shot: "capsule-drag")
     }
 
-    // kosmos#8221 slice 3: every read drops the oldest message off the top and adds one at the end, and a reader higher up
+    // kosmos#8221 slice 3: every read slides the window (the oldest message out, one in at the end), and a reader higher up
     // stays exactly where they were: the highest row on screen at the same height, within 4 pt, read every second for 15 s.
     // The capsule showing is the control that arrivals came in that time (it shows only as messages arrive).
-    func testAReaderHigherUpKeepsTheirPlaceAsRowsComeAndGo() {
-        let app = Self.launch(["KOSMOS_SAMPLE_SCROLLUP": "40"])
+    // As the app runs, the rows that slid out are kept on the phone (carryDropped, kosmos#7265), so nothing leaves above the
+    // reader and this passes on the UIKit list without slice 3's place-keeping (measured 11-08). The NOKEEP check below is
+    // the one that takes rows off the top.
+    func testAReaderHigherUpKeepsTheirPlaceAsRowsComeAndGo() { keepsPlace([:]) }
+
+    // The same with KOSMOS_SAMPLE_NOKEEP=1 (carryDropped off), so every read takes the oldest row off the top of the list:
+    // a list that keeps its offset then slides the reader's rows up by that row each read. Red on the UIKit list built
+    // without slice 3's place-keeping (measured 11-08).
+    func testAReaderHigherUpKeepsTheirPlaceAsRowsLeaveTheTop() { keepsPlace(["KOSMOS_SAMPLE_NOKEEP": "1"]) }
+
+    private func keepsPlace(_ env: [String: String]) {
+        var env = env; env["KOSMOS_SAMPLE_SCROLLUP"] = "40"
+        let app = Self.launch(env)
         let rested = app.descendants(matching: .any).matching(identifier: "sample-scroll-rested").firstMatch
         XCTAssertTrue(rested.waitForExistence(timeout: 30), "CONTROL: the sample scroll-up never came to rest")
         let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
