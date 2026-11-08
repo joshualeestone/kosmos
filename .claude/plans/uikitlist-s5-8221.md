@@ -47,6 +47,9 @@ slices, with his phone's counts comparing the two before the old one goes").
   move a check onto the wrong list. ChatList's collection view carries the identifier "chat-list-uikit" (Debug or not).
   room suite: 4 new source checks (848/848); negative control, default flipped to true in a copy: FAIL 1 of 848 on the
   off-by-default check. All 13 LogicTests suites pass; ios.ui-sample-tally-7609 and server.ios-routes-6838 pass.
-- [ ] Step 5: NewChatListSwitchUITests (off: lazy; on: the next chat is "chat-list-uikit"; off again: lazy), added to
-  ui-sample.sh's lazy-arm classes. Local run pending.
+- [x] Step 5: NewChatListSwitchUITests (off: lazy; on: the next chat is "chat-list-uikit"; off again: lazy), added to
+  ui-sample.sh's lazy-arm classes. Run 1 (13:10) failed in the check itself: after the swipes up to the switch, iOS 26
+  collapsed the tab bar to "Settings" alone (value Collapsed, read from the failure's UI hierarchy), so no Agents tab. Fixed
+  by swiping down until Agents is back. Run 2 (13:21-13:23, iPhone 16e simulator): PASS. The arms control each other: the
+  on arm finds "chat-list-uikit", so the off arms' absence is not a missing identifier.
 - [ ] Steps 6-8.
