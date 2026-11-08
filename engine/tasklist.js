@@ -329,9 +329,10 @@ function filesLines(body, opts = {}) {
     const x = scrub(found);
     if (!PRINT_RE.test(x.builtFingerprint || '')) { noFile += 1; continue; }
     lines.push((every ? one(x.projectId || '?') + '  ' : '') + '#' + (x.number != null ? x.number : '?') + '  ' + titleOf(x));
-    // The stored path as sent (never scrubbed: a changed path is another file); printed scrubbed, and only as a value.
+    // The stored path is opened as sent (a scrubbed one would be another file); only the printed copy is scrubbed.
     const at = typeof found.builtFilePath === 'string' && found.builtFilePath ? found.builtFilePath : null;
-    const shown = at ? clean(at).replace(/\n/g, ' ') : '';
+    // Review 4: printed without characters a terminal cannot show safely; when that changed it, the line says so.
+    const shown = at ? clean(at).replace(/\n/g, ' ') + (clean(at).replace(/\n/g, ' ') !== at ? ' (printed without characters it cannot show)' : '') : '';
     if (!at) { tally.nopath += 1; lines.push('    no path recorded (an older Kosmos, or a path Kosmos does not keep): kosmos fingerprint <file> ' + x.builtFingerprint); continue; }
     // Never opened: a path marked on the other kind of computer, a network path (a marker's choice of host), or one not
     // absolute. The board refuses the last two; an older or edited store may still hold one.

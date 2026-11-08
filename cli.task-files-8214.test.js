@@ -132,7 +132,7 @@ test('#8214 board: the built route stores file_path, refuses a bad one, and the 
 // ── the shared renderer ─────────────────────────────────────────────────────
 test('#8214 filesLines: each verdict, the tally, an older board, and words that cannot forge a line', () => {
   const FP = sha('x');
-  const verdicts = { '/m': { ok: true, match: true }, '/c': { ok: true, match: false }, '/gone': { ok: false, words: 'missing (no such file)' },
+  const verdicts = { '/m': { ok: true, match: true }, '/m\u202e': { ok: true, match: true }, '/c': { ok: true, match: false }, '/gone': { ok: false, words: 'missing (no such file)' },
     '/locked': { ok: false, words: 'unreadable (permission denied)' } };
   const asked = [];
   const compare = (p, want) => { asked.push([p, want]); return verdicts[p]; };
@@ -143,7 +143,9 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
     // Review 1: a network or relative path in the store (an older board, an edited file) is never opened.
     row(8, { builtFilePath: '//attacker.example/share/x' }), row(9, { builtFilePath: '\\\\attacker\\share\\x' }), row(10, { builtFilePath: 'rel/x' }),
     // Review 2: a Windows path is not absolute on a Mac, so it is never resolved against the folder the command runs in.
-    row(11, { builtFilePath: 'C:\\out\\x.txt' }), row(12, { builtFilePath: '/Net/attacker/x' })] };
+    row(11, { builtFilePath: 'C:\\out\\x.txt' }), row(12, { builtFilePath: '/Net/attacker/x' }),
+    // Review 4: a format character is printed without it, and the line says so; the file opened is the path as stored.
+    row(13, { builtFilePath: '/m\u202e' })] };
   const out = tasklist.filesLines(body, { project: 'files', compare, platform: 'darwin' });
   assert.equal(out.rc, 0);
   assert.deepEqual(out.lines, [
@@ -158,12 +160,13 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
     '#10  Task 10', '    NOT CHECKED rel/x: not a local absolute path, so Kosmos does not open it',
     '#11  Task 11', '    NOT CHECKED C:\\out\\x.txt: marked on a Windows computer, so it is not on this one',
     '#12  Task 12', '    NOT CHECKED /Net/attacker/x: not a local absolute path, so Kosmos does not open it',
-    '11 built tasks with a delivered file in files: 2 match, 1 changed, 1 missing, 1 cannot be read, 1 with no path recorded, 1 marked on another kind of computer, 4 not a local path, not opened. 1 more built without --file.',
+    '#13  Task 13', '    matches  /m (printed without characters it cannot show)',
+    '12 built tasks with a delivered file in files: 3 match, 1 changed, 1 missing, 1 cannot be read, 1 with no path recorded, 1 marked on another kind of computer, 4 not a local path, not opened. 1 more built without --file.',
     'A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.',
     'Checked on this computer: a mark made on another computer can read missing here.',
   ]);
   // The recorded fingerprint is what each file is compared with, and a task with no path is never compared.
-  assert.deepEqual(asked.map((a) => a[0]), ['/m', '/c', '/gone', '/locked', '/m']);
+  assert.deepEqual(asked.map((a) => a[0]), ['/m', '/c', '/gone', '/locked', '/m', '/m\u202e']);
   assert.ok(asked.every((a) => a[1] === FP));
   // On Windows the rule turns round: a drive path is opened, a Mac path is another computer's, a network path never.
   asked.length = 0;
