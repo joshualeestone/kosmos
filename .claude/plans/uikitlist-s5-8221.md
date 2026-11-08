@@ -68,4 +68,18 @@ or "list chosen: lazy"). Counting reports per list is slice 6 (see Decided, revi
   largest text the account scroll leaves the Chat section below the screen). ~/work/design-shots/kosmos-8221-s5/: light and
   dark, off and on, and the largest text (label wraps to two lines, the switch keeps its place, the footer reads in full).
   All five looked at 13:41.
-- [ ] Steps 7-8.
+- [x] Review loop, 8 rounds (opus and sonnet alternating; reviewers diffed against origin/uikitlist-s4-8221), stopped at
+  the 8-round cap (Splinter 10-31) with no BLOCKER open. Fix commits: 84ef8a7a6e (1), 77dfc589fd (2), 3f78e5922d (3),
+  c8ac662a51 (4), cd57b6add6 (5), 9118b9e441 (6), 36ef0300d2 (7).
+  1: 2W (report could lose the list word; a failed run left the switch on) fixed, nits fixed, TestFlight gate deferred.
+  2: 1W fixed (teardown runs to the end), kept-open chat deferred, read-count comment reworded.
+  3: 1W decided (per-list counts move to slice 6, card comment 6726396131), overclaiming comments cut, footer widened.
+  4: comment and plan wording only, fixed.
+  5: Debug sample runs ignore a switch left on (KOSMOS_SAMPLE_UIKITLIST_SWITCH), report-line list word dropped until slice 6.
+  6: record line says "list chosen", ui-sample comment corrected; launch-argument reset rejected (it would also stop the
+     check from turning the switch on).
+  7: off arms see the lazy list draw; tap waits for the value; kept-open chat decision recorded.
+  8: no new code finding; left open: the lazy-bubble query rests on the bubble label format (the UI run on 36ef0300d2
+     is its measurement), the teardown relaunch (round 6 repeat), manual Debug sample runs ignoring the switch (by design,
+     stated in ChatView).
+- [ ] Final: UI run on the final head, rebase onto main after slice 4 merges, validation, proof, PR, TestFlight.
