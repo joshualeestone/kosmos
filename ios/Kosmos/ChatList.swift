@@ -144,7 +144,8 @@ struct ChatList: UIViewRepresentable {
             // following the newest message, so the keyboard covered it. Such a scroll, ending where the list last pinned
             // itself or further down, keeps a reader at the newest there and puts them at the end. A scroll the person made, or
             // one that went up the thread (VoiceOver's, the status-bar tap), decides as before.
-            if atEnd, !byPerson, sv.contentOffset.y >= pinnedY - 0.5 {
+            // The lower of the two: rows that sized smaller than their estimate lower the end after the last pin.
+            if atEnd, !byPerson, sv.contentOffset.y >= min(pinnedY, maxY(sv)) - 0.5 {
                 pin()
                 ChatView.trace("uikit list: scroll ended, not the person's and not up, kept at the end (\(geometry(sv)))", ring: false)
                 return
@@ -308,6 +309,8 @@ struct ChatList: UIViewRepresentable {
             // A fling still running would carry on past the move; stopping it in place first. A finger on the list is never
             // moved; where it lets go decides again, as any scroll of theirs does.
             if list.isDecelerating { list.setContentOffset(list.contentOffset, animated: false) }
+            // A fling stopped that way never reports its end, so its drag would count for the next scroll nobody made.
+            if !(list.isTracking || list.isDragging) { co.dragged = false }
             list.setNeedsLayout()
             if !(list.isTracking || list.isDragging) { co.pin() }
         }
