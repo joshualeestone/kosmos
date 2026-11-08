@@ -103,8 +103,6 @@ final class BoardClient: ObservableObject {
     // True once the shown list was read in this run (after the tab appears or the app returns); until then the list
     // is from an earlier read and is drawn as not current.
     @Published private(set) var fresh = false
-    /// kosmos#8055: when this client was made (the app's launch), so a chat is reopened only on a launch.
-    let createdAt = Date()
     /// kosmos#8055: the fingerprint of the Kosmos+ session the shown computer was reached under, nil before one.
     var admittedOwner: String? { admitted.map { Board.owner(of: $0.session) } }
     /// kosmos#8055: whether the Agents tab has had its first look under this client (a reopen happens only on that one).

@@ -41,7 +41,8 @@ enum Board {
         /// A new Agents tab found a chat open that it no longer shows; `forgottenSince` when the chats were forgotten
         /// since it opened, with that reason, and `byPerson` when the person chose that.
         case lostWithTab(forgottenSince: Bool, why: String, byPerson: Bool)
-        /// The app started with a chat recorded as open: iOS ended it while away, or the person did.
+        /// The app started with a chat recorded as open: iOS ended it while away, or the person did. Writes no line
+        /// (chatClosedCause): a launch reopens the chat instead (launchChat).
         case relaunched
     }
     /// A close within this many seconds of the app coming back is taken as the screen's, not a press on back.
@@ -72,9 +73,6 @@ enum Board {
     static let openChatKeptKey = "kosmos.openChatKept"
     /// How long after the chat was opened it still reopens: past this the person comes back to the list.
     static let chatReopenWithin: TimeInterval = 12 * 60 * 60
-    /// How soon after the app starts the Agents tab must first look for a reopen to happen (a later first visit, as when
-    /// the app opened on Today, never reopens a chat by itself).
-    static let chatReopenLaunchWindow: TimeInterval = 30
     static func keptChat(host: String, session: String, name: String, at: Date, owner: String) -> String? {
         guard !host.isEmpty, !session.isEmpty, !owner.isEmpty, ![host, session, owner].contains(where: { $0.contains("\n") }) else { return nil }
         return [host, session, name.replacingOccurrences(of: "\n", with: " "), String(Int(at.timeIntervalSince1970)), owner].joined(separator: "\n")
@@ -97,6 +95,34 @@ enum Board {
         guard age <= chatReopenWithin else { return .not("it was opened more than 12 hours ago") }
         return .reopen(session: parts[1], name: parts[2])
     }
+    /// What the Agents tab's first look under a client does with the chat kept from before the app started again.
+    enum LaunchChat: Equatable {
+        case nothing
+        /// A notification's chat is still opening: the kept one is dropped, so it does not reopen later by itself.
+        case dropKept
+        case reopen(session: String, name: String)
+    }
+    /// `firstLook`: this client's first look (a launch, or a new scene); `startsOnAgents`: the app opens on the Agents tab
+    /// (a first visit later, as from Today, never reopens a chat by itself); `chatOpen`: a chat is open now;
+    /// `chatOnItsWay`: a notification's or a tap's chat is still to open; `keptName`: an older build's record, which only
+    /// said a chat was open. `log` is the device log's line, when there is something to say.
+    static func launchChat(firstLook: Bool, startsOnAgents: Bool, chatOpen: Bool, chatOnItsWay: Bool, kept: String?, keptName: String?,
+                           hostNow: String?, ownerNow: String?, now: Date) -> (action: LaunchChat, log: String?) {
+        guard firstLook, startsOnAgents, !chatOpen else { return (.nothing, nil) }
+        if chatOnItsWay { return (.dropKept, kept == nil ? nil : "a notification's chat is opening, so the kept chat was not reopened") }
+        switch chatReopen(kept: kept, hostNow: hostNow, ownerNow: ownerNow, now: now) {
+        case .reopen(let session, let name)?: return (.reopen(session: session, name: name), "the app started again with a chat open on this computer: reopened")
+        case .not(let why)?: return (.nothing, "a chat kept from before the app started again was not reopened: " + why)
+        case nil: return (.nothing, (keptName ?? "").isEmpty ? nil : "a chat was open before the app started again, kept by an older build: not reopened")
+        }
+    }
+    /// Whether a reopened chat stays, once a list read this run has come in: nil until then; false when that list is another
+    /// computer's or does not have its agent (removed while away, an empty list included).
+    static func reopenedChatStays(session: String, keptHost: String?, hostNow: String?, listRead: Bool, sessions: [String]) -> Bool? {
+        guard listRead else { return nil }
+        return hostNow != nil && hostNow == keptHost && sessions.contains(session)
+    }
+
     /// The time a kept record says its chat was first opened, when it is this chat's (same agent, computer and account), so
     /// an open that continues one (a reopen) keeps it.
     static func keptOpenedAt(_ kept: String?, session: String, host: String, owner: String) -> Date? {
@@ -104,7 +130,6 @@ enum Board {
               parts[4] == owner, let at = Double(parts[3]) else { return nil }
         return Date(timeIntervalSince1970: at)
     }
-    /// (A `.relaunched` result writes no line now: chatClosedCause returns nil for it.)
     /// What the Agents tab finds when it appears with no chat open: the chat it lost while gone (`was`, the open chat's
     /// epoch, with the chats' epoch and last forget now), or one recorded open before the app started again (`keptName`),
     /// or nothing. The open chat wins over the kept name, as it is this launch's.

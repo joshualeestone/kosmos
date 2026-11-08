@@ -6132,6 +6132,31 @@ do {
           "no computer, agent or account, or a line break in one: not kept")
     check(re(Board.keptChat(host: "mac1.example", session: "ada", name: "A\nda", at: keptAt, owner: "own1"), "mac1.example", "own1", 0) == .reopen(session: "ada", name: "A da"),
           "a line break in the name is kept as a space, so the record still reads")
+    // kosmos#8055 review 4: the launch decisions themselves, not only the record.
+    let lc = { (first: Bool, onAgents: Bool, open: Bool, onWay: Bool, kept: String?, keptName: String?, host: String?) in
+        Board.launchChat(firstLook: first, startsOnAgents: onAgents, chatOpen: open, chatOnItsWay: onWay, kept: kept, keptName: keptName,
+                         hostNow: host, ownerNow: "own1", now: keptAt.addingTimeInterval(60)) }
+    check(lc(true, true, false, false, keptAda, "Ada", "mac1.example").action == .reopen(session: "ada", name: "Ada")
+          && lc(true, true, false, false, keptAda, "Ada", "mac1.example").log == "the app started again with a chat open on this computer: reopened",
+          "a launch on Agents with a kept chat on this computer reopens it, and logs it")
+    check(lc(false, true, false, false, keptAda, "Ada", "mac1.example") == (.nothing, nil), "not this client's first look (a tab drawn again): nothing")
+    check(lc(true, false, false, false, keptAda, "Ada", "mac1.example") == (.nothing, nil), "an app that opens on another tab: a later first visit never reopens")
+    check(lc(true, true, true, false, keptAda, "Ada", "mac1.example") == (.nothing, nil), "a chat already open (a notification's, opened first): nothing")
+    check(lc(true, true, false, true, keptAda, "Ada", "mac1.example").action == .dropKept
+          && lc(true, true, false, true, keptAda, "Ada", "mac1.example").log != nil, "a notification's chat still on its way: the kept one is dropped, and logged")
+    check(lc(true, true, false, true, nil, nil, "mac1.example") == (.dropKept, nil), "nothing kept, a notification on its way: dropped quietly")
+    check(lc(true, true, false, false, keptAda, "Ada", "mac2.example") == (.nothing, "a chat kept from before the app started again was not reopened: this launch opened on another computer"),
+          "another computer: not reopened, and the log says why")
+    check(lc(true, true, false, false, nil, "Ada", "mac1.example") == (.nothing, "a chat was open before the app started again, kept by an older build: not reopened"),
+          "an older build's bare name: not reopened, and logged")
+    check(lc(true, true, false, false, nil, nil, "mac1.example") == (.nothing, nil), "CONTROL: nothing kept at all: nothing to say")
+    // The quiet close, once a list read this run has come in.
+    let stays = { (host: String?, read: Bool, sessions: [String]) in
+        Board.reopenedChatStays(session: "ada", keptHost: "mac1.example", hostNow: host, listRead: read, sessions: sessions) }
+    check(stays("mac1.example", false, []) == nil, "no list read yet: not decided")
+    check(stays("mac1.example", true, ["bo", "ada"]) == true, "its agent on this computer's list: it stays")
+    check(stays("mac1.example", true, ["bo"]) == false && stays("mac1.example", true, []) == false, "its agent gone, or an empty list: it closes")
+    check(stays("mac2.example", true, ["ada"]) == false && stays(nil, true, ["ada"]) == false, "another computer's list, or none: it closes")
     let lost = Board.chatFoundClosed(was: (name: "Dana", epoch: 3), epochNow: 4, forgottenWhy: "another computer answered", forgottenByPerson: false, keptName: "Eli")
     check(lost?.name == "Dana" && lost?.close == .lostWithTab(forgottenSince: true, why: "another computer answered", byPerson: false),
           "a chat lost while the tab was gone wins over a kept name, with the forget since it opened")

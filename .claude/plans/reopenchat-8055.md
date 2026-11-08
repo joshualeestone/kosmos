@@ -27,8 +27,8 @@ reopen the chat.
 - Same account only: the record carries the account fingerprint (Board.owner of the session the computer was reached
   under), compared on the launch.
 - Only on a launch: the Agents tab's first look under this client (BoardClient.launchReopenLooked; a new scene makes a new
-  client), within 30 s of the client being made
-  (Board.chatReopenLaunchWindow). A later first visit (the app opened on Today) never reopens a chat by itself.
+  client), and only when the app starts on the Agents tab (AppTabs.todayTab off, as in production). A later first visit,
+  as from Today, never reopens a chat by itself. No time window: a slow Face ID unlock does not lose the reopen.
 - A launch a notification is still opening drops the kept chat, so it does not reopen later by itself; one already open has
   written its own record.
 - A kept chat that is not reopened says why in the device log (no computer yet, another computer or account, too old).
@@ -36,6 +36,11 @@ reopen the chat.
 - A reopened chat whose agent the first completed list read this run (client.fresh) does not have, an empty list
   included, or whose list is another computer's, closes quietly, back to the list, with a device-log line.
 - A reopen is written to the device log ("[Chat] the app started again with a chat open on this computer: reopened").
+
+- The launch decision and the quiet close are pure functions (Board.launchChat, Board.reopenedChatStays), tested in
+  ios/LogicTests; the view only applies their answer. A quiet close removes the kept record itself.
+- A reopened chat on a computer that never answers stays open on a placeholder agent until a list read
+  comes in: accepted, the same as a notification's chat. Not measured: what the chat shows meanwhile.
 
 ## Weakest premise
 That client.macURL is set by the time the Agents tab's first findClosedChat runs on a cold start (admitted is restored
