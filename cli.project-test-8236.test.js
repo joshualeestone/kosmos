@@ -39,6 +39,8 @@ const assigner = require('./engine/assigner');
 const projectview = require('./engine/projectview');
 const fleet = require('./test-support/fleet');
 const cli = require('./tools/windows/kosmos-cli');
+const messages = require('./engine/messages');
+const http = require('node:http');
 
 const LINE = 'A test project: do only what you are asked here. Add no tasks, plans or posts of your own.';
 let base;
@@ -109,10 +111,34 @@ test('#8236 instructions: the test project\'s entry carries the line, first unde
   assert.ok(entry, 'fixture: the test project is not in the block: ' + text);
   assert.equal(entry[1], '  - ' + LINE, 'the line is not first under the name: ' + entry.join('\n'));
   assert.ok(!entryOf(text, 'Ordinary One').join('\n').includes(LINE), 'CONTROL: an ordinary project carries the test line');
+  // Review 1: the test project's entry invites no new tasks; the ordinary one still does (control).
+  assert.ok(!entry.join('\n').includes('task add'), 'a test project still invites new tasks: ' + entry.join('\n'));
+  assert.ok(entryOf(text, 'Ordinary One').join('\n').includes('task add'), 'CONTROL: the ordinary project lost its task commands');
   projects.edit(t.id, { testOnly: false });
   projects.syncAgent('mara', board.agents);
   assert.ok(!instructions().includes(LINE), 'turning it off left the line');
   projects.removeAgent(t.id, 'mara'); projects.removeAgent(other.id, 'mara');
+});
+
+test('#8236 review 1: a running agent owes a re-read when its project becomes a test project; an unchanged write owes none (control)', () => {
+  const t = onProject('Reread Board');
+  projects.syncAgent('mara', board.agents);
+  assert.notEqual(projects.syncAgent('mara', board.agents).rulesChanged, true, 'CONTROL: an unchanged write owed a re-read');
+  projects.edit(t.id, { testOnly: true });
+  assert.equal(projects.syncAgent('mara', board.agents).rulesChanged, true, 'becoming a test project owed no re-read, so a running agent never learns it');
+  assert.notEqual(projects.syncAgent('mara', board.agents).rulesChanged, true, 'the same block again owed a re-read');
+  projects.edit(t.id, { testOnly: false });
+  assert.notEqual(projects.syncAgent('mara', board.agents).rulesChanged, true, 'turning it off (a line taken out) owed a re-read');
+  projects.removeAgent(t.id, 'mara');
+});
+
+test('#8236 review 1: a goal give-up on a test project is not shown as stalled; on an ordinary one it is (control)', () => {
+  const now = Date.parse('2026-11-08T08:00:00Z');
+  const rec = { at: now - 60000, tries: 3, agent: 'Mara', session: 'mara', because: 'could_not' };
+  const mem = { askGaveUp: new Map([['pg', rec]]) };
+  const proj = (testOnly) => ({ id: 'pg', agents: ['mara'], tasks: [], ...(testOnly ? { testOnly: true } : {}) });
+  assert.ok(assigner.goalAskGaveUp(mem, proj(false), now), 'CONTROL: an ordinary project\'s give-up is not shown');
+  assert.equal(assigner.goalAskGaveUp(mem, proj(true), now), null, 'a test project, never asked, was shown as stalled');
 });
 
 test('#8236 board: PUT {testOnly} from an agent sets it, re-tells the members, and the answer carries it; a bad value is refused', async () => {
@@ -129,10 +155,16 @@ test('#8236 board: PUT {testOnly} from an agent sets it, re-tells the members, a
   const bad = await put({ testOnly: 'yes' });
   assert.equal(bad.status, 400);
   assert.equal(stored(p.id).testOnly, true, 'a refused value changed the flag');
+  // Review 1: an agent's change is said in the room, once per change.
+  const notes = () => messages.record().rows.filter((m) => m.kind === 'note' && m.project === p.id).map((m) => m.text);
+  assert.equal(notes().filter((t) => /made this a test project/.test(t)).length, 1, 'the room was not told: ' + JSON.stringify(notes()));
+  assert.equal((await put({ testOnly: true })).status, 200);
+  assert.equal(notes().filter((t) => /made this a test project/.test(t)).length, 1, 'the same value again was said again');
   const off = await put({ testOnly: false });
   assert.equal(off.status, 200);
   assert.equal((await off.json()).project.testOnly, false);
   assert.ok(!instructions().includes(LINE), 'turning it off was not re-told');
+  assert.equal(notes().filter((t) => /turned off test mode/.test(t)).length, 1, 'turning it off was not said in the room');
   projects.removeAgent(p.id, 'mara');
 });
 
@@ -171,6 +203,30 @@ test('#8236 Windows: project test on and off, and its refusals', async () => {
   assert.match((await win(['project', 'test', 'no-such-project', 'on'])).err, /^Kosmos could not mark that project: /);
   const help = await win(['project']);
   assert.match(help.out + help.err, /kosmos project test <project-id> on\|off/);
+});
+
+test('#8236 Windows review 1: an older board says to update; a 200 with an empty re-read is still a success', async () => {
+  const answers = [];
+  const stub = http.createServer((req, res) => {
+    const a = answers.shift();
+    res.writeHead(a.status, { 'content-type': 'application/json' }); res.end(JSON.stringify(a.body));
+  });
+  await new Promise((r) => stub.listen(0, '127.0.0.1', r));
+  const url = () => 'http://127.0.0.1:' + stub.address().port;
+  try {
+    answers.push({ status: 400, body: { error: 'nothing here we can change' } });
+    const old = await win(['project', 'test', 'p1', 'on'], url);
+    assert.equal(old.code, 1);
+    assert.equal(old.err, 'This Kosmos is older than kosmos project test. Update it, then run this again.');
+    answers.push({ status: 200, body: { project: null } });
+    const empty = await win(['project', 'test', 'p1', 'on'], url);
+    assert.equal(empty.code, 0, empty.err);
+    assert.match(empty.out, /^p1 is a test project now\./);
+    answers.push({ status: 200, body: { project: { id: 'p1' } } });
+    const dropped = await win(['project', 'test', 'p1', 'on'], url);
+    assert.equal(dropped.code, 1, 'CONTROL: an answer without the flag read as recorded');
+    assert.match(dropped.err, /did not record it/);
+  } finally { stub.close(); }
 });
 
 // ── Mac: install/kosmos (bash 3.2) ─────────────────────────────────────────

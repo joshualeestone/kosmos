@@ -17,5 +17,9 @@ Rejected: a description only; reusing pause (it stops task hand-outs); a screen 
 Weakest premise: that the goal nudge is the main source of agents' own plans. The instruction line covers the rest,
 but only as an instruction.
 
-Tests: cli.project-test-8236.test.js (8). Perturbed: the Assigner skip, the instruction line, the re-tell, the Mac
+Review round 1: a running agent re-reads its instructions when its project becomes a test project (rulesChangedIn);
+an agent's change is said in the room; a test project's entry leaves out the lines that invite new tasks; the
+instructions teach the verb where they teach pause; the goal give-up and goal read skip a test project.
+
+Tests: cli.project-test-8236.test.js. Perturbed: the Assigner skip, the instruction line, the re-tell, the Mac
 CLI's field; each turned a test red.

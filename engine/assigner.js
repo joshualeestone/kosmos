@@ -387,7 +387,7 @@ function restoredMemory(obj, now) {
 function goalAskGaveUp(mem, project, now) {
   if (!project || typeof project.id !== 'string' || !mem || !(mem.askGaveUp instanceof Map)) return null;
   // Review 1: an archived or paused project is not asked about, so it is not stalled either.
-  if (project.archived === true || require('./projects').isPaused(project)) return null;
+  if (project.archived === true || require('./projects').isPaused(project) || require('./projects').isTestOnly(project)) return null;   // kosmos#8236: never asked, so never stalled
   if ((Array.isArray(project.tasks) ? project.tasks : []).some(blocksGoalAsk)) return null;
   const rec = gaveUpRecord(mem.askGaveUp.get(project.id), now);
   if (!rec) return null;
@@ -761,6 +761,7 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
       if (!(Array.isArray(p.agents) && p.agents.some((m) => idle.has(m)))) continue;
       if ((Array.isArray(p.tasks) ? p.tasks : []).some(blocksGoalAsk)) continue;
       if (require('./projects').isPaused(p)) continue;   // #4771: goalProject skips it, so its goal is not read
+      if (require('./projects').isTestOnly(p)) continue;   // kosmos#8236: the same
       try { const g = readGoal(p); if (typeof g === 'string' && g) goals.set(p.id, g); } catch { /* no goal */ }
     }
   }

@@ -7357,15 +7357,18 @@ cmd_project() {
       [ "$rc" -eq 0 ] || { say_unreached "mark that project" "$rc" write; exit 1; }
       case "$body" in
         '{"project":'*)
-          # An older board ignores a field it does not know: say so rather than claim it took.
+          # Review 1: a 200 whose re-read came back empty still wrote it, as pause reads it. Any other answer carries the
+          # flag back; one that does not is a board that dropped the field.
           case "$body" in
-            *'"testOnly":'"$_ton"*)
+            '{"project":null'*|*'"testOnly":'"$_ton"*)
               if [ "$_ton" = true ]; then say "$1 is a test project now. Its agents are told to do only what they are asked, and Kosmos asks none of them to add tasks for it."
               else say "$1 is not a test project any more. Kosmos may ask its agents to add tasks toward its goal again."; fi ;;
             *) say "This Kosmos did not record it: it may be older than kosmos project test. Update it, then run this again."; exit 1 ;;
           esac ;;
         '{"error":'*)
           because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          # Review 1: a board from before this verb drops the field and so finds nothing to change.
+          case "$because" in 'nothing here we can change'*) say "This Kosmos is older than kosmos project test. Update it, then run this again."; exit 1 ;; esac
           say "Kosmos could not mark that project: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when marking that project."; exit 1 ;;
       esac

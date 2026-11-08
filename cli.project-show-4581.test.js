@@ -108,7 +108,7 @@ test('#4581 usage: list takes nothing, show takes exactly one id; the help names
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout);
   }
   const help = await runCli(['project'], env);
-  assert.match(help.stdout, /Usage: kosmos project <list\|show\|who\|create\|pause\|role\|remove-member>/);   // #4771 added pause, #5300 role, kosmos#7989 who
+  assert.match(help.stdout, /Usage: kosmos project <list\|show\|who\|create\|pause\|test\|role\|remove-member>/);   // #4771 added pause, #5300 role, kosmos#7989 who
   assert.equal(seen.length, 0);
 }));
 
