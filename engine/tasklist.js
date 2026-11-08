@@ -188,11 +188,13 @@ function toldWords(x) {
   if (told) return ' (you told them ' + told + ')';
   return ' (Kosmos has not seen you tell them: ask them in the task, or name task ' + x.number + ' when you ask)';
 }
-/* kosmos#8271: how fresh a hold is, in whole days. Nothing for a hold made before this was recorded or a time ahead of this clock. */
+/* kosmos#8271: how fresh a hold is, in calendar days. Nothing for a hold made before this was recorded or a time ahead of this clock. */
 function confirmedWords(x) {
   const ms = Date.now() - Date.parse(x.onHoldConfirmedAt);
-  if (typeof x.onHoldConfirmedAt !== 'string' || !Number.isFinite(ms) || ms < 0) return '';
-  const days = Math.floor(ms / 86400000);
+  if (x.onHoldForPerson === true || typeof x.onHoldConfirmedAt !== 'string' || !Number.isFinite(ms) || ms < 0) return '';   // a hold on the person says when they were asked instead
+  const then = new Date(x.onHoldConfirmedAt); const now = new Date();
+  // Calendar days on this computer's clock, so "today" is true. Math.round absorbs a daylight-saving day.
+  const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(then.getFullYear(), then.getMonth(), then.getDate())) / 86400000);
   return ', last confirmed ' + (days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago');
 }
 function stateWords(x) {

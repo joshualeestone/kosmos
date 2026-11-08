@@ -26359,11 +26359,12 @@ function freshWords(seconds) {
 /* kosmos#8271: how fresh a plain hold is, so one confirmed today does not read like one untouched for weeks. Empty for a
    hold made before this was recorded, or a time ahead of this clock: never a guessed age. */
 function tskHoldConfirmedWords(t) {
-  if (!t || t.onHold !== true || typeof t.onHoldConfirmedAt !== 'string') return '';
+  if (!t || t.onHold !== true || t.onHoldForPerson === true || typeof t.onHoldConfirmedAt !== 'string') return '';   // a hold on the person says when they were asked instead
   const ms = Date.now() - Date.parse(t.onHoldConfirmedAt);
   if (!Number.isFinite(ms) || ms < 0) return '';
-  // Whole days, on purpose: this sits in the card's change-guarded html, so words that moved every minute would redraw the list.
-  const days = Math.floor(ms / 86400000);
+  const then = new Date(t.onHoldConfirmedAt); const now = new Date();
+  // Calendar days on this computer's clock, so "today" is true. Math.round absorbs a daylight-saving day.
+  const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(then.getFullYear(), then.getMonth(), then.getDate())) / 86400000);
   return 'Last confirmed ' + (days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago') + '.';
 }
 function tskHoldToldWords(t) {

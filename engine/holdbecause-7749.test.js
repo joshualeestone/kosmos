@@ -43,6 +43,15 @@ test('kosmos#8271: a hold records when it was last confirmed, a repeat moves it,
   const before = tasks.setOnHold(m.id, m.n, true, { forPerson: true }).onHoldConfirmedAt;
   await new Promise((r) => setTimeout(r, 5));
   assert.equal(tasks.setOnHold(m.id, m.n, true, { forPerson: false }).onHoldConfirmedAt, before, 'only moving the mark confirms nothing');
+  const a = fresh('confirmed-agent-on-person');
+  const pers = tasks.setOnHold(a.id, a.n, true, { viaScreen: true }).onHoldConfirmedAt;
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(tasks.setOnHold(a.id, a.n, true).onHoldConfirmedAt, pers, "an agent's repeat of the person's hold confirms nothing");
+  assert.ok(Date.parse(tasks.setOnHold(a.id, a.n, true, { viaScreen: true }).onHoldConfirmedAt) > Date.parse(pers), 'CONTROL: the person repeating it does');
+  const r = fresh('confirmed-reason-with-mark');
+  const r0 = tasks.setOnHold(r.id, r.n, true, { because: 'one' }).onHoldConfirmedAt;
+  await new Promise((res) => setTimeout(res, 5));
+  assert.ok(Date.parse(tasks.setOnHold(r.id, r.n, true, { because: 'two', forPerson: true }).onHoldConfirmedAt) > Date.parse(r0), 'a mark moved along with a new reason is a confirmation');
   const c = fresh('confirmed-closed');
   assert.ok(tasks.setOnHold(c.id, c.n, true).onHoldConfirmedAt, 'premise: held');
   tasks.close(c.id, c.n);

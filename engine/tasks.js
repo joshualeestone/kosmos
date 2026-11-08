@@ -1361,9 +1361,6 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
     changed = { ...t };
     if (onHold) {
       changed.onHold = true;
-      // kosmos#8271: a hold call that says it still stands (a new hold, a repeat, a new reason). A call that only moves the
-      // for-you mark, or an agent's repeat of the person's own hold, confirmed nothing, so the old time stays.
-      if (!unmarkOnly && !markOnlyFor && !keepPersons) changed.onHoldConfirmedAt = new Date().toISOString();
       if (want) changed.onHoldUntil = want; else delete changed.onHoldUntil;
       if (wantBecause) changed.onHoldBecause = wantBecause; else delete changed.onHoldBecause;
       const keepFor = forPerson === undefined && isOnHold(t) && t.onHoldForPerson === true;
@@ -1376,6 +1373,11 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       // kosmos#7788 review 1: marking or unmarking it moves the task between groups, so the history records it.
       if (isOnHold(t) && (t.onHoldForPerson === true) !== (changed.onHoldForPerson === true)) { markOnly = !didChange && viaScreen !== true; didChange = true; }   // review 3: the person's hold on the screen (a takeover too) is a new hold
       forCleared = isOnHold(t) && t.onHoldForPerson === true && changed.onHoldForPerson !== true;
+      /* kosmos#8271: a hold call says it still stands (a new hold, a repeat, a new reason or condition). Moving only the for-you
+         mark confirms nothing, and only the person can confirm the person's own hold, so in those cases the old time stays. */
+      const onlyMark = isOnHold(t) && (t.onHoldForPerson === true) !== (changed.onHoldForPerson === true) && sameUntil
+        && (changed.onHoldBecause || null) === (t.onHoldBecause || null);
+      if (!onlyMark && !(isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true)) changed.onHoldConfirmedAt = new Date().toISOString();
       /* The person's hold on the screen is theirs even over an agent's earlier hold (else the agent could still lift it);
          an agent's hold never takes the person's away. */
       if (viaScreen === true) changed.onHoldByPerson = true;

@@ -15,10 +15,11 @@ Not in this: iOS's hold line (the same field reaches it; a later slice). Not a c
 - Rejected a thematic "is this post new" judge: it needs a model call, the same paid turn the card saves.
 - Below the daily floor nothing changes: the daily post is owed, ruling #5315.
 
-- A changed reason counts as confirming the hold. A call that only moves the for-you mark does not. An agent's repeat of the person's hold does not.
+- A changed reason counts as confirming the hold. A call that moves only the for-you mark does not. Only the person can confirm the person's own hold.
 - A hold waiting on the person has no "last confirmed" on the web: its line already says when the person was asked, the freshness that matters there.
-- Whole 24-hour days, not calendar days, so the words do not move past midnight and the guarded card does not redraw. "Today" means within the last 24 hours.
-- On the task page the age sits beside the reason, so a hold with no reason keeps no line there (a check pins that); its card still says it.
+- Calendar days on this computer's clock, so "today" is true. A list open across midnight keeps yesterday's word until something else redraws it.
+- A hold waiting on the person shows no age anywhere (card, page, CLI).
+- Task-done prompts keep PROMPTS_PER_DAY, so after two sweep asks one task-done prompt can still come: it reaches busy agents at the moment work ends, and has an opt-out.
 - Mac CLI list row and iOS are not in this slice: `kosmos task show` carries it.
 
 ## Weakest premise
