@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.94",
+  "lastProd": "0.7.97",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -1187,7 +1187,8 @@
       "icon": "spark",
       "rank": 7,
       "since": "0.7.95",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.97"
     },
     {
       "title": "A failed download gives the system's reason",
@@ -1243,7 +1244,8 @@
       "icon": "list",
       "rank": 6,
       "since": "0.7.96",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.97"
     },
     {
       "title": "Always Allow for downloads from your computers",
@@ -1254,7 +1256,8 @@
       ],
       "rank": 8,
       "since": "0.7.96",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.97"
     },
     {
       "title": "A little more space in project rooms",
@@ -1305,7 +1308,8 @@
       "icon": "spark",
       "rank": 7.5,
       "since": "0.7.97",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.97"
     },
     {
       "title": "kosmos task show prints one task whole",
