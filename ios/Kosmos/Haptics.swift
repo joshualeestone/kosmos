@@ -10,8 +10,8 @@ enum Haptics {
     static func sent() { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6) }
     /// Pick 1: a firm tap once an Allow or Deny answer has gone (a sure send), so the person feels it went through.
     static func decided() { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
-    /// Pick 3: the iPhone's own error pattern when something the person did fails (a message or an answer that did not
-    /// go, a sign-in refused).
+    /// Pick 3: the iPhone's own error pattern when something the person did fails: a message the computer refused or
+    /// did not answer, an answer refused, a room post refused, a sign-in refused.
     static func failed() { UINotificationFeedbackGenerator().notificationOccurred(.error) }
     /// Pick 5: a small selection click as a swipe stars or unstars an agent.
     static func snapped() { UISelectionFeedbackGenerator().selectionChanged() }

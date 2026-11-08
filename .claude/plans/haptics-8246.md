@@ -8,8 +8,11 @@ when a swipe stars or unstars an agent. Each once per action, and nothing else n
 ## What
 - ios/Kosmos/Haptics.swift (new, @MainActor): `sent()` light at 0.6, `decided()` medium, `failed()` the system error
   notification, `snapped()` selection. One place, so each action's feel is decided once.
-- ChatView.send(): `sent()` after every guard (a press in the air or a refused send taps nothing); `failed()` in the
-  not-sent branch, where the words are put back.
+- ChatView.send(): `sent()` past this view's guards (a press in the air, nothing to send); `failed()` when the client's
+  own guard keeps a send back (the words are put back).
+- ChatView: `failed()` when a message the computer refused or did not answer turns failed (Board.failedPendingIDs gains
+  an id while the chat is open; a retry that fails again buzzes again; "not confirmed" stays silent). The send call
+  itself returns true once it goes, so this is where a real failed send is seen.
 - ChatView.press(): `decided()` only when an Allow or Deny on a request's card comes back `.sent` (not on the arming
   press, not when not sure, not when nothing went); `failed()` when any press is refused.
 - RoomView: `sent()` in send(); `failed()` when the room store hands a post's words back because the computer refused
@@ -17,7 +20,7 @@ when a swipe stars or unstars an agent. Each once per action, and nothing else n
 - AgentsView: `snapped()` only for the swipe's star or unstar (a full swipe or the revealed button); the long-press
   menu's same button stays silent.
 - SignInModel counts failures (`failures`): every refusal written into the error line, the same words twice included,
-  and the Mac saying no (the step becoming denied, once: the watch re-setting the same denial is not counted again);
+  and the Mac's own no (the step becoming .denied(asking: false); .denied(asking: true) still waits on a fresh Allow);
   the person cancelling the passkey prompt is not counted. A denial writes no error line, so it never counts twice.
   Debug sample flows that set the error line buzz too (Debug only). SignInView buzzes
   on each count.
@@ -30,6 +33,10 @@ when a swipe stars or unstars an agent. Each once per action, and nothing else n
 - A refused answer and a room post handed back buzz too (pick 3, "something failing").
 - Not built: pick 2 (task-done buzz), anything per incoming message, streamed line, scroll or keystroke. No Kosmos
   setting; iOS's own system-haptics switch silences all of it.
+
+- Not buzzed, on purpose: a refusal that moves the sign-in to the web page (it carries on there); "more" options under
+  Show details and an Allow/Deny drawn as a plain question (pick 1 is the card's Allow and Deny); a retry of a failed
+  row taps nothing on press (it buzzes if it fails again).
 
 ## Weakest premise
 That every assignment to SignInModel.error is a failure the person should feel. Measured: every non-nil assignment in

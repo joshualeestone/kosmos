@@ -16,6 +16,8 @@ struct ChatView: View {
     // kosmos#7034 reviews 1-2: the width the chat is laid out in, measured (it already leaves out a landscape notch's
     // margins, and it changes only once a rotation has happened), for the header title's cap.
     @State private var contentWidth: CGFloat = UIScreen.main.bounds.width
+    // kosmos#8246: the failed sends already seen here, so only a send that fails while the chat is open buzzes.
+    @State private var failedSeen: Set<String> = []
     @State private var infoOpen = false
     #if DEBUG
     static var sampleInfoOpened = false
@@ -363,7 +365,14 @@ struct ChatView: View {
         }, label: { EmptyView() }).hidden())
         #if DEBUG
         // KOSMOS_SAMPLE_INFO=profile|ai|files with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
+        // kosmos#8246: a message the computer refused, or that got no answer, buzzes once as it fails (a retry that fails
+        // again buzzes again); "not confirmed" stays silent.
+        .onChange(of: Board.failedPendingIDs(pending)) { now in
+            if !now.subtracting(failedSeen).isEmpty { Haptics.failed() }
+            failedSeen = now
+        }
         .onAppear {
+            failedSeen = Board.failedPendingIDs(pending)
             rowTops.isChat = true   // kosmos#7420: the height lines and the walk measure this chat's list, never a room's
             let env = ProcessInfo.processInfo.environment
             // Once a launch, so Back leaves the page (review 2: it pushed again each time the chat reappeared).
@@ -2397,7 +2406,7 @@ struct ChatView: View {
         // A press in the air: the words wait in the box, and the line says why (dmChoiceBlocksSend).
         if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
         composerNote = nil
-        Haptics.sent()   // kosmos#8246: past every guard, so a send that is refused before it starts does not tap
+        Haptics.sent()   // kosmos#8246: past this view's guards (a press in the air, nothing to send) taps nothing
         if trayOpen { PhotoTrayMotion.change(overKeyboard: false) { trayOpen = false } }   // kosmos#8045: sent, back to reading
         dictation.stop()   // kosmos#7268 review 1: before the box is cleared, so no late result brings the words back
         // The composer line goes on the next send or press (Mona Lisa's spec, section 1).
@@ -2420,7 +2429,7 @@ struct ChatView: View {
                 // kosmos#7348: a failed send puts its words back on purpose. Only this send's guard goes: a later send's
                 // stays (review).
                 if lastSent?.text == text { lastSent = nil }
-                Haptics.failed()   // kosmos#8246
+                Haptics.failed()   // kosmos#8246: the client's own guard kept it back (it never went)
                 if draftText.isEmpty { draftText = text; if replying == nil { replying = answering } }
                 if uploadingHere > 0 { composerNote = Board.stillAddingLine }
             }

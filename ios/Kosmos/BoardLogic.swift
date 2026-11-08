@@ -2940,6 +2940,11 @@ enum Board {
         return .refused((obj?["error"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
 
+    /// kosmos#8246: the messages of a conversation that did not send (refused, or no answer), by id. A chat buzzes when this
+    /// set gains an id; "not confirmed" is not in it (it may have gone).
+    static func failedPendingIDs(_ pending: [PendingSend]) -> Set<String> {
+        Set(pending.compactMap { if case .failed = $0.state { return $0.id } else { return nil } })
+    }
     static func pendingState(after result: SendResult) -> PendingSend.State {
         switch result {
         case .kept(let at): return .kept(at: at)
