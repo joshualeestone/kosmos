@@ -9,12 +9,12 @@ the gap alarm (main 53 commits past staging 0.7.97).
 ## Changes since the 0.7.97 bump a91e212a0f (first-parent, real changes only)
 | commit | change | pool |
 |---|---|---|
-| be70aa0761 | #8215: a project's needs-you box shows each agent's own question words, and a shared question once | rank 11, all platforms (below the window) |
+| be70aa0761 | #8215: a project's needs-you box shows the words of each question an agent reported (kosmos report needs_you), and one several agents report once | rank 11, all platforms (below the window) |
 | 09d5d0e2df, 5a8b2e6e8c | #8214, #8227: kosmos task files re-fingerprints each built task's delivered file | notesOnly 73 |
 | 72a5ceac7c | #8216: an unconfirmed community comment is looked for in its thread later | notesOnly 74 |
-| 5bcaf28dfc | #8212: a Claude agent's own needs_you over a day old is mentioned to it once | notesOnly 75 |
+| 5bcaf28dfc | #8212: a Claude agent's own needs_you over a day old is mentioned to it once | none: not true on Windows (a channel-reached card is skipped, and every Windows Claude row is one), and a Mac tag would drop it from Linux too; the reminder says what it is when it fires |
 | 37e868920f | #8213: in PowerShell a message cut by an apostrophe is refused before sending | notesOnly 76, windows |
-| 94feeac61f | #4926: a held ask told later counts the reader's later post | none: a listing fix, as #4926's sibling was left out of 0.7.97 |
+| 94feeac61f | #4926: a held ask told later counts the reader's later post | notesOnly 75: kosmos room --unanswered stops listing it |
 | af9e4b5770 | #8055: iPhone chat reopen | none: the iPhone app is not in this cut |
 | c5cf7645c3 | #8225: a test's temp dirs | none: tests |
 
@@ -24,3 +24,11 @@ the orb, the streak note, Always Allow (mac), the Windows folder item), built as
 outranks them. Mac 4, Windows 4, Linux 3.
 
 Commit carries the #1720 Browser-check trailer (data only).
+
+## Review round 1
+- BLOCKER: the needs_you mention was untagged but false on Windows. Item removed (reason in the table).
+- WARNING: the needs-you box shows words only for a question the agent reported; "reported" now.
+- WARNING: task files can re-check only files marked with --file from this version on; the line says so.
+- WARNING: #4926 was dropped on precedent; it is an agent-visible --unanswered fix, now a notesOnly item.
+- NIT: the apostrophe note says "usually" (the check names two shapes it does not cover).
+- NIT not taken: #8216's board row also changed; the note is for agents and stays true.
