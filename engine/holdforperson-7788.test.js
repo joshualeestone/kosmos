@@ -159,7 +159,8 @@ test('review 4: the agent\'s own list says a hold waits on its person; a plain h
     { id: 'w', name: 'Waits', folder: '/tmp/waits', tasks: [task(1, { onHold: true, onHoldForPerson: true }), task(2, { onHold: true })] },
   ], 'ada');
   const line = (n) => body.split('\n').find((l) => l.includes('task ' + n + ' of Waits:')) || '';
-  assert.match(line(1), /\[on hold, waiting on your person: do not start it until they answer and it is taken off hold\]/, body);
+  // kosmos#8259: and it says to name the task when asking, so the person's Tasks row can show it was asked.
+  assert.match(line(1), /\[on hold, waiting on your person: do not start it until they answer and it is taken off hold\. When you ask them, name task 1, so Kosmos shows them you asked\]/, body);
   assert.match(line(2), /\[on hold: do not start it until it is taken off hold\]/, 'CONTROL: a plain hold');
 });
 

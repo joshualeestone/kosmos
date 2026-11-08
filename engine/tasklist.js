@@ -178,6 +178,7 @@ function whenWords(s) {
 /* kosmos#8259: whether the person was told about a hold that waits on them, and answered since, from the marks
    engine/holdtold.js keeps. Not told: says how to tell them so Kosmos sees it. */
 function toldWords(x) {
+  if (x.onHoldByPerson === true) return '';   // the person's own hold is never theirs to be told about
   const told = typeof x.onHoldToldAt === 'string' ? whenWords(x.onHoldToldAt) || one(x.onHoldToldAt) : '';
   const answered = typeof x.onHoldAnsweredAt === 'string' ? whenWords(x.onHoldAnsweredAt) || one(x.onHoldAnsweredAt) : '';
   if (answered) return ' (they answered ' + answered + ': if that settles it, take it off hold)';
