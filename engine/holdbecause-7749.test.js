@@ -39,6 +39,10 @@ test('kosmos#8271: a hold records when it was last confirmed, a repeat moves it,
   const again = tasks.setOnHold(id, n, true);
   assert.ok(Date.parse(again.onHoldConfirmedAt) > Date.parse(first.onHoldConfirmedAt), 'a repeat is a fresh confirmation');
   assert.equal('onHoldConfirmedAt' in tasks.setOnHold(id, n, false), false, 'gone with the hold');
+  const m = fresh('confirmed-mark');
+  const before = tasks.setOnHold(m.id, m.n, true, { forPerson: true }).onHoldConfirmedAt;
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(tasks.setOnHold(m.id, m.n, true, { forPerson: false }).onHoldConfirmedAt, before, 'only moving the mark confirms nothing');
   const c = fresh('confirmed-closed');
   assert.ok(tasks.setOnHold(c.id, c.n, true).onHoldConfirmedAt, 'premise: held');
   tasks.close(c.id, c.n);

@@ -1361,7 +1361,9 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
     changed = { ...t };
     if (onHold) {
       changed.onHold = true;
-      changed.onHoldConfirmedAt = new Date().toISOString();   // kosmos#8271: every hold call that succeeds says it still stands
+      // kosmos#8271: a hold call that says it still stands (a new hold, a repeat, a new reason). A call that only moves the
+      // for-you mark, or an agent's repeat of the person's own hold, confirmed nothing, so the old time stays.
+      if (!unmarkOnly && !markOnlyFor && !keepPersons) changed.onHoldConfirmedAt = new Date().toISOString();
       if (want) changed.onHoldUntil = want; else delete changed.onHoldUntil;
       if (wantBecause) changed.onHoldBecause = wantBecause; else delete changed.onHoldBecause;
       const keepFor = forPerson === undefined && isOnHold(t) && t.onHoldForPerson === true;

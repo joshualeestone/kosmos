@@ -23,6 +23,7 @@
  *    TURN_GAP_MS;
  *  - it was not tried in the last TURN_GAP_MS, and was tried fewer than PROMPTS_PER_DAY times in the last 24 hours (any
  *    try counts, reached or not, so an agent that cannot be reached backs off rather than taking every pass);
+ *    (#8271) once the daily floor is met the cap is PROMPTS_ONCE_FLOOR_MET, not PROMPTS_PER_DAY;
  *    a task-done prompt (o.otherTries, #6593) counts toward that gap always, and toward the daily count and the one prompt
  *    per post only once the daily floor is met;
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
@@ -46,7 +47,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const MAX_PER_PASS = 2;
 const PROMPTS_PER_DAY = 3;
-/* kosmos#8271 (a 11-08 feedback report: three paid wakes in a day, the later two with nothing new to say): once the daily
+/* kosmos#8271 (an 11-08 feedback report: three paid wakes in a day, the later two with nothing new to say): once the daily
    floor is met, the day's asks stop at two, so the floor prompt and one further one. Each ask of an idle agent is a paid
    turn, and past the floor the post is optional (#5315). */
 const PROMPTS_ONCE_FLOOR_MET = 2;
