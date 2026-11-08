@@ -292,6 +292,71 @@ function showLines(body, num, project) {
 }
 
 const PRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
+
+/**
+ * kosmos#8214: this computer's automount folders (autofs), from its own mount table: `mount` on a Mac,
+ * /proc/self/mounts on Linux. A name looked up inside one makes the system mount it, possibly from a host the name
+ * chooses, so `task files` never looks a stored path up inside one. A Set of folders, an empty Set where there are
+ * none to read (Windows), or null when the table could not be read.
+ */
+function automountsHere(platform) {
+  try {
+    if (platform === 'win32') return new Set();
+    if (platform === 'darwin') {
+      const out = require('node:child_process').execFileSync('/sbin/mount', [], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
+      const found = new Set();
+      for (const line of out.split('\n')) {
+        const m = /^.*? on (.+) \(([^,)]+)/.exec(line);
+        if (m && m[2].trim() === 'autofs') found.add(m[1]);
+      }
+      return found;
+    }
+    if (platform === 'linux') {
+      const found = new Set();
+      const unescape = (v) => v.replace(/\\([0-7]{3})/g, (_, o) => String.fromCharCode(parseInt(o, 8)));
+      for (const line of require('node:fs').readFileSync('/proc/self/mounts', 'utf8').split('\n')) {
+        const f = line.split(' ');
+        if (f[2] === 'autofs') found.add(unescape(f[1]));
+      }
+      return found;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether opening `p` would look a name up inside one of `mounts`. The path is walked one name at a time with lstat,
+ * and a link is followed one hop at a time by reading it, so nothing is looked up inside a folder before that folder
+ * has been checked: a link planted elsewhere that points into an automount folder is caught at the hop, not by
+ * resolving it (which would do the lookup). More than 40 hops is a loop, and is not opened either.
+ */
+function reachesAutomount(p, mounts, fsx = require('node:fs')) {
+  const posix = require('node:path').posix;
+  const todo = p.split('/').filter(Boolean);
+  let cur = '/';
+  let hops = 0;
+  while (todo.length) {
+    if (mounts.has(cur)) return true;
+    const name = todo.shift();
+    if (name === '.') continue;
+    if (name === '..') { cur = posix.dirname(cur); continue; }
+    const next = posix.join(cur, name);
+    let st;
+    try { st = fsx.lstatSync(next); } catch { return false; }   // nothing there, so nothing under it is looked up
+    if (st.isSymbolicLink()) {
+      if (++hops > 40) return true;
+      let to;
+      try { to = fsx.readlinkSync(next); } catch { return false; }
+      todo.unshift(...to.split('/').filter(Boolean));
+      if (to.startsWith('/')) cur = '/';
+      continue;
+    }
+    cur = next;
+  }
+  return mounts.has(cur);
+}
 /**
  * kosmos#8214 (feedback: an agent used `task built --file` to catch a file rebuilt without the task being marked again,
  * and asked for that as a sweep): `kosmos task files <project-id>` and `kosmos task files --all`. For each built task
@@ -312,13 +377,17 @@ function filesLines(body, opts = {}) {
   // Review 2: what is absolute depends on this computer. C:\x is relative on a Mac, and /x has no drive on Windows.
   const windows = (opts.platform || process.platform) === 'win32';
   /* Opened only when engine/fileprint.js keptPath allows it (the rule the board keeps paths by, checked again for a store
-     written before or around it), and it is this computer's kind. On a Mac reader /home is an automount root too
-     (review 5: it is in the stock auto_master), so it is never opened there; on Linux it is where homes are. */
+     written before or around it), it is this computer's kind, and it does not reach one of this computer's automount
+     folders (read from its mount table, not from a list of names: /home on a Mac is a link to one). */
   const kept = require('./fileprint').keptPath;
-  const mac = (opts.platform || process.platform) === 'darwin';
   const drive = (p) => /^[A-Za-z]:[\\/]/.test(p);
-  const local = (p) => kept(p) && (windows ? drive(p) : !drive(p) && !(mac && /^\/home(?:\/|$)/i.test(p)));
+  const local = (p) => kept(p) && (windows ? drive(p) : !drive(p));
   const foreign = (p) => kept(p) && (windows ? !drive(p) : drive(p));
+  let mounts;   // read once, at the first path that needs it
+  const mountsNow = () => {
+    if (mounts === undefined) mounts = opts.automounts !== undefined ? opts.automounts : automountsHere(opts.platform || process.platform);
+    return mounts;
+  };
   const every = !opts.project;
   const tasks = body && Array.isArray(body.tasks) ? body.tasks : null;
   if (!tasks) return { lines: ['Kosmos sent no task list, so there is nothing to check.'], rc: 1 };
@@ -335,6 +404,7 @@ function filesLines(body, opts = {}) {
     // The stored path is opened as sent (a scrubbed one would be another file); only the printed copy is scrubbed.
     const at = typeof found.builtFilePath === 'string' && found.builtFilePath ? found.builtFilePath : null;
     // Review 4: printed without characters a terminal cannot show safely, and when it held one the line says so.
+    // The two joiners are kept, as clean() keeps them (an emoji needs them), so they are not counted as hidden.
     const hidden = at ? /[\p{Cc}\p{Cf}]/u.test(at.replace(/[\u200c\u200d]/g, '')) : false;
     const shown = at ? clean(at).replace(/\n/g, ' ') + (hidden ? ' (printed without characters it cannot show)' : '') : '';
     if (!at) { tally.nopath += 1; lines.push('    no path recorded (an older Kosmos, or a path Kosmos does not keep): kosmos fingerprint <file> ' + x.builtFingerprint); continue; }
@@ -343,6 +413,11 @@ function filesLines(body, opts = {}) {
     if (foreign(at)) { tally.elsewhere += 1; lines.push('    NOT CHECKED ' + shown + ': marked on a ' + (windows ? 'Mac or Linux' : 'Windows') + ' computer, so it is not on this one'); continue; }
     if (!local(at)) {
       tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': not a local absolute path, so Kosmos does not open it'); continue;
+    }
+    if (!windows) {
+      const m = mountsNow();
+      if (m === null) { tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': Kosmos could not read this computer\'s automount table, so it opens no path'); continue; }
+      if (reachesAutomount(at, m)) { tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': it reaches an automount folder, which would mount it from elsewhere'); continue; }
     }
     let got;
     try { got = compare(at, x.builtFingerprint); } catch (e) { got = { ok: false, words: 'unreadable (' + String((e && e.message) || e) + ')' }; }
@@ -412,4 +487,4 @@ if (require.main === module) {
   process.exit(out.rc);
 }
 
-module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, seenWords, STALE_DAYS_DEFAULT: 7 };
+module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, seenWords, STALE_DAYS_DEFAULT: 7 };
