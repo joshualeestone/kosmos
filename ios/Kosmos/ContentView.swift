@@ -190,7 +190,9 @@ struct ContentView: View {
         // A tapped notification, or an agent tapped on the Agents tab, opens on Today (the chat shows there until it is
         // native).
         .onChange(of: pushManager.boardToOpen) { request in
-            if request != nil { showBoardPage() }
+            // kosmos#8055: a launch a notification sends to a board page is that launch; the Agents tab, seen later, does
+            // not reopen an old chat by itself.
+            if request != nil { board.launchReopenLooked = true; showBoardPage() }
         }
         // kosmos#7032: a room notification from the computer this app keeps opens the room natively; from any other
         // computer it opens the board's room page under Today, as a tap always did.
@@ -287,7 +289,7 @@ struct ContentView: View {
         }
         .onAppear {
             // A notification tapped on a cold launch can set boardToOpen before the first draw, which onChange misses.
-            if pushManager.boardToOpen != nil { showBoardPage() }
+            if pushManager.boardToOpen != nil { board.launchReopenLooked = true; showBoardPage() }   // kosmos#8055, as above
             if let target = pushManager.roomToOpen { openRoom(target) }
             if let target = pushManager.agentToOpen { openAgentChat(target) }
             // Cold launch: onChange does not fire for scenePhase's initial value,
@@ -359,6 +361,7 @@ struct ContentView: View {
     // Tasks leaving the bar), even when Today is already showing. Its home, as the old press took it there: a press on
     // Today no longer drives the board (Today is native), so the section is asked for directly.
     private func openRoom(_ target: PushBridge.RoomTarget) {
+        board.launchReopenLooked = true   // kosmos#8055: a launch a room notification took does not reopen an old chat later
         let kept = Board.usableSaved(SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin)
         switch PushBridge.roomOpening(target, keptAddress: kept?.address) {
         // kosmos#7252 review 2: the room shows, not under a board page left open over the tabs. Review 3: and, as Close
@@ -373,6 +376,9 @@ struct ContentView: View {
     // kosmos#7418: the chat in the Agents tab when the notice came from the computer the app shows, else the board's page
     // for that agent, as a tap always did. As for a room, the native open ends a board press still waiting.
     private func openAgentChat(_ target: PushBridge.AgentTarget) {
+        // kosmos#8055: set before routing, not in the board-page handler, so the Agents tab's first look cannot run between
+        // the two and reopen an old chat under the board page.
+        board.launchReopenLooked = true
         // Review 1: on a cold launch nothing is shown yet (the client starts with the first tab, and the Face ID lock
         // draws no tab), so the computer this app keeps decides then, as for a room.
         let kept = Board.usableSaved(SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin)

@@ -6102,14 +6102,73 @@ do {
           "a computer picked from another tab writes no line either")
     check(Board.chatClosedCause(.lostWithTab(forgottenSince: false, why: "old reason", byPerson: false)) == Board.chatClosedRebuilt
           && Board.chatClosedCause(.lostWithTab(forgottenSince: true, why: "", byPerson: false)) == Board.chatClosedRebuilt, "otherwise, the tab drawn again")
-    check(Board.chatClosedCause(.relaunched) == "the app was started again (iOS may have closed it while you were away, or it was closed by hand)", "a relaunch is named, without blaming either")
+    check(Board.chatClosedCause(.relaunched) == nil, "a relaunch writes no line (Josh 11-07: it read as an error); the chat is reopened instead")
+    // kosmos#8055: the chat kept across a cold start reopens on the same computer and account only, and not long after.
+    let keptAt = Date(timeIntervalSince1970: 1_000_000)
+    let keptAda = Board.keptChat(host: "mac1.example", session: "ada", name: "Ada", at: keptAt, owner: "own1")
+    check(keptAda == Board.keptHostKey("mac1.example") + "\nada\nAda\n1000000\nown1", "kept as computer (hashed), agent, name, time, account")
+    check(keptAda?.contains("mac1.example") == false && Board.keptHostKey("mac1.example") != Board.keptHostKey("mac2.example"),
+          "the computer's address itself is not kept, and two computers keep different keys")
+    let re = { (kept: String?, host: String?, owner: String?, secs: Double) in Board.chatReopen(kept: kept, hostNow: host, ownerNow: owner, now: keptAt.addingTimeInterval(secs)) }
+    check(re(keptAda, "mac1.example", "own1", 60) == .reopen(session: "ada", name: "Ada"), "the same computer and account, a minute later, reopens it")
+    check(re(keptAda, "mac2.example", "own1", 0) == .not("this launch opened on another computer"), "another computer does not, and says why")
+    check(re(keptAda, "mac1.example", "own2", 0) == .not("another account is signed in"), "another account does not")
+    check(re(keptAda, nil, "own1", 0) == .not("no computer was reached yet") && re(keptAda, "", "own1", 0) == .not("no computer was reached yet")
+          && re(keptAda, "mac1.example", nil, 0) == .not("no computer was reached yet"), "no computer or account yet: nothing reopens")
+    check(re(keptAda, "mac1.example", "own1", Board.chatReopenWithin) == .reopen(session: "ada", name: "Ada")
+          && re(keptAda, "mac1.example", "own1", Board.chatReopenWithin + 1) == .not("it was opened more than 12 hours ago"), "reopens up to 12 hours after, not after that")
+    check(re(keptAda, "mac1.example", "own1", -1) == .not("its time is in the future"), "a kept time in the future: nothing")
+    check(re(nil, "mac1.example", "own1", 0) == nil && re("", "mac1.example", "own1", 0) == nil, "nothing kept: nothing to say")
+    check(re("Eli", "mac1.example", "own1", 0) == .not("the kept record could not be read")
+          && re(Board.keptHostKey("mac1.example") + "\n\nEli\n1000000\nown1", "mac1.example", "own1", 0) == .not("the kept record could not be read")
+          && re(Board.keptHostKey("mac1.example") + "\nada\nAda\n1000000", "mac1.example", "own1", 0) == .not("the kept record could not be read"),
+          "a bare name, no agent, or no account: not reopened (malformed records fail closed)")
+    check(Board.keptOpenedAt(keptAda, session: "ada", host: "mac1.example", owner: "own1") == keptAt, "the same chat keeps its first time")
+    check(Board.keptOpenedAt(keptAda, session: "bo", host: "mac1.example", owner: "own1") == nil && Board.keptOpenedAt(keptAda, session: "ada", host: "mac2.example", owner: "own1") == nil
+          && Board.keptOpenedAt(keptAda, session: "ada", host: "mac1.example", owner: "own2") == nil && Board.keptOpenedAt(nil, session: "ada", host: "mac1.example", owner: "own1") == nil,
+          "another agent, computer or account, or nothing kept: a new time")
+    check(Board.keptChat(host: "", session: "ada", name: "Ada", at: keptAt, owner: "own1") == nil
+          && Board.keptChat(host: "mac1.example", session: "", name: "Ada", at: keptAt, owner: "own1") == nil
+          && Board.keptChat(host: "mac1.example", session: "ada", name: "Ada", at: keptAt, owner: "") == nil
+          && Board.keptChat(host: "mac1.example", session: "a\nb", name: "Ada", at: keptAt, owner: "own1") == nil,
+          "no computer, agent or account, or a line break in one: not kept")
+    check(re(Board.keptChat(host: "mac1.example", session: "ada", name: "A\nda", at: keptAt, owner: "own1"), "mac1.example", "own1", 0) == .reopen(session: "ada", name: "A da"),
+          "a line break in the name is kept as a space, so the record still reads")
+    // kosmos#8055 review 4: the launch decisions themselves, not only the record.
+    let lc = { (first: Bool, onAgents: Bool, open: Bool, onWay: Bool, kept: String?, keptName: String?, host: String?) in
+        Board.launchChat(firstLook: first, startsOnAgents: onAgents, chatOpen: open, chatOnItsWay: onWay, kept: kept, keptName: keptName,
+                         hostNow: host, ownerNow: "own1", now: keptAt.addingTimeInterval(60)) }
+    check(lc(true, true, false, false, keptAda, "Ada", "mac1.example").action == .reopen(session: "ada", name: "Ada")
+          && lc(true, true, false, false, keptAda, "Ada", "mac1.example").log == "the app started again with a chat open on this computer: reopened",
+          "a launch on Agents with a kept chat on this computer reopens it, and logs it")
+    check(lc(false, true, false, false, keptAda, "Ada", "mac1.example") == (.nothing, nil), "not this client's first look (a tab drawn again): nothing")
+    check(lc(true, false, false, false, keptAda, "Ada", "mac1.example") == (.nothing, nil), "an app that opens on another tab: a later first visit never reopens")
+    check(lc(true, true, true, false, keptAda, "Ada", "mac1.example") == (.nothing, nil), "a chat already open (a notification's, opened first): nothing")
+    check(lc(true, true, false, true, keptAda, "Ada", "mac1.example").action == .dropKept
+          && lc(true, true, false, true, keptAda, "Ada", "mac1.example").log == "a notification's chat is opening, so the kept chat was not reopened",
+          "a notification's chat still on its way: the kept one is dropped, and logged")
+    check(lc(true, true, false, true, nil, nil, "mac1.example") == (.dropKept, nil), "nothing kept, a notification on its way: dropped quietly")
+    check(lc(true, true, false, false, keptAda, "Ada", "mac2.example") == (.nothing, "a chat kept from before the app started again was not reopened: this launch opened on another computer"),
+          "another computer: not reopened, and the log says why")
+    check(lc(true, true, false, false, nil, "Ada", "mac1.example") == (.nothing, "a chat was open before the app started again, with no computer recorded for it (or kept by an older build): not reopened"),
+          "an older build's bare name: not reopened, and logged")
+    check(lc(true, true, false, false, nil, nil, "mac1.example") == (.nothing, nil), "CONTROL: nothing kept at all: nothing to say")
+    // The quiet close, once a list read this run has come in.
+    let stays = { (host: String?, read: Bool, sessions: [String]) in
+        Board.reopenedChatStays(session: "ada", keptHost: "mac1.example", hostNow: host, listRead: read, sessions: sessions) }
+    check(stays("mac1.example", false, []) == nil, "no list read yet: not decided")
+    check(stays("mac1.example", true, ["bo", "ada"]) == true, "its agent on this computer's list: it stays")
+    check(stays("mac1.example", true, ["bo"]) == false && stays("mac1.example", true, []) == false, "its agent gone, or an empty list: it closes")
+    check(stays("mac2.example", true, ["ada"]) == false && stays(nil, true, ["ada"]) == false, "another computer's list, or none: it closes")
+    check(Board.reopenedChatStays(session: "ada", keptHost: nil, hostNow: "mac1.example", listRead: true, sessions: ["ada"]) == false,
+          "no computer recorded for the reopen: it closes")
     let lost = Board.chatFoundClosed(was: (name: "Dana", epoch: 3), epochNow: 4, forgottenWhy: "another computer answered", forgottenByPerson: false, keptName: "Eli")
     check(lost?.name == "Dana" && lost?.close == .lostWithTab(forgottenSince: true, why: "another computer answered", byPerson: false),
           "a chat lost while the tab was gone wins over a kept name, with the forget since it opened")
     check(Board.chatFoundClosed(was: (name: "Dana", epoch: 4), epochNow: 4, forgottenWhy: "x", forgottenByPerson: false, keptName: nil)?.close
           == .lostWithTab(forgottenSince: false, why: "x", byPerson: false), "no forget since it opened: the redraw")
     let kept = Board.chatFoundClosed(was: nil, epochNow: 0, forgottenWhy: "", forgottenByPerson: false, keptName: "Eli")
-    check(kept?.name == "Eli" && kept?.close == .relaunched, "a name kept from before the app started again is a relaunch")
+    check(kept?.name == "Eli" && kept?.close == .relaunched, "a name kept from before the app started again is a relaunch (which writes no line now)")
     check(Board.chatFoundClosed(was: (name: "Dana", epoch: 4), epochNow: 4, forgottenWhy: "", forgottenByPerson: false, closedAway: true, keptName: nil)?.close == .poppedAway
           && Board.chatClosedCause(.poppedAway) == "the screen closed it while the app was not in front", "a close while the app was not in front is named on the next appear")
     check(Board.chatClosedLine(name: "", why: "the sign-in page ended the sign-in (by you, or by itself)", at: "2:20 PM", noticedLater: true)

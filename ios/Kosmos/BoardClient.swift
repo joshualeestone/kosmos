@@ -103,6 +103,12 @@ final class BoardClient: ObservableObject {
     // True once the shown list was read in this run (after the tab appears or the app returns); until then the list
     // is from an earlier read and is drawn as not current.
     @Published private(set) var fresh = false
+    /// kosmos#8055: who the kept chat belongs to: a hash of the Kosmos+ session's fingerprint with the computer's address,
+    /// so this phone's defaults never hold the session's own fingerprint (as threadFile hashes it again). Nil before a
+    /// computer is reached.
+    var keptChatOwner: String? { admitted.map { Board.owner(of: Board.owner(of: $0.session) + "\n" + ($0.url.host ?? "")) } }
+    /// kosmos#8055: whether the Agents tab has had its first look under this client (a reopen happens only on that one).
+    var launchReopenLooked = false
     // Who the shown list belongs to (a fingerprint of the Kosmos+ session it was read under).
     private var shownOwner: String?
     // Agent pictures by session name, fetched through this client's own session (the board's route needs it).
@@ -1329,6 +1335,7 @@ final class BoardClient: ObservableObject {
     /// chat's record keeps only that one was open (and its epoch), so a tab drawn again still says a chat closed.
     private func blankOpenChat() {
         UserDefaults.standard.removeObject(forKey: Board.openChatKey)
+        UserDefaults.standard.removeObject(forKey: Board.openChatKeptKey)   // never reopened on another account
         chatOpen = chatOpen.map { (session: "", name: "", epoch: $0.epoch) }
     }
     /// kosmos#8055: when the app last came to the front (ContentView), to tell the screen's own close from a press on back.
