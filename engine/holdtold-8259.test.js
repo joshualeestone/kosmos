@@ -96,6 +96,41 @@ test('round 1 NIT: directly, a bare #N is not a tell (it is more often a card nu
   assert.equal(holdtold.noteTold('fay', { via: 'reply', text: 'task #' + t.number + '?' }).length, 1, 'CONTROL: task #N is');
 });
 
+test('round 2: with two holders, one reached is not answered; both reached is', () => {
+  const p = projects.create({ name: 'Two ' + (++seq), agents: ['hal', 'ivy'] });
+  const t = tasks.create(p.id, { sentence: 'shared', who: 'hal' });
+  const two = tasks.addPart(p.id, t.number, { sentence: 'other half', who: 'ivy' });
+  assert.equal(two.ok, true, two.because || '');
+  tasks.setOnHold(p.id, t.number, true, { forPerson: true });
+  const ans = holdtold.noteAnswered({ via: 'room', projectId: p.id, text: '#' + t.number + ' yes', to: ['hal', 'ivy'] });
+  assert.deepEqual(ans.map((x) => x.holders.slice().sort()), [['hal', 'ivy']]);
+  holdtold.markAnswered(ans, Date.now(), (h) => h === 'hal');
+  assert.equal(read(p.id, t.number).onHoldAnsweredAt, undefined, 'ivy never saw it, so it stays open');
+  holdtold.markAnswered(ans, Date.now(), () => true);
+  assert.equal(typeof read(p.id, t.number).onHoldAnsweredAt, 'string', 'CONTROL: both reached');
+});
+
+test('round 2: a clause names at most CLAUSE_SHOWN holds and counts the rest', () => {
+  const xs = Array.from({ length: 15 }, (_, i) => ({ projectId: 'p', project: 'P', n: i + 1, holders: ['a'] }));
+  const c = holdtold.clauseFor(xs, 'a');
+  assert.equal((c.match(/kosmos task unhold/g) || []).length, holdtold.CLAUSE_SHOWN);
+  assert.match(c, / and 12 more on hold/);
+  assert.match(c, /the rest: kosmos task list/);
+  assert.ok(c.length < 400, 'bounded: ' + c.length);
+  assert.doesNotMatch(holdtold.clauseFor(xs.slice(0, 3), 'a'), /more/, 'CONTROL: three are all named');
+});
+
+test('round 2: a drained reply with an old send time never moves the marks back in time', () => {
+  const p = projects.create({ name: 'Drain ' + (++seq), agents: ['jo'] });
+  const t = tasks.create(p.id, { sentence: 'one', who: 'jo' });
+  tasks.setOnHold(p.id, t.number, true, { forPerson: true });
+  holdtold.noteTold('jo', { via: 'reply', text: 'task ' + t.number + '?', at: '2026-11-08T12:00:00.000Z' });
+  holdtold.noteTold('jo', { via: 'reply', text: 'task ' + t.number + ' again', at: '2026-11-08T09:00:00.000Z' });
+  const after = read(p.id, t.number);
+  assert.equal(after.onHoldToldAt, '2026-11-08T12:00:00.000Z', 'the first ask stays');
+  assert.ok(Date.parse(after.onHoldLastToldAt) >= Date.parse('2026-11-08T12:00:00.000Z'), 'not moved back: ' + after.onHoldLastToldAt);
+});
+
 test('round 1 W4: markAnswered marks only holds it reached', () => {
   const { id, n } = held();
   holdtold.markAnswered([{ projectId: id, n, holders: ['leo'] }], Date.now(), (h) => h === 'mara');

@@ -17,7 +17,8 @@
  * Answered: the person writes in that task's conversation, or (once the task was told there) to the holder directly, or in
  * the room naming the task. The line the holder is typed gets one more sentence (clauseFor): the task is on hold waiting
  * on the person, so if this answers it, take it off hold, else say what it still needs; and the task records
- * `onHoldAnsweredAt` once that line was typed (markAnswered). Directly and in the room that is once per tell: an answer
+ * `onHoldAnsweredAt` (markAnswered): in the task's conversation whenever the person writes there (it is in the task's
+ * record whoever was reached), directly once the line was placed, in the room once every holder it reached was typed it. Directly and in the room that is once per tell: an answer
  * counts while none is newer than the latest tell, so an agent asking again (as the clause tells it to) is prompted again
  * by the next answer. The clause never rides a message kept to be typed later: by then the hold may be gone.
  *
@@ -27,6 +28,7 @@
  */
 
 const VIAS = new Set(['task', 'room', 'reply']);
+const CLAUSE_SHOWN = 3;   // holds a clause names; the rest are counted
 
 /* The task numbers a text names: "#12" or "task 12" (also "task #12"), never the digits inside a longer number or
    word ("#123" is not #12, "v12" names nothing). `wordOnly` takes only "task 12": a direct message between the person
@@ -112,8 +114,12 @@ function noteTold(who, msg, o = {}) {
       let first = false;
       const wrote = stamp(p.id, t.number, (x) => isForYou(x) && holdsPart(x, who), (x) => {
         first = !x.onHoldToldAt;
-        const next = { ...x, onHoldLastToldAt: at, onHoldToldVia: msg.via };
-        if (first) next.onHoldToldAt = at;
+        /* Round 2: a reply drained from the outbox carries its original send time, which can be older than this hold or
+           than a tell already recorded; the marks never move back in time, so it counts as a tell now. */
+        const floor = Math.max(Date.parse(x.onHoldLastToldAt) || 0, Date.parse(x.onHoldToldAt) || 0);
+        const when = Date.parse(at) < floor ? new Date(Math.max(floor, Date.now())).toISOString() : at;
+        const next = { ...x, onHoldLastToldAt: when, onHoldToldVia: msg.via };
+        if (first) next.onHoldToldAt = when;
         if (id) next.onHoldToldId = id; else delete next.onHoldToldId;
         return next;
       });
@@ -193,13 +199,14 @@ function noteAnswered(msg, o = {}) {
 }
 
 /* Record `onHoldAnsweredAt` on each hold noteAnswered returned, once the person's message was typed. `reached`, when
-   given, is the holders it was typed to: a hold none of whose holders it reached keeps its answer open, so the next
-   message still carries the clause. Never throws. */
+   given, says which holders it was typed to: a hold is marked only when EVERY holder noteAnswered named was reached (round
+   2: with two holders, one held back, marking it would leave that one never prompted); until then its answer stays open
+   and the next message carries the clause again, to whoever it reaches. Never throws. */
 function markAnswered(answered, at = Date.now(), reached) {
   const iso = new Date(Number.isFinite(at) ? at : Date.parse(at) || Date.now()).toISOString();
   const got = typeof reached === 'function' ? reached : () => true;
   for (const x of Array.isArray(answered) ? answered : []) {
-    if (!x || !Array.isArray(x.holders) || !x.holders.some(got)) continue;
+    if (!x || !Array.isArray(x.holders) || !x.holders.length || !x.holders.every(got)) continue;
     try { stamp(x.projectId, x.n, isForYou, { onHoldAnsweredAt: iso }); } catch { /* the message stands */ }
   }
 }
@@ -217,8 +224,12 @@ function clauseFor(answered, who) {
     return ' [kosmos] you have ' + one(x) + ' on hold waiting on this person. If this message answers it, act on the answer and take it off hold: '
       + off(x) + '. If it does not, tell them what you still need.';
   }
-  return ' [kosmos] you have ' + mine.map(one).join(', ') + ' on hold waiting on this person. For each this message answers, act on the answer and take it off hold ('
-    + mine.map(off).join(', ') + '). For the rest, tell them what you still need.';
+  /* Round 2: typed after the length checks (a DM's or room post's trailer), so bounded: SHOWN holds by name, the rest
+     counted and pointed at the list. */
+  const shown = mine.slice(0, CLAUSE_SHOWN);
+  const more = mine.length - shown.length;
+  return ' [kosmos] you have ' + shown.map(one).join(', ') + (more ? ' and ' + more + ' more' : '') + ' on hold waiting on this person. For each this message answers, act on the answer and take it off hold ('
+    + shown.map(off).join(', ') + (more ? '; the rest: kosmos task list' : '') + '). For the rest, tell them what you still need.';
 }
 
-module.exports = { answeredOpen, namedNumbers, forYouHoldsOf, toldTargets, noteTold, answeredTargets, noteAnswered, markAnswered, clauseFor };
+module.exports = { CLAUSE_SHOWN, answeredOpen, namedNumbers, forYouHoldsOf, toldTargets, noteTold, answeredTargets, noteAnswered, markAnswered, clauseFor };

@@ -3523,9 +3523,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     /* kosmos#8259: an agent's post naming one of its for-you holds has told the person; the person's answered the holds
        it asked about (holdAnswered, above). Best-effort: holdtold never throws. */
     if (operator !== true && typeof from === 'string' && from) require('./holdtold').noteTold(from, { via: 'room', projectId, text: stored, id, at });
-    /* Only for holders it was typed to now (placed, or unconfirmed: it may have landed). One it could not reach, or whose
-       post was held to be told later (roomhold re-tells the post, not its trailer), never saw the clause, so its answer
-       stays open for the next post. */
+    /* Only once every holder the clause was for was typed it now (placed, or unconfirmed: it may have landed). A holder it
+       could not reach, or whose post was held to be told later (roomhold re-tells the post, not its trailer), never saw
+       the clause, so the hold's answer stays open and the next post carries it again (holdtold.markAnswered). */
     else if (holdAnswered.length) require('./holdtold').markAnswered(holdAnswered, at, (h) => outcomes[h] === chat.DELIVERY.PLACED || outcomes[h] === chat.DELIVERY.UNCONFIRMED);
   } catch (err) {
     try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
