@@ -5887,7 +5887,9 @@ cmd_feedback() {
         const d = process.env.KOSMOS_FEEDBACK_DATE || fb.today();
         if (!fb.isDateKey(d)) { console.error("that date must be YYYY-MM-DD"); process.exit(2); }
         const b = fb.readBody(d);
-        if (b == null) { console.error("no product-feedback report for " + d); process.exit(1); }
+        /* kosmos#8260: no report yet is an answer, not a failure: nothing on stdout (so a caller reading it gets no
+           report), the sentence on stderr, exit 0. Agents are told to check with this before writing. */
+        if (b == null) { console.error("No product-feedback report for " + d + " yet."); process.exit(0); }
         process.stdout.write(b);
       ' "$KOSMOS_HOME/app"
       exit $?

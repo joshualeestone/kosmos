@@ -762,7 +762,9 @@ test('feedback verbs call the engine and send nothing to the board', async () =>
   assert.deepEqual(written, ['two words', 'from stdin']);
   assert.equal((await go(['feedback', 'write'], '   ')).code, 2);
   assert.equal((await go(['feedback', 'show'])).out, 'today\'s note');
-  assert.equal((await go(['feedback', 'show', '2026-01-01'])).code, 1);
+  const none = await go(['feedback', 'show', '2026-01-01']);   // kosmos#8260: no report yet is an answer, exit 0
+  assert.equal(none.code, 0);
+  assert.equal(none.out, '');
   assert.equal((await go(['feedback', 'show', 'junk'])).code, 2);
   assert.equal((await go(['feedback', 'list'])).out, '2026-09-12\n2026-09-11');
   const pull = await go(['feedback', 'pull']);

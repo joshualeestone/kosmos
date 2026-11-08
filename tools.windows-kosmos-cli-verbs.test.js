@@ -256,7 +256,10 @@ test('feedback write saves today\'s report in THIS Kosmos\'s store; show reads i
   assert.equal(show.code, 0, show.err);
   assert.equal(show.out, 'The task verbs were missing.');
   assert.equal(feedbackCli(['feedback', 'list']).out, day);
-  assert.equal(feedbackCli(['feedback', 'show', '1999-01-01']).code, 1);
+  const none = feedbackCli(['feedback', 'show', '1999-01-01']);   // kosmos#8260: no report yet is an answer
+  assert.equal(none.code, 0, none.err);
+  assert.equal(none.out, '');
+  assert.match(none.err, /No product-feedback report for 1999-01-01 yet\./);
   assert.equal(feedbackCli(['feedback', 'show', 'yesterday']).code, 2);
 });
 
