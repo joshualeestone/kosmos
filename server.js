@@ -4998,7 +4998,7 @@ function endPermissionWaitPressed(card, before, screenAfter) {
    `at` is the original send time for a drained reply, now for the route, and the daily-limit sweep's own `now`
    for its notice (#4354: the clock the pause's pausedAt is written with). */
 function keepAgentReply(who, text, at, opts) {
-  return chat.appendMessage(chat.DIRECT, who, {
+  const kept = chat.appendMessage(chat.DIRECT, who, {
     text: guideMasked(who, text),
     at: at || new Date().toISOString(),
     from: who,
@@ -5007,6 +5007,12 @@ function keepAgentReply(who, text, at, opts) {
     // #6726: a file the agent attached, as the same record a person's upload rides its row with
     ...(opts && Array.isArray(opts.files) ? attachments.rowFields(opts.files) : {}),
   });
+  /* kosmos#8259: a reply that names one of this agent's for-you holds has told the person about it. Only a reply the
+     thread kept, and never Kosmos's own words in the agent's name. Best-effort: holdtold never throws. */
+  if (kept && kept.recorded === true && !(opts && opts.kosmos === true)) {
+    require('./engine/holdtold').noteTold(who, { via: 'reply', text, at: at || undefined });
+  }
+  return kept;
 }
 
 /**
@@ -21208,7 +21214,13 @@ const server = http.createServer(async (req, res) => {
             }
           }
         }
-        const reactionNote = news.note + questionNote;
+        /* kosmos#8259: the person writing to an agent that told them about a for-you hold here (or naming it) is asked,
+           once per tell, whether this answers it. Under the same rule as the question note: never on the automatic
+           hello, never on a numbered menu answer. Marked answered only once it is placed or kept to be typed. */
+        const holdtold = require('./engine/holdtold');
+        const holdAnswered = !automatic && chat.dmNoteMayRide(body.text, chose) ? holdtold.noteAnswered({ via: 'reply', to: name, text: body.text }) : [];
+        const holdNote = holdtold.clauseFor(holdAnswered, name);
+        const reactionNote = news.note + questionNote + holdNote;
         /* #4256: the quote is Kosmos's framing, so it rides in the ENVELOPE, after the operator's bracket: the
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
@@ -21362,7 +21374,7 @@ const server = http.createServer(async (req, res) => {
             const at = new Date().toISOString();
             const signin = !!hold && hold.heldFor === 'signin';   // #5948: no reset to wait for, only a sign-in
             const until = hold && !signin && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
-            const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // #5943 review 1: no question note in a held message: by the reset it may be untrue
+            const trailer = (attachments.wireNote(files.recs) || '') + news.note + holdNote;   // #5943 review 1: no question note in a held message: by the reset it may be untrue
             const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');   // two sends in one millisecond stay two
             /* #6774: kept behind messages any of which were kept for the box, it is released by the box rule too, is
                matched as a re-send, and is told that reason: one rule for the flag and the words. */
@@ -21383,6 +21395,7 @@ const server = http.createServer(async (req, res) => {
                 ...(answered ? { replyTo: answered.at } : {}),
               });
               if (keptRow.recorded === true) {
+                holdtold.markAnswered(holdAnswered);   // kosmos#8259: kept to be typed, its note with it
                 sendJson(res, 200, { delivery: heldDelivery, recorded: true, recordedBecause: null });
                 return;
               }
@@ -21425,7 +21438,7 @@ const server = http.createServer(async (req, res) => {
             && delivery.state === chat.DELIVERY.COULD_NOT && delivery.inputHeld === true) {
           const limitqueue = require('./engine/limitqueue');
           const at = delivery.at || new Date().toISOString();
-          const trailer = (attachments.wireNote(files.recs) || '') + news.note;   // as the held path above: no question note
+          const trailer = (attachments.wireNote(files.recs) || '') + news.note + holdNote;   // as the held path above: no question note
           const heldId = 'dm-' + at + '-' + crypto.randomBytes(4).toString('hex');
           const plain = !(files.recs && files.recs.length) && !answered;
           // Looked for again now: the same words sent twice at once both reach here after their refusals, the second
@@ -21479,6 +21492,7 @@ const server = http.createServer(async (req, res) => {
           chat.markDmReactionsTold(name, news.named);
         }
         if (questionAsk && delivery && delivery.state === chat.DELIVERY.PLACED) chat.markDmQuestionTold(askingCard.sessionName, questionAsk);   // #5943: once per ask
+        if (holdAnswered.length && delivery && (delivery.state === chat.DELIVERY.PLACED || delivery.held === true)) holdtold.markAnswered(holdAnswered);   // kosmos#8259
         if (retryOf !== null) {
           /* kosmos#6720: the same row, its new verdict. Not written (the thread busy past its lock wait) is said, as
              the append's own failure is: the agent may have it while the row still reads failed. */
@@ -26723,6 +26737,12 @@ const server = http.createServer(async (req, res) => {
            claims the screen, which is taken as the person whoever sent it (isViaScreen). */
         const saidText = !viaScreen && senderCard ? guideMasked(senderCard.sessionName, body.text) : body.text;
         const t = tasks.say(id, taskSay[2], saidText);
+        /* kosmos#8259: a holder writing in its for-you task's conversation has told the person; the person writing in it
+           answers the hold, and each holder's line says to take it off hold if it does. Best-effort, after the record. */
+        const holdtold = require('./engine/holdtold');
+        let answered = [];
+        if (viaScreen) answered = holdtold.noteAnswered({ via: 'task', projectId: id, task: t.number });
+        else if (senderCard && senderCard.sessionName) holdtold.noteTold(senderCard.sessionName, { via: 'task', projectId: id, task: t.number });
         /* #7408 review 5: counted as soon as it is recorded, before any delivery is awaited, so sends that arrive
            together cannot all pass the check before any of them is counted: one, plus each agent `to` adds. */
         if (!viaScreen || body.to !== undefined) taskMessageValveRecord(1 + toExtra);
@@ -26773,8 +26793,11 @@ const server = http.createServer(async (req, res) => {
            back by hand, cost them handoffs. */
         const lineFor = (p) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' said: "' + p
           + '" - reply in the task: kosmos task message ' + clean(id) + ' ' + t.number + ' "..."';
-        if (lineFor(rawPreview).length > require('./engine/messages').spillLimit()) preview = rawPreview.slice(0, 140) + '...';
+        // kosmos#8259: the clause rides inside the same limit, so the whole line still fits what any path types.
+        const clauseRoom = Math.max(0, ...others.map((m) => holdtold.clauseFor(answered, m).length));
+        if (lineFor(rawPreview).length + clauseRoom > require('./engine/messages').spillLimit()) preview = rawPreview.slice(0, 140) + '...';
         const line = lineFor(preview);
+        const lineTo = (m) => line + holdtold.clauseFor(answered, m);
         /* `delivered`, not `told`: the sibling task routes (close/reopen/parts) return
            `told` as a SINGLE instruction-sync verdict; this is a per-assignee list of
            chat.deliver outcomes, a different shape, so it takes a different name rather
@@ -26792,18 +26815,19 @@ const server = http.createServer(async (req, res) => {
              and the minute sweep types it after the reset, as for `kosmos msg`, through the automatic gate
              (limitqueue.sweepHooks), so a kept line also waits on that gate's menu and quota holds. */
           // The sender's own name, not the cleaned one in the line: a drop notice is addressed to it.
-          const kept = messages.keepTaskLine(one, line, roster, viaScreen ? '' : String((senderCard && senderCard.sessionName) || ''), 'task ' + t.number + ' in ' + projName,
+          const kept = messages.keepTaskLine(one, lineTo(one), roster, viaScreen ? '' : String((senderCard && senderCard.sessionName) || ''), 'task ' + t.number + ' in ' + projName,
             { projectId: id, task: t.number, person: viaScreen });   // #5842: so the task's conversation records it sent or dropped, and whose
           if (kept) outcome = kept;
           else {
             // #4588 ask 3: an agent's own task message is not held by the Gemini cap, by decision (plan: "Not covered by the cap").
-            try { outcome = await chat.deliverAsync(one, line, roster); }
+            try { outcome = await chat.deliverAsync(one, lineTo(one), roster); }
             catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
           }
           delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because,
             ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}),
             ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) });
         }
+        holdtold.markAnswered(answered);   // kosmos#8259: the person's words are in the task's record whoever was reached
         const finalWord = !viaScreen && senderCard ? taskFinalWordHint(t, senderCard.sessionName, id, byKey) : '';   // #6066
         sendJson(res, 200, { ok: true, delivered, ...(body.to !== undefined ? { to: toNames } : {}),
           // #7408 review 1: a sender that named only itself on a task nobody holds hears "Nobody is assigned", not "Nobody else".

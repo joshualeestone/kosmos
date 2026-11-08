@@ -1,4 +1,4 @@
-// Browser-check-surface: tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-mins tk-repeat-mins-wrap tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause pj-one-goalask paintGoalAsk tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
+// Browser-check-surface: tskHoldToldWords tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-mins tk-repeat-mins-wrap tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause pj-one-goalask paintGoalAsk tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
 'use strict';
 /**
  * On hold and paused, on the screen (kosmos#4771).
@@ -374,8 +374,17 @@ function chk(ok, label, extra) {
       chk(decisionRows.includes(launchTwo.sentence) && !heldNow.includes(launchTwo.sentence),
         `${tag} #7788 the task lists under Needs Your Decision and not under On hold`, JSON.stringify({ decisionRows, heldNow }));
       const forYou = await page.evaluate(() => { const e = document.querySelector('#tsk-groups .tsk-for-you'); return e ? e.textContent.trim() : null; });
-      chk(forYou === 'On hold until you answer: needs your yes on the price. Open it and take it off hold once you have.',
-        `${tag} #7788 its row says what it waits on and how it clears`, forYou);
+      chk(forYou === 'On hold until you answer: needs your yes on the price. Kosmos has not seen it ask you about this yet. Open it and take it off hold once you have.',
+        `${tag} #7788 its row says what it waits on and how it clears (kosmos#8259: and that it has not been seen to ask)`, forYou);
+      /* kosmos#8259: once the person was told (two hours ago here), the row says when, apart from when it was set. */
+      const toldAt = new Date(Date.now() - 2 * 3600e3 - 60e3).toISOString();
+      projects.mutate(launch.id, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === 2 ? { ...x, onHoldToldAt: toldAt, onHoldToldVia: 'reply' } : x)) }));
+      await page.evaluate(() => showTab('projects'));
+      await page.evaluate(() => showTab('tasks'));
+      await page.waitForFunction(() => { const e = document.querySelector('#tsk-groups .tsk-for-you'); return e && /It asked you/.test(e.textContent); }, null, { timeout: 8000 }).catch(() => {});
+      const told = await page.evaluate(() => { const e = document.querySelector('#tsk-groups .tsk-for-you'); return e ? e.textContent.trim() : null; });
+      chk(told === 'On hold until you answer: needs your yes on the price. It asked you 2 hours ago. Open it and take it off hold once you have.',
+        `${tag} kosmos#8259 the row says when the agent asked you`, told);
       /* kosmos#7797: the project page's task card says it too; the plain hold earlier said "On hold: <reason>" there. */
       await page.evaluate((pid) => tskGoToProject(pid), launch.id);
       await page.waitForSelector('.tkcard-for-you', { state: 'attached', timeout: 6000 }).catch(() => {});

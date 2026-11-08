@@ -175,13 +175,22 @@ function whenWords(s) {
   const two = (n) => String(n).padStart(2, '0');
   return t.getFullYear() + '-' + two(t.getMonth() + 1) + '-' + two(t.getDate()) + ' ' + two(t.getHours()) + ':' + two(t.getMinutes());
 }
+/* kosmos#8259: whether the person was told about a hold that waits on them, and answered since, from the marks
+   engine/holdtold.js keeps. Not told: says how to tell them so Kosmos sees it. */
+function toldWords(x) {
+  const told = typeof x.onHoldToldAt === 'string' ? whenWords(x.onHoldToldAt) || one(x.onHoldToldAt) : '';
+  const answered = typeof x.onHoldAnsweredAt === 'string' ? whenWords(x.onHoldAnsweredAt) || one(x.onHoldAnsweredAt) : '';
+  if (answered) return ' (they answered ' + answered + ': if that settles it, take it off hold)';
+  if (told) return ' (you told them ' + told + ')';
+  return ' (Kosmos has not seen you tell them: ask them in the task, or name task ' + x.number + ' when you ask)';
+}
 function stateWords(x) {
   if (x.isClosed) return Number.isInteger(x.replacedBy) ? 'closed, replaced by task ' + x.replacedBy : 'done';
   if (x.onHold === true) {
     const u = x.onHoldUntil;
     const until = u && Number.isInteger(u.task) ? ' until task ' + u.task + ' is closed' : u && typeof u.at === 'string' ? ' until ' + (whenWords(u.at) || one(u.at)) : '';
     return 'on hold' + until + (x.onHoldByPerson === true ? ', put on hold by the person (only they can take it off)' : '')
-      + (x.onHoldForPerson === true ? ', waiting on the person' : '')
+      + (x.onHoldForPerson === true ? ', waiting on the person' + toldWords(x) : '')
       + (x.projectPaused === true ? '; its project is paused too' : '')   // review 5
       + (x.builtAt ? '; built' : '');   // review 2: as the list's [on hold] [built], so delivered work is not hidden
   }
