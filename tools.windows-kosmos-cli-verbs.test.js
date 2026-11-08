@@ -260,6 +260,10 @@ test('feedback write saves today\'s report in THIS Kosmos\'s store; show reads i
   assert.equal(none.code, 0, none.err);
   assert.equal(none.out, '');
   assert.match(none.err, /No product-feedback report for 1999-01-01 yet\./);
+  fs.mkdirSync(path.join(feedbackCli.root, 'Kosmos', 'feedback', '1999-01-02.md'), { recursive: true });
+  const unreadable = feedbackCli(['feedback', 'show', '1999-01-02']);   // kosmos#8260: a report that cannot be read is not "none yet"
+  assert.notEqual(unreadable.code, 0, unreadable.err);
+  assert.doesNotMatch(unreadable.err, /No product-feedback report/);
   assert.equal(feedbackCli(['feedback', 'show', 'yesterday']).code, 2);
 });
 

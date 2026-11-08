@@ -96,6 +96,14 @@ test('kosmos#8260: feedback show for a day with no report is an answer: exit 0, 
   assert.match(s.err, /^No product-feedback report for 2020-01-01 yet\.$/m);
 });
 
+test('kosmos#8260: a report that exists but cannot be read is a failure, never "no report yet"', async () => {
+  const h = makeHome();
+  fs.mkdirSync(path.join(h.data, 'Kosmos', 'feedback', '2020-01-02.md'), { recursive: true });
+  const s = await run(['feedback', 'show', '2020-01-02'], h);
+  assert.notEqual(s.code, 0, s.both);
+  assert.doesNotMatch(s.both, /No product-feedback report/);
+});
+
 test('bare feedback prints usage (exit 2)', async () => {
   const h = makeHome();
   const u = await run(['feedback'], h);
