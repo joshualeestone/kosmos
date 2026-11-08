@@ -71,7 +71,8 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         // kosmos#8221: the UIKit list keeps no cell that is wholly off screen, so there the drag leaves the newest message
         // straddling the list's bottom edge: still drawn, and not wholly on screen.
         if UIKitListArm.on {
-            // Far enough that the newest message's top lands 20 pt above the box: its bottom then runs under the box.
+            // Aimed to land the newest message's top about 20 pt above the box (less the drag's start), so its bottom runs
+            // under the box. A drag too short to leave the end is put back, and then the check below fails loudly.
             let n = message(260, in: app), boxTop = composer(app).frame.minY
             let dy = max(20, boxTop - 20 - n.frame.minY)
             mid.press(forDuration: 0.1, thenDragTo: mid.withOffset(CGVector(dx: 0, dy: dy)), withVelocity: .slow, thenHoldForDuration: 0.3)

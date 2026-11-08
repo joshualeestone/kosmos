@@ -13,7 +13,9 @@ lists, run by one switch (TEST_RUNNER_KOSMOS_UIKITLIST=1).
   uikitlist-8221, never merged) measured 0 of 2,490 no-text samples on the UIKit list against 181 on the lazy list.
 - Slice 1 only: open at the newest, keep at the newest, pending bubbles, working line, end room. Not in it: a reader's place
   as rows land above (slice 3), earlier pages (4), the capsule beyond setting unseenNew (5), search anchoring (7), the side
-  lock (8), long press beyond carrying the sheet's environment (9), accessibility (10).
+  lock (8), long press beyond carrying the sheet's environment (9), accessibility (10). Also not in it: the pull past the
+  end for a read (#8072, endPull attaches through the lazy list's scroll view), the earlier-loading and failed lines, and
+  the keyboard's settled looks (settleAtNewest), which the lazy list needs and the new list may not.
 
 ## Shape
 - ios/Kosmos/ChatList.swift: UIViewRepresentable. Diffable data source keyed by the chat's own ids; cells built by a closure
@@ -30,6 +32,10 @@ lists, run by one switch (TEST_RUNNER_KOSMOS_UIKITLIST=1).
 - scrollToItem for the end: it lands on estimated heights; pinning the offset after layout converges as cells measure.
 - A release-readable defaults key now: nothing in the app sets it yet; the TestFlight slice adds the switch a phone can flip.
 
+- Reconfiguring only the cells whose content changed (a per-id signature). A row's drawing depends on ChatView state well
+  beyond its data (hidden heads, file states, thumbnails, armed presses), so a data signature would leave stale cells. The
+  cells on screen are drawn again on every update instead; the cost on a keystroke is measured before the TestFlight slice.
+
 ## Weakest premise
 That a hosted cell's SwiftUI content draws whenever its cell is on screen. Batch 2 measured that on the simulator (ink in
 every sample), not on Josh's phone; the phone counts compare the two lists in the TestFlight slice before the old one goes.
@@ -37,7 +43,11 @@ every sample), not on Josh's phone; the phone counts compare the two lists in th
 ## Steps
 1. [x] ChatList.swift, the switch, conversationUIKit, pendingBubble split.
 2. [x] UIKitListArm in the six classes.
-3. [ ] UIKit arm: ChatOpensAtNewest (2), KeyboardSlide at-the-newest checks (4), SendMovesOnce (3), ComposerSend (3),
-       StopAdding (2). Lazy arm: same set, unchanged behaviour.
-4. [ ] iOS repo tests that read Swift (node ios tests, LogicTests run-*.sh).
+3. [x] UIKit arm, iPhone 17 Pro Max, iOS 26.5, 11-07/08: ChatOpensAtNewest 2/2, KeyboardSlide at-the-newest 4/4,
+       SendMovesOnce 3/3 (after the cell-spacing fix), ComposerSend 3/3, StopAdding 2/2. The UIKit arm is run by hand with
+       TEST_RUNNER_KOSMOS_UIKITLIST=1; CI runs the lazy arm only, which is what a release build ships.
+       Lazy arm, same set: KeyboardSlide testNewestStaysJustAboveTheBoxAsItGrowsAndShrinks fails intermittently with a
+       455 pt jump on untouched main too (main 1 of 3, this branch 1 of 4), the #7817 jump; ChatOpensAtNewest times out its
+       queries on the 260-message chat (documented in ui-sample.sh). Everything else passes.
+4. [x] iOS repo tests that read Swift: 15 node files (one trace value fixed), all 13 LogicTests suites PASS.
 5. [ ] Challenge loop, PR, merge on green.

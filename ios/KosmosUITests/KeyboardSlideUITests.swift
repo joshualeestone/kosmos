@@ -39,6 +39,7 @@ final class KeyboardSlideUITests: XCTestCase {
     // (rows not drawn within the content, on a phone) is not reproduced here. After it, the chat still opens at its newest
     // message above the box, and keeps it there when the keyboard comes up.
     func testRebuiltListShowsTheNewestMessage() throws {
+        if UIKitListArm.on { throw XCTSkip("the UIKit list never rebuilds (kosmos#8221); the rebuild belongs to the lazy list") }
         let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_REBUILD": "1", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         let rebuilt = app.descendants(matching: .any).matching(identifier: "sample-rebuilt").firstMatch
@@ -54,6 +55,7 @@ final class KeyboardSlideUITests: XCTestCase {
     // kosmos#7420 (build 24, Josh's second report): the same empty-within failure on a SHORT chat (13 messages), so the
     // rebuild is checked on Dana's short sample chat too: its newest message above the box after one rebuild.
     func testRebuiltShortChatShowsTheNewestMessage() throws {
+        if UIKitListArm.on { throw XCTSkip("the UIKit list never rebuilds (kosmos#8221); the rebuild belongs to the lazy list") }
         let app = Self.launch(["KOSMOS_SAMPLE_REBUILD": "1", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         let rebuilt = app.descendants(matching: .any).matching(identifier: "sample-rebuilt").firstMatch
@@ -70,6 +72,7 @@ final class KeyboardSlideUITests: XCTestCase {
     // down at the newest message, then the recovery runs (KOSMOS_SAMPLE_REBUILD=afterhide, once the keyboard is down): one rebuild,
     // and the newest message on screen above the box.
     func testRebuiltAfterTheKeyboardWentDown() throws {
+        if UIKitListArm.on { throw XCTSkip("the UIKit list never rebuilds (kosmos#8221); the rebuild belongs to the lazy list") }
         // kosmos#7688 (4): the rebuild runs 1 s after the keyboard is down (keyboardDidHide), not on a 14 s clock.
         let app = Self.launch(["KOSMOS_SAMPLE_REBUILD": "afterhide", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
@@ -121,6 +124,7 @@ final class KeyboardSlideUITests: XCTestCase {
     // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP moves
     // the reader up the thread 3 s after opening, as a reader's own scroll does.
     func testReadHigherUpStaysWhereItWas() throws {
+        if UIKitListArm.on { throw XCTSkip("a reader higher up keeping their place is a later slice of kosmos#8221") }
         let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
@@ -197,6 +201,7 @@ final class KeyboardSlideUITests: XCTestCase {
     // kosmos#7817: a reader higher up is not pulled to the newest message as the box grows (only one at the newest is).
     // A regression guard for the follow's own condition (it passes with the follow off too).
     func testReadHigherUpStaysWhileTheBoxGrows() throws {
+        if UIKitListArm.on { throw XCTSkip("a reader higher up keeping their place is a later slice of kosmos#8221") }
         let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_BOXFOLLOW": "1"])
         let box = Self.box(app)
         let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
