@@ -183,7 +183,7 @@ struct ChatList: UIViewRepresentable {
         // its run). Measured 11-07: drawn again only on a later update, the bubble above a send shrank 8 pt as the send
         // settled, and the list stepped.
         // How often the list was updated and how many cells that drew again, for measuring what a keystroke costs.
-        // spent: seconds inside apply, which configures the cells drawn again; the layout iOS runs after it is not counted.
+        // spent: seconds inside apply.
         var applies = 0
         var redrawn = 0
         var spent: CFTimeInterval = 0
