@@ -31,5 +31,10 @@ its own line announces) owes none, and a swap of two does. Not changed: a Window
 /api/project is not an agent-token route, so it cannot run `project test` (nor `project pause`); that is pause's
 existing limit, not new here.
 
+Review round 4, deferred with reasons: (a) a Windows agent may be taught a verb it cannot run (no board token): REASONED,
+the route limit pause already has, recorded on the card for Homer's lane to confirm. (b) The Mac success check is a
+substring of the body: measured unreachable from text, since inside any JSON string the quote before `:` is escaped.
+(c) The new standing rule owes every agent one re-read after the upgrade: that is how a new rule reaches running agents.
+
 Tests: cli.project-test-8236.test.js. Perturbed: the Assigner skip, the instruction line, the re-tell, the Mac
 CLI's field; each turned a test red.
