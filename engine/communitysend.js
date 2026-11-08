@@ -1193,7 +1193,8 @@ async function sendComment(c, keys, csent, now, from) {
   // kosmos#8216: when, so a later look knows how far back to read. The sweep's clock (taken at its start), so a slow
   // sweep stamps it a little early: the ten-minute skew and the hour after cover that.
   const attemptedAt = new Date(now).toISOString();
-  csent[c.id] = { ...rec, attempted: true, attemptedAt };
+  // Review 5: and which account sends it, so a later look searches that account even after a re-registration.
+  csent[c.id] = { ...rec, attempted: true, attemptedAt, ...(k.remoteId ? { agentId: k.remoteId } : {}) };
   saveJson(commentsSentFile(), csent);
   // #4801 review 1: while the POST is out the owner's list says "Sending" and a removal is refused as busy, not as
   // "never learned whether it arrived": in a minute it has an answer. In memory on purpose: a board that stopped
@@ -1246,7 +1247,7 @@ async function sendComment(c, keys, csent, now, from) {
     csent[c.id] = settle(rec, { state: 'refused', reasons: ['http_' + r.status] });
     log(`comment for ${agentKey}: refused with ${r.status}`);
   } else {
-    csent[c.id] = settle(rec, { state: 'unconfirmed', attemptedAt, ...(r.status ? { lastStatus: r.status } : {}) });
+    csent[c.id] = settle(rec, { state: 'unconfirmed', attemptedAt, ...(k.remoteId ? { agentId: k.remoteId } : {}), ...(r.status ? { lastStatus: r.status } : {}) });
     log(`comment for ${agentKey}: no usable answer (status ${r.status || 'none'}); it may be on the server, so it is not sent again`);
   }
 }
@@ -2231,7 +2232,7 @@ async function settleUnconfirmed(keys, sent, now) {
 const LOOK_EVERY_MS = 60 * 60 * 1000;
 const LOOK_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 const LOOK_LATE_MS = 60 * 60 * 1000;   // review 3: how long after a try a landed copy can carry a later time
-const LOOK_TRIES_MAX = 7 * 24;   // review 3: looks that never got an answer, at most (an hour apart: about a week)
+const LOOK_TRIES_MAX = 7 * 24;   // review 3, 5: looks that never got an answer, at most (an hour apart: about a week)
 const LOOKS_PER_PASS = 3;
 const LOOK_PAGES = 5;
 const LOOK_PAGE = 20;   // the service pages a thread at most 20
@@ -2279,7 +2280,9 @@ async function lookForComment(c, agentKey, keys, ok, since) {
     if (r.status !== 200 || !r.json) return null;
     return r;
   };
-  const next = (r) => (typeof r.json.next_cursor === 'string' && LOOK_CURSOR_RE.test(r.json.next_cursor) ? r.json.next_cursor : '');
+  // Review 5: a cursor this cannot read is not the end of the thread (BAD), so the read is not called whole.
+  const next = (r) => (r.json.next_cursor == null ? '' : typeof r.json.next_cursor === 'string' && LOOK_CURSOR_RE.test(r.json.next_cursor) ? r.json.next_cursor : BAD);
+  const BAD = '\u0000bad';
   const post = '/posts/' + encodeURIComponent(String(c.remotePostId)) + '/comments';
   /* Every reply under one top-level comment, oldest first, to the end (a thread's replies are capped): the candidates,
      and whether `parent` is among them. null: could not be read; over: out of reads. */
@@ -2297,6 +2300,7 @@ async function lookForComment(c, agentKey, keys, ok, since) {
       if (parent && rows.some((x) => x.id === parent)) sawParent = true;
       out.push(...rows);
       cursor = next(r);
+      if (cursor === BAD) return { over: true };
       if (!cursor) return { rows: out, sawParent };
     }
   };
@@ -2322,8 +2326,8 @@ async function lookForComment(c, agentKey, keys, ok, since) {
   const done = (complete) => (candidates.length ? { found: oldest().id } : { found: null, complete });
   for (let page = 0; page < LOOK_PAGES; page++) {
     const r = await get(post + '?order=newest&limit=' + LOOK_PAGE + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
-    if (!r) return candidates.length ? done(false) : null;
-    if (r.over) return done(false);
+    if (!r) return null;   // review 5: a page that failed is tried again later, never settled on what came before it
+    if (r.over) return candidates.length === 1 ? done(false) : { found: null, complete: false };   // out of reads: settled only on a sole match
     if (r.gone) return done(true);   // the post is gone from the public community
     if (!Array.isArray(r.json.comments)) return null;
     const tops = lookRows(r.json.comments);
@@ -2350,11 +2354,12 @@ async function lookForComment(c, agentKey, keys, ok, since) {
       }
     }
     cursor = next(r);
+    if (cursor === BAD) return candidates.length === 1 ? done(false) : { found: null, complete: false };
     if (!cursor) return parent ? { found: null, complete: false } : done(true);   // the end; a reply whose parent was not found is not settled
     // Newest first: once a page reaches back before the send, nothing older can be a top-level match.
     if (!parent && tops.some((x) => Number.isFinite(x.at) && x.at < since)) return done(true);
   }
-  return done(false);   // more thread than one look reads
+  return candidates.length === 1 ? done(false) : { found: null, complete: false };   // more thread than one look reads: a sole match only
 }
 /* The ids every record already holds: a comment already settled is never claimed again for another (review 1). */
 function claimedIds(csent) {
@@ -2377,7 +2382,8 @@ async function settleUnconfirmedComments(keys, now) {
   let looked = 0;
   for (const [id, rec] of due) {
     if (looked >= LOOKS_PER_PASS) break;
-    if (retiring(rec.agent) || String(rec.agent).startsWith(RETIRED_PREFIX)) continue;   // #4994: the retired account's
+    if (String(rec.agent).startsWith(RETIRED_PREFIX)) { const l = loadJson(commentsSentFile()); if (l && unconfirmedComment(id, l[id]) && l[id].lookSkip !== 'retired') { l[id] = { ...l[id], lookSkip: 'retired' }; saveJson(commentsSentFile(), l); csent[id] = l[id]; } continue; }   // review 5: never looked for, so status says so
+    if (retiring(rec.agent)) continue;   // #4994: its record is moving; looked for once it has
     const c = byId.get(id);
     const k = keys[rec.agent];
     // The account that sent it: the record's, else the key this board holds (an unconfirmed send records none).
@@ -2387,7 +2393,9 @@ async function settleUnconfirmedComments(keys, now) {
     if (!c || !c.remotePostId) { skip('no-row'); continue; }
     if (!agentId) continue;   // canLook says this one (no account held)
     if (c.space === 'company' && !(k && k.apiKey && companyPostGoesNow(c, now))) { skip('company'); continue; }
-    if ((rec.lookTries || 0) >= LOOK_TRIES_MAX) continue;
+    // Review 5: a company list is read as the account held now, so one sent by another registration cannot be found there.
+    if (c.space === 'company' && rec.agentId && k.remoteId !== rec.agentId) { skip('other-registration'); continue; }
+    if ((rec.lookFails || 0) >= LOOK_TRIES_MAX) continue;
     /* The earliest it can have landed: just before the send was tried, or (review 1: a record from before attemptedAt
        was kept) just before the comment was made. With neither, words alone would match any old copy: not settled. */
     const tried = Date.parse(rec.attemptedAt);
@@ -2419,10 +2427,13 @@ async function settleUnconfirmedComments(keys, now) {
     } else if (r) {
       // Review 1: the week's window starts at the first look that got an answer, so an outage does not use it up.
       const { lookSkip: _s2, ...rest } = cur;   // review 4: looked for now, so no longer "cannot look"
-      latest[id] = { ...rest, lookedAt: stamp, lookFirstAt: cur.lookFirstAt || stamp, lookComplete: r.complete === true, lookTries: (cur.lookTries || 0) + 1 };
+      latest[id] = { ...rest, lookedAt: stamp, lookFirstAt: cur.lookFirstAt || stamp, lookComplete: r.complete === true };
     } else {
       const { lookSkip: _s3, ...rest } = cur;
-      latest[id] = { ...rest, lookedAt: stamp, lookTries: (cur.lookTries || 0) + 1 };   // not read: looked for again in an hour
+      // Review 5: a look that got no answer is counted apart; after a week of them, status says the community could not
+      // be reached (unasked), never that it was looked for.
+      const fails = (cur.lookFails || 0) + 1;
+      latest[id] = { ...rest, lookedAt: stamp, lookFails: fails, ...(fails >= LOOK_TRIES_MAX ? { lookSkip: 'unreachable' } : {}) };
     }
     saveJson(commentsSentFile(), latest);
     csent[id] = latest[id];
@@ -3554,7 +3565,7 @@ function commentRecords() {
         canLook: rec.agentId ? true : !keysRead ? null : Boolean(k && k.remoteId),   // null: keys.json unreadable, so unknown
         lookedAt: typeof rec.lookedAt === 'string' ? rec.lookedAt : null,
         lookComplete: rec.lookComplete === true,
-        lookStopped: (typeof rec.lookFirstAt === 'string' && Date.now() - Date.parse(rec.lookFirstAt) >= LOOK_FOR_MS) || (rec.lookTries || 0) >= LOOK_TRIES_MAX,
+        lookStopped: typeof rec.lookFirstAt === 'string' && Date.now() - Date.parse(rec.lookFirstAt) >= LOOK_FOR_MS,
         lookSkip: typeof rec.lookSkip === 'string' ? rec.lookSkip : null,   // review 3: a look this board cannot make
       } : {}),
       ...(state === 'sent' && typeof rec.foundAt === 'string' ? { foundAt: rec.foundAt } : {}),

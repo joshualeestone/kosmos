@@ -54,6 +54,7 @@ function backend() {
         const tops = st.comments.filter((c) => !c.parent).slice().sort((a, b) => (u.searchParams.get('order') === 'newest' ? b.at.localeCompare(a.at) : a.at.localeCompare(b.at)));
         const p = page(tops);
         if (typeof st.mode.onGet === 'function') st.mode.onGet(req.url);
+        if (st.mode.failCursor && u.searchParams.get('cursor')) return send(500, { detail: 'boom' });
         // As the service: each top-level comment carries its first replies (2, its preview) and the true count.
         const under = (id) => st.comments.filter((x) => x.parent === id).sort((a, b) => a.at.localeCompare(b.at));
         return send(200, { comments: p.rows.map((c) => ({ ...shown(c), replies: under(c.id).slice(0, 2).map(shown), reply_count: under(c.id).length, replies_cursor: null })), next_cursor: p.next_cursor });
@@ -181,7 +182,7 @@ test('#8216 a board that stopped mid-send (attempted, no answer recorded) is set
   await cs.sweep();
   const c = comment('ava', 'Mid-send.');
   // The comment is on the service, and the board's record still has only its write-ahead mark.
-  await cs.sweep();   // registers ava (no comment due yet is fine: the post is published above, so it is sent here)
+  await cs.sweep();   // registers ava and sends the comment published above
   const sent = recOf(c.id);
   assert.equal(sent.state, 'sent', 'fixture: the comment was not sent');
   const recs = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
@@ -408,6 +409,9 @@ test('#8216 review 3: status says so when Kosmos cannot look, and when it has st
   const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
   delete keys.ava.remoteId;
   fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  const old = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+  delete old[c.id].agentId;   // a record written before the sending account was recorded
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(old));
   const line = () => status.statusText('ava').text.split('\n').find((l) => l.includes('"No key to look with."'));
   assert.match(line(), /Kosmos cannot look for it from this board/, 'no account held, and status still promised a look');
   keys.ava.remoteId = [...be.st.agents.values()][0].id;
@@ -442,6 +446,9 @@ test('#8216 review 4: unreadable keys keep the plain words, never "cannot look"'
   be.st.mode.lose = 'unstored';
   await cs.sweep();
   be.st.mode.lose = null;
+  const old = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
+  delete old[c.id].agentId;   // a record written before the sending account was recorded
+  fs.writeFileSync(cs._paths.commentsSentFile(), JSON.stringify(old));
   fs.writeFileSync(cs._paths.keysFile(), '{ not json');
   assert.equal(cs.commentRecords()[c.id].canLook, null, 'unreadable keys read as a known "no account"');
   const it = status.itemsFor('ava').find((x) => x.title === 'Keys broken.');
@@ -459,4 +466,38 @@ test('#8216 review 4: a copy whose words were edited on the site is never taken 
   be.st.comments.find((x) => x.body === 'Before the edit.').body = 'After the edit.';
   await cs.sweep(t0 + 1000);
   assert.equal(recOf(c.id).state, 'unconfirmed', 'a copy with other words was taken for it');
+});
+
+test('#8216 review 5: the account that sent it is recorded, so a look finds it after the agent re-registered', async () => {
+  await cs.sweep();
+  const c = comment('ava', 'Before a new account.');
+  be.st.mode.lose = 'stored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  const sender = be.st.comments.find((x) => x.body === 'Before a new account.').agentId;
+  assert.equal(recOf(c.id).agentId, sender, 'the write-ahead did not record the sending account');
+  const keys = JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8'));
+  keys.ava.remoteId = 'a-new-registration';
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify(keys));
+  await cs.sweep(t0 + 1000);
+  assert.equal(recOf(c.id).state, 'sent', 'after a re-registration the look searched the new account');
+});
+
+test('#8216 review 5: a page that fails is tried again later, never settled on what came before it', async () => {
+  await cs.sweep();
+  const c = comment('ava', 'Partial read.');
+  be.st.mode.lose = 'stored';
+  const t0 = Date.now();
+  await cs.sweep(t0);
+  be.st.mode.lose = null;
+  for (let i = 0; i < 25; i++) be.st.comments.push({ id: crypto.randomUUID(), parent: null, agentId: 'other' + i, body: 'Noise ' + i, at: new Date(t0 + 100 + i).toISOString() });
+  be.st.mode.failCursor = true;   // the second page fails
+  await cs.sweep(t0 + 1000);
+  assert.equal(recOf(c.id).state, 'unconfirmed', 'settled on a read whose second page failed');
+  assert.equal(recOf(c.id).lookComplete, undefined, 'a failed read was recorded as a look');
+  assert.equal(recOf(c.id).lookFails, 1);
+  be.st.mode.failCursor = false;
+  await cs.sweep(t0 + HOUR + 2000);
+  assert.equal(recOf(c.id).state, 'sent', 'CONTROL: once the page reads, it is found');
 });
