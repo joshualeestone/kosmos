@@ -271,3 +271,27 @@ jobs:
           # The wildcard keeps the .xcresult folder in the zip; an exact path puts its contents at the top.
           path: ${{ runner.temp }}/ui-result*
           retention-days: 7
+
+  # kosmos#8221: the same sample-board run on the UIKit chat list (ui-sample.sh --uikit), which a release build does not draw
+  # yet, so a change that breaks it goes red here before the slice that lets a phone choose it. Its own job, beside the
+  # lazy list's, so neither waits on the other. Its name holds no "ui tests", so ui-flaky-count.sh keeps reading the lazy job.
+  uikit:
+    name: uikit list (sample board)
+    runs-on: macos-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: UI tests on the UIKit list (sample board)
+        run: |
+          set -o pipefail
+          UI_SAMPLE_FAILED_RESULT="$RUNNER_TEMP/uikit-result.xcresult" ios/tools/ui-sample.sh --uikit | tee "$RUNNER_TEMP/ui-sample.log"
+          grep -q '^PASS  ui-sample:' "$RUNNER_TEMP/ui-sample.log"
+
+      # Sample data only: no account, no real messages.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: uikit-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/uikit-result*
+          retention-days: 7
