@@ -470,6 +470,7 @@ function overviewOf(p, roster, o) {
     // The bare state name ('readable', 'missing', ...), unlike describe()'s folderState object, hence its own key.
     folderStatus: p.folderState && typeof p.folderState.state === 'string' ? p.folderState.state : null,
     archived: p.archived === true,
+    testOnly: p.testOnly === true,   // kosmos#8236
     description: p.description || '',
     goal: brief.goal,
     done: brief.done,
@@ -640,6 +641,8 @@ function renderShow(payload) {
     ? '  (not on this computer right now: moved, removed, or on a drive that is not connected)'
     : p.folderStatus === 'unreadable' ? '  (Kosmos could not check it just now; check that you can open it)' : '';
   out.push('Folder: ' + (p.folder ? pathText(p.folder) + fnote : 'none recorded'));
+  // kosmos#8236: an older board sends no testOnly, and says nothing here.
+  if (p.testOnly === true) out.push('Test project: its agents do only what they are asked, and Kosmos asks none of them to add tasks for it. Turn it off: kosmos project test ' + one(p.id) + ' off');
   /* The brief is a file anyone on the project can edit, so its words are quoted as written there, never
      presented as an instruction (the Assigner quotes the goal the same way, engine/assigner.js). */
   if (!p.briefFound) {

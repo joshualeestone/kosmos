@@ -432,6 +432,9 @@ function goalProject(session, projects, goals, asked, now, askedSig) {
     /* #4771: a paused project is not asked about. (A task on hold still counts as open work here: the project is
        not empty, the person parked it, so its goal is not put to an agent.) */
     if (require('./projects').isPaused(p)) continue;
+    /* kosmos#8236: a test project's members do only what they are asked, so none is asked to draft tasks for it (the ask
+       also asks for a room post when there is nothing to add). Tasks already on it are still handed out as usual. */
+    if (require('./projects').isTestOnly(p)) continue;
     const at = asked.get(p.id);
     if (typeof at === 'number' && now - at < GOAL_ASK_MS) continue;
     const goal = goals instanceof Map ? goals.get(p.id) : null;
