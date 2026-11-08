@@ -118,3 +118,7 @@ client-chosen id with a comment.
 - 10 (sonnet): an older board's record after a re-registration reads as "not found" (written in Not done, with the
   hourly pace being at best). The same-words pairing (Weakest part), the look's place in the sweep (review 9) and the
   untested company branch repeat earlier findings.
+- 11 (opus): the edit refusal read the raw record; a non-https address was not folded into "still looked for"; the
+  take-back words promised success; a slow service could hold the sweep lock for minutes. Fixed: commentStillLooked
+  checks the address and the edit refusal uses the derived record; the refusals say to try again once sent; no new
+  look starts after 30 s in a pass; the browser check renders a row that promises no look. The company branch repeats.

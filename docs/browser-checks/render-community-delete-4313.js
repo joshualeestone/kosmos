@@ -219,6 +219,8 @@ async function run() {
       comments: [
         cdeleted ? crow('c1', { deleteRequested: true, canDelete: false }) : crow('c1', { postedAt: C1_AT }),
         crow('c2', { state: 'unconfirmed', untraceable: true, canDelete: false, postedAt: '2026-09-28T07:00:00Z' }),
+        // kosmos#8216 review 11: an unconfirmed comment Kosmos will not look for (looking: false) promises no look.
+        crow('c2b', { state: 'unconfirmed', untraceable: true, canDelete: false, looking: false, postedAt: '2026-09-28T06:30:00Z' }),
         crow('c3', { untraceable: true, untraceableReason: 'no-id', canDelete: false, postedAt: '2026-09-28T06:00:00Z' }),   // sent, the service gave no id
         crow('c4', { state: 'deleted', deleteRequested: true, canDelete: false, postedAt: '2026-09-28T05:00:00Z' }),
         crow('c5', { state: 'pending', postedAt: '2026-09-28T04:00:00Z' }),
@@ -240,7 +242,7 @@ async function run() {
     await openAutomation(p5);
     const c = await readList(p5);
     const ids = c.rows.map((x) => x.id).join(',');
-    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c3,c4,c5,c6,c7,c9,c10,c11,c12,c13,c8,c14,a2', ids);
+    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c2b,c3,c4,c5,c6,c7,c9,c10,c11,c12,c13,c8,c14,a2', ids);
     const byId = Object.fromEntries(c.rows.map((x) => [x.id, x]));
     check('COMMENT: a comment row reads as a comment, with its text and agent', byId.c1 && /^Comment: Reply c1/.test(byId.c1.text) && /Bo/.test(byId.c1.text) && /In the community/.test(byId.c1.text), JSON.stringify(byId.c1));
     check('COMMENT: Delete shows where the board says canDelete, and nowhere else', JSON.stringify(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'].map((i) => byId[i] && byId[i].del)) === '[true,false,false,false,true,false,false]', JSON.stringify(c.rows));
@@ -271,6 +273,7 @@ async function run() {
     check('COMMENT: the row says when, without the year when it is this year (review 2 NIT a)', where.dt === C1_AT && where.day === where.expectThisYear, JSON.stringify(where));
     check('COMMENT: a comment from another year says the year (review 2 NIT a)', where.oldDay === where.expectOld, JSON.stringify(where));
     check('COMMENT: an unconfirmed comment says why it cannot be removed', byId.c2 && /does not know yet whether this arrived, so it cannot remove it/.test(byId.c2.text), JSON.stringify(byId.c2));
+    check('COMMENT: one Kosmos will not look for promises no look (kosmos#8216)', byId.c2b && /cannot look for it, so it cannot remove it/.test(byId.c2b.text) && !/keeps looking/.test(byId.c2b.text) && !byId.c2b.del, JSON.stringify(byId.c2b));
     check('COMMENT: a comment sent with no id says why it cannot be removed', byId.c3 && /no way to find this comment again, so it cannot remove it/.test(byId.c3.text), JSON.stringify(byId.c3));
     check('COMMENT: a comment from a registration the board no longer holds says so (review 3)', byId.c11 && byId.c11.del === false && /no longer holds the registration that sent it, so it cannot remove it/.test(byId.c11.text) && !/no way to find/.test(byId.c11.text), JSON.stringify(byId.c11));
     check('COMMENT: a comment whose registration cannot be told says so, never "no longer holds" (review 4)', byId.c12 && byId.c12.del === false && /cannot tell whether the registration it holds sent this comment, so it cannot remove it/.test(byId.c12.text) && !/no longer holds/.test(byId.c12.text) && !/no way to find/.test(byId.c12.text), JSON.stringify(byId.c12));
