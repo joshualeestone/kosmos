@@ -19,6 +19,8 @@ Seen live on 0.7.96, 11-07: a real Haiku seat answered seven held asks after the
 - That an agent reads a held ask through `kosmos room` with its own token before it answers. One that reads it any other way (the web page, a read without its token) leaves no record, and the ask stays listed: the safe direction, and the case before this change.
 
 ## Known limits
+- One failure is in the unsafe direction (review 2): the read records a telling before its response is sent, as `dropShown` drops before it, so a read whose response never reaches the agent (a reset, curl's `-m 15`) still counts. A later uncited post then moves those asks to the covered line. They are still named there with their words, so they are not lost, but they no longer count as waiting. Recording after the send would not fix it: sent is not read.
+- One board process does every write, and `noteTold` is synchronous, so two reads cannot interleave inside it (review 2, deferred). A second process writing the same file could drop entries: the safe direction.
 - A post told before this change has no record, so it stays listed as before.
 - Under `--all` the age rule is off, so a held ask older than `TOLD_KEEP_MS` whose record was pruned goes back on the list.
 - At most `TOLD_MAX` (500) per room: past that the oldest records drop and those asks go back on the list (review 1 NIT, deferred: the safe direction).
