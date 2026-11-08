@@ -231,7 +231,7 @@ jobs:
     # these platform tests; recorded so nobody re-picks ubuntu for this suite.)
     # #6791: test:shell is different, and MEASURED: originally each of its 264 commands run alone on ubuntu-latest
     # (probe run 39535595626), 238 passed, 8 of them only by skipping their macOS work (probe run 39538876370). The
-    # rest run on ubuntu-latest in shells 1/2 and 2/2; those that need macOS are listed, each with its reason, in
+    # rest run on Ubuntu in shells 1/2 and 2/2 (ubuntu-24.04, pinned by #8244); those that need macOS are listed, each with its reason, in
     # tools/shell-macos-only.txt (its header has how many it lists) and run in `shell macOS` on macos-latest, never the
     # self-hosted Mac (#4601: some shell tests touch launchd and sweep processes by pattern). `shell macOS` also runs
     # every syntax-only check (`sh -n` / `bash -n`, about no time), because macOS /bin/sh is bash 3.2 and Linux sh is
@@ -239,8 +239,8 @@ jobs:
     # instead of two.
     # #5488 part b: scope's choice (see there); for the node part, macos-latest whenever scope gave none (it failed or
     # timed out). #5488 part c: the node part takes scope's choice. #4601: a linux shell shard takes it too, only when
-    # named in KOSMOS_CI_SHELL_SHARDS (see scope); otherwise, and whenever scope gave none, ubuntu-24.04 (#6791; pinned, #8244). The
-    # macOS-only shell job is always macos-latest.
+    # named in KOSMOS_CI_SHELL_SHARDS (see scope); otherwise, and whenever scope gave none, ubuntu-24.04
+    # (#6791; pinned, #8244). The macOS-only shell job is always macos-latest.
     # Measured 2026-10-07: the self-hosted Mac runs the node part in 4.3 min (GitHub: 22.2) but is ONE runner,
     # and every Mac job routed to it ran serially (about 1.8 runs an hour, against about 4.2 on GitHub's 5).
     # With node alone the self-hosted Mac stayed short of being the queue (numbers on #5488); #4601 lets a shell
