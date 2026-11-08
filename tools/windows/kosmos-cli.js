@@ -2849,7 +2849,8 @@ async function feedbackShow(ctx, args) {
   const date = args[0] || fb.today();
   if (!fb.isDateKey(date)) { ctx.err('that date must be YYYY-MM-DD'); return 2; }
   const body = fb.readBody(date);
-  if (body == null) { ctx.err('no product-feedback report for ' + date); return 1; }
+  // kosmos#8260: no report yet is an answer, not a failure: nothing on stdout, the sentence on stderr, exit 0, as install/kosmos.
+  if (body == null) { ctx.err('No product-feedback report for ' + date + ' yet.'); return 0; }
   ctx.out(String(body).replace(/\n$/, ''));
   return 0;
 }

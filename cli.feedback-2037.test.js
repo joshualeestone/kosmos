@@ -88,11 +88,12 @@ test('feedback show with a malformed date is refused (exit 2)', async () => {
   assert.match(s.both, /YYYY-MM-DD/);
 });
 
-test('feedback show for a day with no report exits 1 (not a crash)', async () => {
+test('kosmos#8260: feedback show for a day with no report is an answer: exit 0, nothing on stdout, the sentence on stderr', async () => {
   const h = makeHome();
   const s = await run(['feedback', 'show', '2020-01-01'], h);
-  assert.equal(s.code, 1);
-  assert.match(s.both, /no product-feedback report/);
+  assert.equal(s.code, 0, s.both);
+  assert.equal(s.out, '', 'stdout carried something a caller would read as a report');
+  assert.match(s.err, /^No product-feedback report for 2020-01-01 yet\.$/m);
 });
 
 test('bare feedback prints usage (exit 2)', async () => {
