@@ -327,40 +327,19 @@ function automountsHere(platform) {
 }
 
 /**
- * kosmos#8227 item 1: this Windows computer's drive letters and what kind each is, so `task files` never opens a
- * path on a drive mapped to a network share (Z:\share\x reads as local by its name; only the drive's type can tell).
- * A Map of upper-case letter to System.IO.DriveType as a number (0 Unknown, 1 NoRootDirectory, 2 Removable, 3 Fixed,
- * 4 Network, 5 CDRom, 6 Ram), an empty Map off Windows (no drive letters to ask about), or null when it could not be
- * read. Asked of PowerShell once, as numbers: fsutil answers faster but in the computer's own language, which no
- * parser here can read on every install. A letter Windows does not list has no drive behind it (opening it finds
- * nothing). `run` is the test seam: (exe, args) -> stdout.
+ * kosmos#8227 item 1: the words for a Windows drive path `task files` does not open, or null when its drive is this
+ * computer's own. A drive letter mapped to a network share reads as local by its name (Z:\share\x); only the drive's
+ * kind tells, and engine/windrives.js (#7232) learns it without contacting any server (GetDriveType and the
+ * redirector's own list, in one PowerShell call, as numbers). `info` is its entry for the letter: 'remote' covers a
+ * remembered mapping whose server is gone (missing from GetDrives, named by the redirector); 'absent' is a letter no
+ * drive has now, refused too, since nothing there can be checked and opening it is not needed to say so. A share on
+ * THIS computer is refused as well (placeOf reads it as local; this check never opens a network drive at all).
  */
-function driveTypesHere(platform, run) {
-  if (platform !== 'win32') return new Map();
-  try {
-    const exe = run ? 'powershell.exe' : require('./computerprint').powershellExe();
-    const args = ['-NoProfile', '-NonInteractive', '-Command', '[IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name.Substring(0,1) + [int]$_.DriveType }'];
-    const out = run ? run(exe, args) : require('node:child_process').execFileSync(exe, args, { encoding: 'utf8', windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] });
-    const found = new Map();
-    for (const line of String(out).split(/\r?\n/)) {
-      const m = /^([A-Za-z])([0-6])$/.exec(line.trim());
-      if (m) found.set(m[1].toUpperCase(), Number(m[2]));
-    }
-    // PowerShell that ran and listed nothing (not even the system drive) has not answered the question.
-    return found.size ? found : null;
-  } catch {
-    return null;
-  }
-}
-
-/** kosmos#8227 item 1: the words for a Windows drive path that is not opened, or null when its drive is this
- *  computer's own (fixed, removable, optical or a RAM disk) or there is no drive behind the letter. */
-function driveRefusal(p, types) {
+function driveRefusal(p, info) {
   const letter = String(p).charAt(0).toUpperCase();
-  if (!types.has(letter)) return null;
-  const t = types.get(letter);
-  if (t === 4) return 'a network drive, so Kosmos does not open it';
-  if (t === 2 || t === 3 || t === 5 || t === 6 || t === 1) return null;
+  if (info && info.kind === 'local') return null;
+  if (info && info.kind === 'remote') return 'a network drive, so Kosmos does not open it';
+  if (info && info.kind === 'absent') return 'there is no drive ' + letter + ': on this computer now, so Kosmos does not open it';
   return 'Kosmos could not tell what kind of drive ' + letter + ': is, so it does not open it';
 }
 
@@ -429,12 +408,10 @@ function filesLines(body, opts = {}) {
   const foreign = (p) => kept(p) && (windows ? !drive(p) : drive(p));
   let mounts;   // read once, at the first path that needs it
   let saidNoMounts = false;
-  let types;   // kosmos#8227 item 1: Windows drive types, read once, at the first path that needs them
+  /* kosmos#8227 item 1: a Windows drive letter's kind, from engine/windrives.js (learned once, then cached). `opts.driveInfo` is
+     the seam: (letter) -> its entry, or null when the kinds could not be learned. */
+  const driveInfo = typeof opts.driveInfo === 'function' ? opts.driveInfo : (letter) => require('./windrives').infoOf(letter);
   let saidNoTypes = false;
-  const typesNow = () => {
-    if (types === undefined) types = opts.driveTypes !== undefined ? opts.driveTypes : driveTypesHere(opts.platform || process.platform);
-    return types;
-  };
   const mountsNow = () => {
     if (mounts === undefined) mounts = opts.automounts !== undefined ? opts.automounts : automountsHere(opts.platform || process.platform);
     return mounts;
@@ -466,14 +443,14 @@ function filesLines(body, opts = {}) {
       tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': not a local absolute path, so Kosmos does not open it'); continue;
     }
     if (windows) {
-      const dt = typesNow();
-      if (dt === null) {
+      const info = driveInfo(at.charAt(0));
+      if (!info) {
         tally.unchecked += 1;
         lines.push('    NOT CHECKED ' + shown + (saidNoTypes ? ': the drive types again (above)' : ': Kosmos could not read what kind of drive each letter is on this computer, so it opens no path'));
         saidNoTypes = true;
         continue;
       }
-      const refused = driveRefusal(at, dt);
+      const refused = driveRefusal(at, info);
       if (refused) { tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': ' + refused); continue; }
     }
     if (!windows) {
@@ -555,4 +532,4 @@ if (require.main === module) {
   process.exit(out.rc);
 }
 
-module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, driveTypesHere, driveRefusal, seenWords, STALE_DAYS_DEFAULT: 7 };
+module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, driveRefusal, seenWords, STALE_DAYS_DEFAULT: 7 };

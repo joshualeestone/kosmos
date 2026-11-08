@@ -1641,7 +1641,7 @@ async function taskFiles(ctx, args) {
     if (every && /^say which project/.test(ctx.refusedBy(r))) { ctx.err('This board is older than --all, so it did not list what was asked. Update Kosmos.'); return 1; }
     ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1;
   }
-  const shown = tasklist.filesLines(r.json, { project: every ? '' : project, ...(ctx.driveTypes !== undefined ? { driveTypes: ctx.driveTypes } : {}) });
+  const shown = tasklist.filesLines(r.json, { project: every ? '' : project, ...(typeof ctx.driveInfo === 'function' ? { driveInfo: ctx.driveInfo } : {}) });
   for (const l of shown.lines) { if (shown.rc) ctx.err(l); else ctx.out(l); }
   return shown.rc;
 }
@@ -1888,6 +1888,7 @@ async function taskBuilt(ctx, args) {
      engine/fileprint.js gives, as the Mac and `kosmos fingerprint` do (a PDF's own dates and document ID left out). */
   let fingerprint = null;
   let filePath = null;
+  let pathWhy = null;   // kosmos#8227 item 1: why a readable local-looking path was not kept, when it was its drive
   if (file !== null) {
     if (clear) { ctx.err('--clear takes the mark off, so it takes no file. Run it without --file.'); return 2; }
     let fileprint;
@@ -1903,16 +1904,19 @@ async function taskBuilt(ctx, args) {
     fingerprint = got;
     filePath = typeof fileprint.keptPath === 'function' && fileprint.keptPath(whole) ? whole : null;   // the board's own rule
     /* kosmos#8227 item 1: and not on a drive mapped to a network share, which `task files` would refuse to open anyway (a
-       drive letter reads as local by its name; only its type tells). A drive whose kind cannot be read is not kept
-       either. Only a drive path is asked about, so this costs nothing when no path is kept. */
+       drive letter reads as local by its name; only its kind tells, read from engine/windrives.js). A drive whose kind
+       cannot be read is not kept either, and the reason is said. Asked only for a drive path that would be kept: one
+       PowerShell call (about 0.2 s here), the only cost this adds to marking a file. */
     if (filePath && /^[A-Za-z]:[\\/]/.test(filePath)) {
-      let refused = 'Kosmos could not read what kind of drive it is on';
-      try {
-        const tl = ctx.engine('tasklist');
-        const dt = ctx.driveTypes !== undefined ? ctx.driveTypes : tl.driveTypesHere('win32');
-        refused = dt === null ? refused : tl.driveRefusal(filePath, dt);
-      } catch (_) { /* refused stays: fail closed */ }
-      if (refused) filePath = null;
+      let info = null;
+      try { info = typeof ctx.driveInfo === 'function' ? ctx.driveInfo(filePath.charAt(0)) : ctx.engine('windrives').infoOf(filePath.charAt(0)); } catch (_) { info = null; }
+      if (!info || info.kind !== 'local') {
+        const letter = filePath.charAt(0).toUpperCase();
+        pathWhy = info && info.kind === 'remote' ? letter + ': is a network drive, and kosmos task files never opens one'
+          : info && info.kind === 'absent' ? 'Kosmos could not find drive ' + letter + ': just now'
+            : 'Kosmos could not read what kind of drive ' + letter + ': is';
+        filePath = null;
+      }
     }
   }
   /* #7508, as install/kosmos: the commit a code fix landed as, resolved here in this checkout: its full sha, the
@@ -1953,7 +1957,8 @@ async function taskBuilt(ctx, args) {
       : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.' + left + told);
     // #6761, as install/kosmos: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
     if (!clear && fingerprint) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
-    if (!clear && fingerprint && !filePath) ctx.out('Its path was not sent (Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most), so kosmos task files cannot check this mark.');   // kosmos#8214 review 2, as install/kosmos
+    if (!clear && fingerprint && !filePath && pathWhy) ctx.out('Its path was not sent (' + pathWhy + '), so kosmos task files cannot check this mark.');
+    else if (!clear && fingerprint && !filePath) ctx.out('Its path was not sent (Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most), so kosmos task files cannot check this mark.');   // kosmos#8214 review 2, as install/kosmos
     // #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
     // Review 5: only when the board's answer carries it (an older board drops a field it does not know).
     if (!clear && commit) {
@@ -3872,7 +3877,7 @@ async function main(argv, io) {
     url,
     agentToken: () => hook.agentToken(env),
     pathRules: o.pathRules || path,   // #6726: path.win32 in a test, so the Windows path rules run on any machine
-    driveTypes: o.driveTypes,   // kosmos#8227 item 1: a test's drive letters and their kinds (a Map), so a network drive can be faked
+    driveInfo: o.driveInfo,   // kosmos#8227 item 1: a test's (letter) -> engine/windrives.js entry, so a network drive can be faked
     cwd: o.cwd || (() => process.cwd()),
     refusedBy: (r) => (r.json && typeof r.json.error === 'string') ? clause(r.json.error) : null,
     /* The board is serving another Kosmos than this agent's. */

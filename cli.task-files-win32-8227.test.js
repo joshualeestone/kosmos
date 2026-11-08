@@ -4,10 +4,10 @@
  * kosmos#8227 items 1 and 4, the Windows half of the #8214 review leftovers.
  *
  * Item 1: a drive letter mapped to a network share reads as local by its name (Z:\share\x), so `kosmos task files`
- * opened it, at a path a marker chose. Now each drive letter's kind is read once a run (engine/tasklist.js
- * driveTypesHere) and a network drive, or one whose kind cannot be read, is NOT CHECKED, as UNC is. The Windows CLI's
- * `task built --file` does not keep such a path either. The rules run on any host through the driveTypes seam; the
- * record side and the real read need Windows.
+ * opened it, at a path a marker chose. Now each drive letter's kind is asked of engine/windrives.js (#7232, which
+ * also knows a remembered mapping whose server is gone), and a network drive, a letter with no drive, or one whose kind
+ * cannot be read, is NOT CHECKED, as UNC is. The Windows CLI's `task built --file` does not keep such a path either,
+ * and says why. The rules run on any host through the driveInfo seam; the record side and the real table need Windows.
  *
  * Item 4: the Windows CLI's own seam, `ctx.pathRules.resolve` then `keptPath`, under path.win32 on a real Windows
  * host, for a drive path, a UNC path and a path through a folder link (a junction: a symlink needs Developer Mode or
@@ -70,10 +70,10 @@ test.after(() => {
 
 const stored = (n) => tasks.byNumber(projects.readAll().find((x) => x.id === projectId), n);
 const tokenOf = (name) => { const m = sendertoken.mint(name); assert.equal(m.ok, true, m.because); return m.token; };
-async function win(argv, { token = null, cwd, driveTypes } = {}) {
+async function win(argv, { token = null, cwd, driveInfo } = {}) {
   const out = []; const err = [];
   const code = await cli.main(argv, {
-    env: {}, url: base, ...(cwd ? { cwd: () => cwd } : {}), ...(driveTypes !== undefined ? { driveTypes } : {}),
+    env: {}, url: base, ...(cwd ? { cwd: () => cwd } : {}), ...(driveInfo !== undefined ? { driveInfo } : {}),
     pathRules: path.win32,
     hook: { resolveUrl: () => base, readBoardToken: () => null, agentToken: () => token },
     out: (s) => out.push(s), err: (s) => err.push(s),
@@ -82,52 +82,68 @@ async function win(argv, { token = null, cwd, driveTypes } = {}) {
 }
 
 // ── item 1: the rules, on any host ──────────────────────────────────────────
-test('#8227 item 1: driveTypesHere reads the letters as numbers, and anything it cannot read is null', () => {
-  const asked = [];
-  const run = (exe, args) => { asked.push([exe, args]); return 'C3\r\nD2\r\nz4\r\nE5\r\n  F6  \r\nG0\r\nnoise\r\nH9\r\n'; };
-  const got = tasklist.driveTypesHere('win32', run);
-  assert.deepEqual([...got], [['C', 3], ['D', 2], ['Z', 4], ['E', 5], ['F', 6], ['G', 0]], 'a letter was misread (H9 is no DriveType)');
-  assert.equal(asked.length, 1, 'the kinds were asked more than once');
-  assert.match(asked[0][1].join(' '), /\[int\]\$_\.DriveType/, 'asked for words, not numbers (words change with the language)');
-  assert.equal(tasklist.driveTypesHere('win32', () => { throw new Error('no powershell'); }), null, 'a failed read passed as no drives');
-  assert.equal(tasklist.driveTypesHere('win32', () => ''), null, 'an empty answer passed as no drives');
-  assert.equal(tasklist.driveTypesHere('win32', () => 'Mount point\r\n'), null, 'an answer with no letter passed as no drives');
-  // Off Windows there are no drive letters to ask about, and nothing is run.
-  assert.deepEqual([...tasklist.driveTypesHere('darwin', () => { throw new Error('ran off Windows'); })], []);
-});
+const LOCAL = { kind: 'local', share: null };
+const REMOTE = { kind: 'remote', share: '\\\\srv\\share' };
+const ABSENT = { kind: 'absent', share: null };
+const kinds = (byLetter) => (letter) => (Object.prototype.hasOwnProperty.call(byLetter, letter.toUpperCase()) ? byLetter[letter.toUpperCase()] : null);
 
 test('#8227 item 1: driveRefusal opens this computer\'s own drives only', () => {
-  const types = new Map([['C', 3], ['D', 2], ['E', 5], ['R', 6], ['Z', 4], ['U', 0], ['N', 1]]);
-  for (const ok of ['C:\\x', 'c:/x', 'D:\\x', 'E:\\x', 'R:\\x', 'N:\\x', 'Q:\\x']) assert.equal(tasklist.driveRefusal(ok, types), null, ok + ' was refused');
-  assert.equal(tasklist.driveRefusal('Z:\\share\\x', types), 'a network drive, so Kosmos does not open it');
-  assert.equal(tasklist.driveRefusal('z:\\share\\x', types), 'a network drive, so Kosmos does not open it', 'a lower-case letter passed');
-  assert.equal(tasklist.driveRefusal('U:\\x', types), 'Kosmos could not tell what kind of drive U: is, so it does not open it');
+  assert.equal(tasklist.driveRefusal('C:\\x', LOCAL), null);
+  assert.equal(tasklist.driveRefusal('Z:\\share\\x', REMOTE), 'a network drive, so Kosmos does not open it');
+  // A remembered mapping whose server is gone is 'remote' in engine/windrives.js too (named by the redirector).
+  assert.equal(tasklist.driveRefusal('y:\\x', { kind: 'remote', share: null }), 'a network drive, so Kosmos does not open it', 'an unnamed share passed');
+  assert.equal(tasklist.driveRefusal('Q:\\x', ABSENT), 'there is no drive Q: on this computer now, so Kosmos does not open it');
+  assert.equal(tasklist.driveRefusal('u:\\x', null), 'Kosmos could not tell what kind of drive U: is, so it does not open it');
+  assert.equal(tasklist.driveRefusal('U:\\x', { kind: 'something new' }), 'Kosmos could not tell what kind of drive U: is, so it does not open it', 'an unknown kind was opened');
 });
 
-test('#8227 item 1: task files on Windows never opens a network drive, and says an unreadable table once', () => {
+test('#8227 item 1: task files on Windows never opens a network or missing drive, and says unknown kinds once', () => {
   const FP = sha('drives');
   const row = (number, at) => ({ number, sentence: 'Task ' + number, builtAt: 'x', builtFingerprint: FP, builtFilePath: at });
   const opened = [];
   const compare = (p) => { opened.push(p); return { ok: true, match: true }; };
-  const body = { listState: 'built', tasks: [row(1, 'C:\\a.txt'), row(2, 'Z:\\share\\b.txt'), row(3, 'U:\\c.txt'), row(4, 'Q:\\d.txt')] };
-  const got = tasklist.filesLines(body, { project: 'p', platform: 'win32', compare, driveTypes: new Map([['C', 3], ['Z', 4], ['U', 0]]) });
-  assert.deepEqual(got.lines.slice(0, 8), [
+  const asked = [];
+  const info = (letter) => { asked.push(letter); return kinds({ C: LOCAL, Z: REMOTE, Q: ABSENT, D: LOCAL })(letter); };
+  const body = { listState: 'built', tasks: [row(1, 'C:\\a.txt'), row(2, 'Z:\\share\\b.txt'), row(3, 'q:\\c.txt'), row(4, 'D:\\d.txt'), row(5, '\\\\srv\\share\\e.txt')] };
+  const got = tasklist.filesLines(body, { project: 'p', platform: 'win32', compare, driveInfo: info });
+  assert.deepEqual(got.lines.slice(0, 10), [
     '#1  Task 1', '    matches  C:\\a.txt',
     '#2  Task 2', '    NOT CHECKED Z:\\share\\b.txt: a network drive, so Kosmos does not open it',
-    '#3  Task 3', '    NOT CHECKED U:\\c.txt: Kosmos could not tell what kind of drive U: is, so it does not open it',
-    '#4  Task 4', '    matches  Q:\\d.txt'], got.lines.join('\n'));
-  assert.deepEqual(opened, ['C:\\a.txt', 'Q:\\d.txt'], 'a network or unknown drive was opened');
-  assert.match(got.lines[got.lines.length - 2], /2 match, .*2 not opened/);
-  // No table: nothing is opened, the reason in full once, then named, one verdict line per task.
+    '#3  Task 3', '    NOT CHECKED q:\\c.txt: there is no drive Q: on this computer now, so Kosmos does not open it',
+    '#4  Task 4', '    matches  D:\\d.txt',
+    '#5  Task 5', '    NOT CHECKED \\\\srv\\share\\e.txt: not a local absolute path, so Kosmos does not open it'], got.lines.join('\n'));
+  assert.deepEqual(opened, ['C:\\a.txt', 'D:\\d.txt'], 'a network or missing drive was opened');
+  assert.deepEqual(asked, ['C', 'Z', 'q', 'D'], 'the kind was not asked for each drive path (or was asked for UNC)');
+  assert.match(got.lines[got.lines.length - 2], /2 match, .*3 not opened/);
+  // Kinds that could not be learned: nothing is opened, the reason in full once, then named, one verdict line per task.
   opened.length = 0;
-  const blind = tasklist.filesLines({ listState: 'built', tasks: [row(1, 'C:\\a.txt'), row(2, 'D:\\b.txt')] }, { project: 'p', platform: 'win32', compare, driveTypes: null });
+  const blind = tasklist.filesLines({ listState: 'built', tasks: [row(1, 'C:\\a.txt'), row(2, 'D:\\b.txt')] }, { project: 'p', platform: 'win32', compare, driveInfo: () => null });
   assert.deepEqual(blind.lines.filter((l) => l.startsWith('    ')), [
     '    NOT CHECKED C:\\a.txt: Kosmos could not read what kind of drive each letter is on this computer, so it opens no path',
     '    NOT CHECKED D:\\b.txt: the drive types again (above)'], blind.lines.join('\n'));
-  assert.deepEqual(opened, [], 'a path was opened with no drive types');
-  // CONTROL: the same paths off Windows are another computer's, so the drive rule is never what said no there.
-  const mac = tasklist.filesLines({ listState: 'built', tasks: [row(1, 'Z:\\share\\b.txt')] }, { project: 'p', platform: 'darwin', compare, automounts: new Set(), driveTypes: null });
+  assert.deepEqual(opened, [], 'a path was opened with no drive kinds');
+  // CONTROL: off Windows a drive path is another computer's, and the kinds are never asked.
+  asked.length = 0;
+  const mac = tasklist.filesLines({ listState: 'built', tasks: [row(1, 'Z:\\share\\b.txt')] }, { project: 'p', platform: 'darwin', compare, automounts: new Set(), driveInfo: info });
   assert.equal(mac.lines[1], '    NOT CHECKED Z:\\share\\b.txt: marked on a Windows computer, so it is not on this one');
+  assert.deepEqual(asked, [], 'the drive kinds were asked off Windows');
+});
+
+test('#8227 item 1: with no seam, task files asks engine/windrives.js (the #7232 table)', () => {
+  const windrives = require('./engine/windrives');
+  const FP = sha('wired');
+  const row = (number, at) => ({ number, sentence: 'Task ' + number, builtAt: 'x', builtFingerprint: FP, builtFilePath: at });
+  const compare = () => ({ ok: true, match: true });
+  try {
+    windrives.setTableForTests({ C: LOCAL, Z: REMOTE });
+    const got = tasklist.filesLines({ listState: 'built', tasks: [row(1, 'C:\\a.txt'), row(2, 'Z:\\b.txt')] }, { project: 'p', platform: 'win32', compare });
+    assert.deepEqual(got.lines.filter((l) => l.startsWith('    ')), ['    matches  C:\\a.txt', '    NOT CHECKED Z:\\b.txt: a network drive, so Kosmos does not open it'], got.lines.join('\n'));
+    windrives.setTableForTests(false);   // a table that could not be learned
+    const blind = tasklist.filesLines({ listState: 'built', tasks: [row(1, 'C:\\a.txt')] }, { project: 'p', platform: 'win32', compare });
+    assert.match(blind.lines[1], /could not read what kind of drive each letter is/, blind.lines.join('\n'));
+  } finally {
+    windrives.setTableForTests(null);
+  }
 });
 
 // ── item 1: the record side and the real read, on Windows ───────────────────
@@ -136,29 +152,31 @@ test('#8227 item 1 Windows: built --file keeps a local drive path, and never one
   fs.writeFileSync(file, 'on a drive');
   const letter = file.charAt(0).toUpperCase();
   const tok = tokenOf('mona');
-  // The real kinds: this test's own drive is a local one, so its path is kept.
-  const real = tasklist.driveTypesHere('win32');
-  assert.ok(real && real.has(letter), 'Windows did not list the drive this test runs on: ' + JSON.stringify(real && [...real]));
+  // The real table (engine/windrives.js, no seam): this test's own drive is a local one, so its path is kept.
+  const real = require('./engine/windrives').infoOf(letter);
+  assert.deepEqual(real, LOCAL, 'Windows did not read the drive this test runs on as local');
   const n = tasks.create(projectId, { sentence: 'Kept', who: 'mona' }).number;
   const kept = await win(['task', 'built', projectId, String(n), 'done', '--file', 'drive.txt'], { token: tok, cwd: OUT });
   assert.equal(kept.code, 0, kept.err);
   assert.equal(stored(n).builtFilePath, file, 'a local drive path was not kept');
-  // The same file, with its drive said to be a network one: the fingerprint goes, the path does not, and it says so.
+  assert.doesNotMatch(kept.out, /Its path was not sent/, kept.out);
+  // The same file, its drive said to be a network one: the fingerprint goes, the path does not, and the reason is said.
   const m = tasks.create(projectId, { sentence: 'Not kept', who: 'mona' }).number;
-  const net = await win(['task', 'built', projectId, String(m), 'done', '--file', 'drive.txt'], { token: tok, cwd: OUT, driveTypes: new Map([[letter, 4]]) });
+  const net = await win(['task', 'built', projectId, String(m), 'done', '--file', 'drive.txt'], { token: tok, cwd: OUT, driveInfo: () => REMOTE });
   assert.equal(net.code, 0, net.err);
   assert.equal(stored(m).builtFingerprint, sha('on a drive'));
   assert.equal('builtFilePath' in stored(m), false, 'a network drive path was kept');
-  assert.match(net.out, /Its path was not sent/, net.out);
-  // A drive whose kinds could not be read: not kept either (fail closed).
+  assert.ok(net.out.split('\n').includes('Its path was not sent (' + letter + ': is a network drive, and kosmos task files never opens one), so kosmos task files cannot check this mark.'), net.out);
+  // Kinds that could not be read: not kept either (fail closed), and that is what it says, not a rule about the path.
   const u = tasks.create(projectId, { sentence: 'Unknown', who: 'mona' }).number;
-  const blind = await win(['task', 'built', projectId, String(u), 'done', '--file', 'drive.txt'], { token: tok, cwd: OUT, driveTypes: null });
+  const blind = await win(['task', 'built', projectId, String(u), 'done', '--file', 'drive.txt'], { token: tok, cwd: OUT, driveInfo: () => null });
   assert.equal(blind.code, 0, blind.err);
-  assert.equal('builtFilePath' in stored(u), false, 'a path was kept with no drive types');
-  // And task files, through the CLI: the kept one matches with the real kinds, and is not opened when its drive reads as network.
+  assert.equal('builtFilePath' in stored(u), false, 'a path was kept with no drive kinds');
+  assert.ok(blind.out.split('\n').includes('Its path was not sent (Kosmos could not read what kind of drive ' + letter + ': is), so kosmos task files cannot check this mark.'), blind.out);
+  // And task files, through the CLI: the kept one matches with the real table, and is not opened when its drive reads as network.
   const files = await win(['task', 'files', projectId], { token: tok });
   assert.ok(files.out.split('\n').includes('    matches  ' + file), files.out);
-  const netFiles = await win(['task', 'files', projectId], { token: tok, driveTypes: new Map([[letter, 4]]) });
+  const netFiles = await win(['task', 'files', projectId], { token: tok, driveInfo: () => REMOTE });
   assert.ok(netFiles.out.split('\n').includes('    NOT CHECKED ' + file + ': a network drive, so Kosmos does not open it'), netFiles.out);
 });
 
