@@ -217,7 +217,7 @@ test('kosmos#8230: a send that runs out of time is a busy board: noted at once, 
   });
   assert.equal(sent, 1, 'a timed-out send was sent again');
   const note = fs.readFileSync(path.join(throttleDir, 'turn-end-failures.log'), 'utf8');
-  assert.match(note, /idle not delivered, the board was too busy \(not retried\): the board could not be reached \(This operation was aborted\)/);
+  assert.match(note, /idle not delivered, the board was too busy \(not retried\): the board did not answer the report in time/);
 
   // CONTROL: a send whose connection failed (not our timeout) is retried.
   let tries = 0;
@@ -228,4 +228,13 @@ test('kosmos#8230: a send that runs out of time is a busy board: noted at once, 
     proveBoard: async () => true, fetchImpl: async () => { tries += 1; throw new Error('fetch failed'); },
   });
   assert.equal(tries, 2, 'a failed connection was not retried');
+});
+
+test('kosmos#8230: a closed board on Windows (refused late, so the retry\'s proof times out) is still not noted', async () => {
+  const gone = { ok: false, why: 'request failed: ECONNREFUSED' };
+  const r = await run('Stop', { proofs: [gone, { ok: false, why: 'timed out' }] });
+  assert.equal(r.asked.length, 2);
+  assert.equal(r.note, null, 'a closed board was noted as busy');
+  const control = await run('Stop', { proofs: [{ ok: false, why: 'answer is not a proof' }, { ok: false, why: 'timed out' }] });
+  assert.match(control.note || '', /after a retry: the board did not answer in time/, 'CONTROL: after any other first loss, a timeout is still noted');
 });

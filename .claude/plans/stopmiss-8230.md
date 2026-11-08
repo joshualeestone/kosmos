@@ -53,6 +53,13 @@ The `skipped` answer decides a keep on its own (tested with words no keep phrase
 keep cannot turn it into retries; the phrase list stays for the refusals that carry no `skipped`.
 The keep list is checked equal to the bash hook's _TE_KEEP, so the two hooks cannot drift apart.
 
+## Stated, beyond the bash rules
+- Windows refuses a connect to a closed local port only after about 2 s (not measured here; for Homer's check), so a
+  retry whose proof times out after a first try that found nothing there is read as nothing there, not busy.
+- A loss that leaves under 1 s of the window is noted without a retry (the bash hook always has time for one).
+- The board-log line also covers Mac agents, whose CLI sends the same agent-token header; a token sent only in the
+  body earns no line (the report hook never sends it there).
+
 ## Rejected
 - Reconciling a "working" card from the transcript's stop_hook_summary on the board: a second source of truth and a
   bigger change; its own card if the notes show drops the retry does not cure.
