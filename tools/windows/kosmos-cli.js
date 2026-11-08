@@ -2266,11 +2266,14 @@ async function projectTest(ctx, args) {
       : ctx.unreachable('mark that project');
   }
   if (r.status === 200 && r.json && Object.prototype.hasOwnProperty.call(r.json, 'project')) {
-    if (!(r.json.project && r.json.project.testOnly === on)) { ctx.err('This Kosmos did not record it: it may be older than kosmos project test. Update it, then run this again.'); return 1; }
+    // Review 1: a 200 whose re-read came back empty still wrote it, as pause reads it.
+    if (r.json.project !== null && !(r.json.project && r.json.project.testOnly === on)) { ctx.err('This Kosmos did not record it: it may be older than kosmos project test. Update it, then run this again.'); return 1; }
     ctx.out(on ? project + ' is a test project now. Its agents are told to do only what they are asked, and Kosmos asks none of them to add tasks for it.'
       : project + ' is not a test project any more. Kosmos may ask its agents to add tasks toward its goal again.');
     return 0;
   }
+  // Review 1: a board from before this verb drops the field and so finds nothing to change.
+  if (ctx.refusedBy(r) && /^nothing here we can change/.test(ctx.refusedBy(r))) { ctx.err('This Kosmos is older than kosmos project test. Update it, then run this again.'); return 1; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that project: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when marking that project.');
   return 1;

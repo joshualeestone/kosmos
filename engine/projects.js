@@ -3549,6 +3549,7 @@ function isPaused(record) {
 
 /* kosmos#8236: a project set up for testing (`kosmos project test <id> on`). Its members do only what they are asked:
    the Assigner sends no goal nudge for it, and each member's instructions say so on its line. */
+const TEST_PROJECT_LINE = 'A test project: do only what you are asked here. Add no tasks, plans or posts of your own.';
 function isTestOnly(record) {
   return Boolean(record && record.testOnly === true);
 }
@@ -3957,12 +3958,14 @@ function blockBody(projects, sessionName) {
     const subtaskLine = `\n  - Big work: add one task for the whole thing, then its pieces under it with \`${cliShown} task add ${oneLine(String(p.id))} "the piece" --parent <its number>\``;
     /* #4887: a task added with no owner goes to whichever agent is free, so a task meant for one agent says so. */
     const whoLine = `\n  - A task for yourself: \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing" --who me\` (or \`--who <name>\` for another agent on it)`;
-    const taskLine = (hasTasks
-      ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
-      : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`)
-      + subtaskLine + whoLine;
-    // kosmos#8236: first under the name, so it is read before the commands that invite new tasks.
-    const testLine = isTestOnly(p) ? '\n  - A test project: do only what you are asked here. Add no tasks, plans or posts of your own.' : '';
+    const taskLine = isTestOnly(p)
+      ? (hasTasks ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them` : '\n  - No tasks set for this project yet.')
+      : (hasTasks
+        ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
+        : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`)
+        + subtaskLine + whoLine;
+    // kosmos#8236: first under the name. Review 1: and the lines that invite new tasks are left out for a test project.
+    const testLine = isTestOnly(p) ? '\n  - ' + TEST_PROJECT_LINE : '';
     const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + testLine + (p.id
       ? `\n  - Post to the room (it wakes only the members it addresses: start with 'YourName -> Name:', @-name them, or use @all): \`${cliShown}${projectPostKey(p.id)}\``   // kosmos#7246 slice 2: an agent's post wakes only who it addresses
         + taskLine
@@ -4061,6 +4064,8 @@ function blockRules(sessionName, cliShown) {
       'them they can also press Pause beside the project\'s name, at the top of its page. When they answer: if they',
       'pressed it, nothing more is needed; if they say yes, pause it; if they want nothing paused, leave it as it is; if',
       `they mean only some tasks, put those on hold: \`${cliShown} task hold <project-id> <task-number>\`.`,
+      /* kosmos#8236: the people who set up test boards are agents. */
+      `When your person asks to make a project a test project, so its agents do only what they are asked: \`${cliShown} project test <project-id> on\` (\`off\` to undo).`,
       /* kosmos#7788: a hold that waits on the person joins what is waiting on them. */
       'When a task cannot go on until your person decides or does something only they can, put it on hold for them:',
       `\`${cliShown} task hold <project-id> <task-number> --because "<what you need from them>" --for-you\`. It then shows`,
@@ -4095,6 +4100,9 @@ function rulesChangedIn(oldText, newText, sessionName) {
   const pieces = [rules.intro, rules.member];
   if (TASK_LINE.test(old)) pieces.push(rules.tasks);
   if (pieces.some((p) => now.includes(p.join('\n')) && !old.includes(p.join('\n')))) return true;
+  // kosmos#8236 review 1: a project that became a test project is read again, as a pause is: the room is not told of
+  // one set on the screen, and an agent already running would otherwise keep making plans of its own until it restarts.
+  if (now.includes(TEST_PROJECT_LINE) && now.split(TEST_PROJECT_LINE).length > old.split(TEST_PROJECT_LINE).length) return true;
   const holds = holdsOf(old);
   for (const [task, marks] of holdsOf(now)) {
     const had = holds.get(task);
