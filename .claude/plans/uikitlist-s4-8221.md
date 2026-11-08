@@ -39,6 +39,10 @@ so a change could break it with every check green.
 ## Status
 
 - [x] Changes made, bash -n clean on both scripts, ios.yml parses (jobs: build ui uikit).
-- [ ] `ui-sample.sh --uikit` run on this Mac.
+- [x] `ui-sample.sh --uikit` on this Mac, 11-08 12:19-12:25 CST, iPhone 17e iOS 27.0: PASS 14 of 14 (first line names the
+      UIKit list).
+- [x] Control that the switch reaches the tests, 12:25-12:29: a throwaway copy with the three rebuild checks kept in,
+      run with --uikit: 9 of 9, 3 SKIPPED with "the UIKit list never rebuilds", which only UIKitListArm.on produces.
+      Without the switch reaching the test runner they would have run (and pass on the lazy list), so this can tell.
 - [ ] Lazy run unchanged (the env var is now passed as 0; UIKitListArm.on reads == "1").
 - [ ] CI's new job on this PR.
