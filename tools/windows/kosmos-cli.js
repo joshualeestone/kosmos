@@ -1644,7 +1644,7 @@ async function taskFiles(ctx, args) {
   const every = project === '--all';
   if (!every && projectSlug(project) !== project) { ctx.err('there is no project by that name'); return 1; }
   let tasklist;
-  try { tasklist = require(path.join(engineDir(), 'tasklist.js')); } catch { tasklist = null; }
+  try { tasklist = ctx.engine('tasklist'); } catch { tasklist = null; }   // kosmos#8227: as task built --file loads it
   if (!tasklist || typeof tasklist.filesLines !== 'function') { ctx.err('This install of Kosmos cannot check delivered files yet; update Kosmos.'); return 1; }
   const r = await ctx.call('GET', '/api/tasks?' + (every ? 'all=1' : 'project=' + projectSlug(project)) + '&state=built');
   if (!r.reached) return ctx.unreachable('list the built tasks');
@@ -1652,9 +1652,11 @@ async function taskFiles(ctx, args) {
     if (every && /^say which project/.test(ctx.refusedBy(r))) { ctx.err('This board is older than --all, so it did not list what was asked. Update Kosmos.'); return 1; }
     ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1;
   }
-  // kosmos#8227 item 1: the drive kinds through the same seam task built --file uses (filesLines' own default when unreadable).
+  /* kosmos#8227 item 1: the drive kinds through the same seam task built --file uses; an install whose windrives cannot
+     tell reads 'old' on every drive path, so both verbs say to update. */
   const read = driveInfoFor(ctx);
-  const shown = tasklist.filesLines(r.json, { project: every ? '' : project, ...(read ? { driveInfo: read } : {}) });
+  const driveInfo = read || (tasklist.DRIVE_KINDS_OLD ? () => tasklist.DRIVE_KINDS_OLD : null);
+  const shown = tasklist.filesLines(r.json, { project: every ? '' : project, ...(driveInfo ? { driveInfo } : {}) });
   for (const l of shown.lines) { if (shown.rc) ctx.err(l); else ctx.out(l); }
   return shown.rc;
 }
@@ -1921,18 +1923,21 @@ async function taskBuilt(ctx, args) {
        cannot be read is not kept either, and the reason is said. Asked only for a drive path that would be kept: one
        PowerShell call (about 0.2 s here), the only cost this adds to marking a file. */
     if (filePath && /^[A-Za-z]:[\\/]/.test(filePath)) {
-      let kind = 'unknown';
+      let kind = 'old';   // an install whose windrives or tasklist cannot tell (review 5)
+      let tl = null;
+      try { tl = ctx.engine('tasklist'); } catch (_) { tl = null; }
       const read = driveInfoFor(ctx);
-      if (!read) kind = 'old';
-      else {
-        try { kind = ctx.engine('tasklist').driveKind(read(filePath.charAt(0))); } catch (_) { kind = 'unknown'; }   // the verdict task files reads
+      if (read && tl && typeof tl.driveKind === 'function') {
+        try { kind = tl.driveKind(read(filePath.charAt(0))); } catch (_) { kind = 'unknown'; }   // the verdict task files reads
       }
       if (kind !== 'local') {
         const letter = filePath.charAt(0).toUpperCase();
-        pathWhy = kind === 'network' ? letter + ': is a network drive, and kosmos task files never opens one'
-          : kind === 'absent' ? 'drive ' + letter + ': did not show up as one of this computer\'s drives'
-            : kind === 'old' ? 'this install of Kosmos cannot tell a network drive from a local one yet; update Kosmos'
-              : 'Kosmos could not read what kind of drive ' + letter + ': is';
+        const why = {
+          network: letter + ': is a network drive, and kosmos task files never opens one',
+          absent: 'drive ' + letter + ': did not show up as one of this computer\'s drives',
+          old: 'this install of Kosmos cannot tell a network drive from a local one yet; update Kosmos',
+        };
+        pathWhy = why[kind] || 'Kosmos could not read what kind of drive ' + letter + ': is';
         filePath = null;
       }
     }

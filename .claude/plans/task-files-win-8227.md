@@ -22,7 +22,7 @@
 - A second drive-type probe in tasklist (first draft): duplicated windrives and missed the disconnected-mapping case (review 1).
 - fsutil fsinfo drivetype: 25 ms but localized text.
 - windrives.placeOf: reads a share on this computer as local; this check refuses every network drive, as UNC is refused by name.
-- Following links on Windows to catch a local link that points to a network share: left out (needs a link walk like reachesAutomount with junction, volume-GUID and \\?\UNC targets). KNOWN GAP, stated on kosmos#8227 and in the PR: a directory symlink on a local drive whose target is \\host\share is still opened. Small exposure (a symlink needs Developer Mode or admin; a junction cannot target UNC) but real.
+- Following links on Windows to catch a local link that points to a network share: left out (needs a link walk like reachesAutomount with junction, volume-GUID and \\?\UNC targets). KNOWN GAP, filed as kosmos#8232 and stated in the PR: a directory symlink on a local drive whose target is \\host\share is still opened. Small exposure (a symlink needs Developer Mode or admin; a junction cannot target UNC) but real.
 - Checking on the board side: the board may be another computer.
 
 ## Measured (11-08, this Windows box)

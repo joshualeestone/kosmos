@@ -260,7 +260,7 @@ function setLearnForTests(seam) {
 /* kosmos#8227 item 1: one letter's entry as learned ({ kind: 'local' | 'remote' | 'absent', share }), or null when the
    table is unknown. For a check that must never touch a network drive at all, a share on this computer included, which
    placeOf deliberately reads as local. Built for a ONE-SHOT caller (the Windows CLI's `task files` and `task built
-   --file`), unlike driveInfo: it never starts a background learn (a short-lived process would only wait for it to end
+   --file`), unlike the board's driveInfo (behind placeOf and known): it never starts a background learn (a short-lived process would only wait for it to end
    and throw its answer away), and it learns with the caller's own timeout, since the 3 s bound is the board's, chosen so
    an attach never stalls it, while a cold PowerShell on a busy computer can take longer and would refuse every path.
    Its default is that one-shot bound (ONE_SHOT_TIMEOUT_MS, the background learn's own), so a caller cannot forget it. */
