@@ -318,6 +318,7 @@ async function toolFailed(req, io) {
  *  harmless (the next event re-reports), so it uses a short window to bound the
  *  latency it can add to the person's own turn if the board accepts-but-hangs. */
 function timeoutFor(report) {
+  // kosmos#8230: main widens this to DEFAULT_TIMEOUT_MS for an agent's Stop (see turnEnd there).
   return (report && report.loud) ? DEFAULT_TIMEOUT_MS : SHORT_TIMEOUT_MS;
 }
 
@@ -326,10 +327,11 @@ function timeoutFor(report) {
    - a keep the board meant (its record kept a standing wait, `skipped`), a report it cannot tie to an agent, or
      another account's report: no retry, no note (TURN_END_KEEP);
    - no board at the address (it is not running, or is mid-restart): retried, not noted;
-   - a board that did not answer the proof in time (too busy): noted at once, not retried, so a stall gets no second
-     send from every agent;
+   - a board that did not answer in time, at the proof or at the send (too busy): noted at once, not retried, so a
+     stall gets no second send from every agent;
    - anything else: retried once after a pause, and noted when the second try is lost too;
-   - a board serving another Kosmos (421 wrongWorld): neither, as the hook is already silent on it (#1704).
+   - a board that proves itself but serves another Kosmos (421 wrongWorld): neither, as the hook is already silent on
+     that answer (#1704). Something at the port that cannot prove itself is a loss like any other.
    The note goes in the bash hook's file (turn-end-failures.log in the throttle folder), capped the same way; its line
    names the agent's throttle key and the reason, where the bash line names the pane and the CLI's exit code.
    Only an agent's own session (it carries an agent token) gets any of this: the person's own Claude sessions run
@@ -355,6 +357,7 @@ function turnEndOutcome(v) {
     if (v.proofWhy === 'timed out') return 'busy';
     return v.nothingThere ? 'quiet' : 'lost';
   }
+  if (v.timedOut) return 'busy';   // the send itself ran out of time: the bash hook's "too busy to answer"
   return 'lost';
 }
 
@@ -433,7 +436,9 @@ async function deliver(report, io) {
     const skipped = /"skipped"\s*:\s*"[^"]+"/.test(body);
     return { ok: !!(res && res.ok) && recorded, status: res && res.status, recorded, body, because: m ? m[1] : '', wrongWorld, skipped };
   } catch (err) {
-    return { ok: false, error: (err && err.message) ? err.message : String(err) };
+    // kosmos#8230: the send ran out of its time (our own abort), told apart from a connection that failed.
+    const timedOut = Boolean(err && err.name === 'AbortError');
+    return { ok: false, error: (err && err.message) ? err.message : String(err), timedOut };
   } finally {
     clearTimeout(timer);
   }

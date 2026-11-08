@@ -16,11 +16,11 @@ rules:
   (engine/win32codexsup.js, not awaited) passes noRetry so a late retry cannot land after the next turn's working;
 - the board's keep (`skipped`), a report it cannot tie to an agent, another account's: no retry, no note;
 - no board at the address: retried after 2 s, not noted;
-- proof timed out (busy): noted at once, not retried;
-- anything else: retried after 2 s, noted when lost again (a send that times out after a slow proof usually leaves
-  under 1 s, so it is noted "no time left to retry" rather than retried);
-- a board serving another Kosmos (421 wrongWorld): neither retried nor noted, as the hook is already silent on it
-  (#1704); the bash hook has no such case, since its CLI says so in its own words;
+- the board did not answer in time, at the proof or at the send (busy, the bash hook's "too busy to answer"):
+  noted at once, not retried;
+- anything else: retried after 2 s, noted when lost again;
+- a board that proves itself but serves another Kosmos (421 wrongWorld): neither retried nor noted, as the hook is
+  already silent on that answer (#1704); something at the port that cannot prove itself is a loss like any other;
 - note: one line in <throttle folder>/turn-end-failures.log, capped past 400 lines to the last 200 (the bash hook's
   file and cap; the line names the agent's throttle key and the reason, not a pane and an exit code).
 

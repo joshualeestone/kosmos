@@ -205,3 +205,27 @@ test('kosmos#8230: a board serving another Kosmos (421) is neither retried nor n
   const control = await run('Stop', { answers: [reply('{"error":"something broke"}', 500), reply('{"error":"something broke"}', 500)] });
   assert.deepEqual(control.sent, ['idle', 'idle'], 'CONTROL: another failed answer is retried');
 });
+
+test('kosmos#8230: a send that runs out of time is a busy board: noted at once, not retried, as on the Mac', async () => {
+  const abort = () => { const e = new Error('This operation was aborted'); e.name = 'AbortError'; throw e; };
+  const throttleDir = fs.mkdtempSync(path.join(SANDBOX, 'thr-'));
+  let sent = 0;
+  await hook.main({
+    input: evt('Stop'), env: { KOSMOS_AGENT_TOKEN: AGENT }, uid: -1, url: 'http://127.0.0.1:1', boardToken: BOARD,
+    platform: 'win32', ppid: 4242, throttleDir, now: () => 1000, stdout: () => {}, retryPauseMs: 5, sleep: async () => {},
+    proveBoard: async () => true, fetchImpl: async () => { sent += 1; abort(); },
+  });
+  assert.equal(sent, 1, 'a timed-out send was sent again');
+  const note = fs.readFileSync(path.join(throttleDir, 'turn-end-failures.log'), 'utf8');
+  assert.match(note, /idle not delivered, the board was too busy \(not retried\): the board could not be reached \(This operation was aborted\)/);
+
+  // CONTROL: a send whose connection failed (not our timeout) is retried.
+  let tries = 0;
+  await hook.main({
+    input: evt('Stop'), env: { KOSMOS_AGENT_TOKEN: AGENT }, uid: -1, url: 'http://127.0.0.1:1', boardToken: BOARD,
+    platform: 'win32', ppid: 4242, throttleDir: fs.mkdtempSync(path.join(SANDBOX, 'thr-')), now: () => 1000,
+    stdout: () => {}, retryPauseMs: 5, sleep: async () => {},
+    proveBoard: async () => true, fetchImpl: async () => { tries += 1; throw new Error('fetch failed'); },
+  });
+  assert.equal(tries, 2, 'a failed connection was not retried');
+});
