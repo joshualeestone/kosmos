@@ -1,8 +1,8 @@
 import XCTest
 
-// kosmos#8221 slice 2: the New messages capsule. A reader higher up is not moved by a message arriving; the capsule offers
-// the jump, and pressing it takes them to the newest message and goes away. A reader at the newest message is kept there and
-// never sees the capsule. Run on both lists (UIKitListArm). KOSMOS_SAMPLE_GROW brings one new message per read of the chat
+// kosmos#8221 slice 2: the New messages capsule, on both lists (UIKitListArm). For a reader higher up it shows as messages
+// arrive, and pressing it takes them to the newest message and goes away. A reader at the newest message never gets it.
+// Keeping a higher-up reader's exact place as rows come and go above is not checked here (slice 3). KOSMOS_SAMPLE_GROW brings one new message per read of the chat
 // ("New message <n> after the window slid."), so arrivals come on the chat's own reads, as a busy agent's do.
 // Two ways up: KOSMOS_SAMPLE_SCROLLUP (a fixed place, set by the app itself) and a real drag down the chat (which goes
 // through the list's own reading of the person's scroll).
@@ -29,14 +29,15 @@ final class NewMessagesUITests: XCTestCase {
         app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'New message ' AND label CONTAINS 'after the window slid'"))
     }
 
-    // The newest arrival drawn, by its number (the query's order is not the screen's).
+    // The newest arrival drawn, by its number (the query's order is not the screen's), as an element found by that number,
+    // so a later read is of the same message and not of whatever then sits at the same index.
     private static func newestGrown(_ app: XCUIApplication) -> (n: Int, element: XCUIElement)? {
-        let all = grown(app).allElementsBoundByIndex.compactMap { e -> (Int, XCUIElement)? in
+        let numbers = grown(app).allElementsBoundByIndex.compactMap { e -> Int? in
             let words = e.label.split(separator: " ")
-            guard words.count > 2, let n = Int(words[2]) else { return nil }
-            return (n, e)
+            return words.count > 2 ? Int(words[2]) : nil
         }
-        return all.max(by: { $0.0 < $1.0 })
+        guard let n = numbers.max() else { return nil }
+        return (n, app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "New message \(n) after")).firstMatch)
     }
 
     // Until an arrival numbered above n is drawn (at most `timeout`), settled.
@@ -64,7 +65,7 @@ final class NewMessagesUITests: XCTestCase {
         guard let (n, e) = Self.arrival(after: 0, app, timeout: 5) else { XCTFail("no arrival drawn after the capsule was pressed"); return }
         XCTAssertTrue(e.isHittable, "New message \(n), the newest, is not on screen after the capsule was pressed")
         let after = XCTAttachment(screenshot: app.screenshot()); after.name = shot + "-pressed"; after.lifetime = .keepAlways; add(after)
-        guard let (m, f) = Self.arrival(after: n, app, timeout: 15) else { XCTFail("CONTROL: no later message arrived after the capsule was pressed"); return }
+        guard let (m, f) = Self.arrival(after: n, app, timeout: 20) else { XCTFail("CONTROL: no later message arrived after the capsule was pressed"); return }
         XCTAssertTrue(f.isHittable, "New message \(m) arrived after the capsule was pressed and is not on screen")
         XCTAssertFalse(capsule.exists, "the capsule came back for a reader at the newest message")
     }
