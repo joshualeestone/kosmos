@@ -36,3 +36,7 @@ scanner; the probe needed the same retry; a recurrence needed to say which case 
 ## Review round 2
 The wait was 60 s against a stated 34 + 25 s, a margin of 1 s; it is 75 s now. "Never started" now means the state file
 is absent, not merely unreadable.
+
+## Review round 3
+In the first forward-steps arm, a failed hold is caught by applyJournal and becomes a log line, so that test's control
+assertion now prints c.log, and the "its script said" text reaches CI there too.

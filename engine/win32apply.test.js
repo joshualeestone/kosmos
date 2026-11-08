@@ -1649,7 +1649,7 @@ test('BUG 1: a real exclusive handle on the update lock in the forward steps: le
         /* The wait between two reads is where the scanner lets go. */
         sleepSync: (ms) => { clock += ms; if (holder && !holder.released) { waitsWhileHeld += 1; holder.release(); } },
       }));
-      assert.equal(waitsWhileHeld, 1, 'the control: a read of the held lock failed, and waited once');
+      assert.equal(waitsWhileHeld, 1, 'the control: a read of the held lock failed, and waited once\n' + c.log.join('\n'));
       assert.equal(r.outcome, 'updated', JSON.stringify(r) + '\n' + c.log.join('\n'));
       assert.equal(readJson(c.journal).outcome, 'updated');
       assert.equal(sim.identity, NEW_ID);
