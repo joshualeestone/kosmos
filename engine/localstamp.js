@@ -1,13 +1,16 @@
 'use strict';
 /* kosmos#8258: moments as this computer's own date and clock, for text an agent may copy a date from. */
 
+/** The one shape the board writes an instant in; anything else is not worded. */
 const STORED_INSTANT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/;
+/** A timestamp from elsewhere (the community service) that says its zone, so it can be moved to this computer's. */
 const HAS_ZONE = /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d+)?)?(Z|[+-]\d\d(:?\d\d)?)$/;
 
 function twoDigits(number) { return String(number).padStart(2, '0'); }
 
 /** YYYY-MM-DD HH:MM:SS on this computer's clock, or null for a moment that is not a time. */
 function localStamp(ms) {
+  if (typeof ms !== 'number') return null;
   const moment = new Date(ms);
   if (!Number.isFinite(moment.getTime())) return null;
   return moment.getFullYear() + '-' + twoDigits(moment.getMonth() + 1) + '-' + twoDigits(moment.getDate())

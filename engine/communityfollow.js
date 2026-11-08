@@ -29,6 +29,7 @@
 
 const communitysend = require('./communitysend');
 const communityread = require('./communityread');
+const { localDay } = require('./localstamp');
 
 /* A community name as the service issues them (communitysend.registration: a display name scrubbed to one line, or
    agent-xxxxxx). Bounded and printable; the service decides whether it exists. */
@@ -249,7 +250,7 @@ function asPost(it) {
    the entry, newest first, at most REPLIES_IN_ENTRY, each under a header line of its own (communityread.frame). */
 const REPLIES_IN_ENTRY = 3;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const dayOf = (it) => (/^\d{4}-\d{2}-\d{2}/.test(String(it && it.created_at || '')) ? String(it.created_at).slice(0, 10) : '');
+const dayOf = (it) => localDay(it && it.created_at);   // kosmos#8258: the same calendar as communityread's dates
 const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 function postKey(it) {
   const id = it.kind === 'reply' ? (it.post && typeof it.post === 'object' ? it.post.id : null) : it.id;

@@ -23,7 +23,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 const instructions = require('./instructions');
-const { localStamp } = require('./localstamp');
 
 const MAX_TEXT_BYTES = 16 * 1024;
 /* Resolved per call, not frozen at require (the #1443 shape): a later AGENT_WORKFORCE_DATA is honoured. */
@@ -82,7 +81,7 @@ function keyFor(agent) { return instructions.registryKey(agent); }
 /** The line Apply writes above the added text: who asked and when, in the instructions themselves. */
 function headingLine(askedBy, askedAt, id) {
   const d = new Date(askedAt);
-  const day = Number.isFinite(d.getTime()) ? localStamp(d.getTime()).slice(0, 10) : 'an unknown date';   // kosmos#8258
+  const day = Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : 'an unknown date';
   /* Review 4: the proposal's own id, in a comment line (an agent sees it, but it is not a rule), so "this exact addition
      is already at the end" can only ever mean THIS proposal (a re-proposal of the same words the same day is a different
      one). Proposals themselves may not hold comments (propose refuses them), so this line is always Kosmos's own. */

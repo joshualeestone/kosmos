@@ -29,6 +29,7 @@ test('kosmos#8258: stampWords refuses what is not a real stored instant', () => 
   }
   assert.match(stampWords('2026-02-28T10:00:00.000Z'), / local \(2026-02-28 10:00:00Z\)$/, 'CONTROL: a real one is worded');
   assert.equal(localStamp(NaN), null);
+  assert.equal(localStamp(null), null, 'null is no moment, not the epoch');
 });
 
 const dayInZone = (tz, value) => cp.execFileSync(process.execPath, ['-e',

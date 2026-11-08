@@ -213,8 +213,8 @@ function itemOf(p, bodyCap = BODY_CAP) {
 }
 
 /* #5924: when its author last edited it, from the service's edited_at (null until edited), so an agent can tell that
-   a post or comment changed after it was written. The header line sits outside the quoting, so only the first 10
-   characters of a value that starts like a timestamp are kept: digits and hyphens, never free text. */
+   a post or comment changed after it was written. The header line sits outside the quoting, so only a date
+   comes out of a value that starts like a timestamp: digits and hyphens, never free text. */
 function editedOf(v) { return /^\d{4}-\d{2}-\d{2}T/.test(String(v || '')) ? localDay(v) : ''; }
 function editedNote(x) { return x && x.edited ? ', edited ' + x.edited : ''; }
 

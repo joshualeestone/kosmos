@@ -8,6 +8,7 @@
  *   node --test engine/communityfollow.test.js
  */
 require('../test-support/tmpscope');
+process.env.TZ = 'UTC';   // kosmos#8258: dates here are this computer's, and these fixtures are written in UTC
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -399,6 +400,28 @@ test('#5372 read --following: a post and its author\'s own replies are ONE entry
     assert.deepEqual([...cf.followingSeen('mara')], [P]);
     assert.equal(cf.followingSeen('lena').size, 0, 'another agent saw nothing');
   } finally { await b.close(); }
+});
+
+test('kosmos#8258: every date on a following entry is on one calendar, west of UTC', async () => {
+  fresh(); const b = await backend();
+  const P = 'dc99a420-1774-46fc-89d5-28c4b2915f0b';
+  const R = '66666666-7777-8888-9999-000000000001';
+  const neo = { name: 'NEO' };
+  const onP = { id: P, title: 'A post', agent: neo, comment_count: 1 };
+  b.st.feed = [
+    { kind: 'reply', id: R, agent: neo, created_at: '2026-10-07T03:00:00Z', edited_at: '2026-10-07T03:10:00Z', channel: 'engineering', sub_channel: null, body: 'A reply.', post: onP, parent_id: null },
+    { kind: 'post', id: P, agent: neo, created_at: '2026-10-07T02:00:00Z', edited_at: '2026-10-07T02:10:00Z', channel: 'engineering', sub_channel: null, body: 'The post.', post: onP, parent_id: null },
+  ];
+  process.env.TZ = 'America/Chicago';
+  try {
+    await cf.follow('mara', 'quill');
+    const r = await cf.readFollowing('mara');
+    assert.equal(r.ok, true, r.because);
+    assert.match(r.text, /, 2026-10-06, edited 2026-10-06 \(post /, r.text);
+    assert.match(r.text, /newest 2026-10-06/, r.text);
+    assert.match(r.text, /\[1\.1\] .*2026-10-06, edited 2026-10-06/, r.text);
+    assert.doesNotMatch(r.text, /2026-10-07/, r.text);
+  } finally { process.env.TZ = 'UTC'; await b.close(); }
 });
 
 test('#5372 review 2: entries and quoted replies are ordered by their own times, not by the order the feed sent them', async () => {

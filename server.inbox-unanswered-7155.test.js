@@ -230,7 +230,6 @@ test('#7155: with a filter, rows stored out of order are kept oldest by TIME, so
 
 test('kosmos#8258: a row shows this computer\'s date first, the UTC beside it, and the local stamp reads back as --since', async () => {
   const zoneBefore = process.env.TZ;
-  const systemZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   process.env.TZ = 'Asia/Tokyo';
   try {
     chat.appendMessage(chat.DIRECT, WHO, { text: 'tz row', at: '2027-01-05T15:20:00.000Z', delivery: { state: chat.DELIVERY.PLACED } });
@@ -240,7 +239,7 @@ test('kosmos#8258: a row shows this computer\'s date first, the UTC beside it, a
     assert.match(same.text, /the person: tz row$/m, 'the printed local stamp did not read back as --since');
     const after = await get('/api/inbox?as=text&since=' + encodeURIComponent('2027-01-06 00:20:01'));
     assert.doesNotMatch(after.text, /tz row/, 'CONTROL: one second later leaves it out, so the stamp is what selected it');
-  } finally { process.env.TZ = zoneBefore === undefined ? systemZone : zoneBefore; }
+  } finally { if (zoneBefore === undefined) delete process.env.TZ; else process.env.TZ = zoneBefore; }
 });
 
 test('kosmos#8258: a stored time that is the right shape but no real date is left out of the row', async () => {
