@@ -64,12 +64,15 @@ struct ChatView: View {
     // kosmos#8221: the chat drawn by the UIKit list (ChatList) instead of the lazy SwiftUI one. Settings' "New chat list"
     // switch chooses it (slice 5), OFF by default until the new list holds every behaviour the old one has (the slices in
     // .claude/plans/uikitlist-s1-8221.md). Kept in an @State, so the switch never swaps the list under an open chat.
-    // Debug: KOSMOS_SAMPLE_UIKITLIST, when set, wins over the switch ("1" UIKit, anything else lazy), so every UI check
-    // picks its list by environment.
+    // Debug: KOSMOS_SAMPLE_UIKITLIST, when set, wins over the switch ("1" UIKit, anything else lazy), and a sample run
+    // (KOSMOS_SAMPLE_AGENTS=1) reads the switch only with KOSMOS_SAMPLE_UIKITLIST_SWITCH=1, so a switch a check left on
+    // never moves another check onto the UIKit list.
     static let uikitListKey = "kosmos.chat.uikitlist"
     static func uikitListChosen() -> Bool {
         #if DEBUG
-        if let v = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_UIKITLIST"] { return v == "1" }
+        let env = ProcessInfo.processInfo.environment
+        if let v = env["KOSMOS_SAMPLE_UIKITLIST"] { return v == "1" }
+        if env["KOSMOS_SAMPLE_AGENTS"] == "1", env["KOSMOS_SAMPLE_UIKITLIST_SWITCH"] != "1" { return false }
         #endif
         return UserDefaults.standard.bool(forKey: uikitListKey)
     }
@@ -1286,7 +1289,7 @@ struct ChatView: View {
         var lines = ["Kosmos iPhone chat diagnostic (kosmos#7420)",
                      "what: \(why)",
                      "app \(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?")), iOS \(UIDevice.current.systemVersion)",
-                     "list \(uikitList ? "uikit" : "lazy") \(Int(diagViewport.width))x\(Int(diagViewport.height)), stack width \(Int(diagContentWidth)), keyboard \(Int(diagKeyboard))",
+                     "list \(Int(diagViewport.width))x\(Int(diagViewport.height)), stack width \(Int(diagContentWidth)), keyboard \(Int(diagKeyboard))",
                      "messages \(count), on screen \(onScreen.count), end showing \(endVisible), top showing \(topVisible), at newest \(atBottom)",
                      "anchor \(anchor), id anchor \(Self.idAnchor), searching \(searchMode), keyboard focus \(composerFocused)",
                      scrollBox.reading()?.line ?? "scroll: no scroll view found",

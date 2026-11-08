@@ -3,8 +3,8 @@ import XCTest
 // kosmos#8221 slice 5: Settings' "New chat list" switch. Off, a chat opens on the lazy list; on, the next chat opened is drawn
 // by the UIKit list (ChatList's collection view, "chat-list-uikit"). This check deliberately does NOT call UIKitListArm.set:
 // KOSMOS_SAMPLE_UIKITLIST, when set, wins over the switch, so the switch is only what decides here. It turns the switch
-// back off in its teardown, which runs whether or not the check passed: a check that opens a direct chat without
-// UIKitListArm reads the switch, so on a simulator reused by hand it would otherwise run on the UIKit list.
+// back off in its teardown, which runs whether or not the check passed. A sample run reads the switch only with
+// KOSMOS_SAMPLE_UIKITLIST_SWITCH=1, which only this class sets.
 final class NewChatListSwitchUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
@@ -22,7 +22,7 @@ final class NewChatListSwitchUITests: XCTestCase {
         if sw.exists, sw.isHittable, sw.value as? String == "1" {
             sw.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
         }
-        XCTAssertEqual(sw.value as? String, "0", "teardown could not put the New chat list switch back off")
+        XCTAssertTrue(sw.exists && sw.value as? String == "0", "teardown could not put the New chat list switch back off")
     }
 
     private func openDana(_ app: XCUIApplication, _ when: String) {
@@ -63,7 +63,7 @@ final class NewChatListSwitchUITests: XCTestCase {
 
     func testTheSwitchChoosesTheListForTheNextChat() {
         let app = XCUIApplication()
-        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1"]
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_UIKITLIST_SWITCH": "1"]
         app.launch()
         let uikit = app.collectionViews["chat-list-uikit"]
 
