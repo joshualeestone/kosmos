@@ -22,7 +22,8 @@ final class NewChatListSwitchUITests: XCTestCase {
         if sw.exists, sw.isHittable, sw.value as? String == "1" {
             sw.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
         }
-        XCTAssertTrue(sw.exists && sw.value as? String == "0", "teardown could not put the New chat list switch back off")
+        let off = expectation(for: NSPredicate(format: "value == %@", "0"), evaluatedWith: sw)
+        XCTAssertTrue(sw.exists && XCTWaiter().wait(for: [off], timeout: 5) == .completed, "teardown could not put the New chat list switch back off")
     }
 
     private func openDana(_ app: XCUIApplication, _ when: String) {

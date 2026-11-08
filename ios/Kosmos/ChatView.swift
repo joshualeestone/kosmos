@@ -1546,8 +1546,9 @@ struct ChatView: View {
 
     // kosmos#7420: as the shift report: one try, with a little background time, only to the computer it was counted on.
     private func sendOpenCount() {
-        // kosmos#8221 slice 5: the UIKit list does not report its rows to openCount (onScreen is the lazy list's), so its
-        // showings would all read as closed blank. They are not sent until slice 6 counts them per list.
+        // kosmos#8221 slice 5: a UIKit-list showing is not sent. Its rows report through the same row() appear and
+        // disappear handlers, but inside reused hosted cells, which nothing has checked; slice 6 counts them on their own
+        // per list. Mixed in here they would move the per-build counts #7420 is decided on.
         guard !uikitList else { openCount.reset(); return }
         let info = Bundle.main.infoDictionary
         let app = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"

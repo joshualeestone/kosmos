@@ -20,6 +20,11 @@ or "list chosen: lazy"). Counting reports per list is slice 6 (see Decided, revi
 - A chat kept open under another tab keeps the list it opened with after the switch flips, until it is opened again
   (raised in reviews 2, 4 and 7). Kept: the footer says "Applies to the next chat you open", and swapping the list under
   an open chat would lose the reader's place. Would change: Josh reading a kept chat as the switch not working.
+- After the loop (planning slice 6, 14:3x): a UIKit-list showing sends no open count (sendOpenCount). Its rows report
+  through the same row() handlers, but inside reused hosted cells nothing has checked, so its numbers stay out of the
+  per-build counts #7420 is decided on until slice 6 counts them per list. engine/chatopens.js's doc and NOTE say so.
+  Rejected: sending them unchecked. Weakest premise: that they would be wrong; if they are fine, slice 6 loses nothing
+  but the time between. (My first reason, that UIKit rows never report, was wrong; review 9 found it.)
 - Shown in every build, not only TestFlight: the app is TestFlight only today (a beta with no outside users), and the switch
   is off by default. Would change: an App Store release, before which the section is gated or removed.
 
