@@ -82,6 +82,9 @@ client-chosen id with a comment.
   list route.
 - A company comment while that company's community is not this computer's is not looked for (status keeps the plain
   words).
+- A record an older board wrote carries no sending account, so it is looked for under the account held now; if the
+  agent re-registered since, that look cannot find it, and status says "not found so far" for the week.
+- "Once an hour" is at best: the look runs last in a sweep, so a slow pass before it delays it.
 
 ## Review ledger (challenge loop)
 - 1 (opus): a claimed id could be taken again (BLOCKER); records with no attemptedAt unbounded; replies to replies
@@ -112,3 +115,6 @@ client-chosen id with a comment.
   the owner-link passes. Fixed: commentStillLooked decides the row's and refusals' words; a cut-short read settles on a
   sole match only with no same-words sibling waiting; the look runs last in the sweep. Tested (busy reply-to-reply, the
   per-pass cap, unreachable after a week of failed looks with the row and refusal words).
+- 10 (sonnet): an older board's record after a re-registration reads as "not found" (written in Not done, with the
+  hourly pace being at best). The same-words pairing (Weakest part), the look's place in the sweep (review 9) and the
+  untested company branch repeat earlier findings.
