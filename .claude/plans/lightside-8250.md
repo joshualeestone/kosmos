@@ -10,6 +10,11 @@ Fix: each stand-in is a perl wait started with `exec -a <browser path>`, so its 
 which is all the matcher reads (`_kosmos_pgrep_cmdlines`: pgrep -fa on Linux, -fl on macOS). No copied binary, so no
 codesign on macOS either.
 
-Checked: the file passes on this Mac (0 failures, the four real-matcher arms PASS). A perturbation that moves the
-browser path out of ms-playwright/ turns "the real matcher lists a browser executable" red. On 26.04: a temporary
-commit on the draft PR points both shell shards at ubuntu-26.04; it is dropped once that run is read.
+Checked: the file passes on this Mac (0 failures, the four real-matcher arms PASS). Perturbed: moving the browser
+path out of ms-playwright/ turns "the real matcher lists a browser executable" red; removing the .xpc/ exclusion from
+_kosmos_playwright_browsers turns "leaves out a WebKit XPC helper" red; removing the crashpad exclusion turns "leaves
+out Chrome's crash reporter" red.
+
+Not here: the unpin. Ice Cream Kitty's #8248 (open) carries it with the sbroot control fix, and review 2 caught that
+folding it in here would have unpinned without that fix and conflicted with #8248. So this lands first on the pinned
+main, and #8248's own run on ubuntu-latest (26.04) is the proof both hold there. The cause stays REASONED until then.
