@@ -453,14 +453,17 @@ check(agentsSrc.contains("if swiped { Haptics.snapped() }") && agentsSrc.contain
 // failure) in these five files sits outside any #if branch that only DEBUG builds keep.
 do {
     func debugOnlyLines(_ src: String, _ isTarget: (String) -> Bool) -> (seen: Int, inDebug: Int) {
-        // One entry per open #if: is the branch now being read kept only in DEBUG builds?
-        var open: [Bool] = []; var seen = 0; var inDebug = 0
+        // One entry per open #if, for the branch now being read: 1 kept only in DEBUG builds, -1 kept only in Release
+        // (an `!DEBUG` condition, whose #else is DEBUG-only), 0 neither.
+        func kind(_ cond: String) -> Int { cond.contains("!DEBUG") ? -1 : cond.contains("DEBUG") ? 1 : 0 }
+        var open: [Int] = []; var seen = 0; var inDebug = 0
         for line in src.components(separatedBy: "\n") {
             let s = line.trimmingCharacters(in: .whitespaces)
-            if s.hasPrefix("#if ") { open.append(s.contains("DEBUG") && !s.contains("!DEBUG")) }
-            else if s.hasPrefix("#elseif") || s == "#else" { if !open.isEmpty { open[open.count - 1] = open.last == true ? false : s.contains("DEBUG") && !s.contains("!DEBUG") } }
+            if s.hasPrefix("#if ") { open.append(kind(s)) }
+            else if s.hasPrefix("#elseif") { if !open.isEmpty { open[open.count - 1] = kind(s) } }
+            else if s == "#else" { if let k = open.last { open[open.count - 1] = k == -1 ? 1 : 0 } }
             else if s == "#endif", !open.isEmpty { open.removeLast() }
-            else if isTarget(s) { seen += 1; if open.contains(true) { inDebug += 1 } }
+            else if isTarget(s) { seen += 1; if open.contains(1) { inDebug += 1 } }
         }
         return (seen, inDebug)
     }
@@ -472,8 +475,8 @@ do {
     }
     check(seen >= 10 && inDebug == 0, "kosmos#8246: every haptic call and the sign-in failure count are outside DEBUG-only code (\(seen) seen, \(inDebug) inside)")
     // CONTROL: the same reader does see a line inside a DEBUG block, and an #else branch of one as Release.
-    let probe = debugOnlyLines("#if DEBUG\nHaptics.x()\n#else\nHaptics.y()\n#endif\n#if DEBUG && canImport(UIKit)\nHaptics.z()\n#endif", hit)
-    check(probe.seen == 3 && probe.inDebug == 2, "kosmos#8246 CONTROL: the DEBUG reader flags lines in DEBUG blocks, not their #else")
+    let probe = debugOnlyLines("#if DEBUG\nHaptics.x()\n#else\nHaptics.y()\n#endif\n#if DEBUG && canImport(UIKit)\nHaptics.z()\n#endif\n#if !DEBUG\nHaptics.r()\n#else\nHaptics.d()\n#endif", hit)
+    check(probe.seen == 5 && probe.inDebug == 3, "kosmos#8246 CONTROL: the DEBUG reader flags DEBUG blocks and an !DEBUG block's #else, not Release branches")
 }
 // kosmos#7419: the long-press sheet. The seven quick reactions in Mona Lisa's order, each one the board's own (the 80 the
 // phone keeps as ComposerExtras.emoji, PJ_EMOJI); every message long-press opens the sheet, and no reaction menu is left.

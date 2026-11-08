@@ -18,6 +18,7 @@ struct ChatView: View {
     @State private var contentWidth: CGFloat = UIScreen.main.bounds.width
     // kosmos#8246: the failed sends already seen here, so only a send that fails while the chat is open buzzes.
     @State private var failedSeen: Set<String> = []
+    @State private var failedSeenFor = ""   // the agent `failedSeen` was read for: another agent's set never counts as new
     @State private var infoOpen = false
     #if DEBUG
     static var sampleInfoOpened = false
@@ -367,10 +368,9 @@ struct ChatView: View {
         // again buzzes again); "not confirmed" stays silent. Only the chat on screen buzzes (the same agent can be open
         // under two tabs); the set is kept current either way, and seeded as the chat shows or changes agent.
         .onChange(of: Board.failedPendingIDs(pending)) { now in
-            if visible, !now.subtracting(failedSeen).isEmpty { Haptics.failed() }
-            failedSeen = now
+            if visible, failedSeenFor == agent.session, !now.subtracting(failedSeen).isEmpty { Haptics.failed() }
+            failedSeen = now; failedSeenFor = agent.session
         }
-        .onChange(of: agent.session) { _ in failedSeen = Board.failedPendingIDs(pending) }
         #if DEBUG
         // KOSMOS_SAMPLE_INFO=profile|ai|files with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
         .onAppear {
@@ -384,7 +384,7 @@ struct ChatView: View {
         }
         #endif
         .onAppear {
-            failedSeen = Board.failedPendingIDs(pending)   // kosmos#8246
+            failedSeen = Board.failedPendingIDs(pending); failedSeenFor = agent.session   // kosmos#8246
             visible = true
             // kosmos#7420 review 1 and 2: the record starts with this chat's first showing (a return from the info page keeps
             // what came before), and a list blank from its first draw is checked too, since no row ever leaves it.

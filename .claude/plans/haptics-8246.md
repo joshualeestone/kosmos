@@ -15,7 +15,9 @@ when a swipe stars or unstars an agent. Each once per action, and nothing else n
   itself returns true once it goes, so this is where a real failed send is seen. The watch and its seeding are in the
   Release build: the room suite fails if any haptic line in the five files sits inside DEBUG-only code (round 4 found
   this watch in one). Only the chat on screen (`visible`) buzzes, since the same agent can be open under two tabs; the
-  set is reseeded on appear and when the view's agent changes (TodayView, TasksView and RoomView reuse one ChatView).
+  set is kept with the agent it was read for (TodayView, TasksView and RoomView reuse one ChatView across agents), so a
+  change of agent never counts as a new failure. A send that fails after the person has left the chat (another tab, the
+  info page) does not buzz: they are not there to connect it.
 - ChatView.tryAgain: `failed()` when a row's Try again is refused.
 - ChatView.press(): `decided()` only when an Allow or Deny on a request's card comes back `.sent` (not on the arming
   press, not when not sure, not when nothing went); `failed()` when any press is refused.
