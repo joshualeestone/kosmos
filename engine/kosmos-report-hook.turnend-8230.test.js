@@ -270,3 +270,32 @@ test('kosmos#8233: our own timeout while the answer\'s body is still arriving: n
   assert.equal(c.sent.length, 2, 'a body that failed (not our timeout) was not retried');
   assert.match(c.note || '', /after a retry/);
 });
+
+test('kosmos#8233: a cut-off answer is noted as unconfirmed on the retry and on the noRetry path too', async () => {
+  const abortErr = () => { const e = new Error('This operation was aborted'); e.name = 'AbortError'; return e; };
+  const cut = { ok: true, status: 200, text: async () => { throw abortErr(); } };
+  const retried = await run('Stop', { proofs: [{ ok: false, why: 'answer is not a proof' }, true], answers: [cut] });
+  assert.equal(retried.sent.length, 1, 'the retry did not send');
+  assert.match(retried.note || '', /idle unconfirmed after a retry: the board answered 200 but its answer was cut off/);
+  const once = await run('Stop', { noRetry: true, answers: [cut] });
+  assert.equal(once.sent.length, 1);
+  assert.match(once.note || '', /idle unconfirmed \(not retried: its caller does not wait\): the board answered 200 but its answer was cut off/);
+});
+
+test('kosmos#8233: a SessionStart whose answer is cut off says reporting is unconfirmed, not OFF', async () => {
+  const abortErr = () => { const e = new Error('This operation was aborted'); e.name = 'AbortError'; return e; };
+  const said = [];
+  const go = (fetchImpl) => hook.main({
+    input: evt('SessionStart'), env: { KOSMOS_AGENT_TOKEN: AGENT }, uid: -1, url: 'http://127.0.0.1:1', boardToken: BOARD,
+    platform: 'win32', ppid: 4242, throttleDir: fs.mkdtempSync(path.join(SANDBOX, 'thr-')), now: () => 1000,
+    stdout: (s) => said.push(s), sleep: async () => {}, proveBoard: async () => true, fetchImpl,
+  });
+  await go(async () => ({ ok: true, status: 200, text: async () => { throw abortErr(); } }));
+  const msg = said.join('');
+  assert.match(msg, /could not confirm that reporting works for this session: the board answered 200 but its answer was cut off/);
+  assert.doesNotMatch(msg, /reporting is OFF/, 'a board that answered was reported OFF');
+  // CONTROL: a board that cannot be reached still says OFF.
+  said.length = 0;
+  await go(async () => { throw new Error('fetch failed'); });
+  assert.match(said.join(''), /Kosmos reporting is OFF for this session: the board could not be reached \(fetch failed\)/);
+});
