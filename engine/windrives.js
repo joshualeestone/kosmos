@@ -89,7 +89,7 @@ function took(t, started) {
 /* Learn the table now (blocking, bounded). Only on Windows; elsewhere the table stays unknown. */
 function learnSync(timeoutMs = 3000) {
   const started = now();
-  if (testLearn) { try { took(parse(testLearn.run()), started); } catch { took(null); } return table; }
+  if (testLearn) { try { took(parse(testLearn.run({ timeoutMs })), started); } catch { took(null); } return table; }   // kosmos#8227: the bound, for a test
   if (process.platform !== 'win32') return null;
   try {
     took(parse(execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', SCRIPT], { encoding: 'utf8', timeout: timeoutMs, windowsHide: true })), started);

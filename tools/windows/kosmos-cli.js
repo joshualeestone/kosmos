@@ -1622,7 +1622,7 @@ async function taskReopen(ctx, args) {
 }
 
 /* kosmos#8227 item 1: (letter) -> this Windows computer's entry for a drive letter (engine/windrives.js infoOf), through
-   the test seam o.driveInfo first, then ctx.engine('windrives') so o.engine reaches both verbs; null when this install's
+   the test seam o.driveInfo first, then ctx.engine('windrives') (so o.engine.windrives reaches both verbs); null when this install's
    windrives has no infoOf (an incomplete or older install). */
 function driveInfoFor(ctx) {
   if (typeof ctx.driveInfo === 'function') return ctx.driveInfo;
