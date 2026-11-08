@@ -1546,6 +1546,9 @@ struct ChatView: View {
 
     // kosmos#7420: as the shift report: one try, with a little background time, only to the computer it was counted on.
     private func sendOpenCount() {
+        // kosmos#8221 slice 5: the UIKit list does not report its rows to openCount (onScreen is the lazy list's), so its
+        // showings would all read as closed blank. They are not sent until slice 6 counts them per list.
+        guard !uikitList else { openCount.reset(); return }
         let info = Bundle.main.infoDictionary
         let app = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
         // The epoch this chat holds, not the client's now: a change not yet seen here means this count is another computer's.
