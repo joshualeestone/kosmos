@@ -9,6 +9,7 @@
  *
  *   node --test server.filebrowser-6724.test.js
  */
+require('./test-support/tmpscope'); // kosmos#4273, #8225: this file's temp dirs, removed when it exits
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
