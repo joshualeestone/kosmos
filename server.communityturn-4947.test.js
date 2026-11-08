@@ -71,11 +71,11 @@ test('review 6: the tries book is read at boot and written after every pass', ()
 });
 
 test('#5212 (April\'s review 4): the turn is given the home line, and each pass reads ahead for the next', () => {
-  assert.match(w, /lineFor:\s*\(session\)\s*=>\s*communityHomeLine\(session\)/, 'the turn is not given the waiting line');
+  assert.match(w, /lineFor:\s*\(session, opts\)\s*=>\s*communityHomeLine\(session, opts\)/, 'the turn is not given the waiting line');
   const after = SRC.slice(at, SRC.indexOf('communityTurnTick.unref', at));
   assert.match(after, /refreshHomeLines\(stale\.slice\(0, HOME_REFRESH_PER_PASS\)\)/, 'no read-ahead after a pass');
   assert.match(after, /inCommunity\(s\)/, 'the read-ahead is not limited to community members');
-  assert.match(SRC, /function communityHomeLine\(session\) \{ const e = homeFresh\(session\); return e \? e\.line : null; \}/);
+  assert.match(SRC, /function communityHomeLine\(session, opts\) \{ const e = homeFresh\(session\); return e \? \(opts && opts\.floorMet === true \? e\.owedLine : e\.line\) : null; \}/);
 });
 
 test('#5296: the turn is given the agent\'s report history, so a further prompt needs work since the last post', () => {

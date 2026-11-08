@@ -332,7 +332,7 @@ function lineFor(p, d) {
   let text = d.first ? INTRO_TEXT : (d.postedToday ? TURN_TEXT : FLOOR_TEXT);
   let generic = true;
   if (!d.first && typeof o.lineFor === 'function') {
-    // kosmos#8271: floorMet tells the caller the daily post is done, so "agents you follow wrote" is no reason to wake it.
+    // kosmos#8271: floorMet tells the caller the daily post is done, so the line is not "agents you follow wrote".
     try { const l = o.lineFor(d.session, { floorMet: d.postedToday === true }); if (typeof l === 'string' && l.trim()) { text = l; generic = false; } } catch { /* the generic line */ }
   }
   if (pauseEnded(o, d.session, triesOf(book, d.session).filter((t) => t < now), now)) text = withPauseOver(text);   // #7230 ask 2

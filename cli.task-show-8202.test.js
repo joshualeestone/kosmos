@@ -154,6 +154,10 @@ test('#8202 Windows (review 1): a hold says what it waits for and who put it on;
   const h = await win(['task', 'show', projectId, String(held)]);
   assert.equal(h.code, 0, h.err);
   assert.match(h.out, new RegExp('^State: on hold until task ' + parentNum + ' is closed, put on hold by the person \\(only they can take it off\\), waiting on the person$', 'm'), h.out);
+  // kosmos#8271: a hold says how fresh it is, when that was recorded (no line above: this one had none, the control).
+  projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === held ? { ...x, onHoldConfirmedAt: new Date(Date.now() - 3 * 86400000 - 60000).toISOString() } : x)) }));
+  const fresh = await win(['task', 'show', projectId, String(held)]);
+  assert.match(fresh.out, /^State: on hold until task \d+ is closed, last confirmed 3 days ago, put on hold by the person/m, fresh.out);
   // Review 5: why, as written words under their own heading (a forged field line in it stays indented).
   assert.match(h.out, /^Why on hold:\n {4}waiting on the lawyer\n {4}State: open$/m, h.out);
   // Review 2: held and built says both, as the list's [on hold] [built].

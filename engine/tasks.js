@@ -511,7 +511,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     if (!closedNow && (forWork || progressOf(t).closed)) changed = withoutLanded(changed);
     /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
        with the control hidden while it was closed). */
-    if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; dropHoldTold(changed); heldDropped = true; }
+    if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldConfirmedAt; delete changed.onHoldForPerson; dropHoldTold(changed); heldDropped = true; }
     // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
     if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
@@ -1159,7 +1159,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     if (after) changed = withoutBuilt(changed);
     if (before && !after) changed = withoutLanded(changed);   // #7508: a reopen is new work, so the old commit goes
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
-    if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; dropHoldTold(changed); heldDropped = true; }
+    if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldConfirmedAt; delete changed.onHoldForPerson; dropHoldTold(changed); heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
     if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     return {

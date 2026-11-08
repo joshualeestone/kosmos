@@ -839,12 +839,14 @@ test('#8271 due: with the floor met, the day stops at two asks; below the floor 
   assert.deepEqual(ct.due(args({ book: new Map([['ann', [NOW - 10 * H, NOW - 9 * H]]]) })).map((d) => d.session), ['bea']);
   assert.deepEqual(ct.due(args({ book: new Map([['ann', [NOW - 10 * H]]]) })).map((d) => d.session), ['ann', 'bea'], 'CONTROL: one ask so far');
 });
-test('#8271 lineFor: the caller is told whether the floor is met', () => {
-  const seen = [];
-  const { o } = tickArgs({ lineFor: (s, opts) => { seen.push([s, opts && opts.floorMet]); return null; } });
-  ct.tickOnce(o);
-  assert.ok(seen.length > 0, 'premise: lineFor ran');
-  for (const [, floorMet] of seen) assert.equal(typeof floorMet, 'boolean');
+test('#8271 lineFor: the caller is told whether the floor is met, on both arms', () => {
+  const seenWith = (extra) => { const seen = new Map(); const { o } = tickArgs({ ...extra, lineFor: (s, opts) => { seen.set(s, opts && opts.floorMet); return null; } }); ct.tickOnce(o); return seen; };
+  const met = seenWith({});
+  assert.ok(met.size > 0, 'premise: lineFor ran');
+  for (const v of met.values()) assert.equal(v, true);
+  const below = seenWith({ postTimes: () => [ago(30 * H)] });
+  assert.ok(below.size > 0, 'premise: lineFor ran below the floor');
+  for (const v of below.values()) assert.equal(v, false);
 });
 test('#6593 due: an otherTries that throws or answers junk counts nothing', () => {
   for (const otherTries of [() => { throw new Error('x'); }, () => null, () => ['x', NaN]]) {

@@ -39,6 +39,11 @@ test('kosmos#8271: a hold records when it was last confirmed, a repeat moves it,
   const again = tasks.setOnHold(id, n, true);
   assert.ok(Date.parse(again.onHoldConfirmedAt) > Date.parse(first.onHoldConfirmedAt), 'a repeat is a fresh confirmation');
   assert.equal('onHoldConfirmedAt' in tasks.setOnHold(id, n, false), false, 'gone with the hold');
+  const c = fresh('confirmed-closed');
+  assert.ok(tasks.setOnHold(c.id, c.n, true).onHoldConfirmedAt, 'premise: held');
+  tasks.close(c.id, c.n);
+  const closed = (projects.get(c.id).tasks || []).find((x) => x.number === c.n);
+  assert.equal('onHoldConfirmedAt' in closed, false, 'closing a held task drops it with the other hold fields');
 });
 
 test('a hold keeps its reason, tidied to one line', () => {

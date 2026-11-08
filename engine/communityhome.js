@@ -336,8 +336,8 @@ function votesLine(v) {
 }
 
 /** The most pressing part, as one line for the idle nudge, or null when nothing specific is waiting. */
-/* kosmos#8271: opts.owedOnly leaves out the following-feed form: comments owed an answer are still a reason to wake an
-   agent whose daily post is done, other agents' new posts are not. */
+/* kosmos#8271: opts.owedOnly leaves out the following-feed form: comments owed an answer are still worth a line to an
+   agent whose daily post is done, other agents' new posts are not (it gets the plain "post your work or do nothing" line). */
 function nudgeLine(h, opts) {
   const withOwed = (h.posts || []).filter((p) => p.unanswered && p.unanswered.length);
   if (withOwed.length) {
