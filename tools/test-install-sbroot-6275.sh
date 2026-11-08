@@ -97,14 +97,18 @@ arm "a macOS TMPDIR (ends in '/')"   "$T/mac/"       "$T/mac"
 arm "a '//' inside TMPDIR"           "$T//in//ner/"  "$T/in/ner"
 arm "CONTROL: a TMPDIR with no slash at the end" "$T/plain" "$T/plain"
 
-# kosmos#8244: macOS's mktemp (and GNU's on ubuntu-24.04) keeps a '//' in the template it is given; the mktemp on
-# ubuntu-26.04 returns the path squeezed, so there a reverted derivation made no '//' and this check could see nothing.
+# kosmos#8244: macOS's mktemp (and GNU's on ubuntu-24.04: run 42473035158 passed this control) keeps a '//' in the
+# template it is given; the mktemp on ubuntu-26.04 returns the path squeezed, so there a reverted derivation made no
+# '//' and this check could see nothing.
 # MACOS_MKTEMP stands in for mktemp -d in the runs below that ask for it: the folder is made at the template exactly as
 # given, its ten X's filled in, as macOS does. It refuses any other call, so a template that changed shape fails here.
+# Its suffix reads a fixed 256 bytes, so no pipe in it relies on a signal to end (a runner that ignores SIGPIPE would
+# otherwise leave tr reading /dev/urandom for ever).
 MACOS_MKTEMP='mktemp() {
   [ "$#" -eq 2 ] && [ "$1" = -d ] || { echo "MACOS_MKTEMP: only mktemp -d <template> is stood in for: $*" >&2; return 1; }
   case "$2" in *XXXXXXXXXX) ;; *) echo "MACOS_MKTEMP: the template does not end in ten X: $2" >&2; return 1 ;; esac
-  local _r; _r="$(LC_ALL=C tr -dc A-Za-z0-9 </dev/urandom | head -c 10)"
+  local _r; _r="$(head -c 256 /dev/urandom | LC_ALL=C tr -dc A-Za-z0-9 2>/dev/null | cut -c1-10)"
+  [ "${#_r}" -eq 10 ] || { echo "MACOS_MKTEMP: no random suffix" >&2; return 1; }
   mkdir "${2%XXXXXXXXXX}$_r" && printf "%s\n" "${2%XXXXXXXXXX}$_r"
 }'
 # The stand-in itself, checked on the shape that matters: it keeps the '//' it is handed.
@@ -127,8 +131,8 @@ else
   out="$(run "$MACOS_MKTEMP
 $reverted" "$T/mac/")"
   sb="$(printf '%s\n' "$out" | sed -n 1p)"; hl="$(printf '%s\n' "$out" | sed -n 2p)"; sl="$(printf '%s\n' "$out" | sed -n 3p)"
-  case "$sb" in *//*) [ -n "$hl" ] && [ "$hl" != "$sl" ] && ok "NEGATIVE CONTROL: a reverted derivation gives '//' and two different labels ($hl, $sl)" \
-      || bad "NEGATIVE CONTROL: '//' in \$SB but the labels agreed ($hl, $sl), so this check could not see the #6252 failure" ;;
+  case "$sb" in *//*) [ -d "$sb" ] && [ -n "$hl" ] && [ "$hl" != "$sl" ] && ok "NEGATIVE CONTROL: a reverted derivation gives '//' and two different labels ($hl, $sl)" \
+      || bad "NEGATIVE CONTROL: '//' in \$SB but no folder there or the labels agreed ($hl, $sl), so this check could not see the #6252 failure" ;;
     *) bad "NEGATIVE CONTROL: the reverted derivation had no '//' under a trailing-slash TMPDIR ($sb), so this check proves nothing" ;;
   esac
 fi

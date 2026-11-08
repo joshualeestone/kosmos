@@ -22,6 +22,10 @@ reverted derivation had no '//'"), and this branch passes, its negative control 
 Rebase on main and unpin the shell shards in this same PR, so its own CI runs this test on ubuntu-26.04: that run is
 the proof the control works there.
 
+## Also
+The stand-in's random suffix reads a fixed 256 bytes (a pipe that relied on SIGPIPE hung under a parent ignoring
+SIGPIPE, measured in review); checked to pass with SIGPIPE ignored and to leave no tr running.
+
 ## Weakest premise
 That squeezing in mktemp is the only 26.04 difference that matters to this test. The log shows mktemp's output; my PATH
 stand-in reproduces it; the real 26.04 run in step 3 is the check.
