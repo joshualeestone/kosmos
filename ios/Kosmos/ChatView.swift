@@ -85,6 +85,8 @@ struct ChatView: View {
     // kosmos#7420: KOSMOS_SAMPLE_NOREBUILD=1 (Debug) is the control: the recovery never rebuilds. Release reads false.
     #if DEBUG
     static let sampleNoRebuild = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOREBUILD"] == "1"
+    // kosmos#8221: KOSMOS_SAMPLE_SCROLLUP for the UIKit list (conversationUIKit), read once.
+    static let sampleScrollUp = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLUP"].flatMap(Int.init) ?? 0
     #else
     static let sampleNoRebuild = false
     #endif
@@ -594,8 +596,8 @@ struct ChatView: View {
         // kosmos#8221 slice 2: KOSMOS_SAMPLE_SCROLLUP=<n> on this list too, the n-th row from the end put at the top 3 s
         // after opening (read by the list once, when it is made), with the same marker once it has come to rest.
         #if DEBUG
-        let sampleUp: String? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLUP"].flatMap(Int.init)
-            .flatMap { up in up > 0 && items.count > up ? items[items.count - up].id : nil }
+        let up = Self.sampleScrollUp
+        let sampleUp: String? = up > 0 && items.count > up ? items[items.count - up].id : nil
         #else
         let sampleUp: String? = nil
         #endif
