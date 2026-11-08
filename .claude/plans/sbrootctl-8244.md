@@ -18,9 +18,10 @@ control could show nothing. Step 1 (branch pin2404-8244) pinned the shell shards
 With a PATH mktemp that squeezes '//' (standing in for 26.04's): origin/main's test fails exactly as CI did ("the
 reverted derivation had no '//'"), and this branch passes, its negative control catching the revert.
 
-## Step 3 (after the pin merges)
-Rebase on main and unpin the shell shards in this same PR, so its own CI runs this test on ubuntu-26.04: that run is
-the proof the control works there.
+## Step 3 (this branch, after the pin merged as 405f013c64)
+Unpinned: .github/workflows/test.yml, linux.yml, tools/test-ci-runner-route-5488.sh and tools/test-ci-created-url-6742.sh
+restored to their pre-pin text (c2690b1bf5; only the pin's three commits touched them since), so this PR's own CI runs
+the shell shards, and this test, on ubuntu-latest (26.04): that run is the proof the control works there.
 
 ## Also
 The stand-in's random suffix reads a fixed 256 bytes (a pipe that relied on SIGPIPE hung under a parent ignoring
