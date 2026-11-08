@@ -221,6 +221,7 @@ test('#8270 review 1: a terminal session that is not one of our agents, a word o
   board.restore();
   assert.equal(messages.outsidersNote('@build please', MEMBERS.filter((m) => m !== 'leo'), cards, 'leo', '@build please'), '', 'a stray session was offered to kosmos msg');
   assert.equal(post('@cream please', WITH_OUTSIDER()).note, undefined, 'one word of a display name after @ named an agent');
+  assert.equal(post('@all please', [...FLEET(), fleet.agent('all', { state: 'idle' })]).note, undefined, 'a broadcast was reported as an agent named all');
   assert.equal(post('Leo -> Cream: please', WITH_OUTSIDER()).note, undefined, 'one word of a display name in a header named an agent');
   assert.equal(post('Leo -> Homer on m702: please', WITH_OUTSIDER()).note, HOMER, 'CONTROL: the words after a whole name lost it');
   // The guard's real case: two members share the name and an agent off the project has it too.

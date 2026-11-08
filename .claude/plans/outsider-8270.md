@@ -17,4 +17,5 @@ today's "It woke no one" line. So a colleague on another computer is NOT named: 
 cannot tell them from the person or a phrase. That is the weakest part, chosen because a false statement is worse.
 Review 2: whole names only in a header too. Deferred: a card whose pane is crashed is still offered kosmos msg (its refusal is honest); "thanks @homer" also gets the sentence (it is true).
 Not changed: an unrecorded post and a retry folded into the first copy carry no note, as ambiguousNote did not before (an in-flight fold can repeat it).
+Known limit: in a room shared with another computer, a far-side member who shares a name with a local off-project agent would get the sentence; rare, and the handle in it shows which agent it means.
 Rejected: a new answer field (both CLIs and every older one would need teaching, for one sentence).
