@@ -183,12 +183,15 @@ struct ChatList: UIViewRepresentable {
         // its run). Measured 11-07: drawn again only on a later update, the bubble above a send shrank 8 pt as the send
         // settled, and the list stepped.
         // How often the list was updated and how many cells that drew again, for measuring what a keystroke costs.
+        // spent: seconds inside apply, which configures the cells drawn again; the layout iOS runs after it is not counted.
         var applies = 0
         var redrawn = 0
+        var spent: CFTimeInterval = 0
         var applying = false   // inside source.apply: an offset change there is the update's own, not a scroll
 
         func apply(_ now: [String]) {
             guard let source else { return }
+            let started = CACurrentMediaTime()
             applies += 1
             let shown = list?.indexPathsForVisibleItems.compactMap { source.itemIdentifier(for: $0) } ?? []
             var s: NSDiffableDataSourceSnapshot<Int, String>
@@ -210,7 +213,8 @@ struct ChatList: UIViewRepresentable {
             source.apply(s, animatingDifferences: false)
             applying = false
             redrawn += again.count
-            if applies % 50 == 0 { ChatView.trace("uikit list: \(applies) updates, \(redrawn) cells drawn again") }
+            spent += CACurrentMediaTime() - started
+            if applies % 50 == 0 { ChatView.trace("uikit list: \(applies) updates, \(redrawn) cells drawn again, \(Int(spent * 1000)) ms") }
         }
     }
 

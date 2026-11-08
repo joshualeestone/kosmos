@@ -585,7 +585,7 @@ let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a,
     "Int(short)",   // kosmos#7420 review 3: how far the scroll is short of the content's end, in points
     "pending.last?.text.count ?? 0", "pending.count",   // kosmos#8038: a send's length and how many are pending, both numbers, never its words
     "keepNewestOnKeyboard", "visible", "holdAtEnd", "searchMode",   // kosmos#7645: the room's keyboard will-show, yes/no only
-    "applies", "redrawn"]   // kosmos#8221: the UIKit list's updates and cells drawn again, both counts
+    "applies", "redrawn", "Int(spent * 1000)"]   // kosmos#8221: the UIKit list's updates and cells drawn again (counts), and ms spent in them
 // kosmos#7420: Self.heightLine is admitted by name, so its body is pinned: Int(...) point values, a count and fixed words.
 check(chatSource.contains("\"content \\(Int(size)), y \\(Int(sv.contentOffset.y)), drawn \\(at.count), from \\(Int(first)) to \\(Int(last)), past last \\(Int(size - last))\""), "kosmos#7420: the height line in the record is points and a count and nothing else")
 // kosmos#7645: Self.numbers(sv) is admitted by name, so its body is pinned here: three Int(...) point values and fixed words. Change

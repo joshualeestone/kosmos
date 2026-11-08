@@ -25,7 +25,10 @@ so a change could break it with every check green.
    test("ui tests"), so a second ui job can never be the one it reads (head -1 took the first match). A second argument
    names another job, so `ui-flaky-count.sh 10 "uikit list (sample board)"` counts the UIKit job's flakes.
    Runs with no job of that name, and runs whose job list could not be read, are each counted on their own line.
-4. Comments naming who runs the arm: UIKitListArm.swift (said nothing ran it), KeyboardSlideUITests.swift, ui-sample.sh.
+4. The keystroke cost (the slice-1 plan's second prerequisite): the "uikit list: N updates, M cells drawn again" trace
+   line also says the ms spent inside apply (cells configured; the layout after it is not counted), and the room suite's
+   trace allow-list admits Int(spent * 1000). The line is in the 80-line ring a report carries, so a phone measures it.
+5. Comments naming who runs the arm: UIKitListArm.swift (said nothing ran it), KeyboardSlideUITests.swift, ui-sample.sh.
 
 ## Decided
 
@@ -43,8 +46,22 @@ so a change could break it with every check green.
   measurement; a red there is a finding about the arm, not a reason to drop the job.
 - Would change my mind: the job flaking on SendMovesOnce timing (it skips itself when too slow, which ui-sample names).
 
+## The keystroke cost, measured
+
+Scratch UI test (not committed), iPhone 17e simulator, iOS 27.0, Dana's long chat, keyboard up, 200 keystrokes, 11-08
+12:45 CST: "50 updates, 363 cells drawn again, 112 ms" / "100 updates, 663, 192 ms" / "150, 926, 265 ms" / "200, 1176,
+337 ms". Every keystroke is one update; steady state 5 to 6 cells drawn again and about 1.5 ms inside apply each.
+
+Call: leave the redraw on every update for now. It is what keeps a row that changed in place correct (a send settling, a
+time leaving a run), and skipping it needs a sure "nothing in these rows changed" signal; one missed input is a stale row
+no check sees. Rejected for now: a content signature from ChatView. Weakest premise: a Mac simulator's 1.5 ms, which a
+phone multiplies, and the layout after apply is not in it. What changes it: a phone's report showing the per-update time
+near a frame (8 ms at 120 Hz), which makes the signature the next slice.
+
 ## Status
 
+- [x] Room suite trace allow-list, both arms: without Int(spent * 1000) admitted, FAIL 1 of 844 naming it; with it, PASS
+      844/844.
 - [x] Changes made, bash -n clean on both scripts, ios.yml parses (jobs: build ui uikit).
 - [x] `ui-sample.sh --uikit` on this Mac, 11-08 12:19-12:25 CST, iPhone 17e iOS 27.0: PASS 14 of 14 (first line names the
       UIKit list).
