@@ -591,6 +591,14 @@ struct ChatView: View {
         // rows can share its id with one in the new read (parseRows numbers rows per read). The first is kept, as byId keeps it.
         var seen = Set<String>()
         let ids = (top + items.map(\.id) + sends.map(\.id) + ["working", "end"]).filter { seen.insert($0).inserted }
+        // kosmos#8221 slice 2: KOSMOS_SAMPLE_SCROLLUP=<n> on this list too, the n-th row from the end put at the top 3 s
+        // after opening (read by the list once, when it is made), with the same marker once it has come to rest.
+        #if DEBUG
+        let sampleUp: String? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLUP"].flatMap(Int.init)
+            .flatMap { up in up > 0 && items.count > up ? items[items.count - up].id : nil }
+        #else
+        let sampleUp: String? = nil
+        #endif
         // row() also records each row's place for the keyboard hold (RowTop), read in the lazy list's content space; a hosted
         // cell has no such space, so those readings are not to be used here.
         ChatList(ids: ids, cell: { id in
@@ -610,8 +618,21 @@ struct ChatView: View {
             atBottom = now; endVisible = now
             Self.trace("uikit list: atBottom \(atBottom)")
             if now { unseenNew = false; endSeen = true; settledAtEnd = true }
+        }, sampleUp: sampleUp, sampleRested: {
+            #if DEBUG
+            sampleScrollRested = true; Self.trace("debug scroll-up rested, atBottom \(atBottom)")
+            #endif
         })
         .kosmosTopFade(ground: Palette.chatGround)
+        #if DEBUG
+        .overlay(alignment: .bottomTrailing) {
+            if sampleScrollRested {
+                Color.clear.frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                    .accessibilityElement().accessibilityLabel("sample scroll rested").accessibilityIdentifier("sample-scroll-rested")
+            }
+        }
+        #endif
         .onAppear {
             diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty
             openCount.messagesArrived(rowsDrawn: !onScreen.isEmpty)
