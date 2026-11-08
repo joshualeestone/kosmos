@@ -17,6 +17,9 @@ or "list chosen: lazy"). Counting reports per list is slice 6 (see Decided, revi
   carries the list, engine/chatopens.js keeps it per build and list, the UIKit list gets the blank check). Rejected: doing
   it here (an engine and board change on a converging review). Weakest premise: that the switch is worth having before slice
   6; it is for how the chat feels, not for counts, and Josh is not pointed at it for counts until slice 6 is in.
+- A chat kept open under another tab keeps the list it opened with after the switch flips, until it is opened again
+  (raised in reviews 2, 4 and 7). Kept: the footer says "Applies to the next chat you open", and swapping the list under
+  an open chat would lose the reader's place. Would change: Josh reading a kept chat as the switch not working.
 - Shown in every build, not only TestFlight: the app is TestFlight only today (a beta with no outside users), and the switch
   is off by default. Would change: an App Store release, before which the section is gated or removed.
 
@@ -34,7 +37,7 @@ or "list chosen: lazy"). Counting reports per list is slice 6 (see Decided, revi
 
 ## Steps
 
-1. ChatView: `static let uikitList` becomes the stored choice (Debug: env override first). Seed `@State useUIKit` at init;
+1. ChatView: `static let uikitList` becomes the stored choice (Debug: env override first). Seed `@State uikitList` at init;
    line ~578 reads it. Update the comment at ~61 (it says "Off in a release build").
 2. SettingsView: a "Chat" section with the switch. Copy (no em dashes): label "New chat list", footer (as built) "A test of a new way
    to draw your chats. Earlier messages, holding a message to copy or delete it, and some of the scrolling are not in it yet. Applies to the next

@@ -18,7 +18,7 @@ final class NewChatListSwitchUITests: XCTestCase {
         app.launch()
         let sw = app.switches["settings-new-chat-list"]
         _ = sw.waitForExistence(timeout: 20)
-        for _ in 0..<6 where sw.exists && !sw.isHittable { app.swipeUp() }
+        for _ in 0..<6 where !(sw.exists && sw.isHittable) { app.swipeUp() }
         if sw.exists, sw.isHittable, sw.value as? String == "1" {
             sw.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
         }
@@ -37,6 +37,14 @@ final class NewChatListSwitchUITests: XCTestCase {
         row.tap()
         let box = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Message Dana'")).firstMatch
         XCTAssertTrue(box.waitForExistence(timeout: 20), "Dana's chat did not open, \(when)")
+    }
+
+    /// The lazy list drew the chat: a message bubble inside a scroll view (the UIKit list is a collection view, so its bubbles
+    /// are never under a scroll-view element), and no UIKit list on screen.
+    private func assertLazyDrew(_ app: XCUIApplication, _ when: String) {
+        let lazyRow = app.scrollViews.buttons.matching(NSPredicate(format: "label CONTAINS %@", ": ")).firstMatch
+        XCTAssertTrue(lazyRow.waitForExistence(timeout: 10), "no message drawn by the lazy list, \(when)")
+        XCTAssertFalse(app.collectionViews["chat-list-uikit"].exists, "the UIKit list drew the chat, \(when)")
     }
 
     private func closeChat(_ app: XCUIApplication) {
@@ -58,7 +66,8 @@ final class NewChatListSwitchUITests: XCTestCase {
     private func set(_ sw: XCUIElement, on: Bool) {
         // The knob is at the row's trailing end; a tap on the row's middle lands on the label and may not flip it.
         if (sw.value as? String == "1") != on { sw.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap() }
-        XCTAssertEqual(sw.value as? String, on ? "1" : "0", "the switch did not turn \(on ? "on" : "off")")
+        let turned = expectation(for: NSPredicate(format: "value == %@", on ? "1" : "0"), evaluatedWith: sw)
+        XCTAssertEqual(XCTWaiter().wait(for: [turned], timeout: 5), .completed, "the switch did not turn \(on ? "on" : "off")")
     }
 
     func testTheSwitchChoosesTheListForTheNextChat() {
@@ -70,8 +79,7 @@ final class NewChatListSwitchUITests: XCTestCase {
         // Off (a fresh install's default, or put back to it): the lazy list.
         set(toggle(app), on: false)
         openDana(app, "switch off")
-        sleep(1)
-        XCTAssertFalse(uikit.exists, "the UIKit list drew the chat with the switch off")
+        assertLazyDrew(app, "switch off")
         closeChat(app)
 
         // On: the next chat opened is the UIKit list.
@@ -84,7 +92,6 @@ final class NewChatListSwitchUITests: XCTestCase {
         // Back to the default for whatever runs next on this simulator.
         set(toggle(app), on: false)
         openDana(app, "switch off again")
-        sleep(1)
-        XCTAssertFalse(uikit.exists, "the switch is off again and the UIKit list still drew the chat")
+        assertLazyDrew(app, "switch off again")
     }
 }
