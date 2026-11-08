@@ -26,7 +26,7 @@ so a change could break it with every check green.
    names another job, so `ui-flaky-count.sh 10 "uikit list (sample board)"` counts the UIKit job's flakes.
    Runs with no job of that name, and runs whose job list could not be read, are each counted on their own line.
 4. The keystroke cost (the slice-1 plan's second prerequisite): the "uikit list: N updates, M cells drawn again" trace
-   line also says the ms spent inside apply (cells configured; the layout after it is not counted), and the room suite's
+   line also says the ms spent inside apply, and the room suite's
    trace allow-list admits Int(spent * 1000). The line is in the 80-line ring a report carries, so a phone measures it.
 5. Comments naming who runs the arm: UIKitListArm.swift (said nothing ran it), KeyboardSlideUITests.swift, ui-sample.sh.
 
@@ -55,7 +55,7 @@ Scratch UI test (not committed), iPhone 17e simulator, iOS 27.0, Dana's long cha
 Call: leave the redraw on every update for now. It is what keeps a row that changed in place correct (a send settling, a
 time leaving a run), and skipping it needs a sure "nothing in these rows changed" signal; one missed input is a stale row
 no check sees. Rejected for now: a content signature from ChatView. Weakest premise: a Mac simulator's 1.5 ms, which a
-phone multiplies, and the layout after apply is not in it. What changes it: a phone's report showing the per-update time
+phone multiplies, and how much of the layout falls inside apply is not measured. What changes it: a phone's report showing the per-update time
 near a frame (8 ms at 120 Hz), which makes the signature the next slice.
 
 ## Status
