@@ -183,3 +183,11 @@ test('kosmos#8230: a retry that meets a busy board is noted after a retry', asyn
   assert.equal(r.asked.length, 2);
   assert.match(r.note || '', /idle not delivered after a retry: the board did not answer in time/);
 });
+
+test('kosmos#8230: the Windows keep list is the bash hook\'s _TE_KEEP, phrase for phrase', () => {
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos-report-hook.sh'), 'utf8');
+  const m = sh.match(/^\s*_TE_KEEP='([^']+)'/m);
+  assert.ok(m, 'CONTROL: _TE_KEEP not found in install/kosmos-report-hook.sh');
+  assert.deepEqual(hook.TURN_END_KEEP.source.split('|').sort(), m[1].split('|').sort(),
+    'the two hooks would classify the same board answer differently');
+});
