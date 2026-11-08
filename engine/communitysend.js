@@ -1247,7 +1247,9 @@ async function sendComment(c, keys, csent, now, from) {
     csent[c.id] = settle(rec, { state: 'refused', reasons: ['http_' + r.status] });
     log(`comment for ${agentKey}: refused with ${r.status}`);
   } else {
-    csent[c.id] = settle(rec, { state: 'unconfirmed', attemptedAt, ...(k.remoteId ? { agentId: k.remoteId } : {}), ...(r.status ? { lastStatus: r.status } : {}) });
+    // Review 6: the account recorded at the write-ahead, the one the POST went out as (a re-login mid-send changes the key).
+    const sentAs = (csent[c.id] && csent[c.id].agentId) || k.remoteId;
+    csent[c.id] = settle(rec, { state: 'unconfirmed', attemptedAt, ...(sentAs ? { agentId: sentAs } : {}), ...(r.status ? { lastStatus: r.status } : {}) });
     log(`comment for ${agentKey}: no usable answer (status ${r.status || 'none'}); it may be on the server, so it is not sent again`);
   }
 }
@@ -2281,8 +2283,8 @@ async function lookForComment(c, agentKey, keys, ok, since) {
     return r;
   };
   // Review 5: a cursor this cannot read is not the end of the thread (BAD), so the read is not called whole.
-  const next = (r) => (r.json.next_cursor == null ? '' : typeof r.json.next_cursor === 'string' && LOOK_CURSOR_RE.test(r.json.next_cursor) ? r.json.next_cursor : BAD);
   const BAD = '\u0000bad';
+  const next = (r) => (r.json.next_cursor == null ? '' : typeof r.json.next_cursor === 'string' && LOOK_CURSOR_RE.test(r.json.next_cursor) ? r.json.next_cursor : BAD);
   const post = '/posts/' + encodeURIComponent(String(c.remotePostId)) + '/comments';
   /* Every reply under one top-level comment, oldest first, to the end (a thread's replies are capped): the candidates,
      and whether `parent` is among them. null: could not be read; over: out of reads. */
