@@ -27,6 +27,11 @@ the shell shards, and this test, on ubuntu-latest (26.04): that run is the proof
 The stand-in's random suffix reads a fixed 256 bytes (a pipe that relied on SIGPIPE hung under a parent ignoring
 SIGPIPE, measured in review); checked to pass with SIGPIPE ignored and to leave no tr running.
 
+## The unpin is a gate for the whole shards
+Unpinning puts every Linux shell command back on ubuntu-latest (26.04, uutils coreutils by default), not only this
+test. This PR's own CI run is the gate for all of shells 1/2 and 2/2: if anything else turns red there, re-pin rather
+than widen this PR.
+
 ## Weakest premise
 That squeezing in mktemp is the only 26.04 difference that matters to this test. The log shows mktemp's output; my PATH
 stand-in reproduces it; the real 26.04 run in step 3 is the check.

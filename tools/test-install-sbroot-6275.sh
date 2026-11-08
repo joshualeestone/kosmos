@@ -100,8 +100,8 @@ arm "a '//' inside TMPDIR"           "$T//in//ner/"  "$T/in/ner"
 arm "CONTROL: a TMPDIR with no slash at the end" "$T/plain" "$T/plain"
 
 # kosmos#8244: macOS's mktemp (and GNU's on ubuntu-24.04: run 42473035158 passed this control) keeps a '//' in the
-# template it is given; the mktemp on ubuntu-26.04 returns the path squeezed, so there a reverted derivation made no
-# '//' and this check could see nothing.
+# template it is given. On ubuntu-26.04 the reverted derivation's $SB came back with no '//' (run 42473275263's log), so
+# there this check could see nothing; with the tr gone, mktemp is the only step left that could have squeezed it.
 # MACOS_MKTEMP stands in for mktemp -d in the runs below that ask for it: the folder is made at the template exactly as
 # given, its ten X's filled in, as macOS does. It refuses any other call, so a template that changed shape fails here.
 # Its suffix reads a fixed 256 bytes, so no pipe in it relies on a signal to end (a runner that ignores SIGPIPE would
@@ -115,7 +115,8 @@ MACOS_MKTEMP='mktemp() {
 }'
 # The stand-in itself, checked on the shape that matters: it keeps the '//' it is handed.
 sim="$(TMPDIR="$T/mac/" bash -c "$MACOS_MKTEMP"'
-mktemp -d "$TMPDIR/x.XXXXXXXXXX"')"
+mktemp -d "$TMPDIR/x.XXXXXXXXXX"
+')"
 case "$sim" in "$T/mac//x."??????????) [ -d "$sim" ] && ok "CONTROL: the macOS mktemp stand-in keeps '//' ($sim)" \
     || bad "CONTROL: the macOS mktemp stand-in made no folder ($sim)" ;;
   *) bad "CONTROL: the macOS mktemp stand-in did not keep the template as given ($sim)" ;; esac
