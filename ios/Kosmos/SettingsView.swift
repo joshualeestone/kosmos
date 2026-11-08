@@ -23,6 +23,7 @@ struct SettingsView: View {
         case failed(String)
     }
 
+    @AppStorage(ChatView.uikitListKey) private var newChatList = false   // kosmos#8221 slice 5
     @State private var load: Load = .reading
     // The switch being saved and the value the person chose for it, shown until the computer answers.
     @State private var saving: (key: String, on: Bool)?
@@ -51,6 +52,7 @@ struct SettingsView: View {
                     // a product decision still open, #718), and a line saying it is on would be untrue.
                     if KosmosConfig.requireBiometricUnlock { security }
                     account
+                    chat
                     board
                     about
                 }
@@ -252,6 +254,20 @@ struct SettingsView: View {
     }
 
     // MARK: The board's own Settings
+
+    // kosmos#8221 slice 5: the UIKit chat list, chosen here for the phone's reports to compare the two lists. Off by default;
+    // ChatView reads it once when a chat opens.
+    private var chat: some View {
+        Section {
+            Toggle("New chat list", isOn: $newChatList).foregroundColor(Palette.primary)
+                .accessibilityIdentifier("settings-new-chat-list")
+        } header: {
+            Text("Chat")
+        } footer: {
+            Text("A test of a new way to draw your chats. Earlier messages, and holding a message to copy or delete it, are not in it yet. Applies to the next chat you open.")
+                .font(.footnote).foregroundColor(Palette.secondary)
+        }
+    }
 
     @ViewBuilder private var board: some View {
         Section {

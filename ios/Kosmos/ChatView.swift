@@ -61,14 +61,19 @@ struct ChatView: View {
     static let sampleNoRebuildHide = false
     #endif
     static let rebuildsMax = 3
-    // kosmos#8221: the chat drawn by the UIKit list (ChatList) instead of the lazy SwiftUI one. Off in a release build until
-    // the new list holds every behaviour the old one has (the slices in .claude/plans/uikitlist-s1-8221.md); Debug:
-    // KOSMOS_SAMPLE_UIKITLIST=1 turns it on, so the UI checks run on both lists.
-    #if DEBUG
-    static let uikitList = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_UIKITLIST"] == "1"
-    #else
-    static let uikitList = false
-    #endif
+    // kosmos#8221: the chat drawn by the UIKit list (ChatList) instead of the lazy SwiftUI one. Settings' "New chat list"
+    // switch chooses it (slice 5), OFF by default until the new list holds every behaviour the old one has (the slices in
+    // .claude/plans/uikitlist-s1-8221.md). Read once when a chat opens, so the switch never swaps the list under an open
+    // chat. Debug: KOSMOS_SAMPLE_UIKITLIST, when set, wins over the switch ("1" UIKit, anything else lazy), so every UI
+    // check picks its list by environment.
+    static let uikitListKey = "kosmos.chat.uikitlist"
+    static func uikitListChosen() -> Bool {
+        #if DEBUG
+        if let v = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_UIKITLIST"] { return v == "1" }
+        #endif
+        return UserDefaults.standard.bool(forKey: uikitListKey)
+    }
+    @State private var uikitList = ChatView.uikitListChosen()
     // kosmos#8221: bumped to send the UIKit list to the newest message (a send, New messages).
     @State private var uikitNewest = 0
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
@@ -390,7 +395,11 @@ struct ChatView: View {
             visible = true
             // kosmos#7420 review 1 and 2: the record starts with this chat's first showing (a return from the info page keeps
             // what came before), and a list blank from its first draw is checked too, since no row ever leaves it.
-            if !diagShownOnce { diagShownOnce = true; Self.diagRing = []; Self.trace("chat shown") } else { Self.trace("chat back") }
+            if !diagShownOnce {
+                diagShownOnce = true; Self.diagRing = []; Self.trace("chat shown")
+                // kosmos#8221 slice 5: which list drew this chat, so a phone's reports can be counted per list.
+                if uikitList { Self.trace("list: uikit") } else { Self.trace("list: lazy") }
+            } else { Self.trace("chat back") }
             rebuilds = []   // kosmos#7420: the rebuild budget is per showing, so a chat kept alive under another tab gets it again
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { diagTick &+= 1 }
             epoch = client.chatEpoch
@@ -588,7 +597,7 @@ struct ChatView: View {
     }
 
     @ViewBuilder private var conversation: some View {
-        if Self.uikitList, let thread { conversationUIKit(thread) } else { conversationLazy }
+        if uikitList, let thread { conversationUIKit(thread) } else { conversationLazy }
     }
 
     // kosmos#8221 slice 1: the UIKit list. The same rows as the lazy list, in the same order, then the sends on their way, the
