@@ -36,7 +36,7 @@ function slice(start) {
 }
 // eslint-disable-next-line no-new-func
 const pjNeedsNotice = new Function(slice('function esc(') + '\n' + slice('const PJ_NEEDS_WHY = ') + '\n'
-  + slice('function pjAlsoWhy(') + '\n' + slice('function pjNeedsNotice(') + '\nreturn pjNeedsNotice;')();
+  + slice('function pjAlsoWhy(') + '\n' + slice('function pjSaidWords(') + '\n' + slice('function pjNeedsNotice(') + '\nreturn pjNeedsNotice;')();
 
 /* Real member rows (fixture-discipline): a real board from test-support/fleet, described by the real projects engine.
    The reason under test is then set on each row; the engine's own derivation of it is tested in engine/projects.test.js. */

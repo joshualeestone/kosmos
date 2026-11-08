@@ -132,7 +132,28 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const fr = fh.querySelectorAll('.pj-member');
     const failed6484 = { failedRed: !!(fr[0] && fr[0].querySelector('.pj-face .lwarn')) && /\bpjm-attn\b/.test(fr[0] ? fr[0].className : ''),
       failedClass: fr[0] ? fr[0].className : '', calmWarn: !!(fr[1] && fr[1].querySelector('.pj-face .lwarn')), calmClass: fr[1] ? fr[1].className : '' };
+    /* #8215: three members asking one question are said once, above their names; a fourth with other words keeps its
+       own row. Drawn at phone width (a 358px box), where a long question must wrap inside the notice, not overflow it. */
+    const sh = document.createElement('div');
+    sh.style.width = '358px';
+    document.body.appendChild(sh);
+    const q = (name, because) => Object.assign(mk('needs_you'), { sessionName: 's-' + name, name, stateReportedBy: 'agent', needsYouHere: 'question', because });
+    const same = 'Can I restart the build server? It has been stuck on the same step since this morning and nothing else can run until it finishes.';
+    sh.innerHTML = typeof pjNeedsNotice === 'function' ? pjNeedsNotice([q('Ada', same), q('Bo', same), q('Cy', same), q('Dee', 'Which folder?')]) : '';
+    const box = sh.querySelector('.pnotice');
+    const sameLine = sh.querySelector('.pn-same');
+    const answers = [...sh.querySelectorAll('[data-pn-open]')];
+    const same8215 = {
+      shown: !!box && !!sameLine && sameLine.getBoundingClientRect().height > 0,
+      sameText: sameLine ? sameLine.textContent : '',
+      sameRows: sh.querySelectorAll('.pn-same').length,
+      answersVisible: answers.filter((b) => b.getBoundingClientRect().height >= 24).length,
+      otherText: [...sh.querySelectorAll('.pnwhy')].map((s) => s.textContent).join(' | '),
+      overflow: box ? box.scrollWidth - box.clientWidth : -1,
+      sameAbove: !!sameLine && answers.length > 0 && sameLine.getBoundingClientRect().top < answers[0].getBoundingClientRect().top,
+    };
     return {
+      same8215,
       failed6484,
       also5692,
       dismiss6341,
@@ -205,6 +226,14 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   const f6484 = r.failed6484 || {};
   if (!f6484.failedRed) fail.push('#6484: a member whose restart failed while asking a question is not drawn red (' + f6484.failedClass + ')');
   if (f6484.calmWarn || /\bpjm-attn\b/.test(f6484.calmClass || '')) fail.push('#6484 CONTROL: the same member without a failed restart is drawn red, not a calm Question (' + f6484.calmClass + ')');
+  const s8215 = r.same8215 || {};
+  if (!s8215.shown) fail.push('#8215: three members asking the same question get no shared line in the needs-you block');
+  if (s8215.sameRows !== 1) fail.push('#8215: the shared question is said ' + s8215.sameRows + ' times, not once');
+  if (!/These 3 are asking the same thing\. Waiting for your answer: \u201cCan I restart the build server\?/.test(s8215.sameText || '')) fail.push('#8215: the shared line does not say how many and what (' + JSON.stringify(s8215.sameText) + ')');
+  if (s8215.answersVisible !== 4) fail.push('#8215: not every member kept a visible Answer (' + s8215.answersVisible + ' of 4)');
+  if (!/Waiting for your answer: \u201cWhich folder\?\u201d/.test(s8215.otherText || '')) fail.push('#8215 CONTROL: the member with other words is not on its own row with its words (' + JSON.stringify(s8215.otherText) + ')');
+  if (s8215.overflow > 0) fail.push('#8215: at phone width the notice overflows by ' + s8215.overflow + 'px');
+  if (!s8215.sameAbove) fail.push('#8215: the shared line is not above the names it covers');
   if (fail.length) {
     console.error('FAIL  render-project-needsyou-2699: ' + fail.join('; '));
     console.error('  measured=' + JSON.stringify(r));

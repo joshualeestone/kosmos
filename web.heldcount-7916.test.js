@@ -69,7 +69,7 @@ test('#7916: a held question on Tasks says it is held, with no age pressing it',
 
 // eslint-disable-next-line no-new-func
 const pjNeedsNotice = new Function(slice('function esc(') + '\n' + slice('const PJ_NEEDS_WHY = ') + '\n'
-  + slice('function pjAlsoWhy(') + '\n' + slice('function pjNeedsNotice(') + '\nreturn pjNeedsNotice;')();
+  + slice('function pjAlsoWhy(') + '\n' + slice('function pjSaidWords(') + '\n' + slice('function pjNeedsNotice(') + '\nreturn pjNeedsNotice;')();
 
 test('#7916: the project page\'s needs list words a held member as held, an asked one as waiting', () => {
   const m = (sessionName, name, stateHeld) => ({ sessionName, name, needsYouHere: 'question', present: true, stateHeld });

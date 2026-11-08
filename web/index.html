@@ -8913,6 +8913,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .pnotice .qopt:disabled { cursor: default; opacity: .6; }
 /* #6341: Open (or Answer) and Dismiss sit together; Dismiss is the quieter of the two, a plain word with no box. */
 .pnacts { display: flex; gap: 6px; align-items: center; flex: 0 0 auto; }
+/* #8215: a member under a "same thing" line has no words of its own. */
+.pn-in > .pnacts { margin-left: auto; }
+.pn-same + .pn-in { border-top: 0; padding-top: 0; }
 .pnotice .qopt.pn-dismiss { background: none; border-color: transparent; color: var(--k-ink-2); font-weight: 500; }
 .pnotice .qopt.pn-dismiss:hover { color: var(--k-ink); text-decoration: underline; }
 .pj-member.unseen { border-style: dashed; }
@@ -69880,6 +69883,13 @@ function pjAlsoWhy(m) {
   if (m.ownBound && m.ownBound.raised === true) return [PJ_NEEDS_WHY.own_bound[0], 'Open'];
   return [PJ_NEEDS_WHY.other[0], 'Open'];
 }
+/* #8215: an agent's question as one line for the needs-you block: spacing collapsed, and cut at 160 characters on a
+   code-point boundary (#7108's rule), with an ellipsis when cut. '' when there are no words. */
+function pjSaidWords(text) {
+  const t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+  const cps = Array.from(t);
+  return cps.length > 160 ? cps.slice(0, 160).join('').trimEnd() + '…' : t;
+}
 /* `redHere` (#5692) says whether a member's row is drawn red: callers pass the row builder itself, so the block names
    exactly the red rows the page draws. Without it, only the counted members are listed. */
 function pjNeedsNotice(roster, redHere) {
@@ -69891,7 +69901,8 @@ function pjNeedsNotice(roster, redHere) {
   const nameOf = (m) => String(m.name || m.sessionName || 'An agent');
   // #6341: Dismiss carries the reason the row shows, so the board keeps it only while that reason stands.
   // #6483: the member the heading already names is not named again on its row (the buttons' labels still name it).
-  const line = (m, why, act, reason) => '<div class="pnrow">' + (m === named ? '' : '<span class="pnwho">' + esc(nameOf(m)) + '</span>') + '<span class="pnwhy">' + esc(why) + '</span>'
+  // #8215: a row under a "same thing" line has no words of its own (the line above says them once).
+  const line = (m, why, act, reason) => '<div class="pnrow' + (why ? '' : ' pn-in') + '">' + (m === named ? '' : '<span class="pnwho">' + esc(nameOf(m)) + '</span>') + (why ? '<span class="pnwhy">' + esc(why) + '</span>' : '')
     + '<span class="pnacts"><button class="qopt" type="button" data-pn-open="' + esc(String(m.sessionName)) + '" aria-label="' + esc(act + ' ' + nameOf(m)) + '">' + act + '</button>'
     + '<button class="qopt pn-dismiss" type="button" data-pn-dismiss="' + esc(String(m.sessionName)) + '" data-pn-reason="' + esc(reason) + '" aria-label="' + esc('Dismiss ' + nameOf(m)) + '">Dismiss</button></span></div>';
   // The engine's needsYouKey (a question carries its words, so the next question is shown); the reason if absent.
@@ -69900,8 +69911,39 @@ function pjNeedsNotice(roster, redHere) {
   // #7108: cut on a code-point boundary, as the engine's needsKeyWords (a trailing half of an emoji is dropped).
   const keyWords = (t) => { const w = String(t || '').slice(0, 300); const c = w.charCodeAt(w.length - 1); return c >= 0xD800 && c <= 0xDBFF ? w.slice(0, -1) : w; };
   const keyOf = (m) => m.needsYouKey || (m.needsYouHere === 'question' ? 'question:' + keyWords(m.because) : m.needsYouHere);
-  const counted = rows.map((m) => { const [why, act] = (m.needsYouHere === 'question' && m.stateHeld === true ? PJ_NEEDS_WHY.held : PJ_NEEDS_WHY[m.needsYouHere]) || PJ_NEEDS_WHY.other; /* #7916: a held question says held */ return line(m, why, act, keyOf(m)); }).join('');
-  const extra = also.map((m) => { const [why, act] = pjAlsoWhy(m); return line(m, why, act, 'elsewhere'); }).join('');
+  /* #8215 (a user report: three agents in Question for days, all on one stuck process, read as three separate reds): an
+     agent's own question is shown in its words, and members whose rows would say the same thing are said once, above
+     their names. Words only on a row that is about a question the agent reported itself (stateReportedBy 'agent'): a needs-you read
+     off its screen has no words of its own. Rows group on their reason and the whole question (case and spacing
+     ignored), so a held question never merges with the same words asked for real; the 160-character cut is display only. */
+  // A failed restart or a crash loop is not a question (pjAlsoWhy says them first, as the agent card does).
+  const notRed = (m) => m.restartFailed !== true && !(m.crashLoop && m.crashLoop.looping === true);
+  // The engine's own sentence for a question asked without words (engine/status.js ASKING_GENERIC), never the agent's.
+  const PJ_ASKING_GENERIC = 'it is asking you something';
+  const saidOf = (it) => { if (!it.asks || it.m.stateReportedBy !== 'agent') return ''; const w = String(it.m.because == null ? '' : it.m.because).replace(/\s+/g, ' ').trim(); return w === PJ_ASKING_GENERIC ? '' : w; };
+  const withSaid = (why, said, full) => { if (!said) return why; const w = full ? said : pjSaidWords(said); return /^[^.]*\.$/.test(why) ? why.slice(0, -1) + ': \u201c' + w + '\u201d' : why + ' It asks: \u201c' + w + '\u201d'; };
+  const say = (items) => {
+    const order = [];
+    const groups = new Map();
+    for (const it of items) {
+      const said = saidOf(it);
+      const k = said ? it.why + '\u0001' + it.act + '\u0001' + said.toLowerCase() : '\u0000' + order.length;   // no words: a group of its own
+      if (!groups.has(k)) { groups.set(k, []); order.push(k); }
+      groups.get(k).push(Object.assign({ said }, it));
+    }
+    // Different questions whose shortened text would read the same are shown whole, so two rows never look identical.
+    const cuts = new Map();
+    for (const k of order) { const s = groups.get(k)[0].said; if (s) { const c = pjSaidWords(s).toLowerCase(); cuts.set(c, (cuts.get(c) || 0) + 1); } }
+    const whole = (s) => !!s && cuts.get(pjSaidWords(s).toLowerCase()) > 1;
+    return order.map((k) => {
+      const g = groups.get(k);
+      if (g.length === 1) return line(g[0].m, withSaid(g[0].why, g[0].said, whole(g[0].said)), g[0].act, g[0].reason);
+      return '<div class="pnrow pn-same"><span class="pnwhy">' + esc('These ' + g.length + ' are asking the same thing. ' + withSaid(g[0].why, g[0].said, whole(g[0].said))) + '</span></div>'
+        + g.map((it) => line(it.m, '', it.act, it.reason)).join('');
+    }).join('');
+  };
+  const counted = say(rows.map((m) => { const [why, act] = (m.needsYouHere === 'question' && m.stateHeld === true ? PJ_NEEDS_WHY.held : PJ_NEEDS_WHY[m.needsYouHere]) || PJ_NEEDS_WHY.other; /* #7916: a held question says held */ return { m, why, act, reason: keyOf(m), asks: m.needsYouHere === 'question' && notRed(m) }; }));
+  const extra = say(also.map((m) => { const [why, act] = pjAlsoWhy(m); return { m, why, act, reason: 'elsewhere', asks: m.state === 'needs_you' && notRed(m) }; }));
   const n = rows.length || also.length;
   const who = n === 1 ? esc(nameOf((rows.length ? rows : also)[0])) + ' needs you' : n + ' agents need you';
   // Review 1: the uncounted rows are not known to be about another project, so the words never claim they are.
