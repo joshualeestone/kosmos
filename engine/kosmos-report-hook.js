@@ -329,7 +329,9 @@ function timeoutFor(report) {
    - no board at the address (it is not running, or is mid-restart): retried, not noted;
    - a board that did not answer in time, at the proof or at the send (too busy): noted at once, not retried, so a
      stall gets no second send from every agent;
-   - anything else: retried once after a pause, and noted when the second try is lost too;
+   - anything else: retried once after a pause, and noted when the second try is lost too. Unlike the bash hook,
+     which always has time for its retry, a loss that leaves under TURN_END_RETRY_MIN_MS of the window is noted
+     without one;
    - a board that proves itself but serves another Kosmos (421 wrongWorld): neither, as the hook is already silent on
      that answer (#1704). Something at the port that cannot prove itself is a loss like any other.
    The note goes in the bash hook's file (turn-end-failures.log in the throttle folder), capped the same way; its line
@@ -364,6 +366,7 @@ function turnEndOutcome(v) {
 /** The reason a verdict carries, in the hook's own words, for the note. */
 function turnEndReason(v) {
   if (v.notProven) return v.notProven;
+  if (v.timedOut) return 'the board did not answer the report in time';
   if (v.error) return 'the board could not be reached (' + v.error + ')';
   if (v.because) return 'the board did not record it (' + v.because + ')';
   return v.status ? 'the board answered ' + v.status + ' and did not record it' : 'the report was not recorded';
@@ -700,8 +703,13 @@ async function main(io) {
       const pause = Math.min(o.retryPauseMs !== undefined ? o.retryPauseMs : TURN_END_RETRY_PAUSE_MS, Math.floor(left / 2));
       if (left - pause >= TURN_END_RETRY_MIN_MS) {
         await (o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms))))(pause);
+        const first = outcome;
         verdict = await sendOnce(left - pause);
         outcome = turnEndOutcome(verdict);
+        /* Windows answers a connect to a closed local port only after about 2 s (it retries the connect), so the
+           retry's shorter proof can time out on a board that is simply not there. After a first try that found
+           nothing there, that timeout is the same answer, not a busy board. */
+        if (first === 'quiet' && outcome === 'busy' && verdict.proofWhy === 'timed out') outcome = 'quiet';
         if (outcome === 'lost' || outcome === 'busy') noteTurnEnd(ctx, key, report, verdict, ' after a retry');
       } else if (outcome === 'lost') {
         noteTurnEnd(ctx, key, report, verdict, ' (no time left to retry)');
