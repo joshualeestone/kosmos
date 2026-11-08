@@ -36,7 +36,7 @@ final class ChatDragUITests: XCTestCase {
         // CONTROL: the keyboard is up before the drag, so its going is the drag's doing.
         XCTAssertTrue(app.keyboards.firstMatch.exists, "CONTROL: no keyboard before the drag")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
-            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97)))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
         let down = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
         XCTAssertEqual(XCTWaiter().wait(for: [down], timeout: 5), .completed, "the keyboard did not go down with a drag down the chat")
         KeyboardSlideUITests.settle(box)

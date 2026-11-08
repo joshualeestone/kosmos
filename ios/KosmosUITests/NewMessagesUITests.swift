@@ -4,6 +4,8 @@ import XCTest
 // the jump, and pressing it takes them to the newest message and goes away. A reader at the newest message is kept there and
 // never sees the capsule. Run on both lists (UIKitListArm). KOSMOS_SAMPLE_GROW brings one new message per read of the chat
 // ("New message <n> after the window slid."), so arrivals come on the chat's own reads, as a busy agent's do.
+// Two ways up: KOSMOS_SAMPLE_SCROLLUP (a fixed place, set by the app itself) and a real drag down the chat (which goes
+// through the list's own reading of the person's scroll).
 final class NewMessagesUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
@@ -37,42 +39,72 @@ final class NewMessagesUITests: XCTestCase {
         return all.max(by: { $0.0 < $1.0 })
     }
 
-    func testAReaderHigherUpGetsTheCapsuleAndItTakesThemToTheNewest() {
-        let app = Self.launch(["KOSMOS_SAMPLE_SCROLLUP": "40"])
-        let rested = app.descendants(matching: .any).matching(identifier: "sample-scroll-rested").firstMatch
-        XCTAssertTrue(rested.waitForExistence(timeout: 30), "CONTROL: the sample scroll-up never came to rest")
+    // Until an arrival numbered above n is drawn (at most `timeout`), settled.
+    private static func arrival(after n: Int, _ app: XCUIApplication, timeout: TimeInterval) -> (n: Int, element: XCUIElement)? {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if let g = newestGrown(app), g.n > n { KeyboardSlideUITests.settle(g.element); return newestGrown(app) }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        return nil
+    }
+
+    // From a reader higher up: the capsule shows as messages arrive and the arrivals stay below the screen; pressing it takes
+    // them to the newest, the capsule goes, and the next arrival shows with no capsule.
+    private func checkCapsule(_ app: XCUIApplication, shot: String) {
         let capsule = Self.capsule(app)
         XCTAssertTrue(capsule.waitForExistence(timeout: 20), "no New messages capsule for a reader higher up as messages arrived")
-        // Higher up: the arrivals are below the screen, not on it.
         if let (n, e) = Self.newestGrown(app) {
             XCTAssertFalse(e.isHittable, "New message \(n) is on screen: the reader was pulled down to the newest message")
         }
-        let before = XCTAttachment(screenshot: app.screenshot()); before.name = "capsule-shown"; before.lifetime = .keepAlways; add(before)
+        let before = XCTAttachment(screenshot: app.screenshot()); before.name = shot + "-shown"; before.lifetime = .keepAlways; add(before)
         capsule.tap()
-        // Then at the newest: the latest arrival on screen, and the capsule gone.
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: capsule)
         XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 5), .completed, "the capsule stayed after it was pressed")
-        Thread.sleep(forTimeInterval: 1)
-        guard let (n, e) = Self.newestGrown(app) else { XCTFail("no arrival drawn after the capsule was pressed"); return }
+        guard let (n, e) = Self.arrival(after: 0, app, timeout: 5) else { XCTFail("no arrival drawn after the capsule was pressed"); return }
         XCTAssertTrue(e.isHittable, "New message \(n), the newest, is not on screen after the capsule was pressed")
-        let after = XCTAttachment(screenshot: app.screenshot()); after.name = "capsule-pressed"; after.lifetime = .keepAlways; add(after)
-        // And kept there: the next arrival shows too, with no capsule.
-        let more = XCTNSPredicateExpectation(predicate: NSPredicate(format: "count > %d", Self.grown(app).count), object: Self.grown(app))
-        _ = XCTWaiter().wait(for: [more], timeout: 15)
-        guard let (m, f) = Self.newestGrown(app) else { XCTFail("the arrivals went"); return }
-        XCTAssertGreaterThan(m, n, "CONTROL: no later message arrived after the capsule was pressed")
+        let after = XCTAttachment(screenshot: app.screenshot()); after.name = shot + "-pressed"; after.lifetime = .keepAlways; add(after)
+        guard let (m, f) = Self.arrival(after: n, app, timeout: 15) else { XCTFail("CONTROL: no later message arrived after the capsule was pressed"); return }
         XCTAssertTrue(f.isHittable, "New message \(m) arrived after the capsule was pressed and is not on screen")
         XCTAssertFalse(capsule.exists, "the capsule came back for a reader at the newest message")
     }
 
-    // The control: the same arrivals, the reader left at the newest message. They show, and the capsule never does.
+    func testAReaderHigherUpGetsTheCapsuleAndItTakesThemToTheNewest() {
+        let app = Self.launch(["KOSMOS_SAMPLE_SCROLLUP": "40"])
+        let rested = app.descendants(matching: .any).matching(identifier: "sample-scroll-rested").firstMatch
+        XCTAssertTrue(rested.waitForExistence(timeout: 30), "CONTROL: the sample scroll-up never came to rest")
+        checkCapsule(app, shot: "capsule")
+    }
+
+    // The same, the reader moved up by a drag, so the list decides from the scroll itself that they left the newest message.
+    func testAReaderWhoDraggedUpGetsTheCapsule() {
+        let app = Self.launch([:])
+        let first = Self.grown(app).firstMatch
+        XCTAssertTrue(first.waitForExistence(timeout: 20), "CONTROL: no message arrived")
+        guard let (n0, newest) = Self.newestGrown(app) else { XCTFail("CONTROL: no arrival drawn"); return }
+        KeyboardSlideUITests.settle(newest)
+        for _ in 0..<2 {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+        }
+        KeyboardSlideUITests.settle(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message '")).firstMatch)
+        XCTAssertFalse(newest.exists && newest.isHittable, "CONTROL: the drags did not move the reader off New message \(n0)")
+        checkCapsule(app, shot: "capsule-drag")
+    }
+
+    // The control: the same arrivals, the reader left at the newest message. Each shows, and the capsule never does, not even
+    // for one read.
     func testAReaderAtTheNewestNeverGetsTheCapsule() {
         let app = Self.launch([:])
-        let grown = Self.grown(app)
-        let three = XCTNSPredicateExpectation(predicate: NSPredicate(format: "count >= 3"), object: grown)
-        XCTAssertEqual(XCTWaiter().wait(for: [three], timeout: 40), .completed, "CONTROL: fewer than three messages arrived")
-        XCTAssertFalse(Self.capsule(app).exists, "the capsule showed for a reader at the newest message")
-        guard let (n, e) = Self.newestGrown(app) else { XCTFail("no arrival drawn"); return }
-        XCTAssertTrue(e.isHittable, "New message \(n), the newest, is not on screen for a reader at the newest message")
+        let capsule = Self.capsule(app)
+        var last = 0
+        for i in 1...3 {
+            guard let (n, e) = Self.arrival(after: last, app, timeout: 20) else { XCTFail("CONTROL: arrival \(i) never came"); return }
+            XCTAssertTrue(e.isHittable, "New message \(n), the newest, is not on screen for a reader at the newest message")
+            XCTAssertFalse(capsule.exists, "the capsule showed after New message \(n) for a reader at the newest message")
+            last = n
+        }
+        // Then 6 s more, polled, so a capsule shown for one read in that time is caught too (one before it may not be).
+        XCTAssertFalse(capsule.waitForExistence(timeout: 6), "the capsule showed for a reader at the newest message")
     }
 }
