@@ -59,8 +59,8 @@
  * SessionStart and an agent's Stop get DEFAULT_TIMEOUT_MS; every other report,
  * and the Windows supervisor's noRetry Stop (kosmos#8233), SHORT_TIMEOUT_MS.
  * A local 127.0.0.1 board answers in milliseconds; the timeout bounds only the
- * board-down or busy case. Windows does update in place
- * (engine/win32update.js), so the board-down case includes an update restart:
+ * board-down or busy case. Windows does update in place (engine/win32update.js),
+ * so the board-down case includes an update restart:
  * then every report waits out its timeout, and an agent's Stop also waits the
  * kosmos#8230 retry's pause (TURN_END_RETRY_PAUSE_MS) before trying again,
  * within DEFAULT_TIMEOUT_MS in all. That is the price of the Stop not being
@@ -334,17 +334,17 @@ function timeoutFor(report) {
      which always has time for its retry, a loss that leaves under TURN_END_RETRY_MIN_MS of the window is noted
      without one;
    - a board that proves itself but serves another Kosmos (421 wrongWorld): neither, as the hook is already silent on
-     that answer (#1704);
-   - an answer cut off after its headers (our own timeout while the body arrived): not resent, as the board did answer,
-     and noted as unconfirmed (kosmos#8233). With the body cut off, a keep or a 421 wrongWorld cannot be told apart,
-     so one of those is noted too: the visible direction. Something at the port that cannot prove itself is a loss like any other.
+     that answer (#1704). Something at the port that cannot prove itself is a loss like any other;
+   - a 2xx answer cut off after its headers (our own timeout while the body arrived): not resent, as the board did
+     answer, and noted as unconfirmed (kosmos#8233). With the body cut off, a keep cannot be told apart, so one is
+     noted too: the visible direction. A cut-off answer of any other status is a refusal, a loss like any other.
    The note goes in the bash hook's file (turn-end-failures.log in the throttle folder), capped the same way; its line
    names the agent's throttle key and the reason, where the bash line names the pane and the CLI's exit code.
    Only an agent's own session (it carries an agent token) gets any of this: the person's own Claude sessions run
    this hook too, and as on the Mac they keep the single short send. A caller that does not wait for this hook (the
    Windows supervisor's in-process idle, engine/win32codexsup.js) passes noRetry: a late retry there could land
-   after the next turn's working. Its Stop keeps SHORT_TIMEOUT_MS and is never retried, but a lost or busy one is
-   still noted at once (kosmos#8233).
+   after the next turn's working. Its Stop keeps SHORT_TIMEOUT_MS and is never retried, but a lost, busy or cut-off
+   one is still noted at once; no board at the address is not noted, as for any Stop (kosmos#8233).
    Unlike the bash hook, which detaches its send and retry, this hook awaits them (see the header's DEVIATION), so a
    lost agent Stop holds the turn's end for up to DEFAULT_TIMEOUT_MS, against SHORT_TIMEOUT_MS before. That is also
    why the bash hook's STOP_TOKEN (a newer event cancels a pending retry) has no twin here: no later hook event of
@@ -432,9 +432,10 @@ async function deliver(report, io) {
     });
     let body = '';
     try { body = await res.text(); } catch (err) {
-      // kosmos#8233: our own timeout after the headers. The board writes its head and body together, once it has
+      // kosmos#8233: our own timeout after a 2xx head. The board writes its head and body together, once it has
       // decided, so it did answer: whether it recorded is unknown. Not resent (a second idle), and named as such.
-      if (err && err.name === 'AbortError') {
+      // A cut-off non-2xx answer is a refusal, so it keeps the old path below (an empty body, a loss).
+      if (err && err.name === 'AbortError' && res.ok) {
         return { ok: false, status: res.status, cutOff: true, error: 'the board answered ' + res.status + ' but its answer was cut off' };
       }
       body = '';
@@ -728,9 +729,11 @@ async function main(io) {
       }
     }
   } else if (agentStop) {
-    // kosmos#8233: a caller that does not wait (noRetry) gets no retry, but a lost or busy Stop is still noted.
+    // kosmos#8233: a caller that does not wait (noRetry) gets no retry, but a lost, busy or cut-off Stop is noted.
     const outcome = turnEndOutcome(verdict);
-    if (outcome === 'lost' || outcome === 'busy' || outcome === 'cut') {
+    if (outcome === 'busy') {
+      noteTurnEnd(ctx, throttleKey(env, ppid), report, verdict, ', the board was too busy (not retried: its caller does not wait)');
+    } else if (outcome === 'lost' || outcome === 'cut') {
       noteTurnEnd(ctx, throttleKey(env, ppid), report, verdict, ' (not retried: its caller does not wait)');
     }
   }
