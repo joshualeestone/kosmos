@@ -131,6 +131,14 @@ final class KeyboardSlideUITests: XCTestCase {
         if ProcessInfo.processInfo.environment["KOSMOS_UIKITLIST"] == "1" { app.launchEnvironment["KOSMOS_SAMPLE_UIKITLIST"] = "1" }
         if let n = ProcessInfo.processInfo.environment["KOSMOS_TAILCAP"] { app.launchEnvironment["KOSMOS_SAMPLE_TAILCAP"] = n }
         app.launch()
+        // EXPERIMENT kosmos#8221 batch 2: screenshots (not queries of the app) every 0.5 s across the flips, scored by pixels afterwards.
+        if ProcessInfo.processInfo.environment["KOSMOS_SHOTS"] == "1" {
+            Thread.sleep(forTimeInterval: 7.5)
+            for k in 0..<22 {
+                let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); a.name = String(format: "flip-%02d", k); a.lifetime = .keepAlways; add(a)
+                Thread.sleep(forTimeInterval: 0.5)
+            }
+        }
         Thread.sleep(forTimeInterval: 40)   // no queries: the varied long chat timed one out at 131 s
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.name = "boxflip-end"; shot.lifetime = .keepAlways; add(shot)
     }
