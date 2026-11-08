@@ -54,14 +54,16 @@
  *
  * DEVIATION FROM THE BASH HOOK, STATED: the bash hook BACKGROUNDS each send so
  * the hook returns instantly, guarding against the board bouncing mid-UPDATE
- * (every unthrottled hook would otherwise stall at the 15s curl ceiling). The
- * native-Windows bundle has NO update path (tools/build-kosmos-windows.sh), so
- * that specific stall window does not exist here; rather than carry a detached
- * cross-platform child just to reproduce the backgrounding, this awaits the
- * POST under a timeout (< the hook entry's own 15s): SessionStart and an
- * agent's Stop get DEFAULT_TIMEOUT_MS, every other report SHORT_TIMEOUT_MS. A
- * local 127.0.0.1 board answers in milliseconds; the timeout bounds only the
- * board-down or busy case.
+ * (every unthrottled hook would otherwise stall at the 15s curl ceiling). This
+ * hook awaits the POST instead, under a timeout (< the hook entry's own 15s):
+ * SessionStart and an agent's Stop get DEFAULT_TIMEOUT_MS, every other report
+ * SHORT_TIMEOUT_MS. A local 127.0.0.1 board answers in milliseconds; the
+ * timeout bounds only the board-down or busy case. Windows does update in place
+ * (engine/win32update.js), so the board-down case includes an update restart:
+ * then every report waits out its timeout, and an agent's Stop also waits the
+ * kosmos#8230 retry's pause (TURN_END_RETRY_PAUSE_MS) before trying again,
+ * within DEFAULT_TIMEOUT_MS in all. That is the price of the Stop not being
+ * lost across the restart, which is the loss the retry exists for.
  */
 
 const fs = require('node:fs');
@@ -801,7 +803,7 @@ if (require.main === module) {
   };
   const run = (input) => main({ input }).then(done).catch(() => done(0));
   const h = attachStdin(process.stdin, run);
-  // 5s backstop (not 10s): with the 8s SessionStart deliver, 5+8=13s stays under
+  // 5s backstop (not 10s): with the 8s SessionStart deliver (and an agent's Stop, kosmos#8230), 5+8=13s stays under
   // the hook entry's own 15s ceiling even in the pathological never-closing-stdin
   // case (done lets go of stdin, so the run then ends on its own, not 2 s later); Claude Code writes the event and closes stdin in milliseconds, so `run`
   // normally fires at once and only the deliver timeout applies.

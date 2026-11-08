@@ -39,6 +39,10 @@ and its first proof gets half the 8 s window.
 ## Cost, stated
 The Windows hook awaits its send (unlike the bash hook, which detaches), so a lost agent Stop holds the turn end for
 up to 8 s instead of 3 s. That is why no STOP_TOKEN twin is needed: no later event starts while the hook runs.
+Windows does update in place (engine/win32update.js), so during an update restart every agent Stop waits out its
+proof, the 2 s pause and a retry, within the 8 s: the price of that Stop not being lost across the restart, which is
+the loss the retry exists for (review iteration 3 corrected the header that said Windows had no update path).
+The keep list is checked equal to the bash hook's _TE_KEEP, so the two hooks cannot drift apart.
 
 ## Rejected
 - Reconciling a "working" card from the transcript's stop_hook_summary on the board: a second source of truth and a
