@@ -6,7 +6,7 @@ R=joshualeestone/kosmos; N="${1:-10}"; T="$(mktemp)"; trap 'rm -f "$T"' EXIT
 ran=0; red=0; none=0; asked=0
 for id in $(gh run list --repo "$R" --workflow ios.yml --branch main --limit "$N" --json databaseId --jq '.[].databaseId'); do
   asked=$((asked + 1))
-  job="$(gh api "repos/$R/actions/runs/$id/jobs?per_page=50" --jq '.jobs[]|select(.name|test("ui tests"))|.id' | head -1)"
+  job="$(gh api "repos/$R/actions/runs/$id/jobs?per_page=50" --jq '.jobs[]|select(.name == "ui tests (sample board)")|.id' | head -1)"
   [ -n "$job" ] || continue
   out="$(gh api "repos/$R/actions/jobs/$job/logs" 2>/dev/null)" || continue
   # Anchored on the log's timestamp: the step's own script, echoed in the log, also holds these words.

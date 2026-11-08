@@ -8,7 +8,12 @@
 # hand. Prints PASS, or FAIL with the failing check's own words.
 #
 #
-#   ios/tools/ui-sample.sh [--keep]
+#   ios/tools/ui-sample.sh [--keep] [--uikit]
+#
+# --uikit (kosmos#8221): the same run on the UIKit chat list (TEST_RUNNER_KOSMOS_UIKITLIST=1), the list a phone does not draw
+# yet. Only the CI-sized classes that switch lists: KeyboardSlideUITests less its three rebuild checks (the UIKit list never
+# rebuilds, so they skip), StopAddingUITests, SendMovesOnceUITests and ComposerSendUITests. The 260-message classes
+# (ChatOpensAtNewest, NewMessages, ChatSearch, ChatDrag) stay by hand on a Mac, for the reason ChatOpensAtNewest does below.
 #
 # The newest iOS runtime the selected Xcode's simulator SDK can run, and the smallest iPhone it offers (the least room above the keyboard). The simulator is
 # new for each run and deleted at the end, and so are the build and the results (--keep keeps them). SignInUITests is left
@@ -18,9 +23,11 @@
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 keep=0
+uikit=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=1; shift ;;
+    --uikit) uikit=1; shift ;;
     # The header comment, however long it grows: a fixed line range has to be raised each time the header grows, and
     # #7690's longer header would have cut its last line.
     -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
@@ -49,6 +56,16 @@ classes="AttachMenuUITests:14 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpen
 # checks (#7690, #7645) append to the SAME file, so the dump prints the whole file and names every keyboard check that ran,
 # in order; each launch starts at its own "chat shown" or "room shown" line.
 skip=""
+arm="lazy"
+if [ "$uikit" = 1 ]; then
+  arm="UIKit"
+  # kosmos#8221: KeyboardSlideUITests is 9 less its three rebuild checks, left out rather than run as skips, so a green run
+  # carries no skip warning that is always there and a new skip still stands out.
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3"
+  for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
+    skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
+  done
+fi
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
   echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
   exit 1
@@ -78,12 +95,12 @@ dtype="$(printf '%s\n' "$types" | grep -E 'iPhone-[0-9]+e$' | tail -1)"
 [ -n "$dtype" ] || { echo "FAIL  ui-sample: no iPhone simulator type found" >&2; exit 1; }
 udid="$(xcrun simctl create "kosmos-ui-sample-$$" "$dtype" "$runtime")" || { echo "FAIL  ui-sample: no ${dtype##*.} simulator could be made on $runtime" >&2; exit 1; }
 xcrun simctl boot "$udid" && xcrun simctl bootstatus "$udid" -b >/dev/null || { echo "FAIL  ui-sample: the simulator did not boot" >&2; exit 1; }
-echo "ui-sample: ${dtype##*.} on ${runtime##*.}"
+echo "ui-sample: ${dtype##*.} on ${runtime##*.}, the $arm chat list"
 only=""; want=0
 for c in $classes; do only="$only -only-testing:KosmosUITests/${c%%:*}"; want=$((want + ${c##*:})); done
 log="$work/xcodebuild.log"
 # shellcheck disable=SC2086  # $only and $skip are lists of separate arguments
-( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
+( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 TEST_RUNNER_KOSMOS_UIKITLIST="$uikit" xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
     -retry-tests-on-failure -test-iterations 2 $only $skip -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
 rc=$?
 # kosmos#7609: a failed test gets one more try, because this job runs on GitHub's slower runners and waits run out there. So a test
