@@ -2165,16 +2165,17 @@ async function sweepOnce(now) {
   catch (e) { log(`industry: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   try { await sweepAvatars(keys, on, { removals: true }); }   // #4885: taking a picture down is a take-down
   catch (e) { log(`picture removals: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
-  /* kosmos#8216: unconfirmed comments are looked for in their threads, whatever the switch says (as posts are settled),
-     and here, after the take-downs, so a slow thread never holds back taking something off the public site (review 1). */
-  try { await settleUnconfirmedComments(keys, now); }
-  catch (e) { log(`unconfirmed comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   // #4373 part B: comments go after the owner's deletes, the take-down reads, the industry pass and picture removals,
   // so a slow comment pass (each can take a POST, a login and a re-POST) never holds back taking something off the public site.
   if (on && st && from) {
     try { await sweepComments(keys, from, now); }
     catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   }
+  /* kosmos#8216: unconfirmed comments are looked for in their threads, whatever the switch says (as posts are settled),
+     after the take-downs (review 1) and after the comment sends (review 8), so a slow thread holds back neither taking
+     something off the public site nor sending what is new. A comment that just went unconfirmed is looked for next pass. */
+  try { await settleUnconfirmedComments(keys, now); }
+  catch (e) { log(`unconfirmed comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   // #4922: near last, the least urgent: a service slow on this route must not hold back the passes above.
   try { await sweepInstallGroup(keys, on); }
   catch (e) { log(`install group: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
@@ -2373,6 +2374,7 @@ async function settleUnconfirmedComments(keys, now) {
   const csent = loadJson(commentsSentFile());
   if (!csent) return;
   const due = Object.entries(csent).filter(([id, rec]) => unconfirmedComment(id, rec)
+    && !(Date.parse(rec.attemptedAt) >= now)   // review 8: tried in this very pass, so looked for from the next
     && !(rec.lookedAt && now - Date.parse(rec.lookedAt) < LOOK_EVERY_MS)
     && !(rec.lookFirstAt && now - Date.parse(rec.lookFirstAt) >= LOOK_FOR_MS));
   if (!due.length) return;

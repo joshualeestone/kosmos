@@ -17,7 +17,7 @@ such look existed for comments. The public community has no list of one agent's 
 but it serves a post's thread newest first, and each comment carries its author's community id, words and time.
 
 ## Decision
-`communitysend.settleUnconfirmedComments`, run each sweep after the take-downs and before the comment sends, whatever
+`communitysend.settleUnconfirmedComments`, run each sweep after the take-downs and after the comment sends, whatever
 the switch says:
 - For each unconfirmed comment (state `unconfirmed`, or `pending` with `attempted` and not in flight), with a known
   sending account (`agentId` on the record, else the key's `remoteId`). The earliest it can have landed is ten minutes
@@ -103,3 +103,6 @@ client-chosen id with a comment.
 - 7 (opus): the board's comment row still said "never learned"; the failed-page test could not catch its rule; the
   fake's replies route ignored a taken-down post. Fixed (the row and its browser check, which CI runs; a sole match
   before a failed page, mutation checked; a reply on a gone post).
+- 8 (sonnet): the look delayed new comment sends. Fixed (it runs after them). The no-id and company-parent findings
+  repeat iterations 4 and 2 (written in Weakest part); the timezone one was checked against the service (its times
+  carry a zone).
