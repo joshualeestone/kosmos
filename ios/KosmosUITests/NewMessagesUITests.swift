@@ -3,7 +3,7 @@ import XCTest
 // kosmos#8221 slice 2: the New messages capsule, on both lists (UIKitListArm). For a reader higher up it shows as messages
 // arrive, and pressing it takes them to the newest message and goes away. A reader at the newest message never gets it.
 // Slice 3: a higher-up reader keeps their exact place as rows come and go above (testAReaderHigherUpKeepsTheirPlace...).
-// KOSMOS_SAMPLE_GROW brings one new message per read of the chat, and drops the oldest
+// KOSMOS_SAMPLE_GROW brings one new message per read of the chat and slides the window (the oldest out of the window)
 // ("New message <n> after the window slid."), so arrivals come on the chat's own reads, as a busy agent's do.
 // Two ways up: KOSMOS_SAMPLE_SCROLLUP (a fixed place, set by the app itself) and a real drag down the chat (which goes
 // through the list's own reading of the person's scroll).
@@ -148,10 +148,19 @@ final class NewMessagesUITests: XCTestCase {
         !f.isEmpty && f.minY > app.navigationBars.firstMatch.frame.maxY && f.maxY < app.frame.maxY
     }
 
-    // The highest sample row on screen: its label and frame.
+    // The highest sample row on screen: its label and frame, both read from one snapshot of the screen, so a row that leaves
+    // the list during the read cannot pair one row's label with another's frame.
     private static func topRow(_ app: XCUIApplication) -> (label: String, frame: CGRect)? {
-        sampleRows(app).allElementsBoundByIndex.map { ($0.label, $0.frame) }.filter { onScreen($0.1, app) }
-            .min(by: { $0.1.minY < $1.1.minY }).map { (label: $0.0, frame: $0.1) }
+        guard let snap = try? app.snapshot() else { return nil }
+        var found: [(label: String, frame: CGRect)] = []
+        func walk(_ s: XCUIElementSnapshot) {
+            if s.elementType == .staticText, s.label.hasPrefix("Message "), s.label.hasSuffix(" of 260."), onScreen(s.frame, app) {
+                found.append((label: s.label, frame: s.frame))
+            }
+            s.children.forEach(walk)
+        }
+        walk(snap)
+        return found.min(by: { $0.frame.minY < $1.frame.minY })
     }
 
     private func keepsPlace(_ env: [String: String], drag: Bool = false) {
@@ -188,9 +197,18 @@ final class NewMessagesUITests: XCTestCase {
     // scroll by code 5 s after the scroll-up), moves a reader higher up and is not put back: the held place is dropped and
     // taken again where the scroll ends. The highest row is read before the scroll and after it has come to rest, 3 s apart.
     // UIKit list only: the lazy list's scroll-up hook has no SCROLLBY.
-    func testAScrollWithNoFingerMovesAReaderHigherUpAndStays() throws {
+    func testAScrollWithNoFingerMovesAReaderHigherUpAndStays() throws { try scrollWithNoFinger([:]) }
+
+    // The same while rows leave the top on every read (NOKEEP), so updates land around the scroll. Whether one lands inside
+    // the animation's own frames is chance: this does not force that case.
+    func testAScrollWithNoFingerMovesAReaderHigherUpAsRowsLeaveTheTop() throws {
+        try scrollWithNoFinger(["KOSMOS_SAMPLE_NOKEEP": "1"])
+    }
+
+    private func scrollWithNoFinger(_ env: [String: String]) throws {
         if !UIKitListArm.on { throw XCTSkip("KOSMOS_SAMPLE_SCROLLBY is in the UIKit list's hook only (kosmos#8221)") }
-        let app = Self.launch(["KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_SCROLLBY": "300"])
+        var env = env; env["KOSMOS_SAMPLE_SCROLLUP"] = "40"; env["KOSMOS_SAMPLE_SCROLLBY"] = "300"
+        let app = Self.launch(env)
         let rested = app.descendants(matching: .any).matching(identifier: "sample-scroll-rested").firstMatch
         XCTAssertTrue(rested.waitForExistence(timeout: 30), "CONTROL: the sample scroll-up never came to rest")
         KeyboardSlideUITests.settle(Self.sampleRows(app).firstMatch)
@@ -202,7 +220,8 @@ final class NewMessagesUITests: XCTestCase {
         let y1 = row.frame.minY
         XCTAssertGreaterThan(y1 - y0, 250, "'\(top.label)' moved \(Int(y1 - y0)) pt, not about 300: the scroll was put back")
         Thread.sleep(forTimeInterval: 3)
-        XCTAssertEqual(row.frame.minY, y1, accuracy: 4, "'\(top.label)' moved again after the scroll ended, from \(Int(y1)) to \(Int(row.frame.minY))")
+        XCTAssertEqual(row.frame.minY, y1, accuracy: 4,
+                       "'\(top.label)' moved again after the scroll ended, from \(Int(y1)) to \(Int(row.frame.minY))")
     }
 
     // The control: the same arrivals, the reader left at the newest message. Each shows, and the capsule never does, not even

@@ -55,10 +55,11 @@ struct ChatList: UIViewRepresentable {
         // A reader higher up: the highest row on screen and how far below the top of the list it is drawn. Dropped when the
         // offset moves other than by this list's own pin, hold, layout pass or update (scrollViewDidScroll).
         var place: (id: String, dy: CGFloat)?
-        // The offset at the end of the last layout. The place is taken and held only where the list is at rest (the same
-        // offset two layouts running): a hold during a scroll would set the offset and stop the scroll there.
-        var lastY: CGFloat?
-        func resting(_ list: UIScrollView) -> Bool { lastY.map { abs($0 - list.contentOffset.y) <= 0.5 } ?? false }
+        // When the offset last moved other than by this list's own doing. Until a scroll ends (scrolled()), or for 0.25 s
+        // after such a move, the list is moving: no place is taken and none is held, because a hold sets the offset and
+        // would stop an animated scroll there (each frame of one is such a move).
+        var movedAt: CFTimeInterval = 0
+        func moving() -> Bool { CACurrentMediaTime() - movedAt < 0.25 }
 
         func configure(_ c: UICollectionViewCell, _ id: String) {
             guard let cell else { return }
@@ -121,6 +122,7 @@ struct ChatList: UIViewRepresentable {
                 place = nil
             } else if !pinning, !applying, !(list?.laying ?? false) {
                 place = nil
+                movedAt = CACurrentMediaTime()
             }
         }
         func scrollViewDidEndDecelerating(_ sv: UIScrollView) { scrolled(sv) }
@@ -128,13 +130,13 @@ struct ChatList: UIViewRepresentable {
         func scrollViewDidEndScrollingAnimation(_ sv: UIScrollView) { scrolled(sv) }
         func scrollViewDidScrollToTop(_ sv: UIScrollView) { scrolled(sv) }
         func scrolled(_ sv: UIScrollView) {
-            lastY = sv.contentOffset.y   // where the scroll ended is a rest: the next layout holds the place taken here
+            movedAt = 0   // a scroll that has ended is at rest: the next layout holds the place taken here
             atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
             if !atEnd { place = top() }
         }
 
-        // The highest row on screen (any part of it below the top of the list) and how far its top is below the list's
-        // offset, as hold() puts it back, from the rows drawn now. `keep`, when given, skips rows that are not in it: a row about to go cannot hold the place.
+        // The highest row on screen (any part of it below the top of the list) and how far its top is below the
+        // list's offset, as hold() puts it back, from the rows drawn now. `keep`, when given, skips rows that are not in it: a row about to go cannot hold the place.
         func top(keep: Set<String>? = nil) -> (id: String, dy: CGFloat)? {
             guard let list, let source else { return nil }
             let edge = list.contentOffset.y + list.adjustedContentInset.top
@@ -163,11 +165,8 @@ struct ChatList: UIViewRepresentable {
         // wherever the offset is, and a reader higher up is held at their place (taken here first when there is none).
         func laidOut() {
             guard let list, !pinning else { return }
-            guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else {
-                lastY = list.contentOffset.y; return
-            }
-            if atEnd { pin() } else if resting(list) { if place == nil { place = top() } else { hold() } }
-            lastY = list.contentOffset.y
+            guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
+            if atEnd { pin() } else if !moving() { if place == nil { place = top() } else { hold() } }
         }
 
         func pin() {
@@ -203,7 +202,7 @@ struct ChatList: UIViewRepresentable {
             }
             let kept = Set(now)
             // A reader higher up whose top row is about to go holds the next row on screen that stays, as it is drawn now.
-            let heldGoes = place.map { !kept.contains($0.id) } ?? true
+            let heldGoes = place.map { !kept.contains($0.id) } ?? !moving()
             if !atEnd, heldGoes { place = top(keep: kept) }
             let again = shown.filter { kept.contains($0) }
             if !again.isEmpty { s.reconfigureItems(again) }
