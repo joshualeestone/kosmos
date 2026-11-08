@@ -22,6 +22,9 @@ struct ChatList: UIViewRepresentable {
 
     // How close to the end still counts as at the newest message after the person's own scroll.
     static let endSlack: CGFloat = 40
+    #if DEBUG
+    static var sampleUpDone = false   // KOSMOS_SAMPLE_SCROLLUP runs once a launch, whatever rebuilds the list
+    #endif
 
     final class List: UICollectionView {
         var onLayout: (() -> Void)?
@@ -168,7 +171,8 @@ struct ChatList: UIViewRepresentable {
         let told = atEnd
         DispatchQueue.main.async { told(true) }
         #if DEBUG
-        if let up = sampleUp {
+        if let up = sampleUp, !Self.sampleUpDone {
+            Self.sampleUpDone = true
             let rested = sampleRested
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak co] in co?.sampleScrollUp(up, rested: rested) }
         }
