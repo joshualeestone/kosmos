@@ -49,6 +49,8 @@
  * to exit 0. Only SessionStart -- the once-per-session event whose stdout is a
  * systemMessage the person sees -- says a failure OUT LOUD; every other event
  * stays silent on failure, because its stdout is not a channel to the person.
+ * kosmos#8230: an agent's lost Stop is the exception to "silent": it leaves a
+ * line in turn-end-failures.log, as the bash hook's does (see TURN_END_KEEP).
  *
  * DEVIATION FROM THE BASH HOOK, STATED: the bash hook BACKGROUNDS each send so
  * the hook returns instantly, guarding against the board bouncing mid-UPDATE
@@ -56,8 +58,10 @@
  * native-Windows bundle has NO update path (tools/build-kosmos-windows.sh), so
  * that specific stall window does not exist here; rather than carry a detached
  * cross-platform child just to reproduce the backgrounding, this awaits the
- * POST under a short timeout (< the hook entry's own 15s). A local 127.0.0.1
- * board answers in milliseconds; the timeout bounds only the board-down case.
+ * POST under a timeout (< the hook entry's own 15s): SessionStart and an
+ * agent's Stop get DEFAULT_TIMEOUT_MS, every other report SHORT_TIMEOUT_MS. A
+ * local 127.0.0.1 board answers in milliseconds; the timeout bounds only the
+ * board-down or busy case.
  */
 
 const fs = require('node:fs');
@@ -130,15 +134,15 @@ function reportFor(evt, ctx) {
       const cmd = field(evt, 'tool_input.command').slice(0, 200);
       return { ...base, state: 'needs_you', text: 'asking permission to use ' + tool + (cmd ? ': ' + cmd : '') };
     }
-    // kosmos#8230: turnEnd marks the three reports that end a turn (see timeoutFor and noteTurnEnd).
+    // kosmos#8230: turnEnd marks the turn's end, as the bash hook's report_turn_end does Stop alone (see main).
     case 'Stop':
       return { ...base, state: 'idle', text: 'finished responding', turnEnd: true };
     case 'StopFailure': {
       const kind = field(evt, 'matcher') || field(evt, 'error_type') || 'an api error';
-      return { ...base, state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider', turnEnd: true };
+      return { ...base, state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider' };
     }
     case 'SessionEnd':
-      return { ...base, state: 'stopped', turnEnd: true };
+      return { ...base, state: 'stopped' };
     default:
       return null;
   }
@@ -312,22 +316,23 @@ async function toolFailed(req, io) {
  *  harmless (the next event re-reports), so it uses a short window to bound the
  *  latency it can add to the person's own turn if the board accepts-but-hangs. */
 function timeoutFor(report) {
-  /* kosmos#8230: a turn-ending report gets the full window too. It is the one report no later event repeats, so a
-     card left on "working" stays wrong until the next turn. */
-  return (report && (report.loud || report.turnEnd)) ? DEFAULT_TIMEOUT_MS : SHORT_TIMEOUT_MS;
+  return (report && report.loud) ? DEFAULT_TIMEOUT_MS : SHORT_TIMEOUT_MS;
 }
 
-/* kosmos#8230: the Windows twin of install/kosmos-report-hook.sh's report_turn_end (kosmos#7977), with the same
-   outcomes, so the two hooks read one way:
+/* kosmos#8230: the Windows twin of install/kosmos-report-hook.sh's report_turn_end (kosmos#7977): an agent's Stop
+   gets the full window (DEFAULT_TIMEOUT_MS, so its proof gets half), and the same outcomes:
    - a keep the board meant (its record kept a standing wait, `skipped`), a report it cannot tie to an agent, or
      another account's report: no retry, no note (TURN_END_KEEP);
    - no board at the address (it is not running, or is mid-restart): retried, not noted;
    - a board that did not answer the proof in time (too busy): noted at once, not retried, so a stall gets no second
      send from every agent;
    - anything else: retried once after a pause, and noted when the second try is lost too.
-   The note goes where the bash hook writes it: turn-end-failures.log in the throttle folder, the same line shape,
-   capped the same way. Only an agent's own session notes (it carries an agent token): the person's own Claude
-   sessions run this hook too, and a line for each of their turns would bury the rare real loss. */
+   The note goes in the bash hook's file (turn-end-failures.log in the throttle folder), capped the same way; its line
+   names the agent's throttle key and the reason, where the bash line names the pane and the CLI's exit code.
+   Only an agent's own session (it carries an agent token) gets any of this: the person's own Claude sessions run
+   this hook too, and as on the Mac they keep the single short send. A caller that does not wait for this hook (the
+   Windows supervisor's in-process idle, engine/win32codexsup.js) passes noRetry: a late retry there could land
+   after the next turn's working. */
 const TURN_END_LOG = 'turn-end-failures.log';
 const TURN_END_LOG_MAX_LINES = 400;
 const TURN_END_LOG_KEEP_LINES = 200;
@@ -666,17 +671,17 @@ async function main(io) {
       world: c.world,
     });
   };
-  const budget = o.timeoutMs || timeoutFor(report);
+  // kosmos#8230: an agent's Stop, from a caller that waits for this hook, follows the bash hook's rules (see TURN_END_KEEP).
+  const turnEnd = report.turnEnd === true && Boolean(agentToken(env)) && o.noRetry !== true;
+  const budget = o.timeoutMs || (turnEnd ? DEFAULT_TIMEOUT_MS : timeoutFor(report));
   const t0 = Date.now();
   let verdict = await sendOnce(budget);
 
-  // kosmos#8230: a turn end follows the bash hook's rules (see TURN_END_KEEP above).
-  if (report.turnEnd) {
-    const noting = Boolean(agentToken(env));
+  if (turnEnd) {
     const key = throttleKey(env, ppid);
     let outcome = turnEndOutcome(verdict);
     if (outcome === 'busy') {
-      if (noting) noteTurnEnd(ctx, key, report, verdict, ', the board was too busy (not retried)');
+      noteTurnEnd(ctx, key, report, verdict, ', the board was too busy (not retried)');
     } else if (outcome === 'quiet' || outcome === 'lost') {
       const left = budget - (Date.now() - t0);
       const pause = Math.min(o.retryPauseMs !== undefined ? o.retryPauseMs : TURN_END_RETRY_PAUSE_MS, Math.floor(left / 2));
@@ -684,8 +689,8 @@ async function main(io) {
         await (o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms))))(pause);
         verdict = await sendOnce(left - pause);
         outcome = turnEndOutcome(verdict);
-        if (noting && (outcome === 'lost' || outcome === 'busy')) noteTurnEnd(ctx, key, report, verdict, ' after a retry');
-      } else if (noting && outcome === 'lost') {
+        if (outcome === 'lost' || outcome === 'busy') noteTurnEnd(ctx, key, report, verdict, ' after a retry');
+      } else if (outcome === 'lost') {
         noteTurnEnd(ctx, key, report, verdict, ' (no time left to retry)');
       }
     }

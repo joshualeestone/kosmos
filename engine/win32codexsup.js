@@ -115,7 +115,7 @@ function superviseCodexStreaming(spec, opts) {
      (live-execution.inTestRun): a suite that drives this loop without the seam must not post to a real board. */
   const reportIdle = typeof o.reportIdle === 'function' ? o.reportIdle
     : (env) => (require('./live-execution').inTestRun() ? null : require('./kosmos-report-hook')
-      .main({ input: JSON.stringify({ hook_event_name: 'Stop' }), env, stdout: () => {} }));
+      .main({ input: JSON.stringify({ hook_event_name: 'Stop' }), env, stdout: () => {}, noRetry: true }));   // kosmos#8230: not awaited, so no late retry
   const lastReport = typeof o.lastReport === 'function' ? o.lastReport : () => require('./selfreport').read(s.name);
 
   /* The codex binary (path hint or bare name) and the turn environment, resolved
