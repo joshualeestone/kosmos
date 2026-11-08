@@ -16,5 +16,5 @@ another computer, "did not get" a post, and it read "The team" and "Before -> Af
 today's "It woke no one" line. So a colleague on another computer is NOT named: the board
 cannot tell them from the person or a phrase. That is the weakest part, chosen because a false statement is worse.
 Review 2: whole names only in a header too. Deferred: a card whose pane is crashed is still offered kosmos msg (its refusal is honest); "thanks @homer" also gets the sentence (it is true).
-Not changed: a folded retry and an unrecorded post carry no note, as ambiguousNote never has.
+Not changed: an unrecorded post and a retry folded into the first copy carry no note, as ambiguousNote did not before (an in-flight fold can repeat it).
 Rejected: a new answer field (both CLIs and every older one would need teaching, for one sentence).

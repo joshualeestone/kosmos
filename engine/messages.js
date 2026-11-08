@@ -2504,7 +2504,7 @@ function ambiguousNote(ambiguous, mentioned, shown) {
 }
 
 /* kosmos#8270: the sentence that tells an agent its post addressed another Kosmos agent on this computer who is not on
-   this project, so it reached them nowhere. Read as addressedMembers reads a post, but it speaks only of someone it can
+   this project, so it reached them nowhere. It finds addressees as addressedMembers does, more strictly, and speaks only of someone it can
    identify: a real agent's card here (not a stray terminal session, which `kosmos msg` refuses), named in a header that
    is this poster's own, or by a whole-word @-mention. A name it cannot identify says nothing: that could be the person,
    a member on another computer, or not a name at all, and a false "did not reach them" is worse than none. Never throws;
@@ -2521,23 +2521,25 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
     const addKeys = (v) => { if (typeof v === 'string' && v) { insideKeys.add(nameKey(v)); v.split(/\s+/).forEach((w) => insideKeys.add(nameKey(w))); } };
     for (const c of Array.isArray(roster) ? roster : []) if (c && (members.includes(c.sessionName) || c.sessionName === from)) { addKeys(c.sessionName); addKeys(c.name); }
     members.forEach(addKeys); addKeys(from);
-    const found = new Map();   // the name shown -> the handle to type
+    const found = new Map();   // the handle to type -> the name shown
     const add = (hit) => {
       if (hit.length !== 1 || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(hit[0])) return;
       const card = cards.find((c) => c.sessionName === hit[0]);
       const shown = printableName(card && card.name) || printableName(hit[0]);
-      if (shown) found.set(shown, hit[0]);
+      if (shown) found.set(hit[0], shown);
     };
     const poster = from === undefined || from === null ? [] : [String(from)];
-    const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => h.sender && nameResolves(h.sender, poster, roster).length);
+    const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => nameResolves(h.sender, poster, roster).length);
     for (const part of head ? head.targets : []) {
       const bare = part.replace(/^@/, '');
-      if (!/^(all|everyone)$/i.test(bare) && !targetResolves(bare, members, roster).length && !insideKeys.has(nameKey(bare))) {
+      if (!/^(all|everyone)$/i.test(bare) && !targetResolves(bare, members, roster).length ) {
         // Whole names only, as the @ rule (review 2): the header's one-word match would make "-> Team:" mean "Team Rocket".
         // The longest leading run of up to three words, so the words after a name ("Homer on m702") do not lose it.
         const words = bare.split(/\s+/).filter(Boolean);
         for (let k = Math.min(3, words.length); k >= 1; k -= 1) {
-          const hit = [...mentionedMembers('@' + nameKey(words.slice(0, k).join(' ')), outside, roster).mentioned];
+          const run = nameKey(words.slice(0, k).join(' '));
+          if (insideKeys.has(run)) break;   // a member answers to this name, even if too ambiguous to address (review 3)
+          const hit = [...mentionedMembers('@' + run, outside, roster).mentioned];
           if (hit.length) { add(hit); break; }
         }
       }
@@ -2546,7 +2548,7 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
       const word = m[2].replace(/[._-]+$/, '');
       if (word && !insideKeys.has(nameKey(word))) add([...mentionedMembers('@' + word, outside, roster).mentioned]);
     }
-    return [...found].map(([name, handle]) => name + ' is not on this project, so this post did not reach them. To reach them: kosmos msg ' + handle + '.').join(' ');
+    return [...found].map(([handle, name]) => name + ' is not on this project, so this post did not reach them. To reach them: kosmos msg ' + handle + '.').join(' ');
   } catch { return ''; }
 }
 
