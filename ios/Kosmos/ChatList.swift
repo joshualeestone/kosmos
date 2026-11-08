@@ -76,7 +76,7 @@ struct ChatList: UIViewRepresentable {
             guard let list, !pinning else { return }
             let h = list.bounds.height, c = list.contentSize.height
             defer { lastHeight = h; lastContent = c }
-            guard atEnd, !ids.isEmpty, c > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
+            guard atEnd, c > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
             if h != lastHeight || c != lastContent || abs(list.contentOffset.y - maxY(list)) > 0.5 { pin() }
         }
 
@@ -123,6 +123,9 @@ struct ChatList: UIViewRepresentable {
         list.keyboardDismissMode = .interactive
         list.alwaysBounceHorizontal = false
         list.showsHorizontalScrollIndicator = false
+        // A cell is built only as it comes on screen: a cell prepared ahead would keep what it was built with, and only the cells
+        // on screen are drawn again on an update (apply).
+        list.isPrefetchingEnabled = false
         // The list's own room above its first row and below its last, as the lazy list's padding (ChatView.listPadV).
         list.contentInset = UIEdgeInsets(top: ChatView.listPadV, left: 0, bottom: ChatView.listPadV, right: 0)
         let co = context.coordinator
@@ -151,6 +154,8 @@ struct ChatList: UIViewRepresentable {
             co.newest = newest
             co.atEnd = true
             ChatView.trace("uikit list: to the newest")
+            // A fling still running would carry on past the move; stopping it in place first.
+            if list.isDecelerating { list.setContentOffset(list.contentOffset, animated: false) }
             list.setNeedsLayout()
             co.pin()
         }

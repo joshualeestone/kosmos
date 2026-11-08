@@ -1,8 +1,9 @@
 import XCTest
 
 // kosmos#8221: which list draws the chat in a check. TEST_RUNNER_KOSMOS_UIKITLIST=1 runs it on the UIKit list (ChatList),
-// otherwise the lazy SwiftUI list, so one class answers for both lists. Set just before launch, after any whole-dictionary
-// assignment of the launch environment.
+// otherwise the lazy SwiftUI list. Set just before launch, after any whole-dictionary assignment of the launch environment.
+// A check of something the UIKit list does not have yet skips itself on that arm (XCTSkip), so a UIKit run's failures are
+// all about what it does have. A launch that opens a project room is unaffected by the switch.
 enum UIKitListArm {
     static var on: Bool { ProcessInfo.processInfo.environment["KOSMOS_UIKITLIST"] == "1" }
     static func set(_ app: XCUIApplication) {

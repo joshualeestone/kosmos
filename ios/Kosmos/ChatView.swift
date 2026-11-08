@@ -574,8 +574,9 @@ struct ChatView: View {
 
     // kosmos#8221 slice 1: the UIKit list. The same rows as the lazy list, in the same order, then the sends on their way, the
     // working line and the room at the end. Kept at the newest message by the list itself (ChatList); a reader higher up is
-    // told of new messages by the capsule. Earlier pages, a reader's place as rows land above, and the blank checks are not
-    // here yet (later slices).
+    // told of new messages by the capsule. Not here yet (later slices): earlier pages and their loading and failed lines, a
+    // reader's place as rows land above, the pull past the end for a read (#8072), the keyboard's settled looks, and the blank
+    // checks.
     @ViewBuilder private func conversationUIKit(_ thread: Board.Thread) -> some View {
         let loaded = Board.shownRows(earlier, thread: thread)
         let rows = Board.chatFilter(loaded, agentName: shown.name, query: query)
@@ -586,7 +587,10 @@ struct ChatView: View {
         let sends = pending
         let top: [String] = thread.rows.isEmpty && pending.isEmpty ? ["empty"]
             : (searching && rows.isEmpty && !loaded.isEmpty ? ["nomatch"] : [])
-        let ids = top + items.map(\.id) + sends.map(\.id) + ["working", "end"]
+        // Each id once: a diffable list throws on a repeat, and a row carried into the earlier
+        // rows can share its id with one in the new read (parseRows numbers rows per read). The first is kept, as byId keeps it.
+        var seen = Set<String>()
+        let ids = (top + items.map(\.id) + sends.map(\.id) + ["working", "end"]).filter { seen.insert($0).inserted }
         ChatList(ids: ids, cell: { id in
             if let item = byId[id] { return AnyView(row(item)) }
             if let p = sends.first(where: { $0.id == id }) { return AnyView(pendingBubble(p, layout)) }
