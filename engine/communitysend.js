@@ -2238,6 +2238,7 @@ const LOOK_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 const LOOK_LATE_MS = 60 * 60 * 1000;   // review 3: how long after a try a landed copy can carry a later time
 const LOOK_TRIES_MAX = 7 * 24;   // review 3, 5: looks that never got an answer, at most (an hour apart: about a week)
 const LOOKS_PER_PASS = 3;
+const LOOK_PASS_MS = 30 * 1000;   // review 11: no new look starts after this long, so the pass never holds the lock for minutes
 const LOOK_PAGES = 5;
 const LOOK_PAGE = 20;   // the service pages a thread at most 20
 const LOOK_CAP = 1024 * 1024;
@@ -2247,6 +2248,7 @@ const LOOK_CURSOR_RE = /^[A-Za-z0-9_=.-]{1,200}$/;
    (canLook, when given). The board's row and the take-back, edit and removal refusals promise a look only then. */
 function commentStillLooked(r) {
   if (!r) return false;
+  if (!endpointAllowed()) return false;   // review 11: the sweep never looks while the address is one it does not send to
   if (r.canLook === false || r.lookSkip || r.lookStopped === true) return false;
   if (typeof r.lookFirstAt === 'string' && Date.now() - Date.parse(r.lookFirstAt) >= LOOK_FOR_MS) return false;
   return !((r.lookFails || 0) >= LOOK_TRIES_MAX);
@@ -2347,7 +2349,8 @@ async function lookForComment(c, agentKey, keys, ok, since, soleOk = true) {
     if (!parent) {
       // Review 3: every match back to the bound is collected, and the oldest wins, so same-words copies pair in order
       // across pages too.
-      for (const x of tops) if (x.parentId !== '' && x.parentId !== null) continue; else if (ok(x)) candidates.push(x);   // review 4: top-level only
+      // Review 4: top-level only. A parent id of null (the service's) or '' (absent) both mean top-level.
+      for (const x of tops) if ((x.parentId === null || x.parentId === '') && ok(x)) candidates.push(x);
     } else {
       for (const t of tops) {
         const embedded = lookRows(t.replies);
@@ -2394,8 +2397,9 @@ async function settleUnconfirmedComments(keys, now) {
   const when = ([id, rec]) => { const t = Date.parse(rec.attemptedAt); if (Number.isFinite(t)) return t; const c = byId.get(id); const m = c ? Date.parse(c.releasedAt || c.receivedAt || c.at) : NaN; return Number.isFinite(m) ? m : Infinity; };
   due.sort((a, b) => { const x = when(a); const y = when(b); return x < y ? -1 : x > y ? 1 : 0; });   // review 4: no NaN from two Infinities
   let looked = 0;
+  const began = Date.now();
   for (const [id, rec] of due) {
-    if (looked >= LOOKS_PER_PASS) break;
+    if (looked >= LOOKS_PER_PASS || Date.now() - began > LOOK_PASS_MS) break;
     if (String(rec.agent).startsWith(RETIRED_PREFIX)) { const l = loadJson(commentsSentFile()); if (l && unconfirmedComment(id, l[id]) && l[id].lookSkip !== 'retired') { l[id] = { ...l[id], lookSkip: 'retired' }; saveJson(commentsSentFile(), l); csent[id] = l[id]; } continue; }   // review 5: never looked for, so status says so
     if (retiring(rec.agent)) continue;   // #4994: its record is moving; looked for once it has
     const c = byId.get(id);
@@ -2438,7 +2442,7 @@ async function settleUnconfirmedComments(keys, now) {
     const cur = latest[id];
     const stamp = new Date(now).toISOString();
     if (r && r.found && !claimedIds(latest).has(String(r.found))) {
-      const { lookSkip: _s, ...curNoSkip } = cur;
+      const { lookSkip: _s, lookedAt: _la, lookFirstAt: _lf, lookComplete: _lc, lookFails: _lx, ...curNoSkip } = cur;   // review 11: the look's bookkeeping goes
       latest[id] = settle(curNoSkip, { state: 'sent', remoteId: String(r.found), agentId, sentAt: cur.attemptedAt || stamp, foundAt: stamp,
         ...(c.space === 'company' ? { space: 'company', org: c.org } : {}) });
       log(`comment ${id} for ${rec.agent}: found in the community thread, so it was sent after all`);
@@ -3082,7 +3086,7 @@ function withdrawFor(agentId, kind, id) {
     // Review 8: requestCommentDelete's own refusals apply only while no removal is recorded; one already recorded (the
     // person's Delete, racing a send) skips them. A comment that can never be found again is refused here either way.
     if (crec && crec.state === 'unconfirmed') return { ok: false, notEligible: true, because: commentStillLooked(crec)
-      ? 'Kosmos does not know yet whether this comment arrived, so it cannot take it back; it looks for it, and once status shows it as sent you can take it back'
+      ? 'Kosmos does not know yet whether this comment arrived, so it cannot take it back; it looks for it, so try again once status shows it as sent'
       : 'Kosmos does not know whether this comment arrived and cannot look for it, so it cannot take it back' };
     if (crec && crec.state === 'sent' && crec.traceable === null) return { ok: false, retryable: true, because: 'Kosmos could not read its community registrations just now' };
     if (crec && crec.state === 'sent' && crec.traceable === false) return { ok: false, notEligible: true, because: 'Kosmos has no way to find this comment again, so it cannot take it back' };
@@ -3211,7 +3215,7 @@ async function editNow(who, kind, raw, words, deadline) {
   if (state === 'refused') return no('The community did not accept this ' + w + ', so there is nothing to edit');
   if (state === 'deleted') return no('This ' + w + ' has been taken down from the community, so it cannot be edited');
   if ((state === 'pending' && rec && rec.attempted) || state === 'unconfirmed') {
-    if (kind === 'comment') return no(commentStillLooked(rec) ? 'Kosmos does not know yet whether this comment arrived, so it cannot edit it; once status shows it as sent you can'
+    if (kind === 'comment') return no(commentStillLooked((commentRecords() || {})[local]) ? 'Kosmos does not know yet whether this comment arrived, so it cannot edit it; it looks for it, so check again once status shows it as sent'
       : 'Kosmos does not know whether this comment arrived and cannot look for it, so it cannot edit it');
     /* #5636 follow-up: settleUnconfirmed asks about such a post only with the live key of the agent that sent it, and a
        refused agent's never comes back (nothing clears `refused`), so "after its next send" never comes for it; say what
@@ -3331,7 +3335,7 @@ function requestCommentDelete(id) {
   }
   if (before && !cdel[id] && (before.state === 'unconfirmed' || (before.state === 'sent' && !before.traceable))) {
     return { ok: false, notEligible: true, because: before.state === 'unconfirmed'
-      ? (commentStillLooked(before) ? 'Kosmos does not know yet whether this comment arrived, so it cannot remove it; once status shows it as sent it can'
+      ? (commentStillLooked(before) ? 'Kosmos does not know yet whether this comment arrived, so it cannot remove it; it looks for it, so try again once status shows it as sent'
         : 'Kosmos does not know whether this comment arrived and cannot look for it, so it cannot remove it')
       : before.untraceableReason === 'other-registration'
         ? 'Kosmos no longer holds the registration that sent this comment, so it cannot remove it'
