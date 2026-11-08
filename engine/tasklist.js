@@ -335,13 +335,21 @@ function automountsHere(platform) {
  * drive has now, refused too, since nothing there can be checked and opening it is not needed to say so. A share on
  * THIS computer is refused as well (placeOf reads it as local; this check never opens a network drive at all).
  */
+function driveKind(info) {
+  const k = info && info.kind;
+  return k === 'local' ? 'local' : k === 'remote' ? 'network' : k === 'absent' ? 'absent' : 'unknown';
+}
+/* The one verdict both the CLI and task files read (review 2): 'local' is opened or kept, anything else is not. */
 function driveRefusal(p, info) {
   const letter = String(p).charAt(0).toUpperCase();
-  if (info && info.kind === 'local') return null;
-  if (info && info.kind === 'remote') return 'a network drive, so Kosmos does not open it';
-  if (info && info.kind === 'absent') return 'there is no drive ' + letter + ': on this computer now, so Kosmos does not open it';
+  const kind = driveKind(info);
+  if (kind === 'local') return null;
+  if (kind === 'network') return 'a network drive, so Kosmos does not open it';
+  if (kind === 'absent') return 'there is no drive ' + letter + ': on this computer now, so Kosmos does not open it';
   return 'Kosmos could not tell what kind of drive ' + letter + ': is, so it does not open it';
 }
+/* How long the one-shot CLI waits for the drive kinds: windrives' own background bound, not the board's 3 s. */
+const DRIVE_KINDS_TIMEOUT_MS = 10000;
 
 /**
  * Whether opening `p` would look a name up inside one of `mounts`. The path is walked one name at a time with lstat,
@@ -410,7 +418,7 @@ function filesLines(body, opts = {}) {
   let saidNoMounts = false;
   /* kosmos#8227 item 1: a Windows drive letter's kind, from engine/windrives.js (learned once, then cached). `opts.driveInfo` is
      the seam: (letter) -> its entry, or null when the kinds could not be learned. */
-  const driveInfo = typeof opts.driveInfo === 'function' ? opts.driveInfo : (letter) => require('./windrives').infoOf(letter);
+  const driveInfo = typeof opts.driveInfo === 'function' ? opts.driveInfo : (letter) => require('./windrives').infoOf(letter, { timeoutMs: DRIVE_KINDS_TIMEOUT_MS });
   let saidNoTypes = false;
   const mountsNow = () => {
     if (mounts === undefined) mounts = opts.automounts !== undefined ? opts.automounts : automountsHere(opts.platform || process.platform);
@@ -532,4 +540,4 @@ if (require.main === module) {
   process.exit(out.rc);
 }
 
-module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, driveRefusal, seenWords, STALE_DAYS_DEFAULT: 7 };
+module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, driveKind, driveRefusal, DRIVE_KINDS_TIMEOUT_MS, seenWords, STALE_DAYS_DEFAULT: 7 };

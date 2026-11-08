@@ -97,6 +97,32 @@ test('#8227 item 1: driveRefusal opens this computer\'s own drives only', () => 
   assert.equal(tasklist.driveRefusal('U:\\x', { kind: 'something new' }), 'Kosmos could not tell what kind of drive U: is, so it does not open it', 'an unknown kind was opened');
 });
 
+test('#8227 item 1: driveKind is the one verdict both sides read', () => {
+  assert.equal(tasklist.driveKind(LOCAL), 'local');
+  assert.equal(tasklist.driveKind(REMOTE), 'network');
+  assert.equal(tasklist.driveKind(ABSENT), 'absent');
+  for (const odd of [null, undefined, {}, { kind: 'something new' }]) assert.equal(tasklist.driveKind(odd), 'unknown', JSON.stringify(odd));
+});
+
+test('#8227 review 2: windrives.infoOf learns once with the caller\'s timeout and never starts a background learn', () => {
+  const windrives = require('./engine/windrives');
+  const runs = []; let later = 0;
+  try {
+    windrives.setLearnForTests({ now: () => 1e6, run: () => { runs.push(1); return 'C\t3\t\nZ\t4\t\\\\srv\\share\n'; }, runLater: () => { later += 1; } });
+    assert.deepEqual(windrives.infoOf('c'), LOCAL);
+    assert.deepEqual(windrives.infoOf('Z'), REMOTE);
+    assert.deepEqual(windrives.infoOf('Q'), ABSENT, 'a letter no drive has');
+    assert.equal(runs.length, 1, 'the table was learned more than once');
+    assert.equal(later, 0, 'a background learn was started (a one-shot process would wait for it)');
+    assert.equal(windrives.infoOf('1'), null);
+    windrives.setLearnForTests({ now: () => 2e6, run: () => { throw new Error('powershell timed out'); }, runLater: () => { later += 1; } });
+    assert.equal(windrives.infoOf('C'), null, 'a failed learn passed as a table');
+    assert.equal(later, 0);
+  } finally {
+    windrives.setLearnForTests(null);
+  }
+});
+
 test('#8227 item 1: task files on Windows never opens a network or missing drive, and says unknown kinds once', () => {
   const FP = sha('drives');
   const row = (number, at) => ({ number, sentence: 'Task ' + number, builtAt: 'x', builtFingerprint: FP, builtFilePath: at });
@@ -113,7 +139,7 @@ test('#8227 item 1: task files on Windows never opens a network or missing drive
     '#4  Task 4', '    matches  D:\\d.txt',
     '#5  Task 5', '    NOT CHECKED \\\\srv\\share\\e.txt: not a local absolute path, so Kosmos does not open it'], got.lines.join('\n'));
   assert.deepEqual(opened, ['C:\\a.txt', 'D:\\d.txt'], 'a network or missing drive was opened');
-  assert.deepEqual(asked, ['C', 'Z', 'q', 'D'], 'the kind was not asked for each drive path (or was asked for UNC)');
+  assert.deepEqual(asked.map((l) => l.toUpperCase()), ['C', 'Z', 'Q', 'D'], 'the kind was not asked for each drive path (or was asked for UNC)');
   assert.match(got.lines[got.lines.length - 2], /2 match, .*3 not opened/);
   // Kinds that could not be learned: nothing is opened, the reason in full once, then named, one verdict line per task.
   opened.length = 0;

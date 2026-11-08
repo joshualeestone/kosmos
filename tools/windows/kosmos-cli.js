@@ -1908,12 +1908,17 @@ async function taskBuilt(ctx, args) {
        cannot be read is not kept either, and the reason is said. Asked only for a drive path that would be kept: one
        PowerShell call (about 0.2 s here), the only cost this adds to marking a file. */
     if (filePath && /^[A-Za-z]:[\\/]/.test(filePath)) {
-      let info = null;
-      try { info = typeof ctx.driveInfo === 'function' ? ctx.driveInfo(filePath.charAt(0)) : ctx.engine('windrives').infoOf(filePath.charAt(0)); } catch (_) { info = null; }
-      if (!info || info.kind !== 'local') {
+      let kind = 'unknown';
+      try {
+        const tl = ctx.engine('tasklist');
+        const info = typeof ctx.driveInfo === 'function' ? ctx.driveInfo(filePath.charAt(0))
+          : ctx.engine('windrives').infoOf(filePath.charAt(0), { timeoutMs: tl.DRIVE_KINDS_TIMEOUT_MS });
+        kind = tl.driveKind(info);   // the verdict task files reads, so the two never disagree
+      } catch (_) { kind = 'unknown'; }
+      if (kind !== 'local') {
         const letter = filePath.charAt(0).toUpperCase();
-        pathWhy = info && info.kind === 'remote' ? letter + ': is a network drive, and kosmos task files never opens one'
-          : info && info.kind === 'absent' ? 'Kosmos could not find drive ' + letter + ': just now'
+        pathWhy = kind === 'network' ? letter + ': is a network drive, and kosmos task files never opens one'
+          : kind === 'absent' ? 'Kosmos could not find drive ' + letter + ': just now'
             : 'Kosmos could not read what kind of drive ' + letter + ': is';
         filePath = null;
       }
