@@ -2171,7 +2171,6 @@ async function sweepOnce(now) {
     try { await sweepComments(keys, from, now); }
     catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   }
-
   // #4922: near last, the least urgent: a service slow on this route must not hold back the passes above.
   try { await sweepInstallGroup(keys, on); }
   catch (e) { log(`install group: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
@@ -2229,7 +2228,7 @@ async function settleUnconfirmed(keys, sent, now) {
  *   not in the public thread, so "not seen" is never "not sent", and it is still never sent again).
  * Looked for at most once an hour per comment, for a week from the first look that got an answer, at most a few per
  * pass and a bounded number of reads per look. Runs whatever the switch (or a policy that stops the community) says,
- * as the post settle does, after the take-downs: it only reads (anonymously, but for one read in a company space as
+ * as the post settle does, last in the sweep: it only reads (anonymously, but for one read in a company space as
  * the agent) and sends nothing. A comment id another record already holds is never claimed, and a record with no time to bound the look
  * by is not settled by words alone.
  */
@@ -2420,6 +2419,9 @@ async function settleUnconfirmedComments(keys, now) {
     const made = Date.parse(c.releasedAt || c.receivedAt || c.at);
     const from = Number.isFinite(tried) ? tried : made;
     if (!Number.isFinite(from)) { skip('no-time'); continue; }
+    // Review 12: a company list carries no parent and no other account, so without a send time to bound it from above,
+    // an older board's company record is not settled by words alone.
+    if (c.space === 'company' && !Number.isFinite(tried)) { skip('no-time'); continue; }
     const since = from - REGISTER_CLOCK_SKEW_MS;
     /* Review 3: and the latest. A send that landed did so within its request's time, so a copy much later than the try
        is another send of the same words (a resend whose answer was lost), never this one. A record from an older board
@@ -2449,7 +2451,8 @@ async function settleUnconfirmedComments(keys, now) {
     } else if (r) {
       // Review 1: the week's window starts at the first look that got an answer, so an outage does not use it up.
       const { lookSkip: _s2, ...rest } = cur;   // review 4: looked for now, so no longer "cannot look"
-      latest[id] = { ...rest, lookedAt: stamp, lookFirstAt: cur.lookFirstAt || stamp, lookComplete: r.complete === true };
+      // Review 12: once one look has read every place it could be, it stays so (a later cut-short read does not undo it).
+      latest[id] = { ...rest, lookedAt: stamp, lookFirstAt: cur.lookFirstAt || stamp, lookComplete: cur.lookComplete === true || r.complete === true };
     } else {
       const { lookSkip: _s3, ...rest } = cur;
       // Review 5: a look that got no answer is counted apart; after a week of them, status says the community could not

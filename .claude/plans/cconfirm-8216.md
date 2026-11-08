@@ -122,3 +122,6 @@ client-chosen id with a comment.
   take-back words promised success; a slow service could hold the sweep lock for minutes. Fixed: commentStillLooked
   checks the address and the edit refusal uses the derived record; the refusals say to try again once sent; no new
   look starts after 30 s in a pass; the browser check renders a row that promises no look. The company branch repeats.
+- 12 (sonnet): an older board's company record had no upper bound (now not settled without a send time); the "not
+  seen" wording could fall back after a cut-short look (now sticky once a look was complete). The company route itself
+  was checked at the start (the space's own list, through spaceAs).
