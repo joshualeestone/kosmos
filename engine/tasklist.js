@@ -390,6 +390,7 @@ function filesLines(body, opts = {}) {
   const local = (p) => kept(p) && (windows ? drive(p) : !drive(p));
   const foreign = (p) => kept(p) && (windows ? !drive(p) : drive(p));
   let mounts;   // read once, at the first path that needs it
+  let saidNoMounts = false;
   const mountsNow = () => {
     if (mounts === undefined) mounts = opts.automounts !== undefined ? opts.automounts : automountsHere(opts.platform || process.platform);
     return mounts;
@@ -422,7 +423,13 @@ function filesLines(body, opts = {}) {
     }
     if (!windows) {
       const m = mountsNow();
-      if (m === null) { tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': Kosmos could not read this computer\'s automount table, so it opens no path'); continue; }
+      // kosmos#8227 item 5: one read, so one reason: said in full once, then named, so a sweep does not repeat it per task.
+      if (m === null) {
+        tally.unchecked += 1;
+        lines.push('    NOT CHECKED ' + shown + (saidNoMounts ? ': the automount table again (above)' : ': Kosmos could not read this computer\'s automount table, so it opens no path'));
+        saidNoMounts = true;
+        continue;
+      }
       if (reachesAutomount(at, m)) { tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': it reaches an automount folder (which would mount it from elsewhere), or loops through links'); continue; }
     }
     let got;
