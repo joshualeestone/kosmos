@@ -2505,7 +2505,7 @@ function ambiguousNote(ambiguous, mentioned, shown) {
 
 /* kosmos#8270: the sentence that tells an agent its post addressed another Kosmos agent on this computer who is not on
    this project, so it reached them nowhere. It finds addressees as addressedMembers does, more strictly, and speaks only of someone it can
-   identify: a real agent's card here (not a stray terminal session, which `kosmos msg` refuses), named in a header that
+   identify on this computer: a real agent's card here (not a stray terminal session, which `kosmos msg` refuses), named in a header that
    is this poster's own, or by a whole-word @-mention. A name it cannot identify says nothing: that could be the person,
    a member on another computer, or not a name at all, and a false "did not reach them" is worse than none. Never throws;
    '' when there is nothing to say. */
@@ -2546,7 +2546,7 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
     }
     for (const m of String(cleaned || '').replace(/`[^`]*`/g, ' ').matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
       const word = m[2].replace(/[._-]+$/, '');
-      if (word && !insideKeys.has(nameKey(word))) add([...mentionedMembers('@' + word, outside, roster).mentioned]);
+      if (word && !/^(all|everyone)$/i.test(word) && !insideKeys.has(nameKey(word))) add([...mentionedMembers('@' + word, outside, roster).mentioned]);
     }
     return [...found].map(([handle, name]) => name + ' is not on this project, so this post did not reach them. To reach them: kosmos msg ' + handle + '.').join(' ');
   } catch { return ''; }
