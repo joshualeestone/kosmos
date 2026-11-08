@@ -1544,11 +1544,12 @@ test('SAFETY 3: ensureAnchored never points engine-path into the updater\'s fold
    moment, and the hold's own poll below opens it every 50 ms. A failed open does not end a PowerShell script: it went
    on to its long sleep holding nothing, and the test ran out its wait. So the open is retried for 25 s. The script
    records how far it got in `state`, outside the install, so a failure can say which it was: never started, or no
-   hold in 25 s. HOLD_WAIT_MS covers a stall of about 34 s (see HELD above) plus that retry. */
-const HOLD_WAIT_MS = 60000;
+   hold in 25 s. HOLD_WAIT_MS leaves room for a stall of about 34 s (see HELD above) plus that retry. The wait is
+   synchronous, so a test's time limit cannot cut it off; a failing hold can take that long before its error shows. */
+const HOLD_WAIT_MS = 75000;
 let holdStates = 0;
 const holdStateFile = () => path.join(SANDBOX, `hold-state-${process.pid}-${++holdStates}.txt`);
-const holdState = (state) => { try { return fs.readFileSync(state, 'utf8').trim(); } catch { return 'nothing, so it never started'; } };
+const holdState = (state) => { try { return fs.readFileSync(state, 'utf8').trim(); } catch (e) { return e.code === 'ENOENT' ? 'nothing, so it never started' : `an unreadable state (${e.code})`; } };
 function holdScript(file, state, sleepSeconds) {
   const q = (s) => s.replace(/'/g, "''");
   return `Set-Content -LiteralPath '${q(state)}' 'started, no hold yet'; $held = $null; $end = (Get-Date).AddSeconds(25); while (-not $held -and (Get-Date) -lt $end) { try { $held = [IO.File]::Open('${q(file)}', 'Open', 'Read', 'None') } catch { Start-Sleep -Milliseconds 50 } }; if ($held) { Set-Content -LiteralPath '${q(state)}' 'held' } else { Set-Content -LiteralPath '${q(state)}' 'no hold in 25 s' }; Start-Sleep -Seconds ${sleepSeconds}`;
