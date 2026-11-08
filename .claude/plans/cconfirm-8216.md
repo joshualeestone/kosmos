@@ -68,7 +68,8 @@ agent on one post are told apart only by time and by the ids other records alrea
 - two unconfirmed same-words records with overlapping windows, one landed and one not, can pair the landed copy with
   the wrong record (send order makes the oldest record take the oldest copy);
 - two same-words replies by one agent to different replies under one top-level comment cannot be told apart (the
-  service names only who a reply answered).
+  service names only who a reply answered), and likewise a direct reply to a top-level comment and a same-words reply
+  to one of its replies;
 - a record an older board wrote (no `attemptedAt`) has no upper time bound, so a later same-words comment by the same
   account on the same post could be taken for it.
 None of these sends anything twice or claims another agent's comment. What would change it: the service returning a
@@ -125,3 +126,5 @@ client-chosen id with a comment.
 - 12 (sonnet): an older board's company record had no upper bound (now not settled without a send time); the "not
   seen" wording could fall back after a cut-short look (now sticky once a look was complete). The company route itself
   was checked at the start (the space's own list, through spaceAs).
+- 13 (opus): sends in one pass shared a time, so their pairing fell back to file order (now a per-send order recorded
+  at the write-ahead); the sibling rule for a cut-short read had no test (tested now, mutation checked).

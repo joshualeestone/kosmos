@@ -1138,6 +1138,8 @@ async function sweepTakedowns(keys, sent, now) {
  * comment is the worse failure; the record says what happened. kosmos#8216: never sent again, but a later pass looks
  * for it in its thread (settleUnconfirmedComments) and settles it as sent when it is there.
  */
+let attemptSeq = 0;
+function nextAttemptOrder() { attemptSeq = (attemptSeq + 1) % 1000; return Date.now() * 1000 + attemptSeq; }   // review 13
 const commentsInFlight = new Set();   // #4801 review 1: comment ids whose POST this process has out right now
 // kosmos#7230 review 3: whether a comment's send is out right now (attempted, not yet answered): still on its way.
 const commentInFlight = (id) => commentsInFlight.has(String(id));
@@ -1194,7 +1196,8 @@ async function sendComment(c, keys, csent, now, from) {
   // sweep stamps it a little early: the ten-minute skew and the hour after cover that.
   const attemptedAt = new Date(now).toISOString();
   // Review 5: and which account sends it, so a later look searches that account even after a re-registration.
-  csent[c.id] = { ...rec, attempted: true, attemptedAt, ...(k.remoteId ? { agentId: k.remoteId } : {}) };
+  // Review 13: and the order of sends within this pass (they share the pass's clock), so same-words copies pair in order.
+  csent[c.id] = { ...rec, attempted: true, attemptedAt, attemptOrder: nextAttemptOrder(), ...(k.remoteId ? { agentId: k.remoteId } : {}) };
   saveJson(commentsSentFile(), csent);
   // #4801 review 1: while the POST is out the owner's list says "Sending" and a removal is refused as busy, not as
   // "does not know whether it arrived": in a minute it has an answer. In memory on purpose: a board that stopped
@@ -1249,7 +1252,8 @@ async function sendComment(c, keys, csent, now, from) {
   } else {
     // Review 6: the account recorded at the write-ahead, the one the POST went out as (kept as written, never re-read from keys).
     const sentAs = (csent[c.id] && csent[c.id].agentId) || k.remoteId;
-    csent[c.id] = settle(rec, { state: 'unconfirmed', attemptedAt, ...(sentAs ? { agentId: sentAs } : {}), ...(r.status ? { lastStatus: r.status } : {}) });
+    const order = csent[c.id] && csent[c.id].attemptOrder;
+    csent[c.id] = settle(rec, { state: 'unconfirmed', attemptedAt, ...(Number.isFinite(order) ? { attemptOrder: order } : {}), ...(sentAs ? { agentId: sentAs } : {}), ...(r.status ? { lastStatus: r.status } : {}) });
     log(`comment for ${agentKey}: no usable answer (status ${r.status || 'none'}); it may be on the server, so it is not sent again`);
   }
 }
@@ -2237,7 +2241,7 @@ const LOOK_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 const LOOK_LATE_MS = 60 * 60 * 1000;   // review 3: how long after a try a landed copy can carry a later time
 const LOOK_TRIES_MAX = 7 * 24;   // review 3, 5: looks that never got an answer, at most (an hour apart: about a week)
 const LOOKS_PER_PASS = 3;
-const LOOK_PASS_MS = 30 * 1000;   // review 11: no new look starts after this long, so the pass never holds the lock for minutes
+const LOOK_PASS_MS = 30 * 1000;   // review 11, 13: no new look starts after this long; one look is bounded by its 12 reads
 const LOOK_PAGES = 5;
 const LOOK_PAGE = 20;   // the service pages a thread at most 20
 const LOOK_CAP = 1024 * 1024;
@@ -2394,7 +2398,8 @@ async function settleUnconfirmedComments(keys, now) {
   /* Review 2: oldest send first, so two same-words copies pair with the service's copies in the order they were sent
      (each look takes the oldest unclaimed match). */
   const when = ([id, rec]) => { const t = Date.parse(rec.attemptedAt); if (Number.isFinite(t)) return t; const c = byId.get(id); const m = c ? Date.parse(c.releasedAt || c.receivedAt || c.at) : NaN; return Number.isFinite(m) ? m : Infinity; };
-  due.sort((a, b) => { const x = when(a); const y = when(b); return x < y ? -1 : x > y ? 1 : 0; });   // review 4: no NaN from two Infinities
+  const seq = ([, rec]) => (Number.isFinite(rec.attemptOrder) ? rec.attemptOrder : Infinity);   // review 13: ties in one pass
+  due.sort((a, b) => { const x = when(a); const y = when(b); if (x !== y) return x < y ? -1 : 1; const p = seq(a); const q = seq(b); return p < q ? -1 : p > q ? 1 : 0; });
   let looked = 0;
   const began = Date.now();
   for (const [id, rec] of due) {
