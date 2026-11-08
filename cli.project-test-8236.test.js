@@ -42,7 +42,7 @@ const cli = require('./tools/windows/kosmos-cli');
 const messages = require('./engine/messages');
 const http = require('node:http');
 
-const LINE = 'A test project: do only what you are asked here. Add no tasks, plans or posts of your own.';
+const LINE = 'A test project: do only what you are asked here. Add no tasks, plans or posts beyond what you are asked.';
 let base;
 let board;
 test.before(async () => {
@@ -189,6 +189,41 @@ test('#8236 board: PUT {testOnly} from an agent sets it, re-tells the members, a
   projects.removeAgent(p.id, 'mara');
 });
 
+test('#8236 review 5: a project created as a test project gets no goal-asking note; one created without the flag does (control)', async () => {
+  const make = (name, extra) => fetch(`${base}/api/projects`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', origin: base }, body: JSON.stringify({ name, agents: ['mara'], ...extra }) });
+  const asks = (id) => messages.record().rows.filter((m) => m.kind === 'note' && m.project === id
+    && [projects.BRIEF_PENDING_NOTE, projects.BRIEF_AND_DONE_PENDING_NOTE, projects.DONE_PENDING_NOTE].includes(m.text)).length;
+  const plain = await make('Created Plain', {});
+  assert.equal(plain.status, 200, await plain.clone().text());
+  const plainId = (await plain.json()).id;
+  assert.equal(asks(plainId), 1, 'CONTROL: a staffed project with no brief got no goal-asking note');
+  const test = await make('Created Test', { testOnly: true });
+  assert.equal(test.status, 200, await test.clone().text());
+  const tj = await test.json();
+  assert.equal(stored(tj.id).testOnly, true, 'the flag was not kept at create');
+  assert.equal(tj.project.testOnly, true, 'the answer does not carry the flag');
+  assert.equal(asks(tj.id), 0, 'a test project was told to ask about its goal');
+  const bad = await make('Created Bad', { testOnly: 'yes' });
+  assert.equal(bad.status, 400);
+  projects.removeAgent(plainId, 'mara'); projects.removeAgent(tj.id, 'mara');
+});
+
+test('#8236 review 5: the real overview route carries the flag to project show', async () => {
+  const p = projects.create({ name: 'Overview Board' });
+  const read = async () => projectview.renderShow(await (await fetch(`${base}/api/project/${p.id}/overview`)).json());
+  assert.ok(!(await read()).some((l) => l.startsWith('Test project')), 'CONTROL: an ordinary project showed as a test project');
+  projects.edit(p.id, { testOnly: true });
+  assert.ok((await read()).some((l) => l.startsWith('Test project:')), 'the overview route lost the flag');
+});
+
+test('#8236 review 5: a change made on the screen posts no room note', async () => {
+  const p = projects.create({ name: 'Screen Board' });
+  const r = await fetch(`${base}/api/project/${p.id}`, { method: 'PUT', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', origin: base }, body: JSON.stringify({ testOnly: true }) });
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.equal(stored(p.id).testOnly, true, 'fixture: the screen\'s change did not land');
+  assert.equal(messages.record().rows.filter((m) => m.kind === 'note' && m.project === p.id).length, 0, 'the screen\'s own change was said in the room');
+});
+
 test('#8236 project show: says when it is a test project, and says nothing otherwise (control)', () => {
   const show = (testOnly) => projectview.renderShow({ project: { id: 'pv', name: 'Shown', folder: '/x', briefFound: false, members: [], tasks: { total: 0 }, ...(testOnly === undefined ? {} : { testOnly }) } });
   const on = show(true);
@@ -224,6 +259,17 @@ test('#8236 Windows: project test on and off, and its refusals', async () => {
   assert.match((await win(['project', 'test', 'no-such-project', 'on'])).err, /^Kosmos could not mark that project: /);
   const help = await win(['project']);
   assert.match(help.out + help.err, /kosmos project test <project-id> on\|off/);
+  // Review 5: --test on create makes it one from the start; without it, not (control).
+  const folder = path.join(SANDBOX, 'win-create'); fs.mkdirSync(folder, { recursive: true });
+  const made = await win(['project', 'create', 'Win Made Test', folder, '--test']);
+  assert.equal(made.code, 0, made.err);
+  assert.match(made.out, /It is a test project: its agents do only what they are asked\./);
+  const madeId = /\(id: ([^)]+)\)/.exec(made.out)[1];
+  assert.equal(stored(madeId).testOnly, true);
+  const folder2 = path.join(SANDBOX, 'win-create-2'); fs.mkdirSync(folder2, { recursive: true });
+  const plain = await win(['project', 'create', 'Win Made Plain', folder2]);
+  assert.equal(plain.code, 0, plain.err);
+  assert.equal('testOnly' in stored(/\(id: ([^)]+)\)/.exec(plain.out)[1]), false, 'CONTROL: a plain create came out a test project');
 });
 
 test('#8236 Windows review 1: an older board says to update; a 200 with an empty re-read is still a success', async () => {
@@ -306,4 +352,12 @@ test('#8236 Mac: project test on and off say what Windows says, and its refusals
   const help = await mac(['project']);
   assert.match(help.out, /kosmos project test <project-id> on\|off/);
   assert.match((await mac(['project', 'nope'])).out, /\| pause \| test \| role \|/);
+  // Review 5: --test on create, as Windows; a description before it still counts.
+  const folder = path.join(SANDBOX, 'mac-create'); fs.mkdirSync(folder, { recursive: true });
+  const made = await mac(['project', 'create', 'Mac Made Test', folder, 'a test board', '--test']);
+  assert.equal(made.code, 0, made.out);
+  assert.match(made.out, /It is a test project: its agents do only what they are asked\./);
+  const madeId = /\(id: ([^)]+)\)/.exec(made.out)[1];
+  assert.equal(stored(madeId).testOnly, true);
+  assert.equal(stored(madeId).description, 'a test board', 'the description was lost beside --test');
 });

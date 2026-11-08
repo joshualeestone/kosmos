@@ -149,7 +149,7 @@ const USAGE = {
     'Usage: kosmos project <list|show|who|create|pause|test|role|remove-member>',
     '  kosmos project list                                             every project: members, model families, tasks',
     '  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member\'s family and summary',
-    '  kosmos project create "<name>" <folder> ["<description>"]   make a new project (it shows on your board, tagged as made by you)',
+    '  kosmos project create "<name>" <folder> ["<description>"] [--test]   make a new project (it shows on your board, tagged as made by you); --test makes it a test project',
     '  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)',
     '  kosmos project test <project-id> on|off                         a test project: its agents do only what they are asked (Kosmos asks none of them to add tasks for it)',
     '  kosmos project role <project-id> "<what you do here>"         say what you do on this project, 60 characters at most; project show lists it beside you ("" clears it)',
@@ -2162,6 +2162,9 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
    answer carries the id ({project,told,id,...}); an answer with neither an error
    nor an id is not a create. */
 async function projectCreate(ctx, args) {
+  // kosmos#8236 review 5, as install/kosmos: --test as the last word makes it a test project from the start.
+  const test = args.length >= 3 && args[args.length - 1] === '--test';
+  if (test) args = args.slice(0, -1);
   const name = args[0];
   const folder = args[1];
   const description = args[2];
@@ -2171,10 +2174,17 @@ async function projectCreate(ctx, args) {
   if (tooManyWords(ctx, 'project create', 3, 'Usage: kosmos project create "<name>" <folder> ["<description>"]   (quote the name; folder is a path)', args)) return 2;   // kosmos#4889 review 5
   const body = { name, folder, from_pane: '' };
   if (description) body.description = description;
+  if (test) body.testOnly = true;
   const r = await ctx.call('POST', '/api/projects', body, { person: true });   // #4491 slice 5b: with the agent's own token, which names the maker; slice 7: the board token opens it
   if (!r.reached) return ctx.unreachable('create that project');
   const id = r.json && (r.json.id || (r.json.project && r.json.project.id));
-  if (id) { ctx.out('Created project "' + name + '" (id: ' + id + '). It\'s on your board now.'); return 0; }
+  if (id) {
+    ctx.out('Created project "' + name + '" (id: ' + id + '). It\'s on your board now.');
+    // kosmos#8236: an older board ignores the field, so the answer says whether it took.
+    if (test) ctx.out(r.json.project && r.json.project.testOnly === true ? 'It is a test project: its agents do only what they are asked.'
+      : 'This Kosmos did not make it a test project (it may be older than --test). Update it, then run: kosmos project test ' + id + ' on');
+    return 0;
+  }
   if (ctx.refusedBy(r)) {
     ctx.err('Kosmos did not create that project: ' + ctx.refusedBy(r) + '.');
     // #7748: making a folder is the person's or the agent's own step, so this names the command rather than doing it.

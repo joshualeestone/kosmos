@@ -1126,7 +1126,7 @@ board_token() {
 # else (the switch off, which is the default; no token; a malformed one) is board_token, exactly as before.
 # Used ONLY by verbs whose route answers to the agent's token alone (server.js AGENT_TOKEN_ROUTES and its
 # patterns, the report and reply routes, and the team route). The person's verbs keep board_token: open,
-# connections, connect, project create, project pause, room reopen, community post (and community read until its route joins
+# connections, connect, project create, project pause, project test, room reopen, community post (and community read until its route joins
 # the set). There is NO fallback: a board that refuses the token alone is told to the agent in the board's own
 # words. Falling back to the board token would put the person's credential back in the request the switch exists
 # to keep it out of. Call it the same way: _bt="$(agent_board_token || true)".
@@ -7159,7 +7159,7 @@ cmd_project() {
       say "Usage: kosmos project <list|show|who|create|pause|test|role|remove-member>"
       say "  kosmos project list                                             every project: members, model families, tasks"
       say "  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member's family and summary"
-      say "  kosmos project create \"<name>\" <folder> [\"<description>\"]   make a new project (it shows on your board, tagged as made by you)"
+      say "  kosmos project create \"<name>\" <folder> [\"<description>\"] [--test]   make a new project (it shows on your board, tagged as made by you); --test makes it a test project"
       say "  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)"
       say "  kosmos project test <project-id> on|off                         a test project: its agents do only what they are asked (Kosmos asks none of them to add tasks for it)"
       say "  kosmos project role <project-id> \"<what you do here>\"         say what you do on this project, 60 characters at most; project show lists it beside you (\"\" clears it)"
@@ -7186,6 +7186,9 @@ cmd_project() {
     # malformed call is named even when the board is stopped (not hidden behind
     # "not running").
     create)
+      # kosmos#8236 review 5: --test as the last word makes it a test project from the start.
+      local _ptest=0
+      if [ $# -ge 3 ] && [ "${!#}" = --test ]; then _ptest=1; set -- "${@:1:$(($# - 1))}"; fi
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos project create \"<name>\" <folder> [\"<description>\"]   (quote the name; folder is a path)"; exit 2; }
       # kosmos#4889 review 4: `create N f --description "d"` made "--description" the description and dropped "d".
       local _p
@@ -7518,7 +7521,9 @@ cmd_project() {
       esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       _desc_field=""
       [ -n "$description" ] && _desc_field=",\"description\":\"$esc_desc\""
-      _data="{\"name\":\"$esc_name\",\"folder\":\"$esc_folder\",\"from_pane\":\"$esc_pane\"$_desc_field}"
+      local _test_field=""
+      [ "$_ptest" = 1 ] && _test_field=",\"testOnly\":true"   # kosmos#8236
+      _data="{\"name\":\"$esc_name\",\"folder\":\"$esc_folder\",\"from_pane\":\"$esc_pane\"$_desc_field$_test_field}"
       # rc via `|| rc=$?`, NOT a bare `body=$(...); rc=$?`: under set -euo pipefail a
       # failing substitution in a bare assignment aborts the process at that line
       # (the #2321 lesson cmd_post documents).
@@ -7553,6 +7558,11 @@ cmd_project() {
       pid=$(printf '%s' "$body" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
       if [ -n "$pid" ]; then
         say "Created project \"$name\" (id: $pid). It's on your board now."
+        # kosmos#8236: an older board ignores the field, so the answer says whether it took.
+        if [ "$_ptest" = 1 ]; then
+          case "$body" in *'"testOnly":true'*) say "It is a test project: its agents do only what they are asked." ;;
+            *) say "This Kosmos did not make it a test project (it may be older than --test). Update it, then run: kosmos project test $pid on" ;; esac
+        fi
       else
         say "Kosmos gave an answer we could not read when creating that project."
         exit 1

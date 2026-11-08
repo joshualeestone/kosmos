@@ -36,5 +36,11 @@ the route limit pause already has, recorded on the card for Homer's lane to conf
 substring of the body: measured unreachable from text, since inside any JSON string the quote before `:` is escaped.
 (c) The new standing rule owes every agent one re-read after the upgrade: that is how a new rule reaches running agents.
 
+Review round 5: a project can be a test project from the start (`kosmos project create ... --test`, POST
+/api/projects {testOnly}), and then the create-time notes that ask its agents to coordinate on the goal are not
+posted. The line now reads "Add no tasks, plans or posts beyond what you are asked", so asked-for work on a task is
+plainly allowed. Deferred: a flag the person set can still be turned off by an agent (a pause keeps the person's; here
+the room note is the signal, and the page has no toggle yet).
+
 Tests: cli.project-test-8236.test.js. Perturbed: the Assigner skip, the instruction line, the re-tell, the Mac
 CLI's field; each turned a test red.

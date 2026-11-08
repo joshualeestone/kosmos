@@ -2713,7 +2713,10 @@ function windowsProjectFolderOk(folder, platform = process.platform) {
   return winpath.driveOf(folder) !== null || winpath.shareOf(folder) !== null;
 }
 
-function create({ name, folder, agents, roster, description, made, parent, done, seedDoneOnly } = {}) {
+function create({ name, folder, agents, roster, description, made, parent, done, seedDoneOnly, testOnly } = {}) {
+  // kosmos#8236 review 5: a test project can be one from the start, so the notes that ask its agents about the goal are
+  // never posted. Refused before any folder is made, as every body refusal is.
+  if (testOnly !== undefined && typeof testOnly !== 'boolean') throw new Error('testOnly must be true or false');
   const asked = String(folder == null ? '' : folder).trim();
   // ⚠️ On the default path the FOLDER-NAME refusal comes first, because it
   // is the sentence the person has been reading: the preview line under the
@@ -2807,6 +2810,7 @@ function create({ name, folder, agents, roster, description, made, parent, done,
       a, Array.isArray(roster) ? roster.some((c) => c && c.sessionName === a) : null,
     ])),
     told: {},
+    ...(testOnly === true ? { testOnly: true } : {}),   // kosmos#8236: absent = not a test project
     /* #1994: the project this one is grouped under, or null. DISPLAY ONLY --
        the board groups by it; nothing inherits settings, agents, or access
        through it. #2458: settable AT CREATION via create({ parent }) as well as
@@ -3549,7 +3553,7 @@ function isPaused(record) {
 
 /* kosmos#8236: a project set up for testing (`kosmos project test <id> on`). Its members do only what they are asked:
    the Assigner sends no goal nudge for it, and each member's instructions say so on its line. */
-const TEST_PROJECT_LINE = 'A test project: do only what you are asked here. Add no tasks, plans or posts of your own.';
+const TEST_PROJECT_LINE = 'A test project: do only what you are asked here. Add no tasks, plans or posts beyond what you are asked.';
 function isTestOnly(record) {
   return Boolean(record && record.testOnly === true);
 }

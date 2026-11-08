@@ -23219,6 +23219,8 @@ const server = http.createServer(async (req, res) => {
         const makerMember = makerName && !isSetupGuide(makerName) ? makerName : null;
         const members = makerMember ? [...(Array.isArray(body.agents) ? body.agents : []), makerMember] : body.agents;
         const made = projects.create({ name: body.name, folder: body.folder, agents: members, roster, description: body.description, done: body.done,
+          // kosmos#8236 review 5: a test project from the start (the engine refuses anything but a boolean).
+          ...(body.testOnly !== undefined ? { testOnly: body.testOnly } : {}),
           // #2458: the parent chosen on the create page (blank/absent = top-level).
           // The engine validates it through the same cleanParent the edit route
           // uses (a missing parent or a non-string is refused), so a bad parent is
@@ -23321,7 +23323,8 @@ const server = http.createServer(async (req, res) => {
              goal, or for what done looks like, of a project it just made, or to hold): the two asking notes need
              a member other than the maker. The note that a typed done was not written is a fact, not an ask, so
              it still goes to a maker alone. */
-          const hasOthers = made.agents.some((a) => a !== makerMember);
+          // kosmos#8236 review 5: a test project's agents are not asked to coordinate on its goal (they do only what is asked).
+          const hasOthers = made.testOnly !== true && made.agents.some((a) => a !== makerMember);
           /* #4583 review rounds 5-8: a done typed on the form that is not what BRIEF.md's Done section now holds, for ANY
              reason (the person's own Done section, or a brief Kosmos could not read or write), is quoted to the team
              with its true reason, and the team is then never also told to ask the person for done. */
