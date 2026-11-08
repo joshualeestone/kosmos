@@ -8,6 +8,8 @@
  *   - any other loss: tried once more, and noted when the second try is lost too;
  *   - the board's own keep (`skipped`), a report it cannot tie to an agent, another account's: no retry, no note;
  *   - only an agent's session (it carries an agent token) notes;
+ *   - a caller that does not wait (noRetry): sent once in the short window, and a loss noted at once (kosmos#8233);
+ *   - our own timeout while the answer's body is arriving is a busy board, like one before the headers (kosmos#8233);
  *   - the note is one line in turn-end-failures.log in the throttle folder, capped as the bash hook caps it.
  * And the board names its skip (`skipped`) and logs an automatic turn end it refuses before the record.
  *   node --test engine/kosmos-report-hook.turnend-8230.test.js
@@ -168,11 +170,21 @@ test('kosmos#8230: the board names its skip and logs an automatic turn end it re
   assert.equal(refusals.length, 2, 'the roster and sender refusals should both log a refused turn end');
 });
 
-test('kosmos#8230: a caller that does not wait for the hook (noRetry) sends once and notes nothing', async () => {
+test('kosmos#8230/#8233: a caller that does not wait for the hook (noRetry) sends once, in the short window, and a loss is noted at once', async () => {
   const bad = { ok: false, why: 'answer is not a proof' };
   const r = await run('Stop', { proofs: [bad, bad], noRetry: true });
   assert.equal(r.asked.length, 1, 'a noRetry Stop was retried');
-  assert.equal(r.note, null);
+  assert.ok(r.asked[0] <= hook.SHORT_TIMEOUT_MS / 2, 'a noRetry Stop got the long window: ' + r.asked[0]);
+  assert.match(r.note || '', /idle not delivered \(not retried: its caller does not wait\): /, 'a lost noRetry Stop left no note');
+  const busy = await run('Stop', { proofs: [{ ok: false, why: 'timed out' }], noRetry: true });
+  assert.match(busy.note || '', /\(not retried: its caller does not wait\): the board did not answer in time/);
+  // CONTROLS: no board at the address, a Stop that lands, and the person's own session (no agent token) note nothing.
+  const gone = await run('Stop', { proofs: [{ ok: false, why: 'request failed: ECONNREFUSED' }], noRetry: true });
+  assert.equal(gone.note, null, 'a closed board was noted for a noRetry Stop');
+  const landed = await run('Stop', { noRetry: true });
+  assert.equal(landed.note, null);
+  const person = await run('Stop', { proofs: [bad], noRetry: true, env: {} });
+  assert.equal(person.note, null, 'the person\'s own noRetry Stop was noted');
   const src = fs.readFileSync(path.join(__dirname, 'win32codexsup.js'), 'utf8');
   assert.match(src, /hook_event_name: 'Stop' \}\), env, stdout: \(\) => \{\}, noRetry: true \}/, 'the supervisor\'s in-process idle does not pass noRetry');
 });
@@ -230,11 +242,28 @@ test('kosmos#8230: a send that runs out of time is a busy board: noted at once, 
   assert.equal(tries, 2, 'a failed connection was not retried');
 });
 
-test('kosmos#8230: a closed board on Windows (refused late, so the retry\'s proof times out) is still not noted', async () => {
+/* kosmos#8233: Windows refuses a connect to a closed local port at once (Homer measured median 0 ms, max 2 ms), so a
+   retry whose proof times out after a refused first try met a board that came up busy, and it is noted, as on the Mac. */
+test('kosmos#8233: a busy board on the retry, after a refused first try, is noted after a retry', async () => {
   const gone = { ok: false, why: 'request failed: ECONNREFUSED' };
   const r = await run('Stop', { proofs: [gone, { ok: false, why: 'timed out' }] });
   assert.equal(r.asked.length, 2);
-  assert.equal(r.note, null, 'a closed board was noted as busy');
-  const control = await run('Stop', { proofs: [{ ok: false, why: 'answer is not a proof' }, { ok: false, why: 'timed out' }] });
-  assert.match(control.note || '', /after a retry: the board did not answer in time/, 'CONTROL: after any other first loss, a timeout is still noted');
+  assert.match(r.note || '', /after a retry: the board did not answer in time/, 'a busy board after a refused first try was not noted');
+  // CONTROL: refused twice is no board at all, retried and not noted.
+  const twice = await run('Stop', { proofs: [gone, gone] });
+  assert.equal(twice.asked.length, 2);
+  assert.equal(twice.note, null, 'a closed board was noted');
+});
+
+test('kosmos#8233: our own timeout while the answer\'s body is still arriving is a busy board: noted at once, not retried', async () => {
+  const abortErr = () => { const e = new Error('This operation was aborted'); e.name = 'AbortError'; return e; };
+  const slowBody = { ok: true, status: 200, text: async () => { throw abortErr(); } };
+  const r = await run('Stop', { answers: [slowBody, slowBody] });
+  assert.equal(r.sent.length, 1, 'a send cut off mid-body was sent again');
+  assert.match(r.note || '', /idle not delivered, the board was too busy \(not retried\): the board did not answer the report in time/);
+  // CONTROL: a body that fails for any other reason is an ordinary loss, retried once.
+  const broken = { ok: true, status: 200, text: async () => { throw new Error('terminated'); } };
+  const c = await run('Stop', { answers: [broken, broken] });
+  assert.equal(c.sent.length, 2, 'a body that failed (not our timeout) was not retried');
+  assert.match(c.note || '', /after a retry/);
 });
