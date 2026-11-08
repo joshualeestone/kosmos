@@ -10,7 +10,8 @@ mistake for one), and "No product-feedback report for <date> yet." on stderr. A 
 
 ## Tests
 cli.feedback-2037.test.js, tools.windows-kosmos-cli-verbs.test.js and tools.windows-kosmos-cli-570.test.js pinned exit
-1; they now pin exit 0, an empty stdout, and the sentence. 93 tests pass.
+1; they now pin exit 0, an empty stdout, and the sentence. cli.unknown-flag-4889.test.js used a non-zero exit to mean
+"the refused write saved nothing" (found by the full suite, not by review); it now reads the sentence instead.
 
 ## Not done
 The card's Windows/PowerShell side note (assigning a script's output to a variable loses it on a terminating error) is

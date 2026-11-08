@@ -130,7 +130,8 @@ test('#4889: `feedback write --bogus x` refuses and saves nothing; `feedback wri
     assert.equal(bad.code, 2, bad.out);
     assert.ok(bad.out.includes('--bogus is not an option of kosmos feedback write'), bad.out);
     const none = await run(['feedback', 'show'], h.env);
-    assert.notEqual(none.code, 0, `a report was saved by a refused write: ${none.out}`);
+    assert.equal(none.code, 0, none.out);   // kosmos#8260: no report yet is exit 0, so the sentence is what says none was saved
+    assert.match(none.out, /No product-feedback report for \S+ yet\./, `a report was saved by a refused write: ${none.out}`);
     const ok = await run(['feedback', 'write', '--', '--x', 'starts with dashes'], h.env);
     assert.equal(ok.code, 0, ok.out);
     const show = await run(['feedback', 'show'], h.env);
