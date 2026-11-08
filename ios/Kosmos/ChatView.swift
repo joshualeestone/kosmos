@@ -2058,7 +2058,7 @@ struct ChatView: View {
                 }
                 for j in 0..<165 where !Self.sampleUIKitList {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 5 + Double(j) * 0.2) {
-                        Self.trace("debug sample rows \(onScreen.count), end \(endVisible), rebuilds \(rebuilds.count), \(scrollBox.reading()?.line ?? "unread")")
+                        Self.trace("debug sample rows \(onScreen.count), ink \(UIKitInk.sample()), end \(endVisible), rebuilds \(rebuilds.count), \(scrollBox.reading()?.line ?? "unread")")
                     }
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 8 + Double(n) * 0.65 + 5) {
@@ -3885,7 +3885,7 @@ struct UIKitChatList<Cell: View>: UIViewRepresentable {
         co.sampler = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak co] t in
             n += 1
             guard let co, let list = co.list, n >= 25, n <= 190 else { if n > 190 { t.invalidate() }; return }
-            ChatView.trace("debug uikit rows \(co.onScreen()), items \(co.ids.count), atEnd \(co.atEnd), y \(Int(list.contentOffset.y)), content \(Int(list.contentSize.height)), view \(Int(list.bounds.height)), inset \(Int(list.adjustedContentInset.bottom))")
+            ChatView.trace("debug uikit rows \(co.onScreen()), ink \(UIKitInk.sample()), items \(co.ids.count), atEnd \(co.atEnd), y \(Int(list.contentOffset.y)), content \(Int(list.contentSize.height)), view \(Int(list.bounds.height)), inset \(Int(list.adjustedContentInset.bottom))")
         }
         return list
     }
@@ -3901,6 +3901,34 @@ struct UIKitChatList<Cell: View>: UIViewRepresentable {
             let shown = list.indexPathsForVisibleItems
             if !shown.isEmpty { list.reconfigureItems(at: shown) }
         }
+    }
+}
+#endif
+
+#if DEBUG
+// EXPERIMENT kosmos#8221: what the person would see, read by the app itself on the trace's clock: the key window drawn as it
+// was last shown (afterScreenUpdates false, so the read forces no layout), and the share of dark (text) pixels in the band
+// from 18% to 52% of the screen's height, the messages above a raised keyboard. A drawn chat reads about 0.03.
+enum UIKitInk {
+    static func sample() -> String {
+        guard let w = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first else { return "nowindow" }
+        let b = w.bounds
+        let band = CGRect(x: 0, y: b.height * 0.18, width: b.width, height: b.height * 0.34)
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(bounds: band, format: fmt).image { _ in
+            w.drawHierarchy(in: b, afterScreenUpdates: false)
+        }
+        guard let cg = img.cgImage else { return "noimage" }
+        let wd = cg.width, ht = cg.height
+        var px = [UInt8](repeating: 0, count: wd * ht * 4)
+        guard let ctx = CGContext(data: &px, width: wd, height: ht, bitsPerComponent: 8, bytesPerRow: wd * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return "nocontext" }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: wd, height: ht))
+        var dark = 0
+        for i in stride(from: 0, to: px.count, by: 4) {
+            if 0.299 * Double(px[i]) + 0.587 * Double(px[i+1]) + 0.114 * Double(px[i+2]) < 110 { dark += 1 }
+        }
+        return String(format: "%.4f", Double(dark) / Double(wd * ht))
     }
 }
 #endif
