@@ -34,8 +34,6 @@ struct ChatList: UIViewRepresentable {
         var newest = 0
         // At the newest message: the list is kept at its end through every change until the person scrolls away.
         var atEnd = true { didSet { if atEnd != oldValue { let v = atEnd; DispatchQueue.main.async { [weak self] in self?.told?(v) } } } }
-        var lastHeight: CGFloat = 0
-        var lastContent: CGFloat = 0
         var pinning = false
 
         func configure(_ c: UICollectionViewCell, _ id: String) {
@@ -70,14 +68,12 @@ struct ChatList: UIViewRepresentable {
             if !willDecelerate { atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack }
         }
 
-        // After every layout: a reader at the newest message stays at the end when the list's height (box, keyboard) or the
-        // content's (new rows, a row measured or grown) changed. Never under the person's finger or fling.
+        // After every layout: a reader at the newest message is put back at the end wherever the offset is. Never under the
+        // person's finger or fling.
         func laidOut() {
             guard let list, !pinning else { return }
-            let h = list.bounds.height, c = list.contentSize.height
-            defer { lastHeight = h; lastContent = c }
-            guard atEnd, c > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
-            if h != lastHeight || c != lastContent || abs(list.contentOffset.y - maxY(list)) > 0.5 { pin() }
+            guard atEnd, list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
+            pin()
         }
 
         func pin() {
@@ -141,6 +137,9 @@ struct ChatList: UIViewRepresentable {
         list.delegate = co
         list.onLayout = { [weak co] in co?.laidOut() }
         co.apply(ids)
+        // A new list opens at the newest message: the chat is told so once, as it is told of every later change.
+        let told = atEnd
+        DispatchQueue.main.async { told(true) }
         return list
     }
 
