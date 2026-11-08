@@ -13,8 +13,10 @@ when a swipe stars or unstars an agent. Each once per action, and nothing else n
 - ChatView: `failed()` when a message the computer refused or did not answer turns failed (Board.failedPendingIDs gains
   an id while the chat is open; a retry that fails again buzzes again; "not confirmed" stays silent). The send call
   itself returns true once it goes, so this is where a real failed send is seen. The watch and its seeding are in the
-  Release build: the room suite fails if either sits inside an #if DEBUG block (round 4 found them in one). Each agent
-  gets its own ChatView (AgentsView's .id(agent.session)), so the onAppear seeding covers a change of agent.
+  Release build: the room suite fails if any haptic line in the five files sits inside DEBUG-only code (round 4 found
+  this watch in one). Only the chat on screen (`visible`) buzzes, since the same agent can be open under two tabs; the
+  set is reseeded on appear and when the view's agent changes (TodayView, TasksView and RoomView reuse one ChatView).
+- ChatView.tryAgain: `failed()` when a row's Try again is refused.
 - ChatView.press(): `decided()` only when an Allow or Deny on a request's card comes back `.sent` (not on the arming
   press, not when not sure, not when nothing went); `failed()` when any press is refused.
 - RoomView: `sent()` in send(); `failed()` when the room store hands a post's words back because the computer refused
@@ -38,7 +40,7 @@ when a swipe stars or unstars an agent. Each once per action, and nothing else n
 
 - Not buzzed, on purpose: a refusal that moves the sign-in to the web page (it carries on there); "more" options under
   Show details and an Allow/Deny drawn as a plain question (pick 1 is the card's Allow and Deny); a retry of a failed
-  row taps nothing on press (it buzzes if it fails again).
+  row taps nothing on press (it buzzes if it fails again, through the pending watch or tryAgain's refusal).
 
 ## Weakest premise
 That every assignment to SignInModel.error is a failure the person should feel. Measured: every non-nil assignment in

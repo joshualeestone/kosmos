@@ -443,24 +443,37 @@ check(!sortLabelBody.isEmpty && !sortLabelBody.contains(".background(") && !sort
 check(clientSrc.contains("agents = Board.agentOrder(Board.sorted(Board.parseAgents(Data(sample.utf8)) ?? []), sort: agentSort, projects: sortProjects, stars: shownStars)"), "kosmos#7532 (Mona Lisa): the Debug sample agents come in the chosen order, as a real read does, so a shot shows the sort")
 check(agentsSrc.contains("client.setAgentSort(sortChoice, projects: projectNames)") && agentsSrc.contains("ForEach(client.agents)"), "kosmos#7421: the Agents list shows the client's order and hands it the person's pick")
 // kosmos#7034 wiring guards (source checks): the row stars by a swipe, a long press and a VoiceOver action, and shows it.
-check(agentsSrc.contains(".swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent, swiped: true) }") && agentsSrc.contains(".contextMenu { starButton(agent) }") && agentsSrc.contains("starred: client.isStarred(agent.session)"),
+check(agentsSrc.contains(".swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent, swiped: true) }") && agentsSrc.contains(".contextMenu { starButton(agent, swiped: false) }") && agentsSrc.contains("starred: client.isStarred(agent.session)"),
       "kosmos#7034: a row is starred by a swipe (VoiceOver offers it) or a long press, and shows its star")
 // kosmos#8246 (Josh's pick 5): the swipe's star clicks, the long-press menu's same button does not.
-check(agentsSrc.contains("if swiped { Haptics.snapped() }") && !agentsSrc.contains(".contextMenu { starButton(agent, swiped: true) }"),
+check(agentsSrc.contains("if swiped { Haptics.snapped() }") && agentsSrc.contains("private func starButton(_ agent: Board.Agent, swiped: Bool) -> some View")
+      && !agentsSrc.contains(".contextMenu { starButton(agent, swiped: true) }"),
       "kosmos#8246: only the swipe's star or unstar clicks")
-// kosmos#8246 round 4: the failed-send buzz must be in the Release build, never inside a DEBUG-only block.
+// kosmos#8246 rounds 4 and 5: every haptic must be in the Release build. Each line that fires one (or counts a sign-in
+// failure) in these five files sits outside any #if branch that only DEBUG builds keep.
 do {
-    let chatSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
-    // A stack of the open #if blocks (true for a DEBUG one), so a nested #if inside DEBUG does not end it early.
-    var open: [Bool] = []; var seen = 0; var inDebug = 0
-    for line in chatSrc.components(separatedBy: "\n") {
-        let s = line.trimmingCharacters(in: .whitespaces)
-        if s.hasPrefix("#if ") { open.append(s == "#if DEBUG") } else if s == "#endif", !open.isEmpty { open.removeLast() }
-        if s.hasPrefix(".onChange(of: Board.failedPendingIDs(pending))") || s.hasPrefix("failedSeen = Board.failedPendingIDs(pending)") {
-            seen += 1; if open.contains(true) { inDebug += 1 }
+    func debugOnlyLines(_ src: String, _ isTarget: (String) -> Bool) -> (seen: Int, inDebug: Int) {
+        // One entry per open #if: is the branch now being read kept only in DEBUG builds?
+        var open: [Bool] = []; var seen = 0; var inDebug = 0
+        for line in src.components(separatedBy: "\n") {
+            let s = line.trimmingCharacters(in: .whitespaces)
+            if s.hasPrefix("#if ") { open.append(s.contains("DEBUG") && !s.contains("!DEBUG")) }
+            else if s.hasPrefix("#elseif") || s == "#else" { if !open.isEmpty { open[open.count - 1] = open.last == true ? false : s.contains("DEBUG") && !s.contains("!DEBUG") } }
+            else if s == "#endif", !open.isEmpty { open.removeLast() }
+            else if isTarget(s) { seen += 1; if open.contains(true) { inDebug += 1 } }
         }
+        return (seen, inDebug)
     }
-    check(seen == 2 && inDebug == 0, "kosmos#8246: the failed-send watch and its seeding are outside every #if DEBUG block")
+    let hit = { (s: String) in s.contains("Haptics.") || s.contains("failures += 1") || s.contains("failedSeen = Board.failedPendingIDs(pending)") }
+    var seen = 0; var inDebug = 0
+    for f in ["ChatView", "RoomView", "AgentsView", "SignInView", "ProjectsView"] {
+        let src = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/\(f).swift"), encoding: .utf8)) ?? ""
+        let r = debugOnlyLines(src, hit); seen += r.seen; inDebug += r.inDebug
+    }
+    check(seen >= 10 && inDebug == 0, "kosmos#8246: every haptic call and the sign-in failure count are outside DEBUG-only code (\(seen) seen, \(inDebug) inside)")
+    // CONTROL: the same reader does see a line inside a DEBUG block, and an #else branch of one as Release.
+    let probe = debugOnlyLines("#if DEBUG\nHaptics.x()\n#else\nHaptics.y()\n#endif\n#if DEBUG && canImport(UIKit)\nHaptics.z()\n#endif", hit)
+    check(probe.seen == 3 && probe.inDebug == 2, "kosmos#8246 CONTROL: the DEBUG reader flags lines in DEBUG blocks, not their #else")
 }
 // kosmos#7419: the long-press sheet. The seven quick reactions in Mona Lisa's order, each one the board's own (the 80 the
 // phone keeps as ComposerExtras.emoji, PJ_EMOJI); every message long-press opens the sheet, and no reaction menu is left.

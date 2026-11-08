@@ -364,11 +364,13 @@ struct ChatView: View {
             AgentInfoView(client: client, agent: agent, openOnBoard: openOnBoard)
         }, label: { EmptyView() }).hidden())
         // kosmos#8246: a message the computer refused, or that got no answer, buzzes once as it fails (a retry that fails
-        // again buzzes again); "not confirmed" stays silent. Seeded as the chat shows (below), so earlier failures do not.
+        // again buzzes again); "not confirmed" stays silent. Only the chat on screen buzzes (the same agent can be open
+        // under two tabs); the set is kept current either way, and seeded as the chat shows or changes agent.
         .onChange(of: Board.failedPendingIDs(pending)) { now in
-            if !now.subtracting(failedSeen).isEmpty { Haptics.failed() }
+            if visible, !now.subtracting(failedSeen).isEmpty { Haptics.failed() }
             failedSeen = now
         }
+        .onChange(of: agent.session) { _ in failedSeen = Board.failedPendingIDs(pending) }
         #if DEBUG
         // KOSMOS_SAMPLE_INFO=profile|ai|files with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
         .onAppear {
@@ -2041,6 +2043,7 @@ struct ChatView: View {
             retrySettling.remove(at)
             guard let out = answer else { return }
             if out.refused {
+                Haptics.failed()   // kosmos#8246: a row's Try again refused is a message that did not send
                 // The same refusal twice does not change the line, so it would not be heard again: say it.
                 if composerNote == out.said { UIAccessibility.post(notification: .announcement, argument: out.said) }
                 composerNote = out.said

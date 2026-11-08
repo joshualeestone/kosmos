@@ -16,8 +16,9 @@ final class SignInModel: ObservableObject {
     }
     @Published var email = ""
     @Published var code = ""
-    // kosmos#8246: every refusal written into the error line counts, the same words twice included (a value watch would
-    // miss the second); the person cancelling the passkey prompt themselves does not.
+    // kosmos#8246: every message written into the error line counts (refusals, an unreachable service, and the person's
+    // own input checks), the same words twice included (a value watch would miss the second); the person cancelling the
+    // passkey prompt themselves does not.
     @Published var error: String? { didSet { if let e = error, e != SignIn.passkeyWords.notUsed { failures += 1 } } }
     /// kosmos#8246: how many sign-in failures this screen has had; SignInView buzzes on each.
     @Published var failures = 0
