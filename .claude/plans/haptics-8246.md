@@ -12,11 +12,14 @@ when a swipe stars or unstars an agent. Each once per action, and nothing else n
   not-sent branch, where the words are put back.
 - ChatView.press(): `decided()` only when an Allow or Deny on a request's card comes back `.sent` (not on the arming
   press, not when not sure, not when nothing went); `failed()` when any press is refused.
-- RoomView: `sent()` in send(); `failed()` when the room store hands a post's words back (refused or unsure).
+- RoomView: `sent()` in send(); `failed()` when the room store hands a post's words back because the computer refused
+  it (Returned.refused); a post not confirmed (it may have gone) stays silent, as a chat's not-sure answer does.
 - AgentsView: `snapped()` only for the swipe's star or unstar (a full swipe or the revealed button); the long-press
   menu's same button stays silent.
 - SignInModel counts failures (`failures`): every refusal written into the error line, the same words twice included,
-  and the Mac saying no (`step = .denied`); the person cancelling the passkey prompt is not counted. SignInView buzzes
+  and the Mac saying no (the step becoming denied, once: the watch re-setting the same denial is not counted again);
+  the person cancelling the passkey prompt is not counted. A denial writes no error line, so it never counts twice.
+  Debug sample flows that set the error line buzz too (Debug only). SignInView buzzes
   on each count.
 
 ## Decisions

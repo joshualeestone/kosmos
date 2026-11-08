@@ -8,8 +8,11 @@ import AuthenticationServices
 // step to set up) goes to the web sign-in page (`useWeb`) with one line saying why.
 @MainActor
 final class SignInModel: ObservableObject {
-    // kosmos#8246: the Mac saying no is a refusal too (it sets no error line).
-    @Published var step: SignIn.Step = .email { didSet { if case .denied = step { failures += 1 } } }
+    // kosmos#8246: the Mac saying no is a refusal too (it sets no error line). Counted as the step becomes denied, once:
+    // the watch that follows re-sets the same denial, which is not a second refusal.
+    @Published var step: SignIn.Step = .email {
+        didSet { if case .denied = step { if case .denied = oldValue {} else { failures += 1 } } }
+    }
     @Published var email = ""
     @Published var code = ""
     // kosmos#8246: every refusal written into the error line counts, the same words twice included (a value watch would
