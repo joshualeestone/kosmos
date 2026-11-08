@@ -11,6 +11,7 @@ final class DotsRefreshUITests: XCTestCase {
         var env = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_PULL_SECONDS": "4"]
         if let tab { env["KOSMOS_SAMPLE_TAB"] = tab }
         app.launchEnvironment = env
+        UIKitListArm.set(app)   // kosmos#8221: the list under test
         app.launch()
         return app
     }

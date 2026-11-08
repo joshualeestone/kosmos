@@ -12,6 +12,7 @@ final class ComposerSendUITests: XCTestCase {
         XCUIDevice.shared.appearance = dark ? .dark : .light
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana"]
+        UIKitListArm.set(app)   // kosmos#8221: the list under test
         app.launch()
         return app
     }
@@ -59,6 +60,7 @@ final class ComposerSendUITests: XCTestCase {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
+        UIKitListArm.set(app)   // kosmos#8221: the list under test
         app.launch()
         // By its label: the placeholder goes once the box holds words, so a placeholder query finds nothing after the first typing.
         let field = app.textFields.matching(NSPredicate(format: "label == 'Post to everyone on this project'")).firstMatch

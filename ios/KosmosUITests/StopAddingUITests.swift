@@ -9,6 +9,7 @@ final class StopAddingUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue",
                                  "KOSMOS_SAMPLE_ATTACHED": "1"]
+        UIKitListArm.set(app)   // kosmos#8221: the list under test
         app.launch()
         let adding = app.staticTexts["Adding a file\u{2026}"]
         XCTAssertTrue(adding.waitForExistence(timeout: 30), "premise: the sample's add shows as going in the room")
@@ -23,6 +24,7 @@ final class StopAddingUITests: XCTestCase {
     func testTheXClearsAnAddThatNeverEnds() throws {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_ATTACHED": "1"]
+        UIKitListArm.set(app)   // kosmos#8221: the list under test
         app.launch()
         let adding = app.staticTexts["Adding a file\u{2026}"]
         XCTAssertTrue(adding.waitForExistence(timeout: 30), "premise: the sample's add shows as going")
