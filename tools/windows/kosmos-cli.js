@@ -1621,6 +1621,17 @@ async function taskReopen(ctx, args) {
   return 1;
 }
 
+/* kosmos#8227 item 1: (letter) -> this Windows computer's entry for a drive letter (engine/windrives.js infoOf), through
+   the test seam o.driveInfo first, then ctx.engine('windrives') so o.engine reaches both verbs; null when this install's
+   windrives has no infoOf (an incomplete or older install). */
+function driveInfoFor(ctx) {
+  if (typeof ctx.driveInfo === 'function') return ctx.driveInfo;
+  try {
+    const wd = ctx.engine('windrives');
+    return wd && typeof wd.infoOf === 'function' ? (letter) => wd.infoOf(letter) : null;
+  } catch (_) { return null; }
+}
+
 /* kosmos#8214, as install/kosmos cmd_task files: each built task's delivered file fingerprinted again on this computer,
    from the board's built list (with the agent's own token, as task list), printed by engine/tasklist.js filesLines, the
    one copy both CLIs run. Read-only. */
@@ -1641,7 +1652,9 @@ async function taskFiles(ctx, args) {
     if (every && /^say which project/.test(ctx.refusedBy(r))) { ctx.err('This board is older than --all, so it did not list what was asked. Update Kosmos.'); return 1; }
     ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1;
   }
-  const shown = tasklist.filesLines(r.json, { project: every ? '' : project, ...(typeof ctx.driveInfo === 'function' ? { driveInfo: ctx.driveInfo } : {}) });
+  // kosmos#8227 item 1: the drive kinds through the same seam task built --file uses (filesLines' own default when unreadable).
+  const read = driveInfoFor(ctx);
+  const shown = tasklist.filesLines(r.json, { project: every ? '' : project, ...(read ? { driveInfo: read } : {}) });
   for (const l of shown.lines) { if (shown.rc) ctx.err(l); else ctx.out(l); }
   return shown.rc;
 }
@@ -1909,17 +1922,17 @@ async function taskBuilt(ctx, args) {
        PowerShell call (about 0.2 s here), the only cost this adds to marking a file. */
     if (filePath && /^[A-Za-z]:[\\/]/.test(filePath)) {
       let kind = 'unknown';
-      try {
-        const tl = ctx.engine('tasklist');
-        const info = typeof ctx.driveInfo === 'function' ? ctx.driveInfo(filePath.charAt(0))
-          : ctx.engine('windrives').infoOf(filePath.charAt(0), { timeoutMs: tl.DRIVE_KINDS_TIMEOUT_MS });
-        kind = tl.driveKind(info);   // the verdict task files reads, so the two never disagree
-      } catch (_) { kind = 'unknown'; }
+      const read = driveInfoFor(ctx);
+      if (!read) kind = 'old';
+      else {
+        try { kind = ctx.engine('tasklist').driveKind(read(filePath.charAt(0))); } catch (_) { kind = 'unknown'; }   // the verdict task files reads
+      }
       if (kind !== 'local') {
         const letter = filePath.charAt(0).toUpperCase();
         pathWhy = kind === 'network' ? letter + ': is a network drive, and kosmos task files never opens one'
-          : kind === 'absent' ? 'Kosmos could not find drive ' + letter + ': just now'
-            : 'Kosmos could not read what kind of drive ' + letter + ': is';
+          : kind === 'absent' ? 'drive ' + letter + ': did not show up as one of this computer\'s drives'
+            : kind === 'old' ? 'this install of Kosmos cannot tell a network drive from a local one yet; update Kosmos'
+              : 'Kosmos could not read what kind of drive ' + letter + ': is';
         filePath = null;
       }
     }

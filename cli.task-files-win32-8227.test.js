@@ -70,10 +70,10 @@ test.after(() => {
 
 const stored = (n) => tasks.byNumber(projects.readAll().find((x) => x.id === projectId), n);
 const tokenOf = (name) => { const m = sendertoken.mint(name); assert.equal(m.ok, true, m.because); return m.token; };
-async function win(argv, { token = null, cwd, driveInfo } = {}) {
+async function win(argv, { token = null, cwd, driveInfo, engine } = {}) {
   const out = []; const err = [];
   const code = await cli.main(argv, {
-    env: {}, url: base, ...(cwd ? { cwd: () => cwd } : {}), ...(driveInfo !== undefined ? { driveInfo } : {}),
+    env: {}, url: base, ...(cwd ? { cwd: () => cwd } : {}), ...(driveInfo !== undefined ? { driveInfo } : {}), ...(engine ? { engine } : {}),
     pathRules: path.win32,
     hook: { resolveUrl: () => base, readBoardToken: () => null, agentToken: () => token },
     out: (s) => out.push(s), err: (s) => err.push(s),
@@ -193,6 +193,15 @@ test('#8227 item 1 Windows: built --file keeps a local drive path, and never one
   assert.equal(stored(m).builtFingerprint, sha('on a drive'));
   assert.equal('builtFilePath' in stored(m), false, 'a network drive path was kept');
   assert.ok(net.out.split('\n').includes('Its path was not sent (' + letter + ': is a network drive, and kosmos task files never opens one), so kosmos task files cannot check this mark.'), net.out);
+  // A drive that does not show up, and an install whose windrives cannot tell: not kept, each said.
+  const a = tasks.create(projectId, { sentence: 'Absent', who: 'mona' }).number;
+  const gone = await win(['task', 'built', projectId, String(a), 'done', '--file', 'drive.txt'], { token: tok, cwd: OUT, driveInfo: () => ABSENT });
+  assert.equal('builtFilePath' in stored(a), false);
+  assert.ok(gone.out.split('\n').includes('Its path was not sent (drive ' + letter + ': did not show up as one of this computer\'s drives), so kosmos task files cannot check this mark.'), gone.out);
+  const o = tasks.create(projectId, { sentence: 'Old install', who: 'mona' }).number;
+  const old = await win(['task', 'built', projectId, String(o), 'done', '--file', 'drive.txt'], { token: tok, cwd: OUT, engine: { windrives: {} } });
+  assert.equal('builtFilePath' in stored(o), false, 'a path was kept by an install that cannot tell drive kinds');
+  assert.ok(old.out.split('\n').includes('Its path was not sent (this install of Kosmos cannot tell a network drive from a local one yet; update Kosmos), so kosmos task files cannot check this mark.'), old.out);
   // Kinds that could not be read: not kept either (fail closed), and that is what it says, not a rule about the path.
   const u = tasks.create(projectId, { sentence: 'Unknown', who: 'mona' }).number;
   const blind = await win(['task', 'built', projectId, String(u), 'done', '--file', 'drive.txt'], { token: tok, cwd: OUT, driveInfo: () => null });
