@@ -7,9 +7,10 @@ Items 5, 7 and 8 of the card's list each have a UI check that runs on both lists
 list, with the UIKit arm shown able to fail by a perturbation. Where a check cannot be made able to fail on
 the simulator, that is written down instead of shipping the check. Nothing here is run by CI: ios/tools/ui-sample.sh runs a
 fixed class list without these, and nothing runs the UIKit arm. Every result below is a hand run on one simulator.
-Before adding them to that list: it already runs two classes on the 260-message chat (KeyboardSlideUITests, EndPullUITests)
-but leaves ChatOpensAtNewestUITests out because its queries over that chat were too big for a CI runner. These checks query
-only the few "New message" rows and single labels, which is not measured on a CI runner.
+Before adding them to that list: it already runs three classes on the 260-message chat (KeyboardSlideUITests,
+EndPullUITests, SendMovesOnceUITests) but leaves ChatOpensAtNewestUITests out because its queries over that chat were too
+big for a CI runner. The drag check and the capsule check also read every drawn "Message N of 260." row and ask each
+whether it is on screen, the same kind of query, so they may meet the same limit there. Not measured on a CI runner.
 
 ## What changed
 - ChatList: a Debug-only `sampleUp` / `sampleRested` pair. KOSMOS_SAMPLE_SCROLLUP=<n> puts the n-th row from the end at
@@ -30,8 +31,8 @@ only the few "New message" rows and single labels, which is not measured on a CI
 | capsule, hook scroll-up | 6 of 6 | 6 of 6 | red with unseenNew never set on a new message |
 | capsule, real drag up | 4 of 4 | 4 of 4 | red with endSlack 100000 (the list read the drag as at the end and pinned the reader back) |
 | capsule control, at the newest | 6 of 6 | 6 of 6 | (control) |
-| search | 5 of 5 | **4 of 7** | red with Board.chatFilter ignoring the query ("Message 260 still drawn") |
-| drag down dismisses | 5 of 5 | 6 of 6 | red with keyboardDismissMode .none |
+| search | 5 of 5 | **4 of 7** | red with Board.chatFilter ignoring the query ("Message 260 still drawn"), and with the matches in reverse order on the UIKit list ("Message 159, the newest match, is not drawn"); the clearing half not perturbed |
+| drag down dismisses | 5 of 5 | 6 of 6 | the dismissal half red with keyboardDismissMode .none; the messages-drawn half not perturbed |
 
 Not shown able to fail on the lazy arm: none of these was perturbed there.
 
