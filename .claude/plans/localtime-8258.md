@@ -12,13 +12,16 @@ Each agent-facing command that prints a time:
 | kosmos inbox | UTC date with only a trailing Z | CHANGED |
 | kosmos report show (Set, first made) | raw UTC instant | CHANGED, same words as inbox |
 | kosmos community read (post and comment dates) | UTC calendar date, no label | CHANGED to this computer's date |
-| "Added on" heading in an agent's instructions | UTC calendar date, no label | CHANGED to this computer's date |
+| kosmos community read --following (entry, newest, replies) | UTC calendar date, no label | CHANGED to this computer's date |
+| "Added on" heading in an agent's instructions | UTC calendar date, no label | none: apply and dismiss re-derive it to recognise an earlier write, so it must not depend on the zone |
+| "Added ... on <date>" policy line in an agent's instructions | UTC calendar date, no label | none: written into every agent's file, and a zone-dependent date could rewrite those files |
 | task hold answer, a hold's time in task activity | the instant the agent itself set, with its Z | none: echoed instant, not a date to copy |
 
 ## Change
 kosmos inbox rows start with this computer's date and clock, then the UTC stamp:
 `2026-11-06 20:25:31 local (2026-11-07 02:25:31Z) the person: ...`. The board renders the row, so both CLIs get it. The
-JSON answer keeps `at` as the stored instant. The local stamp can be given straight back to --since (tested).
+JSON answer keeps `at` as the stored instant. The local stamp can be given straight back to --since (tested). In the hour repeated when clocks go back it reads as
+the first occurrence, so it shows extra rows and loses none.
 
 All of it comes from engine/localstamp.js. A stored time that is the right shape but no real date prints no stamp.
 
