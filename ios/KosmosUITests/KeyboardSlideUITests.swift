@@ -158,7 +158,8 @@ final class KeyboardSlideUITests: XCTestCase {
     // and again as it shrinks. Measured to the box itself (its top moves up a line at a time), within 4 pt.
     func testNewestStaysJustAboveTheBoxAsItGrowsAndShrinks() throws {
         // kosmos#7817 (11-03): the follow is off in release builds (ChatView.followsBox); this turns it on to keep checking it.
-        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_BOXFOLLOW": "1"])
+        // kosmos#8221: traced, so a red on CI's UIKit arm prints what moved the list (ui-sample.sh prints the trace on a failure).
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_BOXFOLLOW": "1", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(newest.waitForExistence(timeout: 15), "the long chat did not open at its newest message")
