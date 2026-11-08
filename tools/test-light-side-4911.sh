@@ -322,14 +322,14 @@ out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/pw-kid" kosmos_light_side_
 [ "$rc" -eq 0 ] && pass "CONTROL: that browser against an unrelated side command -> yield" || fail "CONTROL: the browser was not seen (dropped as a fixture?) (rc=$rc, $out)"
 kill "$KID" "$R2" "$R3" 2>/dev/null; wait "$R2" "$R3" 2>/dev/null
 
-# Review 7: the REAL Playwright matcher (every other arm goes through KOSMOS_PW_PROBE). A stand-in executable at a
-# browser path is listed; one at a WebKit XPC helper path is not (launchd parents those, so they would never read as
+# Review 7: the REAL Playwright matcher (every other arm goes through KOSMOS_PW_PROBE). A stand-in whose command line
+# starts with a browser path is listed; one with a WebKit XPC helper path is not (launchd parents those, so they would never read as
 # the side command's own); a command that only mentions the folder is not.
 PWD_="$T/pw/ms-playwright"
 # kosmos#8250: each stand-in is a perl wait whose command line begins with the browser path (exec -a), which is all
-# the matcher reads (pgrep -fa / -fl). It was a copy of /bin/sleep at that path: on ubuntu-26.04 /bin/sleep is the
-# Rust coreutils multicall binary, which picks its tool from the name it is run as, so a copy named
-# chrome-headless-shell exited at once and every stand-in read as not running.
+# the matcher reads (pgrep -fa / -fl). It was a copy of /bin/sleep at that path, and on ubuntu-26.04 the three copies
+# read as not running while the perl stand-in ran. The likely reason: /bin/sleep there is the Rust coreutils multicall
+# binary, which picks its tool from the name it is run as. A perl wait depends on no such thing.
 # Started from $TMPDIR, which run-tests.sh makes its kt<digits> sandbox, so when this file runs inside a heavy holder's
 # suite the stand-ins read as that suite's fixtures and no real side turn yields to them (review 9).
 ( cd "${TMPDIR:-/tmp}" && exec -a "$PWD_/chromium_headless_shell-9/x/chrome-headless-shell" perl -e 'select(undef, undef, undef, 61)' ) </dev/null >/dev/null 2>&1 & PB=$!
