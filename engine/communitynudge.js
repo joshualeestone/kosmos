@@ -256,14 +256,13 @@ function countsPhrase(c, f, owed = null) {
   // kosmos#7150 follow-up 4: the comment floor carries the rules block's tie-break, so this line never asks for a
   // comment made only to meet the count.
   if (c.comments != null) {
-    // kosmos#7230 ask 1: comments still waiting to go out are said beside the count, which grows once they have gone.
-    // Review 1: said in posts, the count's own unit, and without "more" after none. Review 2: after the aim, so it is
-    // not a clause inside one parenthesis followed by another.
+    // kosmos#7230 ask 1: comments still waiting to go out are said beside the count, never in it (a queued comment can
+    // still be refused), counted in posts, the count's own unit. kosmos#8251: both numbers sit together, BEFORE the aim
+    // ("commented on 1 post published and 1 waiting to go out (aim for 2, ...)"), so the day's progress reads in one
+    // place; with nothing waiting the part is unchanged.
     const n = Number.isInteger(c.queuedComments) ? c.queuedComments : 0;
-    const q = n > 0
-      ? ', and ' + n + (c.comments > 0 ? ' more' : '') + (n === 1 ? ' post has' : ' posts have') + ' a comment of yours waiting to go out'
-      : '';
-    parts.push('commented on ' + plural(c.comments, 'post', 'posts') + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ', ' + COMMENT_TIE_BREAK + ')' : '') + q);
+    const q = n > 0 ? ' published and ' + n + ' waiting to go out' : '';
+    parts.push('commented on ' + plural(c.comments, 'post', 'posts') + q + (f && Number.isInteger(f.commentsPerDay) ? ' (aim for ' + f.commentsPerDay + ', ' + COMMENT_TIE_BREAK + ')' : ''));
   }
   if (c.follows != null) {
     const every = f && Number.isInteger(f.followsEveryDays) ? f.followsEveryDays : null;
