@@ -11,16 +11,19 @@ final class NewChatListSwitchUITests: XCTestCase {
 
     // A fresh launch straight onto the Chat section (KOSMOS_SAMPLE_SCROLL=chat), and the switch put back off if it is on.
     override func tearDown() {
+        // A test that failed midway left continueAfterFailure false; the reset must still run to the end.
+        continueAfterFailure = true
         let app = XCUIApplication()
+        defer { app.terminate(); super.tearDown() }
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "settings", "KOSMOS_SAMPLE_SCROLL": "chat"]
         app.launch()
         let sw = app.switches["settings-new-chat-list"]
-        if sw.waitForExistence(timeout: 20), sw.value as? String == "1" {
+        _ = sw.waitForExistence(timeout: 20)
+        for _ in 0..<6 where sw.exists && !sw.isHittable { app.swipeUp() }
+        if sw.exists, sw.isHittable, sw.value as? String == "1" {
             sw.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
         }
         XCTAssertEqual(sw.value as? String, "0", "teardown could not put the New chat list switch back off")
-        app.terminate()
-        super.tearDown()
     }
 
     private func openDana(_ app: XCUIApplication, _ when: String) {
