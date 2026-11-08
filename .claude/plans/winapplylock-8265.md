@@ -18,8 +18,8 @@ PowerShell script: it went on to its long sleep holding nothing (measured with p
 One shared script (holdScript) for the holder and the skip probe, which had the same one-shot open and could silently
 skip both tests. It retries the open every 50 ms for up to 25 s. It writes how far it got to a state file in the
 sandbox ("started, no hold yet", "held", "no hold in 25 s"), and the failure names that and the last read, so a
-recurrence can be told apart: never started, no hold in 25 s, or something else. The wait is 60 s (HOLD_WAIT_MS),
-to cover the file's documented stall of about 34 s plus the 25 s retry. Test-only; no product code.
+recurrence can be told apart: never started, no hold in 25 s, or something else. The wait is 75 s (HOLD_WAIT_MS),
+to leave room for the file's documented stall of about 34 s plus the 25 s retry. Test-only; no product code.
 
 Measured with pwsh, from the generated script: with the file free and an apostrophe in its path it records "held";
 with another process holding the file throughout, it records "no hold in 25 s".
@@ -32,3 +32,7 @@ the new message says which case it was.
 ## Review round 1
 Corrected: the failed open did not end the script (it slept holding nothing); the guaranteed opener is the poll, not a
 scanner; the probe needed the same retry; a recurrence needed to say which case it was; the wait now covers a stall.
+
+## Review round 2
+The wait was 60 s against a stated 34 + 25 s, a margin of 1 s; it is 75 s now. "Never started" now means the state file
+is absent, not merely unreadable.
