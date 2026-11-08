@@ -18,8 +18,8 @@ T="$(mktemp -d "/tmp/test-light-side-4911.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 # #6710: the long-lived stand-in controls in this file are bounded waits (perl select), not `sleep N`,
 # so a stray `pkill -f sleep` (which matches any command line containing "sleep") cannot end one mid-test;
-# a perl select still ends by itself if cleanup never runs. The /bin/sleep copies at the real-matcher
-# fixture below keep a browser path as their command line (no "sleep"), so they are left as-is.
+# a perl select still ends by itself if cleanup never runs. The real-matcher fixture's stand-ins below are
+# perl waits too, with a browser path as their command line (no "sleep").
 perl -e 'select(undef, undef, undef, 600)' </dev/null >/dev/null 2>&1 & HOLDER=$!
 perl -e 'select(undef, undef, undef, 600)' </dev/null >/dev/null 2>&1 & OTHER=$!
 # A stand-in suite that is NOT this shell's descendant (this shell holds a queue marker in the side arms, and a
@@ -325,22 +325,19 @@ kill "$KID" "$R2" "$R3" 2>/dev/null; wait "$R2" "$R3" 2>/dev/null
 # Review 7: the REAL Playwright matcher (every other arm goes through KOSMOS_PW_PROBE). A stand-in executable at a
 # browser path is listed; one at a WebKit XPC helper path is not (launchd parents those, so they would never read as
 # the side command's own); a command that only mentions the folder is not.
-PWD_="$T/pw/ms-playwright"; mkdir -p "$PWD_/chromium_headless_shell-9/x" "$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS"
-cp /bin/sleep "$PWD_/chromium_headless_shell-9/x/chrome-headless-shell"; cp /bin/sleep "$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent"
-# macOS kills a copied system binary at exec (rc 137, measured) unless it is re-signed, ad hoc is enough.
-if command -v codesign >/dev/null 2>&1; then
-  codesign -s - -f "$PWD_/chromium_headless_shell-9/x/chrome-headless-shell" "$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent" >/dev/null 2>&1
-fi
+PWD_="$T/pw/ms-playwright"
+# kosmos#8250: each stand-in is a perl wait whose command line begins with the browser path (exec -a), which is all
+# the matcher reads (pgrep -fa / -fl). It was a copy of /bin/sleep at that path: on ubuntu-26.04 /bin/sleep is the
+# Rust coreutils multicall binary, which picks its tool from the name it is run as, so a copy named
+# chrome-headless-shell exited at once and every stand-in read as not running.
 # Started from $TMPDIR, which run-tests.sh makes its kt<digits> sandbox, so when this file runs inside a heavy holder's
 # suite the stand-ins read as that suite's fixtures and no real side turn yields to them (review 9).
-( cd "${TMPDIR:-/tmp}" && exec "$PWD_/chromium_headless_shell-9/x/chrome-headless-shell" 61 ) </dev/null >/dev/null 2>&1 & PB=$!
-( cd "${TMPDIR:-/tmp}" && exec "$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent" 62 ) </dev/null >/dev/null 2>&1 & PX=$!
+( cd "${TMPDIR:-/tmp}" && exec -a "$PWD_/chromium_headless_shell-9/x/chrome-headless-shell" perl -e 'select(undef, undef, undef, 61)' ) </dev/null >/dev/null 2>&1 & PB=$!
+( cd "${TMPDIR:-/tmp}" && exec -a "$PWD_/webkit-9/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent" perl -e 'select(undef, undef, undef, 62)' ) </dev/null >/dev/null 2>&1 & PX=$!
 # No exec: the path must stay on this process's command line (an exec'd sleep drops it, and the arm passed whatever
 # the matcher did; review 8 restored the loose match and this stayed green).
 ( cd "${TMPDIR:-/tmp}" && exec sh -c 'perl -e "select(undef, undef, undef, 63)"; :' "$PWD_/chromium_headless_shell-9/mentioned" ) </dev/null >/dev/null 2>&1 & PM=$!
-mkdir -p "$PWD_/chromium-9/x/Helpers"; cp /bin/sleep "$PWD_/chromium-9/x/Helpers/chrome_crashpad_handler"
-command -v codesign >/dev/null 2>&1 && codesign -s - -f "$PWD_/chromium-9/x/Helpers/chrome_crashpad_handler" >/dev/null 2>&1
-( cd "${TMPDIR:-/tmp}" && exec "$PWD_/chromium-9/x/Helpers/chrome_crashpad_handler" 65 ) </dev/null >/dev/null 2>&1 & PC=$!
+( cd "${TMPDIR:-/tmp}" && exec -a "$PWD_/chromium-9/x/Helpers/chrome_crashpad_handler" perl -e 'select(undef, undef, undef, 65)' ) </dev/null >/dev/null 2>&1 & PC=$!
 sleep 0.3; seen="$(_kosmos_playwright_browsers | awk '{print $1}')"
 # Every stand-in must be ALIVE, or a "left out" arm passes because the process is gone (the first draft did).
 for p in "$PB" "$PX" "$PM" "$PC"; do kill -0 "$p" 2>/dev/null || fail "the real-matcher fixture: stand-in $p is not running"; done
