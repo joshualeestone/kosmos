@@ -1,7 +1,6 @@
 # kosmos#8221 slice 3: a reader higher up keeps their exact place on the UIKit list
 
-Stacked on slice 2 (#8243, branch uikitlist-s2-8221, open: blocked only by the shell-shard red of #8244). Retarget to
-main once #8243 merges. Debug only: a release build still draws the lazy list.
+On main after slice 2 (#8243, merged 11-08 08:33 CST as eaf8b96e0c). Debug only: a release build still draws the lazy list.
 
 ## Finished looks like
 On the UIKit list, a reader the person moved higher up stays exactly where they were (the highest row on screen at the
@@ -12,8 +11,11 @@ check that passes either way is labelled a regression guard, not evidence for th
 
 ## What changed
 - ChatList.Coordinator: `place`, the highest row on screen and its distance below the top of the list.
-  - Taken when the person's scroll ends (drag, fling, status-bar tap), and on the first layout after a scroll by code
-    (the KOSMOS_SAMPLE_SCROLLUP hook clears it). Cleared while the person scrolls and whenever the reader is at the newest.
+  - Dropped on any move that is not the list's own (its pin, its hold, a layout pass, an update being applied): the
+    person's scroll, a scroll by code, a scroll iOS makes itself (VoiceOver's page scroll). Taken again when a scroll ends
+    and on the next layout that finds none. Also dropped whenever the reader is at the newest.
+  - A status-bar tap is handled like the end of any scroll, but not checked: the composer is a scroll view too, and
+    whether iOS sends the tap to this list was not measured.
   - Held in `laidOut()`: after every layout that is not under the person's finger or fling, the held row is put back at its
     distance, clamped to the list's range. The at-the-newest pin is unchanged and still wins when atEnd.
   - In `apply()`: when the held row is about to be removed (the window sliding, KOSMOS_SAMPLE_GROW), the next row on screen
@@ -26,6 +28,10 @@ check that passes either way is labelled a regression guard, not evidence for th
     the phone, so no row leaves above the reader; a regression guard.
   - testAReaderHigherUpKeepsTheirPlaceAsRowsLeaveTheTop: the same with KOSMOS_SAMPLE_NOKEEP=1 (carryDropped off), so every
     read takes the oldest row off the top. The check for this slice.
+
+- KOSMOS_SAMPLE_SCROLLBY=<pt> (Debug, in ChatList's scroll-up hook): an animated scroll that far up, 2 s after the
+  scroll-up. NewMessagesUITests.testAScrollWithNoFingerMovesAReaderHigherUpAndStays: the reader moves about that far and
+  is not put back (review iteration 1 found the first version of the hold undid such scrolls).
 
 ## Rejected
 - Holding by content-size difference (offset += new height minus old height). Wrong when rows change below the reader

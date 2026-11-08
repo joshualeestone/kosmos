@@ -29,7 +29,13 @@ struct ChatList: UIViewRepresentable {
 
     final class List: UICollectionView {
         var onLayout: (() -> Void)?
-        override func layoutSubviews() { super.layoutSubviews(); onLayout?() }
+        var laying = false   // inside layoutSubviews: an offset change here is the list's own, not a scroll
+        override func layoutSubviews() {
+            laying = true
+            super.layoutSubviews()
+            laying = false
+            onLayout?()
+        }
     }
 
     final class Coordinator: NSObject, UICollectionViewDelegate {
@@ -47,7 +53,8 @@ struct ChatList: UIViewRepresentable {
         } }
         var pinning = false
         // A reader higher up: the highest row on screen and how far below the top of the list it is drawn. Held through every
-        // change; taken again when the person scrolls, and on the next layout after a scroll by code (nil until then).
+        // change; dropped whenever the list is scrolled (by the person, by code, or by iOS itself, such as VoiceOver's page
+        // scroll), and taken again on the next layout once nobody is scrolling.
         var place: (id: String, dy: CGFloat)?
 
         func configure(_ c: UICollectionViewCell, _ id: String) {
@@ -85,6 +92,16 @@ struct ChatList: UIViewRepresentable {
             list.scrollToItem(at: ip, at: .top, animated: false)
             ChatView.trace("uikit list: debug scroll-up done")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { rested?() }
+            // KOSMOS_SAMPLE_SCROLLBY=<pt>: 2 s after the scroll-up, an animated scroll that far up the thread, made the way
+            // iOS makes one for VoiceOver (no finger on the list), so a check can see it is not undone.
+            if let by = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLBY"].flatMap(Double.init) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    guard let list = self?.list else { return }
+                    let y = max(-list.adjustedContentInset.top, list.contentOffset.y - CGFloat(by))
+                    list.setContentOffset(CGPoint(x: 0, y: y), animated: true)
+                    ChatView.trace("uikit list: debug scroll-by done")
+                }
+            }
         }
         #endif
 
@@ -93,14 +110,20 @@ struct ChatList: UIViewRepresentable {
         }
 
         // The person's own scroll decides where the reader is; a scroll by code never does.
+        // Any move that is not this list's own (pin, hold, or a layout pass) drops the reader's place, so a scroll iOS makes
+        // with no finger on the list (VoiceOver's page scroll, an animated scroll by code) is followed, not put back.
         func scrollViewDidScroll(_ sv: UIScrollView) {
-            guard sv.isTracking || sv.isDragging || sv.isDecelerating else { return }
-            atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
-            place = nil
+            if sv.isTracking || sv.isDragging || sv.isDecelerating {
+                atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
+                place = nil
+            } else if !pinning, !applying, !(list?.laying ?? false) {
+                place = nil
+            }
         }
         func scrollViewDidEndDecelerating(_ sv: UIScrollView) { scrolled(sv) }
         func scrollViewDidEndDragging(_ sv: UIScrollView, willDecelerate: Bool) { if !willDecelerate { scrolled(sv) } }
-        func scrollViewDidScrollToTop(_ sv: UIScrollView) { scrolled(sv) }   // a tap on the status bar
+        func scrollViewDidEndScrollingAnimation(_ sv: UIScrollView) { scrolled(sv) }
+        func scrollViewDidScrollToTop(_ sv: UIScrollView) { scrolled(sv) }
         func scrolled(_ sv: UIScrollView) {
             atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
             if !atEnd { place = top() }
@@ -131,10 +154,8 @@ struct ChatList: UIViewRepresentable {
             pinning = false
         }
 
-        // After every layout: a reader at the newest message is put back at the end wherever the offset is. Never under the
-        // person's finger or fling.
-        // A reader higher up is held at their place (taken here first if a scroll by code left none). Neither under the
-        // person's finger or fling.
+        // After every layout, never under the person's finger or fling: a reader at the newest message is put back at the end
+        // wherever the offset is, and a reader higher up is held at their place (taken here first when there is none).
         func laidOut() {
             guard let list, !pinning else { return }
             guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
@@ -158,6 +179,7 @@ struct ChatList: UIViewRepresentable {
         // How often the list was updated and how many cells that drew again, for measuring what a keystroke costs.
         var applies = 0
         var redrawn = 0
+        var applying = false   // inside source.apply: an offset change there is the update's own, not a scroll
 
         func apply(_ now: [String]) {
             guard let source else { return }
@@ -174,10 +196,12 @@ struct ChatList: UIViewRepresentable {
             }
             let kept = Set(now)
             // A reader higher up whose top row is about to go holds the next row on screen that stays, as it is drawn now.
-            if !atEnd, let p = place, !kept.contains(p.id) { place = top(keep: kept) }
+            if !atEnd, place.map({ !kept.contains($0.id) }) ?? true { place = top(keep: kept) }
             let again = shown.filter { kept.contains($0) }
             if !again.isEmpty { s.reconfigureItems(again) }
+            applying = true
             source.apply(s, animatingDifferences: false)
+            applying = false
             redrawn += again.count
             if applies % 50 == 0 { ChatView.trace("uikit list: \(applies) updates, \(redrawn) cells drawn again") }
         }
