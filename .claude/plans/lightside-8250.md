@@ -15,6 +15,8 @@ path out of ms-playwright/ turns "the real matcher lists a browser executable" r
 _kosmos_playwright_browsers turns "leaves out a WebKit XPC helper" red; removing the crashpad exclusion turns "leaves
 out Chrome's crash reporter" red.
 
-Not here: the unpin. Ice Cream Kitty's #8248 (open) carries it with the sbroot control fix, and review 2 caught that
-folding it in here would have unpinned without that fix and conflicted with #8248. So this lands first on the pinned
-main, and #8248's own run on ubuntu-latest (26.04) is the proof both hold there. The cause stays REASONED until then.
+Not here: the unpin. Review 2 caught that folding it in would have unpinned without the sbroot control fix (#8248)
+and clashed with it. Ice Cream Kitty's order (Fleet Builders, 09:23): #8248 lands the sbroot control on the pinned
+main, this lands, then her small unpin PR restores the four pinned files; that PR's own CI on ubuntu-latest (26.04),
+with both fixes on main, is the proof. So #8250 is NOT done when this merges: it is parked until that run is green,
+and the cause stays REASONED until then.
