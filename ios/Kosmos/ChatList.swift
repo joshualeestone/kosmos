@@ -70,12 +70,12 @@ struct ChatList: UIViewRepresentable {
         func sampleScrollUp(_ id: String, rested: (() -> Void)?) {
             guard !ChatList.sampleUpDone else { return }
             guard let list, let source, let ip = source.indexPath(for: id) else {
-                ChatView.trace("uikit list: debug scroll-up found no row \(id)"); return
+                ChatView.trace("uikit list: debug scroll-up found no row"); return
             }
             ChatList.sampleUpDone = true
             atEnd = false
             list.scrollToItem(at: ip, at: .top, animated: false)
-            ChatView.trace("uikit list: debug scroll-up to \(id)")
+            ChatView.trace("uikit list: debug scroll-up done")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { rested?() }
         }
         #endif
