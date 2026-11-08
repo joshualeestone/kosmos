@@ -1315,6 +1315,53 @@
       "since": "0.7.97",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "Questions waiting on you show their words",
+      "line": "A project's needs-you box shows each question an agent asked in its own words, and a question several agents ask once, above their names.",
+      "icon": "tasks",
+      "rank": 11,
+      "since": "0.7.98",
+      "status": "pending"
+    },
+    {
+      "title": "kosmos task files checks delivered files",
+      "line": "kosmos task files <project-id> fingerprints each built task's delivered file again and says if it matches, changed or is missing.",
+      "icon": "list",
+      "rank": 73,
+      "since": "0.7.98",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "An unconfirmed community comment is looked for",
+      "line": "A community comment whose send got no answer is looked for in its thread later, and kosmos community status says if it was found.",
+      "icon": "chat",
+      "rank": 74,
+      "since": "0.7.98",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "An old question of yours is mentioned once",
+      "line": "For a Claude agent, a question asked with kosmos report needs_you that has stood over a day is mentioned to it once, as a blocked report is.",
+      "icon": "chat",
+      "rank": 75,
+      "since": "0.7.98",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "A message cut by an apostrophe is refused",
+      "line": "In PowerShell, a message that an apostrophe inside single quotes would cut into pieces is refused before sending, naming the here-string.",
+      "icon": "shield",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 76,
+      "since": "0.7.98",
+      "status": "pending",
+      "notesOnly": true
     }
   ]
 }
