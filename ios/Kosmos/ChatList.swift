@@ -44,7 +44,10 @@ struct ChatList: UIViewRepresentable {
             c.contentConfiguration = UIHostingConfiguration {
                 // The long-press sheet's host is the chat's (messageActionsHost); a hosted cell does not inherit SwiftUI's
                 // environment, so the two values the bubbles read are carried in.
-                cell(id)
+                // One stack with no spacing: a cell can hold two views (a send that starts a day is its day line and its
+                // bubble), which a hosting configuration would otherwise space 8 pt apart (measured 11-07: the list stepped
+                // 8 pt as such a send became its two rows). The lazy list's stack has no spacing either.
+                VStack(alignment: .leading, spacing: 0) { cell(id) }
                     .environment(\.openMessageActions, env.openMessageActions)
                     .environment(\.shownMessageActions, env.shownMessageActions)
             }
@@ -86,23 +89,26 @@ struct ChatList: UIViewRepresentable {
             pinning = false
         }
 
+        // The cells on screen are drawn again on every update, in the same apply as any new cells: a cell that stays can
+        // still change (a reaction, a send's state, the working line, and a message losing its time when a new one joins
+        // its run). Measured 11-07: drawn again only on a later update, the bubble above a send shrank 8 pt as the send
+        // settled, and the list stepped.
         func apply(_ now: [String]) {
             guard let source else { return }
+            let shown = list?.indexPathsForVisibleItems.compactMap { source.itemIdentifier(for: $0) } ?? []
+            var s: NSDiffableDataSourceSnapshot<Int, String>
             if now != ids {
                 ids = now
-                var s = NSDiffableDataSourceSnapshot<Int, String>()
+                s = NSDiffableDataSourceSnapshot<Int, String>()
                 s.appendSections([0])
                 s.appendItems(now)
-                source.apply(s, animatingDifferences: false)
-            } else if let list {
-                // The same cells: what is drawn may still have changed (a reaction, a send's state, the working line).
-                let shown = list.indexPathsForVisibleItems.compactMap { source.itemIdentifier(for: $0) }
-                if !shown.isEmpty {
-                    var s = source.snapshot()
-                    s.reconfigureItems(shown)
-                    source.apply(s, animatingDifferences: false)
-                }
+            } else {
+                s = source.snapshot()
             }
+            let kept = Set(now)
+            let again = shown.filter { kept.contains($0) }
+            if !again.isEmpty { s.reconfigureItems(again) }
+            source.apply(s, animatingDifferences: false)
         }
     }
 

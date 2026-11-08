@@ -68,7 +68,16 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         // The control (review 2): a short drag leaves the newest message LOADED but pushed below the composer, and the
         // same check must then say it is not on screen. This is what shows the measurement itself can fail.
         let mid = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
-        mid.press(forDuration: 0.1, thenDragTo: mid.withOffset(CGVector(dx: 0, dy: 300)))
+        // kosmos#8221: the UIKit list keeps no cell that is wholly off screen, so there the drag leaves the newest message
+        // straddling the list's bottom edge: still drawn, and not wholly on screen.
+        if UIKitListArm.on {
+            // Far enough that the newest message's top lands 20 pt above the box: its bottom then runs under the box.
+            let n = message(260, in: app), boxTop = composer(app).frame.minY
+            let dy = max(20, boxTop - 20 - n.frame.minY)
+            mid.press(forDuration: 0.1, thenDragTo: mid.withOffset(CGVector(dx: 0, dy: dy)), withVelocity: .slow, thenHoldForDuration: 0.3)
+        } else {
+            mid.press(forDuration: 0.1, thenDragTo: mid.withOffset(CGVector(dx: 0, dy: 300)))
+        }
         waitStill(app)
         let newest = message(260, in: app)
         XCTAssertTrue(newest.exists, "after a short drag the newest message is not loaded, so the control measures nothing")
@@ -86,7 +95,9 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         XCTAssertTrue(back.waitForExistence(timeout: 5), "no Back button in the chat's top bar")
         back.tap()
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: composer(app)); waitForExpectations(timeout: 5)
-        let list = app.descendants(matching: .any).matching(identifier: "agents-list").firstMatch
+        // kosmos#8221: the list itself, not any element so named: the Agents screen also has a wrapper named agents-list beside
+        // the list (iOS 26.5, 11-08), with no rows inside it, and the first match was that wrapper.
+        let list = app.collectionViews.matching(identifier: "agents-list").firstMatch
         let dana = list.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Dana")).firstMatch
         XCTAssertTrue(dana.waitForExistence(timeout: 10) && dana.isHittable, "Dana's row is not showing on the Agents list")
         let shown = XCTAttachment(screenshot: app.screenshot()); shown.name = "Agents, after Back"; shown.lifetime = .keepAlways; add(shown)
