@@ -57,8 +57,10 @@ final class NewChatListSwitchUITests: XCTestCase {
     private func toggle(_ app: XCUIApplication) -> XCUIElement {
         app.tabBars.buttons["Settings"].tap()
         let sw = app.switches["settings-new-chat-list"]
-        // Settings draws first: swiping before the switch exists would spend every swipe on a list still loading.
-        XCTAssertTrue(app.staticTexts["Account"].waitForExistence(timeout: 10) || sw.waitForExistence(timeout: 5), "Settings did not draw")
+        // Settings draws first: swiping before the switch exists would spend every swipe on a list still loading. Its top
+        // line is the anchor (the lower sections are not in the tree until scrolled to).
+        let top = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Your name and picture come from")).firstMatch
+        XCTAssertTrue(top.waitForExistence(timeout: 10) || sw.exists, "Settings did not draw")
         for _ in 0..<6 where !(sw.exists && sw.isHittable) { app.swipeUp() }
         XCTAssertTrue(sw.waitForExistence(timeout: 10) && sw.isHittable, "no New chat list switch in Settings")
         return sw
