@@ -177,7 +177,7 @@ test('kosmos#8230/#8233: a caller that does not wait for the hook (noRetry) send
   assert.ok(r.asked[0] <= hook.SHORT_TIMEOUT_MS / 2, 'a noRetry Stop got the long window: ' + r.asked[0]);
   assert.match(r.note || '', /idle not delivered \(not retried: its caller does not wait\): /, 'a lost noRetry Stop left no note');
   const busy = await run('Stop', { proofs: [{ ok: false, why: 'timed out' }], noRetry: true });
-  assert.match(busy.note || '', /\(not retried: its caller does not wait\): the board did not answer in time/);
+  assert.match(busy.note || '', /idle not delivered, the board was too busy \(not retried: its caller does not wait\): the board did not answer in time/);
   // CONTROLS: no board at the address, a Stop that lands, and the person's own session (no agent token) note nothing.
   const gone = await run('Stop', { proofs: [{ ok: false, why: 'request failed: ECONNREFUSED' }], noRetry: true });
   assert.equal(gone.note, null, 'a closed board was noted for a noRetry Stop');
@@ -269,6 +269,12 @@ test('kosmos#8233: our own timeout while the answer\'s body is still arriving: n
   const c = await run('Stop', { answers: [broken, broken] });
   assert.equal(c.sent.length, 2, 'a body that failed (not our timeout) was not retried');
   assert.match(c.note || '', /after a retry/);
+  // CONTROL: a cut-off answer that is not 2xx is a refusal: a loss, retried and noted as not recorded.
+  const refused = { ok: false, status: 400, text: async () => { throw abortErr(); } };
+  const n = await run('Stop', { answers: [refused, refused] });
+  assert.equal(n.sent.length, 2, 'a cut-off 400 was not retried');
+  assert.match(n.note || '', /idle not delivered after a retry: the board answered 400 and did not record it/);
+  assert.doesNotMatch(n.note || '', /unconfirmed/, 'a cut-off refusal was called unconfirmed');
 });
 
 test('kosmos#8233: a cut-off answer is noted as unconfirmed on the retry and on the noRetry path too', async () => {

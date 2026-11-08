@@ -10,14 +10,16 @@ engine/kosmos-report-hook.js and its turn-end test.
    is noted at once (" (not retried: its caller does not wait)"). No board at the address stays unnoted, as for any Stop.
    Rejected: retrying it. The caller does not wait, so a late retry could land after the next turn's working (#8230's
    reason for noRetry).
-2. **A body-read abort is unconfirmed, not lost.** In deliver(), our own AbortError from res.text() (the timeout fired
-   after the headers) now returns cutOff with the status. The board writes its head and body together once it has
+2. **A body-read abort is unconfirmed, not lost.** In deliver(), our own AbortError from res.text() after a 2xx head
+   (the timeout fired after the headers) now returns cutOff with the status. A cut-off answer of any other status is a
+   refusal and keeps the old path (a loss, retried, noted as "answered N and did not record it", as the bash hook
+   retries a refusal). The board writes its head and body together once it has
    decided (server.js sendJson), so it did answer and may have recorded. So it is not resent (a second idle) and the
    note says "idle unconfirmed (not retried): the board answered <status> but its answer was cut off". A loud
    SessionStart says reporting could not be confirmed, with that reason, instead of "reporting is OFF ... could not be
    reached". Any other body failure keeps the old path (empty body, an ordinary loss, retried).
-   Stated edge: with the body cut off, a keep (`skipped`) or a 421 wrongWorld cannot be told apart, so one of those is
-   noted as unconfirmed too, where a whole one writes no note. Accepted: the visible direction, and it needs the
+   Stated edge: with a 2xx body cut off, a keep (`skipped`) cannot be told apart, so one is noted as unconfirmed too,
+   where a whole one writes no note. A cut-off 421 is a refusal, retried, and noted if the retry is lost too. Accepted: the visible direction, and it needs the
    board's head to arrive without its body.
    Rejected: classing it busy, as the card first put it. A review measured that the board has always decided by then,
    so "too busy" and "not delivered" would both be false.
@@ -40,10 +42,12 @@ engine/kosmos-report-hook.turnend-8230.test.js:
 - noRetry: sent once, short window, a lost and a busy Stop each noted; controls: no board, a landed Stop and the
   person's own session (no agent token) note nothing.
 - a busy retry after a refused first try is noted; control: refused twice is not.
-- a body-read AbortError is noted unconfirmed and not resent; control: another body failure is retried and noted.
+- a body-read AbortError after a 2xx is noted unconfirmed and not resent; controls: another body failure, and a
+  cut-off 400, are retried and noted as losses.
+- a busy noRetry Stop is noted with the shared "too busy" phrase.
 - noRetry also has a keep control (the board's own skip is never noted).
 - a cut-off answer is noted unconfirmed on the retry and on the noRetry path; a cut-off SessionStart says unconfirmed,
   not OFF (control: an unreachable board still says OFF).
 Mutants, each measured red: the noRetry note removed; the body-abort branch removed; the special case restored; a
-cut-off answer read as a timeout again; the cut case dropped from the noRetry note, from the
+cut-off answer read as a timeout again; the 2xx guard dropped; the cut case dropped from the noRetry note, from the
 retry note, and from the SessionStart wording.
