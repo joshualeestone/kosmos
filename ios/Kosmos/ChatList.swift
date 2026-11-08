@@ -132,6 +132,7 @@ struct ChatList: UIViewRepresentable {
         func scrolled(_ sv: UIScrollView) {
             movedAt = 0   // a scroll that has ended is at rest: the next layout holds the place taken here
             atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
+            ChatView.trace("uikit list: scroll ended, at end \(atEnd) (\(geometry(sv)))", ring: false)
             if !atEnd { place = top() }
         }
 
@@ -163,8 +164,23 @@ struct ChatList: UIViewRepresentable {
 
         // After every layout, never under the person's finger or fling: a reader at the newest message is put back at the end
         // wherever the offset is, and a reader higher up is held at their place (taken here first when there is none).
+        // kosmos#8221 slice 4: CI's slow runner leaves the newest message behind the keyboard in one check; each layout at a new
+        // height is traced (Debug trace only, not the report's ring) with what laidOut decided, to see why.
+        var tracedH: CGFloat = -1
+        func geometry(_ sv: UIScrollView) -> String {
+            "y \(Int(sv.contentOffset.y)), end \(Int(maxY(sv))), size \(Int(sv.contentSize.height)), height \(Int(sv.bounds.height)), inset \(Int(sv.adjustedContentInset.bottom))"
+        }
         func laidOut() {
             guard let list, !pinning else { return }
+            if list.bounds.height != tracedH {
+                tracedH = list.bounds.height
+                let busy = list.isTracking ? "tracking" : list.isDragging ? "dragging" : list.isDecelerating ? "decelerating" : "still"
+                ChatView.trace("uikit list: laid out at a new height, at end \(atEnd), \(busy), moving \(moving()) (\(geometry(list)))", ring: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self, let list = self.list else { return }
+                    ChatView.trace("uikit list: 0.5 s later, at end \(self.atEnd) (\(self.geometry(list)))", ring: false)
+                }
+            }
             guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
             if atEnd { pin() } else if !moving() { if place == nil { place = top() } else { hold() } }
         }
