@@ -73,7 +73,7 @@ test('#8227 item 1: driveKind is the one verdict both sides read', () => {
   assert.equal(tasklist.driveKind(LOCAL), 'local');
   assert.equal(tasklist.driveKind(REMOTE), 'network');
   assert.equal(tasklist.driveKind(ABSENT), 'absent');
-  assert.equal(tasklist.driveKind(tasklist.DRIVE_KINDS_OLD), 'old');
+  assert.equal(tasklist.driveKind({ kind: 'old', share: null }), 'old');
   for (const odd of [null, undefined, {}, { kind: 'something new' }]) assert.equal(tasklist.driveKind(odd), 'unknown', JSON.stringify(odd));
 });
 

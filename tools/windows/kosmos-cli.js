@@ -1655,7 +1655,7 @@ async function taskFiles(ctx, args) {
   /* kosmos#8227 item 1: the drive kinds through the same seam task built --file uses; an install whose windrives cannot
      tell reads 'old' on every drive path, so both verbs say to update. */
   const read = driveInfoFor(ctx);
-  const driveInfo = read || (tasklist.DRIVE_KINDS_OLD ? () => tasklist.DRIVE_KINDS_OLD : null);
+  const driveInfo = read || (() => ({ kind: 'old', share: null }));   // engine/tasklist.js driveKind reads it as 'old'
   const shown = tasklist.filesLines(r.json, { project: every ? '' : project, ...(driveInfo ? { driveInfo } : {}) });
   for (const l of shown.lines) { if (shown.rc) ctx.err(l); else ctx.out(l); }
   return shown.rc;
