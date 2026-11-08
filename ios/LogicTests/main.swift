@@ -6106,7 +6106,9 @@ do {
     // kosmos#8055: the chat kept across a cold start reopens on the same computer and account only, and not long after.
     let keptAt = Date(timeIntervalSince1970: 1_000_000)
     let keptAda = Board.keptChat(host: "mac1.example", session: "ada", name: "Ada", at: keptAt, owner: "own1")
-    check(keptAda == "mac1.example\nada\nAda\n1000000\nown1", "kept as computer, agent, name, time, account")
+    check(keptAda == Board.keptHostKey("mac1.example") + "\nada\nAda\n1000000\nown1", "kept as computer (hashed), agent, name, time, account")
+    check(keptAda?.contains("mac1.example") == false && Board.keptHostKey("mac1.example") != Board.keptHostKey("mac2.example"),
+          "the computer's address itself is not kept, and two computers keep different keys")
     let re = { (kept: String?, host: String?, owner: String?, secs: Double) in Board.chatReopen(kept: kept, hostNow: host, ownerNow: owner, now: keptAt.addingTimeInterval(secs)) }
     check(re(keptAda, "mac1.example", "own1", 60) == .reopen(session: "ada", name: "Ada"), "the same computer and account, a minute later, reopens it")
     check(re(keptAda, "mac2.example", "own1", 0) == .not("this launch opened on another computer"), "another computer does not, and says why")
@@ -6118,8 +6120,8 @@ do {
     check(re(keptAda, "mac1.example", "own1", -1) == .not("its time is in the future"), "a kept time in the future: nothing")
     check(re(nil, "mac1.example", "own1", 0) == nil && re("", "mac1.example", "own1", 0) == nil, "nothing kept: nothing to say")
     check(re("Eli", "mac1.example", "own1", 0) == .not("the kept record could not be read")
-          && re("mac1.example\n\nEli\n1000000\nown1", "mac1.example", "own1", 0) == .not("the kept record could not be read")
-          && re("mac1.example\nada\nAda\n1000000", "mac1.example", "own1", 0) == .not("the kept record could not be read"),
+          && re(Board.keptHostKey("mac1.example") + "\n\nEli\n1000000\nown1", "mac1.example", "own1", 0) == .not("the kept record could not be read")
+          && re(Board.keptHostKey("mac1.example") + "\nada\nAda\n1000000", "mac1.example", "own1", 0) == .not("the kept record could not be read"),
           "a bare name, no agent, or no account: not reopened (malformed records fail closed)")
     check(Board.keptOpenedAt(keptAda, session: "ada", host: "mac1.example", owner: "own1") == keptAt, "the same chat keeps its first time")
     check(Board.keptOpenedAt(keptAda, session: "bo", host: "mac1.example", owner: "own1") == nil && Board.keptOpenedAt(keptAda, session: "ada", host: "mac2.example", owner: "own1") == nil
@@ -6158,6 +6160,8 @@ do {
     check(stays("mac1.example", true, ["bo", "ada"]) == true, "its agent on this computer's list: it stays")
     check(stays("mac1.example", true, ["bo"]) == false && stays("mac1.example", true, []) == false, "its agent gone, or an empty list: it closes")
     check(stays("mac2.example", true, ["ada"]) == false && stays(nil, true, ["ada"]) == false, "another computer's list, or none: it closes")
+    check(Board.reopenedChatStays(session: "ada", keptHost: nil, hostNow: "mac1.example", listRead: true, sessions: ["ada"]) == false,
+          "no computer recorded for the reopen: it closes")
     let lost = Board.chatFoundClosed(was: (name: "Dana", epoch: 3), epochNow: 4, forgottenWhy: "another computer answered", forgottenByPerson: false, keptName: "Eli")
     check(lost?.name == "Dana" && lost?.close == .lostWithTab(forgottenSince: true, why: "another computer answered", byPerson: false),
           "a chat lost while the tab was gone wins over a kept name, with the forget since it opened")

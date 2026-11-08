@@ -28,7 +28,8 @@ enum Board {
         return noticedLater ? "Found at \(time): \(chat) had closed: \(why)." : "At \(time), \(chat) closed: \(why)."
     }
     static let chatClosedRebuilt = "the Agents tab was drawn again"
-    /// The open chat's name, kept in this phone's defaults so a relaunch can say one was open; cleared on an account change.
+    /// The open chat's name, kept in this phone's defaults; on a relaunch it only feeds a device-log line (a relaunch shows
+    /// no line). Cleared on an account change.
     static let openChatKey = "kosmos.openChatName"
     /// How an open chat came to close, as the Agents tab sees it.
     enum ChatClose: Equatable {
@@ -67,15 +68,16 @@ enum Board {
         }
     }
 
-    /// kosmos#8055: the open chat kept across a cold start, as "<computer host>\n<agent session>\n<name>\n<seconds since
-    /// 1970 when first opened>\n<account fingerprint>", so a launch after iOS ended the app reopens it: same computer and
-    /// account only, and not long after it was opened.
+    /// kosmos#8055: the open chat kept across a cold start, as "<hash of the computer's host>\n<agent session>\n<name>\n<seconds
+    /// since 1970 when first opened>\n<account key>", so a launch after iOS ended the app reopens it: same computer and
+    /// account only, and not long after it was opened. The host is hashed (keptHostKey) so plain app storage never holds it.
     static let openChatKeptKey = "kosmos.openChatKept"
     /// How long after the chat was opened it still reopens: past this the person comes back to the list.
     static let chatReopenWithin: TimeInterval = 12 * 60 * 60
+    static func keptHostKey(_ host: String) -> String { owner(of: "kosmos.openChatKept.host\n" + host) }
     static func keptChat(host: String, session: String, name: String, at: Date, owner: String) -> String? {
-        guard !host.isEmpty, !session.isEmpty, !owner.isEmpty, ![host, session, owner].contains(where: { $0.contains("\n") }) else { return nil }
-        return [host, session, name.replacingOccurrences(of: "\n", with: " "), String(Int(at.timeIntervalSince1970)), owner].joined(separator: "\n")
+        guard !host.isEmpty, !session.isEmpty, !owner.isEmpty, ![session, owner].contains(where: { $0.contains("\n") }) else { return nil }
+        return [keptHostKey(host), session, name.replacingOccurrences(of: "\n", with: " "), String(Int(at.timeIntervalSince1970)), owner].joined(separator: "\n")
     }
     /// What a launch does with the kept chat: reopen it, or not, with why (for the device log).
     enum ChatReopen: Equatable {
@@ -89,10 +91,10 @@ enum Board {
         guard parts.count == 5, !parts[1].isEmpty, let at = Double(parts[3]) else { return .not("the kept record could not be read") }
         guard let hostNow, !hostNow.isEmpty, let ownerNow, !ownerNow.isEmpty else { return .not("no computer was reached yet") }
         guard parts[4] == ownerNow else { return .not("another account is signed in") }
-        guard parts[0] == hostNow else { return .not("this launch opened on another computer") }
+        guard parts[0] == keptHostKey(hostNow) else { return .not("this launch opened on another computer") }
         let age = now.timeIntervalSince1970 - at
         guard age >= 0 else { return .not("its time is in the future") }
-        guard age <= chatReopenWithin else { return .not("it was opened more than 12 hours ago") }
+        guard age <= chatReopenWithin else { return .not("it was opened more than \(Int(chatReopenWithin / 3600)) hours ago") }
         return .reopen(session: parts[1], name: parts[2])
     }
     /// What the Agents tab's first look under a client does with the chat kept from before the app started again.
@@ -126,7 +128,7 @@ enum Board {
     /// The time a kept record says its chat was first opened, when it is this chat's (same agent, computer and account), so
     /// an open that continues one (a reopen) keeps it.
     static func keptOpenedAt(_ kept: String?, session: String, host: String, owner: String) -> Date? {
-        guard let parts = kept?.components(separatedBy: "\n"), parts.count == 5, parts[0] == host, parts[1] == session,
+        guard let parts = kept?.components(separatedBy: "\n"), parts.count == 5, parts[0] == keptHostKey(host), parts[1] == session,
               parts[4] == owner, let at = Double(parts[3]) else { return nil }
         return Date(timeIntervalSince1970: at)
     }

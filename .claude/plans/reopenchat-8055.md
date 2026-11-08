@@ -16,7 +16,8 @@ reopen the chat.
   the warm-return bug is found.
 - Kept in this phone's defaults (key kosmos.openChatKept) as "<computer host>\n<agent session>\n<name>\n<seconds when first opened>\n<account fingerprint>"
   (Board.keptChat), written when a chat opens,
-  removed when it closes, on an account change (blankOpenChat) and once the Agents tab has looked.
+  removed when it closes, on an account change (blankOpenChat) and once the Agents tab has looked without reopening
+  (a reopen rewrites it, keeping its first-opened time).
 - Reopened (Board.chatReopen, through Board.launchChat) only when the computer this launch opens on (client.macURL host) is the one it was kept
   on, and only when nothing this run has opened a chat yet (client.chatOpen nil). A notification's chat wins (the existing
   guard in findClosedChat). The agent is taken from the list if there, otherwise opened by its session, as a
@@ -24,6 +25,8 @@ reopen the chat.
 - No computer known yet at that moment: nothing reopens and the record goes, so the person gets the list (no line).
 - Reopens only within 12 hours of the chat first being opened (Board.chatReopenWithin); a reopen keeps that first time, so
   the window does not restart on each launch.
+- The computer's host is kept hashed (Board.keptHostKey), so plain app storage holds neither the host nor the account
+  fingerprint.
 - Same account only: the record carries BoardClient.keptChatOwner, a hash of the session's fingerprint with the
   computer's address (never the fingerprint itself, which stays out of plain app storage), compared on the launch.
 - A cold launch a room or board-page notification takes counts as the launch (ContentView sets launchReopenLooked), so
@@ -47,7 +50,9 @@ reopen the chat.
 - A chat the screen closed while the app was away (chatClosedAway) keeps its record, so if iOS then ends the app, the
   next launch reopens it: the person had it open and did not close it. Deliberate.
 - Every notification route marks the launch as used before routing (openAgentChat, openRoom, a board page), so the
-  Agents tab's first look cannot reopen an old chat under what the notification opened.
+  Agents tab's first look does not reopen an old chat under what the notification opened, when the tap is known by the
+  time that first look runs (the next turn of the run loop after the tab appears). Known gap: a room or board-page tap
+  that arrives later finds the chat already reopened under what it opens; the chat is then found on Close.
 - Any first look that cannot reopen (no computer yet, signed out) uses up the launch and drops the record: known gap,
   and the reason the card is not done until a real iPhone shows a reopen.
 
