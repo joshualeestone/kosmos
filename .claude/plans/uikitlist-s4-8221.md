@@ -24,8 +24,7 @@ so a change could break it with every check green.
 3. ios/tools/ui-flaky-count.sh: select the job by its exact name, "ui tests (sample board)" by default, instead of
    test("ui tests"), so a second ui job can never be the one it reads (head -1 took the first match). A second argument
    names another job, so `ui-flaky-count.sh 10 "uikit list (sample board)"` counts the UIKit job's flakes.
-   The name is matched in awk on the job list, not spliced into jq, and runs with no job of that name are counted and
-   named, so a renamed job reads as a mismatch rather than a quiet main.
+   Runs with no job of that name, and runs whose job list could not be read, are each counted on their own line.
 4. Comments naming who runs the arm: UIKitListArm.swift (said nothing ran it), KeyboardSlideUITests.swift, ui-sample.sh.
 
 ## Decided
