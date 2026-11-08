@@ -443,8 +443,11 @@ check(!sortLabelBody.isEmpty && !sortLabelBody.contains(".background(") && !sort
 check(clientSrc.contains("agents = Board.agentOrder(Board.sorted(Board.parseAgents(Data(sample.utf8)) ?? []), sort: agentSort, projects: sortProjects, stars: shownStars)"), "kosmos#7532 (Mona Lisa): the Debug sample agents come in the chosen order, as a real read does, so a shot shows the sort")
 check(agentsSrc.contains("client.setAgentSort(sortChoice, projects: projectNames)") && agentsSrc.contains("ForEach(client.agents)"), "kosmos#7421: the Agents list shows the client's order and hands it the person's pick")
 // kosmos#7034 wiring guards (source checks): the row stars by a swipe, a long press and a VoiceOver action, and shows it.
-check(agentsSrc.contains(".swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent) }") && agentsSrc.contains(".contextMenu { starButton(agent) }") && agentsSrc.contains("starred: client.isStarred(agent.session)"),
+check(agentsSrc.contains(".swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent, swiped: true) }") && agentsSrc.contains(".contextMenu { starButton(agent) }") && agentsSrc.contains("starred: client.isStarred(agent.session)"),
       "kosmos#7034: a row is starred by a swipe (VoiceOver offers it) or a long press, and shows its star")
+// kosmos#8246 (Josh's pick 5): the swipe's star clicks, the long-press menu's same button does not.
+check(agentsSrc.contains("if swiped { Haptics.snapped() }") && !agentsSrc.contains(".contextMenu { starButton(agent, swiped: true) }"),
+      "kosmos#8246: only the swipe's star or unstar clicks")
 // kosmos#7419: the long-press sheet. The seven quick reactions in Mona Lisa's order, each one the board's own (the 80 the
 // phone keeps as ComposerExtras.emoji, PJ_EMOJI); every message long-press opens the sheet, and no reaction menu is left.
 check(Board.quickReactions == ["👍", "❤️", "🔥", "😂", "👀", "✅", "🎉"], "kosmos#7419: the sheet's seven quick reactions, Josh's three first")
