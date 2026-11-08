@@ -235,6 +235,9 @@ function frontmatterDate(raw) {
   return m ? m[1] : null;
 }
 
+/** kosmos#8260: what both CLIs say for a day with no report. */
+function noReportWords(date) { return 'No product-feedback report for ' + date + ' yet.'; }
+
 /** Just the body (frontmatter stripped), or null when there is no report. */
 function readBody(date) {
   const raw = read(date);
@@ -421,4 +424,4 @@ function unchanged(from, note, date) {
   return already != null ? { ok: false, why: 'today' } : { ok: false, why: 'none' };
 }
 
-module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
+module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
