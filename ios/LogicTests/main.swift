@@ -6143,11 +6143,12 @@ do {
     check(lc(true, false, false, false, keptAda, "Ada", "mac1.example") == (.nothing, nil), "an app that opens on another tab: a later first visit never reopens")
     check(lc(true, true, true, false, keptAda, "Ada", "mac1.example") == (.nothing, nil), "a chat already open (a notification's, opened first): nothing")
     check(lc(true, true, false, true, keptAda, "Ada", "mac1.example").action == .dropKept
-          && lc(true, true, false, true, keptAda, "Ada", "mac1.example").log != nil, "a notification's chat still on its way: the kept one is dropped, and logged")
+          && lc(true, true, false, true, keptAda, "Ada", "mac1.example").log == "a notification's chat is opening, so the kept chat was not reopened",
+          "a notification's chat still on its way: the kept one is dropped, and logged")
     check(lc(true, true, false, true, nil, nil, "mac1.example") == (.dropKept, nil), "nothing kept, a notification on its way: dropped quietly")
     check(lc(true, true, false, false, keptAda, "Ada", "mac2.example") == (.nothing, "a chat kept from before the app started again was not reopened: this launch opened on another computer"),
           "another computer: not reopened, and the log says why")
-    check(lc(true, true, false, false, nil, "Ada", "mac1.example") == (.nothing, "a chat was open before the app started again, kept by an older build: not reopened"),
+    check(lc(true, true, false, false, nil, "Ada", "mac1.example") == (.nothing, "a chat was open before the app started again, with no computer recorded for it (or kept by an older build): not reopened"),
           "an older build's bare name: not reopened, and logged")
     check(lc(true, true, false, false, nil, nil, "mac1.example") == (.nothing, nil), "CONTROL: nothing kept at all: nothing to say")
     // The quiet close, once a list read this run has come in.

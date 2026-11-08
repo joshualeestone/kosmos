@@ -42,7 +42,7 @@ enum Board {
         /// since it opened, with that reason, and `byPerson` when the person chose that.
         case lostWithTab(forgottenSince: Bool, why: String, byPerson: Bool)
         /// The app started with a chat recorded as open: iOS ended it while away, or the person did. Writes no line
-        /// (chatClosedCause): a launch reopens the chat instead (launchChat).
+        /// (chatClosedCause): a launch may reopen the chat instead (launchChat); otherwise the list shows.
         case relaunched
     }
     /// A close within this many seconds of the app coming back is taken as the screen's, not a press on back.
@@ -62,7 +62,7 @@ enum Board {
             return forgottenSince && !why.isEmpty ? why : chatClosedRebuilt
         case .relaunched:
             // Josh 11-07 (TestFlight, "kind of a weird error"): iOS ending the app while away is not a loss the person needs
-            // told about. The chat is reopened instead (chatToReopen); an older build's kept name says nothing.
+            // told about. A launch may reopen the chat instead (launchChat); otherwise the list shows, with no line.
             return nil
         }
     }
@@ -77,12 +77,12 @@ enum Board {
         guard !host.isEmpty, !session.isEmpty, !owner.isEmpty, ![host, session, owner].contains(where: { $0.contains("\n") }) else { return nil }
         return [host, session, name.replacingOccurrences(of: "\n", with: " "), String(Int(at.timeIntervalSince1970)), owner].joined(separator: "\n")
     }
-    /// What a launch does with the kept chat: reopen it, or not, with why (for the device log). Nil when nothing was kept.
+    /// What a launch does with the kept chat: reopen it, or not, with why (for the device log).
     enum ChatReopen: Equatable {
         case reopen(session: String, name: String)
         case not(String)
     }
-    /// Only on the computer and account it was kept under, within chatReopenWithin of being opened.
+    /// Only on the computer and account it was kept under, within chatReopenWithin of being opened. Nil when nothing was kept.
     static func chatReopen(kept: String?, hostNow: String?, ownerNow: String?, now: Date) -> ChatReopen? {
         guard let kept, !kept.isEmpty else { return nil }
         let parts = kept.components(separatedBy: "\n")
@@ -113,7 +113,7 @@ enum Board {
         switch chatReopen(kept: kept, hostNow: hostNow, ownerNow: ownerNow, now: now) {
         case .reopen(let session, let name)?: return (.reopen(session: session, name: name), "the app started again with a chat open on this computer: reopened")
         case .not(let why)?: return (.nothing, "a chat kept from before the app started again was not reopened: " + why)
-        case nil: return (.nothing, (keptName ?? "").isEmpty ? nil : "a chat was open before the app started again, kept by an older build: not reopened")
+        case nil: return (.nothing, (keptName ?? "").isEmpty ? nil : "a chat was open before the app started again, with no computer recorded for it (or kept by an older build): not reopened")
         }
     }
     /// Whether a reopened chat stays, once a list read this run has come in: nil until then; false when that list is another

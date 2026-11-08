@@ -17,15 +17,17 @@ reopen the chat.
 - Kept in this phone's defaults (key kosmos.openChatKept) as "<computer host>\n<agent session>\n<name>\n<seconds when first opened>\n<account fingerprint>"
   (Board.keptChat), written when a chat opens,
   removed when it closes, on an account change (blankOpenChat) and once the Agents tab has looked.
-- Reopened (Board.chatToReopen) only when the computer this launch opens on (client.macURL host) is the one it was kept
+- Reopened (Board.chatReopen, through Board.launchChat) only when the computer this launch opens on (client.macURL host) is the one it was kept
   on, and only when nothing this run has opened a chat yet (client.chatOpen nil). A notification's chat wins (the existing
   guard in findClosedChat). The agent is taken from the list if there, otherwise opened by its session, as a
   notification's chat is.
 - No computer known yet at that moment: nothing reopens and the record goes, so the person gets the list (no line).
 - Reopens only within 12 hours of the chat first being opened (Board.chatReopenWithin); a reopen keeps that first time, so
   the window does not restart on each launch.
-- Same account only: the record carries the account fingerprint (Board.owner of the session the computer was reached
-  under), compared on the launch.
+- Same account only: the record carries BoardClient.keptChatOwner, a hash of the session's fingerprint with the
+  computer's address (never the fingerprint itself, which stays out of plain app storage), compared on the launch.
+- A cold launch a room or board-page notification takes counts as the launch (ContentView sets launchReopenLooked), so
+  a later first visit to Agents does not reopen an old chat.
 - Only on a launch: the Agents tab's first look under this client (BoardClient.launchReopenLooked; a new scene makes a new
   client), and only when the app starts on the Agents tab (AppTabs.todayTab off, as in production). A later first visit,
   as from Today, never reopens a chat by itself. No time window: a slow Face ID unlock does not lose the reopen.
@@ -48,6 +50,6 @@ synchronously in start() from the saved session). If it is not, the reopen silen
 can show it; the sample board has no computer, so the simulator cannot.
 
 ## Tests
-- ios/LogicTests/main.swift: keptChat / chatToReopen (same computer, other computer, no computer, malformed, an older
+- ios/LogicTests/main.swift: keptChat / chatReopen / keptOpenedAt / launchChat / reopenedChatStays (same computer, other computer, no computer, malformed, an older
   build's bare name, line breaks), and .relaunched now nil.
 - All ios/LogicTests suites pass; the app builds for the simulator.

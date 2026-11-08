@@ -138,7 +138,7 @@ struct AgentsView: View {
                 UserDefaults.standard.set(a.name, forKey: Board.openChatKey); closedNote = nil
                 // kosmos#8055: kept for a cold start, with the computer it is on, so a launch after iOS ended the app reopens it.
                 // A chat that continues the kept one (a reopen) keeps its first time, so the window does not restart.
-                let host = client.macURL?.host ?? "", owner = client.admittedOwner ?? ""
+                let host = client.macURL?.host ?? "", owner = client.keptChatOwner ?? ""
                 let openedAt = Board.keptOpenedAt(UserDefaults.standard.string(forKey: Board.openChatKeptKey), session: a.session, host: host, owner: owner) ?? Date()
                 if a.session != reopenedSession { reopenedSession = nil; reopenedHost = nil }
                 if let kept = Board.keptChat(host: host, session: a.session, name: a.name, at: openedAt, owner: owner) {
@@ -224,7 +224,7 @@ struct AgentsView: View {
                                       chatOnItsWay: agentRequest != nil || push.agentToOpen != nil,
                                       kept: UserDefaults.standard.string(forKey: Board.openChatKeptKey),
                                       keptName: UserDefaults.standard.string(forKey: Board.openChatKey),
-                                      hostNow: client.macURL?.host, ownerNow: client.admittedOwner, now: Date())
+                                      hostNow: client.macURL?.host, ownerNow: client.keptChatOwner, now: Date())
         if let line = launch.log { NSLog("[Chat] %@", line) }
         if launch.action == .dropKept { UserDefaults.standard.removeObject(forKey: Board.openChatKeptKey) }
         guard openAgent == nil, agentRequest == nil, push.agentToOpen == nil else { return }
