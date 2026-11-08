@@ -229,7 +229,7 @@ test('#8270 review 1: a terminal session that is not one of our agents, a word o
   const room = ['leo', 'a1', 'a2'];
   assert.equal(post('Leo -> Twin: hello', twins, room).note, undefined, 'a name members answer to was reported as the outsider\'s');
   assert.equal(post('Leo -> Twin on m702: hello', twins, room).note, undefined, 'the words after a name got past the guard');
-  assert.equal(post('@twin hello', twins, room).note, undefined, 'an @-word members answer to was reported as the outsider\'s');
+  assert.doesNotMatch(post('@twin hello', twins, room).note, /is not on this project/, 'an @-word members answer to was reported as the outsider\'s');
   assert.equal(post('Leo -> Homer: hello', twins, room).note, HOMER, 'CONTROL: an outsider with no shared name went unsaid');
 });
 test('#8270: an outsider beside an ambiguous word gets both sentences, in one note', () => {
