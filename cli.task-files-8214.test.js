@@ -204,7 +204,7 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
   // On Windows the rule turns round: a drive path is opened, a Mac path is another computer's, a network path never.
   asked.length = 0;
   const onWin = tasklist.filesLines({ listState: 'built', tasks: [row(1, { builtFilePath: 'C:\\m' }), row(2, { builtFilePath: '/m' }), row(3, { builtFilePath: '\\\\h\\s\\x' })] },
-    { project: 'files', compare: (p) => { asked.push(p); return { ok: true, match: true }; }, platform: 'win32', driveTypes: new Map([['C', 3]]) });
+    { project: 'files', compare: (p) => { asked.push(p); return { ok: true, match: true }; }, platform: 'win32', driveInfo: () => ({ kind: 'local', share: null }) });
   assert.deepEqual(onWin.lines.slice(0, 6), ['#1  Task 1', '    matches  C:\\m', '#2  Task 2', '    NOT CHECKED /m: marked on a Mac or Linux computer, so it is not on this one',
     '#3  Task 3', '    NOT CHECKED \\\\h\\s\\x: not a local absolute path, so Kosmos does not open it']);
   assert.deepEqual(asked, ['C:\\m'], 'a path that is not this computer\'s kind was opened');

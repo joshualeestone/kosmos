@@ -257,4 +257,9 @@ function setLearnForTests(seam) {
   table = null; learnedAt = -Infinity; failedAt = -Infinity; relearned = false; learning = null;
 }
 
-module.exports = { known, placeOf, isThisComputer, hostOf, startRefreshing, setTableForTests, setLearnForTests, parseForTests: parse, scriptForTests: SCRIPT };
+/* kosmos#8227 item 1: one letter's entry as learned ({ kind: 'local' | 'remote' | 'absent', share }), or null when the
+   table is unknown. For a check that must never touch a network drive at all, a share on this computer included, which
+   placeOf deliberately reads as local. */
+const infoOf = (letter) => driveInfo(letter);
+
+module.exports = { infoOf, known, placeOf, isThisComputer, hostOf, startRefreshing, setTableForTests, setLearnForTests, parseForTests: parse, scriptForTests: SCRIPT };
