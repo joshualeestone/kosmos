@@ -89,8 +89,13 @@ struct ChatList: UIViewRepresentable {
         // still change (a reaction, a send's state, the working line, and a message losing its time when a new one joins
         // its run). Measured 11-07: drawn again only on a later update, the bubble above a send shrank 8 pt as the send
         // settled, and the list stepped.
+        // How often the list was updated and how many cells that drew again, for measuring what a keystroke costs.
+        var applies = 0
+        var redrawn = 0
+
         func apply(_ now: [String]) {
             guard let source else { return }
+            applies += 1
             let shown = list?.indexPathsForVisibleItems.compactMap { source.itemIdentifier(for: $0) } ?? []
             var s: NSDiffableDataSourceSnapshot<Int, String>
             if now != ids {
@@ -105,6 +110,8 @@ struct ChatList: UIViewRepresentable {
             let again = shown.filter { kept.contains($0) }
             if !again.isEmpty { s.reconfigureItems(again) }
             source.apply(s, animatingDifferences: false)
+            redrawn += again.count
+            if applies % 50 == 0 { ChatView.trace("uikit list: \(applies) updates, \(redrawn) cells drawn again") }
         }
     }
 
@@ -153,10 +160,11 @@ struct ChatList: UIViewRepresentable {
             co.newest = newest
             co.atEnd = true
             ChatView.trace("uikit list: to the newest")
-            // A fling still running would carry on past the move; stopping it in place first.
+            // A fling still running would carry on past the move; stopping it in place first. A finger on the list is never
+            // moved; where it lets go decides again, as any scroll of theirs does.
             if list.isDecelerating { list.setContentOffset(list.contentOffset, animated: false) }
             list.setNeedsLayout()
-            co.pin()
+            if !(list.isTracking || list.isDragging) { co.pin() }
         }
     }
 }
