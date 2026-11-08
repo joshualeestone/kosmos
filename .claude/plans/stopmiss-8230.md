@@ -45,6 +45,12 @@ up to 8 s instead of 3 s. That is why no STOP_TOKEN twin is needed: no later eve
 Windows does update in place (engine/win32update.js), so during an update restart every agent Stop waits out its
 proof, the 2 s pause and a retry, within the 8 s: the price of that Stop not being lost across the restart, which is
 the loss the retry exists for.
+And whenever no board is at the address at all (Kosmos closed or not yet started, while an agent session runs on),
+each agent Stop on Windows now waits the 2 s pause and a second refused proof before giving up, where it gave up at
+once before. The bash hook detaches, so the Mac pays nothing. Accepted: a board that is down is usually restarting,
+and an agent left running with Kosmos closed is the rare case.
+The `skipped` answer decides a keep on its own (tested with words no keep phrase matches), so a board rewording its
+keep cannot turn it into retries; the phrase list stays for the refusals that carry no `skipped`.
 The keep list is checked equal to the bash hook's _TE_KEEP, so the two hooks cannot drift apart.
 
 ## Rejected

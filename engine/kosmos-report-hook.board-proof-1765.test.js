@@ -84,7 +84,7 @@ test('#1765: a board that holds a DIFFERENT token is refused like a squatter (th
 test('#1765: a token-only agent proves its agent token, and the board token is never read or sent', async () => {
   const board = await startListener({ mode: 'board', holds: AGENT });
   try {
-    const run = io(board.url, evt('Stop'), { env: { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_AGENT_TOKEN_ONLY: '1' } });
+    const run = io(board.url, evt('Stop'), { env: { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_AGENT_TOKEN_ONLY: '1' }, retryPauseMs: 0 });
     await hook.main(run.io);
     const sends = board.seen.filter((r) => r.url === '/api/report');
     assert.equal(sends.length, 1, 'the agent token was proven, so the report goes');
@@ -92,7 +92,7 @@ test('#1765: a token-only agent proves its agent token, and the board token is n
   } finally { await board.close(); }
   const sq = await startListener({ mode: 'squatter' });
   try {
-    await hook.main(io(sq.url, evt('Stop'), { env: { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_AGENT_TOKEN_ONLY: '1' } }).io);
+    await hook.main(io(sq.url, evt('Stop'), { env: { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_AGENT_TOKEN_ONLY: '1' }, retryPauseMs: 0 }).io);
     assert.deepEqual(sq.carrying([BOARD, AGENT]), []);
   } finally { await sq.close(); }
 });

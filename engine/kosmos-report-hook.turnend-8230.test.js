@@ -42,7 +42,7 @@ async function run(event, { proofs = [true, true], answers = [], env = { KOSMOS_
     proveBoard: async (url, token, timeoutMs) => { asked.push(timeoutMs); return proofs[pi++]; },
     fetchImpl: async (u, init) => { sent.push(JSON.parse(init.body).state); return answers[fi++] || reply('{"recorded":true}'); },
   });
-  const file = path.join(throttleDir, 'turn-end-failures.log')   // the bash hook's own file name (kosmos#7977);
+  const file = path.join(throttleDir, 'turn-end-failures.log');   // the bash hook's own file name (kosmos#7977)
   const note = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
   return { asked, sent, slept, note, throttleDir };
 }
@@ -112,6 +112,11 @@ test('kosmos#8230: a not-recorded answer is retried and noted; the board\'s own 
   const kept = await run('Stop', { answers: [reply('{"recorded":false,"skipped":"waiting","because":"it is waiting on a person, so an automatic idle did not overwrite it"}')] });
   assert.deepEqual(kept.sent, ['idle'], 'the board\'s keep was retried');
   assert.equal(kept.note, null, 'the board\'s keep was noted');
+
+  // The board's skip alone decides, even when its words match no keep phrase (a future rewording).
+  const skippedOnly = await run('Stop', { answers: [reply('{"recorded":false,"skipped":"waiting","because":"held for a person"}')] });
+  assert.deepEqual(skippedOnly.sent, ['idle'], 'a skip in new words was retried');
+  assert.equal(skippedOnly.note, null, 'a skip in new words was noted');
 
   const stranger = await run('Stop', { answers: [reply('{"recorded":false,"because":"this board only records a report from the account that started it; run `kosmos report` from that account, or present an agent token"}')] });
   assert.deepEqual(stranger.sent, ['idle']);
