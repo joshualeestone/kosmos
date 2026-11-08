@@ -15,6 +15,10 @@ struct ChatList: UIViewRepresentable {
     let newest: Int
     // Whether the reader is at the newest message, told when it changes (never during a layout pass).
     let atEnd: (Bool) -> Void
+    // Debug only (KOSMOS_SAMPLE_SCROLLUP): the row put at the top 3 s after the list opens, as a reader's own scroll up would
+    // be (nothing in the simulator can drag), and what to run once it has come to rest. Nil in a release build.
+    var sampleUp: String? = nil
+    var sampleRested: (() -> Void)? = nil
 
     // How close to the end still counts as at the newest message after the person's own scroll.
     static let endSlack: CGFloat = 40
@@ -53,6 +57,20 @@ struct ChatList: UIViewRepresentable {
             .minSize(height: 0)   // a list cell's default 44 pt would add room under a day line or the working line
             c.backgroundConfiguration = .clear()
         }
+
+        #if DEBUG
+        // kosmos#8221 slice 2: KOSMOS_SAMPLE_SCROLLUP on this list. Counts as the person's own scroll: the reader is no longer
+        // at the newest message, so new rows bring the capsule and the list is not kept at its end.
+        func sampleScrollUp(_ id: String, rested: (() -> Void)?) {
+            guard let list, let source, let ip = source.indexPath(for: id) else {
+                ChatView.trace("uikit list: debug scroll-up found no row \(id)"); return
+            }
+            atEnd = false
+            list.scrollToItem(at: ip, at: .top, animated: false)
+            ChatView.trace("uikit list: debug scroll-up to \(id)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { rested?() }
+        }
+        #endif
 
         func maxY(_ sv: UIScrollView) -> CGFloat {
             max(-sv.adjustedContentInset.top, sv.contentSize.height - sv.bounds.height + sv.adjustedContentInset.bottom)
@@ -147,6 +165,12 @@ struct ChatList: UIViewRepresentable {
         // A new list opens at the newest message: the chat is told so once, as it is told of every later change.
         let told = atEnd
         DispatchQueue.main.async { told(true) }
+        #if DEBUG
+        if let up = sampleUp {
+            let rested = sampleRested
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak co] in co?.sampleScrollUp(up, rested: rested) }
+        }
+        #endif
         return list
     }
 
