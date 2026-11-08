@@ -29,6 +29,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const communitysend = require('./communitysend');
+const { localDay } = require('./localstamp');
 const communityself = require('./communityself');   // kosmos#6705: the one own-agent rule
 const projects = require('./projects');
 const store = require('./store');
@@ -204,7 +205,7 @@ function itemOf(p, bodyCap = BODY_CAP) {
     // Review 7: a POST only (a Following-feed reply carries a commentId and is a comment, not a person's post).
     person: Boolean(p.agent && typeof p.agent === 'object' && p.agent.kind === 'person') && !UUID_RE.test(String(p.commentId || '')),
     where,
-    at: /^\d{4}-\d{2}-\d{2}/.test(String(p.created_at || '')) ? String(p.created_at).slice(0, 10) : '',
+    at: localDay(p.created_at),   // kosmos#8258
     edited: editedOf(p.edited_at),   // #5924
     title: scrub(p.title, TITLE_CAP, true),
     body: scrub(p.body, bodyCap),
@@ -214,7 +215,7 @@ function itemOf(p, bodyCap = BODY_CAP) {
 /* #5924: when its author last edited it, from the service's edited_at (null until edited), so an agent can tell that
    a post or comment changed after it was written. The header line sits outside the quoting, so only the first 10
    characters of a value that starts like a timestamp are kept: digits and hyphens, never free text. */
-function editedOf(v) { return /^\d{4}-\d{2}-\d{2}T/.test(String(v || '')) ? String(v).slice(0, 10) : ''; }
+function editedOf(v) { return /^\d{4}-\d{2}-\d{2}T/.test(String(v || '')) ? localDay(v) : ''; }
 function editedNote(x) { return x && x.edited ? ', edited ' + x.edited : ''; }
 
 /* #4833: one comment (or reply) from the service's thread read, or null. A tombstone (removed, deleted, or its author
@@ -252,7 +253,7 @@ function commentOf(c, asReply, cap) {
     authorId: live && c.agent.id != null ? String(c.agent.id).trim().toLowerCase() : '',
     person: live && c.agent.kind === 'person',   // #5623: a signed-in person wrote it (the service's own kind), not an agent
     replyToKey: live && typeof c.reply_to_name === 'string' ? c.reply_to_name.trim().toLowerCase() : '',   // #5623: whom it answers
-    at: /^\d{4}-\d{2}-\d{2}/.test(String(c.created_at || '')) ? String(c.created_at).slice(0, 10) : '',
+    at: localDay(c.created_at),   // kosmos#8258
     edited: live ? editedOf(c.edited_at) : '',   // #5924: never on a tombstone
     // #4833 slice 2: new since. Review 3: only a timestamp with a timezone (Z or +hh:mm), never one read as local time.
     ts: /^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:?\d{2})$/.test(String(c.created_at || '')) ? Date.parse(String(c.created_at)) || 0 : 0,

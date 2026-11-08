@@ -19004,9 +19004,9 @@ const server = http.createServer(async (req, res) => {
         if (r.reached === 'maybe') notes.push('[this may not have reached you]');
         // Review 7: a stored `at` is printed only in the ISO shape the board writes; anything else (an outbox entry
         // file edited by hand can carry any string Date.parse accepts) is left out rather than put in the row.
-        const iso = typeof r.at === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(r.at);
-        // kosmos#8258: this computer's date first, so an agent copying one does not write tomorrow's after 18:00; the UTC beside it.
-        const head = (iso ? localstamp.localStamp(Date.parse(r.at)) + ' local (' + r.at.replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ') ' : '')
+        // kosmos#8258: this computer's date first, so an agent copying one keeps today's once the UTC day has turned.
+        const stamp = localstamp.stampWords(r.at);
+        const head = (stamp ? stamp + ' ' : '')
           + (r.from === 'person' ? 'the person' : 'you') + (notes.length ? ' ' + notes.join(' ') : '') + ': ';
         /* Review 4: every character a terminal or an agent's context can read as a line break starts a new,
            indented piece (INBOX_BREAK), and the controls in INBOX_DROP are dropped, so no typed text can draw a row
@@ -19102,11 +19102,11 @@ const server = http.createServer(async (req, res) => {
           if (rep.until) detail.push('until ' + rep.until);
           if (rep.held === true) detail.push('held until the person is back');   // #7915
           line = 'You are currently: ' + rep.state + (detail.length ? ' (' + detail.join(', ') + ')' : '') + '.';
-          if (rep.at) line += ' Set ' + rep.at + '.';
+          if (rep.at) line += ' Set ' + (localstamp.stampWords(rep.at) || rep.at) + '.';
           if (stale) {
             // #5959: a waiting state standing over a day says so in the same sentence, not a second one.
             // When the question was first made before the latest line, say so, so "Set <time>" above and the age agree.
-            const age = cardlabel.standingFor(ageMs) + (rep.askedAt && rep.askedAt !== rep.at ? ' (first made ' + rep.askedAt + ')' : '');
+            const age = cardlabel.standingFor(ageMs) + (rep.askedAt && rep.askedAt !== rep.at ? ' (first made ' + (localstamp.stampWords(rep.askedAt) || rep.askedAt) + ')' : '');
             // blocked waits on something that is not the person (a deploy, another agent); needs_you waits on a person.
             const passed = rep.state === 'blocked' ? 'If it is no longer in your way' : 'If nobody needs to answer it any more';
             // Who wrote it: the agent ("your own"), Kosmos for it (a permission prompt, a provider error), or someone

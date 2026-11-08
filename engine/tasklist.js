@@ -170,10 +170,8 @@ const scrub = (v) => (typeof v === 'string' ? clean(v)
 // direction overrides and every other format or control character go.
 const clean = (v) => String(v).replace(/[\p{Cc}\p{Cf}]/gu, (c) => (/[\t\n\r\u200c\u200d]/.test(c) ? c : '')).replace(/[^\S\n]+/g, ' ').trim();
 function whenWords(s) {
-  const t = typeof s === 'string' ? new Date(s) : null;
-  if (!t || !Number.isFinite(t.getTime())) return null;
-  const two = (n) => String(n).padStart(2, '0');
-  return t.getFullYear() + '-' + two(t.getMonth() + 1) + '-' + two(t.getDate()) + ' ' + two(t.getHours()) + ':' + two(t.getMinutes());
+  const stamp = typeof s === 'string' ? localStamp(Date.parse(s)) : null;
+  return stamp ? stamp.slice(0, 16) : null;
 }
 /* kosmos#8259: whether the person was told about a hold that waits on them, and answered since, from the marks
    engine/holdtold.js keeps. Not told: says how to tell them so Kosmos sees it. */
@@ -316,6 +314,7 @@ function automountsHere(platform) {
   try {
     if (platform === 'win32') return new Set();
     if (platform === 'darwin') {
+const { localStamp } = require('./localstamp');
       const out = require('node:child_process').execFileSync('/sbin/mount', [], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
       const found = new Set();
       for (const line of out.split('\n')) {

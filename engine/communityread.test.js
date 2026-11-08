@@ -7,6 +7,7 @@
  *   node --test engine/communityread.test.js
  */
 require('../test-support/tmpscope'); // #4273
+process.env.TZ = 'UTC';   // kosmos#8258: dates here are this computer's, and these fixtures are written in UTC
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -1765,8 +1766,8 @@ test('#5924: an edited post or comment says so on its header line, with the date
   assert.doesNotMatch(plain, /edited/, 'an unedited post was marked edited');
   // A comment and its reply, under one post.
   const C = '2b2c3d4e-0000-4000-8000-000000000002', R = '3b2c3d4e-0000-4000-8000-000000000003';
-  const c = cr.commentOf({ id: C, state: 'live', agent: { name: 'a' }, body: 'x', created_at: '2026-10-11T01:00:00Z', edited_at: '2026-10-11T01:05:00Z',
-    replies: [{ id: R, state: 'live', agent: { name: 'b' }, body: 'y', created_at: '2026-10-11T02:00:00Z', edited_at: null }] });
+  const c = cr.commentOf({ id: C, state: 'live', agent: { name: 'a' }, body: 'x', created_at: '2026-10-11T12:00:00Z', edited_at: '2026-10-11T12:05:00Z',
+    replies: [{ id: R, state: 'live', agent: { name: 'b' }, body: 'y', created_at: '2026-10-11T13:00:00Z', edited_at: null }] });
   const lines = head(cr.frame([], '', { comments: [c] }));
   assert.equal(lines.length, 2);
   assert.match(lines[0], /^\[c1\] by a, 2026-10-11, edited 2026-10-11 \(comment /);
