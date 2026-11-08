@@ -57,7 +57,7 @@
  * (every unthrottled hook would otherwise stall at the 15s curl ceiling). This
  * hook awaits the POST instead, under a timeout (< the hook entry's own 15s):
  * SessionStart and an agent's Stop get DEFAULT_TIMEOUT_MS, every other report
- * SHORT_TIMEOUT_MS. A local 127.0.0.1 board answers in milliseconds; the
+ * SHORT_TIMEOUT_MS, and so does the Windows supervisor's noRetry Stop (kosmos#8233). A local 127.0.0.1 board answers in milliseconds; the
  * timeout bounds only the board-down or busy case. Windows does update in place
  * (engine/win32update.js), so the board-down case includes an update restart:
  * then every report waits out its timeout, and an agent's Stop also waits the
@@ -339,7 +339,8 @@ function timeoutFor(report) {
    Only an agent's own session (it carries an agent token) gets any of this: the person's own Claude sessions run
    this hook too, and as on the Mac they keep the single short send. A caller that does not wait for this hook (the
    Windows supervisor's in-process idle, engine/win32codexsup.js) passes noRetry: a late retry there could land
-   after the next turn's working.
+   after the next turn's working. Its Stop keeps SHORT_TIMEOUT_MS and is never retried, but a lost or busy one is
+   still noted at once (kosmos#8233).
    Unlike the bash hook, which detaches its send and retry, this hook awaits them (see the header's DEVIATION), so a
    lost agent Stop holds the turn's end for up to DEFAULT_TIMEOUT_MS, against SHORT_TIMEOUT_MS before. That is also
    why the bash hook's STOP_TOKEN (a newer event cancels a pending retry) has no twin here: no later hook event of
@@ -424,7 +425,13 @@ async function deliver(report, io) {
       redirect: 'manual',
     });
     let body = '';
-    try { body = await res.text(); } catch { body = ''; }
+    try { body = await res.text(); } catch (err) {
+      // kosmos#8233: our own timeout while the body was still arriving is a busy board, as an abort before the headers is.
+      if (err && err.name === 'AbortError') {
+        return { ok: false, status: res && res.status, error: err.message || 'aborted', timedOut: true };
+      }
+      body = '';
+    }
     const recorded = /"recorded"\s*:\s*true/.test(body);
     // The server's own reason, for the loud SessionStart message (the CLI
     // surfaces this too): a refusal carries "error", a not-recorded carries
@@ -688,7 +695,8 @@ async function main(io) {
     });
   };
   // kosmos#8230: an agent's Stop, from a caller that waits for this hook, follows the bash hook's rules (see TURN_END_KEEP).
-  const turnEnd = report.turnEnd === true && Boolean(agentToken(env)) && o.noRetry !== true;
+  const agentStop = report.turnEnd === true && Boolean(agentToken(env));
+  const turnEnd = agentStop && o.noRetry !== true;
   const budget = o.timeoutMs || (turnEnd ? DEFAULT_TIMEOUT_MS : timeoutFor(report));
   const t0 = Date.now();
   let verdict = await sendOnce(budget);
@@ -703,17 +711,18 @@ async function main(io) {
       const pause = Math.min(o.retryPauseMs !== undefined ? o.retryPauseMs : TURN_END_RETRY_PAUSE_MS, Math.floor(left / 2));
       if (left - pause >= TURN_END_RETRY_MIN_MS) {
         await (o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms))))(pause);
-        const first = outcome;
         verdict = await sendOnce(left - pause);
         outcome = turnEndOutcome(verdict);
-        /* Windows answers a connect to a closed local port only after about 2 s (it retries the connect), so the
-           retry's shorter proof can time out on a board that is simply not there. After a first try that found
-           nothing there, that timeout is the same answer, not a busy board. */
-        if (first === 'quiet' && outcome === 'busy' && verdict.proofWhy === 'timed out') outcome = 'quiet';
         if (outcome === 'lost' || outcome === 'busy') noteTurnEnd(ctx, key, report, verdict, ' after a retry');
       } else if (outcome === 'lost') {
         noteTurnEnd(ctx, key, report, verdict, ' (no time left to retry)');
       }
+    }
+  } else if (agentStop) {
+    // kosmos#8233: a caller that does not wait (noRetry) gets no retry, but a lost or busy Stop is still noted.
+    const outcome = turnEndOutcome(verdict);
+    if (outcome === 'lost' || outcome === 'busy') {
+      noteTurnEnd(ctx, throttleKey(env, ppid), report, verdict, ' (not retried: its caller does not wait)');
     }
   }
 

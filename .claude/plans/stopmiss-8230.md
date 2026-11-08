@@ -36,8 +36,8 @@ server.report-turnend-8230.test.js: the real route on a sandboxed board answers 
 token, and a non-automatic report, log nothing). Both fail against origin/main.
 engine/kosmos-report-hook.turnend-8230.test.js: each outcome with its control, the note's shape and cap, the window,
 the keep phrases bound to their board sources, the board's two changes. Against origin/main every changed arm fails
-and the unchanged one (a non-turn-end report) passes. Two #1765 tests updated: a refused Stop is now proved twice,
-and its first proof gets half the 8 s window.
+and the unchanged one (a non-turn-end report) passes. #1765 tests updated: four have changed lines, counted from
+the diff (kosmos#8233; this line said two). A refused Stop is now proved twice, and its first proof gets half the 8 s window.
 
 ## Cost, stated
 The Windows hook awaits its send (unlike the bash hook, which detaches), so a lost agent Stop holds the turn end for
@@ -54,8 +54,9 @@ keep cannot turn it into retries; the phrase list stays for the refusals that ca
 The keep list is checked equal to the bash hook's _TE_KEEP, so the two hooks cannot drift apart.
 
 ## Stated, beyond the bash rules
-- Windows refuses a connect to a closed local port only after about 2 s (not measured here; for Homer's check), so a
-  retry whose proof times out after a first try that found nothing there is read as nothing there, not busy.
+- Corrected by kosmos#8233: Windows refuses a connect to a closed local port at once (Homer measured median 0 ms,
+  max 2 ms; a fetch at most 25 ms), not after about 2 s as this line said. The special case built on it (a retry's
+  proof timeout after a refused first try read as nothing there) is removed there, so that case is noted as busy.
 - A loss that leaves under 1 s of the window is noted without a retry (the bash hook always has time for one).
 - The board-log line also covers Mac agents, whose CLI sends the same agent-token header; a token sent only in the
   body earns no line (the report hook never sends it there).
