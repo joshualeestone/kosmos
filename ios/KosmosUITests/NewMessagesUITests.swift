@@ -54,9 +54,9 @@ final class NewMessagesUITests: XCTestCase {
     private func checkCapsule(_ app: XCUIApplication, shot: String) {
         let capsule = Self.capsule(app)
         XCTAssertTrue(capsule.waitForExistence(timeout: 20), "no New messages capsule for a reader higher up as messages arrived")
-        if let (n, e) = Self.newestGrown(app) {
-            XCTAssertFalse(e.isHittable, "New message \(n) is on screen: the reader was pulled down to the newest message")
-        }
+        let shownNewest = Self.newestGrown(app)
+        XCTAssertFalse(shownNewest?.element.isHittable ?? false,
+                       "New message \(shownNewest?.n ?? 0) is on screen: the reader was pulled down to the newest message")
         let before = XCTAttachment(screenshot: app.screenshot()); before.name = shot + "-shown"; before.lifetime = .keepAlways; add(before)
         capsule.tap()
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: capsule)
@@ -89,6 +89,8 @@ final class NewMessagesUITests: XCTestCase {
         }
         KeyboardSlideUITests.settle(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message '")).firstMatch)
         XCTAssertFalse(newest.exists && newest.isHittable, "CONTROL: the drags did not move the reader off New message \(n0)")
+        let after = Self.newestGrown(app)
+        XCTAssertFalse(after?.element.isHittable ?? false, "CONTROL: New message \(after?.n ?? 0) is on screen after the drags")
         checkCapsule(app, shot: "capsule-drag")
     }
 

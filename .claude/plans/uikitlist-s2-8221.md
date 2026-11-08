@@ -10,7 +10,7 @@ fixed class list without these, and nothing runs the UIKit arm. Every result bel
 
 ## What changed
 - ChatList: a Debug-only `sampleUp` / `sampleRested` pair. KOSMOS_SAMPLE_SCROLLUP=<n> puts the n-th row from the end at
-  the top 3 s after the list is made and sets atEnd false itself (it skips the scroll delegate), then shows the same
+  the top 3 s after the list is made (once a launch) and sets atEnd false itself (it skips the scroll delegate), then shows the same
   `sample-scroll-rested` marker the lazy list does. ChatView passes nil and an empty closure in a release build.
 - ChatView.conversationUIKit: computes that row and draws the marker.
 - NewMessagesUITests (item 5): a reader higher up (by the hook, and by a real drag) gets the capsule as messages arrive
@@ -23,9 +23,9 @@ fixed class list without these, and nothing runs the UIKit arm. Every result bel
 ## Measured (iPhone 17 Pro Max, iOS 26.5, one simulator, 11-08)
 | check | UIKit | lazy | shown able to fail (UIKit arm only) |
 |---|---|---|---|
-| capsule, hook scroll-up | 3 of 3 | 3 of 3 | red with unseenNew never set on a new message |
-| capsule, real drag up | 1 of 1 | 1 of 1 | red with endSlack 100000 (the list read the drag as at the end and pinned the reader back) |
-| capsule control, at the newest | 3 of 3 | 3 of 3 | (control) |
+| capsule, hook scroll-up | 4 of 4 | 4 of 4 | red with unseenNew never set on a new message |
+| capsule, real drag up | 2 of 2 | 2 of 2 | red with endSlack 100000 (the list read the drag as at the end and pinned the reader back) |
+| capsule control, at the newest | 4 of 4 | 4 of 4 | (control) |
 | search | 3 of 3 | **4 of 5** | not perturbed; asserts the dangerous cases directly (a non-match still drawn, the newest match not drawn) |
 | drag down dismisses | 3 of 3 | 4 of 4 | red with keyboardDismissMode .none |
 
