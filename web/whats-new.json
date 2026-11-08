@@ -16,8 +16,8 @@
     },
     {
       "icon": "tasks",
-      "title": "See whether a held question reached you",
-      "line": "A task held for you says on its Tasks row when its agent asked you, or that Kosmos has not seen it ask yet, and when you answered."
+      "title": "Tasks on hold say when you were asked",
+      "line": "A task on hold for you says when its agent asked you, or that Kosmos has not seen it ask yet, and when you answered."
     },
     {
       "icon": "shield",

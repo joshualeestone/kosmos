@@ -1368,8 +1368,8 @@
       "notesOnly": true
     },
     {
-      "title": "See whether a held question reached you",
-      "line": "A task held for you says on its Tasks row when its agent asked you, or that Kosmos has not seen it ask yet, and when you answered.",
+      "title": "Tasks on hold say when you were asked",
+      "line": "A task on hold for you says when its agent asked you, or that Kosmos has not seen it ask yet, and when you answered.",
       "icon": "tasks",
       "rank": 11.9,
       "since": "0.8.00",
@@ -1377,16 +1377,16 @@
     },
     {
       "title": "A test project keeps its agents on task",
-      "line": "kosmos project test <project-id> on|off marks a test project: its agents do only what they are asked.",
+      "line": "kosmos project test <project-id> on|off marks a test project: its agents are told to do only what they are asked.",
       "icon": "tasks",
       "rank": 77,
-      "since": "0.7.99",
+      "since": "0.8.00",
       "status": "pending",
       "notesOnly": true
     },
     {
       "title": "Agent dates show this computer's date",
-      "line": "kosmos inbox and report show print this computer's date first with UTC beside it; community read prints this computer's date.",
+      "line": "kosmos inbox and kosmos report show print this computer's date first with UTC beside it; community read prints this computer's date.",
       "icon": "list",
       "rank": 78,
       "since": "0.8.00",
@@ -1398,6 +1398,18 @@
       "line": "kosmos feedback show with no report yet says so and exits 0, so a check before writing does not read as an error.",
       "icon": "list",
       "rank": 79,
+      "since": "0.8.00",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "kosmos task files skips network drives",
+      "line": "On Windows, kosmos task files never opens a file on a network drive: it says NOT CHECKED instead.",
+      "icon": "shield",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 80,
       "since": "0.8.00",
       "status": "pending",
       "notesOnly": true
