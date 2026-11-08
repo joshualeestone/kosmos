@@ -36,8 +36,8 @@ server.report-turnend-8230.test.js: the real route on a sandboxed board answers 
 token, and a non-automatic report, log nothing). Both fail against origin/main.
 engine/kosmos-report-hook.turnend-8230.test.js: each outcome with its control, the note's shape and cap, the window,
 the keep phrases bound to their board sources, the board's two changes. Against origin/main every changed arm fails
-and the unchanged one (a non-turn-end report) passes. #1765 tests updated: four have changed lines, counted from
-the diff (kosmos#8233; this line said two). A refused Stop is now proved twice, and its first proof gets half the 8 s window.
+and the unchanged one (a non-turn-end report) passes. #1765 tests updated: four change code, counted from the
+diff (kosmos#8233; this line said two). A refused Stop is now proved twice, and its first proof gets half the 8 s window.
 
 ## Cost, stated
 The Windows hook awaits its send (unlike the bash hook, which detaches), so a lost agent Stop holds the turn end for

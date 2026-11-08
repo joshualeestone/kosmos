@@ -10,12 +10,17 @@ engine/kosmos-report-hook.js and its turn-end test.
    noted at once (" (not retried: its caller does not wait)"). No board at the address stays unnoted, as for any Stop.
    Rejected: retrying it. The caller does not wait, so a late retry could land after the next turn's working (#8230's
    reason for noRetry).
-2. **A body-read abort is busy, not lost.** In deliver(), our own AbortError from res.text() (the timeout fired after
-   the headers, while the body arrived) now returns timedOut, so it is noted at once and not retried, like an abort
-   before the headers. Any other body failure keeps the old path (empty body, an ordinary loss, retried).
+2. **A body-read abort is unconfirmed, not lost.** In deliver(), our own AbortError from res.text() (the timeout fired
+   after the headers) now returns cutOff with the status. The board writes its head and body together once it has
+   decided (server.js sendJson), so it did answer and may have recorded. So it is not resent (a second idle) and the
+   note says "idle unconfirmed (not retried): the board answered <status> but its answer was cut off". A loud
+   SessionStart names the same reason instead of "could not be reached". Any other body failure keeps the old path
+   (empty body, an ordinary loss, retried).
+   Rejected: classing it busy, as the card first put it. A review measured that the board has always decided by then,
+   so "too busy" and "not delivered" would both be false.
 3. **Wording.** The file header now says the supervisor's noRetry Stop keeps SHORT_TIMEOUT_MS. The #8230 plan's
-   "Two #1765 tests updated" now gives the count measured from the diff: four tests carry changed lines (the card
-   said three; one of the four may be a comment-only change, so the line states what was counted).
+   "Two #1765 tests updated" now gives the count measured from the diff: four tests change code (the card said
+   three): token-only, fresh nonce, the seam decides, and no production caller.
 4. **The late-refusal special case is removed.** #8230 read a retry's proof timeout after a refused first try as
    nothing there, on the premise that Windows refuses a closed local port only after about 2 s. Homer measured it
    refused at once (median 0 ms, max 2 ms). So that case is now a busy board, noted after a retry, as on the Mac. The
@@ -31,5 +36,7 @@ engine/kosmos-report-hook.turnend-8230.test.js:
 - noRetry: sent once, short window, a lost and a busy Stop each noted; controls: no board, a landed Stop and the
   person's own session (no agent token) note nothing.
 - a busy retry after a refused first try is noted; control: refused twice is not.
-- a body-read AbortError is noted busy and not resent; control: another body failure is retried and noted.
-Mutants, each measured red: the noRetry note removed; the body-abort branch removed; the special case restored.
+- a body-read AbortError is noted unconfirmed and not resent; control: another body failure is retried and noted.
+- noRetry also has a keep control (the board's own skip is never noted).
+Mutants, each measured red: the noRetry note removed; the body-abort branch removed; the special case restored; a
+cut-off answer read as a timeout again.
