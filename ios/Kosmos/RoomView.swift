@@ -1665,6 +1665,7 @@ struct RoomView: View {
         draft = ""; replying = nil; replyMention = nil
         if searching { sentWhileSearching = true }
         hiddenBySearch = false   // the post is the newest thing to say
+        Haptics.sent()   // kosmos#8246, as a chat's send
         Task { await store.post(text, to: project.id, replyTo: reply, files: files) }
     }
 }

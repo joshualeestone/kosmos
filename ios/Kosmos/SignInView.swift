@@ -447,6 +447,9 @@ struct SignInView: View {
             }
             .scrollDismissesKeyboard(.interactively)
         }
+        // kosmos#8246: the iPhone's error pattern when a sign-in step fails (each failure sets the error line), but not
+        // when the person cancelled the passkey prompt themselves.
+        .onChange(of: model.error) { e in if let e, e != SignIn.passkeyWords.notUsed { Haptics.failed() } }
         // Josh 2026-11-06 18:18: the desktop first run's floating dots behind it (FloatingDots.swift).
         .background(ZStack { Palette.ground; FloatingDots() }.ignoresSafeArea())
     }

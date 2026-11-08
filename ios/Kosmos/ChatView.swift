@@ -1900,7 +1900,7 @@ struct ChatView: View {
             PermissionCard(permission: p, allow: card.allow, deny: card.deny, more: card.more,
                            mainState: choicesState(choices, among: [card.allow, card.deny], .main(allow: p.allow, deny: p.deny)),
                            moreState: choicesState(choices, among: card.more, .more),
-                           widthShare: widthShare, press: { press($0, choices) })
+                           widthShare: widthShare, press: { press($0, choices, decided: $0.n == card.allow.n || $0.n == card.deny.n) })
         } else {
             QuestionBubble(text: row.text, options: choices.options, state: choicesState(choices, among: choices.options, .plain),
                            widthShare: widthShare, press: { press($0, choices) })
@@ -1915,7 +1915,8 @@ struct ChatView: View {
                                   answered: answered, armedN: armedN, unsure: unsureKey == c.key)
     }
 
-    private func press(_ option: Board.ChoiceOption, _ choices: Board.Choices) {
+    // kosmos#8246: `decided` is an Allow or Deny on a request's card; it taps once the answer goes, not on the arming press.
+    private func press(_ option: Board.ChoiceOption, _ choices: Board.Choices, decided: Bool = false) {
         switch Board.armStep(armed, option: option, key: choices.key, now: Date()) {
         case .ignore:
             return
@@ -1926,6 +1927,7 @@ struct ChatView: View {
         case .send:
             break
         }
+        if decided { Haptics.decided() }
         armed = nil
         unsureKey = nil
         pressLine = nil
@@ -1940,7 +1942,7 @@ struct ChatView: View {
             switch result {
             case .sent: pressLine = nil
             case .notSure(let text): pressLine = text; unsureKey = choices.key
-            case .refused(let text): pressLine = text
+            case .refused(let text): pressLine = text; Haptics.failed()   // kosmos#8246
             }
             pressLineKey = choices.key
             if result.mayHaveSent { redraw(after: BoardClient.answeredLock) }
@@ -2396,6 +2398,7 @@ struct ChatView: View {
         // A press in the air: the words wait in the box, and the line says why (dmChoiceBlocksSend).
         if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
         composerNote = nil
+        Haptics.sent()   // kosmos#8246: past every guard, so a send that is refused before it starts does not tap
         if trayOpen { PhotoTrayMotion.change(overKeyboard: false) { trayOpen = false } }   // kosmos#8045: sent, back to reading
         dictation.stop()   // kosmos#7268 review 1: before the box is cleared, so no late result brings the words back
         // The composer line goes on the next send or press (Mona Lisa's spec, section 1).
@@ -2418,6 +2421,7 @@ struct ChatView: View {
                 // kosmos#7348: a failed send puts its words back on purpose. Only this send's guard goes: a later send's
                 // stays (review).
                 if lastSent?.text == text { lastSent = nil }
+                Haptics.failed()   // kosmos#8246
                 if draftText.isEmpty { draftText = text; if replying == nil { replying = answering } }
                 if uploadingHere > 0 { composerNote = Board.stillAddingLine }
             }

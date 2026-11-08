@@ -301,7 +301,8 @@ struct AgentsView: View {
     // kosmos#7034: the row's star control, for the swipe and the long press.
     private func starButton(_ agent: Board.Agent) -> some View {
         let on = client.isStarred(agent.session)
-        return Button { Task { await client.toggleStar(agent.session) } } label: {
+        // kosmos#8246: a selection click as the swipe takes, the star or the unstar.
+        return Button { Haptics.snapped(); Task { await client.toggleStar(agent.session) } } label: {
             Label(on ? "Unstar" : "Star", systemImage: on ? "star.slash" : "star.fill")
         }
         .tint(Palette.starGold)
