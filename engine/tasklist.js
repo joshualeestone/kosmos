@@ -327,6 +327,44 @@ function automountsHere(platform) {
 }
 
 /**
+ * kosmos#8227 item 1: this Windows computer's drive letters and what kind each is, so `task files` never opens a
+ * path on a drive mapped to a network share (Z:\share\x reads as local by its name; only the drive's type can tell).
+ * A Map of upper-case letter to System.IO.DriveType as a number (0 Unknown, 1 NoRootDirectory, 2 Removable, 3 Fixed,
+ * 4 Network, 5 CDRom, 6 Ram), an empty Map off Windows (no drive letters to ask about), or null when it could not be
+ * read. Asked of PowerShell once, as numbers: fsutil answers faster but in the computer's own language, which no
+ * parser here can read on every install. A letter Windows does not list has no drive behind it (opening it finds
+ * nothing). `run` is the test seam: (exe, args) -> stdout.
+ */
+function driveTypesHere(platform, run) {
+  if (platform !== 'win32') return new Map();
+  try {
+    const exe = run ? 'powershell.exe' : require('./computerprint').powershellExe();
+    const args = ['-NoProfile', '-NonInteractive', '-Command', '[IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name.Substring(0,1) + [int]$_.DriveType }'];
+    const out = run ? run(exe, args) : require('node:child_process').execFileSync(exe, args, { encoding: 'utf8', windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'] });
+    const found = new Map();
+    for (const line of String(out).split(/\r?\n/)) {
+      const m = /^([A-Za-z])([0-6])$/.exec(line.trim());
+      if (m) found.set(m[1].toUpperCase(), Number(m[2]));
+    }
+    // PowerShell that ran and listed nothing (not even the system drive) has not answered the question.
+    return found.size ? found : null;
+  } catch {
+    return null;
+  }
+}
+
+/** kosmos#8227 item 1: the words for a Windows drive path that is not opened, or null when its drive is this
+ *  computer's own (fixed, removable, optical or a RAM disk) or there is no drive behind the letter. */
+function driveRefusal(p, types) {
+  const letter = String(p).charAt(0).toUpperCase();
+  if (!types.has(letter)) return null;
+  const t = types.get(letter);
+  if (t === 4) return 'a network drive, so Kosmos does not open it';
+  if (t === 2 || t === 3 || t === 5 || t === 6 || t === 1) return null;
+  return 'Kosmos could not tell what kind of drive ' + letter + ': is, so it does not open it';
+}
+
+/**
  * Whether opening `p` would look a name up inside one of `mounts`. The path is walked one name at a time with lstat,
  * and a link is followed one hop at a time by reading it, so nothing is looked up inside a folder before that folder
  * has been checked: a link planted elsewhere that points into an automount folder is caught at the hop, not by
@@ -391,6 +429,12 @@ function filesLines(body, opts = {}) {
   const foreign = (p) => kept(p) && (windows ? !drive(p) : drive(p));
   let mounts;   // read once, at the first path that needs it
   let saidNoMounts = false;
+  let types;   // kosmos#8227 item 1: Windows drive types, read once, at the first path that needs them
+  let saidNoTypes = false;
+  const typesNow = () => {
+    if (types === undefined) types = opts.driveTypes !== undefined ? opts.driveTypes : driveTypesHere(opts.platform || process.platform);
+    return types;
+  };
   const mountsNow = () => {
     if (mounts === undefined) mounts = opts.automounts !== undefined ? opts.automounts : automountsHere(opts.platform || process.platform);
     return mounts;
@@ -420,6 +464,17 @@ function filesLines(body, opts = {}) {
     if (foreign(at)) { tally.elsewhere += 1; lines.push('    NOT CHECKED ' + shown + ': marked on a ' + (windows ? 'Mac or Linux' : 'Windows') + ' computer, so it is not on this one'); continue; }
     if (!local(at)) {
       tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': not a local absolute path, so Kosmos does not open it'); continue;
+    }
+    if (windows) {
+      const dt = typesNow();
+      if (dt === null) {
+        tally.unchecked += 1;
+        lines.push('    NOT CHECKED ' + shown + (saidNoTypes ? ': the drive types again (above)' : ': Kosmos could not read what kind of drive each letter is on this computer, so it opens no path'));
+        saidNoTypes = true;
+        continue;
+      }
+      const refused = driveRefusal(at, dt);
+      if (refused) { tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': ' + refused); continue; }
     }
     if (!windows) {
       const m = mountsNow();
@@ -500,4 +555,4 @@ if (require.main === module) {
   process.exit(out.rc);
 }
 
-module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, seenWords, STALE_DAYS_DEFAULT: 7 };
+module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, driveTypesHere, driveRefusal, seenWords, STALE_DAYS_DEFAULT: 7 };

@@ -1641,7 +1641,7 @@ async function taskFiles(ctx, args) {
     if (every && /^say which project/.test(ctx.refusedBy(r))) { ctx.err('This board is older than --all, so it did not list what was asked. Update Kosmos.'); return 1; }
     ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1;
   }
-  const shown = tasklist.filesLines(r.json, { project: every ? '' : project });
+  const shown = tasklist.filesLines(r.json, { project: every ? '' : project, ...(ctx.driveTypes !== undefined ? { driveTypes: ctx.driveTypes } : {}) });
   for (const l of shown.lines) { if (shown.rc) ctx.err(l); else ctx.out(l); }
   return shown.rc;
 }
@@ -1902,6 +1902,18 @@ async function taskBuilt(ctx, args) {
     if (!fileprint.isPrint(got)) { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
     fingerprint = got;
     filePath = typeof fileprint.keptPath === 'function' && fileprint.keptPath(whole) ? whole : null;   // the board's own rule
+    /* kosmos#8227 item 1: and not on a drive mapped to a network share, which `task files` would refuse to open anyway (a
+       drive letter reads as local by its name; only its type tells). A drive whose kind cannot be read is not kept
+       either. Only a drive path is asked about, so this costs nothing when no path is kept. */
+    if (filePath && /^[A-Za-z]:[\\/]/.test(filePath)) {
+      let refused = 'Kosmos could not read what kind of drive it is on';
+      try {
+        const tl = ctx.engine('tasklist');
+        const dt = ctx.driveTypes !== undefined ? ctx.driveTypes : tl.driveTypesHere('win32');
+        refused = dt === null ? refused : tl.driveRefusal(filePath, dt);
+      } catch (_) { /* refused stays: fail closed */ }
+      if (refused) filePath = null;
+    }
   }
   /* #7508, as install/kosmos: the commit a code fix landed as, resolved here in this checkout: its full sha, the
      repository's shared git directory (it outlives a removed worktree) and whether a remote branch has it. */
@@ -3860,6 +3872,7 @@ async function main(argv, io) {
     url,
     agentToken: () => hook.agentToken(env),
     pathRules: o.pathRules || path,   // #6726: path.win32 in a test, so the Windows path rules run on any machine
+    driveTypes: o.driveTypes,   // kosmos#8227 item 1: a test's drive letters and their kinds (a Map), so a network drive can be faked
     cwd: o.cwd || (() => process.cwd()),
     refusedBy: (r) => (r.json && typeof r.json.error === 'string') ? clause(r.json.error) : null,
     /* The board is serving another Kosmos than this agent's. */
