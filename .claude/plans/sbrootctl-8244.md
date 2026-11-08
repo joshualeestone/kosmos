@@ -18,9 +18,12 @@ control could show nothing. Step 1 (branch pin2404-8244) pinned the shell shards
 With a PATH mktemp that squeezes '//' (standing in for 26.04's): origin/main's test fails exactly as CI did ("the
 reverted derivation had no '//'"), and this branch passes, its negative control catching the revert.
 
-## Step 3 (after the pin merges)
-Rebase on main and unpin the shell shards in this same PR, so its own CI runs this test on ubuntu-26.04: that run is
-the proof the control works there.
+## Step 3 (tried, then backed out of this PR)
+The unpin ran in this PR's CI on ubuntu-26.04 (run on head 6592d4c3e5): tools/test-install-sbroot-6275.sh PASSED there
+(its negative control caught the revert; the stand-in kept '//'), but tools/test-light-side-4911.sh failed on 26.04
+only ("stand-in ... is not running", "the real matcher missed a browser executable"). As this plan said, the PR was not
+widened: the unpin commit is reverted, so this PR lands step 2 alone, on the pinned ubuntu-24.04. The unpin waits for
+that test to work on 26.04 (its own card).
 
 ## Also
 The stand-in's random suffix reads a fixed 256 bytes (a pipe that relied on SIGPIPE hung under a parent ignoring
