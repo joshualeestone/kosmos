@@ -1,7 +1,7 @@
 'use strict';
 /**
- * kosmos#8230: the Windows report hook's turn end (Stop, StopFailure, SessionEnd) follows the bash hook's kosmos#7977
- * rules, so a turn end is never lost in silence:
+ * kosmos#8230: the Windows report hook's turn end (an agent's Stop, as the bash hook routes only Stop) follows the bash
+ * hook's kosmos#7977 rules, so a turn end is never lost in silence:
  *   - it gets the full window (8 s), not the 3 s fire-report window;
  *   - no board at the address: tried once more, not noted;
  *   - a board too busy to prove itself in time: noted at once, not retried;
@@ -154,13 +154,13 @@ test('kosmos#8230: every phrase the hook treats as a keep is still said by the b
   }
 });
 
+// The route's behaviour is measured in server.report-turnend-8230.test.js; this pins where the two refusals call it.
 test('kosmos#8230: the board names its skip and logs an automatic turn end it refuses before the record', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const route = src.slice(src.indexOf("if (pathname === '/api/report' && req.method === 'POST') {"));
   assert.match(route.slice(0, 20000), /skipped: String\(kept\.skipped\)/, 'the record\'s skip is not named in the answer');
   const refusals = route.slice(0, 20000).match(/noteTurnEndRefusal\(body, /g) || [];
   assert.equal(refusals.length, 2, 'the roster and sender refusals should both log a refused turn end');
-  assert.match(route.slice(0, 3000), /if \(!req\.headers\['x-kosmos-agent-token'\]\) return;/, 'the board log is not limited to agent-token requests');
 });
 
 test('kosmos#8230: a caller that does not wait for the hook (noRetry) sends once and notes nothing', async () => {

@@ -332,7 +332,12 @@ function timeoutFor(report) {
    Only an agent's own session (it carries an agent token) gets any of this: the person's own Claude sessions run
    this hook too, and as on the Mac they keep the single short send. A caller that does not wait for this hook (the
    Windows supervisor's in-process idle, engine/win32codexsup.js) passes noRetry: a late retry there could land
-   after the next turn's working. */
+   after the next turn's working.
+   Unlike the bash hook, which detaches its send and retry, this hook awaits them (see the header's DEVIATION), so a
+   lost agent Stop holds the turn's end for up to DEFAULT_TIMEOUT_MS, against SHORT_TIMEOUT_MS before. That is also
+   why the bash hook's STOP_TOKEN (a newer event cancels a pending retry) has no twin here: no later hook event of
+   this session starts while this one is still running.
+   Two hooks noting at once can lose a line when one trims the file, as two bash hooks can. */
 const TURN_END_LOG = 'turn-end-failures.log';
 const TURN_END_LOG_MAX_LINES = 400;
 const TURN_END_LOG_KEEP_LINES = 200;
