@@ -12,6 +12,15 @@ slices, with his phone's counts comparing the two before the old one goes").
 
 ## Decided
 
+- Review 3 (11-08 13:59): the counts a phone sends (per chat open, and the sideways-shift report) carry no list, and a chat
+  on the UIKit list builds no diagnostic (its blank checks are not wired yet), so per-list COUNTS are not possible after this
+  slice. Call: this slice ships the switch and the record line only; slice 6 makes UIKit opens countable (the open count
+  carries the list, engine/chatopens.js keeps it per build and list, the UIKit list gets the blank check). Rejected: doing
+  it here (an engine and board change on a converging review). Weakest premise: that the switch is worth having before slice
+  6; it is for how the chat feels, not for counts, and Josh is not pointed at it for counts until slice 6 is in.
+- Shown in every build, not only TestFlight: the app is TestFlight only today (a beta with no outside users), and the switch
+  is off by default. Would change: an App Store release, before which the section is gated or removed.
+
 - Call: a Settings switch, OFF by default. Rejected: on by default in TestFlight. The UIKit list does not yet load earlier
   messages (slice "earlier pages"), has no long press (copy, delete) and no side lock, so making it the default would take
   those away from the one person testing. Weakest premise: that Josh will find and turn on a switch; the card comment and

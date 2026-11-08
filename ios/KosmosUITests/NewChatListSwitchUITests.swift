@@ -3,9 +3,8 @@ import XCTest
 // kosmos#8221 slice 5: Settings' "New chat list" switch. Off, a chat opens on the lazy list; on, the next chat opened is drawn
 // by the UIKit list (ChatList's collection view, "chat-list-uikit"). This check deliberately does NOT call UIKitListArm.set:
 // KOSMOS_SAMPLE_UIKITLIST, when set, wins over the switch, so the switch is only what decides here. It turns the switch
-// back off in its teardown, which runs whether or not the check passed: several classes open a direct chat without
-// UIKitListArm (EndPull, DeleteMessage, LongPressKeyboard, AttachMenu's chat arm), and on a simulator reused by hand they
-// would otherwise run on the UIKit list.
+// back off in its teardown, which runs whether or not the check passed: a check that opens a direct chat without
+// UIKitListArm reads the switch, so on a simulator reused by hand it would otherwise run on the UIKit list.
 final class NewChatListSwitchUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
@@ -49,7 +48,9 @@ final class NewChatListSwitchUITests: XCTestCase {
     private func toggle(_ app: XCUIApplication) -> XCUIElement {
         app.tabBars.buttons["Settings"].tap()
         let sw = app.switches["settings-new-chat-list"]
-        for _ in 0..<6 where !sw.isHittable { app.swipeUp() }
+        // Settings draws first: swiping before the switch exists would spend every swipe on a list still loading.
+        XCTAssertTrue(app.staticTexts["Account"].waitForExistence(timeout: 10) || sw.waitForExistence(timeout: 5), "Settings did not draw")
+        for _ in 0..<6 where !(sw.exists && sw.isHittable) { app.swipeUp() }
         XCTAssertTrue(sw.waitForExistence(timeout: 10) && sw.isHittable, "no New chat list switch in Settings")
         return sw
     }
