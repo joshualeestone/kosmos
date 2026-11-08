@@ -17,7 +17,10 @@ rules:
 - the board's keep (`skipped`), a report it cannot tie to an agent, another account's: no retry, no note;
 - no board at the address: retried after 2 s, not noted;
 - proof timed out (busy): noted at once, not retried;
-- anything else: retried after 2 s, noted when lost again;
+- anything else: retried after 2 s, noted when lost again (a send that times out after a slow proof usually leaves
+  under 1 s, so it is noted "no time left to retry" rather than retried);
+- a board serving another Kosmos (421 wrongWorld): neither retried nor noted, as the hook is already silent on it
+  (#1704); the bash hook has no such case, since its CLI says so in its own words;
 - note: one line in <throttle folder>/turn-end-failures.log, capped past 400 lines to the last 200 (the bash hook's
   file and cap; the line names the agent's throttle key and the reason, not a pane and an exit code).
 
@@ -41,7 +44,7 @@ The Windows hook awaits its send (unlike the bash hook, which detaches), so a lo
 up to 8 s instead of 3 s. That is why no STOP_TOKEN twin is needed: no later event starts while the hook runs.
 Windows does update in place (engine/win32update.js), so during an update restart every agent Stop waits out its
 proof, the 2 s pause and a retry, within the 8 s: the price of that Stop not being lost across the restart, which is
-the loss the retry exists for (review iteration 3 corrected the header that said Windows had no update path).
+the loss the retry exists for.
 The keep list is checked equal to the bash hook's _TE_KEEP, so the two hooks cannot drift apart.
 
 ## Rejected

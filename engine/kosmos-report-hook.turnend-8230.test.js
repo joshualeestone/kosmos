@@ -191,3 +191,12 @@ test('kosmos#8230: the Windows keep list is the bash hook\'s _TE_KEEP, phrase fo
   assert.deepEqual(hook.TURN_END_KEEP.source.split('|').sort(), m[1].split('|').sort(),
     'the two hooks would classify the same board answer differently');
 });
+
+test('kosmos#8230: a board serving another Kosmos (421) is neither retried nor noted', async () => {
+  const other = reply('{"error":"this board serves another Kosmos","wrongWorld":true}', 421);
+  const r = await run('Stop', { answers: [other, other] });
+  assert.deepEqual(r.sent, ['idle'], 'a 421 was retried');
+  assert.equal(r.note, null, 'a 421 was noted');
+  const control = await run('Stop', { answers: [reply('{"error":"something broke"}', 500), reply('{"error":"something broke"}', 500)] });
+  assert.deepEqual(control.sent, ['idle', 'idle'], 'CONTROL: another failed answer is retried');
+});
