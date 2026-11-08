@@ -218,7 +218,11 @@ RSANDBOX="$T/release-sandbox"; mkdir -p "$RSANDBOX/tools/lib"
 cp "$HERE/release.sh" "$RSANDBOX/tools/"; cp "$HERE"/lib/*.sh "$RSANDBOX/tools/lib/"; cp "$HERE/../package.json" "$RSANDBOX/"
 git -C "$RSANDBOX" rev-parse --git-dir >/dev/null 2>&1 && { echo "FAIL  the release sandbox is inside a git repo; refusing to run release.sh"; exit 1; }
 CURV="$(sed -n 's/.*"version":[[:space:]]*"\([0-9.]*\)".*/\1/p' "$HERE/../package.json" | head -1)"
-_p=$(( 10#${CURV##*.} + 1 )); NEXTV="${CURV%.*}.$(printf '%02d' "$_p")"   # 10#: a 0.5.09 patch is not octal
+# The next version by release.sh's own rule (its version guard, "past the end of the 0.N line"): after 0.N.99 comes the
+# 0.N+1 line at .00; otherwise the next two-digit patch on the same line (#8254: 0.7.99 asked for 0.7.100, refused).
+# If release.sh refuses the number picked here, the cut-only-home check below goes red, so a changed rule is not missed.
+_cm="${CURV%.*}"; _cp=$(( 10#${CURV##*.} ))   # 10#: a 0.5.09 patch is not octal
+if [ "$_cp" -ge 99 ]; then NEXTV="${_cm%.*}.$(( 10#${_cm##*.} + 1 )).00"; else NEXTV="$_cm.$(printf '%02d' $(( _cp + 1 )))"; fi
 printf 'zip' > "$T/kosmos-9.9.9-win-x64.zip"
 run_writer() {  # <site> <name> : sets WRC and out (not in a subshell, so both reach the caller)
   local site="$1" w="$2"
