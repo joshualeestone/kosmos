@@ -19,6 +19,7 @@ final class SendMovesOnceUITests: XCTestCase {
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "1",
                                  "KOSMOS_SAMPLE_SEND_SLOW": String(Self.pace)]
         app.launchEnvironment.merge(more) { $1 }
+        UIKitListArm.set(app)   // kosmos#8221: the list under test
         app.launch()
         let box = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Message Dana'")).firstMatch
         XCTAssertTrue(box.waitForExistence(timeout: 30), "no message box")

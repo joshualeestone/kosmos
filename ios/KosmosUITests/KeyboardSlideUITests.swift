@@ -229,6 +229,7 @@ final class KeyboardSlideUITests: XCTestCase {
         app.launchEnvironment["KOSMOS_SAMPLE_AGENTS"] = "1"
         app.launchEnvironment["KOSMOS_SAMPLE_OPEN"] = "dana"
         for (k, v) in env { app.launchEnvironment[k] = v }
+        UIKitListArm.set(app)   // kosmos#8221: the list under test
         app.launch()
         return app
     }

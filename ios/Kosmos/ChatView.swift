@@ -58,6 +58,16 @@ struct ChatView: View {
     static let sampleNoRebuildHide = false
     #endif
     static let rebuildsMax = 3
+    // kosmos#8221: the chat drawn by the UIKit list (ChatList) instead of the lazy SwiftUI one. Off in a release build until
+    // the new list holds every behaviour the old one has (the slices in .claude/plans/uikitlist-s1-8221.md); Debug:
+    // KOSMOS_SAMPLE_UIKITLIST=1 turns it on, so the UI checks run on both lists.
+    #if DEBUG
+    static let uikitList = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_UIKITLIST"] == "1"
+    #else
+    static let uikitList = false
+    #endif
+    // kosmos#8221: bumped to send the UIKit list to the newest message (a send, New messages).
+    @State private var uikitNewest = 0
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
     @State private var anchorLetGo = false
     // kosmos#7645: where each drawn row is on the screen (iOS 26 and later), for the keyboard hold.
@@ -559,6 +569,63 @@ struct ChatView: View {
     }
 
     @ViewBuilder private var conversation: some View {
+        if Self.uikitList, let thread { conversationUIKit(thread) } else { conversationLazy }
+    }
+
+    // kosmos#8221 slice 1: the UIKit list. The same rows as the lazy list, in the same order, then the sends on their way, the
+    // working line and the room at the end. Kept at the newest message by the list itself (ChatList); a reader higher up is
+    // told of new messages by the capsule. Earlier pages, a reader's place as rows land above, and the blank checks are not
+    // here yet (later slices).
+    @ViewBuilder private func conversationUIKit(_ thread: Board.Thread) -> some View {
+        let loaded = Board.shownRows(earlier, thread: thread)
+        let rows = Board.chatFilter(loaded, agentName: shown.name, query: query)
+        let grouped = Board.chatItems(rows, pending: searching ? [] : pending, now: Date(), calendar: .current)
+        let items = grouped.items
+        let layout = grouped.places
+        let byId = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let sends = pending
+        let top: [String] = thread.rows.isEmpty && pending.isEmpty ? ["empty"]
+            : (searching && rows.isEmpty && !loaded.isEmpty ? ["nomatch"] : [])
+        let ids = top + items.map(\.id) + sends.map(\.id) + ["working", "end"]
+        ChatList(ids: ids, cell: { id in
+            if let item = byId[id] { return AnyView(row(item)) }
+            if let p = sends.first(where: { $0.id == id }) { return AnyView(pendingBubble(p, layout)) }
+            switch id {
+            case "empty": return AnyView(empty)
+            case "nomatch": return AnyView(noMatch)
+            case "working":
+                return AnyView(ZStack {
+                    if working { WorkingLine(name: shown.name) } else { WorkingLine(name: shown.name, animated: false).hidden() }
+                }.padding(.top, 12))
+            default: return AnyView(Color.clear.frame(height: ChatView.fadeHeight + 8).accessibilityHidden(true))   // "end"
+            }
+        }, newest: uikitNewest, atEnd: { now in
+            atBottom = now; endVisible = now
+            Self.trace("uikit list: atBottom \(atBottom)")
+            if now { unseenNew = false; endSeen = true; settledAtEnd = true }
+        })
+        .kosmosTopFade(ground: Palette.chatGround)
+        .onAppear {
+            diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty
+            openCount.messagesArrived(rowsDrawn: !onScreen.isEmpty)
+            atBottom = true; endVisible = true
+        }
+        // A reader higher up is not moved by a new message; the capsule offers the jump (not over a search).
+        .onChange(of: Board.followKey(thread)) { _ in if !atBottom && !searching { unseenNew = true } }
+        .onChange(of: working) { now in if now && !atBottom && !searching { unseenNew = true } }
+        // Only a message just sent goes to the newest message, as on the lazy list (searching too).
+        .onChange(of: pending.count) { n in
+            if visible, n > lastPendingCount { Self.trace("send: \(pending.last?.text.count ?? 0) chars, pending \(pending.count) (atBottom \(atBottom))") }
+            if n > lastPendingCount { uikitNewest &+= 1 }
+            lastPendingCount = n
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
+            guard visible else { return }
+            uikitNewest &+= 1
+        }
+    }
+
+    @ViewBuilder private var conversationLazy: some View {
         if let thread {
             // Day lines run across loaded pages, so a page that ends mid-day does not repeat that day's line.
             // A search shows only the loaded rows it matches, day lines worked out over those (the board repaints the
@@ -972,21 +1039,24 @@ struct ChatView: View {
 
     // A place missing from the layout (no conversation read yet, a search, no row coming) is drawn as before: its own run, last.
     @ViewBuilder private func pendingBubbles(_ layout: [String: Board.PendingPlace]) -> some View {
-        ForEach(pending) { p in
-            let place = layout[p.id] ?? Board.PendingPlace(day: nil, first: true, last: true)
-            if let day = place.day {
-                dayHeader(day)
-            }
-            PendingBubble(item: p, widthShare: widthShare, line: Board.notSentLine(agentRunning: running, name: shown.name),
-                          retry: { sendWhenFree { await client.retry(p.id, to: agent) } },
-                          delete: { client.discard(p.id, for: agent.session) },
-                          head: headFor(replyTo: p.replyTo), headHidden: pendingHeadsHidden.contains(p.id),
-                          dropReply: p.replyTo != nil && Board.replyRefusedForGood(failedReason(p))
-                              ? { sendWhenFree { await client.retryWithoutReply(p.id, to: agent) } } : nil,
-                          lastOfRun: place.last)
-                .padding(.top, place.first ? 10 : 2)
-                .id(p.id)
+        ForEach(pending) { p in pendingBubble(p, layout) }
+    }
+
+    // One send on its way, with its day line when it starts a day (kosmos#8221: a cell of its own in the UIKit list).
+    @ViewBuilder private func pendingBubble(_ p: Board.PendingSend, _ layout: [String: Board.PendingPlace]) -> some View {
+        let place = layout[p.id] ?? Board.PendingPlace(day: nil, first: true, last: true)
+        if let day = place.day {
+            dayHeader(day)
         }
+        PendingBubble(item: p, widthShare: widthShare, line: Board.notSentLine(agentRunning: running, name: shown.name),
+                      retry: { sendWhenFree { await client.retry(p.id, to: agent) } },
+                      delete: { client.discard(p.id, for: agent.session) },
+                      head: headFor(replyTo: p.replyTo), headHidden: pendingHeadsHidden.contains(p.id),
+                      dropReply: p.replyTo != nil && Board.replyRefusedForGood(failedReason(p))
+                          ? { sendWhenFree { await client.retryWithoutReply(p.id, to: agent) } } : nil,
+                      lastOfRun: place.last)
+            .padding(.top, place.first ? 10 : 2)
+            .id(p.id)
     }
 
     // kosmos#7265 debug: KOSMOS_SAMPLE_EAGERALL=1 draws every row eagerly, to see whether estimated heights move the reader.

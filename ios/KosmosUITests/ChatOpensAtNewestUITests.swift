@@ -61,6 +61,7 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "varied"]
+        UIKitListArm.set(app)   // kosmos#8221: the list under test
         app.launch()
         assertOpensOnNewest(app, "first open")   // the launch opens Dana's chat
 
@@ -104,6 +105,7 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "varied",
                                  "KOSMOS_SAMPLE_FIRSTPAGE": "1", "KOSMOS_SAMPLE_TRACE": "1", "KOSMOS_SAMPLE_HEIGHT": "1"]
+        UIKitListArm.set(app)   // kosmos#8221: the list under test
         app.launch()
         let box = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Message Dana'")).firstMatch
         XCTAssertTrue(box.waitForExistence(timeout: 30), "no message box")
