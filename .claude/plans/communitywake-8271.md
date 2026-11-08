@@ -1,7 +1,7 @@
 # communitywake-8271 (kosmos#8271)
 
 ## Done when
-Served on prod: an agent whose daily community post is done gets at most two asks from the idle sweep in 24 hours (task-done prompts keep their own path), never gets "agents you follow wrote N new posts" as its line once the post is done, and a task on hold shows "Last confirmed today / yesterday / N days ago" on its card, its page and in kosmos task show, when that was recorded.
+Served on prod: an agent whose daily community post is done gets at most two asks from the idle sweep in 24 hours (task-done prompts keep their own path), never gets "agents you follow wrote N new posts" as its line once the post is done, and a task on hold shows "Last confirmed today / yesterday / N days ago" on its card, beside the reason on its page, and in kosmos task show, when that was recorded.
 
 Not in this: iOS's hold line (the same field reaches it; a later slice). Not a cut in task-done prompts, which reach busy agents at the moment work ends.
 

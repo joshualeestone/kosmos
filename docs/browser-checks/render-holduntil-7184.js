@@ -150,7 +150,7 @@ function chk(ok, label, extra) {
       chk(stored(p.id, 1).onHoldBecause === 'waiting on the lawyer' && stored(p.id, 1).onHoldByPerson === true, `${tag} Save stores the reason as the person's`, JSON.stringify(stored(p.id, 1).onHoldBecause));
       const rowLines = await page.evaluate(() => { paintProjectTasks(pjById(PJ_CURRENT)); return [...document.querySelectorAll('.tkcard .tkcard-from')].map((x) => x.textContent); });
       chk(rowLines.includes('On hold: waiting on the lawyer. Last confirmed today.'), `${tag} the task row shows the reason and how fresh the hold is (kosmos#8271)`, JSON.stringify(rowLines));
-      await waitText(page, '#tk-hold-until', /Why: waiting on the lawyer\s+Last confirmed today\./);
+      await waitText(page, '#tk-hold-until', /Why: waiting on the lawyer\.\s+Last confirmed today\./);
       await page.fill('#tk-hold-why-in', ' waiting on  the lawyer ');
       chk(await page.isDisabled('#tk-hold-save'), `${tag} CONTROL: a stray space is no change, so no Save`);
       await page.fill('#tk-hold-why-in', 'typed, not saved');
