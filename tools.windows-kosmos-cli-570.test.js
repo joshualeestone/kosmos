@@ -33,6 +33,9 @@ async function run(argv, answer, env, readStdin) {
     env: env || { KOSMOS_AGENT_TOKEN: AGENT },
     hook: hookStub,
     readStdin,
+    /* kosmos#8227: every drive is this computer's own here. These arms are about the fingerprint and the note; the real
+       drive-kind read (a PowerShell call) is tested in cli.task-files-win32-8227, so a slow one cannot add a line here. */
+    driveInfo: () => ({ kind: 'local', share: null }),
     out: (s) => out.push(s),
     err: (s) => err.push(s),
     fetch: async (url, init) => {

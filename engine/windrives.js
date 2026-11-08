@@ -262,8 +262,10 @@ function setLearnForTests(seam) {
    placeOf deliberately reads as local. Built for a ONE-SHOT caller (the Windows CLI's `task files` and `task built
    --file`), unlike driveInfo: it never starts a background learn (a short-lived process would only wait for it to end
    and throw its answer away), and it learns with the caller's own timeout, since the 3 s bound is the board's, chosen so
-   an attach never stalls it, while a cold PowerShell on a busy computer can take longer and would refuse every path. */
-function infoOf(letter, { timeoutMs = 3000 } = {}) {
+   an attach never stalls it, while a cold PowerShell on a busy computer can take longer and would refuse every path.
+   Its default is that one-shot bound (ONE_SHOT_TIMEOUT_MS, the background learn's own), so a caller cannot forget it. */
+const ONE_SHOT_TIMEOUT_MS = 10000;
+function infoOf(letter, { timeoutMs = ONE_SHOT_TIMEOUT_MS } = {}) {
   const L = String(letter || '').toUpperCase();
   if (!/^[A-Z]$/.test(L)) return null;
   if (testTable === UNKNOWN) return null;
@@ -273,4 +275,4 @@ function infoOf(letter, { timeoutMs = 3000 } = {}) {
   return table ? (table.get(L) || { kind: 'absent', share: null }) : null;
 }
 
-module.exports = { infoOf, known, placeOf, isThisComputer, hostOf, startRefreshing, setTableForTests, setLearnForTests, parseForTests: parse, scriptForTests: SCRIPT };
+module.exports = { infoOf, ONE_SHOT_TIMEOUT_MS, known, placeOf, isThisComputer, hostOf, startRefreshing, setTableForTests, setLearnForTests, parseForTests: parse, scriptForTests: SCRIPT };

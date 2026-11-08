@@ -327,19 +327,21 @@ function automountsHere(platform) {
 }
 
 /**
- * kosmos#8227 item 1: the words for a Windows drive path `task files` does not open, or null when its drive is this
- * computer's own. A drive letter mapped to a network share reads as local by its name (Z:\share\x); only the drive's
+ * kosmos#8227 item 1: Windows drive kinds for `task files` and the CLI's `task built --file`: a path opens only on a drive
+ * of this computer's own. A drive letter mapped to a network share reads as local by its name (Z:\share\x); only the drive's
  * kind tells, and engine/windrives.js (#7232) learns it without contacting any server (GetDriveType and the
  * redirector's own list, in one PowerShell call, as numbers). `info` is its entry for the letter: 'remote' covers a
  * remembered mapping whose server is gone (missing from GetDrives, named by the redirector); 'absent' is a letter no
  * drive has now, refused too, since nothing there can be checked and opening it is not needed to say so. A share on
  * THIS computer is refused as well (placeOf reads it as local; this check never opens a network drive at all).
  */
+/* kosmos#8227 item 1: a windrives entry as one verdict, 'local', 'network', 'absent' or 'unknown' (null, or a kind this
+   does not know). The CLI and task files both read it, so the two never disagree. */
 function driveKind(info) {
   const k = info && info.kind;
   return k === 'local' ? 'local' : k === 'remote' ? 'network' : k === 'absent' ? 'absent' : 'unknown';
 }
-/* The one verdict both the CLI and task files read (review 2): 'local' is opened or kept, anything else is not. */
+/* task files' words for a drive path it does not open, or null for a local one (see the block above driveKind). */
 function driveRefusal(p, info) {
   const letter = String(p).charAt(0).toUpperCase();
   const kind = driveKind(info);
@@ -348,8 +350,6 @@ function driveRefusal(p, info) {
   if (kind === 'absent') return 'there is no drive ' + letter + ': on this computer now, so Kosmos does not open it';
   return 'Kosmos could not tell what kind of drive ' + letter + ': is, so it does not open it';
 }
-/* How long the one-shot CLI waits for the drive kinds: windrives' own background bound, not the board's 3 s. */
-const DRIVE_KINDS_TIMEOUT_MS = 10000;
 
 /**
  * Whether opening `p` would look a name up inside one of `mounts`. The path is walked one name at a time with lstat,
@@ -418,7 +418,7 @@ function filesLines(body, opts = {}) {
   let saidNoMounts = false;
   /* kosmos#8227 item 1: a Windows drive letter's kind, from engine/windrives.js (learned once, then cached). `opts.driveInfo` is
      the seam: (letter) -> its entry, or null when the kinds could not be learned. */
-  const driveInfo = typeof opts.driveInfo === 'function' ? opts.driveInfo : (letter) => require('./windrives').infoOf(letter, { timeoutMs: DRIVE_KINDS_TIMEOUT_MS });
+  const driveInfo = typeof opts.driveInfo === 'function' ? opts.driveInfo : (letter) => require('./windrives').infoOf(letter);
   let saidNoTypes = false;
   const mountsNow = () => {
     if (mounts === undefined) mounts = opts.automounts !== undefined ? opts.automounts : automountsHere(opts.platform || process.platform);
@@ -540,4 +540,4 @@ if (require.main === module) {
   process.exit(out.rc);
 }
 
-module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, driveKind, driveRefusal, DRIVE_KINDS_TIMEOUT_MS, seenWords, STALE_DAYS_DEFAULT: 7 };
+module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, driveKind, driveRefusal, seenWords, STALE_DAYS_DEFAULT: 7 };
