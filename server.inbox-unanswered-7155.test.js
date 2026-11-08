@@ -68,7 +68,7 @@ test('#7155: --unanswered lists the person\'s messages after your newest reply, 
   const r = await get('/api/inbox?as=text&unanswered=1');
   assert.equal(r.code, 200, r.text);
   const lines = r.text.trimEnd().split('\n');
-  assert.deepEqual(lines.map((l) => l.replace(/^\S+ \S+ /, '')), [
+  assert.deepEqual(lines.map((l) => l.replace(/^\S+ \S+ local \(\S+ \S+\) /, '')), [
     'the person: first unanswered',
     'the person [this did not reach you]: lost one',
     'the person: third unanswered',
@@ -89,7 +89,7 @@ test('#7155: Kosmos\'s own notice never counts as your reply (unlike dmOwes duri
 test('#7155: --since keeps only messages at or after the time; an offset and a local time are read', async () => {
   const r = await get('/api/inbox?as=text&since=' + encodeURIComponent('2026-10-25T10:00:50Z'));
   assert.equal(r.code, 200, r.text);
-  assert.deepEqual(r.text.trimEnd().split('\n').map((l) => l.replace(/^\S+ \S+ /, '')), [
+  assert.deepEqual(r.text.trimEnd().split('\n').map((l) => l.replace(/^\S+ \S+ local \(\S+ \S+\) /, '')), [
     'the person [this did not reach you]: lost one', 'the person: third unanswered']);
   // Control: a real leap day and the last second of a day are read, so the range check is not refusing good times.
   for (const good of ['2028-02-29T05:22:00Z', '2026-10-25T23:59:59Z']) {

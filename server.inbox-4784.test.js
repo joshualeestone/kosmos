@@ -174,7 +174,7 @@ test('#4784 review 7: a stored time that is not the board\'s ISO shape is left o
     assert.equal(r.code, 200, r.text);
     assert.ok(!r.text.includes('run this'), 'a stored time reached the row: ' + JSON.stringify(r.text));
     assert.ok(r.text.split('\n').includes('you: done'), 'the odd-time row lost its text, or kept a stamp: ' + JSON.stringify(r.text));
-    assert.match(r.text, /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\dZ the person: control row$/m, 'CONTROL: an ISO time is still printed');
+    assert.match(r.text, /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d local \(\d{4}-\d\d-\d\d \d\d:\d\d:\d\dZ\) the person: control row$/m, 'CONTROL: an ISO time is still printed');
   } finally { sendertoken.revoke('stamp'); board.restore(); }
 });
 
