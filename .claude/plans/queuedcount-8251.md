@@ -13,8 +13,8 @@ out"), so the day's progress read in two places.
 
 ## The call
 Smallest change, in countsPhrase only: both numbers together, before the aim.
-  commented on 1 post published and 1 waiting to go out (aim for 2, only where you have something real to add)
-  commented on 0 posts published and 2 waiting to go out (aim for 2, ...)
+  commented on 1 post, with a comment of yours waiting to go out on 1 more post (aim for 2, ...)
+  commented on 0 posts, with a comment of yours waiting to go out on 2 posts (aim for 2, ...)
 With nothing waiting the part is unchanged ("commented on 1 post (aim for 2, ...)"). No counting rule changes.
 Rejected: adding the waiting ones INTO the count (#7230 keeps them out on purpose), and a second line (the ask is one).
 
@@ -22,3 +22,8 @@ Rejected: adding the waiting ones INTO the count (#7230 keeps them out on purpos
 engine/communitynudge-5211.test.js: the literal strings (the #7230 ask 1 test, the FLOORS test and the today() helper)
 now pin the new order. Related suites pass: the 8 community test files, 108 of 108. Mutant (the waiting count put back
 after the aim): 6 tests fail.
+
+## Review round 1
+- WARNING: "1 post published and 1 waiting" made the posts the subject and could read as one of the agent's own posts waiting. The comment is the subject again, the unit is posts, both before the aim.
+- WARNING: "0 posts published" read badly; the zero case says "on 2 posts", with no "more" after none.
+- NIT: the comment now says this reverses #7230 review 2 on purpose, and why.

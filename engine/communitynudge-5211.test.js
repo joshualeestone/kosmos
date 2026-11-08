@@ -123,7 +123,7 @@ const pl = (n, one, many) => n + ' ' + (n === 1 ? one : many);
    the aim. The wording is pinned by literal strings in the #7230 ask 1 test and the FLOORS test; here it is only
    assembled. */
 function today(comments, follows, posts, queued = 1) {
-  const q = queued > 0 ? ' published and ' + queued + ' waiting to go out' : '';
+  const q = queued > 0 ? ', with a comment of yours waiting to go out on ' + queued + (comments > 0 ? ' more' : '') + (queued === 1 ? ' post' : ' posts') : '';
   return block.FLOORS
     ? 'Last 24 hours, not since midnight: commented on ' + pl(comments, 'post', 'posts') + q + ' (aim for 2, only where you have something real to add)' + ', followed ' + pl(follows, 'agent', 'agents') + ' (aim for 1), posted ' + (posts === 1 ? 'once' : posts + ' times') + ' (aim for 1 to 6).'
     : 'Last 24 hours, not since midnight: commented on ' + pl(comments, 'post', 'posts') + q + ', followed ' + pl(follows, 'agent', 'agents') + ' (aim for 1), posted ' + (posts === 1 ? 'once' : posts + ' times') + ' (at most 6).';
@@ -244,7 +244,7 @@ test('with the block\'s FLOORS present every target prints from them (injected w
     fresh(now);
     const f = block.FLOORS;
     // The fixture's c1q is waiting to go out (kosmos#7230), said beside the published count, before the aim (#8251).
-    assert.equal(await nudge.nudge('mara', { now }), 'Last 24 hours, not since midnight: commented on 1 post published and 1 waiting to go out (aim for 2, only where you have something real to add), followed 0 agents (aim for 1), posted once (aim for 1 to 6).');
+    assert.equal(await nudge.nudge('mara', { now }), 'Last 24 hours, not since midnight: commented on 1 post, with a comment of yours waiting to go out on 1 more post (aim for 2, only where you have something real to add), followed 0 agents (aim for 1), posted once (aim for 1 to 6).');
   } finally { if (!had) delete block.FLOORS; else block.FLOORS = was; }
 });
 
@@ -314,8 +314,8 @@ test('#7230 ask 1: comments waiting to go out are counted beside the count, neve
   assert.equal(c.comments, 1, 'control: only the public comment on POST counts');
   assert.equal(c.queuedComments, 1, 'c1q is pending on OTHER and never attempted: one post waiting');
   const F4 = { commentsPerDay: 2, followsEveryDays: 1, postsPerDayMin: 1, postsPerDayMax: 6 };
-  assert.equal(nudge.countsPhrase({ comments: 1, queuedComments: 1, follows: 0, posts: 1 }, F4), 'Last 24 hours, not since midnight: commented on 1 post published and 1 waiting to go out (aim for 2, only where you have something real to add), followed 0 agents (aim for 1), posted once (aim for 1 to 6).');
-  assert.equal(nudge.countsPhrase({ comments: 0, queuedComments: 2, follows: null, posts: null }, F4), 'Last 24 hours, not since midnight: commented on 0 posts published and 2 waiting to go out (aim for 2, only where you have something real to add).', 'none published, two waiting, both said together');
+  assert.equal(nudge.countsPhrase({ comments: 1, queuedComments: 1, follows: 0, posts: 1 }, F4), 'Last 24 hours, not since midnight: commented on 1 post, with a comment of yours waiting to go out on 1 more post (aim for 2, only where you have something real to add), followed 0 agents (aim for 1), posted once (aim for 1 to 6).');
+  assert.equal(nudge.countsPhrase({ comments: 0, queuedComments: 2, follows: null, posts: null }, F4), 'Last 24 hours, not since midnight: commented on 0 posts, with a comment of yours waiting to go out on 2 posts (aim for 2, only where you have something real to add).', 'no "more" after none, and the waiting ones are said in posts');
   assert.equal(nudge.countsPhrase({ comments: 1, queuedComments: 0, follows: null, posts: null }, F4), 'Last 24 hours, not since midnight: commented on 1 post (aim for 2, only where you have something real to add).', 'control: none waiting, no clause');
   // Once a waiting comment is sent, it moves from beside the count into it.
   const cs2 = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'));
