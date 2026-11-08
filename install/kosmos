@@ -6925,7 +6925,7 @@ cmd_task() {
             say "Marked task $num on ${project:-the project} built, waiting to be released or checked. Closing it clears the mark.${_left:+ Your part only. $_left}${told:+ $told}"
             # #6761: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
             [ -z "$fingerprint" ] || say "Fingerprint sent: $fingerprint for $file"
-            [ -z "$fingerprint" ] || [ -n "$file_abs" ] || say "Its path was not sent (Kosmos keeps only a plain local path, so not one with control characters, a network path, or one over 1024 characters), so kosmos task files cannot check this mark."   # kosmos#8214 review 2: a path dropped is said, not silent
+            [ -z "$fingerprint" ] || [ -n "$file_abs" ] || say "Its path was not sent (Kosmos keeps only a plain local path: absolute, with no . or .. in it, no control characters, not a network path, and 1024 characters at most), so kosmos task files cannot check this mark."   # kosmos#8214 review 2: a path dropped is said, not silent
             # #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
             # Review 5: only when the board's answer carries it (an older board drops a field it does not know).
             if [ -n "$csha" ]; then

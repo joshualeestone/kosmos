@@ -330,21 +330,27 @@ function automountsHere(platform) {
  * Whether opening `p` would look a name up inside one of `mounts`. The path is walked one name at a time with lstat,
  * and a link is followed one hop at a time by reading it, so nothing is looked up inside a folder before that folder
  * has been checked: a link planted elsewhere that points into an automount folder is caught at the hop, not by
- * resolving it (which would do the lookup). More than 40 hops is a loop, and is not opened either.
+ * resolving it (which would do the lookup). More than 40 hops is a loop, and is not opened either. Compared case-blind
+ * (review 7: APFS ignores case, so /system/volumes/data/home is the same folder); on a disk that minds case that can
+ * only refuse more, never less.
  */
 function reachesAutomount(p, mounts, fsx = require('node:fs')) {
   const posix = require('node:path').posix;
+  const folded = new Set([...mounts].map((m) => m.toLowerCase()));
+  const isMount = (d) => folded.has(d.toLowerCase());
   const todo = p.split('/').filter(Boolean);
   let cur = '/';
   let hops = 0;
   while (todo.length) {
-    if (mounts.has(cur)) return true;
+    if (isMount(cur)) return true;
     const name = todo.shift();
     if (name === '.') continue;
     if (name === '..') { cur = posix.dirname(cur); continue; }
     const next = posix.join(cur, name);
     let st;
-    try { st = fsx.lstatSync(next); } catch { return false; }   // nothing there, so nothing under it is looked up
+    // Nothing there, or not readable: nothing under it is looked up here, and compare() stats the same path, so it
+    // reaches no further than this walk did.
+    try { st = fsx.lstatSync(next); } catch { return false; }
     if (st.isSymbolicLink()) {
       if (++hops > 40) return true;
       let to;
@@ -355,7 +361,7 @@ function reachesAutomount(p, mounts, fsx = require('node:fs')) {
     }
     cur = next;
   }
-  return mounts.has(cur);
+  return isMount(cur);
 }
 /**
  * kosmos#8214 (feedback: an agent used `task built --file` to catch a file rebuilt without the task being marked again,
@@ -406,7 +412,7 @@ function filesLines(body, opts = {}) {
     // Review 4: printed without characters a terminal cannot show safely, and when it held one the line says so.
     // The two joiners are kept, as clean() keeps them (an emoji needs them), so they are not counted as hidden.
     const hidden = at ? /[\p{Cc}\p{Cf}]/u.test(at.replace(/[\u200c\u200d]/g, '')) : false;
-    const shown = at ? clean(at).replace(/\n/g, ' ') + (hidden ? ' (printed without characters it cannot show)' : '') : '';
+    const shown = at ? clean(at).replace(/[\t\r\n]/g, ' ') + (hidden ? ' (printed without characters it cannot show)' : '') : '';
     if (!at) { tally.nopath += 1; lines.push('    no path recorded (an older Kosmos, or a path Kosmos does not keep): kosmos fingerprint <file> ' + x.builtFingerprint); continue; }
     // Never opened: a path marked on the other kind of computer, a network path (a marker's choice of host), or one not
     // absolute. The board refuses the last two; an older or edited store may still hold one.
@@ -417,13 +423,13 @@ function filesLines(body, opts = {}) {
     if (!windows) {
       const m = mountsNow();
       if (m === null) { tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': Kosmos could not read this computer\'s automount table, so it opens no path'); continue; }
-      if (reachesAutomount(at, m)) { tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': it reaches an automount folder, which would mount it from elsewhere'); continue; }
+      if (reachesAutomount(at, m)) { tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': it reaches an automount folder (which would mount it from elsewhere), or loops through links'); continue; }
     }
     let got;
     try { got = compare(at, x.builtFingerprint); } catch (e) { got = { ok: false, words: 'unreadable (' + String((e && e.message) || e) + ')' }; }
     if (!got || !got.ok) {
       // Review 5: a reader's error can quote the path, so its words are cleaned as the path is.
-      const why = got && typeof got.words === 'string' ? clean(got.words).replace(/\n/g, ' ') : 'unreadable';
+      const why = got && typeof got.words === 'string' ? clean(got.words).replace(/[\t\r\n]/g, ' ') : 'unreadable';
       if (/^missing\b/.test(why)) { tally.missing += 1; lines.push('    MISSING at ' + shown); }
       else { tally.unreadable += 1; lines.push('    CANNOT READ ' + shown + ': ' + why); }
     } else if (got.match === true) { tally.matches += 1; lines.push('    matches  ' + shown); }
@@ -439,7 +445,7 @@ function filesLines(body, opts = {}) {
     if (tally.unreadable) bits.push(tally.unreadable + ' cannot be read');
     if (tally.nopath) bits.push(tally.nopath + ' with no path recorded');
     if (tally.elsewhere) bits.push(tally.elsewhere + ' marked on another kind of computer');
-    if (tally.unchecked) bits.push(tally.unchecked + ' not a local path, not opened');
+    if (tally.unchecked) bits.push(tally.unchecked + ' not opened (see each line for why)');
     lines.push(checked + ' built task' + (checked === 1 ? '' : 's') + ' with a delivered file ' + (every ? 'across your projects' : where) + ': ' + bits.join(', ') + '.'
       + (noFile ? ' ' + noFile + ' more built without --file.' : ''));
     if (tally.changed || tally.missing) lines.push('A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.');
