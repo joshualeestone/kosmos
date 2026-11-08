@@ -63,9 +63,9 @@ struct ChatView: View {
     static let rebuildsMax = 3
     // kosmos#8221: the chat drawn by the UIKit list (ChatList) instead of the lazy SwiftUI one. Settings' "New chat list"
     // switch chooses it (slice 5), OFF by default until the new list holds every behaviour the old one has (the slices in
-    // .claude/plans/uikitlist-s1-8221.md). Read once when a chat opens, so the switch never swaps the list under an open
-    // chat. Debug: KOSMOS_SAMPLE_UIKITLIST, when set, wins over the switch ("1" UIKit, anything else lazy), so every UI
-    // check picks its list by environment.
+    // .claude/plans/uikitlist-s1-8221.md). Kept in an @State, so the switch never swaps the list under an open chat.
+    // Debug: KOSMOS_SAMPLE_UIKITLIST, when set, wins over the switch ("1" UIKit, anything else lazy), so every UI check
+    // picks its list by environment.
     static let uikitListKey = "kosmos.chat.uikitlist"
     static func uikitListChosen() -> Bool {
         #if DEBUG

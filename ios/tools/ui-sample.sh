@@ -11,8 +11,8 @@
 #   ios/tools/ui-sample.sh [--keep] [--uikit]
 #
 # --uikit (kosmos#8221): the same run on the UIKit chat list (TEST_RUNNER_KOSMOS_UIKITLIST=1), the list a phone draws only
-# with Settings' "New chat list" switch on (slice 5). Only the CI-sized classes that switch lists: KeyboardSlideUITests less its three rebuild checks (the UIKit list never
-# rebuilds, so they are left out), StopAddingUITests, SendMovesOnceUITests and ComposerSendUITests. The 260-message classes
+# with Settings' "New chat list" switch on (slice 5). Only the CI-sized classes that switch lists: KeyboardSlideUITests
+# less its three rebuild checks (the UIKit list never rebuilds, so they are left out), StopAddingUITests, SendMovesOnceUITests and ComposerSendUITests. The 260-message classes
 # (ChatOpensAtNewest, NewMessages, ChatSearch, ChatDrag) stay by hand on a Mac, for the reason ChatOpensAtNewest does below.
 # Two of its checks open a project room, which draws the same either way: 12 of the 14 reach the UIKit list.
 #
