@@ -58,6 +58,7 @@ struct ChatView: View {
     static let sampleNoRebuildHide = false
     #endif
     static let rebuildsMax = 3
+    static let sampleUIKitList = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_UIKITLIST"] == "1"   // EXPERIMENT kosmos#8221
     static let sampleTailCap: Int? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TAILCAP"].flatMap(Int.init)   // EXPERIMENT kosmos#7420
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
     @State private var anchorLetGo = false
@@ -560,6 +561,18 @@ struct ChatView: View {
     }
 
     @ViewBuilder private var conversation: some View {
+        #if DEBUG
+        if Self.sampleUIKitList, let thread {
+            // EXPERIMENT kosmos#8221: the same rows in a UIKit list, drawing only (no hold, no earlier pages, no rebuilds).
+            let items = Board.chatItems(Board.shownRows(earlier, thread: thread), pending: pending, now: Date(), calendar: .current).items
+            UIKitChatList(ids: items.map(\.id)) { i in itemView(items[i]) }
+        } else { conversationLazy }
+        #else
+        conversationLazy
+        #endif
+    }
+
+    @ViewBuilder private var conversationLazy: some View {
         if let thread {
             // Day lines run across loaded pages, so a page that ends mid-day does not repeat that day's line.
             // A search shows only the loaded rows it matches, day lines worked out over those (the board repaints the
@@ -2043,8 +2056,8 @@ struct ChatView: View {
                         Self.trace("debug flip \(i), rows \(onScreen.count), end \(endVisible), \(scrollBox.reading()?.line ?? "unread")")
                     }
                 }
-                for j in 0..<60 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 24 + Double(j) * 0.2) {
+                for j in 0..<165 where !Self.sampleUIKitList {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5 + Double(j) * 0.2) {
                         Self.trace("debug sample rows \(onScreen.count), end \(endVisible), rebuilds \(rebuilds.count), \(scrollBox.reading()?.line ?? "unread")")
                     }
                 }
@@ -3798,3 +3811,96 @@ struct PositionById: ViewModifier {
     }
 }
 
+
+#if DEBUG
+// EXPERIMENT kosmos#8221, never merged: the chat's rows in a UICollectionView with self-sizing cells, kept at the newest
+// message while the reader is there (any change of its height included), sampled every 0.2 s for rows on screen.
+struct UIKitChatList<Cell: View>: UIViewRepresentable {
+    let ids: [String]
+    let cell: (Int) -> Cell
+
+    final class List: UICollectionView {
+        var onLayout: (() -> Void)?
+        override func layoutSubviews() { super.layoutSubviews(); onLayout?() }
+    }
+
+    final class Coordinator: NSObject, UICollectionViewDataSource, UICollectionViewDelegate {
+        var ids: [String] = []
+        var cell: ((Int) -> Cell)?
+        weak var list: List?
+        var atEnd = true
+        var lastHeight: CGFloat = 0
+        var placed = false
+        var sampler: Timer?
+
+        func collectionView(_ cv: UICollectionView, numberOfItemsInSection section: Int) -> Int { ids.count }
+        func collectionView(_ cv: UICollectionView, cellForItemAt ip: IndexPath) -> UICollectionViewCell {
+            let c = cv.dequeueReusableCell(withReuseIdentifier: "row", for: ip)
+            if let cell, ip.item < ids.count {
+                c.contentConfiguration = UIHostingConfiguration { cell(ip.item) }.margins(.horizontal, 16).margins(.vertical, 0)
+            }
+            c.backgroundConfiguration = .clear()
+            return c
+        }
+        func scrollViewDidScroll(_ sv: UIScrollView) {
+            guard sv.isDragging || sv.isDecelerating else { return }
+            atEnd = sv.contentOffset.y >= maxY(sv) - 40
+        }
+        func maxY(_ sv: UIScrollView) -> CGFloat { max(-sv.adjustedContentInset.top, sv.contentSize.height - sv.bounds.height + sv.adjustedContentInset.bottom) }
+        func toEnd() {
+            guard let list, !ids.isEmpty else { return }
+            list.scrollToItem(at: IndexPath(item: ids.count - 1, section: 0), at: .bottom, animated: false)
+        }
+        func laidOut() {
+            guard let list else { return }
+            let h = list.bounds.height
+            if !placed, !ids.isEmpty, list.contentSize.height > 0 { placed = true; toEnd() }
+            if h != lastHeight {
+                if atEnd, lastHeight > 0 { ChatView.trace("debug uikit height \(Int(lastHeight)) to \(Int(h)), to the newest"); toEnd() }
+                lastHeight = h
+            }
+        }
+        func onScreen() -> Int {
+            guard let list else { return -1 }
+            let seen = list.bounds.inset(by: list.adjustedContentInset)
+            return list.visibleCells.filter { $0.frame.intersects(seen) }.count
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> List {
+        var config = UICollectionLayoutListConfiguration(appearance: .plain)
+        config.showsSeparators = false
+        config.backgroundColor = .clear
+        let list = List(frame: .zero, collectionViewLayout: UICollectionViewCompositionalLayout.list(using: config))
+        list.backgroundColor = .clear
+        list.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "row")
+        list.keyboardDismissMode = .interactive
+        let co = context.coordinator
+        co.list = list; co.ids = ids; co.cell = cell
+        list.dataSource = co; list.delegate = co
+        list.onLayout = { [weak co] in co?.laidOut() }
+        var n = 0
+        co.sampler = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak co] t in
+            n += 1
+            guard let co, let list = co.list, n >= 25, n <= 190 else { if n > 190 { t.invalidate() }; return }
+            ChatView.trace("debug uikit rows \(co.onScreen()), items \(co.ids.count), atEnd \(co.atEnd), y \(Int(list.contentOffset.y)), content \(Int(list.contentSize.height)), view \(Int(list.bounds.height)), inset \(Int(list.adjustedContentInset.bottom))")
+        }
+        return list
+    }
+
+    func updateUIView(_ list: List, context: Context) {
+        let co = context.coordinator
+        co.cell = cell
+        if co.ids != ids {
+            co.ids = ids
+            list.reloadData()
+            if co.atEnd { DispatchQueue.main.async { co.toEnd() } }
+        } else {
+            let shown = list.indexPathsForVisibleItems
+            if !shown.isEmpty { list.reconfigureItems(at: shown) }
+        }
+    }
+}
+#endif
