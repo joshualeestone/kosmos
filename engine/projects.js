@@ -790,8 +790,12 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
   const taskrepeatMod = require('./taskrepeat');   // review 1: once per call, not per task
   const holdTasks = { tasks: tasks.filter(Boolean) };   // kosmos#7184 round 2: once per call too
   const memberSet = Array.isArray(memberOf) ? new Set(memberOf) : undefined;   // kosmos#8137
+  /* kosmos#8227 item 2: a list row leaves out a delivered file's path (#8214) and a commit's repository (#7508), as the
+     Tasks view does. This list goes to the page and, with an agent's own token, to /api/projects/overview and
+     /api/project/<id>. The CLI reads both fields from /api/tasks, which this does not touch. */
+  const withoutPaths = (t) => { const rest = Object.assign({}, t); delete rest.builtFilePath; delete rest.landedRepo; return rest; };
   const withParts = (t) => (t ? {
-    ...t,
+    ...withoutPaths(t),
     parts: tasksModEarly.partsOf(t),
     progress: (({ done, total, closed, assigned }) => ({ done, total, closed, assigned }))(tasksModEarly.progressOf(t)),
     parent: tree.up(t),

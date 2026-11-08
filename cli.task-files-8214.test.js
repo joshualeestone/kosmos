@@ -393,3 +393,54 @@ test('#8214 Mac: refusals and usage', { skip: process.platform === 'win32' && 't
   const unknown = await mac(['task', 'reassign']);
   assert.match(unknown.out + unknown.err, /\| show \| files \| built \|/);
 });
+
+// ── kosmos#8227: the review leftovers ─────────────────────────────────────
+
+test('#8227 item 5: an unreadable automount table is said in full once, then named, with a verdict line per task', () => {
+  const FP = sha('m5');
+  const row = (number, at) => ({ number, sentence: 'Task ' + number, builtAt: 'x', builtFingerprint: FP, builtFilePath: at });
+  let opened = 0;
+  const got = tasklist.filesLines({ listState: 'built', tasks: [row(1, '/a'), row(2, '/b'), row(3, '/c')] },
+    { project: 'files', platform: 'darwin', automounts: null, compare: () => { opened += 1; return { ok: true, match: true }; } });
+  const verdicts = got.lines.filter((l) => l.startsWith('    NOT CHECKED '));
+  assert.equal(verdicts.length, 3, 'a task lost its own verdict line:\n' + got.lines.join('\n'));
+  assert.equal(got.lines.filter((l) => l.includes('could not read this computer\'s automount table')).length, 1, got.lines.join('\n'));
+  assert.equal(verdicts[0], '    NOT CHECKED /a: Kosmos could not read this computer\'s automount table, so it opens no path');
+  assert.equal(verdicts[1], '    NOT CHECKED /b: the automount table again (above)');
+  assert.equal(verdicts[2], '    NOT CHECKED /c: the automount table again (above)');
+  assert.equal(opened, 0, 'a path was opened with no automount table');
+  assert.match(got.lines[got.lines.length - 2], /3 not opened \(see each line for why\)/);
+  // CONTROL: a readable table opens them, so the lines above came from the unreadable one.
+  const ok = tasklist.filesLines({ listState: 'built', tasks: [row(1, '/a')] }, { project: 'files', platform: 'darwin', automounts: [], compare: () => ({ ok: true, match: true }) });
+  assert.ok(ok.lines.some((l) => l === '    matches  /a'), ok.lines.join('\n'));
+});
+
+test('#8227 item 2: the project list never carries a delivered file\'s path or a commit\'s repository; the CLI\'s list still does', async () => {
+  const n = tasks.create(projectId, { sentence: 'Paths stay home', who: 'mona' }).number;
+  projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === n ? { ...x, builtAt: '2026-11-07T12:00:00.000Z', builtBy: 'mona',
+    builtFingerprint: sha('p2'), builtFingerprintBy: 'mona', builtFilePath: '/Users/someone/deliver.txt',
+    landedCommit: '0123456789abcdef0123456789abcdef01234567', landedRepo: '/Users/someone/repo', landedOnRemote: true } : x)) }));
+  assert.equal(stored(projectId, n).builtFilePath, '/Users/someone/deliver.txt', 'CONTROL: the store must hold the path');
+  const rowsIn = (body) => {
+    const p = (body.projects || [body.project || body]).find((x) => x && x.id === projectId) || body.project || body;
+    return (p && Array.isArray(p.tasks) ? p.tasks : []);
+  };
+  for (const [route, headers] of [['/api/projects', {}], ['/api/projects/overview', { 'x-kosmos-agent-token': tokenOf('mona') }],
+    ['/api/project/' + projectId, { 'x-kosmos-agent-token': tokenOf('mona') }]]) {
+    const res = await fetch(base + route, { headers });
+    assert.equal(res.status, 200, route + ' ' + res.status);
+    const text = await res.text();
+    assert.equal(text.includes('/Users/someone/'), false, route + ' sent a path on this computer');
+    const row = rowsIn(JSON.parse(text)).find((t) => t && t.number === n);
+    if (row) {
+      assert.equal(row.builtFingerprint, sha('p2'), route + ': CONTROL, the row lost its fingerprint');
+      assert.equal('builtFilePath' in row || 'landedRepo' in row, false, route);
+    }
+  }
+  const page = rowsIn(await (await fetch(base + '/api/projects')).json()).find((t) => t && t.number === n);
+  assert.ok(page && page.landedCommit, 'CONTROL: the page list no longer carries the row, so this cannot see the paths');
+  const cli = await (await fetch(base + `/api/tasks?project=${projectId}&state=built`)).json();
+  const mine = cli.tasks.find((t) => t.number === n);
+  assert.equal(mine.builtFilePath, '/Users/someone/deliver.txt', 'the list the CLIs read lost the path');
+  assert.equal(mine.landedRepo, '/Users/someone/repo', 'the list the CLIs read lost the repository');
+});
