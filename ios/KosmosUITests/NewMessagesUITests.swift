@@ -160,6 +160,28 @@ final class NewMessagesUITests: XCTestCase {
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = "kept-place"; a.lifetime = .keepAlways; add(a)
     }
 
+    // A scroll iOS makes itself, with no finger on the list (VoiceOver's page scroll; here KOSMOS_SAMPLE_SCROLLBY, an animated
+    // scroll by code 2 s after the scroll-up), moves a reader higher up and is not put back: the held place is dropped and
+    // taken again where the scroll ends. The highest row is read before the scroll and after it has come to rest, 3 s apart.
+    func testAScrollWithNoFingerMovesAReaderHigherUpAndStays() {
+        let app = Self.launch(["KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_SCROLLBY": "300"])
+        let rested = app.descendants(matching: .any).matching(identifier: "sample-scroll-rested").firstMatch
+        XCTAssertTrue(rested.waitForExistence(timeout: 30), "CONTROL: the sample scroll-up never came to rest")
+        let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
+        KeyboardSlideUITests.settle(rows.firstMatch)
+        let header = app.navigationBars.firstMatch.frame.maxY
+        guard let top = rows.allElementsBoundByIndex.map({ ($0.label, $0.frame) }).filter({ !$0.1.isEmpty && $0.1.minY > header })
+            .min(by: { $0.1.minY < $1.1.minY }) else { XCTFail("no row on screen after the scroll up"); return }
+        let row = app.staticTexts.matching(NSPredicate(format: "label == %@", top.0)).firstMatch
+        let y0 = top.1.minY
+        Thread.sleep(forTimeInterval: 4)   // the scroll fires 2 s after the scroll-up rested and animates for under 1 s
+        KeyboardSlideUITests.settle(row)
+        let y1 = row.frame.minY
+        XCTAssertGreaterThan(y1 - y0, 250, "'\(top.0)' moved \(Int(y1 - y0)) pt, not about 300: the scroll was put back")
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertEqual(row.frame.minY, y1, accuracy: 4, "'\(top.0)' moved again after the scroll ended, from \(Int(y1)) to \(Int(row.frame.minY))")
+    }
+
     // The control: the same arrivals, the reader left at the newest message. Each shows, and the capsule never does, not even
     // for one read.
     func testAReaderAtTheNewestNeverGetsTheCapsule() {
