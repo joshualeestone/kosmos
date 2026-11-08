@@ -4,11 +4,12 @@
 # job: the ios.yml job's exact name, "ui tests (sample board)" by default; "uikit list (sample board)" for the UIKit list (#8221).
 set -u
 R=joshualeestone/kosmos; N="${1:-10}"; J="${2:-ui tests (sample board)}"; T="$(mktemp)"; trap 'rm -f "$T"' EXIT
-ran=0; red=0; none=0; asked=0
+ran=0; red=0; none=0; asked=0; nojob=0
 for id in $(gh run list --repo "$R" --workflow ios.yml --branch main --limit "$N" --json databaseId --jq '.[].databaseId'); do
   asked=$((asked + 1))
-  job="$(gh api "repos/$R/actions/runs/$id/jobs?per_page=50" --jq ".jobs[]|select(.name == \"$J\")|.id" | head -1)"
-  [ -n "$job" ] || continue
+  # The name is matched in awk, not spliced into the jq program, so any job name is matched as plain text.
+  job="$(gh api "repos/$R/actions/runs/$id/jobs?per_page=50" --jq '.jobs[]|[.id,.name]|@tsv' | awk -F'\t' -v j="$J" '$2 == j { print $1; exit }')"
+  [ -n "$job" ] || { nojob=$((nojob + 1)); continue; }
   out="$(gh api "repos/$R/actions/jobs/$job/logs" 2>/dev/null)" || continue
   # Anchored on the log's timestamp: the step's own script, echoed in the log, also holds these words.
   printf '%s\n' "$out" | grep -q -E '^[^ ]+ (PASS|FAIL)  ui-sample:' || { none=$((none + 1)); continue; }
@@ -19,4 +20,6 @@ for id in $(gh run list --repo "$R" --workflow ios.yml --branch main --limit "$N
   printf '%s\n' "$out" | sed -n -E 's/^.*UI-NOTE (kosmos#[0-9]+).*/NOTE \1/p' >> "$T"
 done
 echo "main: asked $N, read $asked: $ran with a verdict, $red red; $none with no verdict (cancelled or timed out); the rest had no ui job or no log yet"
+# A renamed job matches nothing, so say so rather than read as a quiet main.
+[ "$nojob" -gt 0 ] && echo "$nojob of $asked runs had no job named \"$J\""
 sort "$T" | uniq -c | sort -rn
