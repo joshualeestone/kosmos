@@ -4,13 +4,16 @@ Stacked on slice 1 (#8237, merged 11-08 03:13 CST as 61e0cac90c). Debug only: a 
 
 ## Finished looks like
 Items 5, 7 and 8 of the card's list each have a UI check that runs on both lists (UIKitListArm) and passes on the UIKit
-list, with the UIKit arm shown able to fail where a perturbation can reach it. Where a check cannot be made able to fail on
+list, with the UIKit arm shown able to fail by a perturbation. Where a check cannot be made able to fail on
 the simulator, that is written down instead of shipping the check. Nothing here is run by CI: ios/tools/ui-sample.sh runs a
 fixed class list without these, and nothing runs the UIKit arm. Every result below is a hand run on one simulator.
+Before adding them to that list: it already runs two classes on the 260-message chat (KeyboardSlideUITests, EndPullUITests)
+but leaves ChatOpensAtNewestUITests out because its queries over that chat were too big for a CI runner. These checks query
+only the few "New message" rows and single labels, which is not measured on a CI runner.
 
 ## What changed
 - ChatList: a Debug-only `sampleUp` / `sampleRested` pair. KOSMOS_SAMPLE_SCROLLUP=<n> puts the n-th row from the end at
-  the top 3 s after the list is made (once a launch) and sets atEnd false itself (it skips the scroll delegate), then shows the same
+  the top 3 s after the list is made (once a launch, once it has scrolled) and sets atEnd false itself (it skips the scroll delegate), then shows the same
   `sample-scroll-rested` marker the lazy list does. ChatView passes nil and an empty closure in a release build.
 - ChatView.conversationUIKit: computes that row and draws the marker.
 - NewMessagesUITests (item 5): a reader higher up (by the hook, and by a real drag) gets the capsule as messages arrive
@@ -23,15 +26,15 @@ fixed class list without these, and nothing runs the UIKit arm. Every result bel
 ## Measured (iPhone 17 Pro Max, iOS 26.5, one simulator, 11-08)
 | check | UIKit | lazy | shown able to fail (UIKit arm only) |
 |---|---|---|---|
-| capsule, hook scroll-up | 4 of 4 | 4 of 4 | red with unseenNew never set on a new message |
-| capsule, real drag up | 2 of 2 | 2 of 2 | red with endSlack 100000 (the list read the drag as at the end and pinned the reader back) |
-| capsule control, at the newest | 4 of 4 | 4 of 4 | (control) |
-| search | 3 of 3 | **4 of 5** | not perturbed; asserts the dangerous cases directly (a non-match still drawn, the newest match not drawn) |
-| drag down dismisses | 3 of 3 | 4 of 4 | red with keyboardDismissMode .none |
+| capsule, hook scroll-up | 5 of 5 | 5 of 5 | red with unseenNew never set on a new message |
+| capsule, real drag up | 3 of 3 | 3 of 3 | red with endSlack 100000 (the list read the drag as at the end and pinned the reader back) |
+| capsule control, at the newest | 5 of 5 | 5 of 5 | (control) |
+| search | 4 of 4 | **4 of 6** | red with Board.chatFilter ignoring the query ("Message 260 still drawn") |
+| drag down dismisses | 4 of 4 | 5 of 5 | red with keyboardDismissMode .none |
 
 Not shown able to fail on the lazy arm: none of these was perturbed there.
 
-**The lazy search failure is the lazy list, not the check.** The recording's last frame shows the search field reading
+**The lazy search failures are the lazy list, not the check.** Both recordings end on the search field reading
 "Message 15", ten loaded matches, and an empty message area: the lazy list drew nothing. Its blank recovery is off while
 searching (Board.listBlank's `searching`), so nothing rebuilt it. The UIKit list never blanked. Recorded on #8221 as more
 evidence for the new list; no separate card, since the fix for this class is the list replacement itself.
