@@ -1197,7 +1197,7 @@ async function sendComment(c, keys, csent, now, from) {
   csent[c.id] = { ...rec, attempted: true, attemptedAt, ...(k.remoteId ? { agentId: k.remoteId } : {}) };
   saveJson(commentsSentFile(), csent);
   // #4801 review 1: while the POST is out the owner's list says "Sending" and a removal is refused as busy, not as
-  // "never learned whether it arrived": in a minute it has an answer. In memory on purpose: a board that stopped
+  // "does not know whether it arrived": in a minute it has an answer. In memory on purpose: a board that stopped
   // mid-POST has nothing in flight, and its mark reads as unconfirmed, as before.
   commentsInFlight.add(c.id);
   let r;
@@ -2171,11 +2171,7 @@ async function sweepOnce(now) {
     try { await sweepComments(keys, from, now); }
     catch (e) { log(`comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   }
-  /* kosmos#8216: unconfirmed comments are looked for in their threads, whatever the switch says (as posts are settled),
-     after the take-downs (review 1) and after the comment sends (review 8), so a slow thread holds back neither taking
-     something off the public site nor sending what is new. A comment that just went unconfirmed is looked for next pass. */
-  try { await settleUnconfirmedComments(keys, now); }
-  catch (e) { log(`unconfirmed comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+
   // #4922: near last, the least urgent: a service slow on this route must not hold back the passes above.
   try { await sweepInstallGroup(keys, on); }
   catch (e) { log(`install group: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
@@ -2189,6 +2185,11 @@ async function sweepOnce(now) {
   // #7215: last: nothing public waits on the owner link, so it must not hold back new pictures.
   try { await sweepOwnerLink(keys, on); }
   catch (e) { log(`owner link: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  /* kosmos#8216: last of all (review 9: after every pass that sends or clears, the owner link's included), unconfirmed
+     comments are looked for in their threads, whatever the switch says (as posts are settled). It only reads, so a slow
+     thread holds nothing back. A comment that just went unconfirmed is looked for from the next pass. */
+  try { await settleUnconfirmedComments(keys, now); }
+  catch (e) { log(`unconfirmed comments: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   return on ? { ok: true } : { skipped: 'off' };
 }
 
@@ -2241,6 +2242,15 @@ const LOOK_PAGES = 5;
 const LOOK_PAGE = 20;   // the service pages a thread at most 20
 const LOOK_CAP = 1024 * 1024;
 const LOOK_CURSOR_RE = /^[A-Za-z0-9_=.-]{1,200}$/;
+/* Review 9: whether an unconfirmed comment will still be looked for, from its record (raw, or as commentRecords gives it):
+   not marked as one this board cannot look for, not past its week, not out of tries, and with a sending account known
+   (canLook, when given). The board's row and the take-back, edit and removal refusals promise a look only then. */
+function commentStillLooked(r) {
+  if (!r) return false;
+  if (r.canLook === false || r.lookSkip || r.lookStopped === true) return false;
+  if (typeof r.lookFirstAt === 'string' && Date.now() - Date.parse(r.lookFirstAt) >= LOOK_FOR_MS) return false;
+  return !((r.lookFails || 0) >= LOOK_TRIES_MAX);
+}
 function unconfirmedComment(id, rec) {
   return Boolean(rec) && (rec.state === 'unconfirmed' || (rec.state === 'pending' && rec.attempted === true && !commentsInFlight.has(String(id))));
 }
@@ -2263,7 +2273,7 @@ const COMPANY_LIST_MAX = 50;   // the space's "my comments" list holds at most t
 /* Look for one comment. `ok(row)` says whether a row is it (account, words, time, and an id no other record holds).
    Returns { found: id }, { found: null, complete } (complete: every place it could be was read), or null (the community
    could not be read: try again later). */
-async function lookForComment(c, agentKey, keys, ok, since) {
+async function lookForComment(c, agentKey, keys, ok, since, soleOk = true) {
   if (c.space === 'company') {
     const r = await spaceAs(agentKey, keys, 'GET', '/agents/me/comments', undefined, c.org);
     if (!r || r.notSent || r.status !== 200 || !r.json || !Array.isArray(r.json.comments)) return null;
@@ -2330,7 +2340,7 @@ async function lookForComment(c, agentKey, keys, ok, since) {
   for (let page = 0; page < LOOK_PAGES; page++) {
     const r = await get(post + '?order=newest&limit=' + LOOK_PAGE + (cursor ? '&cursor=' + encodeURIComponent(cursor) : ''));
     if (!r) return null;   // review 5: a page that failed is tried again later, never settled on what came before it
-    if (r.over) return candidates.length === 1 ? done(false) : { found: null, complete: false };   // out of reads: settled only on a sole match
+    if (r.over) return candidates.length === 1 && soleOk ? done(false) : { found: null, complete: false };   // out of reads: settled only on a sole match
     if (r.gone) return done(true);   // the post is gone from the public community
     if (!Array.isArray(r.json.comments)) return null;
     const tops = lookRows(r.json.comments);
@@ -2357,12 +2367,12 @@ async function lookForComment(c, agentKey, keys, ok, since) {
       }
     }
     cursor = next(r);
-    if (cursor === BAD) return candidates.length === 1 ? done(false) : { found: null, complete: false };
+    if (cursor === BAD) return candidates.length === 1 && soleOk ? done(false) : { found: null, complete: false };
     if (!cursor) return parent ? { found: null, complete: false } : done(true);   // the end; a reply whose parent was not found is not settled
     // Newest first: once a page reaches back before the send, nothing older can be a top-level match.
     if (!parent && tops.some((x) => Number.isFinite(x.at) && x.at < since)) return done(true);
   }
-  return candidates.length === 1 ? done(false) : { found: null, complete: false };   // more thread than one look reads: a sole match only
+  return candidates.length === 1 && soleOk ? done(false) : { found: null, complete: false };   // more thread than one look reads: a sole match only
 }
 /* The ids every record already holds: a comment already settled is never claimed again for another (review 1). */
 function claimedIds(csent) {
@@ -2417,7 +2427,11 @@ async function settleUnconfirmedComments(keys, now) {
     // Review 2: a row whose time cannot be read is never it (NaN would pass a "not before" test).
     const ok = (x, self) => (self || x.agentId === agentId) && x.body !== null && x.body.trim() === words && Number.isFinite(x.at) && x.at >= since && x.at <= until && !taken.has(x.id);
     let r = null;
-    try { r = await lookForComment(c, rec.agent, keys, ok, since); } catch { r = null; }
+    /* Review 9: a read cut short settles on a sole match only when no other unconfirmed record of this agent with the
+       same words on the same post is waiting: with one, the unread pages may hold the copy that pairs in order. */
+    const sibling = Object.entries(csent).some(([oid, o]) => oid !== id && unconfirmedComment(oid, o) && o.agent === rec.agent
+      && (() => { const oc = byId.get(oid); return oc && String(oc.remotePostId) === String(c.remotePostId) && String(oc.body || '').trim() === words; })());
+    try { r = await lookForComment(c, rec.agent, keys, ok, since, !sibling); } catch { r = null; }
     // Re-read before writing: a send pass or a take-back may have written the file while this was on the network.
     const latest = loadJson(commentsSentFile());
     if (!latest || !unconfirmedComment(id, latest[id])) continue;
@@ -3067,7 +3081,9 @@ function withdrawFor(agentId, kind, id) {
     if (crec && (crec.state === 'withheld' || crec.state === 'not_sent')) return { ok: true, state: 'withheld' };
     // Review 8: requestCommentDelete's own refusals apply only while no removal is recorded; one already recorded (the
     // person's Delete, racing a send) skips them. A comment that can never be found again is refused here either way.
-    if (crec && crec.state === 'unconfirmed') return { ok: false, notEligible: true, because: 'Kosmos does not know yet whether this comment arrived, so it cannot take it back; it looks for it, and once status shows it as sent you can take it back' };
+    if (crec && crec.state === 'unconfirmed') return { ok: false, notEligible: true, because: commentStillLooked(crec)
+      ? 'Kosmos does not know yet whether this comment arrived, so it cannot take it back; it looks for it, and once status shows it as sent you can take it back'
+      : 'Kosmos does not know whether this comment arrived and cannot look for it, so it cannot take it back' };
     if (crec && crec.state === 'sent' && crec.traceable === null) return { ok: false, retryable: true, because: 'Kosmos could not read its community registrations just now' };
     if (crec && crec.state === 'sent' && crec.traceable === false) return { ok: false, notEligible: true, because: 'Kosmos has no way to find this comment again, so it cannot take it back' };
     return requestCommentDelete(local);
@@ -3195,7 +3211,8 @@ async function editNow(who, kind, raw, words, deadline) {
   if (state === 'refused') return no('The community did not accept this ' + w + ', so there is nothing to edit');
   if (state === 'deleted') return no('This ' + w + ' has been taken down from the community, so it cannot be edited');
   if ((state === 'pending' && rec && rec.attempted) || state === 'unconfirmed') {
-    if (kind === 'comment') return no('Kosmos does not know yet whether this comment arrived, so it cannot edit it; once status shows it as sent you can');
+    if (kind === 'comment') return no(commentStillLooked(rec) ? 'Kosmos does not know yet whether this comment arrived, so it cannot edit it; once status shows it as sent you can'
+      : 'Kosmos does not know whether this comment arrived and cannot look for it, so it cannot edit it');
     /* #5636 follow-up: settleUnconfirmed asks about such a post only with the live key of the agent that sent it, and a
        refused agent's never comes back (nothing clears `refused`), so "after its next send" never comes for it; say what
        the sent-post check below says. Review 1: NOT for a missing key: the next sweep (sendPost's ensureRegistered)
@@ -3304,7 +3321,7 @@ function requestCommentDelete(id) {
     if (before.state === 'not_sent') return no('This comment was never sent, so there is nothing to remove');
     if (before.state === 'sent' && before.agentRefused) return no('The community refused this agent, so Kosmos cannot remove its comments');
   }
-  // #4801 review 1: out on the network right now. Not "never learned": it has an answer within a minute.
+  // #4801 review 1: out on the network right now. Not "does not know": it has an answer within a minute.
   if (before && !cdel[id] && before.state === 'sending') {
     return { ok: false, busy: true, because: 'It is being sent right now; try again in a minute' };
   }
@@ -3314,7 +3331,8 @@ function requestCommentDelete(id) {
   }
   if (before && !cdel[id] && (before.state === 'unconfirmed' || (before.state === 'sent' && !before.traceable))) {
     return { ok: false, notEligible: true, because: before.state === 'unconfirmed'
-      ? 'Kosmos does not know yet whether this comment arrived, so it cannot remove it; once status shows it as sent it can'
+      ? (commentStillLooked(before) ? 'Kosmos does not know yet whether this comment arrived, so it cannot remove it; once status shows it as sent it can'
+        : 'Kosmos does not know whether this comment arrived and cannot look for it, so it cannot remove it')
       : before.untraceableReason === 'other-registration'
         ? 'Kosmos no longer holds the registration that sent this comment, so it cannot remove it'
         : before.untraceableReason === 'registration-unknown'
@@ -3689,6 +3707,7 @@ module.exports = {
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
   CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171
   testSeatWords,   // kosmos#8156: the routes' refusal for a test seat
+  commentStillLooked,   // kosmos#8216 review 9: the board's comment row and the refusals
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile, ownerUnlinkFile },
   _saveJsonForTest: saveJson,   // #5431: an unchanged save is otherwise hard to drive on its own
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
