@@ -177,11 +177,12 @@ function ownerNoticeText({ name, owner, writer }) {
     + 'Kosmos will not post a separate notice for each other file ' + writer + ' changes that you were the first seen changing.';
 }
 /* kosmos#8235: the room's copy also says when the owner gets its own, so a check made just after the change does not
-   read as the notice never arriving. Not in the owner's copy, which is that delivery. FILE_NOTICE_EVERY in both report
-   hooks (engine/kosmos-report-hook.js, install/kosmos-report-hook.sh) is the five minutes. */
+   read as the notice never arriving. Not in the owner's copy, which is that delivery. Only Kosmos's Claude Code report
+   hook takes the owner's copy (engine/filenotices.js: other runners keep only the room note), hence "if it runs in
+   Claude Code"; FILE_NOTICE_EVERY in both report hooks is the five minutes, counted from the owner's last look. */
 function roomNoticeText(n) {
-  return ownerNoticeText(n) + ' ' + n.owner + ' is handed this notice too, at a prompt of its own; Kosmos looks for it at most '
-    + 'once every five minutes, so a prompt sooner than that may not carry it yet.';
+  return ownerNoticeText(n) + ' If ' + n.owner + ' runs in Claude Code, Kosmos also hands it this notice at a prompt of its own, '
+    + 'looking at most once every five minutes, so a prompt soon after its last look may not carry it yet.';
 }
 const HELD_BACK_TEXT = 'Kosmos has posted its limit of file-owner notices in this room for the hour and is holding back the '
   + 'rest for now. Read a shared file again before you build on what you last saw in it.';

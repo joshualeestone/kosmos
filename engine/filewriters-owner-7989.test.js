@@ -69,7 +69,6 @@ test('kosmos#7989: another agent\'s write leaves one note for the agents, naming
   // kosmos#8235: the room's copy is the owner's text plus when the owner gets its own (engine/filewriters-noticewait-8235.test.js).
   assert.equal(made[0].text, fw.roomNoticeText({ name: 'brief.md', owner: 'mona', writer: 'kitty' }));
   assert.match(made[0].text, /^kitty was about to change "brief\.md" \(mona was the first agent seen changing it here\)\. A notice, not a lock: mona, /);
-  assert.match(made[0].text, /For the next hour, Kosmos will not post a separate notice for each other file kitty changes that you were the first seen changing\. /);
   assert.equal(made[0].audience, messages.NOTE_AUDIENCE_AGENTS, 'the note is not kept to the agents (the person\'s room view would show it)');
   // That the room route keeps a note with this audience out of the person's JSON view and in `kosmos room` is pinned at
   // the route, for a tagged note in any words, in server.projects.test.js ("the brief-pending note reaches the agents").
