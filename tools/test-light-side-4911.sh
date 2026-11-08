@@ -323,8 +323,8 @@ out="$(KOSMOS_BC_PROBE="$T/quiet" KOSMOS_PW_PROBE="$T/pw-kid" kosmos_light_side_
 kill "$KID" "$R2" "$R3" 2>/dev/null; wait "$R2" "$R3" 2>/dev/null
 
 # Review 7: the REAL Playwright matcher (every other arm goes through KOSMOS_PW_PROBE). A stand-in whose command line
-# starts with a browser path is listed; one with a WebKit XPC helper path is not (launchd parents those, so they would never read as
-# the side command's own); a command that only mentions the folder is not.
+# starts with a browser path is listed; one with a WebKit XPC helper path is not (launchd parents those, so they would
+# never read as the side command's own); a command that only mentions the folder is not.
 PWD_="$T/pw/ms-playwright"
 # kosmos#8250: each stand-in is a perl wait whose command line begins with the browser path (exec -a), which is all
 # the matcher reads (pgrep -fa / -fl). It was a copy of /bin/sleep at that path, and on ubuntu-26.04 the three copies
