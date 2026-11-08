@@ -19,15 +19,16 @@ test('kosmos#8235: the room\'s copy says when the owner gets its own; the owner\
   const room = fw.roomNoticeText(N);
   const own = fw.ownerNoticeText(N);
   assert.ok(room.startsWith(own + ' '), 'the room copy is not the owner\'s text plus a sentence');
-  assert.match(room, / If mona runs in Claude Code, Kosmos also hands it this notice at a prompt of its own, looking at most once every five minutes, so a prompt soon after its last look may not carry it yet\.$/);
+  assert.match(room, / Kosmos's hook in Claude Code also hands you this notice at a prompt of yours, looking at most once every five minutes, so a prompt soon after its last look may not carry it yet\.$/);
   assert.doesNotMatch(own, /five minutes/, 'the owner\'s own copy carries the delivery sentence');
 });
 
 // Which copy reaches the room and which the owner is measured end to end in engine/filenotices-7989.test.js.
 
 test('kosmos#8235: "five minutes" is what both report hooks wait (FILE_NOTICE_EVERY = 300 s)', () => {
-  assert.match(read('engine/kosmos-report-hook.js'), /^const FILE_NOTICE_EVERY = 300;/m);
-  assert.match(read('install/kosmos-report-hook.sh'), /^FILE_NOTICE_EVERY=300$/m);
+  const why = 'a changed FILE_NOTICE_EVERY must also change "five minutes" in engine/filewriters.js roomNoticeText and in both CLIs\' file-notices usage';
+  assert.match(read('engine/kosmos-report-hook.js'), /^const FILE_NOTICE_EVERY = 300;/m, why);
+  assert.match(read('install/kosmos-report-hook.sh'), /^FILE_NOTICE_EVERY=300$/m, why);
 });
 
 test('kosmos#8235: both CLIs\' file-notices usage says the hook asks at most once every five minutes, in the same words', () => {

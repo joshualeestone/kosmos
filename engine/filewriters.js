@@ -177,11 +177,13 @@ function ownerNoticeText({ name, owner, writer }) {
     + 'Kosmos will not post a separate notice for each other file ' + writer + ' changes that you were the first seen changing.';
 }
 /* kosmos#8235: the room's copy also says when the owner gets its own, so a check made just after the change does not
-   read as the notice never arriving. Not in the owner's copy, which is that delivery. Only Kosmos's Claude Code report
-   hook takes the owner's copy (engine/filenotices.js: other runners keep only the room note), hence "if it runs in
-   Claude Code"; FILE_NOTICE_EVERY in both report hooks is the five minutes, counted from the owner's last look. */
+   read as the notice never arriving. Not in the owner's copy, which is that delivery. It names what delivers it
+   (Kosmos's report hook in Claude Code; other runners keep only the room note, engine/filenotices.js) and speaks to
+   the owner as the note's earlier sentences do. FILE_NOTICE_EVERY in both report hooks is the five minutes, counted
+   from the owner's last look. Left out on purpose, to keep one sentence: the hook needs an agent token or a tmux pane,
+   and the owner's queue keeps at most MAX_PENDING notices for at most a day (engine/filenotices.js). */
 function roomNoticeText(n) {
-  return ownerNoticeText(n) + ' If ' + n.owner + ' runs in Claude Code, Kosmos also hands it this notice at a prompt of its own, '
+  return ownerNoticeText(n) + ' Kosmos\'s hook in Claude Code also hands you this notice at a prompt of yours, '
     + 'looking at most once every five minutes, so a prompt soon after its last look may not carry it yet.';
 }
 const HELD_BACK_TEXT = 'Kosmos has posted its limit of file-owner notices in this room for the hour and is holding back the '
@@ -209,8 +211,9 @@ function ownerNotice(n) {
     const messages = require('./messages');
     messages.roomNote(n.projectId, n.heldBack ? HELD_BACK_TEXT : roomNoticeText(n), { audience: messages.NOTE_AUDIENCE_AGENTS });
   } catch { /* the write stands */ }
-  /* kosmos#7989 slice 3: the same notice also waits for the owner itself (engine/filenotices.js), which Kosmos's Claude
-     Code hook hands to it at its next turn. Not the held-back note: that one names no owner. Separate from the room note,
+  /* kosmos#7989 slice 3: the notice also waits for the owner itself (engine/filenotices.js), which Kosmos's Claude
+     Code hook hands to it at its next turn. kosmos#8235: the owner is queued ownerNoticeText; the room gets
+     roomNoticeText, which adds when that happens. Not the held-back note: that one names no owner. Separate from the room note,
      so either failing leaves the other. */
   if (!n.heldBack) {
     try { require('./filenotices').queue(n.owner, ownerNoticeText(n)); } catch { /* the write stands */ }

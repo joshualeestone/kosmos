@@ -6,9 +6,11 @@ A file-owner notice (#7989, Windows #8014) is fetched by the report hook at most
 the person's turn for up to 1 s. A check made just after the change sees no notice and reads as the feature broken.
 
 ## The call: keep the throttle, say so where a checker reads
-- The room's copy of the notice (agents' audience) gets one sentence: if the owner runs in Claude Code, Kosmos also hands
-  it the notice at a prompt of its own, looking at most once every five minutes (from its last look). Other runners keep
-  only the room note (engine/filenotices.js), hence the condition. The owner's own queued copy is unchanged.
+- The room's copy of the notice (agents' audience) gets one sentence, to the owner as the note's earlier sentences
+  are: Kosmos's hook in Claude Code also hands you this notice at a prompt of yours, looking at most once every five
+  minutes (from its last look). It names what delivers it, since other runners keep only the room note. The hook's
+  token/pane need and the queue's 10-notice, one-day limits are left out on purpose (said in the code comment). The
+  owner's own queued copy is unchanged.
 - `kosmos file-notices` usage, on both CLIs in the same words, says the hook asks at most once every five minutes.
 
 ## Rejected
@@ -18,8 +20,9 @@ board to write into the agent's temp folder, which on the Mac can differ from th
 
 ## Tests
 engine/filewriters-noticewait-8235.test.js: the room copy is the owner's text plus the sentence, the owner's copy lacks
-it, the room note and the queue use the right one, "five minutes" equals both hooks' 300 s, and both CLIs carry the
-same usage sentence. engine/filewriters-owner-7989.test.js updated for the room copy.
+it, "five minutes" equals both hooks' 300 s, and both CLIs carry the same usage sentence. engine/filenotices-7989.test.js:
+the room note and the owner's queue get the right copy, end to end. engine/filewriters-owner-7989.test.js: literal pins
+of the hourly sentence and of where the new one follows it.
 
 ## Weakest premise
 That a checker reads the room note or the usage text. If one-off checks still read as broken, the Windows-only fetch is

@@ -4,8 +4,9 @@
  * kosmos#7989 slice 3: file-owner notices that reach the owner itself.
  *
  * Slice 1 (engine/filewriters.js ownerNotice) writes an agents-only note in the project's room when another agent is
- * about to change a file an agent owns. The owner sees that note only when it reads the room. This keeps the same
- * notice in a small queue for the owner, and Kosmos's own Claude Code hook takes the queue at the owner's next turn
+ * about to change a file an agent owns. The owner sees that note only when it reads the room. This keeps the notice
+ * (its own words, without the room copy's sentence on when it arrives, kosmos#8235) in a small queue for the owner,
+ * and Kosmos's own Claude Code hook takes the queue at the owner's next turn
  * (UserPromptSubmit) and hands it to the model as additionalContext, so nothing is typed into the owner's session.
  * The hook's hand-over (handOver) is acknowledged: each notice has an id, the hook sends back the ids it received on its
  * next call, and only an acknowledged notice is removed. An answer the hook never read is handed over again.
