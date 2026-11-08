@@ -8,7 +8,12 @@ final class NewChatListSwitchUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
     private func openDana(_ app: XCUIApplication, _ when: String) {
-        app.tabBars.buttons["Agents"].tap()
+        // Measured 11-08: after the swipes up to the switch, iOS 26 collapses the tab bar to the selected tab alone ("Settings",
+        // value Collapsed), so Agents is not in it. Swiping back down brings the full bar back.
+        let agents = app.tabBars.buttons["Agents"]
+        for _ in 0..<6 where !agents.exists { app.swipeDown() }
+        XCTAssertTrue(agents.waitForExistence(timeout: 5), "no Agents tab, \(when)")
+        agents.tap()
         let row = app.staticTexts["Dana"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20), "no Dana row on Agents, \(when)")
         row.tap()
