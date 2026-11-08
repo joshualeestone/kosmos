@@ -6,9 +6,8 @@ Rebase onto main as each merges.
 ## Finished looks like
 
 On a TestFlight build, Settings has a switch that makes chats open on the UIKit list. It is off by default, so nothing
-changes for a phone that never touches it. Each chat open records which list drew it in the diagnostic, so Josh's phone's
-reports can be counted per list (the #7420 decision: "switch the chat to the UIKit list behind a release switch, in
-slices, with his phone's counts comparing the two before the old one goes").
+changes for a phone that never touches it. Each chat open writes which list drew it to the chat's record ("list: uikit"
+or "list: lazy"). Counting reports per list is slice 6 (see Decided, review 3), not this slice.
 
 ## Decided
 

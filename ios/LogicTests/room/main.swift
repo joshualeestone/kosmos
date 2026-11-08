@@ -602,8 +602,7 @@ let listTraceAt = chatSource.range(of: "if uikitList { Self.trace(\"list: uikit\
 let shownTraceAt = chatSource.range(of: "Self.trace(\"chat shown\")")
 check(listTraceAt != nil && shownTraceAt != nil && shownTraceAt!.upperBound < listTraceAt!.lowerBound
       && chatSource[shownTraceAt!.upperBound..<listTraceAt!.lowerBound].count < 200, "kosmos#8221 slice 5: right after chat shown, the record says which list drew the chat")
-// The ring keeps 80 lines and can drop that line, so the report's fixed list line carries the list too.
-check(chatSource.contains("\"list \\(uikitList ? \"uikit\" : \"lazy\") \\(Int(diagViewport.width))x"), "kosmos#8221 slice 5: the diagnostic's fixed list line names the list")
+check(chatSource.contains("if env[\"KOSMOS_SAMPLE_AGENTS\"] == \"1\", env[\"KOSMOS_SAMPLE_UIKITLIST_SWITCH\"] != \"1\" { return false }"), "kosmos#8221 slice 5: a Debug sample run ignores a switch left on, unless the check asks for it")
 // kosmos#7420: Self.heightLine is admitted by name, so its body is pinned: Int(...) point values, a count and fixed words.
 check(chatSource.contains("\"content \\(Int(size)), y \\(Int(sv.contentOffset.y)), drawn \\(at.count), from \\(Int(first)) to \\(Int(last)), past last \\(Int(size - last))\""), "kosmos#7420: the height line in the record is points and a count and nothing else")
 // kosmos#7645: Self.numbers(sv) is admitted by name, so its body is pinned here: three Int(...) point values and fixed words. Change
