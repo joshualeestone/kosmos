@@ -591,6 +591,14 @@ let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a,
 // kosmos#8221 slice 4: the UIKit list's geometry is admitted by name, so its body is pinned: five Int(...) point values and fixed words.
 let listGeometrySource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatList.swift"), encoding: .utf8)) ?? ""
 check(listGeometrySource.contains("\"y \\(Int(sv.contentOffset.y)), end \\(Int(maxY(sv))), size \\(Int(sv.contentSize.height)), height \\(Int(sv.bounds.height)), inset \\(Int(sv.adjustedContentInset.bottom))\""), "kosmos#8221: the UIKit list's geometry in the record is five point values and nothing else")
+// kosmos#8221 slice 5: Settings' "New chat list" switch. Default off (a phone that never touches it keeps the lazy list), one
+// key read and written, the choice read once per chat open (an @State, so the switch never swaps an open chat's list), and
+// each open's record says which list drew it, in two fixed words.
+let settingsViewSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/SettingsView.swift"), encoding: .utf8)) ?? ""
+check(settingsViewSource.contains("@AppStorage(ChatView.uikitListKey) private var newChatList = false"), "kosmos#8221 slice 5: the Settings switch is off by default and writes the key ChatView reads")
+check(chatSource.contains("static let uikitListKey = \"kosmos.chat.uikitlist\"") && chatSource.contains("return UserDefaults.standard.bool(forKey: uikitListKey)"), "kosmos#8221 slice 5: ChatView reads the switch's key, false when never set")
+check(chatSource.contains("@State private var uikitList = ChatView.uikitListChosen()") && !chatSource.contains("static let uikitList ="), "kosmos#8221 slice 5: the list is chosen once per chat open, not per draw")
+check(chatSource.contains("diagShownOnce = true; Self.diagRing = []; Self.trace(\"chat shown\")\n                // kosmos#8221 slice 5: which list drew this chat, so a phone's reports can be counted per list.\n                if uikitList { Self.trace(\"list: uikit\") } else { Self.trace(\"list: lazy\") }"), "kosmos#8221 slice 5: right after chat shown, the record says which list drew the chat")
 // kosmos#7420: Self.heightLine is admitted by name, so its body is pinned: Int(...) point values, a count and fixed words.
 check(chatSource.contains("\"content \\(Int(size)), y \\(Int(sv.contentOffset.y)), drawn \\(at.count), from \\(Int(first)) to \\(Int(last)), past last \\(Int(size - last))\""), "kosmos#7420: the height line in the record is points and a count and nothing else")
 // kosmos#7645: Self.numbers(sv) is admitted by name, so its body is pinned here: three Int(...) point values and fixed words. Change

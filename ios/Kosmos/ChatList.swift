@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 // kosmos#8221: the chat's messages in a UIKit list (a UICollectionView whose self-sizing cells host the same SwiftUI rows),
-// behind ChatView.uikitList. Measured on the simulator 11-07 (batch 1 and 2 on #8221): the lazy SwiftUI list drew nothing
+// behind ChatView.uikitListChosen(). Measured on the simulator 11-07 (batch 1 and 2 on #8221): the lazy SwiftUI list drew nothing
 // in 15 of 15 box-flip runs and needed a rebuild in 8 of 30; this list showed text in every one of 2,490 samples and never
 // rebuilt. Slice 1 (.claude/plans/uikitlist-s1-8221.md): it opens at the newest message and stays there while the reader
 // is there, whatever changes (new rows, a row growing, the box or the keyboard taking room). Slice 3
@@ -293,6 +293,8 @@ struct ChatList: UIViewRepresentable {
         config.backgroundColor = .clear
         let list = List(frame: .zero, collectionViewLayout: UICollectionViewCompositionalLayout.list(using: config))
         list.backgroundColor = .clear
+        // kosmos#8221 slice 5: how a UI check tells which list drew the chat (Settings' "New chat list" switch).
+        list.accessibilityIdentifier = "chat-list-uikit"
         list.keyboardDismissMode = .interactive
         list.alwaysBounceHorizontal = false
         list.showsHorizontalScrollIndicator = false

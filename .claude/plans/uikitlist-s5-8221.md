@@ -42,4 +42,11 @@ slices, with his phone's counts comparing the two before the old one goes").
 
 ## Status
 
-- [ ] Not started (plan only, 12:58 CST 11-08).
+- [x] Steps 1-4 built 11-08 13:0x-13:3x CST. As built: the choice is `@State private var uikitList = ChatView.uikitListChosen()`
+  (not `useUIKit`). UIKitListArm now sets KOSMOS_SAMPLE_UIKITLIST on BOTH arms ("1"/"0"), so a switch a run left on can never
+  move a check onto the wrong list. ChatList's collection view carries the identifier "chat-list-uikit" (Debug or not).
+  room suite: 4 new source checks (848/848); negative control, default flipped to true in a copy: FAIL 1 of 848 on the
+  off-by-default check. All 13 LogicTests suites pass; ios.ui-sample-tally-7609 and server.ios-routes-6838 pass.
+- [ ] Step 5: NewChatListSwitchUITests (off: lazy; on: the next chat is "chat-list-uikit"; off again: lazy), added to
+  ui-sample.sh's lazy-arm classes. Local run pending.
+- [ ] Steps 6-8.
