@@ -13,7 +13,8 @@ or by a whole-word @-mention. Agents' posts only.
 
 Review 1 cut the first version's "any capitalised header name" branch. It told an agent that the person, or a member on
 another computer, "did not get" a post, and it read "The team" and "Before -> After:" as people. An unknown name now keeps
-today's "It woke no one" line. So a colleague on another computer (the case that hit me today) is NOT named: the board
+today's "It woke no one" line. So a colleague on another computer is NOT named: the board
 cannot tell them from the person or a phrase. That is the weakest part, chosen because a false statement is worse.
+Review 2: whole names only in a header too. Deferred: a card whose pane is crashed is still offered kosmos msg (its refusal is honest); "thanks @homer" also gets the sentence (it is true).
 Not changed: a folded retry and an unrecorded post carry no note, as ambiguousNote never has.
 Rejected: a new answer field (both CLIs and every older one would need teaching, for one sentence).

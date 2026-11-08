@@ -2513,7 +2513,8 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
   try {
     const nameKey = require('./agentnames').nameKey;
     const members = Array.isArray(recipients) ? recipients : [];
-    const cards = (Array.isArray(roster) ? roster : []).filter((c) => c && c.isNamedOurs === true && typeof c.sessionName === 'string' && c.sessionName !== from);
+    const ourCard = require('./projects').ourCard;
+    const cards = (Array.isArray(roster) ? roster : []).filter((c) => c && typeof c.sessionName === 'string' && c.sessionName !== from && ourCard(c.sessionName, roster) === c);
     const outside = cards.filter((c) => !members.includes(c.sessionName)).map((c) => c.sessionName);
     // A word any member (or the poster) answers to is not about an outsider, even when it is too ambiguous to address one.
     const insideKeys = new Set();
@@ -2531,7 +2532,15 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
     const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => h.sender && nameResolves(h.sender, poster, roster).length);
     for (const part of head ? head.targets : []) {
       const bare = part.replace(/^@/, '');
-      if (!/^(all|everyone)$/i.test(bare) && !targetResolves(bare, members, roster).length && !insideKeys.has(nameKey(bare))) add(targetResolves(bare, outside, roster));
+      if (!/^(all|everyone)$/i.test(bare) && !targetResolves(bare, members, roster).length && !insideKeys.has(nameKey(bare))) {
+        // Whole names only, as the @ rule (review 2): the header's one-word match would make "-> Team:" mean "Team Rocket".
+        // The longest leading run of up to three words, so the words after a name ("Homer on m702") do not lose it.
+        const words = bare.split(/\s+/).filter(Boolean);
+        for (let k = Math.min(3, words.length); k >= 1; k -= 1) {
+          const hit = [...mentionedMembers('@' + nameKey(words.slice(0, k).join(' ')), outside, roster).mentioned];
+          if (hit.length) { add(hit); break; }
+        }
+      }
     }
     for (const m of String(cleaned || '').replace(/`[^`]*`/g, ' ').matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
       const word = m[2].replace(/[._-]+$/, '');
