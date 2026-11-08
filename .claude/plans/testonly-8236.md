@@ -6,7 +6,7 @@ to add. A test description cannot stop that nudge, and the room post is the nois
 
 1. engine/projects.js: `testOnly` is a boolean carried by edit() like paused (absent = off); isTestOnly(); describe()
    returns it; each member's "Your projects" entry for it says, first under its name: "A test project: do only what
-   you are asked here. Add no tasks, plans or posts of your own."
+   you are asked here. Add no tasks, plans or posts beyond what you are asked." (reworded in review 5)
 2. engine/assigner.js goalProject: no goal nudge for a test project. pick() is unchanged, so its tasks still go out.
 3. server.js PUT /api/project/<id>: carries testOnly; a change re-tells the members (syncAgent), as a pause does.
 4. install/kosmos and tools/windows/kosmos-cli.js: `kosmos project test <project-id> on|off`, through the route pause
