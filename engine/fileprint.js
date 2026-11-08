@@ -244,6 +244,22 @@ function readPrint(p, raw) {
 const PRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
 const isPrint = (s) => typeof s === 'string' && PRINT_RE.test(s);
 
+/* kosmos#8214: a path Kosmos keeps beside a delivered file's fingerprint, and the only kind `kosmos task files` opens.
+   The board, both CLIs and task files all ask this one function. Absolute (a leading / or a drive letter), no control
+   character (C0 or C1), at most 1024 characters, and plain: no empty, . or .. segment, so the path is read the way the
+   kernel will walk it. Not a network path: //host or \\host, nor the automount roots /net and /Network, which mount
+   from a host when looked up (case-blind, as APFS is). A check of the start alone was walked round by /tmp/../net/host
+   (review 5), which is why every segment is read. */
+const KEPT_PATH_MAX = 1024;
+function keptPath(p) {
+  if (typeof p !== 'string' || !p || p.length > KEPT_PATH_MAX || /\p{Cc}/u.test(p)) return false;
+  const drive = /^[A-Za-z]:[\\/]/.test(p);
+  if (!drive && !p.startsWith('/')) return false;
+  const segs = p.slice(drive ? 3 : 1).split(/[\\/]/);
+  if (segs.some((s) => s === '' || s === '.' || s === '..')) return false;
+  return drive || !/^(?:net|network)$/i.test(segs[0]);
+}
+
 /** What kind of hash a fingerprint is, in words (#7213). */
 function kindWords(print) {
   return String(print).startsWith(PDF_KIND) ? "the PDF fingerprint (its own dates and ID left out; not what shasum prints)"
@@ -312,7 +328,7 @@ function compare(p, expected) {
   return { ok: true, match: false, kind, got, words: 'differs from ' + kindWords(want) + ': this file gives ' + got };
 }
 
-module.exports = { fingerprint, plain, compare, kindWords, isPrint, isPdfHead, stablePdf, firstLine, PDF_MAX };
+module.exports = { fingerprint, plain, compare, kindWords, isPrint, keptPath, isPdfHead, stablePdf, firstLine, PDF_MAX };
 
 if (require.main === module) {
   const p = process.argv[2];

@@ -98,7 +98,10 @@ test('#8214 engine: the path is kept with its fingerprint, kept by a checker, dr
     { fingerprint: A, filePath: '\\\\?\\C:\\x' },
     // Review 3: macOS mounts /net/<host> from that host when it is looked up; APFS is case-blind.
     { fingerprint: A, filePath: '/net/attacker.example/share/x' }, { fingerprint: A, filePath: '/NET/attacker/x' },
-    { fingerprint: A, filePath: '/Network/Servers/attacker/x' }]) {
+    { fingerprint: A, filePath: '/Network/Servers/attacker/x' },
+    // Review 5: a dot segment walks round a check of the start; a C1 control is a control too.
+    { fingerprint: A, filePath: '/tmp/../net/attacker/x' }, { fingerprint: A, filePath: '/./net/attacker/x' },
+    { fingerprint: A, filePath: '/a//b' }, { fingerprint: A, filePath: '/a/./b' }, { fingerprint: A, filePath: '/x\u009b' }]) {
     const r = tasks.setBuilt(projectId, n, { by: 'mona', ...bad });
     assert.equal(r.ok, false, JSON.stringify(bad));
     assert.match(r.because, /file path/);
@@ -145,7 +148,9 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
     // Review 2: a Windows path is not absolute on a Mac, so it is never resolved against the folder the command runs in.
     row(11, { builtFilePath: 'C:\\out\\x.txt' }), row(12, { builtFilePath: '/Net/attacker/x' }),
     // Review 4: a format character is printed without it, and the line says so; the file opened is the path as stored.
-    row(13, { builtFilePath: '/m\u202e' })] };
+    row(13, { builtFilePath: '/m\u202e' }),
+    // Review 5: a dot segment reaching /net, and /home, which is an automount root on a Mac reader.
+    row(14, { builtFilePath: '/tmp/../net/attacker/x' }), row(15, { builtFilePath: '/home/u/x' })] };
   const out = tasklist.filesLines(body, { project: 'files', compare, platform: 'darwin' });
   assert.equal(out.rc, 0);
   assert.deepEqual(out.lines, [
@@ -161,13 +166,19 @@ test('#8214 filesLines: each verdict, the tally, an older board, and words that 
     '#11  Task 11', '    NOT CHECKED C:\\out\\x.txt: marked on a Windows computer, so it is not on this one',
     '#12  Task 12', '    NOT CHECKED /Net/attacker/x: not a local absolute path, so Kosmos does not open it',
     '#13  Task 13', '    matches  /m (printed without characters it cannot show)',
-    '12 built tasks with a delivered file in files: 3 match, 1 changed, 1 missing, 1 cannot be read, 1 with no path recorded, 1 marked on another kind of computer, 4 not a local path, not opened. 1 more built without --file.',
+    '#14  Task 14', '    NOT CHECKED /tmp/../net/attacker/x: not a local absolute path, so Kosmos does not open it',
+    '#15  Task 15', '    NOT CHECKED /home/u/x: not a local absolute path, so Kosmos does not open it',
+    '14 built tasks with a delivered file in files: 3 match, 1 changed, 1 missing, 1 cannot be read, 1 with no path recorded, 1 marked on another kind of computer, 6 not a local path, not opened. 1 more built without --file.',
     'A file changed or missing since the mark: send it again with kosmos task built <project-id> <task-number> --file <path>, or say why it changed.',
     'Checked on this computer: a mark made on another computer can read missing here.',
   ]);
   // The recorded fingerprint is what each file is compared with, and a task with no path is never compared.
   assert.deepEqual(asked.map((a) => a[0]), ['/m', '/c', '/gone', '/locked', '/m', '/m\u202e']);
   assert.ok(asked.every((a) => a[1] === FP));
+  // On Linux /home is where homes are, so it is opened; a reader's error words are cleaned as a path is.
+  const onLinux = tasklist.filesLines({ listState: 'built', tasks: [row(1, { builtFilePath: '/home/u/x' })] },
+    { project: 'files', compare: () => ({ ok: false, words: 'could not be read (bad \u001b[2J/home/u/x)' }), platform: 'linux' });
+  assert.equal(onLinux.lines[1], '    CANNOT READ /home/u/x: could not be read (bad [2J/home/u/x)', onLinux.lines.join('\n'));
   // On Windows the rule turns round: a drive path is opened, a Mac path is another computer's, a network path never.
   asked.length = 0;
   const onWin = tasklist.filesLines({ listState: 'built', tasks: [row(1, { builtFilePath: 'C:\\m' }), row(2, { builtFilePath: '/m' }), row(3, { builtFilePath: '\\\\h\\s\\x' })] },
@@ -259,8 +270,8 @@ const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
 fs.mkdirSync(path.join(MAC_HOME, 'runtime', 'bin'), { recursive: true });
 fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));
 fs.symlinkSync(path.join(__dirname, 'engine'), path.join(MAC_HOME, 'engine'));
-function mac(args, { token = '', cwd } = {}) {
-  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: token };
+function mac(args, { token = '', cwd, home = MAC_HOME } = {}) {
+  const env = { ...process.env, KOSMOS_HOME: home, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: token };
   return new Promise((resolve, reject) => {
     execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000, cwd }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code: ' + (stderr || err.signal))); return; }
@@ -314,6 +325,13 @@ test('#8214 Mac (review 1): link/.. is hashed and recorded as the same file; a p
   assert.equal('builtFilePath' in stored(projectId, m), false);
   assert.match(o.out, /Its path was not sent \(Kosmos keeps only a plain local path, so not one with control characters, a network path, or one over 1024 characters\), so kosmos task files cannot check this mark\./, 'a dropped path was silent: ' + o.out);
   assert.doesNotMatch(r.out, /Its path was not sent/, 'a path that was sent was said to be dropped');
+  // Review 5: a C1 control (U+009B, the 8-bit CSI) in a name: the board's rule refuses the path, so none is sent.
+  fs.writeFileSync(path.join(OUT, 'c1\u009b.txt'), 'c1');
+  const c1 = tasks.create(projectId, { sentence: 'C1 name', who: 'mona' }).number;
+  const cr = await mac(['task', 'built', projectId, String(c1), 'done', '--file', 'c1\u009b.txt'], { token: tok, cwd: OUT });
+  assert.equal(cr.code, 0, cr.out + cr.err);
+  assert.equal(stored(projectId, c1).builtFingerprint, sha('c1'));
+  assert.equal('builtFilePath' in stored(projectId, c1), false, 'a path the board refuses was sent, or the mark failed');
   // Review 3: a trailing newline, which $( ) strips: the file named is hashed, never its newline-less neighbour.
   fs.writeFileSync(path.join(OUT, 'trail\n'), 'with the newline');
   fs.writeFileSync(path.join(OUT, 'trail'), 'the neighbour');
@@ -322,6 +340,23 @@ test('#8214 Mac (review 1): link/.. is hashed and recorded as the same file; a p
   assert.equal(tr.code, 0, tr.out + tr.err);
   assert.equal(stored(projectId, t).builtFingerprint, sha('with the newline'), 'the neighbour was hashed');
   assert.equal('builtFilePath' in stored(projectId, t), false, 'a path naming the neighbour was recorded');
+});
+
+test('#8214 Mac (review 5): a path the board\'s rule refuses is asked of that rule, and goes as none', { skip: process.platform === 'win32' && 'the Mac CLI' }, async () => {
+  // A home whose engine/fileprint.js is the real one with keptPath refusing every path: the CLI must ask it, and send
+  // the mark with its fingerprint and no path (on this Mac no real path reaches that refusal, so it stands in).
+  const home = path.join(SANDBOX, 'rule-home');
+  fs.mkdirSync(path.join(home, 'runtime', 'bin'), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(home, 'runtime', 'bin', 'node'));
+  fs.mkdirSync(path.join(home, 'engine'));
+  fs.writeFileSync(path.join(home, 'engine', 'fileprint.js'), fs.readFileSync(path.join(__dirname, 'engine', 'fileprint.js'), 'utf8') + '\nmodule.exports.keptPath = () => false;\n');
+  fs.writeFileSync(path.join(OUT, 'ruled.txt'), 'ruled');
+  const n = tasks.create(projectId, { sentence: 'Ruled out', who: 'mona' }).number;
+  const r = await mac(['task', 'built', projectId, String(n), 'done', '--file', 'ruled.txt'], { token: tokenOf('mona'), cwd: OUT, home });
+  assert.equal(r.code, 0, r.out + r.err);
+  assert.equal(stored(projectId, n).builtFingerprint, sha('ruled'), 'CONTROL: the stand-in home did not fingerprint');
+  assert.equal('builtFilePath' in stored(projectId, n), false, 'the CLI sent a path its rule refuses');
+  assert.match(r.out, /Its path was not sent/);
 });
 
 test('#8214 Mac: refusals and usage', { skip: process.platform === 'win32' && 'the Mac CLI' }, async () => {

@@ -1901,7 +1901,7 @@ async function taskBuilt(ctx, args) {
     const got = fileprint.fingerprint(typeof whole === 'string' ? whole : file);
     if (!fileprint.isPrint(got)) { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
     fingerprint = got;
-    filePath = typeof whole === 'string' && whole.length <= 1024 && !/[\u0000-\u001f\u007f]/.test(whole) && !/^(?:[\\/]{2}|\/(?:net|network)(?:[\\/]|$))/i.test(whole) ? whole : null;
+    filePath = typeof fileprint.keptPath === 'function' && fileprint.keptPath(whole) ? whole : null;   // the board's own rule
   }
   /* #7508, as install/kosmos: the commit a code fix landed as, resolved here in this checkout: its full sha, the
      repository's shared git directory (it outlives a removed worktree) and whether a remote branch has it. */

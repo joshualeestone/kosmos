@@ -311,11 +311,14 @@ function filesLines(body, opts = {}) {
   const compare = typeof opts.compare === 'function' ? opts.compare : require('./fileprint').compare;
   // Review 2: what is absolute depends on this computer. C:\x is relative on a Mac, and /x has no drive on Windows.
   const windows = (opts.platform || process.platform) === 'win32';
-  // A network path, or an automount root that mounts from a host when looked up (/net/<host>), is never opened: as
-  // engine/tasks.js refuses them, for a store written before or around that check.
-  const network = (p) => /^(?:[\\/]{2}|\/(?:net|network)(?:[\\/]|$))/i.test(p);
-  const local = (p) => !network(p) && (windows ? /^[A-Za-z]:[\\/]/.test(p) : p.startsWith('/'));
-  const foreign = (p) => !network(p) && (windows ? p.startsWith('/') : /^[A-Za-z]:[\\/]/.test(p));
+  /* Opened only when engine/fileprint.js keptPath allows it (the rule the board keeps paths by, checked again for a store
+     written before or around it), and it is this computer's kind. On a Mac reader /home is an automount root too
+     (review 5: it is in the stock auto_master), so it is never opened there; on Linux it is where homes are. */
+  const kept = require('./fileprint').keptPath;
+  const mac = (opts.platform || process.platform) === 'darwin';
+  const drive = (p) => /^[A-Za-z]:[\\/]/.test(p);
+  const local = (p) => kept(p) && (windows ? drive(p) : !drive(p) && !(mac && /^\/home(?:\/|$)/i.test(p)));
+  const foreign = (p) => kept(p) && (windows ? !drive(p) : drive(p));
   const every = !opts.project;
   const tasks = body && Array.isArray(body.tasks) ? body.tasks : null;
   if (!tasks) return { lines: ['Kosmos sent no task list, so there is nothing to check.'], rc: 1 };
@@ -331,8 +334,9 @@ function filesLines(body, opts = {}) {
     lines.push((every ? one(x.projectId || '?') + '  ' : '') + '#' + (x.number != null ? x.number : '?') + '  ' + titleOf(x));
     // The stored path is opened as sent (a scrubbed one would be another file); only the printed copy is scrubbed.
     const at = typeof found.builtFilePath === 'string' && found.builtFilePath ? found.builtFilePath : null;
-    // Review 4: printed without characters a terminal cannot show safely; when that changed it, the line says so.
-    const shown = at ? clean(at).replace(/\n/g, ' ') + (clean(at).replace(/\n/g, ' ') !== at ? ' (printed without characters it cannot show)' : '') : '';
+    // Review 4: printed without characters a terminal cannot show safely, and when it held one the line says so.
+    const hidden = at ? /[\p{Cc}\p{Cf}]/u.test(at.replace(/[\u200c\u200d]/g, '')) : false;
+    const shown = at ? clean(at).replace(/\n/g, ' ') + (hidden ? ' (printed without characters it cannot show)' : '') : '';
     if (!at) { tally.nopath += 1; lines.push('    no path recorded (an older Kosmos, or a path Kosmos does not keep): kosmos fingerprint <file> ' + x.builtFingerprint); continue; }
     // Never opened: a path marked on the other kind of computer, a network path (a marker's choice of host), or one not
     // absolute. The board refuses the last two; an older or edited store may still hold one.
@@ -341,9 +345,10 @@ function filesLines(body, opts = {}) {
       tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': not a local absolute path, so Kosmos does not open it'); continue;
     }
     let got;
-    try { got = compare(at, x.builtFingerprint); } catch (e) { got = { ok: false, words: 'unreadable (' + one((e && e.message) || e) + ')' }; }
+    try { got = compare(at, x.builtFingerprint); } catch (e) { got = { ok: false, words: 'unreadable (' + String((e && e.message) || e) + ')' }; }
     if (!got || !got.ok) {
-      const why = got && typeof got.words === 'string' ? one(got.words) : 'unreadable';
+      // Review 5: a reader's error can quote the path, so its words are cleaned as the path is.
+      const why = got && typeof got.words === 'string' ? clean(got.words).replace(/\n/g, ' ') : 'unreadable';
       if (/^missing\b/.test(why)) { tally.missing += 1; lines.push('    MISSING at ' + shown); }
       else { tally.unreadable += 1; lines.push('    CANNOT READ ' + shown + ': ' + why); }
     } else if (got.match === true) { tally.matches += 1; lines.push('    matches  ' + shown); }
