@@ -1321,6 +1321,18 @@ do {
           "any other address behind a message's words is not a link")
     check(Board.pendingState(after: .kept(at: "T")) == .kept(at: "T") && Board.pendingState(after: .noAnswer) == .failed(reason: nil)
           && Board.pendingState(after: .refused("x")) == .failed(reason: "x"), "each answer's pending state")
+    // kosmos#8246: the chat buzzes when this set gains an id: refused and no-answer sends are in it, the rest are not.
+    do {
+        var a = Board.PendingSend(id: "a", text: "x", at: Date()); a.state = .failed(reason: "no")
+        var b = Board.PendingSend(id: "b", text: "y", at: Date()); b.state = .failed(reason: nil)
+        var c = Board.PendingSend(id: "c", text: "z", at: Date()); c.state = .unconfirmed
+        let d = Board.PendingSend(id: "d", text: "w", at: Date())
+        var e = Board.PendingSend(id: "e", text: "v", at: Date()); e.state = .keptUndelivered(at: "T", note: Board.failedWords)
+        var f = Board.PendingSend(id: "f", text: "u", at: Date()); f.state = .keptUndelivered(at: "T", note: "Waiting to send")
+        check(Board.failedPendingIDs([a, b, c, d, e, f]) == ["a", "b", "e"],
+              "refused, unanswered and Not sent are failed; not confirmed, sending and held to send are not")
+        check(Board.failedPendingIDs([]).isEmpty, "CONTROL: nothing pending, nothing failed")
+    }
     check(Board.notSentLine(agentRunning: true, name: "Dana") == ("Not sent. Tap to try again.", true)
           && Board.notSentLine(agentRunning: false, name: "Dana") == ("Not sent. Dana isn't running on your computer.", false),
           "the spec's not-sent line, with no retry while the agent is not running")

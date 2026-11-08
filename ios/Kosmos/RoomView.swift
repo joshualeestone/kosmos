@@ -346,7 +346,9 @@ struct RoomView: View {
         }
         // Handed-back words go in when they arrive, if the box is empty then (the board's restoreUnsent); otherwise they
         // wait for the room's next opening, never for the box to empty (that is the moment Post is pressed).
-        .onChange(of: store.returned[project.id]) { _ in takeReturned() }
+        // kosmos#8246: words handed back because the computer refused the post get the error buzz; a post not confirmed
+        // (it may have gone) stays silent, as a not-sure answer does in a chat.
+        .onChange(of: store.returned[project.id]) { r in if visible, r?.refused == true { Haptics.failed() }; takeReturned() }
         // A not-confirmed post the room now shows kept: a box still holding exactly its words is cleared.
         .onChange(of: store.kept[project.id]) { _ in applyKept() }
         .onChange(of: draft) { _ in keepDraft() }
@@ -1665,6 +1667,7 @@ struct RoomView: View {
         draft = ""; replying = nil; replyMention = nil
         if searching { sentWhileSearching = true }
         hiddenBySearch = false   // the post is the newest thing to say
+        Haptics.sent()   // kosmos#8246, as a chat's send
         Task { await store.post(text, to: project.id, replyTo: reply, files: files) }
     }
 }

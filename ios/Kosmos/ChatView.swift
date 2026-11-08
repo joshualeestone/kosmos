@@ -16,6 +16,9 @@ struct ChatView: View {
     // kosmos#7034 reviews 1-2: the width the chat is laid out in, measured (it already leaves out a landscape notch's
     // margins, and it changes only once a rotation has happened), for the header title's cap.
     @State private var contentWidth: CGFloat = UIScreen.main.bounds.width
+    // kosmos#8246: the failed sends already seen here, so only a send that fails while the chat is open buzzes.
+    @State private var failedSeen: Set<String> = []
+    @State private var failedSeenFor = ""   // the agent `failedSeen` was read for: another agent's set never counts as new
     @State private var infoOpen = false
     #if DEBUG
     static var sampleInfoOpened = false
@@ -361,6 +364,15 @@ struct ChatView: View {
         .background(NavigationLink(isActive: $infoOpen, destination: {
             AgentInfoView(client: client, agent: agent, openOnBoard: openOnBoard)
         }, label: { EmptyView() }).hidden())
+        // kosmos#8246: a message the computer refused, or that got no answer, buzzes once as it fails (a retry that fails
+        // again buzzes again); "not confirmed" stays silent. Only the chat on screen buzzes (the same agent can be open
+        // under two tabs); the set is kept current either way, seeded as the chat shows, and never compared across agents.
+        .onChange(of: Board.failedPendingIDs(pending)) { now in
+            if visible, failedSeenFor == agent.session, !now.subtracting(failedSeen).isEmpty { Haptics.failed() }
+            failedSeen = now; failedSeenFor = agent.session
+        }
+        // A chat that changes agent in place starts from the new agent's failures (either order with the watch is safe).
+        .onChange(of: agent.session) { s in failedSeen = Board.failedPendingIDs(pending); failedSeenFor = s }
         #if DEBUG
         // KOSMOS_SAMPLE_INFO=profile|ai|files with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
         .onAppear {
@@ -374,6 +386,7 @@ struct ChatView: View {
         }
         #endif
         .onAppear {
+            failedSeen = Board.failedPendingIDs(pending); failedSeenFor = agent.session   // kosmos#8246
             visible = true
             // kosmos#7420 review 1 and 2: the record starts with this chat's first showing (a return from the info page keeps
             // what came before), and a list blank from its first draw is checked too, since no row ever leaves it.
@@ -1900,7 +1913,7 @@ struct ChatView: View {
             PermissionCard(permission: p, allow: card.allow, deny: card.deny, more: card.more,
                            mainState: choicesState(choices, among: [card.allow, card.deny], .main(allow: p.allow, deny: p.deny)),
                            moreState: choicesState(choices, among: card.more, .more),
-                           widthShare: widthShare, press: { press($0, choices) })
+                           widthShare: widthShare, press: { press($0, choices, decided: $0.n == card.allow.n || $0.n == card.deny.n) })
         } else {
             QuestionBubble(text: row.text, options: choices.options, state: choicesState(choices, among: choices.options, .plain),
                            widthShare: widthShare, press: { press($0, choices) })
@@ -1915,7 +1928,8 @@ struct ChatView: View {
                                   answered: answered, armedN: armedN, unsure: unsureKey == c.key)
     }
 
-    private func press(_ option: Board.ChoiceOption, _ choices: Board.Choices) {
+    // kosmos#8246: `decided` is an Allow or Deny on a request's card; it taps once the answer goes, not on the arming press.
+    private func press(_ option: Board.ChoiceOption, _ choices: Board.Choices, decided: Bool = false) {
         switch Board.armStep(armed, option: option, key: choices.key, now: Date()) {
         case .ignore:
             return
@@ -1938,9 +1952,9 @@ struct ChatView: View {
             // Why it did not go, or that it may have gone, goes on the conversation's own line, which stays when the
             // next read draws another question or none (the board's d-say-msg); a sure press clears it.
             switch result {
-            case .sent: pressLine = nil
+            case .sent: pressLine = nil; if decided { Haptics.decided() }   // kosmos#8246: once it went, not on the press
             case .notSure(let text): pressLine = text; unsureKey = choices.key
-            case .refused(let text): pressLine = text
+            case .refused(let text): pressLine = text; Haptics.failed()   // kosmos#8246
             }
             pressLineKey = choices.key
             if result.mayHaveSent { redraw(after: BoardClient.answeredLock) }
@@ -2031,6 +2045,7 @@ struct ChatView: View {
             retrySettling.remove(at)
             guard let out = answer else { return }
             if out.refused {
+                Haptics.failed()   // kosmos#8246: a row's Try again refused is a message that did not send
                 // The same refusal twice does not change the line, so it would not be heard again: say it.
                 if composerNote == out.said { UIAccessibility.post(notification: .announcement, argument: out.said) }
                 composerNote = out.said
@@ -2396,6 +2411,7 @@ struct ChatView: View {
         // A press in the air: the words wait in the box, and the line says why (dmChoiceBlocksSend).
         if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
         composerNote = nil
+        Haptics.sent()   // kosmos#8246: taps once past this view's guards; a press in the air or nothing to send taps nothing
         if trayOpen { PhotoTrayMotion.change(overKeyboard: false) { trayOpen = false } }   // kosmos#8045: sent, back to reading
         dictation.stop()   // kosmos#7268 review 1: before the box is cleared, so no late result brings the words back
         // The composer line goes on the next send or press (Mona Lisa's spec, section 1).
@@ -2418,6 +2434,7 @@ struct ChatView: View {
                 // kosmos#7348: a failed send puts its words back on purpose. Only this send's guard goes: a later send's
                 // stays (review).
                 if lastSent?.text == text { lastSent = nil }
+                Haptics.failed()   // kosmos#8246: the client's own guard kept it back (it never went)
                 if draftText.isEmpty { draftText = text; if replying == nil { replying = answering } }
                 if uploadingHere > 0 { composerNote = Board.stillAddingLine }
             }

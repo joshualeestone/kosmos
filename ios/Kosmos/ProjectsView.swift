@@ -87,7 +87,8 @@ final class RoomStore: ObservableObject {
     @Published private(set) var notes: [String: String] = [:]
     // Words a post that did not go hands back to the box, by project, kept here (the board's PJ_ROOM_DRAFTS) so they
     // survive leaving the room before the answer comes; the room takes them when its box is empty.
-    struct Returned: Equatable { let text: String; let replyTo: Board.RoomRow?; let pendingId: String }
+    // kosmos#8246: `refused` when the computer said no; a post not confirmed (it may have gone) is not.
+    struct Returned: Equatable { let text: String; let replyTo: Board.RoomRow?; let pendingId: String; var refused = false }
     @Published private(set) var returned: [String: Returned] = [:]
     // The words of a not-confirmed post the room now shows as kept: a box still holding exactly them is cleared, so
     // the same post is not sent twice (the board's pend.onKept).
@@ -433,7 +434,9 @@ final class RoomStore: ObservableObject {
             guard let i = pending[project]?.firstIndex(where: { $0.id == item.id }) else { return }
             pending[project]?[i].line = Board.roomPostLine(result)
             if case let .refused(because) = result { notes[project] = because } else { notes[project] = Board.roomUnsureLine }
-            returned[project] = Returned(text: item.text, replyTo: replyTo, pendingId: item.id)
+            var back = Returned(text: item.text, replyTo: replyTo, pendingId: item.id)
+            if case .refused = result { back.refused = true }
+            returned[project] = back
         }
     }
 

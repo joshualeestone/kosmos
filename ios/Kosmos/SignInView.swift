@@ -8,10 +8,20 @@ import AuthenticationServices
 // step to set up) goes to the web sign-in page (`useWeb`) with one line saying why.
 @MainActor
 final class SignInModel: ObservableObject {
-    @Published var step: SignIn.Step = .email
+    // kosmos#8246: the Mac saying no is a refusal too (it sets no error line). Counted when the step becomes
+    // .denied(asking: false), the Mac's own no; .denied(asking: true) still waits on a fresh Allow (SignIn.Step), so it is
+    // not a refusal yet.
+    @Published var step: SignIn.Step = .email {
+        didSet { if step == .denied(asking: false), oldValue != .denied(asking: false) { failures += 1 } }
+    }
     @Published var email = ""
     @Published var code = ""
-    @Published var error: String?
+    // kosmos#8246: every message written into the error line counts (refusals, an unreachable service, and the person's
+    // own input checks), the same words twice included (a value watch would miss the second); the person cancelling the
+    // passkey prompt themselves does not.
+    @Published var error: String? { didSet { if let e = error, e != SignIn.passkeyWords.notUsed { failures += 1 } } }
+    /// kosmos#8246: how many sign-in failures this screen has had; SignInView buzzes on each.
+    @Published var failures = 0
     @Published var busy = false
     /// kosmos#7045: Kosmos+ offered this address its company's own sign-in beside the code (a link on the code step).
     @Published private(set) var companyURL: URL?
@@ -447,6 +457,8 @@ struct SignInView: View {
             }
             .scrollDismissesKeyboard(.interactively)
         }
+        // kosmos#8246: the iPhone's error pattern on each sign-in failure SignInModel counts.
+        .onChange(of: model.failures) { _ in Haptics.failed() }
         // Josh 2026-11-06 18:18: the desktop first run's floating dots behind it (FloatingDots.swift).
         .background(ZStack { Palette.ground; FloatingDots() }.ignoresSafeArea())
     }
