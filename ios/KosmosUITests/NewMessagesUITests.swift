@@ -21,6 +21,10 @@ final class NewMessagesUITests: XCTestCase {
         return app
     }
 
+    private static func message260(_ app: XCUIApplication) -> XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
+    }
+
     private static func capsule(_ app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'New messages'")).firstMatch
     }
@@ -55,6 +59,13 @@ final class NewMessagesUITests: XCTestCase {
     private func checkCapsule(_ app: XCUIApplication, shot: String) {
         let capsule = Self.capsule(app)
         XCTAssertTrue(capsule.waitForExistence(timeout: 20), "no New messages capsule for a reader higher up as messages arrived")
+        // Still higher up: an older message is on screen, and neither Message 260 nor the newest arrival is.
+        let header = app.navigationBars.firstMatch.frame.maxY
+        let older = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label CONTAINS ' of 260.'"))
+            .allElementsBoundByIndex.filter { $0.isHittable && $0.frame.minY > header && !$0.label.hasPrefix("Message 260 ") }
+        guard let held = older.first else { XCTFail("no older message on screen while the capsule shows"); return }
+        let heldRow = app.staticTexts[held.label]
+        XCTAssertFalse(Self.message260(app).isHittable, "Message 260 is on screen: the reader was pulled down to the newest message")
         let shownNewest = Self.newestGrown(app)
         XCTAssertFalse(shownNewest?.element.isHittable ?? false,
                        "New message \(shownNewest?.n ?? 0) is on screen: the reader was pulled down to the newest message")
@@ -64,10 +75,11 @@ final class NewMessagesUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 5), .completed, "the capsule stayed after it was pressed")
         guard let (n, e) = Self.arrival(after: 0, app, timeout: 5) else { XCTFail("no arrival drawn after the capsule was pressed"); return }
         XCTAssertTrue(e.isHittable, "New message \(n), the newest, is not on screen after the capsule was pressed")
+        XCTAssertFalse(heldRow.exists && heldRow.isHittable, "'\(held.label)' is still on screen: the press did not move the reader")
         let after = XCTAttachment(screenshot: app.screenshot()); after.name = shot + "-pressed"; after.lifetime = .keepAlways; add(after)
         guard let (m, f) = Self.arrival(after: n, app, timeout: 20) else { XCTFail("CONTROL: no later message arrived after the capsule was pressed"); return }
         XCTAssertTrue(f.isHittable, "New message \(m) arrived after the capsule was pressed and is not on screen")
-        XCTAssertFalse(capsule.exists, "the capsule came back for a reader at the newest message")
+        XCTAssertFalse(capsule.waitForExistence(timeout: 6), "the capsule came back for a reader at the newest message")
     }
 
     func testAReaderHigherUpGetsTheCapsuleAndItTakesThemToTheNewest() {

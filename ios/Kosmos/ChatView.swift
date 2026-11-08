@@ -85,10 +85,14 @@ struct ChatView: View {
     // kosmos#7420: KOSMOS_SAMPLE_NOREBUILD=1 (Debug) is the control: the recovery never rebuilds. Release reads false.
     #if DEBUG
     static let sampleNoRebuild = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOREBUILD"] == "1"
-    // kosmos#8221: KOSMOS_SAMPLE_SCROLLUP for the UIKit list (conversationUIKit), read once.
-    static let sampleScrollUp = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLUP"].flatMap(Int.init) ?? 0
     #else
     static let sampleNoRebuild = false
+    #endif
+    // kosmos#8221: KOSMOS_SAMPLE_SCROLLUP for the UIKit list (conversationUIKit), read once. Release reads 0.
+    #if DEBUG
+    static let sampleScrollUp = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLUP"].flatMap(Int.init) ?? 0
+    #else
+    static let sampleScrollUp = 0
     #endif
     // kosmos#7265 (Josh 10-27): the id of the first eager row, fixed when the conversation is first drawn (eagerStart).
     @State private var eagerFrom: String?

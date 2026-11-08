@@ -64,9 +64,11 @@ struct ChatList: UIViewRepresentable {
         #if DEBUG
         // kosmos#8221 slice 2: KOSMOS_SAMPLE_SCROLLUP on this list, a fixed place to start a check from. It sets atEnd itself
         // and skips the scroll delegate, so it does not test how a person's scroll decides atEnd (NewMessagesUITests' drag
-        // check does). atEnd is set before the scroll, so the layout the scroll causes cannot pin the list back to the end;
-        // the rested call then needs no wait for the end to leave (unlike the lazy list's sampleScrollRest).
+        // check does). atEnd is set before the scroll, so the layout the scroll causes cannot pin the list back to the end.
+        // Once a launch: a list made while the first one's scroll is waiting schedules its own, and whichever fires second
+        // does nothing.
         func sampleScrollUp(_ id: String, rested: (() -> Void)?) {
+            guard !ChatList.sampleUpDone else { return }
             guard let list, let source, let ip = source.indexPath(for: id) else {
                 ChatView.trace("uikit list: debug scroll-up found no row \(id)"); return
             }
