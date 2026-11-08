@@ -21220,6 +21220,7 @@ const server = http.createServer(async (req, res) => {
            gone, as #5943 says of its note). Marked answered only once the message carrying it is placed. */
         const holdtold = require('./engine/holdtold');
         const holdAnswered = !automatic && chat.dmNoteMayRide(body.text, chose) ? holdtold.noteAnswered({ via: 'reply', to: name, text: body.text }) : [];
+        const holdAnsweredAt = Date.now();   // round 3: before the awaited send, so an ask made during it stays newer than this answer
         const holdNote = holdtold.clauseFor(holdAnswered, name);
         const reactionNote = news.note + questionNote + holdNote;
         /* #4256: the quote is Kosmos's framing, so it rides in the ENVELOPE, after the operator's bracket: the
@@ -21493,7 +21494,7 @@ const server = http.createServer(async (req, res) => {
         }
         if (questionAsk && delivery && delivery.state === chat.DELIVERY.PLACED) chat.markDmQuestionTold(askingCard.sessionName, questionAsk);   // #5943: once per ask
         // kosmos#8259: only a message typed now carried the hold note; a kept one did not, so the answer stays open for the next.
-        if (holdAnswered.length && delivery && delivery.state === chat.DELIVERY.PLACED) holdtold.markAnswered(holdAnswered);
+        if (holdAnswered.length && delivery && delivery.state === chat.DELIVERY.PLACED) holdtold.markAnswered(holdAnswered, holdAnsweredAt);
         if (retryOf !== null) {
           /* kosmos#6720: the same row, its new verdict. Not written (the thread busy past its lock wait) is said, as
              the append's own failure is: the agent may have it while the row still reads failed. */
@@ -26742,6 +26743,7 @@ const server = http.createServer(async (req, res) => {
            answers the hold, and each holder's line says to take it off hold if it does. Best-effort, after the record. */
         const holdtold = require('./engine/holdtold');
         let answered = [];
+        const answeredAt = Date.now();   // round 3: before the awaited deliveries, as the room passes its post's own time
         if (viaScreen) answered = holdtold.noteAnswered({ via: 'task', projectId: id, task: t.number });
         else if (senderCard && senderCard.sessionName) holdtold.noteTold(senderCard.sessionName, { via: 'task', projectId: id, task: t.number });
         /* #7408 review 5: counted as soon as it is recorded, before any delivery is awaited, so sends that arrive
@@ -26830,7 +26832,7 @@ const server = http.createServer(async (req, res) => {
         }
         /* kosmos#8259: the person's words are in the task's record whoever was reached, so the hold reads answered; the
            clause rides only lines typed now, never one kept to be typed later (by then the hold may be gone). */
-        holdtold.markAnswered(answered);
+        holdtold.markAnswered(answered, answeredAt);
         const finalWord = !viaScreen && senderCard ? taskFinalWordHint(t, senderCard.sessionName, id, byKey) : '';   // #6066
         sendJson(res, 200, { ok: true, delivered, ...(body.to !== undefined ? { to: toNames } : {}),
           // #7408 review 1: a sender that named only itself on a task nobody holds hears "Nobody is assigned", not "Nobody else".

@@ -117,7 +117,37 @@ test('round 2: a clause names at most CLAUSE_SHOWN holds and counts the rest', (
   assert.match(c, / and 12 more on hold/);
   assert.match(c, /the rest: kosmos task list/);
   assert.ok(c.length < 400, 'bounded: ' + c.length);
+  // Round 3: with an 80-character id and long names it is still bounded (each name is cut at 80 characters).
+  const long = Array.from({ length: 15 }, (_, i) => ({ projectId: 'p'.repeat(80), project: 'A long project name '.repeat(10), n: 1000000 + i, holders: ['a'] }));
+  const cl = holdtold.clauseFor(long, 'a');
+  assert.equal((cl.match(/kosmos task unhold/g) || []).length, holdtold.CLAUSE_SHOWN);
+  assert.ok(cl.length < 900, 'bounded with long names: ' + cl.length);
   assert.doesNotMatch(holdtold.clauseFor(xs.slice(0, 3), 'a'), /more/, 'CONTROL: three are all named');
+});
+
+test('round 3: an answer naming the task prompts even after an earlier answer, with no new tell between', () => {
+  const p = projects.create({ name: 'Named ' + (++seq), agents: ['kim'] });
+  const t = tasks.create(p.id, { sentence: 'price', who: 'kim' });
+  tasks.setOnHold(p.id, t.number, true, { forPerson: true });
+  holdtold.noteTold('kim', { via: 'room', projectId: p.id, text: '#' + t.number + ': need your yes', at: Date.now() - 3000 });
+  const first = holdtold.noteAnswered({ via: 'room', projectId: p.id, text: 'morning all' });
+  assert.equal(first.length, 1);
+  holdtold.markAnswered(first, Date.now() - 2000);
+  assert.deepEqual(holdtold.noteAnswered({ via: 'room', projectId: p.id, text: 'lunch?' }), [], 'CONTROL: unnamed and answered: quiet');
+  assert.equal(holdtold.noteAnswered({ via: 'room', projectId: p.id, text: '#' + t.number + ': yes, 40' }).length, 1, 'named: it answers');
+  holdtold.noteTold('kim', { via: 'reply', text: 'task ' + t.number + '?', at: Date.now() - 1000 });
+  holdtold.markAnswered(holdtold.noteAnswered({ via: 'reply', to: 'kim', text: 'hm' }), Date.now() - 500);
+  assert.equal(holdtold.noteAnswered({ via: 'reply', to: 'kim', text: 'task ' + t.number + ': yes' }).length, 1, 'directly too');
+});
+
+test('round 3: task show gives the latest ask, not the first', () => {
+  const tasklist = require('./tasklist');
+  const { id, n } = held();
+  holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, at: '2026-01-02T10:00:00.000Z' });
+  holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, at: '2026-03-04T10:00:00.000Z' });
+  const out = tasklist.showLines({ tasks: [{ ...read(id, n), projectId: id, isClosed: false }] }, n, id).lines.join('\n');
+  assert.match(out, /you told them 2026-03-04/);
+  assert.doesNotMatch(out, /2026-01-02/);
 });
 
 test('round 2: a drained reply with an old send time never moves the marks back in time', () => {
@@ -205,7 +235,7 @@ test('the marks go with the hold: off, unmarked, closed, newly marked or a new r
   assert.deepEqual(has(tasks.close(d.id, d.n)), []);
 });
 
-test('the person in the task\'s conversation answers every time; directly or in the room, once per tell', () => {
+test('the person in the task\'s conversation, or naming the task, answers every time; otherwise once per tell', () => {
   const { id, n, name } = held();
   const inTask = holdtold.noteAnswered({ via: 'task', projectId: id, task: n });
   assert.deepEqual(inTask, [{ projectId: id, project: name, n, holders: ['leo'] }]);
@@ -218,7 +248,9 @@ test('the person in the task\'s conversation answers every time; directly or in 
   const once = holdtold.noteAnswered({ via: 'room', projectId: r.id, text: 'for #' + r.n + ': yes', to: ['leo', 'mara'] });
   assert.equal(once.length, 1);
   holdtold.markAnswered(once);
-  assert.deepEqual(holdtold.noteAnswered({ via: 'room', projectId: r.id, text: 'and #' + r.n + ' again' }), []);
+  // Round 3: naming the task always answers it; a post naming nothing, after the answer, does not.
+  assert.equal(holdtold.noteAnswered({ via: 'room', projectId: r.id, text: 'and #' + r.n + ' again' }).length, 1);
+  assert.deepEqual(holdtold.noteAnswered({ via: 'room', projectId: r.id, text: 'thanks all' }), [], 'not told in the room and not named');
   // Room, told there: the next post of the person's answers it even with no number.
   const rt = held();
   holdtold.noteTold('leo', { via: 'room', projectId: rt.id, text: '#' + rt.n + '?' });
@@ -241,7 +273,7 @@ test('clauseFor: one sentence for the holder it names, nothing for anyone else, 
   const one = [{ projectId: 'fleet', project: 'Fleet "x"', n: 12, holders: ['leo'] }];
   const c = holdtold.clauseFor(one, 'leo');
   assert.match(c, /^ \[kosmos\] you have task #12 in Fleet x on hold waiting on this person\./);
-  assert.match(c, /kosmos task unhold fleet 12\./);
+  assert.match(c, /kosmos task unhold fleet 12\. If it does not, tell them what you still need, and say task 12 when you do\.$/);
   assert.doesNotMatch(c, /"/);
   assert.equal(holdtold.clauseFor(one, 'mara'), '');
   assert.equal(holdtold.clauseFor([], 'leo'), '');
