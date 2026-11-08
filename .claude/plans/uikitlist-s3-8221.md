@@ -16,10 +16,12 @@ check that passes either way is labelled a regression guard, not evidence for th
     and on the next layout that finds none. Also dropped whenever the reader is at the newest.
   - A status-bar tap is handled like the end of any scroll, but not checked: the composer is a scroll view too, and
     whether iOS sends the tap to this list was not measured.
-  - Held in `laidOut()`: after every layout that is not under the person's finger or fling AND finds the list at rest
-    (the same offset as at the end of the last layout or scroll), the held row is put back at its distance, clamped to the
-    list's range. The rest rule is why a scroll with no finger on it is not stopped short: a hold during it would set the
-    offset and end the animation (seen once before the rule: 228 of 300 pt in a full NewMessages run). A hold that lands
+  - Held in `laidOut()`: after every layout that is not under the person's finger or fling AND finds the list not moving,
+    the held row is put back at its distance, clamped to the list's range. Moving: within 0.25 s of an offset change that
+    is not the list's own, until a scroll reports its end. While moving, no place is taken (here or in `apply()`) and none
+    is held, because a hold sets the offset and would end an animated scroll there (seen once: 228 of 300 pt in a full
+    NewMessages run). Review iterations 3 to 7 went through two weaker forms of this rule (same offset two layouts
+    running), which a busy chat's updates inside an animation could still defeat. A hold that lands
     within endSlack of the end makes the reader at the newest. The at-the-newest pin is unchanged and still wins when atEnd.
   - In `apply()`: when there is no place, or the held row is about to be removed (the window sliding,
     KOSMOS_SAMPLE_NOKEEP), the next row on screen that stays is taken from the rows as drawn before the change.
@@ -31,6 +33,8 @@ check that passes either way is labelled a regression guard, not evidence for th
     the phone, so no row leaves above the reader; a regression guard.
   - testAReaderHigherUpKeepsTheirPlaceAsRowsLeaveTheTop: the same with KOSMOS_SAMPLE_NOKEEP=1 (carryDropped off), so every
     read takes the oldest row off the top. The check for this slice.
+  - testAScrollWithNoFingerMovesAReaderHigherUpAsRowsLeaveTheTop: the SCROLLBY check under NOKEEP, so updates land
+    around the scroll. Whether one lands inside the animation is chance; it does not force that case.
   - testAReaderWhoDraggedUpKeepsTheirPlaceAsRowsLeaveTheTop: the same, the reader moved up by a real drag, so the place is
     taken at the end of the person's own scroll (review iteration 5: the rest reference was stale after a drag).
 
