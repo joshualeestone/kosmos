@@ -401,3 +401,68 @@ test('kosmos#8165: the covered line carries no bidirectional mark or override fr
   assert.doesNotMatch(line, /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u, JSON.stringify(line));
   assert.match(line, /please answer this/);
 });
+
+/* kosmos#4926 (11-07, the live check on 0.7.96): a held ask that was told later used to stay listed for good after an
+   uncited answer, because its row keeps `held`. It now counts from the moment it reached the reader. */
+const roomhold = require('./engine/roomhold');
+const heldAsk = (project) => ask(project, { outcomes: { [WHO]: roomhold.HELD } });
+
+test('a held ask told before the reader posted moves to the covered line; told after, it stays listed', async () => {
+  const pid = newRoom('Told4926a');
+  const a = heldAsk(pid);
+  roomhold.noteTold(WHO, pid, [a], clock + 500);
+  const mine = own(pid);
+  const t = await unanswered(pid);
+  assert.ok(!listed(t, a), 'a held ask told before the post is still listed:\n' + t);
+  assert.ok(onCovered(t).includes('[' + a + '] (your [' + mine + '])'), t);
+  const pid2 = newRoom('Told4926b');
+  const b = heldAsk(pid2);
+  own(pid2);
+  roomhold.noteTold(WHO, pid2, [b], clock + 500);
+  const t2 = await unanswered(pid2);
+  assert.ok(listed(t2, b), 'a post made before the telling covered the held ask:\n' + t2);
+  assert.equal(onCovered(t2), '');
+});
+
+test('CONTROL: a held ask never told stays listed after an uncited post, as before', async () => {
+  const pid = newRoom('Told4926c');
+  const a = heldAsk(pid);
+  own(pid);
+  const t = await unanswered(pid);
+  assert.ok(listed(t, a), t);
+  assert.equal(onCovered(t), '');
+});
+
+test('the reader\'s own read that shows a held post records it as told, so a later post covers it', async () => {
+  const pid = newRoom('Told4926d');
+  const a = heldAsk(pid);
+  const quiet = post(pid, { outcomes: { [WHO]: roomhold.QUIET } });
+  const before = Date.now();
+  await read(pid);
+  const told = roomhold.toldIn(WHO, pid);
+  assert.ok(told.get(a) >= before, 'the read did not record the held post it showed');
+  assert.equal(told.has(quiet), false, 'a quiet post was recorded as a held one told');
+  const mine = own(pid, { at: new Date(Date.now() + 5000).toISOString() });
+  const t = await unanswered(pid);
+  assert.ok(!listed(t, a), t);
+  assert.ok(onCovered(t).includes('[' + a + '] (your [' + mine + '])'), t);
+});
+
+test('a read without the reader\'s own token records nothing', async () => {
+  const pid = newRoom('Told4926e');
+  const a = heldAsk(pid);
+  await read(pid, '', {});
+  assert.equal(roomhold.toldIn(WHO, pid).has(a), false);
+  // CONTROL: the same read with the token does record it.
+  await read(pid);
+  assert.equal(roomhold.toldIn(WHO, pid).has(a), true);
+});
+
+test('kosmos room says the same under a held ask told before the reader posted', async () => {
+  const pid = newRoom('Told4926f');
+  const a = heldAsk(pid);
+  roomhold.noteTold(WHO, pid, [a], clock + 500);
+  const mine = own(pid);
+  const t = await read(pid, '&n=40');
+  assert.ok(t.includes('you posted [' + mine + '] after [' + a + '] without citing it'), t);
+});
