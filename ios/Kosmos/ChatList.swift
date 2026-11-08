@@ -52,12 +52,11 @@ struct ChatList: UIViewRepresentable {
             if atEnd != oldValue { let v = atEnd; DispatchQueue.main.async { [weak self] in self?.told?(v) } }
         } }
         var pinning = false
-        // A reader higher up: the highest row on screen and how far below the top of the list it is drawn. Held through every
-        // change; dropped whenever the list is scrolled (by the person, by code, or by iOS itself, such as VoiceOver's page
-        // scroll), and taken again on the next layout once nobody is scrolling.
+        // A reader higher up: the highest row on screen and how far below the top of the list it is drawn. Dropped when the
+        // offset moves other than by this list's own pin, hold, layout pass or update (scrollViewDidScroll).
         var place: (id: String, dy: CGFloat)?
-        // The offset at the end of the last layout. A place is taken only where the list has come to rest (the same offset two
-        // layouts running, or the end of a scroll): taken mid-scroll, the hold would set the offset and stop the scroll there.
+        // The offset at the end of the last layout. The place is taken and held only where the list is at rest (the same
+        // offset two layouts running): a hold during a scroll would set the offset and stop the scroll there.
         var lastY: CGFloat?
         func resting(_ list: UIScrollView) -> Bool { lastY.map { abs($0 - list.contentOffset.y) <= 0.5 } ?? false }
 
@@ -149,8 +148,8 @@ struct ChatList: UIViewRepresentable {
         // A reader higher up put back where they were: the held row at its old distance below the top of the list, within the
         // list's own range. A held row that is gone leaves the offset as it is until the next place is taken.
         func hold() {
-            guard let list, let source, let p = place, let ip = source.indexPath(for: p.id),
-                  let a = list.layoutAttributesForItem(at: ip) else { return }
+            guard let list, let source, let p = place else { return }
+            guard let ip = source.indexPath(for: p.id), let a = list.layoutAttributesForItem(at: ip) else { place = nil; return }
             let y = min(max(a.frame.minY - p.dy, -list.adjustedContentInset.top), maxY(list))
             guard abs(list.contentOffset.y - y) > 0.5 else { return }
             pinning = true
@@ -163,7 +162,7 @@ struct ChatList: UIViewRepresentable {
         func laidOut() {
             guard let list, !pinning else { return }
             guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
-            if atEnd { pin() } else if place == nil { if resting(list) { place = top() } } else { hold() }
+            if atEnd { pin() } else if resting(list) { if place == nil { place = top() } else { hold() } }
             lastY = list.contentOffset.y
         }
 
@@ -200,7 +199,7 @@ struct ChatList: UIViewRepresentable {
             }
             let kept = Set(now)
             // A reader higher up whose top row is about to go holds the next row on screen that stays, as it is drawn now.
-            let heldGoes = place.map { !kept.contains($0.id) } ?? (list.map(resting) ?? false)
+            let heldGoes = place.map { !kept.contains($0.id) } ?? true
             if !atEnd, heldGoes { place = top(keep: kept) }
             let again = shown.filter { kept.contains($0) }
             if !again.isEmpty { s.reconfigureItems(again) }
