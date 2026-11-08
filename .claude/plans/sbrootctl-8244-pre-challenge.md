@@ -2,15 +2,23 @@
 pre_challenge: true
 method: challenge-loop
 branch: sbrootctl-8244
-diff_hash: 18d49ab2b5177ac81066aba32ecdc42c3056fbad1a45178b9199762ddfe13b79
+diff_hash: 2c706878ca1c8d785d1751e28a742e89cdb25cf0b61e4826b08e1c502593db28
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-08T14:28:54Z
+timestamp: 2026-11-08T15:54:27Z
 iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
+
+**Update 2026-11-08 15:54Z: the unpin is backed out of this PR.** PR #8248's CI ran both Linux shards on
+ubuntu-26.04: tools/test-install-sbroot-6275.sh PASSED there (the negative control caught the revert), but another test,
+tools/test-light-side-4911.sh, failed on 26.04 only (#8250, PigeonPete). As the plan said, the PR was not widened: the
+unpin commit is reverted, and the branch now carries step 2 alone. The sbroot test is byte-identical to the version
+iteration 4 reviewed (c05d537deb); the workflow files equal origin/main's (pinned). Validation of this diff: full suite,
+28102 tests, 0 failures (validation-log hash 2c706878ca1c); a first run had one contention red
+(server.slowrequest-runner-8191, green alone 3/3). The unpin follows #8250 in its own PR.
 
 **Iterations:** 4 (iterations 1-2 on step 2 alone; 3-4 on the whole branch after the rebase and the unpin)
 **Converged:** Yes
