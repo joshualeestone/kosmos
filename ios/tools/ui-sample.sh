@@ -4,7 +4,7 @@
 # room opening on its newest post (RoomOpensAtNewestUITests, #7654), the x on an add (StopAddingUITests, #7682) and the
 # keyboard in that long room (RoomKeyboardUITests, #7690), and the launch screen's hand-over to the Connecting wait
 # (LaunchHandoverUITests, #7945), and a sent message settling without a step (SendMovesOnceUITests, #7348).
-# Run by the ios workflow's "ui tests (sample board)" job and by
+# Run by the ios workflow's "ui tests (sample board)" job, with --uikit by its "uikit list (sample board)" job, and by
 # hand. Prints PASS, or FAIL with the failing check's own words.
 #
 #
@@ -12,8 +12,9 @@
 #
 # --uikit (kosmos#8221): the same run on the UIKit chat list (TEST_RUNNER_KOSMOS_UIKITLIST=1), the list a phone does not draw
 # yet. Only the CI-sized classes that switch lists: KeyboardSlideUITests less its three rebuild checks (the UIKit list never
-# rebuilds, so they skip), StopAddingUITests, SendMovesOnceUITests and ComposerSendUITests. The 260-message classes
+# rebuilds, so they are left out), StopAddingUITests, SendMovesOnceUITests and ComposerSendUITests. The 260-message classes
 # (ChatOpensAtNewest, NewMessages, ChatSearch, ChatDrag) stay by hand on a Mac, for the reason ChatOpensAtNewest does below.
+# Two of its checks open a project room, which draws the same either way: 12 of the 14 reach the UIKit list.
 #
 # The newest iOS runtime the selected Xcode's simulator SDK can run, and the smallest iPhone it offers (the least room above the keyboard). The simulator is
 # new for each run and deleted at the end, and so are the build and the results (--keep keeps them). SignInUITests is left

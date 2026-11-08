@@ -21,8 +21,10 @@ so a change could break it with every check green.
    StopAddingUITests:2, SendMovesOnceUITests:3, ComposerSendUITests:3. The first output line names the arm.
 2. .github/workflows/ios.yml: job `uikit`, "uikit list (sample board)", beside `ui`, running `ui-sample.sh --uikit`, with
    its own failed-result artifact.
-3. ios/tools/ui-flaky-count.sh: select the job by its exact name, "ui tests (sample board)", instead of test("ui tests"),
-   so a second ui job can never be the one it reads (head -1 took the first match).
+3. ios/tools/ui-flaky-count.sh: select the job by its exact name, "ui tests (sample board)" by default, instead of
+   test("ui tests"), so a second ui job can never be the one it reads (head -1 took the first match). A second argument
+   names another job, so `ui-flaky-count.sh 10 "uikit list (sample board)"` counts the UIKit job's flakes.
+4. Comments naming who runs the arm: UIKitListArm.swift (said nothing ran it), KeyboardSlideUITests.swift, ui-sample.sh.
 
 ## Decided
 
@@ -32,6 +34,10 @@ so a change could break it with every check green.
   (#7609), so they stay by hand; DotsRefreshUITests, which is run by hand on the lazy arm too (#8078).
 - Rejected: keeping the rebuild checks as skips. ui-sample annotates every skip as a warning, so it would warn on every
   green run and a real new skip would not stand out.
+- Coverage, stated plainly: 2 of the 14 checks open a project room, which draws the same on either list, so 12 reach the
+  UIKit list. They stay in so each class's count matches its file.
+- Left for a card, not this slice: ComposerSendUITests is now in CI on the UIKit list only; adding it to the lazy job
+  (the shipped list) is a change to that job's scope, not to this runner.
 - Weakest premise: that CI's slower runner passes the UIKit arm as this Mac does. The first CI run on this PR is the
   measurement; a red there is a finding about the arm, not a reason to drop the job.
 - Would change my mind: the job flaking on SendMovesOnce timing (it skips itself when too slow, which ui-sample names).
@@ -44,5 +50,7 @@ so a change could break it with every check green.
 - [x] Control that the switch reaches the tests, 12:25-12:29: a throwaway copy with the three rebuild checks kept in,
       run with --uikit: 9 of 9, 3 SKIPPED with "the UIKit list never rebuilds", which only UIKitListArm.on produces.
       Without the switch reaching the test runner they would have run (and pass on the lazy list), so this can tell.
-- [ ] Lazy run unchanged (the env var is now passed as 0; UIKitListArm.on reads == "1").
+- [ ] Lazy run unchanged: by reading, the env var is now passed as 0 and UIKitListArm.on reads == "1" (so a shell that
+      exported it as 1 now gets the lazy list on a plain run, as the first line says). Measured by CI's ui job on this PR.
+- [x] ui-flaky-count.sh 2: default job 2 with a verdict; "uikit list (sample board)" 0 (it has not run on main yet).
 - [ ] CI's new job on this PR.
