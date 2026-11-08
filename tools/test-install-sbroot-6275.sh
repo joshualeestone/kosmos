@@ -10,10 +10,8 @@
 # setup.sh's KOSMOS_HOME normalization and its board label line, under TMPDIRs a cut shell can have, and compares the
 # two labels.
 #
-# Arms: each TMPDIR shape gives a $SB with no '//' and one label on both sides; so does the macOS shape under a mktemp
-# that keeps '//' as macOS's does (MACOS_MKTEMP, checked to keep it, #8244); and a REVERTED derivation (the slash
-# handling removed) is caught on the macOS shape under that same mktemp, so a clean result is not a silent instrument on
-# any platform's mktemp.
+# Arms: each TMPDIR shape gives a $SB with no '//' and one label on both sides; a REVERTED derivation (the slash handling
+# removed) is caught on the macOS shape, so a clean result is not a silent instrument.
 #
 #   bash tools/test-install-sbroot-6275.sh
 set -u
