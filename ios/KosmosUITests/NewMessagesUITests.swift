@@ -133,27 +133,51 @@ final class NewMessagesUITests: XCTestCase {
     // without slice 3's place-keeping (measured 11-08).
     func testAReaderHigherUpKeepsTheirPlaceAsRowsLeaveTheTop() { keepsPlace(["KOSMOS_SAMPLE_NOKEEP": "1"]) }
 
-    private func keepsPlace(_ env: [String: String]) {
-        var env = env; env["KOSMOS_SAMPLE_SCROLLUP"] = "40"
+    // The same, the reader moved up by a real drag (the end of the person's own scroll takes the place, not the hook).
+    func testAReaderWhoDraggedUpKeepsTheirPlaceAsRowsLeaveTheTop() { keepsPlace(["KOSMOS_SAMPLE_NOKEEP": "1"], drag: true) }
+
+    // The rows of the sample chat ("Message N of 260.").
+    private static func sampleRows(_ app: XCUIApplication) -> XCUIElementQuery {
+        app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
+    }
+
+    // Wholly between the top bar and the bottom of the screen, by frame, not isHittable: rows leave the list every read in
+    // these checks, and asking a row that is going whether it can be hit fails the check itself ("Activation point
+    // invalid", 1 of 4 runs on 11-08).
+    private static func onScreen(_ f: CGRect, _ app: XCUIApplication) -> Bool {
+        !f.isEmpty && f.minY > app.navigationBars.firstMatch.frame.maxY && f.maxY < app.frame.maxY
+    }
+
+    // The highest sample row on screen: its label and frame.
+    private static func topRow(_ app: XCUIApplication) -> (label: String, frame: CGRect)? {
+        sampleRows(app).allElementsBoundByIndex.map { ($0.label, $0.frame) }.filter { onScreen($0.1, app) }
+            .min(by: { $0.1.minY < $1.1.minY }).map { (label: $0.0, frame: $0.1) }
+    }
+
+    private func keepsPlace(_ env: [String: String], drag: Bool = false) {
+        var env = env
+        if !drag { env["KOSMOS_SAMPLE_SCROLLUP"] = "40" }
         let app = Self.launch(env)
-        let rested = app.descendants(matching: .any).matching(identifier: "sample-scroll-rested").firstMatch
-        XCTAssertTrue(rested.waitForExistence(timeout: 30), "CONTROL: the sample scroll-up never came to rest")
-        let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
-        KeyboardSlideUITests.settle(rows.firstMatch)
-        let header = app.navigationBars.firstMatch.frame.maxY
-        let bottom = app.frame.maxY
-        // By frame, not isHittable: rows leave the list every read here, and asking a row that is going whether it can be
-        // hit fails the check itself ("Activation point invalid", 1 of 4 runs on 11-08).
-        func onScreen(_ f: CGRect) -> Bool { !f.isEmpty && f.minY > header && f.maxY < bottom }
-        guard let top = rows.allElementsBoundByIndex.map({ ($0.label, $0.frame) }).filter({ onScreen($0.1) }).min(by: { $0.1.minY < $1.1.minY }) else {
-            XCTFail("no row on screen after the scroll up"); return
+        if drag {
+            XCTAssertTrue(Self.grown(app).firstMatch.waitForExistence(timeout: 20), "CONTROL: no message arrived")
+            KeyboardSlideUITests.settle(Self.grown(app).firstMatch)
+            for _ in 0..<2 {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+            }
+        } else {
+            let rested = app.descendants(matching: .any).matching(identifier: "sample-scroll-rested").firstMatch
+            XCTAssertTrue(rested.waitForExistence(timeout: 30), "CONTROL: the sample scroll-up never came to rest")
         }
-        let label = top.0
+        KeyboardSlideUITests.settle(Self.sampleRows(app).firstMatch)
+        XCTAssertFalse(Self.message260(app).isHittable, "CONTROL: the reader is still at the newest message")
+        guard let top = Self.topRow(app) else { XCTFail("no row on screen after the move up"); return }
+        let label = top.label
         let row = app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
         let y0 = row.frame.minY
         for s in 1...15 {
             Thread.sleep(forTimeInterval: 1)
-            XCTAssertTrue(row.exists && onScreen(row.frame), "after \(s) s: '\(label)', read higher up, left the screen as messages came and went")
+            XCTAssertTrue(row.exists && Self.onScreen(row.frame, app), "after \(s) s: '\(label)', read higher up, left the screen as messages came and went")
             XCTAssertEqual(row.frame.minY, y0, accuracy: 4, "after \(s) s: '\(label)' moved from \(Int(y0)) to \(Int(row.frame.minY)) as messages came and went")
         }
         XCTAssertTrue(Self.capsule(app).exists, "CONTROL: no New messages capsule, so no message arrived during the check")
@@ -161,7 +185,7 @@ final class NewMessagesUITests: XCTestCase {
     }
 
     // A scroll iOS makes itself, with no finger on the list (VoiceOver's page scroll; here KOSMOS_SAMPLE_SCROLLBY, an animated
-    // scroll by code 2 s after the scroll-up), moves a reader higher up and is not put back: the held place is dropped and
+    // scroll by code 5 s after the scroll-up), moves a reader higher up and is not put back: the held place is dropped and
     // taken again where the scroll ends. The highest row is read before the scroll and after it has come to rest, 3 s apart.
     // UIKit list only: the lazy list's scroll-up hook has no SCROLLBY.
     func testAScrollWithNoFingerMovesAReaderHigherUpAndStays() throws {
@@ -169,19 +193,16 @@ final class NewMessagesUITests: XCTestCase {
         let app = Self.launch(["KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_SCROLLBY": "300"])
         let rested = app.descendants(matching: .any).matching(identifier: "sample-scroll-rested").firstMatch
         XCTAssertTrue(rested.waitForExistence(timeout: 30), "CONTROL: the sample scroll-up never came to rest")
-        let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
-        KeyboardSlideUITests.settle(rows.firstMatch)
-        let header = app.navigationBars.firstMatch.frame.maxY
-        guard let top = rows.allElementsBoundByIndex.map({ ($0.label, $0.frame) }).filter({ !$0.1.isEmpty && $0.1.minY > header && $0.1.maxY < app.frame.maxY })
-            .min(by: { $0.1.minY < $1.1.minY }) else { XCTFail("no row on screen after the scroll up"); return }
-        let row = app.staticTexts.matching(NSPredicate(format: "label == %@", top.0)).firstMatch
-        let y0 = top.1.minY
-        Thread.sleep(forTimeInterval: 4)   // the scroll fires 2 s after the scroll-up rested and animates for under 1 s
+        KeyboardSlideUITests.settle(Self.sampleRows(app).firstMatch)
+        guard let top = Self.topRow(app) else { XCTFail("no row on screen after the scroll up"); return }
+        let row = app.staticTexts.matching(NSPredicate(format: "label == %@", top.label)).firstMatch
+        let y0 = top.frame.minY
+        Thread.sleep(forTimeInterval: 6)   // the scroll fires 4.4 s after the marker shows and animates for under 1 s
         KeyboardSlideUITests.settle(row)
         let y1 = row.frame.minY
-        XCTAssertGreaterThan(y1 - y0, 250, "'\(top.0)' moved \(Int(y1 - y0)) pt, not about 300: the scroll was put back")
+        XCTAssertGreaterThan(y1 - y0, 250, "'\(top.label)' moved \(Int(y1 - y0)) pt, not about 300: the scroll was put back")
         Thread.sleep(forTimeInterval: 3)
-        XCTAssertEqual(row.frame.minY, y1, accuracy: 4, "'\(top.0)' moved again after the scroll ended, from \(Int(y1)) to \(Int(row.frame.minY))")
+        XCTAssertEqual(row.frame.minY, y1, accuracy: 4, "'\(top.label)' moved again after the scroll ended, from \(Int(y1)) to \(Int(row.frame.minY))")
     }
 
     // The control: the same arrivals, the reader left at the newest message. Each shows, and the capsule never does, not even

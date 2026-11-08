@@ -95,10 +95,10 @@ struct ChatList: UIViewRepresentable {
             list.scrollToItem(at: ip, at: .top, animated: false)
             ChatView.trace("uikit list: debug scroll-up done")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { rested?() }
-            // KOSMOS_SAMPLE_SCROLLBY=<pt>: 2 s after the scroll-up, an animated scroll that far up the thread, made the way
+            // KOSMOS_SAMPLE_SCROLLBY=<pt>: 5 s after the scroll-up, an animated scroll that far up the thread, made the way
             // iOS makes one for VoiceOver (no finger on the list), so a check can see it is not undone.
             if let by = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLBY"].flatMap(Double.init) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
                     guard let list = self?.list else { return }
                     let y = max(-list.adjustedContentInset.top, list.contentOffset.y - CGFloat(by))
                     list.setContentOffset(CGPoint(x: 0, y: y), animated: true)
@@ -128,12 +128,13 @@ struct ChatList: UIViewRepresentable {
         func scrollViewDidEndScrollingAnimation(_ sv: UIScrollView) { scrolled(sv) }
         func scrollViewDidScrollToTop(_ sv: UIScrollView) { scrolled(sv) }
         func scrolled(_ sv: UIScrollView) {
+            lastY = sv.contentOffset.y   // where the scroll ended is a rest: the next layout holds the place taken here
             atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
             if !atEnd { place = top() }
         }
 
-        // The highest row on screen (any part of it below the top of the list) and its distance below that top, from the
-        // rows drawn now. `keep`, when given, skips rows that are not in it: a row about to go cannot hold the place.
+        // The highest row on screen (any part of it below the top of the list) and how far its top is below the list's
+        // offset, as hold() puts it back, from the rows drawn now. `keep`, when given, skips rows that are not in it: a row about to go cannot hold the place.
         func top(keep: Set<String>? = nil) -> (id: String, dy: CGFloat)? {
             guard let list, let source else { return nil }
             let edge = list.contentOffset.y + list.adjustedContentInset.top
@@ -145,8 +146,8 @@ struct ChatList: UIViewRepresentable {
             return nil
         }
 
-        // A reader higher up put back where they were: the held row at its old distance below the top of the list, within the
-        // list's own range. A held row that is gone leaves the offset as it is until the next place is taken.
+        // A reader higher up put back where they were: the held row at its old distance below the list's offset, within the
+        // list's own range. A held row that is gone drops the place. Put back as far as the end, they are at the newest.
         func hold() {
             guard let list, let source, let p = place else { return }
             guard let ip = source.indexPath(for: p.id), let a = list.layoutAttributesForItem(at: ip) else { place = nil; return }
@@ -155,13 +156,16 @@ struct ChatList: UIViewRepresentable {
             pinning = true
             list.contentOffset = CGPoint(x: 0, y: y)
             pinning = false
+            if y >= maxY(list) - ChatList.endSlack { atEnd = true }
         }
 
         // After every layout, never under the person's finger or fling: a reader at the newest message is put back at the end
         // wherever the offset is, and a reader higher up is held at their place (taken here first when there is none).
         func laidOut() {
             guard let list, !pinning else { return }
-            guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
+            guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else {
+                lastY = list.contentOffset.y; return
+            }
             if atEnd { pin() } else if resting(list) { if place == nil { place = top() } else { hold() } }
             lastY = list.contentOffset.y
         }
