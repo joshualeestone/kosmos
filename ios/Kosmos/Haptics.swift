@@ -4,10 +4,11 @@ import UIKit
 /// action's feel is decided once. Not a tap per incoming message, per streamed line, or while scrolling or typing; the
 /// task-done buzz (his pick 2) is not built. A phone with system haptics off in iOS Settings stays silent; Kosmos adds
 /// no setting of its own.
+@MainActor
 enum Haptics {
     /// Pick 4: a very light tap as a message goes.
     static func sent() { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6) }
-    /// Pick 1: a firm tap as an Allow or Deny answer goes, so the person feels it went through.
+    /// Pick 1: a firm tap once an Allow or Deny answer has gone (a sure send), so the person feels it went through.
     static func decided() { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
     /// Pick 3: the iPhone's own error pattern when something the person did fails (a message or an answer that did not
     /// go, a sign-in refused).

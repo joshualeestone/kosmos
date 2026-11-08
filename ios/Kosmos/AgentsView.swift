@@ -299,10 +299,11 @@ struct AgentsView: View {
     }
 
     // kosmos#7034: the row's star control, for the swipe and the long press.
-    private func starButton(_ agent: Board.Agent) -> some View {
+    // kosmos#8246: `swiped` clicks as the swipe's star or unstar is chosen (a full swipe or the revealed button); the long
+    // press menu's same button stays silent (Josh's pick 5 is the swipe).
+    private func starButton(_ agent: Board.Agent, swiped: Bool = false) -> some View {
         let on = client.isStarred(agent.session)
-        // kosmos#8246: a selection click as the swipe takes, the star or the unstar.
-        return Button { Haptics.snapped(); Task { await client.toggleStar(agent.session) } } label: {
+        return Button { if swiped { Haptics.snapped() }; Task { await client.toggleStar(agent.session) } } label: {
             Label(on ? "Unstar" : "Star", systemImage: on ? "star.slash" : "star.fill")
         }
         .tint(Palette.starGold)
@@ -413,7 +414,7 @@ struct AgentsView: View {
                     }
                     .buttonStyle(.plain)
                     // kosmos#7034: star or unstar from the row: a swipe to the right (VoiceOver offers it as an action), or a long press.
-                    .swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent) }
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent, swiped: true) }
                     .contextMenu { starButton(agent) }
                     .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
                     .listRowBackground(Palette.card)

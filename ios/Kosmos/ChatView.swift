@@ -1927,7 +1927,6 @@ struct ChatView: View {
         case .send:
             break
         }
-        if decided { Haptics.decided() }
         armed = nil
         unsureKey = nil
         pressLine = nil
@@ -1940,7 +1939,7 @@ struct ChatView: View {
             // Why it did not go, or that it may have gone, goes on the conversation's own line, which stays when the
             // next read draws another question or none (the board's d-say-msg); a sure press clears it.
             switch result {
-            case .sent: pressLine = nil
+            case .sent: pressLine = nil; if decided { Haptics.decided() }   // kosmos#8246: once it went, not on the press
             case .notSure(let text): pressLine = text; unsureKey = choices.key
             case .refused(let text): pressLine = text; Haptics.failed()   // kosmos#8246
             }
