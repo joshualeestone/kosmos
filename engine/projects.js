@@ -4065,7 +4065,8 @@ function blockRules(sessionName, cliShown) {
       'pressed it, nothing more is needed; if they say yes, pause it; if they want nothing paused, leave it as it is; if',
       `they mean only some tasks, put those on hold: \`${cliShown} task hold <project-id> <task-number>\`.`,
       /* kosmos#8236: the people who set up test boards are agents. */
-      `When your person asks to make a project a test project, so its agents do only what they are asked: \`${cliShown} project test <project-id> on\` (\`off\` to undo).`,
+      'When your person asks for a test project, or you set up a project only to test Kosmos, mark it so its agents do only',
+      `what they are asked: \`${cliShown} project test <project-id> on\`. Turn it off when the test is over: \`... off\`.`,
       /* kosmos#7788: a hold that waits on the person joins what is waiting on them. */
       'When a task cannot go on until your person decides or does something only they can, put it on hold for them:',
       `\`${cliShown} task hold <project-id> <task-number> --because "<what you need from them>" --for-you\`. It then shows`,
@@ -4083,7 +4084,7 @@ function blockRules(sessionName, cliShown) {
 
 /* kosmos#5320: does the new block carry a standing rule the old block did not, or a changed hold on a task it already
    listed? `oldText` and `newText` are the file before and after the write. Only added rules count: a rule taken out
-   needs no re-read. False when there was no block (joining is announced by its own line, membershipLine) or none is
+   needs no re-read, except a project's test-project line (kosmos#8236), whose removal lifts a limit. False when there was no block (joining is announced by its own line, membershipLine) or none is
    left (nothing to read). A task arriving or closing is not a change here (the agent's own task close changes those
    lines). A pause or hold set or lifted on the screen is: the room is not told of a screen pause, so the re-read is how
    a running agent learns it. The tasks rules count only when the old block listed a task in today's spelling
@@ -4100,16 +4101,31 @@ function rulesChangedIn(oldText, newText, sessionName) {
   const pieces = [rules.intro, rules.member];
   if (TASK_LINE.test(old)) pieces.push(rules.tasks);
   if (pieces.some((p) => now.includes(p.join('\n')) && !old.includes(p.join('\n')))) return true;
-  // kosmos#8236 review 1: a project that became a test project is read again, as a pause is: the room is not told of
-  // one set on the screen, and an agent already running would otherwise keep making plans of its own until it restarts.
-  // Review 2: and one that stopped being one, as a resume is told: the agent would otherwise keep holding back.
-  if (now.split(TEST_PROJECT_LINE).length !== old.split(TEST_PROJECT_LINE).length) return true;
+  // kosmos#8236: a project in both blocks that became, or stopped being, a test project is read again, as a pause or a
+  // resume is told. Per project (review 3): joining or leaving a test project is announced by its own line, not here.
+  const wasTest = testProjectsOf(old);
+  for (const [project, test] of testProjectsOf(now)) if (wasTest.has(project) && wasTest.get(project) !== test) return true;
   const holds = holdsOf(old);
   for (const [task, marks] of holdsOf(now)) {
     const had = holds.get(task);
     if (had && had.length === marks.length && had.join('\n') !== marks.join('\n')) return true;
   }
   return false;
+}
+
+/* kosmos#8236: a block's project name lines -> whether the line under each is the test-project line. A name line can be
+   shared (two projects with one name and folder); such a key is left out, so it is never compared. */
+function testProjectsOf(block) {
+  const out = new Map();
+  const seen = new Set();
+  const lines = String(block).split('\n');
+  lines.forEach((line, i) => {
+    if (!/^- \*\*/.test(line)) return;
+    if (seen.has(line)) { out.delete(line); return; }
+    seen.add(line);
+    out.set(line, lines[i + 1] === '  - ' + TEST_PROJECT_LINE);
+  });
+  return out;
 }
 
 /* A block's task lines as "task <n> of <project>" -> the sorted hold markers on lines with that key ('' for none), so a
