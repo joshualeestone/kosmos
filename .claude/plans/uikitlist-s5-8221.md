@@ -87,4 +87,8 @@ or "list chosen: lazy"). Counting reports per list is slice 6 (see Decided, revi
   8: no new code finding; left open: the lazy-bubble query rests on the bubble label format (the UI run on 36ef0300d2
      is its measurement), the teardown relaunch (round 6 repeat), manual Debug sample runs ignoring the switch (by design,
      stated in ChatView).
-- [ ] Final: UI run on the final head, rebase onto main after slice 4 merges, validation, proof, PR, TestFlight.
+- [x] UI run on the final head 098aae3fd6 (iPhone 16e simulator, 15:59-16:00): NewChatListSwitchUITests PASS (78 s). Run 4
+  (15:21, cd57b6add6's successor) had failed in the check itself: review 3's wait looked for the Account header, which
+  the lazy Settings list leaves out of the tree until scrolled to; the wait now anchors on Settings' top line. The lazy
+  bubble query (review 8's open item) found its bubble.
+- [ ] Final: rebase onto main after slice 4 merges, validation, proof, PR, TestFlight.
