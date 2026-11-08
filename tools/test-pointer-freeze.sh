@@ -218,11 +218,12 @@ RSANDBOX="$T/release-sandbox"; mkdir -p "$RSANDBOX/tools/lib"
 cp "$HERE/release.sh" "$RSANDBOX/tools/"; cp "$HERE"/lib/*.sh "$RSANDBOX/tools/lib/"; cp "$HERE/../package.json" "$RSANDBOX/"
 git -C "$RSANDBOX" rev-parse --git-dir >/dev/null 2>&1 && { echo "FAIL  the release sandbox is inside a git repo; refusing to run release.sh"; exit 1; }
 CURV="$(sed -n 's/.*"version":[[:space:]]*"\([0-9.]*\)".*/\1/p' "$HERE/../package.json" | head -1)"
-# The next version by release.sh's own rule (its version guard, "past the end of the 0.N line"): after 0.N.99 comes the
-# 0.N+1 line at .00; otherwise the next two-digit patch on the same line (#8254: 0.7.99 asked for 0.7.100, refused).
-# If release.sh refuses the number picked here, the cut-only-home check below goes red, so a changed rule is not missed.
-_cm="${CURV%.*}"; _cp=$(( 10#${CURV##*.} ))   # 10#: a 0.5.09 patch is not octal
-if [ "$_cp" -ge 99 ]; then NEXTV="${_cm%.*}.$(( 10#${_cm##*.} + 1 )).00"; else NEXTV="$_cm.$(printf '%02d' $(( _cp + 1 )))"; fi
+# The next version by release.sh's own rule (its version guard, "past the end of the 0.N line"): at a patch of 99 or
+# more comes the 0.N+1 line at .00; otherwise the next two-digit patch on the same line (#8254: 0.7.99 asked for 0.7.100,
+# refused). 10#: a 0.5.09 patch is not octal. If release.sh refuses the number picked here, the cut-only-home check below
+# goes red, so a changed rule is not missed. tools/test-whats-new-early-7349.sh carries the same NEXTV-RULE line, and the
+# check after the release arm fails if the two differ.
+_cm="${CURV%.*}"; _cp=$(( 10#${CURV##*.} )); if [ "$_cp" -ge 99 ]; then NEXTV="${_cm%.*}.$(( 10#${_cm##*.} + 1 )).00"; else NEXTV="$_cm.$(printf '%02d' $(( _cp + 1 )))"; fi   # NEXTV-RULE (#8254)
 printf 'zip' > "$T/kosmos-9.9.9-win-x64.zip"
 run_writer() {  # <site> <name> : sets WRC and out (not in a subshell, so both reach the caller)
   local site="$1" w="$2"
@@ -235,7 +236,7 @@ run_writer() {  # <site> <name> : sets WRC and out (not in a subshell, so both r
     # KOSMOS_RUN_MARKER_DIR pins its markers and machine claim to the sandbox even if a cut ever exports that path.
     # KOSMOS_CUT_NO_WHATS_NEW=1: the sandbox has no What's New tools, and since kosmos#7349 their check runs before the
     # cut home is made (it comes after the freeze refusal under test; tools/test-whats-new-early-7349.sh covers it).
-    release) HOME="$SB" TMPDIR="$T/tmp" KOSMOS_SITE="$site" KOSMOS_HARNESS_IGNORE_CUT=1 KOSMOS_CUT_NO_WHATS_NEW=1 KOSMOS_RUN_MARKER_DIR="$SB/.cache/kosmos-run-markers" bash "$RSANDBOX/tools/release.sh" "$NEXTV" > "$T/w.out" 2>&1; WRC=$? ;;   # the next patch: past the version-jump guard
+    release) HOME="$SB" TMPDIR="$T/tmp" KOSMOS_SITE="$site" KOSMOS_HARNESS_IGNORE_CUT=1 KOSMOS_CUT_NO_WHATS_NEW=1 KOSMOS_RUN_MARKER_DIR="$SB/.cache/kosmos-run-markers" bash "$RSANDBOX/tools/release.sh" "$NEXTV" > "$T/w.out" 2>&1; WRC=$? ;;   # the next version: past the version guards
     promote-channel) HOME="$SB" KOSMOS_SITE="$site" bash "$HERE/promote-channel.sh" > "$T/w.out" 2>&1; WRC=$? ;;
     publish-staging-pointer) HOME="$SB" bash "$HERE/publish-staging-pointer.sh" "$site" 9.9.9 > "$T/w.out" 2>&1; WRC=$? ;;
     publish-kosmos-windows) HOME="$SB" KOSMOS_SITE="$site" bash "$HERE/publish-kosmos-windows.sh" "$T/kosmos-9.9.9-win-x64.zip" > "$T/w.out" 2>&1; WRC=$? ;;
@@ -253,6 +254,10 @@ for w in release promote-channel publish-staging-pointer publish-kosmos-windows;
   has "$out" "FROZEN" && bad "CONTROL: $w.sh says FROZEN with no marker: $(printf '%s' "$out" | tail -2)" || pass "CONTROL: $w.sh with no marker does not refuse for a freeze"
 done
 # the release arm made its cut-only home: it must be the sandbox's, or the TMPDIR above stopped reaching release.sh
+# #8254: the next-version rule is the same line in both tests that ask release.sh for the next version.
+_r1="$(grep -E '^_cm=.*# NEXTV-RULE \(#8254\)$' "$HERE/test-pointer-freeze.sh")"; _r2="$(grep -E '^_cm=.*# NEXTV-RULE \(#8254\)$' "$HERE/test-whats-new-early-7349.sh")"
+[ -n "$_r1" ] && [ "$_r1" = "$_r2" ] && pass "the NEXTV rule is the same line in test-whats-new-early-7349.sh" \
+  || bad "the NEXTV rule differs between test-pointer-freeze.sh and test-whats-new-early-7349.sh (or is missing)"
 [ -d "$T/tmp/kosmos-cut-home" ] && pass "release.sh made its cut-only home inside the test's TMPDIR, not the caller's" \
   || bad "release.sh made no cut-only home under $T/tmp (TMPDIR not passed, or the arm now stops before it)"
 
