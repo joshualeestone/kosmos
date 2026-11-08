@@ -108,12 +108,13 @@ test('#1765: a board that is down is told apart from a squatter, and the hook st
 test('#1765: each check asks with a fresh random nonce', async () => {
   const sq = await startListener({ mode: 'squatter' });
   try {
-    await hook.main(io(sq.url, evt('Stop')).io);
-    await hook.main(io(sq.url, evt('Stop')).io);
+    // kosmos#8230: a turn end the squatter refuses is tried once more, so two Stops make four checks.
+    await hook.main(io(sq.url, evt('Stop'), { retryPauseMs: 0 }).io);
+    await hook.main(io(sq.url, evt('Stop'), { retryPauseMs: 0 }).io);
     const nonces = sq.proofRequests().map((r) => new URL(r.url, 'http://x').searchParams.get('n'));
-    assert.equal(nonces.length, 2);
-    assert.match(nonces[0], /^[0-9a-f]{32}$/);
-    assert.notEqual(nonces[0], nonces[1]);
+    assert.equal(nonces.length, 4);
+    for (const n of nonces) assert.match(n, /^[0-9a-f]{32}$/);
+    assert.equal(new Set(nonces).size, 4, 'a nonce was asked twice');
   } finally { await sq.close(); }
 });
 
@@ -123,11 +124,13 @@ test('#1765: the seam decides, and a refusal sends nothing even through an injec
   const run = io('http://127.0.0.1:1', evt('Stop'), {
     fetchImpl: async () => { fetched += 1; return { ok: true, status: 200, text: async () => '{"recorded":true}' }; },
     proveBoard: async (url, token, timeoutMs) => { asked.push({ url, token, timeoutMs }); return false; },
+    retryPauseMs: 0,
   });
   assert.equal(await hook.main(run.io), 0);
   assert.equal(fetched, 0, 'a send went out after the check said no');
-  assert.deepEqual(asked.map((a) => [a.url, a.token]), [['http://127.0.0.1:1', BOARD]], 'the board token is the one proved');
-  assert.ok(asked[0].timeoutMs > 0 && asked[0].timeoutMs <= hook.SHORT_TIMEOUT_MS / 2, 'the check gets at most half the send\'s bound');
+  // kosmos#8230: a turn end is asked twice (the retry), each time with the board token, and never sent.
+  assert.deepEqual(asked.map((a) => [a.url, a.token]), [['http://127.0.0.1:1', BOARD], ['http://127.0.0.1:1', BOARD]], 'the board token is the one proved');
+  assert.ok(asked[0].timeoutMs > 0 && asked[0].timeoutMs <= hook.DEFAULT_TIMEOUT_MS / 2, 'the check gets at most half the send\'s bound');
 });
 
 test('kosmos#6464: each send proves for itself, so a listener that changes between two sends gets nothing at the second', async () => {

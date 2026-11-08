@@ -19170,6 +19170,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/report' && req.method === 'POST') {
+    /* kosmos#8230: an AUTOMATIC report that ends a turn (idle, stopped, or the provider's blocked), refused before it
+       reaches the record, says so in the board log: the card it was for stays on "working", and nothing else would
+       tell why. Reports an agent sends itself are answered to it directly, so they are not logged. */
+    const noteTurnEndRefusal = (body, why) => {
+      if (!body || body.auto !== true || !['idle', 'stopped', 'blocked'].includes(body.state)) return;
+      try { process.stdout.write('report: refused an automatic ' + body.state + ' (' + String(why || '').replace(/[\r\n]+/g, ' ') + ')\n'); } catch { /* logging never refuses a report */ }
+    };
     /* #188's third verb: records rather than delivers. The agent says what
        it is DOING (one of selfreport.STATES); nothing is typed anywhere,
        nothing fans out. The board reads the record back through
@@ -19226,6 +19233,7 @@ const server = http.createServer(async (req, res) => {
         }
         const roster = safeRoster();
         if (roster === null) {
+          noteTurnEndRefusal(body, 'we could not check which agents are running');
           sendJson(res, 200, { recorded: false, because: 'we could not check which agents are running, so we could not tell who this is from' });
           return;
         }
@@ -19241,7 +19249,7 @@ const server = http.createServer(async (req, res) => {
           denyPaneFallback,
           denyBecause: 'this board only records a report from the account that started it; run `kosmos report` from that account, or present an agent token',
         });
-        if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
+        if (!sender.ok) { noteTurnEndRefusal(body, sender.because); sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
         /* #6071: an automatic idle, stopped or started, or the prompt that starts a new turn, ends a turn for
@@ -19420,7 +19428,8 @@ const server = http.createServer(async (req, res) => {
            refuse a report -- recorded or refused. */
         try { liveness.seen(who); } catch { /* the report stands; the row may be thinner */ }
         if (kept.recorded !== true) {
-          sendJson(res, 200, { recorded: false, because: kept.because });
+          // kosmos#8230: the record's own skip (a standing wait it kept) is named, so the hook can tell it from a refusal.
+          sendJson(res, 200, kept.skipped ? { recorded: false, because: kept.because, skipped: String(kept.skipped) } : { recorded: false, because: kept.because });
           return;
         }
         // #718: phone notifications, only when the person turned them on
