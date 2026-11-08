@@ -19,15 +19,11 @@ test('kosmos#8235: the room\'s copy says when the owner gets its own; the owner\
   const room = fw.roomNoticeText(N);
   const own = fw.ownerNoticeText(N);
   assert.ok(room.startsWith(own + ' '), 'the room copy is not the owner\'s text plus a sentence');
-  assert.match(room, / mona is handed this notice too, at a prompt of its own; Kosmos looks for it at most once every five minutes, so a prompt sooner than that may not carry it yet\.$/);
+  assert.match(room, / If mona runs in Claude Code, Kosmos also hands it this notice at a prompt of its own, looking at most once every five minutes, so a prompt soon after its last look may not carry it yet\.$/);
   assert.doesNotMatch(own, /five minutes/, 'the owner\'s own copy carries the delivery sentence');
 });
 
-test('kosmos#8235: the room note uses the room copy, and the owner is queued the owner copy', () => {
-  const src = read('engine/filewriters.js');
-  assert.match(src, /messages\.roomNote\(n\.projectId, n\.heldBack \? HELD_BACK_TEXT : roomNoticeText\(n\)/);
-  assert.match(src, /require\('\.\/filenotices'\)\.queue\(n\.owner, ownerNoticeText\(n\)\)/);
-});
+// Which copy reaches the room and which the owner is measured end to end in engine/filenotices-7989.test.js.
 
 test('kosmos#8235: "five minutes" is what both report hooks wait (FILE_NOTICE_EVERY = 300 s)', () => {
   assert.match(read('engine/kosmos-report-hook.js'), /^const FILE_NOTICE_EVERY = 300;/m);
@@ -35,7 +31,7 @@ test('kosmos#8235: "five minutes" is what both report hooks wait (FILE_NOTICE_EV
 });
 
 test('kosmos#8235: both CLIs\' file-notices usage says the hook asks at most once every five minutes, in the same words', () => {
-  const SENT = 'run by hand, this clears them; Kosmos\'s hook asks at most once every five minutes, so a notice can wait that long for your next prompt.';
+  const SENT = 'run by hand, this clears them; Kosmos\'s hook looks at most once every five minutes, so a prompt soon after its last look may not carry a new notice.';
   assert.ok(require('../tools/windows/kosmos-cli').USAGE['file-notices'].includes(SENT), 'the Windows usage lacks it');
   const mac = read('install/kosmos');
   assert.ok(mac.includes(SENT.replace(/'/g, '\'"\'"\'')), 'the Mac usage lacks it (in its shell quoting)');

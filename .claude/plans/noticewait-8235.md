@@ -6,8 +6,9 @@ A file-owner notice (#7989, Windows #8014) is fetched by the report hook at most
 the person's turn for up to 1 s. A check made just after the change sees no notice and reads as the feature broken.
 
 ## The call: keep the throttle, say so where a checker reads
-- The room's copy of the notice (agents' audience) gets one sentence: the owner is handed it too, at a prompt of its
-  own, looked for at most once every five minutes. The owner's own queued copy is unchanged.
+- The room's copy of the notice (agents' audience) gets one sentence: if the owner runs in Claude Code, Kosmos also hands
+  it the notice at a prompt of its own, looking at most once every five minutes (from its last look). Other runners keep
+  only the room note (engine/filenotices.js), hence the condition. The owner's own queued copy is unchanged.
 - `kosmos file-notices` usage, on both CLIs in the same words, says the hook asks at most once every five minutes.
 
 ## Rejected

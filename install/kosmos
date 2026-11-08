@@ -5760,7 +5760,7 @@ if [ "$_kosmos_help" = 1 ]; then
       exit 0 ;;
     file-notices)
       # kosmos#7989: not with the read-only group either. Run bare, it takes (clears) your notices.
-      printf 'Usage: kosmos file-notices [--hook [--ack-file <path>]]   (take the notices Kosmos kept for you when another agent was about to change a project file you were the first seen changing; run by hand, this clears them; Kosmos'"'"'s hook asks at most once every five minutes, so a notice can wait that long for your next prompt. --hook: what Kosmos'"'"'s own hook runs; --ack-file: where it keeps the ids it was handed)\n'
+      printf 'Usage: kosmos file-notices [--hook [--ack-file <path>]]   (take the notices Kosmos kept for you when another agent was about to change a project file you were the first seen changing; run by hand, this clears them; Kosmos'"'"'s hook looks at most once every five minutes, so a prompt soon after its last look may not carry a new notice. --hook: what Kosmos'"'"'s own hook runs; --ack-file: where it keeps the ids it was handed)\n'
       exit 0 ;;
     inbox)
       # #4784 review 1: NOT with the read-only group below. Run bare, inbox prints the person's private
