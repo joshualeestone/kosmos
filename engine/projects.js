@@ -4010,7 +4010,7 @@ function blockBody(projects, sessionName) {
       if (isPaused(p) && T.isOnHold(t)) return ' [on hold: the project is paused and the task is on hold; do not start it until both are lifted]';
       if (isPaused(p)) return ' [on hold: the project is paused; do not start it until your person resumes it]';
       // kosmos#7788 review 4: an agent's hold that waits on its person says so, and what lifts it.
-      if (T.isOnHold(t) && t.onHoldForPerson === true) return ' [on hold' + waits + ', waiting on your person: do not start it until they answer and it is taken off hold]';
+      if (T.isOnHold(t) && t.onHoldForPerson === true) return ' [on hold' + waits + ', waiting on your person: do not start it until they answer and it is taken off hold. When you ask them, name task ' + Number(t.number) + ', so Kosmos shows them you asked]';
       return ' [on hold' + waits + ': do not start it until it is taken off hold]';
     };
     return [head, ...mine.map((t) => `  - task ${Number(t.number)} of ${oneLine(p.name)}: ${oneLine(require('./tasks').forAgent(t))}${held(t)}`)].join('\n');

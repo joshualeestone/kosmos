@@ -3161,6 +3161,14 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   /* #4447: a long post is spilled per member, into each one's own Inbox, inside the delivery loop
      below; `spilled` keeps the files so a member the post never reached leaves none behind. */
   const spilled = {};
+  /* kosmos#8259: the person's post naming a for-you hold, or the first one after its holder told them here, asks each
+     holder it reaches whether it answers the hold. The words ride the trailer (typed after the post, outside the length
+     checks, as an attachment's facts do), and the hold is marked answered once the post is recorded. */
+  const holdAnswered = operator === true ? require('./holdtold').noteAnswered({ via: 'room', projectId, text: stored, to: recipients }) : [];
+  const trailerFor = (name) => {
+    const extra = holdAnswered.length ? require('./holdtold').clauseFor(holdAnswered, name) : '';
+    return typeof trailer === 'string' ? trailer + extra : extra || undefined;
+  };
 
   const replied = answeredParts(answered);   // #3745: the same for every recipient
   /* #3745: what this post answers, so the agent knows which message is meant: the id, who wrote it
@@ -3405,7 +3413,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     let sent;
     typingStarted.add(name);
     // kosmos#7406: an agent's room post asks for the per-account cap (a person's goes through deliverToPane, ungated).
-    try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined, typeInto === deliverToPane ? undefined : { workCap: true }); }
+    try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, trailerFor(name), typeInto === deliverToPane ? undefined : { workCap: true }); }
     catch (err) { putBack(err); }
     return sent && typeof sent.then === 'function' ? sent.then(finish, putBack) : finish(sent);
   };
@@ -3510,6 +3518,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
       ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
     PENDING_POSTS.delete(id);   // kosmos#8165: recorded now; an unrecorded one stays pending (it was delivered)
+    /* kosmos#8259: an agent's post naming one of its for-you holds has told the person; the person's answered the holds
+       it asked about (holdAnswered, above). Best-effort: holdtold never throws. */
+    if (operator !== true && typeof from === 'string' && from) require('./holdtold').noteTold(from, { via: 'room', projectId, text: stored, id, at });
+    else if (holdAnswered.length) require('./holdtold').markAnswered(holdAnswered, at);
   } catch (err) {
     try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
     const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', unrecorded: true, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };

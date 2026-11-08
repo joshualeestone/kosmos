@@ -26355,6 +26355,19 @@ function freshWords(seconds) {
    (never Number(x), so a missing age is '' -- no fabricated freshness), rounds
    DOWN at every step, and a negative age (clock skew) is '' rather than a false
    "just now". Empty string means the caller omits the "· active {age}" clause. */
+/* kosmos#8259: whether the agent that held a task for the person has asked them about it, and when, and whether they
+   have answered since: one sentence after "On hold until you answer". The agent counts as having asked once it wrote
+   about the task where the person reads (the task's conversation, the project room or a direct message naming it).
+   Worded as what Kosmos has seen, never as a fact about the agent: an ask that named no task is not seen. */
+function tskHoldToldWords(t) {
+  if (!t || t.onHold !== true || t.onHoldForPerson !== true) return '';
+  const told = typeof t.onHoldToldAt === 'string' ? agoWords(Date.now() - Date.parse(t.onHoldToldAt)) : '';
+  const answered = typeof t.onHoldAnsweredAt === 'string' ? agoWords(Date.now() - Date.parse(t.onHoldAnsweredAt)) : '';
+  if (answered) return ' You answered ' + answered + (told ? ' (it asked you ' + told + ')' : '') + ', and it is still on hold.';
+  if (told) return ' It asked you ' + told + '.';
+  return ' Kosmos has not seen it ask you about this yet.';
+}
+
 function agoWords(ms) {
   const n = typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? Math.floor(ms / 1000) : NaN;
   if (!Number.isFinite(n)) return '';
@@ -72314,6 +72327,7 @@ function tskRow(t, at) {
   const forYouLine = t.state === 'decision' && t.onHold === true && t.onHoldForPerson === true
     ? '<div class="why tsk-for-you" style="overflow-wrap:anywhere;">'
       + (typeof t.onHoldBecause === 'string' && t.onHoldBecause ? 'On hold until you answer: ' + esc(t.onHoldBecause) + '.' : 'On hold until you answer.')
+      + tskHoldToldWords(t)
       + ' Open it and take it off hold once you have.</div>'
     : '';
   /* #3951: a built row says who marked it and what is left, the agent's own words. */

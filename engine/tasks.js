@@ -511,7 +511,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     if (!closedNow && (forWork || progressOf(t).closed)) changed = withoutLanded(changed);
     /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
        with the control hidden while it was closed). */
-    if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; heldDropped = true; }
+    if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; dropHoldTold(changed); heldDropped = true; }
     // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
     if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
@@ -1159,7 +1159,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     if (after) changed = withoutBuilt(changed);
     if (before && !after) changed = withoutLanded(changed);   // #7508: a reopen is new work, so the old commit goes
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
-    if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; heldDropped = true; }
+    if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; dropHoldTold(changed); heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
     if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     return {
@@ -1182,6 +1182,12 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
  * about it and the Assigner never hands it out (engine/agentnudge.js openParts, engine/assigner.js); it stays on its
  * owner's list for everything else.
  */
+/* kosmos#8259: drop a for-you hold's told and answered marks (engine/holdtold.js), wherever the mark itself goes. */
+const HOLD_TOLD_FIELDS = Object.freeze(['onHoldToldAt', 'onHoldToldVia', 'onHoldToldId', 'onHoldAnsweredAt']);
+function dropHoldTold(changed) {
+  for (const k of HOLD_TOLD_FIELDS) delete changed[k];
+}
+
 function isOnHold(t) {
   return Boolean(t && t.onHold === true);
 }
@@ -1359,6 +1365,9 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       if (wantBecause) changed.onHoldBecause = wantBecause; else delete changed.onHoldBecause;
       const keepFor = forPerson === undefined && isOnHold(t) && t.onHoldForPerson === true;
       if (viaScreen !== true && (forPerson === true || keepFor)) changed.onHoldForPerson = true; else delete changed.onHoldForPerson;
+      /* kosmos#8259: told and answered belong to the for-you hold: kept while it stays marked (a changed condition or
+         reason is the same ask), dropped when the mark comes off or is newly put on (a new ask, not yet told). */
+      if (changed.onHoldForPerson !== true || !(isOnHold(t) && t.onHoldForPerson === true)) dropHoldTold(changed);
       // kosmos#7788 review 1: marking or unmarking it moves the task between groups, so the history records it.
       if (isOnHold(t) && (t.onHoldForPerson === true) !== (changed.onHoldForPerson === true)) { markOnly = !didChange && viaScreen !== true; didChange = true; }   // review 3: the person's hold on the screen (a takeover too) is a new hold
       forCleared = isOnHold(t) && t.onHoldForPerson === true && changed.onHoldForPerson !== true;
@@ -1366,7 +1375,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
          an agent's hold never takes the person's away. */
       if (viaScreen === true) changed.onHoldByPerson = true;
       else if (isOnHold(t) !== onHold) delete changed.onHoldByPerson;   // kosmos#7180: only a new hold, never a changed condition
-    } else { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; }
+    } else { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; dropHoldTold(changed); }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
@@ -2754,7 +2763,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   return out.slice(0, 3);
 }
 
-module.exports = { whoIsLeft, runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
