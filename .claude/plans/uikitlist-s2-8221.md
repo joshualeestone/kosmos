@@ -20,7 +20,7 @@ whether it is on screen, the same kind of query, so they may meet the same limit
 - NewMessagesUITests (item 5): a reader higher up (by the hook, and by a real drag) gets the capsule as messages arrive
   (KOSMOS_SAMPLE_GROW); pressing it takes them to the newest and the next arrival shows with no capsule. Control: a
   reader at the newest never gets it, looked at after every arrival and polled 6 s more. While the capsule shows, an older
-  message is on screen and Message 260 and the newest arrival are not; after the press, that older message is not.
+  message is on screen and Message 260 and the newest arrival are not; after the press, that older message is off screen or at least 200 pt from where it was.
 - ChatSearchUITests (item 7): matches only, newest match on screen, the no-match line, clearing brings the chat back at
   the newest.
 - ChatDragUITests (item 8): a drag down takes the keyboard down and leaves messages drawn above the box.
@@ -28,9 +28,9 @@ whether it is on screen, the same kind of query, so they may meet the same limit
 ## Measured (iPhone 17 Pro Max, iOS 26.5, one simulator, 11-08)
 | check | UIKit | lazy | shown able to fail (UIKit arm only) |
 |---|---|---|---|
-| capsule, hook scroll-up | 6 of 6 | 6 of 6 | red with unseenNew never set on a new message |
-| capsule, real drag up | 4 of 4 | 4 of 4 | red with endSlack 100000 (the list read the drag as at the end and pinned the reader back) |
-| capsule control, at the newest | 6 of 6 | 6 of 6 | (control) |
+| capsule, hook scroll-up | 7 of 7 | 7 of 7 | red with unseenNew never set on a new message |
+| capsule, real drag up | 5 of 5 | 5 of 5 | red with endSlack 100000 (the list read the drag as at the end and pinned the reader back) |
+| capsule control, at the newest | 7 of 7 | 7 of 7 | (control) |
 | search | 5 of 5 | **4 of 7** | red with Board.chatFilter ignoring the query ("Message 260 still drawn"), and with the matches in reverse order on the UIKit list ("Message 159, the newest match, is not drawn"); the clearing half not perturbed |
 | drag down dismisses | 5 of 5 | 6 of 6 | the dismissal half red with keyboardDismissMode .none; the messages-drawn half not perturbed |
 
