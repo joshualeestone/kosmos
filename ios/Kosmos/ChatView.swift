@@ -397,7 +397,7 @@ struct ChatView: View {
             // what came before), and a list blank from its first draw is checked too, since no row ever leaves it.
             if !diagShownOnce {
                 diagShownOnce = true; Self.diagRing = []; Self.trace("chat shown")
-                // kosmos#8221 slice 5: which list drew this chat, so a phone's reports can be counted per list.
+                // kosmos#8221 slice 5: which list drew this chat.
                 if uikitList { Self.trace("list: uikit") } else { Self.trace("list: lazy") }
             } else { Self.trace("chat back") }
             rebuilds = []   // kosmos#7420: the rebuild budget is per showing, so a chat kept alive under another tab gets it again

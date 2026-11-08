@@ -38,7 +38,7 @@ slices, with his phone's counts comparing the two before the old one goes").
 1. ChatView: `static let uikitList` becomes the stored choice (Debug: env override first). Seed `@State useUIKit` at init;
    line ~578 reads it. Update the comment at ~61 (it says "Off in a release build").
 2. SettingsView: a "Chat" section with the switch. Copy (no em dashes): label "New chat list", footer (as built) "A test of a new way
-   to draw your chats. Earlier messages, and holding a message to copy or delete it, are not in it yet. Applies to the next
+   to draw your chats. Earlier messages, holding a message to copy or delete it, and some of the scrolling are not in it yet. Applies to the next
    chat you open." Check it at the largest text size.
 3. ChatView trace "list: uikit" / "list: lazy" after "chat shown" (line ~380).
 4. A LogicTests or source check pinning: default off, the key name, the trace literals.
