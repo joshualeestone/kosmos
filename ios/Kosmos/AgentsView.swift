@@ -129,7 +129,8 @@ struct AgentsView: View {
             openAgent = nil
         }
         // kosmos#8055: the client keeps which chat is open, so a new Agents tab that lost it can say so; this phone's
-        // defaults keep it too, so a launch after iOS ended the app reopens it. A chat opening clears an older line.
+        // defaults keep it too, so a launch after iOS ended the app may reopen it (a relaunch shows no line). A chat
+        // opening clears an older line.
         // Assumed, not guaranteed by SwiftUI: openAgent's change is seen after the chatEpoch handler that cleared it, so the
         // epoch kept is the one the chat opened under. A close while away keeps the record for the next appear.
         .onChange(of: openAgent?.session) { _ in
@@ -274,7 +275,11 @@ struct AgentsView: View {
 
     // kosmos#8055: shows the line, and logs the cause to the device log too, so it survives a dismissed line.
     private func noteClosed(_ name: String, _ close: Board.ChatClose, noticedLater: Bool = false) {
-        guard let cause = Board.chatClosedCause(close) else { return }
+        guard let cause = Board.chatClosedCause(close) else {
+            // kosmos#8055 review 6: a relaunch shows no line, but the device log still records it.
+            if close == .relaunched { NSLog("[Chat] the app had started again with a chat recorded open (no line shown)") }
+            return
+        }
         let change = client.lastTabsChange
         let why = Board.chatClosedWhy(cause, lastChange: change?.what, secondsBefore: change.map { Date().timeIntervalSince($0.at) })
         NSLog("[Chat] an open chat closed: %@", why)

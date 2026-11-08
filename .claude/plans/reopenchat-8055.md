@@ -44,6 +44,13 @@ reopen the chat.
 - A reopened chat on a computer that never answers stays open on a placeholder agent until a list read
   comes in: accepted, the same as a notification's chat. Not measured: what the chat shows meanwhile.
 
+- A chat the screen closed while the app was away (chatClosedAway) keeps its record, so if iOS then ends the app, the
+  next launch reopens it: the person had it open and did not close it. Deliberate.
+- Every notification route marks the launch as used before routing (openAgentChat, openRoom, a board page), so the
+  Agents tab's first look cannot reopen an old chat under what the notification opened.
+- Any first look that cannot reopen (no computer yet, signed out) uses up the launch and drops the record: known gap,
+  and the reason the card is not done until a real iPhone shows a reopen.
+
 ## Weakest premise
 That client.macURL is set by the time the Agents tab's first findClosedChat runs on a cold start (admitted is restored
 synchronously in start() from the saved session). If it is not, the reopen silently does nothing. Only a real-iPhone check

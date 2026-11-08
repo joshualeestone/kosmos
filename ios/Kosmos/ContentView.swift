@@ -376,6 +376,9 @@ struct ContentView: View {
     // kosmos#7418: the chat in the Agents tab when the notice came from the computer the app shows, else the board's page
     // for that agent, as a tap always did. As for a room, the native open ends a board press still waiting.
     private func openAgentChat(_ target: PushBridge.AgentTarget) {
+        // kosmos#8055: set before routing, not in the board-page handler, so the Agents tab's first look cannot run between
+        // the two and reopen an old chat under the board page.
+        board.launchReopenLooked = true
         // Review 1: on a cold launch nothing is shown yet (the client starts with the first tab, and the Face ID lock
         // draws no tab), so the computer this app keeps decides then, as for a room.
         let kept = Board.usableSaved(SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin)
