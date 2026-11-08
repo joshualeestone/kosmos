@@ -1540,24 +1540,34 @@ test('SAFETY 3: ensureAnchored never points engine-path into the updater\'s fold
 
 /* ─── review round 4 ──────────────────────────────────────────────────────────────────────── */
 
+/* kosmos#8265: the PowerShell that takes the hold. FileShare.None fails at once if anything has the file open at that
+   moment, and the hold's own poll below opens it every 50 ms. A failed open does not end a PowerShell script: it went
+   on to its long sleep holding nothing, and the test ran out its wait. So the open is retried for 25 s. The script
+   records how far it got in `state`, outside the install, so a failure can say which it was: never started, or no
+   hold in 25 s. HOLD_WAIT_MS covers a stall of about 34 s (see HELD above) plus that retry. */
+const HOLD_WAIT_MS = 60000;
+let holdStates = 0;
+const holdStateFile = () => path.join(SANDBOX, `hold-state-${process.pid}-${++holdStates}.txt`);
+const holdState = (state) => { try { return fs.readFileSync(state, 'utf8').trim(); } catch { return 'nothing, so it never started'; } };
+function holdScript(file, state, sleepSeconds) {
+  const q = (s) => s.replace(/'/g, "''");
+  return `Set-Content -LiteralPath '${q(state)}' 'started, no hold yet'; $held = $null; $end = (Get-Date).AddSeconds(25); while (-not $held -and (Get-Date) -lt $end) { try { $held = [IO.File]::Open('${q(file)}', 'Open', 'Read', 'None') } catch { Start-Sleep -Milliseconds 50 } }; if ($held) { Set-Content -LiteralPath '${q(state)}' 'held' } else { Set-Content -LiteralPath '${q(state)}' 'no hold in 25 s' }; Start-Sleep -Seconds ${sleepSeconds}`;
+}
+
 /**
  * A PowerShell child holding `file` open with no sharing at all (FileShare.None), as a scanner or a
  * backup tool can: every read of it fails with EBUSY until `release()` ends the child. The round 4
  * reviewer measured exactly this handle making the live helper walk away (probe P6).
- *
- * kosmos#8265: the open is retried. FileShare.None fails at once if anything else has the file open at that moment
- * (a scanner on a file just written, say), and one failed attempt ended the script, so the wait below ran out on a
- * hold that could no longer come ("the holder never held the file").
  */
 function holdExclusively(file) {
-  const quoted = file.replace(/'/g, "''");
-  const script = `$held = $null; $end = (Get-Date).AddSeconds(25); while (-not $held -and (Get-Date) -lt $end) { try { $held = [IO.File]::Open('${quoted}', 'Open', 'Read', 'None') } catch { Start-Sleep -Milliseconds 50 } }; Start-Sleep -Seconds 600`;
+  const state = holdStateFile();
+  const script = holdScript(file, state, 600);
   const child = cp.spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'ignore', windowsHide: true });
   child.on('error', () => { /* exclusiveHoldSkipReason has already proved PowerShell starts here */ });
   const readCode = () => { try { fs.readFileSync(file); return null; } catch (e) { return e.code; } };
-  const until = Date.now() + 30000;
+  const until = Date.now() + HOLD_WAIT_MS;
   while (readCode() !== 'EBUSY') {
-    if (Date.now() > until) { try { child.kill(); } catch { /* gone */ } throw new Error('the holder never held the file'); }
+    if (Date.now() > until) { try { child.kill(); } catch { /* gone */ } throw new Error(`the holder never held the file (its script said: ${holdState(state)}; the last read: ${readCode() || 'it read fine'})`); }
     sleepSync(50);
   }
   const holder = {
@@ -1581,7 +1591,8 @@ function holdExclusively(file) {
 async function exclusiveHoldSkipReason() {
   const file = path.join(SANDBOX, `hold-probe-${process.pid}-${Date.now()}.txt`);
   fs.writeFileSync(file, 'probe');
-  const script = `$held = [IO.File]::Open('${file.replace(/'/g, "''")}', 'Open', 'Read', 'None'); Start-Sleep -Seconds 60`;
+  const state = holdStateFile();
+  const script = holdScript(file, state, 60);
   let child;
   try {
     child = cp.spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'ignore', windowsHide: true });
@@ -1591,12 +1602,12 @@ async function exclusiveHoldSkipReason() {
   let ended = null;
   child.on('error', (e) => { ended = `powershell.exe could not be started (${e.code || e.message})`; });
   child.on('exit', (code) => { if (!ended) ended = `powershell.exe exited (code ${code}) before it held a file`; });
-  const until = Date.now() + 30000;
+  const until = Date.now() + HOLD_WAIT_MS;
   try {
     for (;;) {
       try { fs.readFileSync(file); } catch (e) { if (e.code === 'EBUSY') return null; }
       if (ended) return ended;
-      if (Date.now() > until) return 'a PowerShell child did not hold a file within 30 seconds';
+      if (Date.now() > until) return `a PowerShell child did not hold a file within ${HOLD_WAIT_MS / 1000} seconds (its script said: ${holdState(state)})`;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   } finally {
