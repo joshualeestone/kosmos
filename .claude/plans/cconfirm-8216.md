@@ -46,6 +46,8 @@ the switch says:
   week up), at most 3 per pass, oldest send first (so same-words copies pair in send order). A row whose time cannot
   be read never matches. The file is re-read before each write, so a send pass or a take-back in between is not
   overwritten, and the found id is checked against it once more.
+- The board's row for an unconfirmed comment says Kosmos does not know yet and keeps looking (web/index.html, pinned by
+  docs/browser-checks/render-community-delete-4313.js).
 - Status: `unconfirmed` (not looked yet), `unconfirmed_not_seen` (a complete look found nothing), `unconfirmed_stopped`
   (a week of looking), `unconfirmed_unasked` (no sending account held, or an address Kosmos does not send to; keys.json
   unreadable keeps the plain words). Each
@@ -98,3 +100,6 @@ client-chosen id with a comment.
 - 6 (sonnet): the unconfirmed record took the key's account after the POST instead of the write-ahead's. Fixed. The
   company branch stays reasoned (its test needs the company-policy harness); the older-board upper bound is written in
   Weakest part.
+- 7 (opus): the board's comment row still said "never learned"; the failed-page test could not catch its rule; the
+  fake's replies route ignored a taken-down post. Fixed (the row and its browser check, which CI runs; a sole match
+  before a failed page, mutation checked; a reply on a gone post).

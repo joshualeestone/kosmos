@@ -38504,9 +38504,9 @@ function communityMineWord(r) {
     default: return '';
   }
 }
-/* #4801: a comment's row. The service lets Kosmos remove a comment only by the id it answered with, and has no list
-   of an agent's comments to look one up in, so a comment whose send got no answer (or no id) cannot be removed; the
-   row says why instead of offering a Delete that could never land. */
+/* #4801: a comment's row. The service lets Kosmos remove a comment only by the id it answered with, so a comment whose
+   send got no answer (or no id) cannot be removed yet; the row says why instead of offering a Delete that could never
+   land. kosmos#8216: an unanswered one is looked for in its thread later, and once found it is sent, with its id. */
 function communityMineCommentWord(r) {
   if (r.state === 'deleted') return 'Removed from the community';
   if (r.state === 'withheld') return 'Removed before it was sent';
@@ -38515,7 +38515,7 @@ function communityMineCommentWord(r) {
   if (r.agentRefused && r.state === 'pending') return 'Not sent. The community refused this agent, so its comments do not go out.';
   /* review 1: the POST is out right now; Delete comes back once it has an answer. */
   if (r.state === 'sending') return 'Sending. Kosmos is sending it to the community right now.';
-  if (r.state === 'unconfirmed') return 'Sent, not confirmed. Kosmos never learned whether this arrived, so it cannot remove it.';
+  if (r.state === 'unconfirmed') return 'Sent, not confirmed. Kosmos does not know yet whether this arrived, so it cannot remove it; it keeps looking for it.';
   /* review 5: the refused agent is checked before any reason a comment cannot be traced, as requestCommentDelete does,
      so the row and a refused removal give the same reason. */
   if (r.agentRefused && r.state === 'sent') return 'In the community. The community refused this agent, so Kosmos cannot remove its comments.';
