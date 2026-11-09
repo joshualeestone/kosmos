@@ -7,7 +7,7 @@
  * when there is a real one, still wins. "tools.win-" in this name puts it in tools/windows-tests.js, so it runs under
  * both PowerShells on the Windows CI job, as tools.win-publish-node-bounded-7951.
  *
- * Get-NodeExe, its list, the publisher, the once-flag and the refusal words are parsed out of the real script and run
+ * Get-NodeExe, its one path, the publisher, the once-flag and the refusal words are parsed out of the real script and run
  * under the script's own Stop and StrictMode, against throwaway PATH and LOCALAPPDATA folders. A signed node is this
  * test's own node.exe (an official, OpenJS-signed build), hard-linked or copied in; an empty file is an unsigned one.
  */
@@ -60,7 +60,7 @@ const RUNTIMES = process.platform === 'win32'
    arms that need one, saying so, rather than passing them on an unsigned file. */
 const OWN_NODE_SIGNED = process.platform === 'win32' && spawnSync('powershell.exe', ['-NoProfile', '-Command',
   "$s = Get-AuthenticodeSignature -LiteralPath $env:K8285_NODE; if ($s.Status -eq 'Valid' -and $s.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) -ceq 'OpenJS Foundation') { exit 0 } else { exit 1 }"],
-{ env: { ...process.env, K8285_NODE: process.execPath } }).status === 0;
+{ env: Object.fromEntries([...Object.entries(process.env).filter(([k]) => !/^psmodulepath$/i.test(k)), ['K8285_NODE', process.execPath]]) }).status === 0;
 const NEEDS_SIGNED = !OWN_NODE_SIGNED && 'this host\'s node.exe is not an OpenJS-signed build, so there is no signed node to stand in';
 
 /* The signed node: copied ONCE into this run's folder (the runner's node may sit on another volume), then hard-linked

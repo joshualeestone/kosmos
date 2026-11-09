@@ -63,8 +63,8 @@ TWO MODES.
   -NodeTimeoutSec <n> gives each node check and each git read n seconds, up to 600 (default 300). One past that refuses as undecided.
   node (for the signed-manifest and verification-record checks): a real node executable on PATH, which always wins;
   else the installed Kosmos app's own, %LOCALAPPDATA%\Programs\Kosmos\runtime\node.exe (kosmos#8285), and only while
-  Windows reports its Authenticode signature Valid and from node's publisher (the OpenJS Foundation). Said on stderr
-  when used, or why it was not. The signature catches a damaged or replaced node.exe; it is NOT a guard against code
+  Windows reports its Authenticode signature Valid and from node's publisher (the OpenJS Foundation). When that file
+  is there, stderr says whether it was used and why not. The signature catches a damaged or replaced node.exe; it is NOT a guard against code
   that can write that folder (a DLL beside node.exe still loads, and such code could put a node on PATH anyway): the
   release PC is trusted as a whole, as before. A node on PATH is not checked: putting one there is the person's choice.
 
@@ -293,13 +293,14 @@ function Get-NodeExe {
   $canCheck = [bool](Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue)
   $p = Join-Path $env:LOCALAPPDATA $KosmosAppNode
   if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return $null }
-  $sig = if ($canCheck) { Get-AuthenticodeSignature -LiteralPath $p -ErrorAction SilentlyContinue } else { $null }
+  # A read that throws (a locked file, a broken module) is no signature: not used, and the caller refuses cleanly.
+  $sig = if ($canCheck) { try { Get-AuthenticodeSignature -LiteralPath $p -ErrorAction Stop } catch { $null } } else { $null }
   $signer = if ($sig -and $sig.SignerCertificate) { $sig.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) } else { '' }
   $trusted = $sig -and "$($sig.Status)" -ceq 'Valid' -and $signer -ceq $NodePublisher
   if (-not $script:SaidRuntimeNode) {
     $why = if ($shim) { "no node executable on PATH (skipped the shim $($shim.Source): cmd.exe would mangle the arguments)" } else { 'no node on PATH' }
     $line = if ($trusted) { "using the installed Kosmos app's own (signed by $NodePublisher): $p" }
-      elseif (-not $canCheck) { "NOT using the Kosmos app's node at ${p}: this PowerShell cannot check its signature" }
+      elseif (-not $canCheck) { "NOT using the Kosmos app's node at ${p}: this PowerShell has no working Get-AuthenticodeSignature (on Windows, check its module path)" }
       else { "NOT using the Kosmos app's node at ${p}: its signature is $(if ($sig) { "$($sig.Status)" } else { 'unreadable' })$(if ($signer) { " from $signer" }), not Valid from $NodePublisher" }
     [Console]::Error.WriteLine("publish-r2: $why; $line")
     $script:SaidRuntimeNode = $true   # once per run: a run checks with node two or three times, on this one path
