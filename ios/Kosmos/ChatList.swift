@@ -308,16 +308,19 @@ struct ChatList: UIViewRepresentable {
             applying = true
             source.apply(s, animatingDifferences: false)
             applying = false
-            if let a = anchor, let list, let was = before.firstIndex(of: a.id), let at = now.firstIndex(of: a.id), at > was {
-                let above = Set(now[..<at]).subtracting(before)
-                if above == ["earlier-failed"], atTop {
+            // Review 2: on any change in the rows above it, added or removed (Try again takes the failed line away), not
+            // only on more of them.
+            if let a = anchor, let list, let was = before.firstIndex(of: a.id), let at = now.firstIndex(of: a.id),
+               Set(before[..<was]) != Set(now[..<at]) {
+                let above = Set(now[..<at]).subtracting(before[..<was])
+                if above == ["earlier-failed"], Set(before[..<was]).isSubset(of: Set(now[..<at])), atTop {
                     // Review 1: a failed page's line arriving above a reader at the top shows there (Try again), as on the
                     // lazy list, instead of being held off the screen above them.
                     place = nil
                     pinning = true
                     list.contentOffset = CGPoint(x: 0, y: -list.adjustedContentInset.top)
                     pinning = false
-                } else if !above.isEmpty {
+                } else {
                     list.layoutIfNeeded()
                     if let ip = source.indexPath(for: a.id), let attr = list.layoutAttributesForItem(at: ip) {
                         pinning = true
@@ -328,6 +331,9 @@ struct ChatList: UIViewRepresentable {
                     }
                 }
                 readTop(list)
+                // Review 2: writing the offset can end a fling or its bounce without the end being reported, which would
+                // leave the person's drag counted for the next scroll nobody made (as the fling stopped in updateUIView).
+                if !(list.isTracking || list.isDragging || list.isDecelerating) { dragged = false }
             }
             redrawn += again.count
             spent += CACurrentMediaTime() - started

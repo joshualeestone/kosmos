@@ -74,4 +74,11 @@ first, and slice 1's plan numbers it next.
       reader at the top: shown at the top instead. WARNING, a remade list could inherit a stale top: a new list tells the
       chat it is not at the top. WARNING, the 4 s window could pass on a slow runner: 12 s, landing timeout 20 s. NIT, an
       assertion that could not fail: removed. NIT, this Finished line: corrected. Main check 3 of 3 after the fix (01:55 CST).
-- [ ] Full validation, review round 2, ui-sample both arms on the final head (CI), PR, merge on green.
+- [x] Review round 2 (sonnet): no BLOCKER. WARNING, the offset write can end a fling or bounce unreported and leave the drag
+      counted: dragged is cleared after it when the list is at rest. WARNING, only more rows above triggered it: now any
+      change in the rows above (Try again removing the failed line). WARNING, no checks for the failed-line branch or a new
+      list's top: room source checks pin both (861/861). Accepted, measured: the under-the-finger check could in theory pass
+      on an at-rest landing, but its control without the fix FAILS, so it does measure a moving landing in practice. NITs
+      (a wasted layout pass; the failed line's height clamped at the top on Try again) left as stated. Both UI checks 3 of 3
+      after round 2 (02:23 CST).
+- [ ] Full validation, review round 3 (bounded at 4), ui-sample both arms on the final head (CI), PR, merge on green.
