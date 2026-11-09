@@ -23070,16 +23070,6 @@ function stateReason(a, opts) {
     const next = typeof a.deliveryStall.next === 'string' && a.deliveryStall.next ? a.deliveryStall.next : 'Restart it to free it (the waiting messages will need sending again), or wait if it is a long job';
     return who + ' has been on one step for ' + when + step + '. ' + waiting + '. ' + next + '.';
   }
-  /* kosmos#8286: one tool call has run for minutes (engine/onestep.js, from its own transcript; Claude Code agents). In the
-     words of #7368's Windows sentence above, so the two read alike. A working agent only: shown in the pill's hover and on
-     its page, never on the tile (#6716). After #7368's, which also names waiting messages. */
-  if (a && a.state === 'working' && a.oneStep && typeof a.oneStep.since === 'string' && Number.isFinite(Date.parse(a.oneStep.since))) {
-    const mins = Math.max(5, Math.round((Date.now() - Date.parse(a.oneStep.since)) / 60000));
-    const when = mins >= 120 ? 'about ' + Math.round(mins / 60) + ' hours' : 'about ' + mins + ' minutes';
-    const who = (typeof a.name === 'string' && a.name) ? a.name : 'This agent';
-    const tool = typeof a.oneStep.tool === 'string' && a.oneStep.tool ? ': ' + a.oneStep.tool : '';
-    return who + ' has been on one step for ' + when + tool + '. If that is a long job, it is fine; if not, open it to see what it shows.';
-  }
   /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause (engine/deliverystreak.js).
      The card only carries it while it reads idle or working, the states that look fine. The reason is the engine's
      words (one copy). After the unsent-text sentence above, which names the sharper cause when it is the box. */
@@ -23090,6 +23080,17 @@ function stateReason(a, opts) {
     const who = (typeof a.name === 'string' && a.name) ? a.name : 'this agent';
     const next = typeof a.deliveryStall.next === 'string' && a.deliveryStall.next ? a.deliveryStall.next : 'Open it to see what it shows, or restart it';
     return 'No message has reached ' + who + ' for ' + when + '. ' + a.deliveryStall.words + '. ' + next + '.';
+  }
+  /* kosmos#8286: one tool call has run for minutes (engine/onestep.js, from its own transcript; Claude Code agents). In the
+     words of #7368's Windows sentence above, so the two read alike. A working agent only: shown in the pill's hover and on
+     its page, never on the tile (#6716). After #7368's (which also names waiting messages) and #7212's (no message has
+     reached it: the sharper fact for the person, review 1). */
+  if (a && a.state === 'working' && a.oneStep && typeof a.oneStep.since === 'string' && Number.isFinite(Date.parse(a.oneStep.since))) {
+    const mins = Math.max(5, Math.round((Date.now() - Date.parse(a.oneStep.since)) / 60000));
+    const when = mins >= 120 ? 'about ' + Math.round(mins / 60) + ' hours' : 'about ' + mins + ' minutes';
+    const who = (typeof a.name === 'string' && a.name) ? a.name : 'This agent';
+    const tool = typeof a.oneStep.tool === 'string' && a.oneStep.tool ? ': ' + a.oneStep.tool : '';
+    return who + ' has been on one step for ' + when + tool + '. If that is a long job, it is fine; if not, open it to see what it shows.';
   }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists

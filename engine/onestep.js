@@ -7,21 +7,31 @@
  * ends, so a hung tool and a model writing a long answer look the same from the reports.
  *
  * THE SIGNAL IS THE TRANSCRIPT. Claude Code appends the assistant's `tool_use` row when a tool call starts and the user
- * `tool_result` row (same `tool_use_id`) when it ends. Measured on Claude Code (2026-11-09, renettilley's own session):
- * during a 25 s Bash call the transcript's last row was that call's `tool_use`, with no row written under it until the
- * result; thinking blocks are their own assistant rows, and other row types (pr-link, system) come and go. So a
+ * `tool_result` row (same `tool_use_id`) when it ends. Measured on Claude Code (2026-11-09): during a Bash call the
+ * transcript held that call's `tool_use` with no result after it. Other rows ARE written mid-call (review 1, measured
+ * across real sessions: api-request and api-request-blob rows, queue-operation rows when a message is pasted in,
+ * metadata rows, pr-link), so the file's time says nothing about the step; only the open call's own row does. So a
  * `tool_use` whose result has not been written is a step in flight since that row's timestamp, for any tool.
  *
  * Only Claude Code agents (their transcripts are found by status.transcriptFor). Not on a card that already says it
  * waits on the person: a permission prompt is a `tool_use` with no result too, and the card says so in its own words.
  *
- * Cost: a stat first. A transcript written in the last SHOW_MS cannot hold a step that has run for SHOW_MS, so most cards
- * never read it; otherwise only its last TAIL_BYTES.
+ * Cost: a stat, then the last TAIL_BYTES only when the file changed since the last read (a per-file cache keyed on size
+ * and time). The caller computes it only for a working card (status.oneStepOf).
+ * A long subagent (`Agent`, `Task`) or MCP call shows too: it is one step, and the sentence says a long job is fine.
+ * Sidechain rows (a subagent written into the main file by older builds) are skipped.
  */
 const fs = require('fs');
 
 const SHOW_MS = 5 * 60 * 1000;   // shown once one step has run this long (Josh can change it)
-const TAIL_BYTES = 64 * 1024;
+const TAIL_BYTES = 256 * 1024;   // review 1: one api-request-blob row measured at up to 190 KB
+
+/* A tool's name as the sentence says it: an MCP tool (mcp__<server>__<tool>) by its own last part. */
+function toolName(name) {
+  if (typeof name !== 'string' || !name) return 'a tool';
+  const parts = name.split('__');
+  return name.startsWith('mcp__') && parts.length >= 3 && parts[parts.length - 1] ? parts[parts.length - 1] : name;
+}
 
 /**
  * The step in flight in transcript text (JSONL, possibly starting mid-line), or null: { tool, since } with `since` an ISO
@@ -35,19 +45,19 @@ function openStep(text) {
     if (!line.trim()) continue;
     let row;
     try { row = JSON.parse(line); } catch { continue; }
-    if (!row || typeof row !== 'object') continue;
+    if (!row || typeof row !== 'object' || row.isSidechain === true) continue;
     const content = row.message && Array.isArray(row.message.content) ? row.message.content : null;
     if (row.type === 'assistant' && content) {
       const at = Date.parse(row.timestamp);
       for (const block of content) {
         if (block && block.type === 'tool_use' && typeof block.id === 'string' && Number.isFinite(at)) {
-          open.set(block.id, { tool: typeof block.name === 'string' && block.name ? block.name : 'a tool', at });
+          open.set(block.id, { tool: toolName(block.name), at });
         }
       }
     } else if (row.type === 'user') {
       const results = content ? content.filter((b) => b && b.type === 'tool_result') : [];
       if (results.length) { for (const b of results) open.delete(b.tool_use_id); }
-      else if (row.isMeta !== true && row.isSidechain !== true) open.clear();   // a new prompt: nothing before it still runs
+      else if (row.isMeta !== true) open.clear();   // a new prompt: nothing before it still runs
     }
   }
   let oldest = null;
@@ -68,9 +78,14 @@ function tailOf(file, bytes = TAIL_BYTES) {
   } catch { return null; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } }
 }
 
+/* The open step last read from each file, keyed on its size and time, so an unchanged file is not read again. */
+const seen = new Map();   // file -> { size, mtimeMs, step }
+const SEEN_MAX = 256;
+
 /**
- * The card's `oneStep` field for a transcript file: { tool, since } once one step has run SHOW_MS, else null. Never throws.
- * `o.now`, `o.showMs` for tests.
+ * The card's `oneStep` field for a transcript file: { tool, since } once one step has run SHOW_MS, else null. A step that
+ * began before `o.notBefore` (ms: the agent's session start) belongs to an earlier, dead session and is not shown.
+ * Never throws. `o.now`, `o.showMs` for tests.
  */
 function oneStepIn(file, o = {}) {
   try {
@@ -78,11 +93,19 @@ function oneStepIn(file, o = {}) {
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const showMs = Number.isFinite(o.showMs) ? o.showMs : SHOW_MS;
     const st = fs.statSync(file);
-    if (now - st.mtimeMs < showMs) return null;   // written since: no step can have run this long
-    const step = openStep(tailOf(file));
-    if (!step || now - Date.parse(step.since) < showMs) return null;
+    let hit = seen.get(file);
+    if (!hit || hit.size !== st.size || hit.mtimeMs !== st.mtimeMs) {
+      hit = { size: st.size, mtimeMs: st.mtimeMs, step: openStep(tailOf(file)) };
+      if (seen.size >= SEEN_MAX && !seen.has(file)) seen.delete(seen.keys().next().value);
+      seen.set(file, hit);
+    }
+    const step = hit.step;
+    if (!step) return null;
+    const since = Date.parse(step.since);
+    if (now - since < showMs) return null;
+    if (Number.isFinite(o.notBefore) && since < o.notBefore) return null;   // review 1: a call left open by a killed session
     return step;
   } catch { return null; }
 }
 
-module.exports = { SHOW_MS, TAIL_BYTES, openStep, tailOf, oneStepIn };
+module.exports = { SHOW_MS, TAIL_BYTES, toolName, openStep, tailOf, oneStepIn };

@@ -1874,22 +1874,26 @@ function deliveryStallOf(pane, status) {
     return ds.stallOf(pane && pane.name, { limitShown });
   } catch { return null; }
 }
-/* #6249: the card's unsentInput, { since } (ISO) once the same text has sat in a Claude agent's box UNSENT_SHOW_MS,
-   else null. The plain capture this pass already made decides whether to look; only a pane showing something there
-   is captured again with colours, and only when what it shows changed since the last colour read. */
-/* kosmos#8286: one tool call running for minutes ({ tool, since }), from the agent's own transcript (engine/onestep.js), for
-   a Claude Code card that is not already waiting on the person (a permission prompt is an open call too, and the card says
-   that itself). Null otherwise, and whenever the transcript cannot be found or read. */
-function oneStepOf(pane, status, now = Date.now(), find = transcriptFor) {
+/* kosmos#8286: one tool call running for minutes ({ tool, since }), from the agent's own transcript (engine/onestep.js).
+   Review 1: only for a WORKING card (the only one the page says it for, and the cheap way to skip the transcript lookup on
+   most cards), only for a pane tied to one of our agents (as readModel and readContext, which never read another agent's
+   transcript for an untied pane), never a Windows pane (its board reads no transcripts), and never a call older than this
+   tmux session (left open by a session that was killed mid-call). Null otherwise, and whenever nothing can be read. */
+function oneStepOf(pane, status, tied, now = Date.now(), find = transcriptFor, startedAt = sessionStartedAtFromTmux) {
   try {
+    if (!status || status.state !== STATE.WORKING) return null;
     const claude = !!pane && (!pane.runner || pane.runner === 'claude')
       && !isCodexCommand(pane.command) && !isGrokCommand(pane.command) && !isAntigravityCommand(pane.command);
-    if (!claude || !pane.name) return null;
-    if (status && (status.state === STATE.NEEDS_YOU || status.state === STATE.STOPPED)) return null;
-    return require('./onestep').oneStepIn(find(pane.name, pane.session), { now });
+    if (!claude || !pane.name || tied !== true || require('./win32roster').isWin32Pane(pane)) return null;
+    let notBefore = null;
+    try { notBefore = startedAt(pane.session || pane.name, now); } catch { notBefore = null; }
+    return require('./onestep').oneStepIn(find(pane.name, pane.session), { now, notBefore: Number.isFinite(notBefore) ? notBefore : undefined });
   } catch { return null; }
 }
 
+/* #6249: the card's unsentInput, { since } (ISO) once the same text has sat in a Claude agent's box UNSENT_SHOW_MS,
+   else null. The plain capture this pass already made decides whether to look; only a pane showing something there
+   is captured again with colours, and only when what it shows changed since the last colour read. */
 function unsentInputOf(pane, text, now = Date.now()) {
   const name = pane && pane.name;
   /* #7693: a gather with no text for this pane saw nothing, so it keeps what is known: dropping it would re-read every box next
@@ -9902,7 +9906,7 @@ function snapshot() {
       /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
       lastWorked: lastWorkedOf(pane),
       /* kosmos#8286: one tool call running for minutes ({ tool, since }), from its transcript, else null (see oneStepOf). */
-      oneStep: oneStepOf(pane, status),
+      oneStep: oneStepOf(pane, status, tied),
       /* #7786: an idle card whose agent launched and has never taken a turn (see neverTurnedOf). */
       neverTurned: neverTurnedOf(pane, status),
       because: status.because,
