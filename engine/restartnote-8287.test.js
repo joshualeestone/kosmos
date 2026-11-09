@@ -179,6 +179,10 @@ test('#8287: the route reads what the minute tick read, nothing until it has', (
   assert.deepEqual(rn.lastRoster().map((c) => c.sessionName), ['leo']);
   rn.noteRunning(null);
   assert.deepEqual(rn.lastRoster().map((c) => c.sessionName), ['leo'], 'a failed read lost the last good one');
+  const T0 = Date.now();
+  rn.noteRunning([card('leo', 'Leo')], T0);
+  assert.ok(rn.lastRoster(T0 + 5 * MIN), 'CONTROL: a reading five minutes old still counts');
+  assert.equal(rn.lastRoster(T0 + 5 * MIN + 1), null, 'a reading of unbounded age was reported as now');
 });
 
 test('#8287: the page gets the times and the checks and none of the records', () => {

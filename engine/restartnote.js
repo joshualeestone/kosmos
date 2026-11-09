@@ -130,11 +130,14 @@ function atStart(deps = {}) {
    route reads that one rather than taking a blocking roster read of its own. */
 let running = null;
 let lastCards = null;
+let lastCardsAt = 0;
+const ROSTER_STALE_MS = 5 * BEAT_MS;   // past this the reading no longer describes now, so the agents are left out
 let carried = null;       // who was running before this start, and until when it still counts
 let carriedUntil = 0;
 function noteRunning(roster, now = Date.now()) {
   if (!Array.isArray(roster)) return;   // a failed read says nothing, so the last good list stands
-  lastCards = roster.map((a) => (a ? { sessionName: a.sessionName, name: a.name, isAgentSession: a.isAgentSession, isNamedOurs: a.isNamedOurs, state: a.state, crashLoop: a.crashLoop } : a));
+  lastCards = roster;
+  lastCardsAt = now;
   const up = cleanRunning(runningOf(roster));
   markReturned(up);
   /* Agents return over minutes, so a read just after a start is a partial list. A second restart in that time must
@@ -188,7 +191,7 @@ function current(now = Date.now()) {
 /**
  * kosmos#8287: what the page says was checked, from the note and the roster now. Pure. `agents` is absent when nobody
  * recorded who was running or the roster could not be read; `files` is absent when the file check did not finish. An
- * agent missing from the roster counts as not back unless it was removed since (`removed`, session names): reading
+ * agent missing from the roster counts as not back unless it was removed since (`removed`, the names on the removal records): reading
  * missing as fine would hide the very failure this line exists to show.
  */
 function checksFor(note, roster, removed) {
@@ -217,7 +220,7 @@ function dismiss() {
   return writeJson(noteFile(), { ...n, dismissed: true });
 }
 
-function lastRoster() { return lastCards; }
-function resetForTests() { running = null; lastCards = null; carried = null; carriedUntil = 0; }
+function lastRoster(now = Date.now()) { return lastCards && now - lastCardsAt <= ROSTER_STALE_MS ? lastCards : null; }
+function resetForTests() { running = null; lastCards = null; lastCardsAt = 0; carried = null; carriedUntil = 0; }
 
 module.exports = { resetForTests, noteFor, atStart, beat, startBeating, current, dismiss, noteRunning, lastRoster, runningOf, checksFor, publicNote, BEAT_MS, WINDOW_MS, SHOW_MS, _files: { aliveFile, noteFile } };
