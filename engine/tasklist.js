@@ -414,6 +414,71 @@ function reachesAutomount(p, mounts, fsx = require('node:fs')) {
   return isMount(cur);
 }
 /**
+ * kosmos#8232: the Windows counterpart of reachesAutomount. driveRefusal checks only a path's own leading letter, but a
+ * link inside a local path can still lead somewhere else: a directory symlink to \\host\share (or \\?\UNC\...), or a
+ * symlink or junction to a mapped network letter (Z:\...). Opening the path would then open a network location a
+ * marker chose. So the path is walked one name at a time with lstat, and a link is followed one hop at a time by
+ * reading it (never by resolving it, which would do the lookup): a UNC or other device target is refused, and a
+ * drive-letter target is checked with the same driveInfo/driveRefusal as the path's own letter BEFORE anything on that
+ * drive is looked up. More than 40 hops is a loop, and is not opened either.
+ *
+ * Returns null when nothing on the way leaves this computer's own drives, else the words for why it is not opened.
+ * `p` is a drive path (task files only calls it for one whose own letter is local). Measured on Windows 11 with node
+ * 24: lstat reports a junction and a directory symlink alike as a link, and readlink gives the target without its
+ * \\?\ prefix; the prefixed forms are handled anyway, for an older or other node.
+ */
+function reachesNetworkWin(p, driveInfo, fsx = require('node:fs')) {
+  const win = require('node:path').win32;
+  const parts = (s) => String(s).split(/[\\/]+/).filter(Boolean);
+  const letterOk = (letter) => {
+    let info = null;
+    try { info = driveInfo(letter); } catch { info = null; }
+    if (!info) return 'it goes through a link to drive ' + letter.toUpperCase() + ':, and Kosmos could not tell what kind of drive that is, so it does not open it';
+    const refused = driveRefusal(letter + ':\\', info);
+    return refused ? 'it goes through a link to drive ' + letter.toUpperCase() + ':, ' + refused : null;
+  };
+  if (!/^[A-Za-z]:[\\/]/.test(p)) return 'not a local absolute path, so Kosmos does not open it';
+  // Windows collapses . and .. by text before it walks a path (C:\link\..\x opens C:\x, whatever link points at), so
+  // the walk does the same; after each link the rest of the path is joined onto its target and normalised again.
+  let full = win.normalize(p);
+  let hops = 0;
+  walk: for (;;) {
+    const root = full.slice(0, 2).toUpperCase() + '\\';
+    const names = parts(full.slice(3));
+    let cur = root;
+    for (let i = 0; i < names.length; i += 1) {
+      const next = win.join(cur, names[i]);
+      let st;
+      // Nothing there, or not readable: nothing under it is looked up here, and compare() opens the same path, so it
+      // reaches no further than this walk did.
+      try { st = fsx.lstatSync(next); } catch { return null; }
+      if (!st.isSymbolicLink()) { cur = next; continue; }
+      if (++hops > 40) return 'it loops through links, so Kosmos does not open it';
+      let to;
+      try { to = String(fsx.readlinkSync(next)); } catch { return 'it goes through a link Kosmos could not read, so it does not open it'; }
+      // \\?\C:\x is the drive path C:\x; every other \\?\ or \\.\ form (\\?\UNC\host, \\?\Volume{...}) is not a
+      // drive path this can check, and \\host\share is a network location.
+      const dev = /^[\\/]{2}[?.][\\/]([A-Za-z]:[\\/].*)$/.exec(to);
+      if (dev) to = dev[1];
+      else if (/^[\\/]{2}(?![?.][\\/])/.test(to) || /^[\\/]{2}[?.][\\/]UNC([\\/]|$)/i.test(to)) return 'it goes through a link to a network location, so Kosmos does not open it';
+      else if (/^[\\/]{2}/.test(to)) return 'it goes through a link Kosmos could not follow (a device or volume path), so it does not open it';
+      let base;
+      const drive = /^([A-Za-z]):([\\/]?)/.exec(to);
+      if (drive) {
+        if (!drive[2]) return 'it goes through a link Kosmos could not follow, so it does not open it';   // C:x, relative to a drive's own folder
+        const refused = letterOk(drive[1]);
+        if (refused) return refused;
+        base = to;
+      } else if (/^[\\/]/.test(to)) base = root + to.replace(/^[\\/]+/, '');   // \x: the root of the drive the link is on
+      else base = win.join(cur, to);                                         // relative to the folder the link is in
+      full = win.normalize(win.join(base, ...names.slice(i + 1)));
+      if (!/^[A-Za-z]:[\\/]/.test(full)) return 'it goes through a link Kosmos could not follow, so it does not open it';
+      continue walk;
+    }
+    return null;
+  }
+}
+/**
  * kosmos#8214 (feedback: an agent used `task built --file` to catch a file rebuilt without the task being marked again,
  * and asked for that as a sweep): `kosmos task files <project-id>` and `kosmos task files --all`. For each built task
  * whose mark carries a delivered file, the file at its recorded path is fingerprinted again HERE, with `compare` (the
@@ -486,6 +551,9 @@ function filesLines(body, opts = {}) {
       }
       const refused = driveRefusal(at, info);
       if (refused) { tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': ' + refused); continue; }
+      // kosmos#8232: a link on the way can still lead to a network location; walked hop by hop, nothing opened.
+      const away = reachesNetworkWin(at, driveInfo, opts.fs);
+      if (away) { tally.unchecked += 1; lines.push('    NOT CHECKED ' + shown + ': ' + away); continue; }
     }
     if (!windows) {
       const m = mountsNow();
@@ -566,4 +634,4 @@ if (require.main === module) {
   process.exit(out.rc);
 }
 
-module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, driveKind, driveRefusal, seenWords, STALE_DAYS_DEFAULT: 7 };
+module.exports = { COMPACT, compactLines, acrossLines, showLines, filesLines, automountsHere, reachesAutomount, reachesNetworkWin, driveKind, driveRefusal, seenWords, STALE_DAYS_DEFAULT: 7 };
