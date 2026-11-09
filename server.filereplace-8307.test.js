@@ -187,10 +187,13 @@ test('#8307: withdrawing the file tells its checker; a checker who left is said 
     assert.match(String(gone.because), /not on this project any more/, 'a checker who left was not said as not told: ' + JSON.stringify(gone));
     const typed = pastedMessages(sends);
     assert.equal(typed.length, 1, JSON.stringify(typed));
+    assert.match(String(r.json.summary), /This mark sent no file, so the file the task named before is withdrawn and anyone who checked it is told\. To keep it, mark it again with --file and its path\./, 'the marker was not told it withdrew the file: ' + r.json.summary);
+    assert.doesNotMatch(String(r.json.summary), /["\\]/, 'the summary carries a character the CLI cannot read');
     assert.match(typed[0], new RegExp('it no longer names a file: the one sent earlier \\(' + A + '\\) is withdrawn, so a check of that file no longer counts: you checked that one'), typed[0]);
     // The marker who checked the old file hears nothing about its own mark.
     const self = await mark(n, asAgent('mona'), { fingerprint: B, file_path: FILE_B });
     assert.equal(self.status, 200, JSON.stringify(self.json));
+    assert.doesNotMatch(String(self.json.summary || ''), /withdrawn/, 'CONTROL: a mark that sent a file was told it withdrew one');
     assert.equal((self.json.delivered || []).some((d) => d.agent === 'mona'), false, 'the marker was told about its own mark');
   } finally {
     chat.resetForTests();
