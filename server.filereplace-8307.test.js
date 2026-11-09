@@ -142,7 +142,7 @@ test('#8307: the same file again says nothing about a replacement and reaches no
   }
 });
 
-test('#8307: the CLI\'s task list carries what it replaced, path included; the Tasks view leaves both paths out', async () => {
+test('#8307: the CLI\'s task list carries what it replaced, never its path; the Tasks view leaves the current path out', async () => {
   const n = tasks.create(projectId, { sentence: 'Make the handout', who: 'mona' }).number;
   await mark(n, asAgent('mona'), { fingerprint: A, file_path: FILE_A });
   await mark(n, asAgent('zed'));
@@ -151,7 +151,7 @@ test('#8307: the CLI\'s task list carries what it replaced, path included; the T
   const row = cli.tasks.find((t) => t.number === n);
   assert.equal(row.builtFilePath, FILE_B, 'CONTROL: the CLI read still has the current path');
   assert.deepEqual(row.builtReplaces.checkedBy, ['zed']);
-  assert.equal(row.builtReplaces.filePath, FILE_A, 'task show cannot name the replaced file\'s path');
+  assert.equal('filePath' in row.builtReplaces, false, 'the CLI\'s list carried the replaced file\'s path (review 4: never stored)');
   const view = await (await fetch(base + `/api/tasks?view=tasks&project=${projectId}`, { headers: { 'sec-fetch-site': 'same-origin' } })).json();
   const vrow = (view.tasks || []).find((t) => t.number === n);
   assert.ok(vrow, 'CONTROL: the Tasks view lists it: ' + JSON.stringify(Object.keys(view)));
@@ -206,7 +206,7 @@ test('#8307: the page\'s own mark gets the task back without either file path; a
   await mark(n, asAgent('mona'), { fingerprint: A, file_path: FILE_A });
   const agent = await mark(n, asAgent('mona'), { fingerprint: B, file_path: FILE_B });
   assert.equal(agent.json.task.builtFilePath, FILE_B, 'CONTROL: the agent\'s answer keeps the path');
-  assert.equal(agent.json.task.builtReplaces.filePath, FILE_A);
+  assert.equal('filePath' in agent.json.task.builtReplaces, false, 'the replaced path reached an answer');
   const screen = await mark(n, { 'sec-fetch-site': 'same-origin' });
   assert.equal(screen.status, 200, JSON.stringify(screen.json));
   assert.equal(screen.json.changed, true, 'CONTROL: the screen mark changed the task');
