@@ -949,7 +949,8 @@ function withoutBuilt(t) {
  *                          so its checks read as out of date and their agents can be told. Only the one previous file.
  *                          A mark that drops the fingerprint keeps the dropped file here (withdrawn, review 1); a clear
  *                          drops it
- * The same mark again (same marker, same note, same fingerprint and file path) records nothing (`changed: false`). `refusePersonMark` refuses a
+ * The same mark again (same marker, same note, same fingerprint and file path, and since #8307 the same checkers and the
+ * same replaced file) records nothing (`changed: false`). `refusePersonMark` refuses a
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
  */
@@ -1013,8 +1014,11 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         checkedBy: names(x.builtCheckedBy),   // review 4: never the old file's path, so no route can carry a second one
         ...(x.builtCheckedByPerson === true ? { checkedByPerson: true } : {}),
       });
+      /* Review 7: a stored record is passed on only in recordOf's shape, so nothing an earlier build kept (a path) rides along. */
+      const kept8307 = (r) => ({ fingerprint: r.fingerprint, by: typeof r.by === 'string' ? r.by : null, at: typeof r.at === 'string' ? r.at : null,
+        checkedBy: names(r.checkedBy), ...(r.checkedByPerson === true ? { checkedByPerson: true } : {}) });
       const withdrawn = t.builtAt && !hadPrint && t.builtReplaces && typeof t.builtReplaces === 'object'
-        && FINGERPRINT_RE.test(t.builtReplaces.fingerprint || '') ? t.builtReplaces : null;
+        && FINGERPRINT_RE.test(t.builtReplaces.fingerprint || '') ? kept8307(t.builtReplaces) : null;
       const sentBack = Boolean(print && withdrawn && print === withdrawn.fingerprint);
       const replacing = Boolean(print && ((hadPrint && print !== hadPrint) || (withdrawn && !sentBack)));
       const dropping = Boolean(!kept && hadPrint);
@@ -1027,10 +1031,11 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       const checkedByPerson = (sameFile && (t.builtCheckedByPerson === true || (checking && isPerson))) || (sentBack && withdrawn.checkedByPerson === true);
       // Review 1: stamped only for a file new to this task, so a fingerprint from before #8307 keeps no false time.
       const printAt = sameFile ? (typeof t.builtFingerprintAt === 'string' ? t.builtFingerprintAt : '')
-        : sentBack ? (typeof withdrawn.at === 'string' ? withdrawn.at : '') : (print ? new Date().toISOString() : '');
+        // Review 7: the original sent time only when its own sender sends it back; another agent's copy is sent now.
+        : sentBack && withdrawn.by === keptBy ? (withdrawn.at || '') : (print ? new Date().toISOString() : '');
       const replaces = replacing ? (hadPrint ? recordOf(t) : withdrawn)
         : dropping ? recordOf(t)
-          : sameFile && t.builtReplaces && typeof t.builtReplaces === 'object' ? t.builtReplaces
+          : sameFile && t.builtReplaces && typeof t.builtReplaces === 'object' && FINGERPRINT_RE.test(t.builtReplaces.fingerprint || '') ? kept8307(t.builtReplaces)
             : !kept && withdrawn ? withdrawn : null;
       /*   before                  this mark                     builtReplaces      checks of the current file   kind
            no file                 a file                        none               none                         (none)
@@ -1039,11 +1044,12 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
            file F                  a different file G            F + its checks     none                         replaced
            file F                  no file, F dropped            F + its checks     (no current file)            withdrawn
            F withdrawn             no file                       F kept             (no current file)            (none)
-           F withdrawn             F sent back                   none               F's checks again             restored
+           F withdrawn             F sent back                   none               F's checks again             (none)
            F withdrawn             a different file G            F + its checks     none                         replaced
            anything                a clear                       none               none                         (none)            */
-      replacedNow = replacing ? { ...replaces, kind: 'replaced' } : dropping ? { ...replaces, kind: 'withdrawn' }
-        : sentBack ? { ...withdrawn, kind: 'restored' } : null;   // review 5: its checkers were told it no longer counted
+      /* Review 7: only a replacement reaches the old file's checkers. A withdrawal is said to the marker alone (most are a
+         re-mark that forgot --file), so the same file sent back needs no word to anyone either. */
+      replacedNow = replacing ? { ...replaces, kind: 'replaced' } : dropping ? { ...replaces, kind: 'withdrawn' } : null;
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
         && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who) && (t.builtFilePath || '') === keptPath
         && sameList(t.builtCheckedBy, checkedBy) && (t.builtCheckedByPerson === true) === checkedByPerson

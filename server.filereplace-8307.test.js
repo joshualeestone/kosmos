@@ -2,8 +2,8 @@
 
 /**
  * kosmos#8307: a built mark whose file replaces the one kept says so in the line it types (which file it replaces, and
- * that a check of that file no longer counts), and reaches whoever checked the old file. A withdrawn file sent back is
- * said as restored. The CLI's task list carries what it replaced, never its path; the Tasks view leaves the current path
+ * that a check of that file no longer counts), and reaches whoever checked the old file. A withdrawal is said to the
+ * marker alone, so a withdrawn file sent back says nothing to anyone. The CLI's task list carries what it replaced, never its path; the Tasks view leaves the current path
  * out. A task the person marked built refuses an agent's new file. engine/tasks.filereplace-8307.test.js has the store's
  * side.
  *
@@ -161,7 +161,7 @@ test('#8307: the CLI\'s task list carries what it replaced, never its path; the 
   assert.equal('filePath' in vrow.builtReplaces, false, 'the Tasks view sent the replaced file\'s path');
 });
 
-test('#8307: withdrawing the file tells its checker; a checker who left is said as not told; the marker is never told', async () => {
+test('#8307: withdrawing the file tells only the marker; the next different file tells the checkers, one who left said as not told', async () => {
   const chat = require('./engine/chat');
   const roster = fleet.install([
     fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' }), fleet.agent('ivy', { state: 'idle' }),
@@ -170,7 +170,7 @@ test('#8307: withdrawing the file tells its checker; a checker who left is said 
   projects.addAgent(projectId, 'gone8307', roster);
   const n = tasks.create(projectId, { sentence: 'Make the one-pager', who: 'mona' }).number;
   await mark(n, asAgent('zed'), { fingerprint: A, file_path: FILE_A });   // zed sends it ...
-  await mark(n, asAgent('mona'));   // ... mona checks it (she is also the next marker)
+  await mark(n, asAgent('ivy'));   // ... ivy and gone8307 check it
   await mark(n, asAgent('gone8307'));
   projects.removeAgent(projectId, 'gone8307');
   const sends = [];
@@ -183,20 +183,28 @@ test('#8307: withdrawing the file tells its checker; a checker who left is said 
     chat.setDryRun(false);
     const r = await mark(n, asAgent('zed'), { note: 'pulled it, wrong figures' });
     assert.equal(r.status, 200, JSON.stringify(r.json));
-    assert.deepEqual(told(r), ['gone8307', 'mona'], JSON.stringify(r.json));
-    const gone = r.json.delivered.find((d) => d.agent === 'gone8307');
-    assert.match(String(gone.because), /not on this project any more/, 'a checker who left was not said as not told: ' + JSON.stringify(gone));
+    assert.deepEqual(told(r), ['mona'], 'a withdrawal reached the checkers: ' + JSON.stringify(r.json));
+    assert.match(String(r.json.summary), /This mark sent no file, so the file the task named before is withdrawn\. To keep it, mark it again with --file and its path\./, 'the marker was not told it withdrew the file: ' + r.json.summary);
+    assert.doesNotMatch(String(r.json.summary), /["\\]/, 'the summary carries a character the CLI cannot read');
+    assert.equal(Object.keys(r.json).pop(), 'summary', 'summary is not the last key, which the CLI reads it as');
     const typed = pastedMessages(sends);
     assert.equal(typed.length, 1, JSON.stringify(typed));
-    assert.match(String(r.json.summary), /This mark sent no file, so the file the task named before is withdrawn\. To keep it, mark it again with --file and its path\./, 'the marker was not told it withdrew the file: ' + r.json.summary);
-    assert.doesNotMatch(String(r.json.summary), /anyone who checked it is told/, 'the sentence claims a delivery');
-    assert.doesNotMatch(String(r.json.summary), /["\\]/, 'the summary carries a character the CLI cannot read');
-    assert.match(typed[0], new RegExp('it no longer names a file: the one sent earlier \\(' + A + '\\) is withdrawn, so a check of that file no longer counts: you checked that one'), typed[0]);
+    assert.doesNotMatch(typed[0], /withdrawn|replaces|no longer counts/, 'the assignee\'s line spoke of the file: ' + typed[0]);
+    // The next different file reaches the old file's checkers: ivy typed to, gone8307 said as not told.
+    sends.length = 0;
+    const next = await mark(n, asAgent('zed'), { fingerprint: B, file_path: FILE_B });
+    assert.equal(next.status, 200, JSON.stringify(next.json));
+    assert.deepEqual(told(next), ['gone8307', 'ivy', 'mona'], JSON.stringify(next.json));
+    const gone = next.json.delivered.find((d) => d.agent === 'gone8307');
+    assert.match(String(gone.because), /not on this project any more/, 'a checker who left was not said as not told: ' + JSON.stringify(gone));
+    const toIvy = pastedMessages(sends).find((t) => /you checked that one/.test(t));
+    assert.ok(toIvy, JSON.stringify(pastedMessages(sends)));
+    assert.match(toIvy, new RegExp('it replaces the file sent earlier \\(' + A + '\\), so a check of that file no longer counts: you checked that one'));
     // The marker who checked the old file hears nothing about its own mark.
-    const self = await mark(n, asAgent('mona'), { fingerprint: B, file_path: FILE_B });
+    const self = await mark(n, asAgent('ivy'), { fingerprint: 'sha256:' + 'e'.repeat(64), file_path: FILE_A });
     assert.equal(self.status, 200, JSON.stringify(self.json));
+    assert.equal((self.json.delivered || []).some((d) => d.agent === 'ivy'), false, 'the marker was told about its own mark');
     assert.doesNotMatch(String(self.json.summary || ''), /withdrawn/, 'CONTROL: a mark that sent a file was told it withdrew one');
-    assert.equal((self.json.delivered || []).some((d) => d.agent === 'mona'), false, 'the marker was told about its own mark');
   } finally {
     chat.resetForTests();
   }
@@ -216,7 +224,7 @@ test('#8307: the page\'s own mark gets the task back without either file path; a
   assert.equal('filePath' in screen.json.task.builtReplaces, false, 'the page was sent the replaced file\'s path');
 });
 
-test('#8307: a withdrawn file sent back tells its checker the check counts again', async () => {
+test('#8307: a withdrawn file sent back says nothing to its checker (it was never told it went)', async () => {
   const chat = require('./engine/chat');
   const n = tasks.create(projectId, { sentence: 'Make the agenda', who: 'mona' }).number;
   await mark(n, asAgent('mona'), { fingerprint: A, file_path: FILE_A });
@@ -232,11 +240,10 @@ test('#8307: a withdrawn file sent back tells its checker the check counts again
     chat.setDryRun(false);
     const r = await mark(n, asAgent('mona'), { fingerprint: A, file_path: FILE_A, note: 'file back' });
     assert.equal(r.status, 200, JSON.stringify(r.json));
-    assert.deepEqual(told(r), ['ivy'], JSON.stringify(r.json));
-    const typed = pastedMessages(sends);
-    assert.equal(typed.length, 1, JSON.stringify(typed));
-    assert.match(typed[0], new RegExp('it names again the file withdrawn earlier \\(' + A + '\\), so a check of that file counts again: you checked that one'), typed[0]);
-    assert.doesNotMatch(typed[0], /no longer counts/, typed[0]);
+    assert.deepEqual(told(r), [], 'the file sent back reached someone: ' + JSON.stringify(r.json));
+    assert.equal(pastedMessages(sends).length, 0);
+    const stored = tasks.byNumber(projects.readAll().find((x) => x.id === projectId), n);
+    assert.deepEqual(stored.builtCheckedBy, ['ivy'], 'CONTROL: the check came back with the file');
   } finally {
     chat.resetForTests();
   }

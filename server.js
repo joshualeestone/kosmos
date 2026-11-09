@@ -576,10 +576,11 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
   }
   // Both names here are agents' names from the project, not a caller, so no paneless key applies.
   const forParent = parentWho.filter(notMe).filter((m) => !others.some((o) => sameAgentName(o, m, false)));
-  /* kosmos#8307: a mark that replaced (or withdrew) the file also reaches whoever checked the old one, since their check
+  /* kosmos#8307: a mark that replaced the file also reaches whoever checked the old one, since their check
      no longer counts; once each, after the assignees and the parent's holders. One who has left the project is said as
      not told (the tell step below), as an assignee who left is. */
-  const replacedPrint = replaced && tasks.FINGERPRINT_RE.test(replaced.fingerprint || '') ? replaced.fingerprint : '';
+  // Review 7: only a replacement reaches them; a withdrawal is said to the marker alone (in the mark's answer).
+  const replacedPrint = replaced && replaced.kind === 'replaced' && tasks.FINGERPRINT_RE.test(replaced.fingerprint || '') ? replaced.fingerprint : '';
   const oldCheckers = replacedPrint && Array.isArray(replaced.checkedBy) ? replaced.checkedBy.filter((m) => typeof m === 'string' && m) : [];
   const forChecker = [...new Set(oldCheckers)].filter(notMe)
     .filter((m) => !others.concat(forParent).some((o) => sameAgentName(o, m, false)));
@@ -604,13 +605,10 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
     /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
        Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). kosmos#6849: it
        names the command, since a PDF's fingerprint is not its shasum and an older instruction says shasum. */
-    + (/^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
+    + (tasks.FINGERPRINT_RE.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
     /* kosmos#8307: a replacement says which file it replaces, and that a check of that file no longer counts. */
-    + (replacedPrint && replaced.kind === 'restored' ? ' - it names again the file withdrawn earlier (' + replacedPrint + '), so a check of that file counts again'
-      + (checkedOld(m) ? ': you checked that one' : '')   // review 5: they were told it no longer counted
-      : replacedPrint ? (replaced.kind === 'withdrawn' ? ' - it no longer names a file: the one sent earlier (' + replacedPrint + ') is withdrawn'
-        : ' - it replaces the file sent earlier (' + replacedPrint + ')') + ', so a check of that file no longer counts'
-        + (checkedOld(m) ? ': you checked that one' : '') : '')
+    + (replacedPrint ? ' - it replaces the file sent earlier (' + replacedPrint + '), so a check of that file no longer counts'
+      + (checkedOld(m) ? ': you checked that one' : '') : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
@@ -26607,8 +26605,9 @@ const server = http.createServer(async (req, res) => {
           // Nobody to tell: no sentence, so the CLI adds nothing to a solo mark.
         }
       }
-      /* kosmos#8307 review 2: a mark without a file from its sender withdraws the file it named (the #6330 rule), which
-         now tells that file's checkers, so the marker hears it too and how to keep the file. No double quote, backslash
+      /* kosmos#8307 review 2: a mark without a file from its sender withdraws the file it named (the #6330 rule), so the
+         marker hears it and how to keep the file. Review 7: only the marker; a later different file tells the checkers.
+         It claims no delivery. No double quote, backslash
          or control character, which the CLI's sed could not read. */
       if (!viaScreen && body.clear !== true && out.replaced && out.replaced.kind === 'withdrawn') {
         summary = (summary ? summary + ' ' : '') + 'This mark sent no file, so the file the task named before is withdrawn.'
