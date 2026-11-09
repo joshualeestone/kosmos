@@ -34,13 +34,16 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const rowOne = document.createElement('div'); rowOne.innerHTML = lrow(base); document.body.appendChild(rowOne);
     const rn = row.querySelector('.atwin');
     const box = rn && rn.getBoundingClientRect();
+    // The consolidated rail is narrow: the note must not sit in a line an ellipsis can cut off.
+    const clipper = rn && rn.closest('.lname b');
     paintDetailMeta({ ...base, twinSession: 'kappa' });
     const meta = document.getElementById('d-meta').textContent;
     paintDetailMeta(base);
     const metaOne = document.getElementById('d-meta').textContent;
-    return { rowText: rn && rn.textContent, rowSeen: !!box && box.width > 0 && box.height > 0, rowNone: rowOne.querySelector('.atwin') === null, text: note && note.textContent, title: note && note.title, color: note && getComputedStyle(note).color, none: one.querySelector('.atwin') === null, meta, metaOne };
+    return { rowText: rn && rn.textContent, rowSeen: !!box && box.width > 0 && box.height > 0, rowNone: rowOne.querySelector('.atwin') === null, rowInTitle: !!rn && !!rn.closest('.ltitle') && !clipper, text: note && note.textContent, title: note && note.title, color: note && getComputedStyle(note).color, none: one.querySelector('.atwin') === null, meta, metaOne };
   });
   say(r.text === 'Two copies running', 'the card says two copies are running', JSON.stringify(r.text));
+  say(r.rowInTitle, 'on the list row it sits on the role line, outside the name an ellipsis can cut');
   say(r.rowText === 'Two copies running' && r.rowSeen && r.rowNone, 'the list row says it too, drawn, and not on a row with one session');
   say(/overwrite each other/.test(r.title || '') && /running as kappa/.test(r.title || ''), 'hovering says what that means and names the other', r.title);
   say(/Two copies of this agent are running/.test(r.meta), "the agent's page says so");
