@@ -57,7 +57,7 @@ const HOME = process.env.AGENT_WORKFORCE_HOME;
 const PERSONAL = path.join(HOME, '.claude', 'CLAUDE.md');
 
 async function openInstr(page, agent) {
-  if (await page.$('#detail-back:visible')) {
+  if (await page.$('#panel-detail:visible')) {
     await page.$eval('#detail-back', (b) => b.click());
   }
   await page.waitForSelector('[data-agent="' + agent + '"]', { timeout: 8000 });
