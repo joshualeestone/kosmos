@@ -730,6 +730,7 @@
       "rank": 4,
       "since": "0.7.55",
       "status": "held",
+      "why": "Removed by Josh on 2026-11-09 (kosmos#8302)",
       "shownIn": "0.7.63"
     },
     {
