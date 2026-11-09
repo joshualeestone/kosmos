@@ -465,8 +465,10 @@ extension Board {
                 : Subject + " to " + to + kept + "was sent " + when
         case "closed":
             if let r = integer(ev["replacedBy"]) { return "Closed as replaced by task \(r)" }
+            if ev["notRun"] as? Bool == true { return "Closed without running" }   // kosmos#8301
             if s("via") == "parent", let p = integer(ev["parent"]) { return "Marked done with task \(p)" }   // kosmos#7514
             return "Marked done"
+        case "not-run": return "Marked as not run"   // kosmos#8301
         case "replaced": return integer(ev["replacedBy"]).map { "Marked as replaced by task \($0)" } ?? "Marked as replaced"
         case "undone":
             let files = count(ev["files"]) ?? 0

@@ -94,6 +94,17 @@ test('#7412: either command closes several tasks at once and names them in one l
   }
 });
 
+/* kosmos#8301: --not-run on several numbers marks each of them. */
+test('kosmos#8301: several numbers with --not-run are each recorded as never run', async () => {
+  for (const [label, run] of BOTH) {
+    const ns = open(label);
+    const r = await run(['task', 'close', projectId, ...ns.map(String), '--not-run'], token('mara'));
+    assert.equal(r.code, 0, label + ': ' + r.text);
+    assert.match(r.text, new RegExp('^\\s*Closed tasks ' + ns.join(', ') + ' on ' + esc(projectId) + '\\.$', 'm'), label + ': ' + r.text);
+    for (const n of ns) assert.ok(taskchat.read(projectId, n).some((x) => x.kind === 'closed' && x.notRun === true), label + ': task ' + n + ' not recorded as never run');
+  }
+});
+
 test('#7412: CONTROL, one number still closes one task with the one-task sentence', async () => {
   for (const [label, run] of BOTH) {
     const [a, b] = open('one ' + label, 2);
