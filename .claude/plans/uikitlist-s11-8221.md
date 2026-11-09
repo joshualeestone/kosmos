@@ -66,9 +66,9 @@ The stepped scroll asks for 450 pt and moved 371 with no pin; where the other 79
 
 ## Interruptions (review iteration 3)
 
-- A jump to the newest (a send, New messages) while the window is open stops the scroll in place and closes the window, as
-  a running fling is stopped (toNewest, moved out of updateUIView so the check can call it), so the scroll's later moves
-  cannot read the reader off the newest again. Checked by the "jump" mode (review iteration 5).
+- A jump to the newest (a send, New messages) while the window is open closes the window (toNewest, moved out of
+  updateUIView so the check can call it), so the scroll's later moves cannot read the reader off the newest again. Checked
+  by the "jump" mode (review iteration 5).
 - Review iteration 5: a fling's or drag's end landing between the ask and the scroll's first move (the scroll stops the
   fling) keeps the ask, the window and the drag; before, it wiped the ask and the window never opened.
 - Review iteration 4: another scroll's end (an earlier fling's deceleration, a drag) landing inside the window does not close
@@ -76,8 +76,12 @@ The stepped scroll asks for 450 pt and moved 371 with no pin; where the other 79
 - Review iteration 6: an ask counts as the person's drag only once its scroll moves (the window opens), so a press that
   moves nothing never marks anything; each window is numbered and a lapse check from a closed one does nothing.
 - Review iteration 7: an ask is recorded even while a window is open and a lapse leaves it, so a second scroll asked for
-  as the first ends still opens its own window; rows landing above while such a scroll runs stop it in place (its fixed
-  target no longer means the same place) and the place is held; toNewest closes the window before stopping the scroll.
+  as the first ends still opens its own window; rows landing above while such a scroll runs close its window (the
+  scroll may still carry on to its old target, a follow-up); toNewest closes the window.
+- Final runs (after the cap): stopping a running scroll by writing its offset did not work (the jump check failed 2 of 2,
+  the reader left 135 pt above the newest). Removed; a jump now only closes the window, the list pins the reader through
+  the rest of the scroll, and its end keeps them at the newest (3 of 3, traced). The check reads how far short of the end
+  the list is, since the chat grew 63 pt during the scroll.
 
 ## Deferred from review
 

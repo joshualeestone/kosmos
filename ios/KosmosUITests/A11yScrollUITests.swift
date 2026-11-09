@@ -10,7 +10,7 @@ import XCTest
 final class A11yScrollUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
-    private struct Report { let pins: Int; let atEnd: Bool; let moved: Int; let window: Bool; let dragged: Bool; let label: String }
+    private struct Report { let pins: Int; let atEnd: Bool; let moved: Int; let window: Bool; let dragged: Bool; let short: Int; let label: String }
 
     private func scrollUp(mode: String, fixOff: Bool = false) throws -> Report {
         guard UIKitListArm.on else { throw XCTSkip("the lazy list has no pin to the end (UIKit list only)") }
@@ -25,7 +25,7 @@ final class A11yScrollUITests: XCTestCase {
         XCTAssertTrue(newest.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
         let marker = app.descendants(matching: .any).matching(identifier: "sample-a11y-scroll").firstMatch
         XCTAssertTrue(marker.waitForExistence(timeout: 20), "CONTROL: the scroll never reported")
-        // "sample a11y scroll pins <n>, at end <bool>, moved <n>, window <bool>, dragged <bool>, from the end <bool>"
+        // "sample a11y scroll pins <n>, at end <bool>, moved <n>, window <bool>, dragged <bool>, short <n>, from the end <bool>"
         let label = marker.label
         let words = label.replacingOccurrences(of: ",", with: "").split(separator: " ").map(String.init)
         func after(_ key: String) -> String? { words.firstIndex(of: key).flatMap { $0 + 1 < words.count ? words[$0 + 1] : nil } }
@@ -33,10 +33,10 @@ final class A11yScrollUITests: XCTestCase {
         print("UI-NOTE kosmos#8221 slice 11 \(mode)\(fixOff ? ", fix off" : ""): \(label)")
         guard let pins = after("pins").flatMap(Int.init), let moved = after("moved").flatMap(Int.init),
               let at = words.firstIndex(of: "at"), at + 2 < words.count, words[at + 1] == "end",
-              let window = after("window"), let dragged = after("dragged") else {
+              let window = after("window"), let dragged = after("dragged"), let short = after("short").flatMap(Int.init) else {
             throw NSError(domain: "A11yScrollUITests", code: 1, userInfo: [NSLocalizedDescriptionKey: "unreadable report: \(label)"])
         }
-        return Report(pins: pins, atEnd: words[at + 2] == "true", moved: moved, window: window == "true", dragged: dragged == "true", label: label)
+        return Report(pins: pins, atEnd: words[at + 2] == "true", moved: moved, window: window == "true", dragged: dragged == "true", short: short, label: label)
     }
 
     // The controls: before this slice the list pinned itself back during such a scroll. If a control reads 0 pins, the check
@@ -81,7 +81,8 @@ final class A11yScrollUITests: XCTestCase {
         let r = try scrollUp(mode: "jump")
         XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened before the jump: \(r.label)")
         XCTAssertTrue(r.atEnd, "the scroll took the reader off the newest after the jump: \(r.label)")
-        XCTAssertLessThanOrEqual(abs(r.moved), 2, "the list did not come back to the newest after the jump: \(r.label)")
+        // How far short of the end, not how far it moved: the chat can grow during the scroll (measured: 63 pt), moving the end.
+        XCTAssertLessThanOrEqual(abs(r.short), 2, "the list did not come back to the newest after the jump: \(r.label)")
     }
 
     // Asked for, but nothing moves (an arrow key that only moves focus): no window opens, the reader stays at the newest, and
