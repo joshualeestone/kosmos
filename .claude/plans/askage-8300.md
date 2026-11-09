@@ -9,6 +9,11 @@ A person's ask joins the "older" count, off the list, when all of these hold: ol
 name the reader, it reached the reader, and the reader has posted in the room after it. `--all` still lists it. An ask that
 names the reader stays listed however old.
 
+An ask the reader has claimed and not answered stays listed: its claim keeps every other seat off it. The count says how many
+of the unlisted came from the person, so the exit is not silent.
+
+A held ask (quota or cap at send time) whose told record has been pruned returns to the list. That fails towards listing.
+
 ## Rejected
 - A one-step "mark answered" verb: a new command each seat must remember, for a list that should be right by itself. The
   card offered either.

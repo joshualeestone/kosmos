@@ -2,7 +2,7 @@
 /**
  * kosmos#7969 (the 0.7.88 cross-seat report: 39, 41 and 102 historical posts on three seats' --unanswered): an agent's ask
  * older than UNANSWERED_DAYS is counted under `kosmos room <id> --unanswered`, not listed; --all shows it too. The
- * person's asks never age out. Follows #4926 and #7848.
+ * person's ask stays listed unless kosmos#8300 applies. Follows #4926 and #7848.
  */
 require('./test-support/tmpscope');
 const test = require('node:test');
@@ -61,7 +61,7 @@ const room = async (project, query) => {
 };
 const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + ']') && !l.startsWith('[kosmos]'));
 const AGED = (n) => '[kosmos] ' + n + (n === 1 ? ' post' : ' posts') + ' that asked you something more than 3 days ago '
-  + (n === 1 ? 'is' : 'are') + ' not listed (a person\'s ask stays listed if it names you, or until you have posted after it). Add --all to see ' + (n === 1 ? 'it' : 'them') + ' too.';
+  + (n === 1 ? 'is' : 'are') + ' not listed. Add --all to see ' + (n === 1 ? 'it' : 'them') + ' too.';
 
 test('kosmos#7969: an agent\'s ask older than 3 days is counted under the list, not in it; a recent one is listed', async () => {
   const pid = newRoom('Aged7969a');
@@ -83,13 +83,13 @@ test('kosmos#7969: --all lists the older asks too, and says nothing about age', 
   const r = await room(pid, '&unanswered=1&all=1');
   assert.ok(listed(r.text, old) && listed(r.text, fresh), '--all leaves an ask out:\n' + r.text);
   assert.match(r.text, /^Waiting on an answer from you: 2 posts in this room /m);
-  assert.ok(!r.text.includes('not listed (the person'), '--all still speaks of older posts:\n' + r.text);
+  assert.ok(!r.text.includes('not listed'), '--all still speaks of older posts:\n' + r.text);
   // CONTROL: `all` alone is not --unanswered (the whole room, as before).
   const plain = await room(pid, '&all=1');
   assert.ok(!plain.text.includes('Waiting on an answer from you: '), 'all=1 without unanswered=1 filtered the room');
 });
 
-test('kosmos#7969: the person\'s ask never ages out', async () => {
+test('kosmos#7969: a person\'s old ask stays listed while the reader has posted nothing since', async () => {
   const pid = newRoom('Aged7969c');
   const theirs = ask(pid, 10 * DAY, { operator: true, from: 'operator', mentioned: [], to: [ME] });
   const agents = ask(pid, 10 * DAY + 5000);
@@ -109,7 +109,7 @@ test('kosmos#7969: when every open ask is older, the head still says it is the f
   // CONTROL: a room with no ask at all keeps its own sentence and no age line.
   const empty = newRoom('Aged7969e');
   const e = await room(empty, '&unanswered=1');
-  assert.ok(e.text.includes('Waiting on an answer from you: nothing in this room.\n') && !e.text.includes('not listed (the person'), e.text);
+  assert.ok(e.text.includes('Waiting on an answer from you: nothing in this room.\n') && !e.text.includes('not listed'), e.text);
 });
 
 test('kosmos#7969 review 1: claimed and older asks with nothing recent: the head does not say nothing else waits', async () => {
@@ -151,7 +151,7 @@ test('kosmos#7969 review 2: an older ask the reader already answered by id is no
 });
 
 /* kosmos#8300: a person's ask to the whole room, and the reader's later post in that room. */
-const toRoom = (pid, ago, extra) => ask(pid, ago, Object.assign({ operator: true, from: 'operator', mentioned: [], to: [ME], outcomes: { [ME]: 'placed' } }, extra));
+const toRoom = (pid, ago, extra) => ask(pid, ago, Object.assign({ operator: true, from: 'operator', mentioned: [], to: [ME], text: 'a question for everyone', outcomes: { [ME]: 'placed' } }, extra));
 function myPost(project, ago) {
   const id = 'm' + (79690 + (++seq));
   append({ id, kind: 'post', from: ME, to: [], project, text: 'something else entirely', mentioned: [], at: new Date(Date.now() - ago).toISOString(), outcomes: {} });
@@ -164,7 +164,7 @@ test('kosmos#8300: a person\'s old ask to the room leaves the list once the read
   myPost(pid, 9 * DAY);
   const r = await room(pid, '&unanswered=1');
   assert.ok(!listed(r.text, old), 'it stayed listed:\n' + r.text);
-  assert.ok(r.text.includes(AGED(1) + '\n'), r.text);
+  assert.ok(r.text.includes('[kosmos] 1 post that asked you something more than 3 days ago is not listed, including 1 from the person to the whole room that you have posted since. Add --all to see it too.\n'), r.text);
   const all = await room(pid, '&unanswered=1&all=1');
   assert.ok(listed(all.text, old), '--all lost it:\n' + all.text);
 });
@@ -201,4 +201,13 @@ test('kosmos#8300: an old ask that never reached the reader stays listed, whatev
   const lost = toRoom(pid, 10 * DAY, { outcomes: {} });
   myPost(pid, 9 * DAY);
   assert.ok(listed((await room(pid, '&unanswered=1')).text, lost));
+});
+
+test('kosmos#8300: an old ask the reader claimed and has not answered stays listed: no other seat will take it', async () => {
+  const pid = newRoom('Aged8300g');
+  const mine = toRoom(pid, 10 * DAY);
+  append({ kind: 'reaction', project: pid, of: mine, at: new Date(Date.now() - 9.5 * DAY).toISOString(), emoji: '\u{1F64B}', op: 'add', from: ME, claim: true });   // a claim, as react() writes one
+  myPost(pid, 9 * DAY);
+  const r = await room(pid, '&unanswered=1');
+  assert.ok(listed(r.text, mine), 'the claimed ask left the list:\n' + r.text);
 });
