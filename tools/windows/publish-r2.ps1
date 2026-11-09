@@ -61,6 +61,12 @@ TWO MODES.
 
   -DryRun on either mode does every read and check and prints what it would write, writing nothing.
   -NodeTimeoutSec <n> gives each node check and each git read n seconds, up to 600 (default 300). One past that refuses as undecided.
+  node (for the signed-manifest and verification-record checks): a real node executable on PATH, which always wins;
+  else the installed Kosmos app's own, %LOCALAPPDATA%\Programs\Kosmos\runtime\node.exe (kosmos#8285), and only while
+  Windows reports its Authenticode signature Valid and from node's publisher (the OpenJS Foundation). When that file
+  is there, stderr says whether it was used and why not. The signature catches a damaged or replaced node.exe; it is NOT a guard against code
+  that can write that folder (a DLL beside node.exe still loads, and such code could put a node on PATH anyway): the
+  release PC is trusted as a whole, as before. A node on PATH is not checked: putting one there is the person's choice.
 
 WHICH READS DECIDE. Every read that decides whether to write (does this version exist, what does
 prod name, what is staged) is a SIGNED read of the bucket itself, so an edge that is challenging or
@@ -260,8 +266,50 @@ function Get-GitLine([string[]] $GitArgs) {
   if ($r.Rc -ne 0 -or -not $r.Out) { return '' }
   (($r.Out -split ' ')[0]).Trim()
 }
-# An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments).
-function Get-NodeExe { Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1 }
+# An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments). PATH's comes first, so a node
+# put there on purpose always wins, unchecked. kosmos#8285: when PATH has none, the installed Kosmos app's own
+# runtime\node.exe, so a release PC with Kosmos on it needs no separate node. Its folder says nothing about the file
+# (the user has full control of %LOCALAPPDATA%\Programs\Kosmos, and the updater rewrites it), so it is used only while
+# Windows reports its Authenticode signature Valid and its signer's name is node's publisher, the OpenJS Foundation;
+# otherwise it is skipped, said why, and the caller refuses.
+# What that proves: a damaged, half-updated or replaced node.exe is not run. What it does NOT: it is no boundary against
+# code that can write that folder (a DLL planted beside node.exe, which imports dbghelp, IPHLPAPI, USERENV and WINMM,
+# none of them KnownDLLs, still loads into a Valid node; the file can change between this check and its run; such code
+# could as well put a node on PATH), and the issuer is not pinned (a root the user added would make a look-alike Valid).
+# The release PC is trusted as a whole, as before this fallback. The signature read is not under -NodeTimeoutSec: about
+# half a second on the release PC online (11-09), not measured offline; it runs only when PATH has no node.
+# Said on stderr once per run (the first verdict), so the run's log shows which binary checked the build, and names a
+# .cmd shim it skipped on PATH, if there was one. Returns an object with .Source, or $null.
+$KosmosAppNode = 'Programs\Kosmos\runtime\node.exe'   # ONE place: the stderr line always names the binary returned
+$NodePublisher = 'OpenJS Foundation'
+$script:SaidRuntimeNode = $false   # declared for StrictMode, as the script's other run-wide flags
+function Get-NodeExe {
+  $found = @(Get-Command node -CommandType Application -ErrorAction SilentlyContinue)
+  $onPath = $found | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1
+  if ($onPath) { return $onPath }
+  if (-not $env:LOCALAPPDATA) { return $null }
+  $shim = $found | Select-Object -First 1
+  # Off Windows (pwsh) there is no Authenticode cmdlet: nothing can be checked, so nothing is used.
+  $canCheck = [bool](Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue)
+  $p = Join-Path $env:LOCALAPPDATA $KosmosAppNode
+  if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return $null }
+  # A read that throws (a locked file, a broken module) is no signature: not used, and the caller refuses cleanly.
+  $sig = if ($canCheck) { try { Get-AuthenticodeSignature -LiteralPath $p -ErrorAction Stop } catch { $null } } else { $null }
+  $signer = if ($sig -and $sig.SignerCertificate) { $sig.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) } else { '' }
+  $trusted = $sig -and "$($sig.Status)" -ceq 'Valid' -and $signer -ceq $NodePublisher
+  if (-not $script:SaidRuntimeNode) {
+    $why = if ($shim) { "no node executable on PATH (skipped the shim $($shim.Source): cmd.exe would mangle the arguments)" } else { 'no node on PATH' }
+    $line = if ($trusted) { "using the installed Kosmos app's own (signed by $NodePublisher): $p" }
+      elseif (-not $canCheck) { "NOT using the Kosmos app's node at ${p}: this PowerShell has no working Get-AuthenticodeSignature (on Windows, check its module path)" }
+      else { "NOT using the Kosmos app's node at ${p}: its signature is $(if ($sig) { "$($sig.Status)" } else { 'unreadable' })$(if ($signer) { " from $signer" }), not Valid from $NodePublisher" }
+    [Console]::Error.WriteLine("publish-r2: $why; $line")
+    $script:SaidRuntimeNode = $true   # once per run: a run checks with node two or three times, on this one path
+  }
+  if ($trusted) { return [pscustomobject]@{ Source = $p } }
+  $null
+}
+# The words for a refusal when Get-NodeExe found none: where it looked, so the fix is plain.
+$NoNodeWhere = if ($env:LOCALAPPDATA) { "none on PATH, and no installed Kosmos app's node signed by $NodePublisher under %LOCALAPPDATA% ($KosmosAppNode)" } else { 'none on PATH (and no %LOCALAPPDATA% here to look for the Kosmos app''s node in)' }
 # One argument as a Windows command line needs it (.NET parses the same rules elsewhere): 5.1 has no ArgumentList.
 function ConvertTo-NativeArg([string] $a) {
   if ($a -and $a -notmatch '[\s"]') { return $a }
@@ -331,7 +379,7 @@ function Invoke-ChildBounded([string] $Exe, [string[]] $Arguments, [string] $Std
 # than reading as a verdict at each caller. Every caller is before the run's first write.
 function Invoke-WinManifest([string[]] $Arguments) {
   $node = Get-NodeExe
-  if (-not $node) { Refuse "node (an executable, not a .cmd shim) is required to check the signed release manifest (#6466). Nothing was written." }
+  if (-not $node) { Refuse "node (an executable, not a .cmd shim) is required to check the signed release manifest (#6466): $NoNodeWhere. Nothing was written." }
   $js = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-release-manifest.js'
   $r = Invoke-ChildBounded $node.Source (@($js) + $Arguments)
   if ($r.Undecided) { Refuse "the manifest check ($($Arguments[0])) decided nothing about this build: $($r.Undecided)$(if ($r.Out) { " (it had printed: $($r.Out))" }). Run it again. Nothing was written." }
@@ -1135,7 +1183,7 @@ $spec = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-staging-record.js'
 # An executable node, not a node.cmd shim (cmd.exe would mangle the script). The script goes to
 # node on STDIN, never on the command line or in a temp file.
 $nodeExe = Get-NodeExe
-if (-not $nodeExe) { Refuse "node (an executable, not a .cmd shim) is required to validate the verification record. Nothing was written." }
+if (-not $nodeExe) { Refuse "node (an executable, not a .cmd shim) is required to validate the verification record: $NoNodeWhere. Nothing was written." }
 if (-not (Test-Path -LiteralPath $spec)) { Refuse "the record spec $spec is missing. Nothing was written." }
 $verdictJs = @'
 // Any crash says why on STDOUT (where the verdict is read), as AMBIGUOUS, so a refusal is never blank.

@@ -644,6 +644,17 @@ test('#5635 0.7.83: working now with a summary over the wall-clock cap reads sta
   assert.equal(v.workExcused(stale(2880), Object.assign({}, claude, { state: 'idle' }), sparse, NOW).state, 'worked');
   // CONTROL: working now, under the cap by the clock: reported work decides, as before.
   assert.equal(v.workExcused(stale(v.WORKING_WALL_CAP_HOURS * 60 - 5), claude, sparse, NOW).state, 'worked');
+  // kosmos#8298 item 5: 12 hours on the clock and over half an hour of work reads overdue; just woken does not.
+  const some = hist([['idle', 700], ['working', 45], ['working', 30], ['working', 5]]);
+  assert.equal(v.workExcused(stale(720), claude, some, NOW).wallClock, true, 'working, 12 hours old, 40 minutes in its current stretch');
+  const woken = hist([['idle', 715], ['working', 2]]);
+  assert.equal(v.workExcused(stale(720), claude, woken, NOW).state, 'worked', 'CONTROL: just woken, under the grace');
+  assert.equal(v.workExcused(stale(200), claude, some, NOW).state, 'worked', 'CONTROL: under the rhythm by the clock');
+  assert.equal(v.workExcused(stale(720), claude, hist([['idle', 700], ['working', 690]]), NOW).state, 'worked', 'one dangling heartbeat is not a stretch of work');
+  assert.equal(v.workExcused(stale(720), claude, hist([['working', 700], ['working', 660], ['idle', 300], ['working', 1]]), NOW).state, 'worked', 'earlier work, just woken');
+  const gemini = Object.assign({}, claude, { runner: 'antigravity' });
+  assert.equal(v.workExcused(stale(720), gemini, hist([['idle', 700], ['working', 45]]), NOW).wallClock, true, 'a runner that files one working at a turn start is timed from it');
+  assert.equal(v.workExcused(stale(720), claude, hist([['idle', 700], ['working', 80], ['idle', 30]]), NOW).state, 'worked', 'CONTROL: its latest report is idle, whatever the screen shows');
   // A turn-ends-only runner past its own cap is already stale (untimed); under it, its turns decide.
   const codex = Object.assign({}, claude, { runner: 'codex' });
   assert.equal(v.workExcused(stale(600), codex, hist([['idle', 590]]), NOW).state, 'worked', 'CONTROL: a turn-ends runner under both caps still reads by its turns');
