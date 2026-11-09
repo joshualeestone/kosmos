@@ -1002,11 +1002,12 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       const kept = print || (keep ? t.builtFingerprint : '');
       const keptBy = print ? who : (keep ? t.builtFingerprintBy || null : null);
       const keptPath = print ? sentPath : (keep ? t.builtFilePath || '' : '');   // kosmos#8214: the path goes with its fingerprint
-      /* kosmos#8307: a different fingerprint replaces the kept one; the old file and who checked it go to builtReplaces.
-         The same fingerprint again (sent again, or by a checker) keeps both. A mark that keeps the fingerprint without
-         sending one, from anyone but its sender, is a check of this file. Review 1: a mark that DROPS the file (the
-         sender's own mark without one, an unnamed agent's) withdraws it the same way, so its checkers are told then, and
-         a file sent after that replaces the withdrawn one; the same file sent back is no replacement, and keeps its checks. */
+      /* kosmos#8307: a different fingerprint replaces the kept one; the old file and who checked it go to builtReplaces,
+         and its checkers are told. The same fingerprint again (sent again, or by a checker) keeps both. A mark that keeps
+         the fingerprint without sending one, from anyone but its sender, is a check of this file. A mark that DROPS the
+         file (the sender's own mark without one, an unnamed agent's) withdraws it: kept in builtReplaces and said to the
+         marker alone (review 7), so a file sent after that replaces the withdrawn one and tells its checkers then; the
+         same file sent back is no replacement, and keeps its checks. The table below has every case. */
       const hadPrint = t.builtAt && FINGERPRINT_RE.test(t.builtFingerprint || '') ? t.builtFingerprint : '';
       const names = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x) : []);
       const recordOf = (x) => ({
@@ -1049,7 +1050,10 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
            F withdrawn             no file                       F kept             (no current file)            (none)
            F withdrawn             F sent back                   none               F's checks again             (none)
            F withdrawn             a different file G            F + its checks     none                         replaced
-           anything                a clear                       none               none                         (none)            */
+           anything                a clear                       none               none                         (none)
+         builtFingerprintAt (when the current file was sent): now for a file new to the task; kept when its own sender
+         sends it again; now when another agent sends the same file (review 8); the withdrawn file's time when its own
+         sender sends it back, now when another agent does; absent for a fingerprint from before #8307 resent by its sender. */
       /* Review 7: only a replacement reaches the old file's checkers. A withdrawal is said to the marker alone (most are a
          re-mark that forgot --file), so the same file sent back needs no word to anyone either. */
       replacedNow = replacing ? { ...replaces, kind: 'replaced' } : dropping ? { ...replaces, kind: 'withdrawn' } : null;
