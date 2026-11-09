@@ -2096,11 +2096,24 @@ function connect(dir, opts) {
   const startable = Boolean(last.model && /^claude-/.test(last.model) && require('./linuxjob').MODEL_ID.test(last.model));
   const onMenu = startable && create.modelsFor('anthropic').some((m) => m.arg === last.model);
   const tooOld = startable && !onMenu && Date.now() - (last.at || 0) > OFF_MENU_MODEL_MAX_AGE_MS;
-  const keepModel = last.account && startable && !tooOld ? last.model : null;
+  let keepModel = last.account && startable && !tooOld ? last.model : null;
+  let policyMoved = null;   // kosmos#8305: the model the policy moved it to, when the one it ran on is not on the company's list
   {
     /* The model it will actually run: a policy listing that model is satisfied, and one that does not list it refuses. */
-    const allowed = create.policyAllows(create.runnerProvider(runner), keepModel || '', last.account ? last.account.dir : undefined);
-    if (!allowed.ok) return { ok: false, because: allowed.because };
+    const policyDir = last.account ? last.account.dir : undefined;
+    const allowed = create.policyAllows(create.runnerProvider(runner), keepModel || '', policyDir);
+    /* kosmos#8305: a Found row has no chooser, so "choose one of them" left the person nowhere. When the model it ran on is
+       not on the list, it starts on one that is (the usual default first), and the row says which. Refused only when the
+       list allows nothing Kosmos can start. */
+    let pick = null;
+    if (!allowed.ok && !runner && keepModel) {
+      const menu = create.modelsFor('anthropic');
+      const usual = create.defaultModelKeyFor('anthropic');
+      pick = [...menu.filter((m) => m.key === usual), ...menu.filter((m) => m.key !== usual)]
+        .find((m) => create.policyAllows(create.runnerProvider(runner), m.arg, policyDir).ok) || null;
+    }
+    if (!allowed.ok && !pick) return { ok: false, because: allowed.because };
+    if (pick) { keepModel = pick.arg; policyMoved = pick.label || pick.key; }
   }
   /* 🛑 THE PROVIDER GOES IN THE PROFILE TOO, NOT ONLY THE JOB (#1159). #1347 made
      adoption write a codex JOB; the profile still said nothing, and
@@ -2260,6 +2273,7 @@ function connect(dir, opts) {
         : 'we could not tell which Claude model it was using, so it will start on the default';
     }
   }
+  if (policyMoved) unknownLastRun = 'your company\u2019s policy does not allow the model it was using, so it will start on ' + policyMoved;
   return { ok: true, name, displayName, dir: given, started: job.started === true,
     ...(unknownLastRun ? { unknownLastRun } : {}) };
 }

@@ -203,6 +203,21 @@ test('company policy is asked about the model that will run', () => {
   } finally { create.policyAllows = real; }
 });
 
+test('kosmos#8305: a model off the company list starts on one the list allows, and the row says which', () => {
+  const dir = agent('moved8305');
+  ranOn(ACCT_B);
+  const usual = create.modelsFor('anthropic').find((m) => m.key === create.defaultModelKeyFor('anthropic'));
+  const real = create.policyAllows;
+  create.policyAllows = (provider, model) => (model === usual.arg ? { ok: true } : { ok: false, because: 'choose one' });
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, true, out.because);
+    assert.equal(seen.model, usual.arg);
+    assert.equal(seen.configDir, ACCT_B, 'the account it ran on is kept');
+    assert.match(out.unknownLastRun, new RegExp('policy does not allow the model it was using, so it will start on ' + usual.label));
+  } finally { create.policyAllows = real; }
+});
+
 test('a policy that does not list the model refuses, before anything is written', () => {
   const dir = agent('policedout');
   ranOn(ACCT_B);
@@ -218,7 +233,7 @@ test('a policy that does not list the model refuses, before anything is written'
 
 test('the Found row\'s sentence and the engine\'s field use one name (source text only; no check runs that arm)', () => {
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-  assert.match(page, /said\.textContent = out\.unknownLastRun \? \('Added, but ' \+ out\.unknownLastRun \+ '\.'\) : '';/);
+  assert.match(page, /said\.textContent = foundAddedWords\(out\);/);
   const engine = fs.readFileSync(path.join(__dirname, 'discover.js'), 'utf8');
   assert.match(engine, /\{ unknownLastRun \}/);
 });

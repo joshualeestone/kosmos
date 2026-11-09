@@ -92018,6 +92018,10 @@ const FOUND_SEARCH_AT = 30;
  * it names what was typed, gives the total, and says how to get back. "No
  * results" alone would be the one arm on this screen with no way out.
  */
+/* #8293, kosmos#8305: what the Found row says after an add: nothing, unless the account or model it was using could not be kept. */
+function foundAddedWords(out) {
+  return out && out.unknownLastRun ? 'Added, but ' + out.unknownLastRun + '.' : '';
+}
 function foundCountLine(shown, total, term, overflows) {
   const agentWord = total === 1 ? '1 agent' : total + ' agents';
   /* 🛑 "SCROLL TO SEE THEM ALL" IS A CLAIM ABOUT THE SCREEN, AND I SHIPPED IT AS
@@ -92209,7 +92213,7 @@ document.addEventListener('click', async (e) => {
        ⚠️ THE ELEMENT STAYS FOR THE FAILURE ARM, which is the one that has
        something a person must act on. It is empty on success and takes no room.
        #8293: the one exception is when we could not keep the account or model it was using: that is theirs to know. */
-    said.textContent = out.unknownLastRun ? ('Added, but ' + out.unknownLastRun + '.') : '';
+    said.textContent = foundAddedWords(out);
     return;
   }
   go.disabled = false;
