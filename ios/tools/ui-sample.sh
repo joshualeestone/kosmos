@@ -69,7 +69,8 @@ if [ "$uikit" = 1 ]; then
   # kosmos#8221 slice 7: EarlierPagesUITests, earlier messages at the top of the UIKit list (2 checks, this arm only).
   # kosmos#8221 slice 8: LongPressKeyboardUITests (7) and DeleteMessageUITests (3), long press to copy or delete on the UIKit
   #   list; each chat launch asserts the UIKit list drew it (UIKitListArm.assertDrawn). This arm only (by hand on the lazy).
-  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3"
+  # kosmos#8221 slice 9: EndPullUITests (6), the pull past the newest message, a message landing during it included.
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done
