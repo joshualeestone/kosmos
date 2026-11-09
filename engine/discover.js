@@ -397,7 +397,7 @@ function otherJobFor(dir, agentsDir, runner) {
   const isFolder = new RegExp('^(?:' + folders + ')/?$');
   const blank = (m) => ' '.repeat(m.length);   // same length, so a position here is a position in the original
   const folderMask = new RegExp(folders, 'g');   // a folder named after the program is not a start of it
-  const asking = /\b(?:pgrep|pkill|killall|which|type)\b[^;&|\n]*/g;   // asking about the program is not starting it
+  const asking = /\b(?:pgrep|pkill|killall|which|type|echo|printf)\b[^;&|\n]*/g;   // asking about the program, or saying its name, is not starting it
   /* The program as a command or a path's last part: .local/bin/claude yes, ~/.claude/x and claude-501 no. */
   const startsRe = new RegExp('(^|["\'\\s/;&|(])' + escapeRe(runner || 'claude') + '($|["\'\\s;&|)])', 'm');
   const masked = (t) => t.replace(folderMask, blank).replace(asking, blank);
