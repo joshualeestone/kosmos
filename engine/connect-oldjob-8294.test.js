@@ -40,7 +40,7 @@ function agent(name) {
   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), `# You are ${name[0].toUpperCase()}${name.slice(1)}\n`);
   return dir;
 }
-function plist(label, { dir, args = ['/bin/bash'], tail = '<key>KeepAlive</key><true/><key>RunAtLoad</key><true/>' } = {}) {
+function plist(label, { dir, args = ['/usr/local/bin/claude'], tail = '<key>KeepAlive</key><true/><key>RunAtLoad</key><true/>' } = {}) {
   const wd = dir ? `<key>WorkingDirectory</key><string>${dir}</string>` : '';
   const a = args.map((x) => `<string>${x}</string>`).join('');
   fs.writeFileSync(path.join(LAUNCH, `${label}.plist`),
@@ -118,6 +118,75 @@ test('a linked spelling of the folder is the same folder', () => {
   fs.symlinkSync(dir, link);
   plist('com.linked.discord', { dir: link });
   assert.equal(discover.otherJobFor(dir, LAUNCH).label, 'com.linked.discord');
+});
+
+test('a keep-alive job working in the folder that does not start the agent does not block it', () => {
+  const dir = agent('webserver');
+  plist('com.webserver.site', { dir, args: ['/usr/local/bin/node', 'server.js'] });
+  assert.equal(discover.connect(dir, {}).ok, true);
+});
+
+test('a path argument to some other program does not block it', () => {
+  const dir = agent('watcher');
+  plist('com.watcher.fs', { args: ['/opt/homebrew/bin/fswatch', dir] });
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null);
+});
+
+test('a backup script that mentions ~/.claude is not a start of Claude', () => {
+  const dir = agent('backup');
+  const f = script('back.sh', `rsync -a "${dir}" /b\nrsync -a ~/.claude /b\n`);
+  plist('com.backup.nightly', { args: ['/bin/bash', f] });
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null);
+});
+
+test('RunAtLoad only, KeepAlive only and KeepAlive as a dict each count', () => {
+  for (const [name, tail] of [['ral', '<key>RunAtLoad</key><true/>'], ['ka', '<key>KeepAlive</key><true/>'], ['kad', '<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>']]) {
+    const dir = agent(name);
+    plist('com.' + name + '.x', { dir, tail });
+    assert.equal(discover.otherJobFor(dir, LAUNCH).label, 'com.' + name + '.x', name);
+  }
+});
+
+test('the common launcher shapes are found', () => {
+  const dir = agent('shapes');
+  for (const body of [`cd ${dir}; claude`, `cd ${dir}&&claude`]) {
+    const f = script('sh-shape.sh', body + '\n');
+    plist('com.shapes.a', { args: ['/bin/bash', f] });
+    assert.equal(discover.otherJobFor(dir, LAUNCH).label, 'com.shapes.a', body);
+  }
+  plist('com.shapes.a', { args: ['/bin/bash', '-lc', `cd ${dir} && claude`] });
+  assert.equal(discover.otherJobFor(dir, LAUNCH).label, 'com.shapes.a', 'inline');
+  const home = process.env.HOME;
+  const inHome = path.join(home, 'agents', 'homey');
+  fs.mkdirSync(inHome, { recursive: true });
+  const f = script('homey.sh', 'cd "$HOME/agents/homey"\nclaude\n');
+  plist('com.homey.a', { args: ['/bin/bash', f] });
+  assert.equal(discover.otherJobFor(inHome, LAUNCH).label, 'com.homey.a', 'home spelling');
+});
+
+test('a Codex job is judged by codex, a Claude job by claude', () => {
+  const dir = agent('runnerword');
+  plist('com.runnerword.a', { dir, args: ['/usr/local/bin/codex'] });
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null);
+  assert.equal(discover.otherJobFor(dir, LAUNCH, 'codex').label, 'com.runnerword.a');
+});
+
+test('a named pipe as an argument does not hang the check', { skip: process.platform === 'win32' }, () => {
+  const dir = agent('pipe');
+  const fifo = path.join(SB, 'a.fifo');
+  require('node:child_process').execFileSync('mkfifo', [fifo]);
+  plist('com.pipe.a', { dir, args: ['/bin/cat', fifo] });
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null);
+});
+
+test('a commented-out key and a WorkingDirectory inside the environment do not count', () => {
+  const dir = agent('comment');
+  fs.writeFileSync(path.join(LAUNCH, 'com.comment.a.plist'),
+    `<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.comment.a</string><key>EnvironmentVariables</key><dict><key>WorkingDirectory</key><string>${dir}</string></dict><key>ProgramArguments</key><array><string>/usr/local/bin/claude</string></array><key>RunAtLoad</key><true/></dict></plist>`);
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null);
+  fs.writeFileSync(path.join(LAUNCH, 'com.comment.a.plist'),
+    `<?xml version="1.0"?><plist version="1.0"><dict><key>WorkingDirectory</key><string>${dir}</string><key>ProgramArguments</key><array><string>/usr/local/bin/claude</string></array><!-- <key>RunAtLoad</key><true/> --></dict></plist>`);
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null);
 });
 
 test('no job folder at all answers none', () => {
