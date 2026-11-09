@@ -72251,7 +72251,7 @@ function tskRow(t, at) {
     /* kosmos#5956: every subtask closed or built, some only built: the parent is ready for the person to check. No
        Close here: the built subtasks are still open, and closing them is the person's call on each one. */
     : sub && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total && t.state !== 'closed'
-      ? '<span>' + (subUnrun ? 'the rest are built' : 'all subtasks built') + ', ready for you to check</span>' : '';   // kosmos#8301: not "all" when one was dropped
+      ? (subUnrun ? '<span>the rest are built, ready for you to check</span>' : '<span>all subtasks built, ready for you to check</span>') : '';   // kosmos#8301: not "all" when one was dropped
   const partOf = place.crumb && t.parent != null
     ? '<span class="tsk-part">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
   /* A state this view does not know gets no label at all, never a group the engine did not name. */
