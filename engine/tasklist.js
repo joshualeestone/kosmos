@@ -424,7 +424,10 @@ function reachesAutomount(p, mounts, fsx = require('node:fs')) {
  *
  * Returns null when nothing on the way leaves this computer's own drives, else the words for why it is not opened.
  * `p` is a drive path (task files only calls it for one whose own letter is local). Measured on Windows 11 with node
- * 24: lstat reports a junction and a directory symlink alike as a link. readlink strips the NT prefix only from a
+ * 24: lstat reports a symlink, and a junction to a drive path, as a link. A junction to anything else fails lstat
+ * instead: a volume mount point (a folder mounted from another local disk) with EISDIR, so it is refused below as a
+ * place Kosmos could not look at; a junction to \??\UNC\ or \??\GLOBALROOT\Device\Mup\ with ENOENT, and Windows will
+ * not traverse those either, so compare() reports MISSING. readlink strips the NT prefix only from a
  * drive target (\??\C:\x -> C:\x) or a UNC one (\??\UNC\h\s -> \\h\s); every other device target comes back raw,
  * e.g. \??\GLOBALROOT\Device\Mup\host\share (a network share by another name) or \??\Global\Z:\ (a mapped letter).
  * So a target is accepted only in a shape whose meaning is certain, a drive path (bare or with a drive prefix) or a

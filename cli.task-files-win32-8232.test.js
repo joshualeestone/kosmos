@@ -219,12 +219,13 @@ test('#8232 Windows: a junction whose ACL hides it from lstat is refused, though
   const { execFileSync } = require('node:child_process');
   const who = (process.env.USERDOMAIN ? process.env.USERDOMAIN + '\\' : '') + process.env.USERNAME;
   const icacls = (...args) => execFileSync('icacls', args, { stdio: 'pipe', windowsHide: true });
+  // Taken off again in the finally, inside the test (even if only the first was set): the sandbox's own after-hook runs
+  // first and cannot list a denied folder.
   try {
-    icacls(j, '/L', '/deny', who + ':(RA,REA,RC)');
-    icacls(box, '/deny', who + ':(RD)');
-  } catch (e) { t.skip('icacls could not set the deny entries here: ' + String(e.message).split('\n')[0]); return; }
-  // Taken off again here, inside the test: the sandbox's own after-hook runs first and cannot list a denied folder.
-  try {
+    try {
+      icacls(j, '/L', '/deny', who + ':(RA,REA,RC)');
+      icacls(box, '/deny', who + ':(RD)');
+    } catch (e) { t.skip('icacls could not set the deny entries here: ' + String(e.message).split('\n')[0]); return; }
     let lstatCode = null;
     try { fs.lstatSync(j); } catch (e) { lstatCode = e.code; }
     if (!lstatCode) { t.skip('lstat still reads the junction under the deny entries on this host'); return; }

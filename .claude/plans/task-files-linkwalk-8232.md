@@ -29,6 +29,10 @@ letter.
   reports it MISSING, link or not (a file gone from behind a junction stays a MISSING verdict). Any other lstat error
   is not opened, link or not: measured, a junction whose own ACL denies reading it fails lstat with EPERM while a read
   through it still succeeds (traverse checking is bypassed), so an unreadable name might be a link.
+- A junction whose target is not a drive path fails lstat (node cannot read it): a volume mount point (a folder
+  mounted from another local disk) with EISDIR, so it is refused as a place Kosmos could not look at (conservative;
+  decided); a junction to `\??\UNC\` or `\??\GLOBALROOT\Device\Mup\` with ENOENT, which Windows will not traverse
+  either, so compare reports MISSING.
 - The walk and the open are separate steps; a link swapped between them needs write access to the path's own
   folders on this computer, and is not caught.
 - Wired into `filesLines` after the drive-letter check; `opts.fs` is the test seam.
