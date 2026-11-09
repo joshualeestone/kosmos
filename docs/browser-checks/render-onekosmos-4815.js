@@ -466,7 +466,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             }, { answers: ANSWERS, seededLoad });
             await s.goto(PAGE);
             const shownNow = () => s.evaluate(() => { const el = document.getElementById('worldsw'); return !!el && !el.hidden && el.getClientRects().length > 0; });
-            await s.evaluate(({ worlds }) => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; worldswRender(worlds, {}); }, { worlds: WORLDS });
+            await s.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; });   // nothing else called by hand: the boot paints it
             const before = await shownNow();
             ok(`${t} #8325: before the first answer the control is ${seededLoad ? 'shown from memory' : 'absent with nothing remembered'}`, before === seededLoad, String(before));
             await s.evaluate(() => { const read = computersFetch(); (window.__heldComputers || []).forEach((release) => release()); return read; });

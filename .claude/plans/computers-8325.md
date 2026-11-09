@@ -8,10 +8,11 @@ web/index.html remembers the last good answer in this browser (localStorage: tha
 ## Decided
 - As the card recommends. Rejected: always showing the control (reverses #6396 for one-computer people); shortening the backoff (does nothing before the first answer, and each read is a signed call).
 - Stores no other computer's name or address. This computer's name is already on this person's own screen.
-- Not marked as unconfirmed. A control that is only remembered goes on the first failed read once two minutes have passed since load with no answer, never while the menu is open, so a computer whose reads never succeed does not keep offering an empty menu. Time, not a count of reads, because opening the menu starts reads of its own. What is remembered stays, so the next load starts from it again, and a good answer brings the control back.
+- Not marked as unconfirmed, and no give-up. A control that can't reach Kosmos+ says so inside its own menu, the same as one already confirmed, so a remembered one stays until an answer. Review 4 showed the earlier give-up rule brought the card's symptom back after a few minutes of failed reads or a laptop sleep, and its stated reason (an empty menu) was wrong.
 - A remembered value does not count as seen for the first-time tip, so the tip keeps its one turn.
 
 ## Readers of the remembered value
+`computersReadSoon` still reads while a value is only remembered, and the boot paints the control itself. The AI Models note can keep "your other computers" until the screen repaints.
 The app header, the settings nav entry, the switcher, and the two notes that name this computer read it before the first answer. Each shows what the last good answer on this browser said, for seconds.
 
 ## Weakest premise
@@ -19,4 +20,4 @@ That the page reloaded at all, which nothing here can measure. If it did not, th
 
 ## Not covered
 The remembered value is per browser, not per account: another Kosmos+ account on this browser sees it until the first answer. Sign-out is a good answer and clears it.
-Until the first answer or the two minutes, a person whose second computer was removed elsewhere sees a control that then goes.
+Until the first answer, a person whose second computer was removed elsewhere sees a control that then goes.

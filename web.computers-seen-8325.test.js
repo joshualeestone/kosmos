@@ -58,19 +58,17 @@ test('only a good answer writes it, a failed read does not', () => {
 });
 
 /* The real worldswComputersSeen, starting from a remembered value, with the page around it stubbed. */
-function seenFrom({ loadedAgoMs = 0, menuOpen = false } = {}) {
+function seenFrom() {
   const calls = { tip: 0, drop: 0, wrote: [] };
   const src = `
     let COMPUTERS_OPENABLE = true, COMPUTERS_CONFIRMED = false, THIS_COMPUTER_NAME = 'a', COMPUTERS_SIGNED_OUT = false;
     let COMPUTERS_RETRY_T = null, COMPUTERS_STALE_WHILE_HIDDEN = false, COMPUTERS_EXPECT_UNTIL = 0, COMPUTERS_FAILS = 0;
     const MULTI_KOSMOS = false;
-    ${page.liftConst(SCRIPT, 'COMPUTERS_SEEN_GIVE_UP_MS')}
-    const COMPUTERS_LOADED_AT = Date.now() - ${loadedAgoMs};
     const worldswTipOnce = () => { calls.tip += 1; }, worldswTipDrop = () => { calls.drop += 1; };
     const computersSeenWrite = (open) => { calls.wrote.push(open); }, worldswOneKosmos = () => {}, computersFetch = () => Promise.resolve();
     const setTimeout = () => 0, clearTimeout = () => {};
-    const window = {}, document = { hidden: false, getElementById: (id) => (id === 'worldsw-menu' && ${menuOpen} ? { hidden: false } : null) };
-    ${page.liftAll(SCRIPT, ['worldswComputersSeen', 'computersMenuOpen'])}
+    const window = {}, document = { hidden: false, getElementById: () => null };
+    ${page.liftAll(SCRIPT, ['worldswComputersSeen'])}
     return { seen: worldswComputersSeen, open: () => COMPUTERS_OPENABLE };`;
   return { ...new Function('calls', src)(calls), calls };
 }
@@ -92,30 +90,14 @@ test('a good answer with one computer drops the control and forgets it', () => {
   assert.deepEqual(c.calls.wrote, [false]);
 });
 
-const GIVE_UP_MS = new Function(page.liftConst(SCRIPT, 'COMPUTERS_SEEN_GIVE_UP_MS') + '\nreturn COMPUTERS_SEEN_GIVE_UP_MS;')();
-
-test('a failed read keeps a remembered control before the time is up, however many fail, and never writes', () => {
-  assert.ok(GIVE_UP_MS > 0);
-  const c = seenFrom({ loadedAgoMs: GIVE_UP_MS - 5000 });
-  for (let i = 0; i < 8; i += 1) { c.seen([], false, false); assert.equal(c.open(), true, 'read ' + (i + 1)); }
+test('a failed read keeps a remembered control, however many fail, and never writes', () => {
+  const c = seenFrom();
+  for (let i = 0; i < 12; i += 1) { c.seen([], false, false); assert.equal(c.open(), true, 'read ' + (i + 1)); }
   assert.deepEqual(c.calls.wrote, []);
 });
 
-test('once the time is up, the next failed read drops a remembered control and forgets nothing', () => {
-  const c = seenFrom({ loadedAgoMs: GIVE_UP_MS + 1000 });
-  c.seen([], false, false);
-  assert.equal(c.open(), false);
-  assert.deepEqual(c.calls.wrote, []);
-});
-
-test('it never goes while the menu is open', () => {
-  const c = seenFrom({ loadedAgoMs: GIVE_UP_MS + 1000, menuOpen: true });
-  c.seen([], false, false);
-  assert.equal(c.open(), true);
-});
-
-test('a confirmed control is never given up by failures', () => {
-  const c = seenFrom({ loadedAgoMs: GIVE_UP_MS + 1000 });
+test('a confirmed control is kept through failures too', () => {
+  const c = seenFrom();
   c.seen(two, true, false);
   for (let i = 0; i < 6; i += 1) c.seen([], false, false);
   assert.equal(c.open(), true);

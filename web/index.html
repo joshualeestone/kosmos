@@ -32852,16 +32852,6 @@ const COMPUTERS_SEEN = MULTI_KOSMOS ? null : computersSeenRead();
 let THIS_COMPUTER_NAME = COMPUTERS_SEEN ? COMPUTERS_SEEN.name : '';
 let COMPUTERS_OPENABLE = Boolean(COMPUTERS_SEEN);
 let COMPUTERS_CONFIRMED = false;   // #8325: an answer has landed on this page load, so COMPUTERS_OPENABLE is not only remembered
-/* #8325: a control that is only remembered goes if no answer has landed this long after load and a read has just failed,
-   so a computer whose reads never succeed does not keep offering an empty menu. Time, not a count of reads: opening the
-   menu starts reads of its own. Never while the menu is open, so it does not go under the person. A good answer brings it
-   back. */
-const COMPUTERS_SEEN_GIVE_UP_MS = 2 * 60 * 1000;
-const COMPUTERS_LOADED_AT = Date.now();
-function computersMenuOpen() {
-  const menu = document.getElementById('worldsw-menu'), nav = document.getElementById('pnav');
-  return !!((menu && !menu.hidden) || (nav && !nav.hidden));
-}
 let COMPUTERS_RETRY_T = null;
 let COMPUTERS_STALE_WHILE_HIDDEN = false;
 let COMPUTERS_FAILS = 0;
@@ -32914,7 +32904,7 @@ function worldswTipHide() {
 /* #6403: read the computers again now, while there is nowhere to go yet: after this computer allows another, when this
    one is let in, or when the page is looked at again a minute or more after the last read started. */
 function computersReadSoon(force) {
-  if (MULTI_KOSMOS || COMPUTERS_OPENABLE) return;
+  if (MULTI_KOSMOS || (COMPUTERS_OPENABLE && COMPUTERS_CONFIRMED)) return;   // #8325: a value only remembered still looks
   // A forced read in a tab nobody can see waits for it to be looked at (the visibilitychange listener reads then).
   if (document.hidden) { if (force) { COMPUTERS_STALE_WHILE_HIDDEN = true; COMPUTERS_STALE_FORCED = true; } return; }
   if (force) COMPUTERS_EXPECT_UNTIL = Date.now() + 90 * 1000;
@@ -32924,8 +32914,8 @@ function computersReadSoon(force) {
 }
 /* Called by computersRender with the rows it kept and whether an answer arrived. Only an ANSWER changes
    the name or whether there is anywhere to go (review round 1): a failed read keeps the last good answer, so one
-   relay hiccup cannot lock the menu shut, and says so inside the menu. #8325: the one exception is a value only remembered
-   from an earlier load, which goes once COMPUTERS_SEEN_GIVE_UP_MS has passed with no answer on this load. */
+   relay hiccup cannot lock the menu shut, and says so inside the menu. #8325: a value remembered from an earlier load is treated the
+   same, and says the same inside the menu. */
 function worldswComputersSeen(rows, good, signedOut) {
   // With several Kosmoses on, today's menu is untouched: it hides the section on any failure (review round 5).
   if (MULTI_KOSMOS) return;
@@ -32939,8 +32929,6 @@ function worldswComputersSeen(rows, good, signedOut) {
     if (was && !COMPUTERS_OPENABLE) worldswTipDrop();   // #6403: nowhere to switch to any more: the tip goes with it
     COMPUTERS_SIGNED_OUT = signedOut === true;   // #6403: not signed in to Kosmos+, so a look back has nothing to find
     if (COMPUTERS_OPENABLE && !was) worldswTipOnce();
-  } else if (COMPUTERS_OPENABLE && !COMPUTERS_CONFIRMED && Date.now() - COMPUTERS_LOADED_AT >= COMPUTERS_SEEN_GIVE_UP_MS && !computersMenuOpen()) {
-    COMPUTERS_OPENABLE = false;
   } else if (COMPUTERS_OPENABLE) {
     const box = document.getElementById('worldsw-computers');
     const list = document.getElementById('worldsw-computers-list');
@@ -33650,7 +33638,7 @@ function computersRender(data) {
      (worldswComputersSeen). Only an ANSWER changes those: ok: true, or the engine's marked "not signed in"
      (signedIn: false). The route always answers 200 and a bare ok: false means Kosmos+ did not answer
      (engine/account-computers.js), so that, like no answer at all, keeps the last good name and menu (review round
-     3; #8325: but see COMPUTERS_SEEN_GIVE_UP_MS for a value only remembered). Reached through typeof because tests lift this function alone (web.computers-switcher-4648), where the
+     3). Reached through typeof because tests lift this function alone (web.computers-switcher-4648), where the
      one-Kosmos helpers do not exist; a lifted copy behaves as before. */
   const good = !!data && (data.ok === true || data.signedIn === false);
   // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
@@ -34986,6 +34974,7 @@ async function worldHideSubmit() {
   worldsFetch().catch(() => {});
   // #4815: with one Kosmos, the button names this computer and opens only onto Your computers, so read them now.
   if (!MULTI_KOSMOS) {
+    if (COMPUTERS_SEEN) worldswOneKosmos();   // #8325: painted now from memory, whatever the other reads at boot do
     computersFetch().catch(() => {});
     document.addEventListener('visibilitychange', () => {
       const menu = document.getElementById('worldsw-menu');
