@@ -11,6 +11,7 @@ const path = require('node:path');
 const SB = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-connect8293-')));
 const HOME = path.join(SB, 'home');
 process.env.HOME = HOME;
+process.env.AGENT_WORKFORCE_HOME = HOME;   // a release cut sets this, and engine/accounts.js prefers it to HOME
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SB, 'workers');
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'launch');
