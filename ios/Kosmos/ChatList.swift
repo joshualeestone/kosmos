@@ -116,8 +116,10 @@ struct ChatList: UIViewRepresentable {
         // Whether the reader is at the newest is read during the person's own scroll and when any scroll ends (scrolled()).
         // For a reader higher up, any move that is not this list's own (pin, hold, a layout pass, an update) drops the place,
         // so a scroll with no finger on the list is followed (NewMessagesUITests' SCROLLBY check).
+        // kosmos#8221 slice 4 (CI run 42535962501): the scroll nobody made at a chat's open on a slow device is a deceleration
+        // with no drag before it, so a deceleration counts as the person's only after a drag of theirs.
         func scrollViewDidScroll(_ sv: UIScrollView) {
-            if sv.isTracking || sv.isDragging || sv.isDecelerating {
+            if sv.isTracking || sv.isDragging || (sv.isDecelerating && dragged) {
                 atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
                 place = nil
             } else if !pinning, !applying, !(list?.laying ?? false) {
@@ -137,7 +139,7 @@ struct ChatList: UIViewRepresentable {
         func scrollViewDidScrollToTop(_ sv: UIScrollView) { scrolled(sv) }
         func scrolled(_ sv: UIScrollView) {
             movedAt = 0   // a scroll that has ended is at rest: the next layout holds the place taken here
-            let byPerson = dragged
+            let byPerson = dragged, wasAtEnd = atEnd
             dragged = false
             // kosmos#8221 slice 4 (CI run 42533329564): on a slow device a scroll nobody asked for (UIKit's own, as the rows
             // size themselves when the chat opens) ended 50 pt short of an end that had grown under it, and the list stopped
@@ -152,7 +154,7 @@ struct ChatList: UIViewRepresentable {
             }
             atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
             if atEnd { pinnedY = sv.contentOffset.y }
-            ChatView.trace("uikit list: scroll ended, at end \(atEnd), by the person \(byPerson) (\(geometry(sv)))", ring: false)
+            ChatView.trace("uikit list: scroll ended, at end \(atEnd) (was \(wasAtEnd)), by the person \(byPerson) (\(geometry(sv)))", ring: false)
             if !atEnd { place = top() }
         }
 
