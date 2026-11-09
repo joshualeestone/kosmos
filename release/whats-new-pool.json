@@ -1308,7 +1308,8 @@
       "icon": "spark",
       "rank": 7.5,
       "since": "0.7.97",
-      "status": "shown",
+      "status": "held",
+      "why": "The count badge was removed by Josh on 2026-11-09 (kosmos#8323)",
       "shownIn": "0.7.97"
     },
     {
