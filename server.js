@@ -1314,6 +1314,7 @@ const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
 const localstamp = require('./engine/localstamp');
+const clilists = require('./engine/clilists');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few times a day, prompt an idle community agent to post
@@ -8632,7 +8633,7 @@ const server = http.createServer(async (req, res) => {
         partial = whole.counts.notRunning === null;   // the board could not read every job, so stopped agents may be missing
       } catch { sendJson(res, 500, { error: 'we could not read the agents just now' }); return; }
       // profile.role first (a running row's `role` is only the line parsed from its instruction file), and the card's own word.
-      sendJson(res, 200, { agents: shown.map((a) => ({ name: a.name, role: (a.profile && a.profile.role) || a.role || null, state: a.cardWord || null })), ...(partial ? { partial: true } : {}) });
+      sendJson(res, 200, { agents: shown.map(clilists.rosterRow), ...(partial ? { partial: true } : {}) });
       return;
     }
     if (isSiblingRead(req)) body = statusForSibling(body, req.headers['sec-fetch-site']);   // #4973: another computer's page reads the agents only (#6178: and, same-site, the accounts)

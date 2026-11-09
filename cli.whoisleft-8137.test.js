@@ -36,6 +36,7 @@ function makeHome() {
   fs.writeFileSync(path.join(home, 'app', 'engine', 'store.js'), `module.exports = { ROOT: ${JSON.stringify(root)} };\n`);
   fs.writeFileSync(path.join(root, 'board.token'), 'boardtoken8137');
   fs.copyFileSync(path.join(__dirname, 'engine', 'clilists.js'), path.join(home, 'app', 'engine', 'clilists.js'));
+  fs.copyFileSync(path.join(__dirname, 'engine', 'localstamp.js'), path.join(home, 'app', 'engine', 'localstamp.js'));
   return home;
 }
 
