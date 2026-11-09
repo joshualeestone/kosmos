@@ -136,7 +136,7 @@ test('a path argument to some other program does not block it', () => {
 
 test('a backup script that mentions ~/.claude is not a start of Claude', () => {
   const dir = agent('backup');
-  const f = script('back.sh', `rsync -a "${dir}" /b\nrsync -a ~/.claude /b\n`);
+  const f = script('back.sh', `cd "${dir}"\nrsync -a . /b\nrsync -a ~/.claude /b\n`);
   plist('com.backup.nightly', { args: ['/bin/bash', f] });
   assert.equal(discover.otherJobFor(dir, LAUNCH), null);
 });
@@ -193,7 +193,7 @@ test('a commented-out key and a WorkingDirectory inside the environment do not c
 
 test('a comment naming Claude does not start it', () => {
   const dir = agent('commented');
-  const f = script('tidy.sh', `# not claude related\nrsync "${dir}" /b\n`);
+  const f = script('tidy.sh', `# not claude related\ncd "${dir}"\nrsync . /b\n`);
   plist('com.commented.a', { args: ['/bin/bash', f] });
   assert.equal(discover.otherJobFor(dir, LAUNCH), null);
 });
@@ -244,6 +244,41 @@ test('a stopped job whose file is still there stays refused: it would load at th
   assert.equal(discover.connect(dir, {}).ok, false);
   fs.rmSync(path.join(LAUNCH, 'com.stoppedfile.discord.plist'));
   assert.equal(discover.connect(dir, {}).ok, true);
+});
+
+test('--add-dir=, a backup variable, a cd elsewhere and a process check do not tie it here', () => {
+  const dir = agent('tied');
+  plist('com.a.one', { dir: agent('elsehome'), args: ['/usr/local/bin/claude', `--add-dir=${dir}`] });
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null, 'add-dir');
+  fs.rmSync(path.join(LAUNCH, 'com.a.one.plist'));
+  for (const [i, body] of [`BACKUP_DIR="${dir}"\ncd /else\nclaude\n`, `cd "${dir}"\ngit pull\ncd /else\nclaude\n`, `cd "${dir}"\npgrep -x claude || say down\n`].entries()) {
+    const f = script('t' + i + '.sh', body);
+    plist('com.a.two', { args: ['/bin/bash', f] });
+    assert.equal(discover.otherJobFor(dir, LAUNCH), null, body);
+  }
+});
+
+test('tmux -c spelled in the arguments is found', () => {
+  const dir = agent('tmuxargs');
+  plist('com.tmuxargs.a', { args: ['/opt/homebrew/bin/tmux', 'new-session', '-d', '-s', 'x', '-c', dir, 'claude'] });
+  assert.equal(discover.otherJobFor(dir, LAUNCH).label, 'com.tmuxargs.a');
+});
+
+test('a script under a guarded folder is not opened', () => {
+  const dir = agent('guarded');
+  const docs = path.join(process.env.HOME, 'Documents');
+  fs.mkdirSync(docs, { recursive: true });
+  const f = path.join(docs, 'run.sh');
+  fs.writeFileSync(f, `cd "${dir}"\nclaude\n`);
+  plist('com.guarded.a', { args: ['/bin/bash', f] });
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null);
+});
+
+test('the job is named even while the agent it started is up', () => {
+  const dir = agent('upandjob');
+  plist('com.upandjob.discord', { dir });
+  status.setPaneSource(() => fleet.line({ session: 'upandjob-discord', title: 'idle' }));
+  assert.match(discover.connect(dir, {}).because, /com\.upandjob\.discord/);
 });
 
 test('no job folder at all answers none', () => {
