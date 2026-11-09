@@ -57,10 +57,52 @@ test('only a good answer writes it, a failed read does not', () => {
   assert.equal(m[0].split('computersSeenWrite').length, 2);
 });
 
-test('a remembered value leaves the first-time tip its turn, and gives up after repeated failures', () => {
-  const m = SCRIPT.match(/function worldswComputersSeen\(rows, good, signedOut\) \{[\s\S]*?\n\}/);
-  assert.match(m[0], /const was = COMPUTERS_CONFIRMED && COMPUTERS_OPENABLE;/);
-  assert.match(m[0], /COMPUTERS_OPENABLE && !COMPUTERS_CONFIRMED && COMPUTERS_FAILS >= COMPUTERS_SEEN_GIVE_UP_FAILS\) \{\n\s+COMPUTERS_OPENABLE = false;/);
+/* The real worldswComputersSeen, starting from a remembered value, with the page around it stubbed. */
+function seenFrom({ fails = 0 } = {}) {
+  const calls = { tip: 0, drop: 0, wrote: [] };
+  const src = `
+    let COMPUTERS_OPENABLE = true, COMPUTERS_CONFIRMED = false, THIS_COMPUTER_NAME = 'a', COMPUTERS_SIGNED_OUT = false;
+    let COMPUTERS_RETRY_T = null, COMPUTERS_STALE_WHILE_HIDDEN = false, COMPUTERS_EXPECT_UNTIL = 0, COMPUTERS_FAILS = ${fails};
+    const MULTI_KOSMOS = false, COMPUTERS_SEEN_GIVE_UP_FAILS = 3;
+    const worldswTipOnce = () => { calls.tip += 1; }, worldswTipDrop = () => { calls.drop += 1; };
+    const computersSeenWrite = (open) => { calls.wrote.push(open); }, worldswOneKosmos = () => {}, computersFetch = () => Promise.resolve();
+    const setTimeout = () => 0, clearTimeout = () => {};
+    const window = {}, document = { hidden: false, getElementById: () => null };
+    ${page.liftAll(SCRIPT, ['worldswComputersSeen'])}
+    return { seen: worldswComputersSeen, open: () => COMPUTERS_OPENABLE };`;
+  return { ...new Function('calls', src)(calls), calls };
+}
+const two = [{ name: 'a', this: true }, { name: 'b' }];
+
+test('the first good answer gives the tip its turn; the next does not', () => {
+  const c = seenFrom();
+  c.seen(two, true, false);
+  assert.equal(c.calls.tip, 1);
+  c.seen(two, true, false);
+  assert.equal(c.calls.tip, 1);
+  assert.deepEqual(c.calls.wrote, [true, true]);
+});
+
+test('a good answer with one computer drops the control and forgets it', () => {
+  const c = seenFrom();
+  c.seen([{ name: 'a', this: true }], true, false);
+  assert.equal(c.open(), false);
+  assert.deepEqual(c.calls.wrote, [false]);
+});
+
+test('a failed read keeps a remembered control until the fourth, and never writes', () => {
+  const c = seenFrom();
+  for (let i = 0; i < 3; i += 1) { c.seen([], false, false); assert.equal(c.open(), true, 'read ' + (i + 1)); }
+  c.seen([], false, false);
+  assert.equal(c.open(), false, 'the fourth read');
+  assert.deepEqual(c.calls.wrote, []);
+});
+
+test('a confirmed control is never given up by failures', () => {
+  const c = seenFrom();
+  c.seen(two, true, false);
+  for (let i = 0; i < 6; i += 1) c.seen([], false, false);
+  assert.equal(c.open(), true);
 });
 
 test('the control starts from what was remembered, and not with several Kosmoses on', () => {
