@@ -180,7 +180,7 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     const midFlight = await page.evaluate(() => document.getElementById('d-instr-updating').hidden);
     chk(midFlight === false, 'CONTROL: the indicator is visible while the reload is in flight', 'hidden=' + midFlight);
     // Switch to the other agent mid-reload.
-    await page.click('#detail-back');
+    await page.$eval('#detail-back', (b) => b.click());
     await page.waitForSelector('[data-agent="marlow"]', { timeout: 8000 });
     await page.click('[data-agent="marlow"]');
     await page.waitForSelector('#panel-detail:not([hidden])');
@@ -198,7 +198,7 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     // delay and the SECOND a long one, so the first resolves while the second is
     // still pending - the window where a false "Updated." would be visible. ────────
     // Back out of marlow (the switch arm left us there) and reopen beatrix's instr tab.
-    await page.click('#detail-back');
+    await page.$eval('#detail-back', (b) => b.click());
     await page.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
     await page.click('[data-agent="beatrix"]');
     await page.waitForSelector('#panel-detail:not([hidden])');
@@ -213,7 +213,7 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     await page.click('#d-instr-update');                           // reload A
     await page.waitForFunction(() => document.getElementById('d-instr-updating').hidden === false, { timeout: 4000 });
     delayMs = 2000;                                                // the SECOND reload stays pending
-    await page.click('#detail-back');
+    await page.$eval('#detail-back', (b) => b.click());
     await page.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
     await page.click('[data-agent="beatrix"]');                    // reopen SAME agent -> reload B
     await page.waitForSelector('#panel-detail:not([hidden])');

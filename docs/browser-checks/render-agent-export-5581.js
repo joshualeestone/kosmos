@@ -36,7 +36,7 @@ function chk(ok, label, extra) {
 
 async function openInstr(page, agent) {
   if (await page.$('#detail-back:visible')) {
-    await page.click('#detail-back');
+    await page.$eval('#detail-back', (b) => b.click());
   }
   await page.waitForSelector('[data-agent="' + agent + '"]', { timeout: 8000 });
   await page.click('[data-agent="' + agent + '"]');

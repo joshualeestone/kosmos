@@ -17,7 +17,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
 const setup = (layout) => {
   const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
   document.documentElement.setAttribute('data-layout', layout);
-  try { localStorage.removeItem('my-agents-fold'); } catch { /* fine */ }
+  try { localStorage.removeItem('kosmos.fold.myagents'); } catch { /* fine */ }
   const a = (s, n, r, x) => ({ sessionName: s, name: n, role: r, running: false, state: 'stopped', context: null, ...x });
   LAST = [a('dario', 'Dario', 'Project Manager', { dmUnread: 2 }), a('mark', 'Mark', 'Project Manager'), a('jen', 'Jennika', 'Kids worker'), a('guide', 'Guide', '', { isGuide: true })];
   AGENT_STARS = new Set(['mark']);
@@ -102,14 +102,61 @@ const read = () => {
         b.click();
         const narrow = box.getBoundingClientRect().width;
         const expanded = b.getAttribute('aria-expanded');
-        const nameShown = getComputedStyle(box.querySelector('.lrow .lname')).display;
+        const row = box.querySelector('.lrow'); const nameKept = getComputedStyle(row.querySelector('.lname')).display !== 'none' && getComputedStyle(row.querySelector('.lname')).width === '1px'; const rowTitle = row.title; row.querySelector('.namego').focus(); const nameFocus = document.activeElement === row.querySelector('.namego');
         const left = document.getElementById('panel-detail').getBoundingClientRect().left;
-        const saved = localStorage.getItem('my-agents-fold');
+        const saved = localStorage.getItem('kosmos.fold.myagents');
         b.click();
-        return { wide, narrow, expanded, nameShown, left, saved, again: box.getBoundingClientRect().width };
+        return { wide, narrow, expanded, nameKept, rowTitle, nameFocus, left, saved, again: box.getBoundingClientRect().width };
       });
-      ok(t + ' it folds to its avatars and says so, and the page takes the room', fold.narrow < 80 && fold.wide > 200 && fold.expanded === 'false' && fold.nameShown === 'none' && fold.left < 100 && fold.saved === '1', JSON.stringify(fold));
+      ok(t + ' it folds to its avatars and says so, and the page takes the room', fold.narrow < 80 && fold.wide > 200 && fold.expanded === 'false' && fold.left < 100 && fold.saved === '1', JSON.stringify(fold));
       ok(t + ' it opens again', fold.again === fold.wide, JSON.stringify(fold));
+      ok(t + ' folded, each agent still has its name for the keyboard and on hover', fold.nameKept === true && fold.nameFocus === true && fold.rowTitle === 'Mark', JSON.stringify(fold));
+
+      const notices = await page.evaluate(() => {
+        const askcard = document.getElementById('askcard'); const conn = document.getElementById('conn');
+        askcard.hidden = false; askcard.textContent = 'A phone wants to connect'; conn.hidden = false; conn.textContent = 'Kosmos cannot reach a Claude subscription.';
+        const right = document.getElementById('my-agents').getBoundingClientRect().right;
+        const lefts = [askcard.getBoundingClientRect().left, conn.getBoundingClientRect().left];
+        askcard.hidden = true; conn.hidden = true;
+        return { right, lefts };
+      });
+      ok(t + ' the notices above the page are not under the column', notices.lefts.every((l) => l >= notices.right), JSON.stringify(notices));
+
+      const keys = await page.evaluate(() => {
+        const list = document.getElementById('my-agents-list');
+        const star = list.querySelector('[data-star="jen"]');
+        star.focus();
+        AGENT_STARS = new Set(['jen']);
+        repaintAgentOrder(false);
+        const starKept = document.activeElement && document.activeElement.dataset.star === 'jen';
+        AGENT_STARS = new Set(['mark']);
+        repaintAgentOrder(false);
+        list.querySelector('.lrow[data-agent="dario"] .namego').focus();
+        LAST[0].role = 'Changed role';
+        keepStarFocus(paintMyAgents);
+        const nameKept = document.activeElement && document.activeElement.classList.contains('namego') && document.activeElement.closest('.lrow').dataset.agent === 'dario';
+        LAST[0].role = 'Project Manager';
+        keepStarFocus(paintMyAgents);
+        const opened = [];
+        const real = openDetail;
+        openDetail = (s) => opened.push(s);
+        list.querySelector('.lrow[aria-current] .namego').click();
+        openDetail = real;
+        return { starKept, nameKept, opened };
+      });
+      ok(t + ' a rebuild keeps a focused star on its agent', keys.starKept === true, JSON.stringify(keys));
+      ok(t + ' a rebuild keeps a focused name on its agent', keys.nameKept === true, JSON.stringify(keys));
+      ok(t + ' clicking the agent already open does not reload its page', keys.opened.length === 0, JSON.stringify(keys));
+
+      const newLook = await page.evaluate(() => {
+        document.documentElement.setAttribute('data-look', 'new');
+        paintMyAgents();
+        const shown = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).display !== 'none' : null; };
+        const out = { back: shown('#d-crumb-back'), lead: shown('#d-talk-box .d-crumb-rootwrap') };
+        document.documentElement.removeAttribute('data-look');
+        return out;
+      });
+      ok(t + ' the new look has no way back to All agents either', newLook.back === false && newLook.lead === false, JSON.stringify(newLook));
 
       const repaint = await page.evaluate(() => {
         const list = document.getElementById('my-agents-list');

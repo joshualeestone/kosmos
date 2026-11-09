@@ -47,7 +47,7 @@ const ADD = [
 const fileOf = (a) => path.join(process.env.AGENT_WORKFORCE_WORKERS, a, 'CLAUDE.md');
 
 async function openInstr(page, agent) {
-  if (await page.$('#detail-back:visible')) await page.click('#detail-back');
+  if (await page.$('#detail-back:visible')) await page.$eval('#detail-back', (b) => b.click());
   await page.waitForSelector('[data-agent="' + agent + '"]', { timeout: 8000 });
   await page.click('[data-agent="' + agent + '"]');
   await page.waitForSelector('#panel-detail:not([hidden])');

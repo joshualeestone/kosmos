@@ -393,7 +393,7 @@ function chk(ok, label, extra) {
       // An agent Kosmos cannot tie to its name has no window box; the Terminal
       // pill must still open onto a sentence, never onto nothing.
       await page.setViewportSize({ width: 1400, height: 950 });
-      await page.click('#detail-back');
+      await page.$eval('#detail-back', (b) => b.click());
       await page.waitForSelector('[data-agent="casey"]', { timeout: 8000 });
       await page.click('[data-agent="casey"]');
       await page.waitForSelector('#panel-detail:not([hidden])');
