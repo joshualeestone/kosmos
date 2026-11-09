@@ -311,19 +311,24 @@ function lastModelIn(transcript) {
 }
 function lastRunOf(dir) {
   const none = { ran: false, account: null, model: null };
-  const folder = String(dir).replace(/[^a-zA-Z0-9]/g, '-');
+  /* Claude files a session under the cwd it was launched from, which may be either spelling of a linked folder. */
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(String(p)); } };
+  const spellings = [...new Set([path.resolve(String(dir)), real(dir)])];
   let transcript = null;
   let at = -1;
   for (const root of status.configRoots()) {
-    const t = newestTranscript(path.join(root, 'projects', folder));
-    if (!t) continue;
-    let m = -1;
-    try { m = fs.statSync(t).mtimeMs; } catch { continue; }
-    if (m > at) { at = m; transcript = t; }
+    for (const spelling of spellings) {
+      const t = newestTranscript(path.join(root, 'projects', spelling.replace(/[^a-zA-Z0-9]/g, '-')));
+      if (!t) continue;
+      let m = -1;
+      try { m = fs.statSync(t).mtimeMs; } catch { continue; }
+      if (m > at) { at = m; transcript = t; }
+    }
   }
   if (!transcript) return none;   // never ran here: it was using nothing, so there is nothing to keep or to say
   /* The folder name is lossy (a dash and a slash arrive identical), so this transcript may be another folder's. */
-  if (status.transcriptCwd(transcript) !== dir) return none;
+  const ranIn = status.transcriptCwd(transcript);
+  if (!ranIn || real(ranIn) !== real(dir)) return none;
   const session = path.basename(transcript, '.jsonl');
   const holders = new Map();
   for (const row of require('./accounts').list()) {
@@ -2339,6 +2344,7 @@ module.exports = { alreadyIn, folderTakenBy,
   foundCodex,
   foundGemini,
   codexIdentity,
+  lastRunOf,
   runningUnderName, found, scan, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
   candidateDirs,
   declined, decline, undecline, DECLINED_FILE,
