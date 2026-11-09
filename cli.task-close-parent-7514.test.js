@@ -348,3 +348,30 @@ for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) 
     assert.equal(isDone(r.kid), true);
   });
 }
+
+/* kosmos#8301: --not-run says it was closed without ever being run, on both commands. */
+const unrunOf = (n) => projects.readAll().find((p) => p.id === projectId).tasks.find((t) => t.number === n).closedUnrun;
+for (const [name, run] of BOTH) {
+  test(`kosmos#8301 ${name}: --not-run marks it, a plain close does not, and the two options that say otherwise are refused`, async () => {
+    const r = round('Unrun ' + name);
+    const marked = await run(['task', 'close', projectId, String(r.open), '--not-run']);
+    assert.equal(marked.code, 0, JSON.stringify(marked));
+    assert.equal(unrunOf(r.open), true);
+    const plain = await run(['task', 'close', projectId, String(r.kid)]);
+    assert.equal(plain.code, 0, JSON.stringify(plain));
+    assert.equal(unrunOf(r.kid), undefined, 'a plain close is done');
+    const other = round('Unrun refuse ' + name);
+    for (const argv of [['--not-run', '--with-built'], ['--not-run', '--replaced-by', String(other.kid)]]) {
+      const refused = await run(['task', 'close', projectId, String(other.open), ...argv]);
+      assert.equal(refused.code, 2, JSON.stringify(refused));
+      assert.equal(isDone(other.open), false, 'a refused close closed it');
+    }
+  });
+}
+
+test('kosmos#8301: notRun must be true or false', async () => {
+  const r = round('Unrun body');
+  const res = await post(r.open, { notRun: 'yes' });
+  assert.equal(res.status, 400);
+  assert.equal(isDone(r.open), false);
+});
