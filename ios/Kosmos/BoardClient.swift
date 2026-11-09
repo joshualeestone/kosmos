@@ -1316,6 +1316,7 @@ final class BoardClient: ObservableObject {
         let running = loop != nil
         stop()
         forget(why: why)
+        inviteStep = nil; inviteStepOf = nil; inviteStepAskedOf = nil   // kosmos#6255: the last account's link must not stay up
         if running { start() }
     }
 
@@ -1728,6 +1729,9 @@ final class BoardClient: ObservableObject {
     }
 
     // kosmos#7266 slice B. A read that fails keeps what was shown (review 4: and is tried again after youRetry).
+    @Published var inviteStep: Board.InviteStep?
+    private var inviteStepAskedOf: URL?
+    private var inviteStepOf: URL?
     private func fetchYou(url: URL, _ gen: Int, name: Bool) async {
         if name { await fetchYouName(url: url, gen) }
         guard gen == generation, !Task.isCancelled else { return }
@@ -1743,6 +1747,22 @@ final class BoardClient: ObservableObject {
         }
     }
 
+    /// kosmos#6255: ask the board once per connection whether the "Help Kosmos grow" step is due.
+    func checkInviteStep() async {
+        guard let url = macURL, inviteStepAskedOf != url else { return }
+        inviteStepAskedOf = url
+        inviteStep = nil
+        inviteStepOf = nil
+        guard let (data, answer) = await env.send(Board.inviteStepRequest(mac: url)), macURL == url, (200...299).contains(answer.statusCode) else { return }
+        inviteStep = Board.inviteStep(data)
+        inviteStepOf = inviteStep == nil ? nil : url
+    }
+    /// Answered either way (shared, or Not now): that board never offers it again, and the answer goes to the board that asked.
+    func inviteStepAnswered() async {
+        guard let url = inviteStepOf else { return }
+        inviteStepOf = nil
+        _ = await env.send(Board.inviteStepDoneRequest(mac: url))
+    }
     private func fetchYouName(url: URL, _ gen: Int) async {
         let named = await env.send(Board.youRequest(mac: url))
         guard gen == generation, !Task.isCancelled else { return }

@@ -48887,6 +48887,80 @@ document.addEventListener('focusin', (e) => {
   const back = document.getElementById('whatsnew');
   if (back && !wnCovered() && !back.contains(e.target)) { const box = back.querySelector('.wn-box'); if (box) box.focus(); }
 });
+/* kosmos#6255: "Help Kosmos grow", once, dark behind KOSMOS_SHARE_STEP=1. The board decides whether it is due and which
+   words are true (engine/invitestep.js); this only draws them. Not on a phone: the iPhone app has its own share sheet. */
+const ISTEP_HTML = '<div class="rm-back" id="invitestep">'
+  + '<div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="istep-title" aria-describedby="istep-line" tabindex="-1">'
+  + '<img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">'
+  + '<h2 class="wn-title" id="istep-title"></h2>'
+  + '<p id="istep-line"></p><p id="istep-fine" hidden></p>'
+  + '<div class="rm-acts" style="justify-content:center;"><button type="button" class="btn uprime" id="istep-copy">Copy your invite link</button>'
+  + ' <button type="button" class="btn-quiet" id="istep-later">Not now</button></div>'
+  + '<p id="istep-msg" role="status"></p>'
+  + '</div></div>';
+function istepDone() { return fetch('/api/invite-step/done', { method: 'POST' }).then((r) => r.text()).catch(() => { /* offered once more */ }); }
+function istepClose() { const back = document.getElementById('invitestep'); if (back) back.remove(); }
+function istepLater() { istepDone(); istepClose(); }
+/* Never over something else, or while the person is typing: the only offer must not be spent by a stray key. */
+function istepHeld() {
+  const cover = document.getElementById('boot-cover');
+  const a = document.activeElement;
+  return !!(cover && !cover.hidden) || !!document.querySelector('.rm-back:not([hidden])') || wnCovered()
+    || !!(a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)));
+}
+function istepOpen(step) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = ISTEP_HTML;
+  const back = tmp.firstElementChild;
+  document.body.appendChild(back);
+  document.getElementById('istep-title').textContent = step.headline;
+  document.getElementById('istep-line').textContent = step.line;
+  const fine = document.getElementById('istep-fine');
+  fine.textContent = step.fine || '';
+  fine.hidden = !step.fine;
+  document.getElementById('istep-later').addEventListener('click', istepLater);
+  document.getElementById('istep-copy').addEventListener('click', async () => {
+    const msg = document.getElementById('istep-msg');
+    try {
+      await navigator.clipboard.writeText(step.link);
+      msg.textContent = 'Copied. Send it to whoever you like.';
+      document.getElementById('istep-later').textContent = 'Done';
+      istepDone();
+    } catch { msg.textContent = 'That did not copy. Your link: ' + step.link; }
+  });
+  back.querySelector('.wn-box').focus();   // the window, not a button, so a key already on its way presses nothing
+}
+/* As the What's New window's: on the document, in the capture phase and stopped once handled, so one Escape does not
+   also close a dialog underneath and focus cannot slip out. */
+document.addEventListener('keydown', (e) => {
+  const back = document.getElementById('invitestep');
+  if (!back || wnCovered()) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); istepLater(); return; }
+  if (e.key !== 'Tab') return;
+  e.stopPropagation();
+  const f = [back.querySelector('#istep-copy'), back.querySelector('#istep-later')];
+  const at = f.indexOf(document.activeElement);
+  if (at === -1) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); return; }
+  if (e.shiftKey && at === 0) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
+}, true);
+const ISTEP_AGAIN_MS = 5 * 60 * 1000;
+async function inviteStepCheck() {
+  if (typeof wnOnPhone === 'function' && wnOnPhone()) return;
+  let again = false;
+  try {
+    const res = await fetch('/api/invite-step', { cache: 'no-store' });
+    if (!res.ok) { await res.text(); return; }
+    const step = await res.json();
+    if (step && step.show === true && typeof step.link === 'string') {
+      if (document.getElementById('invitestep')) return;
+      if (istepHeld()) again = true; else istepOpen(step);
+    } else if (step && step.wait === true) again = true;
+  } catch { /* a later load asks again */ }
+  if (again) setTimeout(inviteStepCheck, ISTEP_AGAIN_MS);   // a first install loads before any agent has done anything
+}
+setTimeout(inviteStepCheck, 8000);   // after the boot cover and What's New; a switched-off board answers at once and is not asked again
+
 /* Is `a` a later version than `b` (x.y.z)? null when either is not one. */
 function wnNewer(a, b) {
   const pa = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(a || ''));

@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 26,   // 26: kosmos#7614's Delete message confirm; 25: kosmos#7365's Archive older messages confirm; 24: #6722's picture editor; 23: #5393's At a glance sheet; 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview; 22: #4649's invite sheet
-    `${found.length} modals now, up from 26 (kosmos#7614's Delete message confirm). A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 27,   // 27: kosmos#6255's Help Kosmos grow; 26: kosmos#7614's Delete message confirm; 25: kosmos#7365's Archive older messages confirm; 24: #6722's picture editor; 23: #5393's At a glance sheet; 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview; 22: #4649's invite sheet
+    `${found.length} modals now, up from 27 (kosmos#6255's Help Kosmos grow). A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -58,6 +58,7 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
 const ESCAPES_VIA = {
   /* #3955: the "Kosmos has been updated" window. Its Escape is a document keydown listener that finds
      the window by id and closes it first (its backdrop id sits in WN_HTML so this sweep can name it). */
+  invitestep:       /getElementById\('invitestep'\);\n\s*if \(!back \|\| wnCovered\(\)\) return;\n\s*if \(e\.key === 'Escape'\)/,
   whatsnew:         /getElementById\('whatsnew'\);\n\s*if \(!back \|\| wnCovered\(\)\) return;\n\s*if \(e\.key === 'Escape'\)/,
   /* #6722: the picture editor. One keydown listener: while it is open, Escape cancels it (Cancel, nothing changes),
      and (review 4) no key goes past it to a window under it. */

@@ -147,6 +147,7 @@ render-import-name-4962
 render-imports-recovery-8039
 render-inline-field-errors-2606
 render-instradd-5293
+render-invitestep-6255
 render-keyed-install-3713
 render-layer-gutter-4494
 render-leaving-rejection-6725
