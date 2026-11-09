@@ -152,11 +152,19 @@ test('the job that gets written carries the account and the model', () => {
   const dir = agent('realjob');
   ranOn(ACCT_B);
   create.installJob = realInstall;
-  const out = discover.connect(dir, {});
-  assert.equal(out.ok, true, out.because);
-  const job = create.readJob('realjob');
-  assert.equal(job.configDir, ACCT_B);
-  assert.equal(job.model, 'claude-haiku-5-5');
+  /* Out of dry run so the plist is really written, into this sandbox; the injected runner takes every launchctl call. */
+  const bin = path.join(SB, 'fake-claude');
+  fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
+  create.setRunner(() => ({ ok: true, stdout: '' }));
+  create.setDryRun(false);
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, true, out.because);
+    const job = create.readJob('realjob');
+    assert.equal(job.configDir, ACCT_B);
+    assert.equal(job.model, 'claude-haiku-5-5');
+  } finally { create.setDryRun(true); create.setRunner(null); delete process.env.AGENT_WORKFORCE_CLAUDE_BIN; }
 });
 
 test('a company policy that refuses the model is not bypassed', () => {
@@ -180,7 +188,7 @@ test('a transcript from another folder with the same encoded name is not this ag
   const out = discover.connect(dir, {});
   assert.equal('configDir' in seen, false);
   assert.equal('model' in seen, false);
-  assert.match(out.unknownLastRun, /account/);
+  assert.equal(out.unknownLastRun, undefined);
 });
 
 test('a Codex folder is left exactly as before', () => {
