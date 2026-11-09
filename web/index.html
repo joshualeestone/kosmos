@@ -48900,8 +48900,15 @@ const ISTEP_HTML = '<div class="rm-back" id="invitestep">'
   + '</div></div>';
 function istepDone() { return fetch('/api/invite-step/done', { method: 'POST' }).then((r) => r.text()).catch(() => { /* offered once more */ }); }
 function istepClose() { const back = document.getElementById('invitestep'); if (back) back.remove(); }
+function istepLater() { istepDone(); istepClose(); }
+/* Never over something else, or while the person is typing: the only offer must not be spent by a stray key. */
+function istepHeld() {
+  const cover = document.getElementById('boot-cover');
+  const a = document.activeElement;
+  return !!(cover && !cover.hidden) || !!document.querySelector('.rm-back') || wnCovered()
+    || !!(a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)));
+}
 function istepOpen(step) {
-  if (document.getElementById('invitestep') || document.getElementById('whatsnew') || wnCovered()) return;
   const tmp = document.createElement('div');
   tmp.innerHTML = ISTEP_HTML;
   const back = tmp.firstElementChild;
@@ -48911,9 +48918,7 @@ function istepOpen(step) {
   const fine = document.getElementById('istep-fine');
   fine.textContent = step.fine || '';
   fine.hidden = !step.fine;
-  const later = () => { istepDone(); istepClose(); };
-  document.getElementById('istep-later').addEventListener('click', later);
-  back.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); later(); } });
+  document.getElementById('istep-later').addEventListener('click', istepLater);
   document.getElementById('istep-copy').addEventListener('click', async () => {
     const msg = document.getElementById('istep-msg');
     try {
@@ -48923,18 +48928,38 @@ function istepOpen(step) {
       istepDone();
     } catch { msg.textContent = 'That did not copy. Your link: ' + step.link; }
   });
-  document.getElementById('istep-copy').focus();
+  back.querySelector('.wn-box').focus();   // the window, not a button, so a key already on its way presses nothing
 }
+/* As the What's New window's: on the document, in the capture phase and stopped once handled, so one Escape does not
+   also close a dialog underneath and focus cannot slip out. */
+document.addEventListener('keydown', (e) => {
+  const back = document.getElementById('invitestep');
+  if (!back || wnCovered()) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); istepLater(); return; }
+  if (e.key !== 'Tab') return;
+  e.stopPropagation();
+  const f = [back.querySelector('#istep-copy'), back.querySelector('#istep-later')];
+  const at = f.indexOf(document.activeElement);
+  if (at === -1) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); return; }
+  if (e.shiftKey && at === 0) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
+}, true);
+const ISTEP_AGAIN_MS = 5 * 60 * 1000;
 async function inviteStepCheck() {
   if (typeof wnOnPhone === 'function' && wnOnPhone()) return;
+  let again = false;
   try {
     const res = await fetch('/api/invite-step', { cache: 'no-store' });
     if (!res.ok) { await res.text(); return; }
     const step = await res.json();
-    if (step && step.show === true && typeof step.link === 'string') istepOpen(step);
-  } catch { /* offered on a later load */ }
+    if (step && step.show === true && typeof step.link === 'string') {
+      if (document.getElementById('invitestep')) return;
+      if (istepHeld()) again = true; else istepOpen(step);
+    } else if (step && step.wait === true) again = true;
+  } catch { /* a later load asks again */ }
+  if (again) setTimeout(inviteStepCheck, ISTEP_AGAIN_MS);   // a first install loads before any agent has done anything
 }
-setTimeout(inviteStepCheck, 8000);   // after the boot cover and What's New; a window already up means a later load
+setTimeout(inviteStepCheck, 8000);   // after the boot cover and What's New; a switched-off board answers at once and is not asked again
 
 /* Is `a` a later version than `b` (x.y.z)? null when either is not one. */
 function wnNewer(a, b) {

@@ -147,6 +147,7 @@ render-import-name-4962
 render-imports-recovery-8039
 render-inline-field-errors-2606
 render-instradd-5293
+render-invitestep-6255
 render-keyed-install-3713
 render-layer-gutter-4494
 render-leaving-rejection-6725
@@ -312,7 +313,6 @@ render-waiting-badge-4025
 render-waiting-phone-718
 render-webhooks-1307
 render-whatsnew-phone-7839
-render-invitestep-6255
 render-whatsnew-title-6299
 render-win32-board-copy
 render-workchip-zero-2157

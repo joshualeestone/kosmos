@@ -58,7 +58,7 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
 const ESCAPES_VIA = {
   /* #3955: the "Kosmos has been updated" window. Its Escape is a document keydown listener that finds
      the window by id and closes it first (its backdrop id sits in WN_HTML so this sweep can name it). */
-  invitestep:       /back\.addEventListener\('keydown', \(e\) => \{ if \(e\.key === 'Escape'\)/,
+  invitestep:       /getElementById\('invitestep'\);\n\s*if \(!back \|\| wnCovered\(\)\) return;\n\s*if \(e\.key === 'Escape'\)/,
   whatsnew:         /getElementById\('whatsnew'\);\n\s*if \(!back \|\| wnCovered\(\)\) return;\n\s*if \(e\.key === 'Escape'\)/,
   /* #6722: the picture editor. One keydown listener: while it is open, Escape cancels it (Cancel, nothing changes),
      and (review 4) no key goes past it to a window under it. */

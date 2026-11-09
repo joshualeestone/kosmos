@@ -21810,12 +21810,10 @@ const server = http.createServer(async (req, res) => {
   }
   /* kosmos#6255: the once-only "Help Kosmos grow" step, dark behind KOSMOS_SHARE_STEP=1 (engine/invitestep.js). */
   if (pathname === '/api/invite-step' && req.method === 'GET') {
-    const invitestep = require('./engine/invitestep');
-    let roster = null;
-    let projectsNow = null;
-    try { roster = safeRoster(); } catch { roster = null; }
-    try { projectsNow = require('./engine/projects').list(); } catch { projectsNow = null; }
-    invitestep.stepFor({ roster, projects: projectsNow }).then((step) => sendJson(res, 200, step), () => sendJson(res, 200, { show: false }));
+    // The reads are functions so a switched-off board does no work for this (the switch is checked first).
+    const safe = (read) => () => { try { return read(); } catch { return null; } };
+    require('./engine/invitestep').stepFor({ roster: safe(safeRoster), projects: safe(() => require('./engine/projects').list()) })
+      .then((step) => sendJson(res, 200, step), () => sendJson(res, 200, { show: false }));
     return;
   }
   if (pathname === '/api/invite-step/done' && req.method === 'POST') {

@@ -41,7 +41,7 @@ const STUB = (step) => {
     const page = await context.newPage();
     await page.addInitScript(STUB, step);
     await page.goto('file://' + PAGE);
-    await page.evaluate(() => { const c = document.querySelector('.fr-back'); if (c) c.hidden = true; });
+    await page.evaluate(() => { document.querySelectorAll('.fr-back, .frc-back').forEach((c) => { c.hidden = true; }); const b = document.getElementById('boot-cover'); if (b) b.hidden = true; if (document.activeElement) document.activeElement.blur(); document.querySelectorAll('.rm-back').forEach((c) => c.remove()); });
     await page.evaluate(() => inviteStepCheck());
     return page;
   };
@@ -50,10 +50,15 @@ const STUB = (step) => {
   say(await page.locator('#invitestep').count() === 0, 'CONTROL: not due, no window');
   await page.close();
 
+  page = await open({ show: false, wait: true });
+  say(await page.locator('#invitestep').count() === 0, 'waiting for a first agent: no window yet');
+  await page.close();
+
   page = await open(PLAIN);
   say(await page.locator('#invitestep').count() === 1, 'due: the window opens');
   const words = await page.locator('#invitestep').innerText();
   say(/Know someone who would use this/.test(words) && !/month|free/i.test(words), 'no reward: the plain words, nothing about a month', JSON.stringify(words));
+  say(await page.evaluate(() => document.activeElement && document.activeElement.classList.contains('wn-box')), 'focus lands on the window, not a button');
   await page.click('#istep-later');
   say(await page.locator('#invitestep').count() === 0, 'Not now closes it');
   await page.waitForFunction(() => window.__done === 1, null, { timeout: 3000 }).catch(() => {});

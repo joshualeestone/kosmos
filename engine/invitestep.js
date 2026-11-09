@@ -39,28 +39,27 @@ function markDone(now) {
   } catch { return false; }
 }
 
-/* Has any agent spoken to the person yet, or any task been built or closed? `roster` is the board's cards; `projects`
-   the board's projects. An unreadable part counts as nothing, so the step waits rather than guessing. */
-function firstAgentDidSomething(roster, projects) {
+/* Has any agent spoken to the person yet, or any task been built or closed? `sessions` is the board's agents' session names;
+   `projects` the board's projects. An unreadable part counts as nothing, so the step waits rather than guessing. */
+function firstAgentDidSomething(sessions, projects) {
   for (const p of Array.isArray(projects) ? projects : []) {
     for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) if (t && (t.builtAt || t.closedAt)) return true;
   }
   const chat = require('./chat');
-  for (const c of Array.isArray(roster) ? roster : []) {
-    if (!c || !c.sessionName) continue;
-    try { if (chat.readThread(chat.DIRECT, String(c.sessionName)).messages.some((m) => m && m.from)) return true; } catch { /* the next card */ }
+  for (const s of Array.isArray(sessions) ? sessions : []) {
+    try { if (chat.readThread(chat.DIRECT, String(s)).messages.some((m) => m && m.from)) return true; } catch { /* the next one */ }
   }
   return false;
 }
 
-/* The coordinator's answer is not signed, so the link is only ever https on the Kosmos+ domain's own sign-up door. */
-function parseInvite(answer, domain) {
+/* The coordinator's answer is not signed, so the link is only ever https on the Kosmos+ sign-in host's own sign-up door (a person's computer lives one label under the same domain, so a domain match would not do). */
+function parseInvite(answer, host) {
   const a = answer && answer.data ? answer.data : answer;
-  if (!a || typeof a.link !== 'string' || typeof domain !== 'string' || !domain) return null;
+  if (!a || typeof a.link !== 'string' || typeof host !== 'string' || !host) return null;
   let u;
   try { u = new URL(a.link); } catch { return null; }
   if (u.protocol !== 'https:' || u.username || u.password || u.port) return null;
-  if (u.hostname !== domain && !u.hostname.endsWith('.' + domain)) return null;
+  if (u.hostname !== host) return null;
   if (u.pathname !== '/signup' || !/^[A-Za-z0-9_-]{1,64}$/.test(u.searchParams.get('invite') || '')) return null;
   return { link: u.href, reward: a.reward === true };
 }
@@ -71,18 +70,24 @@ function wordsFor(reward) {
     : { headline: HEADLINE, line: LINE_PLAIN, fine: '' };
 }
 
-/* What the page and the phone ask. `o`: { env, roster, projects, remote, domain } (tests inject; the board passes the real ones). */
+/* What the page and the phone ask. `o`: { env, roster, projects, remote } (tests inject; the board passes the real ones).
+   wait: true means still worth asking again later (it is on, and a first agent has not done anything yet). */
 async function stepFor(o) {
   const none = { show: false };
   try {
     const opts = o || {};
-    if (!enabled(opts.env) || isDone() || !firstAgentDidSomething(opts.roster, opts.projects)) return none;
+    if (!enabled(opts.env) || isDone()) return none;
+    const roster = typeof opts.roster === 'function' ? opts.roster() : opts.roster;
+    const projects = typeof opts.projects === 'function' ? opts.projects() : opts.projects;
+    const sessions = (Array.isArray(roster) ? roster : []).map((c) => c && c.sessionName).filter(Boolean);
+    if (!firstAgentDidSomething(sessions, projects)) return { show: false, wait: true };
     const remote = opts.remote || require('./remote');
     if (!remote.read().on || !remote.enrolled()) return none;
-    const domain = opts.domain || require('./account-computers').computerDomain(remote.COORDINATOR());
+    let host = null;
+    try { host = new URL(remote.COORDINATOR()).hostname; } catch { return none; }
     const r = await remote.macRequest('POST', ROUTE, {});
     if (!r || !r.ok) return none;
-    const got = parseInvite(r, domain);
+    const got = parseInvite(r, host);
     if (!got) return none;
     return { show: true, link: got.link, reward: got.reward, ...wordsFor(got.reward) };
   } catch { return none; }

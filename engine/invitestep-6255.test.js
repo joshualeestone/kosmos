@@ -14,10 +14,10 @@ const LINK = 'https://login.example.test/signup?invite=abc123';
 const remote = (answer) => ({ read: () => ({ on: true }), enrolled: () => true, COORDINATOR: () => 'https://login.example.test', macRequest: async () => answer });
 const DONE = [{ tasks: [{ closedAt: '2026-11-01T00:00:00Z' }] }];
 const on = { KOSMOS_SHARE_STEP: '1' };
-const ask = (o) => step.stepFor({ env: on, projects: DONE, roster: [], domain: 'example.test', remote: remote({ ok: true, data: { code: 'abc123', link: LINK, reward: false } }), ...o });
+const ask = (o) => step.stepFor({ env: on, projects: DONE, roster: [], remote: remote({ ok: true, data: { code: 'abc123', link: LINK, reward: false } }), ...o });
 
 test('off by default: no switch, no step', async () => {
-  assert.deepEqual(await ask({ env: {} }), { show: false });
+  assert.deepEqual(await ask({ env: {}, roster: () => { throw new Error('read the roster while switched off'); }, projects: () => { throw new Error('read projects while switched off'); } }), { show: false });
   assert.equal((await ask({})).show, true, 'CONTROL: the same inputs with the switch on');
 });
 test('the reward words appear only on reward: true; missing or anything else gets the plain words', async () => {
@@ -32,21 +32,21 @@ test('the reward words appear only on reward: true; missing or anything else get
   assert.equal(paid.line, step.LINE_REWARD, 'CONTROL: true says it');
 });
 test('no working link, no step: a refusal, an old coordinator, or a link that is not the sign-up door', async () => {
-  for (const a of [{ ok: false }, null, { ok: true, data: {} }, { ok: true, data: { link: 'https://evil.test/signup?invite=abc' } },
+  for (const a of [{ ok: false }, null, { ok: true, data: {} }, { ok: true, data: { link: 'https://evil.test/signup?invite=abc' } }, { ok: true, data: { link: 'https://someone.example.test/signup?invite=abc' } },
     { ok: true, data: { link: 'http://login.example.test/signup?invite=abc' } }, { ok: true, data: { link: 'https://login.example.test/other?invite=abc' } },
     { ok: true, data: { link: 'https://login.example.test/signup' } }]) {
     assert.deepEqual(await ask({ remote: remote(a) }), { show: false }, JSON.stringify(a));
   }
 });
 test('waits for a first agent to do something: a closed or built task, or an agent speaking', async () => {
-  assert.deepEqual(await ask({ projects: [{ tasks: [{}] }], roster: [] }), { show: false });
+  assert.deepEqual(await ask({ projects: [{ tasks: [{}] }], roster: [] }), { show: false, wait: true }, 'asked again later');
   assert.equal(step.firstAgentDidSomething([], [{ tasks: [{ builtAt: 'x' }] }]), true);
   const chat = require('./chat');
   const orig = chat.readThread;
   chat.readThread = () => ({ messages: [{ from: 'ann' }] });
-  try { assert.equal(step.firstAgentDidSomething([{ sessionName: 'ann' }], []), true); } finally { chat.readThread = orig; }
+  try { assert.equal(step.firstAgentDidSomething(['ann'], []), true); } finally { chat.readThread = orig; }
   chat.readThread = () => ({ messages: [{ from: null }] });
-  try { assert.equal(step.firstAgentDidSomething([{ sessionName: 'ann' }], []), false, "the person's own message is not the agent doing something"); } finally { chat.readThread = orig; }
+  try { assert.equal(step.firstAgentDidSomething(['ann'], []), false, "the person's own message is not the agent doing something"); } finally { chat.readThread = orig; }
 });
 test('once: after it is answered it is never offered again', async () => {
   assert.equal((await ask({})).show, true, 'premise: due');
