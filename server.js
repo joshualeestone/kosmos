@@ -11821,9 +11821,15 @@ const server = http.createServer(async (req, res) => {
         /* #5812: the same call, switch on or off, records which agent is about to write a project file (the agent is
            looked up only for a file inside a project). After the answer, so the hook (which waits at most 3 s, before
            the edit) never waits on it. */
+        /* kosmos#8320: the caller's own agent token names the writer first, board token or not (a bridge sends both),
+           so a Codex, Gemini, Grok or Antigravity agent's edit in a project folder is recorded too. Without one, the
+           session and folder lookup as before (Claude's hook on the board token, a person running Claude by hand). */
+        const tokenCaller = agentTokenCaller(req);
         setImmediate(() => {
           try {
             require('./engine/filewriters').noteWrite(body.path, () => {
+              const mine = undo.tokenWriter(tokenCaller);
+              if (mine) return mine;
               const who = undo.agentFor(body.cwd, body.session);
               return who && undo.ownedBy(only || null, who) ? who : null;
             });
