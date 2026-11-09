@@ -46,10 +46,14 @@ test('a call that failed for no stated reason is worth asking again', async () =
 test('waits for a first agent to do something: a closed or built task, or an agent speaking', async () => {
   assert.deepEqual(await ask({ projects: [{ tasks: [{}] }], roster: [] }), { show: false, wait: true }, 'asked again later');
   assert.equal(step.firstAgentDidSomething([], [{ tasks: [{ builtAt: 'x' }] }]), true);
+  assert.equal(step.firstAgentDidSomething([], [{ tasks: [{ progress: { closed: true } }] }]), true, 'a task closed by its parts counts');
+  assert.equal(step.firstAgentDidSomething([], [{ tasks: [{ progress: { closed: false } }] }]), false, 'CONTROL: still open');
   const chat = require('./chat');
   const orig = chat.readThread;
   chat.readThread = () => ({ messages: [{ from: 'ann' }] });
   try { assert.equal(step.firstAgentDidSomething(['ann'], []), true); } finally { chat.readThread = orig; }
+  chat.readThread = () => ({ messages: [{ from: 'ann', kosmos: true }] });
+  try { assert.equal(step.firstAgentDidSomething(['ann'], []), false, "Kosmos's own notice is not the agent doing something"); } finally { chat.readThread = orig; }
   chat.readThread = () => ({ messages: [{ from: null }] });
   try { assert.equal(step.firstAgentDidSomething(['ann'], []), false, "the person's own message is not the agent doing something"); } finally { chat.readThread = orig; }
 });

@@ -5,7 +5,7 @@ With KOSMOS_SHARE_STEP=1, and POST /v1/mac/account-invite answering ok: a person
 
 ## What
 - engine/invitestep.js: the switch, once-only book (invite-step.json), first-agent signal, link check, words, stepFor. server.js: GET /api/invite-step, POST /api/invite-step/done.
-- web/index.html: the dialog, on the What's New window's styles; skipped on a phone, and when another window is up (a later load).
+- web/index.html: the dialog, on the What's New window's styles; skipped on a phone; held while another window is up or the person is typing, and asked again in five minutes.
 - ios: Board.inviteStep, BoardClient.checkInviteStep once per connection, InviteStepView with ShareLink.
 
 ## Decisions
@@ -16,10 +16,10 @@ With KOSMOS_SHARE_STEP=1, and POST /v1/mac/account-invite answering ok: a person
 - Switch is an environment variable, off by default. Turning it on is a later call, not this card.
 
 - Switch off: the page and phone still ask once per load, and the board answers at once without reading anything. Carrying a flag in an existing poll would touch a poll every board runs, for a dark feature.
-- The page asks again every five minutes only while the board says it is on and waiting; the phone asks once per connection.
+- The page asks again every five minutes only while the board says it is on and waiting, or while it is held; the phone asks once per connection.
 - Never over another window, the boot cover, or while the person is typing.
 
-- On the phone only the person's press answers it. Locked or under another sheet it waits; a swipe cannot spend it.
+- On the phone only the person's press answers it. Locked, or under New Agent or New Project, it waits (other sheets are rare enough to accept); a swipe cannot spend it.
 - An agent's greeting in a direct chat counts as the first agent doing something.
 
 ## Weakest premise

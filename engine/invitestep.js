@@ -43,11 +43,11 @@ function markDone(now) {
    `projects` the board's projects. An unreadable part counts as nothing, so the step waits rather than guessing. */
 function firstAgentDidSomething(sessions, projects) {
   for (const p of Array.isArray(projects) ? projects : []) {
-    for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) if (t && (t.builtAt || t.closedAt)) return true;
+    for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) if (t && (t.builtAt || t.closedAt || (t.progress && t.progress.closed === true))) return true;   // progress: a task closed by its parts has no closedAt
   }
   const chat = require('./chat');
   for (const s of Array.isArray(sessions) ? sessions : []) {
-    try { if (chat.readThread(chat.DIRECT, String(s)).messages.some((m) => m && m.from)) return true; } catch { /* the next one */ }
+    try { if (chat.readThread(chat.DIRECT, String(s)).messages.some((m) => m && m.from && m.kosmos !== true)) return true; } catch { /* the next one */ }
   }
   return false;
 }
@@ -71,7 +71,7 @@ function wordsFor(reward) {
 }
 
 /* What the page and the phone ask. `o`: { env, roster, projects, remote } (tests inject; the board passes the real ones).
-   wait: true means still worth asking again later (it is on, and either a first agent has not done anything yet or this computer is not signed in to Kosmos+ yet). */
+   wait: true means still worth asking again later (it is on, and a first agent has not done anything yet, or this computer is not signed in to Kosmos+ yet, or the call did not get an answer). */
 async function stepFor(o) {
   const none = { show: false };
   try {
