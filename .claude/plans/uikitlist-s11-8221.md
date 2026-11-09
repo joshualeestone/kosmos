@@ -10,40 +10,52 @@ On the UIKit list, such a scroll moves the list from the first frame, the list n
 runs, and where it ends decides whether the reader is at the newest (as slice 4 already made true). A scroll at an edge
 that moves nothing and reports no end does not leave the list in a "scrolling" state.
 
-## Cause (read from ChatList.swift)
+## Cause (read from ChatList.swift, then measured)
 
 The scroll is an animation, so the list is not tracking, dragging or decelerating while it runs. laidOut runs on every
-frame and, with the reader at the newest (atEnd), pins the list back to its end. When the animation ends, scrolled()
-reads where it went and lets the reader go: the jump.
+frame and, with the reader at the newest (atEnd), pins the list back to its end. Measured with the fix off (control arm):
+18 pins in one page scroll, and the scroll ended where it began (moved 0, still at the newest). So on the UIKit list a
+VoiceOver or keyboard scroll up from the newest did not just jump; it did nothing.
 
 ## Change
 
-- Coordinator: personUntil / personScrolling() / personScrollStarted() / personScrollLapsed(). personScrolls (already wired
-  to accessibilityScroll and the scroll keys) opens a window of personScrollWindow (1.0 s). While it is open, laidOut leaves
-  the list alone and scrollViewDidScroll counts the moves as the person's (atEnd read from them, the place dropped). The
-  window closes on the scroll's reported end (scrolled) or lapses on its own; a lapse keeps the reader's last-read state
-  (at the newest stays at the newest, even if a message landed) and runs laidOut.
-- Debug only: KOSMOS_SAMPLE_A11YSCROLL=<s> makes one scroll up of VoiceOver's kind (personScrolls, then an animated page
-  scroll; accessibilityScroll itself scrolls nothing on a simulator with VoiceOver off, measured) that long after the list opens and reports
-  how often pin() moved the list in the next 1.5 s; KOSMOS_SAMPLE_NOPERSONSCROLL=1 turns the fix off (the control arm).
+- Coordinator: personAskedAt / personUntil / personScrolling() / personScrollOpened() / personScrollLapsed().
+  personScrolls (already wired to accessibilityScroll and the scroll keys) records the ask. The scroll's first move within
+  personScrollAsk (1.0 s) of it, not made by the list itself (pinning, applying, laying), opens the window; each later move
+  keeps it open for personScrollQuiet (0.3 s). While open, laidOut leaves the list alone and scrollViewDidScroll reads the
+  moves as the person's (atEnd, the place dropped). It closes on the reported end (scrolled) or lapses after the moves stop;
+  a lapse keeps where the last move put the reader and runs laidOut. A press that moves nothing opens nothing.
+- Debug only: KOSMOS_SAMPLE_A11YSCROLL=<s> (with _MODE animated, stepped or still) makes one scroll of VoiceOver's kind
+  through personScrolls (accessibilityScroll itself scrolls nothing on a simulator with VoiceOver off, measured) and reports
+  pins, at end, moved, window. KOSMOS_SAMPLE_NOPERSONSCROLL=1 turns the fix off (the control arms).
 
 ## Tests
 
-- A11yScrollUITests (UIKit arm; skipped on the lazy arm): the control (fix off) must see pins > 0; with the fix, 0 pins, the
-  list moved up more than 40 pt, and the reader no longer at the newest.
+- A11yScrollUITests (UIKit arm, 5; skipped on the lazy arm): two controls with the fix off (animated, stepped) must see pins;
+  with the fix: animated (0 pins, moved, off the newest), stepped with no end (window opened, 0 pins, moved > 300 pt, off the
+  newest), still (no window, still at the newest, moved 0).
+
+## Measured (iPhone 17e simulator, iOS 27, 2 rounds each, 11-09 16:2x)
+
+| mode | fix off (control) | fix on |
+|---|---|---|
+| animated page up | 18 pins, moved 0, still at newest | 0 pins, moved 423, off the newest |
+| stepped, no end | 14 and 24 pins, moved 0 and -16 | 0 pins, window opened, moved 371, off the newest |
+| still (nothing moves) | | 0 pins, no window, moved 0, at the newest |
+
+The stepped scroll asks for 450 pt and moved 371 with no pin; where the other 79 went is not traced.
 
 ## Rejected
 
-- Keying on isAnimating-style private state: there is no public "a programmatic scroll is animating" flag on UIScrollView.
-- No deadline (window open until scrolled()): an accessibility scroll at an edge reports no end, so it could stay open and
-  stop laidOut from ever pinning again.
+- Keying on private UIScrollView state: there is no public "a programmatic scroll is animating" flag.
+- Opening the window on the ask (first version): a key press that moves nothing (an arrow moving focus) turned off pinning
+  and holding for a second, and a held key kept it off (review iteration 1).
+- A fixed window with no extension: a scroll longer than it would have the list hold the reader's place on each move,
+  freezing it.
 
 ## Weakest premise
 
-The window is kept open by the scroll's own moves (personScrollQuiet, 0.3 s after the last one) and closed by its reported
-end. A scroll whose first move comes more than 1.0 s after it was asked for would find the window already closed and be
-pinned as before this slice. Not seen; UIKit starts an animated scroll on the next frame.
-
-A first version closed the window after a fixed 1.0 s. Thinking through an animation longer than that: the reader is
-already off the end by then, so laidOut would HOLD their place on each frame and freeze the scroll, worse than the old
-jump. Hence the window extended by moves.
+The check drives the scroll by hand (personScrolls, then the scroll), because accessibilityScroll scrolls nothing on a
+simulator without VoiceOver. That UIKit's VoiceOver and keyboard scrolls go through accessibilityScroll / pressesBegan and
+then move the offset within a second is read from the code and UIKit's behaviour, not measured here; only a real phone with
+VoiceOver on shows it.

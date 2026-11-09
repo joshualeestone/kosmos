@@ -1,19 +1,22 @@
 import XCTest
 
 /// kosmos#8221 slice 11: a scroll up from the newest message made without a finger (VoiceOver's three-finger swipe, Voice
-/// Control, a keyboard's Page Up) runs on the UIKit list without the list putting itself back at the end on every frame and
-/// then jumping to where the scroll ended. The scroll is made as VoiceOver's is (the list told through personScrolls, which
-/// its accessibilityScroll override calls, then an animated page scroll; the real call scrolls nothing on a simulator with
-/// VoiceOver off), 6 s after the chat opens (KOSMOS_SAMPLE_A11YSCROLL); the app reports how many times the list pinned
-/// itself to the end in the 1.5 s after it. The UIKit list only: the lazy list has no such pin (skipped there).
+/// Control, a keyboard's Page Up) runs on the UIKit list without the list putting itself back at the end while it runs.
+/// The scroll is made as VoiceOver's is (the list told through personScrolls, which its accessibilityScroll override calls,
+/// then the scroll; the real call scrolls nothing on a simulator with VoiceOver off), 6 s after the chat opens
+/// (KOSMOS_SAMPLE_A11YSCROLL), in one of three modes (KOSMOS_SAMPLE_A11YSCROLL_MODE, see ChatList.sampleA11yScroll). The app
+/// reports how many times the list pinned itself to the end while it ran, how far it moved, whether the reader is still at
+/// the newest, and whether the person's-scroll window opened. The UIKit list only: the lazy list has no such pin.
 final class A11yScrollUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
-    private func scrollUp(fixOff: Bool) throws -> (pins: Int, atEnd: Bool, moved: Int) {
+    private struct Report { let pins: Int; let atEnd: Bool; let moved: Int; let window: Bool; let label: String }
+
+    private func scrollUp(mode: String, fixOff: Bool = false) throws -> Report {
         guard UIKitListArm.on else { throw XCTSkip("the lazy list has no pin to the end (UIKit list only)") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "1",
-                                 "KOSMOS_SAMPLE_A11YSCROLL": "6"]
+                                 "KOSMOS_SAMPLE_A11YSCROLL": "6", "KOSMOS_SAMPLE_A11YSCROLL_MODE": mode]
         if fixOff { app.launchEnvironment["KOSMOS_SAMPLE_NOPERSONSCROLL"] = "1" }
         UIKitListArm.set(app)
         app.launch()
@@ -21,31 +24,55 @@ final class A11yScrollUITests: XCTestCase {
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(newest.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
         let marker = app.descendants(matching: .any).matching(identifier: "sample-a11y-scroll").firstMatch
-        XCTAssertTrue(marker.waitForExistence(timeout: 20), "CONTROL: the accessibility scroll never reported")
-        // "sample a11y scroll pins <n>, at end <bool>, moved <n>, from the end <bool>"
-        let words = marker.label.replacingOccurrences(of: ",", with: "").split(separator: " ").map(String.init)
+        XCTAssertTrue(marker.waitForExistence(timeout: 20), "CONTROL: the scroll never reported")
+        // "sample a11y scroll pins <n>, at end <bool>, moved <n>, window <bool>, from the end <bool>"
+        let label = marker.label
+        let words = label.replacingOccurrences(of: ",", with: "").split(separator: " ").map(String.init)
         func after(_ key: String) -> String? { words.firstIndex(of: key).flatMap { $0 + 1 < words.count ? words[$0 + 1] : nil } }
-        let fromEnd = words.suffix(1).first
-        XCTAssertEqual(fromEnd, "true", "CONTROL: the scroll did not start at the newest message: \(marker.label)")
+        XCTAssertEqual(words.last, "true", "CONTROL: the scroll did not start at the newest message: \(label)")
+        print("UI-NOTE kosmos#8221 slice 11 \(mode)\(fixOff ? ", fix off" : ""): \(label)")
         guard let pins = after("pins").flatMap(Int.init), let moved = after("moved").flatMap(Int.init),
-              let atEndWord = words.firstIndex(of: "end").map({ words[$0 + 1] }) else {
-            XCTFail("unreadable report: \(marker.label)"); return (0, true, 0)
+              let atEnd = after("end"), let window = after("window") else {
+            XCTFail("unreadable report: \(label)"); throw XCTSkip("unreadable report")
         }
-        print("UI-NOTE kosmos#8221 slice 11 \(fixOff ? "fix off" : "fix on"): \(marker.label)")
-        return (pins, atEndWord == "true", moved)
+        return Report(pins: pins, atEnd: atEnd == "true", moved: moved, window: window == "true", label: label)
     }
 
-    // The control: before this slice the list pinned itself back during the scroll. If this reads 0, the check cannot see
-    // the defect it guards (the scroll did not run, or the count is not reached), and the test below proves nothing.
-    func testWithoutTheFixTheListIsHeldAtTheEnd() throws {
-        let r = try scrollUp(fixOff: true)
-        XCTAssertGreaterThan(r.pins, 0, "CONTROL: without the fix the list was never put back at the end, so the check below cannot fail")
+    // The controls: before this slice the list pinned itself back during such a scroll. If a control reads 0 pins, the check
+    // beside it cannot see the defect it guards (the scroll did not run, or the count is not reached), and proves nothing.
+    func testWithoutTheFixAnAnimatedScrollIsHeldAtTheEnd() throws {
+        let r = try scrollUp(mode: "animated", fixOff: true)
+        XCTAssertGreaterThan(r.pins, 0, "CONTROL: without the fix the list was never put back at the end: \(r.label)")
     }
 
-    func testAScrollUpWithoutAFingerIsNotHeldAtTheEnd() throws {
-        let r = try scrollUp(fixOff: false)
-        XCTAssertEqual(r.pins, 0, "the list put itself back at the end \(r.pins) times while the person's scroll ran")
-        XCTAssertGreaterThan(r.moved, 40, "the scroll did not move the list up (moved \(r.moved) pt)")
-        XCTAssertFalse(r.atEnd, "the reader is still counted at the newest after scrolling up")
+    func testWithoutTheFixASlowScrollIsHeldAtTheEnd() throws {
+        let r = try scrollUp(mode: "stepped", fixOff: true)
+        XCTAssertGreaterThan(r.pins, 0, "CONTROL: without the fix the list was never put back at the end: \(r.label)")
+    }
+
+    // One page up, its end reported.
+    func testAnAnimatedScrollUpIsNotHeldAtTheEnd() throws {
+        let r = try scrollUp(mode: "animated")
+        XCTAssertEqual(r.pins, 0, "the list put itself back at the end while the person's scroll ran: \(r.label)")
+        XCTAssertGreaterThan(r.moved, 40, "the scroll did not move the list up: \(r.label)")
+        XCTAssertFalse(r.atEnd, "the reader is still counted at the newest after scrolling up: \(r.label)")
+    }
+
+    // A scroll slower than the window's quiet time with no end reported: the window stays open while it moves (or the list
+    // would hold the reader's place on each move and freeze it) and lets go after it stops, the reader where it left them.
+    func testASlowScrollWithNoEndIsFollowedAndLetGo() throws {
+        let r = try scrollUp(mode: "stepped")
+        XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened: \(r.label)")
+        XCTAssertEqual(r.pins, 0, "the list put itself back at the end while the person's scroll ran: \(r.label)")
+        XCTAssertGreaterThan(r.moved, 300, "the slow scroll was stopped short: \(r.label)")
+        XCTAssertFalse(r.atEnd, "the reader is still counted at the newest after scrolling up: \(r.label)")
+    }
+
+    // Asked for, but nothing moves (an arrow key that only moves focus): no window opens and the reader stays at the newest.
+    func testAScrollThatMovesNothingChangesNothing() throws {
+        let r = try scrollUp(mode: "still")
+        XCTAssertFalse(r.window, "a scroll that moved nothing opened the person's-scroll window: \(r.label)")
+        XCTAssertTrue(r.atEnd, "a scroll that moved nothing took the reader off the newest: \(r.label)")
+        XCTAssertEqual(r.moved, 0, "CONTROL: the still scroll moved the list: \(r.label)")
     }
 }
