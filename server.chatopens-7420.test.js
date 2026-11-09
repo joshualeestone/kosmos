@@ -85,6 +85,51 @@ test('#7420: an agent\'s token is refused, and a build named like a built-in pro
   assert.equal((await post({ app: '__proto__', rebuilds: 0, closedBlank: false })).status, 400);
 });
 
+test('#8221 slice 6: the UIKit list counts apart under its build, the lazy counts unchanged', async () => {
+  const B = '0.2.0 (70)';
+  assert.equal((await post({ app: B, rebuilds: 0, closedBlank: false })).status, 200);
+  assert.equal((await post({ app: B, rebuilds: 1, closedBlank: false })).status, 200);
+  assert.equal((await post({ app: B, rebuilds: 0, closedBlank: true, list: 'uikit' })).status, 200);
+  assert.equal((await post({ app: B, rebuilds: 0, closedBlank: false, list: 'uikit' })).status, 200);
+  assert.equal((await post({ app: B, rebuilds: 0, closedBlank: false, list: 'uikit' })).status, 200);
+  const { lastAt, uikit, ...lazy } = (await get()).body.builds[B];
+  assert.deepEqual(lazy, { opens: 2, blankOpens: 1, rebuilds: 1, closedBlank: 0 });
+  assert.deepEqual(uikit, { opens: 3, blankOpens: 1, rebuilds: 0, closedBlank: 1 });
+  // A build with only UIKit showings has lazy counts of zero, and one with none has no uikit block.
+  assert.equal((await post({ app: '0.2.0 (71)', rebuilds: 0, closedBlank: false, list: 'uikit' })).status, 200);
+  const only = (await get()).body.builds['0.2.0 (71)'];
+  assert.equal(only.opens, 0);
+  assert.equal(only.uikit.opens, 1);
+  assert.equal((await get()).body.builds[APP].uikit, undefined, 'a build with no UIKit showing grew a uikit block');
+});
+
+test('#8221 slice 6: a list it does not know is refused and counts nothing', async () => {
+  const B = '0.2.0 (70)';
+  const before = (await get()).body.builds[B];
+  for (const list of ['lazy', 'UIKIT', '', null, 1, ['uikit'], { uikit: true }]) {
+    assert.equal((await post({ app: B, rebuilds: 0, closedBlank: false, list })).status, 400, JSON.stringify(list));
+  }
+  assert.deepEqual((await get()).body.builds[B], before);
+});
+
+test('#8221 slice 6: an older file with no uikit block reads, and a malformed one is dropped, not the build', () => {
+  const at = new Date(Date.UTC(2029, 0, 1)).toISOString();
+  const good = { opens: 2, blankOpens: 1, rebuilds: 1, closedBlank: 0, lastAt: at };
+  fs.writeFileSync(chatopens.file(), JSON.stringify({ builds: {
+    '1.0 (1)': good,
+    '1.0 (2)': { ...good, uikit: { opens: 1, blankOpens: 0, rebuilds: 0, closedBlank: 0 } },
+    '1.0 (3)': { ...good, uikit: { opens: -1, blankOpens: 0, rebuilds: 0, closedBlank: 0 } },
+    '1.0 (4)': { ...good, uikit: 'many' },
+  } }));
+  const { builds, ok } = chatopens.read();
+  assert.equal(ok, true);
+  assert.deepEqual(builds['1.0 (1)'], good);
+  assert.deepEqual(builds['1.0 (2)'].uikit, { opens: 1, blankOpens: 0, rebuilds: 0, closedBlank: 0 });
+  for (const app of ['1.0 (3)', '1.0 (4)']) {
+    assert.deepEqual(builds[app], good, `${app}: the build was lost or kept its malformed uikit block`);
+  }
+});
+
 test('#7420: only the newest builds are kept, and an unreadable file is never overwritten', async () => {
   for (let i = 0; i < chatopens.MAX_BUILDS + 3; i++) chatopens.add({ app: `9.0 (${i})`, rebuilds: 0, closedBlank: false }, new Date(Date.UTC(2030, 0, 1, 0, i)));
   const { builds } = chatopens.read();
