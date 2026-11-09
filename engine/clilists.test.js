@@ -54,6 +54,7 @@ test('kosmos#8288: the rules in rosterRow are still the ones the page reads for 
     "a.deliveryStall.lastWhy === 'turn'",
     "typeof a.deliveryStall.words === 'string'",
     'a.crashLoop.looping === true',
+    "a.state === 'working' && a.oneStep",   // kosmos#8304
   ]) assert.ok(page.includes(rule), 'the page no longer reads: ' + rule + '; rosterRow in engine/clilists.js copies it');
 });
 
@@ -123,4 +124,31 @@ test('#7748: a word that matches nothing says so and exits 1', () => {
   const r = roleLines(ROLES, 'zebra');
   assert.equal(r.code, 1);
   assert.match(r.lines[0], /No role matches "zebra"/);
+});
+
+test('kosmos#8304: a working agent on one tool call for minutes (#8286) gets its own line, with the time and the tool', () => {
+  const row = rosterRow({ name: 'Ada', state: 'working', cardWord: 'Working', role: 'R', oneStep: { tool: 'Bash', since: T } });
+  assert.deepEqual(row, { name: 'Ada', role: 'R', state: 'Working', longStepSince: T, longStepTool: 'Bash' });
+  process.env.TZ = 'America/Chicago';
+  try {
+    assert.deepEqual(agentLines([row]).lines, ['Ada  R  Working', '  on one step since 2026-11-09 02:12: Bash']);
+  } finally { process.env.TZ = 'UTC'; }
+});
+
+test('kosmos#8304: a working card only (as the page), and only a plain tool name travels', () => {
+  assert.equal(rosterRow({ name: 'Ada', state: 'idle', oneStep: { tool: 'Bash', since: T } }).longStepSince, undefined, 'not on an idle card');
+  assert.equal(rosterRow({ name: 'Ada', state: 'needs_you', oneStep: { tool: 'Bash', since: T } }).longStepSince, undefined);
+  const odd = rosterRow({ name: 'Ada', state: 'working', oneStep: { tool: 'rm -rf "x"; echo', since: T } });
+  assert.equal(odd.longStepSince, T, 'the time still travels');
+  assert.equal(odd.longStepTool, undefined, 'a name that is not plain does not');
+  assert.equal(agentLines([odd]).lines[1].endsWith(':'), false, 'and the line names no tool rather than an empty one');
+});
+
+test('kosmos#8304: kept apart from the Windows turn stall (#7368), which has its own words and field', () => {
+  const both = rosterRow({ name: 'Ada', state: 'working', oneStep: { tool: 'Bash', since: T }, deliveryStall: { since: T, lastWhy: 'turn', count: 2 } });
+  assert.equal(both.oneStepSince, T);
+  assert.equal(both.longStepSince, T);
+  const lines = agentLines([both]).lines;
+  assert.equal(lines.filter((l) => /no activity on its current step/.test(l)).length, 1);
+  assert.equal(lines.filter((l) => /^  on one step since /.test(l)).length, 1);
 });

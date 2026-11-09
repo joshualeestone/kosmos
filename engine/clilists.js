@@ -18,6 +18,13 @@ function rosterRow(a) {
   if (since(stall) && stall.lastWhy === 'turn') row.oneStepSince = stall.since;
   else if (since(stall) && typeof stall.words === 'string') row.noMessageSince = stall.since;
   if (a.crashLoop && a.crashLoop.looping === true) row.restartsLately = Number(a.crashLoop.count) || 3;
+  /* kosmos#8304: #8286's long tool call (a working Claude agent on one call for minutes, from its transcript), as the page
+     says it: a working card only. Its own fields, apart from oneStepSince (#7368's Windows turn stall, which also has
+     messages waiting). The tool's name travels only when it is a plain name, so nothing read off a screen can. */
+  if (a.state === 'working' && since(a.oneStep)) {
+    row.longStepSince = a.oneStep.since;
+    if (typeof a.oneStep.tool === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(a.oneStep.tool)) row.longStepTool = a.oneStep.tool;
+  }
   return row;
 }
 
@@ -31,6 +38,7 @@ function stateLines(a) {
   if (a.unsentSince) lines.push('  text unsent in its input box since ' + when(a.unsentSince));
   if (a.oneStepSince) lines.push('  no activity on its current step since ' + when(a.oneStepSince) + ', with messages waiting behind it');
   if (a.noMessageSince) lines.push('  no message seen to reach it since ' + when(a.noMessageSince));
+  if (a.longStepSince) lines.push('  on one step since ' + when(a.longStepSince) + (typeof a.longStepTool === 'string' && a.longStepTool ? ': ' + a.longStepTool : ''));
   if (Number.isInteger(a.restartsLately)) lines.push('  restarted ' + a.restartsLately + ' times in the last half hour, stopping within minutes each time');
   return lines;
 }
