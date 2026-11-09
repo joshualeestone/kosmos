@@ -181,54 +181,48 @@ test('#6249 (round 2): someone typing during the gap: the first Enter is not pre
   assert.match(v.because, /by then held other text too, so Enter was not pressed/);
 }));
 
-/* kosmos#8333: a box that reads as other text gets a moment to settle before it is believed; both arms. */
-test('kosmos#8333: a box that reads as other and then as ours is pressed, once', () => withAgent({}, (roster) => {
-  const t = arm([EMPTY, box('not yet settled'), box(MSG), EMPTY]);
-  const v = chat.deliver('al', MSG, roster);
-  assert.equal(t.enters(), 1);
-  assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
-}));
-
-test('kosmos#8333: CONTROL, a box that keeps holding other text is never pressed, after the looks', () => withAgent({}, (roster) => {
-  const t = arm([EMPTY, box('the person was typing this ' + MSG)]);
-  const v = chat.deliver('al', MSG, roster);
-  assert.equal(t.enters(), 0);
-  assert.equal(v.confirm, 'not-pressed');
-  assert.ok(t.reads() >= 12, 'it looked again before believing it: ' + t.reads());
-}));
-
-
-test('kosmos#8333: the async path settles the same way, both arms', async () => {
-  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
-  try {
-    let t = arm([EMPTY, box('not yet settled'), box(MSG), EMPTY]);
-    let v = await chat.deliverAsync('al', MSG, board.agents);
-    assert.equal(t.enters(), 1);
-    assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+/* kosmos#8333: a box that read as other text is never pressed, whatever it reads next; the log says what it read next. */
+function warned(fn) {
+  const real = console.warn; const lines = [];
+  console.warn = (x) => lines.push(String(x));
+  try { fn(); } finally { console.warn = real; }
+  return lines;
+}
+test('kosmos#8333: a box read as other is not pressed even if it then reads as ours, or empty', () => withAgent({}, (roster) => {
+  for (const later of [box(MSG), EMPTY]) {
     chat.resetForTests();
-    t = arm([EMPTY, box('the person was typing this ' + MSG)]);
-    v = await chat.deliverAsync('al', MSG, board.agents);
+    const t = arm([EMPTY, box('someone else was typing this'), later]);
+    let v;
+    const lines = warned(() => { v = chat.deliver('al', MSG, roster); });
     assert.equal(t.enters(), 0);
     assert.equal(v.confirm, 'not-pressed');
-    assert.ok(t.reads() >= 12, 'looked again: ' + t.reads());
-  } finally { board.restore(); }
-});
-
-test('kosmos#8333: the window changing during the looks is not pressed', () => withAgent({}, (roster) => {
-  const t = arm([EMPTY, box('not yet settled'), box(MSG), EMPTY]);
-  let probes = 0;
-  const failLate = (args) => {
-    if (args[0] === 'display-message') { probes += 1; if (t.reads() >= 3) return ok(''); }
-    return t(args);
-  };
-  failLate.calls = t.calls;
-  chat.setRunner(failLate);
-  const v = chat.deliver('al', MSG, roster);
-  assert.ok(probes > 0);
-  assert.equal(t.enters(), 0, 'never over a window that changed');
-  assert.equal(v.state, chat.DELIVERY.UNCONFIRMED);
-  assert.match(v.because, /window changed/);
+    assert.equal(lines.length, 1);
+    assert.match(lines[0], /after 1 more looks it read (ours|empty)$/);
+  }
 }));
+test('kosmos#8333: a box that stays other says so after every look', () => withAgent({}, (roster) => {
+  const t = arm([EMPTY, box('someone else was typing this')]);
+  const lines = warned(() => chat.deliver('al', MSG, roster));
+  assert.equal(t.enters(), 0);
+  assert.match(lines[0], /after 10 more looks it read other$/);
+}));
+test('kosmos#8333: the async path never presses either', async () => {
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  const real = console.warn; console.warn = () => {};
+  try {
+    const t = arm([EMPTY, box('someone else was typing this'), box(MSG)]);
+    const v = await chat.deliverAsync('al', MSG, board.agents);
+    assert.equal(t.enters(), 0);
+    assert.equal(v.confirm, 'not-pressed');
+  } finally { console.warn = real; board.restore(); }
+});
+test('kosmos#8333: the log line carries shape, never the words', () => {
+  const secret = 'hunter2-Tökén ключ 秘密 password';
+  const line = chat.notPressedLine('w'.repeat(9), secret + ' [Pasted text #1]', 'other', 10);
+  for (const word of ['hunter2', 'Tökén', 'ключ', '秘密', 'password', 'Pasted', 'text']) assert.equal(line.includes(word), false, word);
+  assert.match(line, /\[x+ x+ #x\]/, 'a fold is still recognisable');
+  assert.match(line, /wire 9 chars/);
+});
 
 test('#6249: ghost text after the Enter is an empty box, not our text still there', () => withAgent({}, (roster) => {
   const t = arm([EMPTY, screen('empty-placeholder')]);
