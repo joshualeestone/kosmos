@@ -28308,12 +28308,7 @@ function start(port = PORT) {
   try { require('./engine/backuptick').startHere(); } catch { /* best effort */ }
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
-  try {
-    const rn = require('./engine/restartnote');
-    // kosmos#8287: the file check ran first, at the bottom of this file.
-    rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK, files: require('./engine/storecheck').lastScan() });
-    rn.startBeating();
-  } catch { /* best effort */ }
+  try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK, files: require('./engine/storecheck').lastScan() }); rn.startBeating(); } catch { /* best effort */ }
   /* kosmos#7411 step 4: the version this board runs and when it first started on it, so the restart line can name the
      agents started before an update. Best effort: a courtesy, never a reason not to start. */
   try {
