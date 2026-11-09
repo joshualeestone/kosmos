@@ -24829,7 +24829,7 @@ function rebootChecked(checks) {
     }
   }
   const f = checks.files;
-  if (f) parts.push(f.damaged === 0 ? 'Kosmos\'s own files read fine' : f.damaged + ' of Kosmos\'s own files could not be read');
+  if (f) parts.push(f.damaged === 0 ? 'Kosmos\'s settings and records read fine' : f.damaged + ' of Kosmos\'s settings and records could not be read');
   return parts.length ? 'Checked: ' + parts.join(', and ') + '.' : '';
 }
 function paintRebootNote(note) {

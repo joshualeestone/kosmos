@@ -188,11 +188,11 @@ const CASES = [
     const WORDS = [
       { key: 'none', checks: {}, want: null },
       { key: 'nothing-sent', checks: undefined, want: null },
-      { key: 'all-back', checks: { agents: { was: 12, back: 12, notBack: [] }, files: { damaged: 0 } }, want: "Checked: all 12 agents that were running are running again, and Kosmos's own files read fine." },
+      { key: 'all-back', checks: { agents: { was: 12, back: 12, notBack: [] }, files: { damaged: 0 } }, want: "Checked: all 12 agents that were running are running again, and Kosmos's settings and records read fine." },
       { key: 'one', checks: { agents: { was: 1, back: 1, notBack: [] } }, want: 'Checked: the agent that was running is running again.' },
-      { key: 'not-back', checks: { agents: { was: 3, back: 1, notBack: ['Homer', 'Leo'] }, files: { damaged: 2 } }, want: "Checked: 1 of 3 agents that were running is running again (not yet: Homer, Leo), and 2 of Kosmos's own files could not be read." },
+      { key: 'not-back', checks: { agents: { was: 3, back: 1, notBack: ['Homer', 'Leo'] }, files: { damaged: 2 } }, want: "Checked: 1 of 3 agents that were running is running again (not yet: Homer, Leo), and 2 of Kosmos's settings and records could not be read." },
       { key: 'many', checks: { agents: { was: 9, back: 2, notBack: ['A', 'B', 'C', 'D', 'E', 'F', 'G'] } }, want: 'Checked: 2 of 9 agents that were running are running again (not yet: A, B, C, D, E and 2 more).' },
-      { key: 'files-only', checks: { files: { damaged: 0 } }, want: "Checked: Kosmos's own files read fine." },
+      { key: 'files-only', checks: { files: { damaged: 0 } }, want: "Checked: Kosmos's settings and records read fine." },
       { key: 'no-agents-then', checks: { agents: { was: 0, back: 0, notBack: [] } }, want: null },
       { key: 'html', checks: { agents: { was: 1, back: 0, notBack: ['<b>x</b>'] } }, want: 'Checked: the agent that was running is not running yet (<b>x</b>).' },
     ];

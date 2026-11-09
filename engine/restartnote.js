@@ -22,8 +22,8 @@
  * rejected: an ordinary shutdown sends SIGTERM to every process too, so a Mac would lose the note for every restart.
  *
  * kosmos#8287: the note also says what was checked. The beat records which agents were running, so the note can ask
- * about exactly those: an agent a person stopped last week is not "not back", and one that came back and was stopped
- * afterwards stays back (the note records it). The result of this start's file check
+ * about exactly those: an agent a person stopped last week is not "not back", nor is one that came back and was
+ * stopped afterwards. The result of this start's file check
  * (engine/storecheck.js) is kept in the note, so dismissing or repairing that notice cannot turn it into "fine". What
  * could not be checked is left out of the sentence, never reported as fine.
  *
@@ -126,12 +126,15 @@ function atStart(deps = {}) {
   return note;
 }
 
-/* kosmos#8287: who the last roster read found up; null until one has succeeded, so the beat claims nothing before it. */
+/* kosmos#8287: the list the beat writes, and the last roster the minute tick read (null until one has succeeded). The
+   route reads that one rather than taking a blocking roster read of its own. */
 let running = null;
+let lastCards = null;
 let carried = null;       // who was running before this start, and until when it still counts
 let carriedUntil = 0;
 function noteRunning(roster, now = Date.now()) {
   if (!Array.isArray(roster)) return;   // a failed read says nothing, so the last good list stands
+  lastCards = roster.map((a) => (a ? { sessionName: a.sessionName, name: a.name, isAgentSession: a.isAgentSession, isNamedOurs: a.isNamedOurs, state: a.state, crashLoop: a.crashLoop } : a));
   const up = cleanRunning(runningOf(roster));
   markReturned(up);
   /* Agents return over minutes, so a read just after a start is a partial list. A second restart in that time must
@@ -144,7 +147,7 @@ function noteRunning(roster, now = Date.now()) {
     running = up;
   }
 }
-/* An agent seen up since the restart stays counted as back, so a person stopping it later that day is not reported. */
+/* An agent seen up since the restart and stopped afterwards is not a failure of the restart (checksFor). */
 function markReturned(up) {
   const n = readJson(noteFile());
   if (!n || n.dismissed === true) return;
@@ -196,7 +199,9 @@ function checksFor(note, roster, removed) {
     const cards = new Map(roster.filter((a) => a && a.sessionName).map((a) => [a.sessionName, a]));
     const asked = note.wereRunning.filter((a) => !gone.has(a.session));
     const seen = new Set(cleanReturned(note.returned));
-    const notBack = asked.filter((a) => !seen.has(a.session) && !isUp(cards.get(a.session))).map((a) => (cards.get(a.session) || {}).name || a.name);
+    // Only a plain stop is excused by having come back: a failure after that is still what the person needs to see.
+    const stoppedSince = (a) => { const c = cards.get(a.session); return seen.has(a.session) && Boolean(c) && c.state === 'stopped' && !(c.crashLoop && c.crashLoop.looping === true); };
+    const notBack = asked.filter((a) => !stoppedSince(a) && !isUp(cards.get(a.session))).map((a) => (cards.get(a.session) || {}).name || a.name);
     out.agents = { was: asked.length, back: asked.length - notBack.length, notBack };
   }
   if (note.files) out.files = { damaged: note.files.damaged };
@@ -212,6 +217,7 @@ function dismiss() {
   return writeJson(noteFile(), { ...n, dismissed: true });
 }
 
-function resetForTests() { running = null; carried = null; carriedUntil = 0; }
+function lastRoster() { return lastCards; }
+function resetForTests() { running = null; lastCards = null; carried = null; carriedUntil = 0; }
 
-module.exports = { resetForTests, noteFor, atStart, beat, startBeating, current, dismiss, noteRunning, runningOf, checksFor, publicNote, BEAT_MS, WINDOW_MS, SHOW_MS, _files: { aliveFile, noteFile } };
+module.exports = { resetForTests, noteFor, atStart, beat, startBeating, current, dismiss, noteRunning, lastRoster, runningOf, checksFor, publicNote, BEAT_MS, WINDOW_MS, SHOW_MS, _files: { aliveFile, noteFile } };
