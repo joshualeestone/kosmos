@@ -583,6 +583,7 @@ let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a,
     "Self.numbers(sv)",   // kosmos#7645 round 4: the scroll's offset, content height and showing height, in points
     "Self.heightLine(v, rows: r)",   // kosmos#7420: content height, offset and the drawn rows' places, in points and a count
     "Int(short)",   // kosmos#7420 review 3: how far the scroll is short of the content's end, in points
+    "Int(pulled)",   // kosmos#8221 slice 9: how far a pull past the end was kept when rows landed under it (points)
     "pending.last?.text.count ?? 0", "pending.count",   // kosmos#8038: a send's length and how many are pending, both numbers, never its words
     "keepNewestOnKeyboard", "visible", "holdAtEnd", "searchMode",   // kosmos#7645: the room's keyboard will-show, yes/no only
     "applies", "redrawn", "Int(spent * 1000)",   // kosmos#8221: the UIKit list's updates and cells drawn again (counts), and ms spent in them
