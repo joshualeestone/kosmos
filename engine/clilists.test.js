@@ -141,7 +141,11 @@ test('kosmos#8304: a working card only (as the page), and only a plain tool name
   const odd = rosterRow({ name: 'Ada', state: 'working', oneStep: { tool: 'rm -rf "x"; echo', since: T } });
   assert.equal(odd.longStepSince, T, 'the time still travels');
   assert.equal(odd.longStepTool, undefined, 'a name that is not plain does not');
-  assert.equal(agentLines([odd]).lines[1].endsWith(':'), false, 'and the line names no tool rather than an empty one');
+  process.env.TZ = 'America/Chicago';
+  try {
+    assert.equal(agentLines([odd]).lines[1], '  on one step since 2026-11-09 02:12', 'and the line names no tool rather than an empty or odd one');
+  } finally { process.env.TZ = 'UTC'; }
+  assert.equal(rosterRow({ name: 'Ada', state: 'working', oneStep: { tool: 'Bash', since: 'not a time' } }).longStepSince, undefined, 'a time the page would not show');
 });
 
 test('kosmos#8304: kept apart from the Windows turn stall (#7368), which has its own words and field', () => {
