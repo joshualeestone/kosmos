@@ -110,9 +110,10 @@ test('kosmos#8304: a long tool call reaches the list through the real route, as 
   const realIn = onestep.oneStepIn;
   const since = '2026-11-09T08:12:00.000Z';
   let tool = 'Bash';
+  let board = null;
+  t.after(() => { onestep.oneStepIn = realIn; if (board && board.restore) board.restore(); });   // registered first: a throw below cannot leave the stub
   onestep.oneStepIn = () => ({ tool, since });
-  const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'working' })]);
-  t.after(() => { onestep.oneStepIn = realIn; if (board.restore) board.restore(); });
+  board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'working' })]);
   const list = async () => {
     const r = await call('GET', '/api/agents/list', { headers: { 'x-kosmos-agent-token': agentToken } });
     assert.equal(r.code, 200, r.text.slice(0, 120));
