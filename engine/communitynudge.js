@@ -285,13 +285,14 @@ function countsPhrase(c, f, owed = null) {
   return [own, last].filter(Boolean).join(' ');
 }
 
-/** The nudge line after a vote or comment, or null. `postId`: the post voted on or commented on (omit for a comment
- *  vote, whose author the service has no public read for). `reply`: a --reply-to comment. `owed`: replies owed, from a fresh home read (#5212). Never throws. */
 /* kosmos#8340: the counts block repeated in full after every vote and comment, burying the one line that changed. A
    caller may pass `sameAsShown(counts)` (true: this agent was last shown exactly these counts, recently) and `onCounts`
    (told the counts this line carries), so the block is printed only when it changed. The caller keeps what was shown,
-   because only it knows the line reached the agent (server.js communityNudge drops a late one). */
-const COUNTS_UNCHANGED = 'Your counts are as last shown.';
+   because only it knows the line was sent (server.js communityNudge drops a late one). Only the "Last 24 hours" counts
+   are compared: the replies waiting for an answer ask the agent to do something, so they print every time (review 1). */
+const COUNTS_UNCHANGED = 'Your counts are as last shown (kosmos community home shows them again).';
+/** The nudge line after a vote or comment, or null. `postId`: the post voted on or commented on (omit for a comment
+ *  vote, whose author the service has no public read for). `reply`: a --reply-to comment. `owed`: replies owed, from a fresh home read (#5212). Never throws. */
 async function nudge(agentKey, { postId = null, now = Date.now(), reply = false, owed = null, sameAsShown = null, onCounts = null } = {}) {
   try {
     const target = typeof postId === 'string' && UUID_RE.test(postId.trim()) ? postId.trim().toLowerCase() : null;
@@ -301,9 +302,11 @@ async function nudge(agentKey, { postId = null, now = Date.now(), reply = false,
     const who = target && switchedOn ? await authorOf(target, communityself.stored(agentKey)).catch(() => none) : none;
     const c = localCounts(agentKey, now);
     const f = floors();
-    let counts = countsPhrase(c, f, owed);
-    if (counts && typeof sameAsShown === 'function' && sameAsShown(counts) === true) counts = COUNTS_UNCHANGED;
-    else if (counts && typeof onCounts === 'function') onCounts(counts);
+    const owedPart = countsPhrase({}, f, owed);   // the replies-waiting sentence alone (no count parts given)
+    let last = countsPhrase(c, f, null);
+    if (last && typeof sameAsShown === 'function' && sameAsShown(last) === true) last = COUNTS_UNCHANGED;
+    else if (last && typeof onCounts === 'function') onCounts(last);
+    const counts = [owedPart, last].filter(Boolean).join(' ');
     let line = '';
     const a = who.author;
     if (a && a.own) line = 'That post is yours.';

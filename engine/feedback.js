@@ -425,7 +425,8 @@ function unchanged(from, note, date) {
 }
 
 /** kosmos#8340: the days whose report holds a section by `from` (writer()'s answer; null is the unnamed section), newest
- *  first. `unchanged` points back to one of these, so a day here is one `feedback write --unchanged` can use. */
+ *  first. `unchanged` points back to the newest of these BEFORE the day it writes (never today's), so none at all is
+ *  exactly the case it refuses. */
 function daysOf(from) {
   const key = writerKey(from).toLowerCase();
   return list().filter((d) => {
@@ -437,7 +438,7 @@ function daysOf(from) {
  *  they are, and which hold the asking agent's own. null when there are none. */
 function listNote(from, days = list()) {
   if (!days.length) return null;
-  const mine = daysOf(from);
+  const mine = daysOf(from).filter((d) => days.includes(d));   // only days the printed list has (review 1)
   const whose = 'These are the days with a report on this computer, from every agent here.';
   if (!mine.length) return whose + ' None of them holds one of yours yet, so `kosmos feedback write --unchanged` has nothing to point back to: write a full report first.';
   return whose + ' ' + (mine.length === 1 ? '1 of them holds yours: ' + mine[0] : mine.length + ' of them hold yours, the newest ' + mine[0]) + '.';

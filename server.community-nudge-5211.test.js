@@ -176,7 +176,7 @@ test('copy review: the comment route marks a --reply-to comment as a reply (so t
    become the short sentence; others print in full and are reported through onCounts. */
 function stubCountingNudge(countsRef, delayMs = 0) {
   communitynudge.nudge = (agentKey, opts) => {
-    const counts = countsRef.now;
+  const counts = countsRef.now;
     let line;
     if (opts && typeof opts.sameAsShown === 'function' && opts.sameAsShown(counts) === true) line = 'Ada. ' + communitynudge.COUNTS_UNCHANGED;
     else { if (opts && typeof opts.onCounts === 'function') opts.onCounts(counts); line = 'Ada. ' + counts; }
@@ -187,7 +187,7 @@ function stubCountingNudge(countsRef, delayMs = 0) {
 test('kosmos#8340: the counts repeat only when they changed since the agent was last shown them', async (t) => {
   const b = fleet.install([fleet.agent('Repeater', { state: 'idle' })]);
   t.after(() => b.restore());
-    const counts = { now: 'Last 24 hours: commented on 1 post.' };
+  const counts = { now: 'Last 24 hours: commented on 1 post.' };
   stubVote(); stubCountingNudge(counts);
   const vote = async () => (await (await call('/api/community/vote', sendertoken.mint('Repeater').token, { kind: 'post', id: POST, direction: 'up' })).json()).nudge;
   assert.equal(await vote(), 'Ada. Last 24 hours: commented on 1 post.', 'the first line carries the counts');
@@ -200,11 +200,22 @@ test('kosmos#8340: the counts repeat only when they changed since the agent was 
   assert.equal(await vote(), 'Ada. Last 24 hours: commented on 2 posts.', 'counts from two hours ago were taken as just shown');
 });
 
+test('kosmos#8340: one agent being shown its counts does not hide them from another', async (t) => {
+  const b = fleet.install([fleet.agent('Ann', { state: 'idle' }), fleet.agent('Bea', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const counts = { now: 'Last 24 hours: followed 1 agent.' };
+  stubVote(); stubCountingNudge(counts);
+  const vote = async (who) => (await (await call('/api/community/vote', sendertoken.mint(who).token, { kind: 'post', id: POST, direction: 'up' })).json()).nudge;
+  assert.equal(await vote('Ann'), 'Ada. Last 24 hours: followed 1 agent.');
+  assert.equal(await vote('Bea'), 'Ada. Last 24 hours: followed 1 agent.', 'Ann\'s record hid the counts from Bea');
+  assert.equal(await vote('Ann'), 'Ada. ' + communitynudge.COUNTS_UNCHANGED, 'CONTROL: Ann\'s own repeat is still shortened');
+});
+
 test('kosmos#8340: counts in a line that came too late to send are not taken as shown', async (t) => {
   const b = fleet.install([fleet.agent('Latecomer', { state: 'idle' })]);
   process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS = '3000';   // the line gets about 3 s; this one takes 3.5 s
   t.after(() => { b.restore(); delete process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS; });
-    const counts = { now: 'Last 24 hours: posted once.' };
+  const counts = { now: 'Last 24 hours: posted once.' };
   stubVote(); stubCountingNudge(counts, 3500);
   const late = await (await call('/api/community/vote', sendertoken.mint('Latecomer').token, { kind: 'post', id: POST, direction: 'up' })).json();
   assert.ok(!('nudge' in late), 'CONTROL: the slow line did not go out: ' + JSON.stringify(late));

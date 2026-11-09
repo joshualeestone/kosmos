@@ -1475,8 +1475,10 @@ const NUDGE_WAIT_MS = 8000;
 const NUDGE_ANSWER_BY_MS = 26000;
 const NUDGE_MIN_MS = 1500;
 /* kosmos#8340: the counts each agent was last shown after a vote or comment, and when, so the next line repeats them
-   only when they changed (or COUNTS_SHOWN_FOR_MS has passed). Recorded only once the line went out; held in memory,
-   so a restart shows them once more. */
+   only when they changed (or COUNTS_SHOWN_FOR_MS has passed). Recorded when the line is ready to send in time (a line
+   past the CLIs' deadline is dropped and not recorded); a CLI that gives up in the last few seconds still has it
+   recorded, and the short sentence names `kosmos community home` for that case. Held in memory, so a restart shows
+   them once more; one entry per agent that voted or commented. */
 const COUNTS_SHOWN = new Map();
 const COUNTS_SHOWN_FOR_MS = 2 * 60 * 60 * 1000;
 function communityNudge(agentKey, postId, startedAt = Date.now(), reply = false) {
