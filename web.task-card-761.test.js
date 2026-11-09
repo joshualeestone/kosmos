@@ -81,10 +81,10 @@ function runPaintProjectTasks(project, showAll) {
     'let TK_LIST_HTML = null;',
     fnSource('taskNest'), fnSource('paintProjectTasks'),
   ].join('\n');
-  new Function('document', 'esc', 'discTint', 'discInk', 'initials', 'encodeURIComponent', 'project',
+  new Function('document', 'esc', 'discTint', 'discInk', 'initials', 'encodeURIComponent', 'project', 'tskHoldConfirmedWords',
     src + '\n; paintProjectTasks(project);')(
     doc, (s) => String(s), () => '#dfe5ea', () => '#4a5560',
-    (n) => String(n).slice(0, 2).toUpperCase(), encodeURIComponent, project);
+    (n) => String(n).slice(0, 2).toUpperCase(), encodeURIComponent, project, () => '');
   return doc;
 }
 
