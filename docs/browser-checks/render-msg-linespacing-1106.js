@@ -7,7 +7,7 @@
  *
  * The agent conversation is measured too (kosmos#8282, Josh 11-09: 18px per line). dmRow puts its words straight into
  * .msg-bd with no <p>, so `.msg p` never reaches it and it has its own rule, `#d-dmthread .msg-bd`.
- * Nor a message from outside Kosmos in a shared project (`.msg.ext`, words in
+ * Neither rule reaches a message from outside Kosmos in a shared project (`.msg.ext`, words in
  * `.msg-ext-tx`, no <p>), also 13px/16px, before and after this change.
  *
  * WHAT IT MEASURES. A real row from each thread's own row builder, placed in that
