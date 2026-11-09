@@ -20,13 +20,13 @@ Addresses #8307 (split out of #8214). The shape was posted on the card first (is
 - **`builtFingerprintAt` is stamped only for a file new to the task (review 1).** A fingerprint from before #8307 sent again gets no made-up time, and its replacement reports `at: null`.
 - **A checker who has left the project** is in the recipients, and is said as not told, the same way as an assignee who left (review 1).
 - **Paths.** The replaced file's path is never stored (review 4): only `task show` would read it, and storing it put a second local path on every route that answers with a whole task. The current path is stripped, as before, from both list views (the project rows in projects.js and the Tasks view in server.js) through one helper, `tasks.withoutFilePaths`, and now also from the built route's answer to the page's own mark (review 3). The typed notice never carries a path.
-- **Notice.** `tellBuiltMark` gets `replaced` (with `kind`: replaced or withdrawn) from `setBuilt`'s answer. Each line adds "it replaces the file sent earlier (<old fingerprint>), so a check of that file no longer counts". The old file's checkers are added once, after the assignees and the parent's holders (one who left is said as not told), and their line ends "you checked that one". A withdrawal's line says "it no longer names a file: the one sent earlier (X) is withdrawn" instead.
+- **Notice.** `tellBuiltMark` gets `replaced` (with `kind`: replaced, withdrawn or restored) from `setBuilt`'s answer. Each line adds "it replaces the file sent earlier (<old fingerprint>), so a check of that file no longer counts". The old file's checkers are added once, after the assignees and the parent's holders (one who left is said as not told), and their line ends "you checked that one". A withdrawal's line says "it no longer names a file: the one sent earlier (X) is withdrawn" instead.
 
 ## Weakest part
 
 - Treating the checker's mark as the review. An approval written elsewhere (a room post quoting the old sha256) is invisible to the board, so it is not marked out of date.
-- The person's check of the old file is shown in `task show` but tells nobody: the notice reaches agents only, and the Tasks page does not show fingerprints today. Follow-up card after merge (review 1).
-- Only one previous file is kept. A second replacement before anyone re-checks makes the first file's checkers' entry go away (they were told at the first replacement). So A, then B, then A again is a new file with no checks, while A, withdrawn, then A again gets its checks back (review 3). The second is the same bytes their check covered, so restoring it is true, but they were told it no longer counted and are not told it counts again.
+- The person's check cannot go out of date through the board: once the person marks a task built, the route refuses every agent mark on it (403, `refusePersonMark`), so an agent who rebuilds a file the person checked is refused, not recorded. The engine still carries `checkedByPerson` into `builtReplaces` for a direct caller; no route reaches it (review 5, pinned by a route test).
+- Only one previous file is kept. A second replacement before anyone re-checks makes the first file's checkers' entry go away (they were told at the first replacement). So A, then B, then A again is a new file with no checks, while A, withdrawn, then A again gets its checks back (review 3), and since review 5 its checkers are told the check counts again. A note-only re-mark that forgets `--file` therefore sends checkers two lines (withdrawn, then restored) once the sender fixes it.
 - Any change in the fingerprint string is a replacement, including a change of kind only (an older CLI's `sha256:` and a #7213 CLI's `pdf-normalized:` for the same PDF). Its checkers are then told a check no longer counts when the bytes did not change. That errs toward telling (review 3).
 - At most 20 checkers are kept; the 21st pushes out the oldest, who is then not told of a replacement (review 3).
 - Other routes that answer the page with a whole task (hold, done-when, assign) still carry `builtFilePath`, as before this branch. This branch adds no path to them (review 4). The class predates it (#8214); follow-up card with the person's-check one.
@@ -39,6 +39,21 @@ Addresses #8307 (split out of #8214). The shape was posted on the card first (is
 
 ## Tests
 
-- `engine/tasks.filereplace-8307.test.js` (10), including review 1's withdrawal, sent-back, sender-as-checker, pre-#8307 time and withdrawn task show cases: first file not a replacement (control); checker and person checks recorded, the sender's never; a different file replaces it with its checks, starts unchecked, a resend is not a replacement, a third file replaces the second; a drop withdraws it and a clear removes it all; a looping checker writes nothing and the list is bounded; no page view carries the replaced path; `task show` lines before and after.
-- `server.filereplace-8307.test.js` (4), including review 1's withdrawal line, a checker who left said as not told, and the marker never told: the replacing line's words and recipients (the old file's checker who is not on the task is reached, no path typed); the same file again says nothing and reaches no checker (control); the CLI's list carries the replaced path, the Tasks view does not.
-- Mutation checked: removing the checkers from the recipients, the `replaced` answer, the path strip, the withdrawal, or the sender filter each turns tests red.
+- `engine/tasks.filereplace-8307.test.js` (11):
+  - first file not a replacement (control); checker and person checks recorded, the sender's never;
+  - a different file replaces it with its checks and starts unchecked; a resend is no replacement; a third file replaces the second;
+  - a drop withdraws it, a later file replaces the withdrawn one, a clear removes it all;
+  - a withdrawn file sent back is said as restored and gets its checks and sent time back;
+  - a checker who sends the file is no longer its checker; a pre-#8307 fingerprint gets no made-up time;
+  - a looping checker writes nothing, and the list is bounded;
+  - the replaced path is never stored, and the page view strips the current one;
+  - `task show` before and after a replacement, and for a withdrawn file.
+- `server.filereplace-8307.test.js` (7):
+  - the replacing line's words and recipients (the old file's checker not on the task is reached, no path typed);
+  - the same file again says nothing and reaches no checker (control);
+  - the CLI's list carries what it replaced, never its path; the Tasks view leaves the current path out;
+  - the withdrawal line, the marker's answer (no delivery claimed), a checker who left said as not told, the marker never told;
+  - the page's own mark gets no path back;
+  - a withdrawn file sent back tells its checker the check counts again;
+  - once the person marks the task built, an agent's new file or withdrawal is refused (403) and the file stays.
+- Mutation checked, each turning tests red: the checkers in the recipients, the `replaced` answer, the path strip, the withdrawal, the sender filter, storing the replaced path, the restored notice.

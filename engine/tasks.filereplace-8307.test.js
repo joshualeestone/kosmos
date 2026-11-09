@@ -103,14 +103,15 @@ test('#8307: a mark that drops the file withdraws it, a later file replaces the 
   for (const k of ['builtReplaces', 'builtCheckedBy', 'builtCheckedByPerson', 'builtFingerprintAt']) assert.equal(k in t, false, k + ' survived a clear');
 });
 
-test('#8307: the same file sent back after a withdrawal is no replacement, and keeps its checks', () => {
+test('#8307: the same file sent back after a withdrawal is no replacement: its checks come back, said as restored', () => {
   const n = freshTask();
   mark(n, { by: 'mona', fingerprint: A, filePath: FILE_A });
   const at = get(n).builtFingerprintAt;
   mark(n, { by: 'zed' });
   mark(n, { by: 'mona', note: 'oops, no file' });
   const back = mark(n, { by: 'mona', fingerprint: A, filePath: FILE_A });
-  assert.equal(back.replaced, undefined, 'the same file sent back was called a replacement');
+  assert.equal(back.replaced.kind, 'restored', 'the file sent back was not said as restored (its checkers were told it no longer counted)');
+  assert.deepEqual(back.replaced.checkedBy, ['zed']);
   assert.deepEqual(get(n).builtCheckedBy, ['zed'], 'the file sent back lost its checks');
   assert.equal(get(n).builtFingerprintAt, at, 'the file sent back got a new sent time');
   assert.equal('builtReplaces' in get(n), false, 'the file sent back still names itself as withdrawn');
