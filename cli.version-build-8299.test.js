@@ -27,6 +27,7 @@ function versionOut(contents, flag = '--version') {
   if (contents === null) fs.rmSync(VERSION, { force: true });
   else fs.writeFileSync(VERSION, contents);
   const r = spawnSync('bash', [INSTALLED, flag], { env: { ...process.env, KOSMOS_HOME: HOME_, HOME: SB }, encoding: 'utf8' });
+  if (typeof r.status !== 'number') throw new Error('kosmos gave no exit code: ' + (r.error ? r.error.message : r.signal));
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
 }
@@ -50,6 +51,7 @@ test('kosmos#8299: the full commit the Linux bundle records reads the same as th
 test('kosmos#8299: a VERSION file that is not valid text still leaves the version printed', () => {
   fs.writeFileSync(VERSION, Buffer.concat([Buffer.from('app:    e224150682 (package.json 9.9.9)\nnode:   '), Buffer.from([0xff, 0xfe]), Buffer.from('\n')]));
   const r = spawnSync('bash', [INSTALLED, '--version'], { env: { ...process.env, KOSMOS_HOME: HOME_, HOME: SB, LC_ALL: 'en_US.UTF-8' }, encoding: 'utf8' });
+  if (typeof r.status !== 'number') throw new Error('kosmos gave no exit code: ' + (r.error ? r.error.message : r.signal));
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, '9.9.9 (build e224150682)\n');
 });
