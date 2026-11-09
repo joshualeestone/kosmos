@@ -25966,7 +25966,7 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 400, { error: 'we could not read that request, so the task was not closed' }); return;
           }
           if (Object.keys(body).some((k) => k !== 'replacedBy' && k !== 'withBuilt' && k !== 'notRun')) {
-            sendJson(res, 400, { error: 'a close takes only replacedBy (the number of the task that replaced it) or withBuilt, so the task was not closed' }); return;
+            sendJson(res, 400, { error: 'a close takes only replacedBy (the number of the task that replaced it), withBuilt or notRun, so the task was not closed' }); return;
           }
           // kosmos#7514: withBuilt (also close its built subtasks) is true or false, never a word that reads as either.
           if (body.withBuilt !== undefined && typeof body.withBuilt !== 'boolean') {

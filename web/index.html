@@ -71832,7 +71832,7 @@ function paintProjectTasks(p) {
     /* kosmos#8140 design shot: the words sit in ONE inner span. The chip is inline-flex with a gap, and the hidden span
        split the visible text into two flex items, so it read "1/4 , 3 on hold". */
     const chip = sub ? '<span class="tsk-chip" title="' + esc(subLabel) + '"><span>' + subDone + '/' + sub.total
-      + (subDone === sub.total ? ', all subtasks done' : subAllBuilt ? ', all subtasks built' : '<span class="vh"> subtasks done</span>' + esc(subBuilt)) + esc(subHeld) + '</span></span>' : '';
+      + (subDone === sub.total ? ', all subtasks done' : subUnrun && sub.done === sub.total ? ', all subtasks closed' : subAllBuilt ? ', all subtasks built' : '<span class="vh"> subtasks done</span>' + esc(subBuilt)) + esc(subHeld) + '</span></span>' : '';
     const partOf = crumb && t.parent != null
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
@@ -73203,11 +73203,11 @@ function tkPaintSubtasks(p, t, closed) {
   if (all) {
     all.hidden = !(kids.length && kids.every(done) && !closed);
     const said = document.getElementById('tk-subs-done-say');   // kosmos#8301: not "done" when one was closed without running
-    if (said) said.textContent = kids.some((x) => x.closedUnrun === true) ? 'All subtasks closed.' : 'All subtasks done.';
+    if (said) said.textContent = kids.some((x) => x.closedUnrun === true || Number.isInteger(x.replacedBy)) ? 'All subtasks closed.' : 'All subtasks done.';
   }
   /* kosmos#5956: every subtask closed or built, some only built: ready for the person to check each one. */
   const ready = document.getElementById('tk-subs-built');
-  if (ready) ready.hidden = !(kids.length && !kids.every(done) && kids.every((x) => done(x) || built(x)) && !kids.some((x) => x.closedUnrun === true) && !closed);
+  if (ready) ready.hidden = !(kids.length && !kids.every(done) && kids.every((x) => done(x) || built(x)) && !kids.some((x) => x.closedUnrun === true || Number.isInteger(x.replacedBy)) && !closed);
   const row = document.getElementById('tk-partof-row');
   const up = document.getElementById('tk-partof');
   const parent = t.parent != null ? (p.tasks || []).find((x) => x && x.number === t.parent) : null;
