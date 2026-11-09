@@ -600,6 +600,13 @@ check(chatSource.contains("}, atTop: { now in") && chatSource.contains("        
 check(chatSource.contains("case \"earlier-failed\": return AnyView(earlierFailedLine)")
       && chatSource.components(separatedBy: ".overlay(alignment: .top) { earlierLoadingLine }").count - 1 == 2,
       "kosmos#8221 slice 7: the failed line is a UIKit cell and the loading line floats over both lists")
+check(listGeometrySource.contains("if above == [\"earlier-failed\"], Set(before[..<was]).isSubset(of: Set(now[..<at])), atTop {")
+      && listGeometrySource.contains("list.contentOffset = CGPoint(x: 0, y: -list.adjustedContentInset.top)"),
+      "kosmos#8221 slice 7 review 1: a failed page's line arriving above a reader at the top shows at the top")
+check(listGeometrySource.contains("DispatchQueue.main.async { told(true); toldTop(false) }"),
+      "kosmos#8221 slice 7 review 1: a list made again tells the chat it is not at the top")
+check(listGeometrySource.contains("Set(before[..<was]) != Set(now[..<at])"),
+      "kosmos#8221 slice 7 review 2: the place is kept on any change in the rows above the reader, added or removed")
 check(chatSource.contains("else if !uikitList, case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }"),
       "kosmos#8221 slice 7: keepAnchor stays the lazy list's")
 check(listGeometrySource.contains("\"y \\(Int(sv.contentOffset.y)), end \\(Int(maxY(sv))), size \\(Int(sv.contentSize.height)), height \\(Int(sv.bounds.height)), inset \\(Int(sv.adjustedContentInset.bottom))\""), "kosmos#8221: the UIKit list's geometry in the record is five point values and nothing else")
