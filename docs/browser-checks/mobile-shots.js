@@ -1123,13 +1123,14 @@ const SCREENS = [
     await page.waitForSelector('#kpill.in, #streak-slot .utoast.streak', { state: 'attached', timeout: 12000 });
     await page.waitForTimeout(500);   // past the pill's slide
   } },
-  /* kosmos#6397: the pill folded into the day's gold count badge on the K mark (Escape folds it at once). */
-  { name: 'streak-badge-6397', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => {
+  /* kosmos#6397, #8323: the K mark once the day's pill has folded (Escape folds it at once): no count stays on it. */
+  { name: 'streak-folded-6397', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/streak', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }));
     await at(page, '');
     await page.waitForSelector('#kpill.in, #streak-slot .utoast.streak', { state: 'attached', timeout: 12000 });
     await page.keyboard.press('Escape');
     await page.evaluate(() => { const x = document.querySelector('#streak-slot .ux'); if (x) x.click(); });   // a phone: the notice's X
+    await page.waitForFunction(() => !document.querySelector('#kpill.in, #streak-slot .utoast.streak'), null, { timeout: 5000 });
     await page.waitForTimeout(450);
   } },
   { name: 'streak-hover', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
