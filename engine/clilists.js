@@ -29,7 +29,7 @@ function stateLines(a) {
   };
   const lines = [];
   if (a.unsentSince) lines.push('  text unsent in its input box since ' + when(a.unsentSince));
-  if (a.oneStepSince) lines.push('  on one step since ' + when(a.oneStepSince) + ', with messages waiting behind it');
+  if (a.oneStepSince) lines.push('  no activity on its current step since ' + when(a.oneStepSince) + ', with messages waiting behind it');
   if (a.noMessageSince) lines.push('  no message seen to reach it since ' + when(a.noMessageSince));
   if (Number.isInteger(a.restartsLately)) lines.push('  restarted ' + a.restartsLately + ' times in the last half hour, stopping within minutes each time');
   return lines;

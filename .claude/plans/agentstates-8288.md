@@ -8,7 +8,7 @@ Some agent states appear only on the app's cards, so an agent on a terminal cann
 A field on the existing `kosmos agent list`, in both CLIs through engine/clilists.js. An indented line under an agent's
 row, only while it is in such a state:
 - text unsent in its input box since <local time>
-- on one step since <local time>, with messages waiting behind it
+- no activity on its current step since <local time>, with messages waiting behind it
 - no message seen to reach it since <local time>
 - restarted N times in the last half hour
 

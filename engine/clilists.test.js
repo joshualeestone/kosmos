@@ -28,7 +28,7 @@ test('kosmos#8288: an agent in an app-only state gets an indented line under its
     '  text unsent in its input box since 2026-11-09 08:12',
     'Roo  R  Idle',
     'Di  R  Working',
-    '  on one step since 2026-11-09 08:12, with messages waiting behind it',
+    '  no activity on its current step since 2026-11-09 08:12, with messages waiting behind it',
     'Lu  R  Idle',
     '  no message seen to reach it since 2026-11-09 08:12',
     '  restarted 4 times in the last half hour, stopping within minutes each time',
