@@ -92397,8 +92397,9 @@ document.addEventListener('click', async (e) => {
        where somebody is about to press three more buttons. The button saying
        "Added" is the receipt.
        ⚠️ THE ELEMENT STAYS FOR THE FAILURE ARM, which is the one that has
-       something a person must act on. It is empty on success and takes no room. */
-    said.textContent = '';
+       something a person must act on. It is empty on success and takes no room.
+       #8293: the one exception is when we could not keep the account or model it was using: that is theirs to know. */
+    said.textContent = out.unknownLastRun ? ('Added, but ' + out.unknownLastRun + '.') : '';
     return;
   }
   go.disabled = false;
