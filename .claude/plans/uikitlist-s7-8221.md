@@ -4,9 +4,11 @@
 
 On the New chat list, a reader who scrolls to the top of a chat gets the earlier messages, the same pages the lazy list
 loads: "Loading earlier messages..." floats over the top while a page loads, a failure shows its line with Try again, and
-the message the reader was looking at stays where it was as the page lands above it. A new UI check proves it on both lists
-in the sample board's long chat (220 rows shown, 40 older): reach the top, the oldest message ("Message 1 of 260") arrives,
-and the row at the top before the page landed is still on screen. The Settings footer stops saying earlier messages are
+the message the reader was looking at stays where it was as the page lands above it, whether the list is at rest or still
+moving (a finger on it, a fling). UI checks prove it on the UIKit list in the sample board's long chat (220 rows shown, 40
+older): reach the top, the loading line shows, the page lands with the reader's row where it was, and its oldest message
+("Checking the venue list, item 1.") is reached by scrolling on. The lazy list is not checked by them: it asks for the page
+before its top shows (measured), and its earlier pages are #7016's and #7265's, unchanged here. The Settings footer stops saying earlier messages are
 missing.
 
 ## Why now
@@ -63,4 +65,13 @@ first, and slice 1's plan numbers it next.
 - Open, decided: a reader who stops within the list's top 40 pt asks for the page; one who stops 41 to about 80 pt short,
   with the day line showing, does not until they reach the top. Rejected: a larger slack (the lazy list asks a screen
   early); weakest premise, that a person rests in that band rarely.
-- [ ] Full validation, review (bounded at 4 rounds), ui-sample both arms on the final head (CI), PR, merge on green.
+- [x] Review round 1 (opus): BLOCKER, a page landing while the list moves (a finger on it, a fling) was never held, as the
+      hold runs only at rest, and the reader was left at the top of the new page. MEASURED by trace (01:29, 01:33: the scroll
+      ended at y -12 with the content grown by the page). Fixed in apply(): the row at the top of the screen, if it stays, is
+      put back at its distance in the same update, moving or not, and the top is read again. New check
+      testAPageLandingUnderTheFingerKeepsThePlace (page lands 1 s after asked, inside a drag): 3 of 3 with the fix; CONTROL
+      without it, FAILS at "threw the reader to its oldest message". WARNING, a failed page's line held off screen above a
+      reader at the top: shown at the top instead. WARNING, a remade list could inherit a stale top: a new list tells the
+      chat it is not at the top. WARNING, the 4 s window could pass on a slow runner: 12 s, landing timeout 20 s. NIT, an
+      assertion that could not fail: removed. NIT, this Finished line: corrected. Main check 3 of 3 after the fix (01:55 CST).
+- [ ] Full validation, review round 2, ui-sample both arms on the final head (CI), PR, merge on green.

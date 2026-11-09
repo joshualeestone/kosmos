@@ -283,6 +283,13 @@ struct ChatList: UIViewRepresentable {
             let started = CACurrentMediaTime()
             applies += 1
             let shown = list?.indexPathsForVisibleItems.compactMap { source.itemIdentifier(for: $0) } ?? []
+            // kosmos#8221 slice 7 review 1 (BLOCKER, measured by trace 11-09 01:29 and 01:33): rows landing ABOVE the reader
+            // while the list moves (a finger on it, a fling, its bounce) were never held, because the hold runs only at rest
+            // (laidOut), and the reader was left at the top of the new rows. So the row at the top of the screen now, if it
+            // stays, is put back at its distance in this same update, moving or not; and the top is read again, so a reader
+            // carried down by a page is no longer at the top until they reach it again (the next page is asked for then).
+            let before = ids
+            let anchor = atEnd ? nil : top(keep: Set(now))
             var s: NSDiffableDataSourceSnapshot<Int, String>
             if now != ids {
                 ids = now
@@ -301,6 +308,27 @@ struct ChatList: UIViewRepresentable {
             applying = true
             source.apply(s, animatingDifferences: false)
             applying = false
+            if let a = anchor, let list, let was = before.firstIndex(of: a.id), let at = now.firstIndex(of: a.id), at > was {
+                let above = Set(now[..<at]).subtracting(before)
+                if above == ["earlier-failed"], atTop {
+                    // Review 1: a failed page's line arriving above a reader at the top shows there (Try again), as on the
+                    // lazy list, instead of being held off the screen above them.
+                    place = nil
+                    pinning = true
+                    list.contentOffset = CGPoint(x: 0, y: -list.adjustedContentInset.top)
+                    pinning = false
+                } else if !above.isEmpty {
+                    list.layoutIfNeeded()
+                    if let ip = source.indexPath(for: a.id), let attr = list.layoutAttributesForItem(at: ip) {
+                        pinning = true
+                        list.contentOffset = CGPoint(x: list.contentOffset.x, y: attr.frame.minY - a.dy)
+                        pinning = false
+                        place = a
+                        ChatView.trace("uikit list: rows landed above, place kept (\(geometry(list)))", ring: false)
+                    }
+                }
+                readTop(list)
+            }
             redrawn += again.count
             spent += CACurrentMediaTime() - started
             if applies % 50 == 0 { ChatView.trace("uikit list: \(applies) updates, \(redrawn) cells drawn again, \(Int(spent * 1000)) ms") }
@@ -342,7 +370,10 @@ struct ChatList: UIViewRepresentable {
         co.apply(ids)
         // A new list opens at the newest message: the chat is told so once, as it is told of every later change.
         let told = atEnd
-        DispatchQueue.main.async { told(true) }
+        // Review 1: and that it is not at the top (a list made again for a new chat or computer must not inherit a top
+        // the old one reported, or every read would ask for another page while the reader is at the newest).
+        let toldTop = atTop
+        DispatchQueue.main.async { told(true); toldTop(false) }
         #if DEBUG
         if let up = sampleUp, !Self.sampleUpDone {
             let rested = sampleRested
