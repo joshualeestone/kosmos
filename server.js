@@ -8650,7 +8650,12 @@ const server = http.createServer(async (req, res) => {
         partial = whole.counts.notRunning === null;   // the board could not read every job, so stopped agents may be missing
       } catch { sendJson(res, 500, { error: 'we could not read the agents just now' }); return; }
       // profile.role first (a running row's `role` is only the line parsed from its instruction file), and the card's own word.
-      sendJson(res, 200, { agents: shown.map(clilists.rosterRow), ...(partial ? { partial: true } : {}) });
+      /* kosmos#7977: a "Can't tell" agent's latest self-report (state and time only), read for those rows alone. */
+      const reportOf = (a) => {
+        if (a.cardWord !== "Can't tell" || typeof a.sessionName !== 'string' || !a.sessionName) return null;
+        try { return require('./engine/selfreport').read(a.sessionName); } catch { return null; }
+      };
+      sendJson(res, 200, { agents: shown.map((a) => clilists.rosterRow(a, reportOf(a))), ...(partial ? { partial: true } : {}) });
       return;
     }
     if (isSiblingRead(req)) body = statusForSibling(body, req.headers['sec-fetch-site']);   // #4973: another computer's page reads the agents only (#6178: and, same-site, the accounts)
