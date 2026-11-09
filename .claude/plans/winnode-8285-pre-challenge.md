@@ -14,8 +14,8 @@ converged: false
 
 **Iterations:** 8
 **Converged:** No: stopped at the fleet's 8-round cap (stop at 8 unless a BLOCKER is open; WARNINGs go to a card). Iteration 8 raised one WARNING and no BLOCKER; that WARNING and one NIT are left for a follow-up card (named below and in the plan). No code changed after iteration 8's review; one plan sentence was corrected (documentation only, disclosed here).
-**Total findings:** 31 (0 BLOCKERs, 10 WARNINGs, 1 CONVENTION, 20 NITs)
-**Fixed:** 22 (9 of 10 WARNINGs, the CONVENTION, 12 NITs) | **Deferred:** 8 NITs | **Left for a card:** 1 WARNING, 1 NIT | **Asked:** 0
+**Total findings:** 37 (0 BLOCKERs, 12 WARNINGs, 1 CONVENTION, 24 NITs)
+**Fixed:** 28 (11 of 12 WARNINGs, the CONVENTION, 16 NITs, counting iteration 4's once-line NIT as fixed by iteration 6's single path) | **Deferred:** 7 NITs | **Left for a card:** 1 WARNING, 1 NIT | **Asked:** 0
 
 Validation note: the canonical helper cannot run on this box (no yarn/npm); substituted by the per-file branch-vs-control comparison above, as in the 8227, 8232 and 8309 proofs.
 
@@ -102,7 +102,7 @@ Validation note: the canonical helper cannot run on this box (no yarn/npm); subs
 | 14 | 8 | NIT | verdict re-read per call | CARD | with #13 |
 
 ### NITs (non-blocking, across all iterations)
-- Listed per iteration above: 12 fixed, 8 deferred with reasons, 1 left for the card.
+- Listed per iteration above: 16 fixed, 7 deferred with reasons, 1 left for the card.
 
 ### Strengths (across all iterations)
 - PATH's real node still wins and the shim is still skipped; both callers unchanged (every iteration).
