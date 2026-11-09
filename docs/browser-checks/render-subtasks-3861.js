@@ -61,9 +61,11 @@ function chk(ok, label, extra) {
   tasks.create(launch.id, { sentence: 'Pick the paper stock', parent: 3 });         // 4 grandchild
   tasks.create(launch.id, { sentence: 'Order the paper', parent: 4 });              // 5 level three
   tasks.create(launch.id, { sentence: 'Old guest list', parent: 1 });               // 6 closed child
+  tasks.setBuilt(launch.id, 6, { person: true, note: 'in' });   // kosmos#8301: worked on, so its close counts as done
   tasks.close(launch.id, 6);
   tasks.create(launch.id, { sentence: 'Tidy the press kit' });                      // 7 parent, all done
   tasks.create(launch.id, { sentence: 'Fix the logo file', parent: 7 });            // 8
+  tasks.setBuilt(launch.id, 8, { person: true, note: 'in' });   // kosmos#8301: worked on, so its close counts as done
   tasks.close(launch.id, 8);
   require('../../engine/store').writeSettings({ tasksTabShown: true });
 
