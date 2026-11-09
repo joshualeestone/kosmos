@@ -11,11 +11,12 @@ if not, open it to see what it shows." once one tool call has run 5 minutes.
 ## How
 
 - The signal is the transcript: Claude Code writes the `tool_use` row when a call starts and the `tool_result` row when
-  it ends (measured live). `engine/onestep.js` reads the agent's transcript found by `status.transcriptFor`: a stat
-  first (a file written within 5 minutes cannot hold a 5-minute step), then the last 64 KB; the oldest open call, if
-  older than 5 minutes, is the card's `oneStep { tool, since }`.
-- `status.oneStepOf`: Claude Code cards only, never one already waiting on the person or stopped.
-- `web/index.html` stateReason: the sentence for a working card, after #7368's Windows sentence, never on the tile
+  it ends (measured live). Other rows are written mid-call (review 1), so the file's time says nothing; only the open
+  call's own row does. `engine/onestep.js` reads the last 256 KB of the transcript found by `status.transcriptFor`, cached
+  per file on size and time; the oldest open call, if older than 5 minutes and not older than the tmux session, is the
+  card's `oneStep { tool, since }`. MCP tools are named by their last part; sidechain rows are skipped.
+- `status.oneStepOf`: a WORKING card, a pane tied to one of our agents, a Claude Code runner, not a Windows pane.
+- `web/index.html` stateReason: the sentence for a working card, after #7368's and #7212's sentences, never on the tile
   (#6716), in #7368's words.
 
 ## Rejected
@@ -29,9 +30,11 @@ if not, open it to see what it shows." once one tool call has run 5 minutes.
 
 - Codex, Gemini, Grok and Antigravity agents (their transcripts differ), and Windows (the board reads no transcripts
   there today).
-- An open call more than 64 KB above the end of the transcript.
+- An open call more than 256 KB above the end of the transcript (the longest hangs can show nothing).
+- A Claude relaunched inside the same tmux session: only its new prompt row closes calls left open by the old run.
 
 ## Proof
 
-- engine/onestep-8286.test.js (13), docs/browser-checks/render-onestep-8286.js; nine mutation arms red; the page check
-  red with the sentence removed; a sweep of 49 test files (1198 tests) green.
+- engine/onestep-8286.test.js (16), docs/browser-checks/render-onestep-8286.js; fourteen mutation arms red; the page check
+  red with the sentence removed; a sweep of 49 test files (1201 tests) green; two blind review rounds (opus, sonnet),
+  the second clean.
