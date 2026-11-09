@@ -24148,12 +24148,15 @@ const server = http.createServer(async (req, res) => {
         const namedReader = new Set();
         /* kosmos#7848: who each post asked, by name, for the claim rule below (the same reading), in the same pass. */
         const namedBy = new Map();
+        /* kosmos#8300: posts aimed at someone: an @-name, an @-word that matched two members, or a reply to one post. */
+        const aimedAt = new Set();
         if (readerName) {
           for (const m of roomRows) {
             if (!m || m.kind !== 'post') continue;
             const named = messages.namedIn(m);
             if (named.includes(readerName)) namedReader.add(String(m.id));
             if (onlyUnanswered) namedBy.set(String(m.id), named);
+            if (named.length || (Array.isArray(m.ambiguousMentions) && m.ambiguousMentions.length) || typeof m.replyTo === 'string') aimedAt.add(String(m.id));
           }
         }
         /* kosmos#7848: an ask another agent it also asked has claimed (kosmos claim, the live 🙋 the shaped row carries)
@@ -24210,7 +24213,7 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#8300 (the 0.8.0 cross-seat report: asks to the whole room answered weeks ago without citing them stayed on
            every seat): a person's ask to the whole room, this old, leaves the list once the reader has posted after it. */
         let agedFromPerson = 0;
-        const agedRoomWideAsk = (m, i) => old(m) && m.operator === true && !(namedBy.get(String(m.id)) || []).length && !(m.claim && m.claim.by === readerName)
+        const agedRoomWideAsk = (m, i) => old(m) && m.operator === true && !aimedAt.has(String(m.id)) && !(m.claim && m.claim.by === readerName)
           && !!messages.laterOwnPost(rows, i, readerName, toldFor.get(String(m.id)));
         /* kosmos#4926 (11-07): when each held post reached this reader, read once, before this read records its own (below):
            a post the reader makes later counts for a held ask from that moment (messages.laterOwnPost). */
