@@ -422,9 +422,11 @@ struct ChatView: View {
             shifts.attach(send: shiftSender())
             openCount.shown(rowsDrawn: !onScreen.isEmpty)
             // kosmos#8072: pull past the newest message for a read. Only with the end marker showing and nobody searching.
-            endPull.restsAbove = 14.5   // Mona Lisa's B, set by measuring: 11.5 pt under the working line, 21.5 above the box, clear of its fade
-            // kosmos#8283: the UIKit list keeps no room under its end now, so its dots rest where the lazy list's do (slice 9 had
-            // set them 12 pt lower there, 2.5, for that room).
+            // kosmos#8283: 3 pt lower than Mona Lisa's B (14.5), now that the working line's row is gone and the room under the
+            // newest message is the end marker's alone: measured 11-09 at the true end of a long chat (UIKit list), at 14.5 the dots
+            // touched the newest message's time line (-0.5 pt) with 21.5 pt above the box. Both lists alike: the UIKit list keeps
+            // no room under its end now (slice 9 had set its dots 12 pt lower, 2.5, for that room).
+            endPull.restsAbove = 11.5
             endPull.allowed = { endVisible && !searchMode }
             endPull.refresh = { _ = await read() }
             scrollBox.endPull = endPull
