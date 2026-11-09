@@ -27,8 +27,15 @@ const SUMMARY_RHYTHM_HOURS = 4;
    board's (report or screen), so the screen now gates this cap, though it still adds no work. A turn-ends runner is
    already stale (untimed) past TURN_ENDS_CAP_MS, also 24 hours, so this applies to the timed runners. */
 const WORKING_WALL_CAP_HOURS = 24;
-function wallClockStale(summary, member) {
-  return Boolean(member && member.state === 'working' && Number.isFinite(summary.ageMinutes) && summary.ageMinutes > WORKING_WALL_CAP_HOURS * 60);
+/* kosmos#8298 item 5 (0.8.0 cross-seat report: a working seat read "not overdue" on a 12-hour-old summary because little
+   work was counted): past the rhythm by the clock is enough once it has done some work since and its own latest report still says working (the
+   board's read of the screen adds nothing, Josh 0.7.48). WAKE_GRACE_MS keeps the
+   case #5635 F2 fixed: a seat woken five hours after a morning summary does not read overdue in its first minutes. */
+const WAKE_GRACE_MS = 30 * 60 * 1000;
+function wallClockStale(summary, member, workedMs, reportsWorking) {
+  if (!member || member.state !== 'working' || !Number.isFinite(summary.ageMinutes)) return false;
+  return summary.ageMinutes > WORKING_WALL_CAP_HOURS * 60
+    || (summary.ageMinutes > SUMMARY_RHYTHM_HOURS * 60 && reportsWorking === true && workedMs >= WAKE_GRACE_MS);
 }
 const SUMMARY_NAME = /^\d{4}-\d{2}-\d{2}-\d{2}\.md$/;
 /* How many of the newest-NAMED summaries are checked (round 2: the whole folder was sorted and up to 5000 files were
@@ -363,7 +370,7 @@ function workExcused(summary, member, readHistory, nowMs) {
     const byReports = reportedWorking > SUMMARY_RHYTHM_HOURS * 3600000;
     return { ...summary, workedSince: Math.ceil((byReports ? reportedWorking : worked) / 60000), workAllReported: byReports || reportedWorking >= worked };
   }
-  if (wallClockStale(summary, member)) return { ...summary, wallClock: true };   // #5635 (0.7.83 report)
+  if (wallClockStale(summary, member, worked, state === 'working')) return { ...summary, wallClock: true };   // #5635 (0.7.83 report), #8298
   // Review 5: rounded up, so any reported work reads as at least a minute, never as none.
   return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.ceil(worked / 60000)) };
 }
@@ -608,7 +615,7 @@ const SUMMARY_WORDS = {
       : Number.isFinite(s.turnsSince) ? '; ' + (s.turnsSince === 1 ? '1 more turn has' : s.turnsSince + ' more turns have') + ' ended after the one that wrote it'
         : s.waitedSince ? '; it reported working or a wait since it was written'
           : s.untimed ? '; written more than ' + (TURN_ENDS_CAP_MS / 3600000) + ' hours ago, and this agent reports only when a turn ends, so the board no longer counts its turns'
-        : s.wallClock ? '; it is working now, and the summary is more than ' + WORKING_WALL_CAP_HOURS + ' hours old by the clock' : '';
+        : s.wallClock ? '; it is working now, and the summary is more than ' + SUMMARY_RHYTHM_HOURS + ' hours old by the clock' : '';
     return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + why
       + (Number.isFinite(s.idleMinutes) ? (s.idleReported ? (s.idleKind === 'started' ? '; last reported starting ' : '; last reported idle ') : s.idleKind === 'started' ? '; idle since this session started ' : '; idle since ') + ago(s.idleMinutes) : '') + ')';   // review 3: as before for every runner
   },
@@ -684,4 +691,4 @@ function renderShow(payload) {
   return out;
 }
 
-module.exports = { summaryFreshness, idleExcused, workExcused, familyOf, overviewOf, listOf, renderList, renderShow, one, SUMMARY_RHYTHM_HOURS, WORKING_WALL_CAP_HOURS };
+module.exports = { summaryFreshness, idleExcused, workExcused, familyOf, overviewOf, listOf, renderList, renderShow, one, SUMMARY_RHYTHM_HOURS, WORKING_WALL_CAP_HOURS, WAKE_GRACE_MS };

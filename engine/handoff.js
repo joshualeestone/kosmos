@@ -207,6 +207,11 @@ function stateFact(session, now) {
     const said = agoWords(age);
     if (said) parts.push(age >= STALE_REPORT_MS ? said + ', so it may not describe what the agent is doing now' : said);   // from a full day on: so "a day ago" always carries it
   } else if (r.at) parts.push('reported at a time that cannot be read');
+  /* kosmos#8298 item 6 (0.8.0 cross-seat report: Gemini read "3 days ago" mid-turn, Grok 31 days): the agent running this
+     is at work now, by running it, so an older self-report is said to be older than now. No board call: this file makes
+     none, and the running command is better evidence than a read of the screen. */
+  const reportAge = (Number.isFinite(now) ? now : Date.now()) - Date.parse(r.at);
+  if (Number.isFinite(reportAge) && reportAge >= LIVE_NOW_MS) return 'at work now (it is running this handoff); its last self-report: ' + parts.join('; ');
   return parts.join('; ');
 }
 
@@ -214,6 +219,7 @@ function stateFact(session, now) {
    so an older line is the leftover of an earlier one. */
 const STALE_REPORT_MS = 24 * 60 * 60 * 1000;
 /* The age in plain words; '' for a time in the future (clock skew, which saneIso already bounds to a day). */
+const LIVE_NOW_MS = 10 * 60 * 1000;   // a report newer than this still describes the turn it is in
 function agoWords(ms) {
   if (!Number.isFinite(ms) || ms < 0) return '';
   const min = Math.floor(ms / 60000);
