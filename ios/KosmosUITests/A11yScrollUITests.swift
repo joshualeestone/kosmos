@@ -4,7 +4,7 @@ import XCTest
 /// Control, a keyboard's Page Up) runs on the UIKit list without the list putting itself back at the end while it runs.
 /// The scroll is made as VoiceOver's is (the list told through personScrolls, which its accessibilityScroll override calls,
 /// then the scroll; the real call scrolls nothing on a simulator with VoiceOver off), 6 s after the chat opens
-/// (KOSMOS_SAMPLE_A11YSCROLL), in one of three modes (KOSMOS_SAMPLE_A11YSCROLL_MODE, see ChatList.sampleA11yScroll). The app
+/// (KOSMOS_SAMPLE_A11YSCROLL), in one of four modes (KOSMOS_SAMPLE_A11YSCROLL_MODE, see ChatList.sampleA11yScroll). The app
 /// reports how many times the list pinned itself to the end while it ran, how far it moved, whether the reader is still at
 /// the newest, and whether the person's-scroll window opened. The UIKit list only: the lazy list has no such pin.
 final class A11yScrollUITests: XCTestCase {
@@ -49,6 +49,11 @@ final class A11yScrollUITests: XCTestCase {
     func testWithoutTheFixASlowScrollIsHeldAtTheEnd() throws {
         let r = try scrollUp(mode: "stepped", fixOff: true)
         XCTAssertGreaterThan(r.pins, 0, "CONTROL: without the fix the list was never put back at the end: \(r.label)")
+    }
+
+    func testWithoutTheFixAScrollThatMovesNothingCountsAsADrag() throws {
+        let r = try scrollUp(mode: "still", fixOff: true)
+        XCTAssertTrue(r.dragged, "CONTROL: without the fix the unused ask was not counted as a drag, so the still check cannot fail: \(r.label)")
     }
 
     // One page up, its end reported.
