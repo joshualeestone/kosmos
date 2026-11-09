@@ -1025,12 +1025,15 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       const sameFile = Boolean(kept && hadPrint && kept === hadPrint);
       const priorChecked = sameFile ? names(t.builtCheckedBy) : sentBack ? names(withdrawn.checkedBy) : [];
       const checking = sameFile && !print && keep;
+      // Past CHECKED_BY_MAX the oldest checker is dropped, and is then not told of a replacement (bounded; in the plan).
       const added = checking && who && !isPerson && !priorChecked.includes(who) ? priorChecked.concat([who]).slice(-CHECKED_BY_MAX) : priorChecked;
       // Review 1: the sender is never its own checker, so a checker who sends the file itself leaves the list.
       const checkedBy = print && keptBy ? added.filter((x) => x !== keptBy) : added;
       const checkedByPerson = (sameFile && (t.builtCheckedByPerson === true || (checking && isPerson))) || (sentBack && withdrawn.checkedByPerson === true);
       // Review 1: stamped only for a file new to this task, so a fingerprint from before #8307 keeps no false time.
-      const printAt = sameFile ? (typeof t.builtFingerprintAt === 'string' ? t.builtFingerprintAt : '')
+      // Review 8: the same file from a different sender is sent by them now, so its time is theirs too.
+      const printAt = sameFile && print && keptBy !== (t.builtFingerprintBy || null) ? new Date().toISOString()
+        : sameFile ? (typeof t.builtFingerprintAt === 'string' ? t.builtFingerprintAt : '')
         // Review 7: the original sent time only when its own sender sends it back; another agent's copy is sent now.
         : sentBack && withdrawn.by === keptBy ? (withdrawn.at || '') : (print ? new Date().toISOString() : '');
       const replaces = replacing ? (hadPrint ? recordOf(t) : withdrawn)
