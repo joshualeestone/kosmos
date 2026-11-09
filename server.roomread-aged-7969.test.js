@@ -236,3 +236,13 @@ test('kosmos#8300: a held ask with no record of reaching the reader stays listed
   myPost(pid, 9 * DAY);
   assert.ok(listed((await room(pid, '&unanswered=1')).text, held));
 });
+
+test('kosmos#8300: a held ask that has since reached the reader leaves the list once the reader posts after that', async () => {
+  const pid = newRoom('Aged8300k');
+  const held = toRoom(pid, 10 * DAY, { outcomes: { [ME]: 'held' } });
+  require('./engine/roomhold').noteTold(ME, pid, [held]);
+  myPost(pid, 9 * DAY);
+  assert.ok(listed((await room(pid, '&unanswered=1')).text, held), 'CONTROL: a post from before it reached the reader does not count');
+  myPost(pid, -60000);
+  assert.ok(!listed((await room(pid, '&unanswered=1')).text, held), 'a post after it reached the reader should count');
+});
