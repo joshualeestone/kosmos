@@ -61,6 +61,9 @@ TWO MODES.
 
   -DryRun on either mode does every read and check and prints what it would write, writing nothing.
   -NodeTimeoutSec <n> gives each node check and each git read n seconds, up to 600 (default 300). One past that refuses as undecided.
+  node (for the signed-manifest and verification-record checks): a real node.exe on PATH; else the Kosmos install's own,
+  %LOCALAPPDATA%\Programs\Kosmos\runtime\node.exe, then %LOCALAPPDATA%\Kosmos\runtime\node.exe (kosmos#8285). The run
+  says on stderr when it uses a Kosmos runtime's node, and which.
 
 WHICH READS DECIDE. Every read that decides whether to write (does this version exist, what does
 prod name, what is staged) is a SIGNED read of the bucket itself, so an edge that is challenging or
@@ -272,14 +275,17 @@ function Get-NodeExe {
   foreach ($rel in $KosmosRuntimeNodes) {
     $p = Join-Path $env:LOCALAPPDATA $rel
     if (Test-Path -LiteralPath $p -PathType Leaf) {
-      [Console]::Error.WriteLine("publish-r2: node is not on PATH; using the Kosmos runtime's own: $p")
+      if (-not (Get-Variable -Scope Script -Name SaidRuntimeNode -ValueOnly -ErrorAction SilentlyContinue)) {
+        [Console]::Error.WriteLine("publish-r2: node is not on PATH; using the Kosmos runtime's own: $p")
+        $script:SaidRuntimeNode = $true   # once per run: a run checks with node two or three times
+      }
       return [pscustomobject]@{ Source = $p }
     }
   }
   $null
 }
 # The words for a refusal when Get-NodeExe found none: where it looked, so the fix is plain.
-$NoNodeWhere = "none on PATH, and no Kosmos runtime node under %LOCALAPPDATA% ($($KosmosRuntimeNodes -join ', '))"
+$NoNodeWhere = if ($env:LOCALAPPDATA) { "none on PATH, and no Kosmos runtime node under %LOCALAPPDATA% ($($KosmosRuntimeNodes -join ', '))" } else { 'none on PATH (and no %LOCALAPPDATA% here to look for a Kosmos runtime node in)' }
 # One argument as a Windows command line needs it (.NET parses the same rules elsewhere): 5.1 has no ArgumentList.
 function ConvertTo-NativeArg([string] $a) {
   if ($a -and $a -notmatch '[\s"]') { return $a }

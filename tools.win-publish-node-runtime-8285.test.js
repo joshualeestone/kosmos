@@ -30,7 +30,8 @@ $list = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.A
 $d = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Get-NodeExe' }, $true) | Select-Object -First 1
 . ([scriptblock]::Create($d.Extent.Text.Replace('function Get-NodeExe', 'function global:Get-NodeExe')))
 $env:PATH = $args[1]
-$env:LOCALAPPDATA = $args[2]
+$env:LOCALAPPDATA = $args[2]   # '' removes it, as on pwsh off Windows
+if ($args.Count -gt 3 -and $args[3] -ceq 'twice') { [void](Get-NodeExe) }
 $n = Get-NodeExe
 if ($n) { [Console]::Out.WriteLine('FOUND ' + $n.Source) } else { [Console]::Out.WriteLine('NONE') }
 `;
@@ -54,14 +55,14 @@ function pc(onPath, runtimes) {
 const APP = path.join('Programs', 'Kosmos', 'runtime', 'node.exe');
 const BOARD = path.join('Kosmos', 'runtime', 'node.exe');
 
-function getNode(ps, where) {
+function getNode(ps, where, twice) {
   const h = path.join(SB, 'h' + (n += 1) + '.ps1');
   fs.writeFileSync(h, HARNESS);
   const env = { ...process.env };
   if (ps === 'powershell.exe') for (const k of Object.keys(env)) if (/^psmodulepath$/i.test(k)) delete env[k];
   // The system folders stay on PATH so PowerShell itself starts; neither holds a node.
   const system = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
-  const r = spawnSync(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', h, SCRIPT, where.bin + ';' + system, where.lad], { env, encoding: 'utf8', timeout: 60000 });
+  const r = spawnSync(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', h, SCRIPT, where.bin + ';' + system, where.lad, ...(twice ? ['twice'] : [])], { env, encoding: 'utf8', timeout: 60000 });
   assert.strictEqual(r.status, 0, ps + ' harness failed: ' + r.stderr);
   return { found: r.stdout.trim(), said: r.stderr };
 }
@@ -79,7 +80,9 @@ for (const ps of RUNTIMES) {
   });
   test('#8285 ' + ps + ': only the board runtime\'s copy -> that one; both -> the app\'s first', () => {
     const only = pc([], [BOARD]);
-    assert.strictEqual(getNode(ps, only).found, 'FOUND ' + path.join(only.lad, BOARD));
+    const r = getNode(ps, only);
+    assert.strictEqual(r.found, 'FOUND ' + path.join(only.lad, BOARD));
+    assert.ok(r.said.includes(path.join(only.lad, BOARD)), 'stderr names the copy used: ' + r.said);
     const both = pc([], [APP, BOARD]);
     assert.strictEqual(getNode(ps, both).found, 'FOUND ' + path.join(both.lad, APP));
   });
@@ -93,6 +96,15 @@ for (const ps of RUNTIMES) {
     const w = pc(['node.cmd'], [APP]);
     assert.strictEqual(getNode(ps, w).found, 'FOUND ' + path.join(w.lad, APP));
   });
+  test('#8285 ' + ps + ': the runtime line is said once per run, however often node is looked for', () => {
+    const r = getNode(ps, pc([], [APP]), true);
+    assert.strictEqual(r.found.startsWith('FOUND '), true);
+    assert.strictEqual(r.said.split(/\r?\n/).filter((l) => /using the Kosmos runtime's own/.test(l)).length, 1, r.said);
+  });
+  test('#8285 ' + ps + ': no LOCALAPPDATA (as pwsh off Windows) -> none, and nothing looked for', () => {
+    const w = pc([], [APP]);
+    assert.strictEqual(getNode(ps, { bin: w.bin, lad: '' }).found, 'NONE');
+  });
   test('#8285 ' + ps + ': neither -> none (the caller refuses, naming where it looked)', () => {
     assert.strictEqual(getNode(ps, pc([], [])).found, 'NONE');
     assert.strictEqual(getNode(ps, pc(['node.cmd'], [])).found, 'NONE', 'CONTROL: a shim alone is still no node');
@@ -104,5 +116,6 @@ test('#8285: both refusals name where node was looked for', () => {
   const refusals = s.split('\n').filter((l) => /Refuse "node \(an executable, not a \.cmd shim\) is required/.test(l));
   assert.strictEqual(refusals.length, 2, 'the two node refusals');
   for (const l of refusals) assert.match(l, /\$NoNodeWhere/, l.trim());
-  assert.match(s, /\$NoNodeWhere = "none on PATH, and no Kosmos runtime node under %LOCALAPPDATA%/);
+  assert.match(s, /\$NoNodeWhere = if \(\$env:LOCALAPPDATA\) \{ "none on PATH, and no Kosmos runtime node under %LOCALAPPDATA%/);
+  assert.match(s, /\} else \{ 'none on PATH \(and no %LOCALAPPDATA% here/, 'off Windows it does not claim to have looked there');
 });
