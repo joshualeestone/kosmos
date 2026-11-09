@@ -294,6 +294,7 @@ function newestTranscript(dir) {
    Each answer is null when it cannot be told. */
 /* Half a megabyte: long tool results sit between assistant rows, and a shorter tail can hold none. */
 const LAST_RUN_TAIL_BYTES = 512 * 1024;
+const LAST_RUN_LOOK_AT = 20;
 /* Not status.modelInText: that one also answers from a subagent's row, and a subagent often runs a cheaper model. */
 function lastModelIn(transcript) {
   let text = '';
@@ -315,21 +316,29 @@ function lastRunOf(dir) {
   /* Claude files a session under the cwd it was launched from, which may be either spelling of a linked folder. */
   const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(String(p)); } };
   const spellings = [...new Set([path.resolve(String(dir)), real(dir)])];
-  let transcript = null;
-  let at = -1;
+  const candidates = [];
   for (const root of status.configRoots()) {
     for (const spelling of spellings) {
-      const t = newestTranscript(path.join(root, 'projects', spelling.replace(/[^a-zA-Z0-9]/g, '-')));
-      if (!t) continue;
-      let m = -1;
-      try { m = fs.statSync(t).mtimeMs; } catch { continue; }
-      if (m > at) { at = m; transcript = t; }
+      const folder = path.join(root, 'projects', spelling.replace(/[^a-zA-Z0-9]/g, '-'));
+      let names = [];
+      try { names = fs.readdirSync(folder); } catch { continue; }
+      for (const n of names) {
+        if (!n.endsWith('.jsonl')) continue;
+        const full = path.join(folder, n);
+        try { candidates.push({ full, at: fs.statSync(full).mtimeMs }); } catch { /* gone since the listing */ }
+      }
     }
   }
-  if (!transcript) return none;   // never ran here: it was using nothing, so there is nothing to keep or to say
-  /* The folder name is lossy (a dash and a slash arrive identical), so this transcript may be another folder's. */
-  const ranIn = status.transcriptCwd(transcript);
-  if (!ranIn || real(ranIn) !== real(dir)) return none;
+  candidates.sort((a, b) => b.at - a.at);
+  /* The folder name is lossy (a dash and a slash arrive identical), so the newest may be another folder's: the newest
+     that says it ran here is this agent's. One whose folder cannot be read may be this agent's, so that is not "never ran". */
+  let transcript = null;
+  for (const c of candidates.slice(0, LAST_RUN_LOOK_AT)) {
+    const ranIn = status.transcriptCwd(c.full);
+    if (!ranIn) return { ran: true, account: null, model: null };
+    if (real(ranIn) === real(dir)) { transcript = c.full; break; }
+  }
+  if (!transcript) return none;
   const session = path.basename(transcript, '.jsonl');
   const holders = new Map();
   for (const row of require('./accounts').list()) {
@@ -2058,8 +2067,8 @@ function connect(dir, opts) {
     const nameTaken = (shownClash && agentnames.takenSentence(shownClash)) || agentnames.refusalFor(name, { agents });
     if (nameTaken) return { ok: false, because: nameTaken };
   }
-  /* #5534: connecting a folder starts a new agent, so a company policy that does not allow its provider (or the
-     provider's default model, which is what it will run) refuses it here, before anything is written. */
+  /* #5534: connecting a folder starts a new agent, so a company policy that does not allow its provider or the model
+     it will run refuses it, before anything is written (the check follows the #8293 block). */
   /* #8293: only a Claude agent is read here; another runner keeps today's behaviour. A read that failed counts as ran,
      so the person is told rather than moved in silence. */
   let last = { ran: false, account: null, model: null };

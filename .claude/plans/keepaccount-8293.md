@@ -32,5 +32,7 @@ session-env is an undocumented Claude Code layout. If a release stops writing it
 "could not tell" for the account and goes to the main one, which is today's account behaviour plus a true sentence; the
 model goes to the default with it, since the main account may not be able to run the old one.
 
+A session on another computer, or one that never wrote these folders, also reads "could not tell"; that is said to the person.
+
 ## Not covered
 Codex and other runners. Turning off an old launch job is #8294.
