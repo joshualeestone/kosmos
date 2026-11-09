@@ -181,6 +181,23 @@ test('#6249 (round 2): someone typing during the gap: the first Enter is not pre
   assert.match(v.because, /by then held other text too, so Enter was not pressed/);
 }));
 
+/* kosmos#8333: a box that reads as other text gets a moment to settle before it is believed; both arms. */
+test('kosmos#8333: a box that reads as other and then as ours is pressed, once', () => withAgent({}, (roster) => {
+  const t = arm([EMPTY, box('not yet settled'), box(MSG), EMPTY]);
+  const v = chat.deliver('al', MSG, roster);
+  assert.equal(t.enters(), 1);
+  assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+}));
+
+test('kosmos#8333: CONTROL, a box that keeps holding other text is never pressed, after the looks', () => withAgent({}, (roster) => {
+  const t = arm([EMPTY, box('the person was typing this ' + MSG)]);
+  const v = chat.deliver('al', MSG, roster);
+  assert.equal(t.enters(), 0);
+  assert.equal(v.confirm, 'not-pressed');
+  assert.ok(t.reads() >= 12, 'it looked again before believing it: ' + t.reads());
+}));
+
+
 test('#6249: ghost text after the Enter is an empty box, not our text still there', () => withAgent({}, (roster) => {
   const t = arm([EMPTY, screen('empty-placeholder')]);
   const v = chat.deliver('al', MSG, roster);
