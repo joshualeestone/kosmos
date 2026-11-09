@@ -806,22 +806,21 @@ enum Board {
         func reset() { shownAt = nil; blankSince = nil; rebuilds = 0 }
         // Ends the showing. nil when there is nothing to count: not shown, or a chat with no messages. excused: the caller
         // knows why no rows are drawn, so this is not a blank.
-        // kosmos#8221 slice 6: `list` names the list that drew the showing, "uikit" for the New chat list, nil for the lazy
-        // list, so the board counts the two apart (engine/chatopens.js). Nothing is sent for the lazy list, as before.
-        func finish(hasRows: Bool, excused: Bool, app: String, list: String? = nil, now: Date = Date()) -> [String: Any]? {
+        func finish(hasRows: Bool, excused: Bool, app: String, now: Date = Date()) -> [String: Any]? {
             defer { reset() }
             guard shownAt != nil, hasRows else { return nil }
             let closedBlank = !excused && (blankSince.map { now.timeIntervalSince($0) >= Self.closedBlankAfter } ?? false)
-            var body: [String: Any] = ["app": app, "rebuilds": rebuilds, "closedBlank": closedBlank]
-            if let list { body["list"] = list }
-            return body
+            return ["app": app, "rebuilds": rebuilds, "closedBlank": closedBlank]
         }
     }
 
     // POST /api/phone/chat-open with one finished showing. nil when the body cannot be made.
-    static func chatOpenRequest(mac: URL, body: [String: Any]) -> URLRequest? {
+    // kosmos#8221 slice 6: a showing drawn by the New chat list goes to /api/phone/chat-open-uikit with the same body, and the
+    // board counts it apart. The path names the list, not a field: a board older than the route answers it 404, so the showing
+    // is lost there instead of counted into the lazy list's numbers (an older board ignores a field it does not know).
+    static func chatOpenRequest(mac: URL, body: [String: Any], uikit: Bool = false) -> URLRequest? {
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
-        var r = URLRequest(url: URL(string: "/api/phone/chat-open", relativeTo: mac)!.absoluteURL)
+        var r = URLRequest(url: URL(string: uikit ? "/api/phone/chat-open-uikit" : "/api/phone/chat-open", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.setValue("application/json", forHTTPHeaderField: "Accept")

@@ -11769,7 +11769,9 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { builds: r.builds, ok: r.ok, note: opens.NOTE });
     return;
   }
-  if (pathname === '/api/phone/chat-open' && req.method === 'POST') {
+  // #8221 slice 6: the New chat list's showings come to their own path, counted apart; an older board answers it 404.
+  if ((pathname === '/api/phone/chat-open' || pathname === '/api/phone/chat-open-uikit') && req.method === 'POST') {
+    const list = pathname === '/api/phone/chat-open-uikit' ? 'uikit' : undefined;
     if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this comes from the person\'s phone, not an agent' }); return; }
     readBody(req, 4096)
       .then((buf) => {
@@ -11777,7 +11779,7 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}'); }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (presentedAgentToken(req, body && typeof body === 'object' ? body : {})) { sendJson(res, 403, { error: 'this comes from the person\'s phone, not an agent' }); return; }
-        const r = require('./engine/chatopens').add(body);
+        const r = require('./engine/chatopens').add(body, new Date(), list);
         if (r.refused) { sendJson(res, 400, { error: r.refused }); return; }
         if (!r.ok) { sendJson(res, 500, { error: 'we could not keep that record' }); return; }
         sendJson(res, 200, { ok: true });
