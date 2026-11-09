@@ -1316,6 +1316,7 @@ final class BoardClient: ObservableObject {
         let running = loop != nil
         stop()
         forget(why: why)
+        inviteStep = nil; inviteStepOf = nil; inviteStepAskedOf = nil   // kosmos#6255: the last account's link must not stay up
         if running { start() }
     }
 
@@ -1750,6 +1751,8 @@ final class BoardClient: ObservableObject {
     func checkInviteStep() async {
         guard let url = macURL, inviteStepAskedOf != url else { return }
         inviteStepAskedOf = url
+        inviteStep = nil
+        inviteStepOf = nil
         guard let (data, answer) = await env.send(Board.inviteStepRequest(mac: url)), macURL == url, (200...299).contains(answer.statusCode) else { return }
         inviteStep = Board.inviteStep(data)
         inviteStepOf = inviteStep == nil ? nil : url

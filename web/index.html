@@ -48905,7 +48905,7 @@ function istepLater() { istepDone(); istepClose(); }
 function istepHeld() {
   const cover = document.getElementById('boot-cover');
   const a = document.activeElement;
-  return !!(cover && !cover.hidden) || !!document.querySelector('.rm-back') || wnCovered()
+  return !!(cover && !cover.hidden) || !!document.querySelector('.rm-back:not([hidden])') || wnCovered()
     || !!(a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)));
 }
 function istepOpen(step) {

@@ -41,7 +41,7 @@ const STUB = (step) => {
     const page = await context.newPage();
     await page.addInitScript(STUB, step);
     await page.goto('file://' + PAGE);
-    await page.evaluate(() => { document.querySelectorAll('.fr-back, .frc-back').forEach((c) => { c.hidden = true; }); const b = document.getElementById('boot-cover'); if (b) b.hidden = true; if (document.activeElement) document.activeElement.blur(); document.querySelectorAll('.rm-back').forEach((c) => c.remove()); });
+    await page.evaluate(() => { document.querySelectorAll('.fr-back, .frc-back').forEach((c) => { c.hidden = true; }); const b = document.getElementById('boot-cover'); if (b) b.hidden = true; if (document.activeElement) document.activeElement.blur(); });
     await page.evaluate(() => inviteStepCheck());
     return page;
   };
@@ -54,7 +54,22 @@ const STUB = (step) => {
   say(await page.locator('#invitestep').count() === 0, 'waiting for a first agent: no window yet');
   await page.close();
 
+  // Held: the first ask finds the page busy, so nothing opens and the offer is not spent. A closed dialog is not busy.
+  const held = async (label, busy) => {
+    const p = await context.newPage();
+    await p.addInitScript(STUB, PLAIN);
+    await p.goto('file://' + PAGE);
+    await p.evaluate(() => { document.querySelectorAll('.fr-back, .frc-back').forEach((c) => { c.hidden = true; }); const b = document.getElementById('boot-cover'); if (b) b.hidden = true; if (document.activeElement) document.activeElement.blur(); });
+    await p.evaluate(busy);
+    await p.evaluate(() => inviteStepCheck());
+    say(await p.locator('#invitestep').count() === 0 && await p.evaluate(() => window.__done) === 0, 'held, ' + label + ': no window, the offer is not spent');
+    await p.close();
+  };
+  await held('someone typing', () => { const i = document.createElement('input'); document.body.appendChild(i); i.focus(); });
+  await held('another window up', () => { const d = document.createElement('div'); d.className = 'rm-back'; document.body.appendChild(d); });
+
   page = await open(PLAIN);
+  say(await page.evaluate(() => document.querySelectorAll('.rm-back[hidden]').length) > 0, 'premise: the page holds closed dialogs while it opens');
   say(await page.locator('#invitestep').count() === 1, 'due: the window opens');
   const words = await page.locator('#invitestep').innerText();
   say(/Know someone who would use this/.test(words) && !/month|free/i.test(words), 'no reward: the plain words, nothing about a month', JSON.stringify(words));
