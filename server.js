@@ -6583,7 +6583,8 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    a token-only caller can read every agent's name, role and state across the board, not only those on its projects. That is
    a widening, taken on purpose: an agent is told to check who exists before making one. kosmos#8288 adds, for an agent in
    such a state, WHEN it became stuck (text unsent, a message stall, a crash loop): times and a count, never the content, so
-   a terminal seat can check what the page shows. */
+   a terminal seat can check what the page shows. kosmos#8304 adds, for a working agent on one tool call for minutes, the
+   tool's name when it is a plain identifier (an MCP tool by its last part): never its input, output or any screen words. */
 /* kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel) joins: its handler names the caller
    (processCaller) and sets only that agent's own channel; no name in the body is read. Every Windows agent holds a
    token and no board token, and the report came from there. */
@@ -7766,7 +7767,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #7748: `kosmos agent list` reads the same derivation the board draws, because the stopped agents exist only here.
-     It answers a row's name, role, card word and any stuck-state times, so an agent's read carries no content this route holds for the page. */
+     It answers a row's name, role, card word and any stuck-state times (and, kosmos#8304, a long tool call's plain tool name),
+     so an agent's read carries no content this route holds for the page. */
   if ((pathname === '/api/status' && (req.method === 'GET' || req.method === 'HEAD')) || (pathname === '/api/agents/list' && req.method === 'GET')) {
     const rosterOnly = pathname === '/api/agents/list';
     if (rosterOnly) {
