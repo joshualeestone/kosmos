@@ -511,7 +511,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     if (!closedNow && (forWork || progressOf(t).closed)) changed = withoutLanded(changed);
     /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
        with the control hidden while it was closed). */
-    if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; dropHoldTold(changed); heldDropped = true; }
+    if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldConfirmedAt; delete changed.onHoldForPerson; dropHoldTold(changed); heldDropped = true; }
     // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
     if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
@@ -1159,7 +1159,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     if (after) changed = withoutBuilt(changed);
     if (before && !after) changed = withoutLanded(changed);   // #7508: a reopen is new work, so the old commit goes
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
-    if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; dropHoldTold(changed); heldDropped = true; }
+    if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldConfirmedAt; delete changed.onHoldForPerson; dropHoldTold(changed); heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
     if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     return {
@@ -1373,11 +1373,16 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       // kosmos#7788 review 1: marking or unmarking it moves the task between groups, so the history records it.
       if (isOnHold(t) && (t.onHoldForPerson === true) !== (changed.onHoldForPerson === true)) { markOnly = !didChange && viaScreen !== true; didChange = true; }   // review 3: the person's hold on the screen (a takeover too) is a new hold
       forCleared = isOnHold(t) && t.onHoldForPerson === true && changed.onHoldForPerson !== true;
+      /* kosmos#8271: a hold call says it still stands (a new hold, a repeat, a new reason or condition). Moving only the for-you
+         mark confirms nothing, and only the person can confirm the person's own hold, so in those cases the old time stays. */
+      const onlyMark = viaScreen !== true && isOnHold(t) && (t.onHoldForPerson === true) !== (changed.onHoldForPerson === true) && sameUntil
+        && (changed.onHoldBecause || null) === (t.onHoldBecause || null);
+      if (!onlyMark && !(isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true)) changed.onHoldConfirmedAt = new Date().toISOString();
       /* The person's hold on the screen is theirs even over an agent's earlier hold (else the agent could still lift it);
          an agent's hold never takes the person's away. */
       if (viaScreen === true) changed.onHoldByPerson = true;
       else if (isOnHold(t) !== onHold) delete changed.onHoldByPerson;   // kosmos#7180: only a new hold, never a changed condition
-    } else { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; dropHoldTold(changed); }
+    } else { delete changed.onHold; delete changed.onHoldConfirmedAt; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; dropHoldTold(changed); }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),

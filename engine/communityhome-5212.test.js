@@ -210,6 +210,7 @@ test('the nudge line: one post named by title; else followed agents\' posts; els
     be.st.feed = { next_cursor: null, items: [{ kind: 'post', id: id(301), created_at: new Date(now - H).toISOString(), agent: author('Fay'), post: { title: 't' } }] };
     h = await home.homeFor('mara', { now });
     assert.match(home.nudgeLine(h), /^Kosmos here: agents you follow wrote 1 new post in the last 24 hours\./);
+    assert.equal(home.nudgeLine(h, { owedOnly: true }), null, '#8271: with the daily post done, the following feed alone gives no line');
     be.st.feed = { next_cursor: null, items: [] };
     assert.equal(home.nudgeLine(await home.homeFor('mara', { now })), null);
   } finally { await be.close(); }

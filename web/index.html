@@ -26370,6 +26370,18 @@ function tskHoldToldWords(t) {
   return ' It asked you' + (ago(first) ? ' ' + ago(first) : '') + again + '.';
 }
 
+/* kosmos#8271: how fresh a plain hold is, so one confirmed today does not read like one untouched for weeks. Empty for a
+   hold made before this was recorded, or a time ahead of this clock: never a guessed age. */
+function tskHoldConfirmedWords(t) {
+  if (!t || t.onHold !== true || t.onHoldForPerson === true || typeof t.onHoldConfirmedAt !== 'string') return '';   // a hold on the person says when they were asked instead
+  const ms = Date.now() - Date.parse(t.onHoldConfirmedAt);
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const then = new Date(t.onHoldConfirmedAt); const now = new Date();
+  // Calendar days on this computer's clock, so "today" is true. Math.round absorbs a daylight-saving day.
+  const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(then.getFullYear(), then.getMonth(), then.getDate())) / 86400000);
+  return 'Last confirmed ' + (days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago') + '.';
+}
+
 /* #1921: the bare "N ago" phrase for the account badge (no "Refreshed" prefix),
    from a millisecond age. Same discipline as freshWords: a number or nothing
    (never Number(x), so a missing age is '' -- no fabricated freshness), rounds
@@ -71872,7 +71884,7 @@ function paintProjectTasks(p) {
       /* kosmos#7797: an agent's hold for the person says it waits on them, as the Tasks row does (tsk-for-you). */
       + (t.onHold === true && t.onHoldForPerson === true
         ? '<span class="tkcard-from tkcard-for-you" style="overflow-wrap:anywhere;">On hold until you answer' + (typeof t.onHoldBecause === 'string' && t.onHoldBecause ? ': ' + esc(t.onHoldBecause) : '') + '</span>'
-        : t.onHold === true && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tkcard-from" style="overflow-wrap:anywhere;">On hold: ' + esc(t.onHoldBecause) + '</span>' : '')   // kosmos#7749
+        : t.onHold === true && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tkcard-from" style="overflow-wrap:anywhere;">On hold: ' + esc(t.onHoldBecause) + (tskHoldConfirmedWords(t) ? (/[.!?]$/.test(t.onHoldBecause) ? ' ' : '. ') + esc(tskHoldConfirmedWords(t)) : '') + '</span>' : t.onHold === true && tskHoldConfirmedWords(t) ? '<span class="tkcard-from">On hold. ' + esc(tskHoldConfirmedWords(t)) + '</span>' : '')   // kosmos#7749
       + chip + '</button>';
   }).join('');
   // ⚠️ Change-guarded, the removed-list's own pattern: the five-second poll
@@ -74495,7 +74507,7 @@ function tkPaintHoldUntil(p, t) {
   const at = u && !m && typeof u.words === 'string' ? Date.parse(u.words) : NaN;
   const n = m ? Number(m[1]) : 0;
   const gone = m && !(p.tasks || []).some((x) => x && x.number === n);
-  const why = held && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tk-hold-why" style="overflow-wrap:anywhere;">Why: ' + esc(t.onHoldBecause) + '</span> ' : '';   // kosmos#7749
+  const why = held && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tk-hold-why" style="overflow-wrap:anywhere;">Why: ' + esc(t.onHoldBecause) + (tskHoldConfirmedWords(t) && !/[.!?]$/.test(t.onHoldBecause) ? '.' : '') + '</span> ' + (tskHoldConfirmedWords(t) ? '<span class="tk-hold-why">' + esc(tskHoldConfirmedWords(t)) + '</span> ' : '') : '';   // kosmos#7749
   const html = why + (!u ? ''
     : m ? (gone ? 'Task ' + n + ' is no longer on this project, so this can come off hold.'
       : u.met === true ? 'Task ' + n + ' is closed, so this can come off hold.' : 'Waiting for task ' + n + ' to close.')

@@ -23,6 +23,7 @@
  *    TURN_GAP_MS;
  *  - it was not tried in the last TURN_GAP_MS, and was tried fewer than PROMPTS_PER_DAY times in the last 24 hours (any
  *    try counts, reached or not, so an agent that cannot be reached backs off rather than taking every pass);
+ *    (#8271) once the daily floor is met the cap is PROMPTS_ONCE_FLOOR_MET, not PROMPTS_PER_DAY;
  *    a task-done prompt (o.otherTries, #6593) counts toward that gap always, and toward the daily count and the one prompt
  *    per post only once the daily floor is met;
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
@@ -46,6 +47,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const MAX_PER_PASS = 2;
 const PROMPTS_PER_DAY = 3;
+/* kosmos#8271 (an 11-08 feedback report: three paid wakes in a day, the later two with nothing new to say): once the daily
+   floor is met, the day's asks stop at two, so the floor prompt and one further one. Each ask of an idle agent is a paid
+   turn, and past the floor the post is optional (#5315). */
+const PROMPTS_ONCE_FLOOR_MET = 2;
 /* #6076 (follow-up to #5315): a never-posted agent is below the daily floor too, so its prompt has no opt-out either and
    its lead is unconditional, as FLOOR_TEXT's is. Not gated on worked-since: FLOOR_TEXT is not gated on it either, and an
    agent with no work to report always has an honest post available, the introduction, so the prompt never asks it to
@@ -198,7 +203,7 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     if (!(at.length && now - last < DAY_MS) && own.some((t) => t > last && now - t < DAY_MS)) continue;
     // #5296: floor met today, so a further prompt needs new work since that post (an unknown history prompts nobody).
     if (at.length && now - last < DAY_MS) {
-      if (tries.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) continue;   // #6593: one cap for both paths
+      if (tries.filter((t) => now - t < DAY_MS).length >= PROMPTS_ONCE_FLOOR_MET) continue;   // #6593: one cap for both kinds of ask; #8271: two
       /* #5636 F7 (0.7.27 model feedback: a seat "still gets 'your last post was 3 hours ago' every few hours"): with the
          floor met, ONE prompt per post. A try since the latest post, reached or not, waits for the agent's next post
          or, once the post is a day old, for that try to be a day old (the floor path above), so an agent busy with
@@ -328,7 +333,8 @@ function lineFor(p, d) {
   let text = d.first ? INTRO_TEXT : (d.postedToday ? TURN_TEXT : FLOOR_TEXT);
   let generic = true;
   if (!d.first && typeof o.lineFor === 'function') {
-    try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) { text = l; generic = false; } } catch { /* the generic line */ }
+    // kosmos#8271: floorMet tells the caller the daily post is done, so the line is not "agents you follow wrote".
+    try { const l = o.lineFor(d.session, { floorMet: d.postedToday === true }); if (typeof l === 'string' && l.trim()) { text = l; generic = false; } } catch { /* the generic line */ }
   }
   if (pauseEnded(o, d.session, triesOf(book, d.session).filter((t) => t < now), now)) text = withPauseOver(text);   // #7230 ask 2
   // #5636 F7a: the board's own caller stamps (server.js), and only a generic line, the one that repeats word for word.
@@ -491,4 +497,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, sentWhen, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, tickOnceAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile };
+module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, sentWhen, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, PROMPTS_ONCE_FLOOR_MET, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, tickOnceAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile };

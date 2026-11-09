@@ -1,4 +1,4 @@
-// Browser-check-surface: tskHoldToldWords tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-mins tk-repeat-mins-wrap tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause pj-one-goalask paintGoalAsk tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
+// Browser-check-surface: tskHoldToldWords tskHoldConfirmedWords tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-mins tk-repeat-mins-wrap tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause pj-one-goalask paintGoalAsk tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
 'use strict';
 /**
  * On hold and paused, on the screen (kosmos#4771).
@@ -166,6 +166,9 @@ function chk(ok, label, extra) {
       chk(await heldCount(page, '1') === '1', `${tag} the On hold tile counts the held task`, await text(page, '#tsk-tiles [data-tile="held"] .num'));
       const held1 = await heldRows(page);
       chk(held1.includes('Write the blurb'), `${tag} the On hold tile shows the held task`, JSON.stringify(held1));
+      // kosmos#8271: a plain hold says how fresh it is.
+      const fresh = await page.evaluate(() => [...document.querySelectorAll('.tkcard-from')].map((e) => e.textContent).filter((x) => /^On hold/.test(x)));
+      chk(fresh.length >= 1 && fresh.every((x) => /Last confirmed/.test(x)), `${tag} a held task's card says when it was last confirmed`, JSON.stringify(fresh));
       chk(!held1.includes('Order proofs'), `${tag} the same project's task that is not on hold is not under On hold (control)`, JSON.stringify(held1));
 
       /* A project paused from its settings. */

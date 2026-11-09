@@ -32,7 +32,7 @@
  * cap (PROMPTS_PER_DAY) so a burst of completions cannot spam one agent.
  *
  * kosmos#6593: the sweep's reminders count here (o.turnTries, the sweep's book as last written to disk): one
- * within the sweep's TURN_GAP_MS stops this prompt, and both paths share PROMPTS_PER_DAY, except that an agent
+ * within the sweep's TURN_GAP_MS stops this prompt, and both paths share PROMPTS_PER_DAY (the sweep alone stops at PROMPTS_ONCE_FLOOR_MET past the floor, #8271), except that an agent
  * with no post in a day still gets the sweep's floor line after these (up to PROMPTS_PER_DAY + 1). The sweep books a
  * try that did not reach the agent too, and so holds this prompt off for its gap; this book holds only
  * prompts that reached. NOTE: this path does NOT count into the board-wide per-HOUR log the sweep

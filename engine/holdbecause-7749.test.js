@@ -31,6 +31,34 @@ function fresh(name) {
   return { id: p.id, n: t.number };
 }
 
+test('kosmos#8271: a hold records when it was last confirmed, a repeat moves it, taking it off clears it', async () => {
+  const { id, n } = fresh('confirmed');
+  const first = tasks.setOnHold(id, n, true, { because: 'waiting' });
+  assert.ok(Number.isFinite(Date.parse(first.onHoldConfirmedAt)), 'premise: recorded on a new hold');
+  await new Promise((r) => setTimeout(r, 5));
+  const again = tasks.setOnHold(id, n, true);
+  assert.ok(Date.parse(again.onHoldConfirmedAt) > Date.parse(first.onHoldConfirmedAt), 'a repeat is a fresh confirmation');
+  assert.equal('onHoldConfirmedAt' in tasks.setOnHold(id, n, false), false, 'gone with the hold');
+  const m = fresh('confirmed-mark');
+  const before = tasks.setOnHold(m.id, m.n, true, { forPerson: true }).onHoldConfirmedAt;
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(tasks.setOnHold(m.id, m.n, true, { forPerson: false }).onHoldConfirmedAt, before, 'only moving the mark confirms nothing');
+  const a = fresh('confirmed-agent-on-person');
+  const pers = tasks.setOnHold(a.id, a.n, true, { viaScreen: true }).onHoldConfirmedAt;
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(tasks.setOnHold(a.id, a.n, true).onHoldConfirmedAt, pers, "an agent's repeat of the person's hold confirms nothing");
+  assert.ok(Date.parse(tasks.setOnHold(a.id, a.n, true, { viaScreen: true }).onHoldConfirmedAt) > Date.parse(pers), 'CONTROL: the person repeating it does');
+  const r = fresh('confirmed-reason-with-mark');
+  const r0 = tasks.setOnHold(r.id, r.n, true, { because: 'one' }).onHoldConfirmedAt;
+  await new Promise((res) => setTimeout(res, 5));
+  assert.ok(Date.parse(tasks.setOnHold(r.id, r.n, true, { because: 'two', forPerson: true }).onHoldConfirmedAt) > Date.parse(r0), 'a mark moved along with a new reason is a confirmation');
+  const c = fresh('confirmed-closed');
+  assert.ok(tasks.setOnHold(c.id, c.n, true).onHoldConfirmedAt, 'premise: held');
+  tasks.close(c.id, c.n);
+  const closed = (projects.get(c.id).tasks || []).find((x) => x.number === c.n);
+  assert.equal('onHoldConfirmedAt' in closed, false, 'closing a held task drops it with the other hold fields');
+});
+
 test('a hold keeps its reason, tidied to one line', () => {
   const { id, n } = fresh('hb one');
   const t = tasks.setOnHold(id, n, true, { because: '  waiting on\n the lawyer ' });

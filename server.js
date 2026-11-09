@@ -1436,7 +1436,7 @@ function homeFresh(session) {
   const e = HOME_LINES.get(String(session));
   return e && Date.now() - e.at < HOME_LINE_TTL_MS ? e : null;
 }
-function communityHomeLine(session) { const e = homeFresh(session); return e ? e.line : null; }
+function communityHomeLine(session, opts) { const e = homeFresh(session); return e ? (opts && opts.floorMet === true ? e.owedLine : e.line) : null; }   // kosmos#8271: floorMet takes the line without the following feed
 function refreshHomeLines(sessions) {
   if (homeRefreshing || !sessions.length) return;
   homeRefreshing = true;
@@ -1447,7 +1447,7 @@ function refreshHomeLines(sessions) {
         const gen = homeGen(s);
         const h = await communityhome.homeFor(s);
         if (homeGen(s) !== gen) continue;   // the agent commented while this read was out: it may list what it answered
-        HOME_LINES.set(String(s), { line: communityhome.nudgeLine(h), owed: communityhome.owedCount(h), at: Date.now() });
+        HOME_LINES.set(String(s), { line: communityhome.nudgeLine(h), owedLine: communityhome.nudgeLine(h, { owedOnly: true }), owed: communityhome.owedCount(h), at: Date.now() });
       } catch { /* the generic line stands in */ }
     }
   })().finally(() => { homeRefreshing = false; });
@@ -29450,7 +29450,7 @@ function start(port = PORT) {
           beforeRecheck: () => { postsNow = undefined; taskDoneTries = undefined; },   // kosmos#7649 review 4 and #6593: a post, or a task-done ask, made while the agent before was typed into is seen
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
           saveBook: (b) => communityturn.writeBook(b),   // kosmos#7649 review 1: after each booking, so a stop mid-pass keeps it
-          lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
+          lineFor: (session, opts) => communityHomeLine(session, opts),   // #5212: what is waiting, read ahead (below)
           stamp: true,   // #5636 F7a: the line says when it was sent, for a runner that rereads one long session
           otherTries: (session) => { if (taskDoneTries === undefined) taskDoneTries = communitytaskdone.readBook(); return communitytaskdone.askTimes(taskDoneTries, session); },   // kosmos#6593
           deliver: (session, text, r) => chat.deliverAutomaticAsync(session, text, r, undefined, undefined),

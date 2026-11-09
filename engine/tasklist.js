@@ -188,12 +188,21 @@ function toldWords(x) {
   if (told) return ' (you told them ' + told + ')';
   return ' (Kosmos has not seen you tell them: ask them in the task, or name task ' + x.number + ' when you ask)';
 }
+/* kosmos#8271: how fresh a hold is, in calendar days. Nothing for a hold made before this was recorded or a time ahead of this clock. */
+function confirmedWords(x) {
+  const ms = Date.now() - Date.parse(x.onHoldConfirmedAt);
+  if (x.onHoldForPerson === true || typeof x.onHoldConfirmedAt !== 'string' || !Number.isFinite(ms) || ms < 0) return '';   // a hold on the person says when they were asked instead
+  const then = new Date(x.onHoldConfirmedAt); const now = new Date();
+  // Calendar days on this computer's clock, so "today" is true. Math.round absorbs a daylight-saving day.
+  const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(then.getFullYear(), then.getMonth(), then.getDate())) / 86400000);
+  return ', last confirmed ' + (days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago');
+}
 function stateWords(x) {
   if (x.isClosed) return Number.isInteger(x.replacedBy) ? 'closed, replaced by task ' + x.replacedBy : 'done';
   if (x.onHold === true) {
     const u = x.onHoldUntil;
     const until = u && Number.isInteger(u.task) ? ' until task ' + u.task + ' is closed' : u && typeof u.at === 'string' ? ' until ' + (whenWords(u.at) || one(u.at)) : '';
-    return 'on hold' + until + (x.onHoldByPerson === true ? ', put on hold by the person (only they can take it off)' : '')
+    return 'on hold' + until + confirmedWords(x) + (x.onHoldByPerson === true ? ', put on hold by the person (only they can take it off)' : '')
       + (x.onHoldForPerson === true ? ', waiting on the person' + toldWords(x) : '')
       + (x.projectPaused === true ? '; its project is paused too' : '')   // review 5
       + (x.builtAt ? '; built' : '');   // review 2: as the list's [on hold] [built], so delivered work is not hidden
