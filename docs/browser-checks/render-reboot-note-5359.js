@@ -194,7 +194,7 @@ const CASES = [
       { key: 'many', checks: { agents: { was: 9, back: 2, notBack: ['A', 'B', 'C', 'D', 'E', 'F', 'G'] } }, want: 'Checked: 2 of 9 agents that were running are running again (not yet: A, B, C, D, E and 2 more).' },
       { key: 'files-only', checks: { files: { damaged: 0 } }, want: "Checked: Kosmos's own files read fine." },
       { key: 'no-agents-then', checks: { agents: { was: 0, back: 0, notBack: [] } }, want: null },
-      { key: 'html', checks: { agents: { was: 1, back: 0, notBack: ['<b>x</b>'] } }, want: 'Checked: 0 of 1 agents that were running are running again (not yet: <b>x</b>).' },
+      { key: 'html', checks: { agents: { was: 1, back: 0, notBack: ['<b>x</b>'] } }, want: 'Checked: the agent that was running is not running yet (<b>x</b>).' },
     ];
     for (const w of WORDS) {
       for (const width of [1400, 390]) {

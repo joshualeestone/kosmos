@@ -28312,9 +28312,8 @@ function start(port = PORT) {
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
   try {
     const rn = require('./engine/restartnote');
-    // kosmos#8287: the file check ran first (at the bottom of this file), and on Windows the logon task counts as the supervisor.
-    const startedBy = rn.whoStarted({ launcherSaid: BOARD_STARTED_BY, platform: process.platform, startedByTask: process.platform === 'win32' && require('./engine/win32board').startedByTask() });
-    rn.atStart({ startedBy, personMark: BOARD_PERSON_MARK, files: require('./engine/storecheck').lastScan() });
+    // kosmos#8287: the file check ran first, at the bottom of this file.
+    rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK, files: require('./engine/storecheck').lastScan() });
     rn.startBeating();
   } catch { /* best effort */ }
   /* kosmos#7411 step 4: the version this board runs and when it first started on it, so the restart line can name the

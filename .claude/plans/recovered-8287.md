@@ -13,15 +13,15 @@ checked, so this adds one line to the #5359 note and no new notice.
   engine/restartnote.js which agents were running; the beat stores them in board-alive.json; the note keeps them. The
   note then reports only those agents. Counting "every agent on the board" would call an agent a person stopped last
   week "not back".
-- **An agent gone from the roster is not counted at all.** The roster drops removed agents, so absent means removed
-  since, not failed.
+- **An agent missing from the roster counts as not back, unless it was removed since.** Reading missing as fine would
+  hide the failure this line exists to show.
+- **Up means able to work.** A rejected token, a lost connection and a crash loop are named, not counted as back.
+- **Seen back once stays back.** The note records it, so stopping an agent later that day is not reported as a failure.
 - **Files: the result of #7248's scan at this start, kept in the note.** Reading storecheck.current() live would read
-  "fine" once a person dismissed or repaired the damage notice, and "fine" if the scan itself threw.
+  "fine" once a person dismissed or repaired the damage notice, and "fine" if the scan itself threw. A scan that could
+  not read a folder or file does not say fine either.
 - **Say only what was checked.** No record of who was running (an older board's last beat, or a crash in the first
   minute): the agents clause is left out. Scan failed: the files clause is left out. Neither: no line.
-- **Windows stops guessing when it can.** #5450 left Windows on the 15-minute timer. engine/win32board.js startedByTask
-  already proves the logon task started this board, so that now counts as the supervisor. A box left at the sign-in
-  screen past 15 minutes used to get no note at all.
 
 ## Rejected
 
@@ -32,13 +32,17 @@ checked, so this adds one line to the #5359 note and no new notice.
   and telling them apart needs a new stop record on three platforms. Separate card if anyone asks.
 - Windows Event Log (events 41 and 6008) for a real crash verdict. Cannot be run from here.
 
+- Counting the Windows logon task as the supervisor. Review found a double-click on Kosmos.exe starts the board through
+  that same task (engine/win32handoff.js), so the marker cannot tell a person from a supervisor and the note would say
+  "by itself" for a person's start. Windows keeps the 15-minute guess until its launcher can say who started the board.
+
 ## Weakest premise
 
 That "running again" at the moment the page reads it is what the person wants. Agents take minutes to return, so an
 early read says "not yet" and the ten-minute re-check repaints it. Also not checked: scheduled tasks, which the
 reporter's box mentioned; running agents covers the agents' own jobs but nothing else.
 
-Windows code was never run on Windows here. The new branch is one comparison, tested with injected values.
+On Windows the 15-minute guess stands, so a box left at the sign-in screen past it still gets no note. None of this was run on Windows.
 
 ## What would change this
 

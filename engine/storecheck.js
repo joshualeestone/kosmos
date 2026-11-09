@@ -72,6 +72,7 @@ function holdsSecret(file) {
 }
 
 let FOUND = [];          // the damaged stores this start found
+let UNREAD = 0;          // kosmos#8287: folders and files this scan could not read, so it cannot say they are fine
 let SCANNED = null;      // kosmos#8287: what this start's scan found, before anyone repairs or dismisses it; null if it did not finish
 let BASE_ROOT = null;    // where worlds.json lives, captured at start
 
@@ -99,7 +100,7 @@ function rel(abs) {
 function candidates(dir) {
   const out = [];
   let names = [];
-  try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch (err) { if (!err || err.code !== 'ENOENT') UNREAD += 1; return out; }
   for (const d of names) {
     if (d.name.startsWith('.') || !d.name.endsWith('.json')) continue;
     if (!d.isFile() && !d.isSymbolicLink()) continue;   // a linked store is checked at its target (statSync below)
@@ -146,6 +147,7 @@ function goodCopy(file) {
 /** Look at every store once and remember what is damaged. Reads only, except keeping a crash's good temp copy. */
 function scan(opts) {
   BASE_ROOT = (opts && opts.base) || null;
+  UNREAD = 0;
   const files = candidates(store.ROOT);
   for (const f of Object.keys(FOLDERS)) files.push(...candidates(path.join(store.ROOT, f)));
   if (BASE_ROOT && path.resolve(BASE_ROOT) !== path.resolve(store.ROOT)) {
@@ -161,7 +163,7 @@ function scan(opts) {
     if (st.size > MAX_BYTES) problem = 'toobig';
     else {
       let buf = null;
-      try { buf = fs.readFileSync(file); } catch (err) { problem = err && (err.code === 'EACCES' || err.code === 'EPERM') ? 'unopenable' : null; }
+      try { buf = fs.readFileSync(file); } catch (err) { problem = err && (err.code === 'EACCES' || err.code === 'EPERM') ? 'unopenable' : null; if (!problem) UNREAD += 1; }
       if (buf) problem = classify(buf);
     }
     if (!problem) continue;
@@ -174,7 +176,7 @@ function scan(opts) {
     found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, secret: holdsSecret(file), abs: file, copyAbs: copy ? copy.path : null, size: st.size, mtimeMs: st.mtimeMs });
   }
   FOUND = found;
-  SCANNED = { checked: true, damaged: found.length };
+  SCANNED = { checked: UNREAD === 0 || found.length > 0, damaged: found.length };
   return found;
 }
 

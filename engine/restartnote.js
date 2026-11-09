@@ -10,19 +10,20 @@
  *   - this start is within WINDOW_MS after the boot (it came back with the computer, not long after it).
  * #5450: that second test is a guess, used only when nothing says who started the board. The Mac launcher says so
  * (KOSMOS_BOARD_STARTED_BY, install/kosmos): the supervisor (the login item, or a crash relaunch) makes a note however
- * long after the boot, and a person's start never does. kosmos#8287: on Windows the board's logon task is that
- * supervisor (whoStarted); a board started any other way there still falls to the guess.
+ * long after the boot, and a person's start never does. Windows passes nothing yet, so the guess stands there.
  * A person who quit Kosmos yesterday and opened it after a restart gets no note: their last-alive time is old.
  * The words say "restarted", true of a crash and of a person's restart alike; nothing here can tell them apart.
  *
  * A deliberate stop: on a Mac, `kosmos stop` removes the last-alive record once the board is gone (install/kosmos).
  * Every other stop (quitting the app, Windows, which has no stop verb, and switching to another Kosmos, which stops
  * this one's board) leaves it, so stopping Kosmos, restarting the computer and starting it again within the window
- * still makes a note. #5450 fixed that on a Mac (a person's start never makes a note there). Clearing on SIGTERM in the board was
+ * still makes a note. #5450 fixed that on a Mac (a person's start never makes a note there); Windows waits for its
+ * launcher to say who started the board. Clearing on SIGTERM in the board was
  * rejected: an ordinary shutdown sends SIGTERM to every process too, so a Mac would lose the note for every restart.
  *
  * kosmos#8287: the note also says what was checked. The beat records which agents were running, so the note can ask
- * about exactly those: an agent a person stopped last week is not "not back". The result of this start's file check
+ * about exactly those: an agent a person stopped last week is not "not back", and one that came back and was stopped
+ * afterwards stays back (the note records it). The result of this start's file check
  * (engine/storecheck.js) is kept in the note, so dismissing or repairing that notice cannot turn it into "fine". What
  * could not be checked is left out of the sentence, never reported as fine.
  *
@@ -60,19 +61,17 @@ function cleanRunning(list) {
   return list.filter((a) => a && typeof a.session === 'string' && a.session).slice(0, MAX_AGENTS)
     .map((a) => ({ session: a.session, name: typeof a.name === 'string' && a.name ? a.name : a.session }));
 }
-/* The same test the board's own cards use for an agent that is up (web/index.html). */
-function isUp(a) { return Boolean(a) && a.isAgentSession === true && a.isNamedOurs === true && a.state !== 'stopped'; }
+/* An agent that is on the board and able to work. A session with a rejected token, no connection or a crash loop is
+   exactly what a person checking after a restart needs named. */
+const NOT_UP_STATES = new Set(['stopped', 'auth_failed', 'connection_lost']);
+function isUp(a) {
+  return Boolean(a) && a.isAgentSession === true && a.isNamedOurs === true && !NOT_UP_STATES.has(a.state)
+    && !(a.crashLoop && a.crashLoop.looping === true);
+}
+const cleanReturned = (list) => (Array.isArray(list) ? list.filter((s) => typeof s === 'string' && s).slice(0, MAX_AGENTS) : []);
 /* The agents of a roster that are up, as the beat records them. */
 function runningOf(roster) {
   return (Array.isArray(roster) ? roster : []).filter((a) => isUp(a) && a.sessionName).map((a) => ({ session: a.sessionName, name: a.name || a.sessionName }));
-}
-/**
- * kosmos#8287: who started this board, in noteFor's words. The launcher's word when it gave one (Mac); on Windows the
- * board's logon task is the supervisor. Nothing else is known, so anything else stays undefined and the timer decides.
- */
-function whoStarted({ launcherSaid, platform, startedByTask }) {
-  if (launcherSaid) return launcherSaid;
-  return platform === 'win32' && startedByTask === true ? 'supervisor' : undefined;
 }
 
 /**
@@ -126,7 +125,20 @@ function atStart(deps = {}) {
 
 /* kosmos#8287: who the last roster read found up; null until one has succeeded, so the beat claims nothing before it. */
 let running = null;
-function noteRunning(roster) { running = Array.isArray(roster) ? cleanRunning(runningOf(roster)) : running; }
+function noteRunning(roster) {
+  if (!Array.isArray(roster)) return;   // a failed read says nothing, so the last good list stands
+  running = cleanRunning(runningOf(roster));
+  markReturned(running);
+}
+/* An agent seen up since the restart stays counted as back, so a person stopping it later that day is not reported. */
+function markReturned(up) {
+  const n = readJson(noteFile());
+  if (!n || n.dismissed === true) return;
+  const were = new Set((cleanRunning(n.wereRunning) || []).map((a) => a.session));
+  const had = cleanReturned(n.returned);
+  const fresh = up.map((a) => a.session).filter((s) => were.has(s) && !had.includes(s));
+  if (fresh.length) writeJson(noteFile(), { ...n, returned: [...had, ...fresh] });
+}
 
 function beat(now = Date.now()) {
   const at = new Date(now).toISOString();
@@ -150,6 +162,8 @@ function current(now = Date.now()) {
   const out = { lastAliveAt: n.lastAliveAt, bootAt: n.bootAt, upAt: n.upAt };
   const were = cleanRunning(n.wereRunning);
   if (were) out.wereRunning = were;
+  const returned = cleanReturned(n.returned);
+  if (returned.length) out.returned = returned;
   if (n.files && Number.isInteger(n.files.damaged) && n.files.damaged >= 0) out.files = { damaged: n.files.damaged };
   return out;
 }
@@ -167,7 +181,8 @@ function checksFor(note, roster, removed) {
     const gone = new Set(Array.isArray(removed) ? removed : []);
     const cards = new Map(roster.filter((a) => a && a.sessionName).map((a) => [a.sessionName, a]));
     const asked = note.wereRunning.filter((a) => !gone.has(a.session));
-    const notBack = asked.filter((a) => !isUp(cards.get(a.session))).map((a) => (cards.get(a.session) || {}).name || a.name);
+    const seen = new Set(cleanReturned(note.returned));
+    const notBack = asked.filter((a) => !seen.has(a.session) && !isUp(cards.get(a.session))).map((a) => (cards.get(a.session) || {}).name || a.name);
     out.agents = { was: asked.length, back: asked.length - notBack.length, notBack };
   }
   if (note.files) out.files = { damaged: note.files.damaged };
@@ -183,4 +198,4 @@ function dismiss() {
   return writeJson(noteFile(), { ...n, dismissed: true });
 }
 
-module.exports = { noteFor, atStart, beat, startBeating, current, dismiss, noteRunning, runningOf, checksFor, publicNote, whoStarted, BEAT_MS, WINDOW_MS, SHOW_MS, _files: { aliveFile, noteFile } };
+module.exports = { noteFor, atStart, beat, startBeating, current, dismiss, noteRunning, runningOf, checksFor, publicNote, BEAT_MS, WINDOW_MS, SHOW_MS, _files: { aliveFile, noteFile } };
