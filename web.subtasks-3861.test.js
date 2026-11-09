@@ -317,3 +317,18 @@ test('#6923: a Tasks view row closed as replaced says so under the row; a plain 
   assert.doesNotMatch(tskRowWith(ESC, base, { depth: 0, crumb: false, kids: 0 }), /tsk-replaced/, 'CONTROL: a plain close has no replaced line');
   assert.doesNotMatch(tskRowWith(ESC, { ...base, state: 'open', replacedBy: 5 }, { depth: 0, crumb: false, kids: 0 }), /tsk-replaced/, 'an open row never says replaced');
 });
+
+/* kosmos#8301: built, and closed without running, are said apart from done. */
+test('kosmos#8301: the chip and label say built and closed without running apart from done', () => {
+  const row = Object.assign({}, rows().find((t) => t.number === 1), { subtasks: { done: 2, built: 1, held: 0, unrun: 1, total: 4 } });
+  const html = rowHtml(row, { depth: 0, crumb: false, kids: 0 });
+  assert.match(html, /title="1 of 4 subtasks done, 1 built, 1 closed without running"/);
+  assert.match(html, /<span>1\/4<span class="vh"> subtasks done<\/span>, 1 built, 1 closed without running<\/span>/);
+});
+
+test('kosmos#8301: every subtask closed, one without running: not "all subtasks done", and Close it stays', () => {
+  const row = Object.assign({}, rows().find((t) => t.number === 1), { state: 'open', closedAt: null, subtasks: { done: 2, built: 0, held: 0, unrun: 1, total: 2 } });
+  const html = rowHtml(row, { depth: 0, crumb: false, kids: 0 });
+  assert.match(html, /all subtasks closed<\/span><button type="button" data-close-parent=/);
+  assert.doesNotMatch(html, /all subtasks done/);
+});
