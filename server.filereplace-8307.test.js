@@ -2,9 +2,10 @@
 
 /**
  * kosmos#8307: a built mark whose file replaces the one kept says so in the line it types (which file it replaces, and
- * that a check of that file no longer counts), and reaches whoever checked the old file. The CLI's task list carries
- * what it replaced, path included; the Tasks view leaves both paths out. engine/tasks.filereplace-8307.test.js has the
- * store's side.
+ * that a check of that file no longer counts), and reaches whoever checked the old file. A withdrawn file sent back is
+ * said as restored. The CLI's task list carries what it replaced, never its path; the Tasks view leaves the current path
+ * out. A task the person marked built refuses an agent's new file. engine/tasks.filereplace-8307.test.js has the store's
+ * side.
  *
  * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included).
  *
@@ -213,4 +214,44 @@ test('#8307: the page\'s own mark gets the task back without either file path; a
   assert.equal('builtFilePath' in screen.json.task, false, 'the page was sent the delivered file\'s path');
   assert.equal(screen.json.task.builtReplaces.fingerprint, A, 'CONTROL: the page still hears what it replaced');
   assert.equal('filePath' in screen.json.task.builtReplaces, false, 'the page was sent the replaced file\'s path');
+});
+
+test('#8307: a withdrawn file sent back tells its checker the check counts again', async () => {
+  const chat = require('./engine/chat');
+  const n = tasks.create(projectId, { sentence: 'Make the agenda', who: 'mona' }).number;
+  await mark(n, asAgent('mona'), { fingerprint: A, file_path: FILE_A });
+  await mark(n, asAgent('ivy'));
+  await mark(n, asAgent('mona'), { note: 'forgot the file' });
+  const sends = [];
+  try {
+    chat.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false);
+    const r = await mark(n, asAgent('mona'), { fingerprint: A, file_path: FILE_A, note: 'file back' });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual(told(r), ['ivy'], JSON.stringify(r.json));
+    const typed = pastedMessages(sends);
+    assert.equal(typed.length, 1, JSON.stringify(typed));
+    assert.match(typed[0], new RegExp('it names again the file withdrawn earlier \\(' + A + '\\), so a check of that file counts again: you checked that one'), typed[0]);
+    assert.doesNotMatch(typed[0], /no longer counts/, typed[0]);
+  } finally {
+    chat.resetForTests();
+  }
+});
+
+test('#8307: once the person marks the task built, an agent cannot replace or withdraw its file (the route refuses)', async () => {
+  const n = tasks.create(projectId, { sentence: 'Make the poster', who: 'mona' }).number;
+  await mark(n, asAgent('mona'), { fingerprint: A, file_path: FILE_A });
+  const screen = await mark(n, { 'sec-fetch-site': 'same-origin' });
+  assert.equal(screen.status, 200, JSON.stringify(screen.json));
+  const replace = await mark(n, asAgent('mona'), { fingerprint: B, file_path: FILE_B });
+  assert.equal(replace.status, 403, 'an agent replaced a file the person had marked: ' + JSON.stringify(replace.json));
+  const withdraw = await mark(n, asAgent('mona'), { note: 'no file' });
+  assert.equal(withdraw.status, 403, JSON.stringify(withdraw.json));
+  const stored = tasks.byNumber(projects.readAll().find((x) => x.id === projectId), n);
+  assert.equal(stored.builtFingerprint, A, 'the person\'s checked file changed');
+  assert.equal(stored.builtCheckedByPerson, true, 'CONTROL: the person\'s mark is recorded as a check of this file');
 });

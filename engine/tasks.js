@@ -895,8 +895,9 @@ function landedValue(c) {
   if (typeof onRemote !== 'boolean') return null;
   return { sha, repo, onRemote };
 }
-/* kosmos#8214, #8307: a task without the delivered files' paths (its own, and the one it replaced), for any view that
-   leaves this computer's paths out (the page's rows). A copy: the stored task keeps them, for task show and task files. */
+/* kosmos#8214, #8307: a task without the delivered file's path, for any view that leaves this computer's paths out (the
+   page's rows). A copy: the stored task keeps it, for task files. builtReplaces never stores a path (review 4); the strip
+   of one there only guards a store written by an earlier build of the #8307 branch. */
 function withoutFilePaths(t) {
   if (!t || typeof t !== 'object') return t;
   const rest = { ...t };
@@ -1031,7 +1032,18 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         : dropping ? recordOf(t)
           : sameFile && t.builtReplaces && typeof t.builtReplaces === 'object' ? t.builtReplaces
             : !kept && withdrawn ? withdrawn : null;
-      replacedNow = replacing ? { ...replaces, kind: 'replaced' } : dropping ? { ...replaces, kind: 'withdrawn' } : null;
+      /*   before                  this mark                     builtReplaces      checks of the current file   kind
+           no file                 a file                        none               none                         (none)
+           file F                  F again (anyone)              kept               kept (+ checker, - sender)   (none)
+           file F                  no file, F kept (a check)     kept               + the checker                (none)
+           file F                  a different file G            F + its checks     none                         replaced
+           file F                  no file, F dropped            F + its checks     (no current file)            withdrawn
+           F withdrawn             no file                       F kept             (no current file)            (none)
+           F withdrawn             F sent back                   none               F's checks again             restored
+           F withdrawn             a different file G            F + its checks     none                         replaced
+           anything                a clear                       none               none                         (none)            */
+      replacedNow = replacing ? { ...replaces, kind: 'replaced' } : dropping ? { ...replaces, kind: 'withdrawn' }
+        : sentBack ? { ...withdrawn, kind: 'restored' } : null;   // review 5: its checkers were told it no longer counted
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
         && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who) && (t.builtFilePath || '') === keptPath
         && sameList(t.builtCheckedBy, checkedBy) && (t.builtCheckedByPerson === true) === checkedByPerson

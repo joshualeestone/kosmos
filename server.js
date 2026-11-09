@@ -606,9 +606,11 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
        names the command, since a PDF's fingerprint is not its shasum and an older instruction says shasum. */
     + (/^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
     /* kosmos#8307: a replacement says which file it replaces, and that a check of that file no longer counts. */
-    + (replacedPrint ? (replaced.kind === 'withdrawn' ? ' - it no longer names a file: the one sent earlier (' + replacedPrint + ') is withdrawn'
-      : ' - it replaces the file sent earlier (' + replacedPrint + ')') + ', so a check of that file no longer counts'
-      + (checkedOld(m) ? ': you checked that one' : '') : '')
+    + (replacedPrint && replaced.kind === 'restored' ? ' - it names again the file withdrawn earlier (' + replacedPrint + '), so a check of that file counts again'
+      + (checkedOld(m) ? ': you checked that one' : '')   // review 5: they were told it no longer counted
+      : replacedPrint ? (replaced.kind === 'withdrawn' ? ' - it no longer names a file: the one sent earlier (' + replacedPrint + ') is withdrawn'
+        : ' - it replaces the file sent earlier (' + replacedPrint + ')') + ', so a check of that file no longer counts'
+        + (checkedOld(m) ? ': you checked that one' : '') : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
