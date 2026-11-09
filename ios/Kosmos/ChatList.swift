@@ -36,6 +36,20 @@ struct ChatList: UIViewRepresentable {
             laying = false
             onLayout?()
         }
+        // A scroll a person makes without a finger on the list: assistive technology (VoiceOver, Switch Control, Voice
+        // Control and Full Keyboard Access scroll through accessibilityScroll) and a hardware keyboard's scroll keys. Told to
+        // the coordinator as a drag of theirs, so the scroll it starts decides where the reader is (Coordinator.scrolled).
+        var personScrolls: (() -> Void)?
+        override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+            personScrolls?()
+            return super.accessibilityScroll(direction)
+        }
+        override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            let keys: Set<UIKeyboardHIDUsage> = [.keyboardUpArrow, .keyboardDownArrow, .keyboardPageUp, .keyboardPageDown,
+                                                 .keyboardHome, .keyboardEnd, .keyboardSpacebar]
+            if presses.contains(where: { $0.key.map { keys.contains($0.keyCode) } ?? false }) { personScrolls?() }
+            super.pressesBegan(presses, with: event)
+        }
         #if DEBUG
         // kosmos#8221 slice 4: on CI's slow runner an animated scroll nobody asked for moves the list off the newest message as
         // the chat opens. Each animated scroll call is traced, with fixed words for which kind of code asked for it (read from
@@ -49,7 +63,8 @@ struct ChatList: UIViewRepresentable {
             super.scrollRectToVisible(r, animated: animated)
         }
         func traceAsker(_ what: String, up: Bool) {
-            let stack = Thread.callStackSymbols.joined(separator: " ")
+            // Only the frames just above this call: the app's own entry point is in SwiftUI, at the bottom of every stack.
+            let stack = Thread.callStackSymbols.dropFirst(2).prefix(12).joined(separator: " ")
             let fromAX = stack.contains("ccessibility"), fromResponder = stack.contains("Responder")
             let fromKeyboard = stack.contains("Keyboard"), fromFocus = stack.contains("Focus"), fromSwiftUI = stack.contains("SwiftUI")
             ChatView.trace("uikit list: animated \(what), up \(up), accessibility \(fromAX), responder \(fromResponder), keyboard \(fromKeyboard), focus \(fromFocus), swiftui \(fromSwiftUI)", ring: false)
@@ -146,11 +161,8 @@ struct ChatList: UIViewRepresentable {
                 movedAt = CACurrentMediaTime()
             }
         }
-        // Whether the person has put a finger on the list since a scroll last ended.
+        // Whether the person has scrolled the list (a finger, or List.personScrolls) since a scroll last ended.
         var dragged = false
-        // Where the reader was last at the end (this list's pin or hold, or a scroll of theirs ending there): a scroll the
-        // person did not make that ends there or further down has not taken the reader away from the newest message.
-        var pinnedY: CGFloat = -.greatestFiniteMagnitude
         func scrollViewWillBeginDragging(_ sv: UIScrollView) { dragged = true }
         func scrollViewDidEndDecelerating(_ sv: UIScrollView) { scrolled(sv, how: "deceleration") }
         func scrollViewDidEndDragging(_ sv: UIScrollView, willDecelerate: Bool) { if !willDecelerate { scrolled(sv, how: "drag") } }
@@ -162,20 +174,15 @@ struct ChatList: UIViewRepresentable {
             dragged = false
             // kosmos#8221 slice 4 (CI runs 42533329564 to 42540464401): on a slow device, as a chat opens, an animated scroll
             // nobody asked for moved the list 50 pt up from its end, and the list stopped following the newest message, so the
-            // keyboard covered it. Without a finger, a person moves the list only with the status-bar tap (its own callback) or
-            // with assistive technology. So a scroll with no drag (an animation or a deceleration) keeps a reader at the newest
-            // there and puts them at the end, unless VoiceOver or Switch Control is running; then only one that went down
-            // from where they were last at the end keeps them (the lower of that and the end now: rows sized smaller than their
-            // estimate lower the end after the last pin). A drag, or the status-bar tap, decides as before.
-            let assistive = UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
-            let keep = how != "to top" && (!assistive || sv.contentOffset.y >= min(pinnedY, maxY(sv)) - 0.5)
-            if atEnd, !byPerson, keep {
+            // keyboard covered it. A person's scroll comes with a drag, or through List.personScrolls (assistive technology, a
+            // keyboard's scroll keys), or is the status-bar tap (its own callback). Any other scroll that ends while the reader
+            // is at the newest keeps them there and puts them at the end.
+            if atEnd, !byPerson, how != "to top" {
                 pin()
-                ChatView.trace("uikit list: scroll ended, not the person's, kept at the end after a \(how), assistive \(assistive) (\(geometry(sv)))", ring: false)
+                ChatView.trace("uikit list: scroll ended, not the person's, kept at the end after a \(how) (\(geometry(sv)))", ring: false)
                 return
             }
             atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
-            if atEnd { pinnedY = sv.contentOffset.y }
             ChatView.trace("uikit list: scroll ended, at end \(atEnd) (was \(wasAtEnd)), by the person \(byPerson), after a \(how) (\(geometry(sv)))", ring: false)
             if !atEnd { place = top() }
         }
@@ -203,7 +210,7 @@ struct ChatList: UIViewRepresentable {
             pinning = true
             list.contentOffset = CGPoint(x: 0, y: y)
             pinning = false
-            if y >= maxY(list) - ChatList.endSlack { atEnd = true; pinnedY = y }
+            if y >= maxY(list) - ChatList.endSlack { atEnd = true }
         }
 
         // After every layout, never under the person's finger or fling: a reader at the newest message is put back at the end
@@ -232,7 +239,6 @@ struct ChatList: UIViewRepresentable {
         func pin() {
             guard let list else { return }
             let y = maxY(list)
-            pinnedY = y
             guard abs(list.contentOffset.y - y) > 0.5 else { return }
             pinning = true
             list.contentOffset = CGPoint(x: 0, y: y)
@@ -307,6 +313,7 @@ struct ChatList: UIViewRepresentable {
         }
         list.delegate = co
         list.onLayout = { [weak co] in co?.laidOut() }
+        list.personScrolls = { [weak co] in co?.dragged = true }
         co.apply(ids)
         // A new list opens at the newest message: the chat is told so once, as it is told of every later change.
         let told = atEnd
