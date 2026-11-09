@@ -164,7 +164,9 @@ function markReturned(up) {
 
 function beat(now = Date.now()) {
   const at = new Date(now).toISOString();
-  return writeJson(aliveFile(), running ? { at, running } : { at });
+  // A list from reads that stopped hours ago no longer says who is running, so it is left out, like no list at all.
+  const current = running && ((carried && now < carriedUntil) || now - lastCardsAt <= ROSTER_STALE_MS);
+  return writeJson(aliveFile(), current ? { at, running } : { at });
 }
 
 /** Start the once-a-minute beat. The timer does not hold the process open. */
