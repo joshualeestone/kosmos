@@ -1562,6 +1562,21 @@ function paneOrder(id) {
   return (Number(w) || 0) * 10000 + (Number(p) || 0);
 }
 
+/* kosmos#8321: onePanePerSession folds `kappa` and `kappa-discord` into one row, which is right for a stray shell and hides
+   a real problem when both sessions are running an agent: two processes working one agent's folder (measured 11-09 with
+   a second launch job). Each name running in more than one session -> one other session's name, the one its row does not
+   show. Only unambiguous agent processes count (a `node` pane may be a dev server). */
+function twinSessions(panes, shown) {
+  const running = (c) => isUnambiguousClaude(c) || isCodexCommand(c) || isAntigravityCommand(c) || isGrokCommand(c);
+  const out = new Map();
+  for (const row of shown) {
+    if (!running(row.command)) continue;
+    const other = panes.find((p) => p.name === row.name && p.session !== row.session && running(p.command));
+    if (other) out.set(row.name, other.session);
+  }
+  return out;
+}
+
 function onePanePerSession(panes) {
   const bySession = new Map();
   for (const pane of panes) {
@@ -9320,6 +9335,7 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
 function snapshot() {
   const { panes: read, rejected: unreadableLines, rejectedLines: unreadableSamples } = listPanes();
   const panes = onePanePerSession(read);
+  const twins = twinSessions(read, panes);   // kosmos#8321
   // #5805 3b review 2: agents gone from this pass are no longer captured (not on an empty read: a failed listing must
   // not make every limit row read late).
   // #7693: not on a gathered list that has gone old: a pane since started would lose its row.
@@ -9818,6 +9834,7 @@ function snapshot() {
       // entry -- needs the one tmux knows, not the one we display. Publishing
       // it is what lets a consumer stop guessing between the two spellings.
       session: pane.session,
+      twinSession: twins.get(pane.name) || null,   // kosmos#8321: a second session is running this agent
       nameDerived: identity.derived,
       role: identity.role,
       target: pane.target,
@@ -10334,7 +10351,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)

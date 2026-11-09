@@ -6824,3 +6824,28 @@ test('#6190: a look worded after an await uses ITS OWN search, not one the board
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
+
+test('kosmos#8321: two sessions running one agent are named on its row; a shell or one session is not', () => {
+  const status = require('./status');
+  const pane = (session, command) => ({ name: 'kappa', session, command });
+  const shown = [pane('kappa-discord', 'claude')];
+  assert.equal(status.twinSessions([shown[0], pane('kappa', 'claude')], shown).get('kappa'), 'kappa');
+  assert.equal(status.twinSessions([shown[0], pane('kappa', '2.1.212')], shown).get('kappa'), 'kappa', 'the native Claude command is a version number');
+  assert.equal(status.twinSessions([shown[0], pane('kappa', 'zsh')], shown).has('kappa'), false, 'CONTROL: a shell beside it is not a second agent');
+  assert.equal(status.twinSessions([shown[0], pane('kappa-discord', 'claude')], shown).has('kappa'), false, 'CONTROL: a split window in one session is one agent');
+  assert.equal(status.twinSessions([pane('kappa-discord', 'zsh'), pane('kappa', 'claude')], [pane('kappa-discord', 'zsh')]).has('kappa'), false, 'CONTROL: the row itself is not running');
+});
+
+test('kosmos#8321: snapshot puts the second session on the agent card; one session adds nothing', () => {
+  const status = require('./status');
+  const fleet = require('../test-support/fleet');
+  const run = (lines) => {
+    status.setPaneSource(() => lines.join('\n'));
+    status.setPaneCapture(() => '');
+    try { return status.snapshot().agents.find((a) => a.sessionName === 'twin8321'); } finally { status.setPaneSource(null); status.setPaneCapture(null); }
+  };
+  const named = fleet.line({ session: 'twin8321-discord', command: fleet.CLAUDE_COMMAND });
+  const second = fleet.line({ session: 'twin8321', command: fleet.CLAUDE_COMMAND });
+  assert.equal(run([named, second]).twinSession, 'twin8321');
+  assert.equal(run([named]).twinSession, null, 'CONTROL: one session');
+});
