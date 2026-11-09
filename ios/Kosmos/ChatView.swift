@@ -90,6 +90,7 @@ struct ChatView: View {
     #if DEBUG
     // kosmos#7609: set only by the DEBUG sample scroll-up once it has told the chat where the reader is; checks wait on it.
     @State private var sampleScrollRested = false
+    @State private var sampleA11yResult: String?   // kosmos#8221 slice 11: KOSMOS_SAMPLE_A11YSCROLL's result, for its check
     @State private var sampleRebuilds: Int?   // kosmos#7420: KOSMOS_SAMPLE_REBUILD's marker: the rebuilds counted once they have settled
     static var sampleRebuildDone = false       // once a launch, so the hook never runs twice whatever the list's appear does
     #endif
@@ -667,6 +668,10 @@ struct ChatView: View {
             #if DEBUG
             sampleScrollRested = true; Self.trace("debug scroll-up rested, atBottom \(atBottom)")
             #endif
+        }, sampleA11y: { result in
+            #if DEBUG
+            sampleA11yResult = result
+            #endif
         })
         .kosmosTopFade(ground: Palette.chatGround)
         // While a page loads the line floats over the top and takes no room, as on the lazy list (slice 7).
@@ -677,6 +682,13 @@ struct ChatView: View {
                 Color.clear.frame(width: 1, height: 1)
                     .allowsHitTesting(false)
                     .accessibilityElement().accessibilityLabel("sample scroll rested").accessibilityIdentifier("sample-scroll-rested")
+            }
+        }
+        .overlay(alignment: .bottomLeading) {
+            if let r = sampleA11yResult {
+                Color.clear.frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                    .accessibilityElement().accessibilityLabel("sample a11y scroll " + r).accessibilityIdentifier("sample-a11y-scroll")
             }
         }
         #endif
