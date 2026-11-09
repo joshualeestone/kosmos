@@ -4,7 +4,7 @@
 Served on PROD: `kosmos project show` flags a working member whose summary is over 4 hours old by the clock, once it has done some work; and `kosmos handoff`, run by an agent whose last self-report is more than 10 minutes old, says it is at work now, keeping the old report as the old report.
 
 ## What
-- engine/projectview.js wallClockStale: past the rhythm by the clock, its own latest report working, and 30 minutes of counted work since the summary. 24 hours still applies alone.
+- engine/projectview.js wallClockStale: past the rhythm by the clock, its own latest report working, and its current stretch of work at 30 minutes or more. 24 hours still applies alone.
 - engine/handoff.js stateFact: "at work now (it is running this handoff); its last self-report: ..." at 10 minutes or more.
 
 ## Decisions

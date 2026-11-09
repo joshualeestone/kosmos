@@ -215,11 +215,11 @@ function stateFact(session, now) {
   return parts.join('; ');
 }
 
+const LIVE_NOW_MS = 10 * 60 * 1000;   // a report newer than this still describes the turn it is in
 /* #6593: a self-report older than this is said to be old. A day: a working session reports far more often than that,
    so an older line is the leftover of an earlier one. */
 const STALE_REPORT_MS = 24 * 60 * 60 * 1000;
 /* The age in plain words; '' for a time in the future (clock skew, which saneIso already bounds to a day). */
-const LIVE_NOW_MS = 10 * 60 * 1000;   // a report newer than this still describes the turn it is in
 function agoWords(ms) {
   if (!Number.isFinite(ms) || ms < 0) return '';
   const min = Math.floor(ms / 60000);

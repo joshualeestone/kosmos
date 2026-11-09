@@ -28,14 +28,14 @@ const SUMMARY_RHYTHM_HOURS = 4;
    already stale (untimed) past TURN_ENDS_CAP_MS, also 24 hours, so this applies to the timed runners. */
 const WORKING_WALL_CAP_HOURS = 24;
 /* kosmos#8298 item 5 (0.8.0 cross-seat report: a working seat read "not overdue" on a 12-hour-old summary because little
-   work was counted): past the rhythm by the clock is enough once it has done some work since and its own latest report still says working (the
-   board's read of the screen adds nothing, Josh 0.7.48). WAKE_GRACE_MS keeps the
-   case #5635 F2 fixed: a seat woken five hours after a morning summary does not read overdue in its first minutes. */
+   work was counted): past the rhythm by the clock is enough once the agent's CURRENT stretch of work has run WAKE_GRACE_MS
+   by its own reports (the board's read of the screen adds nothing, Josh 0.7.48). WAKE_GRACE_MS keeps what #5635 F2 fixed:
+   a seat woken five hours after a morning summary does not read overdue in its first minutes. */
 const WAKE_GRACE_MS = 30 * 60 * 1000;
-function wallClockStale(summary, member, workedMs, reportsWorking) {
+function wallClockStale(summary, member, stretchMs) {
   if (!member || member.state !== 'working' || !Number.isFinite(summary.ageMinutes)) return false;
   return summary.ageMinutes > WORKING_WALL_CAP_HOURS * 60
-    || (summary.ageMinutes > SUMMARY_RHYTHM_HOURS * 60 && reportsWorking === true && workedMs >= WAKE_GRACE_MS);
+    || (summary.ageMinutes > SUMMARY_RHYTHM_HOURS * 60 && stretchMs >= WAKE_GRACE_MS);
 }
 const SUMMARY_NAME = /^\d{4}-\d{2}-\d{2}-\d{2}\.md$/;
 /* How many of the newest-NAMED summaries are checked (round 2: the whole folder was sorted and up to 5000 files were
@@ -370,7 +370,18 @@ function workExcused(summary, member, readHistory, nowMs) {
     const byReports = reportedWorking > SUMMARY_RHYTHM_HOURS * 3600000;
     return { ...summary, workedSince: Math.ceil((byReports ? reportedWorking : worked) / 60000), workAllReported: byReports || reportedWorking >= worked };
   }
-  if (wallClockStale(summary, member, worked, state === 'working')) return { ...summary, wallClock: true };   // #5635 (0.7.83 report), #8298
+  /* The stretch it is in now: back from its latest report while they say busy. A heartbeating runner (a working cap) is
+     timed between its working reports, so one dangling row after an idle adds nothing; one that files a single working at
+     a turn's start is timed from that report. Zero unless its latest report says working. */
+  let stretch = 0;
+  if (state === 'working') {
+    let first = NaN; let last = NaN;
+    for (let i = valid.length - 1; i >= 0 && valid[i].at > wroteAt && busy(valid[i].state); i -= 1) {
+      if (valid[i].state === 'working') { if (!Number.isFinite(last)) last = valid[i].at; first = valid[i].at; }
+    }
+    if (Number.isFinite(first)) stretch = (Number.isFinite(cap) ? last : now) - first;
+  }
+  if (wallClockStale(summary, member, stretch)) return { ...summary, wallClock: true };   // #5635 (0.7.83 report), #8298
   // Review 5: rounded up, so any reported work reads as at least a minute, never as none.
   return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.ceil(worked / 60000)) };
 }
