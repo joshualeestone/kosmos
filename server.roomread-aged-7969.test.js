@@ -211,3 +211,28 @@ test('kosmos#8300: an old ask the reader claimed and has not answered stays list
   const r = await room(pid, '&unanswered=1');
   assert.ok(listed(r.text, mine), 'the claimed ask left the list:\n' + r.text);
 });
+
+test('kosmos#8300: an old ask that names only someone else stays listed: it was not to the whole room', async () => {
+  const pid = newRoom('Aged8300h');
+  const other = toRoom(pid, 10 * DAY, { mentioned: [CLAIMER], text: '@claimseat can you look' });
+  myPost(pid, 9 * DAY);
+  assert.ok(listed((await room(pid, '&unanswered=1')).text, other));
+});
+
+test('kosmos#8300: the count says how many came from the person when both kinds are aged', async () => {
+  const pid = newRoom('Aged8300i');
+  const person = toRoom(pid, 10 * DAY);
+  const agent = ask(pid, 10 * DAY - 1000);
+  myPost(pid, 9 * DAY);
+  const r = await room(pid, '&unanswered=1');
+  assert.ok(!listed(r.text, person) && !listed(r.text, agent), r.text);
+  assert.ok(r.text.includes('[kosmos] 2 posts that asked you something more than 3 days ago are not listed, including 1 from the person to the whole room that you have posted since. Add --all to see them too.\n'), r.text);
+  assert.ok(r.text.startsWith('Waiting on an answer from you: nothing from the last 3 days in this room.\n'), r.text);
+});
+
+test('kosmos#8300: a held ask with no record of reaching the reader stays listed', async () => {
+  const pid = newRoom('Aged8300j');
+  const held = toRoom(pid, 10 * DAY, { outcomes: { [ME]: 'held' } });
+  myPost(pid, 9 * DAY);
+  assert.ok(listed((await room(pid, '&unanswered=1')).text, held));
+});
