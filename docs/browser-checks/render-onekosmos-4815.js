@@ -461,7 +461,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
               window.setInterval = () => 0;
               const real = window.fetch;
               window.fetch = (url, opts) => (String(url).indexOf('/api/remote/computers') !== -1
-                ? new Promise((r) => setTimeout(() => r(new Response(JSON.stringify(answers.one), { status: 200, headers: { 'content-type': 'application/json' } })), 1500))
+                ? new Promise((r) => { (window.__heldComputers = window.__heldComputers || []).push(() => r(new Response(JSON.stringify(answers.one), { status: 200, headers: { 'content-type': 'application/json' } }))); })   // held until released, so "before the first answer" cannot race
                 : real(url, opts));
             }, { answers: ANSWERS, seededLoad });
             await s.goto(PAGE);
@@ -469,7 +469,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             await s.evaluate(({ worlds }) => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; worldswRender(worlds, {}); }, { worlds: WORLDS });
             const before = await shownNow();
             ok(`${t} #8325: before the first answer the control is ${seededLoad ? 'shown from memory' : 'absent with nothing remembered'}`, before === seededLoad, String(before));
-            await s.evaluate(() => computersFetch());
+            await s.evaluate(() => { const read = computersFetch(); (window.__heldComputers || []).forEach((release) => release()); return read; });
             const after = await shownNow();
             const kept = await s.evaluate(() => localStorage.getItem('kosmos.computersSeen'));
             ok(`${t} #8325: the answer corrects it and clears what was remembered`, after === false && kept === null, after + ' ' + kept);
