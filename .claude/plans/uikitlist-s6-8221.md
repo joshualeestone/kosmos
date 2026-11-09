@@ -44,3 +44,8 @@ measured simulator run shows a UIKit open with rows on screen is not counted bla
 ## Status
 
 - [ ] Plan only (14:5x CST 11-08).
+- [x] Steps 3 and 4, the board side (19:35 CST 11-08): engine/chatopens.js counts a showing with list "uikit" in its
+      build's uikit block, refuses any other list, and drops a malformed uikit block on read without the build. Three new
+      tests in server.chatopens-7420.test.js: 8 of 8 pass; CONTROL, the same tests with the engine change stashed, 3 fail.
+      Only server.js and that test read the counts (grep).
+- [ ] Step 1 (measure rows in reused hosted cells), then 2 and 5 (the phone sends the list word), then 6 and 7.
