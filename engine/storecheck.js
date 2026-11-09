@@ -176,7 +176,7 @@ function scan(opts) {
     found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, secret: holdsSecret(file), abs: file, copyAbs: copy ? copy.path : null, size: st.size, mtimeMs: st.mtimeMs });
   }
   FOUND = found;
-  SCANNED = { checked: UNREAD === 0 || found.length > 0, damaged: found.length };
+  SCANNED = { checked: UNREAD === 0 || found.length > 0, damaged: found.length, unread: UNREAD };
   return found;
 }
 
@@ -256,7 +256,14 @@ function restore(file, write) {
 /** The person said they have seen it: not shown again until the next start. */
 function dismiss() { FOUND = []; return true; }
 
-/** kosmos#8287: `checked` is whether this start's scan may speak: false if it did not finish, or read everything it could and missed something with nothing damaged to report. */
+/**
+ * kosmos#8287, #8297: what this start's scan may say, as { checked, damaged, unread }.
+ * - `damaged`: how many records it found damaged. `unread`: how many it could not look at (a folder it could not list,
+ *   a file it could not stat or read).
+ * - `checked` is false when the scan has not run, or when something was unread and nothing damaged was found: "read
+ *   fine" would then be a claim about files it never saw. When something damaged was found, `checked` stays true and
+ *   `unread` says the count is a floor.
+ */
 function lastScan() { return SCANNED ? { ...SCANNED } : { checked: false }; }
 
 module.exports = { atStart, scan, current, restore, dismiss, classify, lastScan };

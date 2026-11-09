@@ -24840,15 +24840,24 @@ function rebootChecked(checks) {
     }
   }
   const f = checks.files;
-  if (f) parts.push(f.damaged === 0 ? 'Kosmos\'s main records read fine' : f.damaged + ' of Kosmos\'s main records could not be read');
+  /* kosmos#8297: `damaged` counts the records found damaged (empty, blank, not Kosmos data, too big, or refused); `unread`
+     the ones it could not look at, so with both the damaged count is a floor and the line says so. */
+  const unread = f && Number.isInteger(f.unread) && f.unread > 0 ? f.unread : 0;
+  if (f) parts.push(f.damaged === 0 && !unread ? 'Kosmos\'s main records read fine'
+    : (unread ? 'at least ' : '') + f.damaged + ' of Kosmos\'s main records ' + (f.damaged === 1 ? 'is' : 'are') + ' damaged'
+      + (unread ? ' (' + unread + ' more could not be checked)' : ''));
   return parts.length ? 'Checked: ' + parts.join(', and ') + '.' : '';
 }
 let REBOOT_RECHECK = null;   // kosmos#8287: agents return over minutes, so a list of who is not back is asked again soon
+/* kosmos#8297: ...but only for the first minutes after Kosmos came back (the note's upAt), which is when agents return.
+   Past it the ten-minute re-check is enough. A note whose upAt this page cannot read is not asked about every minute. */
+const REBOOT_RECHECK_FOR_MS = 15 * 60 * 1000;
 function paintRebootNote(note) {
   const slot = document.getElementById('reboot-slot');
   if (!slot) return;
   clearTimeout(REBOOT_RECHECK);
-  if (note && note.checks && note.checks.agents && note.checks.agents.notBack.length) REBOOT_RECHECK = setTimeout(rebootNoteCheck, 60 * 1000);
+  const sinceUp = note ? Date.now() - Date.parse(note.upAt) : NaN;
+  if (note && note.checks && note.checks.agents && note.checks.agents.notBack.length && sinceUp < REBOOT_RECHECK_FOR_MS) REBOOT_RECHECK = setTimeout(rebootNoteCheck, 60 * 1000);
   const down = note && rebootWhen(note.bootAt);
   const up = note && rebootWhen(note.upAt);
   const held = slot.contains(document.activeElement);   // a re-check that removes or repaints it must not drop focus to the page

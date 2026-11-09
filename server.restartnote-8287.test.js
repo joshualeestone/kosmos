@@ -61,7 +61,7 @@ test('#8287: the route says what was checked, names who is not back, and keeps t
 
 test('#8287: start() hands atStart the result of the file check', () => {
   assert.ok(atStartGot, 'start() never called atStart');
-  assert.deepEqual(atStartGot.files, { checked: true, damaged: 0 }, 'atStart was not given the file check');
+  assert.deepEqual(atStartGot.files, { checked: true, damaged: 0, unread: 0 }, 'atStart was not given the file check');   // kosmos#8297: unread too
 });
 
 test('#8287: the minute tick feeds the note its roster, and the route takes no roster read of its own', () => {
