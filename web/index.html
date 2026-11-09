@@ -27238,7 +27238,8 @@ function myAgentsTop() {
 function paintMyAgents() {
   const box = document.getElementById('my-agents');
   if (!box) return;
-  const on = URL_TAB === 'detail' && window.innerWidth >= MY_AGENTS_MIN_WIDTH;
+  const shown = sortAgents((LAST || []).filter((a) => !(a && a.isGuide === true)), AGENT_SORT, PROJECTS, AGENT_STARS);
+  const on = URL_TAB === 'detail' && window.innerWidth >= MY_AGENTS_MIN_WIDTH && shown.length > 0;   // nobody to list: no column, and the link stays
   box.hidden = !on;
   document.body.classList.toggle('has-myagents', on);
   document.getElementById('panel-detail').toggleAttribute('data-to-all', !DETAIL_FROM_PROJECT);
@@ -27257,7 +27258,6 @@ function paintMyAgents() {
   }
   myAgentsTop();
   const list = document.getElementById('my-agents-list');
-  const shown = sortAgents((LAST || []).filter((a) => !(a && a.isGuide === true)), AGENT_SORT, PROJECTS, AGENT_STARS);
   const html = shown.map(lrow).join('');
   if (html !== MY_AGENTS_HTML) {
     // A running agent's row changes on most polls, so a rebuild keeps the person's place and a focused name.
@@ -49686,7 +49686,10 @@ for (const boardEl of [document.getElementById('grid'), document.getElementById(
     // .acard in the grid, .lrow in the list: one contract (data-agent).
     const card = e.target.closest('.acard[data-agent], .lrow[data-agent]');
     // kosmos#8303: reopening the agent already open would reload its page and throw away anything typed there.
-    if (card && !(boardEl.id === 'my-agents-list' && card.classList.contains('current'))) openDetail(card.dataset.agent);
+    if (card && !(boardEl.id === 'my-agents-list' && card.classList.contains('current'))) {
+      // Moving between agents in My Agents keeps the way back to the project they were reached from.
+      openDetail(card.dataset.agent, undefined, boardEl.id === 'my-agents-list' ? (DETAIL_FROM_PROJECT || undefined) : undefined);
+    }
   });
 }
 /**
@@ -55411,6 +55414,7 @@ document.getElementById('my-agents-fold').addEventListener('click', () => {
   MY_AGENTS_FOLDED = !myAgentsFolded();
   try { localStorage.setItem('kosmos.fold.myagents', MY_AGENTS_FOLDED ? '1' : '0'); } catch { /* holds for this page */ }
   paintMyAgents();
+  fitDetailName();   // the page just changed width
 });
 /* A clicked name must not hold focus, or typing straight into the conversation is dropped. A keyboard press keeps it. */
 document.getElementById('my-agents-list').addEventListener('click', (e) => {
