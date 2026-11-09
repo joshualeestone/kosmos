@@ -21663,7 +21663,7 @@ const server = http.createServer(async (req, res) => {
        If the removals cannot be read the agents are left out: a removed agent must not read as not back. */
     if (note) {
       let removed = null;
-      try { removed = removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name); } catch { removed = null; }
+      try { const r = removal.removedNames(); removed = r && r.ok === true ? r.names : null; } catch { removed = null; }
       let checks = {};
       try { checks = rn.checksFor(note, removed ? rn.lastRoster() : null, removed || []); } catch { checks = {}; }
       note = rn.publicNote(note, checks);

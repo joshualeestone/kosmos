@@ -51,6 +51,12 @@ test('#8287: the route says what was checked, names who is not back, and keeps t
   const after = await (await fetch(url)).json();
   fs.rmSync(removedFile);
   assert.deepEqual(after.note.checks.agents, { was: 0, back: 0, notBack: [] }, 'a removed agent read as not back');
+
+  // A damaged removals file: who was removed is unknown, so the agents are left out, and the files clause stays.
+  fs.writeFileSync(removedFile, Buffer.alloc(16));
+  const damaged = await (await fetch(url)).json();
+  fs.rmSync(removedFile);
+  assert.deepEqual(damaged.note.checks, { files: { damaged: 2 } }, 'an unreadable removals file still named agents as not back');
 });
 
 test('#8287: start() hands atStart the result of the file check', () => {
@@ -62,7 +68,7 @@ test('#8287: the minute tick feeds the note its roster, and the route takes no r
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const tick = src.indexOf('const crashLoopTick = setInterval(');
   const feed = src.indexOf("require('./engine/restartnote').noteRunning(roster)");
-  assert.ok(tick > 0 && feed > tick && feed < tick + 2500, 'the once-a-minute read no longer tells the note who is up');
+  assert.ok(tick > 0 && feed > tick && feed < src.indexOf('crashLoopTick.unref', tick), 'the once-a-minute read no longer tells the note who is up');
   const route = src.slice(src.indexOf("pathname === '/api/board/restart-note' &&"), src.indexOf("pathname === '/api/board/restart-note/dismiss'"));
   assert.ok(route.includes('rn.lastRoster()'), 'CONTROL: the route is not the one read here');
   assert.ok(!/sweepRoster\(|safeRoster\(|snapshot\(/.test(route), 'a page route took a blocking roster read');
