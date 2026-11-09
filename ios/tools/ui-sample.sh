@@ -70,10 +70,11 @@ if [ "$uikit" = 1 ]; then
   # kosmos#8221 slice 8: LongPressKeyboardUITests (7) and DeleteMessageUITests (3), long press to copy or delete on the UIKit
   #   list; each chat launch asserts the UIKit list drew it (UIKitListArm.assertDrawn). This arm only (by hand on the lazy).
   # kosmos#8221 slice 9: EndPullUITests (6), the pull past the newest message, a message landing during it included.
-  # kosmos#8221 slice 11: A11yScrollUITests (2), a scroll up without a finger is not held at the end, with its control arm.
   # kosmos#8221 slice 10: ChatSearchUITests (1) and ChatDragUITests (1), search and the drag that takes the keyboard down,
   #   each launch now asserting the UIKit list drew it. Neither is in the lazy arm's list (the 260-message chat's blank, above).
-  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:2"
+  # kosmos#8221 slice 11: A11yScrollUITests (5), a scroll up without a finger is not held at the end: animated and slow, a
+  #   scroll that moves nothing, and two control arms with the fix off.
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:5"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done
