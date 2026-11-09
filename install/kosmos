@@ -12,7 +12,7 @@
 #                    #4636, as `open` too; the watchdog reads 4 and 5); a note comes first when this
 #                    install cannot run the board check (#6358)
 #   kosmos open      start if needed, then open the dashboard in the browser
-#   kosmos version   print the app version
+#   kosmos version   print the app version and build
 #
 # ⚠️ WHO RUNS THIS, because it governs the voice: mostly nobody. The person
 # installs with one pasted line and lives in the icon and the browser tab from
@@ -2587,8 +2587,14 @@ cmd_version() {
     _ver=$(KOSMOS_PKG="$KOSMOS_HOME/app/package.json" "$NODE" -p 'JSON.parse(require("fs").readFileSync(process.env.KOSMOS_PKG,"utf8")).version') || exit $?
     # kosmos#8299: the build it was made from, from the VERSION file the bundle carries ("app:    <commit> [(dirty)] (package.json x)").
     if [ -r "$KOSMOS_HOME/VERSION" ]; then
-      _build=$(sed -n 's/^app:[[:space:]]*\([0-9A-Za-z._-][0-9A-Za-z._-]*\).*/\1/p' "$KOSMOS_HOME/VERSION" 2>/dev/null | sed -n 1p)
-      case "$_build" in unknown) _build="" ;; esac
+      # Best effort: the version still prints if this file cannot be read. LC_ALL=C: a byte that is not valid text must not stop sed.
+      _build=$(LC_ALL=C sed -n 's/^app:[[:space:]]*\([0-9A-Za-z._-][0-9A-Za-z._-]*\).*/\1/p' "$KOSMOS_HOME/VERSION" 2>/dev/null | LC_ALL=C sed -n 1p) || _build=""
+      case "$_build" in
+        unknown) _build="" ;;
+        # The Linux bundle records the full commit and the Mac bundle 10 characters: one width, so seats can compare.
+        *[!0-9a-f]*) ;;
+        *) _build=$(printf '%s' "$_build" | cut -c1-10) ;;
+      esac
       if [ -n "$_build" ] && grep -q '^app:.* (dirty) ' "$KOSMOS_HOME/VERSION" 2>/dev/null; then _build="$_build-dirty"; fi
     fi
     if [ -n "$_build" ]; then printf '%s (build %s)\n' "$_ver" "$_build"; else printf '%s\n' "$_ver"; fi

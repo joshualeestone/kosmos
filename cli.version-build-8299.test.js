@@ -40,7 +40,18 @@ test('kosmos#8299: the version line names the build, on every spelling of the ve
 
 test('kosmos#8299: both ways a build says it was dirty are carried', () => {
   assert.equal(versionOut(body('e224150682-dirty (package.json 9.9.9)')), '9.9.9 (build e224150682-dirty)\n', 'the Mac bundle: git describe --dirty');
-  assert.equal(versionOut(body('e224150682 (dirty) (package.json 9.9.9)')), '9.9.9 (build e224150682-dirty)\n', 'the Linux bundle');
+  assert.equal(versionOut(body('e224150682aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (dirty) (package.json 9.9.9)')), '9.9.9 (build e224150682-dirty)\n', 'the Linux bundle');
+});
+
+test('kosmos#8299: the full commit the Linux bundle records reads the same as the Mac bundle', () => {
+  assert.equal(versionOut(body('e224150682aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (package.json 9.9.9)')), '9.9.9 (build e224150682)\n');
+});
+
+test('kosmos#8299: a VERSION file that is not valid text still leaves the version printed', () => {
+  fs.writeFileSync(VERSION, Buffer.concat([Buffer.from('app:    e224150682 (package.json 9.9.9)\nnode:   '), Buffer.from([0xff, 0xfe]), Buffer.from('\n')]));
+  const r = spawnSync('bash', [INSTALLED, '--version'], { env: { ...process.env, KOSMOS_HOME: HOME_, HOME: SB, LC_ALL: 'en_US.UTF-8' }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, '9.9.9 (build e224150682)\n');
 });
 
 test('kosmos#8299: with no build to name, the version alone', () => {

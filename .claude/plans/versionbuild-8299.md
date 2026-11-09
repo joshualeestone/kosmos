@@ -2,7 +2,8 @@
 
 ## Change
 `kosmos version`, `--version` and `-v` print `0.8.00 (build e224150682)`, from the app line of the VERSION file the Mac and
-Linux bundles carry. A dirty build reads `<commit>-dirty`, from either spelling the two bundles use. No VERSION file, or a
+Linux bundles carry. Linux records a full commit and Mac 10 characters, so a hex build is cut to 10 and seats can compare. A dirty build reads
+`<commit>-dirty`, from either spelling the two bundles use. Reading the file is best effort: the version prints even if it cannot be read. No VERSION file, or a
 build recorded as unknown, prints the version alone, as before.
 
 ## Rejected
