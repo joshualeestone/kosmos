@@ -6835,3 +6835,17 @@ test('kosmos#8321: two sessions running one agent are named on its row; a shell 
   assert.equal(status.twinSessions([shown[0], pane('kappa-discord', 'claude')], shown).has('kappa'), false, 'CONTROL: a split window in one session is one agent');
   assert.equal(status.twinSessions([pane('kappa-discord', 'zsh'), pane('kappa', 'claude')], [pane('kappa-discord', 'zsh')]).has('kappa'), false, 'CONTROL: the row itself is not running');
 });
+
+test('kosmos#8321: snapshot puts the second session on the agent card; one session adds nothing', () => {
+  const status = require('./status');
+  const fleet = require('../test-support/fleet');
+  const run = (lines) => {
+    status.setPaneSource(() => lines.join('\n'));
+    status.setPaneCapture(() => '');
+    try { return status.snapshot().agents.find((a) => a.sessionName === 'twin8321'); } finally { status.setPaneSource(null); status.setPaneCapture(null); }
+  };
+  const named = fleet.line({ session: 'twin8321-discord', command: fleet.CLAUDE_COMMAND });
+  const second = fleet.line({ session: 'twin8321', command: fleet.CLAUDE_COMMAND });
+  assert.equal(run([named, second]).twinSession, 'twin8321');
+  assert.equal(run([named]).twinSession, undefined, 'CONTROL: one session');
+});

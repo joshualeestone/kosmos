@@ -23833,7 +23833,7 @@ function nameGoLabel(a) {
 /* kosmos#8321: two sessions running one agent's folder. Short on the card, the whole sentence on hover and the agent's page. */
 function twinSay(a) {
   return a && typeof a.twinSession === 'string' && a.twinSession
-    ? 'Two copies of this agent are running at once, so they can overwrite each other\u2019s work. The other copy is running as ' + a.twinSession + '.'
+    ? 'Two copies of this agent are running at once. In the same folder, they can overwrite each other\u2019s work. The other copy is running as ' + a.twinSession + '.'
     : '';
 }
 function twinNote(a) {
