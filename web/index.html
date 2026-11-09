@@ -71826,14 +71826,19 @@ function paintProjectTasks(p) {
     const sub = t.subtasks && t.subtasks.total > 0 ? t.subtasks : null;
     /* kosmos#8140: held subtasks are said apart from the ones not done, so a parent built with most pieces held does
        not read as finished. */
-    const subHeld = sub && Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '';
-    const subLabel = sub ? sub.done + ' of ' + sub.total + ' subtasks done' + subHeld : '';
+    /* kosmos#8301: built, and closed without running, are said apart from done. */
+    const subUnrun = sub && Number(sub.unrun) > 0 ? Number(sub.unrun) : 0;
+    const subDone = sub ? sub.done - subUnrun : 0;
+    const subBuilt = sub && Number(sub.built) > 0 ? ', ' + Number(sub.built) + ' built' : '';
+    const subHeld = sub ? (subUnrun ? ', ' + subUnrun + ' closed without running' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '') : '';
+    const subAllBuilt = !!sub && !t.closedAt && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total;
+    const subLabel = sub ? subDone + ' of ' + sub.total + ' subtasks done' + subBuilt + subHeld : '';
     /* The hidden words follow the count and come BEFORE the held figure, so a screen reader hears "0/4 subtasks done, 3 on
        hold", never "3 on hold subtasks done" (kosmos#8140 review 1). */
     /* kosmos#8140 design shot: the words sit in ONE inner span. The chip is inline-flex with a gap, and the hidden span
        split the visible text into two flex items, so it read "1/4 , 3 on hold". */
-    const chip = sub ? '<span class="tsk-chip" title="' + esc(subLabel) + '"><span>' + sub.done + '/' + sub.total
-      + (sub.done === sub.total ? ', all subtasks done' : (!t.closedAt && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total) ? ', all subtasks built' : '<span class="vh"> subtasks done</span>') + esc(subHeld) + '</span></span>' : '';
+    const chip = sub ? '<span class="tsk-chip" title="' + esc(subLabel) + '"><span>' + subDone + '/' + sub.total
+      + (subDone === sub.total ? ', all subtasks done' : subAllBuilt ? ', all subtasks built' : '<span class="vh"> subtasks done</span>' + esc(subBuilt)) + esc(subHeld) + '</span></span>' : '';
     const partOf = crumb && t.parent != null
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
@@ -72236,12 +72241,15 @@ function tskRow(t, at) {
   const place = at || { depth: 0, crumb: false, kids: 0 };
   const sub = t.subtasks && t.subtasks.total > 0 ? t.subtasks : null;
   const folded = TSK.fold && TSK.fold.has(tskKey(t));
-  const subHeld = sub && Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '';   // kosmos#8140: apart from not done
-  const chipLabel = sub ? sub.done + ' of ' + sub.total + ' subtasks done' + subHeld : '';
+  /* kosmos#8301: built, and closed without running, are said apart from done. */
+  const subUnrun = sub && Number(sub.unrun) > 0 ? Number(sub.unrun) : 0;
+  const subDone = sub ? sub.done - subUnrun : 0;
+  const subHeld = sub ? (Number(sub.built) > 0 ? ', ' + Number(sub.built) + ' built' : '') + (subUnrun ? ', ' + subUnrun + ' closed without running' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '') : '';   // kosmos#8140: apart from not done
+  const chipLabel = sub ? subDone + ' of ' + sub.total + ' subtasks done' + subHeld : '';
   const chip = !sub ? ''
     : place.kids
-      ? '<button type="button" class="tsk-chip" data-fold="' + esc(tskKey(t)) + '" aria-expanded="' + !folded + '" aria-label="' + esc(chipLabel + (folded ? '. Show them' : '. Hide them')) + '" title="' + esc(chipLabel) + '"><span class="car" aria-hidden="true">\u25be</span>' + sub.done + '/' + sub.total + esc(subHeld) + '</button>'
-      : '<span class="tsk-chip" title="' + esc(chipLabel) + '"><span>' + sub.done + '/' + sub.total + '<span class="vh"> subtasks done</span>' + esc(subHeld) + '</span></span>';   // held after the hidden words (kosmos#8140 review 1), all in one inner span so the chip's flex gap cannot split them (design shot)
+      ? '<button type="button" class="tsk-chip" data-fold="' + esc(tskKey(t)) + '" aria-expanded="' + !folded + '" aria-label="' + esc(chipLabel + (folded ? '. Show them' : '. Hide them')) + '" title="' + esc(chipLabel) + '"><span class="car" aria-hidden="true">\u25be</span>' + subDone + '/' + sub.total + esc(subHeld) + '</button>'
+      : '<span class="tsk-chip" title="' + esc(chipLabel) + '"><span>' + subDone + '/' + sub.total + '<span class="vh"> subtasks done</span>' + esc(subHeld) + '</span></span>';   // held after the hidden words (kosmos#8140 review 1), all in one inner span so the chip's flex gap cannot split them (design shot)
   /* Every subtask closed, the parent still open: say so and offer Close. Closing the last child
      never closes the parent (nothing cascades, engine/tasks.js); the person decides here. */
   const allDone = sub && sub.done === sub.total && t.state !== 'closed'
