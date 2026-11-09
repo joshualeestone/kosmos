@@ -62,4 +62,16 @@ measured simulator run shows a UIKit open with rows on screen is not counted bla
       same three fields as before (CONTROL); with the word dropped from finish, 1 of 2128 FAILS on it. Room suite pins the
       guard gone and the word passed (850/850). All 12 run-*.sh pass, run.sh 2128/2128, ios*.test.js 43/43, Release
       typecheck clean.
-- [ ] Step 6's remaining runs (ui-sample.sh both arms), then 7: review, PR, TestFlight once slices 4 to 6 are on main.
+- [x] ui-sample.sh --uikit on this Mac before the review (21:29-21:35 CST, iPhone 17e iOS 27.0): PASS 14 of 14.
+- [x] Rebased onto main after #8275 merged (22:30; slice 5 dropped, slice 4's empty CI-trigger commit removed by hand).
+- [x] Review, bounded at 3 rounds before it started. Round 1 (opus) WARNING: an older board's clean() ignores an unknown
+      field, so a body naming list "uikit" would be accepted there and added to the lazy totals for good. Changed the
+      design: the list is named by the PATH, POST /api/phone/chat-open-uikit with the same three-field body; an older
+      board answers it 404 and the showing is lost, never miscounted. CONTROL: with the route taken out of server.js the
+      UIKit posts get 404 and 2 of 8 tests fail; restored 8 of 8. ChatOpenCount.finish is as on main. NIT (NOTE) fixed.
+      Round 2 (sonnet): no BLOCKER or WARNING; NITs taken (the UIKit path's 403 and bad-JSON refusals tested, the NOTE
+      says how a missing or lone uikit block reads). Converged.
+- [x] Full validation first FAILED on server.ios-routes-6838.test.js (two routes on one line, and a ternary request the
+      audit cannot pair with its method): one builder per route now, the audit passes including its live check that the
+      board answers the new path. Full validation PASSED (23:12 CST, hash ccdff6c17bec, 27723 tests).
+- [ ] PR; CI runs both ui-sample arms on the final code; merge on green; TestFlight with slice 6.
