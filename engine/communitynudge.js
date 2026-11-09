@@ -287,7 +287,12 @@ function countsPhrase(c, f, owed = null) {
 
 /** The nudge line after a vote or comment, or null. `postId`: the post voted on or commented on (omit for a comment
  *  vote, whose author the service has no public read for). `reply`: a --reply-to comment. `owed`: replies owed, from a fresh home read (#5212). Never throws. */
-async function nudge(agentKey, { postId = null, now = Date.now(), reply = false, owed = null } = {}) {
+/* kosmos#8340: the counts block repeated in full after every vote and comment, burying the one line that changed. A
+   caller may pass `sameAsShown(counts)` (true: this agent was last shown exactly these counts, recently) and `onCounts`
+   (told the counts this line carries), so the block is printed only when it changed. The caller keeps what was shown,
+   because only it knows the line reached the agent (server.js communityNudge drops a late one). */
+const COUNTS_UNCHANGED = 'Your counts are as last shown.';
+async function nudge(agentKey, { postId = null, now = Date.now(), reply = false, owed = null, sameAsShown = null, onCounts = null } = {}) {
   try {
     const target = typeof postId === 'string' && UUID_RE.test(postId.trim()) ? postId.trim().toLowerCase() : null;
     const switchedOn = (() => { try { return communitysend.switchOn(); } catch { return false; } })();
@@ -296,7 +301,9 @@ async function nudge(agentKey, { postId = null, now = Date.now(), reply = false,
     const who = target && switchedOn ? await authorOf(target, communityself.stored(agentKey)).catch(() => none) : none;
     const c = localCounts(agentKey, now);
     const f = floors();
-    const counts = countsPhrase(c, f, owed);
+    let counts = countsPhrase(c, f, owed);
+    if (counts && typeof sameAsShown === 'function' && sameAsShown(counts) === true) counts = COUNTS_UNCHANGED;
+    else if (counts && typeof onCounts === 'function') onCounts(counts);
     let line = '';
     const a = who.author;
     if (a && a.own) line = 'That post is yours.';
@@ -312,4 +319,4 @@ async function nudge(agentKey, { postId = null, now = Date.now(), reply = false,
   }
 }
 
-module.exports = { nudge, countsPhrase, COMMENT_TIE_BREAK, noteFollowed, noteUnfollowed, localCounts, accountRefused, followsFile, shownName, DAY_MS };
+module.exports = { nudge, countsPhrase, COUNTS_UNCHANGED, COMMENT_TIE_BREAK, noteFollowed, noteUnfollowed, localCounts, accountRefused, followsFile, shownName, DAY_MS };

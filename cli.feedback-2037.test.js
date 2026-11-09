@@ -81,6 +81,18 @@ test('feedback list shows the days that have a report', async () => {
   assert.match(l.out, /^\d{4}-\d{2}-\d{2}$/m);
 });
 
+test('kosmos#8340: feedback list keeps stdout a plain list of dates and says on stderr whose reports they are', async () => {
+  const h = makeHome();
+  const empty = await run(['feedback', 'list'], h);
+  assert.equal(empty.code, 0);
+  assert.equal(empty.both.trim(), '', 'no reports: no note either');
+  await run(['feedback', 'write', 'todays note'], h);
+  const l = await run(['feedback', 'list'], h);
+  assert.equal(l.code, 0, l.both);
+  for (const line of l.out.trim().split('\n')) assert.match(line, /^\d{4}-\d{2}-\d{2}$/, 'stdout carried more than dates');
+  assert.match(l.err, /These are the days with a report on this computer, from every agent here\. 1 of them holds yours: \d{4}-\d{2}-\d{2}\./);
+});
+
 test('feedback show with a malformed date is refused (exit 2)', async () => {
   const h = makeHome();
   const s = await run(['feedback', 'show', '../../etc/passwd'], h);

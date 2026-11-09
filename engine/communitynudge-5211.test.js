@@ -406,3 +406,20 @@ test('#5212: "replies owed" leads the counts when the caller has a fresh home re
     for (const owed of [null, undefined, -1, 1.5, '2', 0]) assert.equal(await nudge.nudge('mara', { now, owed }), today(1, 0, 1), 'owed ' + owed);
   } finally { await be.close(); }
 });
+
+test('kosmos#8340: counts the agent was last shown are replaced by one short sentence; changed counts print in full and are reported', async () => {
+  const now = Date.now();
+  fresh(now);
+  const full = today(1, 0, 1);
+  const told = [];
+  // CONTROL: with no caller memory, the block prints in full, as before.
+  assert.equal(await nudge.nudge('mara', { now }), full);
+  // The caller says these exact counts were shown: one sentence instead, and onCounts is not called for them.
+  const same = await nudge.nudge('mara', { now, sameAsShown: (c) => c === full, onCounts: (c) => told.push(c) });
+  assert.equal(same, nudge.COUNTS_UNCHANGED);
+  assert.deepEqual(told, []);
+  // Different counts from what was shown: printed in full, and the caller is told what this line carries.
+  const changed = await nudge.nudge('mara', { now, sameAsShown: (c) => c === 'something else', onCounts: (c) => told.push(c) });
+  assert.equal(changed, full);
+  assert.deepEqual(told, [full]);
+});
