@@ -103,6 +103,9 @@ test('#5812 review 1: on an enforcing board a token-only agent notes only its ow
   fs.writeFileSync(own, 'y');
   const docs = await (await fetch(base + '/api/project/fw-q/documents?limit=50')).json();
   const by = Object.fromEntries(docs.files.map((f) => [f.name, f.changedBy || null]));
-  assert.equal(by['forged.md'], null, 'a token-only agent noted a write in another agent\'s name');
+  /* kosmos#8320: the caller's own token names the writer, so xia's call is recorded as xia, the agent that made it.
+     What this test guards is unchanged: never wen, the agent whose session xia claimed. */
+  assert.notEqual(by['forged.md'], 'WEN', 'a token-only agent noted a write in another agent\'s name');
+  assert.equal(by['forged.md'], 'XIA', 'the caller\'s own token did not name it as the writer');
   assert.equal(by['own.md'], 'WEN', 'CONTROL: the agent\'s own write was not noted');
 });

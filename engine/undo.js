@@ -136,6 +136,20 @@ function ownedBy(onlyFor, who) {
   if (!onlyFor || typeof onlyFor !== 'object') return true;
   try { return onlyFor.byKey ? require('./store').safeKey(who) === onlyFor.key : who === onlyFor.name; } catch { return false; }
 }
+/* kosmos#8320: the agent a keep call's OWN agent token names, as the writer of the file, or null. The Codex, Gemini,
+   Grok and Antigravity bridges send their token on every keep call, but their session ids are not Claude transcript
+   ids, so agentFor finds them only in their own folder, never in a project's. `caller` is server.js
+   agentTokenCaller's answer ({ name, key, twins, byKey }). Only a name Kosmos has a profile for is taken: the token's
+   own name, or its key while no second name holds tokens under that key (the key alone then says which agent). */
+function tokenWriter(caller) {
+  if (!caller || typeof caller !== 'object') return null;
+  let names = [];
+  try { const known = require('./register').known(); names = known.ok ? known.names : []; } catch { return null; }
+  const want = [caller.name];
+  if (!caller.twins) want.push(caller.key);
+  for (const n of want) if (typeof n === 'string' && n && names.includes(n)) return n;
+  return null;
+}
 let lastSweep = 0;
 function resetForTests() {
   setCache = { at: 0, key: '', set: null }; sessionsCache = { at: 0, byAgent: new Map(), folders: new Map() }; lastSweep = 0; }
@@ -568,4 +582,4 @@ function apply(projectId, task, paths, { now = Date.now() } = {}) {
 }
 
 module.exports = {
-  isCredential, credentialVerdict, _setBeforeWriteForTests, read, setOn, keep, agentFor, ownedBy, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };
+  isCredential, credentialVerdict, _setBeforeWriteForTests, read, setOn, keep, agentFor, ownedBy, tokenWriter, plan, apply, sweep, resetForTests, moveAside, MAX_BYTES, KEEP_DAYS, CHOOSABLE };
