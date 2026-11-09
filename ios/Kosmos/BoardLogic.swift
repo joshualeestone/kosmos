@@ -818,9 +818,21 @@ enum Board {
     // kosmos#8221 slice 6: a showing drawn by the New chat list goes to /api/phone/chat-open-uikit with the same body, and the
     // board counts it apart. The path names the list, not a field: a board older than the route answers it 404, so the showing
     // is lost there instead of counted into the lazy list's numbers (an older board ignores a field it does not know).
+    // Each path is built in its own function, so server.ios-routes-6838.test.js reads every route with its method.
     static func chatOpenRequest(mac: URL, body: [String: Any], uikit: Bool = false) -> URLRequest? {
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
-        var r = URLRequest(url: URL(string: uikit ? "/api/phone/chat-open-uikit" : "/api/phone/chat-open", relativeTo: mac)!.absoluteURL)
+        return uikit ? chatOpenUIKitRequest(mac: mac, data: data) : chatOpenLazyRequest(mac: mac, data: data)
+    }
+    private static func chatOpenLazyRequest(mac: URL, data: Data) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/phone/chat-open", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.httpBody = data
+        return r
+    }
+    private static func chatOpenUIKitRequest(mac: URL, data: Data) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/phone/chat-open-uikit", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.setValue("application/json", forHTTPHeaderField: "Accept")
