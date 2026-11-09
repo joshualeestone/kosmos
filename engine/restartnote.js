@@ -10,16 +10,21 @@
  *   - this start is within WINDOW_MS after the boot (it came back with the computer, not long after it).
  * #5450: that second test is a guess, used only when nothing says who started the board. The Mac launcher says so
  * (KOSMOS_BOARD_STARTED_BY, install/kosmos): the supervisor (the login item, or a crash relaunch) makes a note however
- * long after the boot, and a person's start never does. Windows passes nothing yet, so the guess stands there.
+ * long after the boot, and a person's start never does. kosmos#8287: on Windows the board's logon task is that
+ * supervisor (whoStarted); a board started any other way there still falls to the guess.
  * A person who quit Kosmos yesterday and opened it after a restart gets no note: their last-alive time is old.
  * The words say "restarted", true of a crash and of a person's restart alike; nothing here can tell them apart.
  *
  * A deliberate stop: on a Mac, `kosmos stop` removes the last-alive record once the board is gone (install/kosmos).
  * Every other stop (quitting the app, Windows, which has no stop verb, and switching to another Kosmos, which stops
  * this one's board) leaves it, so stopping Kosmos, restarting the computer and starting it again within the window
- * still makes a note. #5450 fixed that on a Mac (a person's start never makes a note there); Windows waits for its
- * launcher to say who started the board. Clearing on SIGTERM in the board was
+ * still makes a note. #5450 fixed that on a Mac (a person's start never makes a note there). Clearing on SIGTERM in the board was
  * rejected: an ordinary shutdown sends SIGTERM to every process too, so a Mac would lose the note for every restart.
+ *
+ * kosmos#8287: the note also says what was checked. The beat records which agents were running, so the note can ask
+ * about exactly those: an agent a person stopped last week is not "not back". The result of this start's file check
+ * (engine/storecheck.js) is kept in the note, so dismissing or repairing that notice cannot turn it into "fine". What
+ * could not be checked is left out of the sentence, never reported as fine.
  *
  * Kept for SHOW_MS or until dismissed. Every read and write is best effort: this is a courtesy, never a gate.
  */
@@ -31,6 +36,7 @@ const store = require('./store');
 const BEAT_MS = 60 * 1000;
 const WINDOW_MS = 15 * 60 * 1000;
 const SHOW_MS = 24 * 60 * 60 * 1000;
+const MAX_AGENTS = 1000;   // a bound on what a damaged record can make the note carry
 
 const aliveFile = () => path.join(store.ROOT, 'board-alive.json');
 const noteFile = () => path.join(store.ROOT, 'board-restart-note.json');
@@ -47,6 +53,27 @@ function writeJson(file, data) {
   } catch { return false; }
 }
 const ms = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? t : null; };
+
+/* kosmos#8287: a list of {session, name}, or null when it is not one: null means nobody recorded who was running. */
+function cleanRunning(list) {
+  if (!Array.isArray(list)) return null;
+  return list.filter((a) => a && typeof a.session === 'string' && a.session).slice(0, MAX_AGENTS)
+    .map((a) => ({ session: a.session, name: typeof a.name === 'string' && a.name ? a.name : a.session }));
+}
+/* The same test the board's own cards use for an agent that is up (web/index.html). */
+function isUp(a) { return Boolean(a) && a.isAgentSession === true && a.isNamedOurs === true && a.state !== 'stopped'; }
+/* The agents of a roster that are up, as the beat records them. */
+function runningOf(roster) {
+  return (Array.isArray(roster) ? roster : []).filter((a) => isUp(a) && a.sessionName).map((a) => ({ session: a.sessionName, name: a.name || a.sessionName }));
+}
+/**
+ * kosmos#8287: who started this board, in noteFor's words. The launcher's word when it gave one (Mac); on Windows the
+ * board's logon task is the supervisor. Nothing else is known, so anything else stays undefined and the timer decides.
+ */
+function whoStarted({ launcherSaid, platform, startedByTask }) {
+  if (launcherSaid) return launcherSaid;
+  return platform === 'win32' && startedByTask === true ? 'supervisor' : undefined;
+}
 
 /**
  * The note for a start at `now`, given when the board was last alive and how long the computer has been up, or null.
@@ -78,7 +105,14 @@ function atStart(deps = {}) {
   const startedBy = deps.startedBy;
   const prev = readJson(aliveFile());
   const note = noteFor({ now, uptimeSec, lastAliveAt: prev && prev.at, startedBy });
-  if (note) writeJson(noteFile(), { ...note, dismissed: false });
+  if (note) {
+    // kosmos#8287: only what is known goes in, so a read that could not be made is absent from the sentence.
+    const were = cleanRunning(prev && prev.running);
+    if (were) note.wereRunning = were;
+    const scan = deps.files;
+    if (scan && scan.checked === true && Number.isInteger(scan.damaged) && scan.damaged >= 0) note.files = { damaged: scan.damaged };
+    writeJson(noteFile(), { ...note, dismissed: false });
+  }
   beat(now);
   // The person's mark is consumed only now that it has been used, so a board that died before this point was
   // relaunched still knowing a person started it (review 1). Review 9: and only AFTER the beat: a board killed between
@@ -90,7 +124,14 @@ function atStart(deps = {}) {
   return note;
 }
 
-function beat(now = Date.now()) { return writeJson(aliveFile(), { at: new Date(now).toISOString() }); }
+/* kosmos#8287: who the last roster read found up; null until one has succeeded, so the beat claims nothing before it. */
+let running = null;
+function noteRunning(roster) { running = Array.isArray(roster) ? cleanRunning(runningOf(roster)) : running; }
+
+function beat(now = Date.now()) {
+  const at = new Date(now).toISOString();
+  return writeJson(aliveFile(), running ? { at, running } : { at });
+}
 
 /** Start the once-a-minute beat. The timer does not hold the process open. */
 function startBeating() {
@@ -106,8 +147,35 @@ function current(now = Date.now()) {
   const up = ms(n.upAt);
   if (up == null || now - up > SHOW_MS || now < up - 60 * 1000) return null;   // a minute of slack for a clock set back a little
   if (ms(n.lastAliveAt) == null || ms(n.bootAt) == null) return null;
-  return { lastAliveAt: n.lastAliveAt, bootAt: n.bootAt, upAt: n.upAt };
+  const out = { lastAliveAt: n.lastAliveAt, bootAt: n.bootAt, upAt: n.upAt };
+  const were = cleanRunning(n.wereRunning);
+  if (were) out.wereRunning = were;
+  if (n.files && Number.isInteger(n.files.damaged) && n.files.damaged >= 0) out.files = { damaged: n.files.damaged };
+  return out;
 }
+
+/**
+ * kosmos#8287: what the page says was checked, from the note and the roster now. Pure. `agents` is absent when nobody
+ * recorded who was running or the roster could not be read; `files` is absent when the file check did not finish. An
+ * agent missing from the roster counts as not back unless it was removed since (`removed`, session names): reading
+ * missing as fine would hide the very failure this line exists to show.
+ */
+function checksFor(note, roster, removed) {
+  const out = {};
+  if (!note) return out;
+  if (Array.isArray(note.wereRunning) && Array.isArray(roster)) {
+    const gone = new Set(Array.isArray(removed) ? removed : []);
+    const cards = new Map(roster.filter((a) => a && a.sessionName).map((a) => [a.sessionName, a]));
+    const asked = note.wereRunning.filter((a) => !gone.has(a.session));
+    const notBack = asked.filter((a) => !isUp(cards.get(a.session))).map((a) => (cards.get(a.session) || {}).name || a.name);
+    out.agents = { was: asked.length, back: asked.length - notBack.length, notBack };
+  }
+  if (note.files) out.files = { damaged: note.files.damaged };
+  return out;
+}
+
+/* kosmos#8287: what the page is sent: the note's times and the checks, never the records they came from. */
+function publicNote(note, checks) { return { lastAliveAt: note.lastAliveAt, bootAt: note.bootAt, upAt: note.upAt, checks }; }
 
 function dismiss() {
   const n = readJson(noteFile());
@@ -115,4 +183,4 @@ function dismiss() {
   return writeJson(noteFile(), { ...n, dismissed: true });
 }
 
-module.exports = { noteFor, atStart, beat, startBeating, current, dismiss, BEAT_MS, WINDOW_MS, SHOW_MS, _files: { aliveFile, noteFile } };
+module.exports = { noteFor, atStart, beat, startBeating, current, dismiss, noteRunning, runningOf, checksFor, publicNote, whoStarted, BEAT_MS, WINDOW_MS, SHOW_MS, _files: { aliveFile, noteFile } };
