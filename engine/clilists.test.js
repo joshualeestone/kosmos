@@ -183,6 +183,10 @@ test('kosmos#7977: the word is the board\'s own, and every self-report state tra
     assert.equal(rosterRow({ name: 'A', cardWord: STATE_COPY.unknown, isNamedOurs: true }, { state: st, at: T }).lastReportState, st, st + ' did not travel');
   }
   assert.equal(rosterRow({ name: 'A', cardWord: STATE_COPY.unknown, isNamedOurs: true }, { state: 'rate_limited', at: T }).lastReportState, undefined);
+  // Review 2: and no state beyond selfreport's own: the printed list is pinned equal, not just a superset.
+  const src = require('node:fs').readFileSync(require.resolve('./clilists'), 'utf8');
+  const listed = JSON.parse(src.match(/const REPORT_STATES = new Set\((\[[^\]]*\])\)/)[1].replace(/'/g, '"'));
+  assert.deepEqual(listed, [...STATES]);
 });
 
 test('kosmos#7977: the last report travels as a state and a time only, and "never reported" is its own fact', () => {
