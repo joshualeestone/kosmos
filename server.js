@@ -21656,13 +21656,12 @@ const server = http.createServer(async (req, res) => {
     let note = null;
     const rn = require('./engine/restartnote');
     try { note = rn.current(); } catch { note = null; }
-    /* kosmos#8287: what was checked, read now, so agents that came back since say so. Only when there is a note: the
-       read costs a roster, and the page asks on every open. */
+    /* kosmos#8287: what was checked, from the roster the minute tick last read, so agents that came back since say so.
+       If the removals cannot be read the agents are left out: a removed agent must not read as not back. */
     if (note) {
-      try {
-        const removed = removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name);
-        note = rn.publicNote(note, rn.checksFor(note, sweepRoster(), removed));
-      } catch { note = rn.publicNote(note, {}); }
+      let removed = null;
+      try { removed = removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name); } catch { removed = null; }
+      note = rn.publicNote(note, rn.checksFor(note, removed ? rn.lastRoster() : null, removed || []));
     }
     sendJson(res, 200, { note });
     return;

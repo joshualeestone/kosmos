@@ -161,6 +161,26 @@ test('#8287: an agent seen back once stays back, so stopping it later that day i
   assert.deepEqual(rn.current(NOW + MIN).returned, ['leo'], 'an agent nobody asked about was recorded');
 });
 
+test('#8287: coming back does not excuse a later failure, only a plain stop', () => {
+  const note = { wereRunning: was('a'), returned: ['a'] };
+  assert.deepEqual(rn.checksFor(note, [card('a', 'A', { state: 'stopped' })], []).agents.notBack, [], 'CONTROL: a plain stop after coming back');
+  for (const failed of [card('a', 'A', { state: 'auth_failed' }), card('a', 'A', { state: 'connection_lost' }), card('a', 'A', { state: 'stopped', crashLoop: { looping: true } })]) {
+    assert.deepEqual(rn.checksFor(note, [failed], []).agents.notBack, ['A'], 'came back once and hid: ' + JSON.stringify(failed));
+  }
+  assert.deepEqual(rn.checksFor(note, [], []).agents.notBack, ['A'], 'gone from the roster was excused');
+});
+
+test('#8287: the route reads what the minute tick read, nothing until it has', () => {
+  clean();
+  assert.equal(rn.lastRoster(), null);
+  rn.noteRunning(null);
+  assert.equal(rn.lastRoster(), null, 'a failed read was kept as a roster');
+  rn.noteRunning([card('leo', 'Leo')]);
+  assert.deepEqual(rn.lastRoster().map((c) => c.sessionName), ['leo']);
+  rn.noteRunning(null);
+  assert.deepEqual(rn.lastRoster().map((c) => c.sessionName), ['leo'], 'a failed read lost the last good one');
+});
+
 test('#8287: the page gets the times and the checks and none of the records', () => {
   const n = { lastAliveAt: 'a', bootAt: 'b', upAt: 'c', wereRunning: was('leo'), returned: ['leo'], files: { damaged: 1 } };
   assert.deepEqual(rn.publicNote(n, { files: { damaged: 1 } }), { lastAliveAt: 'a', bootAt: 'b', upAt: 'c', checks: { files: { damaged: 1 } } });
@@ -171,7 +191,7 @@ test('#8287: the fields read are the ones real cards carry', () => {
   const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('homer', { state: 'working' }), fleet.agent('april', { state: 'auth_failed' })]);
   try {
     assert.deepEqual(rn.runningOf(board.agents).map((a) => a.session).sort(), ['homer', 'leo'], 'real cards did not read as up, or a failed one did');
-    assert.deepEqual(rn.checksFor({ wereRunning: was('leo', 'april') }, board.agents, []).agents.notBack.length, 1);
+    assert.deepEqual(rn.checksFor({ wereRunning: was('leo', 'april') }, board.agents, []).agents, { was: 2, back: 1, notBack: [board.agents.find((a) => a.sessionName === 'april').name || 'april'] });
   } finally { board.restore(); }
 });
 

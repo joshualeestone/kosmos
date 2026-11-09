@@ -163,7 +163,7 @@ function scan(opts) {
     if (st.size > MAX_BYTES) problem = 'toobig';
     else {
       let buf = null;
-      try { buf = fs.readFileSync(file); } catch (err) { problem = err && (err.code === 'EACCES' || err.code === 'EPERM') ? 'unopenable' : null; if (!problem) UNREAD += 1; }
+      try { buf = fs.readFileSync(file); } catch (err) { problem = err && (err.code === 'EACCES' || err.code === 'EPERM') ? 'unopenable' : null; if (!problem && (!err || err.code !== 'ENOENT')) UNREAD += 1; }
       if (buf) problem = classify(buf);
     }
     if (!problem) continue;
@@ -256,7 +256,7 @@ function restore(file, write) {
 /** The person said they have seen it: not shown again until the next start. */
 function dismiss() { FOUND = []; return true; }
 
-/** kosmos#8287: whether this start's scan finished and how many damaged stores it found, or { checked: false }. */
+/** kosmos#8287: `checked` is whether this start's scan may speak: false if it did not finish, or read everything it could and missed something with nothing damaged to report. */
 function lastScan() { return SCANNED ? { ...SCANNED } : { checked: false }; }
 
 module.exports = { atStart, scan, current, restore, dismiss, classify, lastScan };

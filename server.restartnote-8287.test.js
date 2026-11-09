@@ -35,16 +35,37 @@ require('./engine/storecheck').scan({ base: null });
 test('#8287: the route says what was checked, names who is not back, and keeps the list to itself', async (t) => {
   await start(0);
   t.after(() => { server.closeAllConnections(); server.close(); });
-  const got = await (await fetch(`http://127.0.0.1:${server.address().port}/api/board/restart-note`)).json();
+  const url = `http://127.0.0.1:${server.address().port}/api/board/restart-note`;
+  const before = await (await fetch(url)).json();
+  assert.deepEqual(before.note.checks, { files: { damaged: 2 } }, 'agents were reported before any roster was read');
+  rn.noteRunning([]);
+  const got = await (await fetch(url)).json();
   assert.ok(got.note, 'the note was not served');
   assert.deepEqual(got.note.checks, { agents: { was: 1, back: 0, notBack: ['Nobody Here'] }, files: { damaged: 2 } });
   assert.equal('wereRunning' in got.note, false, 'the page was sent the recorded list');
   assert.equal('files' in got.note, false, 'the raw record reached the page beside checks');
+
+  // A removed agent is not "not back", through the route's own read of the removals.
+  const removedFile = path.join(require('./engine/store').ROOT, 'removed.json');
+  fs.writeFileSync(removedFile, JSON.stringify([{ name: 'nobodyhere', stopped: true, removedAt: new Date().toISOString() }]));
+  const after = await (await fetch(url)).json();
+  fs.rmSync(removedFile);
+  assert.deepEqual(after.note.checks.agents, { was: 0, back: 0, notBack: [] }, 'a removed agent read as not back');
 });
 
 test('#8287: start() hands atStart the result of the file check', () => {
   assert.ok(atStartGot, 'start() never called atStart');
   assert.deepEqual(atStartGot.files, { checked: true, damaged: 0 }, 'atStart was not given the file check');
+});
+
+test('#8287: the minute tick feeds the note its roster, and the route takes no roster read of its own', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const tick = src.indexOf('const crashLoopTick = setInterval(');
+  const feed = src.indexOf("require('./engine/restartnote').noteRunning(roster)");
+  assert.ok(tick > 0 && feed > tick && feed < tick + 2500, 'the once-a-minute read no longer tells the note who is up');
+  const route = src.slice(src.indexOf("pathname === '/api/board/restart-note' &&"), src.indexOf("pathname === '/api/board/restart-note/dismiss'"));
+  assert.ok(route.includes('rn.lastRoster()'), 'CONTROL: the route is not the one read here');
+  assert.ok(!/sweepRoster\(|safeRoster\(|snapshot\(/.test(route), 'a page route took a blocking roster read');
 });
 
 test('#8287: the file check runs before the board starts, or every note loses its files clause', () => {
