@@ -32,10 +32,15 @@ test('the reward words appear only on reward: true; missing or anything else get
   assert.equal(paid.line, step.LINE_REWARD, 'CONTROL: true says it');
 });
 test('no working link, no step: a refusal, an old coordinator, or a link that is not the sign-up door', async () => {
-  for (const a of [{ ok: false }, null, { ok: true, data: {} }, { ok: true, data: { link: 'https://evil.test/signup?invite=abc' } }, { ok: true, data: { link: 'https://someone.example.test/signup?invite=abc' } },
+  for (const a of [{ ok: false, refusal: { code: 'company_seat' } }, { ok: true, data: {} }, { ok: true, data: { link: 'https://evil.test/signup?invite=abc' } }, { ok: true, data: { link: 'https://someone.example.test/signup?invite=abc' } },
     { ok: true, data: { link: 'http://login.example.test/signup?invite=abc' } }, { ok: true, data: { link: 'https://login.example.test/other?invite=abc' } },
     { ok: true, data: { link: 'https://login.example.test/signup' } }]) {
     assert.deepEqual(await ask({ remote: remote(a) }), { show: false }, JSON.stringify(a));
+  }
+});
+test('a call that failed for no stated reason is worth asking again', async () => {
+  for (const a of [{ ok: false, because: 'busy', notSent: true }, { ok: false, because: 'the tunnel program did not answer in time' }, null]) {
+    assert.deepEqual(await ask({ remote: remote(a) }), { show: false, wait: true }, JSON.stringify(a));
   }
 });
 test('waits for a first agent to do something: a closed or built task, or an agent speaking', async () => {

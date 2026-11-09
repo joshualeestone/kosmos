@@ -86,7 +86,8 @@ async function stepFor(o) {
     let host = null;
     try { host = new URL(remote.COORDINATOR()).hostname; } catch { return none; }
     const r = await remote.macRequest('POST', ROUTE, {});
-    if (!r || !r.ok) return none;
+    // The coordinator's own refusal is an answer (a company seat). Anything else (a busy tunnel, a timeout) is worth asking again.
+    if (!r || !r.ok) return r && r.refusal ? none : { show: false, wait: true };
     const got = parseInvite(r, host);
     if (!got) return none;
     return { show: true, link: got.link, reward: got.reward, ...wordsFor(got.reward) };
