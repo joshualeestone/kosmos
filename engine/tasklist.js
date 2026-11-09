@@ -424,8 +424,18 @@ function reachesAutomount(p, mounts, fsx = require('node:fs')) {
  *
  * Returns null when nothing on the way leaves this computer's own drives, else the words for why it is not opened.
  * `p` is a drive path (task files only calls it for one whose own letter is local). Measured on Windows 11 with node
- * 24: lstat reports a junction and a directory symlink alike as a link, and readlink gives the target without its
- * \\?\ prefix; the prefixed forms are handled anyway, for an older or other node.
+ * 24: lstat reports a junction and a directory symlink alike as a link. readlink strips the NT prefix only from a
+ * drive target (\??\C:\x -> C:\x) or a UNC one (\??\UNC\h\s -> \\h\s); every other device target comes back raw,
+ * e.g. \??\GLOBALROOT\Device\Mup\host\share (a network share by another name) or \??\Global\Z:\ (a mapped letter).
+ * So a target is accepted only in a shape this can check (a drive path, one of the prefixed drive forms, a rooted
+ * \x, or a relative name), and every other device form is refused.
+ *
+ * Once a link has been followed, a name the walk cannot find is NOT read as missing: the walk might have resolved the
+ * target differently from Windows, and the real open could still succeed. Only a path with no link on the way may be
+ * reported missing by compare().
+ *
+ * The walk and compare()'s open are separate steps, so a link swapped between them is not caught; doing that needs
+ * write access to the marked path's own folders on this computer.
  */
 function reachesNetworkWin(p, driveInfo, fsx = require('node:fs')) {
   const win = require('node:path').win32;
@@ -449,19 +459,20 @@ function reachesNetworkWin(p, driveInfo, fsx = require('node:fs')) {
     for (let i = 0; i < names.length; i += 1) {
       const next = win.join(cur, names[i]);
       let st;
-      // Nothing there, or not readable: nothing under it is looked up here, and compare() opens the same path, so it
-      // reaches no further than this walk did.
-      try { st = fsx.lstatSync(next); } catch { return null; }
+      // Nothing there, or not readable. With no link on the way, compare() opens this same path and reaches no further,
+      // so it reports it. After a link, the walk's idea of the path may not be Windows' (see above): not opened.
+      try { st = fsx.lstatSync(next); } catch { return hops ? 'it goes through a link Kosmos could not follow, so it does not open it' : null; }
       if (!st.isSymbolicLink()) { cur = next; continue; }
       if (++hops > 40) return 'it loops through links, so Kosmos does not open it';
       let to;
       try { to = String(fsx.readlinkSync(next)); } catch { return 'it goes through a link Kosmos could not read, so it does not open it'; }
-      // \\?\C:\x is the drive path C:\x; every other \\?\ or \\.\ form (\\?\UNC\host, \\?\Volume{...}) is not a
-      // drive path this can check, and \\host\share is a network location.
-      const dev = /^[\\/]{2}[?.][\\/]([A-Za-z]:[\\/].*)$/.exec(to);
-      if (dev) to = dev[1];
-      else if (/^[\\/]{2}(?![?.][\\/])/.test(to) || /^[\\/]{2}[?.][\\/]UNC([\\/]|$)/i.test(to)) return 'it goes through a link to a network location, so Kosmos does not open it';
-      else if (/^[\\/]{2}/.test(to)) return 'it goes through a link Kosmos could not follow (a device or volume path), so it does not open it';
+      // A prefixed target (\\?\, \\.\ or \??\, either slash): a drive path, a UNC share, or a device path refused.
+      const pre = /^(?:[\\/]{2}[?.]|[\\/]\?\?)[\\/](.*)$/s.exec(to);
+      if (pre) {
+        if (/^[A-Za-z]:[\\/]/.test(pre[1])) to = pre[1];
+        else if (/^UNC([\\/]|$)/i.test(pre[1])) return 'it goes through a link to a network location, so Kosmos does not open it';
+        else return 'it goes through a link Kosmos could not follow (a device or volume path), so it does not open it';
+      } else if (/^[\\/]{2}/.test(to)) return 'it goes through a link to a network location, so Kosmos does not open it';   // \\host\share
       let base;
       const drive = /^([A-Za-z]):([\\/]?)/.exec(to);
       if (drive) {

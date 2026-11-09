@@ -12,7 +12,8 @@
  * one says so and skips). "win32" in this file's name is what puts it in tools/windows-tests.js.
  *
  * Measured by hand on a Windows 11 box (11-09, node 24.19): lstat reports a junction and a directory symlink alike as
- * a link, readlink gives the target without a \\?\ prefix, and a junction cannot target UNC.
+ * a link; readlink strips \??\ only from a drive or UNC target, so other device targets (\??\GLOBALROOT\..., \??\Global\...)
+ * come back raw; and a junction cannot target UNC.
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -70,11 +71,27 @@ test('#8232: a link to a UNC share is refused, and nothing past the link is look
     assert.match(why || '', /network location/, to);
     assert.ok(!fsx.seen.some((p) => /link\\f\.txt$/i.test(p) || /host/i.test(p)), to + ': looked up past the link: ' + JSON.stringify(fsx.seen));
   }
-  // A volume mount point or other device path is not a drive path this can check: not opened, and not called network.
-  for (const to of ['\\\\?\\Volume{0b1c2d3e-0000-0000-0000-000000000000}\\', '\\\\.\\PhysicalDrive0']) {
-    const why = walk('C:\\work\\link\\f.txt', scripted({ 'C:\\work\\link': to }));
-    assert.match(why || '', /could not follow \(a device or volume path\)/, to);
+  // Every device form other than a drive or UNC one is refused. These are the shapes node 24's readlink really returns
+  // on Windows (measured 11-09): it strips \??\ only from a drive or UNC target, so the rest arrive raw, \??\ and all.
+  // \??\GLOBALROOT\Device\Mup\ is a network share by another name; \??\Global\Z:\ is a mapped letter by another name.
+  for (const to of ['\\??\\GLOBALROOT\\Device\\Mup\\host\\share', '\\??\\Global\\Z:\\', '\\??\\Volume{0b1c2d3e-0000-0000-0000-000000000000}\\',
+    '\\\\?\\Volume{0b1c2d3e-0000-0000-0000-000000000000}\\', '\\\\?\\GLOBALROOT\\Device\\Mup\\host', '\\\\.\\PhysicalDrive0', '/??/Global/C:/x']) {
+    const fsx = scripted({ 'C:\\work\\link': to });
+    assert.match(walk('C:\\work\\link\\f.txt', fsx) || '', /could not follow \(a device or volume path\)/, to);
+    assert.deepEqual(fsx.seen, ['C:\\work', 'C:\\work\\link'], to + ': looked up past the link');
   }
+  // The \??\ drive and UNC forms, in case a runtime leaves them raw.
+  assert.equal(walk('C:\\work\\link\\f.txt', scripted({ 'C:\\work\\link': '\\??\\C:\\real' })), null);
+  assert.match(walk('C:\\work\\link\\f.txt', scripted({ 'C:\\work\\link': '\\??\\Z:\\s' }), { C: LOCAL, Z: REMOTE }) || '', /drive Z:, a network drive/);
+  assert.match(walk('C:\\work\\link\\f.txt', scripted({ 'C:\\work\\link': '\\??\\UNC\\host\\share' })) || '', /network location/);
+});
+
+test('#8232: after a link, a name the walk cannot find is not opened (the walk may not be resolving it as Windows does)', () => {
+  // e.g. an NT symlink whose absolute target \Device\Mup\... reads as a rooted \x: the walk looks for C:\Device\...,
+  // finds nothing, and must not hand the original path to compare(), which Windows would open through the share.
+  const fsx = scripted({ 'C:\\work\\link': '\\Device\\Mup\\host\\share' }, ['C:\\Device']);
+  assert.match(walk('C:\\work\\link\\f.txt', fsx) || '', /could not follow/);
+  assert.equal(walk('C:\\work\\plain\\f.txt', scripted({}, ['C:\\work\\plain'])), null, 'CONTROL: with no link on the way, missing is still reported by compare()');
 });
 
 test('#8232: \\\\?\\C:\\ is a drive path and is checked as one', () => {
@@ -166,6 +183,20 @@ test('#8232 Windows: a real symlink to \\\\localhost\\ is refused without being 
   const u = path.join(dir, 'unc');
   if (!symlinkOrSkip(t, '\\\\localhost\\C$\\Windows', u)) return;
   assert.match(tasklist.reachesNetworkWin(path.join(u, 'win.ini'), here(dir)) || '', /network location/);
+});
+
+test('#8232 Windows: real symlinks to \\\\?\\GLOBALROOT\\Device\\Mup\\ and \\\\?\\Global\\<letter>:\\ are refused, though Windows reads through them', { skip: NEEDS_WINDOWS }, (t) => {
+  const { dir, real } = sandbox(t);
+  const own = dir.charAt(0).toUpperCase();
+  const viaRoot = path.join(dir, 'globalroot');
+  if (!symlinkOrSkip(t, '\\\\?\\GLOBALROOT\\Device\\Mup\\localhost\\' + own + '$\\' + real.slice(3), viaRoot)) return;
+  const viaGlobal = path.join(dir, 'global');
+  if (!symlinkOrSkip(t, '\\\\?\\Global\\' + real, viaGlobal)) return;
+  // The shape this host's readlink gives, which the scripted arms above assume.
+  assert.match(fs.readlinkSync(viaGlobal), /^\\\?\?\\Global\\/, 'readlink shape changed; update the scripted fixtures');
+  assert.match(tasklist.reachesNetworkWin(path.join(viaGlobal, 'f.txt'), here(dir)) || '', /device or volume path/);
+  assert.equal(fs.readFileSync(path.join(viaGlobal, 'f.txt'), 'utf8'), 'x', 'CONTROL: Windows really reads through \\\\?\\Global\\');
+  assert.match(tasklist.reachesNetworkWin(path.join(viaRoot, 'f.txt'), here(dir)) || '', /device or volume path/);
 });
 
 test('#8232 Windows: a real symlink to a network letter is refused, and to a local one opened', { skip: NEEDS_WINDOWS }, (t) => {

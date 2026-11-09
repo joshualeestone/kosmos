@@ -12,16 +12,21 @@ letter.
 - `p` is normalised by text first (`path.win32.normalize`), because Windows collapses `.` and `..` before it walks a
   path, so `C:\link\..\x` never follows `link`.
 - Walked one name at a time with lstat. A link is followed one hop at a time by reading it (never resolved):
-  - a UNC target (`\\host`, `\\?\UNC\`, `\\.\UNC\`) is refused as a network location;
-  - another `\\?\` or `\\.\` device or volume path is refused as one it cannot follow (a volume GUID target is
-    not a drive path the drive table can check; decided: not opened, not called network);
-  - `\\?\C:\x` is the drive path `C:\x`;
+  - a UNC target (`\\host`, `\\?\UNC\`, `\\.\UNC\`, `\??\UNC\`) is refused as a network location;
+  - every other `\\?\`, `\\.\` or `\??\` device or volume path is refused as one it cannot follow. node's readlink
+    returns these raw (it strips `\??\` only from a drive or UNC target), e.g. `\??\GLOBALROOT\Device\Mup\...` (a
+    network share by another name) and `\??\Global\Z:\` (a mapped letter by another name). A volume GUID target is
+    not a drive path the drive table can check either; decided: not opened, not called network;
+  - `\\?\C:\x` and `\??\C:\x` are the drive path `C:\x`;
   - a drive-letter target is checked with driveInfo/driveRefusal BEFORE anything on that drive is looked up;
   - a drive-relative target (`C:x`) is not followed;
   - `\x` is the root of the drive the link is on; a relative target is joined to the link's folder;
   - the rest of the path is joined to the target, normalised again, and the walk restarts.
-- More than 40 hops is a loop; an unreadable link is not opened; a name that is not there ends the walk (compare
-  reports it missing, reaching no further).
+- More than 40 hops is a loop; an unreadable link is not opened. A name that is not there ends the walk: with no link
+  on the way, compare reports it missing (reaching no further); after a link it is not opened, since the walk may not
+  have resolved the target as Windows does (e.g. an NT symlink to `\Device\Mup\...` reads as a rooted `\x`).
+- The walk and the open are separate steps; a link swapped between them needs write access to the path's own
+  folders on this computer, and is not caught.
 - Wired into `filesLines` after the drive-letter check; `opts.fs` is the test seam.
 
 Scope: `task files` (the open of a path a marker chose). `task built --file` keeps the marker's own path on the
