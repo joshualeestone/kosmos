@@ -3322,6 +3322,7 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    surviving rule would still draw a line under markup that no longer exists. */
 /* The role sits directly under the name as one unit (Josh's regroup). */
 .atwin { color: var(--danger); font-weight: 700; }   /* kosmos#8321 */
+.dmeta-twin { display: block; margin-top: 4px; color: var(--danger); font-size: .8125rem; font-weight: 400; }
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* #7978: inside the model line, so the card's grid gains no row; on a line of its own, and only when out of the ordinary. */
 .acard .amachine { display: block; font-weight: 600; color: var(--k-ink); margin-top: 2px; }
@@ -42583,7 +42584,7 @@ function paintDetailMeta(a) {
   if (roleSeg) metaBits.push(esc(roleSeg));
   // #684 is KEPT: the machine-name disclosure still explains a name that is really the machine's,
   // in the stranger's words -- only the #2833 provider/account/model segments are dropped (#3385).
-  if (twinSay(a)) metaBits.push('<span class="dmeta-note">' + esc(twinSay(a)) + '</span>');   // kosmos#8321
+  if (twinSay(a)) metaBits.push('<span class="dmeta-twin">' + esc(twinSay(a)) + '</span>');   // kosmos#8321: not .dmeta-note, which a phone hides on the Talk view
   if (!a.nameDerived) metaBits.push('<span class="dmeta-note">' + esc('no name was chosen for it, so this is the one it runs under') + '</span>');
   // Join with '' not '<br>': .dmeta-note is display:block with its own margin-top, so a <br>
   // before it stacked a redundant blank line when both the title and the #684 disclosure show.
