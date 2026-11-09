@@ -55,6 +55,7 @@ test('kosmos#8288: the rules in rosterRow are still the ones the page reads for 
     "typeof a.deliveryStall.words === 'string'",
     'a.crashLoop.looping === true',
     "a.state === 'working' && a.oneStep",   // kosmos#8304
+    'Number.isFinite(Date.parse(a.oneStep.since))',   // kosmos#8304: the page's half that rosterRow copies
   ]) assert.ok(page.includes(rule), 'the page no longer reads: ' + rule + '; rosterRow in engine/clilists.js copies it');
 });
 
@@ -146,6 +147,9 @@ test('kosmos#8304: a working card only (as the page), and only a plain tool name
     assert.equal(agentLines([odd]).lines[1], '  on one step since 2026-11-09 02:12', 'and the line names no tool rather than an empty or odd one');
   } finally { process.env.TZ = 'UTC'; }
   assert.equal(rosterRow({ name: 'Ada', state: 'working', oneStep: { tool: 'Bash', since: 'not a time' } }).longStepSince, undefined, 'a time the page would not show');
+  assert.equal(rosterRow({ name: 'Ada', state: 'working', oneStep: { tool: 'Bash', since: 'Mon, 09 Nov 2026 08:12:00 GMT' } }).longStepSince, T, 're-emitted as ISO, not passed through');
+  assert.deepEqual(agentLines([{ name: 'Ada', role: 'R', state: 'Working', longStepSince: T, longStepTool: 'x; rm' }]).lines.length, 2);
+  assert.doesNotMatch(agentLines([{ name: 'Ada', role: 'R', state: 'Working', longStepSince: T, longStepTool: 'x; rm' }]).lines[1], /rm/, 'the printer checks the name again');
 });
 
 test('kosmos#8304: kept apart from the Windows turn stall (#7368), which has its own words and field', () => {
