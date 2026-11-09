@@ -427,12 +427,14 @@ function reachesAutomount(p, mounts, fsx = require('node:fs')) {
  * 24: lstat reports a junction and a directory symlink alike as a link. readlink strips the NT prefix only from a
  * drive target (\??\C:\x -> C:\x) or a UNC one (\??\UNC\h\s -> \\h\s); every other device target comes back raw,
  * e.g. \??\GLOBALROOT\Device\Mup\host\share (a network share by another name) or \??\Global\Z:\ (a mapped letter).
- * So a target is accepted only in a shape this can check (a drive path, one of the prefixed drive forms, a rooted
- * \x, or a relative name), and every other device form is refused.
+ * So a target is accepted only in a shape whose meaning is certain, a drive path (bare or with a drive prefix) or a
+ * relative name, and every other device form is refused. A rooted target (\x) is refused too: readlink gives the same
+ * text for a relative-flag \x (the root of the link's own drive) and for an absolute NT target such as
+ * \Device\Mup\host\share (a network share), and anyone may create C:\Device\..., so no lookup can tell them apart.
  *
- * Once a link has been followed, a name the walk cannot find is NOT read as missing: the walk might have resolved the
- * target differently from Windows, and the real open could still succeed. Only a path with no link on the way may be
- * reported missing by compare().
+ * Because every accepted target is resolved as Windows resolves it, a name the walk cannot find (ENOENT, ENOTDIR) is
+ * not there for compare() either, link or not, and compare() reports it MISSING. Any other lstat error after a link is
+ * not opened; with no link on the way compare() hits the same error and says so.
  *
  * The walk and compare()'s open are separate steps, so a link swapped between them is not caught; doing that needs
  * write access to the marked path's own folders on this computer.
@@ -459,9 +461,11 @@ function reachesNetworkWin(p, driveInfo, fsx = require('node:fs')) {
     for (let i = 0; i < names.length; i += 1) {
       const next = win.join(cur, names[i]);
       let st;
-      // Nothing there, or not readable. With no link on the way, compare() opens this same path and reaches no further,
-      // so it reports it. After a link, the walk's idea of the path may not be Windows' (see above): not opened.
-      try { st = fsx.lstatSync(next); } catch { return hops ? 'it goes through a link Kosmos could not follow, so it does not open it' : null; }
+      // Not there: compare() opens this same path (see above) and reports it missing. Not readable: see above.
+      try { st = fsx.lstatSync(next); } catch (e) {
+        const gone = e && (e.code === 'ENOENT' || e.code === 'ENOTDIR');
+        return gone || !hops ? null : 'it goes through a link to a place Kosmos could not look at, so it does not open it';
+      }
       if (!st.isSymbolicLink()) { cur = next; continue; }
       if (++hops > 40) return 'it loops through links, so Kosmos does not open it';
       let to;
@@ -471,7 +475,7 @@ function reachesNetworkWin(p, driveInfo, fsx = require('node:fs')) {
       if (pre) {
         if (/^[A-Za-z]:[\\/]/.test(pre[1])) to = pre[1];
         else if (/^UNC([\\/]|$)/i.test(pre[1])) return 'it goes through a link to a network location, so Kosmos does not open it';
-        else return 'it goes through a link Kosmos could not follow (a device or volume path), so it does not open it';
+        else return 'it goes through a link Kosmos could not follow (a mounted volume or device path), so it does not open it';
       } else if (/^[\\/]{2}/.test(to)) return 'it goes through a link to a network location, so Kosmos does not open it';   // \\host\share
       let base;
       const drive = /^([A-Za-z]):([\\/]?)/.exec(to);
@@ -480,8 +484,8 @@ function reachesNetworkWin(p, driveInfo, fsx = require('node:fs')) {
         const refused = letterOk(drive[1]);
         if (refused) return refused;
         base = to;
-      } else if (/^[\\/]/.test(to)) base = root + to.replace(/^[\\/]+/, '');   // \x: the root of the drive the link is on
-      else base = win.join(cur, to);                                         // relative to the folder the link is in
+      } else if (/^[\\/]/.test(to)) return 'it goes through a link Kosmos could not follow (a target with no drive), so it does not open it';   // \x: see above
+      else base = win.join(cur, to);   // relative to the folder the link is in
       full = win.normalize(win.join(base, ...names.slice(i + 1)));
       if (!/^[A-Za-z]:[\\/]/.test(full)) return 'it goes through a link Kosmos could not follow, so it does not open it';
       continue walk;

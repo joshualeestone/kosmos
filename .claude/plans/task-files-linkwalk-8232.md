@@ -20,11 +20,14 @@ letter.
   - `\\?\C:\x` and `\??\C:\x` are the drive path `C:\x`;
   - a drive-letter target is checked with driveInfo/driveRefusal BEFORE anything on that drive is looked up;
   - a drive-relative target (`C:x`) is not followed;
-  - `\x` is the root of the drive the link is on; a relative target is joined to the link's folder;
+  - a rooted target (`\x`) is refused: readlink gives the same text for a relative-flag `\x` and for an absolute NT
+    target such as `\Device\Mup\host\share`, and anyone may create `C:\Device\...`, so no lookup can tell them apart;
+  - a relative target is joined to the link's folder;
   - the rest of the path is joined to the target, normalised again, and the walk restarts.
-- More than 40 hops is a loop; an unreadable link is not opened. A name that is not there ends the walk: with no link
-  on the way, compare reports it missing (reaching no further); after a link it is not opened, since the walk may not
-  have resolved the target as Windows does (e.g. an NT symlink to `\Device\Mup\...` reads as a rooted `\x`).
+- More than 40 hops is a loop; an unreadable link is not opened. Every accepted target (a drive path or a relative
+  name) is resolved as Windows resolves it, so a name that is not there (ENOENT/ENOTDIR) ends the walk and compare
+  reports it MISSING, link or not (a file gone from behind a junction stays a MISSING verdict). Any other lstat error
+  after a link is not opened.
 - The walk and the open are separate steps; a link swapped between them needs write access to the path's own
   folders on this computer, and is not caught.
 - Wired into `filesLines` after the drive-letter check; `opts.fs` is the test seam.

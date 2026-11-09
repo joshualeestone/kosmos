@@ -31,16 +31,18 @@ const sha = (text) => 'sha256:' + crypto.createHash('sha256').update(text).diges
 
 /* A scripted filesystem: `links` maps a full path (case-blind) to its target; `missing` paths fail lstat; everything
    else is a plain folder or file. Every lstat and readlink is recorded, so a test can say what was looked up. */
-function scripted(links = {}, missing = []) {
+function scripted(links = {}, missing = [], failing = {}) {
   const key = (p) => p.toLowerCase();
   const L = new Map(Object.entries(links).map(([k, v]) => [key(k), v]));
   const gone = new Set(missing.map(key));
+  const F = new Map(Object.entries(failing).map(([k, v]) => [key(k), v]));
   const seen = [];
   return {
     seen,
     lstatSync(p) {
       seen.push(p);
       if (gone.has(key(p))) { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; }
+      if (F.has(key(p))) throw F.get(key(p));
       return { isSymbolicLink: () => L.has(key(p)) };
     },
     readlinkSync(p) {
@@ -77,7 +79,7 @@ test('#8232: a link to a UNC share is refused, and nothing past the link is look
   for (const to of ['\\??\\GLOBALROOT\\Device\\Mup\\host\\share', '\\??\\Global\\Z:\\', '\\??\\Volume{0b1c2d3e-0000-0000-0000-000000000000}\\',
     '\\\\?\\Volume{0b1c2d3e-0000-0000-0000-000000000000}\\', '\\\\?\\GLOBALROOT\\Device\\Mup\\host', '\\\\.\\PhysicalDrive0', '/??/Global/C:/x']) {
     const fsx = scripted({ 'C:\\work\\link': to });
-    assert.match(walk('C:\\work\\link\\f.txt', fsx) || '', /could not follow \(a device or volume path\)/, to);
+    assert.match(walk('C:\\work\\link\\f.txt', fsx) || '', /could not follow \(a mounted volume or device path\)/, to);
     assert.deepEqual(fsx.seen, ['C:\\work', 'C:\\work\\link'], to + ': looked up past the link');
   }
   // The \??\ drive and UNC forms, in case a runtime leaves them raw.
@@ -86,12 +88,25 @@ test('#8232: a link to a UNC share is refused, and nothing past the link is look
   assert.match(walk('C:\\work\\link\\f.txt', scripted({ 'C:\\work\\link': '\\??\\UNC\\host\\share' })) || '', /network location/);
 });
 
-test('#8232: after a link, a name the walk cannot find is not opened (the walk may not be resolving it as Windows does)', () => {
-  // e.g. an NT symlink whose absolute target \Device\Mup\... reads as a rooted \x: the walk looks for C:\Device\...,
-  // finds nothing, and must not hand the original path to compare(), which Windows would open through the share.
-  const fsx = scripted({ 'C:\\work\\link': '\\Device\\Mup\\host\\share' }, ['C:\\Device']);
-  assert.match(walk('C:\\work\\link\\f.txt', fsx) || '', /could not follow/);
-  assert.equal(walk('C:\\work\\plain\\f.txt', scripted({}, ['C:\\work\\plain'])), null, 'CONTROL: with no link on the way, missing is still reported by compare()');
+test('#8232: a rooted target is refused, even when a folder of that name exists on the link\'s drive', () => {
+  // readlink gives \Device\Mup\host\share for an absolute NT symlink (Windows opens it through the share) and for a
+  // relative-flag \x alike; anyone may create C:\Device\Mup\..., so finding it there proves nothing.
+  for (const to of ['\\Device\\Mup\\host\\share', '\\x', '/x']) {
+    const fsx = scripted({ 'C:\\work\\link': to });
+    assert.match(walk('C:\\work\\link\\f.txt', fsx) || '', /could not follow \(a target with no drive\)/, to);
+    assert.deepEqual(fsx.seen, ['C:\\work', 'C:\\work\\link'], to + ': looked up past the link');
+  }
+});
+
+test('#8232: a name that is not there after a link to a drive path is reported missing, as without a link', () => {
+  // Every accepted target is resolved as Windows resolves it, so compare() opens the same path and says MISSING.
+  assert.equal(walk('C:\\work\\junc\\gone.txt', scripted({ 'C:\\work\\junc': 'C:\\real' }, ['C:\\real\\gone.txt'])), null);
+  assert.equal(walk('C:\\work\\rel\\gone.txt', scripted({ 'C:\\work\\rel': '..\\real' }, ['C:\\real\\gone.txt'])), null);
+  assert.equal(walk('C:\\work\\plain\\f.txt', scripted({}, ['C:\\work\\plain'])), null, 'CONTROL: with no link on the way too');
+  // Any other lstat error after a link is not opened; with no link compare() hits it and says so.
+  const denied = new Error('EPERM'); denied.code = 'EPERM';
+  assert.match(walk('C:\\work\\junc\\f.txt', scripted({ 'C:\\work\\junc': 'C:\\real' }, [], { 'C:\\real\\f.txt': denied })) || '', /could not look at/);
+  assert.equal(walk('C:\\work\\f.txt', scripted({}, [], { 'C:\\work\\f.txt': denied })), null, 'CONTROL: no link: compare() reports it');
 });
 
 test('#8232: \\\\?\\C:\\ is a drive path and is checked as one', () => {
@@ -115,13 +130,13 @@ test('#8232: a chain of links is followed hop by hop, and a network hop anywhere
   assert.equal(walk('C:\\a\\f.txt', scripted({ 'C:\\a': 'C:\\b', 'C:\\b': 'D:\\c' }), { C: LOCAL, D: LOCAL }), null, 'CONTROL: the same chain ending local is opened');
 });
 
-test('#8232: relative and rooted targets resolve against the link\'s own folder and drive', () => {
+test('#8232: a relative target resolves against the link\'s own folder', () => {
   // ..\..\x from C:\w\d\link is C:\x; the walk then finds C:\x is a link to UNC.
   assert.match(walk('C:\\w\\d\\link\\f', scripted({ 'C:\\w\\d\\link': '..\\..\\x', 'C:\\x': '\\\\h\\s' })) || '', /network location/);
-  // \x is the root of the link's drive (D:), not C:.
-  const fsx = scripted({ 'C:\\l': 'D:\\m', 'D:\\m\\r': '\\x' });
+  // On another drive: r on D:\m is D:\m\s, never C:.
+  const fsx = scripted({ 'C:\\l': 'D:\\m', 'D:\\m\\r': 's' });
   assert.equal(walk('C:\\l\\r\\f', fsx, { C: LOCAL, D: LOCAL }), null);
-  assert.ok(fsx.seen.includes('D:\\x\\f'), JSON.stringify(fsx.seen));
+  assert.ok(fsx.seen.includes('D:\\m\\s\\f'), JSON.stringify(fsx.seen));
 });
 
 test('#8232: .. is collapsed by text first, as Windows does, so C:\\link\\..\\x never follows link', () => {
@@ -176,6 +191,8 @@ test('#8232 Windows: a junction to a local folder is opened', { skip: NEEDS_WIND
   fs.symlinkSync(real, j, 'junction');
   assert.equal(tasklist.reachesNetworkWin(path.join(j, 'f.txt'), here(dir)), null);
   assert.equal(fs.readFileSync(path.join(j, 'f.txt'), 'utf8'), 'x', 'CONTROL: the junction really reaches the file');
+  // A file gone from behind a junction is left to compare(), which reports it MISSING.
+  assert.equal(tasklist.reachesNetworkWin(path.join(j, 'gone.txt'), here(dir)), null);
 });
 
 test('#8232 Windows: a real symlink to \\\\localhost\\ is refused without being opened', { skip: NEEDS_WINDOWS }, (t) => {
@@ -194,9 +211,9 @@ test('#8232 Windows: real symlinks to \\\\?\\GLOBALROOT\\Device\\Mup\\ and \\\\?
   if (!symlinkOrSkip(t, '\\\\?\\Global\\' + real, viaGlobal)) return;
   // The shape this host's readlink gives, which the scripted arms above assume.
   assert.match(fs.readlinkSync(viaGlobal), /^\\\?\?\\Global\\/, 'readlink shape changed; update the scripted fixtures');
-  assert.match(tasklist.reachesNetworkWin(path.join(viaGlobal, 'f.txt'), here(dir)) || '', /device or volume path/);
+  assert.match(tasklist.reachesNetworkWin(path.join(viaGlobal, 'f.txt'), here(dir)) || '', /mounted volume or device path/);
   assert.equal(fs.readFileSync(path.join(viaGlobal, 'f.txt'), 'utf8'), 'x', 'CONTROL: Windows really reads through \\\\?\\Global\\');
-  assert.match(tasklist.reachesNetworkWin(path.join(viaRoot, 'f.txt'), here(dir)) || '', /device or volume path/);
+  assert.match(tasklist.reachesNetworkWin(path.join(viaRoot, 'f.txt'), here(dir)) || '', /mounted volume or device path/);
 });
 
 test('#8232 Windows: a real symlink to a network letter is refused, and to a local one opened', { skip: NEEDS_WINDOWS }, (t) => {
