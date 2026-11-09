@@ -12,7 +12,8 @@ Seven review rounds each found a new shell-script shape my text matching got wro
 On this Mac: finds 17 of 17 fleet agents, nothing for the repo checkout or six worker folders with no job.
 
 ## Weakest premise
-Heuristic in both directions. A miss is today's behaviour; a false match costs one more press.
+Heuristic in both directions. A miss is today's behaviour; a false match costs one more press. A plist in binary form past the reader's four-per-call conversion budget is not examined.
 
 ## Not covered
+Mac only: the check reads the LaunchAgents folder, so on Linux and Windows it always answers none.
 The card's second ask, the board noticing two copies, is not built here. A job added after connecting can still start a second copy. A folder with no instructions file is registered without a job, so it starts nothing.
