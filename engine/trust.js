@@ -139,8 +139,11 @@ const KEY = 'hasTrustDialogAccepted';
  * links and keeps each name as given), so its spelling is the one Claude Code reads.
  *
  * It is a SECOND key, never a replacement for the native one: the native key still covers a start in the long
- * spelling (and case, which the JS realpath would keep). Only when the two differ by more than letter case (that is,
- * an 8.3 name) is it returned. Windows only: elsewhere there are no short names and the native key is the read one.
+ * spelling (and case, which the JS realpath would keep). It is returned whenever the two differ by more than letter
+ * case, which is any spelling the native realpath rewrites and Claude Code does not: an 8.3 name (measured), a `subst`
+ * drive (measured 11-09: with only the native C:/ key a start on the subst letter showed the dialog, with the
+ * letter's own key it did not), and by the same rule a mapped network drive (not measured: no mapped drive here).
+ * Windows only: elsewhere none of these exist and the native key is the read one.
  */
 function runnerSpelling(dir, nativeKey) {
   if (process.platform !== 'win32') return null;
@@ -290,6 +293,14 @@ function trustFolder(dir, opts) {
   // masked by the lock's ENOENT.
   if (opts && opts.createIfAbsent) { try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* the inner reports a real write failure */ } }
   const r = withWriteLock(target, () => trustFolderInner(dir, opts));
+  /* kosmos#4260: a write that added ONLY the second key (the main one already true) answers `already: true`, so no
+     caller records it, yet the line is ours and an 8.3 alias (`NAME~1`) is handed to the next like-named folder once
+     this one is gone. So it joins the record of the agent whose main key Kosmos recorded, and that agent's removal
+     takes it back. With no such record the person trusted the main key themselves, and the line stays unrecorded:
+     nothing here can tell it from theirs. Best effort: a record that cannot be written changes nothing else. */
+  if (r.ok && r.value && r.value.ok === true && r.value.already === true && r.value.also) {
+    try { attachAlsoToRecord(r.value.key, r.value.also); } catch { /* best effort, as every record write */ }
+  }
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 
@@ -421,14 +432,14 @@ function trustFolderInner(dir, opts) {
     return { ok: false, because: 'their config file is not shaped the way we expect' };
   }
 
-  // kosmos#4260: the second key's entry, held to the same shape rules.
+  /* kosmos#4260: the second key's entry. One we would not understand is left alone (that key is not written), never a
+     refusal: the main key is what this function promised before, and a launch that worked must not start failing over
+     an extra line. */
   const alsoExisting = also ? (projects && projects[also]) : undefined;
-  if (alsoExisting !== undefined
-      && (alsoExisting === null || typeof alsoExisting !== 'object' || Array.isArray(alsoExisting))) {
-    return { ok: false, because: 'their config file is not shaped the way we expect' };
-  }
+  const alsoUnreadable = alsoExisting !== undefined
+    && (alsoExisting === null || typeof alsoExisting !== 'object' || Array.isArray(alsoExisting));
   const keyDone = Boolean(existing && existing[KEY] === true);
-  const alsoDone = !also || Boolean(alsoExisting && alsoExisting[KEY] === true);
+  const alsoDone = !also || alsoUnreadable || Boolean(alsoExisting && alsoExisting[KEY] === true);
 
   // Already true is a SUCCESS, not a no-op we hide: the folder is trusted,
   // which is the whole outcome this function exists for. Saying so lets the
@@ -620,13 +631,16 @@ function forgetFolderInner(dir, displaced, madeEntry, also) {
     undo.push([also.key, 'displaced' in also ? also.displaced : undefined, also.madeEntry === true]);
   }
   let changed = false;
-  for (const [k, disp, made] of undo) {
+  for (const [i, [k, disp, made]] of undo.entries()) {
     const entry = data.projects && data.projects[k];
     if (entry === undefined) continue;
     // ⚠️ A malformed ENTRY is refused for the same reason a malformed `projects`
     // is, above: answering "taken back" about a shape we did not
     // understand is reporting success for a file we did not really read.
+    // kosmos#4260: for the MAIN key, as before. A malformed second-key entry is left alone (not ours to read), so it
+    // cannot block taking back the main key, which is what this undo promised before the second key existed.
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      if (i > 0) continue;
       return { ok: false, because: 'their config file is not shaped the way we expect' };
     }
     if (!(KEY in entry)) continue;
@@ -761,6 +775,24 @@ function dropRecord(name) {
   // lock failure and a no-op are the same outcome here.
   try { fs.mkdirSync(path.dirname(RECORD()), { recursive: true }); } catch { /* nothing to drop */ }
   withFileLock(RECORD(), () => dropRecordInner(name));
+}
+/* kosmos#4260: give a second key trustFolder wrote to every record entry for the same main key that has none yet
+   (normally one: one agent per folder). An entry that already carries one keeps it. Under the record's own lock. */
+function attachAlsoToRecord(mainKey, also) {
+  if (typeof mainKey !== 'string' || !also || typeof also.key !== 'string') return;
+  try { fs.mkdirSync(path.dirname(RECORD()), { recursive: true }); } catch { return; }
+  withFileLock(RECORD(), () => {
+    const data = readRecord();
+    if (data === null) return;
+    let changed = false;
+    for (const e of Object.values(data)) {
+      if (!e || typeof e !== 'object' || e.key !== mainKey || e.also) continue;
+      e.also = { key: also.key, madeEntry: also.madeEntry === true };
+      if (also.displaced !== undefined) e.also.displaced = also.displaced;
+      changed = true;
+    }
+    if (changed) { try { writeRecordFile(data); } catch { /* the line stays unrecorded: inert, as before */ } }
+  });
 }
 function dropRecordInner(name) {
   const data = readRecord();

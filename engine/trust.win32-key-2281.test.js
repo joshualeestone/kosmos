@@ -149,6 +149,63 @@ test('#4260 the undo takes back both keys and puts back exactly what each held, 
   trust.dropRecord('undo-4260');
 });
 
+test('#4260 a relaunch that adds ONLY the second key joins it to the agent\'s record, so its removal takes both back', { skip: WIN }, (t) => {
+  /* An agent made before this change: its record holds the main key only. Its next launch (win32launch) writes the short
+     key and answers `already: true`, which no caller records; an 8.3 alias is reused by the next like-named folder, so
+     an unrecorded line would outlive the agent and trust a stranger. */
+  const f = shortFolder(t, 'relaunch'); if (!f) return;
+  const cfg = nodePath.join(f.cfgDir, '.claude.json');
+  fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.long)]: { hasTrustDialogAccepted: true } } }));
+  assert.equal(trust.recordWrite('relaunch-4260', { key: fwd(f.long), madeEntry: true }), true);
+  t.after(() => trust.dropRecord('relaunch-4260'));
+  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
+  assert.equal(r.already, true);
+  assert.deepEqual(trust.recordedWrite('relaunch-4260').also, { key: fwd(f.short), madeEntry: true }, 'the record gained the second key');
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = cfg;
+  t.after(() => { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; });
+  const rec = trust.recordedWrite('relaunch-4260');
+  assert.equal(trust.forgetFolder(rec.key, 'displaced' in rec ? rec.displaced : undefined, rec.madeEntry === true, rec.also).ok, true);
+  assert.deepEqual(readCfg(cfg).projects, {}, 'both lines Kosmos wrote are gone');
+});
+
+test('#4260 with no record for the main key (the person trusted it), the second key is written but claimed by nobody', { skip: WIN }, (t) => {
+  const f = shortFolder(t, 'norecord'); if (!f) return;
+  fs.writeFileSync(nodePath.join(f.cfgDir, '.claude.json'), JSON.stringify({ projects: { [fwd(f.long)]: { hasTrustDialogAccepted: true } } }));
+  assert.equal(trust.recordWrite('someone-else-4260', { key: 'C:/elsewhere/entirely', madeEntry: true }), true);
+  t.after(() => trust.dropRecord('someone-else-4260'));
+  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
+  assert.equal(r.already, true);
+  assert.equal('also' in trust.recordedWrite('someone-else-4260'), false, 'another agent\'s record is not touched');
+});
+
+test('#4260 a second-key entry we cannot read is left alone: the launch still trusts the main key, and an undo still takes it back', { skip: WIN }, (t) => {
+  const f = shortFolder(t, 'unreadable'); if (!f) return;
+  const cfg = nodePath.join(f.cfgDir, '.claude.json');
+  fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.short)]: 'not an object' } }));
+  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
+  assert.equal(r.ok, true, r.because || '');
+  assert.equal('also' in r, false, 'nothing written under the key we could not read');
+  assert.equal(readCfg(cfg).projects[fwd(f.short)], 'not an object', 'and it is untouched');
+  assert.equal(readCfg(cfg).projects[fwd(f.long)].hasTrustDialogAccepted, true);
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = cfg;
+  t.after(() => { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; });
+  const got = trust.forgetFolder(r.key, r.displaced, r.madeEntry, { key: fwd(f.short), madeEntry: true });
+  assert.equal(got.ok, true, got.because || '');
+  assert.deepEqual(readCfg(cfg).projects, { [fwd(f.short)]: 'not an object' }, 'the main key we made is gone; the unreadable one is left');
+});
+
+test('#4260 the callers carry the second key: creation records it and rolls it back, removal takes it back', () => {
+  /* Read from the source: the record and undo arms above drive trust.js itself, and these three call sites are the
+     only places `also` crosses into it. Dropping it at any of them is the regression this pins. */
+  const create = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
+  const remove = fs.readFileSync(nodePath.join(__dirname, 'remove.js'), 'utf8');
+  assert.match(create, /recordWrite\(name, \{[^}]*also: trusted\.also/, 'creation records the second key');
+  assert.match(create, /forgetFolder\(trusted\.key, trusted\.displaced, trusted\.madeEntry, trusted\.also\)/, 'a failed start rolls it back');
+  assert.match(remove, /forgetFolder\(rec\.key, [^;]*rec\.madeEntry === true, rec\.also\)/, 'a removal takes it back');
+});
+
 test('#4260 an undo with no second key, or a damaged one, takes back the main key exactly as before', () => {
   const cfgDir = fs.mkdtempSync(nodePath.join(SANDBOX, 'cfg-'));
   const cfg = nodePath.join(cfgDir, '.claude.json');
