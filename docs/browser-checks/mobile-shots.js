@@ -2907,6 +2907,20 @@ const SCREENS = [
     const t = await page.evaluate(() => document.getElementById('usage-msg').innerText);
     if (!/Reading the transcripts/.test(t)) throw new Error('Token Usage is not on its reading line: ' + JSON.stringify(t));
   } },
+  /* kosmos#8301: the longest subtask chip (built, closed not done and on hold together), in the Tasks view and on the
+     project's own task list. The count is edited in the page; the chip and its words are the board's own. */
+  ...[['tasks-counts-8301', 'tasks', null], ['project-counts-8301', 'projects', '#pj-list']].map(([name, tab, list]) => ({ name, owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page, data) => {
+    await editProjects(page, data.projectId, (proj) => {
+      for (const t of proj.tasks || []) if (t.number === 1) t.subtasks = { done: 3, built: 2, held: 1, unrun: 1, total: 7 };
+    });
+    await openTab(page, tab);
+    if (list) await page.click(`${list} .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForFunction(() => [...document.querySelectorAll('.tsk-chip')].some((c) => c.offsetParent && /closed not done/.test(c.title)), null, { timeout: 8000 });
+    await page.evaluate(() => [...document.querySelectorAll('.tsk-chip')].find((c) => c.offsetParent && /closed not done/.test(c.title)).scrollIntoView({ block: 'center' }));
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => [...document.querySelectorAll('.tsk-chip')].find((c) => c.offsetParent && /closed not done/.test(c.title)).title);
+    if (t !== '2 of 7 subtasks done, 2 built, 1 closed not done, 1 on hold') throw new Error('the chip does not say the three apart: ' + JSON.stringify(t));
+  } })),
   /* #5444 (#4787 slice 2): a daily task whose rule was set three days ago and has never run, so its line leads with
      the missed runs in red. The fields come from the engine's own taskrepeat.fieldsOf, so the words are the board's. */
   { name: 'task-missed', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
