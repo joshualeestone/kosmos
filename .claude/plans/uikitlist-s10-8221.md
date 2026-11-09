@@ -1,6 +1,6 @@
 # uikitlist-s10-8221: search and the keyboard drag checked in CI on the UIKit chat list (kosmos#8221, slice 10)
 
-Stacked on uikitlist-s9-8221 (PR #8281). Rebase onto main once it merges.
+Rebased onto main after #8281 merged (b910aa9ed4).
 
 ## Finished looks like
 
