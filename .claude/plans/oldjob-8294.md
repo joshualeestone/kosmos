@@ -3,7 +3,7 @@
 Found by the #8290 throwaway test: with the old `com.<name>.discord` job loaded, two Claudes ran in one folder and the board showed one row.
 
 ## Change
-engine/discover.js otherJobFor reads the LaunchAgents folder and connect refuses, naming the job and what to do, when a job starts by itself (RunAtLoad or KeepAlive), is not disabled, starts this agent's own program, and runs it in this folder: by WorkingDirectory, or after cd, tmux -c or a *DIR= variable in its arguments or launch script. A `<name>-discord` session still up is refused by connect's existing running check, which reads that spelling as the same agent. The refusal appears when Add is pressed, through the row's existing failure arm (`said.textContent = out.because`).
+engine/discover.js otherJobFor reads the LaunchAgents folder and connect refuses, naming the job and what to do, when a job starts by itself (RunAtLoad or KeepAlive), is not disabled, starts this agent's own program, and runs it in this folder: by WorkingDirectory, or because the last cd or tmux -c before the start names the folder or a variable holding it. A `<name>-discord` session still up is refused by connect's existing running check, which reads that spelling as the same agent. The refusal appears when Add is pressed, through the row's existing failure arm (`said.textContent = out.because`).
 
 ## Measured
 On this Mac: finds 17 of 17 fleet agents (4 of them only through the launch script, which my first version missed), and nothing for the repo checkout or a shorter folder-name prefix.
