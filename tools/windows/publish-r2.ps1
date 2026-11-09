@@ -260,8 +260,26 @@ function Get-GitLine([string[]] $GitArgs) {
   if ($r.Rc -ne 0 -or -not $r.Out) { return '' }
   (($r.Out -split ' ')[0]).Trim()
 }
-# An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments).
-function Get-NodeExe { Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1 }
+# An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments). PATH's comes first, so a node
+# put there on purpose always wins. kosmos#8285: when PATH has none, the node Kosmos itself installed on this PC (the
+# app's runtime\node.exe, then the board runtime's copy), so a release PC with Kosmos on it needs no separate node.
+# Which one checks the build is said on stderr, so the run's log shows it. Returns an object with .Source, or $null.
+$KosmosRuntimeNodes = @('Programs\Kosmos\runtime\node.exe', 'Kosmos\runtime\node.exe')
+function Get-NodeExe {
+  $onPath = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1
+  if ($onPath) { return $onPath }
+  if (-not $env:LOCALAPPDATA) { return $null }
+  foreach ($rel in $KosmosRuntimeNodes) {
+    $p = Join-Path $env:LOCALAPPDATA $rel
+    if (Test-Path -LiteralPath $p -PathType Leaf) {
+      [Console]::Error.WriteLine("publish-r2: node is not on PATH; using the Kosmos runtime's own: $p")
+      return [pscustomobject]@{ Source = $p }
+    }
+  }
+  $null
+}
+# The words for a refusal when Get-NodeExe found none: where it looked, so the fix is plain.
+$NoNodeWhere = "none on PATH, and no Kosmos runtime node under %LOCALAPPDATA% ($($KosmosRuntimeNodes -join ', '))"
 # One argument as a Windows command line needs it (.NET parses the same rules elsewhere): 5.1 has no ArgumentList.
 function ConvertTo-NativeArg([string] $a) {
   if ($a -and $a -notmatch '[\s"]') { return $a }
@@ -331,7 +349,7 @@ function Invoke-ChildBounded([string] $Exe, [string[]] $Arguments, [string] $Std
 # than reading as a verdict at each caller. Every caller is before the run's first write.
 function Invoke-WinManifest([string[]] $Arguments) {
   $node = Get-NodeExe
-  if (-not $node) { Refuse "node (an executable, not a .cmd shim) is required to check the signed release manifest (#6466). Nothing was written." }
+  if (-not $node) { Refuse "node (an executable, not a .cmd shim) is required to check the signed release manifest (#6466): $NoNodeWhere. Nothing was written." }
   $js = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-release-manifest.js'
   $r = Invoke-ChildBounded $node.Source (@($js) + $Arguments)
   if ($r.Undecided) { Refuse "the manifest check ($($Arguments[0])) decided nothing about this build: $($r.Undecided)$(if ($r.Out) { " (it had printed: $($r.Out))" }). Run it again. Nothing was written." }
@@ -1135,7 +1153,7 @@ $spec = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-staging-record.js'
 # An executable node, not a node.cmd shim (cmd.exe would mangle the script). The script goes to
 # node on STDIN, never on the command line or in a temp file.
 $nodeExe = Get-NodeExe
-if (-not $nodeExe) { Refuse "node (an executable, not a .cmd shim) is required to validate the verification record. Nothing was written." }
+if (-not $nodeExe) { Refuse "node (an executable, not a .cmd shim) is required to validate the verification record: $NoNodeWhere. Nothing was written." }
 if (-not (Test-Path -LiteralPath $spec)) { Refuse "the record spec $spec is missing. Nothing was written." }
 $verdictJs = @'
 // Any crash says why on STDOUT (where the verdict is read), as AMBIGUOUS, so a refusal is never blank.
