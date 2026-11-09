@@ -9834,7 +9834,7 @@ function snapshot() {
       // entry -- needs the one tmux knows, not the one we display. Publishing
       // it is what lets a consumer stop guessing between the two spellings.
       session: pane.session,
-      ...(twins.has(pane.name) ? { twinSession: twins.get(pane.name) } : {}),   // kosmos#8321: a second session is running this agent
+      twinSession: twins.get(pane.name) || null,   // kosmos#8321: a second session is running this agent
       nameDerived: identity.derived,
       role: identity.role,
       target: pane.target,

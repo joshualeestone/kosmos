@@ -6847,5 +6847,5 @@ test('kosmos#8321: snapshot puts the second session on the agent card; one sessi
   const named = fleet.line({ session: 'twin8321-discord', command: fleet.CLAUDE_COMMAND });
   const second = fleet.line({ session: 'twin8321', command: fleet.CLAUDE_COMMAND });
   assert.equal(run([named, second]).twinSession, 'twin8321');
-  assert.equal(run([named]).twinSession, undefined, 'CONTROL: one session');
+  assert.equal(run([named]).twinSession, null, 'CONTROL: one session');
 });
