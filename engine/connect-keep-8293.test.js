@@ -216,7 +216,7 @@ test('a policy that does not list the model refuses, before anything is written'
   } finally { create.policyAllows = real; }
 });
 
-test('the Found row shows the sentence, and only that field reaches it', () => {
+test('the Found row\'s sentence and the engine\'s field use one name (source text only; no check runs that arm)', () => {
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   assert.match(page, /said\.textContent = out\.unknownLastRun \? \('Added, but ' \+ out\.unknownLastRun \+ '\.'\) : '';/);
   const engine = fs.readFileSync(path.join(__dirname, 'discover.js'), 'utf8');
@@ -244,6 +244,28 @@ test('a folder connected by one spelling keeps what ran under the other', () => 
   fs.symlinkSync(viaLink, path.join(SB, 'aliasrun'));
   ranOn(ACCT_C, 'sess-2');
   assert.equal(discover.lastRunOf(viaLink).account.dir, ACCT_C);
+});
+
+test('a newer transcript from another folder does not hide this agent\'s own', () => {
+  const dir = agent('hiddenown', { session: 'mine' });
+  ranOn(ACCT_B, 'mine');
+  const folder = path.join(HOME, '.claude', 'projects', dir.replace(/[^a-zA-Z0-9]/g, '-'));
+  const other = path.join(folder, 'theirs.jsonl');
+  fs.writeFileSync(other, JSON.stringify({ type: 'user', cwd: '/some/other/place' }) + '\n');
+  const later = new Date(Date.now() + 60000);
+  fs.utimesSync(other, later, later);
+  discover.connect(dir, {});
+  assert.equal(seen.configDir, ACCT_B);
+});
+
+test('a transcript whose folder cannot be read is said, not treated as never having run', () => {
+  const dir = agent('nocwd', { lines: [] });
+  const folder = path.join(HOME, '.claude', 'projects', dir.replace(/[^a-zA-Z0-9]/g, '-'));
+  fs.writeFileSync(path.join(folder, 'sess-1.jsonl'), JSON.stringify({ type: 'summary' }) + '\n');
+  ranOn(ACCT_B);
+  const out = discover.connect(dir, {});
+  assert.deepEqual(seen, {});
+  assert.match(out.unknownLastRun, /could not tell which Claude account/);
 });
 
 test('a Codex folder is left exactly as before', () => {
