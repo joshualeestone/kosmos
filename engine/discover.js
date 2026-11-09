@@ -2096,11 +2096,31 @@ function connect(dir, opts) {
   const startable = Boolean(last.model && /^claude-/.test(last.model) && require('./linuxjob').MODEL_ID.test(last.model));
   const onMenu = startable && create.modelsFor('anthropic').some((m) => m.arg === last.model);
   const tooOld = startable && !onMenu && Date.now() - (last.at || 0) > OFF_MENU_MODEL_MAX_AGE_MS;
-  const keepModel = last.account && startable && !tooOld ? last.model : null;
+  let keepModel = last.account && startable && !tooOld ? last.model : null;
+  let policyMoved = null;   // kosmos#8305: the model the policy moved it to, when the one it ran on is not on the company's list
   {
-    /* The model it will actually run: a policy listing that model is satisfied, and one that does not list it refuses. */
-    const allowed = create.policyAllows(create.runnerProvider(runner), keepModel || '', last.account ? last.account.dir : undefined);
-    if (!allowed.ok) return { ok: false, because: allowed.because };
+    /* The model it will actually run: a policy listing that model is satisfied; one that does not list it is handled below. */
+    const policyDir = last.account ? last.account.dir : undefined;
+    const allowed = create.policyAllows(create.runnerProvider(runner), keepModel || '', policyDir);
+    /* kosmos#8305: a Found row has no chooser, so "choose one of them" left the person nowhere. When the model it ran on is
+       not on the list, or no model is known for it, it starts on one that is (the usual default, then the least costly, since
+       a smaller plan may not run the largest), and the row says which. Refused only when the list allows nothing on the menu. */
+    let pick = null;
+    if (!allowed.ok && !runner) {
+      const menu = create.modelsFor('anthropic');
+      const usual = create.defaultModelKeyFor('anthropic');
+      pick = [...menu.filter((m) => m.key === usual), ...menu.filter((m) => m.key !== usual).reverse()]
+        .find((m) => create.policyAllows(create.runnerProvider(runner), m.arg, policyDir).ok) || null;
+    }
+    if (!allowed.ok && !pick) {
+      // The policy's own words say "choose one of them", and this row has no chooser.
+      if (!runner && /choose one of them/.test(String(allowed.because))) {
+        const oe = require('./orgenroll');
+        return { ok: false, because: oe.inKind(oe.kindHere(), 'your company\'s policy lists no model Kosmos can start for this agent, so it was not added') };
+      }
+      return { ok: false, because: allowed.because };
+    }
+    if (pick) { policyMoved = { to: pick.label || pick.key, had: Boolean(keepModel) }; keepModel = pick.arg; }
   }
   /* 🛑 THE PROVIDER GOES IN THE PROFILE TOO, NOT ONLY THE JOB (#1159). #1347 made
      adoption write a codex JOB; the profile still said nothing, and
@@ -2259,6 +2279,12 @@ function connect(dir, opts) {
         ? 'it was using a model Kosmos cannot start here, so it will start on the default'
         : 'we could not tell which Claude model it was using, so it will start on the default';
     }
+  }
+  if (policyMoved) {   // kosmos#6263: a family's policy is said as the family's
+    const oe = require('./orgenroll');
+    const policy = oe.inKind(oe.kindHere(), (policyMoved.had ? 'your company\'s policy does not allow the model it was using, so it will start on ' : 'your company\'s policy lists the models it can use, so it will start on ') + policyMoved.to);
+    // Said together: the account it lands on is still theirs to know (#8293).
+    unknownLastRun = !runner && last.ran && !last.account ? 'we could not tell which Claude account it was using, so it will run on your main one, and ' + policy : policy;
   }
   return { ok: true, name, displayName, dir: given, started: job.started === true,
     ...(unknownLastRun ? { unknownLastRun } : {}) };

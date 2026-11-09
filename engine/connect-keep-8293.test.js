@@ -203,7 +203,76 @@ test('company policy is asked about the model that will run', () => {
   } finally { create.policyAllows = real; }
 });
 
-test('a policy that does not list the model refuses, before anything is written', () => {
+test('kosmos#8305: a model off the company list starts on one the list allows, and the row says which', () => {
+  const dir = agent('moved8305');
+  ranOn(ACCT_B);
+  const usual = create.modelsFor('anthropic').find((m) => m.key === create.defaultModelKeyFor('anthropic'));
+  const real = create.policyAllows;
+  create.policyAllows = (provider, model) => (model === usual.arg ? { ok: true } : { ok: false, because: 'choose one' });
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, true, out.because);
+    assert.equal(seen.model, usual.arg);
+    assert.equal(seen.configDir, ACCT_B, 'the account it ran on is kept');
+    assert.match(out.unknownLastRun, new RegExp('policy does not allow the model it was using, so it will start on ' + usual.label));
+  } finally { create.policyAllows = real; }
+});
+
+test('kosmos#8305: with no model known for it, a listing policy still connects it, on an allowed model', () => {
+  const dir = agent('moved8305b', { lines: [JSON.stringify({ type: 'user', cwd: '' })] });
+  ranOn(ACCT_B);
+  const usual = create.modelsFor('anthropic').find((m) => m.key === create.defaultModelKeyFor('anthropic'));
+  const real = create.policyAllows;
+  create.policyAllows = (provider, model) => (model === usual.arg ? { ok: true } : { ok: false, because: 'choose one' });
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, true, out.because);
+    assert.equal(seen.model, usual.arg);
+    assert.match(out.unknownLastRun, /policy lists the models it can use/);
+  } finally { create.policyAllows = real; }
+});
+test('kosmos#8305: with the account unknown too, the row says both', () => {
+  const dir = agent('moved8305d');
+  const usual = create.modelsFor('anthropic').find((m) => m.key === create.defaultModelKeyFor('anthropic'));
+  const real = create.policyAllows;
+  create.policyAllows = (provider, model) => (model === usual.arg ? { ok: true } : { ok: false, because: 'choose one' });
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, true, out.because);
+    assert.match(out.unknownLastRun, /could not tell which Claude account.*main one, and your company/);
+    assert.match(out.unknownLastRun, new RegExp('will start on ' + usual.label));
+  } finally { create.policyAllows = real; }
+});
+test('kosmos#8305: a refusal never tells the row to choose, when it has no chooser', () => {
+  const dir = agent('moved8305e');
+  ranOn(ACCT_B);
+  const real = create.policyAllows;
+  create.policyAllows = () => ({ ok: false, because: "your company's policy allows only some models on Claude: choose one of them" });
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, false);
+    assert.match(out.because, /lists no model Kosmos can start/);
+    assert.doesNotMatch(out.because, /choose/);
+    assert.equal(seen, null, 'nothing was written');
+  } finally { create.policyAllows = real; }
+});
+test('kosmos#8305: past the usual default, the least costly on the menu comes first', () => {
+  const dir = agent('moved8305c');
+  ranOn(ACCT_B);
+  const menu = create.modelsFor('anthropic');
+  const usualKey = create.defaultModelKeyFor('anthropic');
+  const others = menu.filter((m) => m.key !== usualKey);
+  const list = [others[0].arg, others[others.length - 1].arg];
+  const real = create.policyAllows;
+  create.policyAllows = (provider, model) => (list.includes(model) ? { ok: true } : { ok: false, because: 'choose one' });
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, true, out.because);
+    assert.equal(seen.model, others[others.length - 1].arg);
+  } finally { create.policyAllows = real; }
+});
+
+test('a policy that allows nothing on the menu refuses, before anything is written', () => {
   const dir = agent('policedout');
   ranOn(ACCT_B);
   const real = create.policyAllows;
@@ -216,9 +285,9 @@ test('a policy that does not list the model refuses, before anything is written'
   } finally { create.policyAllows = real; }
 });
 
-test('the Found row\'s sentence and the engine\'s field use one name (source text only; no check runs that arm)', () => {
+test('the Found row\'s sentence and the engine\'s field use one name (source text; web.found-undo runs both arms)', () => {
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-  assert.match(page, /said\.textContent = out\.unknownLastRun \? \('Added, but ' \+ out\.unknownLastRun \+ '\.'\) : '';/);
+  assert.match(page, /said\.textContent = foundAddedWords\(out\);/);
   const engine = fs.readFileSync(path.join(__dirname, 'discover.js'), 'utf8');
   assert.match(engine, /\{ unknownLastRun \}/);
 });

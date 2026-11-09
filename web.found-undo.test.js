@@ -142,3 +142,10 @@ test('the undo is addressed with the name the server registered, not the one dra
   assert.match(SCRIPT, /if \(undo && out\.name\)/,
     'the undo is offered whether or not the answer named the agent');
 });
+
+test('kosmos#8305: after an add the row says nothing, unless the account or model could not be kept', () => {
+  const said = new Function(liftAll(SCRIPT, ['foundAddedWords']) + '\nreturn foundAddedWords;')();
+  assert.equal(said({ ok: true }), '', 'kept: the button saying Added is the receipt');
+  assert.equal(said({ ok: true, unknownLastRun: 'it will start on Claude Sonnet' }), 'Added, but it will start on Claude Sonnet.');
+  assert.match(SCRIPT, /said\.textContent = foundAddedWords\(out\);/, 'the row uses it');
+});

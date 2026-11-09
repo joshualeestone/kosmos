@@ -92039,6 +92039,10 @@ function foundCountLine(shown, total, term, overflows) {
   if (shown === 0) return 'Nothing matches \u201C' + term + '\u201D. Clear the box to see all ' + agentWord + '.';
   return 'Showing ' + shown + ' of ' + total + '. Clear the box to see them all.';
 }
+/* #8293, kosmos#8305: what the Found row says after an add: nothing, unless the account or model it was using could not be kept. */
+function foundAddedWords(out) {
+  return out && out.unknownLastRun ? 'Added, but ' + out.unknownLastRun + '.' : '';
+}
 
 /**
  * Filtering the found list.
@@ -92209,7 +92213,7 @@ document.addEventListener('click', async (e) => {
        ⚠️ THE ELEMENT STAYS FOR THE FAILURE ARM, which is the one that has
        something a person must act on. It is empty on success and takes no room.
        #8293: the one exception is when we could not keep the account or model it was using: that is theirs to know. */
-    said.textContent = out.unknownLastRun ? ('Added, but ' + out.unknownLastRun + '.') : '';
+    said.textContent = foundAddedWords(out);
     return;
   }
   go.disabled = false;
