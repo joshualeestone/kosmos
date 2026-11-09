@@ -172,7 +172,7 @@ test('#8307: task show names the current file, who checked it, and the file it r
   mark(n, { by: 'zed' });
   mark(n, { person: true });
   const before = tasklist.showLines({ tasks: [get(n)] }, n, pid).lines.join('\n');
-  assert.match(before, /^Checked: this file, by zed, the person$/m, before);
+  assert.match(before, /^Checked: this file, by zed, the person \(marked built after it was sent\)$/m, before);
   assert.doesNotMatch(before, /^Replaces:/m, 'CONTROL: nothing replaced yet');
   mark(n, { by: 'mona', fingerprint: B, filePath: FILE_B });
   const out = tasklist.showLines({ tasks: [get(n)] }, n, pid).lines.join('\n');
@@ -183,7 +183,7 @@ test('#8307: task show names the current file, who checked it, and the file it r
   assert.ok(!out.includes(FILE_A), 'task show printed a replaced file\'s path: ' + out);
   mark(n, { by: 'ivy' });
   const after = tasklist.showLines({ tasks: [get(n)] }, n, pid).lines.join('\n');
-  assert.match(after, /^Checked: this file, by ivy$/m, 'a check of the new file is not said: ' + after);
+  assert.match(after, /^Checked: this file, by ivy \(marked built after it was sent\)$/m, 'a check of the new file is not said: ' + after);
 });
 
 test('#8307: task show says a withdrawn file, and that its checks are out of date', () => {

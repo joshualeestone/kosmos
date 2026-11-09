@@ -302,7 +302,8 @@ function showLines(body, num, project) {
     const names = (list, person) => [...(Array.isArray(list) ? list.filter((v) => typeof v === 'string' && v).map(q) : []), ...(person === true ? ['the person'] : [])];
     const checked = current ? names(x.builtCheckedBy, x.builtCheckedByPerson) : [];
     const old = x.builtAt && x.builtReplaces && typeof x.builtReplaces === 'object' && PRINT_RE.test(x.builtReplaces.fingerprint || '') ? x.builtReplaces : null;
-    if (checked.length) field('Checked', 'this file, by ' + checked.join(', '));
+    // Review 6: a check is a mark made after the file was sent, and the line says so rather than claiming a review.
+    if (checked.length) field('Checked', 'this file, by ' + checked.join(', ') + ' (marked built after it was sent)');
     else if (old && current) field('Checked', 'not yet: nobody has checked this file since it replaced the one below');
     if (old) {
       const oldBy = typeof old.by === 'string' && old.by ? q(old.by) : null;
