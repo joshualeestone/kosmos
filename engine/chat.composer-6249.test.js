@@ -204,7 +204,7 @@ test('kosmos#8333: a box that stays other says so after every look', () => withA
   const t = arm([EMPTY, box('someone else was typing this')]);
   const lines = warned(() => chat.deliver('al', MSG, roster));
   assert.equal(t.enters(), 0);
-  assert.match(lines[0], /after 10 more looks it read other$/);
+  assert.match(lines[0], /after 5 more looks it read other$/);
 }));
 test('kosmos#8333: the async path never presses either', async () => {
   const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
@@ -220,7 +220,8 @@ test('kosmos#8333: the log line carries shape, never the words', () => {
   const secret = 'hunter2-Tökén ключ 秘密 password';
   const line = chat.notPressedLine('w'.repeat(9), secret + ' [Pasted text #1]', 'other', 10);
   for (const word of ['hunter2', 'Tökén', 'ключ', '秘密', 'password', 'Pasted', 'text']) assert.equal(line.includes(word), false, word);
-  assert.match(line, /\[x+ x+ #x\]/, 'a fold is still recognisable');
+  assert.match(line, /\[x+#x\]/, 'a fold is still recognisable');
+  assert.equal(/ x+ x+ /.test(line.split('starts')[1]), false, 'no word lengths');
   assert.match(line, /wire 9 chars/);
 });
 

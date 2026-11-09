@@ -1062,16 +1062,16 @@ function inputBoxReads(card) {
 const SUBMIT_SETTLE_MS = 1500;
 const EARLIER_SETTLE_MS = 300;   // round 8: the watch after the Enter on the board's own earlier line
 const FOLD_STABLE_LOOKS = 5;   // #6249: looks a SUBMIT_LOOK_MS apart for a folded paste to stop changing before it is pinned
-/* kosmos#8333: looks a SUBMIT_LOOK_MS apart after a box read as holding other text, for the log only. About 600 ms, only then. */
-const OTHER_LOG_LOOKS = 10;
+/* kosmos#8333: looks a SUBMIT_LOOK_MS apart after a box read as holding other text, for the log only. About 300 ms, only then, and the delivery holds the pane for it. */
+const OTHER_LOG_LOOKS = 5;
 const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empty 25 to 93 ms after the Enter
 /* #6256 item 3: says what happens next, so nobody types it again by hand (the retries are UNSENT_RETRY_MS). */
 const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and Kosmos presses Enter on it again on its own over the next few minutes, then every ten minutes while it sits there, and before the next thing it types to this agent, while the box shows only that line';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
-/* kosmos#8333: what the delivery log may say about a box that was not pressed. Everything but spaces and the marks a fold
-   is made of is masked: lengths and shape, never the words. */
-const boxShape = (x) => String(x || '').replace(/[^\s\[\]#+.,:]/gu, 'x');
+/* kosmos#8333: what the delivery log may say about a box that was not pressed. Everything but the marks a fold is made of
+   is masked, spaces too: its length and any chips, never the words or their lengths. */
+const boxShape = (x) => String(x || '').replace(/[^\[\]#+]/gu, 'x');
 function notPressedLine(wire, seen, later, looked) {
   const text = String(seen || '');
   return '[delivery] not pressed, box read as other: wire ' + String(wire || '').length + ' chars, box ' + text.length
