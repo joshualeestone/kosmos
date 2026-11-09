@@ -24193,9 +24193,9 @@ const server = http.createServer(async (req, res) => {
         const old = (m) => !unansweredAll && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) < agedBefore;
         const aged = (m) => old(m) && m.operator !== true;
         /* kosmos#8300 (the 0.8.0 cross-seat report: asks to the whole room answered weeks ago without citing them stayed on
-           every seat): a person's ask this old leaves the list once the reader has posted after it, unless it named the reader. */
+           every seat): a person's ask to the whole room, this old, leaves the list once the reader has posted after it. */
         let agedFromPerson = 0;
-        const agedRoomWideAsk = (m, i) => old(m) && m.operator === true && !namedReader.has(String(m.id)) && !(m.claim && m.claim.by === readerName)
+        const agedRoomWideAsk = (m, i) => old(m) && m.operator === true && !(namedBy.get(String(m.id)) || []).length && !(m.claim && m.claim.by === readerName)
           && !!messages.laterOwnPost(rows, i, readerName, toldFor.get(String(m.id)));
         /* kosmos#4926 (11-07): when each held post reached this reader, read once, before this read records its own (below):
            a post the reader makes later counts for a held ask from that moment (messages.laterOwnPost). */

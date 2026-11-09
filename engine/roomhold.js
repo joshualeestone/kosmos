@@ -389,12 +389,13 @@ function dropShown(name, projectId, shownIds) {
   } catch { return 0; }
 }
 
+/* kosmos#8300: the room-wide rule reads this record too, so a held ask whose record has gone returns to the list, the safe way. */
 /* kosmos#4926 (the live check on 0.7.96, 11-07): a held post keeps the outcome `held` on its row after it is told, so
    messages.laterOwnPost never counted the reader's later post for it, and seven asks a seat had answered stayed on its
    --unanswered list for good. When the member's own `kosmos room` read shows it a held post, the moment is kept here,
    per member, project and post id. Only that read: the idle line and an arrival's line name a held post by id, never
    its words, so a member cannot have answered it before reading the room. The earliest read wins. Entries go after
-   TOLD_KEEP_MS (longer than --unanswered's age rule, but kosmos#8300's room-wide rule reads this record, so a held ask whose record has gone returns to the list, the safe way; under --all an older ask can go back on the list), at most
+   TOLD_KEEP_MS (longer than --unanswered's age rule; under --all an older ask can go back on the list), at most
    TOLD_MAX per project, the newest kept. A write that fails keeps nothing, and the post stays listed: the safe
    direction. */
 const TOLD_KEEP_MS = 4 * 24 * 60 * 60 * 1000;

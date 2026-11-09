@@ -5,9 +5,9 @@ A person's ask to the whole room, answered weeks ago without citing it, stays on
 for good (12, 6, 4, 1, 1). #7969 aged agents' asks but kept every person's.
 
 ## Change
-A person's ask joins the "older" count, off the list, when all of these hold: older than the 3 days #7969 uses, it did not
-name the reader, it reached the reader, and the reader has posted in the room after it. `--all` still lists it. An ask that
-names the reader stays listed however old.
+A person's ask joins the "older" count, off the list, when all of these hold: older than the 3 days #7969 uses, it named nobody
+(it was to the whole room), it reached the reader, and the reader has posted in the room after it. `--all` still lists it. An ask
+that names anyone stays listed however old.
 
 An ask the reader has claimed and not answered stays listed: its claim keeps every other seat off it. The count says how many
 of the unlisted came from the person, so the exit is not silent.
