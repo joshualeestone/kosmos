@@ -122,7 +122,7 @@ test('the model is the main conversation\'s latest, past synthetic and sidechain
 });
 
 test('a model id that cannot go in a job is not kept, and it says so', () => {
-  const dir = agent('badmodel', { lines: [assistant('claude bad; rm')] });
+  const dir = agent('badmodel', { lines: [assistant('claude-bad;rm')] });
   ranOn(ACCT_B);
   const out = discover.connect(dir, {});
   assert.equal(seen.configDir, ACCT_B);
