@@ -5535,6 +5535,13 @@ do {
     plain.shown(rowsDrawn: false, now: t0); plain.rows(empty: false, now: t0 + 1); plain.rebuilt(now: t0 + 20)
     let rebuiltBlank = plain.finish(hasRows: true, excused: false, app: "0.1.0 (53)", now: t0 + 24)
     check((rebuiltBlank?["closedBlank"] as? Bool) == true, "a rebuilt list that drew no row by close is blank")
+    // kosmos#8221 slice 6: the list word is in the body only when given.
+    plain.shown(rowsDrawn: false, now: t0); plain.rows(empty: false, now: t0 + 1)
+    let uikitBody = plain.finish(hasRows: true, excused: false, app: "0.1.0 (53)", list: "uikit", now: t0 + 5)
+    check((uikitBody?["list"] as? String) == "uikit" && uikitBody?.count == 4, "kosmos#8221: a UIKit-list showing names its list")
+    plain.shown(rowsDrawn: false, now: t0); plain.rows(empty: false, now: t0 + 1)
+    let lazyBody = plain.finish(hasRows: true, excused: false, app: "0.1.0 (53)", now: t0 + 5)
+    check(lazyBody != nil && lazyBody?["list"] == nil && lazyBody?.count == 3, "kosmos#8221 CONTROL: a lazy-list showing sends the same three fields as before")
     plain.shown(rowsDrawn: false, now: t0); plain.rows(empty: false, now: t0 + 1); plain.rebuilt(now: t0 + 20); plain.rows(empty: false, now: t0 + 20.2)
     let rebuiltBack = plain.finish(hasRows: true, excused: false, app: "0.1.0 (53)", now: t0 + 24)
     check((rebuiltBack?["closedBlank"] as? Bool) == false && (rebuiltBack?["rebuilds"] as? Int) == 1, "a rebuild that drew rows is counted, not blank at close")

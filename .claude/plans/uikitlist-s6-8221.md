@@ -57,4 +57,9 @@ measured simulator run shows a UIKit open with rows on screen is not counted bla
       onDisappear does take its old row out. Faithful: step 2 takes the plain path (remove the guard, send the list
       word); ChatList needs no row count of its own. Not measured: a cell reconfigured on an update (apply) while on
       screen; the same handlers run there, and step 6's ui-sample runs cover sends.
-- [ ] Steps 2 and 5 (the phone sends the list word), then 6 and 7.
+- [x] Steps 2 and 5 (20:11 CST 11-08): slice 5's guard is gone; ChatOpenCount.finish takes list (nil for the lazy list),
+      sendOpenCount passes "uikit" on the UIKit list. LogicTests: a UIKit showing names its list, and a lazy one sends the
+      same three fields as before (CONTROL); with the word dropped from finish, 1 of 2128 FAILS on it. Room suite pins the
+      guard gone and the word passed (850/850). All 12 run-*.sh pass, run.sh 2128/2128, ios*.test.js 43/43, Release
+      typecheck clean.
+- [ ] Step 6's remaining runs (ui-sample.sh both arms), then 7: review, PR, TestFlight once slices 4 to 6 are on main.
