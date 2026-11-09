@@ -11596,9 +11596,9 @@ body.has-myagents.myagents-folded #panel-detail, body.has-myagents.myagents-fold
 .myagents-folded .myagents-list .lrow > .lname { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
 .myagents-folded .myagents-list .lrow > .lname .astar, .myagents-folded .myagents-list .lrow > .ltitle { display: none; }
 /* The list replaces the link back to All agents. An agent opened from a project keeps the link that names it. */
-body.has-myagents #panel-detail[data-to-all] > #detail-back,
+/* Hidden, keeping its row: the page's layout (and every section's top, and where tips fit) stays what it was. */
+body.has-myagents #panel-detail[data-to-all] > #detail-back { visibility: hidden; }
 body.has-myagents #panel-detail[data-to-all] #d-talk-box :is(.d-crumb-back, .d-crumb-rootwrap) { display: none !important; }
-body.has-myagents #panel-detail[data-to-all]:has(#d-sec-talk:not([hidden])) .dleft { margin-top: 0; }   /* that margin was the back link's row */
 :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) > #detail-back { display: none; }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-back { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--k-rule); display: grid; place-items: center; flex: none; margin-right: 2px; }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-rootwrap { display: inline-flex; align-items: baseline; flex: 0 1 auto; min-width: 0; font-size: 1.375rem; line-height: 1.2; letter-spacing: -.02em; }
