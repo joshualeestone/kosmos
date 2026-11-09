@@ -19,22 +19,29 @@ clear of both.
 
 ## Change
 
-1. ChatView: no working row in the lazy list or the UIKit list's ids. `workingStrip` draws `WorkingLine` over the composer
-   strip, standing on a zero-height frame at the strip's top (4 pt above it), only while `working`. An alignment guide was
-   tried first and moved nothing (measured: the line sat on the box's edge).
-2. ChatList: bottom contentInset 0 (top stays listPadV). The UIKit dots' rest goes back to the lazy list's 14.5 (slice 9 had
-   set 2.5 for the extra room).
-3. EndPullDriver: `drawn(Bool)` callback when its dots go on and off screen; the chat hides the working line while they show,
-   because they rest in the same room, centred, and a long name would reach them.
+1. ChatView: no working row in the lazy list or the UIKit list's ids. `WorkingStrip` (its own view) draws `WorkingLine` over
+   the composer strip, standing on a zero-height frame at the strip's top (4 pt above it), one line, only while `working`, on a
+   ground that fades in from 6 pt above it (so a reader higher up sees messages fade out behind it). A hidden copy with still
+   dots measures its height; `endRoom = max(fadeHeight + 8, lineHeight + 10)` is the end marker's height on both lists and the
+   "New messages" capsule's bottom padding. An alignment guide was tried first and moved nothing (measured: the line sat on the
+   box's edge). Neither list reacts to `working` any more (no follow, no capsule).
+2. ChatList: bottom contentInset 0 (top stays listPadV). The dots' rest (`restsAbove`) is 11.5 on both lists (was 14.5 lazy,
+   2.5 UIKit): at the true end of a long chat, 14.5 put the dots 0.5 pt into the newest message's time line.
+3. EndPullDriver: `ObservableObject` with `@Published dotsUp`, true while its dots are on screen at alpha >= 0.25, published a
+   turn later. Only WorkingStrip observes it (the chat holds the driver in @State without observing), so the dots coming and
+   going never re-evaluates the chat mid-pull.
 
 ## Tests
 
-- New ChatGapUITests (either list): bubble to box <= 60 pt; the working line >= 2 pt under the bubble and >= 12 pt above the
-  box's words.
-- EndPullUITests long-chat check: the working line is absent under the dots; the dots >= 14 pt under the newest message's
-  words and >= 18 pt above the box.
+- New ChatGapUITests (either list, in both CI arms, 3 checks): bubble (time line included) to box <= 60 pt; the working line
+  >= 2 pt under the bubble and >= 12 pt above the box's words, at the default and the largest text size; and, scrolled up, the
+  line is on screen above the box while the newest message is not.
+- EndPullUITests long-chat check: the working line shows before the pull, is absent under the dots and back after; the dots
+  >= 1 pt under the newest message's bubble and >= 18 pt above the box. The 1 pt floor is tight on purpose: at rest they are
+  2.5 pt clear (measured 11-09), so a change to the bubble's time line or padding can turn it red; look here first if it does.
 - SendMovesOnceUITests: comments only (the line appearing still moves nothing; that test still runs).
-- LogicTests/room: the #7348 pin on the hidden kept row is replaced by a #8283 pin (line drawn over the strip, no row).
+- LogicTests/room: the #7348 pin on the hidden kept row is replaced by a #8283 pin (WorkingStrip, the still measuring copy,
+  endRoom on both lists and the capsule, no `onChange(of: working)`, and the driver's dotsUp wiring).
 
 ## Numbers
 
