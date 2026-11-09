@@ -51,7 +51,6 @@ const PERSON_ONLY_VERBS = {
   status: 'whether the board runs; the Windows board answers in the browser',
   open: 'opens the dashboard; Kosmos.exe does',
   agents: 'lists tmux agents for a person at a terminal',
-  version: 'the bundle version; the Windows zip carries it in manifest.json',
   adopt: 'one-time tmux adoption (#570), which has no Windows arm (audit #39)',
   update: 'the Mac app\'s update look on a computer that runs no board (#4382); Windows updates through win32update (#4381)',
 };
