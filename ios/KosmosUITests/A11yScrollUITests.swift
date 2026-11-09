@@ -53,6 +53,7 @@ final class A11yScrollUITests: XCTestCase {
     // One page up, its end reported.
     func testAnAnimatedScrollUpIsNotHeldAtTheEnd() throws {
         let r = try scrollUp(mode: "animated")
+        XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened: \(r.label)")
         XCTAssertEqual(r.pins, 0, "the list put itself back at the end while the person's scroll ran: \(r.label)")
         XCTAssertGreaterThan(r.moved, 40, "the scroll did not move the list up: \(r.label)")
         XCTAssertFalse(r.atEnd, "the reader is still counted at the newest after scrolling up: \(r.label)")
