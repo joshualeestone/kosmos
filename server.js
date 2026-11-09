@@ -17086,7 +17086,7 @@ const server = http.createServer(async (req, res) => {
          absent value is a no-op (the file default stands). Absent for every current
          screen; wired so an API caller or a future grok picker can adopt grok
          correctly rather than as codex. */
-      try { out = discover.connect(body.dir, { projects: projectsToJoin, name: body.name, provider: body.provider }); }
+      try { out = discover.connect(body.dir, { projects: projectsToJoin, name: body.name, provider: body.provider, anyway: body.anyway === true }); }
         catch (err) {
           /* A state question never 500s, the contract every sibling here keeps:
              the screen can render "we could not" and cannot render a stack. */

@@ -359,86 +359,6 @@ function lastRunOf(dir) {
   return { ran: true, account: holders.size === 1 ? [...holders.values()][0] : null, model: lastModelIn(transcript), at: found.at };
 }
 
-/* #8294: a launchd job outside Kosmos that starts this agent's program in this folder. Connecting while one exists runs
-   two copies in one folder at the next login, and the board shows one row. Both halves are required, so a web server that
-   merely works in the folder, or a backup of it, blocks nobody. Only a job that starts by itself counts (RunAtLoad or
-   KeepAlive). Plain-text plists only; Linux and Windows have no such folder here, so the answer there is none. */
-/* A launch script is a few KB; anything larger is not one, and this runs on the click. */
-const LAUNCHER_READ_MAX_BYTES = 256 * 1024;
-const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-function plistStrings(xml, key) {
-  const m = xml.match(new RegExp('<key>' + key + '</key>\\s*(<string>[^<]*</string>|<array>[\\s\\S]*?</array>)'));
-  if (!m) return [];
-  return [...m[1].matchAll(/<string>([^<]*)<\/string>/g)]
-    .map((x) => x[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&'));
-}
-/* Folders macOS guards with a permission prompt (#2125), and removable volumes: never opened on a click. */
-function guardedPath(file) {
-  const home = os.homedir();
-  return file.startsWith('/Volumes/') || ['Documents', 'Desktop', 'Downloads'].some((d) => file.startsWith(path.join(home, d) + '/'));
-}
-function launcherText(file) {
-  try {
-    if (!path.isAbsolute(file) || guardedPath(file)) return '';
-    const st = fs.statSync(file);   // a pipe or device passes a size check and hangs a read: regular files only
-    if (!st.isFile() || st.size > LAUNCHER_READ_MAX_BYTES) return '';
-    return fs.readFileSync(file, 'utf8').replace(/^\s*#.*$/gm, '');   // a comment naming the program does not start it
-  } catch { return ''; }
-}
-function otherJobFor(dir, agentsDir, runner) {
-  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(String(p)); } };
-  const want = real(dir);
-  const home = os.homedir();
-  const spellings = new Set([path.resolve(String(dir)), want]);
-  for (const p of [...spellings]) {
-    if (p.startsWith(home + '/')) { const rest = p.slice(home.length); spellings.add('$HOME' + rest); spellings.add('${HOME}' + rest); spellings.add('~' + rest); }
-  }
-  const folders = [...spellings].map(escapeRe).join('|');
-  const isFolder = new RegExp('^(?:' + folders + ')/?$');
-  const blank = (m) => ' '.repeat(m.length);   // same length, so a position here is a position in the original
-  const folderMask = new RegExp(folders, 'g');   // a folder named after the program is not a start of it
-  const asking = /\b(?:pgrep|pkill|killall|which|type|echo|printf)\b[^;&|\n]*/g;   // asking about the program, or saying its name, is not starting it
-  /* The program as a command or a path's last part: .local/bin/claude yes, ~/.claude/x and claude-501 no. */
-  const startsRe = new RegExp('(^|["\'\\s/;&|(])' + escapeRe(runner || 'claude') + '($|["\'\\s;&|)])', 'm');
-  const masked = (t) => t.replace(folderMask, blank).replace(asking, blank);
-  /* Does this text start the program from this folder? The last cd or tmux -c before the start decides, so a cd elsewhere
-     or a backup variable never counts. A *DIR variable counts only when a cd or -c uses it (the fleet's WORK_DIR). */
-  const startsHere = (raw) => {
-    const t = masked(raw);
-    const at = startsRe.exec(t);
-    if (!at) return false;
-    const vars = new Set();
-    for (const m of raw.matchAll(/(?:^|[\s;&(])([A-Za-z_][A-Za-z0-9_]*)=["']?([^"'\s;&|)]+)/gm)) if (isFolder.test(m[2])) vars.add(m[1]);
-    let last = null;
-    for (const m of raw.matchAll(/(?:\bcd\s+|\s-c\s+)["']?([^"'\s;&|)]+)/g)) {
-      if (m.index > at.index) break;
-      last = m[1];
-    }
-    if (last === null) return false;
-    const v = last.match(/^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/);
-    return v ? vars.has(v[1]) : isFolder.test(last);
-  };
-  let names;
-  try { names = fs.readdirSync(agentsDir); } catch { return null; }
-  for (const n of names.sort()) {
-    if (!n.endsWith('.plist') || n.startsWith('com.kosmos.agent.')) continue;
-    let xml;
-    try {
-      if (!fs.statSync(path.join(agentsDir, n)).isFile()) continue;
-      xml = fs.readFileSync(path.join(agentsDir, n), 'utf8');
-    } catch { continue; }
-    xml = xml.replace(/<!--[\s\S]*?-->/g, '').replace(/<key>EnvironmentVariables<\/key>\s*<dict>[\s\S]*?<\/dict>/g, '');
-    if (/<key>Disabled<\/key>\s*<true\s*\/>/.test(xml)) continue;
-    if (!/<key>(RunAtLoad|KeepAlive)<\/key>\s*(<true\s*\/>|<dict>)/.test(xml)) continue;
-    const args = [...plistStrings(xml, 'Program'), ...plistStrings(xml, 'ProgramArguments')];
-    const texts = [args.join(' '), ...args.map(launcherText)].filter(Boolean);
-    const inFolder = plistStrings(xml, 'WorkingDirectory').some((p) => path.isAbsolute(p) && real(p) === want);
-    const here = (inFolder && texts.some((t) => startsRe.test(masked(t)))) || texts.some(startsHere);
-    if (here) return { label: n.slice(0, -'.plist'.length), file: path.join(agentsDir, n) };
-  }
-  return null;
-}
-
 /**
  * Every agent this computer has on disk.
  *
@@ -2112,13 +2032,16 @@ function connect(dir, opts) {
   /* kosmos#7835: a delete of what is left under this name may be waiting on the Windows Recycle Bin with the board free;
      its last steps (the name's tokens, records, history) would land on an agent connected meanwhile. */
   if (deletingUnder(name)) return { ok: false, because: 'what is left of an agent by that name is still being deleted; try again when that has finished' };
-  /* #8294: and not while another job would start a second copy here (see otherJobFor). First, because this sentence names the job,
-     and with KeepAlive closing the running agent alone brings it back. */
-  const other = otherJobFor(given, create.AGENTS_DIR, runner);
-  if (other) {
-    return { ok: false, because: `this agent is also started by another job on this computer (${other.label}), so adding it would run two copies in one folder. Stop that job, remove its file (${other.file}) and close the agent it started, then add it again` };
+  /* #8294: another login job that looks like it starts this agent here would run a second copy. Reading someone's job can
+     only suggest that, so the person decides: the first press says which job, and pressing Add again goes ahead. First,
+     because this sentence names the job, and with KeepAlive closing the running agent alone brings it back. */
+  if (!(opts && opts.anyway === true)) {
+    let other = null;
+    try { other = require('./register').foreignStarter(given, runner); } catch { /* reads as none: today's behaviour */ }
+    if (other) {
+      return { ok: false, otherJob: true, because: `this agent also looks like it is started by another job on this computer (${other.label}), which would run two copies in one folder. Stop that job, remove its file (${other.file}) and close the agent it started, then add it again. If that job is something else, press Add again` };
+    }
   }
-
   /* 🛑 AND NOT WHEN SOMETHING IS ALREADY RUNNING UNDER THAT NAME (#362). The
      add installs a job and starts it; on a folder whose agent is already up,
      started some other way, that is a second Claude in the same worker folder.
@@ -2458,7 +2381,6 @@ module.exports = { alreadyIn, folderTakenBy,
   foundGemini,
   codexIdentity,
   lastRunOf,
-  otherJobFor,
   runningUnderName, found, scan, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
   candidateDirs,
   declined, decline, undecline, DECLINED_FILE,

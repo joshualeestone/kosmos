@@ -1,23 +1,18 @@
-# oldjob-8294: connect refuses while another launch job would start a second copy
+# oldjob-8294: connect warns once when another login job looks like it starts this agent
 
 Found by the #8290 throwaway test: with the old `com.<name>.discord` job loaded, two Claudes ran in one folder and the board showed one row.
 
 ## Change
-engine/discover.js otherJobFor reads the LaunchAgents folder and connect refuses, naming the job and what to do, when a job starts by itself (RunAtLoad or KeepAlive), is not disabled, starts this agent's own program, and runs it in this folder: by WorkingDirectory, or because the last cd or tmux -c before the start names the folder or a variable holding it. A `<name>-discord` session still up is refused by connect's existing running check, which reads that spelling as the same agent. The refusal appears when Add is pressed, through the row's existing failure arm (`said.textContent = out.because`).
+engine/register.js foreignStarter, built on that file's existing LaunchAgents reader (plistKeys, scriptText, protectedPath, mentionsFolder): the first login job outside Kosmos that starts by itself, names this agent's program, and is tied to this folder. connect then refuses once, naming the job and its file. Pressing Add again goes ahead (`anyway`).
+
+## Why a warning the person can override
+Seven review rounds each found a new shell-script shape my text matching got wrong, in both directions, and a hard refusal made a wrong match cost someone a working job. A script cannot be read reliably, so the decision moved to the person, and the code reuses the survey's reader rather than a third parser. Rejected: more parsing; unloading the job from the board.
 
 ## Measured
-On this Mac: finds 17 of 17 fleet agents (4 of them only through the launch script, which my first version missed), and nothing for the repo checkout or a shorter folder-name prefix.
-
-## Decided
-- Refuse rather than warn and offer to turn it off. Turning off someone's job from a board button is a bigger act. The refusal names the job and its file; clearing it takes someone who can stop a job. Rejected: unloading it ourselves.
-- Any plist on disk counts, loaded or not: launchd loads it at the next login, which is the case that was measured. A job turned off with launchctl disable lives outside the file, so it still refuses until the file is removed, as the sentence says.
-- Mac only: Linux and Windows have no such folder, so the answer there is none.
+On this Mac: finds 17 of 17 fleet agents, nothing for the repo checkout or six worker folders with no job.
 
 ## Weakest premise
-Only plain-text plists are read (89 of 89 here are). A script called by a script is not followed, a folder spelled through a variable other than HOME is missed, and a job that starts the agent some other way reads as none (npx or node on the claude-code package, a backslash-escaped space in a path, an Antigravity job whose program is agy): those keep today's behaviour.
-
-A launch script under Documents, Desktop, Downloads or /Volumes is not opened (macOS would prompt), so that job is missed. A read that fails, or a binary plist, counts as no job: today's behaviour, not a refusal, because a refusal could not be cleared by anyone who cannot see what we could not read.
+Heuristic in both directions. A miss is today's behaviour; a false match costs one more press.
 
 ## Not covered
-A folder with no instructions file is registered without a job, so it starts nothing and is outside this.
-The card's second ask, the board noticing two copies, is not built here: connect is the only door this closes. A job added after connecting can still start a second copy.
+The card's second ask, the board noticing two copies, is not built here. A job added after connecting can still start a second copy. A folder with no instructions file is registered without a job, so it starts nothing.
