@@ -11569,7 +11569,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .myagents-list .lrow { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 1px 10px; align-items: center; padding: 8px; border: 0; border-radius: 12px; cursor: pointer; min-height: 0; }
 .myagents-list .lrow:hover { background: var(--attn-bg); }
 .myagents-list .lrow.current { background: var(--attn-bg); box-shadow: inset 0 0 0 1px var(--k-ink-2); }
-.myagents-list .lrow:focus-within { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.myagents-list .lrow:has(:focus-visible) { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .myagents-list .lrow > .lav { grid-row: 1 / span 2; }
 .myagents-list .lrow > .lname { grid-column: 2; display: flex; align-items: center; gap: 6px; min-width: 0; }
 .myagents-list .lrow > .lname b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 20px; }
@@ -27161,7 +27161,8 @@ function paintAgentListNow() {
     setAgentsGrouped(false);
   }
 }
-/* kosmos#8303: My Agents. Wide windows only: a narrow one has no room and keeps its link back to All agents. */
+/* kosmos#8303: My Agents. Rows hide the state column; the presence dot, warning mark and unread count stay, as drawn.
+   Wide windows only: a narrow one has no room and keeps its link back to All agents. */
 const MY_AGENTS_MIN_WIDTH = 1100;
 let MY_AGENTS_HTML = null;
 let MY_AGENTS_FOLDED = null;   // what this page last set, for a browser that will not store it
@@ -27169,6 +27170,12 @@ let MY_AGENTS_OPEN = null;
 function myAgentsFolded() {
   if (MY_AGENTS_FOLDED !== null) return MY_AGENTS_FOLDED;
   try { return localStorage.getItem('kosmos.fold.myagents') === '1'; } catch { return false; }
+}
+/* The column starts where the header ends. The header scrolls away in the conversation view, so this follows it. */
+function myAgentsTop() {
+  const box = document.getElementById('my-agents');
+  const head = document.querySelector('.apphead');
+  if (box && !box.hidden && head) box.style.setProperty('--myagents-top', Math.max(0, head.getBoundingClientRect().bottom) + 'px');
 }
 function paintMyAgents() {
   const box = document.getElementById('my-agents');
@@ -27183,9 +27190,14 @@ function paintMyAgents() {
   btn.innerHTML = folded ? '&rsaquo;' : '&lsaquo;';
   btn.setAttribute('aria-expanded', String(!folded));
   btn.setAttribute('aria-label', (folded ? 'Open' : 'Fold') + ' My Agents');
-  if (!on) return;
-  const head = document.querySelector('.apphead');
-  if (head) box.style.setProperty('--myagents-top', Math.max(0, head.getBoundingClientRect().bottom) + 'px');
+  if (!on) {
+    // Empty, not just hidden: a second copy of every row left in the page answers anything looking an agent up by data-agent.
+    document.getElementById('my-agents-list').innerHTML = '';
+    MY_AGENTS_HTML = null;
+    MY_AGENTS_OPEN = null;
+    return;
+  }
+  myAgentsTop();
   const list = document.getElementById('my-agents-list');
   const shown = sortAgents((LAST || []).filter((a) => !(a && a.isGuide === true)), AGENT_SORT, PROJECTS, AGENT_STARS);
   const html = shown.map(lrow).join('');
@@ -27203,8 +27215,8 @@ function paintMyAgents() {
   for (const row of list.querySelectorAll('.lrow')) {
     const here = row.dataset.agent === open;
     row.classList.toggle('current', here);
-    if (here) row.setAttribute('aria-current', 'page'); else row.removeAttribute('aria-current');
     const name = row.querySelector('.namego');
+    if (name) { if (here) name.setAttribute('aria-current', 'page'); else name.removeAttribute('aria-current'); }
     if (folded && name) row.title = name.textContent; else row.removeAttribute('title');
     if (here && open !== MY_AGENTS_OPEN) row.scrollIntoView({ block: 'nearest' });   // a deep link can open one far down the list
   }
@@ -55341,9 +55353,10 @@ document.getElementById('my-agents-fold').addEventListener('click', () => {
 });
 /* Reopening the agent already open would reload its page and throw away anything typed there. */
 document.getElementById('my-agents-list').addEventListener('click', (e) => {
-  if (!e.target.closest('[data-star]') && e.target.closest('.lrow[aria-current]')) e.stopPropagation();
+  if (!e.target.closest('[data-star]') && e.target.closest('.lrow.current:not([data-answer])')) e.stopPropagation();
 }, true);
 window.addEventListener('resize', paintMyAgents);
+window.addEventListener('scroll', myAgentsTop, { passive: true });
 if (typeof ResizeObserver === 'function') new ResizeObserver(paintMyAgents).observe(document.querySelector('.apphead'));   // a taller header moves the column's top
 /* #3387: the "Other Agents" sub-header's + is the New-agent action. Delegated off #alist
    because the list is rebuilt on every poll, so a bound listener would not survive. */

@@ -31,7 +31,7 @@ const read = () => {
     title: (box.querySelector('.railname') || {}).textContent,
     names: [...box.querySelectorAll('.lrow .namego')].map((b) => b.textContent),
     groups: box.querySelectorAll('.alist-grouphdr').length,
-    current: [...box.querySelectorAll('.lrow[aria-current="page"]')].map((r) => r.dataset.agent),
+    current: [...box.querySelectorAll('.namego[aria-current="page"]')].map((b) => b.closest('.lrow').dataset.agent),
     roles: [...box.querySelectorAll('.lrow .ltitle')].map((r) => r.textContent),
     badge: (box.querySelector('.lrow[data-agent="dario"] .dmbadge') || {}).textContent,
     state: box.querySelectorAll('.lrow .lstate').length ? getComputedStyle(box.querySelector('.lrow .lstate')).display : null,
@@ -108,7 +108,7 @@ const read = () => {
         b.click();
         return { wide, narrow, expanded, nameKept, rowTitle, nameFocus, left, saved, again: box.getBoundingClientRect().width };
       });
-      ok(t + ' it folds to its avatars and says so, and the page takes the room', fold.narrow < 80 && fold.wide > 200 && fold.expanded === 'false' && fold.left < 100 && fold.saved === '1', JSON.stringify(fold));
+      ok(t + ' it folds to its avatars and says so, and the page takes the room', fold.narrow < 80 && fold.wide > 200 && fold.expanded === 'false' && fold.left < 100 && fold.left >= fold.narrow && fold.saved === '1', JSON.stringify(fold));
       ok(t + ' it opens again', fold.again === fold.wide, JSON.stringify(fold));
       ok(t + ' folded, each agent still has its name for the keyboard and on hover', fold.nameKept === true && fold.nameFocus === true && fold.rowTitle === 'Mark', JSON.stringify(fold));
 
@@ -140,13 +140,27 @@ const read = () => {
         const opened = [];
         const real = openDetail;
         openDetail = (s) => opened.push(s);
-        list.querySelector('.lrow[aria-current] .namego').click();
+        list.querySelector('.lrow.current .namego').click();
         openDetail = real;
         return { starKept, nameKept, opened };
       });
       ok(t + ' a rebuild keeps a focused star on its agent', keys.starKept === true, JSON.stringify(keys));
       ok(t + ' a rebuild keeps a focused name on its agent', keys.nameKept === true, JSON.stringify(keys));
       ok(t + ' clicking the agent already open does not reload its page', keys.opened.length === 0, JSON.stringify(keys));
+
+      const scrolled = await page.evaluate(() => {
+        const box = document.getElementById('my-agents'); const head = document.querySelector('.apphead');
+        document.body.style.minHeight = '3000px';
+        head.style.position = 'static';
+        window.scrollTo(0, 400);
+        window.dispatchEvent(new Event('scroll'));
+        const top = parseFloat(getComputedStyle(box).getPropertyValue('--myagents-top'));
+        const bottom = head.getBoundingClientRect().bottom;
+        window.scrollTo(0, 0); head.style.position = ''; document.body.style.minHeight = '';
+        window.dispatchEvent(new Event('scroll'));
+        return { top, bottom };
+      });
+      ok(t + ' the column follows a header that scrolls away', scrolled.top === Math.max(0, scrolled.bottom), JSON.stringify(scrolled));
 
       const newLook = await page.evaluate(() => {
         document.documentElement.setAttribute('data-look', 'new');
@@ -172,6 +186,8 @@ const read = () => {
 
       const left = await page.evaluate(() => { showTab('agents'); return { hidden: document.getElementById('my-agents').hidden, cls: document.body.classList.contains('has-myagents') }; });
       ok(t + ' leaving the agent page removes it', left.hidden === true && left.cls === false, JSON.stringify(left));
+      const stale = await page.evaluate(() => document.querySelectorAll('#my-agents-list [data-agent]').length);
+      ok(t + ' and leaves no copy of the rows behind', stale === 0, String(stale));
       await page.close();
     }
   }

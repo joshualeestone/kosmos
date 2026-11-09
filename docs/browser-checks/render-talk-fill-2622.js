@@ -133,6 +133,8 @@ async function measure(page) {
     });
     const boardHead = await headPos();
     await page.click('[data-agent="beatrix"]');
+    // kosmos#8303: from 1100px up, My Agents replaces the link to All agents, so measure this page with the link that stays: an agent opened from a project.
+    await page.evaluate(() => { DETAIL_FROM_PROJECT = 'a-project'; detailBackPaint(); paintMyAgents(); });
     await page.waitForSelector('#panel-detail:not([hidden])');
     await page.waitForTimeout(300);
 
