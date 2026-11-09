@@ -25910,11 +25910,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
     }
-    const act = (why, replacedBy, withBuilt = false) => {
+    const act = (why, replacedBy, withBuilt = false, notRun = false) => {
       try {
         /* #6157: a reopen records who put it back (the person from the screen, or the agent its token named; an agent
            that sends no token stays unnamed, as above) and why. #6923: a close may name the task that replaced it. */
-        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2], { replacedBy, withBuilt, wantLeft: true })
+        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2], { replacedBy, withBuilt, wantLeft: true, notRun })
           : tasks.reopen(id, taskAct[2], { by: actor, person: isViaScreen(req, {}), why });
         // Close and reopen change what the assignee's block should list, so
         // the block follows the record. Non-gating.
@@ -25965,18 +25965,22 @@ const server = http.createServer(async (req, res) => {
           if (!body || typeof body !== 'object' || Array.isArray(body)) {
             sendJson(res, 400, { error: 'we could not read that request, so the task was not closed' }); return;
           }
-          if (Object.keys(body).some((k) => k !== 'replacedBy' && k !== 'withBuilt')) {
+          if (Object.keys(body).some((k) => k !== 'replacedBy' && k !== 'withBuilt' && k !== 'notRun')) {
             sendJson(res, 400, { error: 'a close takes only replacedBy (the number of the task that replaced it) or withBuilt, so the task was not closed' }); return;
           }
           // kosmos#7514: withBuilt (also close its built subtasks) is true or false, never a word that reads as either.
           if (body.withBuilt !== undefined && typeof body.withBuilt !== 'boolean') {
             sendJson(res, 400, { error: 'withBuilt has to be true or false, so the task was not closed' }); return;
           }
+          // kosmos#8301: notRun (the closer says it never ran), the same rule.
+          if (body.notRun !== undefined && typeof body.notRun !== 'boolean') {
+            sendJson(res, 400, { error: 'notRun has to be true or false, so the task was not closed' }); return;
+          }
           if (body.withBuilt === true && body.replacedBy !== undefined && body.replacedBy !== null) {
             sendJson(res, 400, { error: 'a task closed as replaced does not take its built subtasks: close them on their own, so the task was not closed' }); return;
           }
         }
-        act('', body && typeof body === 'object' ? body.replacedBy : undefined, body && typeof body === 'object' && body.withBuilt === true);
+        act('', body && typeof body === 'object' ? body.replacedBy : undefined, body && typeof body === 'object' && body.withBuilt === true, body && typeof body === 'object' && body.notRun === true);
       }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
       return;
     }

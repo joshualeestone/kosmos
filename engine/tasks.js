@@ -251,8 +251,7 @@ function treeOf(p) {
      task's done-when checks. */
   const isBuilt = isBuiltOpen;   // held reads held (taskState); one definition, shared with kosmos#7514's closesWithParent
   /* kosmos#8140: `held` counts the open children on hold, so a parent can show them apart from the ones not done yet
-     (a built parent with most pieces held read as finished). kosmos#8301: `unrun` counts the children closed with no
-     sign of work (closedUnrun), so "done" can mean done: they stay in `done`, which every reader of "all closed" needs. */
+     (a built parent with most pieces held read as finished). kosmos#8301: `unrun` counts the children closed as never run or replaced (closedUnrun), so "done" can mean done: they stay in `done`, which every reader of "all closed" needs. */
   const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, held: k.filter((t) => !progressOf(t).closed && isOnHold(t)).length, unrun: k.filter((t) => progressOf(t).closed && t.closedUnrun === true).length, total: k.length }; };
   return { byNum, up, under, progress };
 }
@@ -1163,12 +1162,12 @@ function builtUnder(p, top) {
  * and every other caller cost what they did. A close as replaced
  * does neither: that round's work was superseded, not done. A subtask that cannot be closed stops the rest: the parent
  * is closed either way, and `closedWith` and `builtLeft` say how far it got. */
-function close(projectId, n, { replacedBy = null, withBuilt = false, wantLeft = false } = {}) {
+function close(projectId, n, { replacedBy = null, withBuilt = false, wantLeft = false, notRun = false } = {}) {
   const by = replacedByValue(replacedBy);
   const asked = by === null && (withBuilt === true || wantLeft === true);
   const snapshot = asked ? (projects.readAll() || []).find((x) => x && x.id === projectId) : null;   // raw: no claim join
   const built = snapshot ? builtUnder(snapshot, Number(n)) : [];
-  const closed = setClosed(projectId, n, new Date().toISOString(), {}, { replacedBy: by });
+  const closed = setClosed(projectId, n, new Date().toISOString(), {}, { replacedBy: by, notRun: notRun === true });
   // A close asked withBuilt always answers closedWith (empty when none went), so a CLI can tell a board that never read
   // the ask (older than #6923 ignores the body and closes it as done) from one that had nothing to take (round 6).
   const wb = by === null && withBuilt === true ? { closedWith: [] } : {};
@@ -1210,7 +1209,7 @@ function reopen(projectId, n, { by = null, person = false, why = '' } = {}) {
   return setClosed(projectId, n, null, { ...(who ? { by: who } : {}), ...(isPerson ? { person: true } : {}), ...(said ? { why: said } : {}) });
 }
 
-function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyIfBuilt = false } = {}) {
+function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyIfBuilt = false, notRun = false } = {}) {
   let changed;
   let replacedNew = false;   // #6923: an already-closed task newly marked replaced records that too
   // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
@@ -1250,9 +1249,9 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     }
     const after = progressOf(changed).closed;
     if (before !== after) transition = after ? 1 : -1;
-    /* kosmos#8301: closed with no sign anyone worked on it: never marked built, no commit landed, no run, no part finished. A
-       task closed before this was recorded has no mark, and reads as done rather than being guessed at. */
-    if (!before && after && !t.builtAt && !t.landedCommit && !t.lastRunAt && !partsOf(t).some((x) => x.closedAt)) changed.closedUnrun = true;
+    /* kosmos#8301: closed without running, only when the closer says so (--not-run) or it was replaced. Never inferred from
+       what is missing: a parent whose children did the work, or a person's own plain close, has no sign of work either. */
+    if (after && ((!before && notRun) || replacedNew)) changed.closedUnrun = true;
     if (!after) delete changed.closedUnrun;
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
     if (after) changed = withoutBuilt(changed);
