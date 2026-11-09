@@ -807,9 +807,10 @@ check(chatSource.contains("if working && !endPull.dotsUp {\n                Work
       && chatSource.contains("private var endRoom: CGFloat { max(ChatView.fadeHeight + 8, workingLineHeight + 10) }")
       && chatSource.components(separatedBy: "frame(height: endRoom)").count - 1 == 2
       && !chatSource.contains("\"working\", \"end\"") && !chatSource.contains(".id(\"working\")")
-      // The agent starting to work raises no "New messages" and scrolls nothing, on either list; and the capsule sits above the
-      // line at a large text size.
-      && !chatSource.contains(".onChange(of: working)")
+      // The agent starting to work raises no "New messages" on either list and moves only a reader already at the newest (the
+      // lazy list's one onChange); and the capsule sits above the line at a large text size.
+      && chatSource.components(separatedBy: ".onChange(of: working)").count - 1 == 1
+      && chatSource.contains(".onChange(of: working) { now in if now && atBottom && !searching { goNewest(proxy, animated: true) } }")
       && chatSource.contains(".padding(.bottom, endRoom)   // above the fade (kosmos#7346)"),
       "kosmos#8283: the working line is drawn over the strip above the box, never as a row kept in the list")
 check(agentsSource.contains(".id(agent.session)"), "review 1: a notice for another agent while a chat is open starts that chat afresh, not the old one renamed")
