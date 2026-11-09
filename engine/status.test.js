@@ -6824,3 +6824,13 @@ test('#6190: a look worded after an await uses ITS OWN search, not one the board
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
+
+test('kosmos#8321: two sessions running one agent are named on its row; a shell or one session is not', () => {
+  const status = require('./status');
+  const pane = (session, command) => ({ name: 'kappa', session, command });
+  const shown = [pane('kappa-discord', 'claude')];
+  assert.equal(status.twinSessions([shown[0], pane('kappa', 'claude')], shown).get('kappa'), 'kappa');
+  assert.equal(status.twinSessions([shown[0], pane('kappa', 'zsh')], shown).has('kappa'), false, 'CONTROL: a shell beside it is not a second agent');
+  assert.equal(status.twinSessions([shown[0], pane('kappa-discord', 'claude')], shown).has('kappa'), false, 'CONTROL: a split window in one session is one agent');
+  assert.equal(status.twinSessions([pane('kappa-discord', 'zsh'), pane('kappa', 'claude')], [pane('kappa-discord', 'zsh')]).has('kappa'), false, 'CONTROL: the row itself is not running');
+});

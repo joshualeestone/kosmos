@@ -3321,6 +3321,7 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 /* `.acut` is retired: the pack dropped the rule AND the divs together, and a
    surviving rule would still draw a line under markup that no longer exists. */
 /* The role sits directly under the name as one unit (Josh's regroup). */
+.atwin { color: var(--danger); font-weight: 700; }   /* kosmos#8321 */
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* #7978: inside the model line, so the card's grid gains no row; on a line of its own, and only when out of the ordinary. */
 .acard .amachine { display: block; font-weight: 600; color: var(--k-ink); margin-top: 2px; }
@@ -23829,6 +23830,16 @@ function nameGoLabel(a) {
    full. #6398 did this for a rate limit alone; this is every state, plus the rules-behind note an idle or stopped
    card used to carry (#5957). */
 /* The needs-trust card's sentence when the engine sent none; on the pill's hover like every other (#6716). */
+/* kosmos#8321: two sessions running one agent's folder. Short on the card, the whole sentence on hover and the agent's page. */
+function twinSay(a) {
+  return a && typeof a.twinSession === 'string' && a.twinSession
+    ? 'Two copies of this agent are running at once in the same folder, so they can overwrite each other\u2019s work. The other copy is running as ' + a.twinSession + '.'
+    : '';
+}
+function twinNote(a) {
+  const say = twinSay(a);
+  return say ? ' <span class="atwin" title="' + esc(say) + '">Two copies running</span>' : '';
+}
 function needsTrustSay(a) {
   return (a && a.because) || 'It started but has not registered, most likely waiting at a workspace-trust prompt no one can see.';
 }
@@ -24175,7 +24186,7 @@ function card(a) {
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${answerAttrs(a)}${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="${esc(nameGoLabel(a))}">${esc(a.name)}</button>${staleBadge(a)}</div>${typeof starBtn === 'function' ? starBtn(a) : ''}
-    <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
+    <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}${twinNote(a)}</div>
     <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, say) : pillTitle(say)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(say)}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(tileModelLine(a))}${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}</div>
@@ -42572,6 +42583,7 @@ function paintDetailMeta(a) {
   if (roleSeg) metaBits.push(esc(roleSeg));
   // #684 is KEPT: the machine-name disclosure still explains a name that is really the machine's,
   // in the stranger's words -- only the #2833 provider/account/model segments are dropped (#3385).
+  if (twinSay(a)) metaBits.push('<span class="dmeta-note">' + esc(twinSay(a)) + '</span>');   // kosmos#8321
   if (!a.nameDerived) metaBits.push('<span class="dmeta-note">' + esc('no name was chosen for it, so this is the one it runs under') + '</span>');
   // Join with '' not '<br>': .dmeta-note is display:block with its own margin-top, so a <br>
   // before it stacked a redundant blank line when both the title and the #684 disclosure show.
