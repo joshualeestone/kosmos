@@ -129,7 +129,7 @@ test('#8202 Windows: a webhook task is quoted, and a done task says so', async (
   assert.equal(d.code, 0, d.err);
   assert.match(d.out, /^State: done$/m);
   assert.match(d.out, /^Closed: \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/m);
-  assert.match(d.out, /^Subtasks: 0 of 1 done$/m);
+  assert.match(d.out, /^Subtasks: 0 of 1 done, 1 built$/m);
 });
 
 test('#8202 Windows (review 1): no field carries a control or format character, and a webhook parent is quoted on Under', async () => {
