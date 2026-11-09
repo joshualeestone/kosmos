@@ -8650,9 +8650,11 @@ const server = http.createServer(async (req, res) => {
         partial = whole.counts.notRunning === null;   // the board could not read every job, so stopped agents may be missing
       } catch { sendJson(res, 500, { error: 'we could not read the agents just now' }); return; }
       // profile.role first (a running row's `role` is only the line parsed from its instruction file), and the card's own word.
-      /* kosmos#7977: a "Can't tell" agent's latest self-report, read for those rows alone and only for our own agents (a
-         stranger's session that shares a name is not the agent, review 1): its state and time, or `never` only when
-         there is no record at all (a record that could not be read says nothing, review 1). */
+      /* kosmos#7977: a "Can't tell" agent's latest self-report, read for those rows alone (and, as rosterRow also checks,
+         only our own agents': a stranger's session that shares a name is not the agent, review 1): its state and time,
+         or `never` only when its record file does not exist. read() also answers "never reported" for a file that exists
+         with no row this build can read (a state from a newer build, review 2), and for a record it could not read; both
+         say nothing here. */
       const reportOf = (a) => {
         if (a.cardWord !== require('./engine/cardlabel').STATE_COPY.unknown || a.isNamedOurs !== true) return null;
         if (typeof a.sessionName !== 'string' || !a.sessionName) return null;
@@ -8660,7 +8662,7 @@ const server = http.createServer(async (req, res) => {
           const sr = require('./engine/selfreport');
           const r = sr.read(a.sessionName);
           if (r && r.found === true) return { state: r.state, at: r.at };
-          return r && r.found === false && r.because === sr.NO_READING.NEVER_REPORTED ? { never: true } : null;
+          try { fs.statSync(sr.fileFor(a.sessionName)); return null; } catch (e) { return e && e.code === 'ENOENT' ? { never: true } : null; }
         } catch { return null; }
       };
       sendJson(res, 200, { agents: shown.map((a) => clilists.rosterRow(a, reportOf(a))), ...(partial ? { partial: true } : {}) });

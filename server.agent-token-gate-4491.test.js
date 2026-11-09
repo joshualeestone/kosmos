@@ -111,11 +111,14 @@ test('kosmos#7977: a "Can\'t tell" card reaches the list with its shape and last
   const at = '2026-11-09T08:12:00.000Z';
   let board = null;
   t.after(() => { selfreport.read = realRead; if (board && board.restore) board.restore(); });   // registered first
-  const reports = {
-    mara: { found: true, state: 'working', at, final: 'SECRET-FINAL', project: 'SECRET-PROJ' },
-    nova: { found: false, because: selfreport.NO_READING.NEVER_REPORTED },
-    odin: { found: false, because: selfreport.NO_READING.UNREADABLE },
-  };
+  /* Review 2: real record files, read by the real selfreport.read (only mara's is stubbed, to carry words that must not
+     travel): nova has none; odin's exists with no row this build can read, which read() also calls "never reported". */
+  fs.mkdirSync(selfreport.DIR, { recursive: true });
+  try { fs.unlinkSync(selfreport.fileFor('nova')); } catch { /* none */ }
+  fs.writeFileSync(selfreport.fileFor('odin'), '{"state":"from_a_newer_build","at":"' + at + '"}\nnot json\n');
+  t.after(() => { try { fs.unlinkSync(selfreport.fileFor('odin')); } catch { /* gone */ } });
+  assert.equal(realRead('odin').because, selfreport.NO_READING.NEVER_REPORTED, 'CONTROL: the fixture is not the case read() calls never reported');
+  const reports = { mara: { found: true, state: 'working', at, final: 'SECRET-FINAL', project: 'SECRET-PROJ' } };
   selfreport.read = (name) => reports[name] || realRead(name);
   board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'unknown' }),
     fleet.agent('nova', { state: 'unknown' }), fleet.agent('odin', { state: 'unknown' })]);
@@ -127,7 +130,7 @@ test('kosmos#7977: a "Can\'t tell" card reaches the list with its shape and last
   assert.equal(mara.state, "Can't tell", 'the fixture did not make a Can\'t tell card: ' + JSON.stringify(mara));
   assert.deepEqual(mara, { name: 'mara', role: mara.role, state: "Can't tell", cantTell: 'unread', lastReportState: 'working', lastReportAt: at });
   assert.doesNotMatch(r.text, /SECRET-/, 'a report\'s words reached the list');
-  // Review 1: "never reported" only for no record at all; a record that could not be read says nothing.
+  // Review 1 and 2: "never reported" only when there is no record file; one this build cannot read says nothing.
   assert.equal(agents.find((a) => a.name === 'nova').neverReported, true, JSON.stringify(agents));
   const odin = agents.find((a) => a.name === 'odin');
   assert.deepEqual(Object.keys(odin).sort(), ['cantTell', 'name', 'role', 'state'], 'an unreadable record was said: ' + JSON.stringify(odin));
