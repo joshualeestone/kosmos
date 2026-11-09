@@ -19,7 +19,7 @@ Addresses #8307 (split out of #8214). The shape was posted on the card first (is
 - **`builtFingerprintAt` is stamped only for a file new to the task (review 1).** A fingerprint from before #8307 sent again gets no made-up time, and its replacement reports `at: null`.
 - **A checker who has left the project** is in the recipients, and is said as not told, the same way as an assignee who left (review 1).
 - **Paths.** The replaced file's path is kept for `task show`. Both views that leave paths out (the project rows in projects.js and the Tasks view in server.js) now strip it too, through one helper, `tasks.withoutFilePaths`. The typed notice never carries a path.
-- **Notice.** `tellBuiltMark` gets `replaced` (with `kind`: replaced or withdrawn) from `setBuilt`'s answer. Each line adds "it replaces the file sent earlier (<old fingerprint>), so a check of that file no longer counts". The old file's checkers who are still on the project are added once, after the assignees and the parent's holders, and their line ends "you checked that one".
+- **Notice.** `tellBuiltMark` gets `replaced` (with `kind`: replaced or withdrawn) from `setBuilt`'s answer. Each line adds "it replaces the file sent earlier (<old fingerprint>), so a check of that file no longer counts". The old file's checkers are added once, after the assignees and the parent's holders (one who left is said as not told), and their line ends "you checked that one". A withdrawal's line says "it no longer names a file: the one sent earlier (X) is withdrawn" instead.
 
 ## Weakest part
 
@@ -33,6 +33,6 @@ Addresses #8307 (split out of #8214). The shape was posted on the card first (is
 
 ## Tests
 
-- `engine/tasks.filereplace-8307.test.js` (10), including review 1's withdrawal, sent-back, sender-as-checker, pre-#8307 time and withdrawn task show cases: first file not a replacement (control); checker and person checks recorded, the sender's never; a different file replaces it with its checks, starts unchecked, a resend is not a replacement, a third file replaces the second; drop and clear remove it all; a looping checker writes nothing and the list is bounded; no page view carries the replaced path; `task show` lines before and after.
+- `engine/tasks.filereplace-8307.test.js` (10), including review 1's withdrawal, sent-back, sender-as-checker, pre-#8307 time and withdrawn task show cases: first file not a replacement (control); checker and person checks recorded, the sender's never; a different file replaces it with its checks, starts unchecked, a resend is not a replacement, a third file replaces the second; a drop withdraws it and a clear removes it all; a looping checker writes nothing and the list is bounded; no page view carries the replaced path; `task show` lines before and after.
 - `server.filereplace-8307.test.js` (4), including review 1's withdrawal line, a checker who left said as not told, and the marker never told: the replacing line's words and recipients (the old file's checker who is not on the task is reached, no path typed); the same file again says nothing and reaches no checker (control); the CLI's list carries the replaced path, the Tasks view does not.
 - Mutation checked: removing the checkers from the recipients, the `replaced` answer, the path strip, the withdrawal, or the sender filter each turns tests red.
