@@ -151,7 +151,7 @@ struct ChatList: UIViewRepresentable {
         // KOSMOS_SAMPLE_A11YSCROLL_MODE: "animated" (default) is one page up as VoiceOver's scroll does it, its end reported;
         // "stepped" is 30 moves of 15 pt, 50 ms apart, with no end reported, a scroll slower than the window's quiet time;
         // "still" asks for a scroll and moves nothing, as an arrow key that only moves focus does; "jump" is the animated page
-        // up with a jump to the newest (a send, New messages) 0.1 s into it.
+        // up with a jump to the newest (a send, New messages) 0.2 s into it.
         var debugPinsUntil: CFTimeInterval = 0
         var debugPins = 0
         var debugWindowOpened = false
@@ -181,7 +181,7 @@ struct ChatList: UIViewRepresentable {
             case "jump":
                 let y = max(-list.adjustedContentInset.top, list.contentOffset.y - list.bounds.height * 0.8)
                 list.setContentOffset(CGPoint(x: 0, y: y), animated: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.toNewest() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.toNewest() }
             default:
                 let y = max(-list.adjustedContentInset.top, list.contentOffset.y - list.bounds.height * 0.8)
                 list.setContentOffset(CGPoint(x: 0, y: y), animated: true)
@@ -189,7 +189,7 @@ struct ChatList: UIViewRepresentable {
             ChatView.trace("uikit list: debug accessibility scroll up, from the end \(wasAtEnd)", ring: false)
             DispatchQueue.main.asyncAfter(deadline: .now() + watch + 0.1) { [weak self] in
                 guard let self, let list = self.list else { return }
-                report?("pins \(self.debugPins), at end \(self.atEnd), moved \(Int(y0 - list.contentOffset.y)), window \(self.debugWindowOpened), dragged \(self.dragged), from the end \(wasAtEnd)")
+                report?("pins \(self.debugPins), at end \(self.atEnd), moved \(Int(y0 - list.contentOffset.y)), window \(self.debugWindowOpened), dragged \(self.dragged), short \(Int(self.maxY(list) - list.contentOffset.y)), from the end \(wasAtEnd)")
             }
         }
 
@@ -401,11 +401,11 @@ struct ChatList: UIViewRepresentable {
             // A fling still running would carry on past the move; stopping it in place first. A finger on the list is never
             // moved; where it lets go decides again, as any scroll of theirs does.
             if list.isDecelerating { list.setContentOffset(list.contentOffset, animated: false) }
-            // kosmos#8221 slice 11: so would a scroll the person made without a finger, whose later moves would otherwise read
-            // the reader off the newest again; it is stopped in place and its window closed.
-            let wasScrolling = fingerlessScrolling()
-            personUntil = 0; personAskedAt = 0   // closed first, so the stop below is never read as the person's move
-            if wasScrolling { list.setContentOffset(list.contentOffset, animated: false) }
+            // kosmos#8221 slice 11: a scroll the person made without a finger loses its window, so its later moves are not read
+            // as theirs: the list pins the reader at the newest through the rest of it, and its end keeps them there. Not
+            // stopped in place: writing the offset did not reliably stop such a scroll (measured 11-09, the reader left 135 pt
+            // above the newest).
+            personUntil = 0; personAskedAt = 0
             // A fling stopped that way never reports its end, so its drag would count for the next scroll nobody made.
             if !(list.isTracking || list.isDragging) { dragged = false }
             list.setNeedsLayout()
@@ -496,12 +496,10 @@ struct ChatList: UIViewRepresentable {
                     list.contentOffset = CGPoint(x: 0, y: -list.adjustedContentInset.top)
                     pinning = false
                 } else {
-                    // kosmos#8221 slice 11: a scroll with no finger animates to a fixed offset, which no longer means the same
-                    // place once rows land above; it is stopped where it is (and its window closed), and the place held.
-                    if fingerlessScrolling() {
-                        personUntil = 0; personAskedAt = 0
-                        list.setContentOffset(list.contentOffset, animated: false)
-                    }
+                    // kosmos#8221 slice 11: a scroll with no finger loses its window when rows land above, so its later moves
+                    // are not read as the person's. It may still carry on to its old target offset (not stopped: writing the
+                    // offset did not reliably stop such a scroll, measured in toNewest); a follow-up on #8221.
+                    personUntil = 0; personAskedAt = 0
                     list.layoutIfNeeded()
                     if let ip = source.indexPath(for: a.id), let attr = list.layoutAttributesForItem(at: ip) {
                         pinning = true
