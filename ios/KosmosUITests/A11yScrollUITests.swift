@@ -69,6 +69,15 @@ final class A11yScrollUITests: XCTestCase {
         XCTAssertFalse(r.atEnd, "the reader is still counted at the newest after scrolling up: \(r.label)")
     }
 
+    // A jump to the newest (a send, New messages) during such a scroll wins: the scroll is stopped and the reader stays at
+    // the newest, the scroll's later moves never reading them off it.
+    func testAJumpToTheNewestDuringTheScrollWins() throws {
+        let r = try scrollUp(mode: "jump")
+        XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened before the jump: \(r.label)")
+        XCTAssertTrue(r.atEnd, "the scroll took the reader off the newest after the jump: \(r.label)")
+        XCTAssertLessThanOrEqual(abs(r.moved), 2, "the list did not come back to the newest after the jump: \(r.label)")
+    }
+
     // Asked for, but nothing moves (an arrow key that only moves focus): no window opens, the reader stays at the newest, and
     // the ask is let go, so a later scroll nobody asked for is not counted as the person's.
     func testAScrollThatMovesNothingChangesNothing() throws {

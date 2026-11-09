@@ -54,7 +54,8 @@ struct ChatList: UIViewRepresentable {
         }
         // A scroll a person makes without a finger on the list: assistive technology (VoiceOver, Switch Control, Voice
         // Control and Full Keyboard Access scroll through accessibilityScroll) and a hardware keyboard's scroll keys. Told to
-        // the coordinator as a drag of theirs, so the scroll it starts decides where the reader is (Coordinator.scrolled).
+        // the coordinator (Coordinator.personScrollStarted), so the scroll it starts decides where the reader is. Not VoiceOver's
+        // one-finger swipe to the element above, which scrolls it into view by another path (kosmos#8221 slice 11 scope).
         var personScrolls: (() -> Void)?
         override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
             personScrolls?()
@@ -149,7 +150,8 @@ struct ChatList: UIViewRepresentable {
         // end) while the scroll ran and a little after, which is how a reader at the newest saw the hold before this slice.
         // KOSMOS_SAMPLE_A11YSCROLL_MODE: "animated" (default) is one page up as VoiceOver's scroll does it, its end reported;
         // "stepped" is 30 moves of 15 pt, 50 ms apart, with no end reported, a scroll slower than the window's quiet time;
-        // "still" asks for a scroll and moves nothing, as an arrow key that only moves focus does.
+        // "still" asks for a scroll and moves nothing, as an arrow key that only moves focus does; "jump" is the animated page
+        // up with a jump to the newest (a send, New messages) 0.1 s into it.
         var debugPinsUntil: CFTimeInterval = 0
         var debugPins = 0
         var debugWindowOpened = false
@@ -176,6 +178,10 @@ struct ChatList: UIViewRepresentable {
                 }
             case "still":
                 break
+            case "jump":
+                let y = max(-list.adjustedContentInset.top, list.contentOffset.y - list.bounds.height * 0.8)
+                list.setContentOffset(CGPoint(x: 0, y: y), animated: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.toNewest() }
             default:
                 let y = max(-list.adjustedContentInset.top, list.contentOffset.y - list.bounds.height * 0.8)
                 list.setContentOffset(CGPoint(x: 0, y: y), animated: true)
@@ -230,12 +236,12 @@ struct ChatList: UIViewRepresentable {
             // kosmos#8221 slice 11: the first move of a scroll the person asked for without a finger opens its window, and
             // each later move keeps it open a little longer, so it closes only once the moves stop, however long they take.
             let fingerless = !(sv.isTracking || sv.isDragging || sv.isDecelerating)
-            if !own, fingerless, !personScrolling(), CACurrentMediaTime() - personAskedAt < ChatList.personScrollAsk { personScrollOpened() }
-            if !own, personScrolling() {
+            if !own, fingerless, !fingerlessScrolling(), CACurrentMediaTime() - personAskedAt < ChatList.personScrollAsk { personScrollOpened() }
+            if !own, fingerlessScrolling() {
                 personUntil = max(personUntil, CACurrentMediaTime() + ChatList.personScrollQuiet)
                 movedAt = CACurrentMediaTime()   // so a lapse during a stalled frame does not hold the place and stop the scroll
             }
-            if sv.isTracking || sv.isDragging || (sv.isDecelerating && dragged) || (personScrolling() && !own) {
+            if sv.isTracking || sv.isDragging || (sv.isDecelerating && dragged) || (fingerlessScrolling() && !own) {
                 atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
                 readTop(sv)
                 place = nil
@@ -244,7 +250,8 @@ struct ChatList: UIViewRepresentable {
                 movedAt = CACurrentMediaTime()
             }
         }
-        // Whether the person has scrolled the list (a finger, or List.personScrolls) since a scroll last ended.
+        // Whether the person has scrolled the list (a finger, or List.personScrolls) since a scroll last ended, or since an ask
+        // whose scroll never moved, or a lapsed window, was let go (slice 11).
         var dragged = false
         // kosmos#8221 slice 11: a scroll the person makes without a finger (List.personScrolls: VoiceOver, Voice Control, a
         // keyboard's scroll keys) is an animation, so the list is not tracking, dragging or decelerating while it runs, and
@@ -257,10 +264,10 @@ struct ChatList: UIViewRepresentable {
         // the newest or not, read by scrollViewDidScroll), and the list is put back to that as after any layout.
         var personAskedAt: CFTimeInterval = 0
         var personUntil: CFTimeInterval = 0
-        func personScrolling() -> Bool { CACurrentMediaTime() < personUntil }
+        func fingerlessScrolling() -> Bool { CACurrentMediaTime() < personUntil }
         func personScrollStarted() {
             dragged = true
-            if personScrolling() { return }   // a second ask while one runs (another key, a second swipe): the open window covers it
+            if fingerlessScrolling() { return }   // a second ask while one runs (another key, a second swipe): the open window covers it
             #if DEBUG
             // KOSMOS_SAMPLE_NOPERSONSCROLL=1: the list as before this slice, the control arm of A11yScrollUITests (dragged set
             // and nothing else, so an ask whose scroll never ends keeps it, as it did then).
@@ -271,14 +278,14 @@ struct ChatList: UIViewRepresentable {
             // An ask whose scroll never moves (an arrow key that only moves focus) is let go once its time is up, with the drag
             // it counted, so a later scroll nobody asked for is not taken for the person's (slice 4).
             DispatchQueue.main.asyncAfter(deadline: .now() + ChatList.personScrollAsk + 0.05) { [weak self] in
-                guard let self, self.personAskedAt == asked, !self.personScrolling(), let list = self.list,
+                guard let self, self.personAskedAt == asked, !self.fingerlessScrolling(), let list = self.list,
                       !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
                 self.personAskedAt = 0
                 self.dragged = false
             }
         }
         func personScrollOpened() {
-            personAskedAt = 0   // one ask opens one window
+            personAskedAt = 0   // one ask opens one window (and one or more lapse checks, which are idempotent)
             personUntil = CACurrentMediaTime() + ChatList.personScrollQuiet
             #if DEBUG
             debugWindowOpened = true
@@ -287,7 +294,7 @@ struct ChatList: UIViewRepresentable {
         }
         func personScrollLapsed() {
             guard personUntil > 0 else { return }   // closed already by a reported end
-            if personScrolling() {   // still moving: look again when it would close
+            if fingerlessScrolling() {   // still moving: look again when it would close
                 let wait = personUntil - CACurrentMediaTime() + 0.05
                 DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.personScrollLapsed() }
                 return
@@ -308,10 +315,13 @@ struct ChatList: UIViewRepresentable {
         func scrolled(_ sv: UIScrollView, how: String) {
             movedAt = 0   // a scroll that has ended is at rest: the next layout holds the place taken here
             // kosmos#8221 slice 11: its end is reported, so the person's scroll is over; but an earlier fling's or a drag's end
-            // landing while a scroll without a finger runs is not that scroll's end, and leaves its window open.
-            if !(personScrolling() && (how == "deceleration" || how == "drag")) { personUntil = 0; personAskedAt = 0 }
+            // landing while a scroll without a finger is asked for or runs (the scroll it starts stops a fling) is not that
+            // scroll's end: its ask, its window and the drag it counted are kept for it.
+            let fingerlessAhead = fingerlessScrolling() || CACurrentMediaTime() - personAskedAt < ChatList.personScrollAsk
+            let keep = fingerlessAhead && (how == "deceleration" || how == "drag")
+            if !keep { personUntil = 0; personAskedAt = 0 }
             let byPerson = dragged, wasAtEnd = atEnd
-            dragged = false
+            dragged = keep
             // kosmos#8221 slice 4 (CI runs 42533329564 to 42540464401): on a slow device, as a chat opens, an animated scroll
             // nobody asked for moved the list 50 pt up from its end, and the list stopped following the newest message, so the
             // keyboard covered it. A person's scroll comes with a drag, or through List.personScrolls (assistive technology, a
@@ -374,9 +384,27 @@ struct ChatList: UIViewRepresentable {
                     ChatView.trace("uikit list: 0.5 s later, at end \(self.atEnd) (\(self.geometry(list)))", ring: false)
                 }
             }
-            guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating), !personScrolling() else { return }
+            guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating), !fingerlessScrolling() else { return }
             if atEnd { pin() } else if !moving() { if place == nil { place = top() } else { hold() } }
             if !moving() { readTop(list) }
+        }
+
+        // To the newest message (a send, New messages), followed even from higher up.
+        func toNewest() {
+            guard let list else { return }
+            atEnd = true
+            ChatView.trace("uikit list: to the newest")
+            // A fling still running would carry on past the move; stopping it in place first. A finger on the list is never
+            // moved; where it lets go decides again, as any scroll of theirs does.
+            if list.isDecelerating { list.setContentOffset(list.contentOffset, animated: false) }
+            // kosmos#8221 slice 11: so would a scroll the person made without a finger, whose later moves would otherwise read
+            // the reader off the newest again; it is stopped in place and its window closed.
+            if fingerlessScrolling() { list.setContentOffset(list.contentOffset, animated: false) }
+            personUntil = 0; personAskedAt = 0
+            // A fling stopped that way never reports its end, so its drag would count for the next scroll nobody made.
+            if !(list.isTracking || list.isDragging) { dragged = false }
+            list.setNeedsLayout()
+            if !(list.isTracking || list.isDragging) { pin() }
         }
 
         func pin() {
@@ -544,19 +572,7 @@ struct ChatList: UIViewRepresentable {
         co.apply(ids)
         if newest != co.newest {
             co.newest = newest
-            co.atEnd = true
-            ChatView.trace("uikit list: to the newest")
-            // A fling still running would carry on past the move; stopping it in place first. A finger on the list is never
-            // moved; where it lets go decides again, as any scroll of theirs does.
-            if list.isDecelerating { list.setContentOffset(list.contentOffset, animated: false) }
-            // kosmos#8221 slice 11: so would a scroll the person made without a finger, whose later moves would otherwise read
-            // the reader off the newest again; it is stopped in place and its window closed.
-            if co.personScrolling() { list.setContentOffset(list.contentOffset, animated: false) }
-            co.personUntil = 0; co.personAskedAt = 0
-            // A fling stopped that way never reports its end, so its drag would count for the next scroll nobody made.
-            if !(list.isTracking || list.isDragging) { co.dragged = false }
-            list.setNeedsLayout()
-            if !(list.isTracking || list.isDragging) { co.pin() }
+            co.toNewest()
         }
     }
 }

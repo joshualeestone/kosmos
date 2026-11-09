@@ -4,6 +4,13 @@ Card: joshualeestone/kosmos#8221, slice 11. Open since slice 4's review: on the 
 message made without a finger (VoiceOver's three-finger swipe, Voice Control, Full Keyboard Access, a keyboard's Page Up)
 shows the list held at the end and then jumping to where the scroll ends.
 
+## Scope
+
+VoiceOver's three-finger page scroll, Voice Control and Full Keyboard Access (through accessibilityScroll) and a hardware
+keyboard's scroll keys. NOT VoiceOver's one-finger swipe to the element above, which scrolls that element into view by
+another path and never calls personScrolls: a reader at the newest who swipes back past the first screen is still pinned to
+the end, as before this slice (review iteration 5). A later slice.
+
 ## Finished looks like
 
 On the UIKit list, such a scroll moves the list from the first frame, the list never puts itself back at the end while it
@@ -32,9 +39,9 @@ VoiceOver or keyboard scroll up from the newest did not just jump; it did nothin
 
 ## Tests
 
-- A11yScrollUITests (UIKit arm, 5; skipped on the lazy arm): two controls with the fix off (animated, stepped) must see pins;
+- A11yScrollUITests (UIKit arm, 6; skipped on the lazy arm): two controls with the fix off (animated, stepped) must see pins;
   with the fix: animated (0 pins, moved, off the newest), stepped with no end (window opened, 0 pins, moved > 300 pt, off the
-  newest), still (no window, still at the newest, moved 0, the drag let go).
+  newest), still (no window, still at the newest, moved 0, the drag let go); jump (window opened, then back at the newest).
 
 ## Measured (iPhone 17e simulator, iOS 27, 2 rounds each, 11-09 16:2x)
 
@@ -57,8 +64,10 @@ The stepped scroll asks for 450 pt and moved 371 with no pin; where the other 79
 ## Interruptions (review iteration 3)
 
 - A jump to the newest (a send, New messages) while the window is open stops the scroll in place and closes the window, as
-  a running fling is stopped, so the scroll's later moves cannot read the reader off the newest again. Not covered by a
-  check (reasoned from the code).
+  a running fling is stopped (toNewest, moved out of updateUIView so the check can call it), so the scroll's later moves
+  cannot read the reader off the newest again. Checked by the "jump" mode (review iteration 5).
+- Review iteration 5: a fling's or drag's end landing between the ask and the scroll's first move (the scroll stops the
+  fling) keeps the ask, the window and the drag; before, it wiped the ask and the window never opened.
 - Review iteration 4: another scroll's end (an earlier fling's deceleration, a drag) landing inside the window does not close
   it; each move marks the list moving, so a lapse during a stalled frame does not hold the place and stop the scroll.
 - A second ask while a window is open adds nothing (the window covers it); an ask's let-go timer never fires inside an open
