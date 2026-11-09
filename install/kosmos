@@ -2583,7 +2583,15 @@ cmd_version() {
   if [ -f "$NODE" ] && [ -x "$NODE" ] && [ -f "$KOSMOS_HOME/app/package.json" ]; then
     # The path travels as an environment variable, never interpolated into
     # the JS source: a quote or backslash in a path must stay a path.
-    KOSMOS_PKG="$KOSMOS_HOME/app/package.json" "$NODE" -p 'JSON.parse(require("fs").readFileSync(process.env.KOSMOS_PKG,"utf8")).version'
+    local _ver _build=""
+    _ver=$(KOSMOS_PKG="$KOSMOS_HOME/app/package.json" "$NODE" -p 'JSON.parse(require("fs").readFileSync(process.env.KOSMOS_PKG,"utf8")).version') || exit $?
+    # kosmos#8299: the build it was made from, from the VERSION file the bundle carries ("app:    <commit> [(dirty)] (package.json x)").
+    if [ -r "$KOSMOS_HOME/VERSION" ]; then
+      _build=$(sed -n 's/^app:[[:space:]]*\([0-9A-Za-z._-][0-9A-Za-z._-]*\).*/\1/p' "$KOSMOS_HOME/VERSION" 2>/dev/null | sed -n 1p)
+      case "$_build" in unknown) _build="" ;; esac
+      if [ -n "$_build" ] && grep -q '^app:.* (dirty) ' "$KOSMOS_HOME/VERSION" 2>/dev/null; then _build="$_build-dirty"; fi
+    fi
+    if [ -n "$_build" ]; then printf '%s (build %s)\n' "$_ver" "$_build"; else printf '%s\n' "$_ver"; fi
     # #4892: the number above is the installed app's. A copy of this
     # command run from elsewhere (an agent's patched copy in /tmp printed
     # the current version while lacking newer commands) is told so, on
@@ -5662,7 +5670,7 @@ kosmos_command_list() {
   printf '  kosmos status        say whether Kosmos is running, and where\n'
   printf '  kosmos open          open the dashboard in your browser, starting Kosmos if needed\n'
   printf '  kosmos agents        list the terminal sessions on this computer (every agent: kosmos agent list)\n'
-  printf '  kosmos version       say which version of Kosmos this is (also --version or -v)\n'
+  printf '  kosmos version       say which version and build of Kosmos this is (also --version or -v)\n'
   printf '  kosmos update        install a newer Kosmos when one is published (only on a computer set to connect elsewhere; the app runs it)\n'
   printf '  kosmos msg           send a message to one agent\n'
   printf '  kosmos post          post in a project room\n'
