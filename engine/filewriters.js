@@ -4,11 +4,12 @@
  * #5812: which agent last changed a project file.
  *
  * Claude Code's PreToolUse hook sends the path of every Edit, Write, MultiEdit and NotebookEdit to the board (the
- * /api/undo/keep route) just before the edit, and so do the Codex, Gemini, Grok and Antigravity bridges for their own
- * edit tools; kosmos#8320 names those agents by the agent token they send. For a path inside a project's folder, noteWrite records which agent was
- * about to write it, per project, under the file's project-relative name (the name listFiles gives it). writerOf then
- * names that agent only when the file's last change came within WRITE_WINDOW_MS after the record (or SLACK_MS before
- * it). The record is made before the edit, so it is a heuristic: see the plan's weakest premise.
+ * /api/undo/keep route) just before the edit, and so do the Codex, Gemini, Grok and Antigravity bridges for their
+ * own edit tools (kosmos#8320 names those agents by the agent token they send). For a path inside a project's folder,
+ * noteWrite records which agent was about to write it, per project, under the file's project-relative name (the
+ * name listFiles gives it). writerOf then names that agent only when the file's last change came within
+ * WRITE_WINDOW_MS after the record (or SLACK_MS before it). The record is made before the edit, so it is a
+ * heuristic: see the plan's weakest premise.
  *
  * kosmos#7989: it also keeps each file's owner (the first agent seen about to change it) and, when another agent is
  * about to change it, writes a notice in the project's room for the agents (ownerNotice), throttled under NOTICES_KEY.
