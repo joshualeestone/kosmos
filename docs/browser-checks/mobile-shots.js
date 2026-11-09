@@ -2913,8 +2913,8 @@ const SCREENS = [
     await editProjects(page, data.projectId, (proj) => {
       for (const t of proj.tasks || []) if (t.number === 1) t.subtasks = { done: 3, built: 2, held: 1, unrun: 1, total: 7 };
     });
-    await openTab(page, tab);
-    if (list) await page.click(`${list} .pj-row[data-project="${data.projectId}"]`);
+    if (list) { await openTab(page, tab); await page.click(`${list} .pj-row[data-project="${data.projectId}"]`); }
+    else await page.evaluate(async () => { await loadProjects(); showTab('tasks'); });   // the phone's menu has no Tasks row to click on every size
     await page.waitForFunction(() => [...document.querySelectorAll('.tsk-chip')].some((c) => c.offsetParent && /closed not done/.test(c.title)), null, { timeout: 8000 });
     await page.evaluate(() => [...document.querySelectorAll('.tsk-chip')].find((c) => c.offsetParent && /closed not done/.test(c.title)).scrollIntoView({ block: 'center' }));
   }, verify: async (page) => {
