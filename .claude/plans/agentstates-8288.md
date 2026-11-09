@@ -24,6 +24,10 @@ That these are the states wanted. They are what the app states as a sentence abo
 states already show in the card word on the row. Others the page says in a sentence (a Kosmos helper that has given up,
 how long an error has stood) are left out, so the PR addresses the card without closing it.
 
+## What a blank row does not prove
+The unsent line exists only for Claude agents, and the stall lines only for idle or working cards. So the help names what is
+reported rather than promising "whether anything is stuck", and no line does not prove a clear box on another runner.
+
 ## Who can read it
 An agent token reads this route for every agent on the board, including one on no shared project. The times are a small
 widening, taken on purpose so a terminal seat can check what the page shows. No content travels.
