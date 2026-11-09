@@ -10,7 +10,9 @@ final class EndPullUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_PULL_SECONDS": "4"]
         for (k, v) in extra { app.launchEnvironment[k] = v }
+        UIKitListArm.set(app)   // kosmos#8221 slice 9: measured on either list (TEST_RUNNER_KOSMOS_UIKITLIST)
         app.launch()
+        UIKitListArm.assertDrawn(app)
         return app
     }
 

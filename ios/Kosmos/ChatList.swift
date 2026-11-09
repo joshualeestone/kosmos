@@ -19,6 +19,9 @@ struct ChatList: UIViewRepresentable {
     // kosmos#8221 slice 7: whether the reader is at the top of what is loaded (earlier messages load there), told when it
     // changes (never during a layout pass). A chat too short to scroll is at its top.
     var atTop: (Bool) -> Void = { _ in }
+    // kosmos#8221 slice 9: the list's scroll view, handed to the chat once it is made, for the pull past the newest message
+    // (EndPullDriver watches its offset and its pan, and takes no delegate).
+    var scroller: (UIScrollView) -> Void = { _ in }
     // Debug only (KOSMOS_SAMPLE_SCROLLUP): the row put at the top 3 s after the list opens, and what to run once it is there.
     // ChatView passes nil and an empty closure in a release build.
     var sampleUp: String? = nil
@@ -378,8 +381,8 @@ struct ChatList: UIViewRepresentable {
         let told = atEnd
         // Review 1: and that it is not at the top (a list made again for a new chat or computer must not inherit a top
         // the old one reported, or every read would ask for another page while the reader is at the newest).
-        let toldTop = atTop
-        DispatchQueue.main.async { told(true); toldTop(false) }
+        let toldTop = atTop, handed = scroller
+        DispatchQueue.main.async { told(true); toldTop(false); handed(list) }
         #if DEBUG
         if let up = sampleUp, !Self.sampleUpDone {
             let rested = sampleRested

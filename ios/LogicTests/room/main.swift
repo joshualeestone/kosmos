@@ -603,8 +603,10 @@ check(chatSource.contains("case \"earlier-failed\": return AnyView(earlierFailed
 check(listGeometrySource.contains("if above == [\"earlier-failed\"], Set(before[..<was]).isSubset(of: Set(now[..<at])), atTop {")
       && listGeometrySource.contains("list.contentOffset = CGPoint(x: 0, y: -list.adjustedContentInset.top)"),
       "kosmos#8221 slice 7 review 1: a failed page's line arriving above a reader at the top shows at the top")
-check(listGeometrySource.contains("DispatchQueue.main.async { told(true); toldTop(false) }"),
+check(listGeometrySource.contains("DispatchQueue.main.async { told(true); toldTop(false); handed(list) }"),
       "kosmos#8221 slice 7 review 1: a list made again tells the chat it is not at the top")
+check(chatSource.contains("}, scroller: { view in") && chatSource.contains("            endPull.attach(to: view)\n        }, sampleUp:"),
+      "kosmos#8221 slice 9: the UIKit list's scroll view gets the pull past the newest message")
 check(listGeometrySource.contains("Set(before[..<was]) != Set(now[..<at])"),
       "kosmos#8221 slice 7 review 2: the place is kept on any change in the rows above the reader, added or removed")
 check(chatSource.contains("else if !uikitList, case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }"),
