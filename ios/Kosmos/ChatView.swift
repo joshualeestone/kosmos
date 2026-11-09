@@ -617,8 +617,8 @@ struct ChatView: View {
     }
 
     // kosmos#8221 slice 1: the UIKit list. The same rows as the lazy list, in the same order, then the sends on their way and
-    // the room at the end (the working line is drawn over the strip above the box, kosmos#8283). Kept at the newest message by the list itself (ChatList); a reader higher up is
-    // told of new messages by the capsule. Not here yet (later slices): earlier pages and their loading and failed lines, a
+    // the room at the end (the working line is drawn over the strip above the box, kosmos#8283). Kept at the newest message by
+    // the list itself (ChatList); a reader higher up is told of new messages by the capsule. Not here yet (later slices): earlier pages and their loading and failed lines, a
     // reader's place as rows land above, the pull past the end for a read (#8072), the keyboard's settled looks, and the blank
     // checks.
     @ViewBuilder private func conversationUIKit(_ thread: Board.Thread) -> some View {
@@ -3175,7 +3175,7 @@ struct WorkingStrip: View {
         ZStack(alignment: .bottomLeading) {
             WorkingLine(name: name, animated: false).lineLimit(1).hidden()
                 .background(GeometryReader { g in
-                    Color.clear.onAppear { lineHeight = g.size.height }.onChange(of: g.size.height) { lineHeight = $0 }
+                    Color.clear.onAppear { if lineHeight != g.size.height { lineHeight = g.size.height } }.onChange(of: g.size.height) { lineHeight = $0 }
                 })
                 .padding(.horizontal, 16).padding(.bottom, 4)
             if working && !endPull.dotsUp {

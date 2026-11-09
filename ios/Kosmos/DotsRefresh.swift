@@ -213,16 +213,16 @@ final class EndPullDriver: NSObject, ObservableObject {
     /// How far above the content's end the dots' centre rests once the list has bounced back.
     var restsAbove: CGFloat = 0
     var refresh: (@MainActor () async -> Void)?
-    /// kosmos#8283: whether the dots are on screen, for the chat's working line (WorkingStrip), which goes while they show. Only
-    /// that small view watches it, so the dots coming and going never draws the list again mid-pull (#7420, #8072). Set a turn
-    /// later, from whether they are on screen then: the driver is told from the list's scroll callbacks, which can run inside a
-    /// view update, where a change is dropped (measured on the UIKit list: the line stayed under the dots once), and a pull can
-    /// take the dots off and on within 10 ms.
+    /// kosmos#8283: whether the dots are on screen and can be seen (seenAlpha), for the chat's working line (WorkingStrip),
+    /// which goes while they show. Only that small view watches it, so the dots coming and going never draws the list again
+    /// mid-pull (#7420, #8072). Set a turn later, from the dots' state then: the driver is told from the list's scroll
+    /// callbacks, which can run inside a view update, where a change is dropped (measured on the UIKit list: the line stayed
+    /// under the dots once), and a pull can take the dots off and on within 10 ms.
     @Published private(set) var dotsUp = false
     private func noteDots() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let now = self.dots != nil
+            let now = self.dots != nil && self.dotsSeen
             guard now != self.dotsUp else { return }
             self.dotsUp = now
             ChatView.trace(now ? "end pull: working line hidden" : "end pull: working line back")
@@ -339,14 +339,21 @@ final class EndPullDriver: NSObject, ObservableObject {
         let open = CGFloat(min(1, pulled / PullRefreshLogic.threshold))
         let centre = view.contentSize.height + CGFloat(pulled) / 2 - restsAbove * (1 - open)
         host.view.frame = CGRect(x: view.bounds.midX - side / 2, y: centre - side / 2, width: side, height: side)
-        host.view.alpha = CGFloat(PullRefreshLogic.shown(pulled: pulled, refreshing: refreshing))
+        let alpha = CGFloat(PullRefreshLogic.shown(pulled: pulled, refreshing: refreshing))
+        host.view.alpha = alpha
+        // kosmos#8283: the working line goes only once the dots can be seen, so a slight drag past the end (dots at nearly no
+        // alpha) does not make it blink out with nothing on screen to explain it.
+        let seen = alpha >= Self.seenAlpha
+        if seen != dotsSeen { dotsSeen = seen; noteDots() }
     }
+    /// The dots' alpha from which they count as seen (dotsUp).
+    static let seenAlpha: CGFloat = 0.25
+    private var dotsSeen = false
 
     private func addDots(to view: UIScrollView) -> UIHostingController<AnyView> {
         let host = refreshDotsHost(in: view)
         dots = host
         tap.prepare()
-        noteDots()
         return host
     }
 
@@ -354,6 +361,7 @@ final class EndPullDriver: NSObject, ObservableObject {
         guard let shown = dots else { return }
         shown.view.removeFromSuperview()
         dots = nil
+        dotsSeen = false
         noteDots()
     }
 }

@@ -13,8 +13,9 @@ final class ChatGapUITests: XCTestCase {
     // message and the box (the gap is not held to Discord's there).
     func testTheWorkingLineFitsAtTheLargestText() throws { try measure(largest: true) }
 
-    // A reader higher up sees the line too (it was a row at the end of the list before), over a ground that fades the messages
-    // behind it out. The screenshot is the check of that fade; this asserts the line is there and the reader stayed put.
+    // A reader higher up sees the line too (it was a row at the end of the list before, off screen to them), over a ground that
+    // fades the messages behind it out. The screenshot is the check of that fade; this asserts the line is drawn on screen above
+    // the box while the newest message is not, so the reader is higher up when it is seen.
     func testTheWorkingLineShowsToAReaderHigherUp() throws {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40"]
@@ -27,6 +28,11 @@ final class ChatGapUITests: XCTestCase {
         XCTAssertFalse(newest.exists && newest.isHittable, "CONTROL: the newest message is on screen, so the reader is not higher up")
         let working = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Dana is working'")).firstMatch
         XCTAssertTrue(working.exists, "a reader higher up does not see the working line")
+        let box = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Message Dana'")).firstMatch
+        XCTAssertTrue(box.exists, "CONTROL: no message box")
+        XCTAssertGreaterThan(working.frame.minY, app.frame.minY, "the working line is drawn off the top of the screen")
+        XCTAssertLessThanOrEqual(working.frame.maxY, box.frame.minY, "the working line is not above the box: line \(working.frame), box \(box.frame)")
+        XCTAssertFalse(newest.exists && newest.isHittable, "the newest message came on screen, so this no longer shows a reader higher up")
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "chat-gap-working-line-higher-up"; shot.lifetime = .keepAlways; add(shot)
     }
 

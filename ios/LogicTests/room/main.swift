@@ -801,7 +801,9 @@ check(chatSource.contains("if working && !endPull.dotsUp {\n                Work
       && chatSource.contains("@ObservedObject var endPull: EndPullDriver")
       && chatSource.contains(".overlay(alignment: .topLeading) { WorkingStrip(endPull: endPull, working: working, name: shown.name, lineHeight: $workingLineHeight) }")
       && dotsDriverSource.contains("@Published private(set) var dotsUp = false")
-      && dotsDriverSource.components(separatedBy: "        noteDots()\n").count - 1 == 2
+      && dotsDriverSource.contains("if seen != dotsSeen { dotsSeen = seen; noteDots() }")
+      && dotsDriverSource.contains("dotsSeen = false\n        noteDots()")
+      && dotsDriverSource.contains("let now = self.dots != nil && self.dotsSeen")
       && chatSource.contains("private var endRoom: CGFloat { max(ChatView.fadeHeight + 8, workingLineHeight + 10) }")
       && chatSource.components(separatedBy: "frame(height: endRoom)").count - 1 == 2
       && !chatSource.contains("\"working\", \"end\"") && !chatSource.contains(".id(\"working\")")
