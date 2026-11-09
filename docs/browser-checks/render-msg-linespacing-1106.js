@@ -5,14 +5,10 @@
  * It was 1.55. The rule is `.msg p` in web/index.html, which is how the PROJECT ROOM
  * draws a message (pjRoomRow wraps its words in <p>, into #pj-room).
  *
- * ⚠️ NOT the agent conversation. dmRow puts its words straight into .msg-bd with no <p>,
- * so the agent chat takes the body font (13px/16px, about 1.23) and this rule never
- * reaches it. The picture Josh picked from labelled both threads 1.55, which was true
- * only of the room; that is reported to Splinter and the agent chat is a separate call.
+ * The agent conversation is measured too (kosmos#8282, Josh 11-09: 18px per line). dmRow puts its words straight into
+ * .msg-bd with no <p>, so `.msg p` never reaches it and it has its own rule, `#d-dmthread .msg-bd`.
  * Nor a message from outside Kosmos in a shared project (`.msg.ext`, words in
  * `.msg-ext-tx`, no <p>), also 13px/16px, before and after this change.
- * This check PRINTS the agent chat's measured text size and spacing as INFO, whichever
- * way it is drawn, so a later change to it shows in the log; it asserts nothing about it.
  *
  * WHAT IT MEASURES. A real row from each thread's own row builder, placed in that
  * thread's own container, so any rule scoped to one thread would show. For the
@@ -85,6 +81,15 @@ const LONG = 'This message is long enough to wrap onto several lines in a narrow
             show(host);
             host.style.width = '420px';
             host.innerHTML = html;
+            if (host.id === 'd-dmthread') {   // kosmos#8282: the agent chat's words sit straight in .msg-bd
+              const b = host.querySelector('.msg-bd');
+              if (!b) return { error: 'no .msg-bd in the row' };
+              const c = getComputedStyle(b);
+              const lh = parseFloat(c.lineHeight); const fs = parseFloat(c.fontSize);
+              const h = b.getBoundingClientRect().height - parseFloat(c.paddingTop) - parseFloat(c.paddingBottom);
+              const lines = Math.round(h / lh);
+              return { lh, fs, h, lines, drawn: lines ? h / lines : 0, how: 'no <p>, the words sit in .msg-bd', text: c.fontSize + ' / ' + c.lineHeight };
+            }
             const p = host.querySelector('.msg p');
             const bd = host.querySelector('.msg-bd');
             const bc = bd && getComputedStyle(bd);
@@ -106,8 +111,13 @@ const LONG = 'This message is long enough to wrap onto several lines in a narrow
           return out;
         }, LONG);
         const t = `[${engine} ${theme}]`;
-        { const d = r.dm;   // the agent chat: printed, never asserted (see the header)
-          console.log(`INFO  ${t} agent conversation (not changed here): ${d.how || d.error}, text ${d.text || '?'}`); }
+        { const d = r.dm;   // kosmos#8282 (Josh 11-09): the agent conversation is 18px per line
+          if (d.error) chk(false, `${t} agent conversation: a message rendered`, d.error);
+          else {
+            chk(d.lh === 18, `${t} agent conversation: 18px per line`, d.text);
+            chk(d.lines >= 3, `${t} agent conversation: the test message wraps to several lines`, `lines=${d.lines}`);
+            chk(Math.abs(d.drawn - 18) <= 0.5, `${t} agent conversation: each drawn line is 18px`, `height=${d.h.toFixed(2)} lines=${d.lines}`);
+          } }
         const m = r.room;
         if (m.error) chk(false, `${t} project room: a message paragraph rendered`, m.error + ' (' + m.how + ')');
         else {
