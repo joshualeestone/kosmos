@@ -243,5 +243,10 @@ test('kosmos#8301: a parent counts closed without running only when the closer s
   assert.equal(stored(notRun).closedUnrun, undefined, 'reopening clears it');
   tasks.close(id, notRun);
   assert.equal(stored(notRun).closedUnrun, undefined, 'a later plain close says done');
+  tasks.close(id, plain, { notRun: true });
+  assert.equal(stored(plain).closedUnrun, true, '--not-run on a task already closed still records it');
+  tasks.close(id, plain, { notRun: true });
+  tasks.reopen(id, plain, {});
+  tasks.close(id, plain);
   assert.deepEqual(count(), { done: 3, built: 0, held: 0, unrun: 1, total: 3 });
 });
