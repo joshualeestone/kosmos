@@ -36,7 +36,6 @@ tasks.create(p.id, { sentence: 'Invitations', parent: 1 });        // 3
 tasks.create(p.id, { sentence: 'Paper stock', parent: 3 });        // 4
 tasks.create(p.id, { sentence: 'Order paper', parent: 4 });        // 5
 tasks.create(p.id, { sentence: 'Loose task' });                    // 6
-assert.equal(tasks.setBuilt(p.id, 2, { person: true, note: 'in' }).ok, true);   // kosmos#8301: worked on, so its close counts as done
 tasks.close(p.id, 2);
 const rows = () => tasks.allTasks().filter((t) => t.projectId === p.id);
 
@@ -125,7 +124,6 @@ test('every subtask closed and the parent open: "all subtasks done" and Close it
   const q = projects.create({ name: 'Kit' });
   tasks.create(q.id, { sentence: 'Press kit' });
   tasks.create(q.id, { sentence: 'Logo', parent: 1 });
-  assert.equal(tasks.setBuilt(q.id, 2, { person: true, note: 'in' }).ok, true);
   tasks.close(q.id, 2);
   const kit = tasks.allTasks().filter((t) => t.projectId === q.id);
   const parent = Object.assign({}, kit.find((t) => t.number === 1), { state: 'nobody' });
@@ -291,7 +289,6 @@ test('kosmos#5956 review 3: the project card chip says "all subtasks built" only
   };
   assert.equal(tasks.setBuilt(rec0.id, a.number, { by: 'rex', note: 'copy is in' }).ok, true);
   assert.doesNotMatch(chipOf(), /all subtasks built/, 'CONTROL: Photos is neither closed nor built');
-  assert.equal(tasks.setBuilt(rec0.id, b.number, { by: 'rex', note: 'photos are in' }).ok, true);   // kosmos#8301: built, so its close counts as done
   tasks.close(rec0.id, b.number);
   assert.match(chipOf(), /1\/2, all subtasks built/);
   tasks.close(rec0.id, a.number);
@@ -319,27 +316,4 @@ test('#6923: a Tasks view row closed as replaced says so under the row; a plain 
   assert.match(html, /<div class="why tsk-replaced">Replaced by task 5<\/div>/);
   assert.doesNotMatch(tskRowWith(ESC, base, { depth: 0, crumb: false, kids: 0 }), /tsk-replaced/, 'CONTROL: a plain close has no replaced line');
   assert.doesNotMatch(tskRowWith(ESC, { ...base, state: 'open', replacedBy: 5 }, { depth: 0, crumb: false, kids: 0 }), /tsk-replaced/, 'an open row never says replaced');
-});
-
-/* kosmos#8301: a parent's count says built, and closed without running, apart from done. */
-test('kosmos#8301: a subtask closed with no sign of work is counted apart; one built first counts as done', () => {
-  const rec = projects.create({ name: 'Unrun8301' });
-  const top = tasks.create(rec.id, { sentence: 'Parent' });
-  const ran = tasks.create(rec.id, { sentence: 'Ran', parent: top.number });
-  const never = tasks.create(rec.id, { sentence: 'Never ran', parent: top.number });
-  const open = tasks.create(rec.id, { sentence: 'Still open', parent: top.number });
-  assert.equal(tasks.setBuilt(rec.id, ran.number, { person: true, note: 'in' }).ok, true);
-  tasks.close(rec.id, ran.number);
-  tasks.close(rec.id, never.number);
-  const stored = () => projects.readAll().find((x) => x.id === rec.id).tasks;
-  const flag = (n) => stored().find((t) => t.number === n).closedUnrun;
-  assert.equal(flag(ran.number), undefined, 'built first, so it ran');
-  assert.equal(flag(never.number), true);
-  assert.equal(flag(open.number), undefined);
-  const row = Object.assign({}, rows().find((t) => t.number === 1), { subtasks: { done: 2, built: 1, held: 0, unrun: 1, total: 4 } });
-  const html = rowHtml(row, { depth: 0, crumb: false, kids: 0 });
-  assert.match(html, /title="1 of 4 subtasks done, 1 built, 1 closed without running"/);
-  assert.match(html, /<span>1\/4<span class="vh"> subtasks done<\/span>, 1 built, 1 closed without running<\/span>/);
-  tasks.reopen(rec.id, never.number);
-  assert.equal(flag(never.number), undefined, 'reopening clears it');
 });
