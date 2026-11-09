@@ -221,6 +221,24 @@ test('kosmos#8140: held subtasks are counted apart (held), open ones only, direc
   assert.equal(rowOf(id, top.number).subtasks.held, 2, 'released, it is no longer counted held');
 });
 
+/* kosmos#8301: a not-run close leaves a record, and marking one already closed keeps when it closed. */
+test('kosmos#8301: --not-run is recorded, and a task already closed keeps its close time', () => {
+  const id = projects.create({ name: 'Unrun history ' + Math.random().toString(36).slice(2), agents: ['rex'] }).id;
+  const a = tasks.create(id, { sentence: 'never ran' }).number;
+  const b = tasks.create(id, { sentence: 'closed first' }).number;
+  const stored = (n) => projects.readAll().find((p) => p.id === id).tasks.find((t) => t.number === n);
+  const kinds = (n) => taskchat.read(id, n);
+  tasks.close(id, a, { notRun: true });
+  assert.ok(kinds(a).some((e) => e.kind === 'closed' && e.notRun === true), JSON.stringify(kinds(a)));
+  tasks.close(id, b);
+  const when = stored(b).closedAt;
+  assert.ok(!kinds(b).some((e) => e.notRun === true), 'CONTROL: a plain close says nothing of it');
+  tasks.close(id, b, { notRun: true });
+  assert.equal(stored(b).closedAt, when, 'the close time stays');
+  assert.equal(kinds(b).filter((e) => e.kind === 'not-run').length, 1, JSON.stringify(kinds(b)));
+  tasks.close(id, b, { notRun: true });
+  assert.equal(kinds(b).filter((e) => e.kind === 'not-run').length, 1, 'said once');
+});
 /* kosmos#8301: closed without running is only ever said by the closer, or by a replacement. */
 test('kosmos#8301: a parent counts closed without running only when the closer said so, or it was replaced', () => {
   const id = projects.create({ name: 'Unrun ' + Math.random().toString(36).slice(2), agents: ['rex'] }).id;

@@ -322,8 +322,8 @@ test('#6923: a Tasks view row closed as replaced says so under the row; a plain 
 test('kosmos#8301: the chip and label say built and closed without running apart from done', () => {
   const row = Object.assign({}, rows().find((t) => t.number === 1), { subtasks: { done: 2, built: 1, held: 0, unrun: 1, total: 4 } });
   const html = rowHtml(row, { depth: 0, crumb: false, kids: 0 });
-  assert.match(html, /title="1 of 4 subtasks done, 1 built, 1 closed without running"/);
-  assert.match(html, /<span>1\/4<span class="vh"> subtasks done<\/span>, 1 built, 1 closed without running<\/span>/);
+  assert.match(html, /title="1 of 4 subtasks done, 1 built, 1 closed not done"/);
+  assert.match(html, /<span>1\/4<span class="vh"> subtasks done<\/span>, 1 built, 1 closed not done<\/span>/);
 });
 
 test('kosmos#8301: every subtask closed, one without running: not "all subtasks done", and Close it stays', () => {

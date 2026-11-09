@@ -155,7 +155,7 @@ function acrossLines(body, flag, opts = {}) {
     const where = every ? '<project-id>' : one(opts.project);
     lines.push(left + ' of ' + (left === 1 ? 'these looks' : 'these look') + ' left over: added by an agent, and the work '
       + (left === 1 ? 'it was' : 'they were') + ' part of has since finished.');
-    lines.push('If one is yours and you are sure it is done with, close it: kosmos task close ' + where + ' <task-number>.');
+    lines.push('If one is yours and you are sure it is done with, close it: kosmos task close ' + where + ' <task-number> (add --not-run if it never ran).');
     lines.push('Only offered when an agent did everything on it so far: never one the person added, set up or touched,'
       + ' one being reviewed or on hold, or one whose agent is waiting on the person.');
   }
@@ -198,7 +198,7 @@ function confirmedWords(x) {
   return ', last confirmed ' + (days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago');
 }
 function stateWords(x) {
-  if (x.isClosed) return Number.isInteger(x.replacedBy) ? 'closed, replaced by task ' + x.replacedBy : 'done';
+  if (x.isClosed) return Number.isInteger(x.replacedBy) ? 'closed, replaced by task ' + x.replacedBy : x.closedUnrun === true ? 'closed, not run' : 'done';   // kosmos#8301
   if (x.onHold === true) {
     const u = x.onHoldUntil;
     const until = u && Number.isInteger(u.task) ? ' until task ' + u.task + ' is closed' : u && typeof u.at === 'string' ? ' until ' + (whenWords(u.at) || one(u.at)) : '';
@@ -268,7 +268,7 @@ function showLines(body, num, project) {
     const sub = x.subtasks;
     const unrun = Number(sub.unrun) > 0 ? Number(sub.unrun) : 0;
     field('Subtasks', (sub.done - unrun) + ' of ' + sub.total + ' done' + (Number(sub.built) > 0 ? ', ' + Number(sub.built) + ' built' : '')
-      + (unrun ? ', ' + unrun + ' closed without running' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : ''));
+      + (unrun ? ', ' + unrun + ' closed not done' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : ''));
   }
   // Review 5: why it is on hold (kosmos#7749 onHoldBecause), written words, so indented under its own heading.
   if (x.onHold === true && typeof x.onHoldBecause === 'string' && x.onHoldBecause.trim()) { lines.push('Why on hold:'); under(x.onHoldBecause); }
