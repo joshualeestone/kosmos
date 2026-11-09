@@ -23054,10 +23054,9 @@ const server = http.createServer(async (req, res) => {
        closed row carries 'kept' / 'missing' / 'unknown'. No answer (none recorded, the budget spent) leaves the row as
        stored. The Tasks view does not send the repository's path: the page never needs it. */
     const sendRows = () => {
-      for (const row of rows) {   // kosmos#8214: nor a delivered file's path; kosmos#8307: nor the one it replaced
-        delete row.landedRepo;
-        delete row.builtFilePath;
-        if (row.builtReplaces && typeof row.builtReplaces === 'object') row.builtReplaces = tasks.withoutFilePaths({ builtReplaces: row.builtReplaces }).builtReplaces;
+      for (let i = 0; i < rows.length; i += 1) {   // kosmos#8214: nor a delivered file's path; kosmos#8307: nor the one it replaced
+        rows[i] = tasks.withoutFilePaths(rows[i]);
+        delete rows[i].landedRepo;
       }
       /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
          read its "false" as "nobody needs you". It says it could not tell. */
@@ -26610,8 +26609,8 @@ const server = http.createServer(async (req, res) => {
          now tells that file's checkers, so the marker hears it too and how to keep the file. No double quote, backslash
          or control character, which the CLI's sed could not read. */
       if (!viaScreen && body.clear !== true && out.replaced && out.replaced.kind === 'withdrawn') {
-        summary = (summary ? summary + ' ' : '') + 'This mark sent no file, so the file the task named before is withdrawn'
-          + ' and anyone who checked it is told. To keep it, mark it again with --file and its path.';
+        summary = (summary ? summary + ' ' : '') + 'This mark sent no file, so the file the task named before is withdrawn.'
+          + ' To keep it, mark it again with --file and its path.';   // review 3: no claim of who was told
       }
       // #6254: an agent marking a task BUILT means work is waiting for the person's check -> a `ready`
       // buzz (push-only, Liu Kang's ruling: never email). Not when the person marks it from the screen
@@ -26637,7 +26636,8 @@ const server = http.createServer(async (req, res) => {
           if (others.length) stillToFinish = 'Still to finish: ' + others.join(', ').replace(/["\\\u0000-\u001f]/g, '') + '.';
         } catch { /* the mark stands; the sentence is extra */ }
       }
-      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(stillToFinish ? { stillToFinish } : {}), ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
+      // kosmos#8307 review 3: the page's own mark gets the task without this computer's file paths, as its list views do.
+      sendJson(res, 200, { task: viaScreen ? tasks.withoutFilePaths(out.task) : out.task, changed: out.changed === true, ...(stillToFinish ? { stillToFinish } : {}), ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
       // #5313: the same agent, between tasks, gets one community prompt (reaches busy agents the idle
       // sweep never sees). After the response, and (kosmos#7649) awaited on its own chain, so it never holds the event loop; the
       // mark is already recorded, and the per-task dedup book makes a second built mark on the same

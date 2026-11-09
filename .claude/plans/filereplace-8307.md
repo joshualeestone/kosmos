@@ -15,18 +15,22 @@ Addresses #8307 (split out of #8214). The shape was posted on the card first (is
 - **Only the one previous file is kept** (`builtReplaces`: fingerprint, sender, when it was sent, path, who checked it). A third file replaces the second, not the first. Rejected: a history list. Nothing reads it, and it is one more thing to bound.
 - **`builtFingerprintAt`** records when the file was sent. A checker's mark later does not move it (`builtAt` moves on every mark, so it cannot say when the file came).
 - **A mark that drops the file withdraws it (review 1).** Since #6330, the sender's own mark without a file drops the fingerprint, and so does an unnamed agent's mark. That drop now keeps the dropped file as `builtReplaces` and tells its checkers ("it no longer names a file: the one sent earlier (X) is withdrawn"). A file sent after that replaces the withdrawn one, and its checkers are told again. The same file sent back is no replacement: it gets its checks and its sent time back. Rejected: dropping it all, as first built. That moved the card's failure one mark later, because the checker was never told. Only a clear drops it all.
-- **The marker hears a withdrawal (review 2).** A mark without a file from its sender now tells the old file's checkers, so its answer says so: "This mark sent no file, so the file the task named before is withdrawn and anyone who checked it is told. To keep it, mark it again with --file and its path."
+- **The marker hears a withdrawal (review 2).** A mark without a file from its sender now tells the old file's checkers, so its answer says so: "This mark sent no file, so the file the task named before is withdrawn. To keep it, mark it again with --file and its path." Review 3: it claims no delivery; the sentence before it says who was told, or that nobody was.
 - **The sender is never its own checker (review 1).** A checker who later sends the same file leaves the checker list.
 - **`builtFingerprintAt` is stamped only for a file new to the task (review 1).** A fingerprint from before #8307 sent again gets no made-up time, and its replacement reports `at: null`.
 - **A checker who has left the project** is in the recipients, and is said as not told, the same way as an assignee who left (review 1).
-- **Paths.** The replaced file's path is kept for `task show`. Both views that leave paths out (the project rows in projects.js and the Tasks view in server.js) now strip it too, through one helper, `tasks.withoutFilePaths`. The typed notice never carries a path.
+- **Paths.** The replaced file's path is kept for `task show`. Both list views that leave paths out (the project rows in projects.js and the Tasks view in server.js) strip it too, through one helper, `tasks.withoutFilePaths`, and so does the built route's answer to the page's own mark (review 3). The typed notice never carries a path.
 - **Notice.** `tellBuiltMark` gets `replaced` (with `kind`: replaced or withdrawn) from `setBuilt`'s answer. Each line adds "it replaces the file sent earlier (<old fingerprint>), so a check of that file no longer counts". The old file's checkers are added once, after the assignees and the parent's holders (one who left is said as not told), and their line ends "you checked that one". A withdrawal's line says "it no longer names a file: the one sent earlier (X) is withdrawn" instead.
 
 ## Weakest part
 
 - Treating the checker's mark as the review. An approval written elsewhere (a room post quoting the old sha256) is invisible to the board, so it is not marked out of date.
 - The person's check of the old file is shown in `task show` but tells nobody: the notice reaches agents only, and the Tasks page does not show fingerprints today. Follow-up card after merge (review 1).
-- Only one previous file is kept. A second replacement before anyone re-checks makes the first file's checkers' entry go away (they were told at the first replacement).
+- Only one previous file is kept. A second replacement before anyone re-checks makes the first file's checkers' entry go away (they were told at the first replacement). So A, then B, then A again is a new file with no checks, while A, withdrawn, then A again gets its checks back (review 3). The second is the same bytes their check covered, so restoring it is true, but they were told it no longer counted and are not told it counts again.
+- Any change in the fingerprint string is a replacement, including a change of kind only (an older CLI's `sha256:` and a #7213 CLI's `pdf-normalized:` for the same PDF). Its checkers are then told a check no longer counts when the bytes did not change. That errs toward telling (review 3).
+- At most 20 checkers are kept; the 21st pushes out the oldest, who is then not told of a replacement (review 3).
+- Other routes that answer the page with a whole task (hold, done-when, assign) still carry `builtFilePath`, as before this branch, and now `builtReplaces.filePath` too. This class predates the branch (#8214); follow-up card with the person's-check one (review 3).
+- The task's history records a replacing mark as a plain built mark; only the notice and `task show` say a file was replaced.
 
 ## Not done
 
