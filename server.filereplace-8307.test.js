@@ -187,7 +187,8 @@ test('#8307: withdrawing the file tells its checker; a checker who left is said 
     assert.match(String(gone.because), /not on this project any more/, 'a checker who left was not said as not told: ' + JSON.stringify(gone));
     const typed = pastedMessages(sends);
     assert.equal(typed.length, 1, JSON.stringify(typed));
-    assert.match(String(r.json.summary), /This mark sent no file, so the file the task named before is withdrawn and anyone who checked it is told\. To keep it, mark it again with --file and its path\./, 'the marker was not told it withdrew the file: ' + r.json.summary);
+    assert.match(String(r.json.summary), /This mark sent no file, so the file the task named before is withdrawn\. To keep it, mark it again with --file and its path\./, 'the marker was not told it withdrew the file: ' + r.json.summary);
+    assert.doesNotMatch(String(r.json.summary), /anyone who checked it is told/, 'the sentence claims a delivery');
     assert.doesNotMatch(String(r.json.summary), /["\\]/, 'the summary carries a character the CLI cannot read');
     assert.match(typed[0], new RegExp('it no longer names a file: the one sent earlier \\(' + A + '\\) is withdrawn, so a check of that file no longer counts: you checked that one'), typed[0]);
     // The marker who checked the old file hears nothing about its own mark.
@@ -198,4 +199,18 @@ test('#8307: withdrawing the file tells its checker; a checker who left is said 
   } finally {
     chat.resetForTests();
   }
+});
+
+test('#8307: the page\'s own mark gets the task back without either file path; an agent\'s mark keeps them', async () => {
+  const n = tasks.create(projectId, { sentence: 'Make the flyer', who: 'mona' }).number;
+  await mark(n, asAgent('mona'), { fingerprint: A, file_path: FILE_A });
+  const agent = await mark(n, asAgent('mona'), { fingerprint: B, file_path: FILE_B });
+  assert.equal(agent.json.task.builtFilePath, FILE_B, 'CONTROL: the agent\'s answer keeps the path');
+  assert.equal(agent.json.task.builtReplaces.filePath, FILE_A);
+  const screen = await mark(n, { 'sec-fetch-site': 'same-origin' });
+  assert.equal(screen.status, 200, JSON.stringify(screen.json));
+  assert.equal(screen.json.changed, true, 'CONTROL: the screen mark changed the task');
+  assert.equal('builtFilePath' in screen.json.task, false, 'the page was sent the delivered file\'s path');
+  assert.equal(screen.json.task.builtReplaces.fingerprint, A, 'CONTROL: the page still hears what it replaced');
+  assert.equal('filePath' in screen.json.task.builtReplaces, false, 'the page was sent the replaced file\'s path');
 });
