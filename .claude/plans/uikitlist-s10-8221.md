@@ -35,4 +35,5 @@ the PR (every run below is local).
 - [x] assertDrawn in both classes; both added to the UIKit classes in ui-sample.sh.
 - [x] Measured 3 of 3 each, with the assertion.
 - [x] Review round 1 (bounded at 1).
-- [ ] Proof, PR after #8281 merges and this is rebased.
+- [x] Full validation PASSED (07:43 CST, hash f05e0cea3414) on main b910aa9ed4.
+- [x] Proof, PR.
