@@ -31,7 +31,13 @@ Windows (pwsh) there is no Authenticode cmdlet, so nothing is checked and nothin
 copy under `%LOCALAPPDATA%\Kosmos\runtime`, also user-writable; with the signature gate it would be as safe, but one
 place is enough. Rejected: other folders (Program Files, nvm), a guess the person did not make; PATH is how they choose
 one. Weakest part: a node.exe signed by OpenJS but of an old, vulnerable version would still be used; it is the node
-the installed Kosmos itself runs, so it is the node that release already trusts.
+the installed Kosmos release shipped (the board runs a copy of the same download from %LOCALAPPDATA%\Kosmos\runtime),
+so it is the node that release already trusts.
+
+Left for a follow-up card (fleet 8-round cap reached at iteration 8, no BLOCKER open): when the signature read throws
+(e.g. 5.1 started from pwsh with PowerShell 7's module path), the line says "unreadable" rather than carrying the
+exception's own words; and the verdict is re-read on each of the run's 2 to 4 calls (about 0.5 s each) rather than
+cached. Both fail closed.
 
 ## Tests
 New `tools.win-publish-node-runtime-8285.test.js` (Windows, under each PowerShell present; the CI job has both):
