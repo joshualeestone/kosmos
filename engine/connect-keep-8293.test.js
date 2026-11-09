@@ -7,7 +7,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-connect8293-'));
+/* Real path: the Mac's temp dir is itself behind a link, which would add a third spelling to the link test below. */
+const SB = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-connect8293-')));
 const HOME = path.join(SB, 'home');
 process.env.HOME = HOME;
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SB, 'workers');
@@ -189,6 +190,20 @@ test('a transcript from another folder with the same encoded name is not this ag
   assert.equal('configDir' in seen, false);
   assert.equal('model' in seen, false);
   assert.equal(out.unknownLastRun, undefined);
+});
+
+test('a folder connected by one spelling keeps what ran under the other', () => {
+  const dir = agent('linkedreal');
+  ranOn(ACCT_B);
+  const link = path.join(SB, 'linkedalias');
+  fs.symlinkSync(dir, link);
+  assert.equal(discover.lastRunOf(link).account && discover.lastRunOf(link).account.dir, ACCT_B);
+  assert.equal(discover.lastRunOf(link).model, 'claude-haiku-5-5');
+  /* The transcript records the link while the folder is connected by its real path. */
+  const viaLink = agent('realname', { session: 'sess-2', cwd: path.join(SB, 'aliasrun') });
+  fs.symlinkSync(viaLink, path.join(SB, 'aliasrun'));
+  ranOn(ACCT_C, 'sess-2');
+  assert.equal(discover.lastRunOf(viaLink).account.dir, ACCT_C);
 });
 
 test('a Codex folder is left exactly as before', () => {
