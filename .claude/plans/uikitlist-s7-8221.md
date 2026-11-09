@@ -48,4 +48,19 @@ first, and slice 1's plan numbers it next.
 
 ## Status
 
-- [ ] Plan (23:5x CST 11-08).
+- [x] Plan (23:5x CST 11-08).
+- [x] Steps 1-3 (83736cc34d): atTop in ChatList, the chat's loadEarlier on it, the failed cell, the loading overlay, keepAnchor
+      left to the lazy list. Room checks 858/858; CONTROL, the loadEarlier call removed: 1 FAIL. 15 node tests reading ios/
+      102/102 (found by git grep).
+- [x] Step 4 (14ea1b9024): EarlierPagesUITests, UIKit arm only (the lazy list asks for the page before its top shows, so
+      it has no "at the top, not yet landed" moment; measured). KOSMOS_SAMPLE_OLDER_DELAY holds the sample page 4 s.
+      Three designs measured: fast swipes overshoot into the page (2 of 2 failed on both arms); waiting on the day line
+      (it sits under the header at the very top and reads as not hittable) failed 8 of 8; waiting on the loading line, the
+      product's own signal, passed 8 of 8 (00:59-01:13, iPhone 17e iOS 26.5). CONTROL on main: fails at "did not say
+      earlier messages are loading". ui-sample.sh --uikit: 15 of 15 (with the earlier design flaky; rerun on the final).
+- [x] Step 5: the footer drops "Earlier messages," (01:18 CST). Shots ~/work/design-shots/kosmos-8221-s7/ (light and dark on,
+      largest text: reads in full, switch in place).
+- Open, decided: a reader who stops within the list's top 40 pt asks for the page; one who stops 41 to about 80 pt short,
+  with the day line showing, does not until they reach the top. Rejected: a larger slack (the lazy list asks a screen
+  early); weakest premise, that a person rests in that band rarely.
+- [ ] Full validation, review (bounded at 4 rounds), ui-sample both arms on the final head (CI), PR, merge on green.
