@@ -70,7 +70,7 @@ test('#6209 part 3: an owner posting in the room while its task is on hold is to
   const first = pass(id, rows, read);
   assert.equal(first.sent.length, 1, JSON.stringify(first.out.results));
   assert.equal(first.sent[0].s, REX);
-  assert.equal(first.sent[0].text, 'Kosmos: task #' + n + ', "Check the supplier price" (put on hold 3 hours ago) in ' + only(id)[0].name + ' is still on hold, but you have posted 3 times in its project room since then. If its work is going on, take it off hold: kosmos task unhold ' + id + ' ' + n + '. If it no longer needs doing, close it: kosmos task close ' + id + ' ' + n + ' (add --not-run if it never ran). If it should stay on hold, say why on the task.');
+  assert.equal(first.sent[0].text, 'Kosmos: task #' + n + ', "Check the supplier price" (put on hold 3 hours ago) in ' + only(id)[0].name + ' is still on hold, but you have posted 3 times in its project room since then. If its work is going on, take it off hold: kosmos task unhold ' + id + ' ' + n + '. If it no longer needs doing, close it: kosmos task close ' + id + ' ' + n + '. Add --not-run if it never ran. If it should stay on hold, say why on the task.');
   assert.equal(stored(id, n).holdStaleTold[REX], iso(NOW - 3 * HOUR), 'the hold it was told about was not stored');
   assert.ok(taskchat.read(id, n).some((e) => e.kind === 'hold-stale' && e.told === REX && e.reached === true), 'the history does not say it was told');
   // Once: the same hold is not told again.
@@ -215,7 +215,7 @@ test('#6209 part 3 review 1: the person taking over an agent\'s hold is read fro
 test('#6209 part 3 review 2: the line reads right for mixed, plural and three-task holds, and never types an unsafe id', () => {
   const it = (n, byPerson, projectId = 'proj-a') => ({ projectId, project: 'Shop', n, sentence: 'Task ' + n, owner: REX, holdAt: NOW - 3 * HOUR, byPerson, posts: 4 });
   assert.equal(hs.tellText([it(1, false), it(2, true)], NOW),
-    'Kosmos: task #1, "Task 1" (put on hold 3 hours ago) and task #2, "Task 2" (the person put it on hold 3 hours ago) in Shop are still on hold, but you have posted 4 times in their project room since then. If their work is going on, take #1 off hold: kosmos task unhold proj-a 1; for #2, ask the person to take it off hold (only they can lift their own hold, on the screen). If #1 no longer needs doing, close it: kosmos task close proj-a 1 (add --not-run if it never ran). If #2 no longer needs doing, ask the person whether to close it. If one should stay on hold, say why on the task.');
+    'Kosmos: task #1, "Task 1" (put on hold 3 hours ago) and task #2, "Task 2" (the person put it on hold 3 hours ago) in Shop are still on hold, but you have posted 4 times in their project room since then. If their work is going on, take #1 off hold: kosmos task unhold proj-a 1; for #2, ask the person to take it off hold (only they can lift their own hold, on the screen). If #1 no longer needs doing, close it: kosmos task close proj-a 1. If #2 no longer needs doing, ask the person whether to close it. Add --not-run if it never ran. If one should stay on hold, say why on the task.');
   assert.match(hs.tellText([it(1, true), it(2, true)], NOW), /If their work is going on, ask the person to take them off hold \(only they can lift their own hold, on the screen\)\./);
   assert.match(hs.tellText([it(1, false), it(2, false), it(3, false)], NOW), /task #1, "Task 1" \(put on hold 3 hours ago\), task #2, .* and task #3, /);
   const unsafe = hs.tellText([it(1, false, 'x; rm -rf ~')], NOW);
@@ -338,7 +338,7 @@ test('kosmos#7788: a hold for the person is never told about for its owner\'s po
    lines also offer closing it. Only the owner's own hold on a task it alone holds is its to close. */
 test('kosmos#8140 item 3: the stale and met lines offer closing an own hold, and ask the person for every other kind', () => {
   const it = (extra = {}) => ({ projectId: 'proj-a', project: 'Shop', n: 7, sentence: 'Task 7', owner: REX, holdAt: NOW - 3 * HOUR, byPerson: false, posts: 4, ...extra });
-  const CLOSE = /If it no longer needs doing, close it: kosmos task close proj-a 7 \(add --not-run if it never ran\)\./;
+  const CLOSE = /If it no longer needs doing, close it: kosmos task close proj-a 7\./;
   const ASK = /If it no longer needs doing, ask the person whether to close it\./;
   for (const [name, line] of [['stale', (x) => hs.tellText([x], NOW)], ['met', (x) => hs.metText([{ ...x, met: 'task #3 is closed' }], NOW)]]) {
     assert.match(line(it()), CLOSE, name + ': an own hold was not offered closing');
@@ -348,14 +348,14 @@ test('kosmos#8140 item 3: the stale and met lines offer closing an own hold, and
       assert.doesNotMatch(text, /kosmos task close/, name + ', ' + kind + ': an agent was told to close what is not its own');
     }
     // The close offer sits between the way off the hold and the stay-held line, in that order.
-    assert.match(line(it()), /off hold[^.]*\. If it no longer needs doing, [^.]*\. If it should stay on hold/, name + ': the order');
+    assert.match(line(it()), /off hold[^.]*\. If it no longer needs doing, [^.]*\.( Add --not-run if it never ran\.)? If it should stay on hold/, name + ': the order');
   }
   // Several: each own one by its command, the others by number.
   const many = hs.metText([it({ n: 1, met: 'x' }), it({ n: 2, met: 'x', shared: true }), it({ n: 4, met: 'x' })], NOW);
-  assert.match(many, /If #1 no longer needs doing, close it: kosmos task close proj-a 1 \(add --not-run if it never ran\)\. If #2 no longer needs doing, ask the person whether to close it\. If #4 no longer needs doing, close it: kosmos task close proj-a 4 \(add --not-run if it never ran\)\./);
+  assert.match(many, /If #1 no longer needs doing, close it: kosmos task close proj-a 1\. If #2 no longer needs doing, ask the person whether to close it\. If #4 no longer needs doing, close it: kosmos task close proj-a 4\./);
   // Review 1: several own tasks, or several of the person's, never read as closing them all.
   for (const line of [hs.tellText([it({ n: 1 }), it({ n: 4 })], NOW), hs.metText([it({ n: 1, met: 'x' }), it({ n: 4, met: 'x' })], NOW)]) {
-    assert.match(line, /If #1 no longer needs doing, close it: kosmos task close proj-a 1 \(add --not-run if it never ran\)\. If #4 no longer needs doing, close it: kosmos task close proj-a 4 \(add --not-run if it never ran\)\./);
+    assert.match(line, /If #1 no longer needs doing, close it: kosmos task close proj-a 1\. If #4 no longer needs doing, close it: kosmos task close proj-a 4\./);
     assert.doesNotMatch(line, /close them|If one no longer/);
   }
   const theirs = hs.tellText([it({ n: 1, byPerson: true }), it({ n: 4, byPerson: true })], NOW);
@@ -363,7 +363,7 @@ test('kosmos#8140 item 3: the stale and met lines offer closing an own hold, and
   assert.doesNotMatch(theirs, /kosmos task close/);
   // An id the CLI would not take as it is is never typed into the command.
   const unsafe = hs.tellText([it({ projectId: 'x; rm -rf ~' })], NOW);
-  assert.match(unsafe, /kosmos task close <project-id> 7 \(add --not-run if it never ran\)\./);
+  assert.match(unsafe, /kosmos task close <project-id> 7\./);
   assert.doesNotMatch(unsafe, /rm -rf/);
 });
 

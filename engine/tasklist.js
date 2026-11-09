@@ -155,7 +155,7 @@ function acrossLines(body, flag, opts = {}) {
     const where = every ? '<project-id>' : one(opts.project);
     lines.push(left + ' of ' + (left === 1 ? 'these looks' : 'these look') + ' left over: added by an agent, and the work '
       + (left === 1 ? 'it was' : 'they were') + ' part of has since finished.');
-    lines.push('If one is yours and you are sure it is done with, close it: kosmos task close ' + where + ' <task-number> (add --not-run if it never ran).');
+    lines.push('If one is yours and you are sure it is done with, close it: kosmos task close ' + where + ' <task-number>. Add --not-run if it never ran.');
     lines.push('Only offered when an agent did everything on it so far: never one the person added, set up or touched,'
       + ' one being reviewed or on hold, or one whose agent is waiting on the person.');
   }

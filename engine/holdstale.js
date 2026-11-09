@@ -150,15 +150,16 @@ function agoWords(at, now) {
    person about. `idOf` as the line's own. */
 function closeText(items, idOf) {
   const own = (x) => !x.byPerson && !x.forPerson && !x.shared && !x.personCloses;
+  const notRunHint = (list) => (list.some(own) ? ' Add --not-run if it never ran.' : '');   // kosmos#8301: its own sentence, so the command stays pasteable
   if (items.length === 1) {
     const x = items[0];
-    return 'If it no longer needs doing, ' + (own(x) ? 'close it: kosmos task close ' + idOf(x) + ' ' + x.n + ' (add --not-run if it never ran)' : 'ask the person whether to close it') + '.';
+    return 'If it no longer needs doing, ' + (own(x) ? 'close it: kosmos task close ' + idOf(x) + ' ' + x.n : 'ask the person whether to close it') + '.' + notRunHint(items);
   }
   /* Review 2: with several tasks, each condition names its own task, so no command reads as meant for another one
      ("if one no longer needs doing, close #1" read as closing #1 when #2 was the finished one). */
   const sentence = (x) => 'If #' + x.n + ' no longer needs doing, '
-    + (own(x) ? 'close it: kosmos task close ' + idOf(x) + ' ' + x.n + ' (add --not-run if it never ran)' : 'ask the person whether to close it') + '.';
-  return items.map(sentence).join(' ');
+    + (own(x) ? 'close it: kosmos task close ' + idOf(x) + ' ' + x.n : 'ask the person whether to close it') + '.';
+  return items.map(sentence).join(' ') + notRunHint(items);
 }
 
 /* The line an owner is sent, for its held tasks in one project (`group`, items of owed() for one owner and project). Names
