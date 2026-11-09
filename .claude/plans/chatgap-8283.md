@@ -54,3 +54,27 @@ newest message's time line. The room above it (about 6 pt at default size) is th
 
 - Shrinking the paddings and keeping the reserved row: saves at most 15 pt and puts the newest message into the fade.
 - Collapsing the row while idle: brings back #7348's 27 pt jump when an agent picks up a message.
+
+## Review rounds (blind, read-only reviewers)
+
+Round 1 (11:0x):
+- MAJOR the dots' show/hide re-evaluated the whole chat mid-pull --> FIXED: WorkingStrip is its own view observing EndPullDriver.dotsUp (published a turn later); the chat holds the driver in @State without observing it.
+- MAJOR the line drew over message text when scrolled up --> FIXED: a ground behind the line fading in from 6 pt above it; ChatGapUITests.testTheWorkingLineShowsToAReaderHigherUp (screenshot reviewed).
+- MINOR line over the "New messages" capsule at large text --> FIXED: capsule bottom padding is endRoom.
+- MINOR no positive control around the hide --> FIXED: the line is asserted before the pull and after the dots go.
+- MINOR dots measured from the words, not the bubble --> FIXED (bubble, time line included).
+- MINOR source pin lost the still dots --> FIXED (animated: false pinned).
+- MINOR first frame at large text uses 16 --> ACCEPTED: the end row grows once after the chat opens at accessibility sizes; the UIKit list puts the reader back at its end after each layout. Weakest premise above.
+- NIT retain cycle --> gone with the callback. NIT ChatList comment overclaimed --> reworded.
+- UIKit onChange(of: working) raising "New messages" --> removed.
+
+Round 2 (12:3x):
+- MAJOR the lazy list still followed on `working` (a capsule with no new message, or an animated scroll) --> FIXED: removed, pinned absent on both lists.
+- MINOR dots clearance 2.5 pt vs a 2 pt floor --> floor 1 pt, with the measurement in the comment. The room is 45 pt for 24 pt dots and both clearances; no rest gives both more.
+- MINOR source pin missed the capsule and the onChange --> FIXED.
+- MINOR end room grows after open at AX sizes --> ACCEPTED as in round 1.
+- NIT workingStrip --> WorkingStrip.
+
+## Pre-existing, not this card (A/B on this Mac, main fd6d160a09 vs this branch)
+- EndPullUITests lazy, 3 iterations: main 6 of 18 failed, branch 18 of 18 passed (noted on #8072).
+- NewMessagesUITests.testAReaderWhoDraggedUpKeepsTheirPlaceAsRowsLeaveTheTop: main 3 of 3 failed, branch 1 of 3 (a by-hand class, not in CI).

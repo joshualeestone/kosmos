@@ -104,7 +104,8 @@ final class EndPullUITests: XCTestCase {
         let dot = dots(app).frame, above = dot.minY - bubble.frame.maxY, below = Self.box(app).frame.minY - dot.maxY
         let said = "\(above) under the newest message's bubble, \(below) above the box"
         print("UI-NOTE kosmos#8283 \(UIKitListArm.on ? "uikit" : "lazy"): dots " + said)
-        XCTAssertGreaterThanOrEqual(above, 2, "the dots touch the newest message: " + said)
+        // 1 pt: at the true end they rest about 2.5 pt under it (restsAbove 11.5); measured 11-09, -0.5 at 14.5.
+        XCTAssertGreaterThanOrEqual(above, 1, "the dots touch the newest message: " + said)
         XCTAssertGreaterThanOrEqual(below, 18, "the box's fade cuts the dots: " + said)
         // kosmos#7609: and not stuck high, which the allowance above cannot see.
         XCTAssertLessThanOrEqual(above, 40, "the list did not come back to its end: " + said)

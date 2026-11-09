@@ -758,7 +758,7 @@ struct ChatView: View {
                         // lands); on iOS 17+ every row is lazy and the id anchor holds the place (see idAnchor).
                         chatRows(items)
                         pendingBubbles(pendingLayout)
-                        // kosmos#8283: no row for the working line. It is drawn over the strip above the box (workingStrip),
+                        // kosmos#8283: no row for the working line. It is drawn over the strip above the box (WorkingStrip),
                         // so its coming and going still moves nothing (#7348) and an idle chat has no empty row under its
                         // newest message.
                         Color.clear.frame(height: endRoom).id("end")   // the fade plus 8 pt (kosmos#7346), or the working line's room (endRoom)
@@ -988,7 +988,7 @@ struct ChatView: View {
                     if Self.idAnchor, quietFollowKey == key { return }   // review 5: older rows landing; the newest is the same
                     follow(proxy)
                 }
-                .onChange(of: working) { now in if now { follow(proxy) } }
+                // kosmos#8283: the agent starting to work is no new message (its line shows above the box), so it moves nothing here.
                 // Only a message just sent scrolls down; one settling into its row does not move the person's place.
                 // While searching too, unlike the board's jumpToOwnSend: the phone keeps the sent bubble on screen below
                 // what matched, and it is the send's only feedback.
