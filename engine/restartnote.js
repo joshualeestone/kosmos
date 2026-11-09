@@ -61,7 +61,7 @@ function cleanRunning(list) {
   return list.filter((a) => a && typeof a.session === 'string' && a.session).slice(0, MAX_AGENTS)
     .map((a) => ({ session: a.session, name: typeof a.name === 'string' && a.name ? a.name : a.session }));
 }
-/* An agent that is on the board and able to work. A session with a rejected token, no connection or a crash loop is
+/* A session of ours that is not stopped and not in a failed state. A rejected token, no connection or a crash loop is
    exactly what a person checking after a restart needs named. */
 const NOT_UP_STATES = new Set(['stopped', 'auth_failed', 'connection_lost']);
 function isUp(a) {
@@ -104,7 +104,9 @@ function atStart(deps = {}) {
   const startedBy = deps.startedBy;
   const prev = readJson(aliveFile());
   const note = noteFor({ now, uptimeSec, lastAliveAt: prev && prev.at, startedBy });
-  carried = cleanRunning(prev && prev.running);
+  // A list only counts if it describes the run just ended, not a board last open days ago.
+  const lastAt = prev ? ms(prev.at) : null;
+  carried = note || (lastAt != null && now - lastAt <= WINDOW_MS) ? cleanRunning(prev && prev.running) : null;
   carriedUntil = now + WINDOW_MS;
   running = carried;   // the beat below must not drop the list before this run has read its own
   if (note) {
@@ -202,7 +204,7 @@ function checksFor(note, roster, removed) {
     const cards = new Map(roster.filter((a) => a && a.sessionName).map((a) => [a.sessionName, a]));
     const asked = note.wereRunning.filter((a) => !gone.has(a.session));
     const seen = new Set(cleanReturned(note.returned));
-    // Only a plain stop is excused by having come back: a failure after that is still what the person needs to see.
+    // The page says who came back, which an agent stopped since did. A failure still showing is named instead.
     const stoppedSince = (a) => { const c = cards.get(a.session); return seen.has(a.session) && Boolean(c) && c.state === 'stopped' && !(c.crashLoop && c.crashLoop.looping === true); };
     const notBack = asked.filter((a) => !stoppedSince(a) && !isUp(cards.get(a.session))).map((a) => (cards.get(a.session) || {}).name || a.name);
     out.agents = { was: asked.length, back: asked.length - notBack.length, notBack };

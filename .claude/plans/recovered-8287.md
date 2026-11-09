@@ -16,7 +16,8 @@ checked, so this adds one line to the #5359 note and no new notice.
 - **An agent missing from the roster counts as not back, unless it was removed since.** Reading missing as fine would
   hide the failure this line exists to show.
 - **Up means able to work.** A rejected token, a lost connection and a crash loop are named, not counted as back.
-- **Seen back once stays back.** The note records it, so stopping an agent later that day is not reported as a failure.
+- **The line says who came back, in the past tense.** The note records it, so stopping an agent later that day is not
+  reported as a failure, and the sentence stays true while that agent is stopped.
 - **Files: the result of #7248's scan at this start, kept in the note.** Reading storecheck.current() live would read
   "fine" once a person dismissed or repaired the damage notice, and "fine" if the scan itself threw. A scan that could
   not read a folder or file does not say fine either.

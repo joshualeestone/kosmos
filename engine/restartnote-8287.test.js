@@ -213,6 +213,25 @@ test('#8287: a second restart soon after the first still asks about everyone', (
   assert.deepEqual(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running.map((a) => a.session), ['leo'], 'CONTROL: after the window the list is who is up');
 });
 
+test('#8287: a list from a board last open long ago is not carried into this run', () => {
+  clean();
+  const T0 = Date.now();
+  fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: new Date(T0 - 24 * 60 * MIN).toISOString(), running: was('old1') }));
+  assert.equal(rn.atStart({ now: () => T0, uptime: () => up(6), startedBy: 'person' }), null, 'CONTROL: this start makes no note');
+  assert.equal('running' in JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')), false, 'the old list was written back');
+  rn.noteRunning([card('live', 'Live')], T0 + MIN);
+  rn.beat(T0 + MIN);
+  assert.deepEqual(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running.map((a) => a.session), ['live'], 'an agent from days ago joined the list');
+});
+
+test('#8287: a long outage still carries the list when it made a note', () => {
+  clean();
+  const T0 = Date.now();
+  fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: new Date(T0 - 300 * MIN).toISOString(), running: was('leo') }));
+  assert.ok(rn.atStart({ now: () => T0, uptime: () => up(298), startedBy: 'supervisor' }), 'CONTROL: this start makes a note');
+  assert.equal(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running.length, 1, 'a note was made but its list was dropped');
+});
+
 test('#8287: an agent nobody recorded before this start is added, and the note still gets only the old list', () => {
   clean();
   const T0 = Date.now();
