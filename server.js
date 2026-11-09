@@ -1474,6 +1474,11 @@ const NUDGE_WAIT_MS = 8000;
    from when the request came in, and none when less than NUDGE_MIN_MS is left. */
 const NUDGE_ANSWER_BY_MS = 26000;
 const NUDGE_MIN_MS = 1500;
+/* kosmos#8340: the counts each agent was last shown after a vote or comment, and when, so the next line repeats them
+   only when they changed (or COUNTS_SHOWN_FOR_MS has passed). Recorded only once the line went out; held in memory,
+   so a restart shows them once more. */
+const COUNTS_SHOWN = new Map();
+const COUNTS_SHOWN_FOR_MS = 2 * 60 * 60 * 1000;
 function communityNudge(agentKey, postId, startedAt = Date.now(), reply = false) {
   // The env is the test's: it moves the deadline so a slow action can be shown to get no line (never set in production).
   const by = Number(process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS) : NUDGE_ANSWER_BY_MS;
@@ -1483,8 +1488,20 @@ function communityNudge(agentKey, postId, startedAt = Date.now(), reply = false)
   const late = new Promise((resolve) => { timer = setTimeout(() => resolve(null), wait); if (timer.unref) timer.unref(); });
   const home = homeFresh(agentKey);
   if (!home) refreshHomeLines([String(agentKey)]);   // #5212: for the next action; this one goes without "replies owed"
-  return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null, reply: reply === true, owed: home ? home.owed : null }).catch(() => null), late])
-    .then((v) => { clearTimeout(timer); return typeof v === 'string' && v ? v : null; });
+  const shownKey = String(agentKey);
+  let carried = null;
+  const sameAsShown = (counts) => {
+    const e = COUNTS_SHOWN.get(shownKey);
+    return Boolean(e) && e.counts === counts && Date.now() - e.at >= 0 && Date.now() - e.at < COUNTS_SHOWN_FOR_MS;
+  };
+  return Promise.race([communitynudge.nudge(agentKey, { postId: postId || null, reply: reply === true, owed: home ? home.owed : null,
+    sameAsShown, onCounts: (counts) => { carried = counts; } }).catch(() => null), late])
+    .then((v) => {
+      clearTimeout(timer);
+      const line = typeof v === 'string' && v ? v : null;
+      if (line && carried && line.includes(carried)) COUNTS_SHOWN.set(shownKey, { counts: carried, at: Date.now() });
+      return line;
+    });
 }
 function communitySendSoon() {
   setImmediate(() => {
@@ -30271,7 +30288,9 @@ if (require.main === module) {
 // re-implementation of it. Testing the path helper in isolation would not have
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
-module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
+/* kosmos#8340: ages one agent's shown-counts record, so a test can show the block comes back after COUNTS_SHOWN_FOR_MS. */
+function _ageCountsShownForTest(agentKey, ms) { const e = COUNTS_SHOWN.get(String(agentKey)); if (e) e.at -= ms; return Boolean(e); }
+module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
   _autobalanceSweepDepsForTest: autobalanceSweepDeps, // kosmos#7152 slice 3: the sweep's wiring, for its test

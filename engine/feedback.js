@@ -424,4 +424,22 @@ function unchanged(from, note, date) {
   return already != null ? { ok: false, why: 'today' } : { ok: false, why: 'none' };
 }
 
-module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
+/** kosmos#8340: the days whose report holds a section by `from` (writer()'s answer; null is the unnamed section), newest
+ *  first. `unchanged` points back to one of these, so a day here is one `feedback write --unchanged` can use. */
+function daysOf(from) {
+  const key = writerKey(from).toLowerCase();
+  return list().filter((d) => {
+    const raw = read(d);
+    return raw != null && sections(stripFrontmatter(raw)).some((x) => x.key.toLowerCase() === key && x.text.trim());
+  });
+}
+/** kosmos#8340: what `feedback list` prints after the dates (on stderr, so the dates stay a plain list): whose reports
+ *  they are, and which hold the asking agent's own. null when there are none. */
+function listNote(from, days = list()) {
+  if (!days.length) return null;
+  const mine = daysOf(from);
+  const whose = 'These are the days with a report on this computer, from every agent here.';
+  if (!mine.length) return whose + ' None of them holds one of yours yet, so `kosmos feedback write --unchanged` has nothing to point back to: write a full report first.';
+  return whose + ' ' + (mine.length === 1 ? '1 of them holds yours: ' + mine[0] : mine.length + ' of them hold yours, the newest ' + mine[0]) + '.';
+}
+module.exports = { daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };

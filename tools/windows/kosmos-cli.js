@@ -2872,7 +2872,13 @@ async function feedbackDay(ctx, args) {
 }
 
 async function feedbackList(ctx) {
-  for (const date of ctx.engine('feedback').list()) ctx.out(date);
+  const fb = ctx.engine('feedback');
+  const days = fb.list();
+  for (const date of days) ctx.out(date);
+  // kosmos#8340, as install/kosmos: whose reports these are, and which hold this agent's own, on stderr.
+  let note = null;
+  try { note = fb.listNote(fb.writer(ctx.env), days); } catch { note = null; }
+  if (note) ctx.err(note);
   return 0;
 }
 
