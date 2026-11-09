@@ -24,7 +24,9 @@ catches a damaged, half-updated or replaced node.exe. It is NOT a boundary again
 (iteration 4): a DLL planted beside node.exe still loads into a Valid node, the file can change between check and
 run, and such code could put a node on PATH, which was always run unchecked. The release PC is trusted as a whole, as
 before; the help, the comment and this plan say so rather than claim more. The signature read is not under
--NodeTimeoutSec (about 0.5 s online here; offline not measured), and only runs when PATH has no node. Rejected (iteration 2): the board runtime's
+-NodeTimeoutSec (about 0.5 s online here; offline not measured), and only runs when PATH has no node. The issuer is
+not pinned (a root the user added would make a look-alike Valid): the same "PC trusted as a whole" covers it. Off
+Windows (pwsh) there is no Authenticode cmdlet, so nothing is checked and nothing is used. Rejected (iteration 2): the board runtime's
 copy under `%LOCALAPPDATA%\Kosmos\runtime`, also user-writable; with the signature gate it would be as safe, but one
 place is enough. Rejected: other folders (Program Files, nvm), a guess the person did not make; PATH is how they choose
 one. Weakest part: a node.exe signed by OpenJS but of an old, vulnerable version would still be used; it is the node
@@ -35,13 +37,14 @@ New `tools.win-publish-node-runtime-8285.test.js` (Windows, under each PowerShel
 Get-NodeExe, its list, the publisher, the once-flag and the refusal words parsed out of the real script under Stop +
 StrictMode 2.0, against throwaway PATH and LOCALAPPDATA. A signed node is the test's own node.exe (an official build),
 hard-linked or copied; an empty file is an unsigned one. Covers: signed app node used (said), unsigned one NOT run
-(said why), the board copy never looked at, a real PATH node wins unchecked, a .cmd shim still skipped, said once per
+(said why), the board copy never looked at, a real PATH node wins unchecked, a .cmd shim still skipped and named in
+the line (and none named when there is none), said once per
 run, no LOCALAPPDATA -> none and silent, neither -> none, the refusal words both ways, and both refusals carry them
 above their callers. A CI-only check asserts the Windows job's node is signed, so the signed arms cannot skip there.
 
 ## Measured by hand (Windows 11 box, 11-09)
 With no node on PATH (this morning's failure), `publish-r2.ps1 -Promote -ApprovedVersion 0.8.00 ... -DryRun` from
-this branch: "no node executable on PATH (a .cmd shim does not count); using the installed Kosmos app's own (signed by
-OpenJS Foundation): ...\Programs\Kosmos\runtime\node.exe" (once), the signed-manifest check and the verification
+this branch: "no node on PATH; using the installed Kosmos app's own (signed by OpenJS Foundation):
+...\Programs\Kosmos\runtime\node.exe" (once), the signed-manifest check and the verification
 record both PASS, "DRY RUN complete: nothing was written", exit 0. The installed node.exe reads Status Valid, signer
 CN=OpenJS Foundation.

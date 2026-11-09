@@ -107,7 +107,8 @@ for (const ps of RUNTIMES) {
     const w = pc([], [[APP, 'signed']]);
     const r = harness(ps, w);
     assert.strictEqual(r.found, 'FOUND ' + path.join(w.lad, APP));
-    assert.ok(r.said.includes('using the installed Kosmos app\'s own (signed by OpenJS Foundation): ' + path.join(w.lad, APP)), r.said);
+    assert.ok(r.said.includes('no node on PATH; using the installed Kosmos app\'s own (signed by OpenJS Foundation): ' + path.join(w.lad, APP)), r.said);
+    assert.doesNotMatch(r.said, /shim/, 'CONTROL: with no shim on PATH, none is named');
   });
   test('#8285 ' + ps + ': an unsigned file at the app\'s path is NOT run, and the run is told why', () => {
     const w = pc([], [[APP, 'unsigned']]);
@@ -128,7 +129,7 @@ for (const ps of RUNTIMES) {
     const w = pc(['node.cmd'], [[APP, 'signed']]);
     const r = harness(ps, w);
     assert.strictEqual(r.found, 'FOUND ' + path.join(w.lad, APP));
-    assert.match(r.said, /a \.cmd shim does not count/);
+    assert.ok(r.said.includes('skipped the shim ' + path.join(w.bin, 'node.cmd')), 'the line names the shim it skipped: ' + r.said);
   });
   test('#8285 ' + ps + ': the line is said once per run, however often node is looked for', () => {
     const r = harness(ps, pc([], [[APP, 'unsigned']]), 'twice');
