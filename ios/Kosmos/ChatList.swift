@@ -16,6 +16,9 @@ struct ChatList: UIViewRepresentable {
     let newest: Int
     // Whether the reader is at the newest message, told when it changes (never during a layout pass).
     let atEnd: (Bool) -> Void
+    // kosmos#8221 slice 7: whether the reader is at the top of what is loaded (earlier messages load there), told when it
+    // changes (never during a layout pass). A chat too short to scroll is at its top.
+    var atTop: (Bool) -> Void = { _ in }
     // Debug only (KOSMOS_SAMPLE_SCROLLUP): the row put at the top 3 s after the list opens, and what to run once it is there.
     // ChatView passes nil and an empty closure in a release build.
     var sampleUp: String? = nil
@@ -85,6 +88,21 @@ struct ChatList: UIViewRepresentable {
             if atEnd { place = nil }
             if atEnd != oldValue { let v = atEnd; DispatchQueue.main.async { [weak self] in self?.told?(v) } }
         } }
+        var toldTop: ((Bool) -> Void)?
+        var atTop = false { didSet {
+            if atTop != oldValue {
+                ChatView.trace("uikit list: atTop \(atTop)", ring: false)
+                let v = atTop
+                DispatchQueue.main.async { [weak self] in self?.toldTop?(v) }
+            }
+        } }
+        // Within endSlack of the list's top. Read where the offset is the reader's: during their scroll, when any scroll
+        // ends, and after a layout once this list has put itself in place (never from the first offset a new list has,
+        // which is its top before it is pinned to the end).
+        func readTop(_ sv: UIScrollView) {
+            guard sv.contentSize.height > 0 else { return }
+            atTop = sv.contentOffset.y <= -sv.adjustedContentInset.top + ChatList.endSlack
+        }
         var pinning = false
         // A reader higher up: the highest row on screen and how far below the top of the list it is drawn. Dropped when the
         // offset moves other than by this list's own pin, hold, layout pass or update (scrollViewDidScroll).
@@ -155,6 +173,7 @@ struct ChatList: UIViewRepresentable {
         func scrollViewDidScroll(_ sv: UIScrollView) {
             if sv.isTracking || sv.isDragging || (sv.isDecelerating && dragged) {
                 atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
+                readTop(sv)
                 place = nil
             } else if !pinning, !applying, !(list?.laying ?? false) {
                 place = nil
@@ -179,10 +198,12 @@ struct ChatList: UIViewRepresentable {
             // is at the newest keeps them there and puts them at the end.
             if atEnd, !byPerson, how != "to top" {
                 pin()
+                readTop(sv)
                 ChatView.trace("uikit list: scroll ended, not the person's, kept at the end after a \(how) (\(geometry(sv)))", ring: false)
                 return
             }
             atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
+            readTop(sv)
             ChatView.trace("uikit list: scroll ended, at end \(atEnd) (was \(wasAtEnd)), by the person \(byPerson), after a \(how) (\(geometry(sv)))", ring: false)
             if !atEnd { place = top() }
         }
@@ -234,6 +255,7 @@ struct ChatList: UIViewRepresentable {
             }
             guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
             if atEnd { pin() } else if !moving() { if place == nil { place = top() } else { hold() } }
+            if !moving() { readTop(list) }
         }
 
         func pin() {
@@ -307,6 +329,7 @@ struct ChatList: UIViewRepresentable {
         co.list = list
         co.cell = cell
         co.told = atEnd
+        co.toldTop = atTop
         co.environment = context.environment
         co.newest = newest
         let reg = UICollectionView.CellRegistration<UICollectionViewCell, String> { [weak co] c, _, id in co?.configure(c, id) }
@@ -333,6 +356,7 @@ struct ChatList: UIViewRepresentable {
         let co = context.coordinator
         co.cell = cell
         co.told = atEnd
+        co.toldTop = atTop
         co.environment = context.environment
         co.apply(ids)
         if newest != co.newest {

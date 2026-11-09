@@ -616,8 +616,10 @@ struct ChatView: View {
         let layout = grouped.places
         let byId = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let sends = pending
-        let top: [String] = thread.rows.isEmpty && pending.isEmpty ? ["empty"]
-            : (searching && rows.isEmpty && !loaded.isEmpty ? ["nomatch"] : [])
+        // kosmos#8221 slice 7: a failed earlier page's line is the first cell, as it is the lazy list's first row.
+        let failedTop: [String] = earlier.because != nil && !earlier.loading && !searchMode ? ["earlier-failed"] : []
+        let top: [String] = failedTop + (thread.rows.isEmpty && pending.isEmpty ? ["empty"]
+            : (searching && rows.isEmpty && !loaded.isEmpty ? ["nomatch"] : []))
         // Each id once: a diffable list throws on a repeat, and a row carried into the earlier
         // rows can share its id with one in the new read (parseRows numbers rows per read). The first is kept, as byId keeps it.
         var seen = Set<String>()
@@ -637,6 +639,7 @@ struct ChatView: View {
             if let p = sends.first(where: { $0.id == id }) { return AnyView(pendingBubble(p, layout)) }
             switch id {
             case "empty": return AnyView(empty)
+            case "earlier-failed": return AnyView(earlierFailedLine)
             case "nomatch": return AnyView(noMatch)
             case "working":
                 return AnyView(ZStack {
@@ -649,12 +652,18 @@ struct ChatView: View {
             atBottom = now; endVisible = now
             Self.trace("uikit list: atBottom \(atBottom)")
             if now { unseenNew = false; endSeen = true; settledAtEnd = true }
+        }, atTop: { now in
+            // kosmos#8221 slice 7: the reader at the top asks for the page before, as the lazy list's top marker does.
+            topVisible = now
+            if now { loadEarlier() }
         }, sampleUp: sampleUp, sampleRested: {
             #if DEBUG
             sampleScrollRested = true; Self.trace("debug scroll-up rested, atBottom \(atBottom)")
             #endif
         })
         .kosmosTopFade(ground: Palette.chatGround)
+        // While a page loads the line floats over the top and takes no room, as on the lazy list (slice 7).
+        .overlay(alignment: .top) { earlierLoadingLine }
         #if DEBUG
         .overlay(alignment: .bottomTrailing) {
             if sampleScrollRested {
@@ -1863,7 +1872,9 @@ struct ChatView: View {
             // Review 2: atBottom starts true and clears only after the end marker has shown, so the top showing (the
             // reader is up there) rules it out.
             if atBottom && endSeen && !topVisible && !searching { quietFollowKey = nil; keepAtEndTick += 1 }   // review: not while searching
-            else if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
+            // kosmos#8221 slice 7: the UIKit list keeps the reader's place itself (ChatList's hold, slice 3); keepAnchor
+            // scrolls the lazy list's proxy, which is not there.
+            else if !uikitList, case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
 
