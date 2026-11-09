@@ -82,6 +82,9 @@ test('#7420: an agent\'s token is refused, and a build named like a built-in pro
   const good = { app: APP, rebuilds: 0, closedBlank: false };
   assert.equal((await post(good, { 'x-kosmos-agent-token': 'any' })).status, 403, 'an agent token posted');
   assert.equal((await post({ ...good, token: 'any' })).status, 403, 'an agent token in the body posted');
+  // #8221 slice 6 review 2: the UIKit path is the same handler, with the same refusals.
+  assert.equal((await post(good, { 'x-kosmos-agent-token': 'any' }, '/api/phone/chat-open-uikit')).status, 403, 'an agent token posted to the UIKit path');
+  assert.equal((await post('{not json', {}, '/api/phone/chat-open-uikit')).status, 400, 'bad JSON on the UIKit path');
   assert.deepEqual((await get()).body.builds[APP], before);
   assert.equal((await post({ app: '__proto__', rebuilds: 0, closedBlank: false })).status, 400);
 });
