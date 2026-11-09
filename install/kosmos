@@ -2591,11 +2591,11 @@ cmd_version() {
       _build=$(LC_ALL=C sed -n 's/^app:[[:space:]]*\([0-9A-Za-z._-][0-9A-Za-z._-]*\).*/\1/p' "$KOSMOS_HOME/VERSION" 2>/dev/null | LC_ALL=C sed -n 1p) || _build=""
       case "$_build" in
         unknown) _build="" ;;
-        # The Linux bundle records the full commit and the Mac bundle 10 characters: one width, so seats can compare.
+        # The Linux bundle records the full commit and the Mac bundle git's short form: one width, so seats can compare.
         *[!0-9a-f]*) ;;
         *) _build=$(printf '%s' "$_build" | cut -c1-10) ;;
       esac
-      if [ -n "$_build" ] && grep -q '^app:.* (dirty) ' "$KOSMOS_HOME/VERSION" 2>/dev/null; then _build="$_build-dirty"; fi
+      if [ -n "$_build" ] && LC_ALL=C grep -q '^app:.* (dirty)' "$KOSMOS_HOME/VERSION" 2>/dev/null; then _build="$_build-dirty"; fi
     fi
     if [ -n "$_build" ]; then printf '%s (build %s)\n' "$_ver" "$_build"; else printf '%s\n' "$_ver"; fi
     # #4892: the number above is the installed app's. A copy of this
