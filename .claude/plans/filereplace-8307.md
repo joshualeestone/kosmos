@@ -33,7 +33,7 @@ Addresses #8307 (split out of #8214). The shape was posted on the card first (is
 - At most 20 checkers are kept; the 21st pushes out the oldest, who is then not told of a replacement (review 3).
 - Other routes that answer the page with a whole task (hold, done-when, assign) still carry `builtFilePath`, as before this branch. This branch adds no path to them (review 4). The class predates it (#8214); follow-up card #8318.
 - The task's history records a replacing mark as a plain built mark; only the notice and `task show` say a file was replaced.
-- An unnamed agent's mark without a file withdraws the file too (the #6330 drop rule for unnamed marks), and so tells its checkers. The same mark again changes nothing, so a looping unnamed mark sends one notice, not many (review 4).
+- An unnamed agent's mark without a file withdraws the file too (the #6330 drop rule for unnamed marks). Since review 7 that is said to the marker alone, and the same mark again changes nothing, so a looping unnamed mark tells nobody else (reviews 4 and 9).
 
 ## Not done
 
