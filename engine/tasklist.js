@@ -426,7 +426,7 @@ function reachesAutomount(p, mounts, fsx = require('node:fs')) {
  * `p` is a drive path (task files only calls it for one whose own letter is local). Measured on Windows 11 with node
  * 24: lstat reports a symlink, and a junction to a drive path, as a link. A junction to anything else fails lstat
  * instead: a volume mount point (a folder mounted from another local disk) with EISDIR, so it is refused below as a
- * place Kosmos could not look at; a junction to \??\UNC\ or \??\GLOBALROOT\Device\Mup\ with ENOENT, and Windows will
+ * mounted volume (decided: its kind cannot be checked by letter); a junction to \??\UNC\ or \??\GLOBALROOT\Device\Mup\ with ENOENT, and Windows will
  * not traverse those either, so compare() reports MISSING. readlink strips the NT prefix only from a
  * drive target (\??\C:\x -> C:\x) or a UNC one (\??\UNC\h\s -> \\h\s); every other device target comes back raw,
  * e.g. \??\GLOBALROOT\Device\Mup\host\share (a network share by another name) or \??\Global\Z:\ (a mapped letter).
@@ -474,6 +474,7 @@ function reachesNetworkWin(p, driveInfo, fsx = require('node:fs')) {
       try { st = fsx.lstatSync(next); } catch (e) {
         // Not there: compare() opens this same path (see above) and reports it missing. Anything else: see above.
         if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return null;
+        if (e && e.code === 'EISDIR') return unfollowed('a mounted volume or device path');   // a volume mount point, see above
         return through('a folder or link Kosmos could not look at');
       }
       if (!st.isSymbolicLink()) { cur = next; continue; }
@@ -497,6 +498,7 @@ function reachesNetworkWin(p, driveInfo, fsx = require('node:fs')) {
       } else if (/^[\\/]/.test(to)) return unfollowed('a target with no drive');   // \x: see above
       else base = win.join(cur, to);   // relative to the folder the link is in
       full = win.normalize(win.join(base, ...names.slice(i + 1)));
+      // Defensive: base is always drive-rooted here, so this should not happen; if it ever does, it is not opened.
       if (!/^[A-Za-z]:[\\/]/.test(full)) return unfollowed('a target that leaves the drive');
       continue walk;
     }

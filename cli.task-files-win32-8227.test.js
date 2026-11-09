@@ -43,6 +43,9 @@ test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 const LOCAL = { kind: 'local', share: null };
 const REMOTE = { kind: 'remote', share: '\\\\srv\\share' };
 const ABSENT = { kind: 'absent', share: null };
+/* kosmos#8232: filesLines on win32 walks each path's links with lstat; this filesystem has only plain folders, so the
+   simulated arms below never look at the host's own C: or D:. */
+const NO_LINKS = { lstatSync: () => ({ isSymbolicLink: () => false }), readlinkSync: () => { throw new Error('no links here'); } };
 const kinds = (byLetter) => (letter) => (Object.prototype.hasOwnProperty.call(byLetter, letter.toUpperCase()) ? byLetter[letter.toUpperCase()] : null);
 
 /* The Windows CLI, in-process, against a scripted board: every request is recorded; a mark is answered as changed,
@@ -117,7 +120,7 @@ test('#8227 item 1: task files on Windows never opens a network or missing drive
   const asked = [];
   const info = (letter) => { asked.push(letter); return kinds({ C: LOCAL, Z: REMOTE, Q: ABSENT, D: LOCAL })(letter); };
   const body = { listState: 'built', tasks: [row(1, 'C:\\a.txt'), row(2, 'Z:\\share\\b.txt'), row(3, 'q:\\c.txt'), row(4, 'D:\\d.txt'), row(5, '\\\\srv\\share\\e.txt')] };
-  const got = tasklist.filesLines(body, { project: 'p', platform: 'win32', compare, driveInfo: info });
+  const got = tasklist.filesLines(body, { project: 'p', platform: 'win32', compare, driveInfo: info, fs: NO_LINKS });
   assert.deepEqual(got.lines.slice(0, 10), [
     '#1  Task 1', '    matches  C:\\a.txt',
     '#2  Task 2', '    NOT CHECKED Z:\\share\\b.txt: a network drive, so Kosmos does not open it',
@@ -130,7 +133,7 @@ test('#8227 item 1: task files on Windows never opens a network or missing drive
   // Kinds that could not be learned, or a reader that throws: nothing is opened, the reason in full once, then named.
   for (const blindInfo of [() => null, () => { throw new Error('reader broke'); }]) {
     opened.length = 0;
-    const blind = tasklist.filesLines({ listState: 'built', tasks: [row(1, 'C:\\a.txt'), row(2, 'D:\\b.txt')] }, { project: 'p', platform: 'win32', compare, driveInfo: blindInfo });
+    const blind = tasklist.filesLines({ listState: 'built', tasks: [row(1, 'C:\\a.txt'), row(2, 'D:\\b.txt')] }, { project: 'p', platform: 'win32', compare, driveInfo: blindInfo, fs: NO_LINKS });
     assert.deepEqual(blind.lines.filter((l) => l.startsWith('    ')), [
       '    NOT CHECKED C:\\a.txt: Kosmos could not read what kind of drive each letter is on this computer, so it opens no path',
       '    NOT CHECKED D:\\b.txt: the drive types again (above)'], blind.lines.join('\n'));
@@ -149,10 +152,10 @@ test('#8227 item 1: with no seam, task files asks engine/windrives.js (the #7232
   const compare = () => ({ ok: true, match: true });
   try {
     windrives.setTableForTests({ C: LOCAL, Z: REMOTE });
-    const got = tasklist.filesLines({ listState: 'built', tasks: [row(1, 'C:\\a.txt'), row(2, 'Z:\\b.txt')] }, { project: 'p', platform: 'win32', compare });
+    const got = tasklist.filesLines({ listState: 'built', tasks: [row(1, 'C:\\a.txt'), row(2, 'Z:\\b.txt')] }, { project: 'p', platform: 'win32', compare, fs: NO_LINKS });
     assert.deepEqual(got.lines.filter((l) => l.startsWith('    ')), ['    matches  C:\\a.txt', '    NOT CHECKED Z:\\b.txt: a network drive, so Kosmos does not open it'], got.lines.join('\n'));
     windrives.setTableForTests(false);   // a table that could not be learned
-    const blind = tasklist.filesLines({ listState: 'built', tasks: [row(1, 'C:\\a.txt')] }, { project: 'p', platform: 'win32', compare });
+    const blind = tasklist.filesLines({ listState: 'built', tasks: [row(1, 'C:\\a.txt')] }, { project: 'p', platform: 'win32', compare, fs: NO_LINKS });
     assert.match(blind.lines[1], /could not read what kind of drive each letter is/, blind.lines.join('\n'));
   } finally {
     windrives.setTableForTests(null);

@@ -30,7 +30,7 @@ letter.
   is not opened, link or not: measured, a junction whose own ACL denies reading it fails lstat with EPERM while a read
   through it still succeeds (traverse checking is bypassed), so an unreadable name might be a link.
 - A junction whose target is not a drive path fails lstat (node cannot read it): a volume mount point (a folder
-  mounted from another local disk) with EISDIR, so it is refused as a place Kosmos could not look at (conservative;
+  mounted from another local disk) with EISDIR, so it is refused in the same words as a volume target, "a mounted volume or device path" (conservative;
   decided); a junction to `\??\UNC\` or `\??\GLOBALROOT\Device\Mup\` with ENOENT, which Windows will not traverse
   either, so compare reports MISSING.
 - The walk and the open are separate steps; a link swapped between them needs write access to the path's own
@@ -43,7 +43,9 @@ marker's own computer, which is not a marker-chosen open, so it is unchanged.
 ## Tests
 `cli.task-files-win32-8232.test.js`: the rules on any host against a scripted filesystem (every lstat recorded,
 so "nothing past the link was looked up" is asserted), and real junction/symlink arms on Windows (a symlink needs
-Developer Mode or an elevated runner; it skips with a reason otherwise).
+Developer Mode or an elevated runner; it skips with a reason otherwise). The simulated-win32 filesLines arms in
+`cli.task-files-win32-8227.test.js` and `cli.task-files-8214.test.js` now pass a plain-folders `fs`, so the walk never
+looks at the host's own C: or D: (a not-ready drive would otherwise change their verdicts).
 
 ## Measured by hand (Windows 11 box, 11-09)
 WebDAV rig (`net use X: http://localtest.me:8766/`, server logs each request): links on C: to `X:\` and to

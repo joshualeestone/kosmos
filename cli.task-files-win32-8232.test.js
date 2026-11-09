@@ -113,6 +113,9 @@ test('#8232: any other lookup error is not opened, link or not (the walk cannot 
     assert.match(walk('C:\\work\\j\\f.txt', scripted({}, [], { 'C:\\work\\j': e })) || '', /a folder or link Kosmos could not look at/, code + ', no link before it');
     assert.match(walk('C:\\work\\junc\\f.txt', scripted({ 'C:\\work\\junc': 'C:\\real' }, [], { 'C:\\real\\f.txt': e })) || '', /could not look at/, code + ', after a link');
   }
+  // A volume mount point fails lstat with EISDIR (measured): refused, in the volume words rather than "could not look at".
+  const mounted = new Error('EISDIR'); mounted.code = 'EISDIR';
+  assert.match(walk('C:\\Data\\f.txt', scripted({}, [], { 'C:\\Data': mounted })) || '', /could not follow \(a mounted volume or device path\)/);
   const notDir = new Error('ENOTDIR'); notDir.code = 'ENOTDIR';
   assert.equal(walk('C:\\work\\file.txt\\x', scripted({}, [], { 'C:\\work\\file.txt\\x': notDir })), null, 'CONTROL: ENOTDIR is not there, as ENOENT is');
 });
