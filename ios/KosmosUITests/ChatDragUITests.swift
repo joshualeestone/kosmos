@@ -15,6 +15,7 @@ final class ChatDragUITests: XCTestCase {
         app.launchEnvironment["KOSMOS_SAMPLE_LONG"] = "1"
         UIKitListArm.set(app)   // kosmos#8221: the list under test
         app.launch()
+        UIKitListArm.assertDrawn(app)   // kosmos#8221 slice 10: on the UIKit arm, the UIKit list drew this chat
         return app
     }
 
