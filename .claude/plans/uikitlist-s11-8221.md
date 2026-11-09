@@ -54,6 +54,14 @@ The stepped scroll asks for 450 pt and moved 371 with no pin; where the other 79
 - A fixed window with no extension: a scroll longer than it would have the list hold the reader's place on each move,
   freezing it.
 
+## Interruptions (review iteration 3)
+
+- A jump to the newest (a send, New messages) while the window is open stops the scroll in place and closes the window, as
+  a running fling is stopped, so the scroll's later moves cannot read the reader off the newest again. Not covered by a
+  check (reasoned from the code).
+- A second ask while a window is open adds nothing (the window covers it); an ask's let-go timer never fires inside an open
+  window; a lapse clears the ask.
+
 ## Deferred from review
 
 - A row landing while such a scroll runs, with the reader still at the newest, is not followed until the moves stop (at most
