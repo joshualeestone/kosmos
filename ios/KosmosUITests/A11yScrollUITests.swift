@@ -32,10 +32,11 @@ final class A11yScrollUITests: XCTestCase {
         XCTAssertEqual(words.last, "true", "CONTROL: the scroll did not start at the newest message: \(label)")
         print("UI-NOTE kosmos#8221 slice 11 \(mode)\(fixOff ? ", fix off" : ""): \(label)")
         guard let pins = after("pins").flatMap(Int.init), let moved = after("moved").flatMap(Int.init),
-              let atEnd = after("end"), let window = after("window"), let dragged = after("dragged") else {
+              let at = words.firstIndex(of: "at"), at + 2 < words.count, words[at + 1] == "end",
+              let window = after("window"), let dragged = after("dragged") else {
             throw NSError(domain: "A11yScrollUITests", code: 1, userInfo: [NSLocalizedDescriptionKey: "unreadable report: \(label)"])
         }
-        return Report(pins: pins, atEnd: atEnd == "true", moved: moved, window: window == "true", dragged: dragged == "true", label: label)
+        return Report(pins: pins, atEnd: words[at + 2] == "true", moved: moved, window: window == "true", dragged: dragged == "true", label: label)
     }
 
     // The controls: before this slice the list pinned itself back during such a scroll. If a control reads 0 pins, the check
