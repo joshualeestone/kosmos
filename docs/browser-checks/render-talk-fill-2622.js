@@ -215,6 +215,18 @@ async function measure(page) {
     });
     chk(scrolled.dleftTop >= scrolled.backBottom,
       'A1k the identity column scroll box starts below the back link', JSON.stringify(scrolled));
+    // A1l (kosmos#8303): the state most wide windows show, an agent opened from the board: no link, and the box still fills.
+    const noLink = await page.evaluate(() => {
+      const was = DETAIL_FROM_PROJECT;
+      DETAIL_FROM_PROJECT = null; detailBackPaint(); paintMyAgents();
+      const b = document.getElementById('d-talk-box').getBoundingClientRect();
+      const d = document.querySelector('#panel-detail .dleft').getBoundingClientRect();
+      const out = { back: getComputedStyle(document.getElementById('detail-back')).display, boxBottom: Math.round(b.bottom), innerHeight: window.innerHeight, docScrollH: document.scrollingElement.scrollHeight, dleftTop: Math.round(d.top), boxTop: Math.round(b.top), headBottom: Math.round(document.querySelector('.apphead').getBoundingClientRect().bottom) };
+      DETAIL_FROM_PROJECT = was; detailBackPaint(); paintMyAgents();
+      return out;
+    });
+    chk(noLink.back === 'none' && Math.abs(noLink.boxBottom - noLink.innerHeight) <= 1 && noLink.docScrollH <= noLink.innerHeight + 1 && noLink.dleftTop >= noLink.headBottom && noLink.boxTop >= noLink.headBottom,
+      'A1l with no link the box still fills to the bottom and nothing sits under the header', JSON.stringify(noLink));
     // A1f: a TALLER header (a wrapped update notice, other fonts) must shrink the box, not push it
     // past the bottom. Control: a fixed-offset height would leave boxTop at the header but boxBottom
     // past innerHeight by the added 60px, and the page would scroll.

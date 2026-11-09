@@ -164,13 +164,16 @@ const read = () => {
         LAST[1].running = true; LAST[1].state = 'needs_you'; LAST[1].context = { percent: 10 };
         paintMyAgents();
         const row = document.querySelector('#my-agents-list .lrow[data-agent="mark"]');
-        const shown = (sel) => { const el = row.querySelector(sel); return el ? getComputedStyle(el).display !== 'none' : null; };
-        const out = { pres: shown('.lpres'), warn: shown('.lwarn'), ring: shown('.lring') };
+        const lav = row.querySelector('.lav').getBoundingClientRect();
+        const place = (sel) => { const el = row.querySelector(sel); if (!el || getComputedStyle(el).display === 'none') return null; const r = el.getBoundingClientRect(); return { l: Math.round(r.left - lav.left), t: Math.round(r.top - lav.top), r: Math.round(lav.right - r.right), b: Math.round(lav.bottom - r.bottom), w: Math.round(r.width) }; };
+        const out = { pres: place('.lpres'), warn: place('.lwarn'), lavW: Math.round(lav.width), lavH: Math.round(lav.height), rowH: Math.round(row.getBoundingClientRect().height) };
         LAST[1].running = false; LAST[1].state = 'stopped'; LAST[1].context = null;
         paintMyAgents();
         return out;
       });
-      ok(t + ' the presence dot and warning mark show on the avatar', marks.pres === true && marks.warn === true, JSON.stringify(marks));
+      ok(t + ' the presence dot sits on the avatar\'s corner, not its face', marks.pres && marks.pres.w <= 16 && marks.pres.r <= 2 && marks.pres.b <= 2 && marks.pres.l >= 20, JSON.stringify(marks));
+      ok(t + ' the warning mark is on the avatar, centred', marks.warn && marks.warn.w === 18 && Math.abs(marks.warn.l - marks.warn.r) <= 2 && marks.warn.t >= 0 && marks.warn.b >= 0, JSON.stringify(marks));
+      ok(t + ' the marks do not push the avatar or the row out of shape', marks.lavW === 34 && marks.lavH === 34 && marks.rowH <= 70, JSON.stringify(marks));
 
       const typing = await page.evaluate(() => {
         const name = document.querySelector('#my-agents-list .lrow[data-agent="dario"] .namego');
@@ -197,6 +200,29 @@ const read = () => {
         return out;
       });
       ok(t + ' moving between agents keeps the way back to the project', switched.open === 'dario' && switched.from === 'k' && switched.toAll === false, JSON.stringify(switched));
+
+      const answerable = await page.evaluate(() => {
+        // A row with a question goes by the answer route: it too must not reopen the open agent, and must keep the project.
+        const calls = [];
+        const realOpen = openDetail; const realAns = pjAnswerFrom;
+        pjAnswerFrom = (s) => { calls.push('answer:' + s); DETAIL_FROM_PROJECT = null; };
+        openDetail = (s) => calls.push('open:' + s);
+        DETAIL_FROM_PROJECT = 'k';
+        const list = document.getElementById('my-agents-list');
+        const cur = list.querySelector('.lrow.current'); cur.dataset.answer = cur.dataset.agent;
+        cur.click();
+        const onCurrent = calls.slice();
+        delete cur.dataset.answer;
+        const other = list.querySelector('.lrow[data-agent="dario"]'); other.dataset.answer = 'dario';
+        other.click();
+        const after = DETAIL_FROM_PROJECT;
+        delete other.dataset.answer;
+        pjAnswerFrom = realAns; openDetail = realOpen;
+        DETAIL_FROM_PROJECT = null; detailBackPaint(); paintMyAgents();
+        return { onCurrent, calls, after };
+      });
+      ok(t + ' the open agent, asking a question, is not reopened', answerable.onCurrent.length === 0, JSON.stringify(answerable));
+      ok(t + ' answering another agent keeps the way back to the project', answerable.calls.join() === 'answer:dario' && answerable.after === 'k', JSON.stringify(answerable));
 
       const onlyGuide = await page.evaluate(([fn]) => {
         const keep = LAST;
