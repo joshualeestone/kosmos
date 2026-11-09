@@ -434,6 +434,7 @@ const SITE_COUNTS = {
   'render-msg-linespacing-1106.js': [1, 0],
   'render-msgdelete-7614.js': [1, 1],
   'render-muse-signin-3939.js': [2, 2],
+  'render-my-agents-8303.js': [1, 0],
   'render-needsyou-dealarm-2808.js': [2, 2],
   'render-newagent-paths-4556.js': [3, 2],
   'render-no-conflict-3729.js': [2, 1],
