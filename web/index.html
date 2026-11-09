@@ -71824,7 +71824,7 @@ function paintProjectTasks(p) {
     const subUnrun = sub && Number(sub.unrun) > 0 ? Number(sub.unrun) : 0;
     const subDone = sub ? sub.done - subUnrun : 0;
     const subBuilt = sub && Number(sub.built) > 0 ? ', ' + Number(sub.built) + ' built' : '';
-    const subHeld = sub ? (subUnrun ? ', ' + subUnrun + ' closed without running' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '') : '';
+    const subHeld = sub ? (subUnrun ? ', ' + subUnrun + ' closed not done' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '') : '';
     const subAllBuilt = !!sub && !subUnrun && !t.closedAt && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total;
     const subLabel = sub ? subDone + ' of ' + sub.total + ' subtasks done' + subBuilt + subHeld : '';
     /* The hidden words follow the count and come BEFORE the held figure, so a screen reader hears "0/4 subtasks done, 3 on
@@ -72238,7 +72238,7 @@ function tskRow(t, at) {
   /* kosmos#8301: built, and closed without running, are said apart from done. */
   const subUnrun = sub && Number(sub.unrun) > 0 ? Number(sub.unrun) : 0;
   const subDone = sub ? sub.done - subUnrun : 0;
-  const subHeld = sub ? (Number(sub.built) > 0 ? ', ' + Number(sub.built) + ' built' : '') + (subUnrun ? ', ' + subUnrun + ' closed without running' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '') : '';   // kosmos#8140: apart from not done
+  const subHeld = sub ? (Number(sub.built) > 0 ? ', ' + Number(sub.built) + ' built' : '') + (subUnrun ? ', ' + subUnrun + ' closed not done' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '') : '';   // kosmos#8140: apart from not done
   const chipLabel = sub ? subDone + ' of ' + sub.total + ' subtasks done' + subHeld : '';
   const chip = !sub ? ''
     : place.kids
@@ -72970,6 +72970,7 @@ function tkStateWord(t) {
   const g = t.progress;
   const closed = g ? g.closed : t.closedAt;
   if (closed && Number.isInteger(t.replacedBy)) return 'Replaced by task ' + t.replacedBy;   // #6923: before the parts count
+  if (closed && t.closedUnrun === true) return 'Closed, not run';   // kosmos#8301
   if (g && g.total > 1) return g.done + ' of ' + g.total + ' parts done';
   return closed ? 'Done' : 'Open';
 }
@@ -73306,7 +73307,9 @@ function tkActPhrase(ev, p) {
         ? 'Kosmos tried to send ' + subject + ' to ' + to + ' ' + when + ', but could not confirm ' + to + ' got it'
         : Subject + ' to ' + to + kept + 'was sent ' + when; }
     case 'closed': return Number.isInteger(ev.replacedBy) ? 'Closed as replaced by task ' + ev.replacedBy
+      : ev.notRun === true ? 'Closed without running'   // kosmos#8301
       : ev.via === 'parent' && Number.isInteger(ev.parent) ? 'Marked done with task ' + ev.parent : 'Marked done';   // #6923; kosmos#7514
+    case 'not-run': return 'Marked as not run';   // kosmos#8301: closed earlier, marked later
     case 'replaced': return Number.isInteger(ev.replacedBy) ? 'Marked as replaced by task ' + ev.replacedBy : 'Marked as replaced';   // #6923: closed earlier, replaced later
     case 'undone': return ev.files === 1 ? 'One file’s changes undone' : 'File changes undone (' + (Number(ev.files) || 0) + ' files)';   // #5153 slice 4
     case 'reopened': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' put it back' : 'Put back') + (ev.why ? ': ' + ev.why : ''); }   // #6157

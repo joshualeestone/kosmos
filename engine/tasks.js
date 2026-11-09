@@ -1212,6 +1212,7 @@ function reopen(projectId, n, { by = null, person = false, why = '' } = {}) {
 function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyIfBuilt = false, notRun = false } = {}) {
   let changed;
   let replacedNew = false;   // #6923: an already-closed task newly marked replaced records that too
+  let notRunNew = false;
   // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
   let transition = 0;
   let heldDropped = false;
@@ -1247,8 +1248,10 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     } else if (closedAt === null) {
       delete changed.replacedBy;   // a reopen clears the link; a plain close leaves one that is there
     }
+    if (notRun && t.closedAt) changed.closedAt = t.closedAt;   // kosmos#8301: as for replaced, marking a closed task keeps when it finished
     const after = progressOf(changed).closed;
     if (before !== after) transition = after ? 1 : -1;
+    notRunNew = notRun && after && t.closedUnrun !== true;   // kosmos#8301: an already-closed task newly marked records that too
     /* kosmos#8301: closed without running, only when the closer says so (--not-run) or it was replaced. Never inferred from
        what is missing: a parent whose children did the work, or a person's own plain close, has no sign of work either. */
     if (after && (notRun || replacedNew)) changed.closedUnrun = true;
@@ -1268,8 +1271,9 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
   if (skipped) return null;
   // kosmos#7514: a subtask closed with its parent says so (via, and which parent), as hold-cleared says via.
   const closedBy = said.via === 'parent' && Number.isInteger(said.parent) ? { via: 'parent', parent: said.parent } : {};
-  if (transition) taskchat.record(projectId, changed.number, transition > 0 ? { kind: 'closed', ...(replacedBy !== null ? { replacedBy } : {}), ...closedBy } : { kind: 'reopened', ...said });   // #6157, #6923
+  if (transition) taskchat.record(projectId, changed.number, transition > 0 ? { kind: 'closed', ...(replacedBy !== null ? { replacedBy } : {}), ...(notRun ? { notRun: true } : {}), ...closedBy } : { kind: 'reopened', ...said });   // #6157, #6923
   else if (replacedNew) taskchat.record(projectId, changed.number, { kind: 'replaced', replacedBy });   // #6923: closed earlier, replaced now
+  else if (notRunNew) taskchat.record(projectId, changed.number, { kind: 'not-run' });   // kosmos#8301: closed earlier, marked as never run now
   if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
   if (repeatDropped) taskchat.record(projectId, changed.number, { kind: 'repeat-cleared', via: 'close' });
   return changed;

@@ -1324,7 +1324,7 @@ async function taskList(ctx, args) {
       /* #5678, as install/kosmos: nobody on it directly, but an open task in its tree is somebody's: theirs. */
       : (Array.isArray(x.ownerNames) && x.ownerNames.length ? ' (owner: ' + x.ownerNames.map((n) => String(n).replace(/\s+/g, ' ').trim()).join(', ') + ', through task ' + x.ownerFrom + ')' : '');
     const up = x.parent ? ' (under task ' + x.parent + ')' : '';
-    const kids = (x.subtasks && x.subtasks.total) ? ' [' + (x.subtasks.done - (Number(x.subtasks.unrun) || 0)) + '/' + x.subtasks.total + ' subtasks done' + (Number(x.subtasks.built) > 0 ? ', ' + Number(x.subtasks.built) + ' built' : '') + (Number(x.subtasks.unrun) > 0 ? ', ' + Number(x.subtasks.unrun) + ' closed without running' : '') + (Number(x.subtasks.held) > 0 ? ', ' + Number(x.subtasks.held) + ' on hold' : '') + ']' : '';   // kosmos#8140
+    const kids = (x.subtasks && x.subtasks.total) ? ' [' + (x.subtasks.done - (Number(x.subtasks.unrun) || 0)) + '/' + x.subtasks.total + ' subtasks done' + (Number(x.subtasks.built) > 0 ? ', ' + Number(x.subtasks.built) + ' built' : '') + (Number(x.subtasks.unrun) > 0 ? ', ' + Number(x.subtasks.unrun) + ' closed not done' : '') + (Number(x.subtasks.held) > 0 ? ', ' + Number(x.subtasks.held) + ' on hold' : '') + ']' : '';   // kosmos#8140
     /* #1307: every task on ONE line (a newline in its words would print a line of its own), and a
        webhook task marked with its words QUOTED (double quotes inside become single): they came
        from outside, and the agent reading this runs with its permissions skipped. The wording
@@ -1351,7 +1351,7 @@ async function taskList(ctx, args) {
     /* Review 5: on its OWN indented line under the task, never on the task's line: a task's sentence is folded onto
        one line, so it can never print this line, and so cannot forge a set-by mark (a check's brackets are folded too). */
     const dw = Array.isArray(x.doneWhen) && x.doneWhen.length ? '    done when' + setBy + ': ' + x.doneWhen.map((c, i) => (i + 1) + ') ' + fold(c)).join(' ') : '';
-    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? (Number.isInteger(x.replacedBy) ? '[replaced by ' + x.replacedBy + '] ' : '[done] ') :   /* #6923 */ (x.onHold === true ? '[on hold' + holdUntilWords(x) + '] ' + (x.builtAt ? '[built] ' : '')   // #5864: the marks name the group first
+    ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? (Number.isInteger(x.replacedBy) ? '[replaced by ' + x.replacedBy + '] ' : x.closedUnrun === true ? '[not run] ' : '[done] ') :   /* #6923 */ (x.onHold === true ? '[on hold' + holdUntilWords(x) + '] ' + (x.builtAt ? '[built] ' : '')   // #5864: the marks name the group first
       : x.builtAt ? '[built] ' + (x.projectPaused === true ? '[project paused] ' : '')
         : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep);
     if (dw) ctx.out(dw);

@@ -191,6 +191,23 @@ test('Mac `task list` shows the parent and the subtask count', async () => {
   assert.match(r.out, /\[\d+\/\d+ subtasks done\]/);
 });
 
+/* kosmos#8301: both `task list`s count built and closed not done apart from done, and name the child that never ran. */
+test('kosmos#8301: Mac and Windows `task list` say built and closed not done, and mark the child', async () => {
+  const pid = projects.create({ name: 'Unrun ' + Math.random().toString(36).slice(2) }).id;
+  const parent = tasks.create(pid, { sentence: 'Launch' }).number;
+  const [built, done, never] = ['Copy', 'Art', 'Survey'].map((s) => tasks.create(pid, { sentence: s, parent }).number);
+  tasks.create(pid, { sentence: 'Open piece', parent });
+  tasks.setBuilt(pid, built, { by: 'rex' });
+  tasks.close(pid, done);
+  tasks.close(pid, never, { notRun: true });
+  for (const [name, run] of [['Mac', mac], ['Windows', win]]) {
+    const r = await run(['task', 'list', pid, '--all']);
+    assert.equal(r.code, 0, name + ': ' + r.out);
+    assert.match(r.out, /\[1\/4 subtasks done, 1 built, 1 closed not done\]/, name + ': ' + r.out);
+    assert.match(r.out, new RegExp('\\[' + never + '\\] \\[not run\\]'), name + ': ' + r.out);
+    assert.match(r.out, new RegExp('\\[' + done + '\\] \\[done\\]'), name + ' CONTROL: a plain close stays done: ' + r.out);
+  }
+});
 /* kosmos#8140: both `task list`s say a parent's held subtasks apart from the ones not done. */
 test('kosmos#8140: Mac and Windows `task list` say how many subtasks are on hold', async () => {
   const pid = projects.create({ name: 'Held ' + Math.random().toString(36).slice(2) }).id;

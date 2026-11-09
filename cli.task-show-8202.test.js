@@ -132,6 +132,22 @@ test('#8202 Windows: a webhook task is quoted, and a done task says so', async (
   assert.match(d.out, /^Subtasks: 0 of 1 done, 1 built$/m);
 });
 
+/* kosmos#8301: a task closed as never run says so, and its parent counts it apart from done. */
+test('kosmos#8301: task show says closed, not run, and the parent counts closed not done', async () => {
+  const top = tasks.create(projectId, { sentence: 'Parent of a never-run piece' }).number;
+  const never = tasks.create(projectId, { sentence: 'Never ran', parent: top }).number;
+  const plain = tasks.create(projectId, { sentence: 'Finished', parent: top }).number;
+  tasks.close(projectId, never, { notRun: true });
+  tasks.close(projectId, plain);
+  for (const [name, run] of [['Windows', win], ['Mac', mac]]) {
+    const child = await run(['task', 'show', projectId, String(never)]);
+    assert.equal(child.code, 0, name + ': ' + child.err);
+    assert.match(child.out, /^State: closed, not run$/m, name + ': ' + child.out);
+    assert.match((await run(['task', 'show', projectId, String(plain)])).out, /^State: done$/m, name + ' CONTROL: a plain close stays done');
+    assert.match((await run(['task', 'show', projectId, String(top)])).out, /^Subtasks: 1 of 2 done, 1 closed not done$/m, name);
+  }
+});
+
 test('#8202 Windows (review 1): no field carries a control or format character, and a webhook parent is quoted on Under', async () => {
   // Control characters in the title, an agent's name, a repo, and a webhook's own words.
   const dirty = tasks.create(projectId, { sentence: 'Tidy\u001b[2J the ‮docs', detail: 'line one\nline\u001b]0;x\u0007 two', made: { via: 'webhook', by: 'fo\u001brm' } }).number;

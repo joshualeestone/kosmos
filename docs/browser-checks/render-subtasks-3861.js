@@ -366,6 +366,38 @@ function chk(ok, label, extra) {
       chk(parentRefused === 'Task #1 was not closed: the person set this task to repeat. Its built subtasks are closed.', `${tag} #6928 after a tab switch, a refused parent is said as a toast`, parentRefused);
       chk(!read3(1).closedAt && !!read3(2).closedAt && !!read3(3).closedAt, `${tag} #6928 its built subtasks closed, the parent did not`, JSON.stringify([1, 2, 3].map((n) => !!read3(n).closedAt)));
       await page.unroute('**/task/1/close');
+
+      /* kosmos#8301: built, done and closed not done are said apart, on the chip and on the task page. */
+      const roll4 = projects.create({ name: 'Separate counts ' + width });
+      projects.addAgent(roll4.id, 'ada', null);
+      tasks.create(roll4.id, { sentence: 'Run the survey' });
+      for (const s of ['Built piece', 'Finished piece', 'Never ran', 'Still open']) tasks.create(roll4.id, { sentence: s, parent: 1, who: 'ada' });
+      tasks.setBuilt(roll4.id, 2, { by: 'ada' });
+      tasks.close(roll4.id, 3);
+      tasks.close(roll4.id, 4, { notRun: true });
+      const openCount = async (n) => {
+        await page.evaluate(async ([id, num]) => { await loadProjects(); showTab('projects'); openProject(id); openTaskPage(num); }, [roll4.id, n]);
+        await page.waitForFunction((num) => TK_OPEN === num, n, { timeout: 8000 });
+      };
+      await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, roll4.id);
+      await page.waitForFunction(() => [...document.querySelectorAll('.tsk-chip')].some((c) => /1 built/.test(c.title)), null, { timeout: 8000 });
+      const chip4 = await page.evaluate(() => [...document.querySelectorAll('.tsk-chip')].find((c) => /1 built/.test(c.title)).title);
+      chk(chip4 === '1 of 4 subtasks done, 1 built, 1 closed not done', `${tag} #8301 the chip says the three apart`, chip4);
+      await openCount(1);
+      await page.waitForFunction(() => document.querySelectorAll('.tksub-s').length === 4, null, { timeout: 8000 });
+      const words4 = await page.evaluate(() => [...document.querySelectorAll('.tksub-s')].map((e) => e.textContent));
+      chk(JSON.stringify(words4.slice().sort()) === JSON.stringify(['Built', 'Done', 'Not run', 'Open']), `${tag} #8301 each subtask row says its own state`, JSON.stringify(words4));
+      tasks.close(roll4.id, 2);
+      tasks.close(roll4.id, 5);
+      await openCount(1);
+      await page.waitForFunction(() => !document.getElementById('tk-subs-done').hidden, null, { timeout: 8000 });
+      const allSaid = await page.evaluate(() => document.getElementById('tk-subs-done-say').textContent);
+      chk(allSaid === 'All subtasks closed.', `${tag} #8301 with one never run, the page does not say all done`, allSaid);
+      await openCount(4);
+      await page.waitForFunction(() => /Closed, not run/.test(document.body.innerText), null, { timeout: 8000 }).catch(() => {});
+      const pageSays = await page.evaluate(() => /Closed, not run/.test(document.body.innerText));
+      chk(pageSays === true, `${tag} #8301 the task's own page says it was not run`);
+
       chk(errs.length === 0, `${tag} no page errors`, errs.join(' | '));
       await page.close();
     }

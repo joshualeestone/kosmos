@@ -25976,6 +25976,9 @@ const server = http.createServer(async (req, res) => {
           if (body.notRun !== undefined && typeof body.notRun !== 'boolean') {
             sendJson(res, 400, { error: 'notRun has to be true or false, so the task was not closed' }); return;
           }
+          if (body.notRun === true && (body.withBuilt === true || (body.replacedBy !== undefined && body.replacedBy !== null))) {   // kosmos#8301: as the CLIs refuse it
+            sendJson(res, 400, { error: 'a task closed as not run does not take a replacement or its built subtasks, so the task was not closed' }); return;
+          }
           if (body.withBuilt === true && body.replacedBy !== undefined && body.replacedBy !== null) {
             sendJson(res, 400, { error: 'a task closed as replaced does not take its built subtasks: close them on their own, so the task was not closed' }); return;
           }
