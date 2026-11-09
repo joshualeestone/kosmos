@@ -88,9 +88,35 @@ test('oneStepIn: the age of the step itself is checked too, not only the file ti
   assert.equal(onestep.oneStepIn(file, { now }), null);
 });
 
-test('oneStepIn: a file written within SHOW_MS is not read at all (the stat gate)', () => {
-  const file = transcript([use('a', 'Bash', T0)], T0 + onestep.SHOW_MS);   // something was written a moment ago
-  assert.equal(onestep.oneStepIn(file, { now: T0 + onestep.SHOW_MS + 30000 }), null);
+test('review 1: rows written mid-call (api-request, queue-operation, metadata) do not hide the step', () => {
+  const mid = (t, at) => row({ type: t, timestamp: iso(at) });
+  const now = T0 + 20 * 60000;
+  const file = transcript([use('a', 'Bash', T0), mid('api-request', T0 + 60000), mid('queue-operation', now - 30000), mid('last-prompt', now - 10000)], now - 10000);
+  assert.deepEqual(onestep.oneStepIn(file, { now }), { tool: 'Bash', since: iso(T0) }, 'the file was written seconds ago and the step is still 20 minutes old');
+});
+
+test('review 1: a call older than the session start was left open by a killed session, and is not shown', () => {
+  const now = T0 + 200 * 3600e3;
+  const file = transcript([use('a', 'Bash', T0)], T0 + 1000);
+  assert.equal(onestep.oneStepIn(file, { now, notBefore: now - 3600e3 }), null);
+  assert.deepEqual(onestep.oneStepIn(file, { now, notBefore: T0 - 1000 }), { tool: 'Bash', since: iso(T0) }, 'CONTROL: a call inside the session shows');
+});
+
+test('review 1: sidechain rows are skipped; an MCP tool is named by its last part', () => {
+  const side = row({ type: 'assistant', isSidechain: true, timestamp: iso(T0), message: { content: [{ type: 'tool_use', id: 's', name: 'Bash', input: {} }] } });
+  assert.equal(onestep.openStep(side), null);
+  assert.equal(onestep.toolName('mcp__plugin_discord_discord__reply'), 'reply');
+  assert.equal(onestep.toolName('Bash'), 'Bash');
+  assert.equal(onestep.toolName(''), 'a tool');
+});
+
+test('review 1: an unchanged file is read once (the per-file cache), a changed one again', () => {
+  const now = T0 + 20 * 60000;
+  const file = transcript([use('a', 'Bash', T0)], T0 + 1000);
+  assert.ok(onestep.oneStepIn(file, { now }));
+  fs.writeFileSync(file, use('b', 'Read', T0 + 2000) + '\n');   // same name, new content and size
+  fs.utimesSync(file, (T0 + 3000) / 1000, (T0 + 3000) / 1000);
+  assert.deepEqual(onestep.oneStepIn(file, { now }), { tool: 'Read', since: iso(T0 + 2000) }, 'a changed file is read again');
 });
 
 test('oneStepIn: a closed step, a missing file, and nonsense answer null and never throw', () => {
@@ -101,22 +127,29 @@ test('oneStepIn: a closed step, a missing file, and nonsense answer null and nev
 });
 
 test('oneStepIn reads only the tail: an open call far above the last TAIL_BYTES is not seen', () => {
-  const pad = Array.from({ length: 2000 }, (_, i) => other(T0 + 10 + i));   // well over TAIL_BYTES of rows, all after the call
+  const pad = Array.from({ length: 9000 }, (_, i) => other(T0 + 10 + i));   // well over TAIL_BYTES of rows, all after the call
   const file = transcript([use('a', 'Bash', T0), ...pad], T0 + 5000);
   assert.ok(fs.statSync(file).size > onestep.TAIL_BYTES, 'the fixture is larger than the tail');
   assert.equal(onestep.oneStepIn(file, { now: T0 + 60 * 60000 }), null, 'a known residual: bounded read');
 });
 
-test('status.oneStepOf: Claude Code cards only, and never one already waiting on the person', () => {
+test('status.oneStepOf: a working, tied Claude Code card only; never another agent\'s transcript, a Windows pane or a killed session', () => {
   const file = transcript([use('a', 'Bash', T0)], T0 + 100);
   const now = T0 + 20 * 60000;
   const find = () => file;
+  const start = () => T0 - 60000;
   const claude = { name: 'leo', session: 'leo', runner: '', command: 'claude' };
-  assert.deepEqual(status.oneStepOf(claude, { state: 'working' }, now, find), { tool: 'Bash', since: iso(T0) });
-  assert.equal(status.oneStepOf({ ...claude, runner: 'codex', command: 'codex' }, { state: 'working' }, now, find), null, 'a Codex agent');
-  assert.equal(status.oneStepOf(claude, { state: status.STATE.NEEDS_YOU }, now, find), null, 'a permission prompt is the card\'s own sentence');
-  assert.equal(status.oneStepOf(claude, { state: 'working' }, now, () => null), null, 'no transcript found');
-  assert.equal(status.oneStepOf(claude, { state: 'working' }, now, () => { throw new Error('boom'); }), null, 'never throws');
+  const W = { state: 'working' };
+  assert.deepEqual(status.oneStepOf(claude, W, true, now, find, start), { tool: 'Bash', since: iso(T0) });
+  assert.equal(status.oneStepOf(claude, W, false, now, find, start), null, 'an untied pane: never read another agent\'s transcript');
+  assert.equal(status.oneStepOf({ ...claude, runner: 'codex', command: 'codex' }, W, true, now, find, start), null, 'a Codex agent');
+  for (const st of ['idle', status.STATE.NEEDS_YOU, status.STATE.STOPPED, 'rate_limited']) {
+    assert.equal(status.oneStepOf(claude, { state: st }, true, now, find, start), null, 'not on a ' + st + ' card');
+  }
+  assert.equal(status.oneStepOf(claude, W, true, now, find, () => T0 + 1000), null, 'a call from before this session started');
+  assert.deepEqual(status.oneStepOf(claude, W, true, now, find, () => null), { tool: 'Bash', since: iso(T0) }, 'an unknown session start keeps it');
+  assert.equal(status.oneStepOf(claude, W, true, now, () => null, start), null, 'no transcript found');
+  assert.equal(status.oneStepOf(claude, W, true, now, () => { throw new Error('boom'); }, start), null, 'never throws');
 });
 
 test('the page: the sentence names the step and its age, in #7368 words; never on the tile; after the Windows rule', () => {
@@ -133,4 +166,7 @@ test('the page: the sentence names the step and its age, in #7368 words; never o
   // The Windows sentence (#7368) names waiting messages too, so it is kept when both are present.
   const both = card(70, { deliveryStall: { since: new Date(Date.now() - 70 * MIN).toISOString(), count: 2, lastWhy: 'turn', step: 'running x' } });
   assert.match(stateReason(both), /2 messages are waiting behind it/);
+  // Review 1: and #7212's "no message has reached it" keeps priority too.
+  const stall = card(40, { deliveryStall: { since: new Date(Date.now() - 40 * MIN).toISOString(), count: 1, lastWhy: 'menu', words: 'its box held a menu' } });
+  assert.match(stateReason(stall), /^No message has reached Ada/);
 });
