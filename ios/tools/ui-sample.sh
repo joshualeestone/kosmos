@@ -67,7 +67,9 @@ if [ "$uikit" = 1 ]; then
   # carries no skip warning that is always there and a new skip still stands out. A renamed rebuild check is no longer
   # left out, skips itself, and the class count (7 of 6) turns the run red: check these names first.
   # kosmos#8221 slice 7: EarlierPagesUITests, earlier messages at the top of the UIKit list (2 checks, this arm only).
-  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2"
+  # kosmos#8221 slice 8: LongPressKeyboardUITests (7) and DeleteMessageUITests (3), long press to copy or delete on the UIKit
+  #   list; each chat launch asserts the UIKit list drew it (UIKitListArm.assertDrawn). This arm only (by hand on the lazy).
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done

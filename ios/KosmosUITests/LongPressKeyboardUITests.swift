@@ -14,7 +14,9 @@ final class LongPressKeyboardUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1"].merging(sample) { _, new in new }
         if env["KOSMOS_LP_CONTROL"] == "1" { app.launchEnvironment["KOSMOS_SAMPLE_NOPANEL"] = "1" }
+        UIKitListArm.set(app)   // kosmos#8221 slice 8: runs on either list (TEST_RUNNER_KOSMOS_UIKITLIST)
         app.launch()
+        if sample["KOSMOS_SAMPLE_OPEN"] != nil { UIKitListArm.assertDrawn(app) }   // a room is not drawn by ChatList
         return app
     }
 
