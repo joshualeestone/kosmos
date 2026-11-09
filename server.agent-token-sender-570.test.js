@@ -195,7 +195,7 @@ test('msg, post and react: never exempt for a network peer or with NO credential
      token (sendertoken.resolveName) and returns ONLY that agent's own open tasks across its projects, refusing a
      missing/unknown/ambiguous token and never reading a name from the request; measured in
      server.tasks-mine-6506.test.js. */
-  /* kosmos#7748 added GET /api/agents/list, a READ of each agent's name, role and card word and nothing else, measured in
+  /* kosmos#7748 added GET /api/agents/list, a READ of each agent's name, role, card word and any stuck-state times (kosmos#8288), never their content, measured in
      server.guide-hidden-3739.test.js and server.agent-token-gate-4491.test.js. */
   /* kosmos#7989 slice 2 added GET /api/project-file/who, a READ of one project file's record (existence, modification
      time, the agents last seen and owning it), nothing outside every project folder; measured in server.filewho-7989.test.js. */
