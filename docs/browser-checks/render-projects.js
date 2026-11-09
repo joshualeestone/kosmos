@@ -1359,7 +1359,6 @@ async function main() {
         const capShrank = step();
         box.style.maxHeight = ''; await frames();
         box.scrollTop = box.scrollHeight; await frames();
-        box.scrollTop = box.scrollHeight; await frames();
         /* A row growing with no row added or removed (a font or an image settling): only the row's own size says so. */
         const last = copies[copies.length - 1];
         last.style.paddingBottom = '120px'; await frames();

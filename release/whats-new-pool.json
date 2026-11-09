@@ -729,7 +729,7 @@
       "icon": "swarm",
       "rank": 4,
       "since": "0.7.55",
-      "status": "shown",
+      "status": "held",
       "shownIn": "0.7.63"
     },
     {

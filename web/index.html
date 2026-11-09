@@ -70022,7 +70022,6 @@ function pjNeedsNotice(roster, redHere) {
   return '<div class="pnotice pn-needs"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>' + head + '</b>' + counted + sub + extra + '</div></div>';
 }
 
-
 /** The whole notice: '' when every agent has the folder. */
 function pjNotice(roster, projectId) {
   const failing = (roster || []).filter((m) => m && m.told && m.told.state === 'could_not');
