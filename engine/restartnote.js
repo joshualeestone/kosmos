@@ -104,6 +104,9 @@ function atStart(deps = {}) {
   const startedBy = deps.startedBy;
   const prev = readJson(aliveFile());
   const note = noteFor({ now, uptimeSec, lastAliveAt: prev && prev.at, startedBy });
+  carried = cleanRunning(prev && prev.running);
+  carriedUntil = now + WINDOW_MS;
+  running = carried;   // the beat below must not drop the list before this run has read its own
   if (note) {
     // kosmos#8287: only what is known goes in, so a read that could not be made is absent from the sentence.
     const were = cleanRunning(prev && prev.running);
@@ -125,10 +128,21 @@ function atStart(deps = {}) {
 
 /* kosmos#8287: who the last roster read found up; null until one has succeeded, so the beat claims nothing before it. */
 let running = null;
-function noteRunning(roster) {
+let carried = null;       // who was running before this start, and until when it still counts
+let carriedUntil = 0;
+function noteRunning(roster, now = Date.now()) {
   if (!Array.isArray(roster)) return;   // a failed read says nothing, so the last good list stands
-  running = cleanRunning(runningOf(roster));
-  markReturned(running);
+  const up = cleanRunning(runningOf(roster));
+  markReturned(up);
+  /* Agents return over minutes, so a read just after a start is a partial list. A second restart in that time must
+     still ask about everyone, or "all 2 are back" could describe a fleet of 12. */
+  if (carried && now < carriedUntil) {
+    const have = new Set(up.map((a) => a.session));
+    running = [...up, ...carried.filter((a) => !have.has(a.session))];
+  } else {
+    carried = null;
+    running = up;
+  }
 }
 /* An agent seen up since the restart stays counted as back, so a person stopping it later that day is not reported. */
 function markReturned(up) {
@@ -198,4 +212,6 @@ function dismiss() {
   return writeJson(noteFile(), { ...n, dismissed: true });
 }
 
-module.exports = { noteFor, atStart, beat, startBeating, current, dismiss, noteRunning, runningOf, checksFor, publicNote, BEAT_MS, WINDOW_MS, SHOW_MS, _files: { aliveFile, noteFile } };
+function resetForTests() { running = null; carried = null; carriedUntil = 0; }
+
+module.exports = { resetForTests, noteFor, atStart, beat, startBeating, current, dismiss, noteRunning, runningOf, checksFor, publicNote, BEAT_MS, WINDOW_MS, SHOW_MS, _files: { aliveFile, noteFile } };
