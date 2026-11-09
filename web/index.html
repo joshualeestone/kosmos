@@ -11590,6 +11590,35 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    page steps aside while the conversation is open (Profile and AI Settings keep it, having no such row). The lead
    says where Back goes: detailBackPaint writes the project's name when the agent was opened from one. */
 .d-crumb-back, .d-crumb-rootwrap { display: none; }
+/* kosmos#8303: My Agents, fixed down the left of the agent page; the page moves over for it (body.has-myagents). */
+.myagents { position: fixed; left: 0; top: var(--myagents-top, 72px); bottom: 0; width: 268px; z-index: 5; display: flex; flex-direction: column;
+  background: var(--k-bg); border-right: 1px solid var(--k-rule); }
+.myagents[hidden] { display: none; }
+.myagents-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; flex: none; }
+.myagents-head .fold { flex: none; width: 28px; height: 28px; padding: 0; border: 1px solid var(--k-rule); border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer; font: inherit; line-height: 1; }
+.myagents-head .fold:hover { color: var(--k-ink); background: var(--attn-bg); }
+.myagents-head .railname { flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--k-ink-2); }
+.myagents-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 8px 12px; }
+.myagents-list .lrow { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 10px; align-items: center; padding: 8px; border: 0; border-radius: 12px; cursor: pointer; min-height: 0; }
+.myagents-list .lrow:hover { background: var(--attn-bg); }
+.myagents-list .lrow.current { background: var(--attn-bg); box-shadow: inset 0 0 0 1px var(--k-rule); }
+.myagents-list .lrow > .lav { grid-row: 1 / span 2; }
+.myagents-list .lrow > .lname { grid-column: 2; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.myagents-list .lrow > .lname b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 20px; }
+.myagents-list .lrow > .lname .astar { flex: none; margin: 0; }
+.myagents-list .lrow > .ltitle { grid-column: 2; font-size: 12px; color: var(--k-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.myagents-list .lrow > :not(.lav):not(.lname):not(.ltitle):not(.dmbadge):not(.navbadge) { display: none; }
+.myagents-list .lrow > .dmbadge, .myagents-list .lrow > .navbadge { position: absolute; top: 2px; right: 4px; }
+body.has-myagents #panel-detail { margin-left: 284px; }
+body.has-myagents.myagents-folded #panel-detail { margin-left: 72px; }
+.myagents-folded .myagents { width: 60px; }
+.myagents-folded .myagents-head { justify-content: center; }
+.myagents-folded .myagents-head .railname, .myagents-folded .myagents-head .plus { display: none; }
+.myagents-folded .myagents-list .lrow { grid-template-columns: 40px; padding: 8px 2px; justify-content: center; }
+.myagents-folded .myagents-list .lrow > .lname, .myagents-folded .myagents-list .lrow > .ltitle { display: none; }
+/* The list replaces the link back to All agents. An agent opened from a project keeps the link that names it. */
+body.has-myagents #panel-detail[data-to-all] > #detail-back,
+body.has-myagents #panel-detail[data-to-all] #d-talk-box :is(.d-crumb-back, .d-crumb-rootwrap) { display: none !important; }
 :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) > #detail-back { display: none; }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-back { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--k-rule); display: grid; place-items: center; flex: none; margin-right: 2px; }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-rootwrap { display: inline-flex; align-items: baseline; flex: 0 1 auto; min-width: 0; font-size: 1.375rem; line-height: 1.2; letter-spacing: -.02em; }
@@ -13360,6 +13389,15 @@ window.kosmosMeasureScrollbarWidth();
      top of Agents but below the content of Settings, Projects and an agent's page. -->
 <div class="conn" id="conn" role="status" aria-live="polite" hidden></div>
 <section class="detail" id="panel-detail" hidden>
+  <!-- kosmos#8303 (Josh, 11-09): every agent down the left of the agent page, starred first. Rows are the board's own lrow. -->
+  <aside class="myagents" id="my-agents" aria-label="My Agents" hidden>
+    <div class="myagents-head">
+      <button class="fold" type="button" id="my-agents-fold" aria-label="Fold My Agents" aria-expanded="true">&lsaquo;</button>
+      <span class="railname">My Agents</span>
+      <button class="fold plus" type="button" id="my-agents-new" aria-label="New agent" title="New agent">+</button>
+    </div>
+    <div class="myagents-list" id="my-agents-list"></div>
+  </aside>
   <button class="back" id="detail-back">&#8592; All agents</button>
   <!-- ⚠️ THE PACK'S AGENT PAGE (view B, pack-pass, scrappy): dhead carries
        who the agent IS (big gauge avatar, name beside its state, role,
@@ -27171,6 +27209,37 @@ function paintAgentListNow() {
     setAgentsGrouped(false);
   }
 }
+/* kosmos#8303: My Agents. Wide windows only: a narrow one has no room and keeps its link back to All agents. */
+const MY_AGENTS_MIN_WIDTH = 1100;
+let MY_AGENTS_HTML = null;
+function myAgentsFolded() { try { return localStorage.getItem('my-agents-fold') === '1'; } catch { return false; } }
+function paintMyAgents() {
+  const box = document.getElementById('my-agents');
+  if (!box) return;
+  const on = URL_TAB === 'detail' && window.innerWidth >= MY_AGENTS_MIN_WIDTH;
+  box.hidden = !on;
+  document.body.classList.toggle('has-myagents', on);
+  document.getElementById('panel-detail').toggleAttribute('data-to-all', !DETAIL_FROM_PROJECT);
+  const folded = on && myAgentsFolded();
+  document.body.classList.toggle('myagents-folded', folded);
+  const btn = document.getElementById('my-agents-fold');
+  btn.innerHTML = folded ? '&rsaquo;' : '&lsaquo;';
+  btn.setAttribute('aria-expanded', String(!folded));
+  btn.setAttribute('aria-label', (folded ? 'Open' : 'Fold') + ' My Agents');
+  if (!on) return;
+  const head = document.querySelector('.apphead');
+  if (head) box.style.setProperty('--myagents-top', Math.max(0, head.getBoundingClientRect().bottom) + 'px');
+  const list = document.getElementById('my-agents-list');
+  const shown = sortAgents((LAST || []).filter((a) => !(a && a.isGuide === true)), AGENT_SORT, PROJECTS, AGENT_STARS);
+  const html = shown.map(lrow).join('');
+  if (html !== MY_AGENTS_HTML) { MY_AGENTS_HTML = html; list.innerHTML = html; }   // a poll that changes nothing keeps its scroll and focus
+  const open = CURRENT && CURRENT.sessionName;
+  for (const row of list.querySelectorAll('.lrow')) {
+    const here = row.dataset.agent === open;
+    row.classList.toggle('current', here);
+    if (here) row.setAttribute('aria-current', 'page'); else row.removeAttribute('aria-current');
+  }
+}
 async function tick() {
   const checked = document.getElementById('checked');
   let answered = false;   // set when the server replied, even with a refusal (#268)
@@ -27609,6 +27678,7 @@ async function tick() {
        ONCE via pjMarkOpen rather than waiting for the next ~5s poll. In the consolidated view with a
        project open it sorts that project's agents to the TOP, then a rule, then the rest. */
     paintAgentList();
+    paintMyAgents();   // kosmos#8303
     /* ⚠️ THE THIRD VIEW REPAINTS ON THE SAME TICK, but through its own guard
        rather than an unconditional innerHTML write. The two above can be
        rewritten every five seconds because nothing in them holds focus that
@@ -28204,6 +28274,7 @@ function showTab(tab) {
   document.getElementById('rail-me').hidden = !cons;
   // #3948: the rail's project notice follows the layout now, not at the next poll.
   if (typeof paintRailPjNotice === 'function') paintRailPjNotice();
+  paintMyAgents();   // kosmos#8303
   if (cons) {
     paintRailMe();
   }
@@ -41616,6 +41687,7 @@ function repaintAgentOrder(follow) {
   keepStarFocus(() => {
     document.getElementById('grid').innerHTML = ordered.length ? ordered.map(card).join('') : boardEmpty();
     paintAgentListNow();
+    paintMyAgents();   // kosmos#8303
   }, follow);
 }
 async function loadStars() {
@@ -49556,7 +49628,7 @@ function setWritesOffered(a, tied) {
   }
 }
 
-for (const boardEl of [document.getElementById('grid'), document.getElementById('alist')]) {
+for (const boardEl of [document.getElementById('grid'), document.getElementById('alist'), document.getElementById('my-agents-list')]) {
   boardEl.addEventListener('click', (e) => {
     // #6719: the star stars; it never also opens the agent or answers it.
     const star = e.target.closest('[data-star]');
@@ -55287,6 +55359,14 @@ document.querySelectorAll('[data-fold]').forEach((btn) => {
 /* #3387: while a project's members are grouped at the top of the consolidated list, the
    top + adds an EXISTING agent to that project (opens the shared add-member modal); in
    every other state it stays the board's own New agent, byte-for-byte as before. */
+/* kosmos#8303: My Agents' own controls. The + is the same New agent the board's button starts. */
+document.getElementById('my-agents-new').addEventListener('click', () => document.getElementById('new-agent').click());
+document.getElementById('my-agents-fold').addEventListener('click', () => {
+  const next = !myAgentsFolded();
+  try { localStorage.setItem('my-agents-fold', next ? '1' : '0'); } catch { /* it still folds until the next paint */ }
+  paintMyAgents();
+});
+window.addEventListener('resize', paintMyAgents);
 document.getElementById('rail-agents-new').addEventListener('click', (e) => {
   // kosmos#4649: the project's "+" offers the Members menu while the federation gate is "show" (pjAddPlus).
   if (AGENTS_GROUPED) { pjAddPlus(e.currentTarget, openAddMemberModal); return; }
