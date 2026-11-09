@@ -61,10 +61,10 @@ TWO MODES.
 
   -DryRun on either mode does every read and check and prints what it would write, writing nothing.
   -NodeTimeoutSec <n> gives each node check and each git read n seconds, up to 600 (default 300). One past that refuses as undecided.
-  node (for the signed-manifest and verification-record checks): a real node.exe on PATH; else the installed Kosmos
-  app's own, %LOCALAPPDATA%\Programs\Kosmos\runtime\node.exe (kosmos#8285), said on stderr when used. That node came
-  with an earlier Kosmos release, so the build is then checked by a binary from the same channel it is checking: to
-  check with an independent node, put one on PATH (it always wins).
+  node (for the signed-manifest and verification-record checks): a real node.exe on PATH, which always wins; else the
+  installed Kosmos app's own, %LOCALAPPDATA%\Programs\Kosmos\runtime\node.exe (kosmos#8285), and only while Windows
+  reports its Authenticode signature Valid and from node's publisher (the OpenJS Foundation). Said on stderr when
+  used, or why it was not. A node on PATH is not checked that way: putting one there is the person's own choice.
 
 WHICH READS DECIDE. Every read that decides whether to write (does this version exist, what does
 prod name, what is staged) is a SIGNED read of the bucket itself, so an edge that is challenging or
@@ -266,13 +266,14 @@ function Get-GitLine([string[]] $GitArgs) {
 }
 # An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments). PATH's comes first, so a node
 # put there on purpose always wins. kosmos#8285: when PATH has none, the installed Kosmos app's own runtime\node.exe,
-# so a release PC with Kosmos on it needs no separate node. Only the app's copy, put there by its installer: not the
-# board runtime's copy under %LOCALAPPDATA%\Kosmos\runtime, which the running Kosmos writes and its agents can too
-# (challenge-loop iteration 2). Either way that node came through the Kosmos release channel this script checks; the
-# help says so, and how to check with an independent one. Said on stderr (once per run), so the run's log shows which
-# binary checked the build. A file there that is not a working node is still "found": its check then reaches no
-# answer and the run refuses as undecided, so it fails safe. Returns an object with .Source, or $null.
+# so a release PC with Kosmos on it needs no separate node. Its FOLDER proves nothing: the user owns
+# %LOCALAPPDATA%\Programs\Kosmos with full control, every agent runs as that user, and the updater rewrites it
+# (challenge-loop iteration 3). So it is used only while Windows reports its Authenticode signature Valid and its
+# signer's name is node's publisher, the OpenJS Foundation: a swapped binary is not run to say whether a release
+# passes. Otherwise it is skipped, said why, and the caller refuses. Said on stderr once per run either way, so the
+# run's log shows which binary checked the build. Returns an object with .Source, or $null.
 $KosmosRuntimeNodes = @('Programs\Kosmos\runtime\node.exe')
+$NodePublisher = 'OpenJS Foundation'
 $script:SaidRuntimeNode = $false   # declared for StrictMode, as the script's other run-wide flags
 function Get-NodeExe {
   $onPath = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1
@@ -280,18 +281,22 @@ function Get-NodeExe {
   if (-not $env:LOCALAPPDATA) { return $null }
   foreach ($rel in $KosmosRuntimeNodes) {
     $p = Join-Path $env:LOCALAPPDATA $rel
-    if (Test-Path -LiteralPath $p -PathType Leaf) {
-      if (-not $script:SaidRuntimeNode) {
-        [Console]::Error.WriteLine("publish-r2: no node executable on PATH (a .cmd shim does not count); using the installed Kosmos app's own: $p")
-        $script:SaidRuntimeNode = $true   # once per run: a run checks with node two or three times
-      }
-      return [pscustomobject]@{ Source = $p }
+    if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+    $sig = Get-AuthenticodeSignature -LiteralPath $p -ErrorAction SilentlyContinue
+    $signer = if ($sig -and $sig.SignerCertificate) { $sig.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) } else { '' }
+    $trusted = $sig -and "$($sig.Status)" -ceq 'Valid' -and $signer -ceq $NodePublisher
+    if (-not $script:SaidRuntimeNode) {
+      $line = if ($trusted) { "using the installed Kosmos app's own (signed by $NodePublisher): $p" }
+        else { "NOT using the Kosmos app's node at ${p}: its signature is $(if ($sig) { "$($sig.Status)" } else { 'unreadable' })$(if ($signer) { " from $signer" }), not Valid from $NodePublisher" }
+      [Console]::Error.WriteLine("publish-r2: no node executable on PATH (a .cmd shim does not count); $line")
+      $script:SaidRuntimeNode = $true   # once per run: a run checks with node two or three times
     }
+    if ($trusted) { return [pscustomobject]@{ Source = $p } }
   }
   $null
 }
 # The words for a refusal when Get-NodeExe found none: where it looked, so the fix is plain.
-$NoNodeWhere = if ($env:LOCALAPPDATA) { "none on PATH, and no installed Kosmos app's node under %LOCALAPPDATA% ($($KosmosRuntimeNodes -join ', '))" } else { 'none on PATH (and no %LOCALAPPDATA% here to look for the Kosmos app''s node in)' }
+$NoNodeWhere = if ($env:LOCALAPPDATA) { "none on PATH, and no installed Kosmos app's node signed by $NodePublisher under %LOCALAPPDATA% ($($KosmosRuntimeNodes -join ', '))" } else { 'none on PATH (and no %LOCALAPPDATA% here to look for the Kosmos app''s node in)' }
 # One argument as a Windows command line needs it (.NET parses the same rules elsewhere): 5.1 has no ArgumentList.
 function ConvertTo-NativeArg([string] $a) {
   if ($a -and $a -notmatch '[\s"]') { return $a }

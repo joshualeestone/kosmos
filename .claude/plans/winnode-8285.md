@@ -7,29 +7,37 @@ a .cmd shim) is required ...") because node was not on PATH, while the Kosmos in
 node.exe. The workaround was prepending the runtime folder to PATH by hand.
 
 ## Change (tools/windows/publish-r2.ps1)
-- `Get-NodeExe`: PATH's real node first (a node put there on purpose always wins; a .cmd/.bat shim is still skipped).
-  Only when there is none: `%LOCALAPPDATA%\Programs\Kosmos\runtime\node.exe`, the installed app's, put there by its
-  installer. Said on stderr once per run, so the run's log shows what checked the build. Returns an object with
+- `Get-NodeExe`: PATH's real node first (a node put there on purpose always wins, unchecked: the person's choice; a
+  .cmd/.bat shim is still skipped). Only when there is none: `%LOCALAPPDATA%\Programs\Kosmos\runtime\node.exe`, the
+  installed app's, and ONLY while Windows reports its Authenticode signature Valid with signer name exactly
+  `OpenJS Foundation` (node's publisher; `$NodePublisher`). Otherwise skipped, and the caller refuses.
+- Said on stderr once per run: which node checks the build, or why the app's was not used. Returns an object with
   `.Source`, as Get-Command's result, so both callers are unchanged. The help header says all of this.
-- The list is one script variable (`$KosmosRuntimeNodes`); both refusals now say where node was looked for
-  (`$NoNodeWhere`).
-- Off Windows (pwsh on a Mac, the bash test) `%LOCALAPPDATA%` is unset, so the fallback finds nothing: unchanged.
+- `$KosmosRuntimeNodes` and `$NodePublisher` are script variables; both refusals say where node was looked for
+  (`$NoNodeWhere`, honest when there is no `%LOCALAPPDATA%`).
+- Off Windows (pwsh on a Mac, the bash test) `%LOCALAPPDATA%` is unset or points nowhere, so the fallback finds
+  nothing: unchanged.
 
-Decided: the installed app's node only. Rejected (challenge-loop iteration 2): the board runtime's copy under
-`%LOCALAPPDATA%\Kosmos\runtime`, which the running Kosmos writes and its agents can too. Rejected: other folders
-(Program Files, nvm), a guess the person did not make; PATH is how they choose one. Weakest part, named in the help:
-the app's node came through the Kosmos release channel this script checks, so the check is then not independent;
-a node on PATH gives an independent one, and it always wins.
+Decided: the app's node, gated on its publisher signature. The folder is NOT the trust boundary (challenge-loop
+iteration 3): the user has full control of `%LOCALAPPDATA%\Programs\Kosmos`, every agent runs as that user, and the
+updater rewrites it; the signature is what a swapped binary cannot keep. Rejected (iteration 2): the board runtime's
+copy under `%LOCALAPPDATA%\Kosmos\runtime`, also user-writable; with the signature gate it would be as safe, but one
+place is enough. Rejected: other folders (Program Files, nvm), a guess the person did not make; PATH is how they choose
+one. Weakest part: a node.exe signed by OpenJS but of an old, vulnerable version would still be used; it is the node
+the installed Kosmos itself runs, so it is the node that release already trusts.
 
 ## Tests
 New `tools.win-publish-node-runtime-8285.test.js` (Windows, under each PowerShell present; the CI job has both):
-Get-NodeExe, its list, its once-flag and the refusal words parsed out of the real script under Stop + StrictMode 2.0,
-against throwaway PATH and LOCALAPPDATA: the app's node (said on stderr, once per run), the board copy never used,
-a real node on PATH wins (nothing said), a .cmd shim still skipped, no LOCALAPPDATA -> none, neither -> none; the
-refusal words evaluated both ways; and both refusals carry them, assigned before the first check runs.
+Get-NodeExe, its list, the publisher, the once-flag and the refusal words parsed out of the real script under Stop +
+StrictMode 2.0, against throwaway PATH and LOCALAPPDATA. A signed node is the test's own node.exe (an official build),
+hard-linked or copied; an empty file is an unsigned one. Covers: signed app node used (said), unsigned one NOT run
+(said why), the board copy never looked at, a real PATH node wins unchecked, a .cmd shim still skipped, said once per
+run, no LOCALAPPDATA -> none and silent, neither -> none, the refusal words both ways, and both refusals carry them
+above their callers. A CI-only check asserts the Windows job's node is signed, so the signed arms cannot skip there.
 
 ## Measured by hand (Windows 11 box, 11-09)
 With no node on PATH (this morning's failure), `publish-r2.ps1 -Promote -ApprovedVersion 0.8.00 ... -DryRun` from
-this branch: "no node executable on PATH (a .cmd shim does not count); using the installed Kosmos app's own:
-...\Programs\Kosmos\runtime\node.exe" (once), the signed-manifest check and the verification record both PASS,
-"DRY RUN complete: nothing was written", exit 0.
+this branch: "no node executable on PATH (a .cmd shim does not count); using the installed Kosmos app's own (signed by
+OpenJS Foundation): ...\Programs\Kosmos\runtime\node.exe" (once), the signed-manifest check and the verification
+record both PASS, "DRY RUN complete: nothing was written", exit 0. The installed node.exe reads Status Valid, signer
+CN=OpenJS Foundation.
