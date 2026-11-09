@@ -153,62 +153,21 @@ test('#4260 the undo takes back both keys and puts back exactly what each held, 
   trust.dropRecord('undo-4260');
 });
 
-test('#4260 a relaunch that adds ONLY the second key joins it to the agent\'s record, so its removal takes both back', { skip: WIN }, (t) => {
-  /* An agent made before this change: its record holds the main key only. Its next launch (win32launch) writes the short
-     key and answers `already: true`, which no caller records; an 8.3 alias is reused by the next like-named folder, so
-     an unrecorded line would outlive the agent and trust a stranger. */
-  const f = shortFolder(t, 'relaunch'); if (!f) return;
-  const cfg = nodePath.join(f.cfgDir, '.claude.json');
-  fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.long)]: { hasTrustDialogAccepted: true } } }));
-  assert.equal(trust.recordWrite('relaunch-4260', { key: fwd(f.long), madeEntry: true }), true);
-  t.after(() => trust.dropRecord('relaunch-4260'));
-  // A default-account agent: the file its launch writes IS the file a removal edits (CONFIG()).
-  const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
-  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = cfg;
-  t.after(() => { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; });
-  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
-  assert.equal(r.already, true);
-  assert.deepEqual(trust.recordedWrite('relaunch-4260').also, { key: fwd(f.short), madeEntry: true }, 'the record gained the second key');
-  const rec = trust.recordedWrite('relaunch-4260');
-  assert.equal(trust.forgetFolder(rec.key, 'displaced' in rec ? rec.displaced : undefined, rec.madeEntry === true, rec.also).ok, true);
-  assert.deepEqual(readCfg(cfg).projects, {}, 'both lines Kosmos wrote are gone');
-});
-
-test('#4260 with no record for the main key (the person trusted it), the second key is written but claimed by nobody', { skip: WIN }, (t) => {
-  const f = shortFolder(t, 'norecord'); if (!f) return;
+test('#4260 a second key added when the main one was ALREADY true is reported, and no record is touched (the accepted residual, tracked on a card)', { skip: WIN }, (t) => {
+  /* The main key the person trusted (or an older agent relaunching) answers `already: true`, so callers record nothing:
+     the person's line is never claimed. The short line it adds is then unrecorded (engine/trust.js says why that is
+     accepted). This arm pins that the answer still says what was written, and that no existing record is changed. */
+  const f = shortFolder(t, 'residual'); if (!f) return;
   fs.writeFileSync(nodePath.join(f.cfgDir, '.claude.json'), JSON.stringify({ projects: { [fwd(f.long)]: { hasTrustDialogAccepted: true } } }));
-  assert.equal(trust.recordWrite('someone-else-4260', { key: 'C:/elsewhere/entirely', madeEntry: true }), true);
-  t.after(() => trust.dropRecord('someone-else-4260'));
+  assert.equal(trust.recordWrite('residual-4260', { key: fwd(f.long), madeEntry: true }), true);
+  t.after(() => trust.dropRecord('residual-4260'));
   const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
   assert.equal(r.already, true);
-  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true, forgettable: false }, 'the second key WAS written');
-  assert.equal('also' in trust.recordedWrite('someone-else-4260'), false, 'another agent\'s record is not touched');
-});
-
-test('#4260 a second key written into ANOTHER account\'s config is not attached: a removal edits the default one', { skip: WIN }, (t) => {
-  const f = shortFolder(t, 'otheracct'); if (!f) return;
-  fs.writeFileSync(nodePath.join(f.cfgDir, '.claude.json'), JSON.stringify({ projects: { [fwd(f.long)]: { hasTrustDialogAccepted: true } } }));
-  assert.equal(trust.recordWrite('otheracct-4260', { key: fwd(f.long), madeEntry: true }), true);
-  t.after(() => trust.dropRecord('otheracct-4260'));
-  // CONFIG() stays the sandbox default (set at the top of this file), not f.cfgDir's file.
-  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
-  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true, forgettable: false }, 'written into that account, and marked as not the file an undo edits');
-  assert.equal('also' in trust.recordedWrite('otheracct-4260'), false, 'but not attached, so a removal cannot reach a same-spelled key in the default config');
-});
-
-test('#4260 a failed first start\'s undo of the second key ALONE leaves the person\'s main key untouched', { skip: WIN }, (t) => {
-  /* engine/create.js, `already: true` with `also`: forgetFolder(also.key, ...) on its own. */
-  const f = shortFolder(t, 'rollback'); if (!f) return;
-  const cfg = nodePath.join(f.cfgDir, '.claude.json');
-  fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.long)]: { hasTrustDialogAccepted: true, allowedTools: ['z'] } } }));
-  const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
-  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = cfg;
-  t.after(() => { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; });
-  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
-  assert.equal(r.already, true);
-  const a = r.also;
-  assert.equal(trust.forgetFolder(a.key, 'displaced' in a ? a.displaced : undefined, a.madeEntry === true).ok, true);
-  assert.deepEqual(readCfg(cfg).projects, { [fwd(f.long)]: { hasTrustDialogAccepted: true, allowedTools: ['z'] } });
+  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true, forgettable: false });
+  const rec = trust.recordedWrite('residual-4260');
+  assert.equal(rec.key, fwd(f.long), 'the record still names only what it named');
+  assert.equal(rec.madeEntry, true);
+  assert.equal('also' in rec, false, 'no record gains the line');
 });
 
 test('#4260 a second-key entry we cannot read is left alone: the launch still trusts the main key, and an undo still takes it back', { skip: WIN }, (t) => {
@@ -235,8 +194,6 @@ test('#4260 the callers carry the second key: creation records it and rolls it b
   const remove = fs.readFileSync(nodePath.join(__dirname, 'remove.js'), 'utf8');
   assert.match(create, /recordWrite\(name, \{[^}]*also: trusted\.also/, 'creation records the second key');
   assert.match(create, /forgetFolder\(trusted\.key, trusted\.displaced, trusted\.madeEntry, trusted\.also\)/, 'a failed start rolls it back');
-  assert.match(create, /trusted\.already === true && trusted\.also[\s\S]{0,900}?forgetFolder\(a\.key, /, 'and rolls back the second key alone when the main one was the person\'s');
-  assert.match(create, /trusted\.also\.forgettable === true\) \{[\s\S]{0,900}?recordWrite\(name, \{ key: a\.key, /, 'and on a good start records that second key alone, rather than dropping it');
   assert.match(remove, /forgetFolder\(rec\.key, [^;]*rec\.madeEntry === true, rec\.also\)/, 'a removal takes it back');
 });
 
