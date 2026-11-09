@@ -103,10 +103,18 @@ test('#8232: a name that is not there after a link to a drive path is reported m
   assert.equal(walk('C:\\work\\junc\\gone.txt', scripted({ 'C:\\work\\junc': 'C:\\real' }, ['C:\\real\\gone.txt'])), null);
   assert.equal(walk('C:\\work\\rel\\gone.txt', scripted({ 'C:\\work\\rel': '..\\real' }, ['C:\\real\\gone.txt'])), null);
   assert.equal(walk('C:\\work\\plain\\f.txt', scripted({}, ['C:\\work\\plain'])), null, 'CONTROL: with no link on the way too');
-  // Any other lstat error after a link is not opened; with no link compare() hits it and says so.
-  const denied = new Error('EPERM'); denied.code = 'EPERM';
-  assert.match(walk('C:\\work\\junc\\f.txt', scripted({ 'C:\\work\\junc': 'C:\\real' }, [], { 'C:\\real\\f.txt': denied })) || '', /could not look at/);
-  assert.equal(walk('C:\\work\\f.txt', scripted({}, [], { 'C:\\work\\f.txt': denied })), null, 'CONTROL: no link: compare() reports it');
+});
+
+test('#8232: any other lookup error is not opened, link or not (the walk cannot tell whether that name is a link)', () => {
+  // A junction whose own ACL denies reading it fails lstat with EPERM, yet Windows still opens through it (the real arm
+  // below measures it); so an unreadable name is refused, never handed to compare().
+  for (const code of ['EPERM', 'EACCES', 'EBUSY', 'UNKNOWN']) {
+    const e = new Error(code); e.code = code;
+    assert.match(walk('C:\\work\\j\\f.txt', scripted({}, [], { 'C:\\work\\j': e })) || '', /a folder or link Kosmos could not look at/, code + ', no link before it');
+    assert.match(walk('C:\\work\\junc\\f.txt', scripted({ 'C:\\work\\junc': 'C:\\real' }, [], { 'C:\\real\\f.txt': e })) || '', /could not look at/, code + ', after a link');
+  }
+  const notDir = new Error('ENOTDIR'); notDir.code = 'ENOTDIR';
+  assert.equal(walk('C:\\work\\file.txt\\x', scripted({}, [], { 'C:\\work\\file.txt\\x': notDir })), null, 'CONTROL: ENOTDIR is not there, as ENOENT is');
 });
 
 test('#8232: \\\\?\\C:\\ is a drive path and is checked as one', () => {
@@ -200,6 +208,32 @@ test('#8232 Windows: a real symlink to \\\\localhost\\ is refused without being 
   const u = path.join(dir, 'unc');
   if (!symlinkOrSkip(t, '\\\\localhost\\C$\\Windows', u)) return;
   assert.match(tasklist.reachesNetworkWin(path.join(u, 'win.ini'), here(dir)) || '', /network location/);
+});
+
+test('#8232 Windows: a junction whose ACL hides it from lstat is refused, though Windows reads through it', { skip: NEEDS_WINDOWS }, (t) => {
+  const { dir, real } = sandbox(t);
+  const box = path.join(dir, 'box');
+  fs.mkdirSync(box);
+  const j = path.join(box, 'j');
+  fs.symlinkSync(real, j, 'junction');
+  const { execFileSync } = require('node:child_process');
+  const who = (process.env.USERDOMAIN ? process.env.USERDOMAIN + '\\' : '') + process.env.USERNAME;
+  const icacls = (...args) => execFileSync('icacls', args, { stdio: 'pipe', windowsHide: true });
+  try {
+    icacls(j, '/L', '/deny', who + ':(RA,REA,RC)');
+    icacls(box, '/deny', who + ':(RD)');
+  } catch (e) { t.skip('icacls could not set the deny entries here: ' + String(e.message).split('\n')[0]); return; }
+  // Taken off again here, inside the test: the sandbox's own after-hook runs first and cannot list a denied folder.
+  try {
+    let lstatCode = null;
+    try { fs.lstatSync(j); } catch (e) { lstatCode = e.code; }
+    if (!lstatCode) { t.skip('lstat still reads the junction under the deny entries on this host'); return; }
+    assert.equal(fs.readFileSync(path.join(j, 'f.txt'), 'utf8'), 'x', 'CONTROL: Windows really reads through the junction lstat cannot see (' + lstatCode + ')');
+    assert.match(tasklist.reachesNetworkWin(path.join(j, 'f.txt'), here(dir)) || '', /a folder or link Kosmos could not look at/);
+  } finally {
+    try { icacls(box, '/remove:d', who); } catch {}
+    try { icacls(j, '/L', '/remove:d', who); } catch {}
+  }
 });
 
 test('#8232 Windows: real symlinks to \\\\?\\GLOBALROOT\\Device\\Mup\\ and \\\\?\\Global\\<letter>:\\ are refused, though Windows reads through them', { skip: NEEDS_WINDOWS }, (t) => {

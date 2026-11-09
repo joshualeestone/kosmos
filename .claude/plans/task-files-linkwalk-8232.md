@@ -27,7 +27,8 @@ letter.
 - More than 40 hops is a loop; an unreadable link is not opened. Every accepted target (a drive path or a relative
   name) is resolved as Windows resolves it, so a name that is not there (ENOENT/ENOTDIR) ends the walk and compare
   reports it MISSING, link or not (a file gone from behind a junction stays a MISSING verdict). Any other lstat error
-  after a link is not opened.
+  is not opened, link or not: measured, a junction whose own ACL denies reading it fails lstat with EPERM while a read
+  through it still succeeds (traverse checking is bypassed), so an unreadable name might be a link.
 - The walk and the open are separate steps; a link swapped between them needs write access to the path's own
   folders on this computer, and is not caught.
 - Wired into `filesLines` after the drive-letter check; `opts.fs` is the test seam.

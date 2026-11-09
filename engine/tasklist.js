@@ -433,8 +433,10 @@ function reachesAutomount(p, mounts, fsx = require('node:fs')) {
  * \Device\Mup\host\share (a network share), and anyone may create C:\Device\..., so no lookup can tell them apart.
  *
  * Because every accepted target is resolved as Windows resolves it, a name the walk cannot find (ENOENT, ENOTDIR) is
- * not there for compare() either, link or not, and compare() reports it MISSING. Any other lstat error after a link is
- * not opened; with no link on the way compare() hits the same error and says so.
+ * not there for compare() either, link or not, and compare() reports it MISSING. Any other lstat error is not opened,
+ * link or not: the walk cannot tell whether that name is a link, and Windows may still open through it (measured: a
+ * junction whose own ACL denies reading its attributes fails lstat and readlink with EPERM, yet a read through it
+ * succeeds, since traverse checking is bypassed and the reparse point is followed without a check on it).
  *
  * The walk and compare()'s open are separate steps, so a link swapped between them is not caught; doing that needs
  * write access to the marked path's own folders on this computer.
@@ -442,12 +444,17 @@ function reachesAutomount(p, mounts, fsx = require('node:fs')) {
 function reachesNetworkWin(p, driveInfo, fsx = require('node:fs')) {
   const win = require('node:path').win32;
   const parts = (s) => String(s).split(/[\\/]+/).filter(Boolean);
+  // Every refusal reads "it goes through <what>, so Kosmos does not open it" (or "...<what>, <driveRefusal's words>").
+  const through = (what) => 'it goes through ' + what + ', so Kosmos does not open it';
+  const unfollowed = (why) => through('a link Kosmos could not follow (' + why + ')');
+  const NETWORK = through('a link to a network location');
   const letterOk = (letter) => {
+    const L = letter.toUpperCase();
     let info = null;
     try { info = driveInfo(letter); } catch { info = null; }
-    if (!info) return 'it goes through a link to drive ' + letter.toUpperCase() + ':, and Kosmos could not tell what kind of drive that is, so it does not open it';
-    const refused = driveRefusal(letter + ':\\', info);
-    return refused ? 'it goes through a link to drive ' + letter.toUpperCase() + ':, ' + refused : null;
+    if (!info) return through('a link to drive ' + L + ':, and Kosmos could not tell what kind of drive that is');
+    const refused = driveRefusal(L + ':\\', info);
+    return refused ? 'it goes through a link to drive ' + L + ':, ' + refused : null;
   };
   if (!/^[A-Za-z]:[\\/]/.test(p)) return 'not a local absolute path, so Kosmos does not open it';
   // Windows collapses . and .. by text before it walks a path (C:\link\..\x opens C:\x, whatever link points at), so
@@ -461,33 +468,33 @@ function reachesNetworkWin(p, driveInfo, fsx = require('node:fs')) {
     for (let i = 0; i < names.length; i += 1) {
       const next = win.join(cur, names[i]);
       let st;
-      // Not there: compare() opens this same path (see above) and reports it missing. Not readable: see above.
       try { st = fsx.lstatSync(next); } catch (e) {
-        const gone = e && (e.code === 'ENOENT' || e.code === 'ENOTDIR');
-        return gone || !hops ? null : 'it goes through a link to a place Kosmos could not look at, so it does not open it';
+        // Not there: compare() opens this same path (see above) and reports it missing. Anything else: see above.
+        if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return null;
+        return through('a folder or link Kosmos could not look at');
       }
       if (!st.isSymbolicLink()) { cur = next; continue; }
       if (++hops > 40) return 'it loops through links, so Kosmos does not open it';
       let to;
-      try { to = String(fsx.readlinkSync(next)); } catch { return 'it goes through a link Kosmos could not read, so it does not open it'; }
+      try { to = String(fsx.readlinkSync(next)); } catch { return through('a link Kosmos could not read'); }
       // A prefixed target (\\?\, \\.\ or \??\, either slash): a drive path, a UNC share, or a device path refused.
       const pre = /^(?:[\\/]{2}[?.]|[\\/]\?\?)[\\/](.*)$/s.exec(to);
       if (pre) {
         if (/^[A-Za-z]:[\\/]/.test(pre[1])) to = pre[1];
-        else if (/^UNC([\\/]|$)/i.test(pre[1])) return 'it goes through a link to a network location, so Kosmos does not open it';
-        else return 'it goes through a link Kosmos could not follow (a mounted volume or device path), so it does not open it';
-      } else if (/^[\\/]{2}/.test(to)) return 'it goes through a link to a network location, so Kosmos does not open it';   // \\host\share
+        else if (/^UNC([\\/]|$)/i.test(pre[1])) return NETWORK;
+        else return unfollowed('a mounted volume or device path');
+      } else if (/^[\\/]{2}/.test(to)) return NETWORK;   // \\host\share
       let base;
       const drive = /^([A-Za-z]):([\\/]?)/.exec(to);
       if (drive) {
-        if (!drive[2]) return 'it goes through a link Kosmos could not follow, so it does not open it';   // C:x, relative to a drive's own folder
+        if (!drive[2]) return unfollowed('a path relative to a drive');   // C:x
         const refused = letterOk(drive[1]);
         if (refused) return refused;
         base = to;
-      } else if (/^[\\/]/.test(to)) return 'it goes through a link Kosmos could not follow (a target with no drive), so it does not open it';   // \x: see above
+      } else if (/^[\\/]/.test(to)) return unfollowed('a target with no drive');   // \x: see above
       else base = win.join(cur, to);   // relative to the folder the link is in
       full = win.normalize(win.join(base, ...names.slice(i + 1)));
-      if (!/^[A-Za-z]:[\\/]/.test(full)) return 'it goes through a link Kosmos could not follow, so it does not open it';
+      if (!/^[A-Za-z]:[\\/]/.test(full)) return unfollowed('a target that leaves the drive');
       continue walk;
     }
     return null;
@@ -514,7 +521,8 @@ function filesLines(body, opts = {}) {
   const windows = (opts.platform || process.platform) === 'win32';
   /* Opened only when engine/fileprint.js keptPath allows it (the rule the board keeps paths by, checked again for a store
      written before or around it), it is this computer's kind, and it does not reach one of this computer's automount
-     folders (read from its mount table, not from a list of names: /home on a Mac is a link to one). */
+     folders (read from its mount table, not from a list of names: /home on a Mac is a link to one), or on Windows, whose
+     links do not lead off this computer's own drives (reachesNetworkWin, kosmos#8232). */
   const kept = require('./fileprint').keptPath;
   const drive = (p) => /^[A-Za-z]:[\\/]/.test(p);
   const local = (p) => kept(p) && (windows ? drive(p) : !drive(p));
