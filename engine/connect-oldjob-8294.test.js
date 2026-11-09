@@ -281,6 +281,13 @@ test('the job is named even while the agent it started is up', () => {
   assert.match(discover.connect(dir, {}).because, /com\.upandjob\.discord/);
 });
 
+test('a health check that says the word is not a start', () => {
+  const dir = agent('health');
+  const f = script('health.sh', 'echo claude is up\n');
+  plist('com.health.a', { dir, args: ['/bin/bash', f] });
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null);
+});
+
 test('no job folder at all answers none', () => {
   assert.equal(discover.otherJobFor(agent('nodir'), path.join(SB, 'absent')), null);
 });

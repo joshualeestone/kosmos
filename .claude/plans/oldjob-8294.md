@@ -10,13 +10,13 @@ On this Mac: finds 17 of 17 fleet agents (4 of them only through the launch scri
 
 ## Decided
 - Refuse rather than warn and offer to turn it off. Turning off someone's job from a board button is a bigger act. The refusal names the job and its file; clearing it takes someone who can stop a job. Rejected: unloading it ourselves.
-- Any plist on disk counts, loaded or not: launchd loads it at the next login, which is the case that was measured.
+- Any plist on disk counts, loaded or not: launchd loads it at the next login, which is the case that was measured. A job turned off with launchctl disable lives outside the file, so it still refuses until the file is removed, as the sentence says.
 - Mac only: Linux and Windows have no such folder, so the answer there is none.
 
 ## Weakest premise
 Only plain-text plists are read (89 of 89 here are). A script called by a script is not followed, a folder spelled through a variable other than HOME is missed, and a job that starts the agent some other way reads as none (npx or node on the claude-code package, a backslash-escaped space in a path, an Antigravity job whose program is agy): those keep today's behaviour.
 
-A read that fails, or a binary plist, counts as no job: today's behaviour, not a refusal, because a refusal could not be cleared by anyone who cannot see what we could not read.
+A launch script under Documents, Desktop, Downloads or /Volumes is not opened (macOS would prompt), so that job is missed. A read that fails, or a binary plist, counts as no job: today's behaviour, not a refusal, because a refusal could not be cleared by anyone who cannot see what we could not read.
 
 ## Not covered
 A folder with no instructions file is registered without a job, so it starts nothing and is outside this.
