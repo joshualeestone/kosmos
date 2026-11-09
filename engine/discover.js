@@ -298,6 +298,7 @@ const LAST_RUN_TAIL_BYTES = 512 * 1024;
 function lastModelIn(transcript) {
   let text = '';
   try { text = status.tailBytes(transcript, LAST_RUN_TAIL_BYTES).text; } catch { return null; }
+  if (typeof text !== 'string') return null;
   const lines = text.split('\n');
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     if (!lines[i].includes('"assistant"')) continue;
@@ -2059,8 +2060,17 @@ function connect(dir, opts) {
   }
   /* #5534: connecting a folder starts a new agent, so a company policy that does not allow its provider (or the
      provider's default model, which is what it will run) refuses it here, before anything is written. */
+  /* #8293: only a Claude agent is read here; another runner keeps today's behaviour. A read that failed counts as ran,
+     so the person is told rather than moved in silence. */
+  let last = { ran: false, account: null, model: null };
+  if (!runner) { try { last = lastRunOf(given); } catch { last = { ran: true, account: null, model: null }; } }
+  /* Only a Claude model (one run through a compatible endpoint, a DeepSeek or GLM id, would fail on a job with no such
+     endpoint), and only on the account it ran on, since another account may not be able to run it. */
+  const keepModel = last.account && last.model && /^claude-/.test(last.model) && require('./linuxjob').MODEL_ID.test(last.model)
+    ? last.model : null;
   {
-    const allowed = create.policyAllows(create.runnerProvider(runner), '');
+    /* The model it will actually run: a policy listing that model is satisfied, and one that does not list it refuses. */
+    const allowed = create.policyAllows(create.runnerProvider(runner), keepModel || '');
     if (!allowed.ok) return { ok: false, because: allowed.because };
   }
   /* 🛑 THE PROVIDER GOES IN THE PROFILE TOO, NOT ONLY THE JOB (#1159). #1347 made
@@ -2174,13 +2184,6 @@ function connect(dir, opts) {
       }
     } catch { /* the sync after the session is up still does it, the old way */ }
   }
-  /* #8293: only a Claude agent is read here; another runner keeps today's behaviour. */
-  let last = { ran: false, account: null, model: null };
-  if (!runner) { try { last = lastRunOf(given); } catch { /* reads as not known */ } }
-  /* Only a Claude model: one run through a compatible endpoint (a DeepSeek or GLM id) would fail on a job with no such endpoint. */
-  const readable = Boolean(last.model && /^claude-/.test(last.model) && require('./linuxjob').MODEL_ID.test(last.model));
-  const allowed = readable && create.policyAllows(create.runnerProvider(runner), last.model).ok;
-  const keepModel = allowed ? last.model : null;
   const job = create.installJob(name, {
     ...(runner ? { runner } : {}),
     ...(last.account && !last.account.isDefault ? { configDir: last.account.dir } : {}),
@@ -2218,14 +2221,17 @@ function connect(dir, opts) {
     return { ok: false, because: job.because || 'we could not set it up to run' };
   }
 
-  const unknown = runner || !last.ran ? [] : [
-    ...(last.account ? [] : ['we could not tell which Claude account it was using, so it will run on your main one']),
-    ...(keepModel ? [] : [readable
-      ? 'the company policy here does not allow the model it was using, so it will start on the default'
-      : 'we could not tell which Claude model it was using, so it will start on the default']),
-  ];
+  let unknownLastRun = null;
+  if (!runner && last.ran) {
+    if (!last.account) unknownLastRun = 'we could not tell which Claude account it was using, so it will run on your main one, on the default model';
+    else if (!keepModel) {
+      unknownLastRun = last.model
+        ? 'it was using a model Kosmos cannot start here, so it will start on the default'
+        : 'we could not tell which Claude model it was using, so it will start on the default';
+    }
+  }
   return { ok: true, name, displayName, dir: given, started: job.started === true,
-    ...(unknown.length ? { unknownLastRun: unknown.join(', and ') } : {}) };
+    ...(unknownLastRun ? { unknownLastRun } : {}) };
 }
 
 /**

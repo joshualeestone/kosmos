@@ -88,9 +88,8 @@ test('no account holds the session: the main account, and it says so', () => {
   const dir = agent('nobody');
   const out = discover.connect(dir, {});
   assert.equal(out.ok, true, out.because);
-  assert.equal('configDir' in seen, false);
-  assert.match(out.unknownLastRun, /could not tell which Claude account/);
-  assert.doesNotMatch(out.unknownLastRun, /model/);
+  assert.deepEqual(seen, {});
+  assert.match(out.unknownLastRun, /could not tell which Claude account.*default model/);
 });
 
 test('two accounts hold the session: not guessed between them', () => {
@@ -128,6 +127,14 @@ test('a model id that cannot go in a job is not kept, and it says so', () => {
   const out = discover.connect(dir, {});
   assert.equal(seen.configDir, ACCT_B);
   assert.equal('model' in seen, false);
+  assert.match(out.unknownLastRun, /a model Kosmos cannot start here/);
+});
+
+test('a transcript with no model row says it could not tell', () => {
+  const dir = agent('nomodel', { lines: [JSON.stringify({ type: 'user', cwd: '' })] });
+  ranOn(ACCT_B);
+  const out = discover.connect(dir, {});
+  assert.equal(seen.configDir, ACCT_B);
   assert.match(out.unknownLastRun, /could not tell which Claude model/);
 });
 
@@ -136,7 +143,21 @@ test('a model from a compatible endpoint is not written into a job that has no s
   ranOn(ACCT_B);
   const out = discover.connect(dir, {});
   assert.equal('model' in seen, false);
-  assert.match(out.unknownLastRun, /could not tell which Claude model/);
+  assert.match(out.unknownLastRun, /a model Kosmos cannot start here/);
+});
+
+test('a failed read is said, not treated as never having run', () => {
+  const dir = agent('readfail');
+  ranOn(ACCT_B);
+  const accounts = require('./accounts');
+  const real = accounts.list;
+  accounts.list = () => { throw new Error('boom'); };
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, true, out.because);
+    assert.deepEqual(seen, {});
+    assert.match(out.unknownLastRun, /could not tell which Claude account/);
+  } finally { accounts.list = real; }
 });
 
 test('a folder that never ran has nothing to keep and nothing to say', () => {
@@ -168,19 +189,38 @@ test('the job that gets written carries the account and the model', () => {
   } finally { create.setDryRun(true); create.setRunner(null); delete process.env.AGENT_WORKFORCE_CLAUDE_BIN; }
 });
 
-test('a company policy that refuses the model is not bypassed', () => {
+test('company policy is asked about the model that will run', () => {
   const dir = agent('policed');
   ranOn(ACCT_B);
   const real = create.policyAllows;
-  create.policyAllows = (provider, model) => (model ? { ok: false, because: 'no' } : { ok: true });
+  const asked = [];
+  create.policyAllows = (provider, model) => { asked.push(model); return model === 'claude-haiku-5-5' ? { ok: true } : { ok: false, because: 'choose one' }; };
   try {
     const out = discover.connect(dir, {});
     assert.equal(out.ok, true, out.because);
-    assert.equal('model' in seen, false);
-    assert.equal(seen.configDir, ACCT_B);
-    assert.match(out.unknownLastRun, /company policy here does not allow/);
-    assert.doesNotMatch(out.unknownLastRun, /could not tell/);
+    assert.deepEqual(asked, ['claude-haiku-5-5']);
+    assert.equal(seen.model, 'claude-haiku-5-5');
   } finally { create.policyAllows = real; }
+});
+
+test('a policy that does not list the model refuses, before anything is written', () => {
+  const dir = agent('policedout');
+  ranOn(ACCT_B);
+  const real = create.policyAllows;
+  create.policyAllows = () => ({ ok: false, because: 'not this one' });
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, false);
+    assert.equal(out.because, 'not this one');
+    assert.equal(seen, null);
+  } finally { create.policyAllows = real; }
+});
+
+test('the Found row shows the sentence, and only that field reaches it', () => {
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  assert.match(page, /said\.textContent = out\.unknownLastRun \? \('Added, but ' \+ out\.unknownLastRun \+ '\.'\) : '';/);
+  const engine = fs.readFileSync(path.join(__dirname, 'discover.js'), 'utf8');
+  assert.match(engine, /\{ unknownLastRun \}/);
 });
 
 test('a transcript from another folder with the same encoded name is not this agent\'s', () => {
