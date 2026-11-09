@@ -121,8 +121,14 @@ test('#8307: a checker who sends the same file itself is no longer its checker (
   mark(n, { by: 'mona', fingerprint: A, filePath: FILE_A });
   mark(n, { by: 'zed' });
   mark(n, { by: 'ivy' });
+  // The first sender's time set well in the past, so a same-millisecond run cannot pass for a kept time.
+  const firstAt = '2020-01-01T00:00:00.000Z';
+  projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === n ? { ...x, builtFingerprintAt: firstAt } : x)) }));
+  mark(n, { by: 'mona', fingerprint: A, filePath: FILE_A, note: 'same sender again' });
+  assert.equal(get(n).builtFingerprintAt, firstAt, 'CONTROL: its own sender sending it again kept its time');
   mark(n, { by: 'zed', fingerprint: A, filePath: FILE_A });
   assert.equal(get(n).builtFingerprintBy, 'zed');
+  assert.notEqual(get(n).builtFingerprintAt, firstAt, 'the new sender kept the first sender\'s sent time (review 8)');
   assert.deepEqual(get(n).builtCheckedBy, ['ivy'], 'the sender is listed as its own checker');
 });
 
