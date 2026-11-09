@@ -4,15 +4,15 @@
  * #6160 (Josh, 10-14): the streak in the Kosmos. engine/streak.js counts the days in a row this person opened the
  * board; POST /api/streak records a visit on the page's own local date and answers { count, congrats }. The page puts
  * the count in a label under the K mark (shown on hover, focus, or a long press on a phone). When congrats is true,
- * kosmos#6397 (option A): a gold pill out of the K mark says Josh's words for about 6 s, then folds into a gold count
- * badge on the mark for the rest of that day; where the mark is hidden (Kosmos+ remote on a phone) the words are a
+ * kosmos#6397 (option A): a gold pill out of the K mark says Josh's words for about 6 s, then folds away (kosmos#8323:
+ * no count stays on the mark); where the mark is hidden (Kosmos+ remote on a phone) the words are a
  * notice in #topnotes (#streak-slot) instead. This drives the REAL page with /api/streak stubbed:
  *
  *   pill       -> 12 days, congrats: the pill says "Congrats you've been in the Kosmos for 12 days!", beside the K
  *                 mark, read out (role=status), gold; no notice in the stack; the page sent ITS local date; after
- *                 about 6 s it folds into the badge "12"
- *   Escape     -> folds the pill at once into the badge
- *   reload     -> the same day, the badge is back with no pill; a badge folded yesterday is not (control)
+ *                 about 6 s it folds away, leaving no count on the mark (kosmos#8323)
+ *   Escape     -> folds the pill at once
+ *   reload     -> no pill and no count, even with the old badge's day still in this browser
  *   together   -> with the restart notice also showing, the pill and the notice never overlap
  *   reduced    -> with reduced motion the pill shows with no transition
  *   no note    -> 12 days, no congrats: no note (the control for the arm above); hovering shows the label
@@ -26,8 +26,7 @@
  *   long press -> on a touch screen, a long press shows the label and does NOT navigate; a tap still does (control)
  *   midnight   -> a page left open across the person's midnight, with the person there, asks again with the new
  *                 date; a hidden page does not (it counts when the person comes back)
- *   narrow     -> at 360px there is no room beside the mark: the words are the notice, inside the screen, and the
- *                 badge follows when it goes
+ *   narrow     -> at 360px there is no room beside the mark: the words are the notice, inside the screen
  *
  *   AGENT_WORKFORCE_DATA=/tmp/st PORT=17372 node server.js &
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" \
@@ -108,7 +107,7 @@ const read = (pg) => pg.evaluate(() => {
 (async () => {
   const b = await chromium.launch({ headless: process.env.HEADED === '0' });
 
-  // pill (kosmos#6397): the day's words come out of the K mark, then fold into the badge
+  // pill (kosmos#6397): the day's words come out of the K mark, then fold away
   {
     // Review 6: it slides out (its transform moves after .in), it does not only fade. The first transform is read in
     // the page at the moment .in is added (#8184 CI: read later, a slow runner saw the slide already over, t0 === t1).
@@ -133,7 +132,7 @@ const read = (pg) => pg.evaluate(() => {
     say(g.pill.bg === goldRgb, 'pill: the bright gold (--gold-bright), so its dark words read', g.pill.bg + ' vs ' + goldRgb);
     say(g.glow, 'pill: the K mark lights up while it shows');
     say(g.note.hidden, 'pill: no notice in the stack as well (the K mark is shown)', JSON.stringify(g.note));
-    say(g.badge && g.badge.hidden, 'pill: no badge while the pill is out', JSON.stringify(g.badge));
+    say(g.badge === null, 'pill: no count on the mark while the pill is out', JSON.stringify(g.badge));
     say(g.label && g.label.text === '12 days in a row in the Kosmos', 'pill: the label carries the count', JSON.stringify(g.label));
     say(posts.length >= 1 && posts[0].method === 'POST' && posts[0].body.today === localDay(NOON), "pill: the page sent its own local date", JSON.stringify(posts[0]));
     await pg.screenshot({ path: path.join(OUT, 'streak-pill.png') }).catch(() => {});
@@ -141,7 +140,7 @@ const read = (pg) => pg.evaluate(() => {
     await pg.waitForTimeout(6600);   // setFixedTime pins Date only: the 6 s fold runs in real time
     const after = await read(pg);
     say(!after.pill.shown && !after.glow, 'fold: after about 6 s the pill and the glow are gone', JSON.stringify({ pill: after.pill, glow: after.glow }));
-    say(after.badge && !after.badge.hidden && after.badge.text === '12' && after.badge.ariaHidden === 'true', 'fold: the badge says 12 on the mark (hidden from screen readers: the label says it)', JSON.stringify(after.badge));
+    say(after.badge === null, 'fold: no count stays on the K mark (kosmos#8323); the label has it', JSON.stringify(after.badge));
     await pg.screenshot({ path: path.join(OUT, 'streak-badge.png') }).catch(() => {});
     say(errs.length === 0, 'pill: no page errors', errs.join(' | '));
     await pg.close();
@@ -155,7 +154,7 @@ const read = (pg) => pg.evaluate(() => {
     await pg.keyboard.press('Escape');
     await pg.waitForTimeout(450);
     const g = await read(pg);
-    say(up && !g.pill.shown && g.badge && !g.badge.hidden, 'Escape: the pill folds at once into the badge', JSON.stringify({ up, pill: g.pill, badge: g.badge }));
+    say(up && !g.pill.shown && g.badge === null, 'Escape: the pill folds at once, leaving no count', JSON.stringify({ up, pill: g.pill, badge: g.badge }));
     await pg.close();
   }
 
@@ -212,11 +211,11 @@ const read = (pg) => pg.evaluate(() => {
     await pg.setViewportSize({ width: 500, height: 800 });
     await pg.waitForTimeout(450);
     const g = await read(pg);
-    say(up && !g.pill.shown && g.badge && !g.badge.hidden, 'resize: the pill folds into the badge when the window changes size', JSON.stringify({ up, pill: g.pill.shown, badge: g.badge }));
+    say(up && !g.pill.shown && g.badge === null, 'resize: the pill folds when the window changes size, leaving no count', JSON.stringify({ up, pill: g.pill.shown, badge: g.badge }));
     await pg.close();
   }
 
-  // review 2: a reload while the pill is out keeps the day's badge (the board answers congrats once a day)
+  // review 2: a reload while the pill is out (the board answers congrats once a day)
   {
     let calls = 0;
     const ctx = await b.newContext();
@@ -228,7 +227,7 @@ const read = (pg) => pg.evaluate(() => {
     await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
     await pg.waitForTimeout(800);
     const g = await read(pg);
-    say(up && !g.pill.shown && g.badge && !g.badge.hidden && g.badge.text === '12', 'reload mid-pill: the badge is there after the reload (no second pill)', JSON.stringify({ up, pill: g.pill.shown, badge: g.badge, calls }));
+    say(up && !g.pill.shown && g.badge === null, 'reload mid-pill: no count on the mark after the reload, and no second pill', JSON.stringify({ up, pill: g.pill.shown, badge: g.badge, calls }));
     await pg.close(); await ctx.close();
   }
 
@@ -242,7 +241,7 @@ const read = (pg) => pg.evaluate(() => {
     await pg.waitForTimeout(7200);
     const g = await read(pg);
     say(focused === 'klink', 'click: (premise) the click left focus on the K mark', JSON.stringify(focused));
-    say(!g.pill.shown && g.badge && !g.badge.hidden, 'click: a click on the K mark does not pin the pill; it folds', JSON.stringify({ focused, pill: g.pill.shown, badge: g.badge }));
+    say(!g.pill.shown && g.badge === null, 'click: a click on the K mark does not pin the pill; it folds', JSON.stringify({ focused, pill: g.pill.shown, badge: g.badge }));
     await pg.close();
   }
 
@@ -275,7 +274,7 @@ const read = (pg) => pg.evaluate(() => {
     await pg.waitForTimeout(2200);
     const g = await read(pg);
     say(pending, 'fold before the frame: (premise) the pill was started and not yet out', JSON.stringify(pending));
-    say(!g.pill.shown && !g.glow && g.badge && !g.badge.hidden, 'fold before the frame: it never comes out (no pill, no glow) and the badge shows', JSON.stringify({ pill: g.pill.shown, glow: g.glow, badge: g.badge }));
+    say(!g.pill.shown && !g.glow && g.badge === null, 'fold before the frame: it never comes out (no pill, no glow) and no count is left', JSON.stringify({ pill: g.pill.shown, glow: g.glow, badge: g.badge }));
     await pg.close(); await ctx.close();
   }
 
@@ -289,7 +288,7 @@ const read = (pg) => pg.evaluate(() => {
     await pg.close();
   }
 
-  // review 3: on a phone, a reload while the day's notice is up keeps the badge (the notice keeps the day when shown)
+  // review 3: on a phone, a reload while the day's notice is up
   {
     let calls = 0;
     const ctx = await b.newContext({ viewport: { width: 360, height: 800 } });
@@ -300,7 +299,7 @@ const read = (pg) => pg.evaluate(() => {
     await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
     await pg.waitForTimeout(800);
     const g = await read(pg);
-    say(up && g.note.hidden && g.badge && !g.badge.hidden && g.badge.text === '12', 'phone reload mid-notice: the badge is there after the reload', JSON.stringify({ up, note: g.note.hidden, badge: g.badge, calls }));
+    say(up && g.note.hidden && g.badge === null, 'phone reload mid-notice: no count on the mark after the reload', JSON.stringify({ up, note: g.note.hidden, badge: g.badge, calls }));
     await pg.close(); await ctx.close();
   }
 
@@ -360,15 +359,15 @@ const read = (pg) => pg.evaluate(() => {
     await pg.close();
   }
 
-  // reload the same day: the badge is back, with no pill; a badge folded yesterday is not (control)
+  // kosmos#8323: a browser that still holds the old badge's day shows nothing for it
   for (const [when, want] of [['today', true], ['yesterday', false]]) {
     const ctx = await b.newContext();
     const day = localDay(when === 'today' ? NOON : NOON - 24 * 3600 * 1000);
     await ctx.addInitScript((d) => { try { localStorage.setItem('kosmos.streakBadgeDay', d); } catch { /* no storage */ } }, day);
     const { pg } = await open(ctx, () => ({ count: 12, congrats: false }), { key: 'reload ' + when });
     const g = await read(pg);
-    if (want) say(!g.pill.shown && g.badge && !g.badge.hidden && g.badge.text === '12', 'reload: folded today, the badge is back and no pill', JSON.stringify({ pill: g.pill, badge: g.badge }));
-    else say(g.badge && g.badge.hidden, 'reload (control): folded yesterday, no badge today until the day\'s pill', JSON.stringify(g.badge));
+    if (want) say(!g.pill.shown && g.badge === null, 'reload: an old badge day in this browser (kosmos#8323) brings no count and no pill', JSON.stringify({ pill: g.pill, badge: g.badge }));
+    else say(g.badge === null, 'reload: yesterday\'s too', JSON.stringify(g.badge));
     await pg.close(); await ctx.close();
   }
 
@@ -439,9 +438,9 @@ const read = (pg) => pg.evaluate(() => {
     await pg.mouse.move(700, 700);
     await pg.clock.runFor(4 * 1000);
     await pg.waitForTimeout(400);
-    const gone = await pg.evaluate(() => !document.querySelector('#kpill.in') && !document.getElementById('kbadge').hidden);
+    const gone = await pg.evaluate(() => !document.querySelector('#kpill.in') && !document.getElementById('kbadge'));
     say(held, 'pause: 20 s with the pointer on the K mark, the pill is still out');
-    say(gone, 'pause: once the pointer leaves, it folds into the badge');
+    say(gone, 'pause: once the pointer leaves, it folds, leaving no count');
     await pg.close();
   }
 
@@ -450,7 +449,7 @@ const read = (pg) => pg.evaluate(() => {
     const { pg, errs } = await open(b, () => ({ count: 12, congrats: false }), { key: 'no note' });
     await settled(pg);
     const g = await read(pg);
-    say(g.note && g.note.hidden && !g.pill.shown && g.badge && g.badge.hidden, 'no note: no congrats, no pill, no notice and no badge (control)', JSON.stringify({ note: g.note, pill: g.pill, badge: g.badge }));
+    say(g.note && g.note.hidden && !g.pill.shown && g.badge === null, 'no note: no congrats, no pill, no notice', JSON.stringify({ note: g.note, pill: g.pill, badge: g.badge }));
     say(g.label && g.label.opacity === '0', 'no note: the label waits for a hover', JSON.stringify(g.label));
     const vis = await pg.evaluate(() => getComputedStyle(document.getElementById('kstreak')).visibility);
     say(vis === 'hidden', 'no note: at rest the label is hidden, so a screen reader reads it once, as the description', vis);
@@ -719,7 +718,7 @@ const read = (pg) => pg.evaluate(() => {
     const focus = await pg.evaluate(() => (document.activeElement || {}).id || null);
     say(focus === 'klink', 'narrow: dismissed from the keyboard, focus moves to the K mark', JSON.stringify(focus));
     const after = await read(pg);
-    say(after.note.hidden && after.badge && !after.badge.hidden && after.badge.text === '12', 'narrow: when the notice goes, the badge says 12 on the mark', JSON.stringify(after.badge));
+    say(after.note.hidden && after.badge === null, 'narrow: when the notice goes, no count is left on the mark', JSON.stringify(after.badge));
     await pg.close();
   }
 
