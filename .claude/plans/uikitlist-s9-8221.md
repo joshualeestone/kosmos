@@ -1,6 +1,6 @@
-# uikitlist-s9-8221: the pull past the newest message on the UIKit chat list (kosmos#8221, slice 9). WORK IN PROGRESS
+# uikitlist-s9-8221: the pull past the newest message on the UIKit chat list (kosmos#8221, slice 9)
 
-Stacked on uikitlist-s8-8221 (PR #8280). Rebase onto main once it merges.
+Rebased onto main after #8280 merged (753a7cdcbd).
 
 ## Finished looks like
 
@@ -43,8 +43,19 @@ lazy list.
   update. 05:55 to 05:58, 5 traced runs on the UIKit list: 5 of 5 PASSED, and in every one the fix fired ("rows landed
   under a pull, kept 129 to 154 pt past the end") before "end pull: reading". Same timing as the 5 of 5 failures before.
 
+## Review round 1 (blind, general-purpose): no BLOCKER
+
+- SHOULD: a cell's later self-sizing pass could grow the content after the kept pull. DEFERRED, recorded on the card as
+  this fix's weakest premise: in 5 of 5 traced runs the kept pull was 129 to 154 pt past the end, twice the 72 pt threshold.
+- SHOULD: an arrival during the pull is timing, not forced. ACCEPTED with a comment in the check: it lined up in 10 of 10
+  measured runs (5 failing before the fix, 5 passing after with the fix firing).
+- NIT: DotsRefresh's trace line was outside the room suite's allow-list scan. FIXED: plain values, the file added to the
+  scan with a control; perturbed (mayCount removed from the list): FAIL naming it, restored.
+- NIT: restsAbove 2.5 hard-codes a measured difference. ACCEPTED: the comment names the measurement.
+
 ## Status
 
-- [x] Measured (above). [x] ChatList.scroller, ChatView attaches EndPullDriver, restsAbove 2.5 on the UIKit list.
-      [x] Room checks: slice 9's attach, slice 7's pinned line updated (862/862). EndPull asserts the UIKit list drew it.
-- [ ] The open check above; then ui-sample.sh --uikit with EndPullUITests:6, validation, review, PR.
+- [x] Measured, fixed, review round 1 (bounded at 3; round 1 found no BLOCKER or WARNING, so it ends).
+- [x] ui-sample.sh --uikit: 32 of 32 (iPhone 17e, iOS 27.0), EndPullUITests:6 included.
+- [x] Room 863/863, sweep 45/45, pullrefresh 48/48, every LogicTests runner green, the 13 node tests that read ios/ green.
+- [x] Full validation PASSED (06:42 CST, hash 77c775c1416b); main had not moved.
