@@ -248,7 +248,7 @@ test('the stale list marks each offered task and says the rule once; nothing els
   assert.equal(out[0], '#2  open  kit  diag  (quiet 20 days, left under closed task #1)');
   assert.equal(out[1], '#3  open  nobody  other  (quiet 19 days)', 'a task not offered reads as before');
   assert.equal(out[3], '1 of these looks left over: added by an agent, and the work it was part of has since finished.', out.join('\n'));
-  assert.equal(out[4], 'If one is yours and you are sure it is done with, close it: kosmos task close p <task-number>.', 'the one project named');
+  assert.equal(out[4], 'If one is yours and you are sure it is done with, close it: kosmos task close p <task-number> (add --not-run if it never ran).', 'the one project named');
   assert.ok(out[5].startsWith('Only offered when an agent did everything on it so far: never one the person added, set up or touched'), out[5]);
   assert.equal(out.filter((l) => l.includes('left over')).length, 1, 'the rule is said once');
   assert.ok(out.every((l) => l.length <= 200), 'no line of the rule runs past 200 characters');
