@@ -553,7 +553,7 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
 // #6330: how long the typing of one built line may hold the mark's answer (under the Mac CLI's 15 s).
 let BUILT_TELL_WAIT_MS = 10000;
 function setBuiltTellWaitForTests(ms) { BUILT_TELL_WAIT_MS = ms === undefined ? 10000 : ms; }
-async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
+async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = null) {
   if (!t || typeof t.number !== 'number') return { delivered: [] };
   // A read that fails throws to the route (which then says it could not work out who to tell); a missing project is [].
   const rec = projects.readAll().find((x) => x && x.id === projectId) || null;
@@ -576,7 +576,14 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
   }
   // Both names here are agents' names from the project, not a caller, so no paneless key applies.
   const forParent = parentWho.filter(notMe).filter((m) => !others.some((o) => sameAgentName(o, m, false)));
-  const everyone = others.concat(forParent);
+  /* kosmos#8307: a mark that replaced the file also reaches whoever checked the old one (still on the project), since
+     their check no longer counts; once each, after the assignees and the parent's holders. */
+  const replacedPrint = replaced && /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(replaced.fingerprint || '') ? replaced.fingerprint : '';
+  const oldCheckers = replacedPrint && Array.isArray(replaced.checkedBy) ? replaced.checkedBy.filter((m) => typeof m === 'string' && m) : [];
+  const forChecker = [...new Set(oldCheckers)].filter(notMe).filter(member)
+    .filter((m) => !others.concat(forParent).some((o) => sameAgentName(o, m, false)));
+  const checkedOld = (m) => oldCheckers.some((o) => sameAgentName(o, m, false));
+  const everyone = others.concat(forParent, forChecker);
   if (!everyone.length) return { delivered: [] };
   const offHere = projects.swarmOffSet(projectId);
   // The task-message valve, asked only when a line would actually be attempted (not for a list of only switched-off or
@@ -597,6 +604,9 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
        Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). kosmos#6849: it
        names the command, since a PDF's fingerprint is not its shasum and an older instruction says shasum. */
     + (/^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
+    /* kosmos#8307: a replacement says which file it replaces, and that a check of that file no longer counts. */
+    + (replacedPrint ? ' - it replaces the file sent earlier (' + replacedPrint + '), so a check of that file no longer counts'
+      + (checkedOld(m) ? ': you checked that one' : '') : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
@@ -26575,7 +26585,7 @@ const server = http.createServer(async (req, res) => {
             const no = taskMessageRefusal();
             if (!no) taskMessageValveRecord();
             return no;
-          });
+          }, out.replaced || null);   // kosmos#8307
         } catch (err) {
           process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
           delivered = [];

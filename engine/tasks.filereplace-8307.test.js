@@ -118,3 +118,24 @@ test('#8307: no view the page reads carries the replaced file\'s path either', (
   assert.equal('filePath' in bare.builtReplaces, false);
   assert.equal(get(n).builtReplaces.filePath, FILE_A, 'stripping a view changed the stored task');
 });
+
+test('#8307: task show names the current file, who checked it, and the file it replaces with its out-of-date checks', () => {
+  const tasklist = require('./tasklist');
+  const n = freshTask();
+  mark(n, { by: 'mona', fingerprint: A, filePath: FILE_A });
+  mark(n, { by: 'zed' });
+  mark(n, { person: true });
+  const before = tasklist.showLines({ tasks: [get(n)] }, n, pid).lines.join('\n');
+  assert.match(before, /^Checked: this file, by zed, the person$/m, before);
+  assert.doesNotMatch(before, /^Replaces:/m, 'CONTROL: nothing replaced yet');
+  mark(n, { by: 'mona', fingerprint: B, filePath: FILE_B });
+  const out = tasklist.showLines({ tasks: [get(n)] }, n, pid).lines.join('\n');
+  assert.match(out, new RegExp('^Delivered file: ' + B + ', sent by mona', 'm'), out);
+  assert.match(out, /^Checked: not yet: nobody has checked this file since it replaced the one below$/m, out);
+  assert.match(out, new RegExp('^Replaces: ' + A + ', sent by mona, ', 'm'), out);
+  assert.match(out, /^Out of date: the checks of that file, by zed, the person: they are not checks of this one$/m, out);
+  assert.ok(out.includes('Replaced file path, on the computer that marked it:') && out.includes(FILE_A), out);
+  mark(n, { by: 'ivy' });
+  const after = tasklist.showLines({ tasks: [get(n)] }, n, pid).lines.join('\n');
+  assert.match(after, /^Checked: this file, by ivy$/m, 'a check of the new file is not said: ' + after);
+});
