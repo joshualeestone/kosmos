@@ -5926,7 +5926,7 @@ cmd_feedback() {
         const fb = require(process.argv[1] + "/engine/feedback");
         const days = fb.list();
         for (const d of days) process.stdout.write(d + "\n");
-        /* kosmos#8340: whose reports these are, and which hold this agent own, on stderr (the dates stay a plain list). */
+        /* kosmos#8340: whose reports these are, and which hold the ones this agent wrote, on stderr (the dates stay a plain list). */
         let note = null;
         try { note = fb.listNote(fb.writer(process.env), days); } catch { note = null; }
         if (note) process.stderr.write(note + "\n");

@@ -423,3 +423,17 @@ test('kosmos#8340: counts the agent was last shown are replaced by one short sen
   assert.equal(changed, full);
   assert.deepEqual(told, [full]);
 });
+
+test('kosmos#8340 review 1: the replies waiting for an answer print every time; only the 24-hour counts are compared', async () => {
+  const now = Date.now();
+  fresh(now);
+  const full = today(1, 0, 1);
+  const owedLine = '2 comments on your posts from the last 3 days are waiting for your answer.';
+  const seen = [];
+  const same = await nudge.nudge('mara', { now, owed: 2, sameAsShown: (c) => { seen.push(c); return c === full; } });
+  assert.equal(same, owedLine + ' ' + nudge.COUNTS_UNCHANGED, 'the replies-waiting line was hidden with the counts');
+  assert.deepEqual(seen, [full], 'the compared text carried more than the 24-hour counts');
+  const told = [];
+  assert.equal(await nudge.nudge('mara', { now, owed: 2, onCounts: (c) => told.push(c) }), owedLine + ' ' + full);
+  assert.deepEqual(told, [full], 'onCounts was told the replies-waiting sentence too');
+});
