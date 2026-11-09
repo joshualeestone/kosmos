@@ -311,9 +311,6 @@ function showLines(body, num, project) {
         + (current ? '' : ' (the last mark sent no file)'));
       const oldChecked = names(old.checkedBy, old.checkedByPerson);
       if (oldChecked.length) field('Out of date', 'the checks of that file, by ' + oldChecked.join(', ') + (current ? ': they are not checks of this one' : ''));
-      const oldAt = typeof old.filePath === 'string' && old.filePath.trim() ? old.filePath : null;
-      if (oldAt && current && oldAt === x.builtFilePath) field('Replaced file path', 'the same path as the delivered file (rebuilt in place)');
-      else if (oldAt) { lines.push((current ? 'Replaced' : 'Withdrawn') + ' file path, on the computer that marked it:'); under(oldAt); }
     }
   }
   if (typeof x.landedCommit === 'string' && /^[0-9a-f]{7,64}$/.test(x.landedCommit)) {

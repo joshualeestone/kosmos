@@ -63,7 +63,8 @@ test('#8307: a different file replaces it, keeps the old one with its checks, an
   mark(n, { person: true });
   assert.equal(get(n).builtFingerprintAt, sentAt, 'a check moved when the file was sent');
   const r = mark(n, { by: 'mona', fingerprint: B, filePath: FILE_B, note: 'rebuilt with the new figures' });
-  assert.deepEqual(r.replaced, { fingerprint: A, by: 'mona', at: sentAt, filePath: FILE_A, checkedBy: ['zed'], checkedByPerson: true, kind: 'replaced' });
+  assert.deepEqual(r.replaced, { fingerprint: A, by: 'mona', at: sentAt, checkedBy: ['zed'], checkedByPerson: true, kind: 'replaced' });
+  assert.equal('filePath' in r.replaced, false, 'the replaced file\'s path was kept (review 4: never stored)');
   const t = get(n);
   assert.equal(t.builtFingerprint, B);
   assert.equal(t.builtFilePath, FILE_B);
@@ -146,19 +147,21 @@ test('#8307: a looping checker records nothing new, and the list of checkers is 
   assert.equal(get(n).builtCheckedBy.length, 20);
 });
 
-test('#8307: no view the page reads carries the replaced file\'s path either', () => {
+test('#8307: the replaced file\'s path is never stored, so no view or route can carry it; the page view still strips the current one', () => {
   const n = freshTask();
   mark(n, { by: 'mona', fingerprint: A, filePath: FILE_A });
   mark(n, { by: 'mona', fingerprint: B, filePath: FILE_B });
-  assert.equal(get(n).builtReplaces.filePath, FILE_A, 'CONTROL: the store keeps it, for task show');
+  assert.equal(get(n).builtReplaces.fingerprint, A, 'CONTROL: what it replaced is kept');
+  assert.equal('filePath' in get(n).builtReplaces, false, 'the store kept the replaced file\'s path');
+  assert.ok(!JSON.stringify(get(n).builtReplaces).includes(FILE_A), 'the old path is somewhere in the record');
+  assert.equal(get(n).builtFilePath, FILE_B, 'CONTROL: the current path is stored, for task files');
   const row = tasks.byNumber(projects.get(pid), n);
+  assert.equal('builtFilePath' in row, false, 'the page view carried the current path');
   assert.equal(row.builtReplaces.fingerprint, A, 'CONTROL: the page view still names what it replaced');
-  assert.equal('filePath' in row.builtReplaces, false, 'the page view carried the replaced file\'s path');
-  assert.equal('builtFilePath' in row, false);
-  const bare = tasks.withoutFilePaths(get(n));
+  // The helper also strips a replaced path left by an earlier build of this branch, should a store hold one.
+  const bare = tasks.withoutFilePaths({ builtFilePath: FILE_B, builtReplaces: { fingerprint: A, filePath: FILE_A } });
   assert.equal('builtFilePath' in bare, false);
   assert.equal('filePath' in bare.builtReplaces, false);
-  assert.equal(get(n).builtReplaces.filePath, FILE_A, 'stripping a view changed the stored task');
 });
 
 test('#8307: task show names the current file, who checked it, and the file it replaces with its out-of-date checks', () => {
@@ -176,12 +179,7 @@ test('#8307: task show names the current file, who checked it, and the file it r
   assert.match(out, /^Checked: not yet: nobody has checked this file since it replaced the one below$/m, out);
   assert.match(out, new RegExp('^Replaces: ' + A + ', sent by mona, ', 'm'), out);
   assert.match(out, /^Out of date: the checks of that file, by zed, the person: they are not checks of this one$/m, out);
-  assert.ok(out.includes('Replaced file path, on the computer that marked it:') && out.includes(FILE_A), out);
-  // Rebuilt in place: the same path is not printed twice.
-  mark(n, { by: 'mona', fingerprint: 'sha256:' + 'd'.repeat(64), filePath: FILE_B });
-  const inPlace = tasklist.showLines({ tasks: [get(n)] }, n, pid).lines.join('\n');
-  assert.match(inPlace, /^Replaced file path: the same path as the delivered file \(rebuilt in place\)$/m, inPlace);
-  mark(n, { by: 'mona', fingerprint: B, filePath: FILE_B });
+  assert.ok(!out.includes(FILE_A), 'task show printed a replaced file\'s path: ' + out);
   mark(n, { by: 'ivy' });
   const after = tasklist.showLines({ tasks: [get(n)] }, n, pid).lines.join('\n');
   assert.match(after, /^Checked: this file, by ivy$/m, 'a check of the new file is not said: ' + after);

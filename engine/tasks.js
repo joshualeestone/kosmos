@@ -944,7 +944,7 @@ function withoutBuilt(t) {
  *                          fingerprint (the checker's mark above). builtCheckedByPerson: the person's mark kept it. Never
  *                          the sender's own mark
  *   builtReplaces          (kosmos#8307) the file this one replaced: a mark with a DIFFERENT fingerprint replaces the one
- *                          kept, and the old one is kept here as { fingerprint, by, at, filePath?, checkedBy, checkedByPerson? },
+ *                          kept, and the old one is kept here as { fingerprint, by, at, checkedBy, checkedByPerson? } (no path, review 4),
  *                          so its checks read as out of date and their agents can be told. Only the one previous file.
  *                          A mark that drops the fingerprint keeps the dropped file here (withdrawn, review 1); a clear
  *                          drops it
@@ -1009,7 +1009,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       const names = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x) : []);
       const recordOf = (x) => ({
         fingerprint: x.builtFingerprint, by: x.builtFingerprintBy || null, at: typeof x.builtFingerprintAt === 'string' ? x.builtFingerprintAt : null,
-        ...(x.builtFilePath ? { filePath: x.builtFilePath } : {}), checkedBy: names(x.builtCheckedBy),
+        checkedBy: names(x.builtCheckedBy),   // review 4: never the old file's path, so no route can carry a second one
         ...(x.builtCheckedByPerson === true ? { checkedByPerson: true } : {}),
       });
       const withdrawn = t.builtAt && !hadPrint && t.builtReplaces && typeof t.builtReplaces === 'object'
@@ -1035,6 +1035,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
         && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who) && (t.builtFilePath || '') === keptPath
         && sameList(t.builtCheckedBy, checkedBy) && (t.builtCheckedByPerson === true) === checkedByPerson
+        // review 4: the replaced file too, so a change to it alone is never skipped as the same mark
+        && JSON.stringify(t.builtReplaces || null) === JSON.stringify(replaces || null)
         && (!landed || (t.landedCommit === landed.sha && t.landedRepo === landed.repo && t.landedOnRemote === landed.onRemote))) {
         same = true; changed = t; throw NO_WRITE;
       }
