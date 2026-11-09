@@ -198,6 +198,38 @@ test('kosmos#8333: CONTROL, a box that keeps holding other text is never pressed
 }));
 
 
+test('kosmos#8333: the async path settles the same way, both arms', async () => {
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  try {
+    let t = arm([EMPTY, box('not yet settled'), box(MSG), EMPTY]);
+    let v = await chat.deliverAsync('al', MSG, board.agents);
+    assert.equal(t.enters(), 1);
+    assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+    chat.resetForTests();
+    t = arm([EMPTY, box('the person was typing this ' + MSG)]);
+    v = await chat.deliverAsync('al', MSG, board.agents);
+    assert.equal(t.enters(), 0);
+    assert.equal(v.confirm, 'not-pressed');
+    assert.ok(t.reads() >= 12, 'looked again: ' + t.reads());
+  } finally { board.restore(); }
+});
+
+test('kosmos#8333: the window changing during the looks is not pressed', () => withAgent({}, (roster) => {
+  const t = arm([EMPTY, box('not yet settled'), box(MSG), EMPTY]);
+  let probes = 0;
+  const failLate = (args) => {
+    if (args[0] === 'display-message') { probes += 1; if (t.reads() >= 3) return ok(''); }
+    return t(args);
+  };
+  failLate.calls = t.calls;
+  chat.setRunner(failLate);
+  const v = chat.deliver('al', MSG, roster);
+  assert.ok(probes > 0);
+  assert.equal(t.enters(), 0, 'never over a window that changed');
+  assert.equal(v.state, chat.DELIVERY.UNCONFIRMED);
+  assert.match(v.because, /window changed/);
+}));
+
 test('#6249: ghost text after the Enter is an empty box, not our text still there', () => withAgent({}, (roster) => {
   const t = arm([EMPTY, screen('empty-placeholder')]);
   const v = chat.deliver('al', MSG, roster);

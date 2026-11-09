@@ -1063,7 +1063,7 @@ const SUBMIT_SETTLE_MS = 1500;
 const EARLIER_SETTLE_MS = 300;   // round 8: the watch after the Enter on the board's own earlier line
 const FOLD_STABLE_LOOKS = 5;   // #6249: looks a SUBMIT_LOOK_MS apart for a folded paste to stop changing before it is pinned
 /* kosmos#8333: looks a SUBMIT_LOOK_MS apart before a box that reads as holding other text is believed. A false "other" on
-   a long paste left a message unsent that one Enter would have sent. Only a read that says "ours" ever presses. */
+   a long paste left a message unsent that one Enter would have sent. About 600 ms in all, only on a read of "other". */
 const OTHER_SETTLE_LOOKS = 10;
 const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empty 25 to 93 ms after the Enter
 /* #6256 item 3: says what happens next, so nobody types it again by hand (the retries are UNSENT_RETRY_MS). */
@@ -2791,8 +2791,9 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       }
     }
     if (holds === 'other') {
-      /* Letters and digits masked: the shape of what was read, for the next time this is wrong, never the words. */
-      const shape = (x) => String(x || '').replace(/[A-Za-z0-9]/g, 'x');
+      /* Everything but spaces and the marks a fold is made of is masked: the shape of what was read, for the next time this
+         is wrong, never the words. */
+      const shape = (x) => String(x || '').replace(/[^\s\[\]#+.,:]/gu, 'x');
       const seen = String(box.text || '');
       console.warn('[delivery] not pressed, box read as other: wire ' + wire.length + ' chars, box ' + seen.length + ', starts "' + shape(seen.slice(0, 40)) + '", ends "' + shape(seen.slice(-40)) + '"');
       return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, confirm: 'not-pressed', because: UNSENT_NOT_PRESSED_BECAUSE, at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };   // kosmos#8021: Enter never pressed
