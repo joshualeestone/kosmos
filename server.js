@@ -26606,6 +26606,13 @@ const server = http.createServer(async (req, res) => {
           // Nobody to tell: no sentence, so the CLI adds nothing to a solo mark.
         }
       }
+      /* kosmos#8307 review 2: a mark without a file from its sender withdraws the file it named (the #6330 rule), which
+         now tells that file's checkers, so the marker hears it too and how to keep the file. No double quote, backslash
+         or control character, which the CLI's sed could not read. */
+      if (!viaScreen && body.clear !== true && out.replaced && out.replaced.kind === 'withdrawn') {
+        summary = (summary ? summary + ' ' : '') + 'This mark sent no file, so the file the task named before is withdrawn'
+          + ' and anyone who checked it is told. To keep it, mark it again with --file and its path.';
+      }
       // #6254: an agent marking a task BUILT means work is waiting for the person's check -> a `ready`
       // buzz (push-only, Liu Kang's ruling: never email). Not when the person marks it from the screen
       // (viaScreen, by === null), not on a clear, and only when the mark actually changed. Never the
