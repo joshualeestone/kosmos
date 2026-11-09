@@ -220,3 +220,28 @@ test('kosmos#8140: held subtasks are counted apart (held), open ones only, direc
   tasks.setOnHold(id, kids[1].number, false, { viaScreen: true });
   assert.equal(rowOf(id, top.number).subtasks.held, 2, 'released, it is no longer counted held');
 });
+
+/* kosmos#8301: closed without running is only ever said by the closer, or by a replacement. */
+test('kosmos#8301: a parent counts closed without running only when the closer said so, or it was replaced', () => {
+  const id = projects.create({ name: 'Unrun ' + Math.random().toString(36).slice(2), agents: ['rex'] }).id;
+  const top = tasks.create(id, { sentence: 'Parent' });
+  const kid = (s) => tasks.create(id, { sentence: s, parent: top.number }).number;
+  const plain = kid('plain close');
+  const notRun = kid('never ran');
+  const replaced = kid('replaced');
+  const instead = tasks.create(id, { sentence: 'instead' }).number;
+  tasks.close(id, plain);
+  tasks.close(id, notRun, { notRun: true });
+  tasks.close(id, replaced, { replacedBy: instead });
+  const stored = (n) => projects.readAll().find((p) => p.id === id).tasks.find((t) => t.number === n);
+  assert.equal(stored(plain).closedUnrun, undefined, 'a plain close is done, whatever is or is not on record');
+  assert.equal(stored(notRun).closedUnrun, true);
+  assert.equal(stored(replaced).closedUnrun, true);
+  const count = () => tasks.treeOf(projects.readAll().find((p) => p.id === id)).progress(top.number);
+  assert.deepEqual(count(), { done: 3, built: 0, held: 0, unrun: 2, total: 3 });
+  tasks.reopen(id, notRun, {});
+  assert.equal(stored(notRun).closedUnrun, undefined, 'reopening clears it');
+  tasks.close(id, notRun);
+  assert.equal(stored(notRun).closedUnrun, undefined, 'a later plain close says done');
+  assert.deepEqual(count(), { done: 3, built: 0, held: 0, unrun: 1, total: 3 });
+});

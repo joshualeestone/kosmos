@@ -18079,7 +18079,7 @@ window.kosmosMeasureScrollbarWidth();
         <h3 class="dlab" style="margin-top: var(--space-6);">Subtasks</h3>
         <div class="tksubs" id="tk-subs"></div>
         <p class="dhint tksubs-done" id="tk-subs-built" hidden><span>All subtasks are built. Check each one first.</span><button class="linkish" type="button" id="tk-subs-closeall">Close them and this task</button></p>
-        <p class="dhint tksubs-done" id="tk-subs-done" hidden><span>All subtasks done.</span><button class="linkish" type="button" id="tk-subs-close">Close this task</button></p>
+        <p class="dhint tksubs-done" id="tk-subs-done" hidden><span id="tk-subs-done-say">All subtasks done.</span><button class="linkish" type="button" id="tk-subs-close">Close this task</button></p>
         <button class="linkish" type="button" id="tk-subadd">+ Add subtask</button>
       </section>
 
@@ -71831,7 +71831,7 @@ function paintProjectTasks(p) {
     const subDone = sub ? sub.done - subUnrun : 0;
     const subBuilt = sub && Number(sub.built) > 0 ? ', ' + Number(sub.built) + ' built' : '';
     const subHeld = sub ? (subUnrun ? ', ' + subUnrun + ' closed without running' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '') : '';
-    const subAllBuilt = !!sub && !t.closedAt && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total;
+    const subAllBuilt = !!sub && !subUnrun && !t.closedAt && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total;
     const subLabel = sub ? subDone + ' of ' + sub.total + ' subtasks done' + subBuilt + subHeld : '';
     /* The hidden words follow the count and come BEFORE the held figure, so a screen reader hears "0/4 subtasks done, 3 on
        hold", never "3 on hold subtasks done" (kosmos#8140 review 1). */
@@ -72253,10 +72253,10 @@ function tskRow(t, at) {
   /* Every subtask closed, the parent still open: say so and offer Close. Closing the last child
      never closes the parent (nothing cascades, engine/tasks.js); the person decides here. */
   const allDone = sub && sub.done === sub.total && t.state !== 'closed'
-    ? '<span>all subtasks done</span><button type="button" data-close-parent="' + esc(tskKey(t)) + '">Close it</button>'
+    ? '<span>all subtasks ' + (subUnrun ? 'closed' : 'done') + '</span><button type="button" data-close-parent="' + esc(tskKey(t)) + '">Close it</button>'
     /* kosmos#5956: every subtask closed or built, some only built: the parent is ready for the person to check. No
        Close here: the built subtasks are still open, and closing them is the person's call on each one. */
-    : sub && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total && t.state !== 'closed'
+    : sub && !subUnrun && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total && t.state !== 'closed'
       ? '<span>all subtasks built, ready for you to check</span>' : '';
   const partOf = place.crumb && t.parent != null
     ? '<span class="tsk-part">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
@@ -73201,15 +73201,19 @@ function tkPaintSubtasks(p, t, closed) {
        unconditional write would take a keyboard user's focus off a subtask every tick. */
     const html = kids.length ? kids.map((x) => '<button class="tksub' + (done(x) ? ' done' : '') + '" type="button" data-sub="' + Number(x.number) + '">'
       + '<span class="tksub-n">#' + Number(x.number) + '</span><span class="tksub-t">' + esc(x.sentence) + '</span>'
-      + '<span class="tksub-s">' + (done(x) ? (Number.isInteger(x.replacedBy) ? 'Replaced' : 'Done') : built(x) ? 'Built' : x.onHold === true ? 'On hold' : 'Open') + '</span></button>').join('')   // kosmos#8140: held apart from open
+      + '<span class="tksub-s">' + (done(x) ? (Number.isInteger(x.replacedBy) ? 'Replaced' : x.closedUnrun === true ? 'Not run' : 'Done') : built(x) ? 'Built' : x.onHold === true ? 'On hold' : 'Open') + '</span></button>').join('')   // kosmos#8140: held apart from open
       : '<p class="dhint" style="margin:0;">None yet. Break this task into smaller ones, each with its own page.</p>';
     if (list.innerHTML !== html) list.innerHTML = html;
   }
   const all = document.getElementById('tk-subs-done');
-  if (all) all.hidden = !(kids.length && kids.every(done) && !closed);
+  if (all) {
+    all.hidden = !(kids.length && kids.every(done) && !closed);
+    const said = document.getElementById('tk-subs-done-say');   // kosmos#8301: not "done" when one was closed without running
+    if (said) said.textContent = kids.some((x) => x.closedUnrun === true) ? 'All subtasks closed.' : 'All subtasks done.';
+  }
   /* kosmos#5956: every subtask closed or built, some only built: ready for the person to check each one. */
   const ready = document.getElementById('tk-subs-built');
-  if (ready) ready.hidden = !(kids.length && !kids.every(done) && kids.every((x) => done(x) || built(x)) && !closed);
+  if (ready) ready.hidden = !(kids.length && !kids.every(done) && kids.every((x) => done(x) || built(x)) && !kids.some((x) => x.closedUnrun === true) && !closed);
   const row = document.getElementById('tk-partof-row');
   const up = document.getElementById('tk-partof');
   const parent = t.parent != null ? (p.tasks || []).find((x) => x && x.number === t.parent) : null;
