@@ -246,3 +246,18 @@ test('kosmos#8300: a held ask that has since reached the reader leaves the list 
   myPost(pid, -60000);
   assert.ok(!listed((await room(pid, '&unanswered=1')).text, held), 'a post after it reached the reader should count');
 });
+
+test('kosmos#8300: a person\'s reply to one post stays listed: it was not to the whole room', async () => {
+  const pid = newRoom('Aged8300l');
+  const mine = myPost(pid, 11 * DAY);
+  const reply = toRoom(pid, 10 * DAY, { replyTo: mine });
+  myPost(pid, 9 * DAY);
+  assert.ok(listed((await room(pid, '&unanswered=1')).text, reply));
+});
+
+test('kosmos#8300: an @-word that matched two members stays listed: it named someone', async () => {
+  const pid = newRoom('Aged8300m');
+  const unclear = toRoom(pid, 10 * DAY, { ambiguousMentions: ['ada'], text: '@ada are you there' });
+  myPost(pid, 9 * DAY);
+  assert.ok(listed((await room(pid, '&unanswered=1')).text, unclear));
+});
