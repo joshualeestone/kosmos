@@ -804,7 +804,11 @@ check(chatSource.contains("if working && !endPull.dotsUp {\n                Work
       && dotsDriverSource.components(separatedBy: "        noteDots()\n").count - 1 == 2
       && chatSource.contains("private var endRoom: CGFloat { max(ChatView.fadeHeight + 8, workingLineHeight + 10) }")
       && chatSource.components(separatedBy: "frame(height: endRoom)").count - 1 == 2
-      && !chatSource.contains("\"working\", \"end\"") && !chatSource.contains(".id(\"working\")"),
+      && !chatSource.contains("\"working\", \"end\"") && !chatSource.contains(".id(\"working\")")
+      // The agent starting to work raises no "New messages" and scrolls nothing, on either list; and the capsule sits above the
+      // line at a large text size.
+      && !chatSource.contains(".onChange(of: working)")
+      && chatSource.contains(".padding(.bottom, endRoom)   // above the fade (kosmos#7346)"),
       "kosmos#8283: the working line is drawn over the strip above the box, never as a row kept in the list")
 check(agentsSource.contains(".id(agent.session)"), "review 1: a notice for another agent while a chat is open starts that chat afresh, not the old one renamed")
 if let a = content.range(of: ".onChange(of: pushManager.accountChanges)"), let c = content.range(of: "agentRequest = nil; roomRequest = nil") {
