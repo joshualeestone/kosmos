@@ -22,4 +22,8 @@ working Claude agent on one tool call for 5+ minutes: "  on one step since 2026-
 
 ## Proof
 
-- engine/clilists.test.js: three new tests; three mutation arms red; a sweep of 99 CLI and help test files green.
+- engine/clilists.test.js: three new tests; server.agent-token-gate-4491.test.js: one route-level test (exact keys, a
+  name that is not plain never reaches the response). Nine mutation arms red, each with the file loading. A sweep of 99
+  CLI and help test files green. Two blind review rounds (opus, sonnet), the second clean.
+- What the list now sends, stated in the three comments that describe it: a long tool call's tool name, only in the
+  PLAIN_TOOL shape, checked where the row is made and where it is printed.
