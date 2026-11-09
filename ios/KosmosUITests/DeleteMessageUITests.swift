@@ -10,7 +10,9 @@ final class DeleteMessageUITests: XCTestCase {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana"]
+        UIKitListArm.set(app)   // kosmos#8221 slice 8: runs on either list (TEST_RUNNER_KOSMOS_UIKITLIST)
         app.launch()
+        UIKitListArm.assertDrawn(app)
         return app
     }
 

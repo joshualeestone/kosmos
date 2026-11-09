@@ -12,4 +12,11 @@ enum UIKitListArm {
         // reads the switch; NewChatListSwitchUITests puts it back off in its teardown).
         app.launchEnvironment["KOSMOS_SAMPLE_UIKITLIST"] = on ? "1" : "0"
     }
+    // kosmos#8221 slice 8: on the UIKit arm, that the chat really is drawn by the UIKit list (ChatList's identifier), so a
+    // pass on this arm is never the lazy list's pass under another name. A launch that opens no chat need not call it.
+    static func assertDrawn(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        guard on else { return }
+        let list = app.descendants(matching: .any).matching(identifier: "chat-list-uikit").firstMatch
+        XCTAssertTrue(list.waitForExistence(timeout: 20), "the UIKit arm opened a chat not drawn by the UIKit list", file: file, line: line)
+    }
 }

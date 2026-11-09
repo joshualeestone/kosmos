@@ -264,7 +264,7 @@ struct SettingsView: View {
         } header: {
             Text("Chat").id("chat")
         } footer: {
-            Text("A test of a new way to draw your chats. Holding a message to copy or delete it, and some of the scrolling, are not in it yet. Applies to the next chat you open.")
+            Text("A test of a new way to draw your chats. Some of the scrolling is not in it yet. Applies to the next chat you open.")
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
     }
