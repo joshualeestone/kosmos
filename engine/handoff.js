@@ -211,7 +211,7 @@ function stateFact(session, now) {
      is at work now, by running it, so an older self-report is said to be older than now. No board call: this file makes
      none, and the running command is better evidence than a read of the screen. */
   const reportAge = (Number.isFinite(now) ? now : Date.now()) - Date.parse(r.at);
-  if (Number.isFinite(reportAge) && reportAge >= LIVE_NOW_MS) return 'at work now (it is running this handoff); its last self-report: ' + parts.join('; ');
+  if (Number.isFinite(reportAge) && reportAge >= LIVE_NOW_MS) return 'at work when this handoff was run; its last self-report: ' + parts.join('; ');
   return parts.join('; ');
 }
 

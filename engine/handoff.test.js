@@ -133,9 +133,9 @@ test('#6593: the self-report line says its age, and past a day that it may not d
   assert.doesNotMatch(fresh, /may not describe/, 'a fresh report was called old');
   const old = handoff.stateFact(session, at + 14 * 24 * 60 * 60 * 1000);
   assert.match(old, /; 14 days ago, so it may not describe what the agent is doing now$/, 'a two-week-old report reads as current: ' + old);
-  assert.match(old, /^at work now \(it is running this handoff\); its last self-report: working; running the suite; as of /, 'kosmos#8298 item 6: said to be at work now, and the report itself is still shown');
-  assert.doesNotMatch(fresh, /at work now/, 'CONTROL: a report from this turn stands alone');
-  assert.match(handoff.stateFact(session, at + 11 * 60 * 1000), /^at work now/, 'kosmos#8298: past ten minutes it is said');
+  assert.match(old, /^at work when this handoff was run; its last self-report: working; running the suite; as of /, 'kosmos#8298 item 6: said to be at work when it ran, and the report itself is still shown');
+  assert.doesNotMatch(fresh, /at work when/, 'CONTROL: a report from this turn stands alone');
+  assert.match(handoff.stateFact(session, at + 11 * 60 * 1000), /^at work when/, 'kosmos#8298: past ten minutes it is said');
   // The boundary: just under a day is not old; just over is.
   assert.doesNotMatch(handoff.stateFact(session, at + 23 * 60 * 60 * 1000), /may not describe/, '23 hours was called old');
   assert.match(handoff.stateFact(session, at + 25 * 60 * 60 * 1000), /a day ago, so it may not describe/, '25 hours was not called old');
