@@ -32860,8 +32860,9 @@ const COMPUTERS_SEEN = MULTI_KOSMOS ? null : computersSeenRead();
 let THIS_COMPUTER_NAME = COMPUTERS_SEEN ? COMPUTERS_SEEN.name : '';
 let COMPUTERS_OPENABLE = Boolean(COMPUTERS_SEEN);
 let COMPUTERS_CONFIRMED = false;   // #8325: an answer has landed on this page load, so COMPUTERS_OPENABLE is not only remembered
-/* #8325: a remembered control goes after this many failed reads with no answer (about two minutes of the backoff), so a
-   computer whose reads never succeed does not keep offering a menu with nothing in it. It comes back with a good answer. */
+/* #8325: a remembered control goes on the read after this many have failed with no answer (the fourth read; about two
+   minutes of the backoff in a visible tab), so a computer whose reads never succeed does not keep offering an empty menu.
+   It comes back with a good answer. */
 const COMPUTERS_SEEN_GIVE_UP_FAILS = 3;
 let COMPUTERS_RETRY_T = null;
 let COMPUTERS_STALE_WHILE_HIDDEN = false;
