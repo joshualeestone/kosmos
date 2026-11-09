@@ -1546,17 +1546,16 @@ struct ChatView: View {
 
     // kosmos#7420: as the shift report: one try, with a little background time, only to the computer it was counted on.
     private func sendOpenCount() {
-        // kosmos#8221 slice 5: a UIKit-list showing is not sent. Its rows report through the same row() appear and
-        // disappear handlers, but inside reused hosted cells, which nothing has checked; slice 6 counts them on their own
-        // per list. Mixed in here they would move the per-build counts #7420 is decided on.
-        guard !uikitList else { openCount.reset(); return }
         let info = Bundle.main.infoDictionary
         let app = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
         // The epoch this chat holds, not the client's now: a change not yet seen here means this count is another computer's.
         guard epoch == client.chatEpoch else { openCount.reset(); return }
         // A search with no matches, and unsent messages filling the screen, draw no rows either.
         let excused = searchMode || (endSeen && endVisible && !pending.isEmpty)
-        guard let body = openCount.finish(hasRows: !(thread?.rows.isEmpty ?? true), excused: excused, app: app) else { return }
+        // kosmos#8221 slice 6: a UIKit-list showing is sent named as such, and the board counts it apart from the lazy list's.
+        // Its rows report through row() inside reused hosted cells; measured faithful 11-08 (plan uikitlist-s6-8221, step 1).
+        guard let body = openCount.finish(hasRows: !(thread?.rows.isEmpty ?? true), excused: excused, app: app,
+                                          list: uikitList ? "uikit" : nil) else { return }
         let client = self.client, sentAt = epoch
         Task { @MainActor in
             guard sentAt == client.chatEpoch else { return }
