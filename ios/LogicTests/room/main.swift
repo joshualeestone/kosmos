@@ -586,7 +586,7 @@ let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a,
     "pending.last?.text.count ?? 0", "pending.count",   // kosmos#8038: a send's length and how many are pending, both numbers, never its words
     "keepNewestOnKeyboard", "visible", "holdAtEnd", "searchMode",   // kosmos#7645: the room's keyboard will-show, yes/no only
     "applies", "redrawn", "Int(spent * 1000)",   // kosmos#8221: the UIKit list's updates and cells drawn again (counts), and ms spent in them
-    "atEnd", "self.atEnd", "moving()", "busy", "byPerson", "wasAtEnd", "how",   // kosmos#8221 slice 4: the UIKit list's yes/no flags and a fixed word (tracking, dragging, decelerating, still)
+    "atEnd", "self.atEnd", "moving()", "busy", "byPerson", "wasAtEnd", "how", "assistive", "what", "up", "fromAX", "fromResponder", "fromKeyboard", "fromFocus", "fromSwiftUI",   // kosmos#8221 slice 4: the UIKit list's yes/no flags and a fixed word (tracking, dragging, decelerating, still)
     "geometry(sv)", "geometry(list)", "self.geometry(list)"]   // kosmos#8221 slice 4: the UIKit list's offset, end, sizes and inset, in points
 // kosmos#8221 slice 4: the UIKit list's geometry is admitted by name, so its body is pinned: five Int(...) point values and fixed words.
 let listGeometrySource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatList.swift"), encoding: .utf8)) ?? ""
