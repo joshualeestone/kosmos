@@ -91,4 +91,10 @@ or "list chosen: lazy"). Counting reports per list is slice 6 (see Decided, revi
   (15:21, cd57b6add6's successor) had failed in the check itself: review 3's wait looked for the Account header, which
   the lazy Settings list leaves out of the tree until scrolled to; the wait now anchors on Settings' top line. The lazy
   bubble query (review 8's open item) found its bubble.
-- [ ] Final: rebase onto main after slice 4 merges, validation, proof, PR, TestFlight.
+- [x] Round 9 (past the cap, for a BLOCKER found while planning slice 6): a UIKit showing would have reached the board's
+  per-build chat-open counts; sendOpenCount now sends nothing for one until slice 6 counts them apart (c9b8c14b83, reason
+  corrected in dc5fa60207).
+- [x] Rebased onto main after #8262 merged (21:35 CST; slice 4's commits dropped, its empty CI-trigger commit removed by
+  hand). Checks after the rebase onto slice 4's final form: room 854/854, settings 42/42, run.sh 2128/2128, ios*.test.js
+  43/43, typecheck clean. Full validation on the main-based head PASSED (21:56 CST, hash 21e8abe93927).
+- [ ] PR, CI both arms, merge on green, then TestFlight (slice 4's keyboard defect, the reason to hold it, is fixed on main).
