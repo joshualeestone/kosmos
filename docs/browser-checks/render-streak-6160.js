@@ -142,6 +142,11 @@ const read = (pg) => pg.evaluate(() => {
     say(!after.pill.shown && !after.glow, 'fold: after about 6 s the pill and the glow are gone', JSON.stringify({ pill: after.pill, glow: after.glow }));
     say(after.badge === null, 'fold: no count stays on the K mark (kosmos#8323); the label has it', JSON.stringify(after.badge));
     await pg.screenshot({ path: path.join(OUT, 'streak-folded.png') }).catch(() => {});
+    // CONTROL for every "no count" assertion here: a digit put on the mark must be seen, however it is built.
+    await pg.evaluate(() => { const i = document.createElement('i'); i.id = 'zz-digit'; i.textContent = '12'; document.querySelector('.kmark').appendChild(i); });
+    const withDigit = await read(pg);
+    await pg.evaluate(() => document.getElementById('zz-digit').remove());
+    say(withDigit.badge !== null && withDigit.badge.text === '12', 'CONTROL: a number on the K mark is seen by this check', JSON.stringify(withDigit.badge));
     say(errs.length === 0, 'pill: no page errors', errs.join(' | '));
     await pg.close();
   }
@@ -214,7 +219,7 @@ const read = (pg) => pg.evaluate(() => {
     await pg.close();
   }
 
-  // review 2: a reload while the pill is out (the board answers congrats once a day)
+  // review 2: a reload while the pill is out: nothing on the mark, and no second pill (the board answers congrats once a day)
   {
     let calls = 0;
     const ctx = await b.newContext();
