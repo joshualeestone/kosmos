@@ -5,7 +5,7 @@ Addresses #8297 (follow-ups from the review of #8287, PR #8296, merged 2026-11-0
 ## Finished means
 
 1. The page's one-minute re-check of the restart note runs only in the first 15 minutes after Kosmos came back; the ten-minute re-check still runs after that.
-2. When the file check could not look at some records and found others damaged, the line says the damaged count is a floor and how many could not be checked; "could not be read" no longer labels records that were read and found damaged.
+2. When the file check could not look at some records and found others damaged, the line says the damaged count is a floor and that some could not be checked; "could not be read" no longer labels records that were read and found damaged.
 3. `storecheck.lastScan`'s comment states the rule plainly.
 
 ## Decision
