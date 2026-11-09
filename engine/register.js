@@ -471,6 +471,43 @@ function foreignLoginFolders() {
   return { dirs, texts: [...texts], suspects, unknownAll: unknownAll || deferred, deferred: deferred && !unknownAll, sig };
 }
 
+/* #8294: the first login job outside Kosmos that starts by itself, names this agent's program, and is tied to this folder
+   (its working folder, or the folder named in its arguments or launch script). A suggestion the person can override, so
+   it stays as simple as the survey's own reading. A job that cannot be read counts as none: today's behaviour. */
+function foreignStarter(dir, runner) {
+  let names;
+  try { names = fs.readdirSync(create.AGENTS_DIR); } catch { return null; }
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(String(p)); } };
+  const want = real(dir);
+  const spellings = folderSpellings(path.resolve(String(dir)), want);
+  const escaped = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const folderMask = new RegExp(spellings.map(escaped).join('|'), 'g');   // a folder named after the program is not the program
+  const program = new RegExp('(^|["\'\\s/;&|(])' + escaped(runner || 'claude') + '($|["\'\\s;&|)])', 'm');   // not ~/.claude, not claude-501
+  const noComments = (t) => t.replace(/^\s*#.*$/gm, '');
+  plutilLeft = PLUTIL_BUDGET;
+  for (const f of names.sort()) {
+    if (!f.endsWith('.plist') || f.startsWith(create.SERVICE_LABEL_PREFIX)) continue;
+    const file = path.join(create.AGENTS_DIR, f);
+    let keys;
+    try {
+      if (protectedPath(file) || !fs.statSync(file).isFile()) continue;
+      keys = plistKeys(file);
+    } catch { continue; }
+    if (!keys.startsHere) continue;
+    const inFolder = Boolean(keys.dir && path.isAbsolute(keys.dir) && !protectedPath(keys.dir) && real(keys.dir) === want);
+    if (!keys.starts && !inFolder) continue;   // a scheduled job's script is weak evidence, as in the survey
+    const texts = [keys.args.join('\n')];
+    for (const a of keys.args) {
+      if (!path.isAbsolute(a)) continue;
+      const t = scriptText(a);
+      if (typeof t === 'string') texts.push(noComments(t).replace(/"\$\{?HOME\}?"/g, '$HOME'));
+    }
+    if (!texts.some((t) => program.test(t.replace(folderMask, ' ')))) continue;
+    if (inFolder || mentionsFolder(texts, spellings)) return { label: f.slice(0, -'.plist'.length), file };
+  }
+  return null;
+}
+
 function strays(profileNames, jobs) {
   let failed = false;
   const have = new Set(profileNames);
@@ -865,4 +902,4 @@ function repair(opts) {
   };
 }
 
-module.exports = { known, survey, repair, shownName, jobReader, hasRun, hide, show };   // jobReader exported for its Linux test (#4918 review 11)
+module.exports = { known, survey, repair, shownName, jobReader, hasRun, hide, show, foreignStarter };   // jobReader exported for its Linux test (#4918 review 11)

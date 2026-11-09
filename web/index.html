@@ -92370,7 +92370,8 @@ document.addEventListener('click', async (e) => {
       /* 🔑 THE NAME THE PERSON TYPED, when this row asked for one (#1531). A found
          row takes its name from its instructions file and sends none; an adopt row
          has an empty field and sends what is in it. */
-      body: JSON.stringify(typed === null ? { dir } : { dir, name: typed }),
+      /* #8294: a second press after the other-job warning goes ahead. */
+      body: JSON.stringify({ ...(typed === null ? { dir } : { dir, name: typed }), ...(row.dataset.otherJob ? { anyway: true } : {}) }),
     });
     out = await res.json().catch(() => null);
   } catch { out = null; }
@@ -92419,6 +92420,7 @@ document.addEventListener('click', async (e) => {
   go.textContent = was;
   /* Nothing was added, so nothing is addressable. */
   delete row.dataset.foundKey;
+  if (out && out.otherJob) row.dataset.otherJob = '1'; else delete row.dataset.otherJob;
   said.textContent = (out && out.because) || 'We could not bring that one in.';
 });
 
