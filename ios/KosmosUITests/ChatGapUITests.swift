@@ -13,6 +13,23 @@ final class ChatGapUITests: XCTestCase {
     // message and the box (the gap is not held to Discord's there).
     func testTheWorkingLineFitsAtTheLargestText() throws { try measure(largest: true) }
 
+    // A reader higher up sees the line too (it was a row at the end of the list before), over a ground that fades the messages
+    // behind it out. The screenshot is the check of that fade; this asserts the line is there and the reader stayed put.
+    func testTheWorkingLineShowsToAReaderHigherUp() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40"]
+        UIKitListArm.set(app)
+        app.launch()
+        UIKitListArm.assertDrawn(app)
+        let rested = app.descendants(matching: .any).matching(identifier: "sample-scroll-rested").firstMatch
+        XCTAssertTrue(rested.waitForExistence(timeout: 30), "CONTROL: the sample never scrolled up")
+        let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
+        XCTAssertFalse(newest.exists && newest.isHittable, "CONTROL: the newest message is on screen, so the reader is not higher up")
+        let working = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Dana is working'")).firstMatch
+        XCTAssertTrue(working.exists, "a reader higher up does not see the working line")
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "chat-gap-working-line-higher-up"; shot.lifetime = .keepAlways; add(shot)
+    }
+
     private func measure(largest: Bool) throws {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana"]

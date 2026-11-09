@@ -790,11 +790,18 @@ check(roomSource.contains("withTransaction(t) { up = false }"), "kosmos#7427 rev
 check(chatSource.contains("#else\n            LayerWaveDots(still: !animated)") && !chatSource.contains("repeatForever(autoreverses: true)) { bright = true }") && agentsSource.contains("WorkingDots(color: Palette.pillWord(pill))"), "kosmos#7427: the chat's working line and the Agents pill use the wave, not a pulse in unison")
 check(roomSource.contains("still: still || reduceMotion)"), "kosmos#7427: the dots are still under Reduce Motion")
 // kosmos#8283: the working line takes no row in either list (an idle chat had an empty row under its newest message); it is
-// drawn over the strip above the box only while the agent works (plus one hidden still copy that measures it), taken away
-// while the pull's dots rest in the same room, and the room at the end grows with it at large text sizes.
-check(chatSource.contains("if working && !endPullDots { WorkingLine(name: shown.name).lineLimit(1) }")
-      && chatSource.contains(".overlay(alignment: .topLeading) { workingStrip }")
-      && chatSource.components(separatedBy: "WorkingLine(name: shown.name").count - 1 == 2
+// drawn over the strip above the box only while the agent works (plus one hidden copy with still dots, #7348, that measures
+// it), taken away while the pull's dots rest in the same room (watched by that view alone, so the list is not drawn again
+// mid-pull), and the room at the end grows with it at large text sizes. WorkingLine(name: appears twice, both in
+// WorkingStrip, so no copy is drawn anywhere else.
+let dotsDriverSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/DotsRefresh.swift"), encoding: .utf8)) ?? ""
+check(chatSource.contains("if working && !endPull.dotsUp {\n                WorkingLine(name: name).lineLimit(1)")
+      && chatSource.contains("WorkingLine(name: name, animated: false).lineLimit(1).hidden()")
+      && chatSource.components(separatedBy: "WorkingLine(name:").count - 1 == 2
+      && chatSource.contains("@ObservedObject var endPull: EndPullDriver")
+      && chatSource.contains(".overlay(alignment: .topLeading) { WorkingStrip(endPull: endPull, working: working, name: shown.name, lineHeight: $workingLineHeight) }")
+      && dotsDriverSource.contains("@Published private(set) var dotsUp = false")
+      && dotsDriverSource.components(separatedBy: "        noteDots()\n").count - 1 == 2
       && chatSource.contains("private var endRoom: CGFloat { max(ChatView.fadeHeight + 8, workingLineHeight + 10) }")
       && chatSource.components(separatedBy: "frame(height: endRoom)").count - 1 == 2
       && !chatSource.contains("\"working\", \"end\"") && !chatSource.contains(".id(\"working\")"),

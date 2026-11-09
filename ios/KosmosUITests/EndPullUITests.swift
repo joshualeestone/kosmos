@@ -82,6 +82,9 @@ final class EndPullUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
         let waited = openFinished(row)
         let before = row.frame.minY
+        // kosmos#8283: the working line shows before the pull, so its going under the dots below is a real change.
+        let working = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Dana is working'")).firstMatch
+        XCTAssertTrue(working.exists, "CONTROL: no working line before the pull, so its hiding is not checked")
         pullUp(app, distance: 420)
         XCTAssertTrue(dots(app).waitForExistence(timeout: 3), "no dots after a long pull, " + waited)
         KeyboardSlideUITests.settle(row)
@@ -93,21 +96,25 @@ final class EndPullUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(landed, before - 160, "the list did not bounce back, " + waited)
         if before - landed > 20 { print("UI-NOTE kosmos#8072: the long chat landed \(Int(before - landed)) pt above where it opened") }
         // kosmos#8283: the working line is drawn over the strip above the box, in the room the dots rest in, so it is taken away
-        // while they show. The dots rest clear of the newest message above them, and of the box and its 18 pt fade below.
-        let working = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Dana is working'")).firstMatch
+        // while they show. The dots rest clear of the newest message above them (its whole bubble, the time line under it
+        // included), and of the box and its 18 pt fade below.
         XCTAssertFalse(working.exists, "the working line shows under the dots")
-        let dot = dots(app).frame, above = dot.minY - row.frame.maxY, below = Self.box(app).frame.minY - dot.maxY
-        print("UI-NOTE kosmos#8283 \(UIKitListArm.on ? "uikit" : "lazy"): dots \(above) under the newest message's words, \(below) above the box")
-        XCTAssertGreaterThanOrEqual(above, 14, "the dots touch the newest message: \(above) under its words, \(below) above the box")
-        XCTAssertGreaterThanOrEqual(below, 18, "the box's fade cuts the dots: \(above) under the newest message's words, \(below) above the box")
+        let bubble = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'You' AND label CONTAINS 'Message 260 of 260'")).firstMatch
+        XCTAssertTrue(bubble.exists, "CONTROL: the newest message's bubble was not found")
+        let dot = dots(app).frame, above = dot.minY - bubble.frame.maxY, below = Self.box(app).frame.minY - dot.maxY
+        let said = "\(above) under the newest message's bubble, \(below) above the box"
+        print("UI-NOTE kosmos#8283 \(UIKitListArm.on ? "uikit" : "lazy"): dots " + said)
+        XCTAssertGreaterThanOrEqual(above, 2, "the dots touch the newest message: " + said)
+        XCTAssertGreaterThanOrEqual(below, 18, "the box's fade cuts the dots: " + said)
         // kosmos#7609: and not stuck high, which the allowance above cannot see.
-        XCTAssertLessThanOrEqual(above, 40, "the list did not come back to its end: \(above) under the newest message's words, \(below) above the box")
-        XCTAssertLessThanOrEqual(below, 40, "the list did not come back to its end: \(above) under the newest message's words, \(below) above the box")
+        XCTAssertLessThanOrEqual(above, 40, "the list did not come back to its end: " + said)
+        XCTAssertLessThanOrEqual(below, 40, "the list did not come back to its end: " + said)
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "end-pull-dots-long"; shot.lifetime = .keepAlways; add(shot)
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dots(app))
         wait(for: [gone], timeout: 20)
         XCTAssertTrue(row.exists, "the newest message went away")
         XCTAssertEqual(row.frame.minY, landed, accuracy: 4, "the chat moved when the dots went")
+        XCTAssertTrue(working.waitForExistence(timeout: 3), "the working line did not come back after the dots went")
     }
 
     // The next pull counts, even when the first read ended after the list had come back.
