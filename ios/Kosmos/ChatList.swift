@@ -250,8 +250,8 @@ struct ChatList: UIViewRepresentable {
                 movedAt = CACurrentMediaTime()
             }
         }
-        // Whether the person has scrolled the list (a finger, or List.personScrolls) since a scroll last ended, or since an ask
-        // whose scroll never moved, or a lapsed window, was let go (slice 11).
+        // Whether the person has scrolled the list (a finger, or a scroll List.personScrolls asked for, once it moves) since a
+        // scroll last ended or a lapsed window was let go (slice 11).
         var dragged = false
         // kosmos#8221 slice 11: a scroll the person makes without a finger (List.personScrolls: VoiceOver, Voice Control, a
         // keyboard's scroll keys) is an animation, so the list is not tracking, dragging or decelerating while it runs, and
@@ -262,41 +262,43 @@ struct ChatList: UIViewRepresentable {
         // arrow key moving focus, opens nothing, and its ask is let go when that time is up) until its end is reported
         // (scrolled) or it has not moved for personScrollQuiet. On that lapse the reader is where its last move put them (at
         // the newest or not, read by scrollViewDidScroll), and the list is put back to that as after any layout.
-        var personAskedAt: CFTimeInterval = 0
+        var personAskedAt: CFTimeInterval = 0   // 0: no ask (the device's uptime is always far above personScrollAsk)
         var personUntil: CFTimeInterval = 0
+        var windowCount = 0   // which window a lapse check belongs to: one from a window since closed does nothing
         func fingerlessScrolling() -> Bool { CACurrentMediaTime() < personUntil }
         func personScrollStarted() {
-            dragged = true
             if fingerlessScrolling() { return }   // a second ask while one runs (another key, a second swipe): the open window covers it
             #if DEBUG
-            // KOSMOS_SAMPLE_NOPERSONSCROLL=1: the list as before this slice, the control arm of A11yScrollUITests (dragged set
-            // and nothing else, so an ask whose scroll never ends keeps it, as it did then).
-            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOPERSONSCROLL"] == "1" { return }
+            // KOSMOS_SAMPLE_NOPERSONSCROLL=1: the list as before this slice, the control arm of A11yScrollUITests: the ask counted
+            // as a drag at once, and nothing else.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOPERSONSCROLL"] == "1" { dragged = true; return }
             #endif
             let asked = CACurrentMediaTime()
             personAskedAt = asked
-            // An ask whose scroll never moves (an arrow key that only moves focus) is let go once its time is up, with the drag
-            // it counted, so a later scroll nobody asked for is not taken for the person's (slice 4).
+            // An ask whose scroll never moves (an arrow key that only moves focus) is let go once its time is up. It counts as
+            // the person's drag only once its scroll moves (personScrollOpened), so until then a scroll nobody asked for is
+            // still not taken for the person's (slice 4).
             DispatchQueue.main.asyncAfter(deadline: .now() + ChatList.personScrollAsk + 0.05) { [weak self] in
-                guard let self, self.personAskedAt == asked, !self.fingerlessScrolling(), let list = self.list,
-                      !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
+                guard let self, self.personAskedAt == asked else { return }
                 self.personAskedAt = 0
-                self.dragged = false
             }
         }
         func personScrollOpened() {
-            personAskedAt = 0   // one ask opens one window (and one or more lapse checks, which are idempotent)
+            personAskedAt = 0   // one ask opens one window
             personUntil = CACurrentMediaTime() + ChatList.personScrollQuiet
+            dragged = true      // its end, when reported, is the person's
+            windowCount += 1
             #if DEBUG
             debugWindowOpened = true
             #endif
-            DispatchQueue.main.asyncAfter(deadline: .now() + ChatList.personScrollQuiet + 0.05) { [weak self] in self?.personScrollLapsed() }
+            let window = windowCount
+            DispatchQueue.main.asyncAfter(deadline: .now() + ChatList.personScrollQuiet + 0.05) { [weak self] in self?.personScrollLapsed(window) }
         }
-        func personScrollLapsed() {
-            guard personUntil > 0 else { return }   // closed already by a reported end
+        func personScrollLapsed(_ window: Int) {
+            guard window == windowCount, personUntil > 0 else { return }   // a later window's, or closed already by a reported end
             if fingerlessScrolling() {   // still moving: look again when it would close
                 let wait = personUntil - CACurrentMediaTime() + 0.05
-                DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.personScrollLapsed() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.personScrollLapsed(window) }
                 return
             }
             personUntil = 0
@@ -316,12 +318,12 @@ struct ChatList: UIViewRepresentable {
             movedAt = 0   // a scroll that has ended is at rest: the next layout holds the place taken here
             // kosmos#8221 slice 11: its end is reported, so the person's scroll is over; but an earlier fling's or a drag's end
             // landing while a scroll without a finger is asked for or runs (the scroll it starts stops a fling) is not that
-            // scroll's end: its ask, its window and the drag it counted are kept for it.
+            // scroll's end: its ask and its window (with the drag the window counted) are kept for it.
             let fingerlessAhead = fingerlessScrolling() || CACurrentMediaTime() - personAskedAt < ChatList.personScrollAsk
             let keep = fingerlessAhead && (how == "deceleration" || how == "drag")
             if !keep { personUntil = 0; personAskedAt = 0 }
             let byPerson = dragged, wasAtEnd = atEnd
-            dragged = keep
+            dragged = keep && fingerlessScrolling()   // a window still open keeps its drag; a pending ask has none yet
             // kosmos#8221 slice 4 (CI runs 42533329564 to 42540464401): on a slow device, as a chat opens, an animated scroll
             // nobody asked for moved the list 50 pt up from its end, and the list stopped following the newest message, so the
             // keyboard covered it. A person's scroll comes with a drag, or through List.personScrolls (assistive technology, a

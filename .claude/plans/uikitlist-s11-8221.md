@@ -31,8 +31,8 @@ VoiceOver or keyboard scroll up from the newest did not just jump; it did nothin
   personScrollAsk (0.5 s) of it, not made by the list itself (pinning, applying, laying), opens the window; each later move
   keeps it open for personScrollQuiet (0.3 s). While open, laidOut leaves the list alone and scrollViewDidScroll reads the
   moves as the person's (atEnd, the place dropped). It closes on the reported end (scrolled) or lapses after the moves stop;
-  a lapse keeps where the last move put the reader and runs laidOut. A press that moves nothing opens nothing, and its ask
-  (with the drag it counted, which before this slice stayed counted until some later scroll ended) is let go after 0.5 s.
+  a lapse keeps where the last move put the reader and runs laidOut. A press that moves nothing opens nothing and counts as
+  no drag (before this slice it counted as one until some later scroll ended); its ask is let go after 0.5 s.
 - Debug only: KOSMOS_SAMPLE_A11YSCROLL=<s> (with _MODE animated, stepped or still) makes one scroll of VoiceOver's kind
   through personScrolls (accessibilityScroll itself scrolls nothing on a simulator with VoiceOver off, measured) and reports
   pins, at end, moved, window. KOSMOS_SAMPLE_NOPERSONSCROLL=1 turns the fix off (the control arms).
@@ -70,6 +70,8 @@ The stepped scroll asks for 450 pt and moved 371 with no pin; where the other 79
   fling) keeps the ask, the window and the drag; before, it wiped the ask and the window never opened.
 - Review iteration 4: another scroll's end (an earlier fling's deceleration, a drag) landing inside the window does not close
   it; each move marks the list moving, so a lapse during a stalled frame does not hold the place and stop the scroll.
+- Review iteration 6: an ask counts as the person's drag only once its scroll moves (the window opens), so a press that
+  moves nothing never marks anything; each window is numbered and a lapse check from a closed one does nothing.
 - A second ask while a window is open adds nothing (the window covers it); an ask's let-go timer never fires inside an open
   window; a lapse clears the ask.
 
