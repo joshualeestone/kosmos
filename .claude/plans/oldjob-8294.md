@@ -16,5 +16,7 @@ On this Mac: finds 17 of 17 fleet agents (4 of them only through the launch scri
 ## Weakest premise
 Only plain-text plists are read (89 of 89 here are). A script called by a script is not followed, a folder spelled through a variable other than HOME is missed, and a job that starts the agent some other way reads as none: those keep today's behaviour.
 
+A read that fails, or a binary plist, counts as no job: today's behaviour, not a refusal, because a refusal could not be cleared by anyone who cannot see what we could not read.
+
 ## Not covered
 The card's second ask, the board noticing two copies, is not built here: connect is the only door this closes. A job added after connecting can still start a second copy.

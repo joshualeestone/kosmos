@@ -377,7 +377,7 @@ function launcherText(file) {
     if (!path.isAbsolute(file)) return '';
     const st = fs.statSync(file);   // a pipe or device passes a size check and hangs a read: regular files only
     if (!st.isFile() || st.size > LAUNCHER_READ_MAX_BYTES) return '';
-    return fs.readFileSync(file, 'utf8');
+    return fs.readFileSync(file, 'utf8').replace(/^\s*#.*$/gm, '');   // a comment naming the program does not start it
   } catch { return ''; }
 }
 function otherJobFor(dir, agentsDir, runner) {
@@ -2102,7 +2102,7 @@ function connect(dir, opts) {
   /* #8294: and not while another job would start a second copy here (see otherJobFor). */
   const other = otherJobFor(given, create.AGENTS_DIR, runner);
   if (other) {
-    return { ok: false, because: `this agent is also started by another job on this computer (${other.label}), so adding it would run two copies in one folder. Turn it off with: launchctl bootout gui/$(id -u)/${other.label}, remove ${other.file}, then add it again` };
+    return { ok: false, because: `this agent is also started by another job on this computer (${other.label}), so adding it would run two copies in one folder. Turn that job off first, then add it again (launchctl bootout gui/$(id -u)/${other.label}, and remove ${other.file})` };
   }
 
   /* ⚠️ THE RECORD GOES FIRST, because `installJob` resolves the folder through
