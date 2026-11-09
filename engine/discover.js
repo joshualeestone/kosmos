@@ -359,42 +359,55 @@ function lastRunOf(dir) {
   return { ran: true, account: holders.size === 1 ? [...holders.values()][0] : null, model: lastModelIn(transcript), at: found.at };
 }
 
-/* #8294: a launchd job outside Kosmos that keeps an agent running in this folder. Connecting while one exists runs two
-   copies in one folder at the next login, and the board shows one row. Only a job that starts by itself counts (RunAtLoad
-   or KeepAlive), so a scheduled job that merely works in the folder does not block anybody. Only the plain-text plist form
-   is read; Linux and Windows have no such folder here, so the answer there is none. */
+/* #8294: a launchd job outside Kosmos that starts this agent's program in this folder. Connecting while one exists runs
+   two copies in one folder at the next login, and the board shows one row. Both halves are required, so a web server that
+   merely works in the folder, or a backup of it, blocks nobody. Only a job that starts by itself counts (RunAtLoad or
+   KeepAlive). Plain-text plists only; Linux and Windows have no such folder here, so the answer there is none. */
+/* A launch script is a few KB; anything larger is not one, and this runs on the click. */
+const LAUNCHER_READ_MAX_BYTES = 256 * 1024;
+const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function plistStrings(xml, key) {
   const m = xml.match(new RegExp('<key>' + key + '</key>\\s*(<string>[^<]*</string>|<array>[\\s\\S]*?</array>)'));
   if (!m) return [];
   return [...m[1].matchAll(/<string>([^<]*)<\/string>/g)]
     .map((x) => x[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&'));
 }
-const LAUNCHER_READ_MAX_BYTES = 256 * 1024;
-/* A job that points at a launch script names the folder inside the script (the fleet's shape). Only a script that starts
-   Claude counts, and the folder must be a whole path there, so /workers/baron does not match /workers/baron-two. */
-function launcherStartsIn(file, spellings) {
-  let text;
+function launcherText(file) {
   try {
-    if (!path.isAbsolute(file) || fs.statSync(file).size > LAUNCHER_READ_MAX_BYTES) return false;
-    text = fs.readFileSync(file, 'utf8');
-  } catch { return false; }
-  if (!/\bclaude\b/.test(text)) return false;
-  return spellings.some((dir) => new RegExp('(^|["\'\\s=])' + dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/?($|["\'\\s])', 'm').test(text));
+    if (!path.isAbsolute(file)) return '';
+    const st = fs.statSync(file);   // a pipe or device passes a size check and hangs a read: regular files only
+    if (!st.isFile() || st.size > LAUNCHER_READ_MAX_BYTES) return '';
+    return fs.readFileSync(file, 'utf8');
+  } catch { return ''; }
 }
-function otherJobFor(dir, agentsDir) {
-  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(String(p)); } };
+function otherJobFor(dir, agentsDir, runner) {
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(String(p)); } };
   const want = real(dir);
-  const spellings = [...new Set([path.resolve(String(dir)), want])];
+  const home = os.homedir();
+  const spellings = new Set([path.resolve(String(dir)), want]);
+  for (const p of [...spellings]) {
+    if (p.startsWith(home + '/')) { const rest = p.slice(home.length); spellings.add('$HOME' + rest); spellings.add('${HOME}' + rest); spellings.add('~' + rest); }
+  }
+  /* The whole folder, ended by a quote, a space or a shell separator, so /workers/baron is not /workers/baron-two. */
+  const folderRe = new RegExp('(^|["\'\\s=])(' + [...spellings].map(escapeRe).join('|') + ')/?($|["\'\\s;&|)])', 'm');
+  /* The program as a command or a path's last part: .local/bin/claude yes, ~/.claude/x and claude-501 no. */
+  const startsRe = new RegExp('(^|["\'\\s/;&|(])' + escapeRe(runner || 'claude') + '($|["\'\\s;&|)])', 'm');
   let names;
   try { names = fs.readdirSync(agentsDir); } catch { return null; }
   for (const n of names.sort()) {
     if (!n.endsWith('.plist') || n.startsWith('com.kosmos.agent.')) continue;
     let xml;
     try { xml = fs.readFileSync(path.join(agentsDir, n), 'utf8'); } catch { continue; }
+    xml = xml.replace(/<!--[\s\S]*?-->/g, '').replace(/<key>EnvironmentVariables<\/key>\s*<dict>[\s\S]*?<\/dict>/g, '');
     if (/<key>Disabled<\/key>\s*<true\s*\/>/.test(xml)) continue;
     if (!/<key>(RunAtLoad|KeepAlive)<\/key>\s*(<true\s*\/>|<dict>)/.test(xml)) continue;
-    const paths = [...plistStrings(xml, 'WorkingDirectory'), ...plistStrings(xml, 'ProgramArguments')];
-    if (paths.some((p) => path.isAbsolute(p) && (real(p) === want || launcherStartsIn(p, spellings)))) return { label: n.slice(0, -'.plist'.length), file: path.join(agentsDir, n) };
+    const args = [...plistStrings(xml, 'Program'), ...plistStrings(xml, 'ProgramArguments')];
+    const texts = [...args, ...args.map(launcherText)].filter(Boolean);
+    if (!texts.some((t) => startsRe.test(t))) continue;
+    const here = plistStrings(xml, 'WorkingDirectory').some((p) => path.isAbsolute(p) && real(p) === want)
+      || args.some((p) => path.isAbsolute(p) && real(p) === want)
+      || texts.some((t) => folderRe.test(t));
+    if (here) return { label: n.slice(0, -'.plist'.length), file: path.join(agentsDir, n) };
   }
   return null;
 }
@@ -2087,9 +2100,9 @@ function connect(dir, opts) {
   }
 
   /* #8294: and not while another job would start a second copy here (see otherJobFor). */
-  const other = otherJobFor(given, create.AGENTS_DIR);
+  const other = otherJobFor(given, create.AGENTS_DIR, runner);
   if (other) {
-    return { ok: false, because: `this agent is also started by another job on this computer (${other.label}), so adding it would run two copies in one folder. Stop that job and remove ${other.file}, then add it again` };
+    return { ok: false, because: `this agent is also started by another job on this computer (${other.label}), so adding it would run two copies in one folder. Turn it off with: launchctl bootout gui/$(id -u)/${other.label}, remove ${other.file}, then add it again` };
   }
 
   /* ⚠️ THE RECORD GOES FIRST, because `installJob` resolves the folder through
