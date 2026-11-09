@@ -24832,9 +24832,12 @@ function rebootChecked(checks) {
   if (f) parts.push(f.damaged === 0 ? 'Kosmos\'s main records read fine' : f.damaged + ' of Kosmos\'s main records could not be read');
   return parts.length ? 'Checked: ' + parts.join(', and ') + '.' : '';
 }
+let REBOOT_RECHECK = null;   // kosmos#8287: agents return over minutes, so a list of who is not back is asked again soon
 function paintRebootNote(note) {
   const slot = document.getElementById('reboot-slot');
   if (!slot) return;
+  clearTimeout(REBOOT_RECHECK);
+  if (note && note.checks && note.checks.agents && note.checks.agents.notBack.length) REBOOT_RECHECK = setTimeout(rebootNoteCheck, 60 * 1000);
   const down = note && rebootWhen(note.bootAt);
   const up = note && rebootWhen(note.upAt);
   const held = slot.contains(document.activeElement);   // a re-check that removes or repaints it must not drop focus to the page

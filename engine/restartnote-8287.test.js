@@ -77,13 +77,13 @@ test('#8287: the beat records who is up, once a roster read has succeeded, and k
   clean();
   rn.beat(NOW);
   assert.equal('running' in JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')), false, 'claimed a list before any read');
-  rn.noteRunning([card('leo', 'Leo'), card('april', 'April', { state: 'stopped' })]);
+  rn.noteRunning([card('leo', 'Leo'), card('april', 'April', { state: 'stopped' })], NOW);
   rn.beat(NOW);
   assert.deepEqual(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running, [{ session: 'leo', name: 'Leo' }]);
   rn.noteRunning(null);   // a failed snapshot
   rn.beat(NOW + MIN);
   assert.deepEqual(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running, [{ session: 'leo', name: 'Leo' }], 'a failed read wiped the list');
-  rn.noteRunning([]);     // a real empty roster is a real answer
+  rn.noteRunning([], NOW + 2 * MIN);     // a real empty roster is a real answer
   rn.beat(NOW + 2 * MIN);
   assert.deepEqual(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running, []);
 });
@@ -183,6 +183,7 @@ test('#8287: the route reads what the minute tick read, nothing until it has', (
   rn.noteRunning([card('leo', 'Leo')], T0);
   assert.ok(rn.lastRoster(T0 + 5 * MIN), 'CONTROL: a reading five minutes old still counts');
   assert.equal(rn.lastRoster(T0 + 5 * MIN + 1), null, 'a reading of unbounded age was reported as now');
+  assert.equal(rn.lastRoster(T0 - 1), null, 'a clock set back made an old reading look new');
 });
 
 test('#8287: the page gets the times and the checks and none of the records', () => {

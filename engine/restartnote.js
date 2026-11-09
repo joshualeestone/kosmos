@@ -22,8 +22,8 @@
  * rejected: an ordinary shutdown sends SIGTERM to every process too, so a Mac would lose the note for every restart.
  *
  * kosmos#8287: the note also says what was checked. The beat records which agents were running, so the note can ask
- * about exactly those: an agent a person stopped last week is not "not back", nor is one that came back and was
- * stopped afterwards. The result of this start's file check
+ * about exactly those: an agent a person stopped last week is not "not back", nor is one that came back and shows
+ * a stopped card afterwards (where the board has no such card, as on Windows, it is named: saying more is the safe side). The result of this start's file check
  * (engine/storecheck.js) is kept in the note, so dismissing or repairing that notice cannot turn it into "fine". What
  * could not be checked is left out of the sentence, never reported as fine.
  *
@@ -165,7 +165,8 @@ function markReturned(up) {
 function beat(now = Date.now()) {
   const at = new Date(now).toISOString();
   // A list from reads that stopped hours ago no longer says who is running, so it is left out, like no list at all.
-  const current = running && ((carried && now < carriedUntil) || now - lastCardsAt <= ROSTER_STALE_MS);
+  const age = now - lastCardsAt;
+  const current = running && ((carried && now < carriedUntil) || (age >= 0 && age <= ROSTER_STALE_MS));
   return writeJson(aliveFile(), current ? { at, running } : { at });
 }
 
@@ -224,7 +225,7 @@ function dismiss() {
   return writeJson(noteFile(), { ...n, dismissed: true });
 }
 
-function lastRoster(now = Date.now()) { return lastCards && now - lastCardsAt <= ROSTER_STALE_MS ? lastCards : null; }
+function lastRoster(now = Date.now()) { const age = now - lastCardsAt; return lastCards && age >= 0 && age <= ROSTER_STALE_MS ? lastCards : null; }
 function resetForTests() { running = null; lastCards = null; lastCardsAt = 0; carried = null; carriedUntil = 0; }
 
 module.exports = { resetForTests, noteFor, atStart, beat, startBeating, current, dismiss, noteRunning, lastRoster, runningOf, checksFor, publicNote, BEAT_MS, WINDOW_MS, SHOW_MS, _files: { aliveFile, noteFile } };

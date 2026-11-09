@@ -211,6 +211,21 @@ const CASES = [
         await pg.close();
       }
     }
+    /* Agents return over minutes, so a note naming who is not back asks again after a minute; one with everyone back does not. */
+    for (const [label, agents, want] of [['not back', { was: 2, back: 1, notBack: ['Leo'] }, true], ['all back (control)', { was: 2, back: 2, notBack: [] }, false]]) {
+      const pg0 = await b.newPage({ viewport: { width: 1400, height: 800 } });
+      await pg0.clock.install({ time: new Date(NOON) });
+      let asks = 0;
+      await pg0.route('**/api/board/restart-note', (route) => { asks++; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: { ...base, checks: { agents } } }) }).catch(() => {}); });
+      await pg0.goto(URL, { waitUntil: 'domcontentloaded' });
+      await pg0.clock.runFor(3000);
+      await pg0.waitForFunction(() => document.querySelector('#reboot-slot .utoast.reboot'), null, { timeout: 12000 }).catch(() => {});
+      const before = asks;
+      await pg0.clock.fastForward(61 * 1000);
+      await pg0.waitForTimeout(600);
+      say(before > 0 && (asks > before) === want, 'checked: ' + label + ': a minute later it ' + (want ? 'asks again' : 'does not ask again'), before + ' then ' + asks);
+      await pg0.close();
+    }
     /* An agent that comes back changes the words, so the ten-minute re-check must repaint. Control: the same checks keep the button. */
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     await pg.clock.setFixedTime(new Date(NOON));
