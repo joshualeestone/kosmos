@@ -988,7 +988,11 @@ struct ChatView: View {
                     if Self.idAnchor, quietFollowKey == key { return }   // review 5: older rows landing; the newest is the same
                     follow(proxy)
                 }
-                // kosmos#8283: the agent starting to work is no new message (its line shows above the box), so it moves nothing here.
+                // kosmos#8283: the agent starting to work is no new message (its line shows above the box), so a reader higher up
+                // is not moved and gets no "New messages". A reader at the newest is still put at it, as before: removing that made
+                // CI's long-chat checks fail to open at the newest on the slower runner (PR #8332, 5 of 56), where this is what
+                // landed them after the agent's state arrived.
+                .onChange(of: working) { now in if now && atBottom && !searching { goNewest(proxy, animated: true) } }
                 // Only a message just sent scrolls down; one settling into its row does not move the person's place.
                 // While searching too, unlike the board's jumpToOwnSend: the phone keeps the sent bubble on screen below
                 // what matched, and it is the send's only feedback.
