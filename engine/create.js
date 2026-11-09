@@ -7171,6 +7171,17 @@ function createAgentInner(opts) {
       try { undone = require('./trust').forgetFolder(trusted.key, trusted.displaced, trusted.madeEntry, trusted.also).ok === true; }
       catch { undone = false; }
       if (!undone) steps.push({ label: 'took back the folder trust', ok: false });
+    } else if (trusted && trusted.ok === true && trusted.already === true && trusted.also && typeof trusted.also.key === 'string') {
+      /* kosmos#4260: the main key was the person's (left alone above), but the second key trustFolder wrote for an 8.3
+         or subst spelling is ours, and an 8.3 alias is handed to the next like-named folder once rollBack deletes this
+         one. So that key alone is taken back, under forgetFolder's guards (only if it still says yes; the entry goes
+         only if we made it), which keeps the person's main key out of reach. */
+      let undone = false;
+      try {
+        const a = trusted.also;
+        undone = require('./trust').forgetFolder(a.key, 'displaced' in a ? a.displaced : undefined, a.madeEntry === true).ok === true;
+      } catch { undone = false; }
+      if (!undone) steps.push({ label: 'took back the folder trust', ok: false });
     }
     // #1919: the bypass pre-accept is deliberately NOT undone here -- it is an account-level
     // preference, not state about the folder being deleted, and undoing it could remove a key

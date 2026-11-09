@@ -79,6 +79,9 @@ function shortFolder(t, label) {
   const long = nodePath.join(SANDBOX, 'work', 'a-long-folder-name-' + label);
   fs.mkdirSync(long, { recursive: true });
   const short = shortSpelling(long);
+  // On the Windows CI job the runner's own temp folder is 8.3 (RUNNER~1), so a missing short name there is a broken
+  // probe, not a volume without them: fail rather than let every #4260 arm skip green.
+  if (!short && process.env.GITHUB_ACTIONS) assert.fail('no 8.3 spelling for ' + long + ' on the CI runner, whose temp folder has one');
   if (!short) { t.skip('this volume makes no 8.3 short names'); return null; }
   return { long, short, cfgDir: fs.mkdtempSync(nodePath.join(SANDBOX, 'cfg-')) };
 }
@@ -158,12 +161,13 @@ test('#4260 a relaunch that adds ONLY the second key joins it to the agent\'s re
   fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.long)]: { hasTrustDialogAccepted: true } } }));
   assert.equal(trust.recordWrite('relaunch-4260', { key: fwd(f.long), madeEntry: true }), true);
   t.after(() => trust.dropRecord('relaunch-4260'));
-  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
-  assert.equal(r.already, true);
-  assert.deepEqual(trust.recordedWrite('relaunch-4260').also, { key: fwd(f.short), madeEntry: true }, 'the record gained the second key');
+  // A default-account agent: the file its launch writes IS the file a removal edits (CONFIG()).
   const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
   process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = cfg;
   t.after(() => { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; });
+  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
+  assert.equal(r.already, true);
+  assert.deepEqual(trust.recordedWrite('relaunch-4260').also, { key: fwd(f.short), madeEntry: true }, 'the record gained the second key');
   const rec = trust.recordedWrite('relaunch-4260');
   assert.equal(trust.forgetFolder(rec.key, 'displaced' in rec ? rec.displaced : undefined, rec.madeEntry === true, rec.also).ok, true);
   assert.deepEqual(readCfg(cfg).projects, {}, 'both lines Kosmos wrote are gone');
@@ -176,7 +180,34 @@ test('#4260 with no record for the main key (the person trusted it), the second 
   t.after(() => trust.dropRecord('someone-else-4260'));
   const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
   assert.equal(r.already, true);
+  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true }, 'the second key WAS written, so the attach really had something to place');
   assert.equal('also' in trust.recordedWrite('someone-else-4260'), false, 'another agent\'s record is not touched');
+});
+
+test('#4260 a second key written into ANOTHER account\'s config is not attached: a removal edits the default one', { skip: WIN }, (t) => {
+  const f = shortFolder(t, 'otheracct'); if (!f) return;
+  fs.writeFileSync(nodePath.join(f.cfgDir, '.claude.json'), JSON.stringify({ projects: { [fwd(f.long)]: { hasTrustDialogAccepted: true } } }));
+  assert.equal(trust.recordWrite('otheracct-4260', { key: fwd(f.long), madeEntry: true }), true);
+  t.after(() => trust.dropRecord('otheracct-4260'));
+  // CONFIG() stays the sandbox default (set at the top of this file), not f.cfgDir's file.
+  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
+  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true }, 'written into that account');
+  assert.equal('also' in trust.recordedWrite('otheracct-4260'), false, 'but not attached, so a removal cannot reach a same-spelled key in the default config');
+});
+
+test('#4260 a failed first start\'s undo of the second key ALONE leaves the person\'s main key untouched', { skip: WIN }, (t) => {
+  /* engine/create.js, `already: true` with `also`: forgetFolder(also.key, ...) on its own. */
+  const f = shortFolder(t, 'rollback'); if (!f) return;
+  const cfg = nodePath.join(f.cfgDir, '.claude.json');
+  fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.long)]: { hasTrustDialogAccepted: true, allowedTools: ['z'] } } }));
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = cfg;
+  t.after(() => { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; });
+  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
+  assert.equal(r.already, true);
+  const a = r.also;
+  assert.equal(trust.forgetFolder(a.key, 'displaced' in a ? a.displaced : undefined, a.madeEntry === true).ok, true);
+  assert.deepEqual(readCfg(cfg).projects, { [fwd(f.long)]: { hasTrustDialogAccepted: true, allowedTools: ['z'] } });
 });
 
 test('#4260 a second-key entry we cannot read is left alone: the launch still trusts the main key, and an undo still takes it back', { skip: WIN }, (t) => {
@@ -203,6 +234,7 @@ test('#4260 the callers carry the second key: creation records it and rolls it b
   const remove = fs.readFileSync(nodePath.join(__dirname, 'remove.js'), 'utf8');
   assert.match(create, /recordWrite\(name, \{[^}]*also: trusted\.also/, 'creation records the second key');
   assert.match(create, /forgetFolder\(trusted\.key, trusted\.displaced, trusted\.madeEntry, trusted\.also\)/, 'a failed start rolls it back');
+  assert.match(create, /trusted\.already === true && trusted\.also[\s\S]{0,900}?forgetFolder\(a\.key, /, 'and rolls back the second key alone when the main one was the person\'s');
   assert.match(remove, /forgetFolder\(rec\.key, [^;]*rec\.madeEntry === true, rec\.also\)/, 'a removal takes it back');
 });
 

@@ -297,8 +297,12 @@ function trustFolder(dir, opts) {
      caller records it, yet the line is ours and an 8.3 alias (`NAME~1`) is handed to the next like-named folder once
      this one is gone. So it joins the record of the agent whose main key Kosmos recorded, and that agent's removal
      takes it back. With no such record the person trusted the main key themselves, and the line stays unrecorded:
-     nothing here can tell it from theirs. Best effort: a record that cannot be written changes nothing else. */
-  if (r.ok && r.value && r.value.ok === true && r.value.already === true && r.value.also) {
+     nothing here can tell it from theirs. Best effort: a record that cannot be written changes nothing else.
+     Only when the line went into CONFIG(), the file a removal's forgetFolder edits: a key written into another
+     account's config would otherwise send that removal after a same-spelled key in the default one, which could be
+     the person's own. */
+  if (r.ok && r.value && r.value.ok === true && r.value.already === true && r.value.also
+      && path.resolve(target) === path.resolve(CONFIG())) {
     try { attachAlsoToRecord(r.value.key, r.value.also); } catch { /* best effort, as every record write */ }
   }
   return r.ok ? r.value : { ok: false, because: r.because };
@@ -485,8 +489,9 @@ function trustFolderInner(dir, opts) {
   /* kosmos#4260: the second key, merged the same way, with what IT displaced, so an undo puts back exactly what was
      there. Reported apart from the main key's fields (`also`), and only when written: callers record and roll back
      the main key on `already: false`, and a main key the person had trusted themselves must never be recorded as ours.
-     So when ONLY this key was new (the main one already true), the answer stays `already: true` and the line it adds
-     is left unrecorded: inert, the direction this file chooses whenever it cannot tell ours from theirs. */
+     So when ONLY this key was new (the main one already true), the answer stays `already: true`; that line is NOT
+     inert (an 8.3 alias is reused), so trustFolder joins it to the agent's record when Kosmos has one, and a failed
+     first start takes it back on its own (engine/create.js). */
   let alsoWrote = null;
   if (also && !alsoDone) {
     alsoWrote = { key: also, madeEntry: alsoExisting === undefined };
@@ -777,7 +782,9 @@ function dropRecord(name) {
   withFileLock(RECORD(), () => dropRecordInner(name));
 }
 /* kosmos#4260: give a second key trustFolder wrote to every record entry for the same main key that has none yet
-   (normally one: one agent per folder). An entry that already carries one keeps it. Under the record's own lock. */
+   (normally one: one agent per folder). An entry that already carries one keeps it: the record has ONE second-key
+   slot, so a folder started under two non-native spellings (an 8.3 name AND a subst letter) leaves the later one
+   unrecorded. Accepted: a folder reached two such ways is not one Kosmos makes. Under the record's own lock. */
 function attachAlsoToRecord(mainKey, also) {
   if (typeof mainKey !== 'string' || !also || typeof also.key !== 'string') return;
   try { fs.mkdirSync(path.dirname(RECORD()), { recursive: true }); } catch { return; }
