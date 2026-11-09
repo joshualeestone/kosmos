@@ -6830,6 +6830,7 @@ test('kosmos#8321: two sessions running one agent are named on its row; a shell 
   const pane = (session, command) => ({ name: 'kappa', session, command });
   const shown = [pane('kappa-discord', 'claude')];
   assert.equal(status.twinSessions([shown[0], pane('kappa', 'claude')], shown).get('kappa'), 'kappa');
+  assert.equal(status.twinSessions([shown[0], pane('kappa', '2.1.212')], shown).get('kappa'), 'kappa', 'the native Claude command is a version number');
   assert.equal(status.twinSessions([shown[0], pane('kappa', 'zsh')], shown).has('kappa'), false, 'CONTROL: a shell beside it is not a second agent');
   assert.equal(status.twinSessions([shown[0], pane('kappa-discord', 'claude')], shown).has('kappa'), false, 'CONTROL: a split window in one session is one agent');
   assert.equal(status.twinSessions([pane('kappa-discord', 'zsh'), pane('kappa', 'claude')], [pane('kappa-discord', 'zsh')]).has('kappa'), false, 'CONTROL: the row itself is not running');

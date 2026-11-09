@@ -1,7 +1,7 @@
 # twosess-8321: two sessions running one agent (kosmos#8321)
 
 ## Done when
-Served on PROD: when two sessions run one agent, its card says "Two copies running", hovering says what that means and names the other, and the agent's page says it. One session reads neither.
+Served on PROD: when two sessions run one agent, its card and list row say "Two copies running", hovering says what that means and names the other, and the agent's page says it. One session reads neither.
 
 ## What
 engine/status.js twinSessions: for each row, another session with the same name, both running an unambiguous agent process; snapshot adds `twinSession` to that card. web/index.html: twinSay, twinNote, the card's role line and the agent page's header.
@@ -13,7 +13,7 @@ engine/status.js twinSessions: for each row, another session with the same name,
 - Rejected a folder comparison: the name is what folds the two rows together, which is the reported case.
 
 ## Not this
-Two agents with different names in one folder.
+Two agents with different names in one folder. The iPhone's native agent list, which has no notice yet. A person's own same-named session running Claude reads as a copy: the words do not claim the same folder, since no folder is compared.
 
 ## Weakest premise
 That the fleet's own sessions never legitimately run twins under one name: on this board `tmux list-sessions` shows none.

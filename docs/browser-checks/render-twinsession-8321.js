@@ -2,7 +2,7 @@
 // Browser-check-surface: twinNote twinSay atwin d-meta
 
 /**
- * kosmos#8321: two sessions running one agent. On the real page, no board: the agent's card (card()) carries "Two copies
+ * kosmos#8321: two sessions running one agent. On the real page, no board: the agent's card (card()) and list row (lrow(), the phone's and the consolidated rail's) carry "Two copies
  * running" with the full sentence on hover, the agent page's header carries the sentence, and an agent with no second
  * session carries neither (the control).
  *
@@ -30,13 +30,18 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const two = html({ ...base, twinSession: 'kappa' });
     const one = html(base);
     const note = two.querySelector('.atwin');
+    const row = document.createElement('div'); row.innerHTML = lrow({ ...base, twinSession: 'kappa' }); document.body.appendChild(row);
+    const rowOne = document.createElement('div'); rowOne.innerHTML = lrow(base); document.body.appendChild(rowOne);
+    const rn = row.querySelector('.atwin');
+    const box = rn && rn.getBoundingClientRect();
     paintDetailMeta({ ...base, twinSession: 'kappa' });
     const meta = document.getElementById('d-meta').textContent;
     paintDetailMeta(base);
     const metaOne = document.getElementById('d-meta').textContent;
-    return { text: note && note.textContent, title: note && note.title, color: note && getComputedStyle(note).color, none: one.querySelector('.atwin') === null, meta, metaOne };
+    return { rowText: rn && rn.textContent, rowSeen: !!box && box.width > 0 && box.height > 0, rowNone: rowOne.querySelector('.atwin') === null, text: note && note.textContent, title: note && note.title, color: note && getComputedStyle(note).color, none: one.querySelector('.atwin') === null, meta, metaOne };
   });
   say(r.text === 'Two copies running', 'the card says two copies are running', JSON.stringify(r.text));
+  say(r.rowText === 'Two copies running' && r.rowSeen && r.rowNone, 'the list row says it too, drawn, and not on a row with one session');
   say(/overwrite each other/.test(r.title || '') && /running as kappa/.test(r.title || ''), 'hovering says what that means and names the other', r.title);
   say(/Two copies of this agent are running/.test(r.meta), "the agent's page says so");
   say(r.none === true && !/Two copies/.test(r.metaOne), 'CONTROL: one session, neither', r.metaOne);
