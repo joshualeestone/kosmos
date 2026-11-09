@@ -133,28 +133,30 @@ struct ChatList: UIViewRepresentable {
         // person did not make that ends there or further down has not taken the reader away from the newest message.
         var pinnedY: CGFloat = -.greatestFiniteMagnitude
         func scrollViewWillBeginDragging(_ sv: UIScrollView) { dragged = true }
-        func scrollViewDidEndDecelerating(_ sv: UIScrollView) { scrolled(sv) }
-        func scrollViewDidEndDragging(_ sv: UIScrollView, willDecelerate: Bool) { if !willDecelerate { scrolled(sv) } }
-        func scrollViewDidEndScrollingAnimation(_ sv: UIScrollView) { scrolled(sv) }
-        func scrollViewDidScrollToTop(_ sv: UIScrollView) { scrolled(sv) }
-        func scrolled(_ sv: UIScrollView) {
+        func scrollViewDidEndDecelerating(_ sv: UIScrollView) { scrolled(sv, how: "deceleration") }
+        func scrollViewDidEndDragging(_ sv: UIScrollView, willDecelerate: Bool) { if !willDecelerate { scrolled(sv, how: "drag") } }
+        func scrollViewDidEndScrollingAnimation(_ sv: UIScrollView) { scrolled(sv, how: "animation") }
+        func scrollViewDidScrollToTop(_ sv: UIScrollView) { scrolled(sv, how: "to top") }
+        func scrolled(_ sv: UIScrollView, how: String) {
             movedAt = 0   // a scroll that has ended is at rest: the next layout holds the place taken here
             let byPerson = dragged, wasAtEnd = atEnd
             dragged = false
-            // kosmos#8221 slice 4 (CI run 42533329564): on a slow device a scroll nobody asked for (UIKit's own, as the rows
-            // size themselves when the chat opens) ended 50 pt short of an end that had grown under it, and the list stopped
-            // following the newest message, so the keyboard covered it. Such a scroll, ending where the list last pinned
-            // itself or further down, keeps a reader at the newest there and puts them at the end. A scroll the person made, or
-            // one that went up the thread (VoiceOver's, the status-bar tap), decides as before.
-            // The lower of the two: rows that sized smaller than their estimate lower the end after the last pin.
-            if atEnd, !byPerson, sv.contentOffset.y >= min(pinnedY, maxY(sv)) - 0.5 {
+            // kosmos#8221 slice 4 (CI runs 42533329564 and 42538515239): on a slow device, as a chat opens and its rows size
+            // themselves, UIKit runs a deceleration nobody started that ends 50 pt above the end, and the list stopped following
+            // the newest message, so the keyboard covered it. A person's deceleration always follows their drag, so one with no
+            // drag keeps a reader at the newest there, whichever way it went, and puts them at the end. An animated scroll the
+            // person did not drag (VoiceOver's) keeps them only if it went down, from where they were last at the end (the
+            // lower of that and the end now: rows sized smaller than their estimate lower the end after the last pin). A drag,
+            // or an animated scroll up the thread, or the status-bar tap, decides as before.
+            let keep = how == "deceleration" || sv.contentOffset.y >= min(pinnedY, maxY(sv)) - 0.5
+            if atEnd, !byPerson, keep {
                 pin()
-                ChatView.trace("uikit list: scroll ended, not the person's and not up, kept at the end (\(geometry(sv)))", ring: false)
+                ChatView.trace("uikit list: scroll ended, not the person's, kept at the end after a \(how) (\(geometry(sv)))", ring: false)
                 return
             }
             atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
             if atEnd { pinnedY = sv.contentOffset.y }
-            ChatView.trace("uikit list: scroll ended, at end \(atEnd) (was \(wasAtEnd)), by the person \(byPerson) (\(geometry(sv)))", ring: false)
+            ChatView.trace("uikit list: scroll ended, at end \(atEnd) (was \(wasAtEnd)), by the person \(byPerson), after a \(how) (\(geometry(sv)))", ring: false)
             if !atEnd { place = top() }
         }
 
