@@ -280,7 +280,7 @@ function Get-GitLine([string[]] $GitArgs) {
 # half a second on the release PC online (11-09), not measured offline; it runs only when PATH has no node.
 # Said on stderr once per run (the first verdict), so the run's log shows which binary checked the build, and names a
 # .cmd shim it skipped on PATH, if there was one. Returns an object with .Source, or $null.
-$KosmosRuntimeNodes = @('Programs\Kosmos\runtime\node.exe')
+$KosmosAppNode = 'Programs\Kosmos\runtime\node.exe'   # ONE place: the stderr line always names the binary returned
 $NodePublisher = 'OpenJS Foundation'
 $script:SaidRuntimeNode = $false   # declared for StrictMode, as the script's other run-wide flags
 function Get-NodeExe {
@@ -291,26 +291,24 @@ function Get-NodeExe {
   $shim = $found | Select-Object -First 1
   # Off Windows (pwsh) there is no Authenticode cmdlet: nothing can be checked, so nothing is used.
   $canCheck = [bool](Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue)
-  foreach ($rel in $KosmosRuntimeNodes) {
-    $p = Join-Path $env:LOCALAPPDATA $rel
-    if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
-    $sig = if ($canCheck) { Get-AuthenticodeSignature -LiteralPath $p -ErrorAction SilentlyContinue } else { $null }
-    $signer = if ($sig -and $sig.SignerCertificate) { $sig.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) } else { '' }
-    $trusted = $sig -and "$($sig.Status)" -ceq 'Valid' -and $signer -ceq $NodePublisher
-    if (-not $script:SaidRuntimeNode) {
-      $why = if ($shim) { "no node executable on PATH (skipped the shim $($shim.Source): cmd.exe would mangle the arguments)" } else { 'no node on PATH' }
-      $line = if ($trusted) { "using the installed Kosmos app's own (signed by $NodePublisher): $p" }
-        elseif (-not $canCheck) { "NOT using the Kosmos app's node at ${p}: this PowerShell cannot check its signature" }
-        else { "NOT using the Kosmos app's node at ${p}: its signature is $(if ($sig) { "$($sig.Status)" } else { 'unreadable' })$(if ($signer) { " from $signer" }), not Valid from $NodePublisher" }
-      [Console]::Error.WriteLine("publish-r2: $why; $line")
-      $script:SaidRuntimeNode = $true   # once per run: a run checks with node two or three times
-    }
-    if ($trusted) { return [pscustomobject]@{ Source = $p } }
+  $p = Join-Path $env:LOCALAPPDATA $KosmosAppNode
+  if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return $null }
+  $sig = if ($canCheck) { Get-AuthenticodeSignature -LiteralPath $p -ErrorAction SilentlyContinue } else { $null }
+  $signer = if ($sig -and $sig.SignerCertificate) { $sig.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) } else { '' }
+  $trusted = $sig -and "$($sig.Status)" -ceq 'Valid' -and $signer -ceq $NodePublisher
+  if (-not $script:SaidRuntimeNode) {
+    $why = if ($shim) { "no node executable on PATH (skipped the shim $($shim.Source): cmd.exe would mangle the arguments)" } else { 'no node on PATH' }
+    $line = if ($trusted) { "using the installed Kosmos app's own (signed by $NodePublisher): $p" }
+      elseif (-not $canCheck) { "NOT using the Kosmos app's node at ${p}: this PowerShell cannot check its signature" }
+      else { "NOT using the Kosmos app's node at ${p}: its signature is $(if ($sig) { "$($sig.Status)" } else { 'unreadable' })$(if ($signer) { " from $signer" }), not Valid from $NodePublisher" }
+    [Console]::Error.WriteLine("publish-r2: $why; $line")
+    $script:SaidRuntimeNode = $true   # once per run: a run checks with node two or three times, on this one path
   }
+  if ($trusted) { return [pscustomobject]@{ Source = $p } }
   $null
 }
 # The words for a refusal when Get-NodeExe found none: where it looked, so the fix is plain.
-$NoNodeWhere = if ($env:LOCALAPPDATA) { "none on PATH, and no installed Kosmos app's node signed by $NodePublisher under %LOCALAPPDATA% ($($KosmosRuntimeNodes -join ', '))" } else { 'none on PATH (and no %LOCALAPPDATA% here to look for the Kosmos app''s node in)' }
+$NoNodeWhere = if ($env:LOCALAPPDATA) { "none on PATH, and no installed Kosmos app's node signed by $NodePublisher under %LOCALAPPDATA% ($KosmosAppNode)" } else { 'none on PATH (and no %LOCALAPPDATA% here to look for the Kosmos app''s node in)' }
 # One argument as a Windows command line needs it (.NET parses the same rules elsewhere): 5.1 has no ArgumentList.
 function ConvertTo-NativeArg([string] $a) {
   if ($a -and $a -notmatch '[\s"]') { return $a }

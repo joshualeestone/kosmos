@@ -37,7 +37,7 @@ function Assignment($left) {
 }
 $env:PATH = $args[1]
 if ($args[2] -ceq 'NO-LOCALAPPDATA') { $env:LOCALAPPDATA = $null } else { $env:LOCALAPPDATA = $args[2] }
-. ([scriptblock]::Create((Assignment '$KosmosRuntimeNodes')))
+. ([scriptblock]::Create((Assignment '$KosmosAppNode')))
 . ([scriptblock]::Create((Assignment '$NodePublisher')))
 . ([scriptblock]::Create((Assignment '$script:SaidRuntimeNode')))
 if ($args[3] -ceq 'words') {
@@ -63,9 +63,19 @@ const OWN_NODE_SIGNED = process.platform === 'win32' && spawnSync('powershell.ex
 { env: { ...process.env, K8285_NODE: process.execPath } }).status === 0;
 const NEEDS_SIGNED = !OWN_NODE_SIGNED && 'this host\'s node.exe is not an OpenJS-signed build, so there is no signed node to stand in';
 
+/* The signed node: copied ONCE into this run's folder (the runner's node may sit on another volume), then hard-linked
+   per fixture, so a run copies about 80 MB once, not per test. The other-publisher file: Windows' own cmd.exe, Valid
+   (catalog-signed, which a copy keeps) and signed by "Microsoft Windows", so only the PUBLISHER check can refuse it. */
+let signedSrc = null;
+function signedSource() {
+  if (!signedSrc) { signedSrc = path.join(SB, 'signed-node.exe'); try { fs.linkSync(process.execPath, signedSrc); } catch { fs.copyFileSync(process.execPath, signedSrc); } }
+  return signedSrc;
+}
+const OTHER_PUBLISHER = process.env.ComSpec || path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe');
+
 let n = 0;
 /* A throwaway PC: a PATH folder holding `onPath` (file names), and a LOCALAPPDATA holding `runtimes`, each
-   [relative path, 'signed' | 'unsigned']: a signed one is this test's own node.exe, an unsigned one an empty file. */
+   [relative path, 'signed' | 'other' | 'unsigned']: this test's own node.exe, a copy of cmd.exe, or an empty file. */
 function pc(onPath, runtimes) {
   const root = path.join(SB, 'pc' + (n += 1));
   const bin = path.join(root, 'bin');
@@ -76,7 +86,9 @@ function pc(onPath, runtimes) {
   for (const [rel, kind] of runtimes) {
     const at = path.join(lad, rel);
     fs.mkdirSync(path.dirname(at), { recursive: true });
-    if (kind === 'signed') { try { fs.linkSync(process.execPath, at); } catch { fs.copyFileSync(process.execPath, at); } } else fs.writeFileSync(at, '');
+    if (kind === 'signed') fs.linkSync(signedSource(), at);
+    else if (kind === 'other') fs.copyFileSync(OTHER_PUBLISHER, at);
+    else fs.writeFileSync(at, '');
   }
   return { bin, lad };
 }
@@ -115,6 +127,12 @@ for (const ps of RUNTIMES) {
     const r = harness(ps, w);
     assert.strictEqual(r.found, 'NONE');
     assert.match(r.said, /NOT using the Kosmos app's node at .*: its signature is \S+.*, not Valid from OpenJS Foundation/);
+  });
+  test('#8285 ' + ps + ': a Valid signature from ANOTHER publisher is NOT run (the publisher check, not the status, refuses it)', () => {
+    const w = pc([], [[APP, 'other']]);
+    const r = harness(ps, w);
+    assert.strictEqual(r.found, 'NONE');
+    assert.match(r.said, /its signature is Valid from Microsoft Windows, not Valid from OpenJS Foundation/, r.said);
   });
   test('#8285 ' + ps + ': the board runtime\'s copy is never looked at, signed or not', { skip: NEEDS_SIGNED }, () => {
     assert.strictEqual(harness(ps, pc([], [[BOARD, 'signed']])).found, 'NONE');

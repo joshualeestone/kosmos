@@ -13,7 +13,8 @@ node.exe. The workaround was prepending the runtime folder to PATH by hand.
   `OpenJS Foundation` (node's publisher; `$NodePublisher`). Otherwise skipped, and the caller refuses.
 - Said on stderr once per run: which node checks the build, or why the app's was not used. Returns an object with
   `.Source`, as Get-Command's result, so both callers are unchanged. The help header says all of this.
-- `$KosmosRuntimeNodes` and `$NodePublisher` are script variables; both refusals say where node was looked for
+- `$KosmosAppNode` (ONE path, not a list, so the stderr line always names the binary returned) and `$NodePublisher`
+  are script variables; both refusals say where node was looked for
   (`$NoNodeWhere`, honest when there is no `%LOCALAPPDATA%`).
 - Off Windows (pwsh on a Mac, the bash test) `%LOCALAPPDATA%` is unset or points nowhere, so the fallback finds
   nothing: unchanged.
@@ -34,10 +35,12 @@ the installed Kosmos itself runs, so it is the node that release already trusts.
 
 ## Tests
 New `tools.win-publish-node-runtime-8285.test.js` (Windows, under each PowerShell present; the CI job has both):
-Get-NodeExe, its list, the publisher, the once-flag and the refusal words parsed out of the real script under Stop +
+Get-NodeExe, its path, the publisher, the once-flag and the refusal words parsed out of the real script under Stop +
 StrictMode 2.0, against throwaway PATH and LOCALAPPDATA. A signed node is the test's own node.exe (an official build),
-hard-linked or copied; an empty file is an unsigned one. Covers: signed app node used (said), unsigned one NOT run
-(said why), the board copy never looked at, a real PATH node wins unchecked, a .cmd shim still skipped and named in
+copied once per run and hard-linked; another publisher's is a copy of Windows' cmd.exe (Valid, "Microsoft Windows");
+an empty file is an unsigned one. Covers: signed app node used (said), unsigned one NOT run (said why), a Valid
+signature from another publisher NOT run (a mutation control removing the publisher clause turns exactly that test
+red), the board copy never looked at, a real PATH node wins unchecked, a .cmd shim still skipped and named in
 the line (and none named when there is none), said once per
 run, no LOCALAPPDATA -> none and silent, neither -> none, the refusal words both ways, and both refusals carry them
 above their callers. A CI-only check asserts the Windows job's node is signed, so the signed arms cannot skip there.
