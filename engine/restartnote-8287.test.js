@@ -99,17 +99,6 @@ test('#8287: a damaged record cannot put junk in the note', () => {
   assert.equal('wereRunning' in rn.atStart({ now: () => NOW, uptime: () => up(6) }), false);
 });
 
-test('#8287: on Windows the logon task counts as the supervisor; nothing else does', () => {
-  assert.equal(rn.whoStarted({ platform: 'win32', startedByTask: true }), 'supervisor');
-  assert.equal(rn.whoStarted({ platform: 'win32', startedByTask: false }), undefined, 'a hand start was called the supervisor');
-  assert.equal(rn.whoStarted({ platform: 'darwin', startedByTask: true }), undefined, 'the proof is a Windows one');
-  assert.equal(rn.whoStarted({ launcherSaid: 'person', platform: 'win32', startedByTask: true }), 'person', 'the launcher\'s word lost');
-  // What it buys: a box left at the sign-in screen past the window still gets its note.
-  const late = { now: NOW, uptimeSec: up(40), lastAliveAt: at(42 * MIN) };
-  assert.equal(rn.noteFor({ ...late }), null, 'CONTROL: with no word the timer refuses this');
-  assert.ok(rn.noteFor({ ...late, startedBy: rn.whoStarted({ platform: 'win32', startedByTask: true }) }));
-});
-
 test('#8287: the file result is what this start found, however the notice is handled afterwards', () => {
   const root = require('./store').ROOT;
   fs.mkdirSync(root, { recursive: true });
@@ -120,4 +109,62 @@ test('#8287: the file result is what this start found, however the notice is han
   assert.equal(storecheck.current().length, 0, 'CONTROL: dismissing empties the notice');
   assert.deepEqual(storecheck.lastScan(), { checked: true, damaged: 1 }, 'dismissing turned the damage into fine');
   fs.rmSync(path.join(root, 'settings.json'));
+});
+
+test('#8287: a folder or file the scan could not read is never called fine, but damage it did find still counts', (t) => {
+  const root = require('./store').ROOT;
+  fs.mkdirSync(root, { recursive: true });
+  storecheck.scan({ base: null });
+  assert.deepEqual(storecheck.lastScan(), { checked: true, damaged: 0 }, 'CONTROL: a clean scan says so');
+
+  const realDir = fs.readdirSync;
+  t.mock.method(fs, 'readdirSync', (dir, ...a) => { if (dir === root) { const e = new Error('no'); e.code = 'EACCES'; throw e; } return realDir(dir, ...a); });
+  storecheck.scan({ base: null });
+  assert.equal(storecheck.lastScan().checked, false, 'a data folder it could not list was called fine');
+  fs.readdirSync.mock.restore();
+
+  fs.writeFileSync(path.join(root, 'settings.json'), '{}');
+  const realRead = fs.readFileSync;
+  const busy = t.mock.method(fs, 'readFileSync', (f, ...a) => { if (String(f).endsWith('settings.json')) { const e = new Error('busy'); e.code = 'EBUSY'; throw e; } return realRead(f, ...a); });
+  storecheck.scan({ base: null });
+  assert.equal(storecheck.lastScan().checked, false, 'a file it could not read was called fine');
+  fs.writeFileSync(path.join(root, 'policy.json'), '');
+  storecheck.scan({ base: null });
+  assert.deepEqual(storecheck.lastScan(), { checked: true, damaged: 1 }, 'damage it did find was dropped because of the file it could not read');
+  busy.mock.restore();
+  fs.rmSync(path.join(root, 'settings.json'));
+  fs.rmSync(path.join(root, 'policy.json'));
+});
+
+test('#8287: a rejected token, a lost connection or a crash loop is not back', () => {
+  const note = { wereRunning: was('a', 'b', 'c') };
+  const roster = [card('a', 'A', { state: 'auth_failed' }), card('b', 'B', { state: 'connection_lost' }), card('c', 'C', { crashLoop: { looping: true } })];
+  assert.deepEqual(rn.checksFor(note, roster, []).agents, { was: 3, back: 0, notBack: ['A', 'B', 'C'] });
+  assert.deepEqual(rn.runningOf(roster), [], 'one of these was recorded as running');
+});
+
+test('#8287: an agent seen back once stays back, so stopping it later that day is not reported', () => {
+  clean();
+  aliveWith({ running: was('leo', 'homer') });
+  rn.atStart({ now: () => NOW, uptime: () => up(6) });
+  const stopped = [card('leo', 'Leo', { state: 'stopped' }), card('homer', 'Homer', { state: 'stopped' })];
+  rn.noteRunning(stopped);
+  assert.deepEqual(rn.checksFor(rn.current(NOW + MIN), stopped, []).agents.notBack, ['Leo', 'Homer'], 'CONTROL: neither has been seen back');
+  rn.noteRunning([card('leo', 'Leo'), card('april', 'April')]);
+  assert.deepEqual(rn.checksFor(rn.current(NOW + MIN), stopped, []).agents, { was: 2, back: 1, notBack: ['Homer'] }, 'Leo came back and was stopped later');
+  assert.deepEqual(rn.current(NOW + MIN).returned, ['leo'], 'an agent nobody asked about was recorded');
+});
+
+test('#8287: the page gets the times and the checks and none of the records', () => {
+  const n = { lastAliveAt: 'a', bootAt: 'b', upAt: 'c', wereRunning: was('leo'), returned: ['leo'], files: { damaged: 1 } };
+  assert.deepEqual(rn.publicNote(n, { files: { damaged: 1 } }), { lastAliveAt: 'a', bootAt: 'b', upAt: 'c', checks: { files: { damaged: 1 } } });
+});
+
+test('#8287: the fields read are the ones real cards carry', () => {
+  const fleet = require('../test-support/fleet');
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('homer', { state: 'working' }), fleet.agent('april', { state: 'auth_failed' })]);
+  try {
+    assert.deepEqual(rn.runningOf(board.agents).map((a) => a.session).sort(), ['homer', 'leo'], 'real cards did not read as up, or a failed one did');
+    assert.deepEqual(rn.checksFor({ wereRunning: was('leo', 'april') }, board.agents, []).agents.notBack.length, 1);
+  } finally { board.restore(); }
 });

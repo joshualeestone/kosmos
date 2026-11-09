@@ -24824,7 +24824,8 @@ function rebootChecked(checks) {
     if (a.back === a.was) parts.push(a.was === 1 ? 'the agent that was running is running again' : 'all ' + a.was + ' agents that were running are running again');
     else {
       const shown = a.notBack.slice(0, 5).join(', ') + (a.notBack.length > 5 ? ' and ' + (a.notBack.length - 5) + ' more' : '');
-      parts.push(a.back + ' of ' + a.was + ' agents that were running ' + (a.back === 1 ? 'is' : 'are') + ' running again (not yet: ' + shown + ')');
+      parts.push(a.was === 1 ? 'the agent that was running is not running yet (' + shown + ')'
+        : a.back + ' of ' + a.was + ' agents that were running ' + (a.back === 1 ? 'is' : 'are') + ' running again (not yet: ' + shown + ')');
     }
   }
   const f = checks.files;

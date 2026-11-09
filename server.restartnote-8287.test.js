@@ -30,6 +30,7 @@ rn.atStart = (deps) => { atStartGot = deps || null; return realAtStart(deps); };
 const realStartBeating = rn.startBeating;
 rn.startBeating = (...a) => { const t = realStartBeating(...a); if (t && t.unref) t.unref(); return t; };
 const { start, server } = require('./server');
+require('./engine/storecheck').scan({ base: null });
 
 test('#8287: the route says what was checked, names who is not back, and keeps the list to itself', async (t) => {
   await start(0);
@@ -43,5 +44,13 @@ test('#8287: the route says what was checked, names who is not back, and keeps t
 
 test('#8287: start() hands atStart the result of the file check', () => {
   assert.ok(atStartGot, 'start() never called atStart');
-  assert.ok(atStartGot.files && typeof atStartGot.files.checked === 'boolean', 'atStart was not given the file check');
+  assert.deepEqual(atStartGot.files, { checked: true, damaged: 0 }, 'atStart was not given the file check');
+});
+
+test('#8287: the file check runs before the board starts, or every note loses its files clause', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const scan = src.indexOf("require('./engine/storecheck').atStart({ base })");
+  const boot = src.indexOf('\n    start().then(');
+  assert.ok(scan > 0 && boot > 0, 'CONTROL: one of the two anchors is gone');
+  assert.ok(scan < boot, 'the board starts before the file check runs');
 });
