@@ -21,10 +21,11 @@ VoiceOver or keyboard scroll up from the newest did not just jump; it did nothin
 
 - Coordinator: personAskedAt / personUntil / personScrolling() / personScrollOpened() / personScrollLapsed().
   personScrolls (already wired to accessibilityScroll and the scroll keys) records the ask. The scroll's first move within
-  personScrollAsk (1.0 s) of it, not made by the list itself (pinning, applying, laying), opens the window; each later move
+  personScrollAsk (0.5 s) of it, not made by the list itself (pinning, applying, laying), opens the window; each later move
   keeps it open for personScrollQuiet (0.3 s). While open, laidOut leaves the list alone and scrollViewDidScroll reads the
   moves as the person's (atEnd, the place dropped). It closes on the reported end (scrolled) or lapses after the moves stop;
-  a lapse keeps where the last move put the reader and runs laidOut. A press that moves nothing opens nothing.
+  a lapse keeps where the last move put the reader and runs laidOut. A press that moves nothing opens nothing, and its ask
+  (with the drag it counted, which before this slice stayed counted until some later scroll ended) is let go after 0.5 s.
 - Debug only: KOSMOS_SAMPLE_A11YSCROLL=<s> (with _MODE animated, stepped or still) makes one scroll of VoiceOver's kind
   through personScrolls (accessibilityScroll itself scrolls nothing on a simulator with VoiceOver off, measured) and reports
   pins, at end, moved, window. KOSMOS_SAMPLE_NOPERSONSCROLL=1 turns the fix off (the control arms).
@@ -33,7 +34,7 @@ VoiceOver or keyboard scroll up from the newest did not just jump; it did nothin
 
 - A11yScrollUITests (UIKit arm, 5; skipped on the lazy arm): two controls with the fix off (animated, stepped) must see pins;
   with the fix: animated (0 pins, moved, off the newest), stepped with no end (window opened, 0 pins, moved > 300 pt, off the
-  newest), still (no window, still at the newest, moved 0).
+  newest), still (no window, still at the newest, moved 0, the drag let go).
 
 ## Measured (iPhone 17e simulator, iOS 27, 2 rounds each, 11-09 16:2x)
 
@@ -52,6 +53,12 @@ The stepped scroll asks for 450 pt and moved 371 with no pin; where the other 79
   and holding for a second, and a held key kept it off (review iteration 1).
 - A fixed window with no extension: a scroll longer than it would have the list hold the reader's place on each move,
   freezing it.
+
+## Deferred from review
+
+- A row landing while such a scroll runs, with the reader still at the newest, is not followed until the moves stop (at most
+  0.3 s after the last) or the end is reported. By design: following it would pin the list under the person's scroll.
+- The stepped control depends on each move causing a layout pass that pins; measured red (14 and 24 pins), so it sees it.
 
 ## Weakest premise
 

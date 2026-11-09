@@ -10,7 +10,7 @@ import XCTest
 final class A11yScrollUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
-    private struct Report { let pins: Int; let atEnd: Bool; let moved: Int; let window: Bool; let label: String }
+    private struct Report { let pins: Int; let atEnd: Bool; let moved: Int; let window: Bool; let dragged: Bool; let label: String }
 
     private func scrollUp(mode: String, fixOff: Bool = false) throws -> Report {
         guard UIKitListArm.on else { throw XCTSkip("the lazy list has no pin to the end (UIKit list only)") }
@@ -25,17 +25,17 @@ final class A11yScrollUITests: XCTestCase {
         XCTAssertTrue(newest.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
         let marker = app.descendants(matching: .any).matching(identifier: "sample-a11y-scroll").firstMatch
         XCTAssertTrue(marker.waitForExistence(timeout: 20), "CONTROL: the scroll never reported")
-        // "sample a11y scroll pins <n>, at end <bool>, moved <n>, window <bool>, from the end <bool>"
+        // "sample a11y scroll pins <n>, at end <bool>, moved <n>, window <bool>, dragged <bool>, from the end <bool>"
         let label = marker.label
         let words = label.replacingOccurrences(of: ",", with: "").split(separator: " ").map(String.init)
         func after(_ key: String) -> String? { words.firstIndex(of: key).flatMap { $0 + 1 < words.count ? words[$0 + 1] : nil } }
         XCTAssertEqual(words.last, "true", "CONTROL: the scroll did not start at the newest message: \(label)")
         print("UI-NOTE kosmos#8221 slice 11 \(mode)\(fixOff ? ", fix off" : ""): \(label)")
         guard let pins = after("pins").flatMap(Int.init), let moved = after("moved").flatMap(Int.init),
-              let atEnd = after("end"), let window = after("window") else {
+              let atEnd = after("end"), let window = after("window"), let dragged = after("dragged") else {
             XCTFail("unreadable report: \(label)"); throw XCTSkip("unreadable report")
         }
-        return Report(pins: pins, atEnd: atEnd == "true", moved: moved, window: window == "true", label: label)
+        return Report(pins: pins, atEnd: atEnd == "true", moved: moved, window: window == "true", dragged: dragged == "true", label: label)
     }
 
     // The controls: before this slice the list pinned itself back during such a scroll. If a control reads 0 pins, the check
@@ -68,11 +68,13 @@ final class A11yScrollUITests: XCTestCase {
         XCTAssertFalse(r.atEnd, "the reader is still counted at the newest after scrolling up: \(r.label)")
     }
 
-    // Asked for, but nothing moves (an arrow key that only moves focus): no window opens and the reader stays at the newest.
+    // Asked for, but nothing moves (an arrow key that only moves focus): no window opens, the reader stays at the newest, and
+    // the ask is let go, so a later scroll nobody asked for is not counted as the person's.
     func testAScrollThatMovesNothingChangesNothing() throws {
         let r = try scrollUp(mode: "still")
         XCTAssertFalse(r.window, "a scroll that moved nothing opened the person's-scroll window: \(r.label)")
         XCTAssertTrue(r.atEnd, "a scroll that moved nothing took the reader off the newest: \(r.label)")
         XCTAssertEqual(r.moved, 0, "CONTROL: the still scroll moved the list: \(r.label)")
+        XCTAssertFalse(r.dragged, "the unused ask still counts as the person's scroll: \(r.label)")
     }
 }
