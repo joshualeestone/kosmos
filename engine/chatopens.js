@@ -31,7 +31,7 @@ const store = require('./store');
 
 const MAX_BUILDS = 30;
 // Sent with the numbers, for whoever reads them without this file.
-const NOTE = 'Compare builds with enough showings; do not quote a rate. blankOpens is a floor on blanks, and lost showings can move blankOpens/opens either way. ok false means the file is unreadable and counting has stopped until it is removed. Definitions: engine/chatopens.js. The numbers of a build itself are the lazy list; a chat drawn by the New chat list on the iPhone (#8221) is counted apart, in the uikit block of its build.';
+const NOTE = 'Compare builds with enough showings; do not quote a rate. blankOpens is a floor on blanks, and lost showings can move blankOpens/opens either way. ok false means the file is unreadable and counting has stopped until it is removed. Definitions: engine/chatopens.js. The numbers of a build itself are the lazy list; a chat drawn by the New chat list on the iPhone (#8221) is counted apart, in the uikit block of its build. No uikit block means none was counted; a build can have a uikit block and opens 0.';
 const MAX_REBUILDS = 100;   // the app's own budget is far lower; a bad record cannot move a rate by much
 const FIELDS = ['opens', 'blankOpens', 'rebuilds', 'closedBlank'];
 // Digits and dots, with the build in brackets: no room for a word.
