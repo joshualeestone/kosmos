@@ -34,7 +34,7 @@ struct ChatList: UIViewRepresentable {
     static let endSlack: CGFloat = 40
     // kosmos#8221 slice 11: how long after a scroll is asked for without a finger its first move still counts as the person's
     // (UIKit starts an animated scroll on the next frame)...
-    static let personScrollAsk: CFTimeInterval = 1.0
+    static let personScrollAsk: CFTimeInterval = 0.5
     // ...and how long after its last move it still counts as running.
     static let personScrollQuiet: CFTimeInterval = 0.3
     #if DEBUG
@@ -182,7 +182,7 @@ struct ChatList: UIViewRepresentable {
             ChatView.trace("uikit list: debug accessibility scroll up, from the end \(wasAtEnd)", ring: false)
             DispatchQueue.main.asyncAfter(deadline: .now() + watch + 0.1) { [weak self] in
                 guard let self, let list = self.list else { return }
-                report?("pins \(self.debugPins), at end \(self.atEnd), moved \(Int(y0 - list.contentOffset.y)), window \(self.debugWindowOpened), from the end \(wasAtEnd)")
+                report?("pins \(self.debugPins), at end \(self.atEnd), moved \(Int(y0 - list.contentOffset.y)), window \(self.debugWindowOpened), dragged \(self.dragged), from the end \(wasAtEnd)")
             }
         }
 
@@ -248,7 +248,7 @@ struct ChatList: UIViewRepresentable {
         // scroll, which then ended where it began). While it runs, laidOut leaves the list alone and the scroll's own moves
         // decide where the reader is, as a finger's do.
         // It runs from its first move (within personScrollAsk of being asked for: a press that scrolls nothing, such as an
-        // arrow key moving focus, opens nothing and changes nothing) until its end is reported (scrolled) or it has not moved
+        // arrow key moving focus, opens nothing, and is let go when that time is up) until its end is reported (scrolled) or it has not moved
         // for personScrollQuiet. On that lapse the reader is where its last move put them (at the newest or not, read by
         // scrollViewDidScroll), and the list is put back to that as after any layout.
         var personAskedAt: CFTimeInterval = 0
@@ -260,7 +260,16 @@ struct ChatList: UIViewRepresentable {
             // KOSMOS_SAMPLE_NOPERSONSCROLL=1: the list as before this slice, the control arm of A11yScrollUITests.
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOPERSONSCROLL"] == "1" { return }
             #endif
-            personAskedAt = CACurrentMediaTime()
+            let asked = CACurrentMediaTime()
+            personAskedAt = asked
+            // An ask whose scroll never moves (an arrow key that only moves focus) is let go once its time is up, with the drag
+            // it counted, so a later scroll nobody asked for is not taken for the person's (slice 4).
+            DispatchQueue.main.asyncAfter(deadline: .now() + ChatList.personScrollAsk + 0.05) { [weak self] in
+                guard let self, self.personAskedAt == asked, let list = self.list,
+                      !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
+                self.personAskedAt = 0
+                self.dragged = false
+            }
         }
         func personScrollOpened() {
             personAskedAt = 0   // one ask opens one window
