@@ -188,6 +188,28 @@ const read = () => {
       ok(t + ' a clicked name lets go of focus so typing reaches the conversation', typing.afterMouse === false, JSON.stringify(typing));
       ok(t + ' CONTROL: a keyboard press keeps it', typing.afterKey === true, JSON.stringify(typing));
 
+      const switched = await page.evaluate(() => {
+        PROJECTS = [{ id: 'k', name: 'Kosmos', agents: [], archived: false }];
+        openDetail('mark', undefined, 'k');
+        document.querySelector('#my-agents-list .lrow[data-agent="dario"]').click();
+        const out = { open: CURRENT && CURRENT.sessionName, from: DETAIL_FROM_PROJECT, toAll: document.getElementById('panel-detail').hasAttribute('data-to-all') };
+        openDetail('jen');
+        return out;
+      });
+      ok(t + ' moving between agents keeps the way back to the project', switched.open === 'dario' && switched.from === 'k' && switched.toAll === false, JSON.stringify(switched));
+
+      const onlyGuide = await page.evaluate(([fn]) => {
+        const keep = LAST;
+        LAST = keep.filter((a) => a.isGuide);
+        paintMyAgents();
+        const r = (0, eval)('(' + fn + ')')();
+        LAST = keep;
+        paintMyAgents();
+        return { guide: r, back: (0, eval)('(' + fn + ')')().hidden };
+      }, [read.toString()]);
+      ok(t + ' with nobody to list there is no column, and the link stays', onlyGuide.guide.hidden === true && onlyGuide.guide.back !== 'none' && onlyGuide.guide.pageLeft < 100, JSON.stringify(onlyGuide.guide));
+      ok(t + ' CONTROL: it comes back with the agents', onlyGuide.back === false, JSON.stringify(onlyGuide.back));
+
       const wiring = await page.evaluate(() => tick.toString().includes('keepStarFocus(paintMyAgents)'));
       ok(t + ' every poll repaints the column', wiring === true);
 
