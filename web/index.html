@@ -32859,6 +32859,10 @@ function computersSeenWrite(openable, name) {
 const COMPUTERS_SEEN = MULTI_KOSMOS ? null : computersSeenRead();
 let THIS_COMPUTER_NAME = COMPUTERS_SEEN ? COMPUTERS_SEEN.name : '';
 let COMPUTERS_OPENABLE = Boolean(COMPUTERS_SEEN);
+let COMPUTERS_CONFIRMED = false;   // #8325: an answer has landed on this page load, so COMPUTERS_OPENABLE is not only remembered
+/* #8325: a remembered control goes after this many failed reads with no answer (about two minutes of the backoff), so a
+   computer whose reads never succeed does not keep offering a menu with nothing in it. It comes back with a good answer. */
+const COMPUTERS_SEEN_GIVE_UP_FAILS = 3;
 let COMPUTERS_RETRY_T = null;
 let COMPUTERS_STALE_WHILE_HIDDEN = false;
 let COMPUTERS_FAILS = 0;
@@ -32928,12 +32932,15 @@ function worldswComputersSeen(rows, good, signedOut) {
   if (good) {
     const me = rows.find((c) => c.this === true);
     THIS_COMPUTER_NAME = me ? me.name : '';
-    const was = COMPUTERS_OPENABLE;
+    const was = COMPUTERS_CONFIRMED && COMPUTERS_OPENABLE;   // a remembered value is not one this page has seen: the tip still gets its turn
+    COMPUTERS_CONFIRMED = true;
     COMPUTERS_OPENABLE = rows.length >= 2;
     computersSeenWrite(COMPUTERS_OPENABLE, THIS_COMPUTER_NAME);
     if (was && !COMPUTERS_OPENABLE) worldswTipDrop();   // #6403: nowhere to switch to any more: the tip goes with it
     COMPUTERS_SIGNED_OUT = signedOut === true;   // #6403: not signed in to Kosmos+, so a look back has nothing to find
     if (COMPUTERS_OPENABLE && !was) worldswTipOnce();
+  } else if (COMPUTERS_OPENABLE && !COMPUTERS_CONFIRMED && COMPUTERS_FAILS >= COMPUTERS_SEEN_GIVE_UP_FAILS) {
+    COMPUTERS_OPENABLE = false;
   } else if (COMPUTERS_OPENABLE) {
     const box = document.getElementById('worldsw-computers');
     const list = document.getElementById('worldsw-computers-list');
@@ -32986,7 +32993,7 @@ function worldswOneKosmos() {
   sw.classList.toggle('worldsw-fixed', !COMPUTERS_OPENABLE);
   /* kosmos#6396 (Josh 11:09: "If there is only 1 computer lets not show \"This computer\" in the top left - it makes
      no sense"): shown only once the account has another computer to go to; one computer, not signed in, or no answer
-     yet shows nothing there. Read before hiding: where focus was. */
+     yet shows nothing there (#8325: unless this browser remembers a good answer with two). Read before hiding: where focus was. */
   const focusWasInside = sw.contains(document.activeElement);
   sw.hidden = !COMPUTERS_OPENABLE;
   const menu = document.getElementById('worldsw-menu');

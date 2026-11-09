@@ -57,6 +57,12 @@ test('only a good answer writes it, a failed read does not', () => {
   assert.equal(m[0].split('computersSeenWrite').length, 2);
 });
 
+test('a remembered value leaves the first-time tip its turn, and gives up after repeated failures', () => {
+  const m = SCRIPT.match(/function worldswComputersSeen\(rows, good, signedOut\) \{[\s\S]*?\n\}/);
+  assert.match(m[0], /const was = COMPUTERS_CONFIRMED && COMPUTERS_OPENABLE;/);
+  assert.match(m[0], /COMPUTERS_OPENABLE && !COMPUTERS_CONFIRMED && COMPUTERS_FAILS >= COMPUTERS_SEEN_GIVE_UP_FAILS\) \{\n\s+COMPUTERS_OPENABLE = false;/);
+});
+
 test('the control starts from what was remembered, and not with several Kosmoses on', () => {
   assert.match(SCRIPT, /const COMPUTERS_SEEN = MULTI_KOSMOS \? null : computersSeenRead\(\);/);
   assert.match(SCRIPT, /let COMPUTERS_OPENABLE = Boolean\(COMPUTERS_SEEN\);/);

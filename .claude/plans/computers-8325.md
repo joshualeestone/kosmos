@@ -8,10 +8,11 @@ web/index.html remembers the last good answer in this browser (localStorage: tha
 ## Decided
 - As the card recommends. Rejected: always showing the control (reverses #6396 for one-computer people); shortening the backoff (does nothing before the first answer, and each read is a signed call).
 - Stores no other computer's name or address. This computer's name is already on this person's own screen.
-- Not marked as unconfirmed: the existing failure arm already says Kosmos could not reach the computers, and a good answer corrects it within seconds.
+- Not marked as unconfirmed. A remembered control goes after four failed reads with no answer (about two minutes), so a computer whose reads never succeed does not keep offering an empty menu; what is remembered stays, so the next load shows it again for those two minutes.
+- A remembered value does not count as seen for the first-time tip, so the tip keeps its one turn.
 
 ## Weakest premise
 That the page reloaded at all, which nothing here can measure. If it did not, this does not address what he saw, and the next step is the laptop's log from the next occurrence.
 
 ## Not covered
-For up to the first answer, a person whose second computer was removed elsewhere sees a control that then goes.
+Until the first answer or four failed reads, a person whose second computer was removed elsewhere sees a control that then goes.
