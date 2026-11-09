@@ -388,8 +388,11 @@ function otherJobFor(dir, agentsDir, runner) {
   for (const p of [...spellings]) {
     if (p.startsWith(home + '/')) { const rest = p.slice(home.length); spellings.add('$HOME' + rest); spellings.add('${HOME}' + rest); spellings.add('~' + rest); }
   }
-  /* The whole folder, ended by a quote, a space or a shell separator, so /workers/baron is not /workers/baron-two. */
-  const folderRe = new RegExp('(^|["\'\\s=])(' + [...spellings].map(escapeRe).join('|') + ')/?($|["\'\\s;&|)])', 'm');
+  /* The folder as where the program runs: after cd, tmux's -c, or a *DIR= variable (the fleet's WORK_DIR). A whole path,
+     so /workers/baron is not /workers/baron-two. A mention elsewhere (--add-dir, rsync, du) does not tie it to this folder. */
+  const folders = [...spellings].map(escapeRe).join('|');
+  const folderRe = new RegExp('(?:\\bcd\\s+|\\s-c\\s+|[A-Za-z_]*(?:DIR|dir)=)["\']?(?:' + folders + ')/?($|["\'\\s;&|)])', 'm');
+  const withoutFolder = (t) => t.replace(new RegExp(folders, 'g'), '');   // a folder named after the program is not a start of it
   /* The program as a command or a path's last part: .local/bin/claude yes, ~/.claude/x and claude-501 no. */
   const startsRe = new RegExp('(^|["\'\\s/;&|(])' + escapeRe(runner || 'claude') + '($|["\'\\s;&|)])', 'm');
   let names;
@@ -397,15 +400,17 @@ function otherJobFor(dir, agentsDir, runner) {
   for (const n of names.sort()) {
     if (!n.endsWith('.plist') || n.startsWith('com.kosmos.agent.')) continue;
     let xml;
-    try { xml = fs.readFileSync(path.join(agentsDir, n), 'utf8'); } catch { continue; }
+    try {
+      if (!fs.statSync(path.join(agentsDir, n)).isFile()) continue;
+      xml = fs.readFileSync(path.join(agentsDir, n), 'utf8');
+    } catch { continue; }
     xml = xml.replace(/<!--[\s\S]*?-->/g, '').replace(/<key>EnvironmentVariables<\/key>\s*<dict>[\s\S]*?<\/dict>/g, '');
     if (/<key>Disabled<\/key>\s*<true\s*\/>/.test(xml)) continue;
     if (!/<key>(RunAtLoad|KeepAlive)<\/key>\s*(<true\s*\/>|<dict>)/.test(xml)) continue;
     const args = [...plistStrings(xml, 'Program'), ...plistStrings(xml, 'ProgramArguments')];
     const texts = [...args, ...args.map(launcherText)].filter(Boolean);
-    if (!texts.some((t) => startsRe.test(t))) continue;
+    if (!texts.some((t) => startsRe.test(withoutFolder(t)))) continue;
     const here = plistStrings(xml, 'WorkingDirectory').some((p) => path.isAbsolute(p) && real(p) === want)
-      || args.some((p) => path.isAbsolute(p) && real(p) === want)
       || texts.some((t) => folderRe.test(t));
     if (here) return { label: n.slice(0, -'.plist'.length), file: path.join(agentsDir, n) };
   }
@@ -2099,10 +2104,14 @@ function connect(dir, opts) {
     return { ok: false, because: 'an agent is already running under that name, started some other way. Kosmos will not start a second one' };
   }
 
-  /* #8294: and not while another job would start a second copy here (see otherJobFor). */
+  /* #8294: and not while another job would start a second copy here (see otherJobFor), nor while one it started is still
+     up: stopping such a job leaves its tmux session running, and a -discord session is not this name to the check above. */
+  if (runningUnderName(name + '-discord')) {
+    return { ok: false, because: 'an agent is already running under that name, started some other way. Kosmos will not start a second one' };
+  }
   const other = otherJobFor(given, create.AGENTS_DIR, runner);
   if (other) {
-    return { ok: false, because: `this agent is also started by another job on this computer (${other.label}), so adding it would run two copies in one folder. Turn that job off first, then add it again (launchctl bootout gui/$(id -u)/${other.label}, and remove ${other.file})` };
+    return { ok: false, because: `this agent is also started by another job on this computer (${other.label}), so adding it would run two copies in one folder. Stop that job and close the agent it started, then add it again. The job\u2019s file is ${other.file}` };
   }
 
   /* ⚠️ THE RECORD GOES FIRST, because `installJob` resolves the folder through
