@@ -126,7 +126,7 @@ final class EndPullUITests: XCTestCase {
     // KOSMOS_SAMPLE_GROW: every read brings a message, the 5 s reads too, so this is a message landing around a pull, not
     // proof that the pull fetched it. It must reach the screen, with the list still drawn and at its end.
     func testAMessageLandingAroundAPullShowsAndNothingBlanks() {
-        let app = launch(["KOSMOS_SAMPLE_GROW": "1", "KOSMOS_SAMPLE_LONG": "1"])
+        let app = launch(["KOSMOS_SAMPLE_GROW": "1", "KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_TRACE": "1"])
         // "New message " with the space: the "New messages" capsule is not a message.
         let grown = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'New message '"))
         XCTAssertTrue(grown.firstMatch.waitForExistence(timeout: 20), "CONTROL: no message arrived")
