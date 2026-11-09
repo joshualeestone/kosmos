@@ -47,6 +47,16 @@ test('kosmos#8288: the time on a line is this computer\'s, not UTC', () => {
   } finally { process.env.TZ = 'UTC'; }
 });
 
+test('kosmos#8288: the rules in rosterRow are still the ones the page reads for the same fields', () => {
+  const page = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  for (const rule of [
+    "a.state === 'idle' && a.unsentInput",
+    "a.deliveryStall.lastWhy === 'turn'",
+    "typeof a.deliveryStall.words === 'string'",
+    'a.crashLoop.looping === true',
+  ]) assert.ok(page.includes(rule), 'the page no longer reads: ' + rule + '; rosterRow in engine/clilists.js copies it');
+});
+
 test('kosmos#8288: a time that cannot be read says so rather than printing NaN', () => {
   const lines = agentLines([{ name: 'Ada', state: 'Idle', unsentSince: 'not a time' }]).lines;
   assert.equal(lines[1], '  text unsent in its input box since a time Kosmos could not read');
