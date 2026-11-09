@@ -48,4 +48,13 @@ measured simulator run shows a UIKit open with rows on screen is not counted bla
       build's uikit block, refuses any other list, and drops a malformed uikit block on read without the build. Three new
       tests in server.chatopens-7420.test.js: 8 of 8 pass; CONTROL, the same tests with the engine change stashed, 3 fail.
       Only server.js and that test read the counts (grep).
-- [ ] Step 1 (measure rows in reused hosted cells), then 2 and 5 (the phone sends the list word), then 6 and 7.
+- [x] Step 1, measured 20:00-20:03 CST 11-08, iPhone 17e iOS 26.5, Debug, Dana's long chat (KOSMOS_SAMPLE_LONG) on the
+      UIKit list, KOSMOS_SAMPLE_SCROLLUP=60 (a jump of 60 rows up the thread, cells reused) then SCROLLBY=-2500 (an animated
+      scroll back down). A throwaway probe, not committed, compared once a second the rows row() said were on screen
+      (onScreen) with the list's own visible cells: 15 readings across both moves, every one equal (9 then 11 rows;
+      said-not-shown 0, shown-not-said 0). CONTROL, same run with a third of the rows' onAppear skipped: shown-not-said
+      3, 5, then 2, and said-not-shown still 0, so the probe can see a row that does not report, and a reused cell's
+      onDisappear does take its old row out. Faithful: step 2 takes the plain path (remove the guard, send the list
+      word); ChatList needs no row count of its own. Not measured: a cell reconfigured on an update (apply) while on
+      screen; the same handlers run there, and step 6's ui-sample runs cover sends.
+- [ ] Steps 2 and 5 (the phone sends the list word), then 6 and 7.
