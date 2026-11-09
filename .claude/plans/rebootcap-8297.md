@@ -12,8 +12,8 @@ Addresses #8297 (follow-ups from the review of #8287, PR #8296, merged 2026-11-0
 
 - **Cap measured from the note's `upAt`** (when Kosmos came back), not from when this page first saw the note. Agents return in the minutes after the restart, which is the reason the re-check exists; a page opened two hours later has nothing to wait for. Rejected: a per-page counter (a page opened late would poll for 15 minutes for no reason). A `upAt` the page cannot parse gives NaN, and `NaN < cap` is false, so no one-minute re-check: the ten-minute one still runs.
 - **`unread` travels beside `damaged`** through `storecheck.lastScan` -> `restartnote.atStart` -> the kept note -> `checksFor` -> the page, via one helper (`filesOf`) that drops it unless it is a positive integer. A note written before this change has no `unread` and reads as before.
-- **Words:** "N of Kosmos's main records are damaged" ("is" for one), matching the board's own damaged-files notice ("Kosmos found N damaged files"). With unread: "at least N of Kosmos's main records are damaged (M more could not be checked)". Rejected: keeping "could not be read" (false for an empty or blank file, which was read).
-- `checked` semantics unchanged: unread with nothing damaged still drops the files clause entirely (never "read fine").
+- **Words:** "N of Kosmos's main records are damaged" ("is" for one), matching the board's own damaged-files notice ("Kosmos found N damaged files"). With unread: "at least N of Kosmos's main records are damaged (some others could not be checked)". No number for the unread ones: `unread` counts a folder it could not list as one, and a folder holds many records (review 1). Rejected: keeping "could not be read" (false for an empty or blank file, which was read).
+- `checked` semantics unchanged: unread with nothing damaged drops the files clause entirely (never "read fine", never "at least 0"). Review 1: enforced in `filesOf` (returns null) at every step, and in the page, not only at `atStart`, so a note on disk saying so cannot bring it back.
 
 ## Weakest part
 

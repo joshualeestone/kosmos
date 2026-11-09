@@ -24841,11 +24841,13 @@ function rebootChecked(checks) {
   }
   const f = checks.files;
   /* kosmos#8297: `damaged` counts the records found damaged (empty, blank, not Kosmos data, too big, or refused); `unread`
-     the ones it could not look at, so with both the damaged count is a floor and the line says so. */
-  const unread = f && Number.isInteger(f.unread) && f.unread > 0 ? f.unread : 0;
-  if (f) parts.push(f.damaged === 0 && !unread ? 'Kosmos\'s main records read fine'
+     says some could not be looked at, so the damaged count is a floor and the line says so. `unread` is not given as a
+     number: it counts a folder it could not list as one, and a folder holds many records. Nothing damaged with some
+     unread is no clause at all, never "read fine" and never "at least 0". */
+  const unread = Boolean(f && Number.isInteger(f.unread) && f.unread > 0);
+  if (f && !(f.damaged === 0 && unread)) parts.push(f.damaged === 0 ? 'Kosmos\'s main records read fine'
     : (unread ? 'at least ' : '') + f.damaged + ' of Kosmos\'s main records ' + (f.damaged === 1 ? 'is' : 'are') + ' damaged'
-      + (unread ? ' (' + unread + ' more could not be checked)' : ''));
+      + (unread ? ' (some others could not be checked)' : ''));
   return parts.length ? 'Checked: ' + parts.join(', and ') + '.' : '';
 }
 let REBOOT_RECHECK = null;   // kosmos#8287: agents return over minutes, so a list of who is not back is asked again soon
@@ -24856,8 +24858,8 @@ function paintRebootNote(note) {
   const slot = document.getElementById('reboot-slot');
   if (!slot) return;
   clearTimeout(REBOOT_RECHECK);
-  const sinceUp = note ? Date.now() - Date.parse(note.upAt) : NaN;
-  if (note && note.checks && note.checks.agents && note.checks.agents.notBack.length && sinceUp < REBOOT_RECHECK_FOR_MS) REBOOT_RECHECK = setTimeout(rebootNoteCheck, 60 * 1000);
+  if (note && note.checks && note.checks.agents && note.checks.agents.notBack.length
+    && Date.now() - Date.parse(note.upAt) < REBOOT_RECHECK_FOR_MS) REBOOT_RECHECK = setTimeout(rebootNoteCheck, 60 * 1000);
   const down = note && rebootWhen(note.bootAt);
   const up = note && rebootWhen(note.upAt);
   const held = slot.contains(document.activeElement);   // a re-check that removes or repaints it must not drop focus to the page
