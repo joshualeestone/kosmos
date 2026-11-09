@@ -30,12 +30,13 @@ let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(async () => { server.closeAllConnections(); server.close(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 const get = async () => { const r = await fetch(base + '/api/phone/chat-opens'); return { status: r.status, body: await r.json() }; };
-const post = async (body, headers = {}) => {
-  const res = await fetch(base + '/api/phone/chat-open', { method: 'POST', headers: { 'content-type': 'application/json', ...headers },
+const post = async (body, headers = {}, route = '/api/phone/chat-open') => {
+  const res = await fetch(base + route, { method: 'POST', headers: { 'content-type': 'application/json', ...headers },
     body: typeof body === 'string' ? body : JSON.stringify(body) });
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 const chatopens = require('./engine/chatopens');
+const postUIKit = (body) => post(body, {}, '/api/phone/chat-open-uikit');   // #8221 slice 6: the New chat list's path
 const APP = '0.1.0 (53)';
 
 test('#7420: no builds at first; showings add up under their build', async () => {
@@ -89,27 +90,36 @@ test('#8221 slice 6: the UIKit list counts apart under its build, the lazy count
   const B = '0.2.0 (70)';
   assert.equal((await post({ app: B, rebuilds: 0, closedBlank: false })).status, 200);
   assert.equal((await post({ app: B, rebuilds: 1, closedBlank: false })).status, 200);
-  assert.equal((await post({ app: B, rebuilds: 0, closedBlank: true, list: 'uikit' })).status, 200);
-  assert.equal((await post({ app: B, rebuilds: 0, closedBlank: false, list: 'uikit' })).status, 200);
-  assert.equal((await post({ app: B, rebuilds: 0, closedBlank: false, list: 'uikit' })).status, 200);
+  assert.equal((await postUIKit({ app: B, rebuilds: 0, closedBlank: true })).status, 200);
+  assert.equal((await postUIKit({ app: B, rebuilds: 0, closedBlank: false })).status, 200);
+  assert.equal((await postUIKit({ app: B, rebuilds: 0, closedBlank: false })).status, 200);
   const { lastAt, uikit, ...lazy } = (await get()).body.builds[B];
   assert.deepEqual(lazy, { opens: 2, blankOpens: 1, rebuilds: 1, closedBlank: 0 });
   assert.deepEqual(uikit, { opens: 3, blankOpens: 1, rebuilds: 0, closedBlank: 1 });
   // A build with only UIKit showings has lazy counts of zero, and one with none has no uikit block.
-  assert.equal((await post({ app: '0.2.0 (71)', rebuilds: 0, closedBlank: false, list: 'uikit' })).status, 200);
+  assert.equal((await postUIKit({ app: '0.2.0 (71)', rebuilds: 0, closedBlank: false })).status, 200);
   const only = (await get()).body.builds['0.2.0 (71)'];
   assert.equal(only.opens, 0);
   assert.equal(only.uikit.opens, 1);
   assert.equal((await get()).body.builds[APP].uikit, undefined, 'a build with no UIKit showing grew a uikit block');
 });
 
-test('#8221 slice 6: a list it does not know is refused and counts nothing', async () => {
-  const B = '0.2.0 (70)';
-  const before = (await get()).body.builds[B];
-  for (const list of ['lazy', 'UIKIT', '', null, 1, ['uikit'], { uikit: true }]) {
-    assert.equal((await post({ app: B, rebuilds: 0, closedBlank: false, list })).status, 400, JSON.stringify(list));
+test('#8221 slice 6: only the path names a list; a body cannot, and the engine refuses a list it does not know', async () => {
+  // Round 1 of review: an older board ignores a field it does not know, so a list named in the body would have been counted
+  // into the lazy numbers there. The path is the name, and a body's list field is ignored here too, as an older board does.
+  const B = '0.2.0 (72)';
+  assert.equal((await post({ app: B, rebuilds: 0, closedBlank: false, list: 'uikit' })).status, 200);
+  const b = (await get()).body.builds[B];
+  assert.equal(b.opens, 1, 'a body list field moved the showing off the lazy numbers');
+  assert.equal(b.uikit, undefined, 'a body list field reached the uikit block');
+  // A malformed showing on the UIKit path is refused as on the lazy one, and counts nothing.
+  assert.equal((await postUIKit({ app: B, rebuilds: -1, closedBlank: false })).status, 400);
+  assert.equal((await get()).body.builds[B].uikit, undefined);
+  // The engine itself takes only the lists it knows.
+  for (const list of ['lazy', 'UIKIT', '', null, '__proto__']) {
+    assert.deepEqual(chatopens.add({ app: B, rebuilds: 0, closedBlank: false }, new Date(), list), { refused: 'no such list' }, String(list));
   }
-  assert.deepEqual((await get()).body.builds[B], before);
+  assert.deepEqual((await get()).body.builds[B], b);
 });
 
 test('#8221 slice 6: an older file with no uikit block reads, and a malformed one is dropped, not the build', () => {

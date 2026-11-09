@@ -1552,18 +1552,17 @@ struct ChatView: View {
         guard epoch == client.chatEpoch else { openCount.reset(); return }
         // A search with no matches, and unsent messages filling the screen, draw no rows either.
         let excused = searchMode || (endSeen && endVisible && !pending.isEmpty)
-        // kosmos#8221 slice 6: a UIKit-list showing is sent named as such, and the board counts it apart from the lazy list's.
+        guard let body = openCount.finish(hasRows: !(thread?.rows.isEmpty ?? true), excused: excused, app: app) else { return }
+        // kosmos#8221 slice 6: a UIKit-list showing goes to its own path and the board counts it apart from the lazy list's.
         // Its rows report through row() inside reused hosted cells; measured faithful 11-08 (plan uikitlist-s6-8221, step 1).
-        guard let body = openCount.finish(hasRows: !(thread?.rows.isEmpty ?? true), excused: excused, app: app,
-                                          list: uikitList ? "uikit" : nil) else { return }
-        let client = self.client, sentAt = epoch
+        let client = self.client, sentAt = epoch, uikit = uikitList
         Task { @MainActor in
             guard sentAt == client.chatEpoch else { return }
             var task = UIBackgroundTaskIdentifier.invalid
             task = UIApplication.shared.beginBackgroundTask(withName: "chat-open") {
                 if task != .invalid { UIApplication.shared.endBackgroundTask(task); task = .invalid }
             }
-            _ = await client.throughMac { Board.chatOpenRequest(mac: $0, body: body) }
+            _ = await client.throughMac { Board.chatOpenRequest(mac: $0, body: body, uikit: uikit) }
             if task != .invalid { UIApplication.shared.endBackgroundTask(task); task = .invalid }
         }
     }
