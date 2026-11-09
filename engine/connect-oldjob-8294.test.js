@@ -22,6 +22,7 @@ create.setDryRun(true);
 const discover = require('./discover');
 const status = require('./status');
 const store = require('./store');
+const fleet = require('../test-support/fleet');
 
 let installs = 0;
 const realInstall = create.installJob;
@@ -203,6 +204,37 @@ test('the Program key and the tilde spelling are read', () => {
   fs.writeFileSync(path.join(LAUNCH, 'com.tilde.a.plist'),
     `<?xml version="1.0"?><plist version="1.0"><dict><key>Program</key><string>${f}</string><key>RunAtLoad</key><true/></dict></plist>`);
   assert.equal(discover.otherJobFor(inHome, LAUNCH).label, 'com.tilde.a');
+});
+
+test('another agent that only names this folder does not block it', () => {
+  const dir = agent('named');
+  plist('com.other.add', { dir: agent('otherhome'), args: ['/usr/local/bin/claude', '--add-dir', dir] });
+  const copy = script('copy.sh', `cp -r "${dir}" /tmp/x\ncd /some/where\nclaude\n`);
+  plist('com.other.copy', { args: ['/bin/bash', copy] });
+  plist('com.other.mon', { args: ['/bin/bash', '-lc', `pgrep claude; du -sh ${dir}`] });
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null);
+});
+
+test('a folder named after the program is not a start of it', () => {
+  const dir = agent('claude');
+  const f = script('srv.sh', `cd "${dir}"\nnode server.js\n`);
+  plist('com.claudefolder.srv', { args: ['/bin/bash', f] });
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null);
+});
+
+test('a named pipe called .plist does not hang the check', { skip: process.platform === 'win32' }, () => {
+  const dir = agent('pipeplist');
+  require('node:child_process').execFileSync('mkfifo', [path.join(LAUNCH, 'com.fifo.plist')]);
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null);
+});
+
+test('a session still up from the old launcher refuses', () => {
+  const dir = agent('stillup');
+  status.setPaneSource(() => fleet.line({ session: 'stillup-discord', title: 'idle' }));
+  const out = discover.connect(dir, {});
+  assert.equal(out.ok, false, 'pane: ' + JSON.stringify(status.paneRoster()));
+  assert.match(out.because, /already running/);
+  assert.equal(installs, 0);
 });
 
 test('no job folder at all answers none', () => {
