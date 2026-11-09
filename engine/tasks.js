@@ -252,7 +252,7 @@ function treeOf(p) {
   const isBuilt = isBuiltOpen;   // held reads held (taskState); one definition, shared with kosmos#7514's closesWithParent
   /* kosmos#8140: `held` counts the open children on hold, so a parent can show them apart from the ones not done yet
      (a built parent with most pieces held read as finished). kosmos#8301: `unrun` counts the children closed as never run or replaced (closedUnrun), so "done" can mean done: they stay in `done`, which every reader of "all closed" needs. */
-  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, held: k.filter((t) => !progressOf(t).closed && isOnHold(t)).length, unrun: k.filter((t) => progressOf(t).closed && t.closedUnrun === true).length, total: k.length }; };
+  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, held: k.filter((t) => !progressOf(t).closed && isOnHold(t)).length, unrun: k.filter((t) => progressOf(t).closed && (t.closedUnrun === true || Number.isInteger(t.replacedBy))).length, total: k.length }; };
   return { byNum, up, under, progress };
 }
 

@@ -14,5 +14,7 @@ Inferring "never ran" from missing evidence (the first version). Review measured
 ## Not done
 The iPhone reads `done` and keeps its own count, so its number differs from the Mac's until #8146.
 
+An older board refuses `--not-run` loudly rather than ignoring it, and the CLI and board ship together, so there is no older-board wording as `--with-built` has.
+
 ## Weakest premise
 Agents have to use the flag, so the third number starts at zero until they do.
