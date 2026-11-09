@@ -105,6 +105,26 @@ test('kosmos#8288: a stuck card reaches the list through the real route, as a ti
   assert.doesNotMatch(r.text, /SECRET-/, 'content of the stall reached the list');
 });
 
+test('kosmos#7977: a "Can\'t tell" card reaches the list with its shape and last report, as a state and a time, no more', async (t) => {
+  const selfreport = require('./engine/selfreport');
+  const realRead = selfreport.read;
+  const at = '2026-11-09T08:12:00.000Z';
+  let board = null;
+  t.after(() => { selfreport.read = realRead; if (board && board.restore) board.restore(); });   // registered first
+  selfreport.read = (name) => (name === 'mara' ? { found: true, state: 'working', at, final: 'SECRET-FINAL', project: 'SECRET-PROJ' } : realRead(name));
+  board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'unknown' })]);
+  const r = await call('GET', '/api/agents/list', { headers: { 'x-kosmos-agent-token': agentToken } });
+  assert.equal(r.code, 200, r.text.slice(0, 120));
+  const agents = JSON.parse(r.text).agents;
+  const mara = agents.find((a) => a.name === 'mara');
+  assert.ok(mara, r.text.slice(0, 200));
+  assert.equal(mara.state, "Can't tell", 'the fixture did not make a Can\'t tell card: ' + JSON.stringify(mara));
+  assert.deepEqual(mara, { name: 'mara', role: mara.role, state: "Can't tell", cantTell: 'unread', lastReportState: 'working', lastReportAt: at });
+  assert.doesNotMatch(r.text, /SECRET-/, 'a report\'s words reached the list');
+  const poc = agents.find((a) => a.name === 'poc-agent');
+  assert.deepEqual(Object.keys(poc).sort(), ['name', 'role', 'state'], 'CONTROL: an idle card gained fields');
+});
+
 test('kosmos#8304: a long tool call reaches the list through the real route, as a time and a plain name, no more', async (t) => {
   const onestep = require('./engine/onestep');
   const realIn = onestep.oneStepIn;

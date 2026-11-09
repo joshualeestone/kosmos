@@ -160,3 +160,44 @@ test('kosmos#8304: kept apart from the Windows turn stall (#7368), which has its
   assert.equal(lines.filter((l) => /no activity on its current step/.test(l)).length, 1);
   assert.equal(lines.filter((l) => /^  on one step since /.test(l)).length, 1);
 });
+
+test('kosmos#7977: a "Can\'t tell" row says which of the three shapes it is, from the card alone', () => {
+  const ct = "Can't tell";
+  assert.equal(rosterRow({ name: 'A', cardWord: ct, paneless: true }).cantTell, 'no-window');
+  assert.equal(rosterRow({ name: 'B', cardWord: ct, running: false, jobRunningUnseen: true }).cantTell, 'unseen');
+  assert.equal(rosterRow({ name: 'C', cardWord: ct, state: 'unknown' }).cantTell, 'unread');
+  // CONTROL: any other word carries none of it, even on a paneless card with a report.
+  const idle = rosterRow({ name: 'D', cardWord: 'Idle', paneless: true }, { found: true, state: 'idle', at: T });
+  assert.deepEqual(Object.keys(idle).sort(), ['name', 'role', 'state']);
+});
+
+test('kosmos#7977: the last report travels as a state and a time only, and "never reported" is its own fact', () => {
+  const ct = "Can't tell";
+  const r = rosterRow({ name: 'A', cardWord: ct, paneless: true }, { found: true, state: 'working', at: T, final: 'SECRET words', because: 'x' });
+  assert.deepEqual(r, { name: 'A', role: null, state: ct, cantTell: 'no-window', lastReportState: 'working', lastReportAt: T });
+  assert.deepEqual(Object.keys(rosterRow({ name: 'A', cardWord: ct }, { found: true, state: 'nonsense', at: T })).sort(), ['cantTell', 'name', 'role', 'state'], 'an unknown state travelled');
+  assert.deepEqual(Object.keys(rosterRow({ name: 'A', cardWord: ct }, { found: true, state: 'idle', at: 'not a time' })).sort(), ['cantTell', 'name', 'role', 'state'], 'an unreadable time travelled');
+  assert.equal(rosterRow({ name: 'A', cardWord: ct }, { found: false }).neverReported, true);
+  assert.equal(rosterRow({ name: 'A', cardWord: ct }, null).neverReported, undefined, 'no record read is not "never reported"');
+});
+
+test('kosmos#7977: the list prints the shape and the last report under a "Can\'t tell" row', () => {
+  const ct = "Can't tell";
+  const r = agentLines([
+    { name: 'Elif', role: 'R', state: ct, cantTell: 'no-window', lastReportState: 'needs_you', lastReportAt: T },
+    { name: 'Theo', role: 'R', state: ct, cantTell: 'unseen', neverReported: true },
+    { name: 'Vivi', role: 'R', state: ct, cantTell: 'unread' },
+    { name: 'Ada', role: 'R', state: 'Idle' },
+  ]);
+  assert.deepEqual(r, { code: 0, lines: [
+    'Elif  R  ' + ct,
+    '  no window on this computer to read: Kosmos knows it only from its own reports',
+    '  last report: needs you at 2026-11-09 08:12',
+    'Theo  R  ' + ct,
+    '  its job is running, but not anywhere Kosmos can see it',
+    '  it has never reported to this board',
+    'Vivi  R  ' + ct,
+    '  Kosmos has its window here but cannot tell from it what it is doing',
+    'Ada  R  Idle',
+  ] });
+});

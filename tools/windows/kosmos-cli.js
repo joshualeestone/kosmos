@@ -159,7 +159,7 @@ const USAGE = {
   ].join('\n'),
   agent: [
     'Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|restart|remove>',
-    '  kosmos agent list                               every agent on this board, its role, whether it is running, and any unsent text or long tool call (Claude agents only), stalled delivery or restart loop Kosmos has seen',
+    '  kosmos agent list                               every agent on this board, its role, whether it is running, and any unsent text or long tool call (Claude agents only), stalled delivery or restart loop Kosmos has seen, and, for one whose state Kosmos cannot tell, why',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
     '                                                  make one with a role you wrote, when none fits',
