@@ -2524,7 +2524,7 @@ async function agentCreate(ctx, args) {
   ctx.err('Kosmos gave an answer we could not read when making that agent.');
   return 1;
 }
-/* #7748, as install/kosmos: every agent, its role, and whether it is running. The words are engine/clilists.js, once. */
+/* #7748, as install/kosmos: every agent, its role, whether it is running, and whether anything is stuck. The words are engine/clilists.js, once. */
 async function agentList(ctx, args) {
   if (tooManyWords(ctx, 'agent list', 0, 'Usage: kosmos agent list', args)) return 2;
   const r = await ctx.call('GET', '/api/agents/list', undefined, { timeoutMs: 25000 });

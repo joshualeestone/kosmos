@@ -35,6 +35,18 @@ test('kosmos#8288: an agent in an app-only state gets an indented line under its
   ] });
 });
 
+test('kosmos#8288: unsent text is said for an idle card only, as the page says it', () => {
+  assert.equal(rosterRow({ name: 'A', state: 'working', unsentInput: { since: T } }).unsentSince, undefined);
+  assert.equal(rosterRow({ name: 'B', state: 'idle', unsentInput: { since: T } }).unsentSince, T);
+});
+
+test('kosmos#8288: the time on a line is this computer\'s, not UTC', () => {
+  process.env.TZ = 'America/Chicago';
+  try {
+    assert.equal(agentLines([{ name: 'Ada', state: 'Idle', unsentSince: T }]).lines[1], '  text unsent in its input box since 2026-11-09 02:12');
+  } finally { process.env.TZ = 'UTC'; }
+});
+
 test('kosmos#8288: a time that cannot be read says so rather than printing NaN', () => {
   const lines = agentLines([{ name: 'Ada', state: 'Idle', unsentSince: 'not a time' }]).lines;
   assert.equal(lines[1], '  text unsent in its input box since a time Kosmos could not read');
@@ -42,7 +54,7 @@ test('kosmos#8288: a time that cannot be read says so rather than printing NaN',
 
 test('kosmos#8288: the roster row carries when, and never the words in the box', () => {
   const secret = 'my private note in the box';
-  const row = rosterRow({ name: 'Ada', cardWord: 'Idle', role: 'R', unsentInput: { since: T, text: secret }, composerText: secret });
+  const row = rosterRow({ name: 'Ada', state: 'idle', cardWord: 'Idle', role: 'R', unsentInput: { since: T, text: secret }, composerText: secret });
   assert.deepEqual(row, { name: 'Ada', role: 'R', state: 'Idle', unsentSince: T });
   assert.doesNotMatch(JSON.stringify(row), /private note/);
 });

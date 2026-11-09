@@ -78,7 +78,7 @@ test('an agent route passes the gate with only a valid agent token (no board tok
   }
 });
 
-test('#7748: the agent list passes on an agent token alone, and answers three fields per agent', async (t) => {
+test('#7748: the agent list passes on an agent token alone, and a healthy agent has three fields', async (t) => {
   const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
   t.after(() => board.restore && board.restore());
   const r = await call('GET', '/api/agents/list', { headers: { 'x-kosmos-agent-token': agentToken } });
@@ -87,6 +87,22 @@ test('#7748: the agent list passes on an agent token alone, and answers three fi
   const j = JSON.parse(r.text);
   assert.ok(j.agents.length > 0, 'an empty list proves nothing about its fields');
   for (const a of j.agents) assert.deepEqual(Object.keys(a).sort(), ['name', 'role', 'state']);
+});
+
+test('kosmos#8288: a stuck card reaches the list through the real route, as a time and no more', async (t) => {
+  const streak = require('./engine/deliverystreak');
+  const realStall = streak.stallOf;
+  const since = '2026-11-09T08:12:00.000Z';
+  streak.stallOf = () => ({ since, words: 'SECRET-WORDS', next: 'SECRET-NEXT', step: 'SECRET-STEP', count: 2 });
+  const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
+  t.after(() => { streak.stallOf = realStall; if (board.restore) board.restore(); });
+  const r = await call('GET', '/api/agents/list', { headers: { 'x-kosmos-agent-token': agentToken } });
+  assert.equal(r.code, 200, r.text.slice(0, 120));
+  const mara = JSON.parse(r.text).agents.find((a) => a.name === 'mara');
+  assert.ok(mara, r.text.slice(0, 200));
+  assert.equal(mara.noMessageSince, since, 'the stall did not reach the list: ' + JSON.stringify(mara));
+  assert.deepEqual(Object.keys(mara).sort(), ['name', 'noMessageSince', 'role', 'state']);
+  assert.doesNotMatch(r.text, /SECRET-/, 'content of the stall reached the list');
 });
 
 test('a wrong agent token is refused at the gate', async () => {

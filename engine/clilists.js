@@ -1,17 +1,19 @@
 'use strict';
 /**
  * kosmos#7748: the words of `kosmos agent list` and `kosmos agent roles`, once, for the Mac CLI and the Windows CLI.
- * Each answer is { lines, code }. A line is printed as it is; code is the exit status.
+ * agentLines and roleLines answer { lines, code }. A line is printed as it is; code is the exit status.
  */
 
 const { localStamp } = require('./localstamp');
 
 /* kosmos#8288: one row of GET /api/agents/list, from a status card. The app-only states travel as a time and never as
-   their content: any agent on this computer can read this list, and the words in another agent's box are not its to read. */
+   their content: an agent token reads this list for every agent on the board, and the words in another agent's box are
+   not its to read. Unsent text is said for an idle card only, as the page says it: an agent at work may simply have words
+   typed ahead. */
 function rosterRow(a) {
   const row = { name: a.name, role: (a.profile && a.profile.role) || a.role || null, state: a.cardWord || null };
   const since = (f) => (f && typeof f.since === 'string' ? f.since : null);
-  if (since(a.unsentInput)) row.unsentSince = a.unsentInput.since;
+  if (a.state === 'idle' && since(a.unsentInput)) row.unsentSince = a.unsentInput.since;
   const stall = a.deliveryStall;
   if (since(stall) && stall.lastWhy === 'turn') row.oneStepSince = stall.since;
   else if (since(stall) && typeof stall.words === 'string') row.noMessageSince = stall.since;
