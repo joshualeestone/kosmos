@@ -27,3 +27,6 @@ That a direct chat message or a finished task is "the first agent did something"
 
 ## Tests
 engine/invitestep-6255.test.js, ios LogicTests, docs/browser-checks/render-invitestep-6255.js, web.modal-way-out-1316.test.js.
+
+## Surfaces named by the gate
+The step reads rm-back, boot-cover and wnOnPhone and adds its own element; it changes none of them. The six checks the gate names are run with this branch before merge.
