@@ -394,7 +394,8 @@ function dropShown(name, projectId, shownIds) {
    --unanswered list for good. When the member's own `kosmos room` read shows it a held post, the moment is kept here,
    per member, project and post id. Only that read: the idle line and an arrival's line name a held post by id, never
    its words, so a member cannot have answered it before reading the room. The earliest read wins. Entries go after
-   TOLD_KEEP_MS (longer than --unanswered's age rule; under --all an older ask can go back on the list), at most
+   TOLD_KEEP_MS (longer than --unanswered's age rule; kosmos#8300 also reads this record, and a held ask whose record has
+   gone returns to the list, the safe way; under --all an older ask can go back on the list), at most
    TOLD_MAX per project, the newest kept. A write that fails keeps nothing, and the post stays listed: the safe
    direction. */
 const TOLD_KEEP_MS = 4 * 24 * 60 * 60 * 1000;

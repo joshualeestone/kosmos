@@ -793,7 +793,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
   /* kosmos#8227 item 2: a list row leaves out a delivered file's path (#8214) and a commit's repository (#7508), as the
      Tasks view does. This list goes to the page and, with an agent's own token, to /api/projects/overview and
      /api/project/<id>. The CLI reads both fields from /api/tasks, which this does not touch. */
-  const withoutPaths = (t) => { const rest = Object.assign({}, t); delete rest.builtFilePath; delete rest.landedRepo; return rest; };
+  const withoutPaths = (t) => { const rest = tasksModEarly.withoutFilePaths(t); delete rest.landedRepo; return rest; };   // kosmos#8307: the replaced file's path too
   const withParts = (t) => (t ? {
     ...withoutPaths(t),
     parts: tasksModEarly.partsOf(t),

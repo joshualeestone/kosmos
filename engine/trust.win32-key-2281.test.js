@@ -38,6 +38,9 @@ const nodePath = require('node:path');
    over the short spelling. */
 const SANDBOX = fs.realpathSync.native(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-win32key-2281-')));
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, '.claude.json');
+/* kosmos#4260: the record (trust-writes.json) lives under store.ROOT, which store freezes at first require, so the
+   data root is sandboxed BEFORE trust is loaded: the record arm below must never write the real one. */
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 
 const trust = require('./trust');
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -61,20 +64,174 @@ test('#2281 the written key carries NO backslash, whatever the host spells', () 
     'and it is the same path, separators normalised');
 });
 
-test('#4257 a folder handed over in its 8.3 SHORT spelling is keyed on the long one', {
-  skip: process.platform !== 'win32' && 'an 8.3 short name exists only on Windows',
-}, (t) => {
-  /* The JS realpath keeps a short name, so it gives the spelling a caller could hand over. */
-  const shortRoot = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-short-4257-')));
-  t.after(() => { try { fs.rmSync(shortRoot, { recursive: true, force: true }); } catch { /* best effort */ } });
-  const longRoot = fs.realpathSync.native(shortRoot);
-  if (shortRoot === longRoot) { t.skip('this host has no short spelling for its temp folder'); return; }
-  const cfgDir = fs.mkdtempSync(nodePath.join(SANDBOX, 'cfg-'));
-  const r = trust.trustFolder(shortRoot, { configDir: cfgDir, createIfAbsent: true });
+/* kosmos#4260: an 8.3 SHORT spelling of a folder, asked of Windows itself (`%~sI`), so these arms run wherever the
+   volume makes short names, not only where the temp folder happens to be short (it is on a GitHub runner, RUNNER~1;
+   it is not on the Windows box). null when there is none (8.3 names turned off on the volume). */
+function shortSpelling(p) {
+  const r = require('node:child_process').spawnSync(process.env.ComSpec || 'cmd.exe',
+    ['/d /s /c "for %I in ("' + p + '") do @echo %~sI"'], { windowsVerbatimArguments: true, encoding: 'utf8' });
+  const s = String(r.stdout || '').trim();
+  return s && s.toLowerCase() !== p.toLowerCase() && fs.existsSync(s) ? s : null;
+}
+const fwd = (p) => p.split(nodePath.sep).join('/');
+/* A folder with a name long enough to have a short one, its long and short spellings, and a fresh config dir. */
+function shortFolder(t, label) {
+  const long = nodePath.join(SANDBOX, 'work', 'a-long-folder-name-' + label);
+  fs.mkdirSync(long, { recursive: true });
+  const short = shortSpelling(long);
+  // On the Windows CI job the runner's own temp folder is 8.3 (RUNNER~1), so a missing short name there is a broken
+  // probe, not a volume without them: fail rather than let every #4260 arm skip green.
+  if (!short && process.env.GITHUB_ACTIONS) assert.fail('no 8.3 spelling for ' + long + ' on the CI runner, whose temp folder has one');
+  if (!short) { t.skip('this volume makes no 8.3 short names'); return null; }
+  return { long, short, cfgDir: fs.mkdtempSync(nodePath.join(SANDBOX, 'cfg-')) };
+}
+const WIN = process.platform !== 'win32' && 'an 8.3 short name exists only on Windows';
+
+test('#4260 a folder handed over in its 8.3 SHORT spelling is keyed on BOTH spellings: the long native one and the short one Claude Code reads', { skip: WIN }, (t) => {
+  /* Measured 11-09 (engine/trust.js runnerSpelling): Claude Code started in the short spelling showed the trust dialog
+     with only the long key written, and read an entry written under the short one. #4257 had keyed on the long one only. */
+  const f = shortFolder(t, 'both'); if (!f) return;
+  const r = trust.trustFolder(f.short, { configDir: f.cfgDir, createIfAbsent: true });
   assert.equal(r.ok, true, r.because || '');
-  const keys = Object.keys(readCfg(nodePath.join(cfgDir, '.claude.json')).projects || {});
-  assert.deepEqual(keys, [longRoot.split(nodePath.sep).join('/')],
-    'handed ' + JSON.stringify(shortRoot) + ', the key must be the long native spelling with forward slashes');
+  assert.equal(r.already, false);
+  assert.equal(r.key, fwd(f.long), 'the main key is still the long native spelling');
+  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true, forgettable: false },
+    'and the short one is reported apart, with what it displaced (nothing); not forgettable: this account config is not the default one an undo edits');
+  const projects = readCfg(nodePath.join(f.cfgDir, '.claude.json')).projects;
+  assert.deepEqual(Object.keys(projects).sort(), [fwd(f.long), fwd(f.short)].sort());
+  assert.equal(projects[fwd(f.short)].hasTrustDialogAccepted, true);
+  assert.equal(trust.folderTrusted(f.short, { configDir: f.cfgDir }), true, 'and the read-only check asks the key the runner reads');
+});
+
+test('#4260 CONTROL: the long spelling, and a lowercased one, write only the main key (case is not what Claude Code misses)', { skip: WIN }, (t) => {
+  const f = shortFolder(t, 'control'); if (!f) return;
+  const r = trust.trustFolder(f.long, { configDir: f.cfgDir, createIfAbsent: true });
+  assert.equal(r.ok, true, r.because || '');
+  assert.equal('also' in r, false, 'no second key for the long spelling: the answer keeps its old shape');
+  const lower = trust.trustFolder(f.long.toLowerCase(), { configDir: f.cfgDir, createIfAbsent: true });
+  assert.equal(lower.already, true);
+  assert.equal('also' in lower, false, 'a spelling that differs only in case adds nothing');
+  assert.deepEqual(Object.keys(readCfg(nodePath.join(f.cfgDir, '.claude.json')).projects), [fwd(f.long)]);
+});
+
+test('#4260 only the main key trusted (as #4257 wrote it): the short start is reported untrusted, and trusting again adds the short key without claiming the main one', { skip: WIN }, (t) => {
+  const f = shortFolder(t, 'upgrade'); if (!f) return;
+  const cfg = nodePath.join(f.cfgDir, '.claude.json');
+  fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.long)]: { hasTrustDialogAccepted: true, allowedTools: ['x'] } } }));
+  assert.equal(trust.folderTrusted(f.short, { configDir: f.cfgDir }), false, 'the runner would show the dialog, so it must not read as trusted');
+  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
+  assert.equal(r.ok, true, r.because || '');
+  assert.equal(r.already, true, 'the main key was already true: callers record nothing, so a removal can never take the person\'s line');
+  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true, forgettable: false });
+  const projects = readCfg(cfg).projects;
+  assert.deepEqual(projects[fwd(f.long)], { hasTrustDialogAccepted: true, allowedTools: ['x'] }, 'the main entry is untouched');
+  assert.equal(trust.folderTrusted(f.short, { configDir: f.cfgDir }), true);
+  const again = trust.trustFolder(f.short, { configDir: f.cfgDir });
+  assert.equal(again.already, true);
+  assert.equal('also' in again, false, 'both already true: nothing written, nothing reported');
+});
+
+test('#4260 the undo takes back both keys and puts back exactly what each held, through the record a removal reads', { skip: WIN }, (t) => {
+  const f = shortFolder(t, 'undo'); if (!f) return;
+  const cfg = nodePath.join(f.cfgDir, '.claude.json');
+  // The short key held the person's `false` and their tools; the main key held nothing.
+  fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.short)]: { hasTrustDialogAccepted: false, allowedTools: ['y'] } } }));
+  // A default-account agent: the file its write goes to IS CONFIG(), the file every undo edits.
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = cfg;
+  t.after(() => { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; });
+  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
+  assert.equal(r.ok, true, r.because || '');
+  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: false, displaced: false, forgettable: true });
+  assert.equal(trust.recordWrite('undo-4260', { key: r.key, displaced: r.displaced, madeEntry: r.madeEntry, also: r.also }), true);
+  const rec = trust.recordedWrite('undo-4260');
+  assert.deepEqual(rec.also, { key: fwd(f.short), madeEntry: false, displaced: false }, 'the record keeps the second key in the same shape');
+  const got = trust.forgetFolder(rec.key, 'displaced' in rec ? rec.displaced : undefined, rec.madeEntry === true, rec.also);
+  assert.equal(got.ok, true, got.because || '');
+  assert.deepEqual(readCfg(cfg).projects, { [fwd(f.short)]: { hasTrustDialogAccepted: false, allowedTools: ['y'] } },
+    'the main entry we made is gone, and the short entry is back to the person\'s false with their tools');
+  trust.dropRecord('undo-4260');
+});
+
+test('#4260 a second key added when the main one was ALREADY true is reported, and no record is touched (the accepted residual, tracked on a card)', { skip: WIN }, (t) => {
+  /* The main key the person trusted (or an older agent relaunching) answers `already: true`, so callers record nothing:
+     the person's line is never claimed. The short line it adds is then unrecorded (engine/trust.js says why that is
+     accepted). This arm pins that the answer still says what was written, and that no existing record is changed. */
+  const f = shortFolder(t, 'residual'); if (!f) return;
+  fs.writeFileSync(nodePath.join(f.cfgDir, '.claude.json'), JSON.stringify({ projects: { [fwd(f.long)]: { hasTrustDialogAccepted: true } } }));
+  assert.equal(trust.recordWrite('residual-4260', { key: fwd(f.long), madeEntry: true }), true);
+  t.after(() => trust.dropRecord('residual-4260'));
+  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
+  assert.equal(r.already, true);
+  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true, forgettable: false });
+  const rec = trust.recordedWrite('residual-4260');
+  assert.equal(rec.key, fwd(f.long), 'the record still names only what it named');
+  assert.equal(rec.madeEntry, true);
+  assert.equal('also' in rec, false, 'no record gains the line');
+});
+
+test('#4260 a second-key entry we cannot read is left alone: the launch still trusts the main key, and an undo still takes it back', { skip: WIN }, (t) => {
+  const f = shortFolder(t, 'unreadable'); if (!f) return;
+  const cfg = nodePath.join(f.cfgDir, '.claude.json');
+  fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.short)]: 'not an object' } }));
+  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
+  assert.equal(r.ok, true, r.because || '');
+  assert.equal('also' in r, false, 'nothing written under the key we could not read');
+  assert.equal(readCfg(cfg).projects[fwd(f.short)], 'not an object', 'and it is untouched');
+  assert.equal(readCfg(cfg).projects[fwd(f.long)].hasTrustDialogAccepted, true);
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = cfg;
+  t.after(() => { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; });
+  const got = trust.forgetFolder(r.key, r.displaced, r.madeEntry, { key: fwd(f.short), madeEntry: true });
+  assert.equal(got.ok, true, got.because || '');
+  assert.deepEqual(readCfg(cfg).projects, { [fwd(f.short)]: 'not an object' }, 'the main key we made is gone; the unreadable one is left');
+});
+
+test('#4260 the callers carry the second key: creation records it and rolls it back, removal takes it back', () => {
+  /* Read from the source: the record and undo arms above drive trust.js itself, and these three call sites are the
+     only places `also` crosses into it. Dropping it at any of them is the regression this pins. */
+  const create = fs.readFileSync(nodePath.join(__dirname, 'create.js'), 'utf8');
+  const remove = fs.readFileSync(nodePath.join(__dirname, 'remove.js'), 'utf8');
+  assert.match(create, /recordWrite\(name, \{[^}]*also: trusted\.also/, 'creation records the second key');
+  assert.match(create, /forgetFolder\(trusted\.key, trusted\.displaced, trusted\.madeEntry, trusted\.also\)/, 'a failed start rolls it back');
+  assert.match(remove, /forgetFolder\(rec\.key, [^;]*rec\.madeEntry === true, rec\.also\)/, 'a removal takes it back');
+});
+
+test('#4260 a second key marked NOT forgettable (another account\'s config) is never undone or recorded here', () => {
+  /* Built from plain paths so it runs anywhere: what matters is the flag, which trustFolder sets per write. */
+  const cfgDir = fs.mkdtempSync(nodePath.join(SANDBOX, 'cfg-'));
+  const cfg = nodePath.join(cfgDir, '.claude.json');
+  const main = fwd(nodePath.join(SANDBOX, 'work', 'nf-main'));
+  const other = fwd(nodePath.join(SANDBOX, 'work', 'nf-other'));
+  fs.writeFileSync(cfg, JSON.stringify({ projects: { [main]: { hasTrustDialogAccepted: true }, [other]: { hasTrustDialogAccepted: true } } }));
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = cfg;
+  try {
+    const got = trust.forgetFolder(main, undefined, true, { key: other, madeEntry: true, forgettable: false });
+    assert.equal(got.ok, true, got.because || '');
+    assert.deepEqual(readCfg(cfg).projects, { [other]: { hasTrustDialogAccepted: true } }, 'the main key we made is gone; the not-forgettable one is left as it is');
+    assert.equal(trust.recordWrite('nf-4260', { key: main, madeEntry: true, also: { key: other, madeEntry: true, forgettable: false } }), true);
+    assert.equal('also' in trust.recordedWrite('nf-4260'), false, 'and a record never keeps it for a removal to reach');
+    trust.dropRecord('nf-4260');
+  } finally { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; }
+});
+
+test('#4260 an undo with no second key, or a damaged one, takes back the main key exactly as before', () => {
+  const cfgDir = fs.mkdtempSync(nodePath.join(SANDBOX, 'cfg-'));
+  const cfg = nodePath.join(cfgDir, '.claude.json');
+  const work = nodePath.join(SANDBOX, 'work', 'plain-undo');
+  fs.mkdirSync(work, { recursive: true });
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = cfg;
+  try {
+    for (const also of [undefined, null, 'C:/not-an-object', { key: 7 }, { key: 'relative/path', madeEntry: true }]) {
+      const r = trust.trustFolder(work, { configDir: cfgDir, createIfAbsent: true });
+      assert.equal(r.ok, true, r.because || '');
+      const got = trust.forgetFolder(r.key, r.displaced, r.madeEntry, also);
+      assert.equal(got.ok, true, JSON.stringify(also) + ': ' + (got.because || ''));
+      assert.deepEqual(readCfg(cfg).projects, {}, JSON.stringify(also) + ': the main entry we made is gone and nothing else touched');
+    }
+  } finally { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; }
 });
 
 test('#2281 the key it RETURNS is the key it WROTE, so a rollback removes the right entry', () => {

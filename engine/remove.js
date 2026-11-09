@@ -1971,7 +1971,7 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
            as recordRemoval and restore's writer. */
         if (DRY_RUN && !runner) return true;
         let got = null;
-        try { got = require('./trust').forgetFolder(rec.key, 'displaced' in rec ? rec.displaced : undefined, rec.madeEntry === true); }
+        try { got = require('./trust').forgetFolder(rec.key, 'displaced' in rec ? rec.displaced : undefined, rec.madeEntry === true, rec.also); }
         catch { return false; }
         return Boolean(got && got.ok === true);
       });
