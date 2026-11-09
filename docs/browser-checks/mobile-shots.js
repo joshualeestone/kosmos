@@ -1034,6 +1034,33 @@ const PB_LEFTOUT = { lastOk: '2026-10-31T14:07:00.000Z', stopped: null, note: nu
   { path: 'projects/launch/brand-guide.pdf', why: 'UTF-16 text of odd length' },
   { path: 'agents/research/notes/interview-transcripts-all.txt', why: 'text that already holds the masking placeholder' },
 ] } };
+/* kosmos#8301: the longest subtask chip. The count is edited in the page; the chip and its words are the board's own. */
+const COUNTS_8301 = { done: 3, built: 2, held: 1, unrun: 1, total: 7 };
+const chip8301 = () => [...document.querySelectorAll('.tsk-chip')].find((c) => c.offsetParent && /dropped/.test(c.title));
+async function countsOpen8301(page, data, inProject) {
+  if (inProject) {
+    await editProjects(page, data.projectId, (proj) => { for (const t of proj.tasks || []) if (t.number === 1) t.subtasks = COUNTS_8301; });
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+  } else {
+    // The Tasks view reads its own list, so the same count is put there.
+    await page.route('**/api/tasks?view=tasks*', async (route) => {
+      try {
+        const res = await route.fetch();
+        const body = await res.json();
+        for (const t of body.tasks || []) if (t.number === 1) t.subtasks = COUNTS_8301;
+        await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
+      } catch { await route.abort().catch(() => {}); }
+    });
+    await page.evaluate(() => showTab('tasks'));   // the phone's menu has no Tasks row to click on every size
+  }
+  await page.waitForFunction(`!!(${chip8301})()`, null, { timeout: 8000 });
+  await page.evaluate(`(${chip8301})().scrollIntoView({ block: 'center' })`);
+}
+async function countsVerify8301(page) {
+  const t = await page.evaluate(`(${chip8301})().title`);
+  if (t !== '2 of 7 subtasks done, 2 built, 1 dropped, 1 on hold') throw new Error('the chip does not say the three apart: ' + JSON.stringify(t));
+}
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -2907,28 +2934,8 @@ const SCREENS = [
     const t = await page.evaluate(() => document.getElementById('usage-msg').innerText);
     if (!/Reading the transcripts/.test(t)) throw new Error('Token Usage is not on its reading line: ' + JSON.stringify(t));
   } },
-  /* kosmos#8301: the longest subtask chip (built, dropped and on hold together), in the Tasks view and on the
-     project's own task list. The count is edited in the page; the chip and its words are the board's own. */
-  ...[['tasks-counts-8301', 'tasks', null], ['project-counts-8301', 'projects', '#pj-list']].map(([name, tab, list]) => ({ name, owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page, data) => {
-    if (list) { await editProjects(page, data.projectId, (proj) => { for (const t of proj.tasks || []) if (t.number === 1) t.subtasks = { done: 3, built: 2, held: 1, unrun: 1, total: 7 }; }); await openTab(page, tab); await page.click(`${list} .pj-row[data-project="${data.projectId}"]`); }
-    else {
-      // The Tasks view reads its own list, so the same count is put there.
-      await page.route('**/api/tasks?view=tasks*', async (route) => {
-        try {
-          const res = await route.fetch();
-          const body = await res.json();
-          for (const t of body.tasks || []) if (t.number === 1) t.subtasks = { done: 3, built: 2, held: 1, unrun: 1, total: 7 };
-          await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
-        } catch { await route.abort().catch(() => {}); }
-      });
-      await page.evaluate(() => showTab('tasks'));   // the phone's menu has no Tasks row to click on every size
-    }
-    await page.waitForFunction(() => [...document.querySelectorAll('.tsk-chip')].some((c) => c.offsetParent && /dropped/.test(c.title)), null, { timeout: 8000 });
-    await page.evaluate(() => [...document.querySelectorAll('.tsk-chip')].find((c) => c.offsetParent && /dropped/.test(c.title)).scrollIntoView({ block: 'center' }));
-  }, verify: async (page) => {
-    const t = await page.evaluate(() => [...document.querySelectorAll('.tsk-chip')].find((c) => c.offsetParent && /dropped/.test(c.title)).title);
-    if (t !== '2 of 7 subtasks done, 2 built, 1 dropped, 1 on hold') throw new Error('the chip does not say the three apart: ' + JSON.stringify(t));
-  } })),
+  { name: 'tasks-counts-8301', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page, data) => countsOpen8301(page, data, false), verify: countsVerify8301 },
+  { name: 'project-counts-8301', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page, data) => countsOpen8301(page, data, true), verify: countsVerify8301 },
   /* #5444 (#4787 slice 2): a daily task whose rule was set three days ago and has never run, so its line leads with
      the missed runs in red. The fields come from the engine's own taskrepeat.fieldsOf, so the words are the board's. */
   { name: 'task-missed', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
