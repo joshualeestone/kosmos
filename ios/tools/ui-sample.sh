@@ -66,7 +66,8 @@ if [ "$uikit" = 1 ]; then
   # kosmos#8221: KeyboardSlideUITests is 9 less its three rebuild checks, left out rather than run as skips, so a green run
   # carries no skip warning that is always there and a new skip still stands out. A renamed rebuild check is no longer
   # left out, skips itself, and the class count (7 of 6) turns the run red: check these names first.
-  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3"
+  # kosmos#8221 slice 7: EarlierPagesUITests, earlier messages at the top of the UIKit list (1 check, this arm only).
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:1"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done

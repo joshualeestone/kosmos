@@ -1124,7 +1124,14 @@ final class BoardClient: ObservableObject {
     func olderPage(_ session: String, before: Int) async -> Board.OlderRead? {
         let epoch = chatEpoch
         #if DEBUG
-        if let sample = sampleOlder(session, before: before) { return sample }
+        if let sample = sampleOlder(session, before: before) {
+            // kosmos#8221 slice 7: KOSMOS_SAMPLE_OLDER_DELAY=<s> holds the sample page back, so a check sees the top, the
+            // loading line, and the page landing as three moments (a sample page is otherwise there at once).
+            if let s = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OLDER_DELAY"].flatMap(Double.init), s > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(s * 1_000_000_000))
+            }
+            return sample
+        }
         #endif
         guard let held = admitted, let request = Board.olderRequest(mac: held.url, session: session, before: before) else {
             return .failed(Board.olderFailed)
