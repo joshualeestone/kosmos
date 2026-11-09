@@ -207,16 +207,27 @@ final class DotsRefreshDriver: NSObject {
 /// changing on a list still estimating its height is what makes the list go blank (kosmos#7420), so no space is held and the
 /// list bounces back by itself. Armed only while `allowed` says so, which the chat ties to its end marker showing.
 @MainActor
-final class EndPullDriver: NSObject {
+final class EndPullDriver: NSObject, ObservableObject {
     /// Read on each move: whether a pull can count now.
     var allowed: () -> Bool = { false }
     /// How far above the content's end the dots' centre rests once the list has bounced back.
     var restsAbove: CGFloat = 0
     var refresh: (@MainActor () async -> Void)?
-    /// kosmos#8283: told when the dots are put on screen and taken off, so the chat can take its working line out of their way.
-    var drawn: (Bool) -> Void = { _ in }
-    /// Whether the dots are on screen now.
-    var dotsShown: Bool { dots != nil }
+    /// kosmos#8283: whether the dots are on screen, for the chat's working line (WorkingStrip), which goes while they show. Only
+    /// that small view watches it, so the dots coming and going never draws the list again mid-pull (#7420, #8072). Set a turn
+    /// later, from whether they are on screen then: the driver is told from the list's scroll callbacks, which can run inside a
+    /// view update, where a change is dropped (measured on the UIKit list: the line stayed under the dots once), and a pull can
+    /// take the dots off and on within 10 ms.
+    @Published private(set) var dotsUp = false
+    private func noteDots() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let now = self.dots != nil
+            guard now != self.dotsUp else { return }
+            self.dotsUp = now
+            ChatView.trace(now ? "end pull: working line hidden" : "end pull: working line back")
+        }
+    }
 
     private(set) weak var scrollView: UIScrollView?
     private var logic = PullRefreshLogic()
@@ -335,7 +346,7 @@ final class EndPullDriver: NSObject {
         let host = refreshDotsHost(in: view)
         dots = host
         tap.prepare()
-        drawn(true)
+        noteDots()
         return host
     }
 
@@ -343,7 +354,7 @@ final class EndPullDriver: NSObject {
         guard let shown = dots else { return }
         shown.view.removeFromSuperview()
         dots = nil
-        drawn(false)
+        noteDots()
     }
 }
 

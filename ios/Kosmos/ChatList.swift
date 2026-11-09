@@ -537,8 +537,9 @@ struct ChatList: UIViewRepresentable {
         // on screen are drawn again on an update (apply).
         list.isPrefetchingEnabled = false
         // The list's own room above its first row, as the lazy list's padding (ChatView.listPadV). None below its last
-        // (kosmos#8283): with it the newest message rested 12 pt higher over the box than on the lazy list (measured 11-09 on
-        // the simulator, keyboard up: 74 pt against 62 from its words to the box), so the end marker's room is the whole gap.
+        // (kosmos#8283): with it the newest message rested 12 pt higher over the box than on the lazy list, although the lazy
+        // list pads its end by listPadV too. That the two now match is measured, not derived (11-09, simulator, keyboard up: 62
+        // pt from its words to the box on both); ChatGapUITests bounds the gap on each list, it does not compare them.
         list.contentInset = UIEdgeInsets(top: ChatView.listPadV, left: 0, bottom: 0, right: 0)
         let co = context.coordinator
         co.list = list

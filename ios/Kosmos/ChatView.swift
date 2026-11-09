@@ -167,8 +167,7 @@ struct ChatView: View {
     @State private var shifts = Board.ShiftBox()
     @State private var openCount = Board.ChatOpenCount()   // kosmos#7420
     @State private var endPull = EndPullDriver()   // kosmos#8072
-    @State private var endPullDots = false   // kosmos#8283: the pull's dots are drawn, where the working line would be
-    // kosmos#8283: the working line's height at this text size, read from its measuring copy (workingStrip), for endRoom.
+    // kosmos#8283: the working line's height at this text size, read from its measuring copy (WorkingStrip), for endRoom.
     @State private var workingLineHeight: CGFloat = 16
     // kosmos#7420: the scroll view the chat sits in (found by SideScrollLock), read only by the empty-list diagnostic.
     @State private var scrollBox = ScrollBox()
@@ -292,7 +291,7 @@ struct ChatView: View {
                     LinearGradient(colors: [Palette.chatGround.opacity(0), Palette.chatGround], startPoint: .top, endPoint: .bottom)
                         .frame(height: ChatView.fadeHeight).offset(y: -ChatView.fadeHeight).allowsHitTesting(false).accessibilityHidden(true)
                 }
-                .overlay(alignment: .topLeading) { workingStrip }
+                .overlay(alignment: .topLeading) { WorkingStrip(endPull: endPull, working: working, name: shown.name, lineHeight: $workingLineHeight) }
             }
         }
         // kosmos#8045: the tray holds the keyboard's room while it is open (AttachMenu.swift, PhotoTrayFollowsKeyboard).
@@ -428,17 +427,6 @@ struct ChatView: View {
             // set them 12 pt lower there, 2.5, for that room).
             endPull.allowed = { endVisible && !searchMode }
             endPull.refresh = { _ = await read() }
-            // kosmos#8283: the working line goes while the dots show. Written a turn later, from whether they are on screen then: the
-            // driver is told from the list's scroll callbacks, which can run inside a view update, where a state write is dropped
-            // (measured on the UIKit list: the line stayed under the dots once), and a pull can take them off and on in 10 ms.
-            endPull.drawn = { [endPull] _ in
-                DispatchQueue.main.async {
-                    let now = endPull.dotsShown
-                    guard now != endPullDots else { return }
-                    endPullDots = now
-                    Self.trace(now ? "end pull: working line hidden" : "end pull: working line back")
-                }
-            }
             scrollBox.endPull = endPull
             if let shown = scrollBox.view { endPull.attach(to: shown) }
         }
@@ -448,7 +436,7 @@ struct ChatView: View {
         .onDisappear {
             visible = false
             // kosmos#8072: the closures hold this chat, so they go with it; coming back sets them again.
-            endPull.cancelRead(); endPull.allowed = { false }; endPull.refresh = nil; endPull.drawn = { _ in }
+            endPull.cancelRead(); endPull.allowed = { false }; endPull.refresh = nil
             if !infoOpen { sendOpenCount() }
             if !infoOpen { sendShiftReport() }   // kosmos#7575 (review 1: the info page pushed over the chat is not a close)
             if !infoOpen { client.releasePreviewImages() }   // kosmos#7864: the pictures do not outlive the chat
@@ -617,26 +605,6 @@ struct ChatView: View {
             }
     }
 
-    // kosmos#8283 (Josh 11-09, against Discord's "is typing"): "<dots> <name> is working" over the strip just above the box,
-    // in the room the box's fade already keeps clear of the newest message, so it takes no row in the list: an idle chat has
-    // no empty row under its newest message, and the line coming and going moves nothing (#7348). Its bottom sits 4 pt above
-    // the strip's top. Not while the pull's dots show (#8072): they rest in the same room, centred, and a long name would reach
-    // them. One line always, so its height is known: a hidden copy with still dots measures it (workingLineHeight).
-    @ViewBuilder private var workingStrip: some View {
-        ZStack(alignment: .bottomLeading) {
-            WorkingLine(name: shown.name, animated: false).lineLimit(1).hidden()
-                .background(GeometryReader { g in
-                    Color.clear.onAppear { workingLineHeight = g.size.height }.onChange(of: g.size.height) { workingLineHeight = $0 }
-                })
-            if working && !endPullDots { WorkingLine(name: shown.name).lineLimit(1) }
-        }
-        .padding(.horizontal, 16).padding(.bottom, 4)
-        // A frame of no height at the strip's top, the line standing on it and drawn upward (an alignment guide here moved
-        // nothing: measured 11-09, the line sat on the box's edge either way).
-        .frame(maxWidth: .infinity, maxHeight: 0, alignment: .bottomLeading)
-        .allowsHitTesting(false)
-    }
-
     // The room under the newest message: the box's fade plus 8 pt (#7346), or the working line drawn over the strip (4 pt above
     // it) with 6 pt clear of the message, whichever is more. 26 pt either way at the default size (the line is 16); at the largest
     // text the line covered 30 pt of the newest message without this (measured 11-09).
@@ -733,7 +701,7 @@ struct ChatView: View {
         }
         // A reader higher up is not moved by a new message; the capsule offers the jump (not over a search).
         .onChange(of: Board.followKey(thread)) { _ in if !atBottom && !searching { unseenNew = true } }
-        .onChange(of: working) { now in if now && !atBottom && !searching { unseenNew = true } }
+        // kosmos#8283: the agent starting to work raises no "New messages": its line shows above the box wherever the reader is.
         // Only a message just sent goes to the newest message, as on the lazy list (searching too).
         .onChange(of: pending.count) { n in
             // The same lines as the lazy list's, so a capture from either list reads alike.
@@ -2175,7 +2143,7 @@ struct ChatView: View {
                 .background(Capsule().fill(Palette.card).shadow(color: .black.opacity(0.15), radius: 6, y: 2))
         }
         .buttonStyle(.plain)
-        .padding(.bottom, 8 + ChatView.fadeHeight)   // above the fade (kosmos#7346)
+        .padding(.bottom, endRoom)   // above the fade (kosmos#7346), and above the working line at a large text size (kosmos#8283)
     }
 
     // MARK: - Sending
@@ -3186,6 +3154,42 @@ struct BubbleTail: Shape {
         p.closeSubpath()
         guard !mine else { return p }
         return p.applying(CGAffineTransform(scaleX: -1, y: 1).translatedBy(x: -(rect.minX + rect.maxX), y: 0))
+    }
+}
+
+// kosmos#8283 (Josh 11-09, against Discord's "is typing"): "<dots> <name> is working" over the strip just above the box, in the
+// room the box's fade keeps clear of the newest message (endRoom), so it takes no row in the list: an idle chat has no empty row
+// under its newest message, and the line coming and going moves nothing (#7348). Its bottom sits 4 pt above the strip's top, on
+// a ground that fades in from 6 pt above it, so a reader higher up sees messages fade out behind it, never its words over theirs.
+// Not while the pull's dots show (#8072): they rest in the same room, centred, and a long name would reach them. One line always,
+// so its height is known: a hidden copy with still dots measures it (lineHeight, for endRoom).
+struct WorkingStrip: View {
+    @ObservedObject var endPull: EndPullDriver
+    let working: Bool
+    let name: String
+    @Binding var lineHeight: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            WorkingLine(name: name, animated: false).lineLimit(1).hidden()
+                .background(GeometryReader { g in
+                    Color.clear.onAppear { lineHeight = g.size.height }.onChange(of: g.size.height) { lineHeight = $0 }
+                })
+                .padding(.horizontal, 16).padding(.bottom, 4)
+            if working && !endPull.dotsUp {
+                WorkingLine(name: name).lineLimit(1)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 6).padding(.bottom, 4)
+                    .background(LinearGradient(stops: [.init(color: Palette.chatGround.opacity(0), location: 0),
+                                                       .init(color: Palette.chatGround, location: 0.45)],
+                                               startPoint: .top, endPoint: .bottom))
+            }
+        }
+        // A frame of no height at the strip's top, the line standing on it and drawn upward (an alignment guide here moved
+        // nothing: measured 11-09, the line sat on the box's edge either way).
+        .frame(maxWidth: .infinity, maxHeight: 0, alignment: .bottomLeading)
+        .allowsHitTesting(false)
     }
 }
 
