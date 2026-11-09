@@ -18,6 +18,7 @@
  *   refused    -> a dismiss the board refuses keeps the note and says so; a keyboard dismiss moves focus to the K mark
  *   restart    -> a new board start time under an open page brings the note (control: the same start time does not)
  *   midnight   -> with the page clock pinned at 23:30 then 00:10, the same note says "yesterday at"
+ *   checked    -> kosmos#8287: the line of what was checked, all back / some not back / damage / partial; none without checks (control); a change repaints; a phone keeps it
  *
  *   AGENT_WORKFORCE_DATA=/tmp/rn PORT=17372 node server.js &
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" \
@@ -178,6 +179,52 @@ const CASES = [
     await pg.waitForFunction(() => document.querySelector('#reboot-slot .utoast.reboot'), null, { timeout: 12000 }).catch(() => {});
     const phone = await pg.evaluate(() => { const sm = document.querySelector('#reboot-slot .utxt small'); return sm ? { display: getComputedStyle(sm).display, h: sm.getBoundingClientRect().height, text: sm.textContent } : null; });
     say(Boolean(phone) && phone.display !== 'none' && phone.h > 0 && /started again by itself/.test(phone.text), 'phone: the note keeps its line at 390px', JSON.stringify(phone));
+    await pg.close();
+  }
+  /* kosmos#8287: the sentence of what was checked, through the real page. The first arm is the control: with nothing
+     read there is no line at all. */
+  {
+    const base = noteAt(7 * MIN, 0);
+    const WORDS = [
+      { key: 'none', checks: {}, want: null },
+      { key: 'nothing-sent', checks: undefined, want: null },
+      { key: 'all-back', checks: { agents: { was: 12, back: 12, notBack: [] }, files: { damaged: 0 } }, want: "Checked: all 12 agents that were running are running again, and Kosmos's own files read fine." },
+      { key: 'one', checks: { agents: { was: 1, back: 1, notBack: [] } }, want: 'Checked: the agent that was running is running again.' },
+      { key: 'not-back', checks: { agents: { was: 3, back: 1, notBack: ['Homer', 'Leo'] }, files: { damaged: 2 } }, want: "Checked: 1 of 3 agents that were running is running again (not yet: Homer, Leo), and 2 of Kosmos's own files could not be read." },
+      { key: 'many', checks: { agents: { was: 9, back: 2, notBack: ['A', 'B', 'C', 'D', 'E', 'F', 'G'] } }, want: 'Checked: 2 of 9 agents that were running are running again (not yet: A, B, C, D, E and 2 more).' },
+      { key: 'files-only', checks: { files: { damaged: 0 } }, want: "Checked: Kosmos's own files read fine." },
+      { key: 'no-agents-then', checks: { agents: { was: 0, back: 0, notBack: [] } }, want: null },
+      { key: 'html', checks: { agents: { was: 1, back: 0, notBack: ['<b>x</b>'] } }, want: 'Checked: 0 of 1 agents that were running are running again (not yet: <b>x</b>).' },
+    ];
+    for (const w of WORDS) {
+      for (const width of [1400, 390]) {
+        const pg = await b.newPage({ viewport: { width, height: 844 } });
+        await pg.clock.setFixedTime(new Date(NOON));
+        await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: { ...base, checks: w.checks } }) }).catch(() => {}));
+        await pg.goto(URL, { waitUntil: 'networkidle' });
+        if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+        await pg.waitForFunction(() => document.querySelector('#reboot-slot .utoast.reboot'), null, { timeout: 12000 }).catch(() => {});
+        const got = await pg.evaluate(() => { const c = document.querySelector('#reboot-slot .rchk'); return { shown: Boolean(document.querySelector('#reboot-slot .utoast.reboot')), text: c ? c.textContent : null, h: c ? c.getBoundingClientRect().height : 0, hasB: Boolean(document.querySelector('#reboot-slot .rchk b')) }; });
+        say(got.shown && got.text === w.want && (w.want === null || got.h > 0) && !got.hasB, 'checked ' + w.key + ' at ' + width + 'px', JSON.stringify(got));
+        if (w.key === 'not-back' && width === 1400) await pg.screenshot({ path: path.join(OUT, 'reboot-checked-not-back.png') }).catch(() => {});
+        if (w.key === 'all-back' && width === 390) await pg.screenshot({ path: path.join(OUT, 'reboot-checked-phone.png') }).catch(() => {});
+        await pg.close();
+      }
+    }
+    /* An agent that comes back changes the words, so the ten-minute re-check must repaint. Control: the same checks keep the button. */
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    await pg.clock.setFixedTime(new Date(NOON));
+    let checks = { agents: { was: 2, back: 1, notBack: ['Leo'] } };
+    await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: { ...base, checks } }) }).catch(() => {}));
+    await pg.goto(URL, { waitUntil: 'networkidle' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
+    await pg.waitForFunction(() => document.querySelector('#reboot-slot .rchk'), null, { timeout: 12000 }).catch(() => {});
+    const again = () => pg.evaluate(async () => { const before = document.querySelector('#reboot-slot .ux'); await rebootNoteCheck(); const c = document.querySelector('#reboot-slot .rchk'); return { kept: document.querySelector('#reboot-slot .ux') === before, text: c ? c.textContent : null }; });
+    const same = await again();
+    say(same.kept === true, 'checked: the same checks keep the note as it is (control)', JSON.stringify(same));
+    checks = { agents: { was: 2, back: 2, notBack: [] } };
+    const moved = await again();
+    say(moved.kept === false && moved.text === 'Checked: all 2 agents that were running are running again.', 'checked: an agent coming back repaints the line', JSON.stringify(moved));
     await pg.close();
   }
   /* Review 4: a board that starts again under an open page is asked again for its note. The page loads with no note;

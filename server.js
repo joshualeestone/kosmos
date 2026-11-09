@@ -21657,7 +21657,16 @@ const server = http.createServer(async (req, res) => {
      (engine/restartnote.js says when one is made). Read once by the page; dismissed by the person. */
   if (pathname === '/api/board/restart-note' && (req.method === 'GET' || req.method === 'HEAD')) {
     let note = null;
-    try { note = require('./engine/restartnote').current(); } catch { note = null; }
+    const rn = require('./engine/restartnote');
+    try { note = rn.current(); } catch { note = null; }
+    /* kosmos#8287: what was checked, read now, so agents that came back since say so. Only when there is a note: the
+       read costs a roster, and the page asks on every open. */
+    if (note) {
+      try {
+        const removed = removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name);
+        note = rn.publicNote(note, rn.checksFor(note, sweepRoster(), removed));
+      } catch { note = rn.publicNote(note, {}); }
+    }
     sendJson(res, 200, { note });
     return;
   }
@@ -28301,7 +28310,13 @@ function start(port = PORT) {
   try { require('./engine/backuptick').startHere(); } catch { /* best effort */ }
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
-  try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }
+  try {
+    const rn = require('./engine/restartnote');
+    // kosmos#8287: the file check ran first (at the bottom of this file), and on Windows the logon task counts as the supervisor.
+    const startedBy = rn.whoStarted({ launcherSaid: BOARD_STARTED_BY, platform: process.platform, startedByTask: process.platform === 'win32' && require('./engine/win32board').startedByTask() });
+    rn.atStart({ startedBy, personMark: BOARD_PERSON_MARK, files: require('./engine/storecheck').lastScan() });
+    rn.startBeating();
+  } catch { /* best effort */ }
   /* kosmos#7411 step 4: the version this board runs and when it first started on it, so the restart line can name the
      agents started before an update. Best effort: a courtesy, never a reason not to start. */
   try {
@@ -29524,6 +29539,7 @@ function start(port = PORT) {
           // unaffected either way (it reads its own run files, not the roster).
           let roster = null;
           try { roster = sweepRoster(); } catch { /* a snapshot can fail; the stuck sweep skips this tick. #7693: these only tell, never type */ }
+          try { require('./engine/restartnote').noteRunning(roster); } catch { /* kosmos#8287: a courtesy */ }
           const names = new Map();
           for (const a of (roster || [])) if (a && a.sessionName) names.set(store.safeKey(a.sessionName), a.name || a.sessionName);
           crashloop.tellLoops({

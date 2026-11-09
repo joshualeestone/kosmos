@@ -1374,6 +1374,7 @@ body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display:
    neutral tone of .login-adv.notice, restated in each theme block below as that one is (Mona Lisa). */
 .utoast.reboot { --utone: var(--label-2); }
 .utoast.reboot .utxt b { color: var(--label); }
+.utoast.reboot .utxt small.rchk { display: block; margin-top: 4px; }   /* kosmos#8287: what was checked */
 /* kosmos#7248: one row per damaged file, its put-back button inline at the button size the notices use. */
 .utoast.dmg .utxt small.dmgrow { display: block; margin-top: 4px; }
 .utoast.runfolder .utxt small.rfmsg { display: block; margin-top: 4px; }
@@ -24813,6 +24814,23 @@ function rebootFocusAway() {
   const next = ['.apphead .klink', '.kplus-bar-menu', '#kapp-me', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
   if (next) next.focus();
 }
+/* kosmos#8287: what was checked, and what was not fine. Only what the board actually read: a part it could not read is
+   left out, and with nothing read there is no line. */
+function rebootChecked(checks) {
+  if (!checks) return '';
+  const parts = [];
+  const a = checks.agents;
+  if (a && a.was > 0) {
+    if (a.back === a.was) parts.push(a.was === 1 ? 'the agent that was running is running again' : 'all ' + a.was + ' agents that were running are running again');
+    else {
+      const shown = a.notBack.slice(0, 5).join(', ') + (a.notBack.length > 5 ? ' and ' + (a.notBack.length - 5) + ' more' : '');
+      parts.push(a.back + ' of ' + a.was + ' agents that were running ' + (a.back === 1 ? 'is' : 'are') + ' running again (not yet: ' + shown + ')');
+    }
+  }
+  const f = checks.files;
+  if (f) parts.push(f.damaged === 0 ? 'Kosmos\'s own files read fine' : f.damaged + ' of Kosmos\'s own files could not be read');
+  return parts.length ? 'Checked: ' + parts.join(', and ') + '.' : '';
+}
 function paintRebootNote(note) {
   const slot = document.getElementById('reboot-slot');
   if (!slot) return;
@@ -24824,7 +24842,8 @@ function paintRebootNote(note) {
   const line = 'Kosmos was running and started again by itself ' + up + '.';
   /* The ten-minute re-check repaints only when the WORDS change (a new note, or "at 11:30 PM" becoming "yesterday at
      11:30 PM" after midnight): repainting the same words would take focus off Dismiss and re-announce the status. */
-  const key = head + '|' + line;
+  const checked = rebootChecked(note.checks);   // kosmos#8287
+  const key = head + '|' + line + '|' + checked;
   if (slot.dataset.shown === key && slot.firstElementChild) {
     /* The board answered this re-check, so a "could not record that just now" from an earlier dismiss is stale. */
     const stale = slot.querySelector('.rerr');
@@ -24834,7 +24853,8 @@ function paintRebootNote(note) {
   slot.dataset.shown = key;
   slot.innerHTML = '<div class="utoast reboot">'
     + '<span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + esc(line) + '</small></div>'
+    + '<div class="utxt" role="status"><b>' + esc(head) + '</b><small>' + esc(line) + '</small>'
+    + (checked ? '<small class="rchk">' + esc(checked) + '</small>' : '') + '</div>'
     + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
     + '</div>';
   const btn = slot.querySelector('.ux');

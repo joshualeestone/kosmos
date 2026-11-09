@@ -72,6 +72,7 @@ function holdsSecret(file) {
 }
 
 let FOUND = [];          // the damaged stores this start found
+let SCANNED = null;      // kosmos#8287: what this start's scan found, before anyone repairs or dismisses it; null if it did not finish
 let BASE_ROOT = null;    // where worlds.json lives, captured at start
 
 /** 'empty', 'nul' or 'unreadable', or null when the bytes are a JSON value. */
@@ -173,6 +174,7 @@ function scan(opts) {
     found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, secret: holdsSecret(file), abs: file, copyAbs: copy ? copy.path : null, size: st.size, mtimeMs: st.mtimeMs });
   }
   FOUND = found;
+  SCANNED = { checked: true, damaged: found.length };
   return found;
 }
 
@@ -252,4 +254,7 @@ function restore(file, write) {
 /** The person said they have seen it: not shown again until the next start. */
 function dismiss() { FOUND = []; return true; }
 
-module.exports = { atStart, scan, current, restore, dismiss, classify };
+/** kosmos#8287: whether this start's scan finished and how many damaged stores it found, or { checked: false }. */
+function lastScan() { return SCANNED ? { ...SCANNED } : { checked: false }; }
+
+module.exports = { atStart, scan, current, restore, dismiss, classify, lastScan };
