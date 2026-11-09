@@ -859,7 +859,9 @@ const BUILT_NOTE_MAX = 300;
    store even when the callback changes nothing, so a looping repeat mark rewrote it on every call). */
 const NO_WRITE = Symbol('no write');
 const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote', 'builtFingerprint',
-  'builtFingerprintBy', 'builtFilePath'];
+  'builtFingerprintBy', 'builtFilePath', 'builtFingerprintAt', 'builtCheckedBy', 'builtCheckedByPerson', 'builtReplaces'];
+/* kosmos#8307: at most this many checkers are kept on a file (a name each), so a looping checker cannot grow the store. */
+const CHECKED_BY_MAX = 20;
 /* #6330 slice 2: a built mark can carry the deliverable's fingerprint, so the next agent can check it has the exact
    thing delivered. The CLI hashes the file; the board only checks the shape (the algorithm is named in the value).
    #7213: a PDF's fingerprint says pdf-normalized:, so it is never read as the plain sha256 an approval cites. */
@@ -893,6 +895,24 @@ function landedValue(c) {
   if (typeof onRemote !== 'boolean') return null;
   return { sha, repo, onRemote };
 }
+/* kosmos#8214, #8307: a task without the delivered files' paths (its own, and the one it replaced), for any view that
+   leaves this computer's paths out (the page's rows). A copy: the stored task keeps them, for task show and task files. */
+function withoutFilePaths(t) {
+  if (!t || typeof t !== 'object') return t;
+  const rest = { ...t };
+  delete rest.builtFilePath;
+  if (rest.builtReplaces && typeof rest.builtReplaces === 'object' && 'filePath' in rest.builtReplaces) {
+    const { filePath, ...replaces } = rest.builtReplaces;   // eslint-disable-line no-unused-vars
+    rest.builtReplaces = replaces;
+  }
+  return rest;
+}
+/* kosmos#8307: two lists of names hold the same names in the same order (absent reads as empty). */
+function sameList(a, b) {
+  const x = Array.isArray(a) ? a : [];
+  const y = Array.isArray(b) ? b : [];
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+}
 function withoutBuilt(t) {
   if (!t || !BUILT_FIELDS.some((k) => k in t)) return t;
   const rest = { ...t };
@@ -918,6 +938,15 @@ function withoutBuilt(t) {
  *                          unnamed agent's (review 6). A clear drops both
  *   builtFilePath          (kosmos#8214) the file's absolute path on the marking computer, sent with the fingerprint as
  *                          `filePath`; kept and dropped with it. A fingerprint sent without one (an older CLI) has none
+ *   builtFingerprintAt     (kosmos#8307) when this file was sent (a checker's mark later does not move it); absent on a
+ *                          fingerprint sent before #8307
+ *   builtCheckedBy         (kosmos#8307) the agents who checked THIS file: another named agent's mark that kept the
+ *                          fingerprint (the checker's mark above). builtCheckedByPerson: the person's mark kept it. Never
+ *                          the sender's own mark
+ *   builtReplaces          (kosmos#8307) the file this one replaced: a mark with a DIFFERENT fingerprint replaces the one
+ *                          kept, and the old one is kept here as { fingerprint, by, at, filePath?, checkedBy, checkedByPerson? },
+ *                          so its checks read as out of date and their agents can be told. Only the one previous file.
+ *                          Dropped with the fingerprint (a mark that drops it, a clear)
  * The same mark again (same marker, same note, same fingerprint and file path) records nothing (`changed: false`). `refusePersonMark` refuses a
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
@@ -947,6 +976,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   let personMark = false;
   let repeating = false;
   let unsaid = 0;
+  let replacedNow = null;
   try {
     projects.mutate(projectId, (p) => {
       const t = byNumber(p, n);
@@ -969,8 +999,27 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       const kept = print || (keep ? t.builtFingerprint : '');
       const keptBy = print ? who : (keep ? t.builtFingerprintBy || null : null);
       const keptPath = print ? sentPath : (keep ? t.builtFilePath || '' : '');   // kosmos#8214: the path goes with its fingerprint
+      /* kosmos#8307: a different fingerprint replaces the kept one; the old file and who checked it go to builtReplaces.
+         The same fingerprint again (sent again, or by a checker) keeps both. A mark that keeps the fingerprint without
+         sending one, from anyone but its sender, is a check of this file. */
+      const hadPrint = t.builtAt && FINGERPRINT_RE.test(t.builtFingerprint || '') ? t.builtFingerprint : '';
+      const replacing = Boolean(print && hadPrint && print !== hadPrint);
+      const sameFile = Boolean(kept && hadPrint && kept === hadPrint);
+      const priorChecked = sameFile && Array.isArray(t.builtCheckedBy) ? t.builtCheckedBy.filter((x) => typeof x === 'string' && x) : [];
+      const checking = sameFile && !print && keep;
+      const checkedBy = checking && who && !isPerson && !priorChecked.includes(who) ? priorChecked.concat([who]).slice(-CHECKED_BY_MAX) : priorChecked;
+      const checkedByPerson = sameFile && (t.builtCheckedByPerson === true || (checking && isPerson));
+      const printAt = sameFile && typeof t.builtFingerprintAt === 'string' ? t.builtFingerprintAt : (print ? new Date().toISOString() : '');
+      const replaces = replacing ? {
+        fingerprint: hadPrint, by: t.builtFingerprintBy || null, at: typeof t.builtFingerprintAt === 'string' ? t.builtFingerprintAt : null,
+        ...(t.builtFilePath ? { filePath: t.builtFilePath } : {}),
+        checkedBy: Array.isArray(t.builtCheckedBy) ? t.builtCheckedBy.filter((x) => typeof x === 'string' && x) : [],
+        ...(t.builtCheckedByPerson === true ? { checkedByPerson: true } : {}),
+      } : (sameFile && t.builtReplaces && typeof t.builtReplaces === 'object' ? t.builtReplaces : null);
+      replacedNow = replacing ? replaces : null;
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
         && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who) && (t.builtFilePath || '') === keptPath
+        && sameList(t.builtCheckedBy, checkedBy) && (t.builtCheckedByPerson === true) === checkedByPerson
         && (!landed || (t.landedCommit === landed.sha && t.landedRepo === landed.repo && t.landedOnRemote === landed.onRemote))) {
         same = true; changed = t; throw NO_WRITE;
       }
@@ -981,7 +1030,9 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         ...(isPerson ? { builtByPerson: true } : {}), builtWho,
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
-        ...(kept ? { builtFingerprint: kept, builtFingerprintBy: keptBy, ...(keptPath ? { builtFilePath: keptPath } : {}) } : {}),
+        ...(kept ? { builtFingerprint: kept, builtFingerprintBy: keptBy, ...(keptPath ? { builtFilePath: keptPath } : {}),
+          ...(printAt ? { builtFingerprintAt: printAt } : {}), builtCheckedBy: checkedBy, ...(checkedByPerson ? { builtCheckedByPerson: true } : {}),
+          ...(replaces ? { builtReplaces: replaces } : {}) } : {}),
         // #7508: a mark without --commit keeps a commit already recorded (a checker's mark is not new work).
         ...(landed ? { landedCommit: landed.sha, landedRepo: landed.repo, landedOnRemote: landed.onRemote, landedBy: who, landedAt: new Date().toISOString() } : {}),
       };
@@ -999,7 +1050,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
   if (same) return { ok: true, task: changed, changed: false };
   taskchat.record(projectId, changed.number, { kind: 'built', by: who, ...(isPerson ? { person: true } : {}), ...(said ? { note: said } : {}) });
-  return { ok: true, task: changed, changed: true };
+  /* kosmos#8307: `replaced` only when this mark replaced a file, so the notice can say so and reach its checkers. */
+  return { ok: true, task: changed, changed: true, ...(replacedNow ? { replaced: replacedNow } : {}) };
 }
 
 /** Take the built mark off (the work turned out not to be done). A task with no mark records nothing. */
@@ -2774,4 +2826,4 @@ module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, close, reopen
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, withoutFilePaths, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

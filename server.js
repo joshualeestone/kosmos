@@ -23042,7 +23042,11 @@ const server = http.createServer(async (req, res) => {
        closed row carries 'kept' / 'missing' / 'unknown'. No answer (none recorded, the budget spent) leaves the row as
        stored. The Tasks view does not send the repository's path: the page never needs it. */
     const sendRows = () => {
-      for (const row of rows) { delete row.landedRepo; delete row.builtFilePath; }   // kosmos#8214: nor a delivered file's path
+      for (const row of rows) {   // kosmos#8214: nor a delivered file's path; kosmos#8307: nor the one it replaced
+        delete row.landedRepo;
+        delete row.builtFilePath;
+        if (row.builtReplaces && typeof row.builtReplaces === 'object') row.builtReplaces = tasks.withoutFilePaths({ builtReplaces: row.builtReplaces }).builtReplaces;
+      }
       /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
          read its "false" as "nobody needs you". It says it could not tell. */
       /* kosmos#7797 item 1: an agent's question no row carries (it holds no open task in the project it asks about, or
