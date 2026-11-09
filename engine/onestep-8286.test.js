@@ -110,11 +110,17 @@ test('review 1: sidechain rows are skipped; an MCP tool is named by its last par
   assert.equal(onestep.toolName(''), 'a tool');
 });
 
-test('review 1: an unchanged file is read once (the per-file cache), a changed one again', () => {
+test('review 1 and 2: an unchanged file is not read again (the per-file cache); a changed one is', () => {
   const now = T0 + 20 * 60000;
   const file = transcript([use('a', 'Bash', T0)], T0 + 1000);
-  assert.ok(onestep.oneStepIn(file, { now }));
-  fs.writeFileSync(file, use('b', 'Read', T0 + 2000) + '\n');   // same name, new content and size
+  assert.deepEqual(onestep.oneStepIn(file, { now }), { tool: 'Bash', since: iso(T0) });
+  // Same size and time, other content: the cache answers, so the old step comes back (proves the file was not re-read).
+  const same = use('b', 'Bash', T0).replace('"b"', '"a"');
+  fs.writeFileSync(file, same.replace('Bash', 'Grep') + '\n');
+  fs.utimesSync(file, (T0 + 1000) / 1000, (T0 + 1000) / 1000);
+  assert.equal(fs.statSync(file).size, Buffer.byteLength(use('a', 'Bash', T0) + '\n'), 'the fixture kept its size');
+  assert.deepEqual(onestep.oneStepIn(file, { now }), { tool: 'Bash', since: iso(T0) }, 'answered from the cache');
+  fs.writeFileSync(file, use('c', 'Read', T0 + 2000) + '\n');   // new content and size
   fs.utimesSync(file, (T0 + 3000) / 1000, (T0 + 3000) / 1000);
   assert.deepEqual(onestep.oneStepIn(file, { now }), { tool: 'Read', since: iso(T0 + 2000) }, 'a changed file is read again');
 });

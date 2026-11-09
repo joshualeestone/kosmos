@@ -20,6 +20,8 @@
  * and time). The caller computes it only for a working card (status.oneStepOf).
  * A long subagent (`Agent`, `Task`) or MCP call shows too: it is one step, and the sentence says a long job is fine.
  * Sidechain rows (a subagent written into the main file by older builds) are skipped.
+ * Known residual (review 2): a call followed by more than TAIL_BYTES of rows drops out of the tail, so the very longest
+ * hangs can show nothing, and with parallel calls a newer one's start can show; both fail toward saying less.
  */
 const fs = require('fs');
 

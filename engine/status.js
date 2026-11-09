@@ -1878,7 +1878,10 @@ function deliveryStallOf(pane, status) {
    Review 1: only for a WORKING card (the only one the page says it for, and the cheap way to skip the transcript lookup on
    most cards), only for a pane tied to one of our agents (as readModel and readContext, which never read another agent's
    transcript for an untied pane), never a Windows pane (its board reads no transcripts), and never a call older than this
-   tmux session (left open by a session that was killed mid-call). Null otherwise, and whenever nothing can be read. */
+   tmux session (left open by a session that was killed mid-call). Review 2: that is the TMUX session's start, not this
+   Claude run's: a Claude relaunched inside the same tmux session is guarded only by its new prompt row, which closes old
+   calls. A start that cannot be read keeps the step (shows it rather than hides it). Null otherwise, and whenever
+   nothing can be read. */
 function oneStepOf(pane, status, tied, now = Date.now(), find = transcriptFor, startedAt = sessionStartedAtFromTmux) {
   try {
     if (!status || status.state !== STATE.WORKING) return null;
