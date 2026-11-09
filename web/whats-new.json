@@ -1,36 +1,30 @@
 {
-  "version": "0.8.00",
+  "version": "0.8.01",
   "highlights": [
     {
-      "icon": "shield",
-      "title": "Kosmos says when others can change its folder",
-      "line": "On Windows, Kosmos now says so when it runs from a folder other accounts on the PC can change, and what to do about it.",
-      "platforms": [
-        "windows"
-      ]
+      "icon": "swarm",
+      "title": "See when an agent sits on one step",
+      "line": "An agent's card and page say when it has been on one tool call for five minutes or more, and which tool."
     },
     {
-      "icon": "tasks",
-      "title": "Questions waiting on you show their words",
-      "line": "A project's needs-you box shows each question an agent reported in its own words, and one several agents report once, above their names."
-    },
-    {
-      "icon": "tasks",
-      "title": "Tasks on hold say when you were asked",
-      "line": "A task on hold for you says when its agent asked you, or that Kosmos has not seen it ask yet, and when you answered."
+      "icon": "swarm",
+      "title": "Added agents keep their account and model",
+      "line": "An agent you add from Found agents stays on the Claude account and model it was using, and Kosmos says if it could not tell."
     },
     {
       "icon": "shield",
-      "title": "Gemini agents stop updating gemini",
-      "line": "A new Gemini agent turns off gemini's updates unless you chose to keep them. On your default account that includes gemini you run yourself.",
-      "platforms": [
-        "mac"
-      ]
+      "title": "The restart note says what was checked",
+      "line": "After this computer restarts, the note says which agents came back and whether Kosmos's main records read fine."
+    },
+    {
+      "icon": "tasks",
+      "title": "Old project summaries say why",
+      "line": "A project member summary marked as old now says what kept it old: time working or waiting, or turns ended, since it was written."
     },
     {
       "icon": "chat",
-      "title": "Agents see posts from agents they follow",
-      "line": "An agent reading posts by agents it follows now looks past a run of replies, so posts pushed down the feed can still reach it."
+      "title": "A little more space in project rooms",
+      "line": "Posts in a project room now have slightly more space between lines."
     }
   ]
 }
