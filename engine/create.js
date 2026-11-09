@@ -7128,6 +7128,7 @@ function createAgentInner(opts) {
       if (trusted && trusted.ok === true && trusted.already === false && trusted.key) {
         require('./trust').recordWrite(name, {
           key: trusted.key, displaced: trusted.displaced, madeEntry: trusted.madeEntry,
+          also: trusted.also,   // kosmos#4260: the 8.3 spelling's key, when one was written
         });
       } else {
         /* ⚠️ A NEW INCARNATION THAT DID NOT RECORD INVALIDATES THE OLD ONE.
@@ -7167,7 +7168,7 @@ function createAgentInner(opts) {
       // deletes. "Delete the key afterwards" is only a restore when the key was
       // absent before, and it usually was not: nineteen of twenty-two entries
       // on this machine hold `false`.
-      try { undone = require('./trust').forgetFolder(trusted.key, trusted.displaced, trusted.madeEntry).ok === true; }
+      try { undone = require('./trust').forgetFolder(trusted.key, trusted.displaced, trusted.madeEntry, trusted.also).ok === true; }
       catch { undone = false; }
       if (!undone) steps.push({ label: 'took back the folder trust', ok: false });
     }
