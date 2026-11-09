@@ -259,7 +259,13 @@ final class EndPullDriver: NSObject {
 
     @objc private func panned(_ gesture: UIPanGestureRecognizer) {
         guard gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed else { return }
-        guard logic.released() else { moved(); return }   // a cancelled gesture may never move the list again
+        guard logic.released() else {
+            // kosmos#8221 slice 9: why a pull did not count (not allowed, or short of the threshold), for EndPullUITests' trace.
+            if let view = scrollView {
+                ChatView.trace("end pull: let go, not counted: allowed \(allowed()), past the end \(Int(PullRefreshLogic.pastEnd(offsetY: Double(view.contentOffset.y), content: Double(view.contentSize.height), view: Double(view.bounds.height), adjustedTop: Double(view.adjustedContentInset.top), adjustedBottom: Double(view.adjustedContentInset.bottom)))) of \(Int(PullRefreshLogic.threshold))", ring: false)
+            }
+            moved(); return   // a cancelled gesture may never move the list again
+        }
         ChatView.trace("end pull: reading")
         moved()
         longestHold = Task { [weak self] in

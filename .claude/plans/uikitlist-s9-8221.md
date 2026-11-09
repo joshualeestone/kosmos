@@ -28,6 +28,14 @@ lazy list.
   - NEXT: run that check alone 5 times with KOSMOS_SAMPLE_TRACE=1 and read, per run, which line fails; then look at the
     screen (a frame from the recording) at line 138 to tell a missing message from an off-screen one.
 
+- 05:36 to 05:50, after rebasing on main (#8280 merged): the check changed to wait for the NEXT message by its number
+  ("New message N+1 "), since the UIKit list keeps only on-screen cells and a count can stay level; "New message " with a
+  space so the "New messages" capsule does not count. Then 7 runs of the check alone: UIKit list 5 of 5 FAILED at "no dots
+  after a long pull" (line 134); lazy list 2 of 2 passed. So "no dots" is not intermittent on the UIKit list: it is the
+  failure, and the 05:10 run that got dots was the outlier. Line 138 is untested until the dots show.
+- Added a trace for a pull let go without counting (allowed?, how far past the end, of the threshold) and turned the trace
+  on in this check; two traced runs queued.
+
 ## Status
 
 - [x] Measured (above). [x] ChatList.scroller, ChatView attaches EndPullDriver, restsAbove 2.5 on the UIKit list.
