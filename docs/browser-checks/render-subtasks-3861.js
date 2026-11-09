@@ -367,7 +367,7 @@ function chk(ok, label, extra) {
       chk(!read3(1).closedAt && !!read3(2).closedAt && !!read3(3).closedAt, `${tag} #6928 its built subtasks closed, the parent did not`, JSON.stringify([1, 2, 3].map((n) => !!read3(n).closedAt)));
       await page.unroute('**/task/1/close');
 
-      /* kosmos#8301: built, done and closed not done are said apart, on the chip and on the task page. */
+      /* kosmos#8301: built, done and dropped are said apart, on the chip and on the task page. */
       const roll4 = projects.create({ name: 'Separate counts ' + width });
       projects.addAgent(roll4.id, 'ada', null);
       tasks.create(roll4.id, { sentence: 'Run the survey' });
@@ -382,7 +382,7 @@ function chk(ok, label, extra) {
       await page.evaluate(async (id) => { await loadProjects(); showTab('projects'); openProject(id); }, roll4.id);
       await page.waitForFunction(() => [...document.querySelectorAll('.tsk-chip')].some((c) => /1 built/.test(c.title)), null, { timeout: 8000 });
       const chip4 = await page.evaluate(() => [...document.querySelectorAll('.tsk-chip')].find((c) => /1 built/.test(c.title)).title);
-      chk(chip4 === '1 of 4 subtasks done, 1 built, 1 closed not done', `${tag} #8301 the chip says the three apart`, chip4);
+      chk(chip4 === '1 of 4 subtasks done, 1 built, 1 dropped', `${tag} #8301 the chip says the three apart`, chip4);
       await openCount(1);
       await page.waitForFunction(() => document.querySelectorAll('.tksub-s').length === 4, null, { timeout: 8000 });
       const words4 = await page.evaluate(() => [...document.querySelectorAll('.tksub-s')].map((e) => e.textContent));

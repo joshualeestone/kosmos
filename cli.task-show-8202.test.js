@@ -133,7 +133,7 @@ test('#8202 Windows: a webhook task is quoted, and a done task says so', async (
 });
 
 /* kosmos#8301: a task closed as never run says so, and its parent counts it apart from done. */
-test('kosmos#8301: task show says closed, not run, and the parent counts closed not done', async () => {
+test('kosmos#8301: task show says closed, not run, and the parent counts dropped', async () => {
   const top = tasks.create(projectId, { sentence: 'Parent of a never-run piece' }).number;
   const never = tasks.create(projectId, { sentence: 'Never ran', parent: top }).number;
   const plain = tasks.create(projectId, { sentence: 'Finished', parent: top }).number;
@@ -144,7 +144,7 @@ test('kosmos#8301: task show says closed, not run, and the parent counts closed 
     assert.equal(child.code, 0, name + ': ' + child.err);
     assert.match(child.out, /^State: closed, not run$/m, name + ': ' + child.out);
     assert.match((await run(['task', 'show', projectId, String(plain)])).out, /^State: done$/m, name + ' CONTROL: a plain close stays done');
-    assert.match((await run(['task', 'show', projectId, String(top)])).out, /^Subtasks: 1 of 2 done, 1 closed not done$/m, name);
+    assert.match((await run(['task', 'show', projectId, String(top)])).out, /^Subtasks: 1 of 2 done, 1 dropped$/m, name);
   }
 });
 

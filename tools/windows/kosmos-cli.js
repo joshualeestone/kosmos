@@ -1324,7 +1324,7 @@ async function taskList(ctx, args) {
       /* #5678, as install/kosmos: nobody on it directly, but an open task in its tree is somebody's: theirs. */
       : (Array.isArray(x.ownerNames) && x.ownerNames.length ? ' (owner: ' + x.ownerNames.map((n) => String(n).replace(/\s+/g, ' ').trim()).join(', ') + ', through task ' + x.ownerFrom + ')' : '');
     const up = x.parent ? ' (under task ' + x.parent + ')' : '';
-    const kids = (x.subtasks && x.subtasks.total) ? ' [' + (x.subtasks.done - (Number(x.subtasks.unrun) || 0)) + '/' + x.subtasks.total + ' subtasks done' + (Number(x.subtasks.built) > 0 ? ', ' + Number(x.subtasks.built) + ' built' : '') + (Number(x.subtasks.unrun) > 0 ? ', ' + Number(x.subtasks.unrun) + ' closed not done' : '') + (Number(x.subtasks.held) > 0 ? ', ' + Number(x.subtasks.held) + ' on hold' : '') + ']' : '';   // kosmos#8140
+    const kids = (x.subtasks && x.subtasks.total) ? ' [' + (x.subtasks.done - (Number(x.subtasks.unrun) || 0)) + '/' + x.subtasks.total + ' subtasks done' + (Number(x.subtasks.built) > 0 ? ', ' + Number(x.subtasks.built) + ' built' : '') + (Number(x.subtasks.unrun) > 0 ? ', ' + Number(x.subtasks.unrun) + ' dropped' : '') + (Number(x.subtasks.held) > 0 ? ', ' + Number(x.subtasks.held) + ' on hold' : '') + ']' : '';   // kosmos#8140
     /* #1307: every task on ONE line (a newline in its words would print a line of its own), and a
        webhook task marked with its words QUOTED (double quotes inside become single): they came
        from outside, and the agent reading this runs with its permissions skipped. The wording
@@ -1589,7 +1589,7 @@ async function taskClose(ctx, args) {
     return 1;
   }
   if (r.json && r.json.task) {
-    ctx.out('Closed task ' + num + ' on ' + project + (by ? ' as replaced by task ' + r.json.task.replacedBy : '') + '.');
+    ctx.out('Closed task ' + num + ' on ' + project + (by ? ' as replaced by task ' + r.json.task.replacedBy : notRun && r.json.task.closedUnrun === true ? ' as not run' : '') + '.');
     const w = closedWithOf(r.json.task);
     if (w) ctx.out('Its built subtasks closed with it: ' + w + '.');
     const left = closedWithOf(r.json.task, 'builtLeft');

@@ -161,7 +161,7 @@ test('kosmos#5956: the task page marks a built subtask Built and says when every
     { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
   assert.match(els['tk-subs'].innerHTML, /data-sub="2">[\s\S]*?<span class="tksub-s">Built<\/span>/);
   assert.equal(els['tk-subs-built'].hidden, false);
-  assert.match(PAGE_HTML_5956, /<p class="dhint tksubs-done" id="tk-subs-built" hidden><span>All subtasks are built\. Check each one first\.<\/span><button class="linkish" type="button" id="tk-subs-closeall">Close them and this task<\/button><\/p>/);   // kosmos#6501
+  assert.match(PAGE_HTML_5956, /<p class="dhint tksubs-done" id="tk-subs-built" hidden><span id="tk-subs-built-say">All subtasks are built\. Check each one first\.<\/span><button class="linkish" type="button" id="tk-subs-closeall">Close them and this task<\/button><\/p>/);   // kosmos#6501
   assert.equal(els['tk-subs-done'].hidden, true, 'not every subtask is closed');
   // kosmos#6501 review 1: the roll-up's press is live again only after the reload, so a second press reads the new state.
   const rollup = PAGE_HTML_5956.slice(PAGE_HTML_5956.indexOf("getElementById('tk-subs-closeall').addEventListener"));
@@ -322,8 +322,8 @@ test('#6923: a Tasks view row closed as replaced says so under the row; a plain 
 test('kosmos#8301: the chip and label say built and closed without running apart from done', () => {
   const row = Object.assign({}, rows().find((t) => t.number === 1), { subtasks: { done: 2, built: 1, held: 0, unrun: 1, total: 4 } });
   const html = rowHtml(row, { depth: 0, crumb: false, kids: 0 });
-  assert.match(html, /title="1 of 4 subtasks done, 1 built, 1 closed not done"/);
-  assert.match(html, /<span>1\/4<span class="vh"> subtasks done<\/span>, 1 built, 1 closed not done<\/span>/);
+  assert.match(html, /title="1 of 4 subtasks done, 1 built, 1 dropped"/);
+  assert.match(html, /<span>1\/4<span class="vh"> subtasks done<\/span>, 1 built, 1 dropped<\/span>/);
 });
 
 test('kosmos#8301: every subtask closed, one without running: not "all subtasks done", and Close it stays', () => {

@@ -4641,7 +4641,7 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row.d1 { padding-left: 40px; }
 .tsk-row.d2 { padding-left: 66px; }
 .tsk-part, .tkcard-part-of { display: block; font-size: .75rem; color: var(--k-ink-2); margin: 0 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tsk-chip { display: inline-flex; align-items: center; gap: 4px; font: 600 .75rem/1.5 var(--font-ui); color: var(--k-ink-2); border: 1px solid var(--k-rule); border-radius: 999px; padding: 0 8px; background: var(--k-surface); font-variant-numeric: tabular-nums; }
+.tsk-chip { display: inline-flex; align-items: center; gap: 4px; font: 600 .75rem/1.5 var(--font-ui); color: var(--k-ink-2); border: 1px solid var(--k-rule); border-radius: 10px; padding: 0 8px; background: var(--k-surface); font-variant-numeric: tabular-nums; }
 .tsk-row .meta button.tsk-chip { font-weight: 600; color: var(--k-ink-2); border: 1px solid var(--k-rule); padding: 0 8px; }
 .tsk-row .meta button.tsk-chip:hover { color: var(--k-ink); }
 .tsk-chip .car { display: inline-block; font-size: .625rem; transition: transform .15s ease; }
@@ -18078,7 +18078,7 @@ window.kosmosMeasureScrollbarWidth();
              with this task already picked as what it is part of. -->
         <h3 class="dlab" style="margin-top: var(--space-6);">Subtasks</h3>
         <div class="tksubs" id="tk-subs"></div>
-        <p class="dhint tksubs-done" id="tk-subs-built" hidden><span>All subtasks are built. Check each one first.</span><button class="linkish" type="button" id="tk-subs-closeall">Close them and this task</button></p>
+        <p class="dhint tksubs-done" id="tk-subs-built" hidden><span id="tk-subs-built-say">All subtasks are built. Check each one first.</span><button class="linkish" type="button" id="tk-subs-closeall">Close them and this task</button></p>
         <p class="dhint tksubs-done" id="tk-subs-done" hidden><span id="tk-subs-done-say">All subtasks done.</span><button class="linkish" type="button" id="tk-subs-close">Close this task</button></p>
         <button class="linkish" type="button" id="tk-subadd">+ Add subtask</button>
       </section>
@@ -71830,7 +71830,7 @@ function paintProjectTasks(p) {
     const subUnrun = sub && Number(sub.unrun) > 0 ? Number(sub.unrun) : 0;
     const subDone = sub ? sub.done - subUnrun : 0;
     const subBuilt = sub && Number(sub.built) > 0 ? ', ' + Number(sub.built) + ' built' : '';
-    const subHeld = sub ? (subUnrun ? ', ' + subUnrun + ' closed not done' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '') : '';
+    const subHeld = sub ? (subUnrun ? ', ' + subUnrun + ' dropped' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '') : '';
     const subAllBuilt = !!sub && !subUnrun && !t.closedAt && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total;
     const subLabel = sub ? subDone + ' of ' + sub.total + ' subtasks done' + subBuilt + subHeld : '';
     /* The hidden words follow the count and come BEFORE the held figure, so a screen reader hears "0/4 subtasks done, 3 on
@@ -72244,7 +72244,7 @@ function tskRow(t, at) {
   /* kosmos#8301: built, and closed without running, are said apart from done. */
   const subUnrun = sub && Number(sub.unrun) > 0 ? Number(sub.unrun) : 0;
   const subDone = sub ? sub.done - subUnrun : 0;
-  const subHeld = sub ? (Number(sub.built) > 0 ? ', ' + Number(sub.built) + ' built' : '') + (subUnrun ? ', ' + subUnrun + ' closed not done' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '') : '';   // kosmos#8140: apart from not done
+  const subHeld = sub ? (Number(sub.built) > 0 ? ', ' + Number(sub.built) + ' built' : '') + (subUnrun ? ', ' + subUnrun + ' dropped' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : '') : '';   // kosmos#8140: apart from not done
   const chipLabel = sub ? subDone + ' of ' + sub.total + ' subtasks done' + subHeld : '';
   const chip = !sub ? ''
     : place.kids
@@ -72256,8 +72256,8 @@ function tskRow(t, at) {
     ? '<span>all subtasks ' + (subUnrun ? 'closed' : 'done') + '</span><button type="button" data-close-parent="' + esc(tskKey(t)) + '">Close it</button>'
     /* kosmos#5956: every subtask closed or built, some only built: the parent is ready for the person to check. No
        Close here: the built subtasks are still open, and closing them is the person's call on each one. */
-    : sub && !subUnrun && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total && t.state !== 'closed'
-      ? '<span>all subtasks built, ready for you to check</span>' : '';
+    : sub && Number(sub.built) > 0 && sub.done + Number(sub.built) === sub.total && t.state !== 'closed'
+      ? '<span>' + (subUnrun ? 'the rest are built' : 'all subtasks built') + ', ready for you to check</span>' : '';   // kosmos#8301: not "all" when one was dropped
   const partOf = place.crumb && t.parent != null
     ? '<span class="tsk-part">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
   /* A state this view does not know gets no label at all, never a group the engine did not name. */
@@ -72353,7 +72353,8 @@ function tskRow(t, at) {
           ? '<div class="why tsk-landed tsk-landed-local">Saved as change ' + esc(landedSha) + ', but only on this computer. Ask the agent that did it to save it online.</div>'
           : '<div class="why tsk-landed">Saved as change ' + esc(landedSha) + (t.landedOnRemote === false ? ', only on this computer so far' : '') + '</div>';
   /* #6923: a task closed as replaced says so under its row, so it does not read as delivered among the done ones. */
-  const replacedLine = t.state === 'closed' && Number.isInteger(t.replacedBy) ? '<div class="why tsk-replaced">Replaced by task ' + t.replacedBy + '</div>' : '';
+  const replacedLine = t.state === 'closed' && Number.isInteger(t.replacedBy) ? '<div class="why tsk-replaced">Replaced by task ' + t.replacedBy + '</div>'
+    : t.state === 'closed' && t.closedUnrun === true ? '<div class="why tsk-replaced">Closed, not run</div>' : '';   // kosmos#8301: nor one that never ran
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
@@ -73206,15 +73207,20 @@ function tkPaintSubtasks(p, t, closed) {
       : '<p class="dhint" style="margin:0;">None yet. Break this task into smaller ones, each with its own page.</p>';
     if (list.innerHTML !== html) list.innerHTML = html;
   }
+  const subsDropped = !!(t.subtasks && Number(t.subtasks.unrun) > 0);   // kosmos#8301: the engine's count, as the chip reads
   const all = document.getElementById('tk-subs-done');
   if (all) {
     all.hidden = !(kids.length && kids.every(done) && !closed);
     const said = document.getElementById('tk-subs-done-say');   // kosmos#8301: not "done" when one was closed without running
-    if (said) said.textContent = kids.some((x) => x.closedUnrun === true || Number.isInteger(x.replacedBy)) ? 'All subtasks closed.' : 'All subtasks done.';
+    if (said) said.textContent = subsDropped ? 'All subtasks closed.' : 'All subtasks done.';
   }
   /* kosmos#5956: every subtask closed or built, some only built: ready for the person to check each one. */
   const ready = document.getElementById('tk-subs-built');
-  if (ready) ready.hidden = !(kids.length && !kids.every(done) && kids.every((x) => done(x) || built(x)) && !kids.some((x) => x.closedUnrun === true || Number.isInteger(x.replacedBy)) && !closed);
+  if (ready) {
+    ready.hidden = !(kids.length && !kids.every(done) && kids.every((x) => done(x) || built(x)) && !closed);
+    const said = document.getElementById('tk-subs-built-say');   // kosmos#8301: the action stays; the words do not say all
+    if (said) said.textContent = (subsDropped ? 'The rest are built.' : 'All subtasks are built.') + ' Check each one first.';
+  }
   const row = document.getElementById('tk-partof-row');
   const up = document.getElementById('tk-partof');
   const parent = t.parent != null ? (p.tasks || []).find((x) => x && x.number === t.parent) : null;
@@ -73399,7 +73405,7 @@ function tkReceiptPrsHtml(a) {
 }
 /* #5153: the whole receipt. Pure. The put-back line first: it ends the task's history above, then the receipt follows
    (Mona Lisa: the receipt between the activity and its summary split the history in two). */
-function tkReceiptHtml(r, p, replacedBy) {   // #6923: replacedBy, when the task was closed as replaced
+function tkReceiptHtml(r, p, replacedBy, notRun) {   // #6923: replacedBy, when the task was closed as replaced; kosmos#8301: notRun, closed as never run
   const agents = Array.isArray(r && r.agents) ? r.agents : [];
   const rt = (r && r.retries) || {};
   const times = (k) => (k === 1 ? '1 time' : usageNum(k) + ' times');
@@ -73408,7 +73414,7 @@ function tkReceiptHtml(r, p, replacedBy) {   // #6923: replacedBy, when the task
     ? agents.map((a) => tkReceiptAgentHtml(a, tkMemberName(p, a.who))).join('')
     : '<p class="tkr-line tkr-muted">Nobody held this task, so there is no work to show.</p>';
   /* #6923 (Mona Lisa): a replaced task with nothing to add gets no line here; its history already says it was replaced. */
-  return (again.length || !Number.isInteger(replacedBy) ? '<p class="tkr-again">' + esc(again.length ? 'This task was ' + again.join(' and ') + '.' : 'Done without being put back or handed on.') + '</p>' : '')
+  return (again.length || !(Number.isInteger(replacedBy) || notRun === true) ? '<p class="tkr-again">' + esc(again.length ? 'This task was ' + again.join(' and ') + '.' : 'Done without being put back or handed on.') + '</p>' : '')
     + '<h3 class="dlab">Receipt</h3>'
     + '<p class="tkr-intro">What each agent did while it held this task, including anything else it did in that time. A file changed by a command counts as a command.</p>'
     + body;
@@ -73548,7 +73554,7 @@ async function paintTaskReceipt(n) {
   else TKR_FAILED = null;
   if (!r || r.ready === false || !tkTaskClosed(n)) { holder.hidden = true; holder.innerHTML = ''; tkUndoHide(); return; }
   const tkr = ((pjById(PJ_CURRENT) || p).tasks || []).find((x) => x && x.number === n);
-  holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p, tkr ? tkr.replacedBy : undefined);
+  holder.innerHTML = tkReceiptHtml(r, pjById(PJ_CURRENT) || p, tkr ? tkr.replacedBy : undefined, !!tkr && tkr.closedUnrun === true);
   holder.hidden = false;
   paintTaskUndo(n);   // #5153 slice 4: offered only while Settings' undo switch is on
 }

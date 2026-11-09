@@ -268,7 +268,7 @@ function showLines(body, num, project) {
     const sub = x.subtasks;
     const unrun = Number(sub.unrun) > 0 ? Number(sub.unrun) : 0;
     field('Subtasks', (sub.done - unrun) + ' of ' + sub.total + ' done' + (Number(sub.built) > 0 ? ', ' + Number(sub.built) + ' built' : '')
-      + (unrun ? ', ' + unrun + ' closed not done' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : ''));
+      + (unrun ? ', ' + unrun + ' dropped' : '') + (Number(sub.held) > 0 ? ', ' + Number(sub.held) + ' on hold' : ''));
   }
   // Review 5: why it is on hold (kosmos#7749 onHoldBecause), written words, so indented under its own heading.
   if (x.onHold === true && typeof x.onHoldBecause === 'string' && x.onHoldBecause.trim()) { lines.push('Why on hold:'); under(x.onHoldBecause); }
