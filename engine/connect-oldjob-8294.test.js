@@ -60,6 +60,7 @@ test('a keep-alive job working in the folder refuses, names the job, and writes 
   assert.equal(out.ok, false);
   assert.match(out.because, /com\.oldwd\.discord/);
   assert.match(out.because, /two copies/);
+  assert.match(out.because, /remove its file/);
   assert.equal(installs, 0);
   assert.equal((store.readProfile('oldwd') || {}).dir, undefined);
 });
@@ -228,13 +229,21 @@ test('a named pipe called .plist does not hang the check', { skip: process.platf
   assert.equal(discover.otherJobFor(dir, LAUNCH), null);
 });
 
-test('a session still up from the old launcher refuses', () => {
+test('CONTROL: a session still up from the old launcher is already refused by the running check', () => {
   const dir = agent('stillup');
   status.setPaneSource(() => fleet.line({ session: 'stillup-discord', title: 'idle' }));
   const out = discover.connect(dir, {});
   assert.equal(out.ok, false, 'pane: ' + JSON.stringify(status.paneRoster()));
-  assert.match(out.because, /already running/);
+  assert.match(out.because, /already running under that name/);
   assert.equal(installs, 0);
+});
+
+test('a stopped job whose file is still there stays refused: it would load at the next login', () => {
+  const dir = agent('stoppedfile');
+  plist('com.stoppedfile.discord', { dir });
+  assert.equal(discover.connect(dir, {}).ok, false);
+  fs.rmSync(path.join(LAUNCH, 'com.stoppedfile.discord.plist'));
+  assert.equal(discover.connect(dir, {}).ok, true);
 });
 
 test('no job folder at all answers none', () => {

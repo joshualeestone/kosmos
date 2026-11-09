@@ -3,7 +3,7 @@
 Found by the #8290 throwaway test: with the old `com.<name>.discord` job loaded, two Claudes ran in one folder and the board showed one row.
 
 ## Change
-engine/discover.js otherJobFor reads the LaunchAgents folder and connect refuses, naming the job and what to do, when a job starts by itself (RunAtLoad or KeepAlive), is not disabled, starts this agent's own program, and runs it in this folder: by WorkingDirectory, or after cd, tmux -c or a *DIR= variable in its arguments or launch script. A `<name>-discord` session still up also refuses, because stopping such a job leaves its tmux session running (measured on #8290). The Found row already shows the refusal.
+engine/discover.js otherJobFor reads the LaunchAgents folder and connect refuses, naming the job and what to do, when a job starts by itself (RunAtLoad or KeepAlive), is not disabled, starts this agent's own program, and runs it in this folder: by WorkingDirectory, or after cd, tmux -c or a *DIR= variable in its arguments or launch script. A `<name>-discord` session still up is refused by connect's existing running check, which reads that spelling as the same agent. The refusal appears when Add is pressed, through the row's existing failure arm (`said.textContent = out.because`).
 
 ## Measured
 On this Mac: finds 17 of 17 fleet agents (4 of them only through the launch script, which my first version missed), and nothing for the repo checkout or a shorter folder-name prefix.
@@ -19,4 +19,5 @@ Only plain-text plists are read (89 of 89 here are). A script called by a script
 A read that fails, or a binary plist, counts as no job: today's behaviour, not a refusal, because a refusal could not be cleared by anyone who cannot see what we could not read.
 
 ## Not covered
+A folder with no instructions file is registered without a job, so it starts nothing and is outside this.
 The card's second ask, the board noticing two copies, is not built here: connect is the only door this closes. A job added after connecting can still start a second copy.

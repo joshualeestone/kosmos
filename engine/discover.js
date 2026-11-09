@@ -2104,14 +2104,10 @@ function connect(dir, opts) {
     return { ok: false, because: 'an agent is already running under that name, started some other way. Kosmos will not start a second one' };
   }
 
-  /* #8294: and not while another job would start a second copy here (see otherJobFor), nor while one it started is still
-     up: stopping such a job leaves its tmux session running, and a -discord session is not this name to the check above. */
-  if (runningUnderName(name + '-discord')) {
-    return { ok: false, because: 'an agent is already running under that name, started some other way. Kosmos will not start a second one' };
-  }
+  /* #8294: and not while another job would start a second copy here (see otherJobFor). */
   const other = otherJobFor(given, create.AGENTS_DIR, runner);
   if (other) {
-    return { ok: false, because: `this agent is also started by another job on this computer (${other.label}), so adding it would run two copies in one folder. Stop that job and close the agent it started, then add it again. The job\u2019s file is ${other.file}` };
+    return { ok: false, because: `this agent is also started by another job on this computer (${other.label}), so adding it would run two copies in one folder. Stop that job, remove its file (${other.file}) and close the agent it started, then add it again` };
   }
 
   /* ⚠️ THE RECORD GOES FIRST, because `installJob` resolves the folder through
