@@ -157,7 +157,7 @@ function scan(opts) {
   const found = [];
   for (const file of files) {
     let st;
-    try { st = fs.statSync(file); } catch { continue; }   // a dangling link or a file gone meanwhile: nothing to name
+    try { st = fs.statSync(file); } catch (err) { if (!err || err.code !== 'ENOENT') UNREAD += 1; continue; }   // a dangling link or a file gone meanwhile: nothing to name
     if (!st.isFile()) continue;
     let problem;
     if (st.size > MAX_BYTES) problem = 'toobig';

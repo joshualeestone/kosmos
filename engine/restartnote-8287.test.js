@@ -27,7 +27,7 @@ const was = (...names) => names.map((n) => ({ session: n, name: n[0].toUpperCase
 function clean() {
   fs.rmSync(path.dirname(rn._files.aliveFile()), { recursive: true, force: true });
   fs.mkdirSync(path.dirname(rn._files.aliveFile()), { recursive: true });
-  rn.noteRunning(null);
+  rn.resetForTests();
 }
 function aliveWith(fields) { fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: at(8 * MIN), ...fields })); }
 
@@ -124,6 +124,12 @@ test('#8287: a folder or file the scan could not read is never called fine, but 
   fs.readdirSync.mock.restore();
 
   fs.writeFileSync(path.join(root, 'settings.json'), '{}');
+  const realStat = fs.statSync;
+  t.mock.method(fs, 'statSync', (f, ...a) => { if (String(f).endsWith('settings.json')) { const e = new Error('no'); e.code = 'EPERM'; throw e; } return realStat(f, ...a); });
+  storecheck.scan({ base: null });
+  assert.equal(storecheck.lastScan().checked, false, 'a file it could not stat was called fine');
+  fs.statSync.mock.restore();
+
   const realRead = fs.readFileSync;
   const busy = t.mock.method(fs, 'readFileSync', (f, ...a) => { if (String(f).endsWith('settings.json')) { const e = new Error('busy'); e.code = 'EBUSY'; throw e; } return realRead(f, ...a); });
   storecheck.scan({ base: null });
@@ -167,4 +173,30 @@ test('#8287: the fields read are the ones real cards carry', () => {
     assert.deepEqual(rn.runningOf(board.agents).map((a) => a.session).sort(), ['homer', 'leo'], 'real cards did not read as up, or a failed one did');
     assert.deepEqual(rn.checksFor({ wereRunning: was('leo', 'april') }, board.agents, []).agents.notBack.length, 1);
   } finally { board.restore(); }
+});
+
+test('#8287: a second restart soon after the first still asks about everyone', () => {
+  clean();
+  const T0 = Date.now();
+  fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: new Date(T0 - 8 * MIN).toISOString(), running: was('leo', 'homer', 'april') }));
+  rn.atStart({ now: () => T0, uptime: () => up(6) });
+  assert.equal(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running.length, 3, 'the first beat dropped the list');
+  rn.noteRunning([card('leo', 'Leo')], T0 + MIN);
+  rn.beat(T0 + MIN);
+  assert.deepEqual(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running.map((a) => a.session).sort(), ['april', 'homer', 'leo'], 'a partial read shrank the list');
+  rn.noteRunning([card('leo', 'Leo')], T0 + rn.WINDOW_MS + 1);
+  rn.beat(T0 + rn.WINDOW_MS + 1);
+  assert.deepEqual(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running.map((a) => a.session), ['leo'], 'CONTROL: after the window the list is who is up');
+});
+
+test('#8287: an agent nobody recorded before this start is added, and the note still gets only the old list', () => {
+  clean();
+  const T0 = Date.now();
+  fs.writeFileSync(rn._files.aliveFile(), JSON.stringify({ at: new Date(T0 - 8 * MIN).toISOString(), running: was('leo') }));
+  const note = rn.atStart({ now: () => T0, uptime: () => up(6) });
+  assert.deepEqual(note.wereRunning, was('leo'));
+  rn.noteRunning([card('april', 'April')], T0 + MIN);
+  rn.beat(T0 + MIN);
+  assert.deepEqual(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running.map((a) => a.session).sort(), ['april', 'leo']);
+  assert.deepEqual(rn.current(T0 + MIN).wereRunning, was('leo'), 'the note moved');
 });
