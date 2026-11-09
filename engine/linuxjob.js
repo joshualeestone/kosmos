@@ -588,6 +588,7 @@ function remove(name, worldId) {
 }
 
 module.exports = {
+  MODEL_ID,
   SYSTEMCTL_TIMEOUT_MS,
   systemdDir,
   setSystemdDirForTests,
