@@ -4,7 +4,7 @@
 Served on PROD: connecting a found Claude agent whose model is off the company's list starts it on a listed model and the row says which. The row's after-add sentence has a test that runs it.
 
 ## What
-- engine/discover.js connect: when the kept model is refused, try Kosmos's usual default, then the rest of the menu, against the policy. Starts on the first allowed, on the account it ran on; unknownLastRun says which. Refused only when no model on the menu is allowed.
+- engine/discover.js connect: when the kept model is refused, or no model is known for it, try Kosmos's usual default, then the rest of the menu from least costly up, against the policy. Starts on the first allowed, on the account it ran on; unknownLastRun says which. Refused only when no model on the menu is allowed.
 - web/index.html foundAddedWords: the row's sentence, liftable. web.found-undo tests both arms.
 
 ## Decisions

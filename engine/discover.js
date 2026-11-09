@@ -2103,17 +2103,17 @@ function connect(dir, opts) {
     const policyDir = last.account ? last.account.dir : undefined;
     const allowed = create.policyAllows(create.runnerProvider(runner), keepModel || '', policyDir);
     /* kosmos#8305: a Found row has no chooser, so "choose one of them" left the person nowhere. When the model it ran on is
-       not on the list, it starts on one that is (the usual default first), and the row says which. Refused only when the
-       list allows nothing Kosmos can start. */
+       not on the list, or no model is known for it, it starts on one that is (the usual default, then the least costly, since
+       a smaller plan may not run the largest), and the row says which. Refused only when the list allows nothing on the menu. */
     let pick = null;
-    if (!allowed.ok && !runner && keepModel) {
+    if (!allowed.ok && !runner) {
       const menu = create.modelsFor('anthropic');
       const usual = create.defaultModelKeyFor('anthropic');
-      pick = [...menu.filter((m) => m.key === usual), ...menu.filter((m) => m.key !== usual)]
+      pick = [...menu.filter((m) => m.key === usual), ...menu.filter((m) => m.key !== usual).reverse()]
         .find((m) => create.policyAllows(create.runnerProvider(runner), m.arg, policyDir).ok) || null;
     }
     if (!allowed.ok && !pick) return { ok: false, because: allowed.because };
-    if (pick) { keepModel = pick.arg; policyMoved = pick.label || pick.key; }
+    if (pick) { policyMoved = { to: pick.label || pick.key, had: Boolean(keepModel) }; keepModel = pick.arg; }
   }
   /* 🛑 THE PROVIDER GOES IN THE PROFILE TOO, NOT ONLY THE JOB (#1159). #1347 made
      adoption write a codex JOB; the profile still said nothing, and
@@ -2273,7 +2273,10 @@ function connect(dir, opts) {
         : 'we could not tell which Claude model it was using, so it will start on the default';
     }
   }
-  if (policyMoved) unknownLastRun = 'your company\u2019s policy does not allow the model it was using, so it will start on ' + policyMoved;
+  if (policyMoved) {   // kosmos#6263: a family's policy is said as the family's
+    const oe = require('./orgenroll');
+    unknownLastRun = oe.inKind(oe.kindHere(), (policyMoved.had ? 'your company\'s policy does not allow the model it was using, so it will start on ' : 'your company\'s policy lists the models it can use, so it will start on ') + policyMoved.to);
+  }
   return { ok: true, name, displayName, dir: given, started: job.started === true,
     ...(unknownLastRun ? { unknownLastRun } : {}) };
 }

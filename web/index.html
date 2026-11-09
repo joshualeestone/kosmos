@@ -92018,10 +92018,6 @@ const FOUND_SEARCH_AT = 30;
  * it names what was typed, gives the total, and says how to get back. "No
  * results" alone would be the one arm on this screen with no way out.
  */
-/* #8293, kosmos#8305: what the Found row says after an add: nothing, unless the account or model it was using could not be kept. */
-function foundAddedWords(out) {
-  return out && out.unknownLastRun ? 'Added, but ' + out.unknownLastRun + '.' : '';
-}
 function foundCountLine(shown, total, term, overflows) {
   const agentWord = total === 1 ? '1 agent' : total + ' agents';
   /* 🛑 "SCROLL TO SEE THEM ALL" IS A CLAIM ABOUT THE SCREEN, AND I SHIPPED IT AS
@@ -92042,6 +92038,10 @@ function foundCountLine(shown, total, term, overflows) {
     : agentWord + (overflows ? '. Scroll to see them all.' : '.');
   if (shown === 0) return 'Nothing matches \u201C' + term + '\u201D. Clear the box to see all ' + agentWord + '.';
   return 'Showing ' + shown + ' of ' + total + '. Clear the box to see them all.';
+}
+/* #8293, kosmos#8305: what the Found row says after an add: nothing, unless the account or model it was using could not be kept. */
+function foundAddedWords(out) {
+  return out && out.unknownLastRun ? 'Added, but ' + out.unknownLastRun + '.' : '';
 }
 
 /**

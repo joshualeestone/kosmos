@@ -218,6 +218,35 @@ test('kosmos#8305: a model off the company list starts on one the list allows, a
   } finally { create.policyAllows = real; }
 });
 
+test('kosmos#8305: with no model known for it, a listing policy still connects it, on an allowed model', () => {
+  const dir = agent('moved8305b', { lines: [JSON.stringify({ type: 'user', cwd: '' })] });
+  ranOn(ACCT_B);
+  const usual = create.modelsFor('anthropic').find((m) => m.key === create.defaultModelKeyFor('anthropic'));
+  const real = create.policyAllows;
+  create.policyAllows = (provider, model) => (model === usual.arg ? { ok: true } : { ok: false, because: 'choose one' });
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, true, out.because);
+    assert.equal(seen.model, usual.arg);
+    assert.match(out.unknownLastRun, /policy lists the models it can use/);
+  } finally { create.policyAllows = real; }
+});
+test('kosmos#8305: past the usual default, the least costly on the menu comes first', () => {
+  const dir = agent('moved8305c');
+  ranOn(ACCT_B);
+  const menu = create.modelsFor('anthropic');
+  const usualKey = create.defaultModelKeyFor('anthropic');
+  const others = menu.filter((m) => m.key !== usualKey);
+  const list = [others[0].arg, others[others.length - 1].arg];
+  const real = create.policyAllows;
+  create.policyAllows = (provider, model) => (list.includes(model) ? { ok: true } : { ok: false, because: 'choose one' });
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, true, out.because);
+    assert.equal(seen.model, others[others.length - 1].arg);
+  } finally { create.policyAllows = real; }
+});
+
 test('a policy that does not list the model refuses, before anything is written', () => {
   const dir = agent('policedout');
   ranOn(ACCT_B);
@@ -231,7 +260,7 @@ test('a policy that does not list the model refuses, before anything is written'
   } finally { create.policyAllows = real; }
 });
 
-test('the Found row\'s sentence and the engine\'s field use one name (source text only; no check runs that arm)', () => {
+test('the Found row\'s sentence and the engine\'s field use one name (source text; web.found-undo runs both arms)', () => {
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   assert.match(page, /said\.textContent = foundAddedWords\(out\);/);
   const engine = fs.readFileSync(path.join(__dirname, 'discover.js'), 'utf8');
