@@ -1728,6 +1728,8 @@ final class BoardClient: ObservableObject {
     }
 
     // kosmos#7266 slice B. A read that fails keeps what was shown (review 4: and is tried again after youRetry).
+    @Published var inviteStep: Board.InviteStep?
+    private var inviteStepAskedOf: URL?
     private func fetchYou(url: URL, _ gen: Int, name: Bool) async {
         if name { await fetchYouName(url: url, gen) }
         guard gen == generation, !Task.isCancelled else { return }
@@ -1743,6 +1745,18 @@ final class BoardClient: ObservableObject {
         }
     }
 
+    /// kosmos#6255: ask the board once per connection whether the "Help Kosmos grow" step is due.
+    func checkInviteStep() async {
+        guard let url = macURL, inviteStepAskedOf != url else { return }
+        inviteStepAskedOf = url
+        guard let (data, answer) = await env.send(Board.inviteStepRequest(mac: url)), (200...299).contains(answer.statusCode) else { return }
+        inviteStep = Board.inviteStep(data)
+    }
+    /// Answered either way (shared, or Not now): the board never offers it again.
+    func inviteStepAnswered() async {
+        guard let url = macURL else { return }
+        _ = await env.send(Board.inviteStepDoneRequest(mac: url))
+    }
     private func fetchYouName(url: URL, _ gen: Int) async {
         let named = await env.send(Board.youRequest(mac: url))
         guard gen == generation, !Task.isCancelled else { return }

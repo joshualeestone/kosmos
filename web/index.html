@@ -48887,6 +48887,55 @@ document.addEventListener('focusin', (e) => {
   const back = document.getElementById('whatsnew');
   if (back && !wnCovered() && !back.contains(e.target)) { const box = back.querySelector('.wn-box'); if (box) box.focus(); }
 });
+/* kosmos#6255: "Help Kosmos grow", once, dark behind KOSMOS_SHARE_STEP=1. The board decides whether it is due and which
+   words are true (engine/invitestep.js); this only draws them. Not on a phone: the iPhone app has its own share sheet. */
+const ISTEP_HTML = '<div class="rm-back" id="invitestep">'
+  + '<div class="wn-box" role="dialog" aria-modal="true" aria-labelledby="istep-title" aria-describedby="istep-line" tabindex="-1">'
+  + '<img class="wn-mark" src="/icons/kosmos-192.png" alt="" width="52" height="52">'
+  + '<h2 class="wn-title" id="istep-title"></h2>'
+  + '<p id="istep-line"></p><p id="istep-fine" hidden></p>'
+  + '<div class="wn-acts"><button type="button" class="btn uprime" id="istep-copy">Copy your invite link</button>'
+  + ' <button type="button" class="btn-quiet" id="istep-later">Not now</button></div>'
+  + '<p id="istep-msg" role="status"></p>'
+  + '</div></div>';
+function istepDone() { return fetch('/api/invite-step/done', { method: 'POST' }).then((r) => r.text()).catch(() => { /* offered once more */ }); }
+function istepClose() { const back = document.getElementById('invitestep'); if (back) back.remove(); }
+function istepOpen(step) {
+  if (document.getElementById('invitestep') || document.getElementById('whatsnew') || wnCovered()) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = ISTEP_HTML;
+  const back = tmp.firstElementChild;
+  document.body.appendChild(back);
+  document.getElementById('istep-title').textContent = step.headline;
+  document.getElementById('istep-line').textContent = step.line;
+  const fine = document.getElementById('istep-fine');
+  fine.textContent = step.fine || '';
+  fine.hidden = !step.fine;
+  const later = () => { istepDone(); istepClose(); };
+  document.getElementById('istep-later').addEventListener('click', later);
+  back.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); later(); } });
+  document.getElementById('istep-copy').addEventListener('click', async () => {
+    const msg = document.getElementById('istep-msg');
+    try {
+      await navigator.clipboard.writeText(step.link);
+      msg.textContent = 'Copied. Send it to whoever you like.';
+      document.getElementById('istep-later').textContent = 'Done';
+      istepDone();
+    } catch { msg.textContent = 'That did not copy. Your link: ' + step.link; }
+  });
+  document.getElementById('istep-copy').focus();
+}
+async function inviteStepCheck() {
+  if (typeof wnOnPhone === 'function' && wnOnPhone()) return;
+  try {
+    const res = await fetch('/api/invite-step', { cache: 'no-store' });
+    if (!res.ok) { await res.text(); return; }
+    const step = await res.json();
+    if (step && step.show === true && typeof step.link === 'string') istepOpen(step);
+  } catch { /* offered on a later load */ }
+}
+setTimeout(inviteStepCheck, 8000);   // after the boot cover and What's New; a window already up means a later load
+
 /* Is `a` a later version than `b` (x.y.z)? null when either is not one. */
 function wnNewer(a, b) {
   const pa = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(a || ''));

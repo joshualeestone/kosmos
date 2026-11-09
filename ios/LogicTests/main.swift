@@ -6209,5 +6209,13 @@ do {
           "each kind of account change has its own words")
 }
 
+// kosmos#6255: the share step is offered only with a usable link and words.
+do {
+    let good = #"{"show":true,"link":"https://login.example.test/signup?invite=a","headline":"H","line":"L","fine":""}"#.data(using: .utf8)
+    check(Board.inviteStep(good)?.line == "L", "a due step with a link is offered")
+    check(Board.inviteStep(#"{"show":false}"#.data(using: .utf8)) == nil, "not due, no step")
+    check(Board.inviteStep(#"{"show":true,"link":"http://x.test/","headline":"H","line":"L"}"#.data(using: .utf8)) == nil, "not https, no step")
+    check(Board.inviteStep(nil) == nil, "no answer, no step")
+}
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

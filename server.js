@@ -21808,6 +21808,20 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { current: version, seen, highlights });
     return;
   }
+  /* kosmos#6255: the once-only "Help Kosmos grow" step, dark behind KOSMOS_SHARE_STEP=1 (engine/invitestep.js). */
+  if (pathname === '/api/invite-step' && req.method === 'GET') {
+    const invitestep = require('./engine/invitestep');
+    let roster = null;
+    let projectsNow = null;
+    try { roster = safeRoster(); } catch { roster = null; }
+    try { projectsNow = require('./engine/projects').list(); } catch { projectsNow = null; }
+    invitestep.stepFor({ roster, projects: projectsNow }).then((step) => sendJson(res, 200, step), () => sendJson(res, 200, { show: false }));
+    return;
+  }
+  if (pathname === '/api/invite-step/done' && req.method === 'POST') {
+    readBody(req).then(() => sendJson(res, 200, { ok: require('./engine/invitestep').markDone() }), () => sendJson(res, 200, { ok: false }));
+    return;
+  }
   if (pathname === '/api/whats-new/seen' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {

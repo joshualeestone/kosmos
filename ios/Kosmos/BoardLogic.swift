@@ -1344,6 +1344,33 @@ enum Board {
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
     }
+    /// kosmos#6255: "Help Kosmos grow", once, dark on the board behind KOSMOS_SHARE_STEP=1. The board decides whether it is
+    /// due and which words are true; the phone only shows them and hands the link to the system share sheet.
+    struct InviteStep: Equatable, Identifiable {
+        let link: URL
+        let headline: String
+        let line: String
+        let fine: String
+        var id: String { link.absoluteString }
+    }
+    static func inviteStepRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/invite-step", relativeTo: mac)!.absoluteURL)
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    static func inviteStepDoneRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/invite-step/done", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        return r
+    }
+    /// Nil unless the board says show and the link is https: a step that cannot hand over a link is not offered.
+    static func inviteStep(_ data: Data?) -> InviteStep? {
+        guard let data, let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], o["show"] as? Bool == true,
+              let s = o["link"] as? String, let link = URL(string: s), link.scheme == "https",
+              let headline = o["headline"] as? String, !headline.isEmpty,
+              let line = o["line"] as? String, !line.isEmpty else { return nil }
+        return InviteStep(link: link, headline: headline, line: line, fine: o["fine"] as? String ?? "")
+    }
     static func youPictureRequest(mac: URL) -> URLRequest {
         var r = URLRequest(url: URL(string: "/api/you/avatar", relativeTo: mac)!.absoluteURL)
         r.setValue("image/*", forHTTPHeaderField: "Accept")
