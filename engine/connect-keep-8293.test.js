@@ -231,6 +231,18 @@ test('kosmos#8305: with no model known for it, a listing policy still connects i
     assert.match(out.unknownLastRun, /policy lists the models it can use/);
   } finally { create.policyAllows = real; }
 });
+test('kosmos#8305: with the account unknown too, the row says both', () => {
+  const dir = agent('moved8305d');
+  const usual = create.modelsFor('anthropic').find((m) => m.key === create.defaultModelKeyFor('anthropic'));
+  const real = create.policyAllows;
+  create.policyAllows = (provider, model) => (model === usual.arg ? { ok: true } : { ok: false, because: 'choose one' });
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, true, out.because);
+    assert.match(out.unknownLastRun, /could not tell which Claude account.*main one, and your company/);
+    assert.match(out.unknownLastRun, new RegExp('will start on ' + usual.label));
+  } finally { create.policyAllows = real; }
+});
 test('kosmos#8305: past the usual default, the least costly on the menu comes first', () => {
   const dir = agent('moved8305c');
   ranOn(ACCT_B);

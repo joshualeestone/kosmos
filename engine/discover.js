@@ -2275,7 +2275,9 @@ function connect(dir, opts) {
   }
   if (policyMoved) {   // kosmos#6263: a family's policy is said as the family's
     const oe = require('./orgenroll');
-    unknownLastRun = oe.inKind(oe.kindHere(), (policyMoved.had ? 'your company\'s policy does not allow the model it was using, so it will start on ' : 'your company\'s policy lists the models it can use, so it will start on ') + policyMoved.to);
+    const policy = oe.inKind(oe.kindHere(), (policyMoved.had ? 'your company\'s policy does not allow the model it was using, so it will start on ' : 'your company\'s policy lists the models it can use, so it will start on ') + policyMoved.to);
+    // Said together: the account it lands on is still theirs to know (#8293).
+    unknownLastRun = !runner && last.ran && !last.account ? 'we could not tell which Claude account it was using, so it will run on your main one, and ' + policy : policy;
   }
   return { ok: true, name, displayName, dir: given, started: job.started === true,
     ...(unknownLastRun ? { unknownLastRun } : {}) };
