@@ -1251,7 +1251,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     if (before !== after) transition = after ? 1 : -1;
     /* kosmos#8301: closed without running, only when the closer says so (--not-run) or it was replaced. Never inferred from
        what is missing: a parent whose children did the work, or a person's own plain close, has no sign of work either. */
-    if (after && ((!before && notRun) || replacedNew)) changed.closedUnrun = true;
+    if (after && (notRun || replacedNew)) changed.closedUnrun = true;
     if (!after) delete changed.closedUnrun;
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
     if (after) changed = withoutBuilt(changed);
