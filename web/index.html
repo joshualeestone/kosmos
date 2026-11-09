@@ -11599,26 +11599,32 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .myagents-head .fold:hover { color: var(--k-ink); background: var(--attn-bg); }
 .myagents-head .railname { flex: 1 1 auto; min-width: 0; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--k-ink-2); }
 .myagents-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 8px 12px; }
-.myagents-list .lrow { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 10px; align-items: center; padding: 8px; border: 0; border-radius: 12px; cursor: pointer; min-height: 0; }
+.myagents-list .lrow { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 1px 10px; align-items: center; padding: 8px; border: 0; border-radius: 12px; cursor: pointer; min-height: 0; }
 .myagents-list .lrow:hover { background: var(--attn-bg); }
-.myagents-list .lrow.current { background: var(--attn-bg); box-shadow: inset 0 0 0 1px var(--k-rule); }
+.myagents-list .lrow.current { background: var(--attn-bg); box-shadow: inset 0 0 0 1px var(--k-ink-2); }
+.myagents-list .lrow:focus-within { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .myagents-list .lrow > .lav { grid-row: 1 / span 2; }
 .myagents-list .lrow > .lname { grid-column: 2; display: flex; align-items: center; gap: 6px; min-width: 0; }
 .myagents-list .lrow > .lname b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 20px; }
-.myagents-list .lrow > .lname .astar { flex: none; margin: 0; }
+.myagents-list .lrow > .lname:has(.astar) { padding-right: 62px; }
+.myagents-list .lrow > .lname .astar { right: 26px; }   /* clear of the unread count, as the rail's (render-star-6719) */
 .myagents-list .lrow > .ltitle { grid-column: 2; font-size: 12px; color: var(--k-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .myagents-list .lrow > :not(.lav):not(.lname):not(.ltitle):not(.dmbadge):not(.navbadge) { display: none; }
 .myagents-list .lrow > .dmbadge, .myagents-list .lrow > .navbadge { position: absolute; top: 2px; right: 4px; }
-body.has-myagents #panel-detail { margin-left: 284px; }
-body.has-myagents.myagents-folded #panel-detail { margin-left: 72px; }
+/* The notices above the page move over with it, or the column would cover them. */
+body.has-myagents #panel-detail, body.has-myagents > #askcard, body.has-myagents > #conn { margin-left: 260px; }
+body.has-myagents.myagents-folded #panel-detail, body.has-myagents.myagents-folded > #askcard, body.has-myagents.myagents-folded > #conn { margin-left: 48px; }
 .myagents-folded .myagents { width: 60px; }
 .myagents-folded .myagents-head { justify-content: center; }
 .myagents-folded .myagents-head .railname, .myagents-folded .myagents-head .plus { display: none; }
 .myagents-folded .myagents-list .lrow { grid-template-columns: 40px; padding: 8px 2px; justify-content: center; }
-.myagents-folded .myagents-list .lrow > .lname, .myagents-folded .myagents-list .lrow > .ltitle { display: none; }
+/* Folded, the name stays for the keyboard and screen readers, out of sight. */
+.myagents-folded .myagents-list .lrow > .lname { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+.myagents-folded .myagents-list .lrow > .lname .astar, .myagents-folded .myagents-list .lrow > .ltitle { display: none; }
 /* The list replaces the link back to All agents. An agent opened from a project keeps the link that names it. */
 body.has-myagents #panel-detail[data-to-all] > #detail-back,
 body.has-myagents #panel-detail[data-to-all] #d-talk-box :is(.d-crumb-back, .d-crumb-rootwrap) { display: none !important; }
+body.has-myagents #panel-detail[data-to-all]:has(#d-sec-talk:not([hidden])) .dleft { margin-top: 0; }   /* that margin was the back link's row */
 :root[data-look="new"] body:not(.consolidated) #panel-detail:has(#d-sec-talk:not([hidden])) > #detail-back { display: none; }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-back { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--k-rule); display: grid; place-items: center; flex: none; margin-right: 2px; }
 :root[data-look="new"] body:not(.consolidated) #d-talk-box .d-crumb-rootwrap { display: inline-flex; align-items: baseline; flex: 0 1 auto; min-width: 0; font-size: 1.375rem; line-height: 1.2; letter-spacing: -.02em; }
@@ -27212,7 +27218,12 @@ function paintAgentListNow() {
 /* kosmos#8303: My Agents. Wide windows only: a narrow one has no room and keeps its link back to All agents. */
 const MY_AGENTS_MIN_WIDTH = 1100;
 let MY_AGENTS_HTML = null;
-function myAgentsFolded() { try { return localStorage.getItem('my-agents-fold') === '1'; } catch { return false; } }
+let MY_AGENTS_FOLDED = null;   // what this page last set, for a browser that will not store it
+let MY_AGENTS_OPEN = null;
+function myAgentsFolded() {
+  if (MY_AGENTS_FOLDED !== null) return MY_AGENTS_FOLDED;
+  try { return localStorage.getItem('kosmos.fold.myagents') === '1'; } catch { return false; }
+}
 function paintMyAgents() {
   const box = document.getElementById('my-agents');
   if (!box) return;
@@ -27232,13 +27243,26 @@ function paintMyAgents() {
   const list = document.getElementById('my-agents-list');
   const shown = sortAgents((LAST || []).filter((a) => !(a && a.isGuide === true)), AGENT_SORT, PROJECTS, AGENT_STARS);
   const html = shown.map(lrow).join('');
-  if (html !== MY_AGENTS_HTML) { MY_AGENTS_HTML = html; list.innerHTML = html; }   // a poll that changes nothing keeps its scroll and focus
+  if (html !== MY_AGENTS_HTML) {
+    // A running agent's row changes on most polls, so a rebuild keeps the person's place and a focused name.
+    const ae = document.activeElement;
+    const nameOf = ae && list.contains(ae) && ae.classList.contains('namego') ? ae.closest('.lrow').dataset.agent : null;
+    const top = list.scrollTop;
+    MY_AGENTS_HTML = html;
+    list.innerHTML = html;
+    list.scrollTop = top;
+    if (nameOf) { const back = [...list.querySelectorAll('.lrow')].find((r) => r.dataset.agent === nameOf); if (back) back.querySelector('.namego').focus({ preventScroll: true }); }
+  }
   const open = CURRENT && CURRENT.sessionName;
   for (const row of list.querySelectorAll('.lrow')) {
     const here = row.dataset.agent === open;
     row.classList.toggle('current', here);
     if (here) row.setAttribute('aria-current', 'page'); else row.removeAttribute('aria-current');
+    const name = row.querySelector('.namego');
+    if (folded && name) row.title = name.textContent; else row.removeAttribute('title');
+    if (here && open !== MY_AGENTS_OPEN) row.scrollIntoView({ block: 'nearest' });   // a deep link can open one far down the list
   }
+  MY_AGENTS_OPEN = open;
 }
 async function tick() {
   const checked = document.getElementById('checked');
@@ -27678,7 +27702,7 @@ async function tick() {
        ONCE via pjMarkOpen rather than waiting for the next ~5s poll. In the consolidated view with a
        project open it sorts that project's agents to the TOP, then a rule, then the rest. */
     paintAgentList();
-    paintMyAgents();   // kosmos#8303
+    keepStarFocus(paintMyAgents);   // kosmos#8303
     /* ⚠️ THE THIRD VIEW REPAINTS ON THE SAME TICK, but through its own guard
        rather than an unconditional innerHTML write. The two above can be
        rewritten every five seconds because nothing in them holds focus that
@@ -41668,7 +41692,7 @@ function starBtn(a) {
    through this, so a focused star is focused again afterwards (the toggle, the sort control and the 5 s poll alike). */
 function keepStarFocus(paint, follow) {
   const had = document.activeElement && document.activeElement.closest ? document.activeElement.closest('[data-star]') : null;
-  const where = had ? had.closest('#grid, #alist') : null;
+  const where = had ? had.closest('#grid, #alist, #my-agents-list') : null;
   const who = had ? had.dataset.star : null;
   paint();
   if (who && where && document.activeElement !== had) {
@@ -55359,19 +55383,24 @@ document.querySelectorAll('[data-fold]').forEach((btn) => {
 /* #3387: while a project's members are grouped at the top of the consolidated list, the
    top + adds an EXISTING agent to that project (opens the shared add-member modal); in
    every other state it stays the board's own New agent, byte-for-byte as before. */
-/* kosmos#8303: My Agents' own controls. The + is the same New agent the board's button starts. */
-document.getElementById('my-agents-new').addEventListener('click', () => document.getElementById('new-agent').click());
-document.getElementById('my-agents-fold').addEventListener('click', () => {
-  const next = !myAgentsFolded();
-  try { localStorage.setItem('my-agents-fold', next ? '1' : '0'); } catch { /* it still folds until the next paint */ }
-  paintMyAgents();
-});
-window.addEventListener('resize', paintMyAgents);
 document.getElementById('rail-agents-new').addEventListener('click', (e) => {
   // kosmos#4649: the project's "+" offers the Members menu while the federation gate is "show" (pjAddPlus).
   if (AGENTS_GROUPED) { pjAddPlus(e.currentTarget, openAddMemberModal); return; }
   document.getElementById('new-agent').click();
 });
+/* kosmos#8303: My Agents' own controls. The + is the same New agent the board's button starts. */
+document.getElementById('my-agents-new').addEventListener('click', () => document.getElementById('new-agent').click());
+document.getElementById('my-agents-fold').addEventListener('click', () => {
+  MY_AGENTS_FOLDED = !myAgentsFolded();
+  try { localStorage.setItem('kosmos.fold.myagents', MY_AGENTS_FOLDED ? '1' : '0'); } catch { /* holds for this page */ }
+  paintMyAgents();
+});
+/* Reopening the agent already open would reload its page and throw away anything typed there. */
+document.getElementById('my-agents-list').addEventListener('click', (e) => {
+  if (!e.target.closest('[data-star]') && e.target.closest('.lrow[aria-current]')) e.stopPropagation();
+}, true);
+window.addEventListener('resize', paintMyAgents);
+if (typeof ResizeObserver === 'function') new ResizeObserver(paintMyAgents).observe(document.querySelector('.apphead'));   // a taller header moves the column's top
 /* #3387: the "Other Agents" sub-header's + is the New-agent action. Delegated off #alist
    because the list is rebuilt on every poll, so a bound listener would not survive. */
 document.getElementById('alist').addEventListener('click', (e) => {

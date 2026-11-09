@@ -636,7 +636,7 @@ async function main() {
     check(!!rookFiles && rookFiles.hidden && rookFiles.h === 0 && !/no agent by that name/i.test(rookFiles.text || ''),
       'the borrowed name has no Files section (its /files 404 is no files), and no "no agent by that name"',
       JSON.stringify(rookFiles));
-    await page.click('#detail-back');
+    await page.$eval('#detail-back', (b) => b.click());
     await page.waitForTimeout(300);
     expectUntiedRefusals = false;
 
