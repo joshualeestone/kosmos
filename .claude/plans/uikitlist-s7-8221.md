@@ -81,4 +81,10 @@ first, and slice 1's plan numbers it next.
       on an at-rest landing, but its control without the fix FAILS, so it does measure a moving landing in practice. NITs
       (a wasted layout pass; the failed line's height clamped at the top on Try again) left as stated. Both UI checks 3 of 3
       after round 2 (02:23 CST).
-- [ ] Full validation, review round 3 (bounded at 4), ui-sample both arms on the final head (CI), PR, merge on green.
+- [x] Review round 3 (opus): no BLOCKER, no WARNING; converged. NITs: a cheaper first test in apply (skipped: microseconds,
+      and it would have voided the validation then running); a reader at both the top and the newest of a chat barely taller
+      than the screen can move up to 40 pt as a page lands (accepted, rare); a "moved" read dropping the loaded pages lands
+      a reader up in them somewhere unrelated, on BOTH lists, pre-existing (#8221 comment 6735597297); the failed line can
+      pull the list to the top under a finger within the top 40 pt (accepted, rare).
+- [x] Full validation PASSED (02:44 CST, hash a7d0335f0bbb, 27723 tests); main had not moved.
+- [ ] PR; CI runs ui-sample both arms (EarlierPagesUITests:2 on the UIKit arm); merge on green.
