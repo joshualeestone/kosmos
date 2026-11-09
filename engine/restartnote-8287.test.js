@@ -278,6 +278,14 @@ test('#8297: records it could not look at travel with the damaged count, from th
     aliveWith({ running: was('leo') });
     assert.deepEqual(rn.atStart({ now: () => NOW, uptime: () => up(6), files: { checked: true, damaged: 1, unread } }).files, { damaged: 1 }, 'kept unread ' + JSON.stringify(unread));
   }
+  // Nothing damaged with some unread is no file check, even from a note on disk that says so (never "at least 0").
+  clean();
+  aliveWith({ running: was('leo') });
+  assert.equal('files' in rn.atStart({ now: () => NOW, uptime: () => up(6), files: { checked: true, damaged: 0, unread: 2 } }), false, 'a scan that found nothing and missed some was kept');
+  const raw = JSON.parse(fs.readFileSync(rn._files.noteFile(), 'utf8'));
+  fs.writeFileSync(rn._files.noteFile(), JSON.stringify({ ...raw, files: { damaged: 0, unread: 2 } }));
+  assert.equal('files' in rn.current(NOW), false, 'a kept note with nothing damaged and some unread was shown');
+  assert.equal('files' in rn.checksFor({ files: { damaged: 0, unread: 2 } }, [], []), false, 'the checks passed nothing-damaged-some-unread on');
   // A note kept before #8297 has no unread count, and reads as before.
   clean();
   aliveWith({ running: was('leo') });

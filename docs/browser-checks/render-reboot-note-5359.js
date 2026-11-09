@@ -195,7 +195,8 @@ const CASES = [
       { key: 'files-only', checks: { files: { damaged: 0 } }, want: "Checked: Kosmos's main records read fine." },
       /* kosmos#8297: one is "is"; and with records it could not look at, the damaged count is a floor and says so. */
       { key: 'one-damaged', checks: { files: { damaged: 1 } }, want: "Checked: 1 of Kosmos's main records is damaged." },
-      { key: 'floor', checks: { files: { damaged: 2, unread: 3 } }, want: "Checked: at least 2 of Kosmos's main records are damaged (3 more could not be checked)." },
+      { key: 'floor', checks: { files: { damaged: 2, unread: 3 } }, want: "Checked: at least 2 of Kosmos's main records are damaged (some others could not be checked)." },
+      { key: 'unread-only', checks: { agents: { was: 1, back: 1, notBack: [] }, files: { damaged: 0, unread: 3 } }, want: 'Checked: the agent that was running came back.' },
       { key: 'no-agents-then', checks: { agents: { was: 0, back: 0, notBack: [] } }, want: null },
       { key: 'html', checks: { agents: { was: 1, back: 0, notBack: ['<b>x</b>'] } }, want: 'Checked: the agent that was running has not come back (<b>x</b>).' },
     ];
@@ -218,7 +219,9 @@ const CASES = [
     /* kosmos#8297: only for the first 15 minutes after Kosmos came back; a note whose upAt is older than that leaves it to
        the ten-minute re-check. The first arm (upAt just now) is that arm's control. */
     const late = noteAt(30 * MIN, 16 * MIN);
+    const inside = noteAt(30 * MIN, 14 * MIN);   // pins the cap from below: 14 minutes still asks
     for (const [label, agents, want, note] of [['not back', { was: 2, back: 1, notBack: ['Leo'] }, true, base], ['all back (control)', { was: 2, back: 2, notBack: [] }, false, base],
+      ['not back, 14 minutes after coming back', { was: 2, back: 1, notBack: ['Leo'] }, true, inside],
       ['not back, past the first 15 minutes', { was: 2, back: 1, notBack: ['Leo'] }, false, late]]) {
       const pg0 = await b.newPage({ viewport: { width: 1400, height: 800 } });
       await pg0.clock.install({ time: new Date(NOON) });
