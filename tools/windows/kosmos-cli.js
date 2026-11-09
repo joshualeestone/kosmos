@@ -118,6 +118,7 @@ const USAGE = {
     '  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody',
     '      --part <part-number>                                     which part, when the task has several',
     '  kosmos task close <project-id> <task-number> [...] [--with-built]   close one, or several at once; --with-built closes their built subtasks too (numbers are from list)',
+    '      --not-run                                                it was closed without ever being run',
     '      --replaced-by <task-number>                              a later task replaced it: closed, but not done',
     '  kosmos task reopen <project-id> <task-number> ["why"]        put a done one back; it keeps its number and history',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
@@ -1483,7 +1484,7 @@ async function taskAssign(ctx, args) {
   return 1;
 }
 
-const TASK_CLOSE_USAGE = 'Usage: kosmos task close <project-id> <task-number> [<task-number> ...] [--with-built | --replaced-by <task-number>]   (the numbers are shown by kosmos task list; --with-built also closes each one\'s built subtasks; --replaced-by takes one task)';
+const TASK_CLOSE_USAGE = 'Usage: kosmos task close <project-id> <task-number> [<task-number> ...] [--with-built | --not-run | --replaced-by <task-number>]   (the numbers are shown by kosmos task list; --not-run says it was closed without ever being run; --with-built also closes each one\'s built subtasks; --replaced-by takes one task)';
 /* kosmos#7514, as install/kosmos: the built subtasks a parent's close took with it (closedWith, with --with-built) or left
    open (builtLeft); an older board sends neither field, and refuses --with-built (said where its refusal is read). "13, 14",
    or '' when there are none. */
@@ -1499,7 +1500,9 @@ async function taskClose(ctx, args) {
   // #6923, as install/kosmos: --replaced-by <n> closes it as replaced by task n, rather than done.
   const by = args[2] === '--replaced-by' ? args[3] : null;
   const wb = args.includes('--with-built');   // kosmos#7514
-  const closeBody = wb ? { withBuilt: true } : undefined;
+  const notRun = args.includes('--not-run');   // kosmos#8301
+  if (notRun && (wb || args.includes('--replaced-by'))) { ctx.err('--not-run does not go with --replaced-by or --with-built.'); return 2; }
+  const closeBody = wb ? { withBuilt: true } : notRun ? { notRun: true } : undefined;
   if (wb && args.includes('--replaced-by')) { ctx.err('--with-built and --replaced-by do not go together: a replaced task\'s subtasks are closed on their own.'); return 2; }
   // kosmos#7514: a board older than --with-built refuses the body with words about replacedBy; say what happened instead.
   const olderBoard = (why) => wb && /replaced it\), so the task was not closed|that request, so the task was not closed/.test(why || '');   // #6923's own first words too; never today's catch-all
@@ -1512,12 +1515,12 @@ async function taskClose(ctx, args) {
        number must be a number too, checked before anything closes. */
     for (const w of args.slice(2)) {
       if (w === '--replaced-by') { ctx.err('--replaced-by takes one task: close the others on their own.'); return 2; }
-      if (w === '--with-built') continue;   // kosmos#7514: also close the built subtasks of each task closed
+      if (w === '--with-built' || w === '--not-run') continue;   // kosmos#7514: also close the built subtasks of each task closed; kosmos#8301
       if (!/^[0-9]+$/.test(w) && tooManyWords(ctx, 'task close', 2, TASK_CLOSE_USAGE, args)) return 2;   // not a number: as #4889 review 6
     }
     /* The board's own limit for closing several at once (server.js BULK_CLOSE_MAX), refused before anything is sent. */
-    if (args.length - 1 - args.filter((x) => x === '--with-built').length > 200) { ctx.err('Close up to 200 tasks at a time: run it again with the rest.'); return 2; }
-    const nums = args.slice(1).filter((x) => x !== '--with-built');
+    if (args.length - 1 - args.filter((x) => x === '--with-built' || x === '--not-run').length > 200) { ctx.err('Close up to 200 tasks at a time: run it again with the rest.'); return 2; }
+    const nums = args.slice(1).filter((x) => x !== '--with-built' && x !== '--not-run');
     if (nums.length > 1) {
       const ok = [];
       const bad = [];
