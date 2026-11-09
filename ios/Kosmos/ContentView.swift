@@ -255,9 +255,15 @@ struct ContentView: View {
         // kosmos#7032: with Projects native, no tab hosts the board page until Tasks is earned, so the bar also learns
         // it from the native status poll (the engine's flag; once shown it stays, so this only ever adds the tab).
         .onChange(of: board.tasksTab) { earned in if earned == true { web.earnTasks() } }
-        // kosmos#6255: "Help Kosmos grow", asked once per connection; any way out of the sheet counts as answered.
+        // kosmos#6255: "Help Kosmos grow", asked once per connection. Held back while locked or under another sheet, and it
+        // comes up when those end. Only the person's own press answers it (the view's buttons), never the sheet going away.
         .task(id: board.macURL) { await board.checkInviteStep() }
-        .sheet(item: Binding(get: { isUnlocked && !newAgentOpen ? board.inviteStep : nil }, set: { board.inviteStep = $0 }), onDismiss: { Task { await board.inviteStepAnswered() } }) { step in InviteStepView(step: step) }
+        .sheet(item: Binding(get: { isUnlocked && !newAgentOpen && !newProjectOpen ? board.inviteStep : nil }, set: { _ in })) { step in
+            InviteStepView(step: step, shared: { Task { await board.inviteStepAnswered() } }, notNow: {
+                board.inviteStep = nil
+                Task { await board.inviteStepAnswered() }
+            })
+        }
         // A sheet shown from a tab goes with it; a tab change must not leave it set to come back by itself.
         .onChange(of: tab) { _ in newProjectOpen = false }
         // kosmos#7488: another computer: the sheet's roles, managers and projects were the last one's.

@@ -71,7 +71,7 @@ function wordsFor(reward) {
 }
 
 /* What the page and the phone ask. `o`: { env, roster, projects, remote } (tests inject; the board passes the real ones).
-   wait: true means still worth asking again later (it is on, and a first agent has not done anything yet). */
+   wait: true means still worth asking again later (it is on, and either a first agent has not done anything yet or this computer is not signed in to Kosmos+ yet). */
 async function stepFor(o) {
   const none = { show: false };
   try {
@@ -82,7 +82,7 @@ async function stepFor(o) {
     const sessions = (Array.isArray(roster) ? roster : []).map((c) => c && c.sessionName).filter(Boolean);
     if (!firstAgentDidSomething(sessions, projects)) return { show: false, wait: true };
     const remote = opts.remote || require('./remote');
-    if (!remote.read().on || !remote.enrolled()) return none;
+    if (!remote.read().on || !remote.enrolled()) return { show: false, wait: true };   // it may sign in later
     let host = null;
     try { host = new URL(remote.COORDINATOR()).hostname; } catch { return none; }
     const r = await remote.macRequest('POST', ROUTE, {});

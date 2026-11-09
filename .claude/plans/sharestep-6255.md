@@ -19,6 +19,9 @@ With KOSMOS_SHARE_STEP=1, and POST /v1/mac/account-invite answering ok: a person
 - The page asks again every five minutes only while the board says it is on and waiting; the phone asks once per connection.
 - Never over another window, the boot cover, or while the person is typing.
 
+- On the phone only the person's press answers it. Locked or under another sheet it waits; a swipe cannot spend it.
+- An agent's greeting in a direct chat counts as the first agent doing something.
+
 ## Weakest premise
 That a direct chat message or a finished task is "the first agent did something". An agent that only worked in a project room and finished nothing waits longer, which is the safe direction.
 
