@@ -251,8 +251,9 @@ function treeOf(p) {
      task's done-when checks. */
   const isBuilt = isBuiltOpen;   // held reads held (taskState); one definition, shared with kosmos#7514's closesWithParent
   /* kosmos#8140: `held` counts the open children on hold, so a parent can show them apart from the ones not done yet
-     (a built parent with most pieces held read as finished). */
-  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, held: k.filter((t) => !progressOf(t).closed && isOnHold(t)).length, total: k.length }; };
+     (a built parent with most pieces held read as finished). kosmos#8301: `unrun` counts the children closed with no
+     sign of work (closedUnrun), so "done" can mean done: they stay in `done`, which every reader of "all closed" needs. */
+  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, held: k.filter((t) => !progressOf(t).closed && isOnHold(t)).length, unrun: k.filter((t) => progressOf(t).closed && t.closedUnrun === true).length, total: k.length }; };
   return { byNum, up, under, progress };
 }
 
@@ -1249,6 +1250,10 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     }
     const after = progressOf(changed).closed;
     if (before !== after) transition = after ? 1 : -1;
+    /* kosmos#8301: closed with no sign anyone worked on it: never marked built, no commit landed, no run, no part finished. A
+       task closed before this was recorded has no mark, and reads as done rather than being guessed at. */
+    if (!before && after && !t.builtAt && !t.landedCommit && !t.lastRunAt && !partsOf(t).some((x) => x.closedAt)) changed.closedUnrun = true;
+    if (!after) delete changed.closedUnrun;
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
     if (after) changed = withoutBuilt(changed);
     if (before && !after) changed = withoutLanded(changed);   // #7508: a reopen is new work, so the old commit goes
