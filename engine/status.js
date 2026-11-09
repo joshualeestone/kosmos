@@ -1877,6 +1877,19 @@ function deliveryStallOf(pane, status) {
 /* #6249: the card's unsentInput, { since } (ISO) once the same text has sat in a Claude agent's box UNSENT_SHOW_MS,
    else null. The plain capture this pass already made decides whether to look; only a pane showing something there
    is captured again with colours, and only when what it shows changed since the last colour read. */
+/* kosmos#8286: one tool call running for minutes ({ tool, since }), from the agent's own transcript (engine/onestep.js), for
+   a Claude Code card that is not already waiting on the person (a permission prompt is an open call too, and the card says
+   that itself). Null otherwise, and whenever the transcript cannot be found or read. */
+function oneStepOf(pane, status, now = Date.now(), find = transcriptFor) {
+  try {
+    const claude = !!pane && (!pane.runner || pane.runner === 'claude')
+      && !isCodexCommand(pane.command) && !isGrokCommand(pane.command) && !isAntigravityCommand(pane.command);
+    if (!claude || !pane.name) return null;
+    if (status && (status.state === STATE.NEEDS_YOU || status.state === STATE.STOPPED)) return null;
+    return require('./onestep').oneStepIn(find(pane.name, pane.session), { now });
+  } catch { return null; }
+}
+
 function unsentInputOf(pane, text, now = Date.now()) {
   const name = pane && pane.name;
   /* #7693: a gather with no text for this pane saw nothing, so it keeps what is known: dropping it would re-read every box next
@@ -8959,6 +8972,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     reachedByChannel: false,
     runner: null,
     lastWorked: null,   // #5959 slice 2: no pane, nothing observed; its page shows no health line
+    oneStep: null,   // kosmos#8286: no pane, so no Claude Code transcript is tied to it here
     neverTurned: false,   // #7786: a paneless card has no runner whose hook vouches for its record (see neverTurnedOf)
     deliveryStall: null,   // #7212 slice 2: carried only while a pane card reads idle or working
     task: null,
@@ -9887,6 +9901,8 @@ function snapshot() {
       deliveryStall: deliveryStallOf(pane, status),
       /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
       lastWorked: lastWorkedOf(pane),
+      /* kosmos#8286: one tool call running for minutes ({ tool, since }), from its transcript, else null (see oneStepOf). */
+      oneStep: oneStepOf(pane, status),
       /* #7786: an idle card whose agent launched and has never taken a turn (see neverTurnedOf). */
       neverTurned: neverTurnedOf(pane, status),
       because: status.because,
@@ -10311,7 +10327,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
