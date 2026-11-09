@@ -61,7 +61,7 @@ const room = async (project, query) => {
 };
 const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + ']') && !l.startsWith('[kosmos]'));
 const AGED = (n) => '[kosmos] ' + n + (n === 1 ? ' post' : ' posts') + ' that asked you something more than 3 days ago '
-  + (n === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). Add --all to see ' + (n === 1 ? 'it' : 'them') + ' too.';
+  + (n === 1 ? 'is' : 'are') + ' not listed (a person\'s ask stays listed if it names you, or until you have posted after it). Add --all to see ' + (n === 1 ? 'it' : 'them') + ' too.';
 
 test('kosmos#7969: an agent\'s ask older than 3 days is counted under the list, not in it; a recent one is listed', async () => {
   const pid = newRoom('Aged7969a');
@@ -148,4 +148,57 @@ test('kosmos#7969 review 2: an older ask the reader already answered by id is no
     at: new Date(Date.now() - 4 * DAY).toISOString(), outcomes: {} });
   const r = await room(pid, '&unanswered=1');
   assert.ok(r.text.includes(AGED(1) + '\n'), 'an answered older ask is still counted as waiting:\n' + r.text);
+});
+
+/* kosmos#8300: a person's ask to the whole room, and the reader's later post in that room. */
+const toRoom = (pid, ago, extra) => ask(pid, ago, Object.assign({ operator: true, from: 'operator', mentioned: [], to: [ME], outcomes: { [ME]: 'placed' } }, extra));
+function myPost(project, ago) {
+  const id = 'm' + (79690 + (++seq));
+  append({ id, kind: 'post', from: ME, to: [], project, text: 'something else entirely', mentioned: [], at: new Date(Date.now() - ago).toISOString(), outcomes: {} });
+  return id;
+}
+
+test('kosmos#8300: a person\'s old ask to the room leaves the list once the reader has posted after it, and --all still shows it', async () => {
+  const pid = newRoom('Aged8300a');
+  const old = toRoom(pid, 10 * DAY);
+  myPost(pid, 9 * DAY);
+  const r = await room(pid, '&unanswered=1');
+  assert.ok(!listed(r.text, old), 'it stayed listed:\n' + r.text);
+  assert.ok(r.text.includes(AGED(1) + '\n'), r.text);
+  const all = await room(pid, '&unanswered=1&all=1');
+  assert.ok(listed(all.text, old), '--all lost it:\n' + all.text);
+});
+
+test('kosmos#8300: the same old ask with no later post from the reader stays listed', async () => {
+  const pid = newRoom('Aged8300b');
+  const old = toRoom(pid, 10 * DAY);
+  assert.ok(listed((await room(pid, '&unanswered=1')).text, old));
+});
+
+test('kosmos#8300: a post from before the ask does not count', async () => {
+  const pid = newRoom('Aged8300c');
+  myPost(pid, 11 * DAY);
+  const old = toRoom(pid, 10 * DAY);
+  assert.ok(listed((await room(pid, '&unanswered=1')).text, old));
+});
+
+test('kosmos#8300: a recent ask stays listed whatever the reader has posted since', async () => {
+  const pid = newRoom('Aged8300d');
+  const recent = toRoom(pid, 1 * DAY);
+  myPost(pid, 0.5 * DAY);
+  assert.ok(listed((await room(pid, '&unanswered=1')).text, recent));
+});
+
+test('kosmos#8300: an old ask that names the reader stays listed after the reader posts', async () => {
+  const pid = newRoom('Aged8300e');
+  const named = toRoom(pid, 10 * DAY, { mentioned: [ME], text: '@readerseat are you there' });
+  myPost(pid, 9 * DAY);
+  assert.ok(listed((await room(pid, '&unanswered=1')).text, named));
+});
+
+test('kosmos#8300: an old ask that never reached the reader stays listed, whatever it posted', async () => {
+  const pid = newRoom('Aged8300f');
+  const lost = toRoom(pid, 10 * DAY, { outcomes: {} });
+  myPost(pid, 9 * DAY);
+  assert.ok(listed((await room(pid, '&unanswered=1')).text, lost));
 });

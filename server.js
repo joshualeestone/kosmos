@@ -6794,7 +6794,8 @@ const COVERED_EXCERPT_CHARS = 60;
 const UNANSWERED_HEAD = 'Waiting on an answer from you: ';
 /* kosmos#7969 (the 0.7.88 cross-seat report: 39, 41 and 102 old posts on three seats' --unanswered): an agent's ask older
    than this is counted, not listed, unless the reader adds --all. Measured on one seat in a busy room: of the 168 it
-   listed, the 150 whose rows were found in the store were all older than 3 days. The person's asks never age out. */
+   listed, the 150 whose rows were found in the store were all older than 3 days. A person's ask stays listed unless it
+   names nobody and the reader has posted since (kosmos#8300). */
 const UNANSWERED_DAYS = 3;
 /* kosmos#5752 slice 3: a refused task write is also a row in the project's room, so the person sees it without the agent
    having to say so, and can add the agent from that row. `doing` is what the agent tried, in the row's words. */
@@ -24204,7 +24205,12 @@ const server = http.createServer(async (req, res) => {
            --all). Aged only on a time that reads as one. */
         let agedAsks = 0;
         const agedBefore = Date.now() - UNANSWERED_DAYS * 24 * 60 * 60 * 1000;
-        const aged = (m) => !unansweredAll && m.operator !== true && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) < agedBefore;
+        const old = (m) => !unansweredAll && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) < agedBefore;
+        const aged = (m) => old(m) && m.operator !== true;
+        /* kosmos#8300 (the 0.8.0 cross-seat report: asks to the whole room answered weeks ago without citing them stayed on
+           every seat): a person's ask this old leaves the list once the reader has posted after it, unless it named the reader. */
+        const agedRoomWideAsk = (m, i) => old(m) && m.operator === true && !namedReader.has(String(m.id))
+          && !!messages.laterOwnPost(rows, i, readerName, toldFor.get(String(m.id)));
         /* kosmos#4926 (11-07): when each held post reached this reader, read once, before this read records its own (below):
            a post the reader makes later counts for a held ask from that moment (messages.laterOwnPost). */
         let toldFor = new Map();
@@ -24217,7 +24223,7 @@ const server = http.createServer(async (req, res) => {
               const c = claimedByOther(rows[i]);
               if (c) { claimedAsks.unshift({ id: String(rows[i].id), by: c.by, at: c.at }); continue; }
               // kosmos#7969: after the claim check on purpose: a claimed ask is named on the claimed line whatever its age.
-              if (aged(rows[i])) { agedAsks += 1; continue; }
+              if (aged(rows[i]) || agedRoomWideAsk(rows[i], i)) { agedAsks += 1; continue; }
               // kosmos#4926: after age, so an old ask is counted there.
               const own = listKeepsAsk(rows[i]) ? null : messages.laterOwnPost(rows, i, readerName, toldFor.get(String(rows[i].id)));
               if (own) { coveredAsks.unshift({ id: String(rows[i].id), own, text: rows[i].text }); continue; }
@@ -24444,7 +24450,7 @@ const server = http.createServer(async (req, res) => {
            --all one the reader has since posted after is named on the line above (kosmos#4926). */
         const agedLine = agedAsks
           ? '[kosmos] ' + agedAsks + (agedAsks === 1 ? ' post' : ' posts') + ' that asked you something more than '
-            + UNANSWERED_DAYS + ' days ago ' + (agedAsks === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). '
+            + UNANSWERED_DAYS + ' days ago ' + (agedAsks === 1 ? 'is' : 'are') + ' not listed (a person\'s ask stays listed if it names you, or until you have posted after it). '
             + 'Add --all to see ' + (agedAsks === 1 ? 'it' : 'them') + ' too.\n'
           : '';
         res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + coveredLine + agedLine);
