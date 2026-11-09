@@ -66,7 +66,7 @@ test('#5812: the keep call names the writer with undo off; the documents list sa
   assert.equal(by['late.md'], null, 'a change twenty minutes after the record was attributed');
 });
 
-test('#5812 review 1: on an enforcing board a token-only agent notes only its own writes, never another agent\'s', async () => {
+test('#5812 review 1: on an enforcing board a token-only agent is recorded as itself, never as the agent whose session it claims', async () => {
   const { boardAuthState } = require('./server');
   const sendertoken = require('./engine/sendertoken');
   const store = require('./engine/store');

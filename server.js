@@ -11691,7 +11691,7 @@ const server = http.createServer(async (req, res) => {
   }
   /* #5153 slice 4: undo a closed task's file changes (engine/undo.js; off by default, Josh can override).
      - GET/PUT /api/undo-setting { on }: the switch. The person's: an agent's token is refused on PUT.
-     - POST /api/undo/keep { path, cwd, session }: the report hook's call just before a Claude agent edits a file. The
+     - POST /api/undo/keep { path, cwd, session }: the report hook's call just before an agent edits a file (Claude's hook and, kosmos#8320, the Codex, Gemini, Grok and Antigravity bridges). The
        board keeps a copy only while the switch is on; the answer says whether it did. Agents' hooks call it, so an
        agent's token is accepted here (it copies a file on this computer into Kosmos's own data, nothing more); it is
        in AGENT_TOKEN_ROUTES (Baron's review), and a token-only caller gets copies for its own sessions only.
@@ -11808,15 +11808,19 @@ const server = http.createServer(async (req, res) => {
         /* #5812: the same call, switch on or off, records which agent is about to write a project file (the agent is
            looked up only for a file inside a project). After the answer, so the hook (which waits at most 3 s, before
            the edit) never waits on it. */
-        /* kosmos#8320: the caller's own agent token names the writer first, board token or not (a bridge sends both),
-           so a Codex, Gemini, Grok or Antigravity agent's edit in a project folder is recorded too. Without one, the
-           session and folder lookup as before (Claude's hook on the board token, a person running Claude by hand). */
-        const tokenCaller = agentTokenCaller(req);
+        /* kosmos#8320: when the call carries an agent token, that token ALONE names the writer, board token or not.
+           Every Kosmos-launched agent's hook sends one (the Codex, Gemini, Grok and Antigravity bridges and Claude's
+           hook alike), so their edits in a project folder are recorded even though only Claude's session ids are
+           known to agentFor. A token that does not name a known agent (revoked, retired, a key two names now share)
+           names nobody: never a fall back to the folder lookup, which could name whoever owns the cwd (a bad
+           credential is not swapped for a weaker one, as senderFromAgentToken says). With no agent token at all (a
+           person running Claude by hand), the session and folder lookup as before. */
+        const tokenSent = typeof req.headers['x-kosmos-agent-token'] === 'string' && req.headers['x-kosmos-agent-token'] !== '';
+        const tokenCaller = tokenSent ? agentTokenCaller(req) : null;
         setImmediate(() => {
           try {
             require('./engine/filewriters').noteWrite(body.path, () => {
-              const mine = undo.tokenWriter(tokenCaller);
-              if (mine) return mine;
+              if (tokenSent) return undo.tokenWriter(tokenCaller);
               const who = undo.agentFor(body.cwd, body.session);
               return who && undo.ownedBy(only || null, who) ? who : null;
             });

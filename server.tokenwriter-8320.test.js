@@ -115,9 +115,71 @@ test('kosmos#8320: tokenWriter takes the token\'s name, or its key only when no 
   assert.equal(tokenWriter({ name: 'kip', key: 'kip', twins: false }), 'kip');
   assert.equal(tokenWriter({ name: 'Kip', key: 'kip', twins: false }), 'kip', 'a named token whose name is not a profile is found by its key');
   assert.equal(tokenWriter({ name: 'Kip', key: 'kip', twins: true }), null, 'the key was taken although two names share it');
-  assert.equal(tokenWriter({ name: 'lou', key: 'kip', twins: true }), 'lou', 'an exact known name is taken even with twins');
+  assert.equal(tokenWriter({ name: 'kip', key: 'kip', twins: true }), 'kip', 'an exact known name is taken even with twins');
   assert.equal(tokenWriter({ name: 'kip', key: 'kip', byKey: true }), 'kip');
   assert.equal(tokenWriter({ name: 'nobody', key: 'nobody', twins: false }), null, 'an agent with no profile was taken');
   assert.equal(tokenWriter(null), null);
   assert.equal(tokenWriter(''), null);
+});
+
+test('kosmos#8320 review 1: a Claude agent\'s hook call (board token, its agent token, its own transcript session, cwd a project) names that agent', async () => {
+  mk('cid');
+  const flat = fs.realpathSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'cid')).replace(/[^A-Za-z0-9]/g, '-');
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', flat), { recursive: true });
+  fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', flat, 'sess-cid-1.jsonl'), '{}\n');
+  require('./engine/undo').resetForTests();
+  const cidTok = sendertoken.mint('cid').token;
+  const folder = path.join(process.env.AGENT_WORKFORCE_PROJECTS, 'memo');
+  fs.mkdirSync(folder, { recursive: true });
+  projects.writeAll([...projects.readAll(), { id: 'tw-c', name: 'Memo', folder, agents: ['cid'], tasks: [] }]);
+  require('./engine/filewriters').resetForTests();
+  const both = path.join(folder, 'both.md');
+  const sessionOnly = path.join(folder, 'session-only.md');
+  const was = { on: boardAuthState.on, token: boardAuthState.token };
+  boardAuthState.on = true;
+  boardAuthState.token = BOARD;
+  try {
+    await keep({ 'x-kosmos-board-token': BOARD, 'x-kosmos-agent-token': cidTok }, { path: both, cwd: fs.realpathSync(folder), session: 'sess-cid-1' });
+    // The same agent's hook with no agent token (an agent launched before tokens): the session lookup, as before.
+    await keep({ 'x-kosmos-board-token': BOARD }, { path: sessionOnly, cwd: fs.realpathSync(folder), session: 'sess-cid-1' });
+  } finally {
+    boardAuthState.on = was.on;
+    boardAuthState.token = was.token;
+  }
+  await new Promise((r) => setImmediate(r));
+  fs.writeFileSync(both, 'x');
+  fs.writeFileSync(sessionOnly, 'y');
+  const by = await changedBy('tw-c');
+  assert.equal(by['both.md'], 'CID', 'a Claude agent\'s call with its token was not named: ' + JSON.stringify(by));
+  assert.equal(by['session-only.md'], 'CID', 'the session lookup without a token stopped naming the agent');
+});
+
+test('kosmos#8320 review 1: an agent token that names nobody is not swapped for the folder lookup', async () => {
+  mk('fol');
+  require('./engine/undo').resetForTests();
+  const folder = path.join(process.env.AGENT_WORKFORCE_PROJECTS, 'plan');
+  fs.mkdirSync(folder, { recursive: true });
+  projects.writeAll([...projects.readAll(), { id: 'tw-r', name: 'Plan', folder, agents: ['fol'], tasks: [] }]);
+  require('./engine/filewriters').resetForTests();
+  const folDir = fs.realpathSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'fol'));
+  const bad = path.join(folder, 'bad-token.md');
+  const none = path.join(folder, 'no-token.md');
+  const was = { on: boardAuthState.on, token: boardAuthState.token };
+  boardAuthState.on = true;
+  boardAuthState.token = BOARD;
+  try {
+    // A token never issued (or revoked), with fol's own folder as cwd: the folder lookup alone would say FOL.
+    await keep({ 'x-kosmos-board-token': BOARD, 'x-kosmos-agent-token': 'deadbeef' + '0'.repeat(56) }, { path: bad, cwd: folDir, session: 's' });
+    // CONTROL: the same cwd with no agent token is named by the folder lookup, so the null above is the token's doing.
+    await keep({ 'x-kosmos-board-token': BOARD }, { path: none, cwd: folDir, session: 's' });
+  } finally {
+    boardAuthState.on = was.on;
+    boardAuthState.token = was.token;
+  }
+  await new Promise((r) => setImmediate(r));
+  fs.writeFileSync(bad, 'x');
+  fs.writeFileSync(none, 'y');
+  const by = await changedBy('tw-r');
+  assert.equal(by['bad-token.md'], null, 'a token naming nobody fell back to the folder lookup: ' + JSON.stringify(by));
+  assert.equal(by['no-token.md'], 'FOL', 'CONTROL: the folder lookup did not name the folder\'s agent');
 });
