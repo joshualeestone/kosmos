@@ -452,6 +452,29 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           ok(`${t} a hidden tab waits, and reads (and recovers) when it is looked at again`,
             !hiddenLook.shown && shownLook.shown && !shownLook.fixed && shownLook.name === 'studio-laptop', JSON.stringify({ hiddenLook, shownLook }));
           await bh.close();
+          /* #8325: a browser that remembers two computers shows the control before the first answer lands, a browser that
+             does not stays empty (the control), and the answer corrects it and clears what was remembered. */
+          for (const seededLoad of [true, false]) {
+            const s = await browser.newPage({ viewport: { width: 1200, height: 900 }, colorScheme: theme });
+            await s.addInitScript(({ answers, seededLoad }) => {
+              if (seededLoad) localStorage.setItem('kosmos.computersSeen', JSON.stringify({ openable: true, name: 'studio-laptop' }));
+              window.setInterval = () => 0;
+              const real = window.fetch;
+              window.fetch = (url, opts) => (String(url).indexOf('/api/remote/computers') !== -1
+                ? new Promise((r) => setTimeout(() => r(new Response(JSON.stringify(answers.one), { status: 200, headers: { 'content-type': 'application/json' } })), 1500))
+                : real(url, opts));
+            }, { answers: ANSWERS, seededLoad });
+            await s.goto(PAGE);
+            const shownNow = () => s.evaluate(() => { const el = document.getElementById('worldsw'); return !!el && !el.hidden && el.getClientRects().length > 0; });
+            await s.evaluate(({ worlds }) => { const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true; worldswRender(worlds, {}); }, { worlds: WORLDS });
+            const before = await shownNow();
+            ok(`${t} #8325: before the first answer the control is ${seededLoad ? 'shown from memory' : 'absent with nothing remembered'}`, before === seededLoad, String(before));
+            await s.evaluate(() => computersFetch());
+            const after = await shownNow();
+            const kept = await s.evaluate(() => localStorage.getItem('kosmos.computersSeen'));
+            ok(`${t} #8325: the answer corrects it and clears what was remembered`, after === false && kept === null, after + ' ' + kept);
+            await s.close();
+          }
         } else {
           const c = await read('one');
           ok(`${t} CONTROL: with the switch on, the Kosmoses list, New Kosmos and "Kosmos 1" are back`,
@@ -464,6 +487,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x 38 asserts = 152 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: twenty-one, six of them with CONTROLs).
-  process.exit(problems.length || pass + problems.length < 152 ? 1 : 0);
+  // 2 engines x 2 themes x 42 asserts = 168 (#8325 adds four; #6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: twenty-one, six of them with CONTROLs).
+  process.exit(problems.length || pass + problems.length < 168 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
