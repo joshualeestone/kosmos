@@ -221,7 +221,7 @@ async function measure(page) {
       DETAIL_FROM_PROJECT = null; detailBackPaint(); paintMyAgents();
       const b = document.getElementById('d-talk-box').getBoundingClientRect();
       const d = document.querySelector('#panel-detail .dleft').getBoundingClientRect();
-      const out = { back: getComputedStyle(document.getElementById('detail-back')).display, boxBottom: Math.round(b.bottom), innerHeight: window.innerHeight, docScrollH: document.scrollingElement.scrollHeight, dleftTop: Math.round(d.top), boxTop: Math.round(b.top), headBottom: Math.round(document.querySelector('.apphead').getBoundingClientRect().bottom) };
+      const out = { back: getComputedStyle(document.getElementById('detail-back')).visibility === 'hidden' ? 'none' : getComputedStyle(document.getElementById('detail-back')).display, boxBottom: Math.round(b.bottom), innerHeight: window.innerHeight, docScrollH: document.scrollingElement.scrollHeight, dleftTop: Math.round(d.top), boxTop: Math.round(b.top), headBottom: Math.round(document.querySelector('.apphead').getBoundingClientRect().bottom) };
       DETAIL_FROM_PROJECT = was; detailBackPaint(); paintMyAgents();
       return out;
     });

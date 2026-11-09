@@ -35,7 +35,7 @@ const read = () => {
     roles: [...box.querySelectorAll('.lrow .ltitle')].map((r) => r.textContent),
     badge: (box.querySelector('.lrow[data-agent="dario"] .dmbadge') || {}).textContent,
     state: box.querySelectorAll('.lrow .lstate').length ? getComputedStyle(box.querySelector('.lrow .lstate')).display : null,
-    back: getComputedStyle(back).display,
+    back: getComputedStyle(back).visibility === 'hidden' ? 'none' : getComputedStyle(back).display,
     backText: back.textContent,
     pageLeft: Math.round(document.getElementById('panel-detail').getBoundingClientRect().left),
     boxRight: Math.round(box.getBoundingClientRect().right),
@@ -239,14 +239,8 @@ const read = () => {
       const wiring = await page.evaluate(() => tick.toString().includes('keepStarFocus(paintMyAgents)'));
       ok(t + ' every poll repaints the column', wiring === true);
 
-      const gap = await page.evaluate(() => {
-        const talk = document.getElementById('d-sec-talk'); const was = talk.hidden;
-        talk.hidden = false;
-        const m = getComputedStyle(document.querySelector('#panel-detail .dleft')).marginTop;
-        talk.hidden = was;
-        return m;
-      });
-      ok(t + ' no empty row left where the link was', gap === '0px', gap);
+      const row = await page.evaluate(() => { const b = document.getElementById('detail-back').getBoundingClientRect(); return { h: Math.round(b.height), focusable: (() => { const el = document.getElementById('detail-back'); el.focus(); const f = document.activeElement === el; el.blur(); return f; })() }; });
+      ok(t + ' the link keeps its row, so the page does not move, and cannot be reached', row.h > 0 && row.focusable === false, JSON.stringify(row));
 
       const newLook = await page.evaluate(() => {
         document.documentElement.setAttribute('data-look', 'new');

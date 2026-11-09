@@ -537,7 +537,7 @@ async function docsLook(page, projectId) {
 async function agentHeadLook(page, projectId) {
   await page.mouse.move(1, 1);
   const READ = () => {
-    const vis = (el) => !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
+    const vis = (el) => !!el && getComputedStyle(el).display !== 'none' && getComputedStyle(el).visibility !== 'hidden' && el.getBoundingClientRect().width > 0;
     const back = document.getElementById('detail-back'), cb = document.getElementById('d-crumb-back'), root = document.getElementById('d-crumb-root');
     const sep = document.querySelector('#d-talk-box .d-crumb-rootwrap > .pj-crumb-sep'), lab = document.getElementById('d-talk-label');
     if (!back || !cb || !root || !lab || document.getElementById('panel-detail').hidden) return { found: false };
