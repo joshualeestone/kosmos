@@ -13,6 +13,8 @@ The count says "dropped" (Mona Lisa asked for one short word so the longest chip
 ## Rejected
 Inferring "never ran" from missing evidence (the first version). Review measured it mislabelling a parent whose children did the work, a person's own plain close, and a reopened task closed again, because the first close erased the evidence.
 
+The chip's radius is 10px everywhere rather than a full pill, at Mona Lisa's ask: CSS cannot tell when a chip has wrapped, and at one line 10px still reads as a pill.
+
 ## Not done
 The iPhone reads `done` and keeps its own count, so its number differs from the Mac's until #8146 (which is titled only for its on-hold count, so built and not-run on iPhone are still to be added there).
 
@@ -22,3 +24,5 @@ A board since #6923 refuses `--not-run` loudly; one older than that ignores the 
 
 ## Weakest premise
 Agents have to use the flag, so the third number starts at zero until they do.
+
+Several numbers closed with --not-run print the usual summary and do not say "as not run" per task; `task list` shows it.

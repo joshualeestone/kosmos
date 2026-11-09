@@ -2304,7 +2304,7 @@ function leftUnder(p, task, tree = treeOf(p)) {
     if (seen.has(at)) return null;
     seen.add(at);
     const above = tree.byNum.get(at);
-    if (!above || Number.isSafeInteger(above.replacedBy) || !closedAtOf(above)) return null;
+    if (!above || (Number.isSafeInteger(above.replacedBy) || above.closedUnrun === true) || !closedAtOf(above)) return null;
   }
   return up;
 }
