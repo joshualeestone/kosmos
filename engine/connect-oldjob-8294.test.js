@@ -189,6 +189,22 @@ test('a commented-out key and a WorkingDirectory inside the environment do not c
   assert.equal(discover.otherJobFor(dir, LAUNCH), null);
 });
 
+test('a comment naming Claude does not start it', () => {
+  const dir = agent('commented');
+  const f = script('tidy.sh', `# not claude related\nrsync "${dir}" /b\n`);
+  plist('com.commented.a', { args: ['/bin/bash', f] });
+  assert.equal(discover.otherJobFor(dir, LAUNCH), null);
+});
+
+test('the Program key and the tilde spelling are read', () => {
+  const inHome = path.join(process.env.HOME, 'agents', 'tilde');
+  fs.mkdirSync(inHome, { recursive: true });
+  const f = script('tilde.sh', 'cd ~/agents/tilde\nclaude\n');
+  fs.writeFileSync(path.join(LAUNCH, 'com.tilde.a.plist'),
+    `<?xml version="1.0"?><plist version="1.0"><dict><key>Program</key><string>${f}</string><key>RunAtLoad</key><true/></dict></plist>`);
+  assert.equal(discover.otherJobFor(inHome, LAUNCH).label, 'com.tilde.a');
+});
+
 test('no job folder at all answers none', () => {
   assert.equal(discover.otherJobFor(agent('nodir'), path.join(SB, 'absent')), null);
 });
