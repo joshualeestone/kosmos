@@ -288,6 +288,77 @@ function newestTranscript(dir) {
   return best;
 }
 
+/* #8293: how a Claude agent last ran, so connecting does not move it to the default account and model. Claude writes
+   session-env/<session id> (or file-history/<session id>) into the config dir that ran the session, even where
+   `projects` is shared between accounts by a link, which is why the transcript's own location cannot answer this.
+   Each answer is null when it cannot be told. */
+/* Half a megabyte: long tool results sit between assistant rows, and a shorter tail can hold none. */
+const LAST_RUN_TAIL_BYTES = 512 * 1024;
+/* Enough to step past another folder's sessions filed under the same lossy name, without opening every transcript. */
+const LAST_RUN_LOOK_AT = 20;
+/* A model not on Kosmos's menu is only trusted from a recent session: an old one may have been retired since. */
+const OFF_MENU_MODEL_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
+/* Not status.modelInText: that one also answers from a subagent's row, and a subagent often runs a cheaper model. */
+function lastModelIn(transcript) {
+  let text = '';
+  try { text = status.tailBytes(transcript, LAST_RUN_TAIL_BYTES).text; } catch { return null; }
+  if (typeof text !== 'string') return null;
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (!lines[i].includes('"assistant"')) continue;
+    let row;
+    try { row = JSON.parse(lines[i]); } catch { continue; }
+    if (!row || row.type !== 'assistant' || row.isSidechain) continue;
+    const model = row.message && row.message.model;
+    if (typeof model === 'string' && model && model !== '<synthetic>') return model;
+  }
+  return null;
+}
+function lastRunOf(dir) {
+  const none = { ran: false, account: null, model: null };
+  /* Claude files a session under the cwd it was launched from, which may be either spelling of a linked folder. */
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(String(p)); } };
+  const spellings = [...new Set([path.resolve(String(dir)), real(dir)])];
+  const candidates = [];
+  for (const root of status.configRoots()) {
+    for (const spelling of spellings) {
+      const folder = path.join(root, 'projects', spelling.replace(/[^a-zA-Z0-9]/g, '-'));
+      let names = [];
+      try { names = fs.readdirSync(folder); } catch { continue; }
+      for (const n of names) {
+        if (!n.endsWith('.jsonl')) continue;
+        const full = path.join(folder, n);
+        try {
+          const key = fs.realpathSync(full);   // accounts can share one projects folder through a link
+          if (!candidates.some((c) => c.key === key)) candidates.push({ full, key, at: fs.statSync(full).mtimeMs });
+        } catch { /* gone since the listing */ }
+      }
+    }
+  }
+  candidates.sort((a, b) => b.at - a.at);
+  /* The folder name is lossy (a dash and a slash arrive identical), so the newest may be another folder's: the newest
+     that says it ran here is this agent's. One whose folder cannot be read may be this agent's, so that is not "never ran". */
+  let found = null;
+  let unreadable = false;
+  for (const c of candidates.slice(0, LAST_RUN_LOOK_AT)) {
+    const ranIn = status.transcriptCwd(c.full);
+    if (!ranIn) { unreadable = true; continue; }
+    if (real(ranIn) === real(dir)) { found = c; break; }
+  }
+  if (!found) return unreadable ? { ran: true, account: null, model: null } : none;
+  const transcript = found.full;
+  const session = path.basename(transcript, '.jsonl');
+  const holders = new Map();
+  for (const row of require('./accounts').list()) {
+    if (!row || !row.dir) continue;
+    if (!['session-env', 'file-history'].some((sub) => fs.existsSync(path.join(row.dir, sub, session)))) continue;
+    let key = row.dir;
+    try { key = fs.realpathSync(row.dir); } catch { /* the path as listed */ }
+    holders.set(key, row);
+  }
+  return { ran: true, account: holders.size === 1 ? [...holders.values()][0] : null, model: lastModelIn(transcript), at: found.at };
+}
+
 /**
  * Every agent this computer has on disk.
  *
@@ -2004,10 +2075,21 @@ function connect(dir, opts) {
     const nameTaken = (shownClash && agentnames.takenSentence(shownClash)) || agentnames.refusalFor(name, { agents });
     if (nameTaken) return { ok: false, because: nameTaken };
   }
-  /* #5534: connecting a folder starts a new agent, so a company policy that does not allow its provider (or the
-     provider's default model, which is what it will run) refuses it here, before anything is written. */
+  /* #5534: connecting a folder starts a new agent, so a company policy that does not allow its provider or the model
+     it will run refuses it, before anything is written (the check follows the #8293 block). */
+  /* #8293: only a Claude agent is read here; another runner keeps today's behaviour. A read that failed counts as ran,
+     so the person is told rather than moved in silence. */
+  let last = { ran: false, account: null, model: null };
+  if (!runner) { try { last = lastRunOf(given); } catch { last = { ran: true, account: null, model: null }; } }
+  /* Only a Claude model (one run through a compatible endpoint, a DeepSeek or GLM id, would fail on a job with no such
+     endpoint), and only on the account it ran on, since another account may not be able to run it. */
+  const startable = Boolean(last.model && /^claude-/.test(last.model) && require('./linuxjob').MODEL_ID.test(last.model));
+  const onMenu = startable && create.modelsFor('anthropic').some((m) => m.arg === last.model);
+  const tooOld = startable && !onMenu && Date.now() - (last.at || 0) > OFF_MENU_MODEL_MAX_AGE_MS;
+  const keepModel = last.account && startable && !tooOld ? last.model : null;
   {
-    const allowed = create.policyAllows(create.runnerProvider(runner), '');
+    /* The model it will actually run: a policy listing that model is satisfied, and one that does not list it refuses. */
+    const allowed = create.policyAllows(create.runnerProvider(runner), keepModel || '', last.account ? last.account.dir : undefined);
     if (!allowed.ok) return { ok: false, because: allowed.because };
   }
   /* 🛑 THE PROVIDER GOES IN THE PROFILE TOO, NOT ONLY THE JOB (#1159). #1347 made
@@ -2121,7 +2203,11 @@ function connect(dir, opts) {
       }
     } catch { /* the sync after the session is up still does it, the old way */ }
   }
-  const job = create.installJob(name, runner ? { runner } : {});
+  const job = create.installJob(name, {
+    ...(runner ? { runner } : {}),
+    ...(last.account && !last.account.isDefault ? { configDir: last.account.dir } : {}),
+    ...(keepModel ? { model: keepModel } : {}),
+  });
   if (!job.ok) {
     /* Rolled back to what was there before, so a failed connect leaves nothing
        claiming an agent exists.
@@ -2154,7 +2240,18 @@ function connect(dir, opts) {
     return { ok: false, because: job.because || 'we could not set it up to run' };
   }
 
-  return { ok: true, name, displayName, dir: given, started: job.started === true };
+  let unknownLastRun = null;
+  if (!runner && last.ran) {
+    if (!last.account) unknownLastRun = 'we could not tell which Claude account it was using, so it will run on your main one, on the default model';
+    else if (!keepModel) {
+      if (tooOld) unknownLastRun = 'it last ran on a model that may have been retired since, so it will start on the default';
+      else unknownLastRun = last.model
+        ? 'it was using a model Kosmos cannot start here, so it will start on the default'
+        : 'we could not tell which Claude model it was using, so it will start on the default';
+    }
+  }
+  return { ok: true, name, displayName, dir: given, started: job.started === true,
+    ...(unknownLastRun ? { unknownLastRun } : {}) };
 }
 
 /**
@@ -2273,6 +2370,7 @@ module.exports = { alreadyIn, folderTakenBy,
   foundCodex,
   foundGemini,
   codexIdentity,
+  lastRunOf,
   runningUnderName, found, scan, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
   candidateDirs,
   declined, decline, undecline, DECLINED_FILE,

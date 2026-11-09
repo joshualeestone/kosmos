@@ -10334,7 +10334,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
