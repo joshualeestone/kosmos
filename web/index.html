@@ -2461,12 +2461,12 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .kmark .kstreak.quiet { opacity: 0; transform: translateY(-3px); visibility: hidden; }   /* Escape put it away (WCAG 1.4.13); back on the next hover or focus */
 @media (prefers-reduced-motion: reduce) { .kstreak { transition: none; } }
 /* kosmos#6397 (Josh 10-17: "make it a bit more graphical"; option A of the three drawn for him): on the first load of
-   the day the K mark lights up and a gold pill with Josh's sentence slides out of it for about 6 s, then folds into a
-   small gold number on the corner of the mark that stays for the rest of that day. It is the mark's own decoration,
+   the day the K mark lights up and a gold pill with Josh's sentence slides out of it for about 6 s, then folds away.
+   kosmos#8323: no count stays on the mark; a number on it read as a message that never clears. It is the mark's own decoration,
    beside it in the header, never a notice in the stack: so "Reload to finish updating" keeps its place. Only where
    there is room beside the mark (wider than 600px): on a phone the pill crossed the header's menu or, put below the
    mark, the notice stack, so there (and where the mark is hidden, Kosmos+ remote) the sentence keeps its notice in
-   #streak-slot, and the badge follows when the notice goes. */
+   #streak-slot. */
 .kpill { position: absolute; left: calc(100% + 10px); top: 50%; z-index: 6; transform: translate(-6px, -50%) scale(.96);
   opacity: 0; visibility: hidden; transition: opacity .25s ease, transform .35s cubic-bezier(.2,.9,.3,1.2), visibility 0s linear .35s; pointer-events: none;
   width: max-content; max-width: calc(100vw - 80px); padding: 7px 14px; border-radius: 999px; line-height: 1.3;
@@ -2487,10 +2487,6 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .kmark.kglow::before { top: -7px; right: -6px; }
 .kmark.kglow::after { bottom: -6px; left: -7px; font-size: 8px; animation-delay: .5s; }
 @keyframes kspark { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.15); } }
-.kbadge { position: absolute; top: -6px; right: -7px; z-index: 4; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
-  border-radius: 999px; background: var(--gold-bright, #e3b341); color: #1c1710; font: 700 .6875rem/18px var(--font-ui); text-align: center;
-  font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--k-bg, var(--bg)); pointer-events: none; }   /* review 7: the header's own colour */
-.kbadge[hidden] { display: none; }
 @media (prefers-reduced-motion: reduce) { .kpill { transition: none; } .kmark.kglow .klink img { transition: none; } .kmark.kglow::before, .kmark.kglow::after { animation: none; opacity: 1; } }
 /* ---- grid / list toggle. One component, each instance NAMES its scope with
    data-scope (the control says what it operates on rather than assuming there
@@ -13044,7 +13040,7 @@ window.kosmosMeasureScrollbarWidth();
     <!-- #6160: the streak's label (engine/streak.js). kosmos#6397: its daily note is the pill below; #streak-slot on a phone, where the mark is hidden, or where the pill has no room. -->
     <span class="kstreak" id="kstreak" role="tooltip" hidden></span>
     <!-- kosmos#6397: the day's pill (Josh's sentence, read out once) and the count it folds into. -->
-    <span class="kpill" id="kpill" aria-hidden="true"></span><span class="vh" id="kpill-say" role="status"></span><span class="kbadge" id="kbadge" aria-hidden="true" hidden></span></span>
+    <span class="kpill" id="kpill" aria-hidden="true"></span><span class="vh" id="kpill-say" role="status"></span></span>
     <!-- ⚠️ `tabindex="-1"` so it can be FOCUSED programmatically without joining
          the tab order. Without it `h1.focus()` is a silent no-op, and the fallback
          that sends the keyboard here after a removal would do nothing at all --
@@ -39729,28 +39725,13 @@ function streakLocalDay(d) {
 }
 function streakLabel(n) { return n === 1 ? '1 day in the Kosmos' : n + ' days in a row in the Kosmos'; }
 function streakCongrats(n) { return "Congrats you've been in the Kosmos for " + n + ' days!'; }
-let streakDay = null, streakAsking = false, streakNoteTimer = null, streakInputAt = 0, streakMisses = 0, streakNoteCount = 0;   // the load itself is not input: it already counted its own day
+let streakDay = null, streakAsking = false, streakNoteTimer = null, streakInputAt = 0, streakMisses = 0;   // the load itself is not input: it already counted its own day
 function streakNoteGone() {
   const slot = document.getElementById('streak-slot');
   if (!slot) return;
   const held = slot.contains(document.activeElement);
-  const had = Boolean(slot.firstElementChild);
   slot.innerHTML = ''; clearTimeout(streakNoteTimer);
-  // kosmos#6397: as the pill does, the day's notice leaves the count on the mark for the rest of the day.
-  if (had && streakNoteCount >= 2) { streakBadgeKeep(streakDay || streakLocalDay(new Date())); streakBadge(streakNoteCount); }
   if (held) rebootFocusAway();   // the K mark, as the other notices do
-}
-/* kosmos#6397: the badge the day's pill folds into stays for the rest of THAT day, on this browser: the day it was
-   folded is kept in localStorage (a per-viewer convenience; storage that is blocked or full only means no badge). */
-const STREAK_BADGE_KEY = 'kosmos.streakBadgeDay';
-function streakBadgeDay() { try { return localStorage.getItem(STREAK_BADGE_KEY); } catch { return null; } }
-function streakBadgeKeep(day) { try { localStorage.setItem(STREAK_BADGE_KEY, day); } catch { /* no badge, nothing worse */ } }
-function streakBadge(n) {
-  const badge = document.getElementById('kbadge');
-  if (!badge) return;
-  const on = n >= 2 && streakBadgeDay() === streakLocalDay(new Date());
-  badge.textContent = on ? String(n) : '';
-  badge.hidden = !on;
 }
 let streakPillTimer = null, streakPillFold = null, streakPillWidth = null, streakPillDay = null;
 /* Review 1: where the pill can go, MEASURED, not assumed. Beside the mark if it covers no header control (the computer
@@ -39782,7 +39763,7 @@ function streakPillPlace(pill) {
   }
 }
 /* The pill: Josh's sentence out of the K for about 6 s (it waits while the pointer is on the mark or the pill, or the
-   keyboard on the mark), then it folds into the badge. Escape folds it at once (WCAG 1.4.13). Returns false when
+   keyboard on the mark), then it folds away. Escape folds it at once (WCAG 1.4.13). Returns false when
    there is nowhere it can go without covering something (the caller then shows the notice). */
 function streakPill(n) {
   const mark = document.querySelector('.kmark'), pill = document.getElementById('kpill'), k = document.getElementById('klink');
@@ -39795,17 +39776,13 @@ function streakPill(n) {
   pill.textContent = '';
   const day = streakDay || streakLocalDay(new Date());   // review 1: the day the visit counted, not the day it folds
   streakPillDay = day;
-  /* Review 2: kept NOW, not at the fold: the board says congrats once a day, so a reload while the pill is out would
-     otherwise lose both the pill and the badge for the day. The badge still shows only once this pill folds. */
-  streakBadgeKeep(day);
-  /* Review 5: `toNote` (the watch found no room left) hands the day's words to the notice instead of the badge, so a
-     sentence on show for under half a second is not the day's only sight of it; the badge follows when the notice goes. */
+  /* Review 5: `toNote` (the watch found no room left) hands the day's words to the notice, so a
+     sentence on show for under half a second is not the day's only sight of it. */
   const fold = (toNote) => {
     clearTimeout(streakPillTimer); streakPillFold = null; streakPillWidth = null;
     pill.classList.remove('in'); mark.classList.remove('kglow');
     setTimeout(() => { if (!pill.classList.contains('in')) { pill.textContent = ''; const say = document.getElementById('kpill-say'); if (say) say.textContent = ''; } }, 400);
     if (toNote === true) { streakNote(n, document.getElementById('streak-slot'), { said: true }); return; }   // review 6: already read out
-    streakBadgeKeep(day); streakBadge(n);
   };
   streakPillFold = fold; streakPillWidth = window.innerWidth;
   /* Review 1: the words are announced from a status region that is always in the page and always exposed (.vh,
@@ -39821,8 +39798,7 @@ function streakPill(n) {
   const later = (ms) => { clearTimeout(streakPillTimer); streakPillTimer = setTimeout(() => { if (held()) later(1500); else fold(); }, ms); };
   /* Review 1: something can arrive under the pill after it was placed (the computer switcher shows once the computers
      are read). While it is out, it looks again every 400 ms; covering something, it moves below the mark if that is
-     clear there (review 4: measured at rest, .measure, not mid-slide), else it hands the words to the notice (review 5;
-     the badge follows when the notice goes). */
+     clear there (review 4: measured at rest, .measure, not mid-slide), else it hands the words to the notice (review 5). */
   const covering = () => streakPillHits(pill.getBoundingClientRect(), STREAK_PILL_HEADER + ', #topnotes > * > *');
   const watchIt = () => {
     const watch = setInterval(() => {
@@ -39865,10 +39841,9 @@ function paintStreak(got) {
   lab.textContent = n ? streakLabel(n) : '';
   lab.hidden = !n;
   if (n) k.setAttribute('aria-describedby', 'kstreak'); else k.removeAttribute('aria-describedby');
-  streakBadge(n);
   if (!(n >= 2 && got.congrats === true)) return;
   /* kosmos#6397: where the K mark is shown with room beside it, the day's note is the mark's pill; on a phone (or where
-     the mark is hidden, Kosmos+ remote) the sentence keeps its notice below, and the badge follows when it goes.
+     the mark is hidden, Kosmos+ remote) the sentence keeps its notice below.
      Review 3: decided (and measured) only once the loading cover is gone, so its seconds are never spent unseen. */
   const forDay = streakDay;   // review 7: a wait that outlives its day (a hidden tab across midnight) is dropped
   streakWhenUncovered(() => {
@@ -39888,9 +39863,6 @@ function streakWhenUncovered(fn) {
   streakUncoverWait = setTimeout(() => streakWhenUncovered(fn), 200);
 }
 function streakNote(n, slot, opts = {}) {
-  streakNoteCount = n;
-  // Review 3: the day is kept when the notice SHOWS (as the pill's is), so a reload during it keeps the badge.
-  streakBadgeKeep(streakDay || streakLocalDay(new Date()));
   if (slot) {
     slot.innerHTML = '<div class="utoast streak">'
       + '<span class="udot" aria-hidden="true"></span>'

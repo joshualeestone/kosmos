@@ -1130,7 +1130,6 @@ const SCREENS = [
     await page.waitForSelector('#kpill.in, #streak-slot .utoast.streak', { state: 'attached', timeout: 12000 });
     await page.keyboard.press('Escape');
     await page.evaluate(() => { const x = document.querySelector('#streak-slot .ux'); if (x) x.click(); });   // a phone: the notice's X
-    await page.waitForSelector('#kbadge:not([hidden])', { state: 'attached', timeout: 5000 });
     await page.waitForTimeout(450);
   } },
   { name: 'streak-hover', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
