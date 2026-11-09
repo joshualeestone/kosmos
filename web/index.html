@@ -11603,16 +11603,19 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .myagents-list .lrow:hover { background: var(--attn-bg); }
 .myagents-list .lrow.current { background: var(--attn-bg); box-shadow: inset 0 0 0 1px var(--k-ink-2); }
 .myagents-list .lrow:has(:focus-visible) { outline: 2px solid var(--k-ink); outline-offset: -2px; }
-.myagents-list .lrow > .lav { grid-row: 1 / span 2; position: relative; }
-.myagents-list .lav .lring, .myagents-list .lav .lwarn, .myagents-list .lav .lpres { display: block; }   /* who is up and who needs you, on the avatar */
+.myagents-list .lrow > .lav { grid-row: 1 / span 2; position: relative; overflow: visible; }
+/* Who is up and who needs you, on the avatar: the ring and warning mark placed as the one-screen rail places them. */
+.myagents-list .lrow > .lav > .lring { display: block; position: absolute; inset: 0; width: 34px; height: 34px; }
+.myagents-list .lrow > .lav > .lwarn { display: block; position: absolute; left: 50%; top: 50%; width: 18px; height: 16px; transform: translate(-50%, -52%); }
+.myagents-list .lrow > .lav > .lpres { display: block; position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; }
 .myagents-list .lrow > .lname { grid-column: 2; display: flex; align-items: center; gap: 6px; min-width: 0; }
 .myagents-list .lrow > .lname .namego { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .myagents-list .lrow > .lname b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 20px; }
 .myagents-list .lrow > .lname:has(.astar) { padding-right: 70px; }
 .myagents-list .lrow > .lname .astar { right: 26px; }   /* clear of the unread count, as the rail's (render-star-6719) */
 .myagents-list .lrow > .ltitle { grid-column: 2; font-size: 12px; color: var(--k-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.myagents-list .lrow > :not(.lav):not(.lname):not(.ltitle):not(.dmbadge):not(.navbadge) { display: none; }
-.myagents-list .lrow > .dmbadge, .myagents-list .lrow > .navbadge { position: absolute; top: 2px; right: 4px; }
+.myagents-list .lrow > :not(.lav):not(.lname):not(.ltitle):not(.dmbadge) { display: none; }
+.myagents-list .lrow > .dmbadge { position: absolute; top: 2px; right: 4px; }
 /* The notices above the page move over with it, or the column would cover them. */
 body.has-myagents #panel-detail, body.has-myagents > #askcard, body.has-myagents > #conn { margin-left: 260px; }
 body.has-myagents.myagents-folded #panel-detail, body.has-myagents.myagents-folded > #askcard, body.has-myagents.myagents-folded > #conn { margin-left: 48px; }
@@ -49677,19 +49680,22 @@ for (const boardEl of [document.getElementById('grid'), document.getElementById(
     if (star) { e.preventDefault(); toggleStar(star.dataset.star, e.detail === 0); return; }
     // #6400: an agent with a question carries its answer target on the card or row itself (answerAttrs), so it is
     // checked FIRST: the plain open below would take the same click and skip focusing the reply box.
+    // kosmos#8303: My Agents: reopening the agent already open would reload its page and throw away anything typed there.
+    const ownList = boardEl.id === 'my-agents-list';
+    if (ownList && e.target.closest('.lrow.current')) return;
     const answer = e.target.closest('[data-answer]');
     // A control of its own inside the card (anything but the name, which IS the answer route) is not an answer.
     const ownControl = e.target.closest('button, a, input, select, textarea, [role="button"]');
     if (answer && !(ownControl && answer.contains(ownControl) && !ownControl.classList.contains('namego'))) {
-      pjAnswerFrom(answer.dataset.answer, answer.dataset.answerName); return;
+      const fromProject = ownList ? DETAIL_FROM_PROJECT : null;
+      pjAnswerFrom(answer.dataset.answer, answer.dataset.answerName);
+      if (fromProject) { DETAIL_FROM_PROJECT = fromProject; detailBackPaint(); paintMyAgents(); }
+      return;
     }
     // .acard in the grid, .lrow in the list: one contract (data-agent).
     const card = e.target.closest('.acard[data-agent], .lrow[data-agent]');
-    // kosmos#8303: reopening the agent already open would reload its page and throw away anything typed there.
-    if (card && !(boardEl.id === 'my-agents-list' && card.classList.contains('current'))) {
-      // Moving between agents in My Agents keeps the way back to the project they were reached from.
-      openDetail(card.dataset.agent, undefined, boardEl.id === 'my-agents-list' ? (DETAIL_FROM_PROJECT || undefined) : undefined);
-    }
+    // kosmos#8303: moving between agents in My Agents keeps the way back to the project they were reached from.
+    if (card) openDetail(card.dataset.agent, undefined, ownList ? (DETAIL_FROM_PROJECT || undefined) : undefined);
   });
 }
 /**
@@ -55421,7 +55427,8 @@ document.getElementById('my-agents-list').addEventListener('click', (e) => {
   const name = e.detail > 0 && e.target.closest('.namego');
   if (name) name.blur();
 });
-window.addEventListener('resize', paintMyAgents);
+let MY_AGENTS_RAF = 0;
+window.addEventListener('resize', () => { cancelAnimationFrame(MY_AGENTS_RAF); MY_AGENTS_RAF = requestAnimationFrame(() => keepStarFocus(paintMyAgents)); });
 if (typeof ResizeObserver === 'function') new ResizeObserver(paintMyAgents).observe(document.querySelector('.apphead'));   // a taller header moves the column's top
 /* #3387: the "Other Agents" sub-header's + is the New-agent action. Delegated off #alist
    because the list is rebuilt on every poll, so a bound listener would not survive. */
