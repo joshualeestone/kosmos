@@ -9,7 +9,7 @@ Served on PROD, an agent conversation on the computer measures 18px per line (13
 `#d-dmthread .msg-bd` gains `line-height: 18px`. The check that already measures the room now asserts this too.
 
 ## Not this
-The room; a message from outside Kosmos in a shared project (`.msg-ext-tx`, still 13/16); the iPhone (system spacing).
+Kosmos's own notices and saved drafts in the same thread (`.msg-valve`, one-liners outside the bubble); the room; a message from outside Kosmos in a shared project (`.msg-ext-tx`, still 13/16); the iPhone (system spacing).
 
 ## Weakest premise
 That "chat line spacing" means the computer's agent conversation, which is what the picture showed. The iPhone was not in the picture.

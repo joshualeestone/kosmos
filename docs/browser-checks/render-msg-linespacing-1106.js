@@ -86,9 +86,16 @@ const LONG = 'This message is long enough to wrap onto several lines in a narrow
               if (!b) return { error: 'no .msg-bd in the row' };
               const c = getComputedStyle(b);
               const lh = parseFloat(c.lineHeight); const fs = parseFloat(c.fontSize);
-              const h = b.getBoundingClientRect().height - parseFloat(c.paddingTop) - parseFloat(c.paddingBottom);
-              const lines = Math.round(h / lh);
-              return { lh, fs, h, lines, drawn: lines ? h / lines : 0, how: 'no <p>, the words sit in .msg-bd', text: c.fontSize + ' / ' + c.lineHeight };
+              // The drawn pitch of the words alone: the bubble also holds the name and the time.
+              const w = document.createTreeWalker(b, NodeFilter.SHOW_TEXT);
+              let longest = null;
+              for (let n = w.nextNode(); n; n = w.nextNode()) if (!longest || n.length > longest.length) longest = n;
+              const range = document.createRange();
+              range.selectNodeContents(longest);
+              const tops = [...new Set([...range.getClientRects()].map((x) => Math.round(x.top * 10) / 10))].sort((x, y) => x - y);
+              const lines = tops.length;
+              const drawn = lines > 1 ? (tops[lines - 1] - tops[0]) / (lines - 1) : 0;
+              return { lh, fs, lines, drawn, how: 'no <p>, the words sit in .msg-bd', text: c.fontSize + ' / ' + c.lineHeight };
             }
             const p = host.querySelector('.msg p');
             const bd = host.querySelector('.msg-bd');
@@ -116,7 +123,7 @@ const LONG = 'This message is long enough to wrap onto several lines in a narrow
           else {
             chk(d.lh === 18, `${t} agent conversation: 18px per line`, d.text);
             chk(d.lines >= 3, `${t} agent conversation: the test message wraps to several lines`, `lines=${d.lines}`);
-            chk(Math.abs(d.drawn - 18) <= 0.5, `${t} agent conversation: each drawn line is 18px`, `height=${d.h.toFixed(2)} lines=${d.lines}`);
+            chk(Math.abs(d.drawn - 18) <= 0.5, `${t} agent conversation: each drawn line is 18px`, `pitch=${d.drawn.toFixed(2)} lines=${d.lines}`);
           } }
         const m = r.room;
         if (m.error) chk(false, `${t} project room: a message paragraph rendered`, m.error + ' (' + m.how + ')');
