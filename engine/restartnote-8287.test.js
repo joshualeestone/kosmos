@@ -213,6 +213,17 @@ test('#8287: a second restart soon after the first still asks about everyone', (
   assert.deepEqual(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running.map((a) => a.session), ['leo'], 'CONTROL: after the window the list is who is up');
 });
 
+test('#8287: when roster reads have stopped, the beat stops claiming who is running', () => {
+  clean();
+  const T0 = Date.now();
+  rn.noteRunning([card('leo', 'Leo')], T0);
+  rn.noteRunning(null);
+  rn.beat(T0 + 5 * MIN);
+  assert.equal(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running.length, 1, 'CONTROL: a recent read still counts');
+  rn.beat(T0 + 5 * MIN + 1);
+  assert.equal('running' in JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')), false, 'a list hours old was written as current');
+});
+
 test('#8287: a list from a board last open long ago is not carried into this run', () => {
   clean();
   const T0 = Date.now();
