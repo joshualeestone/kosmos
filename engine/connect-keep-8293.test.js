@@ -268,6 +268,41 @@ test('a transcript whose folder cannot be read is said, not treated as never hav
   assert.match(out.unknownLastRun, /could not tell which Claude account/);
 });
 
+test('an unreadable newer transcript does not hide this agent\'s own', () => {
+  const dir = agent('unreadnewer', { session: 'mine' });
+  ranOn(ACCT_B, 'mine');
+  const folder = path.join(HOME, '.claude', 'projects', dir.replace(/[^a-zA-Z0-9]/g, '-'));
+  const blank = path.join(folder, 'blank.jsonl');
+  fs.writeFileSync(blank, JSON.stringify({ type: 'summary' }) + '\n');
+  const later = new Date(Date.now() + 60000);
+  fs.utimesSync(blank, later, later);
+  discover.connect(dir, {});
+  assert.equal(seen.configDir, ACCT_B);
+});
+
+test('a recent off-menu model is kept; an old one is not, and it says why', () => {
+  const recent = agent('offmenurecent', { lines: [assistant('claude-opus-4-8')] });
+  ranOn(ACCT_B);
+  const out1 = discover.connect(recent, {});
+  assert.equal(seen.model, 'claude-opus-4-8');
+  assert.equal(out1.unknownLastRun, undefined);
+  const old = agent('offmenuold', { session: 'sess-old', lines: [assistant('claude-opus-3-0')] });
+  ranOn(ACCT_B, 'sess-old');
+  const folder = path.join(HOME, '.claude', 'projects', old.replace(/[^a-zA-Z0-9]/g, '-'));
+  const longAgo = new Date(Date.now() - 40 * 24 * 3600 * 1000);
+  fs.utimesSync(path.join(folder, 'sess-old.jsonl'), longAgo, longAgo);
+  const out2 = discover.connect(old, {});
+  assert.equal(seen.configDir, ACCT_B);
+  assert.equal('model' in seen, false);
+  assert.match(out2.unknownLastRun, /may have been retired/);
+  const menu = agent('onmenuold', { session: 'sess-menu', lines: [assistant('claude-haiku-5-5')] });
+  ranOn(ACCT_B, 'sess-menu');
+  const f3 = path.join(HOME, '.claude', 'projects', menu.replace(/[^a-zA-Z0-9]/g, '-'), 'sess-menu.jsonl');
+  fs.utimesSync(f3, longAgo, longAgo);
+  discover.connect(menu, {});
+  assert.equal(seen.model, 'claude-haiku-5-5');
+});
+
 test('a Codex folder is left exactly as before', () => {
   const dir = path.join(SB, 'theirs', 'codexone');
   fs.mkdirSync(dir, { recursive: true });
