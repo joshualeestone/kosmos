@@ -419,6 +419,9 @@ struct ChatView: View {
             openCount.shown(rowsDrawn: !onScreen.isEmpty)
             // kosmos#8072: pull past the newest message for a read. Only with the end marker showing and nobody searching.
             endPull.restsAbove = 14.5   // Mona Lisa's B, set by measuring: 11.5 pt under the working line, 21.5 above the box, clear of its fade
+            // kosmos#8221 slice 9: the UIKit list's end sits 12 pt lower under the working line (measured 11-09 05:0x: the dots
+            // at rest were -0.5 pt under it and 33.5 above the box, the same 33 pt between), so they rest 12 pt lower there.
+            if uikitList { endPull.restsAbove = 2.5 }
             endPull.allowed = { endVisible && !searchMode }
             endPull.refresh = { _ = await read() }
             scrollBox.endPull = endPull
@@ -656,6 +659,10 @@ struct ChatView: View {
             // kosmos#8221 slice 7: the reader at the top asks for the page before, as the lazy list's top marker does.
             topVisible = now
             if now { loadEarlier() }
+        }, scroller: { view in
+            // kosmos#8221 slice 9: the pull past the newest message (#8072) on this list too. Its guard (allowed: at the
+            // newest, not searching) reads endVisible, which this list's atEnd sets.
+            endPull.attach(to: view)
         }, sampleUp: sampleUp, sampleRested: {
             #if DEBUG
             sampleScrollRested = true; Self.trace("debug scroll-up rested, atBottom \(atBottom)")
