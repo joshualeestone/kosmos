@@ -16,28 +16,33 @@ const PLAIN_TOOL = /^[A-Za-z0-9_.-]{1,64}$/;
 
 /* kosmos#7977: the word a "Can't tell" card carries, and the three shapes behind it, read from the card itself: no
    window on this computer (a paneless agent known only by its token and reports), a job running where this board cannot
-   see it (#668), or a window this board has but cannot read a state from (a stale report against an idle screen, #7977's
-   first case). A fixed word each, never the card's own sentence (#3729). */
+   see it (#668), or an agent this board does reach (a Mac pane, a Windows supervisor's stream, a Muse pane) that tells
+   it no state now, such as a stale "working" report against an idle screen (#7977's first case). A fixed word each,
+   never the card's own sentence (#3729). Only our own agents' cards: a stranger's session that shares a name is not
+   the agent, so it gets neither a shape nor the agent's report (review 1). */
+/* cardlabel's STATE_COPY.unknown and selfreport.STATES, kept equal by clilists.test.js. Written out, not required: the
+   CLIs carry this file without the rest of the engine (cli.agent-create-3734 goes red on a require here). */
 const CANT_TELL = "Can't tell";
-const REPORT_STATES = new Set(['started', 'working', 'idle', 'needs_you', 'blocked', 'stopped']);   // selfreport.STATES
+const REPORT_STATES = new Set(['started', 'working', 'idle', 'needs_you', 'blocked', 'stopped']);
 function cantTellOf(a) {
   if (a.paneless === true) return 'no-window';
   if (a.running === false && a.jobRunningUnseen === true) return 'unseen';
   return 'unread';
 }
 
-/* `lastReport` (kosmos#7977): the agent's latest self-report ({ found, state, at }, selfreport.read), passed only for a
-   "Can't tell" card; its state and time travel, never its words. */
+/* `lastReport` (kosmos#7977): the agent's latest self-report for a "Can't tell" card, as the route makes it: { state, at }
+   when it has one, { never: true } only when it has no record at all (never for a record that could not be read, review
+   1), else null. Its state and time travel, never its words. */
 function rosterRow(a, lastReport) {
   const row = { name: a.name, role: (a.profile && a.profile.role) || a.role || null, state: a.cardWord || null };
-  if (row.state === CANT_TELL) {
+  if (row.state === CANT_TELL && a.isNamedOurs === true) {
     row.cantTell = cantTellOf(a);
     const r = lastReport && typeof lastReport === 'object' ? lastReport : null;
-    const at = r && r.found === true && typeof r.at === 'string' ? Date.parse(r.at) : NaN;
-    if (r && r.found === true && REPORT_STATES.has(r.state) && Number.isFinite(at)) {
+    const at = r && typeof r.at === 'string' ? Date.parse(r.at) : NaN;
+    if (r && REPORT_STATES.has(r.state) && Number.isFinite(at)) {
       row.lastReportState = r.state;
       row.lastReportAt = new Date(at).toISOString();
-    } else if (r && r.found === false) row.neverReported = true;
+    } else if (r && r.never === true) row.neverReported = true;
   }
   const since = (f) => (f && typeof f.since === 'string' ? f.since : null);
   if (a.state === 'idle' && since(a.unsentInput)) row.unsentSince = a.unsentInput.since;
@@ -72,7 +77,7 @@ function stateLines(a) {
      went quiet from one this board cannot see. */
   if (a.cantTell === 'no-window') lines.push('  no window on this computer to read: Kosmos knows it only from its own reports');
   else if (a.cantTell === 'unseen') lines.push('  its job is running, but not anywhere Kosmos can see it');
-  else if (a.cantTell === 'unread') lines.push('  Kosmos has its window here but cannot tell from it what it is doing');
+  else if (a.cantTell === 'unread') lines.push('  Kosmos reaches it on this computer but cannot tell what it is doing now');
   if (a.cantTell && typeof a.lastReportState === 'string' && REPORT_STATES.has(a.lastReportState)) {
     lines.push('  last report: ' + a.lastReportState.replace('_', ' ') + ' at ' + when(a.lastReportAt));
   } else if (a.cantTell && a.neverReported === true) lines.push('  it has never reported to this board');

@@ -111,8 +111,14 @@ test('kosmos#7977: a "Can\'t tell" card reaches the list with its shape and last
   const at = '2026-11-09T08:12:00.000Z';
   let board = null;
   t.after(() => { selfreport.read = realRead; if (board && board.restore) board.restore(); });   // registered first
-  selfreport.read = (name) => (name === 'mara' ? { found: true, state: 'working', at, final: 'SECRET-FINAL', project: 'SECRET-PROJ' } : realRead(name));
-  board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'unknown' })]);
+  const reports = {
+    mara: { found: true, state: 'working', at, final: 'SECRET-FINAL', project: 'SECRET-PROJ' },
+    nova: { found: false, because: selfreport.NO_READING.NEVER_REPORTED },
+    odin: { found: false, because: selfreport.NO_READING.UNREADABLE },
+  };
+  selfreport.read = (name) => reports[name] || realRead(name);
+  board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'unknown' }),
+    fleet.agent('nova', { state: 'unknown' }), fleet.agent('odin', { state: 'unknown' })]);
   const r = await call('GET', '/api/agents/list', { headers: { 'x-kosmos-agent-token': agentToken } });
   assert.equal(r.code, 200, r.text.slice(0, 120));
   const agents = JSON.parse(r.text).agents;
@@ -121,6 +127,10 @@ test('kosmos#7977: a "Can\'t tell" card reaches the list with its shape and last
   assert.equal(mara.state, "Can't tell", 'the fixture did not make a Can\'t tell card: ' + JSON.stringify(mara));
   assert.deepEqual(mara, { name: 'mara', role: mara.role, state: "Can't tell", cantTell: 'unread', lastReportState: 'working', lastReportAt: at });
   assert.doesNotMatch(r.text, /SECRET-/, 'a report\'s words reached the list');
+  // Review 1: "never reported" only for no record at all; a record that could not be read says nothing.
+  assert.equal(agents.find((a) => a.name === 'nova').neverReported, true, JSON.stringify(agents));
+  const odin = agents.find((a) => a.name === 'odin');
+  assert.deepEqual(Object.keys(odin).sort(), ['cantTell', 'name', 'role', 'state'], 'an unreadable record was said: ' + JSON.stringify(odin));
   const poc = agents.find((a) => a.name === 'poc-agent');
   assert.deepEqual(Object.keys(poc).sort(), ['name', 'role', 'state'], 'CONTROL: an idle card gained fields');
 });
