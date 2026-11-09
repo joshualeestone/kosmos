@@ -148,19 +148,57 @@ const read = () => {
       ok(t + ' a rebuild keeps a focused name on its agent', keys.nameKept === true, JSON.stringify(keys));
       ok(t + ' clicking the agent already open does not reload its page', keys.opened.length === 0, JSON.stringify(keys));
 
-      const scrolled = await page.evaluate(() => {
-        const box = document.getElementById('my-agents'); const head = document.querySelector('.apphead');
-        document.body.style.minHeight = '3000px';
-        head.style.position = 'static';
-        window.scrollTo(0, 400);
-        window.dispatchEvent(new Event('scroll'));
-        const top = parseFloat(getComputedStyle(box).getPropertyValue('--myagents-top'));
-        const bottom = head.getBoundingClientRect().bottom;
-        window.scrollTo(0, 0); head.style.position = ''; document.body.style.minHeight = '';
-        window.dispatchEvent(new Event('scroll'));
-        return { top, bottom };
+      const real = await page.evaluate(() => {
+        openDetail('dario');
+        const onDario = { current: document.querySelector('#my-agents-list .lrow.current')?.dataset.agent, toAll: document.getElementById('panel-detail').hasAttribute('data-to-all') };
+        PROJECTS = [{ id: 'k', name: 'Kosmos', agents: [], archived: false }];
+        openDetail('mark', undefined, 'k');
+        const fromProject = { current: document.querySelector('#my-agents-list .lrow.current')?.dataset.agent, toAll: document.getElementById('panel-detail').hasAttribute('data-to-all') };
+        openDetail('jen');
+        return { onDario, fromProject };
       });
-      ok(t + ' the column follows a header that scrolls away', scrolled.top === Math.max(0, scrolled.bottom), JSON.stringify(scrolled));
+      ok(t + ' opening an agent for real moves the mark to it', real.onDario.current === 'dario' && real.onDario.toAll === true, JSON.stringify(real));
+      ok(t + ' opening one from a project for real keeps its link', real.fromProject.current === 'mark' && real.fromProject.toAll === false, JSON.stringify(real));
+
+      const marks = await page.evaluate(() => {
+        LAST[1].running = true; LAST[1].state = 'needs_you'; LAST[1].context = { percent: 10 };
+        paintMyAgents();
+        const row = document.querySelector('#my-agents-list .lrow[data-agent="mark"]');
+        const shown = (sel) => { const el = row.querySelector(sel); return el ? getComputedStyle(el).display !== 'none' : null; };
+        const out = { pres: shown('.lpres'), warn: shown('.lwarn'), ring: shown('.lring') };
+        LAST[1].running = false; LAST[1].state = 'stopped'; LAST[1].context = null;
+        paintMyAgents();
+        return out;
+      });
+      ok(t + ' the presence dot and warning mark show on the avatar', marks.pres === true && marks.warn === true, JSON.stringify(marks));
+
+      const typing = await page.evaluate(() => {
+        const name = document.querySelector('#my-agents-list .lrow[data-agent="dario"] .namego');
+        const real = openDetail; openDetail = () => {};
+        name.focus();
+        name.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+        const afterMouse = document.activeElement === name;
+        name.focus();
+        name.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+        const afterKey = document.activeElement === name;
+        name.blur();
+        openDetail = real;
+        return { afterMouse, afterKey };
+      });
+      ok(t + ' a clicked name lets go of focus so typing reaches the conversation', typing.afterMouse === false, JSON.stringify(typing));
+      ok(t + ' CONTROL: a keyboard press keeps it', typing.afterKey === true, JSON.stringify(typing));
+
+      const wiring = await page.evaluate(() => tick.toString().includes('keepStarFocus(paintMyAgents)'));
+      ok(t + ' every poll repaints the column', wiring === true);
+
+      const gap = await page.evaluate(() => {
+        const talk = document.getElementById('d-sec-talk'); const was = talk.hidden;
+        talk.hidden = false;
+        const m = getComputedStyle(document.querySelector('#panel-detail .dleft')).marginTop;
+        talk.hidden = was;
+        return m;
+      });
+      ok(t + ' no empty row left where the link was', gap === '0px', gap);
 
       const newLook = await page.evaluate(() => {
         document.documentElement.setAttribute('data-look', 'new');
@@ -191,7 +229,7 @@ const read = () => {
       await page.close();
     }
   }
-  const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
+  const page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
   page.on('pageerror', (e) => problems.push('[narrow] pageerror: ' + e.message));
   await page.addInitScript(() => { window.setInterval = () => 0; });
   await page.goto(PAGE);

@@ -11,9 +11,10 @@ does not touch #8302.
 
 - Each row is the board's own list row (lrow), restyled. One definition of what an agent row shows: name, role, avatar,
   star, unread count. Clicks go through the board's own handler, so stars and answering work the same.
+- The row hides the board's state column, as the mock does. The presence dot, ring and warning mark on the avatar stay.
 - Order is sortAgents with the stars, the same order as the board.
 - + starts the same New agent as the board's button. The fold is remembered per browser.
-- Windows narrower than 1100px do not show it and keep the "All agents" link: there is no room for both columns.
+- Windows narrower than 1160px do not show it and keep the "All agents" link: there is no room for both columns.
 - With the column showing, the "All agents" link goes. An agent opened from a project keeps the link naming that project;
   the mock crossed out only "All agents".
 - The org chart stays on the board, reached by the Agents tab.
@@ -27,7 +28,7 @@ does not touch #8302.
 
 ## Weakest premise
 
-That 1100px is the right floor. Below it the agent page's own two columns need the room. It is one constant.
+That 1160px is the right floor: it keeps the agent page's two columns at the width they had. It is one constant.
 
 ## What would change this
 

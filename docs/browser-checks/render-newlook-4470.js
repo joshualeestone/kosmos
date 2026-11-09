@@ -1199,8 +1199,8 @@ const AGENTS_LOOK = `(() => {
         && ahOn.fromProject.long.sameLine && ahOn.fromProject.long.rootTrunc && !ahOn.fromProject.long.wide
         && (phoneHead ? ahOn.fromProject.long.searchBelow : ahOn.fromProject.long.searchBeside),
         `${tag} On, an agent's page opened from a project: the round Back button and "Billing /" sit in front of "Direct Message to Ada" (the slash on a desktop only), in that order on one line (on a phone the search on its own line below), a long name cut short, one keyboard stop, the small link above steps aside, and Back returns to the project (#5551)`, JSON.stringify(ahOn.fromProject) + ' returned=' + ahOn.returned);
-      // kosmos#8303: from 1100px up My Agents replaces the way back to All agents; narrower it stays.
-      chk(ahOn.fromAgents && ahOn.fromAgents.found && (width >= 1100 ? !ahOn.fromAgents.crumbShown : ahOn.fromAgents.crumbShown) && ahOn.fromAgents.rootText === 'All agents' && ahOn.fromAgents.crumbAria === 'Back to All agents',
+      // kosmos#8303: from 1160px up My Agents replaces the way back to All agents; narrower it stays.
+      chk(ahOn.fromAgents && ahOn.fromAgents.found && (width >= 1160 ? !ahOn.fromAgents.crumbShown : ahOn.fromAgents.crumbShown) && ahOn.fromAgents.rootText === 'All agents' && ahOn.fromAgents.crumbAria === 'Back to All agents',
         `${tag} On, an agent's page opened from the Agents page: the lead reads "All agents" (#5551), shown only where My Agents is not (#8303)`, JSON.stringify(ahOn.fromAgents));
       chk(dcOn.found && dcOn.segRadius === '999px' && dcOn.segEdge === 'rgba(0, 0, 0, 0)' && dcOn.divider === 'rgba(0, 0, 0, 0)' && dcOn.endRadius === '999px',
         `${tag} On, Documents: the folder / conversation switch is a pill with no edge or divider, its end segments round`, JSON.stringify(dcOn));
@@ -1309,7 +1309,7 @@ const AGENTS_LOOK = `(() => {
       const ahOff = await agentHeadLook(page, proj.id);
       chk(ahOff.fromProject && ahOff.fromProject.found && ahOff.fromProject.backShown && !ahOff.fromProject.crumbShown && !ahOff.fromProject.rootShown
         && ahOff.fromProject.backText === '\u2190 Billing' && ahOff.returned === true
-        && ahOff.fromAgents && (width >= 1100 ? !ahOff.fromAgents.backShown : ahOff.fromAgents.backShown) && ahOff.fromAgents.backText === '\u2190 All agents' && !ahOff.fromAgents.crumbShown,
+        && ahOff.fromAgents && (width >= 1160 ? !ahOff.fromAgents.backShown : ahOff.fromAgents.backShown) && ahOff.fromAgents.backText === '\u2190 All agents' && !ahOff.fromAgents.crumbShown,
         `${tag} Off, an agent's page: today's link above the page, no Back row; it reads "\u2190 Billing" from the project and returns there, "\u2190 All agents" from the Agents page (the control)`, JSON.stringify(ahOff));
       const plOff = await projectsLook(page);
       chk(plOff.found && plOff.card !== 'rgba(0, 0, 0, 0)' && plOff.shadow !== 'none' && plOff.radius === '12px' && plOff.tile !== 'rgba(0, 0, 0, 0)' && plOff.plus.round !== '50%' && plOff.newBorder === 'dashed',
