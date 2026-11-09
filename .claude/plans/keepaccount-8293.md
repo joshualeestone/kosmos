@@ -19,9 +19,9 @@ engine/discover.js lastRunOf reads those, and connect passes configDir and model
 takes them. Claude agents only. web/index.html says so on the Found row only when the account or model could not be told.
 
 ## Decided
-- session-env, then file-history. Rejected history.jsonl: as accurate here, but it holds only typed prompts and is a whole
+- A session counts as held by an account if either session-env or file-history names it. Rejected history.jsonl: as accurate here, but it holds only typed prompts and is a whole
   file to read per account, and a channel-fed agent may have none.
-- Keep the exact model id even if it is not in Kosmos's menu: silently changing it is the defect. Claude ids only, kept only
+- Keep the exact model id even if it is not in Kosmos's menu: silently changing it is the defect. Claude ids only, an off-menu id only from a session under 30 days old, kept only
   on the account it ran on, and company policy is asked about that model (a policy listing it passes; one that does not refuses). Rejected: mapping to the menu, which would change an off-menu agent.
 - Cost, accepted: the last row can be a one-off /model switch or a fallback, and it is pinned into the job. An agent that ran
   with no --model stops following Claude Code's default and needs moving when that model retires. The model menu changes it.

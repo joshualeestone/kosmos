@@ -294,7 +294,10 @@ function newestTranscript(dir) {
    Each answer is null when it cannot be told. */
 /* Half a megabyte: long tool results sit between assistant rows, and a shorter tail can hold none. */
 const LAST_RUN_TAIL_BYTES = 512 * 1024;
+/* Enough to step past another folder's sessions filed under the same lossy name, without opening every transcript. */
 const LAST_RUN_LOOK_AT = 20;
+/* A model not on Kosmos's menu is only trusted from a recent session: an old one may have been retired since. */
+const OFF_MENU_MODEL_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
 /* Not status.modelInText: that one also answers from a subagent's row, and a subagent often runs a cheaper model. */
 function lastModelIn(transcript) {
   let text = '';
@@ -325,20 +328,25 @@ function lastRunOf(dir) {
       for (const n of names) {
         if (!n.endsWith('.jsonl')) continue;
         const full = path.join(folder, n);
-        try { candidates.push({ full, at: fs.statSync(full).mtimeMs }); } catch { /* gone since the listing */ }
+        try {
+          const key = fs.realpathSync(full);   // accounts can share one projects folder through a link
+          if (!candidates.some((c) => c.key === key)) candidates.push({ full, key, at: fs.statSync(full).mtimeMs });
+        } catch { /* gone since the listing */ }
       }
     }
   }
   candidates.sort((a, b) => b.at - a.at);
   /* The folder name is lossy (a dash and a slash arrive identical), so the newest may be another folder's: the newest
      that says it ran here is this agent's. One whose folder cannot be read may be this agent's, so that is not "never ran". */
-  let transcript = null;
+  let found = null;
+  let unreadable = false;
   for (const c of candidates.slice(0, LAST_RUN_LOOK_AT)) {
     const ranIn = status.transcriptCwd(c.full);
-    if (!ranIn) return { ran: true, account: null, model: null };
-    if (real(ranIn) === real(dir)) { transcript = c.full; break; }
+    if (!ranIn) { unreadable = true; continue; }
+    if (real(ranIn) === real(dir)) { found = c; break; }
   }
-  if (!transcript) return none;
+  if (!found) return unreadable ? { ran: true, account: null, model: null } : none;
+  const transcript = found.full;
   const session = path.basename(transcript, '.jsonl');
   const holders = new Map();
   for (const row of require('./accounts').list()) {
@@ -348,7 +356,7 @@ function lastRunOf(dir) {
     try { key = fs.realpathSync(row.dir); } catch { /* the path as listed */ }
     holders.set(key, row);
   }
-  return { ran: true, account: holders.size === 1 ? [...holders.values()][0] : null, model: lastModelIn(transcript) };
+  return { ran: true, account: holders.size === 1 ? [...holders.values()][0] : null, model: lastModelIn(transcript), at: found.at };
 }
 
 /**
@@ -2075,8 +2083,10 @@ function connect(dir, opts) {
   if (!runner) { try { last = lastRunOf(given); } catch { last = { ran: true, account: null, model: null }; } }
   /* Only a Claude model (one run through a compatible endpoint, a DeepSeek or GLM id, would fail on a job with no such
      endpoint), and only on the account it ran on, since another account may not be able to run it. */
-  const keepModel = last.account && last.model && /^claude-/.test(last.model) && require('./linuxjob').MODEL_ID.test(last.model)
-    ? last.model : null;
+  const startable = Boolean(last.model && /^claude-/.test(last.model) && require('./linuxjob').MODEL_ID.test(last.model));
+  const onMenu = startable && create.modelsFor('anthropic').some((m) => m.arg === last.model);
+  const tooOld = startable && !onMenu && Date.now() - (last.at || 0) > OFF_MENU_MODEL_MAX_AGE_MS;
+  const keepModel = last.account && startable && !tooOld ? last.model : null;
   {
     /* The model it will actually run: a policy listing that model is satisfied, and one that does not list it refuses. */
     const allowed = create.policyAllows(create.runnerProvider(runner), keepModel || '', last.account ? last.account.dir : undefined);
@@ -2234,7 +2244,8 @@ function connect(dir, opts) {
   if (!runner && last.ran) {
     if (!last.account) unknownLastRun = 'we could not tell which Claude account it was using, so it will run on your main one, on the default model';
     else if (!keepModel) {
-      unknownLastRun = last.model
+      if (tooOld) unknownLastRun = 'it last ran on a model that may have been retired since, so it will start on the default';
+      else unknownLastRun = last.model
         ? 'it was using a model Kosmos cannot start here, so it will start on the default'
         : 'we could not tell which Claude model it was using, so it will start on the default';
     }
