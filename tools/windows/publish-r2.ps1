@@ -61,10 +61,12 @@ TWO MODES.
 
   -DryRun on either mode does every read and check and prints what it would write, writing nothing.
   -NodeTimeoutSec <n> gives each node check and each git read n seconds, up to 600 (default 300). One past that refuses as undecided.
-  node (for the signed-manifest and verification-record checks): a real node.exe on PATH, which always wins; else the
-  installed Kosmos app's own, %LOCALAPPDATA%\Programs\Kosmos\runtime\node.exe (kosmos#8285), and only while Windows
-  reports its Authenticode signature Valid and from node's publisher (the OpenJS Foundation). Said on stderr when
-  used, or why it was not. A node on PATH is not checked that way: putting one there is the person's own choice.
+  node (for the signed-manifest and verification-record checks): a real node executable on PATH, which always wins;
+  else the installed Kosmos app's own, %LOCALAPPDATA%\Programs\Kosmos\runtime\node.exe (kosmos#8285), and only while
+  Windows reports its Authenticode signature Valid and from node's publisher (the OpenJS Foundation). Said on stderr
+  when used, or why it was not. The signature catches a damaged or replaced node.exe; it is NOT a guard against code
+  that can write that folder (a DLL beside node.exe still loads, and such code could put a node on PATH anyway): the
+  release PC is trusted as a whole, as before. A node on PATH is not checked: putting one there is the person's choice.
 
 WHICH READS DECIDE. Every read that decides whether to write (does this version exist, what does
 prod name, what is staged) is a SIGNED read of the bucket itself, so an edge that is challenging or
@@ -266,12 +268,19 @@ function Get-GitLine([string[]] $GitArgs) {
 }
 # An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments). PATH's comes first, so a node
 # put there on purpose always wins. kosmos#8285: when PATH has none, the installed Kosmos app's own runtime\node.exe,
-# so a release PC with Kosmos on it needs no separate node. Its FOLDER proves nothing: the user owns
-# %LOCALAPPDATA%\Programs\Kosmos with full control, every agent runs as that user, and the updater rewrites it
-# (challenge-loop iteration 3). So it is used only while Windows reports its Authenticode signature Valid and its
-# signer's name is node's publisher, the OpenJS Foundation: a swapped binary is not run to say whether a release
-# passes. Otherwise it is skipped, said why, and the caller refuses. Said on stderr once per run either way, so the
-# run's log shows which binary checked the build. Returns an object with .Source, or $null.
+# so a release PC with Kosmos on it needs no separate node. Its FOLDER proves nothing about the file: the user owns
+# %LOCALAPPDATA%\Programs\Kosmos with full control and the updater rewrites it (challenge-loop iteration 3). So it is
+# used only while Windows reports its Authenticode signature Valid and its signer's name is node's publisher, the
+# OpenJS Foundation; otherwise it is skipped, said why, and the caller refuses.
+# What that does and does not prove (iteration 4): it catches a damaged, half-updated or replaced node.exe. It is NOT a
+# boundary against code that can write that folder: a DLL planted beside node.exe (it imports dbghelp, IPHLPAPI,
+# USERENV and WINMM, none of them KnownDLLs) still runs inside a Valid node, the file can change between this check
+# and its run, and such code could as well put a node on PATH, which was always run unchecked. The release PC is
+# trusted as a whole, as it was before this fallback. Get-AuthenticodeSignature is not under -NodeTimeoutSec; it took
+# about half a second on the release PC (online, 11-09), and how long it can take with no network was not measured. It runs
+# only when PATH has no node, so a node on PATH skips it entirely.
+# Said on stderr once per run (the first verdict; a later call that differed would find the same file, and a refusal
+# names it), so the run's log shows which binary checked the build. Returns an object with .Source, or $null.
 $KosmosRuntimeNodes = @('Programs\Kosmos\runtime\node.exe')
 $NodePublisher = 'OpenJS Foundation'
 $script:SaidRuntimeNode = $false   # declared for StrictMode, as the script's other run-wide flags

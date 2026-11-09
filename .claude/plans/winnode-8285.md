@@ -18,9 +18,13 @@ node.exe. The workaround was prepending the runtime folder to PATH by hand.
 - Off Windows (pwsh on a Mac, the bash test) `%LOCALAPPDATA%` is unset or points nowhere, so the fallback finds
   nothing: unchanged.
 
-Decided: the app's node, gated on its publisher signature. The folder is NOT the trust boundary (challenge-loop
-iteration 3): the user has full control of `%LOCALAPPDATA%\Programs\Kosmos`, every agent runs as that user, and the
-updater rewrites it; the signature is what a swapped binary cannot keep. Rejected (iteration 2): the board runtime's
+Decided: the app's node, gated on its publisher signature. The folder says nothing about the file (challenge-loop
+iteration 3): the user has full control of `%LOCALAPPDATA%\Programs\Kosmos` and the updater rewrites it. The signature
+catches a damaged, half-updated or replaced node.exe. It is NOT a boundary against code that can write that folder
+(iteration 4): a DLL planted beside node.exe still loads into a Valid node, the file can change between check and
+run, and such code could put a node on PATH, which was always run unchecked. The release PC is trusted as a whole, as
+before; the help, the comment and this plan say so rather than claim more. The signature read is not under
+-NodeTimeoutSec (about 0.5 s online here; offline not measured), and only runs when PATH has no node. Rejected (iteration 2): the board runtime's
 copy under `%LOCALAPPDATA%\Kosmos\runtime`, also user-writable; with the signature gate it would be as safe, but one
 place is enough. Rejected: other folders (Program Files, nvm), a guess the person did not make; PATH is how they choose
 one. Weakest part: a node.exe signed by OpenJS but of an old, vulnerable version would still be used; it is the node
