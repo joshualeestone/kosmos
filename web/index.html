@@ -55372,7 +55372,8 @@ document.getElementById('my-agents-list').addEventListener('click', (e) => {
   if (name) name.blur();
 });
 let MY_AGENTS_RAF = 0;
-window.addEventListener('resize', () => { cancelAnimationFrame(MY_AGENTS_RAF); MY_AGENTS_RAF = requestAnimationFrame(() => keepStarFocus(paintMyAgents)); });
+function myAgentsResized() { cancelAnimationFrame(MY_AGENTS_RAF); MY_AGENTS_RAF = requestAnimationFrame(() => keepStarFocus(paintMyAgents)); }
+window.addEventListener('resize', myAgentsResized);
 if (typeof ResizeObserver === 'function') new ResizeObserver(paintMyAgents).observe(document.querySelector('.apphead'));   // a taller header moves the column's top
 /* #3387: the "Other Agents" sub-header's + is the New-agent action. Delegated off #alist
    because the list is rebuilt on every poll, so a bound listener would not survive. */
