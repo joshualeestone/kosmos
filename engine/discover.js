@@ -2032,6 +2032,16 @@ function connect(dir, opts) {
   /* kosmos#7835: a delete of what is left under this name may be waiting on the Windows Recycle Bin with the board free;
      its last steps (the name's tokens, records, history) would land on an agent connected meanwhile. */
   if (deletingUnder(name)) return { ok: false, because: 'what is left of an agent by that name is still being deleted; try again when that has finished' };
+  /* #8294: another login job that looks like it starts this agent here would run a second copy. Reading someone's job can
+     only suggest that, so the person decides: the first press says which job, and pressing Add again goes ahead. First,
+     because this sentence names the job, and with KeepAlive closing the running agent alone brings it back. */
+  if (!(opts && opts.anyway === true)) {
+    let other = null;
+    try { other = require('./register').foreignStarter(given, runner); } catch { /* reads as none: today's behaviour */ }
+    if (other) {
+      return { ok: false, otherJob: true, because: `this agent also looks like it is started by another job on this computer (${other.label}), which would run two copies in one folder. Stop that job, remove its file (${other.file}) and close the agent it started, then add it again. If that job is something else, press Add again` };
+    }
+  }
   /* 🛑 AND NOT WHEN SOMETHING IS ALREADY RUNNING UNDER THAT NAME (#362). The
      add installs a job and starts it; on a folder whose agent is already up,
      started some other way, that is a second Claude in the same worker folder.

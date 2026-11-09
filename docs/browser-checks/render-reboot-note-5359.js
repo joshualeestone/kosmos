@@ -190,9 +190,13 @@ const CASES = [
       { key: 'nothing-sent', checks: undefined, want: null },
       { key: 'all-back', checks: { agents: { was: 12, back: 12, notBack: [] }, files: { damaged: 0 } }, want: "Checked: all 12 agents that were running came back, and Kosmos's main records read fine." },
       { key: 'one', checks: { agents: { was: 1, back: 1, notBack: [] } }, want: 'Checked: the agent that was running came back.' },
-      { key: 'not-back', checks: { agents: { was: 3, back: 1, notBack: ['Homer', 'Leo'] }, files: { damaged: 2 } }, want: "Checked: 1 of 3 agents that were running came back (not back: Homer, Leo), and 2 of Kosmos's main records could not be read." },
+      { key: 'not-back', checks: { agents: { was: 3, back: 1, notBack: ['Homer', 'Leo'] }, files: { damaged: 2 } }, want: "Checked: 1 of 3 agents that were running came back (not back: Homer, Leo), and 2 of Kosmos's main records are damaged." },
       { key: 'many', checks: { agents: { was: 9, back: 2, notBack: ['A', 'B', 'C', 'D', 'E', 'F', 'G'] } }, want: 'Checked: 2 of 9 agents that were running came back (not back: A, B, C, D, E and 2 more).' },
       { key: 'files-only', checks: { files: { damaged: 0 } }, want: "Checked: Kosmos's main records read fine." },
+      /* kosmos#8297: one is "is"; and with records it could not look at, the damaged count is a floor and says so. */
+      { key: 'one-damaged', checks: { files: { damaged: 1 } }, want: "Checked: 1 of Kosmos's main records is damaged." },
+      { key: 'floor', checks: { files: { damaged: 2, unread: 3 } }, want: "Checked: at least 2 of Kosmos's main records are damaged (some others could not be checked)." },
+      { key: 'unread-only', checks: { agents: { was: 1, back: 1, notBack: [] }, files: { damaged: 0, unread: 3 } }, want: 'Checked: the agent that was running came back.' },
       { key: 'no-agents-then', checks: { agents: { was: 0, back: 0, notBack: [] } }, want: null },
       { key: 'html', checks: { agents: { was: 1, back: 0, notBack: ['<b>x</b>'] } }, want: 'Checked: the agent that was running has not come back (<b>x</b>).' },
     ];
@@ -212,11 +216,17 @@ const CASES = [
       }
     }
     /* Agents return over minutes, so a note naming who is not back asks again after a minute; one with everyone back does not. */
-    for (const [label, agents, want] of [['not back', { was: 2, back: 1, notBack: ['Leo'] }, true], ['all back (control)', { was: 2, back: 2, notBack: [] }, false]]) {
+    /* kosmos#8297: only for the first 15 minutes after Kosmos came back; a note whose upAt is older than that leaves it to
+       the ten-minute re-check. The first arm (upAt just now) is that arm's control. */
+    const late = noteAt(30 * MIN, 16 * MIN);
+    const inside = noteAt(30 * MIN, 14 * MIN);   // pins the cap from below: 14 minutes still asks
+    for (const [label, agents, want, note] of [['not back', { was: 2, back: 1, notBack: ['Leo'] }, true, base], ['all back (control)', { was: 2, back: 2, notBack: [] }, false, base],
+      ['not back, 14 minutes after coming back', { was: 2, back: 1, notBack: ['Leo'] }, true, inside],
+      ['not back, past the first 15 minutes', { was: 2, back: 1, notBack: ['Leo'] }, false, late]]) {
       const pg0 = await b.newPage({ viewport: { width: 1400, height: 800 } });
       await pg0.clock.install({ time: new Date(NOON) });
       let asks = 0;
-      await pg0.route('**/api/board/restart-note', (route) => { asks++; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: { ...base, checks: { agents } } }) }).catch(() => {}); });
+      await pg0.route('**/api/board/restart-note', (route) => { asks++; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: { ...note, checks: { agents } } }) }).catch(() => {}); });
       await pg0.goto(URL, { waitUntil: 'domcontentloaded' });
       await pg0.clock.runFor(3000);
       await pg0.waitForFunction(() => document.querySelector('#reboot-slot .utoast.reboot'), null, { timeout: 12000 }).catch(() => {});

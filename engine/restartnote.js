@@ -114,7 +114,8 @@ function atStart(deps = {}) {
     const were = cleanRunning(prev && prev.running);
     if (were) note.wereRunning = were;
     const scan = deps.files;
-    if (scan && scan.checked === true && Number.isInteger(scan.damaged) && scan.damaged >= 0) note.files = { damaged: scan.damaged };
+    const files = scan && scan.checked === true && Number.isInteger(scan.damaged) && scan.damaged >= 0 ? filesOf(scan) : null;
+    if (files) note.files = files;
     writeJson(noteFile(), { ...note, dismissed: false });
   }
   beat(now);
@@ -177,6 +178,15 @@ function startBeating() {
   return t;
 }
 
+/* kosmos#8297: the file check as the note keeps it: the damaged count, and `unread` only when some could not be looked at
+   (a note written before #8297 has none, which reads as none unread). Nothing damaged with some unread is no file check
+   at all (null), wherever the note came from: "read fine" would be a claim about records it never saw. */
+function filesOf(f) {
+  const unread = Number.isInteger(f.unread) && f.unread > 0;
+  if (unread && f.damaged === 0) return null;
+  return unread ? { damaged: f.damaged, unread: f.unread } : { damaged: f.damaged };
+}
+
 /** The note to show now: made within SHOW_MS and not dismissed, or null. */
 function current(now = Date.now()) {
   const n = readJson(noteFile());
@@ -189,7 +199,8 @@ function current(now = Date.now()) {
   if (were) out.wereRunning = were;
   const returned = cleanReturned(n.returned);
   if (returned.length) out.returned = returned;
-  if (n.files && Number.isInteger(n.files.damaged) && n.files.damaged >= 0) out.files = { damaged: n.files.damaged };
+  const files = n.files && Number.isInteger(n.files.damaged) && n.files.damaged >= 0 ? filesOf(n.files) : null;
+  if (files) out.files = files;
   return out;
 }
 
@@ -212,7 +223,8 @@ function checksFor(note, roster, removed) {
     const notBack = asked.filter((a) => !stoppedSince(a) && !isUp(cards.get(a.session))).map((a) => (cards.get(a.session) || {}).name || a.name);
     out.agents = { was: asked.length, back: asked.length - notBack.length, notBack };
   }
-  if (note.files) out.files = { damaged: note.files.damaged };
+  const files = note.files ? filesOf(note.files) : null;
+  if (files) out.files = files;
   return out;
 }
 

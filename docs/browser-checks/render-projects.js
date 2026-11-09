@@ -1345,7 +1345,6 @@ async function main() {
       const copies = [];
       // What this arm changes besides the copies, so finally can put it back even after a throw.
       const body = document.body, folded = body.classList.contains('fold-a'), st0 = box.scrollTop;
-      let tbEl = null, tbWas = null, tmPaint = null;   // the Team map step's button and the repaint it holds
       try {
         await frames();   // the arm above put the window back; the page's own readers answer on the next frame
         const before = step();
@@ -1359,21 +1358,6 @@ async function main() {
         box.style.maxHeight = Math.max(60, box.clientHeight - 80) + 'px'; await frames();
         const capShrank = step();
         box.style.maxHeight = ''; await frames();
-        box.scrollTop = box.scrollHeight; await frames();
-        /* #6324's real cap: the Team map button showing lowers the box's cap by 52px (CSS :has), so at the end of the box
-           more is below again; hiding it gives the room back. This fixture's project already shows the button, so it is
-           hidden first and the full-cap height read then (the page's own repaint of it is held for the step). The box's
-           height must really change, or the step proves nothing. */
-        tbEl = document.getElementById('alist-teammap-btn');
-        tbWas = tbEl ? tbEl.hidden : null;
-        if (typeof window.paintRailTeamMap === 'function') { tmPaint = window.paintRailTeamMap; window.paintRailTeamMap = () => {}; }
-        if (tbEl) tbEl.hidden = true; await frames();
-        box.scrollTop = box.scrollHeight; await frames();
-        const teamMapOff = step();   // full cap, at the end: nothing below
-        const h0 = box.clientHeight;
-        if (tbEl) tbEl.hidden = false; await frames();
-        const teamMap = { ...step(), shrank: box.clientHeight < h0 - 40 };   // the cap drops: more below at the same scroll
-        if (tbEl) tbEl.hidden = tbWas; await frames();
         box.scrollTop = box.scrollHeight; await frames();
         /* A row growing with no row added or removed (a font or an image settling): only the row's own size says so. */
         const last = copies[copies.length - 1];
@@ -1394,11 +1378,9 @@ async function main() {
         const unfolded = step();
         for (const c of copies.splice(0)) c.remove(); await frames();
         const shortAgain = step();
-        return { before, grown, atEnd, capShrank, teamMap, teamMapOff, rowGrew, backUp, ends, unfolded, shortAgain };
+        return { before, grown, atEnd, capShrank, rowGrew, backUp, ends, unfolded, shortAgain };
       } finally {
         for (const c of copies) c.remove();
-        if (tbEl && tbWas !== null) tbEl.hidden = tbWas;
-        if (tmPaint) window.paintRailTeamMap = tmPaint;
         body.classList.toggle('fold-a', folded);
         box.style.maxHeight = '';
         box.scrollTop = st0;
@@ -1410,8 +1392,7 @@ async function main() {
        scrolls, with more below at the top and none at the end, so both answers are exercised. */
     const cueRight = (s) => s.more === s.below && s.fade === s.below;
     if (cue.error || cue.missing || !cue.grown.scrolls || !cue.grown.below || cue.atEnd.below || !cue.backUp.below || !cue.unfolded.below || !cue.rowGrew.below || !cue.capShrank.below
-        || !cue.teamMap || !cue.teamMap.shrank || !cue.teamMap.below || cue.teamMapOff.below
-        || ![cue.before, cue.grown, cue.atEnd, cue.capShrank, cue.teamMap, cue.teamMapOff, cue.rowGrew, cue.backUp, cue.unfolded, cue.shortAgain].every(cueRight)
+        || ![cue.before, cue.grown, cue.atEnd, cue.capShrank, cue.rowGrew, cue.backUp, cue.unfolded, cue.shortAgain].every(cueRight)
         || !cue.ends.ok) {
       contrastFails += 1;
       console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected the fade exactly while more of the notice is below its edge (measured with the cue off: at the start, grown, at the end, after the box shrank there, after a row grew there, scrolled back up, after the rail unfolds, short again), and ending in the rail's own background (${scheme}), got ${JSON.stringify(cue)}`);

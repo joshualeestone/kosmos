@@ -128,6 +128,40 @@ const defaultAgentConfig = () =>
 
 const KEY = 'hasTrustDialogAccepted';
 
+/**
+ * kosmos#4260: the spelling Claude Code ITSELF reads for `dir`, when it is not the native key (#2281), else null.
+ *
+ * MEASURED on the Windows box (2026-11-09, Claude Code 2.1.316, an isolated config whose only trust entry was the
+ * folder's long native spelling): started in a JUNCTION to that folder -> no dialog (it resolves links); started in
+ * the folder's 8.3 SHORT spelling (`TRUST-~1`) -> THE TRUST DIALOG, "No, exit" preselected (it keeps the name as
+ * given); started in a lowercased spelling -> no dialog (case is not the problem); and an entry written under the
+ * SHORT spelling was read for the short start. Node's JS `fs.realpathSync` behaves exactly that way (it resolves
+ * links and keeps each name as given), so its spelling is the one Claude Code reads.
+ *
+ * It is a SECOND key, never a replacement for the native one: the native key still covers a start in the long
+ * spelling (and case, which the JS realpath would keep). It is returned whenever the two differ by more than letter
+ * case, which is any spelling the native realpath rewrites and Claude Code does not: an 8.3 name (measured), a `subst`
+ * drive (measured 11-09: with only the native C:/ key a start on the subst letter showed the dialog, with the
+ * letter's own key it did not), and by the same rule a mapped network drive (not measured: no mapped drive here).
+ * Windows only: elsewhere none of these exist and the native key is the read one.
+ */
+/* Two config paths that name one file: case-blind on Windows, where the file system is. */
+function sameFile(a, b) {
+  const ra = path.resolve(String(a));
+  const rb = path.resolve(String(b));
+  return process.platform === 'win32' ? ra.toLowerCase() === rb.toLowerCase() : ra === rb;
+}
+/* (`dir` is a plain drive or UNC path, as every caller hands over; a `\\?\`-prefixed one is out of scope and would
+   simply get a second key Claude Code never reads, never a wrong one it does.) */
+function runnerSpelling(dir, nativeKey) {
+  if (process.platform !== 'win32') return null;
+  let js;
+  try { js = fs.realpathSync(dir); }
+  catch { return null; }
+  js = js.split(path.sep).join('/');
+  return js.toLowerCase() === nativeKey.toLowerCase() ? null : js;
+}
+
 /* #3383 launch side. Claude Code's own FIRST-RUN onboarding (the v2.1.278 "choose the
    text style" theme picker, and any onboarding step behind it) is lifted by this TOP-LEVEL
    key in the account's .claude.json -- the SAME file trustFolder writes, a DIFFERENT file
@@ -270,6 +304,22 @@ function trustFolder(dir, opts) {
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 
+/**
+ * kosmos#4260: the second key of a trustFolder answer (or of a record) as one an undo or a record may hold, or null.
+ * ONE rule for every path that records or takes back a second key (recordWriteInner, forgetFolderInner, and through
+ * them create.js and remove.js), so they cannot disagree: it must be shaped like one (an object with an absolute string
+ * key), and not marked `forgettable: false` (written into another account's config, not CONFIG(), the file every undo
+ * edits; an undo there could reach a same-spelled key that is the person's own). A record's copy carries no flag: it
+ * was only ever stored when this rule said yes.
+ */
+function ownedAlso(also) {
+  if (!also || typeof also !== 'object' || typeof also.key !== 'string' || !path.isAbsolute(also.key)) return null;
+  if (also.forgettable === false) return null;
+  const out = { key: also.key, madeEntry: also.madeEntry === true };
+  if (also.displaced !== undefined) out.displaced = also.displaced;
+  return out;
+}
+
 function trustFolderInner(dir, opts) {
   // #2129: for an agent that will run on the DEFAULT account (no configDir, so it
   // launches with no CLAUDE_CONFIG_DIR and reads ~/.claude.json), target that file
@@ -321,6 +371,8 @@ function trustFolderInner(dir, opts) {
      📌 Inert on POSIX, where `path.sep` is already '/' and this is the identity —
      which is also why no test on this fleet could ever have caught it. */
   key = key.split(path.sep).join('/');
+  // kosmos#4260: and, for a folder handed over in 8.3 spelling on Windows, the spelling Claude Code reads (above).
+  const also = runnerSpelling(dir, key);
 
   // ⚠️ A SYMLINKED CONFIG IS SOMEBODY'S ARRANGEMENT. Renaming over it replaces
   // the link with a file — the same severing the installer refuses for
@@ -396,11 +448,20 @@ function trustFolderInner(dir, opts) {
     return { ok: false, because: 'their config file is not shaped the way we expect' };
   }
 
+  /* kosmos#4260: the second key's entry. One we would not understand is left alone (that key is not written), never a
+     refusal: the main key is what this function promised before, and a launch that worked must not start failing over
+     an extra line. */
+  const alsoExisting = also ? (projects && projects[also]) : undefined;
+  const alsoUnreadable = alsoExisting !== undefined
+    && (alsoExisting === null || typeof alsoExisting !== 'object' || Array.isArray(alsoExisting));
+  const keyDone = Boolean(existing && existing[KEY] === true);
+  const alsoDone = !also || alsoUnreadable || Boolean(alsoExisting && alsoExisting[KEY] === true);
+
   // Already true is a SUCCESS, not a no-op we hide: the folder is trusted,
   // which is the whole outcome this function exists for. Saying so lets the
   // caller distinguish "we did it" from "it was already done" without either
   // one reading as a failure.
-  if (existing && existing[KEY] === true) return { ok: true, already: true, key };
+  if (keyDone && alsoDone) return { ok: true, already: true, key };
 
   // ⚠️ WHAT WE ARE ABOUT TO DISPLACE, carried out so the undo can put it back.
   // "Delete the key afterwards" is only a restore when the key was ABSENT
@@ -436,7 +497,26 @@ function trustFolderInner(dir, opts) {
   // ⚠️ MERGE INTO the entry rather than replace it. An entry can carry a
   // person's allowedTools and their MCP servers; a fresh object with one key
   // would delete those and look like Claude Code lost them.
-  data.projects[key] = Object.assign({}, existing || {}, { [KEY]: true });
+  if (!keyDone) data.projects[key] = Object.assign({}, existing || {}, { [KEY]: true });
+  /* kosmos#4260: the second key, merged the same way, with what IT displaced, so an undo puts back exactly what was
+     there. Reported apart from the main key's fields (`also`), and only when written: callers record and roll back
+     the main key on `already: false`, and a main key the person had trusted themselves must never be recorded as ours.
+     So when ONLY this key was new (the main one already true: the person trusted it, or an agent made before this
+     change is relaunching), the answer stays `already: true` and that line is not recorded, so no removal takes it
+     back. Accepted, and tracked on a card rather than solved with more record bookkeeping (three attempts at that each
+     grew edges of their own): Kosmos hands over the agent's own long folder name, so this key differs from the main
+     one only in a PARENT folder's spelling (a short user folder, a subst letter). For the leftover line to trust a
+     different folder, that parent would have to be deleted and a like-named one take its alias, after which the line
+     still names this agent's folder name inside it. */
+  let alsoWrote = null;
+  if (also && !alsoDone) {
+    /* `forgettable`: whether this key went into CONFIG(), the file forgetFolder (every undo: a failed start's, a
+       removal's) edits. When it did not (an agent on another account), an undo would reach a SAME-SPELLED key in the
+       default config, which could be the person's own, so every undo and record path skips a key marked false. */
+    alsoWrote = { key: also, madeEntry: alsoExisting === undefined, forgettable: sameFile(target, CONFIG()) };
+    if (alsoExisting && (KEY in alsoExisting)) alsoWrote.displaced = alsoExisting[KEY];
+    data.projects[also] = Object.assign({}, alsoExisting || {}, { [KEY]: true });
+  }
 
   // ⚠️ THE ONE HAZARD WE CANNOT DESIGN AWAY, stated rather than buried: this is
   // read-modify-write on a file a running Claude Code also writes. A session
@@ -477,7 +557,10 @@ function trustFolderInner(dir, opts) {
   // undoes. Fully removing a created file on rollback (safe here, since the key is
   // per-folder and the file is untouched until first launch) is a possible
   // follow-up, out of scope for the #2129 catastrophic fix.
-  return { ok: true, already: false, key, displaced, madeEntry };
+  // kosmos#4260: `also` only when a second key was written, so every answer without one keeps its exact old shape.
+  const extra = alsoWrote ? { also: alsoWrote } : {};
+  if (keyDone) return Object.assign({ ok: true, already: true, key }, extra);
+  return Object.assign({ ok: true, already: false, key, displaced, madeEntry }, extra);
 }
 
 /**
@@ -522,17 +605,20 @@ function trustFolderInner(dir, opts) {
 // read-modify-write serialises against any other writer of that SAME file. (The pairing
 // with trustFolder, and a pre-existing default-account divergence where trustFolder can
 // target a different file, is in the plan; do not restate it here as a guarantee.)
-function forgetFolder(dir, displaced, madeEntry) {
+function forgetFolder(dir, displaced, madeEntry, also) {
   // #3088: withWriteLock, not withFileLock, so an absent config parent (the config we
   // wrote was deleted before rollback) yields forgetFolderInner's honest "we could not
   // read their config file" rather than the lock's 'we could not get exclusive access'.
   // In the normal case CONFIG()'s parent (~) exists, so the real lock is taken rather
   // than the unlocked fallback.
-  const r = withWriteLock(CONFIG(), () => forgetFolderInner(dir, displaced, madeEntry));
+  const r = withWriteLock(CONFIG(), () => forgetFolderInner(dir, displaced, madeEntry, also));
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 
-function forgetFolderInner(dir, displaced, madeEntry) {
+/* kosmos#4260: `also` is trustFolder's (or the record's) `{ key, displaced?, madeEntry }` for the second key it wrote,
+   taken back in the same save and under the same guards. Anything not shaped like one is ignored, so a record from
+   before this change (none) or a damaged one undoes the main key exactly as before. */
+function forgetFolderInner(dir, displaced, madeEntry, also) {
   const target = CONFIG();
   if (!dir || !path.isAbsolute(dir)) return { ok: false, because: 'that is not an absolute folder path' };
 
@@ -564,34 +650,45 @@ function forgetFolderInner(dir, displaced, madeEntry) {
       && (data.projects === null || typeof data.projects !== 'object' || Array.isArray(data.projects))) {
     return { ok: false, because: 'their config file is not shaped the way we expect' };
   }
-  const entry = data.projects && data.projects[key];
-  if (entry === undefined) return { ok: true, already: true };
-  // ⚠️ A malformed ENTRY is refused for the same reason a malformed `projects`
-  // is, eight lines up: answering "taken back" about a shape we did not
-  // understand is reporting success for a file we did not really read.
-  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-    return { ok: false, because: 'their config file is not shaped the way we expect' };
+  const undo = [[key, displaced, madeEntry]];
+  const owned = ownedAlso(also);   // kosmos#4260: the one rule (above trustFolderInner)
+  if (owned && owned.key !== key) undo.push([owned.key, owned.displaced, owned.madeEntry]);
+  let changed = false;
+  for (const [i, [k, disp, made]] of undo.entries()) {
+    const entry = data.projects && data.projects[k];
+    if (entry === undefined) continue;
+    // ⚠️ A malformed ENTRY is refused for the same reason a malformed `projects`
+    // is, above: answering "taken back" about a shape we did not
+    // understand is reporting success for a file we did not really read.
+    // kosmos#4260: for the MAIN key, as before. A malformed second-key entry is left alone (not ours to read), so it
+    // cannot block taking back the main key, which is what this undo promised before the second key existed.
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      if (i > 0) continue;
+      return { ok: false, because: 'their config file is not shaped the way we expect' };
+    }
+    if (!(KEY in entry)) continue;
+
+    // ⚠️ AND ONLY IF IT STILL SAYS YES. The caller's gate is a claim about a
+    // moment that has passed: between our rename and the bootstrap failing, a
+    // live Claude Code session can write its own value for this path — including
+    // the `false` this file argues elsewhere is AN ANSWER, NOT AN ABSENCE.
+    // Deleting that would be the undo destroying a decision, on the one path
+    // whose whole job is putting things back.
+    if (entry[KEY] !== true) continue;
+
+    // ⚠️ PUT BACK WHAT WAS THERE, which is not always "nothing". `disp` is
+    // the value the key held before we wrote, or `undefined` if it had none.
+    if (disp === undefined) delete entry[KEY];
+    else entry[KEY] = disp;
+
+    // ⚠️ AND THE ENTRY GOES ONLY IF WE MADE IT. An entry that is empty afterwards
+    // is not proof we created it: an entry holding only `{hasTrustDialogAccepted:
+    // false}` is empty once the key is removed, and deleting it would be the undo
+    // destroying a record it found. The caller knows which it was.
+    if (made === true && Object.keys(entry).length === 0) delete data.projects[k];
+    changed = true;
   }
-  if (!(KEY in entry)) return { ok: true, already: true };
-
-  // ⚠️ AND ONLY IF IT STILL SAYS YES. The caller's gate is a claim about a
-  // moment that has passed: between our rename and the bootstrap failing, a
-  // live Claude Code session can write its own value for this path — including
-  // the `false` this file argues elsewhere is AN ANSWER, NOT AN ABSENCE.
-  // Deleting that would be the undo destroying a decision, on the one path
-  // whose whole job is putting things back.
-  if (entry[KEY] !== true) return { ok: true, already: true };
-
-  // ⚠️ PUT BACK WHAT WAS THERE, which is not always "nothing". `displaced` is
-  // the value the key held before we wrote, or `undefined` if it had none.
-  if (displaced === undefined) delete entry[KEY];
-  else entry[KEY] = displaced;
-
-  // ⚠️ AND THE ENTRY GOES ONLY IF WE MADE IT. An entry that is empty afterwards
-  // is not proof we created it: an entry holding only `{hasTrustDialogAccepted:
-  // false}` is empty once the key is removed, and deleting it would be the undo
-  // destroying a record it found. The caller knows which it was.
-  if (madeEntry === true && Object.keys(entry).length === 0) delete data.projects[key];
+  if (!changed) return { ok: true, already: true };
 
   if (!saveConfig(target, data, prevMode)) {   // #5434 slice 6: flushed; see saveConfig
     return { ok: false, because: 'we could not write to their config file' };
@@ -674,6 +771,10 @@ function recordWriteInner(name, wrote) {
      forgetFolder reads its absence as "we made the key". */
   const entry = { key: wrote.key, madeEntry: wrote.madeEntry === true, at: new Date().toISOString() };
   if (wrote.displaced !== undefined) entry.displaced = wrote.displaced;
+  // kosmos#4260: the second key trustFolder wrote (an 8.3-spelled folder on Windows), kept in the same shape, under
+  // the one rule (ownedAlso) every undo of it also applies.
+  const owned = ownedAlso(wrote.also);
+  if (owned) entry.also = owned;
   data[String(name)] = entry;
   try { writeRecordFile(data); return true; } catch { return false; }
 }
@@ -945,6 +1046,10 @@ function folderTrusted(dir, opts) {
   try { key = fs.realpathSync.native(dir); }
   catch { return null; }   // the folder is not there -- we cannot derive the runner's key
   key = key.split(path.sep).join('/');
+  // kosmos#4260: for an 8.3-spelled folder on Windows the runner reads ITS spelling, so that is the entry that decides.
+  // (If that entry is one trustFolder could not read and left alone, this answers false while a launch answers ok:
+  // deliberate, since the entry the runner reads is not a trusted one; the card then says so rather than guessing.)
+  key = runnerSpelling(dir, key) || key;
   let data;
   try { data = JSON.parse(fs.readFileSync(target, 'utf8')); }
   catch { return null; }   // config absent or unreadable -- we cannot tell, so do not claim untrusted

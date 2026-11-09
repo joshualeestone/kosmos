@@ -105,6 +105,31 @@ test('kosmos#8288: a stuck card reaches the list through the real route, as a ti
   assert.doesNotMatch(r.text, /SECRET-/, 'content of the stall reached the list');
 });
 
+test('kosmos#8304: a long tool call reaches the list through the real route, as a time and a plain name, no more', async (t) => {
+  const onestep = require('./engine/onestep');
+  const realIn = onestep.oneStepIn;
+  const since = '2026-11-09T08:12:00.000Z';
+  let tool = 'Bash';
+  let board = null;
+  t.after(() => { onestep.oneStepIn = realIn; if (board && board.restore) board.restore(); });   // registered first: a throw below cannot leave the stub
+  onestep.oneStepIn = () => ({ tool, since });
+  board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'working' })]);
+  const list = async () => {
+    const r = await call('GET', '/api/agents/list', { headers: { 'x-kosmos-agent-token': agentToken } });
+    assert.equal(r.code, 200, r.text.slice(0, 120));
+    return { r, mara: JSON.parse(r.text).agents.find((a) => a.name === 'mara') };
+  };
+  const plain = await list();
+  assert.ok(plain.mara, plain.r.text.slice(0, 200));
+  assert.equal(plain.mara.longStepSince, since, 'the step did not reach the list: ' + JSON.stringify(plain.mara));
+  assert.deepEqual(Object.keys(plain.mara).sort(), ['longStepSince', 'longStepTool', 'name', 'role', 'state']);
+  assert.equal(plain.mara.longStepTool, 'Bash');
+  tool = 'cat SECRET-FILE; echo';
+  const odd = await list();
+  assert.deepEqual(Object.keys(odd.mara).sort(), ['longStepSince', 'name', 'role', 'state'], 'a name that is not plain is dropped');
+  assert.doesNotMatch(odd.r.text, /SECRET-/, 'content reached the list');
+});
+
 test('a wrong agent token is refused at the gate', async () => {
   assert.ok(refusedAtGate(await call('POST', '/api/whoami', { headers: { 'x-kosmos-agent-token': 'not-a-token' }, body: {} })));
 });

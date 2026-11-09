@@ -159,7 +159,7 @@ const USAGE = {
   ].join('\n'),
   agent: [
     'Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|restart|remove>',
-    '  kosmos agent list                               every agent on this board, its role, whether it is running, and any unsent text (Claude agents only), stalled delivery or restart loop Kosmos has seen',
+    '  kosmos agent list                               every agent on this board, its role, whether it is running, and any unsent text or long tool call (Claude agents only), stalled delivery or restart loop Kosmos has seen',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
     '                                                  make one with a role you wrote, when none fits',
@@ -209,6 +209,8 @@ const USAGE = {
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)\n'
     + '       kosmos connections --how   (how connecting a provider, a plugin or a service works here)',
   'whats-new': 'Usage: kosmos whats-new [--since <version>] [--json]   (what changed in each version, and which fixes need your agents restarted)',
+  // kosmos#8309: as install/kosmos (#8299). It reads two files beside this command and sends nothing.
+  version: 'Usage: kosmos version   (also --version or -v: the version of this Kosmos and the build it was made from; sends nothing)',
   accounts: 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)',
   connect: 'Usage: kosmos connect <service>   (the token on stdin, never as an argument, e.g. printf \'%s\' "$TOKEN" | kosmos connect brave-search; kosmos connections lists the services)\n       (in PowerShell, text piped into kosmos does not reach it: run it from Git Bash)',
 };
@@ -3594,6 +3596,36 @@ function recordsWrite(sub) {
   };
 }
 
+/**
+ * kosmos#8309: `kosmos version` (also --version, -v), the Windows twin of install/kosmos cmd_version (#8299): the app's
+ * version, and the build it was made from, as "0.8.00 (build e224150682)". The version is the installed app's
+ * app/package.json (the Mac reads the same file); the build is the zip's manifest.json source_sha, cut to the 10
+ * characters the Mac and Linux bundles print so seats compare, with "-dirty" when the zip says it was built from a
+ * dirty tree. Best effort, as the Mac: no manifest, or no commit in it, prints the version alone; a missing app
+ * package falls back to the manifest's version. `root` is the install folder (this file sits in its bin\).
+ * Returns the line, or null when neither file names a version.
+ */
+function versionLine(root, readFile = fs.readFileSync) {
+  const dir = root || path.join(__dirname, '..');
+  const json = (rel) => { try { return JSON.parse(readFile(path.join(dir, rel), 'utf8')); } catch { return null; } };
+  const pkg = json(path.join('app', 'package.json'));
+  const man = json('manifest.json');
+  const named = (v) => (typeof v === 'string' && /^[0-9A-Za-z._+-]{1,40}$/.test(v) ? v : null);
+  const ver = named(pkg && pkg.version) || named(man && man.version);
+  if (!ver) return null;
+  const sha = man && typeof man.source_sha === 'string' && /^[0-9a-f]{7,64}$/i.test(man.source_sha) ? man.source_sha.toLowerCase().slice(0, 10) : '';
+  const build = sha && man.source_dirty === true ? sha + '-dirty' : sha;
+  return build ? ver + ' (build ' + build + ')' : ver;
+}
+/* Answered before any board setup in main(), so it reads no token and sends nothing. */
+async function verbVersion(ctx, args) {
+  if (args.length) { ctx.err(USAGE.version); return 2; }
+  const line = versionLine(ctx.root);
+  if (!line) { ctx.err('Kosmos looks incomplete here: no version found beside this command.'); return 1; }
+  ctx.out(line);
+  return 0;
+}
+
 /* 🔑 THE DISPATCH, AND THE ONLY LIST OF WHAT THIS COMMAND DOES. A subcommand
    handler wins when the first argument names one; otherwise the verb's handler
    runs with every argument (a project id, a state, a message). */
@@ -3622,6 +3654,7 @@ const VERB_HANDLERS = {
   accounts: verbAccounts,
   connect: verbConnect,
   'whats-new': verbWhatsNew,   // kosmos#7411
+  version: verbVersion,   // kosmos#8309
 };
 const SUBCOMMAND_HANDLERS = {
   // #4891 N4, as install/kosmos: clear is reporting working.
@@ -3681,6 +3714,7 @@ const DESCRIBE = {
   accounts: 'list the provider accounts and whether each is signed in',
   connect: 'connect an outside service with its token',
   'whats-new': 'what changed in each version, and which fixes need your agents restarted',
+  version: 'say which version and build of Kosmos this is (also --version or -v)',
 };
 /* kosmos#5805 part 2: padEnd(13) ran `reply-channel` (13 letters) into its words. The Mac's column (14), widened if a
    verb is ever longer, so a verb is always followed by at least one space. */
@@ -3703,7 +3737,8 @@ async function main(argv, io) {
   const err = o.err || ((s) => process.stderr.write(s + '\n'));
   let args;
   try { args = argvFrom(argv, o.readFile); } catch (e) { err(String(e.message)); return 2; }
-  const verb = args.shift();
+  let verb = args.shift();
+  if (verb === '--version' || verb === '-v') verb = 'version';   // kosmos#8309, as install/kosmos (#6084)
   const asksForHelp = args.some((a) => HELP_FLAGS.has(a));
 
   if (!Object.prototype.hasOwnProperty.call(VERB_HANDLERS, verb)) {
@@ -3723,6 +3758,8 @@ async function main(argv, io) {
   /* #1674: BEFORE any handler, so a verb added to the table later is covered
      without anyone remembering. No request of any kind, whoami included. */
   if (asksForHelp) { out(helpFor(verb, o.pathRules || path)); return 0; }
+  // kosmos#8309: before any token is read or request made; o.installRoot is the test seam for the install folder.
+  if (verb === 'version') return verbVersion({ out, err, root: o.installRoot }, args);
 
   const doFetch = o.fetch || fetch;
   const hook = o.hook || require(path.join(engineDir(), 'kosmos-report-hook.js'));
@@ -4002,7 +4039,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, DESCRIBE, USAGE_REPLY_FILE, replyFileAbsolute, helpFor, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
+module.exports = { main, argvFrom, versionLine, DESCRIBE, USAGE_REPLY_FILE, replyFileAbsolute, helpFor, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
   taskList, // #1307: the task list's rendering (the webhook mark), for cli.task-webhook-1307.test.js
 };
 
