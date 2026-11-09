@@ -1423,7 +1423,7 @@
     },
     {
       "title": "See when an agent sits on one step",
-      "line": "A Claude agent's card and page say when it has been on one tool call for five minutes or more, and which tool.",
+      "line": "The hover on a Claude agent's card and its page say when it has been on one tool call for five minutes or more, and which tool.",
       "icon": "swarm",
       "rank": 11.2,
       "since": "0.8.01",
@@ -1446,7 +1446,10 @@
       "icon": "shield",
       "rank": 11.6,
       "since": "0.8.01",
-      "status": "pending"
+      "status": "pending",
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "title": "A warning before an agent runs twice",
@@ -1487,7 +1490,7 @@
     },
     {
       "title": "Holds say when they were last confirmed",
-      "line": "A task on hold says when it was last confirmed: on its card, on its page, and in kosmos task show.",
+      "line": "A hold an agent set, with a reason, says when it was last confirmed: on its card, on its page, and in kosmos task show.",
       "icon": "tasks",
       "rank": 83,
       "since": "0.8.01",
@@ -1514,7 +1517,7 @@
     },
     {
       "title": "Links cannot reach the network in task files",
-      "line": "On Windows, kosmos task files also will not follow a link from a local path to a network location.",
+      "line": "On Windows, kosmos task files will not follow a link from a local path to a network location.",
       "icon": "shield",
       "platforms": [
         "windows"
@@ -1529,6 +1532,15 @@
       "line": "The Team map no longer shows on a project's Members card or above its Agents list.",
       "icon": "list",
       "rank": 87,
+      "since": "0.8.01",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Stale seat summaries are flagged",
+      "line": "kosmos project show flags a working member whose summary is over four hours old, and kosmos handoff says who was at work.",
+      "icon": "list",
+      "rank": 88,
       "since": "0.8.01",
       "status": "pending",
       "notesOnly": true
