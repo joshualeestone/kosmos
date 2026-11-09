@@ -196,7 +196,7 @@ const read = (pg) => pg.evaluate(() => {
     // With the tip already seen at a desk, the pill has room below the mark: a person with two computers sees the pill.
     if (tipSeen && vp.width === 1400) say(g.pill && g.below && !g.tip, tag + ': the pill comes out below the mark', JSON.stringify(g));
     // Review 5: arriving late with the tip showing, there is no room left anywhere: the day's words go to the notice,
-    // not away with it (a sentence seen for under half a second is not seen).
+    // rather than being lost (a sentence seen for under half a second is not seen).
     if (late && !tipSeen) {
       say(g.note && !g.pill, tag + ': with no room left, the day\'s words are handed to the notice', JSON.stringify(g));
       // Review 6: the pill already read the words out; the notice it hands to must not read them again
@@ -432,7 +432,7 @@ const read = (pg) => pg.evaluate(() => {
     await pg.waitForTimeout(400);
     const gone = await pg.evaluate(() => !document.querySelector('#kpill.in'));
     say(held, 'pause: 20 s with the pointer on the K mark, the pill is still out');
-    say(gone, 'pause: once the pointer leaves, it folds, leaving no count');
+    say(gone, 'pause: once the pointer leaves, it folds');
     await pg.close();
   }
 
