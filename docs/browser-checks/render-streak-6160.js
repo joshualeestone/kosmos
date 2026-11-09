@@ -143,9 +143,9 @@ const read = (pg) => pg.evaluate(() => {
     say(after.badge === null, 'fold: no count stays on the K mark (kosmos#8323); the label has it', JSON.stringify(after.badge));
     await pg.screenshot({ path: path.join(OUT, 'streak-folded.png') }).catch(() => {});
     // CONTROL for every "no count" assertion here: a digit put on the mark must be seen, however it is built.
-    await pg.evaluate(() => { const i = document.createElement('i'); i.id = 'zz-digit'; i.textContent = '12'; document.querySelector('.kmark').appendChild(i); });
+    await pg.evaluate(() => { const i = document.createElement('i'); i.className = 'zz-digit'; i.textContent = '12'; document.querySelector('.kmark').appendChild(i); });
     const withDigit = await read(pg);
-    await pg.evaluate(() => document.getElementById('zz-digit').remove());
+    await pg.evaluate(() => document.querySelector('.kmark .zz-digit').remove());
     say(withDigit.badge !== null && withDigit.badge.text === '12', 'CONTROL: a number on the K mark is seen by this check', JSON.stringify(withDigit.badge));
     say(errs.length === 0, 'pill: no page errors', errs.join(' | '));
     await pg.close();
