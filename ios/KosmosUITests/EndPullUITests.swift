@@ -92,15 +92,17 @@ final class EndPullUITests: XCTestCase {
         XCTAssertLessThanOrEqual(landed, before + 20, "the list landed below where it opened, " + waited)
         XCTAssertGreaterThanOrEqual(landed, before - 160, "the list did not bounce back, " + waited)
         if before - landed > 20 { print("UI-NOTE kosmos#8072: the long chat landed \(Int(before - landed)) pt above where it opened") }
-        // Clear of the working line, and of the box and its 18 pt fade.
+        // kosmos#8283: the working line is drawn over the strip above the box, in the room the dots rest in, so it is taken away
+        // while they show. The dots rest clear of the newest message above them, and of the box and its 18 pt fade below.
         let working = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Dana is working'")).firstMatch
-        XCTAssertTrue(working.exists, "CONTROL: no working line, so this checks no gap")
-        let dot = dots(app).frame, above = dot.minY - working.frame.maxY, below = Self.box(app).frame.minY - dot.maxY
-        XCTAssertGreaterThanOrEqual(above, 8, "the dots hang off the working line: \(above) above, \(below) below")
-        XCTAssertGreaterThanOrEqual(below, 18, "the box's fade cuts the dots: \(above) above, \(below) below")
-        // kosmos#7609: and not stuck high, which the allowance above cannot see: the true landing has 11.5 above and 21.5 below.
-        XCTAssertLessThanOrEqual(above, 40, "the list did not come back to its end: \(above) above, \(below) below")
-        XCTAssertLessThanOrEqual(below, 40, "the list did not come back to its end: \(above) above, \(below) below")
+        XCTAssertFalse(working.exists, "the working line shows under the dots")
+        let dot = dots(app).frame, above = dot.minY - row.frame.maxY, below = Self.box(app).frame.minY - dot.maxY
+        print("UI-NOTE kosmos#8283 \(UIKitListArm.on ? "uikit" : "lazy"): dots \(above) under the newest message's words, \(below) above the box")
+        XCTAssertGreaterThanOrEqual(above, 14, "the dots touch the newest message: \(above) under its words, \(below) above the box")
+        XCTAssertGreaterThanOrEqual(below, 18, "the box's fade cuts the dots: \(above) under the newest message's words, \(below) above the box")
+        // kosmos#7609: and not stuck high, which the allowance above cannot see.
+        XCTAssertLessThanOrEqual(above, 40, "the list did not come back to its end: \(above) under the newest message's words, \(below) above the box")
+        XCTAssertLessThanOrEqual(below, 40, "the list did not come back to its end: \(above) under the newest message's words, \(below) above the box")
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "end-pull-dots-long"; shot.lifetime = .keepAlways; add(shot)
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dots(app))
         wait(for: [gone], timeout: 20)
