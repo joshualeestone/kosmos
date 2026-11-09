@@ -104,10 +104,10 @@ test('#8287: the file result is what this start found, however the notice is han
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(path.join(root, 'settings.json'), '');
   storecheck.scan({ base: null });
-  assert.deepEqual(storecheck.lastScan(), { checked: true, damaged: 1 });
+  assert.deepEqual(storecheck.lastScan(), { checked: true, damaged: 1, unread: 0 });
   storecheck.dismiss();
   assert.equal(storecheck.current().length, 0, 'CONTROL: dismissing empties the notice');
-  assert.deepEqual(storecheck.lastScan(), { checked: true, damaged: 1 }, 'dismissing turned the damage into fine');
+  assert.deepEqual(storecheck.lastScan(), { checked: true, damaged: 1, unread: 0 }, 'dismissing turned the damage into fine');
   fs.rmSync(path.join(root, 'settings.json'));
 });
 
@@ -115,7 +115,7 @@ test('#8287: a folder or file the scan could not read is never called fine, but 
   const root = require('./store').ROOT;
   fs.mkdirSync(root, { recursive: true });
   storecheck.scan({ base: null });
-  assert.deepEqual(storecheck.lastScan(), { checked: true, damaged: 0 }, 'CONTROL: a clean scan says so');
+  assert.deepEqual(storecheck.lastScan(), { checked: true, damaged: 0, unread: 0 }, 'CONTROL: a clean scan says so');
 
   const realDir = fs.readdirSync;
   t.mock.method(fs, 'readdirSync', (dir, ...a) => { if (dir === root) { const e = new Error('no'); e.code = 'EACCES'; throw e; } return realDir(dir, ...a); });
@@ -136,7 +136,8 @@ test('#8287: a folder or file the scan could not read is never called fine, but 
   assert.equal(storecheck.lastScan().checked, false, 'a file it could not read was called fine');
   fs.writeFileSync(path.join(root, 'policy.json'), '');
   storecheck.scan({ base: null });
-  assert.deepEqual(storecheck.lastScan(), { checked: true, damaged: 1 }, 'damage it did find was dropped because of the file it could not read');
+  /* kosmos#8297: and the file it could not read is counted beside it, so the page can say the damaged count is a floor. */
+  assert.deepEqual(storecheck.lastScan(), { checked: true, damaged: 1, unread: 1 }, 'damage it did find was dropped, or the unread file not counted beside it');
   busy.mock.restore();
   fs.rmSync(path.join(root, 'settings.json'));
   fs.rmSync(path.join(root, 'policy.json'));
@@ -254,4 +255,32 @@ test('#8287: an agent nobody recorded before this start is added, and the note s
   rn.beat(T0 + MIN);
   assert.deepEqual(JSON.parse(fs.readFileSync(rn._files.aliveFile(), 'utf8')).running.map((a) => a.session).sort(), ['april', 'leo']);
   assert.deepEqual(rn.current(T0 + MIN).wereRunning, was('leo'), 'the note moved');
+});
+
+test('#8297: records it could not look at travel with the damaged count, from the scan to what the page is sent', () => {
+  clean();
+  aliveWith({ running: was('leo') });
+  const note = rn.atStart({ now: () => NOW, uptime: () => up(6), files: { checked: true, damaged: 2, unread: 3 } });
+  assert.deepEqual(note.files, { damaged: 2, unread: 3 }, 'the note dropped the unread count');
+  const shown = rn.current(NOW);
+  assert.deepEqual(shown.files, { damaged: 2, unread: 3 }, 'the kept note lost the unread count');
+  const checks = rn.checksFor(shown, [card('leo', 'Leo')], []);
+  assert.deepEqual(checks.files, { damaged: 2, unread: 3 }, 'the checks lost the unread count');
+  assert.deepEqual(rn.publicNote(shown, checks).checks.files, { damaged: 2, unread: 3 });
+
+  // CONTROL: nothing unread adds nothing, so the words stay as they were.
+  clean();
+  aliveWith({ running: was('leo') });
+  assert.deepEqual(rn.atStart({ now: () => NOW, uptime: () => up(6), files: { checked: true, damaged: 1, unread: 0 } }).files, { damaged: 1 });
+  // Junk is dropped, never sent on.
+  for (const unread of [-1, 1.5, '2', null]) {
+    clean();
+    aliveWith({ running: was('leo') });
+    assert.deepEqual(rn.atStart({ now: () => NOW, uptime: () => up(6), files: { checked: true, damaged: 1, unread } }).files, { damaged: 1 }, 'kept unread ' + JSON.stringify(unread));
+  }
+  // A note kept before #8297 has no unread count, and reads as before.
+  clean();
+  aliveWith({ running: was('leo') });
+  rn.atStart({ now: () => NOW, uptime: () => up(6), files: { checked: true, damaged: 1 } });
+  assert.deepEqual(rn.current(NOW).files, { damaged: 1 });
 });
