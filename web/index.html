@@ -7209,7 +7209,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    render-dm-multiline-3208 / render-talk). Scope it to the DM thread only: the ROOM's
    .msg-bd renders paragraphs via pjProse <p> blocks (no literal \n), so it needs none and
    is left untouched. */
-#d-dmthread .msg-bd { white-space: pre-wrap; overflow-wrap: anywhere; }
+#d-dmthread .msg-bd { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 18px; }   /* kosmos#8282 (Josh 11-09): 18px per line at 13px, from the 11-07 options picture */
 /* #718 (agent chat on a phone). Three things the DM bubble got wrong once it was narrow:
    1. A TABLE inherited `overflow-wrap: anywhere` from the rule above, which makes every
       cell's min-content one character, so the table crushed to a letter per line instead
