@@ -23,6 +23,7 @@ fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
 fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
 fs.mkdirSync(path.join(HOME, 'engine'));
 fs.copyFileSync(path.join(__dirname, 'engine', 'clilists.js'), path.join(HOME, 'engine', 'clilists.js'));
+fs.copyFileSync(path.join(__dirname, 'engine', 'localstamp.js'), path.join(HOME, 'engine', 'localstamp.js'));
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
