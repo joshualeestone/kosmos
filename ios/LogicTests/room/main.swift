@@ -586,10 +586,22 @@ let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a,
     "pending.last?.text.count ?? 0", "pending.count",   // kosmos#8038: a send's length and how many are pending, both numbers, never its words
     "keepNewestOnKeyboard", "visible", "holdAtEnd", "searchMode",   // kosmos#7645: the room's keyboard will-show, yes/no only
     "applies", "redrawn", "Int(spent * 1000)",   // kosmos#8221: the UIKit list's updates and cells drawn again (counts), and ms spent in them
-    "atEnd", "self.atEnd", "moving()", "busy", "byPerson", "wasAtEnd", "how", "what", "up", "fromAX", "fromResponder", "fromKeyboard", "fromFocus", "fromSwiftUI",   // kosmos#8221 slice 4: the UIKit list's yes/no flags and a fixed word (tracking, dragging, decelerating, still)
+    "atEnd", "self.atEnd", "atTop", "moving()", "busy", "byPerson", "wasAtEnd", "how", "what", "up", "fromAX", "fromResponder", "fromKeyboard", "fromFocus", "fromSwiftUI",   // kosmos#8221 slice 4: the UIKit list's yes/no flags and a fixed word (tracking, dragging, decelerating, still)
     "geometry(sv)", "geometry(list)", "self.geometry(list)"]   // kosmos#8221 slice 4: the UIKit list's offset, end, sizes and inset, in points
 // kosmos#8221 slice 4: the UIKit list's geometry is admitted by name, so its body is pinned: five Int(...) point values and fixed words.
 let listGeometrySource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatList.swift"), encoding: .utf8)) ?? ""
+// kosmos#8221 slice 7: earlier messages on the UIKit list. The list says when the reader is at the top; the chat asks for the
+// page before there, as the lazy list's top marker does; the failed line is the first cell; the lazy list's keepAnchor is
+// not used on the UIKit list (its own hold keeps the place).
+check(listGeometrySource.contains("atTop = sv.contentOffset.y <= -sv.adjustedContentInset.top + ChatList.endSlack")
+      && listGeometrySource.contains("co.toldTop = atTop"), "kosmos#8221 slice 7: the UIKit list reads and tells when the reader is at its top")
+check(chatSource.contains("}, atTop: { now in") && chatSource.contains("            topVisible = now\n            if now { loadEarlier() }"),
+      "kosmos#8221 slice 7: the UIKit list's top asks for earlier messages")
+check(chatSource.contains("case \"earlier-failed\": return AnyView(earlierFailedLine)")
+      && chatSource.components(separatedBy: ".overlay(alignment: .top) { earlierLoadingLine }").count - 1 == 2,
+      "kosmos#8221 slice 7: the failed line is a UIKit cell and the loading line floats over both lists")
+check(chatSource.contains("else if !uikitList, case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }"),
+      "kosmos#8221 slice 7: keepAnchor stays the lazy list's")
 check(listGeometrySource.contains("\"y \\(Int(sv.contentOffset.y)), end \\(Int(maxY(sv))), size \\(Int(sv.contentSize.height)), height \\(Int(sv.bounds.height)), inset \\(Int(sv.adjustedContentInset.bottom))\""), "kosmos#8221: the UIKit list's geometry in the record is five point values and nothing else")
 // kosmos#8221 slice 5: Settings' "New chat list" switch. Default off (a phone that never touches it keeps the lazy list), one
 // key read and written, the choice read once per chat open (an @State, so the switch never swaps an open chat's list), and
