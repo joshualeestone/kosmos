@@ -11579,13 +11579,14 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .myagents-list .lrow > .lname .namego { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .myagents-list .lrow > .lname b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 20px; }
 .myagents-list .lrow > .lname:has(.astar) { padding-right: 70px; }
-.myagents-list .lrow > .lname .astar { right: 26px; }   /* clear of the unread count, as the rail's (render-star-6719) */
+.myagents-list .lrow > .lname .astar { right: 26px; width: 26px; height: 20px; }   /* clear of the unread count, as the rail's (render-star-6719) */
 .myagents-list .lrow > .ltitle { grid-column: 2; font-size: 12px; color: var(--k-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.myagents-list .lrow > :not(.lav):not(.lname):not(.ltitle):not(.dmbadge) { display: none; }
+.myagents-list .lrow > :not(.lav):not(.lname):not(.ltitle):not(.dmbadge):not(.lstate) { display: none; }
+.myagents-list .lrow > .lstate { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }   /* out of sight, but a screen reader still gets each agent's state */
 .myagents-list .lrow > .dmbadge { position: absolute; top: 2px; right: 4px; }
 /* The notices above the page move over with it, or the column would cover them. */
-body.has-myagents #panel-detail, body.has-myagents > #askcard, body.has-myagents > #conn { margin-left: 260px; }
-body.has-myagents.myagents-folded #panel-detail, body.has-myagents.myagents-folded > #askcard, body.has-myagents.myagents-folded > #conn { margin-left: 48px; }
+body.has-myagents #panel-detail, body.has-myagents > #askcard, body.has-myagents > #conn { margin-left: calc(268px + 16px - var(--space-8)); }   /* the column, a gap, less the body's own padding */
+body.has-myagents.myagents-folded #panel-detail, body.has-myagents.myagents-folded > #askcard, body.has-myagents.myagents-folded > #conn { margin-left: calc(60px + 12px - var(--space-8)); }
 .myagents-folded .myagents { width: 60px; }
 .myagents-folded .myagents-head { justify-content: center; }
 .myagents-folded .myagents-list { padding: 0 6px 12px; overflow-x: hidden; scrollbar-width: none; }   /* a scrollbar in 60px would clip the avatars */

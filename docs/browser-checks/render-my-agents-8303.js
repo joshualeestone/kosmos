@@ -34,7 +34,7 @@ const read = () => {
     current: [...box.querySelectorAll('.namego[aria-current="page"]')].map((b) => b.closest('.lrow').dataset.agent),
     roles: [...box.querySelectorAll('.lrow .ltitle')].map((r) => r.textContent),
     badge: (box.querySelector('.lrow[data-agent="dario"] .dmbadge') || {}).textContent,
-    state: box.querySelectorAll('.lrow .lstate').length ? getComputedStyle(box.querySelector('.lrow .lstate')).display : null,
+    state: box.querySelectorAll('.lrow .lstate').length ? { display: getComputedStyle(box.querySelector('.lrow .lstate')).display, width: box.querySelector('.lrow .lstate').getBoundingClientRect().width, say: box.querySelector('.lrow .lstate').textContent.trim() } : null,
     back: getComputedStyle(back).visibility === 'hidden' ? 'none' : getComputedStyle(back).display,
     backText: back.textContent,
     pageLeft: Math.round(document.getElementById('panel-detail').getBoundingClientRect().left),
@@ -59,7 +59,7 @@ const read = () => {
       ok(t + ' it shows on the agent page, titled My Agents', on.hidden === false && on.title === 'My Agents', JSON.stringify(on));
       ok(t + ' every agent in one list, starred first, the guide left out', JSON.stringify(on.names) === JSON.stringify(['Mark', 'Dario', 'Jennika']) && on.groups === 0, JSON.stringify(on.names));
       ok(t + ' the open agent is marked', JSON.stringify(on.current) === JSON.stringify(['jen']), JSON.stringify(on.current));
-      ok(t + ' each row has its role and its unread count, and no state column', on.roles[0] === 'Project Manager' && on.badge === '2' && on.state === 'none', JSON.stringify(on));
+      ok(t + ' each row has its role and its unread count, and its state only for a screen reader', on.roles[0] === 'Project Manager' && on.badge === '2' && on.state && on.state.display !== 'none' && on.state.width <= 1 && on.state.say.length > 0, JSON.stringify(on));
       ok(t + ' no "All agents" link beside it', /All agents/.test(on.backText) && on.back === 'none', JSON.stringify(on));
       ok(t + ' the page moved over and does not sit under it', on.pageLeft >= on.boxRight, on.pageLeft + ' vs ' + on.boxRight);
 
