@@ -68,8 +68,33 @@ near a frame (8 ms at 120 Hz), which makes the signature the next slice.
 - [x] Control that the switch reaches the tests, 12:25-12:29: a throwaway copy with the three rebuild checks kept in,
       run with --uikit: 9 of 9, 3 SKIPPED with "the UIKit list never rebuilds", which only UIKitListArm.on produces.
       Without the switch reaching the test runner they would have run (and pass on the lazy list), so this can tell.
-- [ ] Lazy run unchanged: by reading, the env var is now passed as 0 and UIKitListArm.on reads == "1" (so a shell that
-      exported it as 1 now gets the lazy list on a plain run, as the first line says). Measured by CI's ui job on this PR.
+- [x] Lazy run unchanged: by reading, the env var is now passed as 0 and UIKitListArm.on reads == "1" (so a shell that
+      exported it as 1 now gets the lazy list on a plain run, as the first line says). CI's ui job green on this PR, run
+      42542582117 (and every run before it).
 - [x] ui-flaky-count.sh 2: default job 2 with a verdict; "uikit list (sample board)" 0, with "2 of 2 runs had no job
       named" it (it has not run on main yet).
-- [ ] CI's new job on this PR.
+- [x] CI's new job on this PR: it found a real defect in the UIKit list (below), and is green on run 42542582117.
+
+## The defect CI's new job found (11-08 evening)
+
+The long-chat grow check (KeyboardSlideUITests.testNewestStaysJustAboveTheBoxAsItGrowsAndShrinks) failed on every CI try
+and passed every try on this Mac (27 of 27, same device and iOS). Its trace (ui-sample.sh did not print it for this check
+until 4e5473a71a) showed: as a chat opened on the slow runner, an animated scroll nobody in our code started moved the list
+50 pt up from its end (y 11210 to 11160, end 11210), scrolled() read that as the reader leaving the newest message, and when
+the keyboard came up nothing pinned the list, so the newest message sat behind the keyboard. A real phone that is slow
+enough would do the same.
+
+Three fixes went to CI before the right one, each from a wrong reading of that scroll: "it went down" (it went up), "it
+is a deceleration" (it is an animation). The fix that holds does not depend on what the scroll is or who starts it: a
+person's scroll comes with a drag, or through List.personScrolls (accessibilityScroll, which VoiceOver, Switch Control,
+Voice Control and Full Keyboard Access use, and a hardware keyboard's scroll keys), or is the status-bar tap. Any other
+scroll that ends while the reader is at the newest keeps them there and pins to the real end.
+
+- [x] CI green with the fix's first form (no drag and no VoiceOver / Switch Control keeps the reader), run 42542582117:
+      14 of 14 on the UIKit job, first try.
+- [x] Final form 11ac7b19b0 (review round 8: mark a person's non-touch scrolls at their source, not by assistive flags):
+      typecheck Debug and Release clean, 43 of 43 ios*.test.js, full validation PASSED (hash 97eb5a013345). CI on the
+      proof head is the merge gate.
+- Not known: what starts that scroll (the Debug trace records which kind of code asks for any animated scroll on the
+  list, read on the next red). Pre-existing and left on #8221: laidOut pins on every frame of a non-touch scroll from the
+  newest, so it shows held then jumps.
