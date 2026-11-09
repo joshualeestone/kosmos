@@ -32832,8 +32832,25 @@ function worldswSetStale(stale) {
    screen offers that): the browser checks that pin the kept structure (#1704, #2238, #2350, #2563, #2628, #2935,
    #3055, #4648, and #718's phone frame) set it, so the code stays tested while nobody sees it. */
 const MULTI_KOSMOS = (() => { try { return localStorage.getItem('kosmos.multiKosmos') === '1'; } catch { return false; } })();
-let THIS_COMPUTER_NAME = '';
-let COMPUTERS_OPENABLE = false;
+/* #8325: the last good answer, kept across page loads, so a person with two computers does not lose the control for the
+   seconds before the first answer lands. Holds only "there is somewhere to go" and this computer's own name, in this
+   browser. The first real answer corrects it. */
+const COMPUTERS_SEEN_KEY = 'kosmos.computersSeen';
+function computersSeenRead() {
+  try {
+    const v = JSON.parse(localStorage.getItem(COMPUTERS_SEEN_KEY) || 'null');
+    return v && v.openable === true ? { name: typeof v.name === 'string' ? v.name : '' } : null;
+  } catch { return null; }
+}
+function computersSeenWrite(openable, name) {
+  try {
+    if (openable) localStorage.setItem(COMPUTERS_SEEN_KEY, JSON.stringify({ openable: true, name: name || '' }));
+    else localStorage.removeItem(COMPUTERS_SEEN_KEY);
+  } catch { /* the control then waits for the first answer, as it always did */ }
+}
+const COMPUTERS_SEEN = MULTI_KOSMOS ? null : computersSeenRead();
+let THIS_COMPUTER_NAME = COMPUTERS_SEEN ? COMPUTERS_SEEN.name : '';
+let COMPUTERS_OPENABLE = Boolean(COMPUTERS_SEEN);
 let COMPUTERS_RETRY_T = null;
 let COMPUTERS_STALE_WHILE_HIDDEN = false;
 let COMPUTERS_FAILS = 0;
@@ -32905,6 +32922,7 @@ function worldswComputersSeen(rows, good, signedOut) {
     THIS_COMPUTER_NAME = me ? me.name : '';
     const was = COMPUTERS_OPENABLE;
     COMPUTERS_OPENABLE = rows.length >= 2;
+    computersSeenWrite(COMPUTERS_OPENABLE, THIS_COMPUTER_NAME);
     if (was && !COMPUTERS_OPENABLE) worldswTipDrop();   // #6403: nowhere to switch to any more: the tip goes with it
     COMPUTERS_SIGNED_OUT = signedOut === true;   // #6403: not signed in to Kosmos+, so a look back has nothing to find
     if (COMPUTERS_OPENABLE && !was) worldswTipOnce();
