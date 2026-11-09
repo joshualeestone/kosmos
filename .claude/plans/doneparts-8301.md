@@ -4,7 +4,7 @@
 A subtask built and delivered counted as not done, and one closed without ever running counted as done.
 
 ## Change
-`kosmos task close --not-run` (both CLIs, the close route's `notRun`) marks a task closed without running, and so does a close as replaced. A plain close stays done.
+`kosmos task close --not-run` (both CLIs, the close route's `notRun`) marks a task closed without running, and so does a close as replaced. A plain close stays done, and a plain close of a task already marked keeps the mark; only a reopen clears it.
 `subtasks` gains `unrun`. Tasks view, project card, task page, `task show` and `task list` read "1 of 5 done, 2 built, 1 closed not done" (the task page says it per row, not as a count line). `done` still counts everything closed, because every "are they all closed" reader needs that.
 With any unrun, the words say "all subtasks closed", not done, and "all subtasks built" is not said.
 
@@ -18,7 +18,7 @@ The iPhone reads `done` and keeps its own count, so its number differs from the 
 
 No not-run control on the screen: this card asks for numbers, and closing from the screen stays a plain close. A person who wants it asks an agent.
 
-A board since #6923 refuses `--not-run` loudly; one older than that ignores the body and closes it as done. The CLI and board ship together, so only a board not yet updated can hit that, and there is no older-board wording.
+A board since #6923 refuses `--not-run` loudly; one older than that ignores the body and closes it as done. The CLI and board ship together, so only a board not updated across many releases can hit that. Review 6 asked for a warning as --with-built has; not added, because the CLI comes from the same install as the board and that path is the far edge of unreachable.
 
 ## Weakest premise
 Agents have to use the flag, so the third number starts at zero until they do.

@@ -2914,7 +2914,18 @@ const SCREENS = [
       for (const t of proj.tasks || []) if (t.number === 1) t.subtasks = { done: 3, built: 2, held: 1, unrun: 1, total: 7 };
     });
     if (list) { await openTab(page, tab); await page.click(`${list} .pj-row[data-project="${data.projectId}"]`); }
-    else await page.evaluate(async () => { await loadProjects(); showTab('tasks'); });   // the phone's menu has no Tasks row to click on every size
+    else {
+      // The Tasks view reads its own list, so the same count is put there.
+      await page.route('**/api/tasks?view=tasks*', async (route) => {
+        try {
+          const res = await route.fetch();
+          const body = await res.json();
+          for (const t of body.tasks || []) if (t.number === 1) t.subtasks = { done: 3, built: 2, held: 1, unrun: 1, total: 7 };
+          await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
+        } catch { await route.abort().catch(() => {}); }
+      });
+      await page.evaluate(() => showTab('tasks'));   // the phone's menu has no Tasks row to click on every size
+    }
     await page.waitForFunction(() => [...document.querySelectorAll('.tsk-chip')].some((c) => c.offsetParent && /closed not done/.test(c.title)), null, { timeout: 8000 });
     await page.evaluate(() => [...document.querySelectorAll('.tsk-chip')].find((c) => c.offsetParent && /closed not done/.test(c.title)).scrollIntoView({ block: 'center' }));
   }, verify: async (page) => {
