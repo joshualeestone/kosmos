@@ -243,6 +243,19 @@ test('kosmos#8305: with the account unknown too, the row says both', () => {
     assert.match(out.unknownLastRun, new RegExp('will start on ' + usual.label));
   } finally { create.policyAllows = real; }
 });
+test('kosmos#8305: a refusal never tells the row to choose, when it has no chooser', () => {
+  const dir = agent('moved8305e');
+  ranOn(ACCT_B);
+  const real = create.policyAllows;
+  create.policyAllows = () => ({ ok: false, because: "your company's policy allows only some models on Claude: choose one of them" });
+  try {
+    const out = discover.connect(dir, {});
+    assert.equal(out.ok, false);
+    assert.match(out.because, /lists no model Kosmos can start/);
+    assert.doesNotMatch(out.because, /choose/);
+    assert.equal(seen, null, 'nothing was written');
+  } finally { create.policyAllows = real; }
+});
 test('kosmos#8305: past the usual default, the least costly on the menu comes first', () => {
   const dir = agent('moved8305c');
   ranOn(ACCT_B);
@@ -259,7 +272,7 @@ test('kosmos#8305: past the usual default, the least costly on the menu comes fi
   } finally { create.policyAllows = real; }
 });
 
-test('a policy that does not list the model refuses, before anything is written', () => {
+test('a policy that allows nothing on the menu refuses, before anything is written', () => {
   const dir = agent('policedout');
   ranOn(ACCT_B);
   const real = create.policyAllows;

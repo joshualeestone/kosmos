@@ -2099,7 +2099,7 @@ function connect(dir, opts) {
   let keepModel = last.account && startable && !tooOld ? last.model : null;
   let policyMoved = null;   // kosmos#8305: the model the policy moved it to, when the one it ran on is not on the company's list
   {
-    /* The model it will actually run: a policy listing that model is satisfied, and one that does not list it refuses. */
+    /* The model it will actually run: a policy listing that model is satisfied; one that does not list it is handled below. */
     const policyDir = last.account ? last.account.dir : undefined;
     const allowed = create.policyAllows(create.runnerProvider(runner), keepModel || '', policyDir);
     /* kosmos#8305: a Found row has no chooser, so "choose one of them" left the person nowhere. When the model it ran on is
@@ -2112,7 +2112,14 @@ function connect(dir, opts) {
       pick = [...menu.filter((m) => m.key === usual), ...menu.filter((m) => m.key !== usual).reverse()]
         .find((m) => create.policyAllows(create.runnerProvider(runner), m.arg, policyDir).ok) || null;
     }
-    if (!allowed.ok && !pick) return { ok: false, because: allowed.because };
+    if (!allowed.ok && !pick) {
+      // The policy's own words say "choose one of them", and this row has no chooser.
+      if (!runner && /choose one of them/.test(String(allowed.because))) {
+        const oe = require('./orgenroll');
+        return { ok: false, because: oe.inKind(oe.kindHere(), 'your company\'s policy lists no model Kosmos can start for this agent, so it was not added') };
+      }
+      return { ok: false, because: allowed.because };
+    }
     if (pick) { policyMoved = { to: pick.label || pick.key, had: Boolean(keepModel) }; keepModel = pick.arg; }
   }
   /* 🛑 THE PROVIDER GOES IN THE PROFILE TOO, NOT ONLY THE JOB (#1159). #1347 made
