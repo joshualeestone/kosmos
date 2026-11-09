@@ -7130,6 +7130,15 @@ function createAgentInner(opts) {
           key: trusted.key, displaced: trusted.displaced, madeEntry: trusted.madeEntry,
           also: trusted.also,   // kosmos#4260: the 8.3 spelling's key, when one was written
         });
+      } else if (trusted && trusted.ok === true && trusted.already === true && trusted.also
+          && typeof trusted.also.key === 'string' && trusted.also.forgettable === true) {
+        /* kosmos#4260: the main key was the person's (never recorded as ours), but the 8.3 or subst spelling's key is
+           the line THIS creation wrote, and an 8.3 alias is handed to the next like-named folder once this agent is
+           gone. So it is this incarnation's record, on its own as the record's key: a removal's forgetFolder then
+           takes back that line alone, under its usual guards, and the person's main key stays out of reach. It also
+           replaces any earlier incarnation's record, as the drop below would. */
+        const a = trusted.also;
+        require('./trust').recordWrite(name, { key: a.key, displaced: a.displaced, madeEntry: a.madeEntry === true });
       } else {
         /* ⚠️ A NEW INCARNATION THAT DID NOT RECORD INVALIDATES THE OLD ONE.
            A reused name whose fresh creation could not (or did not need to)
@@ -7171,7 +7180,8 @@ function createAgentInner(opts) {
       try { undone = require('./trust').forgetFolder(trusted.key, trusted.displaced, trusted.madeEntry, trusted.also).ok === true; }
       catch { undone = false; }
       if (!undone) steps.push({ label: 'took back the folder trust', ok: false });
-    } else if (trusted && trusted.ok === true && trusted.already === true && trusted.also && typeof trusted.also.key === 'string') {
+    } else if (trusted && trusted.ok === true && trusted.already === true && trusted.also && typeof trusted.also.key === 'string'
+        && trusted.also.forgettable === true) {   // only a key in the config forgetFolder edits (trust.js trustFolderInner)
       /* kosmos#4260: the main key was the person's (left alone above), but the second key trustFolder wrote for an 8.3
          or subst spelling is ours, and an 8.3 alias is handed to the next like-named folder once rollBack deletes this
          one. So that key alone is taken back, under forgetFolder's guards (only if it still says yes; the entry goes

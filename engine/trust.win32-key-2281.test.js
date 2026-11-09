@@ -95,7 +95,8 @@ test('#4260 a folder handed over in its 8.3 SHORT spelling is keyed on BOTH spel
   assert.equal(r.ok, true, r.because || '');
   assert.equal(r.already, false);
   assert.equal(r.key, fwd(f.long), 'the main key is still the long native spelling');
-  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true }, 'and the short one is reported apart, with what it displaced (nothing)');
+  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true, forgettable: false },
+    'and the short one is reported apart, with what it displaced (nothing); not forgettable: this account config is not the default one an undo edits');
   const projects = readCfg(nodePath.join(f.cfgDir, '.claude.json')).projects;
   assert.deepEqual(Object.keys(projects).sort(), [fwd(f.long), fwd(f.short)].sort());
   assert.equal(projects[fwd(f.short)].hasTrustDialogAccepted, true);
@@ -121,7 +122,7 @@ test('#4260 only the main key trusted (as #4257 wrote it): the short start is re
   const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
   assert.equal(r.ok, true, r.because || '');
   assert.equal(r.already, true, 'the main key was already true: callers record nothing, so a removal can never take the person\'s line');
-  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true });
+  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true, forgettable: false });
   const projects = readCfg(cfg).projects;
   assert.deepEqual(projects[fwd(f.long)], { hasTrustDialogAccepted: true, allowedTools: ['x'] }, 'the main entry is untouched');
   assert.equal(trust.folderTrusted(f.short, { configDir: f.cfgDir }), true);
@@ -135,13 +136,13 @@ test('#4260 the undo takes back both keys and puts back exactly what each held, 
   const cfg = nodePath.join(f.cfgDir, '.claude.json');
   // The short key held the person's `false` and their tools; the main key held nothing.
   fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.short)]: { hasTrustDialogAccepted: false, allowedTools: ['y'] } } }));
-  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
-  assert.equal(r.ok, true, r.because || '');
-  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: false, displaced: false });
-  // forgetFolder reads CONFIG(), the default config, so point it at this one for the undo (as the rollback's caller does).
+  // A default-account agent: the file its write goes to IS CONFIG(), the file every undo edits.
   const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
   process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = cfg;
   t.after(() => { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; });
+  const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
+  assert.equal(r.ok, true, r.because || '');
+  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: false, displaced: false, forgettable: true });
   assert.equal(trust.recordWrite('undo-4260', { key: r.key, displaced: r.displaced, madeEntry: r.madeEntry, also: r.also }), true);
   const rec = trust.recordedWrite('undo-4260');
   assert.deepEqual(rec.also, { key: fwd(f.short), madeEntry: false, displaced: false }, 'the record keeps the second key in the same shape');
@@ -180,7 +181,7 @@ test('#4260 with no record for the main key (the person trusted it), the second 
   t.after(() => trust.dropRecord('someone-else-4260'));
   const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
   assert.equal(r.already, true);
-  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true }, 'the second key WAS written, so the attach really had something to place');
+  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true, forgettable: false }, 'the second key WAS written');
   assert.equal('also' in trust.recordedWrite('someone-else-4260'), false, 'another agent\'s record is not touched');
 });
 
@@ -191,7 +192,7 @@ test('#4260 a second key written into ANOTHER account\'s config is not attached:
   t.after(() => trust.dropRecord('otheracct-4260'));
   // CONFIG() stays the sandbox default (set at the top of this file), not f.cfgDir's file.
   const r = trust.trustFolder(f.short, { configDir: f.cfgDir });
-  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true }, 'written into that account');
+  assert.deepEqual(r.also, { key: fwd(f.short), madeEntry: true, forgettable: false }, 'written into that account, and marked as not the file an undo edits');
   assert.equal('also' in trust.recordedWrite('otheracct-4260'), false, 'but not attached, so a removal cannot reach a same-spelled key in the default config');
 });
 
@@ -235,7 +236,27 @@ test('#4260 the callers carry the second key: creation records it and rolls it b
   assert.match(create, /recordWrite\(name, \{[^}]*also: trusted\.also/, 'creation records the second key');
   assert.match(create, /forgetFolder\(trusted\.key, trusted\.displaced, trusted\.madeEntry, trusted\.also\)/, 'a failed start rolls it back');
   assert.match(create, /trusted\.already === true && trusted\.also[\s\S]{0,900}?forgetFolder\(a\.key, /, 'and rolls back the second key alone when the main one was the person\'s');
+  assert.match(create, /trusted\.also\.forgettable === true\) \{[\s\S]{0,900}?recordWrite\(name, \{ key: a\.key, /, 'and on a good start records that second key alone, rather than dropping it');
   assert.match(remove, /forgetFolder\(rec\.key, [^;]*rec\.madeEntry === true, rec\.also\)/, 'a removal takes it back');
+});
+
+test('#4260 a second key marked NOT forgettable (another account\'s config) is never undone or recorded here', () => {
+  /* Built from plain paths so it runs anywhere: what matters is the flag, which trustFolder sets per write. */
+  const cfgDir = fs.mkdtempSync(nodePath.join(SANDBOX, 'cfg-'));
+  const cfg = nodePath.join(cfgDir, '.claude.json');
+  const main = fwd(nodePath.join(SANDBOX, 'work', 'nf-main'));
+  const other = fwd(nodePath.join(SANDBOX, 'work', 'nf-other'));
+  fs.writeFileSync(cfg, JSON.stringify({ projects: { [main]: { hasTrustDialogAccepted: true }, [other]: { hasTrustDialogAccepted: true } } }));
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = cfg;
+  try {
+    const got = trust.forgetFolder(main, undefined, true, { key: other, madeEntry: true, forgettable: false });
+    assert.equal(got.ok, true, got.because || '');
+    assert.deepEqual(readCfg(cfg).projects, { [other]: { hasTrustDialogAccepted: true } }, 'the main key we made is gone; the not-forgettable one is left as it is');
+    assert.equal(trust.recordWrite('nf-4260', { key: main, madeEntry: true, also: { key: other, madeEntry: true, forgettable: false } }), true);
+    assert.equal('also' in trust.recordedWrite('nf-4260'), false, 'and a record never keeps it for a removal to reach');
+    trust.dropRecord('nf-4260');
+  } finally { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; }
 });
 
 test('#4260 an undo with no second key, or a damaged one, takes back the main key exactly as before', () => {

@@ -145,6 +145,14 @@ const KEY = 'hasTrustDialogAccepted';
  * letter's own key it did not), and by the same rule a mapped network drive (not measured: no mapped drive here).
  * Windows only: elsewhere none of these exist and the native key is the read one.
  */
+/* Two config paths that name one file: case-blind on Windows, where the file system is. */
+function sameFile(a, b) {
+  const ra = path.resolve(String(a));
+  const rb = path.resolve(String(b));
+  return process.platform === 'win32' ? ra.toLowerCase() === rb.toLowerCase() : ra === rb;
+}
+/* (`dir` is a plain drive or UNC path, as every caller hands over; a `\\?\`-prefixed one is out of scope and would
+   simply get a second key Claude Code never reads, never a wrong one it does.) */
 function runnerSpelling(dir, nativeKey) {
   if (process.platform !== 'win32') return null;
   let js;
@@ -301,8 +309,7 @@ function trustFolder(dir, opts) {
      Only when the line went into CONFIG(), the file a removal's forgetFolder edits: a key written into another
      account's config would otherwise send that removal after a same-spelled key in the default one, which could be
      the person's own. */
-  if (r.ok && r.value && r.value.ok === true && r.value.already === true && r.value.also
-      && path.resolve(target) === path.resolve(CONFIG())) {
+  if (r.ok && r.value && r.value.ok === true && r.value.already === true && r.value.also && r.value.also.forgettable === true) {
     try { attachAlsoToRecord(r.value.key, r.value.also); } catch { /* best effort, as every record write */ }
   }
   return r.ok ? r.value : { ok: false, because: r.because };
@@ -494,7 +501,10 @@ function trustFolderInner(dir, opts) {
      first start takes it back on its own (engine/create.js). */
   let alsoWrote = null;
   if (also && !alsoDone) {
-    alsoWrote = { key: also, madeEntry: alsoExisting === undefined };
+    /* `forgettable`: whether this key went into CONFIG(), the file forgetFolder (every undo: a failed start's, a
+       removal's) edits. When it did not (an agent on another account), an undo would reach a SAME-SPELLED key in the
+       default config, which could be the person's own, so every undo and record path skips a key marked false. */
+    alsoWrote = { key: also, madeEntry: alsoExisting === undefined, forgettable: sameFile(target, CONFIG()) };
     if (alsoExisting && (KEY in alsoExisting)) alsoWrote.displaced = alsoExisting[KEY];
     data.projects[also] = Object.assign({}, alsoExisting || {}, { [KEY]: true });
   }
@@ -632,7 +642,8 @@ function forgetFolderInner(dir, displaced, madeEntry, also) {
     return { ok: false, because: 'their config file is not shaped the way we expect' };
   }
   const undo = [[key, displaced, madeEntry]];
-  if (also && typeof also === 'object' && typeof also.key === 'string' && path.isAbsolute(also.key) && also.key !== key) {
+  if (also && typeof also === 'object' && typeof also.key === 'string' && path.isAbsolute(also.key) && also.key !== key
+      && also.forgettable !== false) {   // written into another account's config: not this file's to edit (trustFolder)
     undo.push([also.key, 'displaced' in also ? also.displaced : undefined, also.madeEntry === true]);
   }
   let changed = false;
@@ -754,7 +765,7 @@ function recordWriteInner(name, wrote) {
   const entry = { key: wrote.key, madeEntry: wrote.madeEntry === true, at: new Date().toISOString() };
   if (wrote.displaced !== undefined) entry.displaced = wrote.displaced;
   // kosmos#4260: the second key trustFolder wrote (an 8.3-spelled folder on Windows), kept in the same shape.
-  if (wrote.also && typeof wrote.also === 'object' && typeof wrote.also.key === 'string') {
+  if (wrote.also && typeof wrote.also === 'object' && typeof wrote.also.key === 'string' && wrote.also.forgettable !== false) {
     entry.also = { key: wrote.also.key, madeEntry: wrote.also.madeEntry === true };
     if (wrote.also.displaced !== undefined) entry.also.displaced = wrote.also.displaced;
   }
@@ -1050,6 +1061,8 @@ function folderTrusted(dir, opts) {
   catch { return null; }   // the folder is not there -- we cannot derive the runner's key
   key = key.split(path.sep).join('/');
   // kosmos#4260: for an 8.3-spelled folder on Windows the runner reads ITS spelling, so that is the entry that decides.
+  // (If that entry is one trustFolder could not read and left alone, this answers false while a launch answers ok:
+  // deliberate, since the entry the runner reads is not a trusted one; the card then says so rather than guessing.)
   key = runnerSpelling(dir, key) || key;
   let data;
   try { data = JSON.parse(fs.readFileSync(target, 'utf8')); }
