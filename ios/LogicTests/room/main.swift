@@ -569,7 +569,10 @@ let roomTraceSource = (try? String(contentsOf: repo.appendingPathComponent("ios/
 // kosmos#8221: and the UIKit list's (ChatList writes through ChatView.trace).
 let listTraceSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatList.swift"), encoding: .utf8)) ?? ""
 check(listTraceSource.contains("ChatView.trace("), "CONTROL: ChatList.swift was read and writes trace lines")
-let traceLines = (chatSource + "\n" + roomTraceSource + "\n" + listTraceSource).components(separatedBy: "\n").filter { $0.contains("Self.trace(") || $0.contains("ChatView.trace(") }
+// kosmos#8221 slice 9 review 1: the pull's driver writes trace lines too.
+let dotsTraceSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/DotsRefresh.swift"), encoding: .utf8)) ?? ""
+check(dotsTraceSource.contains("ChatView.trace(\"end pull: let go, not counted: allowed \\(mayCount)"), "CONTROL: DotsRefresh.swift was read and its trace line with values is in the scan")
+let traceLines = (chatSource + "\n" + roomTraceSource + "\n" + listTraceSource + "\n" + dotsTraceSource).components(separatedBy: "\n").filter { $0.contains("Self.trace(") || $0.contains("ChatView.trace(") }
 // Review 1: an allow-list, not a ban-list. Every value a trace line puts in the record is one of these numbers, yes/no
 // flags or fixed words; anything new (an id, a session, a name) fails here until it is judged and added.
 let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a, b)", "waited", "personScrolling", "scrollBox.underFinger", "place", "Int(back)", "tall", "inset", "sized", "now ?? \"none\"", "Self.sampleRows(rows, held: r.id)", "Self.sampleRows(rows, held: kept.row)", "Int(reading.content)", "Int(r.content)", "Int(r.top)", "Int(top)", "Int(bottom)", "self.scroll.map { Self.numbers($0) } ?? \"no scroll\"", "atBottom", "earlier.filling", "earlier.loading", "earlier.open", "earlier.rows.count", "endSeen",
@@ -583,6 +586,7 @@ let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a,
     "Self.numbers(sv)",   // kosmos#7645 round 4: the scroll's offset, content height and showing height, in points
     "Self.heightLine(v, rows: r)",   // kosmos#7420: content height, offset and the drawn rows' places, in points and a count
     "Int(short)",   // kosmos#7420 review 3: how far the scroll is short of the content's end, in points
+    "mayCount", "Int(pastEnd)", "Int(PullRefreshLogic.threshold)",   // kosmos#8221 slice 9: a pull let go (yes/no, points)
     "Int(pulled)",   // kosmos#8221 slice 9: how far a pull past the end was kept when rows landed under it (points)
     "pending.last?.text.count ?? 0", "pending.count",   // kosmos#8038: a send's length and how many are pending, both numbers, never its words
     "keepNewestOnKeyboard", "visible", "holdAtEnd", "searchMode",   // kosmos#7645: the room's keyboard will-show, yes/no only
