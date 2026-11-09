@@ -26638,8 +26638,10 @@ const server = http.createServer(async (req, res) => {
         } catch { /* the mark stands; the sentence is extra */ }
       }
       // kosmos#8307 review 3: the page's own mark gets the task without this computer's file paths, as its list views do.
+      // (A copy, made here so the answer below stays written as server.communitytaskdone-5313.test.js finds it.)
+      if (viaScreen) out.task = tasks.withoutFilePaths(out.task);
       // Review 6: the summary goes whenever there is one (the withdrawal sentence must not hang on `delivered` being set); still the last key.
-      sendJson(res, 200, { task: viaScreen ? tasks.withoutFilePaths(out.task) : out.task, changed: out.changed === true, ...(stillToFinish ? { stillToFinish } : {}), ...(delivered ? { delivered } : {}), ...(summary ? { summary } : {}) });
+      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(stillToFinish ? { stillToFinish } : {}), ...(delivered ? { delivered } : {}), ...(summary ? { summary } : {}) });
       // #5313: the same agent, between tasks, gets one community prompt (reaches busy agents the idle
       // sweep never sees). After the response, and (kosmos#7649) awaited on its own chain, so it never holds the event loop; the
       // mark is already recorded, and the per-task dedup book makes a second built mark on the same
