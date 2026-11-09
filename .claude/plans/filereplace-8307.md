@@ -38,6 +38,7 @@ Addresses #8307 (split out of #8214). The shape was posted on the card first (is
 ## Not done
 
 - The Tasks page (no fingerprint shown there today) and `kosmos task files` (it checks the current file, which stays right).
+- `kosmos task list` (Mac and Windows alike) keeps its one fingerprint line per built task; the replaced file and the checks are in `task show`, which both CLIs print from the shared `engine/tasklist.js` (review 10).
 
 ## Tests
 
