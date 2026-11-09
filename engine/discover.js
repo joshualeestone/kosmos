@@ -61,8 +61,6 @@ const promptrequest = require('./promptrequest');
    with the env var unset (every real install), exactly wrong under a
    sandboxed gate that sets it. */
 const DISMISS_FILE = path.join(store.ROOT, 'found-agents-dismissed.json');
-/* #8293: the shape a model id may take to be written into a launch job (engine/linuxjob.js MODEL_ID). */
-const MODEL_WE_CAN_WRITE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/;
 
 /**
  * Folders the person has said are NOT an agent (#1531).
@@ -294,19 +292,12 @@ function newestTranscript(dir) {
    session-env/<session id> (or file-history/<session id>) into the config dir that ran the session, even where
    `projects` is shared between accounts by a link, which is why the transcript's own location cannot answer this.
    Each answer is null when it cannot be told. */
+/* Half a megabyte: long tool results sit between assistant rows, and a shorter tail can hold none. */
 const LAST_RUN_TAIL_BYTES = 512 * 1024;
+/* Not status.modelInText: that one also answers from a subagent's row, and a subagent often runs a cheaper model. */
 function lastModelIn(transcript) {
   let text = '';
-  try {
-    const fd = fs.openSync(transcript, 'r');
-    try {
-      const size = fs.fstatSync(fd).size;
-      const want = Math.min(size, LAST_RUN_TAIL_BYTES);
-      const buf = Buffer.alloc(want);
-      fs.readSync(fd, buf, 0, want, size - want);
-      text = buf.toString('utf8');
-    } finally { fs.closeSync(fd); }
-  } catch { return null; }
+  try { text = status.tailBytes(transcript, LAST_RUN_TAIL_BYTES).text; } catch { return null; }
   const lines = text.split('\n');
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     if (!lines[i].includes('"assistant"')) continue;
@@ -319,7 +310,7 @@ function lastModelIn(transcript) {
   return null;
 }
 function lastRunOf(dir) {
-  const none = { account: null, model: null };
+  const none = { ran: false, account: null, model: null };
   const folder = String(dir).replace(/[^a-zA-Z0-9]/g, '-');
   let transcript = null;
   let at = -1;
@@ -330,20 +321,19 @@ function lastRunOf(dir) {
     try { m = fs.statSync(t).mtimeMs; } catch { continue; }
     if (m > at) { at = m; transcript = t; }
   }
-  if (!transcript) return none;
+  if (!transcript) return none;   // never ran here: it was using nothing, so there is nothing to keep or to say
   /* The folder name is lossy (a dash and a slash arrive identical), so this transcript may be another folder's. */
   if (status.transcriptCwd(transcript) !== dir) return none;
   const session = path.basename(transcript, '.jsonl');
-  const compat = require('./anthropiccompat');
   const holders = new Map();
   for (const row of require('./accounts').list()) {
-    if (!row || !row.dir || compat.vendorOfName(row.dir)) continue;
+    if (!row || !row.dir) continue;
     if (!['session-env', 'file-history'].some((sub) => fs.existsSync(path.join(row.dir, sub, session)))) continue;
     let key = row.dir;
     try { key = fs.realpathSync(row.dir); } catch { /* the path as listed */ }
     holders.set(key, row);
   }
-  return { account: holders.size === 1 ? [...holders.values()][0] : null, model: lastModelIn(transcript) };
+  return { ran: true, account: holders.size === 1 ? [...holders.values()][0] : null, model: lastModelIn(transcript) };
 }
 
 /**
@@ -2180,10 +2170,12 @@ function connect(dir, opts) {
     } catch { /* the sync after the session is up still does it, the old way */ }
   }
   /* #8293: only a Claude agent is read here; another runner keeps today's behaviour. */
-  let last = { account: null, model: null };
+  let last = { ran: false, account: null, model: null };
   if (!runner) { try { last = lastRunOf(given); } catch { /* reads as not known */ } }
-  const keepModel = last.model && MODEL_WE_CAN_WRITE.test(last.model)
-    && create.policyAllows(create.runnerProvider(runner), last.model).ok ? last.model : null;
+  /* Only a Claude model: one run through a compatible endpoint (a DeepSeek or GLM id) would fail on a job with no such endpoint. */
+  const readable = Boolean(last.model && /^claude-/.test(last.model) && require('./linuxjob').MODEL_ID.test(last.model));
+  const allowed = readable && create.policyAllows(create.runnerProvider(runner), last.model).ok;
+  const keepModel = allowed ? last.model : null;
   const job = create.installJob(name, {
     ...(runner ? { runner } : {}),
     ...(last.account && !last.account.isDefault ? { configDir: last.account.dir } : {}),
@@ -2221,9 +2213,11 @@ function connect(dir, opts) {
     return { ok: false, because: job.because || 'we could not set it up to run' };
   }
 
-  const unknown = runner ? [] : [
+  const unknown = runner || !last.ran ? [] : [
     ...(last.account ? [] : ['we could not tell which Claude account it was using, so it will run on your main one']),
-    ...(keepModel ? [] : ['we could not tell which model it was using, so it will start on the default']),
+    ...(keepModel ? [] : [readable
+      ? 'the company policy here does not allow the model it was using, so it will start on the default'
+      : 'we could not tell which Claude model it was using, so it will start on the default']),
   ];
   return { ok: true, name, displayName, dir: given, started: job.started === true,
     ...(unknown.length ? { unknownLastRun: unknown.join(', and ') } : {}) };

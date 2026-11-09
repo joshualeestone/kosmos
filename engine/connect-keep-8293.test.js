@@ -127,7 +127,36 @@ test('a model id that cannot go in a job is not kept, and it says so', () => {
   const out = discover.connect(dir, {});
   assert.equal(seen.configDir, ACCT_B);
   assert.equal('model' in seen, false);
-  assert.match(out.unknownLastRun, /could not tell which model/);
+  assert.match(out.unknownLastRun, /could not tell which Claude model/);
+});
+
+test('a model from a compatible endpoint is not written into a job that has no such endpoint', () => {
+  const dir = agent('deepseek', { lines: [assistant('deepseek-chat')] });
+  ranOn(ACCT_B);
+  const out = discover.connect(dir, {});
+  assert.equal('model' in seen, false);
+  assert.match(out.unknownLastRun, /could not tell which Claude model/);
+});
+
+test('a folder that never ran has nothing to keep and nothing to say', () => {
+  const dir = path.join(SB, 'theirs', 'neverran');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# You are Neverran\n');
+  const out = discover.connect(dir, {});
+  assert.equal(out.ok, true, out.because);
+  assert.deepEqual(seen, {});
+  assert.equal(out.unknownLastRun, undefined);
+});
+
+test('the job that gets written carries the account and the model', () => {
+  const dir = agent('realjob');
+  ranOn(ACCT_B);
+  create.installJob = realInstall;
+  const out = discover.connect(dir, {});
+  assert.equal(out.ok, true, out.because);
+  const job = create.readJob('realjob');
+  assert.equal(job.configDir, ACCT_B);
+  assert.equal(job.model, 'claude-haiku-5-5');
 });
 
 test('a company policy that refuses the model is not bypassed', () => {
@@ -140,6 +169,8 @@ test('a company policy that refuses the model is not bypassed', () => {
     assert.equal(out.ok, true, out.because);
     assert.equal('model' in seen, false);
     assert.equal(seen.configDir, ACCT_B);
+    assert.match(out.unknownLastRun, /company policy here does not allow/);
+    assert.doesNotMatch(out.unknownLastRun, /could not tell/);
   } finally { create.policyAllows = real; }
 });
 
