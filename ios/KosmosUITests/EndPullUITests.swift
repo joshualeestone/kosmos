@@ -127,16 +127,20 @@ final class EndPullUITests: XCTestCase {
     // proof that the pull fetched it. It must reach the screen, with the list still drawn and at its end.
     func testAMessageLandingAroundAPullShowsAndNothingBlanks() {
         let app = launch(["KOSMOS_SAMPLE_GROW": "1", "KOSMOS_SAMPLE_LONG": "1"])
-        let grown = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'New message'"))
+        // "New message " with the space: the "New messages" capsule is not a message.
+        let grown = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'New message '"))
         XCTAssertTrue(grown.firstMatch.waitForExistence(timeout: 20), "CONTROL: no message arrived")
         pullUp(app, distance: 420)
         XCTAssertTrue(dots(app).waitForExistence(timeout: 3), "no dots after a long pull")
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dots(app))
         wait(for: [gone], timeout: 12)
-        let seen = grown.count
-        let more = XCTNSPredicateExpectation(predicate: NSPredicate(format: "count > %d", seen), object: grown)
-        XCTAssertEqual(XCTWaiter().wait(for: [more], timeout: 15), .completed, "no later message reached the list")
-        let last = grown.element(boundBy: grown.count - 1)
+        // kosmos#8221: wait for the NEXT message by its number, not for more of them: the UIKit list keeps only the cells on
+        // screen in the tree, so its count can stay level while messages arrive (an old one scrolls out as a new one lands).
+        let numbers = grown.allElementsBoundByIndex.compactMap { Int($0.label.split(separator: " ").dropFirst(2).first ?? "") }
+        let newest = numbers.max() ?? 0
+        XCTAssertGreaterThan(newest, 0, "CONTROL: no numbered message to wait past: \(grown.allElementsBoundByIndex.map(\.label))")
+        let last = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "New message \(newest + 1) ")).firstMatch
+        XCTAssertTrue(last.waitForExistence(timeout: 15), "no later message reached the list (newest seen: \(newest))")
         KeyboardSlideUITests.settle(last)
         XCTAssertTrue(last.exists && last.isHittable, "the newest message is not on screen after a pull")
     }
