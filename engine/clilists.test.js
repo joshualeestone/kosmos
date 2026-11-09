@@ -163,22 +163,38 @@ test('kosmos#8304: kept apart from the Windows turn stall (#7368), which has its
 
 test('kosmos#7977: a "Can\'t tell" row says which of the three shapes it is, from the card alone', () => {
   const ct = "Can't tell";
-  assert.equal(rosterRow({ name: 'A', cardWord: ct, paneless: true }).cantTell, 'no-window');
-  assert.equal(rosterRow({ name: 'B', cardWord: ct, running: false, jobRunningUnseen: true }).cantTell, 'unseen');
-  assert.equal(rosterRow({ name: 'C', cardWord: ct, state: 'unknown' }).cantTell, 'unread');
+  assert.equal(rosterRow({ name: 'A', cardWord: ct, isNamedOurs: true, paneless: true }).cantTell, 'no-window');
+  assert.equal(rosterRow({ name: 'B', cardWord: ct, isNamedOurs: true, running: false, jobRunningUnseen: true }).cantTell, 'unseen');
+  assert.equal(rosterRow({ name: 'C', cardWord: ct, isNamedOurs: true, state: 'unknown' }).cantTell, 'unread');
   // CONTROL: any other word carries none of it, even on a paneless card with a report.
-  const idle = rosterRow({ name: 'D', cardWord: 'Idle', paneless: true }, { found: true, state: 'idle', at: T });
+  const idle = rosterRow({ name: 'D', cardWord: 'Idle', isNamedOurs: true, paneless: true }, { state: 'idle', at: T });
   assert.deepEqual(Object.keys(idle).sort(), ['name', 'role', 'state']);
+  // Review 1: a stranger's session that shares a name is not the agent: no shape, no report.
+  const stranger = rosterRow({ name: 'E', cardWord: ct, isNamedOurs: false, state: 'unknown' }, { state: 'working', at: T });
+  assert.deepEqual(Object.keys(stranger).sort(), ['name', 'role', 'state']);
+  assert.deepEqual(Object.keys(rosterRow({ name: 'F', cardWord: ct, state: 'unknown' }, { state: 'working', at: T })).sort(), ['name', 'role', 'state'], 'a card that does not say it is ours got a shape');
+});
+
+test('kosmos#7977: the word is the board\'s own, and every self-report state travels while no other does', () => {
+  const { STATE_COPY } = require('./cardlabel');
+  const { STATES } = require('./selfreport');
+  assert.equal(STATE_COPY.unknown, "Can't tell", 'the card word changed; the fixtures above name it');
+  for (const st of STATES) {
+    assert.equal(rosterRow({ name: 'A', cardWord: STATE_COPY.unknown, isNamedOurs: true }, { state: st, at: T }).lastReportState, st, st + ' did not travel');
+  }
+  assert.equal(rosterRow({ name: 'A', cardWord: STATE_COPY.unknown, isNamedOurs: true }, { state: 'rate_limited', at: T }).lastReportState, undefined);
 });
 
 test('kosmos#7977: the last report travels as a state and a time only, and "never reported" is its own fact', () => {
   const ct = "Can't tell";
-  const r = rosterRow({ name: 'A', cardWord: ct, paneless: true }, { found: true, state: 'working', at: T, final: 'SECRET words', because: 'x' });
+  const ours = { name: 'A', cardWord: ct, isNamedOurs: true, paneless: true };
+  const r = rosterRow(ours, { state: 'working', at: T, final: 'SECRET words', because: 'x' });
   assert.deepEqual(r, { name: 'A', role: null, state: ct, cantTell: 'no-window', lastReportState: 'working', lastReportAt: T });
-  assert.deepEqual(Object.keys(rosterRow({ name: 'A', cardWord: ct }, { found: true, state: 'nonsense', at: T })).sort(), ['cantTell', 'name', 'role', 'state'], 'an unknown state travelled');
-  assert.deepEqual(Object.keys(rosterRow({ name: 'A', cardWord: ct }, { found: true, state: 'idle', at: 'not a time' })).sort(), ['cantTell', 'name', 'role', 'state'], 'an unreadable time travelled');
-  assert.equal(rosterRow({ name: 'A', cardWord: ct }, { found: false }).neverReported, true);
-  assert.equal(rosterRow({ name: 'A', cardWord: ct }, null).neverReported, undefined, 'no record read is not "never reported"');
+  assert.deepEqual(Object.keys(rosterRow(ours, { state: 'nonsense', at: T })).sort(), ['cantTell', 'name', 'role', 'state'], 'an unknown state travelled');
+  assert.deepEqual(Object.keys(rosterRow(ours, { state: 'idle', at: 'not a time' })).sort(), ['cantTell', 'name', 'role', 'state'], 'an unreadable time travelled');
+  assert.equal(rosterRow(ours, { never: true }).neverReported, true);
+  assert.equal(rosterRow(ours, null).neverReported, undefined, 'no record read is not "never reported"');
+  assert.equal(rosterRow(ours, { found: false }).neverReported, undefined, 'a raw unread record is not "never reported"');
 });
 
 test('kosmos#7977: the list prints the shape and the last report under a "Can\'t tell" row', () => {
@@ -197,7 +213,7 @@ test('kosmos#7977: the list prints the shape and the last report under a "Can\'t
     '  its job is running, but not anywhere Kosmos can see it',
     '  it has never reported to this board',
     'Vivi  R  ' + ct,
-    '  Kosmos has its window here but cannot tell from it what it is doing',
+    '  Kosmos reaches it on this computer but cannot tell what it is doing now',
     'Ada  R  Idle',
   ] });
 });
