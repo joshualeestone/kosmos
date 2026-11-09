@@ -21,13 +21,16 @@
     },
     {
       "icon": "chat",
-      "title": "A little more space in project rooms",
-      "line": "Posts in a project room now have slightly more space between lines."
+      "title": "A little more room between chat lines",
+      "line": "Messages in an agent conversation on the computer now have a little more space between lines."
     },
     {
-      "icon": "chat",
-      "title": "Long agent messages say what they are about",
-      "line": "When a long message is saved to a file for an agent, its pane line now shows how it starts and its length."
+      "icon": "shield",
+      "title": "A warning before an agent runs twice",
+      "line": "Adding an agent that another login job also starts now warns first and names that job.",
+      "platforms": [
+        "mac"
+      ]
     }
   ]
 }
