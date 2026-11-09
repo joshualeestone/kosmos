@@ -308,9 +308,27 @@ struct ChatList: UIViewRepresentable {
             if !atEnd, heldGoes { place = top(keep: kept) }
             let again = shown.filter { kept.contains($0) }
             if !again.isEmpty { s.reconfigureItems(again) }
+            // kosmos#8221 slice 9 (measured 11-09 05:53, EndPullUITests with KOSMOS_SAMPLE_GROW): a message landing while the
+            // person pulls past the newest grew the content under their finger without moving the offset, so the pull shrank
+            // from past the threshold to 23 pt and never counted. The lazy list keeps its bottom where it is; here the pull is
+            // kept the same distance past the new end.
+            let pulled: CGFloat = {
+                guard atEnd, let list, list.isTracking || list.isDragging else { return 0 }
+                return max(0, list.contentOffset.y - maxY(list))
+            }()
             applying = true
             source.apply(s, animatingDifferences: false)
             applying = false
+            if pulled > 0, let list {
+                list.layoutIfNeeded()
+                let y = maxY(list) + pulled
+                if abs(list.contentOffset.y - y) > 0.5 {
+                    pinning = true
+                    list.contentOffset = CGPoint(x: list.contentOffset.x, y: y)
+                    pinning = false
+                    ChatView.trace("uikit list: rows landed under a pull, kept \(Int(pulled)) pt past the end (\(geometry(list)))", ring: false)
+                }
+            }
             // Review 2: on any change in the rows above it, added or removed (Try again takes the failed line away), not
             // only on more of them.
             if let a = anchor, let list, let was = before.firstIndex(of: a.id), let at = now.firstIndex(of: a.id),

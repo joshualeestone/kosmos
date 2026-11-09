@@ -35,6 +35,13 @@ lazy list.
   failure, and the 05:10 run that got dots was the outlier. Line 138 is untested until the dots show.
 - Added a trace for a pull let go without counting (allowed?, how far past the end, of the threshold) and turned the trace
   on in this check; two traced runs queued.
+- 05:53, two traced runs: one PASSED end to end (the number-based wait included); the other: "end pull: let go, not
+  counted: allowed true, past the end 23 of 72", 0.4 s after read 3 grew the content by 90 pt under the finger. So the 05:0x
+  theory was right; its trace never fired then only because no message landed during that run's pull (not a disproof).
+  The lazy list keeps its bottom fixed on an arrival; the UIKit list grew its end without moving the offset.
+- Fix (ChatList.apply): a pull past the end with a finger on the list keeps the same distance past the new end after an
+  update. 05:55 to 05:58, 5 traced runs on the UIKit list: 5 of 5 PASSED, and in every one the fix fired ("rows landed
+  under a pull, kept 129 to 154 pt past the end") before "end pull: reading". Same timing as the 5 of 5 failures before.
 
 ## Status
 
