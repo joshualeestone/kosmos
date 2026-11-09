@@ -125,6 +125,8 @@ final class EndPullUITests: XCTestCase {
 
     // KOSMOS_SAMPLE_GROW: every read brings a message, the 5 s reads too, so this is a message landing around a pull, not
     // proof that the pull fetched it. It must reach the screen, with the list still drawn and at its end.
+    // kosmos#8221 slice 9: the 5 s reads put an arrival inside this pull in every measured run (10 of 10 on 11-09; the UIKit
+    // list's trace says "rows landed under a pull"), which is the case that failed there. That is timing, not a guarantee.
     func testAMessageLandingAroundAPullShowsAndNothingBlanks() {
         let app = launch(["KOSMOS_SAMPLE_GROW": "1", "KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_TRACE": "1"])
         // "New message " with the space: the "New messages" capsule is not a message.

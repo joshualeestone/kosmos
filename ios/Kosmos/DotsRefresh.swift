@@ -261,8 +261,12 @@ final class EndPullDriver: NSObject {
         guard gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed else { return }
         guard logic.released() else {
             // kosmos#8221 slice 9: why a pull did not count (not allowed, or short of the threshold), for EndPullUITests' trace.
+            // Review 1: plain values, so the room suite's allow-list for the record reads this line too.
             if let view = scrollView {
-                ChatView.trace("end pull: let go, not counted: allowed \(allowed()), past the end \(Int(PullRefreshLogic.pastEnd(offsetY: Double(view.contentOffset.y), content: Double(view.contentSize.height), view: Double(view.bounds.height), adjustedTop: Double(view.adjustedContentInset.top), adjustedBottom: Double(view.adjustedContentInset.bottom)))) of \(Int(PullRefreshLogic.threshold))", ring: false)
+                let mayCount = allowed()
+                let pastEnd = PullRefreshLogic.pastEnd(offsetY: Double(view.contentOffset.y), content: Double(view.contentSize.height), view: Double(view.bounds.height),
+                                                       adjustedTop: Double(view.adjustedContentInset.top), adjustedBottom: Double(view.adjustedContentInset.bottom))
+                ChatView.trace("end pull: let go, not counted: allowed \(mayCount), past the end \(Int(pastEnd)) of \(Int(PullRefreshLogic.threshold))", ring: false)
             }
             moved(); return   // a cancelled gesture may never move the list again
         }
