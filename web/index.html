@@ -11603,10 +11603,12 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .myagents-list .lrow:hover { background: var(--attn-bg); }
 .myagents-list .lrow.current { background: var(--attn-bg); box-shadow: inset 0 0 0 1px var(--k-ink-2); }
 .myagents-list .lrow:has(:focus-visible) { outline: 2px solid var(--k-ink); outline-offset: -2px; }
-.myagents-list .lrow > .lav { grid-row: 1 / span 2; }
+.myagents-list .lrow > .lav { grid-row: 1 / span 2; position: relative; }
+.myagents-list .lav .lring, .myagents-list .lav .lwarn, .myagents-list .lav .lpres { display: block; }   /* who is up and who needs you, on the avatar */
 .myagents-list .lrow > .lname { grid-column: 2; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.myagents-list .lrow > .lname .namego { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .myagents-list .lrow > .lname b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 20px; }
-.myagents-list .lrow > .lname:has(.astar) { padding-right: 62px; }
+.myagents-list .lrow > .lname:has(.astar) { padding-right: 70px; }
 .myagents-list .lrow > .lname .astar { right: 26px; }   /* clear of the unread count, as the rail's (render-star-6719) */
 .myagents-list .lrow > .ltitle { grid-column: 2; font-size: 12px; color: var(--k-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .myagents-list .lrow > :not(.lav):not(.lname):not(.ltitle):not(.dmbadge):not(.navbadge) { display: none; }
@@ -11616,6 +11618,8 @@ body.has-myagents #panel-detail, body.has-myagents > #askcard, body.has-myagents
 body.has-myagents.myagents-folded #panel-detail, body.has-myagents.myagents-folded > #askcard, body.has-myagents.myagents-folded > #conn { margin-left: 48px; }
 .myagents-folded .myagents { width: 60px; }
 .myagents-folded .myagents-head { justify-content: center; }
+.myagents-folded .myagents-list { padding: 0 6px 12px; overflow-x: hidden; scrollbar-width: none; }   /* a scrollbar in 60px would clip the avatars */
+@media (pointer: coarse) { .myagents-head .fold { width: 44px; height: 44px; } }
 .myagents-folded .myagents-head .railname, .myagents-folded .myagents-head .plus { display: none; }
 .myagents-folded .myagents-list .lrow { grid-template-columns: 40px; padding: 8px 2px; justify-content: center; }
 /* Folded, the name stays for the keyboard and screen readers, out of sight. */
@@ -13398,7 +13402,7 @@ window.kosmosMeasureScrollbarWidth();
   <!-- kosmos#8303 (Josh, 11-09): every agent down the left of the agent page, starred first. Rows are the board's own lrow. -->
   <aside class="myagents" id="my-agents" aria-label="My Agents" hidden>
     <div class="myagents-head">
-      <button class="fold" type="button" id="my-agents-fold" aria-label="Fold My Agents" aria-expanded="true">&lsaquo;</button>
+      <button class="fold" type="button" id="my-agents-fold" aria-label="Fold My Agents" aria-expanded="true" aria-controls="my-agents-list">&lsaquo;</button>
       <span class="railname">My Agents</span>
       <button class="fold plus" type="button" id="my-agents-new" aria-label="New agent" title="New agent">+</button>
     </div>
@@ -27217,7 +27221,7 @@ function paintAgentListNow() {
 }
 /* kosmos#8303: My Agents. Rows hide the state column; the presence dot, warning mark and unread count stay, as drawn.
    Wide windows only: a narrow one has no room and keeps its link back to All agents. */
-const MY_AGENTS_MIN_WIDTH = 1100;
+const MY_AGENTS_MIN_WIDTH = 1160;   // keeps the agent page's two columns at the width they had before this
 let MY_AGENTS_HTML = null;
 let MY_AGENTS_FOLDED = null;   // what this page last set, for a browser that will not store it
 let MY_AGENTS_OPEN = null;
@@ -27225,7 +27229,7 @@ function myAgentsFolded() {
   if (MY_AGENTS_FOLDED !== null) return MY_AGENTS_FOLDED;
   try { return localStorage.getItem('kosmos.fold.myagents') === '1'; } catch { return false; }
 }
-/* The column starts where the header ends. The header scrolls away in the conversation view, so this follows it. */
+/* The column starts where the header ends. */
 function myAgentsTop() {
   const box = document.getElementById('my-agents');
   const head = document.querySelector('.apphead');
@@ -49681,7 +49685,8 @@ for (const boardEl of [document.getElementById('grid'), document.getElementById(
     }
     // .acard in the grid, .lrow in the list: one contract (data-agent).
     const card = e.target.closest('.acard[data-agent], .lrow[data-agent]');
-    if (card) openDetail(card.dataset.agent);
+    // kosmos#8303: reopening the agent already open would reload its page and throw away anything typed there.
+    if (card && !(boardEl.id === 'my-agents-list' && card.classList.contains('current'))) openDetail(card.dataset.agent);
   });
 }
 /**
@@ -55407,12 +55412,12 @@ document.getElementById('my-agents-fold').addEventListener('click', () => {
   try { localStorage.setItem('kosmos.fold.myagents', MY_AGENTS_FOLDED ? '1' : '0'); } catch { /* holds for this page */ }
   paintMyAgents();
 });
-/* Reopening the agent already open would reload its page and throw away anything typed there. */
+/* A clicked name must not hold focus, or typing straight into the conversation is dropped. A keyboard press keeps it. */
 document.getElementById('my-agents-list').addEventListener('click', (e) => {
-  if (!e.target.closest('[data-star]') && e.target.closest('.lrow.current:not([data-answer])')) e.stopPropagation();
-}, true);
+  const name = e.detail > 0 && e.target.closest('.namego');
+  if (name) name.blur();
+});
 window.addEventListener('resize', paintMyAgents);
-window.addEventListener('scroll', myAgentsTop, { passive: true });
 if (typeof ResizeObserver === 'function') new ResizeObserver(paintMyAgents).observe(document.querySelector('.apphead'));   // a taller header moves the column's top
 /* #3387: the "Other Agents" sub-header's + is the New-agent action. Delegated off #alist
    because the list is rebuilt on every poll, so a bound listener would not survive. */
