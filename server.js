@@ -576,11 +576,12 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
   }
   // Both names here are agents' names from the project, not a caller, so no paneless key applies.
   const forParent = parentWho.filter(notMe).filter((m) => !others.some((o) => sameAgentName(o, m, false)));
-  /* kosmos#8307: a mark that replaced the file also reaches whoever checked the old one (still on the project), since
-     their check no longer counts; once each, after the assignees and the parent's holders. */
-  const replacedPrint = replaced && /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(replaced.fingerprint || '') ? replaced.fingerprint : '';
+  /* kosmos#8307: a mark that replaced (or withdrew) the file also reaches whoever checked the old one, since their check
+     no longer counts; once each, after the assignees and the parent's holders. One who has left the project is said as
+     not told (the tell step below), as an assignee who left is. */
+  const replacedPrint = replaced && tasks.FINGERPRINT_RE.test(replaced.fingerprint || '') ? replaced.fingerprint : '';
   const oldCheckers = replacedPrint && Array.isArray(replaced.checkedBy) ? replaced.checkedBy.filter((m) => typeof m === 'string' && m) : [];
-  const forChecker = [...new Set(oldCheckers)].filter(notMe).filter(member)
+  const forChecker = [...new Set(oldCheckers)].filter(notMe)
     .filter((m) => !others.concat(forParent).some((o) => sameAgentName(o, m, false)));
   const checkedOld = (m) => oldCheckers.some((o) => sameAgentName(o, m, false));
   const everyone = others.concat(forParent, forChecker);
@@ -605,7 +606,8 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = 
        names the command, since a PDF's fingerprint is not its shasum and an older instruction says shasum. */
     + (/^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
     /* kosmos#8307: a replacement says which file it replaces, and that a check of that file no longer counts. */
-    + (replacedPrint ? ' - it replaces the file sent earlier (' + replacedPrint + '), so a check of that file no longer counts'
+    + (replacedPrint ? (replaced.kind === 'withdrawn' ? ' - it no longer names a file: the one sent earlier (' + replacedPrint + ') is withdrawn'
+      : ' - it replaces the file sent earlier (' + replacedPrint + ')') + ', so a check of that file no longer counts'
       + (checkedOld(m) ? ': you checked that one' : '') : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.

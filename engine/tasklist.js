@@ -294,21 +294,26 @@ function showLines(body, num, project) {
       + (at ? ' (check it again: kosmos task files ' + one(project) + ')'
         : ' (its fingerprint only: no path was recorded. Check a copy with: kosmos fingerprint <file> ' + x.builtFingerprint + ')'));
     if (at) { lines.push('Delivered file path, on the computer that marked it:'); under(at); }
-    /* kosmos#8307: who checked THIS file (a checker's mark that kept it), and the file it replaced, whose checks are of
-       that file and no longer count for this one. */
+  }
+  /* kosmos#8307: who checked THIS file (a checker's mark that kept it), and the file it replaced, or the one the last
+     mark withdrew (review 1: a mark with no file), whose checks are of that file and no longer count. */
+  {
+    const current = PRINT_RE.test(x.builtFingerprint || '');
     const names = (list, person) => [...(Array.isArray(list) ? list.filter((v) => typeof v === 'string' && v).map(q) : []), ...(person === true ? ['the person'] : [])];
-    const checked = names(x.builtCheckedBy, x.builtCheckedByPerson);
-    const old = x.builtReplaces && typeof x.builtReplaces === 'object' && PRINT_RE.test(x.builtReplaces.fingerprint || '') ? x.builtReplaces : null;
+    const checked = current ? names(x.builtCheckedBy, x.builtCheckedByPerson) : [];
+    const old = x.builtAt && x.builtReplaces && typeof x.builtReplaces === 'object' && PRINT_RE.test(x.builtReplaces.fingerprint || '') ? x.builtReplaces : null;
     if (checked.length) field('Checked', 'this file, by ' + checked.join(', '));
-    else if (old) field('Checked', 'not yet: nobody has checked this file since it replaced the one below');
+    else if (old && current) field('Checked', 'not yet: nobody has checked this file since it replaced the one below');
     if (old) {
       const oldBy = typeof old.by === 'string' && old.by ? q(old.by) : null;
       const oldWhen = typeof old.at === 'string' ? whenWords(old.at) : '';
-      field('Replaces', old.fingerprint + (oldBy ? ', sent by ' + oldBy : '') + (oldWhen ? ', ' + oldWhen : ''));
+      field(current ? 'Replaces' : 'Withdrawn file', old.fingerprint + (oldBy ? ', sent by ' + oldBy : '') + (oldWhen ? ', ' + oldWhen : '')
+        + (current ? '' : ' (the last mark sent no file)'));
       const oldChecked = names(old.checkedBy, old.checkedByPerson);
-      if (oldChecked.length) field('Out of date', 'the checks of that file, by ' + oldChecked.join(', ') + ': they are not checks of this one');
+      if (oldChecked.length) field('Out of date', 'the checks of that file, by ' + oldChecked.join(', ') + (current ? ': they are not checks of this one' : ''));
       const oldAt = typeof old.filePath === 'string' && old.filePath.trim() ? old.filePath : null;
-      if (oldAt) { lines.push('Replaced file path, on the computer that marked it:'); under(oldAt); }
+      if (oldAt && current && oldAt === x.builtFilePath) field('Replaced file path', 'the same path as the delivered file (rebuilt in place)');
+      else if (oldAt) { lines.push((current ? 'Replaced' : 'Withdrawn') + ' file path, on the computer that marked it:'); under(oldAt); }
     }
   }
   if (typeof x.landedCommit === 'string' && /^[0-9a-f]{7,64}$/.test(x.landedCommit)) {

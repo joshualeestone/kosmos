@@ -159,3 +159,40 @@ test('#8307: the CLI\'s task list carries what it replaced, path included; the T
   assert.equal(vrow.builtReplaces.fingerprint, A, 'CONTROL: the view still says what it replaced');
   assert.equal('filePath' in vrow.builtReplaces, false, 'the Tasks view sent the replaced file\'s path');
 });
+
+test('#8307: withdrawing the file tells its checker; a checker who left is said as not told; the marker is never told', async () => {
+  const chat = require('./engine/chat');
+  const roster = fleet.install([
+    fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' }), fleet.agent('ivy', { state: 'idle' }),
+    fleet.agent('gone8307', { state: 'idle' }),
+  ]).agents;
+  projects.addAgent(projectId, 'gone8307', roster);
+  const n = tasks.create(projectId, { sentence: 'Make the one-pager', who: 'mona' }).number;
+  await mark(n, asAgent('zed'), { fingerprint: A, file_path: FILE_A });   // zed sends it ...
+  await mark(n, asAgent('mona'));   // ... mona checks it (she is also the next marker)
+  await mark(n, asAgent('gone8307'));
+  projects.removeAgent(projectId, 'gone8307');
+  const sends = [];
+  try {
+    chat.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false);
+    const r = await mark(n, asAgent('zed'), { note: 'pulled it, wrong figures' });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual(told(r), ['gone8307', 'mona'], JSON.stringify(r.json));
+    const gone = r.json.delivered.find((d) => d.agent === 'gone8307');
+    assert.match(String(gone.because), /not on this project any more/, 'a checker who left was not said as not told: ' + JSON.stringify(gone));
+    const typed = pastedMessages(sends);
+    assert.equal(typed.length, 1, JSON.stringify(typed));
+    assert.match(typed[0], new RegExp('it no longer names a file: the one sent earlier \\(' + A + '\\) is withdrawn, so a check of that file no longer counts: you checked that one'), typed[0]);
+    // The marker who checked the old file hears nothing about its own mark.
+    const self = await mark(n, asAgent('mona'), { fingerprint: B, file_path: FILE_B });
+    assert.equal(self.status, 200, JSON.stringify(self.json));
+    assert.equal((self.json.delivered || []).some((d) => d.agent === 'mona'), false, 'the marker was told about its own mark');
+  } finally {
+    chat.resetForTests();
+  }
+});

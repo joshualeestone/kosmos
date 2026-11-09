@@ -946,7 +946,8 @@ function withoutBuilt(t) {
  *   builtReplaces          (kosmos#8307) the file this one replaced: a mark with a DIFFERENT fingerprint replaces the one
  *                          kept, and the old one is kept here as { fingerprint, by, at, filePath?, checkedBy, checkedByPerson? },
  *                          so its checks read as out of date and their agents can be told. Only the one previous file.
- *                          Dropped with the fingerprint (a mark that drops it, a clear)
+ *                          A mark that drops the fingerprint keeps the dropped file here (withdrawn, review 1); a clear
+ *                          drops it
  * The same mark again (same marker, same note, same fingerprint and file path) records nothing (`changed: false`). `refusePersonMark` refuses a
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
@@ -1001,22 +1002,36 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       const keptPath = print ? sentPath : (keep ? t.builtFilePath || '' : '');   // kosmos#8214: the path goes with its fingerprint
       /* kosmos#8307: a different fingerprint replaces the kept one; the old file and who checked it go to builtReplaces.
          The same fingerprint again (sent again, or by a checker) keeps both. A mark that keeps the fingerprint without
-         sending one, from anyone but its sender, is a check of this file. */
+         sending one, from anyone but its sender, is a check of this file. Review 1: a mark that DROPS the file (the
+         sender's own mark without one, an unnamed agent's) withdraws it the same way, so its checkers are told then, and
+         a file sent after that replaces the withdrawn one; the same file sent back is no replacement, and keeps its checks. */
       const hadPrint = t.builtAt && FINGERPRINT_RE.test(t.builtFingerprint || '') ? t.builtFingerprint : '';
-      const replacing = Boolean(print && hadPrint && print !== hadPrint);
+      const names = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x) : []);
+      const recordOf = (x) => ({
+        fingerprint: x.builtFingerprint, by: x.builtFingerprintBy || null, at: typeof x.builtFingerprintAt === 'string' ? x.builtFingerprintAt : null,
+        ...(x.builtFilePath ? { filePath: x.builtFilePath } : {}), checkedBy: names(x.builtCheckedBy),
+        ...(x.builtCheckedByPerson === true ? { checkedByPerson: true } : {}),
+      });
+      const withdrawn = t.builtAt && !hadPrint && t.builtReplaces && typeof t.builtReplaces === 'object'
+        && FINGERPRINT_RE.test(t.builtReplaces.fingerprint || '') ? t.builtReplaces : null;
+      const sentBack = Boolean(print && withdrawn && print === withdrawn.fingerprint);
+      const replacing = Boolean(print && ((hadPrint && print !== hadPrint) || (withdrawn && !sentBack)));
+      const dropping = Boolean(!kept && hadPrint);
       const sameFile = Boolean(kept && hadPrint && kept === hadPrint);
-      const priorChecked = sameFile && Array.isArray(t.builtCheckedBy) ? t.builtCheckedBy.filter((x) => typeof x === 'string' && x) : [];
+      const priorChecked = sameFile ? names(t.builtCheckedBy) : sentBack ? names(withdrawn.checkedBy) : [];
       const checking = sameFile && !print && keep;
-      const checkedBy = checking && who && !isPerson && !priorChecked.includes(who) ? priorChecked.concat([who]).slice(-CHECKED_BY_MAX) : priorChecked;
-      const checkedByPerson = sameFile && (t.builtCheckedByPerson === true || (checking && isPerson));
-      const printAt = sameFile && typeof t.builtFingerprintAt === 'string' ? t.builtFingerprintAt : (print ? new Date().toISOString() : '');
-      const replaces = replacing ? {
-        fingerprint: hadPrint, by: t.builtFingerprintBy || null, at: typeof t.builtFingerprintAt === 'string' ? t.builtFingerprintAt : null,
-        ...(t.builtFilePath ? { filePath: t.builtFilePath } : {}),
-        checkedBy: Array.isArray(t.builtCheckedBy) ? t.builtCheckedBy.filter((x) => typeof x === 'string' && x) : [],
-        ...(t.builtCheckedByPerson === true ? { checkedByPerson: true } : {}),
-      } : (sameFile && t.builtReplaces && typeof t.builtReplaces === 'object' ? t.builtReplaces : null);
-      replacedNow = replacing ? replaces : null;
+      const added = checking && who && !isPerson && !priorChecked.includes(who) ? priorChecked.concat([who]).slice(-CHECKED_BY_MAX) : priorChecked;
+      // Review 1: the sender is never its own checker, so a checker who sends the file itself leaves the list.
+      const checkedBy = print && keptBy ? added.filter((x) => x !== keptBy) : added;
+      const checkedByPerson = (sameFile && (t.builtCheckedByPerson === true || (checking && isPerson))) || (sentBack && withdrawn.checkedByPerson === true);
+      // Review 1: stamped only for a file new to this task, so a fingerprint from before #8307 keeps no false time.
+      const printAt = sameFile ? (typeof t.builtFingerprintAt === 'string' ? t.builtFingerprintAt : '')
+        : sentBack ? (typeof withdrawn.at === 'string' ? withdrawn.at : '') : (print ? new Date().toISOString() : '');
+      const replaces = replacing ? (hadPrint ? recordOf(t) : withdrawn)
+        : dropping ? recordOf(t)
+          : sameFile && t.builtReplaces && typeof t.builtReplaces === 'object' ? t.builtReplaces
+            : !kept && withdrawn ? withdrawn : null;
+      replacedNow = replacing ? { ...replaces, kind: 'replaced' } : dropping ? { ...replaces, kind: 'withdrawn' } : null;
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
         && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who) && (t.builtFilePath || '') === keptPath
         && sameList(t.builtCheckedBy, checkedBy) && (t.builtCheckedByPerson === true) === checkedByPerson
@@ -1031,8 +1046,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
         ...(kept ? { builtFingerprint: kept, builtFingerprintBy: keptBy, ...(keptPath ? { builtFilePath: keptPath } : {}),
-          ...(printAt ? { builtFingerprintAt: printAt } : {}), builtCheckedBy: checkedBy, ...(checkedByPerson ? { builtCheckedByPerson: true } : {}),
-          ...(replaces ? { builtReplaces: replaces } : {}) } : {}),
+          ...(printAt ? { builtFingerprintAt: printAt } : {}), builtCheckedBy: checkedBy, ...(checkedByPerson ? { builtCheckedByPerson: true } : {}) } : {}),
+        ...(replaces ? { builtReplaces: replaces } : {}),   // kosmos#8307: kept without a current file too (a withdrawn one)
         // #7508: a mark without --commit keeps a commit already recorded (a checker's mark is not new work).
         ...(landed ? { landedCommit: landed.sha, landedRepo: landed.repo, landedOnRemote: landed.onRemote, landedBy: who, landedAt: new Date().toISOString() } : {}),
       };
@@ -2826,4 +2841,4 @@ module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, close, reopen
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, withoutFilePaths, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, withoutFilePaths, FINGERPRINT_RE, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
