@@ -24821,15 +24821,15 @@ function rebootChecked(checks) {
   const parts = [];
   const a = checks.agents;
   if (a && a.was > 0) {
-    if (a.back === a.was) parts.push(a.was === 1 ? 'the agent that was running is running again' : 'all ' + a.was + ' agents that were running are running again');
+    if (a.back === a.was) parts.push(a.was === 1 ? 'the agent that was running came back' : 'all ' + a.was + ' agents that were running came back');
     else {
       const shown = a.notBack.slice(0, 5).join(', ') + (a.notBack.length > 5 ? ' and ' + (a.notBack.length - 5) + ' more' : '');
-      parts.push(a.was === 1 ? 'the agent that was running is not running yet (' + shown + ')'
-        : a.back + ' of ' + a.was + ' agents that were running ' + (a.back === 1 ? 'is' : 'are') + ' running again (not yet: ' + shown + ')');
+      parts.push(a.was === 1 ? 'the agent that was running has not come back (' + shown + ')'
+        : a.back + ' of ' + a.was + ' agents that were running came back (not back: ' + shown + ')');
     }
   }
   const f = checks.files;
-  if (f) parts.push(f.damaged === 0 ? 'Kosmos\'s settings and records read fine' : f.damaged + ' of Kosmos\'s settings and records could not be read');
+  if (f) parts.push(f.damaged === 0 ? 'Kosmos\'s main records read fine' : f.damaged + ' of Kosmos\'s main records could not be read');
   return parts.length ? 'Checked: ' + parts.join(', and ') + '.' : '';
 }
 function paintRebootNote(note) {

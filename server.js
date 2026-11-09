@@ -21661,7 +21661,9 @@ const server = http.createServer(async (req, res) => {
     if (note) {
       let removed = null;
       try { removed = removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name); } catch { removed = null; }
-      note = rn.publicNote(note, rn.checksFor(note, removed ? rn.lastRoster() : null, removed || []));
+      let checks = {};
+      try { checks = rn.checksFor(note, removed ? rn.lastRoster() : null, removed || []); } catch { checks = {}; }
+      note = rn.publicNote(note, checks);
     }
     sendJson(res, 200, { note });
     return;
