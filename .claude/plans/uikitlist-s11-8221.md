@@ -59,6 +59,8 @@ The stepped scroll asks for 450 pt and moved 371 with no pin; where the other 79
 - A jump to the newest (a send, New messages) while the window is open stops the scroll in place and closes the window, as
   a running fling is stopped, so the scroll's later moves cannot read the reader off the newest again. Not covered by a
   check (reasoned from the code).
+- Review iteration 4: another scroll's end (an earlier fling's deceleration, a drag) landing inside the window does not close
+  it; each move marks the list moving, so a lapse during a stalled frame does not hold the place and stop the scroll.
 - A second ask while a window is open adds nothing (the window covers it); an ask's let-go timer never fires inside an open
   window; a lapse clears the ask.
 
@@ -66,6 +68,8 @@ The stepped scroll asks for 450 pt and moved 371 with no pin; where the other 79
 
 - A row landing while such a scroll runs, with the reader still at the newest, is not followed until the moves stop (at most
   0.3 s after the last) or the end is reported. By design: following it would pin the list under the person's scroll.
+- An unrelated move (the slice 4 scroll nobody asked for, a keyboard inset change) inside the 0.5 s after an ask is taken
+  for the person's; bounded by the ask and documented, not guarded further.
 - The stepped control depends on each move causing a layout pass that pins; measured red (14 and 24 pins), so it sees it.
 
 ## Weakest premise

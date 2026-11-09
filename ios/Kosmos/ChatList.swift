@@ -231,7 +231,10 @@ struct ChatList: UIViewRepresentable {
             // each later move keeps it open a little longer, so it closes only once the moves stop, however long they take.
             let fingerless = !(sv.isTracking || sv.isDragging || sv.isDecelerating)
             if !own, fingerless, !personScrolling(), CACurrentMediaTime() - personAskedAt < ChatList.personScrollAsk { personScrollOpened() }
-            if !own, personScrolling() { personUntil = max(personUntil, CACurrentMediaTime() + ChatList.personScrollQuiet) }
+            if !own, personScrolling() {
+                personUntil = max(personUntil, CACurrentMediaTime() + ChatList.personScrollQuiet)
+                movedAt = CACurrentMediaTime()   // so a lapse during a stalled frame does not hold the place and stop the scroll
+            }
             if sv.isTracking || sv.isDragging || (sv.isDecelerating && dragged) || (personScrolling() && !own) {
                 atEnd = sv.contentOffset.y >= maxY(sv) - ChatList.endSlack
                 readTop(sv)
@@ -259,7 +262,8 @@ struct ChatList: UIViewRepresentable {
             dragged = true
             if personScrolling() { return }   // a second ask while one runs (another key, a second swipe): the open window covers it
             #if DEBUG
-            // KOSMOS_SAMPLE_NOPERSONSCROLL=1: the list as before this slice, the control arm of A11yScrollUITests.
+            // KOSMOS_SAMPLE_NOPERSONSCROLL=1: the list as before this slice, the control arm of A11yScrollUITests (dragged set
+            // and nothing else, so an ask whose scroll never ends keeps it, as it did then).
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOPERSONSCROLL"] == "1" { return }
             #endif
             let asked = CACurrentMediaTime()
@@ -303,7 +307,9 @@ struct ChatList: UIViewRepresentable {
         func scrollViewDidScrollToTop(_ sv: UIScrollView) { scrolled(sv, how: "to top") }
         func scrolled(_ sv: UIScrollView, how: String) {
             movedAt = 0   // a scroll that has ended is at rest: the next layout holds the place taken here
-            personUntil = 0; personAskedAt = 0   // kosmos#8221 slice 11: its end is reported, so the person's scroll is over
+            // kosmos#8221 slice 11: its end is reported, so the person's scroll is over; but an earlier fling's or a drag's end
+            // landing while a scroll without a finger runs is not that scroll's end, and leaves its window open.
+            if !(personScrolling() && (how == "deceleration" || how == "drag")) { personUntil = 0; personAskedAt = 0 }
             let byPerson = dragged, wasAtEnd = atEnd
             dragged = false
             // kosmos#8221 slice 4 (CI runs 42533329564 to 42540464401): on a slow device, as a chat opens, an animated scroll
