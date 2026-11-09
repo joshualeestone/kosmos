@@ -167,6 +167,9 @@ struct ChatView: View {
     @State private var shifts = Board.ShiftBox()
     @State private var openCount = Board.ChatOpenCount()   // kosmos#7420
     @State private var endPull = EndPullDriver()   // kosmos#8072
+    @State private var endPullDots = false   // kosmos#8283: the pull's dots are drawn, where the working line would be
+    // kosmos#8283: the working line's height at this text size, read from its measuring copy (workingStrip), for endRoom.
+    @State private var workingLineHeight: CGFloat = 16
     // kosmos#7420: the scroll view the chat sits in (found by SideScrollLock), read only by the empty-list diagnostic.
     @State private var scrollBox = ScrollBox()
     @State private var diagContentWidth: CGFloat = 0
@@ -289,6 +292,7 @@ struct ChatView: View {
                     LinearGradient(colors: [Palette.chatGround.opacity(0), Palette.chatGround], startPoint: .top, endPoint: .bottom)
                         .frame(height: ChatView.fadeHeight).offset(y: -ChatView.fadeHeight).allowsHitTesting(false).accessibilityHidden(true)
                 }
+                .overlay(alignment: .topLeading) { workingStrip }
             }
         }
         // kosmos#8045: the tray holds the keyboard's room while it is open (AttachMenu.swift, PhotoTrayFollowsKeyboard).
@@ -420,11 +424,21 @@ struct ChatView: View {
             openCount.shown(rowsDrawn: !onScreen.isEmpty)
             // kosmos#8072: pull past the newest message for a read. Only with the end marker showing and nobody searching.
             endPull.restsAbove = 14.5   // Mona Lisa's B, set by measuring: 11.5 pt under the working line, 21.5 above the box, clear of its fade
-            // kosmos#8221 slice 9: the UIKit list's end sits 12 pt lower under the working line (measured 11-09 05:0x: the dots
-            // at rest were -0.5 pt under it and 33.5 above the box, the same 33 pt between), so they rest 12 pt lower there.
-            if uikitList { endPull.restsAbove = 2.5 }
+            // kosmos#8283: the UIKit list keeps no room under its end now, so its dots rest where the lazy list's do (slice 9 had
+            // set them 12 pt lower there, 2.5, for that room).
             endPull.allowed = { endVisible && !searchMode }
             endPull.refresh = { _ = await read() }
+            // kosmos#8283: the working line goes while the dots show. Written a turn later, from whether they are on screen then: the
+            // driver is told from the list's scroll callbacks, which can run inside a view update, where a state write is dropped
+            // (measured on the UIKit list: the line stayed under the dots once), and a pull can take them off and on in 10 ms.
+            endPull.drawn = { [endPull] _ in
+                DispatchQueue.main.async {
+                    let now = endPull.dotsShown
+                    guard now != endPullDots else { return }
+                    endPullDots = now
+                    Self.trace(now ? "end pull: working line hidden" : "end pull: working line back")
+                }
+            }
             scrollBox.endPull = endPull
             if let shown = scrollBox.view { endPull.attach(to: shown) }
         }
@@ -434,7 +448,7 @@ struct ChatView: View {
         .onDisappear {
             visible = false
             // kosmos#8072: the closures hold this chat, so they go with it; coming back sets them again.
-            endPull.cancelRead(); endPull.allowed = { false }; endPull.refresh = nil
+            endPull.cancelRead(); endPull.allowed = { false }; endPull.refresh = nil; endPull.drawn = { _ in }
             if !infoOpen { sendOpenCount() }
             if !infoOpen { sendShiftReport() }   // kosmos#7575 (review 1: the info page pushed over the chat is not a close)
             if !infoOpen { client.releasePreviewImages() }   // kosmos#7864: the pictures do not outlive the chat
@@ -603,12 +617,37 @@ struct ChatView: View {
             }
     }
 
+    // kosmos#8283 (Josh 11-09, against Discord's "is typing"): "<dots> <name> is working" over the strip just above the box,
+    // in the room the box's fade already keeps clear of the newest message, so it takes no row in the list: an idle chat has
+    // no empty row under its newest message, and the line coming and going moves nothing (#7348). Its bottom sits 4 pt above
+    // the strip's top. Not while the pull's dots show (#8072): they rest in the same room, centred, and a long name would reach
+    // them. One line always, so its height is known: a hidden copy with still dots measures it (workingLineHeight).
+    @ViewBuilder private var workingStrip: some View {
+        ZStack(alignment: .bottomLeading) {
+            WorkingLine(name: shown.name, animated: false).lineLimit(1).hidden()
+                .background(GeometryReader { g in
+                    Color.clear.onAppear { workingLineHeight = g.size.height }.onChange(of: g.size.height) { workingLineHeight = $0 }
+                })
+            if working && !endPullDots { WorkingLine(name: shown.name).lineLimit(1) }
+        }
+        .padding(.horizontal, 16).padding(.bottom, 4)
+        // A frame of no height at the strip's top, the line standing on it and drawn upward (an alignment guide here moved
+        // nothing: measured 11-09, the line sat on the box's edge either way).
+        .frame(maxWidth: .infinity, maxHeight: 0, alignment: .bottomLeading)
+        .allowsHitTesting(false)
+    }
+
+    // The room under the newest message: the box's fade plus 8 pt (#7346), or the working line drawn over the strip (4 pt above
+    // it) with 6 pt clear of the message, whichever is more. 26 pt either way at the default size (the line is 16); at the largest
+    // text the line covered 30 pt of the newest message without this (measured 11-09).
+    private var endRoom: CGFloat { max(ChatView.fadeHeight + 8, workingLineHeight + 10) }
+
     @ViewBuilder private var conversation: some View {
         if uikitList, let thread { conversationUIKit(thread) } else { conversationLazy }
     }
 
-    // kosmos#8221 slice 1: the UIKit list. The same rows as the lazy list, in the same order, then the sends on their way, the
-    // working line and the room at the end. Kept at the newest message by the list itself (ChatList); a reader higher up is
+    // kosmos#8221 slice 1: the UIKit list. The same rows as the lazy list, in the same order, then the sends on their way and
+    // the room at the end (the working line is drawn over the strip above the box, kosmos#8283). Kept at the newest message by the list itself (ChatList); a reader higher up is
     // told of new messages by the capsule. Not here yet (later slices): earlier pages and their loading and failed lines, a
     // reader's place as rows land above, the pull past the end for a read (#8072), the keyboard's settled looks, and the blank
     // checks.
@@ -627,7 +666,7 @@ struct ChatView: View {
         // Each id once: a diffable list throws on a repeat, and a row carried into the earlier
         // rows can share its id with one in the new read (parseRows numbers rows per read). The first is kept, as byId keeps it.
         var seen = Set<String>()
-        let ids = (top + items.map(\.id) + sends.map(\.id) + ["working", "end"]).filter { seen.insert($0).inserted }
+        let ids = (top + items.map(\.id) + sends.map(\.id) + ["end"]).filter { seen.insert($0).inserted }   // kosmos#8283: no working row
         // kosmos#8221 slice 2: KOSMOS_SAMPLE_SCROLLUP=<n> on this list too, the n-th row from the end put at the top 3 s
         // after opening (read by the list once, when it is made), with the same marker once it has come to rest.
         #if DEBUG
@@ -645,11 +684,7 @@ struct ChatView: View {
             case "empty": return AnyView(empty)
             case "earlier-failed": return AnyView(earlierFailedLine)
             case "nomatch": return AnyView(noMatch)
-            case "working":
-                return AnyView(ZStack {
-                    if working { WorkingLine(name: shown.name) } else { WorkingLine(name: shown.name, animated: false).hidden() }
-                }.padding(.top, 12))
-            case "end": return AnyView(Color.clear.frame(height: ChatView.fadeHeight + 8).accessibilityHidden(true))
+            case "end": return AnyView(Color.clear.frame(height: endRoom).accessibilityHidden(true))
             default: return AnyView(EmptyView())   // an id with no cell draws nothing, never a gap
             }
         }, newest: uikitNewest, atEnd: { now in
@@ -753,14 +788,10 @@ struct ChatView: View {
                         // lands); on iOS 17+ every row is lazy and the id anchor holds the place (see idAnchor).
                         chatRows(items)
                         pendingBubbles(pendingLayout)
-                        // kosmos#7348: the line always has its room, so its coming and going moves nothing (measured: 27 pt
-                        // when an agent picked up a message just sent). Hidden, so VoiceOver does not hear it, and drawn with
-                        // still dots, so no animation runs in every chat that is not working.
-                        ZStack {
-                            if working { WorkingLine(name: shown.name) } else { WorkingLine(name: shown.name, animated: false).hidden() }
-                        }
-                        .padding(.top, 12).id("working")
-                        Color.clear.frame(height: ChatView.fadeHeight + 8).id("end")   // the fade plus 8 pt (kosmos#7346): at the end, the newest message sits clear of it
+                        // kosmos#8283: no row for the working line. It is drawn over the strip above the box (workingStrip),
+                        // so its coming and going still moves nothing (#7348) and an idle chat has no empty row under its
+                        // newest message.
+                        Color.clear.frame(height: endRoom).id("end")   // the fade plus 8 pt (kosmos#7346), or the working line's room (endRoom)
                             .onAppear {
                                 guard drawnEpoch == listEpoch else { return }
                                 Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")

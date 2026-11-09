@@ -45,12 +45,13 @@ final class SendMovesOnceUITests: XCTestCase {
         try assertStill(app, "No step", neighbour: "Message 260 of 260.", since: send(app, box, "No step"))
     }
 
-    // The agent picking the message up: its "is working" line appears when the post answers, and has had its room all along.
+    // The agent picking the message up: its "is working" line appears when the post answers. It is drawn over the strip above
+    // the box (kosmos#8283), so it takes no room in the list and moves nothing.
     func testTheWorkingLineAppearingMovesNothing() throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let (app, box) = openDana(["KOSMOS_SAMPLE_SEND_WORKS": "1"])
         let line = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Dana is working'")).firstMatch
-        XCTAssertFalse(line.exists, "Dana should start idle, and the room kept for the line should not be heard")
+        XCTAssertFalse(line.exists, "Dana should start idle, and no line should be drawn or heard")
         try assertStill(app, "Picked up", neighbour: "Message 260 of 260.", since: send(app, box, "Picked up"))
         XCTAssertTrue(line.exists, "the line never appeared, so this tested nothing")
     }

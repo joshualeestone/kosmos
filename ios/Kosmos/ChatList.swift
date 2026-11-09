@@ -536,8 +536,10 @@ struct ChatList: UIViewRepresentable {
         // A cell is built only as it comes on screen: a cell prepared ahead would keep what it was built with, and only the cells
         // on screen are drawn again on an update (apply).
         list.isPrefetchingEnabled = false
-        // The list's own room above its first row and below its last, as the lazy list's padding (ChatView.listPadV).
-        list.contentInset = UIEdgeInsets(top: ChatView.listPadV, left: 0, bottom: ChatView.listPadV, right: 0)
+        // The list's own room above its first row, as the lazy list's padding (ChatView.listPadV). None below its last
+        // (kosmos#8283): with it the newest message rested 12 pt higher over the box than on the lazy list (measured 11-09 on
+        // the simulator, keyboard up: 74 pt against 62 from its words to the box), so the end marker's room is the whole gap.
+        list.contentInset = UIEdgeInsets(top: ChatView.listPadV, left: 0, bottom: 0, right: 0)
         let co = context.coordinator
         co.list = list
         co.cell = cell

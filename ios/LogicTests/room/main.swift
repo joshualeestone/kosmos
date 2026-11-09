@@ -788,8 +788,17 @@ check(roomSource.contains("let low = reduceMotion ? 0.35 : 0.45, half = (reduceM
 check(roomSource.contains("let period = still ? 1.6 : 1.1, low: Float = still ? 0.35 : 0.45") && roomSource.contains("wave.timeOffset = period - Double(i) * 0.16") && roomSource.contains("rise.fromValue = 0; rise.toValue = -4; rise.duration = period / 2") && roomSource.contains("fade.fromValue = low; fade.toValue = Float(1); fade.duration = period / 2") && roomSource.contains("if !still {") && roomSource.contains("wave.duration = period / 2") && roomSource.contains("wave.autoreverses = true") && roomSource.contains(".alignmentGuide(.firstTextBaseline) { $0[.bottom] }") && roomSource.contains("if window != nil { start() }") && roomSource.contains("selector: #selector(restart), name: UIApplication.willEnterForegroundNotification"), "kosmos#7427 build 16: the chat's dots are layer-drawn, 0.16 s apart, the board's wave")
 check(roomSource.contains("withTransaction(t) { up = false }"), "kosmos#7427 review 3: WaveDots (the control) restarts when the line scrolls back into view")
 check(chatSource.contains("#else\n            LayerWaveDots(still: !animated)") && !chatSource.contains("repeatForever(autoreverses: true)) { bright = true }") && agentsSource.contains("WorkingDots(color: Palette.pillWord(pill))"), "kosmos#7427: the chat's working line and the Agents pill use the wave, not a pulse in unison")
-check(chatSource.contains("WorkingLine(name: shown.name, animated: false).hidden()") && roomSource.contains("still: still || reduceMotion)"),
-      "kosmos#7348: the working line's kept room is drawn with still dots, so no animation runs in every chat that is not working")
+check(roomSource.contains("still: still || reduceMotion)"), "kosmos#7427: the dots are still under Reduce Motion")
+// kosmos#8283: the working line takes no row in either list (an idle chat had an empty row under its newest message); it is
+// drawn over the strip above the box only while the agent works (plus one hidden still copy that measures it), taken away
+// while the pull's dots rest in the same room, and the room at the end grows with it at large text sizes.
+check(chatSource.contains("if working && !endPullDots { WorkingLine(name: shown.name).lineLimit(1) }")
+      && chatSource.contains(".overlay(alignment: .topLeading) { workingStrip }")
+      && chatSource.components(separatedBy: "WorkingLine(name: shown.name").count - 1 == 2
+      && chatSource.contains("private var endRoom: CGFloat { max(ChatView.fadeHeight + 8, workingLineHeight + 10) }")
+      && chatSource.components(separatedBy: "frame(height: endRoom)").count - 1 == 2
+      && !chatSource.contains("\"working\", \"end\"") && !chatSource.contains(".id(\"working\")"),
+      "kosmos#8283: the working line is drawn over the strip above the box, never as a row kept in the list")
 check(agentsSource.contains(".id(agent.session)"), "review 1: a notice for another agent while a chat is open starts that chat afresh, not the old one renamed")
 if let a = content.range(of: ".onChange(of: pushManager.accountChanges)"), let c = content.range(of: "agentRequest = nil; roomRequest = nil") {
     check(a.lowerBound < c.lowerBound && content.distance(from: a.lowerBound, to: c.lowerBound) < 400, "review 1: a sign-out drops a chat or room a notice asked for")

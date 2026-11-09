@@ -213,6 +213,10 @@ final class EndPullDriver: NSObject {
     /// How far above the content's end the dots' centre rests once the list has bounced back.
     var restsAbove: CGFloat = 0
     var refresh: (@MainActor () async -> Void)?
+    /// kosmos#8283: told when the dots are put on screen and taken off, so the chat can take its working line out of their way.
+    var drawn: (Bool) -> Void = { _ in }
+    /// Whether the dots are on screen now.
+    var dotsShown: Bool { dots != nil }
 
     private(set) weak var scrollView: UIScrollView?
     private var logic = PullRefreshLogic()
@@ -331,12 +335,15 @@ final class EndPullDriver: NSObject {
         let host = refreshDotsHost(in: view)
         dots = host
         tap.prepare()
+        drawn(true)
         return host
     }
 
     private func removeDots() {
-        dots?.view.removeFromSuperview()
+        guard let shown = dots else { return }
+        shown.view.removeFromSuperview()
         dots = nil
+        drawn(false)
     }
 }
 
