@@ -48,8 +48,32 @@ function openerEnv(env = process.env) {
   return out;
 }
 
+/**
+ * kosmos#5895: the Windows opener's list. There the opener is `rundll32 url.dll,FileProtocolHandler <url>`, and
+ * MEASURED on the Windows box (2026-11-09): the program it starts inherits rundll32's environment, not Explorer's (a
+ * caller's marker variable reached a stand-in URL handler; the default browser, Edge, is registered as a plain command
+ * line, so a browser started cold gets the same). With ONLY these variables present rundll32 still started the
+ * handler and a variable outside the list did not reach it; Windows itself adds a few to the started process
+ * (LOGONSERVER and two browser-profile ones), none of them the board's. Windows variable names are case-insensitive
+ * (engine/win32env.js), so the match is too, and each kept variable keeps the name it came with.
+ * Kept on purpose, as on the other platforms: the proxy variables (the person's network settings).
+ */
+const WIN_OPENER_KEYS = Object.freeze([
+  'SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'PATH', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA',
+  'LOCALAPPDATA', 'TEMP', 'TMP', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'ProgramData', 'PUBLIC',
+  'SystemDrive', 'USERNAME', 'USERDOMAIN', 'COMPUTERNAME', 'OS', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY',
+]);
+const WIN_OPENER_LOWER = new Set(WIN_OPENER_KEYS.map((k) => k.toLowerCase()));
+
+function winOpenerEnv(env = process.env) {
+  const out = {};
+  for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v && WIN_OPENER_LOWER.has(k.toLowerCase())) out[k] = v;
+  return out;
+}
+
 function hasDesktop(env = process.env) {
   return Boolean(env.DISPLAY || env.WAYLAND_DISPLAY || env.WSL_DISTRO_NAME || (env.BROWSER && env.VSCODE_IPC_HOOK_CLI));
 }
 
-module.exports = { OPENER_KEYS, openerEnv, hasDesktop };
+module.exports = { OPENER_KEYS, openerEnv, WIN_OPENER_KEYS, winOpenerEnv, hasDesktop };
