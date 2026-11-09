@@ -1455,7 +1455,7 @@
       "platforms": [
         "mac"
       ],
-      "rank": 17.7,
+      "rank": 11.8,
       "since": "0.8.01",
       "status": "pending"
     },
@@ -1463,7 +1463,7 @@
       "title": "A little more room between chat lines",
       "line": "Messages in an agent conversation on the computer now have a little more space between lines.",
       "icon": "chat",
-      "rank": 17.8,
+      "rank": 11.7,
       "since": "0.8.01",
       "status": "pending"
     },
