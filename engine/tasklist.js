@@ -295,6 +295,25 @@ function showLines(body, num, project) {
         : ' (its fingerprint only: no path was recorded. Check a copy with: kosmos fingerprint <file> ' + x.builtFingerprint + ')'));
     if (at) { lines.push('Delivered file path, on the computer that marked it:'); under(at); }
   }
+  /* kosmos#8307: who checked THIS file (a checker's mark that kept it), and the file it replaced, or the one the last
+     mark withdrew (review 1: a mark with no file), whose checks are of that file and no longer count. */
+  {
+    const current = PRINT_RE.test(x.builtFingerprint || '');
+    const names = (list, person) => [...(Array.isArray(list) ? list.filter((v) => typeof v === 'string' && v).map(q) : []), ...(person === true ? ['the person'] : [])];
+    const checked = current ? names(x.builtCheckedBy, x.builtCheckedByPerson) : [];
+    const old = x.builtAt && x.builtReplaces && typeof x.builtReplaces === 'object' && PRINT_RE.test(x.builtReplaces.fingerprint || '') ? x.builtReplaces : null;
+    // Review 6: a check is a mark made after the file was sent, and the line says so rather than claiming a review.
+    if (checked.length) field('Checked', 'this file, by ' + checked.join(', ') + ' (marked built after it was sent)');
+    else if (old && current) field('Checked', 'not yet: nobody has checked this file since it replaced the one below');
+    if (old) {
+      const oldBy = typeof old.by === 'string' && old.by ? q(old.by) : null;
+      const oldWhen = typeof old.at === 'string' ? whenWords(old.at) : '';
+      field(current ? 'Replaces' : 'Withdrawn file', old.fingerprint + (oldBy ? ', sent by ' + oldBy : '') + (oldWhen ? ', ' + oldWhen : '')
+        + (current ? '' : ' (the last mark sent no file)'));
+      const oldChecked = names(old.checkedBy, old.checkedByPerson);
+      if (oldChecked.length) field('Out of date', 'the checks of that file, by ' + oldChecked.join(', ') + (current ? ': they are not checks of this one' : ''));
+    }
+  }
   if (typeof x.landedCommit === 'string' && /^[0-9a-f]{7,64}$/.test(x.landedCommit)) {
     field('Commit', x.landedCommit + (x.landedRepo ? ' in ' + q(x.landedRepo) : '')
       + (x.landedOnRemote === true ? ', on the remote' : x.landedOnRemote === false ? ', not on the remote when recorded' : '')

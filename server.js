@@ -553,7 +553,7 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
 // #6330: how long the typing of one built line may hold the mark's answer (under the Mac CLI's 15 s).
 let BUILT_TELL_WAIT_MS = 10000;
 function setBuiltTellWaitForTests(ms) { BUILT_TELL_WAIT_MS = ms === undefined ? 10000 : ms; }
-async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
+async function tellBuiltMark(projectId, t, by, byKey, roster, admit, replaced = null) {
   if (!t || typeof t.number !== 'number') return { delivered: [] };
   // A read that fails throws to the route (which then says it could not work out who to tell); a missing project is [].
   const rec = projects.readAll().find((x) => x && x.id === projectId) || null;
@@ -576,7 +576,16 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
   }
   // Both names here are agents' names from the project, not a caller, so no paneless key applies.
   const forParent = parentWho.filter(notMe).filter((m) => !others.some((o) => sameAgentName(o, m, false)));
-  const everyone = others.concat(forParent);
+  /* kosmos#8307: a mark that replaced the file also reaches whoever checked the old one, since their check
+     no longer counts; once each, after the assignees and the parent's holders. One who has left the project is said as
+     not told (the tell step below), as an assignee who left is. */
+  // Review 7: only a replacement reaches them; a withdrawal is said to the marker alone (in the mark's answer).
+  const replacedPrint = replaced && replaced.kind === 'replaced' && tasks.FINGERPRINT_RE.test(replaced.fingerprint || '') ? replaced.fingerprint : '';
+  const oldCheckers = replacedPrint && Array.isArray(replaced.checkedBy) ? replaced.checkedBy.filter((m) => typeof m === 'string' && m) : [];
+  const forChecker = [...new Set(oldCheckers)].filter(notMe)
+    .filter((m) => !others.concat(forParent).some((o) => sameAgentName(o, m, false)));
+  const checkedOld = (m) => oldCheckers.some((o) => sameAgentName(o, m, false));
+  const everyone = others.concat(forParent, forChecker);
   if (!everyone.length) return { delivered: [] };
   const offHere = projects.swarmOffSet(projectId);
   // The task-message valve, asked only when a line would actually be attempted (not for a list of only switched-off or
@@ -596,7 +605,10 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
     /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
        Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). kosmos#6849: it
        names the command, since a PDF's fingerprint is not its shasum and an older instruction says shasum. */
-    + (/^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
+    + (tasks.FINGERPRINT_RE.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint + ' (check your copy with: kosmos fingerprint <file> <this fingerprint>)' : '')   // #7213: the value names its kind, and given it the command compares like with like
+    /* kosmos#8307: a replacement says which file it replaces, and that a check of that file no longer counts. */
+    + (replacedPrint ? ' - it replaces the file sent earlier (' + replacedPrint + '), so a check of that file no longer counts'
+      + (checkedOld(m) ? ': you checked that one' : '') : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
@@ -6782,7 +6794,8 @@ const COVERED_EXCERPT_CHARS = 60;
 const UNANSWERED_HEAD = 'Waiting on an answer from you: ';
 /* kosmos#7969 (the 0.7.88 cross-seat report: 39, 41 and 102 old posts on three seats' --unanswered): an agent's ask older
    than this is counted, not listed, unless the reader adds --all. Measured on one seat in a busy room: of the 168 it
-   listed, the 150 whose rows were found in the store were all older than 3 days. The person's asks never age out. */
+   listed, the 150 whose rows were found in the store were all older than 3 days. A person's ask stays listed unless it
+   names nobody and the reader has posted since (kosmos#8300). */
 const UNANSWERED_DAYS = 3;
 /* kosmos#5752 slice 3: a refused task write is also a row in the project's room, so the person sees it without the agent
    having to say so, and can add the agent from that row. `doing` is what the agent tried, in the row's words. */
@@ -23042,7 +23055,10 @@ const server = http.createServer(async (req, res) => {
        closed row carries 'kept' / 'missing' / 'unknown'. No answer (none recorded, the budget spent) leaves the row as
        stored. The Tasks view does not send the repository's path: the page never needs it. */
     const sendRows = () => {
-      for (const row of rows) { delete row.landedRepo; delete row.builtFilePath; }   // kosmos#8214: nor a delivered file's path
+      for (let i = 0; i < rows.length; i += 1) {   // kosmos#8214: nor a delivered file's path; kosmos#8307: nor the one it replaced
+        rows[i] = tasks.withoutFilePaths(rows[i]);
+        delete rows[i].landedRepo;
+      }
       /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
          read its "false" as "nobody needs you". It says it could not tell. */
       /* kosmos#7797 item 1: an agent's question no row carries (it holds no open task in the project it asks about, or
@@ -24132,12 +24148,15 @@ const server = http.createServer(async (req, res) => {
         const namedReader = new Set();
         /* kosmos#7848: who each post asked, by name, for the claim rule below (the same reading), in the same pass. */
         const namedBy = new Map();
+        /* kosmos#8300: posts aimed at someone: an @-name, an @-word that matched two members, or a reply to one post. */
+        const aimedAt = new Set();
         if (readerName) {
           for (const m of roomRows) {
             if (!m || m.kind !== 'post') continue;
             const named = messages.namedIn(m);
             if (named.includes(readerName)) namedReader.add(String(m.id));
             if (onlyUnanswered) namedBy.set(String(m.id), named);
+            if (named.length || (Array.isArray(m.ambiguousMentions) && m.ambiguousMentions.length) || typeof m.replyTo === 'string') aimedAt.add(String(m.id));
           }
         }
         /* kosmos#7848: an ask another agent it also asked has claimed (kosmos claim, the live 🙋 the shaped row carries)
@@ -24168,7 +24187,7 @@ const server = http.createServer(async (req, res) => {
           && (namedReader.has(String(m.id))
             || (m.operator === true && Array.isArray(m.to) && m.to.includes(readerName)
               && !(m.outcomes && (m.outcomes[readerName] === 'quiet' || m.outcomes[readerName] === 'could_not'))));
-        // kosmos#4926: the asks a later post of the reader's does not move: its own claim is no answer (#7848), and a person's ask stays listed.
+        // kosmos#4926: the asks a later post of the reader's does not move: its own claim is no answer (#7848), and a person's ask stays listed (kosmos#8300 has the one way it leaves, below).
         const listKeepsAsk = (m) => m.operator === true || !!(m.claim && m.claim.by === readerName);
         if (onlyUnanswered && !readerName) {
           res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
@@ -24185,11 +24204,17 @@ const server = http.createServer(async (req, res) => {
         const outsideCap = Math.max(1, Math.floor(textRows / 2));
         // kosmos#7365 slice 3: agents read the live room only, so the walk stops at the archive.
         let openAsks = 0;   // #4926: every open ask in the live room, listed or not
-        /* kosmos#7969: an agent's open ask older than UNANSWERED_DAYS, counted under the list rather than in it (unless
+        /* kosmos#7969: an agent's open ask older than UNANSWERED_DAYS (kosmos#8300: or a person's that has aged out below), counted under the list rather than in it (unless
            --all). Aged only on a time that reads as one. */
         let agedAsks = 0;
         const agedBefore = Date.now() - UNANSWERED_DAYS * 24 * 60 * 60 * 1000;
-        const aged = (m) => !unansweredAll && m.operator !== true && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) < agedBefore;
+        const old = (m) => !unansweredAll && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) < agedBefore;
+        const aged = (m) => old(m) && m.operator !== true;
+        /* kosmos#8300 (the 0.8.0 cross-seat report: asks to the whole room answered weeks ago without citing them stayed on
+           every seat): a person's ask to the whole room, this old, leaves the list once the reader has posted after it. */
+        let agedFromPerson = 0;
+        const agedRoomWideAsk = (m, i) => old(m) && m.operator === true && !aimedAt.has(String(m.id)) && !(m.claim && m.claim.by === readerName)
+          && !!messages.laterOwnPost(rows, i, readerName, toldFor.get(String(m.id)));
         /* kosmos#4926 (11-07): when each held post reached this reader, read once, before this read records its own (below):
            a post the reader makes later counts for a held ask from that moment (messages.laterOwnPost). */
         let toldFor = new Map();
@@ -24203,6 +24228,7 @@ const server = http.createServer(async (req, res) => {
               if (c) { claimedAsks.unshift({ id: String(rows[i].id), by: c.by, at: c.at }); continue; }
               // kosmos#7969: after the claim check on purpose: a claimed ask is named on the claimed line whatever its age.
               if (aged(rows[i])) { agedAsks += 1; continue; }
+              if (agedRoomWideAsk(rows[i], i)) { agedAsks += 1; agedFromPerson += 1; continue; }
               // kosmos#4926: after age, so an old ask is counted there.
               const own = listKeepsAsk(rows[i]) ? null : messages.laterOwnPost(rows, i, readerName, toldFor.get(String(rows[i].id)));
               if (own) { coveredAsks.unshift({ id: String(rows[i].id), own, text: rows[i].text }); continue; }
@@ -24328,7 +24354,7 @@ const server = http.createServer(async (req, res) => {
           const youAnswered = mine && (m.operator === true || m.from !== readerName)
             ? [when + '  [kosmos] you already answered [' + m.id + '] in ' + mine.map((x) => '[' + x + ']').join(', ') + '.']
             : [];
-          /* kosmos#4926: said for the person's asks too, which stay listed: it is only what the reader did next. What it
+          /* kosmos#4926: said for the person's asks too, which stay listed (kosmos#8300 aside): it is only what the reader did next. What it
              means for the reader differs: the list moves an agent's ask, and keeps the person's and one the reader claimed. */
           const ownAfter = !mine && askedOfReader(m) ? messages.laterOwnPost(rows, rowAt.get(m), readerName, toldFor.get(String(m.id))) : null;
           const youPosted = ownAfter
@@ -24429,7 +24455,8 @@ const server = http.createServer(async (req, res) => {
            --all one the reader has since posted after is named on the line above (kosmos#4926). */
         const agedLine = agedAsks
           ? '[kosmos] ' + agedAsks + (agedAsks === 1 ? ' post' : ' posts') + ' that asked you something more than '
-            + UNANSWERED_DAYS + ' days ago ' + (agedAsks === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). '
+            + UNANSWERED_DAYS + ' days ago ' + (agedAsks === 1 ? 'is' : 'are') + ' not listed'
+            + (agedFromPerson ? ', including ' + agedFromPerson + ' from the person to the whole room that you have posted since' : '') + '. '
             + 'Add --all to see ' + (agedAsks === 1 ? 'it' : 'them') + ' too.\n'
           : '';
         res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + coveredLine + agedLine);
@@ -26571,7 +26598,7 @@ const server = http.createServer(async (req, res) => {
             const no = taskMessageRefusal();
             if (!no) taskMessageValveRecord();
             return no;
-          });
+          }, out.replaced || null);   // kosmos#8307
         } catch (err) {
           process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
           delivered = [];
@@ -26589,6 +26616,14 @@ const server = http.createServer(async (req, res) => {
           }
           // Nobody to tell: no sentence, so the CLI adds nothing to a solo mark.
         }
+      }
+      /* kosmos#8307 review 2: a mark without a file from its sender withdraws the file it named (the #6330 rule), so the
+         marker hears it and how to keep the file. Review 7: only the marker; a later different file tells the checkers.
+         It claims no delivery. No double quote, backslash
+         or control character, which the CLI's sed could not read. */
+      if (!viaScreen && body.clear !== true && out.replaced && out.replaced.kind === 'withdrawn') {
+        summary = (summary ? summary + ' ' : '') + 'This mark sent no file, so the file the task named before is withdrawn.'
+          + ' To keep it, mark it again with --file and its path.';   // review 3: no claim of who was told
       }
       // #6254: an agent marking a task BUILT means work is waiting for the person's check -> a `ready`
       // buzz (push-only, Liu Kang's ruling: never email). Not when the person marks it from the screen
@@ -26614,7 +26649,11 @@ const server = http.createServer(async (req, res) => {
           if (others.length) stillToFinish = 'Still to finish: ' + others.join(', ').replace(/["\\\u0000-\u001f]/g, '') + '.';
         } catch { /* the mark stands; the sentence is extra */ }
       }
-      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(stillToFinish ? { stillToFinish } : {}), ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
+      // kosmos#8307 review 3: the page's own mark gets the task without this computer's file paths, as its list views do.
+      // (A copy, made here so the answer below stays written as server.communitytaskdone-5313.test.js finds it.)
+      if (viaScreen) out.task = tasks.withoutFilePaths(out.task);
+      // Review 6: the summary goes whenever there is one (the withdrawal sentence must not hang on `delivered` being set); still the last key.
+      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(stillToFinish ? { stillToFinish } : {}), ...(delivered ? { delivered } : {}), ...(summary ? { summary } : {}) });
       // #5313: the same agent, between tasks, gets one community prompt (reaches busy agents the idle
       // sweep never sees). After the response, and (kosmos#7649) awaited on its own chain, so it never holds the event loop; the
       // mark is already recorded, and the per-task dedup book makes a second built mark on the same
