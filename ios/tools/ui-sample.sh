@@ -11,10 +11,10 @@
 #   ios/tools/ui-sample.sh [--keep] [--uikit]
 #
 # --uikit (kosmos#8221): the same run on the UIKit chat list (TEST_RUNNER_KOSMOS_UIKITLIST=1), the list a phone draws only
-# with Settings' "New chat list" switch on (slice 5). Only the CI-sized classes that switch lists: KeyboardSlideUITests
-# less its three rebuild checks (the UIKit list never rebuilds, so they are left out), StopAddingUITests,
-# SendMovesOnceUITests and ComposerSendUITests. The 260-message classes
-# (ChatOpensAtNewest, NewMessages, ChatSearch, ChatDrag) stay by hand on a Mac, for the reason ChatOpensAtNewest does below.
+# with Settings' "New chat list" switch on (slice 5). Only classes that switch lists; the full list and each slice's reason
+# are at "classes=" below (KeyboardSlideUITests runs less its three rebuild checks: the UIKit list never rebuilds).
+# ChatOpensAtNewest and NewMessages stay by hand on a Mac, for the reason ChatOpensAtNewest does below; ChatSearch and
+# ChatDrag, also 260-message classes, run on this arm since slice 10 (the UIKit list draws that chat without the blank).
 # Two of its checks open a project room, which draws the same either way: 12 of the 14 reach the UIKit list.
 #
 # The newest iOS runtime the selected Xcode's simulator SDK can run, and the smallest iPhone it offers (the least room above the keyboard). The simulator is
@@ -71,7 +71,7 @@ if [ "$uikit" = 1 ]; then
   #   list; each chat launch asserts the UIKit list drew it (UIKitListArm.assertDrawn). This arm only (by hand on the lazy).
   # kosmos#8221 slice 9: EndPullUITests (6), the pull past the newest message, a message landing during it included.
   # kosmos#8221 slice 10: ChatSearchUITests (1) and ChatDragUITests (1), search and the drag that takes the keyboard down,
-  #   each launch now asserting the UIKit list drew it. Neither is in the lazy arm's list.
+  #   each launch now asserting the UIKit list drew it. Neither is in the lazy arm's list (the 260-message chat's blank, above).
   classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
