@@ -2079,7 +2079,7 @@ function connect(dir, opts) {
     ? last.model : null;
   {
     /* The model it will actually run: a policy listing that model is satisfied, and one that does not list it refuses. */
-    const allowed = create.policyAllows(create.runnerProvider(runner), keepModel || '');
+    const allowed = create.policyAllows(create.runnerProvider(runner), keepModel || '', last.account ? last.account.dir : undefined);
     if (!allowed.ok) return { ok: false, because: allowed.because };
   }
   /* 🛑 THE PROVIDER GOES IN THE PROFILE TOO, NOT ONLY THE JOB (#1159). #1347 made
