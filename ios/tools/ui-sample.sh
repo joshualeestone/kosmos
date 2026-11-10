@@ -233,7 +233,7 @@ if grep -q -E "^Test Case '-\[KosmosUITests\.(EarlierDroppedUITests|EarlierPages
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
-    said="$(grep -E 'earlier (ask|out|answered|restart)|uikit list: atTop|uikit list: (rows landed above|earlier pages dropped)|chat (shown|back)' "$data/Documents/trace.txt" || true)"
+    said="$(grep -E 'earlier (ask|out|answered|restart)|uikit list: atTop|uikit list: (rows landed above|earlier pages dropped)|debug delete on ask|earlier hold|chat (shown|back)' "$data/Documents/trace.txt" || true)"
     echo "  the earlier pages' lines (every traced launch, oldest first; a chat's first showing in a launch writes \"chat shown\", a later one \"chat back\"):"
     if [ -n "$said" ]; then printf '%s\n' "$said" | sed 's/^/    /'; else echo "    (none in the trace)"; fi
   else
