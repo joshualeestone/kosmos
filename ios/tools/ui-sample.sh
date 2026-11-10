@@ -168,6 +168,9 @@ why=""
 echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)${short:+; per class:$short}"
 [ -n "$why" ] && printf '%s\n' "$why"
 [ -n "$stillred" ] && printf '%s\n' "$stillred" | sed 's/^/STILLRED /'
+# kosmos#8221 slice 14: a test stopped at its time limit (--uikit) prints "exceeded execution time allowance", never "failed"
+# (measured 11-10 06:59), so the tally does not count it; named here.
+sed -n "s/^Test Case '-\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\]' exceeded execution time allowance.*/TIMED OUT \1.\2/p" "$log" | sort -u
 flaky_report
 # kosmos#7609: as ui-keyboard.sh does, the read-higher-up check's scroll trace, read from the app's own data container
 # before cleanup deletes the simulator (--keep keeps the log, not the simulator). The bundle id is the built app's.
