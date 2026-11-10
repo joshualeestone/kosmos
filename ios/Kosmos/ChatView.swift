@@ -676,17 +676,21 @@ struct ChatView: View {
             case "end": return AnyView(Color.clear.frame(height: endRoom).accessibilityHidden(true))
             default: return AnyView(EmptyView())   // an id with no cell draws nothing, never a gap
             }
-        }, newest: uikitNewest, dropped: earlierDropped, atEnd: { now in
+        }, newest: uikitNewest, dropped: earlierDropped, landing: earlierLandings, atEnd: { now in
             atBottom = now; endVisible = now
             Self.trace("uikit list: atBottom \(atBottom)")
             if now { unseenNew = false; endSeen = true; settledAtEnd = true }
         }, atTop: { now in
             // kosmos#8221 slice 7: the reader at the top asks for the page before, as the lazy list's top marker does.
+            if earlierLanding { Self.trace("earlier hold off: top changed", ring: false) }
             earlierLanding = false
             topVisible = now
             if now { loadEarlier("top") }
-        }, topRead: { now in
+        }, topRead: { now, seen in
             // kosmos#8221 slice 16: where the top is after the rows changed. Lets go of a landing's hold; asks for nothing.
+            // A reading from before the newest landing describes the rows before it, so it changes nothing (review 3).
+            guard seen >= earlierLandings else { return }
+            if earlierLanding { Self.trace("earlier hold off: list read", ring: false) }
             earlierLanding = false
             topVisible = now
         }, scroller: { view in
@@ -1951,8 +1955,13 @@ struct ChatView: View {
             if uikitList, !Self.sampleNoTopFix, case .page(let rows, _, _) = read, !rows.isEmpty {
                 earlierLanding = true
                 earlierLandings += 1
+                Self.trace("earlier hold on", ring: false)
                 let mine = earlierLandings
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { if earlierLandings == mine { earlierLanding = false } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    guard earlierLandings == mine, earlierLanding else { return }
+                    Self.trace("earlier hold off: backstop", ring: false)
+                    earlierLanding = false
+                }
             }
             #if DEBUG
             // KOSMOS_SAMPLE_READ_ON_LAND=1: a read's request at the moment a page lands, the race the hold above closes.
@@ -1966,9 +1975,10 @@ struct ChatView: View {
     // sheet's Delete) 2 s before the k-th page asked for in this launch is due (KOSMOS_SAMPLE_OLDER_DELAY), so a delete
     // drops the loaded earlier pages while a reader is up in them, as slice 14's moved answer does.
     private func sampleDeleteOnAsk() {
-        Self.sampleEarlierAsks += 1
         let env = ProcessInfo.processInfo.environment
-        guard let k = env["KOSMOS_SAMPLE_DELETE_ON_ASK"].flatMap(Int.init), k == Self.sampleEarlierAsks else { return }
+        guard let k = env["KOSMOS_SAMPLE_DELETE_ON_ASK"].flatMap(Int.init) else { return }
+        Self.sampleEarlierAsks += 1
+        guard k == Self.sampleEarlierAsks else { return }
         let due = max(0, (env["KOSMOS_SAMPLE_OLDER_DELAY"].flatMap(Double.init) ?? 0) - 2)
         DispatchQueue.main.asyncAfter(deadline: .now() + due) {
             guard let row = thread?.rows.last(where: Board.canDelete) else { return }

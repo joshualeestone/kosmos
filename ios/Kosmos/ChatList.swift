@@ -17,6 +17,9 @@ struct ChatList: UIViewRepresentable {
     // kosmos#8221 slice 14: bumped by the chat when the loaded earlier pages are dropped and started again (a read that found
     // the conversation moved under them, during a load or a gap fill, a delete, Try again). A reader up in those pages has no row left on screen to keep.
     var dropped: Int = 0
+    // kosmos#8221 slice 16: how many earlier pages have landed with rows (ChatView.earlierLandings); topRead echoes the one
+    // its reading came after, so a reading queued before a landing cannot let go of that landing's hold (review 3).
+    var landing: Int = 0
     // Whether the reader is at the newest message, told when it changes (never during a layout pass).
     let atEnd: (Bool) -> Void
     // kosmos#8221 slice 7: whether the reader is at the top of what is loaded (earlier messages load there), told when it
@@ -24,7 +27,7 @@ struct ChatList: UIViewRepresentable {
     var atTop: (Bool) -> Void = { _ in }
     // kosmos#8221 slice 16: where the top is, read again after every change in the rows, changed or not. It says where the
     // reader is and asks for nothing (atTop above asks when the reader reaches the top).
-    var topRead: (Bool) -> Void = { _ in }
+    var topRead: (Bool, Int) -> Void = { _, _ in }
     // kosmos#8221 slice 9: the list's scroll view, handed to the chat once it is made, for the pull past the newest message
     // (EndPullDriver watches its offset and its pan, and takes no delegate).
     var scroller: (UIScrollView) -> Void = { _ in }
@@ -120,7 +123,8 @@ struct ChatList: UIViewRepresentable {
             if atEnd != oldValue { let v = atEnd; DispatchQueue.main.async { [weak self] in self?.told?(v) } }
         } }
         var toldTop: ((Bool) -> Void)?
-        var readTopTold: ((Bool) -> Void)?
+        var readTopTold: ((Bool, Int) -> Void)?
+        var landing = 0
         var atTop = false { didSet {
             if atTop != oldValue {
                 ChatView.trace("uikit list: atTop \(atTop)", ring: false)
@@ -895,12 +899,14 @@ struct ChatList: UIViewRepresentable {
             // (ChatView.loadEarlier) until it is told where the top is. After every change in the rows (a page, a day line
             // replaced, a drop, a new message), that is read again on the next turn of the main loop and told, whether it
             // changed or not. Telling asks for nothing: after a drop the next page waits for the next read (review 1).
-            if before != now {
+            // Not on a new list's first update, which makeUIView tells itself (at the newest, not at the top) (review 3).
+            if before != now, !before.isEmpty {
+                let seen = landing
                 DispatchQueue.main.async { [weak self] in
                     guard let self, let list = self.list else { return }
                     list.layoutIfNeeded()
                     self.readTop(list)
-                    self.readTopTold?(self.atTop)
+                    self.readTopTold?(self.atTop, seen)
                 }
             }
             redrawn += again.count
@@ -936,6 +942,7 @@ struct ChatList: UIViewRepresentable {
         co.told = atEnd
         co.toldTop = atTop
         co.readTopTold = topRead
+        co.landing = landing
         co.environment = context.environment
         co.newest = newest
         co.dropped = dropped
@@ -986,6 +993,7 @@ struct ChatList: UIViewRepresentable {
         co.told = atEnd
         co.toldTop = atTop
         co.readTopTold = topRead
+        co.landing = landing
         co.environment = context.environment
         co.apply(ids, dropped: dropped)
         if newest != co.newest {

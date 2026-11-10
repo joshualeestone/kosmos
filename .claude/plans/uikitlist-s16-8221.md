@@ -25,7 +25,8 @@ above them without moving them. A control with slice 14's fix off shows the read
 defect.
 
 And: on the UIKit list, a page landing is never followed by a request for the next one before the list has said where the
-top is. A check makes the race certain (a read's request at the moment of landing) and passes; its fix-off control shows the
+top is (or, for rows the list never draws, before the 1 s backstop). A check makes the race certain (a read's
+request at the moment of landing) and passes; its fix-off control shows the
 request going out.
 
 ## Decided
@@ -46,7 +47,11 @@ For the double ask (third design, after two review rounds): when a page's rows l
 earlier pages until the list says where the top is. After every change in its rows the list reads the top again on the
 next turn of the main loop and tells the chat through a new callback (topRead) that only records it and asks for nothing.
 A swipe that reaches the top still asks (atTop, which also lets go of the hold). A 1 s backstop lets go of a landing the
-list never draws (rows all hidden): nothing moved on screen then, so asking is safe.
+list never draws (rows all hidden): nothing moved on screen then, so asking is safe. Each landing is numbered and the
+list's report echoes the number of the update it read after, so a report queued before a landing cannot let go of it;
+a new list's first update sends no report (makeUIView tells it at the newest) (review 3). Setting and letting go of the
+hold write fixed trace lines ("earlier hold on", "earlier hold off: list read | top changed | backstop"), which
+ui-sample.sh prints on a failed earlier-pages check, so the weakest premise below can be seen.
 Rejected, in order: (1) marking the top gone at landing and relying on a re-report after "rows added above", because real
 chats start with a day line that a landing replaces, a landing and a drop can share an update, and hidden rows change
 nothing, and each case left a reader at the top marked "not at the top" until a swipe (review 2). (2) Re-reporting through
@@ -75,7 +80,10 @@ the timing, not measured.
   1 s backstop; loadEarlier asks for nothing while it is set. KOSMOS_SAMPLE_NOTOPFIX=1 is the control (no hold);
   KOSMOS_SAMPLE_READ_ON_LAND=1 (DEBUG) makes the read's request at the moment of landing.
 - ChatList: topRead, told after every change in the ids (read again after layout, on the next turn of the main loop).
-- EarlierDoubleAskUITests (new, 2): the fix (no ask at landing, none 2 s later, and a swipe back to the top asks) and its control (first page landed, and a second ask in flight). ui-sample.sh: in the UIKit class list and the earlier-pages
+- EarlierDoubleAskUITests (new, 2): the fix (no ask at landing, none 2 s later, and a swipe back to the top asks) and
+  its control (first page landed, and a second ask in flight). That the list's report, not the swipe or the backstop,
+  is what lets go is not asserted by a check; it is read from the trace ("earlier hold off: list read").
+  ui-sample.sh: in the UIKit class list and the earlier-pages
   trace block.
 
 ## Results
