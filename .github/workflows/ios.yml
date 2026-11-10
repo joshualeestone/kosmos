@@ -275,9 +275,11 @@ jobs:
   # kosmos#8221: the same sample-board run on the UIKit chat list (ui-sample.sh --uikit), which a release build does not draw
   # yet, so a change that breaks it goes red here before the slice that lets a phone choose it. Its own job, beside the
   # lazy list's, so neither waits on the other. ui-flaky-count.sh reads a job by its exact name: pass this one's to count it.
-  # kosmos#8221 slice 14: 60 minutes, from 50. Passing runs on main took 31 to 36 minutes and one was cancelled at 50 on
-  # 2026-11-10 07:22 UTC without any change of this slice; slice 14 adds two checks on the 260-message chat, and both of
-  # its runs were cancelled at 50 with no output (ui-sample prints at the end).
+  # kosmos#8221 slice 14: 60 minutes, from 50. Passing runs took 31 to 36 minutes on main and up to 41 on a PR; a main run
+  # on 2026-11-10 07:22 UTC reached its summary at about 50 because a flaky check was retried (-retry-tests-on-failure),
+  # and was cancelled in its cleanup. Slice 14 adds two checks on the 260-message chat; two attempts of its first run were
+  # cancelled at 50 with nothing printed. ui-sample.sh now stops any one test on this list at 7 minutes, so a hang fails by
+  # name rather than reaching this limit.
   uikit:
     name: uikit list (sample board)
     runs-on: macos-latest

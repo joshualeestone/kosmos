@@ -120,9 +120,13 @@ echo "ui-sample: ${dtype##*.} on ${runtime##*.}, the $arm chat list"
 only=""; want=0
 for c in $classes; do only="$only -only-testing:KosmosUITests/${c%%:*}"; want=$((want + ${c##*:})); done
 log="$work/xcodebuild.log"
-# shellcheck disable=SC2086  # $only and $skip are lists of separate arguments
+# kosmos#8221 slice 14: on the UIKit run, a test that runs past 7 minutes is stopped and named as failed, so a hang reads as
+# a test that failed rather than a CI job cancelled at its limit with nothing printed (this script prints at the end).
+allow=""
+if [ "$uikit" = 1 ]; then allow="-test-timeouts-enabled YES -default-test-execution-time-allowance 420 -maximum-test-execution-time-allowance 420"; fi
+# shellcheck disable=SC2086  # $only, $skip and $allow are lists of separate arguments
 ( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 TEST_RUNNER_KOSMOS_UI_SAMPLE=1 TEST_RUNNER_KOSMOS_UIKITLIST="$uikit" xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
-    -retry-tests-on-failure -test-iterations 2 $only $skip -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
+    -retry-tests-on-failure -test-iterations 2 $only $skip $allow -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
 rc=$?
 # kosmos#7609: a failed test gets one more try, because this job runs on GitHub's slower runners and waits run out there. So a test
 # counts once, by its last result, and one that failed then passed is FLAKY: named below, a warning on the run, and countable across runs.
