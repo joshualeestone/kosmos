@@ -291,7 +291,7 @@ struct ChatList: UIViewRepresentable {
                 }
             case "clipped":
                 // At the newest, an element whose top is 20 pt under the top bar (VoiceOver stepping up to a message only just
-                // cut off): it comes down 20 pt, which is inside the list's usual 40 pt of slack at the end.
+                // cut off): it comes down 20 pt plus the list's top padding (32 pt here), inside the usual 40 pt slack at the end.
                 let seenTop = list.contentOffset.y + list.adjustedContentInset.top - list.contentInset.top
                 if let ip = list.indexPathForItem(at: CGPoint(x: list.bounds.midX, y: seenTop + 10)), let id = source.itemIdentifier(for: ip),
                    let w = list.window {
@@ -568,9 +568,12 @@ struct ChatList: UIViewRepresentable {
             guard let list, (element as AnyObject) !== list, let source, let ip = focusedRow(element) else { return }
             // The newest message and the rows after it are left alone however tall it is: a reader there is at the newest.
             guard let newestId = ids.last(where: { !Self.afterNewest.contains($0) }), let newestAt = source.indexPath(for: newestId),
-                  let id = source.itemIdentifier(for: ip), !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
+                  let id = source.itemIdentifier(for: ip), !(list.isTracking || list.isDragging || list.isDecelerating),
+                  !fingerlessScrolling() else { return }
             // VoiceOver puts its focus back on the same message after an update redraws the cells (apply reconfigures
             // them); that is not the person moving, so a focus on the row last focused, with an update between, is left alone.
+            // Every update counts (the focus's own atEnd change makes one), so any later focus on the same row is let go; by
+            // then the row has been put on screen and the reader is off the end, so VoiceOver's own scroll is followed anyway.
             let refocus = id == lastFocusRow && appliedSinceFocus
             lastFocusRow = id
             appliedSinceFocus = false
@@ -586,7 +589,8 @@ struct ChatList: UIViewRepresentable {
                 return
             }
             // VoiceOver puts its focus on something on screen after a jump to the newest (a send, New messages, search
-            // closing); that is not the person moving back, so a focus within a second of one is left alone.
+            // closing) and when a chat opens; that is not the person moving, so a focus within a second of either is left
+            // alone.
             guard CACurrentMediaTime() - toNewestAt > 1.0 else { return }
             // The focused element's own frame, so a part of a tall message is what is put on screen, read before the layout
             // below (which can move the list) so it is in the list's coordinates of the same moment; the row's without one.
@@ -605,6 +609,16 @@ struct ChatList: UIViewRepresentable {
             list.contentOffset = CGPoint(x: 0, y: min(max(y, -inset.top), maxY(list)))
             // The cells now on screen, for top(); laidOut does nothing while pinning.
             list.layoutIfNeeded()
+            // Rows drawn for the first time in that pass come in at their real heights, which can move the row itself: with
+            // the row's own frame (not a fixed element frame), it is measured again and put right once.
+            if own == nil, let b = list.layoutAttributesForItem(at: ip)?.frame {
+                let s0 = list.contentOffset.y + inset.top, s1 = list.contentOffset.y + list.bounds.height - inset.bottom
+                if b.minY < s0 - 0.5 || b.maxY > s1 + 0.5 {
+                    let y2 = b.minY < s0 || b.height > s1 - s0 ? b.minY - inset.top : b.maxY - list.bounds.height + inset.bottom
+                    list.contentOffset = CGPoint(x: 0, y: min(max(y2, -inset.top), maxY(list)))
+                    list.layoutIfNeeded()
+                }
+            }
             pinning = false
             heldByFocus = true
             atEnd = endReached(list)
@@ -823,6 +837,8 @@ struct ChatList: UIViewRepresentable {
         // the old one reported, or every read would ask for another page while the reader is at the newest).
         let toldTop = atTop, handed = scroller
         DispatchQueue.main.async { told(true); toldTop(false); handed(list) }
+        // kosmos#8221 slice 12: VoiceOver's own focus as the chat appears is not the person moving (focusFollow).
+        co.toNewestAt = CACurrentMediaTime()
         #if DEBUG
         if let up = sampleUp, !Self.sampleUpDone {
             let rested = sampleRested
