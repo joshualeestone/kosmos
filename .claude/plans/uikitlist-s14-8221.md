@@ -46,6 +46,14 @@ as present, so a reader there is not a case these checks can see.
   60 minutes (.github/workflows/ios.yml), and ui-sample.sh --uikit stops any one test at 7 minutes (14 with its
   retry), so one hang fails as a test; two may still reach the limit. Weakest premise: that the cancels were the suite running long (main's own job reached 50 on a retried flaky
   check the same morning), not a hang in the new checks. The per-test limit is what tells the two apart if it recurs.
+  Measured 11-10 06:59 with a 60 s limit: a stopped test prints "exceeded execution time allowance" and never "failed", so
+  the tally misses it; ui-sample.sh names it (TIMED OUT) in its failure output.
+
+## Known flake, not from this change
+
+The control's setup (before any slice 14 code runs) failed 3 runs in 10, once with the control alone: the first older page
+never landed and "Loading earlier messages" stayed for more than 23 s. The fix arm, on the same steps, passed 9 of 9. Cause
+unknown (a chatEpoch change is ruled out by the code). CI retries a failed check once. Follow-up on #8221.
 
 ## Coverage
 
