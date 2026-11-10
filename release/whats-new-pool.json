@@ -1591,7 +1591,7 @@
     },
     {
       "title": "Old room-wide asks leave the unanswered list",
-      "line": "kosmos room --unanswered drops a room-wide ask over 3 days old once the seat has posted there since. --all still shows it.",
+      "line": "kosmos room <project-id> --unanswered drops a room-wide ask over 3 days old once the seat has posted there since. --all still shows it.",
       "icon": "list",
       "rank": 89,
       "since": "0.8.02",
@@ -1603,15 +1603,6 @@
       "line": "kosmos task built --file with a new fingerprint replaces the old file, marks its checks out of date and tells who checked it.",
       "icon": "tasks",
       "rank": 90,
-      "since": "0.8.02",
-      "status": "pending",
-      "notesOnly": true
-    },
-    {
-      "title": "More agents' edits are named as theirs",
-      "line": "Files changed by GPT, Gemini and Antigravity agents now say who changed them, including in kosmos project who.",
-      "icon": "list",
-      "rank": 91,
       "since": "0.8.02",
       "status": "pending",
       "notesOnly": true
