@@ -33,4 +33,9 @@ the cell shows the check can see the action open nothing. If the measurement fai
 
 Running the action's handler from the app is how VoiceOver runs it, but not VoiceOver itself: a defect in how VoiceOver
 finds the element in a hosted cell (the element tree it walks, not the one this walk does) would not show. Slice 12's
-focus checks found SwiftUI's elements by the same walk, which is some evidence the trees agree.
+focus checks found SwiftUI's elements by a similar walk (its first element only), which is weak evidence the trees agree.
+
+## Review notes
+
+- The control sets the opener carried into the cell to nil. It does not remove the carry-in line, so it proves a cell
+  with no opener opens no sheet, not that a hosted cell inherits nothing (round 1).

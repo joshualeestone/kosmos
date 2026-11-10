@@ -28,7 +28,7 @@ struct ChatList: UIViewRepresentable {
     var sampleRested: (() -> Void)? = nil
     // Debug only (KOSMOS_SAMPLE_A11YSCROLL=<seconds>, kosmos#8221 slice 11): that long after the list opens, one scroll up of
     // the kind VoiceOver makes (told through personScrolls, then the scroll; see Coordinator.sampleA11yScroll for its four
-    // modes), then what the list did, for a check.
+    // modes), then what the list did, for a check. KOSMOS_SAMPLE_A11YFOCUS and KOSMOS_SAMPLE_A11YACTIONS report through it too.
     var sampleA11y: ((String) -> Void)? = nil
 
     // How close to the end still counts as at the newest message after the person's own scroll.
@@ -40,7 +40,7 @@ struct ChatList: UIViewRepresentable {
     static let personScrollQuiet: CFTimeInterval = 0.3
     #if DEBUG
     static var sampleUpDone = false   // set once KOSMOS_SAMPLE_SCROLLUP has scrolled; a list made after that does not scroll again
-    // KOSMOS_SAMPLE_A11YSCROLL and KOSMOS_SAMPLE_A11YFOCUS share it: one of them runs once a launch, as sampleUpDone.
+    // KOSMOS_SAMPLE_A11YSCROLL, _A11YFOCUS and _A11YACTIONS share it: one of them runs once a launch, as sampleUpDone.
     static var sampleA11yDone = false
     #endif
 
@@ -132,8 +132,8 @@ struct ChatList: UIViewRepresentable {
             guard let cell else { return }
             var env = environment
             #if DEBUG
-            // kosmos#8221 slice 13: KOSMOS_SAMPLE_NOCELLACTIONS=1 leaves the sheet's opener out of the cell, as a hosted cell
-            // with nothing carried in would be: the control arm of A11yActionsUITests.
+            // kosmos#8221 slice 13: KOSMOS_SAMPLE_NOCELLACTIONS=1 sets the sheet's opener carried into the cell to nil: the
+            // control arm of A11yActionsUITests.
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOCELLACTIONS"] == "1" { env.openMessageActions = nil }
             #endif
             c.contentConfiguration = UIHostingConfiguration {
@@ -381,7 +381,7 @@ struct ChatList: UIViewRepresentable {
         func sampleA11yActions(_ report: ((String) -> Void)?) {
             guard !ChatList.sampleA11yDone, let list else { return }
             ChatList.sampleA11yDone = true
-            let text = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_A11YACTIONS_TEXT"] ?? ": "
+            let text = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_A11YACTIONS_TEXT"] ?? ": "   // unset: any message
             // Every element under a view: a view that is one, and what a container hands out, containers within it included.
             func elements(_ o: NSObject, _ out: inout [NSObject], depth: Int = 0) {
                 guard depth < 40 else { return }
@@ -390,7 +390,8 @@ struct ChatList: UIViewRepresentable {
                 if let v = o as? UIView { for s in v.subviews { elements(s, &out, depth: depth + 1) } }
             }
             var all: [NSObject] = []
-            for c in list.visibleCells { elements(c.contentView, &all) }
+            // Top to bottom, so the pick does not turn on the order visibleCells comes in.
+            for c in list.visibleCells.sorted(by: { $0.frame.minY < $1.frame.minY }) { elements(c.contentView, &all) }
             let picked = all.first { ($0.accessibilityLabel ?? "").contains(text) && !($0.accessibilityCustomActions ?? []).isEmpty }
             let actions = picked?.accessibilityCustomActions ?? []
             let names = actions.map { $0.name.replacingOccurrences(of: " ", with: "_") }
