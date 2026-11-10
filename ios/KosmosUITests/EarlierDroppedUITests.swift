@@ -126,11 +126,12 @@ final class EarlierDroppedUITests: XCTestCase {
         XCTAssertLessThan(first.frame.minY, app.frame.midY, "Message 41 is on screen but not at the top (y \(Int(first.frame.minY)))")
         XCTAssertFalse(Self.label(app, Self.newest(drop)).exists, "the drop took the reader to the newest message")
         // At the top, the page before is asked for again; it lands above and the reader's row stays where it is.
-        let y0 = first.frame.minY
         let loading = Self.label(app, "Loading earlier messages")
         // kosmos#8221 slice 17: after a drop the page is asked for once a read of the thread as it is now has landed (the
-        // delete starts one at once; after a moved answer it is the next 5 s read), so this waits up to one read.
-        XCTAssertTrue(loading.waitForExistence(timeout: 7), "at the top of what remains, the page before was not asked for again")
+        // delete starts one at once; after a moved answer it is the next 5 s read), so this waits up to one read and its
+        // round trip. The reader's place is taken once it is asked for, so nothing in that wait counts as the page moving them.
+        XCTAssertTrue(loading.waitForExistence(timeout: 10), "at the top of what remains, the page before was not asked for again")
+        let y0 = first.frame.minY
         let landed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: loading)
         XCTAssertEqual(XCTWaiter().wait(for: [landed], timeout: Self.delay + 15), .completed, "the page asked for again never landed")
         Thread.sleep(forTimeInterval: 1)
