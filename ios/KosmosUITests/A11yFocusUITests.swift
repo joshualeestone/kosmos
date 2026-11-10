@@ -8,7 +8,7 @@ import XCTest
 final class A11yFocusUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
-    private struct Report { let found: Bool; let atEnd: Bool; let onScreen: Bool; let pins: Int; let moved: Int; let kind: String; let label: String }
+    private struct Report { let found: Bool; let atEnd: Bool; let onScreen: Bool; let agrees: Bool; let pins: Int; let moved: Int; let kind: String; let label: String }
 
     private func focus(mode: String, fixOff: Bool = false) throws -> Report {
         guard UIKitListArm.on else { throw XCTSkip("the lazy list has no pin to the end (UIKit list only)") }
@@ -23,19 +23,20 @@ final class A11yFocusUITests: XCTestCase {
         XCTAssertTrue(newest.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
         let marker = app.descendants(matching: .any).matching(identifier: "sample-a11y-scroll").firstMatch
         XCTAssertTrue(marker.waitForExistence(timeout: 20), "CONTROL: the focus never reported")
-        // "sample a11y scroll focus found <bool>, at end <bool>, on screen <bool>, pins <n>, moved <n>, kind <name>, from the end <bool>"
+        // "sample a11y scroll focus found <bool>, at end <bool>, on screen <bool>, agrees <bool>, pins <n>, moved <n>, kind <name>, from the end <bool>"
         let label = marker.label
         let words = label.replacingOccurrences(of: ",", with: "").split(separator: " ").map(String.init)
         func after(_ key: String) -> String? { words.firstIndex(of: key).flatMap { $0 + 1 < words.count ? words[$0 + 1] : nil } }
         print("UI-NOTE kosmos#8221 slice 12 \(mode)\(fixOff ? ", fix off" : ""): \(label)")
         XCTAssertEqual(words.last, "true", "CONTROL: the focus did not start at the newest message: \(label)")
+        XCTAssertFalse(after("kind") == "none", "CONTROL: no element was found to focus: \(label)")
         guard words.contains("focus"), let found = after("found"), let pins = after("pins").flatMap(Int.init),
-              let moved = after("moved").flatMap(Int.init), let kind = after("kind"),
+              let moved = after("moved").flatMap(Int.init), let kind = after("kind"), let agrees = after("agrees"),
               let at = words.firstIndex(of: "at"), at + 2 < words.count, words[at + 1] == "end",
               let on = words.firstIndex(of: "on"), on + 2 < words.count, words[on + 1] == "screen" else {
             throw NSError(domain: "A11yFocusUITests", code: 1, userInfo: [NSLocalizedDescriptionKey: "unreadable report: \(label)"])
         }
-        return Report(found: found == "true", atEnd: words[at + 2] == "true", onScreen: words[on + 2] == "true", pins: pins,
+        return Report(found: found == "true", atEnd: words[at + 2] == "true", onScreen: words[on + 2] == "true", agrees: agrees == "true", pins: pins,
                       moved: moved, kind: kind, label: label)
     }
 
@@ -63,6 +64,7 @@ final class A11yFocusUITests: XCTestCase {
         XCTAssertFalse(r.atEnd, "the reader is still held at the newest: \(r.label)")
         XCTAssertEqual(r.pins, 0, "the list put itself back at the end after the focus: \(r.label)")
         XCTAssertGreaterThan(r.moved, 40, "the list did not move up: \(r.label)")
+        XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")
     }
 
     // VoiceOver's scroll first (pinned back by the list), then the focus: the focus brings the message back.
@@ -72,6 +74,7 @@ final class A11yFocusUITests: XCTestCase {
         XCTAssertTrue(r.onScreen, "the focused message is not on screen: \(r.label)")
         XCTAssertFalse(r.atEnd, "the reader is still held at the newest: \(r.label)")
         XCTAssertEqual(r.pins, 0, "the list put itself back at the end after the focus: \(r.label)")
+        XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")
     }
 
     // The focus first, then VoiceOver's scroll: the scroll is followed, not pinned back.
@@ -81,6 +84,27 @@ final class A11yFocusUITests: XCTestCase {
         XCTAssertTrue(r.onScreen, "the focused message is not on screen: \(r.label)")
         XCTAssertFalse(r.atEnd, "the reader is still held at the newest: \(r.label)")
         XCTAssertEqual(r.pins, 0, "the list put itself back at the end during VoiceOver's scroll: \(r.label)")
+        XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")
+    }
+
+    // The newest message, taller than the screen (a long reply), focused while the reader is at the newest: they stay there
+    // and the list does not move, though the message does not fit.
+    func testAFocusOnATallNewestMessageKeepsTheReaderAtTheNewest() throws {
+        let r = try focus(mode: "newest")
+        XCTAssertTrue(r.found, "CONTROL: the focused element was not placed on the newest row: \(r.label)")
+        XCTAssertTrue(r.atEnd, "a focus on the newest message took the reader off it: \(r.label)")
+        XCTAssertEqual(r.moved, 0, "a focus on the newest message moved the list: \(r.label)")
+    }
+
+    // A reader higher up, a message below the screen focused: it comes on screen from below, and the reader's place is
+    // where the list then is.
+    func testAFocusBelowTheScreenFromHigherUpBringsTheMessageOnScreen() throws {
+        let r = try focus(mode: "below")
+        XCTAssertTrue(r.found, "CONTROL: the focused element was not placed on its row: \(r.label)")
+        XCTAssertTrue(r.onScreen, "the focused message is not on screen: \(r.label)")
+        XCTAssertLessThan(r.moved, 0, "the list did not move down to the message: \(r.label)")
+        XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")
+        XCTAssertEqual(r.pins, 0, "the list put itself back at the end after the focus: \(r.label)")
     }
 
     // A message already on screen, focused with the element SwiftUI made for it: found by its cell, and nothing changes.
@@ -90,5 +114,6 @@ final class A11yFocusUITests: XCTestCase {
         XCTAssertTrue(r.found, "the SwiftUI element was not traced to its row: \(r.label)")
         XCTAssertTrue(r.atEnd, "a focus on screen took the reader off the newest: \(r.label)")
         XCTAssertEqual(r.moved, 0, "a focus on screen moved the list: \(r.label)")
+        XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")
     }
 }
