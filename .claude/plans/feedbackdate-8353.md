@@ -10,6 +10,12 @@ half met: engine/feedback.isDateKey checked the YYYY-MM-DD shape only, so `kosmo
   an input error (CLI exit 2, server 400, triage refusal), so impossible dates become that error.
 - Both CLIs' refusal now reads "that date must be a real day, as YYYY-MM-DD".
 
+- engine/feedback.list() filters with the same isDateKey (review 1), so a report stored under an impossible date before
+  this change (the POST route then took any shape) no longer crashes the readers that walk the list. Such a file is
+  left on disk untouched, but `feedback list`, own-store triage and `show` no longer reach it, and the sender never
+  read it (it sends only days from dateKey()). Accepted: nothing in Kosmos writes such a name now. `--dir` triage
+  (readFolder, pulled reports) still reads by shape only, which is unchanged.
+
 ## Tests
 engine/feedback.test.js (1), cli.feedback-2037.test.js (1, with a leap-day control), tools.windows-kosmos-cli-570.test.js
 (the stub now uses the real isDateKey; 1 assertion). 28 related files green. 6 mutation arms: 4 red; no-day-check and
