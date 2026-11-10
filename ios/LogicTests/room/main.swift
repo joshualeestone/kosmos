@@ -668,6 +668,9 @@ check(chatSource.contains("landing: earlierLandings, atEnd:") && chatSource.cont
 check(listGeometrySource.components(separatedBy: "co.readTopTold = topRead\n        co.landing = landing").count == 3 && listGeometrySource.contains("self.readTopTold?(self.atTop, seen)"),
       "kosmos#8221 slice 16: the list reports the top with the landing it read after (wired in makeUIView and updateUIView)")
 check(chatSource.contains("private func loadEarlier(_ caller: StaticString) {"), "kosmos#8221 slice 16: the caller in the record is a fixed word (StaticString)")
+// Review 6/7: the backstop asks only on a top change read during the hold, never on topVisible (it may predate the landing).
+check(chatSource.contains("if let top = topDuringHold { topDuringHold = nil; topVisible = top; if top { loadEarlier(\"landed\") } }")
+      && !chatSource.contains("if topVisible { loadEarlier("), "kosmos#8221 slice 16: the backstop never asks on topVisible")
 // kosmos#8221 slice 15: Board.olderKind is admitted by name, so its body is pinned: three fixed words.
 check(((try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardLogic.swift"), encoding: .utf8)) ?? "").contains("static func olderKind(_ read: OlderRead) -> String {\n        switch read { case .page: return \"page\"; case .moved: return \"moved\"; case .failed: return \"failed\" }"), "kosmos#8221 slice 15: an answer's kind in the record is one of three fixed words")
 // kosmos#7645: the will-show handler picks the reader's row through Board.holdRow (tested in LogicTests) and saves the

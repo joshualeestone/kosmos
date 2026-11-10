@@ -698,7 +698,7 @@ struct ChatView: View {
             topDuringHold = nil
             topVisible = now
             // Review 4: a reader still at the top after the landing (a chat too short to scroll) is asked for the page before.
-            if held { Self.trace("earlier hold off: list read", ring: false); if now { loadEarlier("top") } }
+            if held { Self.trace("earlier hold off: list read", ring: false); if now { loadEarlier("landed") } }
         }, scroller: { view in
             // kosmos#8221 slice 9: the pull past the newest message (#8072) on this list too. Its guard (allowed: at the
             // newest, not searching) reads endVisible, which this list's atEnd sets.
@@ -1907,7 +1907,7 @@ struct ChatView: View {
         }
     }
 
-    // kosmos#8221 slice 16: `caller` names who asked (settled, top, retry, read) in the sample trace, a fixed word at every call
+    // kosmos#8221 slice 16: `caller` names who asked (settled, top, retry, read, landed) in the sample trace, a fixed word at every call
     // site (a StaticString, so nothing built at run time can be passed).
     // One page before what is loaded, when the person is at the top of it (or the chat is too short to scroll), never
     // while one loads, never after a failure until Try again. Called when the top appears, after every read, and on
@@ -1957,7 +1957,7 @@ struct ChatView: View {
             // top still shows only on the next turn of the main loop, and a read resuming before that asked for the next page
             // with no swipe (measured: "earlier ask from read" in the same instant as a page landed). So no page is asked for
             // until the list has said where the top is (topRead). Backstop: rows the list never draws
-            // (all hidden) bring no report, so the hold lets go after 1 s; nothing moved on screen then, so asking is safe.
+            // (all hidden) bring no report, so the hold lets go after 1 s.
             if uikitList, !Self.sampleNoTopFix, case .page(let rows, _, _) = read, !rows.isEmpty {
                 earlierLanding = true
                 earlierLandings += 1
@@ -1970,7 +1970,7 @@ struct ChatView: View {
                     // Review 4: a top change that came during the hold, acted on now.
                     // Review 6: asks only on a top change read during the hold. topVisible itself may still be from before
                     // the landing, when the reader was at the top and has since been carried down by the new rows.
-                    if let top = topDuringHold { topDuringHold = nil; topVisible = top; if top { loadEarlier("top") } }
+                    if let top = topDuringHold { topDuringHold = nil; topVisible = top; if top { loadEarlier("landed") } }
                 }
             }
             #if DEBUG
