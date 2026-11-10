@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: uikitlist-s14-8221
-diff_hash: 9dc664c01164868235f64ad2d96d652d812f5a1550704cdf5e4eb9f5f38ddb81
+diff_hash: 51236019674d6ead95af2638fd36aa4a5064db28cb0cc9ae7ac16119e405e1e1
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-10T10:48:14Z
-iterations: 8
+timestamp: 2026-11-10T13:42:27Z
+iterations: 11
 converged: false
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
-**Converged:** No (stopped at the standing 8-round review cap, Splinter 2026-10-31: "cap 8 rounds unless a BLOCKER is open; leftovers go on a card"; no BLOCKER was open)
+**Iterations:** 11
+**Converged:** No (code review stopped at the standing 8-round review cap; rounds 9 to 11 reviewed only the CI change made after the PR's first run timed out, Splinter 2026-10-31: "cap 8 rounds unless a BLOCKER is open; leftovers go on a card"; no BLOCKER was open)
 **Total findings:** 30 (0 BLOCKERs, 22 WARNINGs, 1 CONVENTION, 7 NITs counted as actionable-adjacent below)
-**Fixed:** 12 | **Deferred:** 11 | **Asked (awaiting user):** 0
+**Fixed:** 19 | **Deferred:** 12 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
@@ -23,55 +23,55 @@ converged: false
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
-- [WARNING] ios/KosmosUITests/EarlierDroppedUITests.swift:104 — control never proves the drop happened --> FIXED (2f5f749)
-- [WARNING] ios/Kosmos/ChatList.swift:870 — offset written during a fling that carries on --> FIXED (2f5f749, fling stopped first as toNewest does)
-- [WARNING] ios/KosmosUITests/EarlierDroppedUITests.swift:1 — only the moved page path is tested --> FIXED (2f5f749, plan Coverage section says the rest is reasoned)
-- [NIT] ChatList.swift:874 — heldByFocus left set (fixed)
-- [NIT] EarlierDroppedUITests.swift:3 — header overstated the displacement (fixed)
-- [NIT] BoardClient.swift:1130 — counter is per launch (comment fixed)
+- [WARNING] ios/KosmosUITests/EarlierDroppedUITests.swift:104 - control never proves the drop happened --> FIXED (2f5f749)
+- [WARNING] ios/Kosmos/ChatList.swift:870 - offset written during a fling that carries on --> FIXED (2f5f749, fling stopped first as toNewest does)
+- [WARNING] ios/KosmosUITests/EarlierDroppedUITests.swift:1 - only the moved page path is tested --> FIXED (2f5f749, plan Coverage section says the rest is reasoned)
+- [NIT] ChatList.swift:874 - heldByFocus left set (fixed)
+- [NIT] EarlierDroppedUITests.swift:3 - header overstated the displacement (fixed)
+- [NIT] BoardClient.swift:1130 - counter is per launch (comment fixed)
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 4 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
-- [WARNING] ios/Kosmos/ChatList.swift:870 — anchor == nil is wider than "every row on screen dropped" --> FIXED (a99b30d)
-- [WARNING] ios/Kosmos/ChatView.swift:1914 — restartEarlier counts only rows-to-none --> DEFERRED: correct by design, only that transition can leave a reader with no row
-- [WARNING] EarlierDroppedUITests.swift:48 — "Message 6" BEGINSWITH is loose --> DEFERRED: copies EarlierPagesUITests, the drag loop that follows covers it
-- [WARNING] EarlierDroppedUITests.swift:76 — wall-clock window --> DEFERRED: 8 s before the re-asked page lands, "raise the delay" CONTROL names a slow runner
-- [NIT] ChatList.swift:871 — shared helper with the earlier-failed branch
-- [NIT] ChatList.swift:790 — optional dropped param (kept: makeUIView's first apply passes none)
-- [NIT] BoardClient.swift:1530 — Swift 6 isolation of the Debug counter
+- [WARNING] ios/Kosmos/ChatList.swift:870 - anchor == nil is wider than "every row on screen dropped" --> FIXED (a99b30d)
+- [WARNING] ios/Kosmos/ChatView.swift:1914 - restartEarlier counts only rows-to-none --> DEFERRED: correct by design, only that transition can leave a reader with no row
+- [WARNING] EarlierDroppedUITests.swift:48 - "Message 6" BEGINSWITH is loose --> DEFERRED: copies EarlierPagesUITests, the drag loop that follows covers it
+- [WARNING] EarlierDroppedUITests.swift:76 - wall-clock window --> DEFERRED: 8 s before the re-asked page lands, "raise the delay" CONTROL names a slow runner
+- [NIT] ChatList.swift:871 - shared helper with the earlier-failed branch
+- [NIT] ChatList.swift:790 - optional dropped param (kept: makeUIView's first apply passes none)
+- [NIT] BoardClient.swift:1530 - Swift 6 isolation of the Debug counter
 
 #### Iteration 3
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 1 of the above (the re-ask comment, written in iteration 1)
-- [WARNING] ios/Kosmos/ChatList.swift:870 — a reader already at the top is not re-asked (atTop does not change) --> FIXED (5809c16), later REMOVED in iteration 7 (no check could show it did anything)
-- [WARNING] EarlierDroppedUITests.swift:56 — at-top reader not covered --> FIXED (5809c16), later removed with the above
-- [NIT] ChatList.swift:877 — finger policy differs from toNewest (comment fixed)
-- [NIT] BoardClient.swift:1531 — counter comment placement (fixed in iteration 5)
-- [NIT] EarlierDroppedUITests.swift:59 — "near" naming
+- [WARNING] ios/Kosmos/ChatList.swift:870 - a reader already at the top is not re-asked (atTop does not change) --> FIXED (5809c16), later REMOVED in iteration 7 (no check could show it did anything)
+- [WARNING] EarlierDroppedUITests.swift:56 - at-top reader not covered --> FIXED (5809c16), later removed with the above
+- [NIT] ChatList.swift:877 - finger policy differs from toNewest (comment fixed)
+- [NIT] BoardClient.swift:1531 - counter comment placement (fixed in iteration 5)
+- [NIT] EarlierDroppedUITests.swift:59 - "near" naming
 
 #### Iteration 4
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
 **Duplicates of prior findings (confirmed resolved):** 1
-- [WARNING] ios/Kosmos/ChatList.swift:870 — a status row (failed line) on screen would count as staying --> DEFERRED: every drop path clears the failure in the same update (retryEarlier and resetEarlier set because nil), and the loading line is an overlay, not a row
-- [NIT] ChatList.swift:889 — double true report (since removed)
-- [NIT] EarlierDroppedUITests.swift:79 — fixed sleeps
-- [NIT] BoardClient.swift:1130 — counter coupling
+- [WARNING] ios/Kosmos/ChatList.swift:870 - a status row (failed line) on screen would count as staying --> DEFERRED: every drop path clears the failure in the same update (retryEarlier and resetEarlier set because nil), and the loading line is an overlay, not a row
+- [NIT] ChatList.swift:889 - double true report (since removed)
+- [NIT] EarlierDroppedUITests.swift:79 - fixed sleeps
+- [NIT] BoardClient.swift:1130 - counter coupling
 
 #### Iteration 5
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 3 NITs; plus 1 synthetic from the UI run
 **Self-generated:** 1 of the above (the absence check, written in iteration 1)
-- [WARNING] EarlierDroppedUITests.swift:84 — absence of first-page rows never shown able to fail --> FIXED (c4a02fb, presence asserted before the drop)
-- [WARNING] .claude/plans/uikitlist-s14-8221.md — Results stale --> FIXED (c4a02fb)
+- [WARNING] EarlierDroppedUITests.swift:84 - absence of first-page rows never shown able to fail --> FIXED (c4a02fb, presence asserted before the drop)
+- [WARNING] .claude/plans/uikitlist-s14-8221.md - Results stale --> FIXED (c4a02fb)
 - [WARNING] (UI run 03:06) the at-top fix-off control failed: the page was asked for again anyway --> FIXED (c4a02fb, control removed, recorded in the plan)
-- [NIT] BoardClient.swift:1530 — counter above the wrong comment (fixed)
-- [NIT] EarlierDroppedUITests.swift:109 — Message 41 holds either way at top (comment fixed)
-- [NIT] EarlierDroppedUITests.swift:4 — displacement wording
+- [NIT] BoardClient.swift:1530 - counter above the wrong comment (fixed)
+- [NIT] EarlierDroppedUITests.swift:109 - Message 41 holds either way at top (comment fixed)
+- [NIT] EarlierDroppedUITests.swift:4 - displacement wording
 
 #### Iteration 6
 **Reviewer model:** sonnet
@@ -84,22 +84,50 @@ converged: false
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 3 NITs
 **Self-generated:** 2 of the above (both on iteration 3 code)
-- [WARNING] EarlierDroppedUITests.swift:402 — at-top check cannot fail on the defect --> FIXED (c00e4c3, removed)
-- [WARNING] ios/Kosmos/ChatList.swift:890 — the re-tell has no measured effect --> FIXED (c00e4c3, removed: the claim deleted, not rewritten)
-- [CONVENTION] plan — only the moved page path measured --> DEFERRED: duplicate of iteration 1, stated in the plan
-- [NIT] ChatView.swift:213 / ChatList.swift:17 — comments left out the moved gap fill (fixed)
-- [NIT] EarlierDroppedUITests.swift:340 — "Message 6" naming
-- [NIT] BoardClient.swift:1531 — counter coupling
+- [WARNING] EarlierDroppedUITests.swift:402 - at-top check cannot fail on the defect --> FIXED (c00e4c3, removed)
+- [WARNING] ios/Kosmos/ChatList.swift:890 - the re-tell has no measured effect --> FIXED (c00e4c3, removed: the claim deleted, not rewritten)
+- [CONVENTION] plan - only the moved page path measured --> DEFERRED: duplicate of iteration 1, stated in the plan
+- [NIT] ChatView.swift:213 / ChatList.swift:17 - comments left out the moved gap fill (fixed)
+- [NIT] EarlierDroppedUITests.swift:340 - "Message 6" naming
+- [NIT] BoardClient.swift:1531 - counter coupling
 
 #### Iteration 8
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs
 **Self-generated:** 0 of the above
 **Duplicates of prior findings:** 2 (status rows; timing)
-- [WARNING] ios/Kosmos/ChatList.swift:870 — the dropped bump is consumed even if the rows change a later update --> DEFERRED: every bump site changes earlier (and, on delete, thread) in the same synchronous block, verified at ChatView's delete handler, so ids and dropped reach one updateUIView; no async gap
-- [NIT] BoardClient.swift:1127 — Swift 6 isolation
-- [NIT] ChatList.swift:885 — readTop after the write may ask (intended)
+- [WARNING] ios/Kosmos/ChatList.swift:870 - the dropped bump is consumed even if the rows change a later update --> DEFERRED: every bump site changes earlier (and, on delete, thread) in the same synchronous block, verified at ChatView's delete handler, so ids and dropped reach one updateUIView; no async gap
+- [NIT] BoardClient.swift:1127 - Swift 6 isolation
+- [NIT] ChatList.swift:885 - readTop after the write may ask (intended)
 **Stopped at the 8-round cap** with no BLOCKER open.
+
+#### Iteration 9 (the CI change: UIKit job 50 to 60 minutes)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 3 WARNINGs, 1 CONVENTION, 4 NITs
+**Self-generated:** 0
+- [WARNING] .github/workflows/ios.yml:278 - a longer limit cannot tell a slow suite from a hang --> FIXED (8107b49, a 7-minute per-test limit on the UIKit run)
+- [WARNING] .github/workflows/ios.yml:279 - the comment left out that main's cancel came from a retried flaky check --> FIXED (8107b49)
+- [WARNING] .github/workflows/ios.yml:294 - a cancel uploads nothing --> FIXED in part by the per-test limit (a hang now ends as a failed test, which uploads)
+- [CONVENTION] plan - the CI change was not in the plan --> FIXED (8107b49)
+- [NIT] two attempts of one run, not two runs (fixed); passing range up to 41 on a PR (fixed); "Message 6" naming; non-message rows staying
+
+#### Iteration 10
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 4 NITs
+**Self-generated:** 2 (both on iteration 9's comment)
+- [WARNING] ios/tools/ui-sample.sh:126 - with its retry a hang costs 14 minutes, not 7 --> FIXED (13e3a0a, stated)
+- [WARNING] ios/tools/ui-sample.sh:126 - unmeasured how a timed-out test appears in the log --> FIXED (1e5db68): measured with a 60 s limit, it prints "exceeded execution time allowance" and never "failed"; the script now names it
+- [CONVENTION] proof file - em dashes in finding lines --> FIXED (this proof uses none)
+- [NIT] no step-level timeout; "Message 6"; optional dropped param
+
+#### Iteration 11
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 3 NITs
+**Self-generated:** 2 (both on iteration 10's naming line)
+- [WARNING] ios/tools/ui-sample.sh:171 - a test that timed out then passed on retry would read as a clean PASS --> FIXED (8c7d8cc, timedout_report on both branches, a ::warning on a pass)
+- [WARNING] ios/tools/ui-sample.sh:171 - a TIMED OUT line did not say whether the test then passed --> FIXED (8c7d8cc, last result printed)
+- [NIT] two comments describing the same event differently (fixed); restart cost per hang; plan paragraph in the wrong place (fixed)
+Measured after the fix against the real 60 s log and a passing log: the timed-out test is named with last result none; the passing log prints nothing extra. macOS sed has no \| in BRE, so the last-result lookup uses grep -E.
 
 ### Final Ledger
 
@@ -123,6 +151,13 @@ converged: false
 | 16 | 7 | WARNING | ChatList.swift:890 | SELF | re-tell unmeasured | FIXED | c00e4c3 (deleted) |
 | 17 | 7 | CONVENTION | plan | BRANCH | moved page path only measured | DEFERRED | stated in plan |
 | 18 | 8 | WARNING | ChatList.swift:870 | BRANCH | bump consumed early | DEFERRED | same synchronous block |
+| 19 | 9 | WARNING | ios.yml:278 | BRANCH | timeout cannot tell slow from hung | FIXED | 8107b49 |
+| 20 | 9 | WARNING | ios.yml:279 | BRANCH | comment left out the retry cause | FIXED | 8107b49 |
+| 21 | 9 | CONVENTION | plan | BRANCH | CI change not in the plan | FIXED | 8107b49 |
+| 22 | 10 | WARNING | ui-sample.sh:126 | SELF | retry doubles a hang's cost | FIXED | 13e3a0a |
+| 23 | 10 | WARNING | ui-sample.sh:126 | BRANCH | timeout log format unmeasured | FIXED | 1e5db68 |
+| 24 | 11 | WARNING | ui-sample.sh:171 | SELF | timeout then pass reads clean | FIXED | 8c7d8cc |
+| 25 | 11 | WARNING | ui-sample.sh:171 | SELF | TIMED OUT line hides the last result | FIXED | 8c7d8cc |
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 None.
