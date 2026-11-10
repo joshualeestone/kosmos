@@ -39,3 +39,6 @@ focus checks found SwiftUI's elements by a similar walk (its first element only)
 
 - The control sets the opener carried into the cell to nil. It does not remove the carry-in line, so it proves a cell
   with no opener opens no sheet, not that a hosted cell inherits nothing (round 1).
+- "ran" in the report says a handler was called, not that a sheet opened: SwiftUI's action returns true with a nil opener
+  (the control reads ran true). The checks assert the sheet itself (round 2).
+- The control waits 8 s for the sheet, longer than the 5 s the positive checks allow it to open (round 2).
