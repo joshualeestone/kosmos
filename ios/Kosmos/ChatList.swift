@@ -233,7 +233,7 @@ struct ChatList: UIViewRepresentable {
             }
             func focus() {
                 debugPins = 0
-                debugPinsUntil = CACurrentMediaTime() + 1.5
+                debugPinsUntil = CACurrentMediaTime() + 3.0
                 guard let element else { kind = "none"; return }
                 found = focusedRow(element).flatMap { source.itemIdentifier(for: $0) } == target
                 NotificationCenter.default.post(name: UIAccessibility.elementFocusedNotification, object: nil,
@@ -274,8 +274,9 @@ struct ChatList: UIViewRepresentable {
                     pinning = false
                     place = top()
                 }
-                y0 = list.contentOffset.y
-                element = listElement(); focus()
+                // Settled first, as a reader who scrolled there earlier: the chat reacts to the reader leaving the newest (its
+                // room under the list) a moment later, and a focus before that would be measured against the old room.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { y0 = list.contentOffset.y; element = listElement(); focus() }
             case "clipped":
                 // At the newest, an element whose top is 20 pt under the top bar (VoiceOver stepping up to a message only just
                 // cut off): it comes down 20 pt, which is inside the list's usual 40 pt of slack at the end.
@@ -292,9 +293,9 @@ struct ChatList: UIViewRepresentable {
                 element = listElement(); focus()
             }
             // A layout pass after the focus, as any change in the chat makes: a list that would put the reader back does it here.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak list] in list?.setNeedsLayout(); list?.layoutIfNeeded() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak list] in list?.setNeedsLayout(); list?.layoutIfNeeded() }
             ChatView.trace("uikit list: debug assistive focus, from the end \(wasAtEnd)", ring: false)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) { [weak self] in
                 guard let self, let list = self.list, let source = self.source else { return }
                 var onScreen = false
                 if let ip = source.indexPath(for: target), let a = list.layoutAttributesForItem(at: ip) {
