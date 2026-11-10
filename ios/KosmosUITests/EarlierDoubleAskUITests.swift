@@ -12,7 +12,8 @@ import XCTest
 final class EarlierDoubleAskUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
-    private static let delay: Double = 6
+    // Review 8: 8 s, so the control's look (1.5 s after the first page is due) comes well before the second page lands.
+    private static let delay: Double = 8
 
     private static func launch(control: Bool) -> XCUIApplication {
         let app = XCUIApplication()

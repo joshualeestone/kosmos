@@ -83,16 +83,15 @@ the timing, not measured.
   and two new checks run them with .delete (fix and control). For the delete, "taken to the newest" is checked against
   Message 259, because the delete removes 260 and a check on 260 would pass whatever the list did.
 - ui-sample.sh: EarlierDroppedUITests 2 -> 4 in the UIKit class list.
-- ChatView: loadEarlier(_ caller: StaticString) names who asked (settled, top, retry, read) in the sample trace; the room
-  suite's allow-list adds "caller", and two source pins follow the new call text.
+- ChatView: loadEarlier(_ caller: StaticString) names who asked (settled, top, retry, read, landed) in the sample trace;
+  the room suite's allow-list adds "caller", and two source pins follow the new call text.
 - ChatView: earlierLanding, set as a page with rows lands (UIKit list) and cleared by topRead, a chat reset, a rebuild or the
   1 s backstop; loadEarlier asks for nothing while it is set. KOSMOS_SAMPLE_NOTOPFIX=1 is the control (no hold);
   KOSMOS_SAMPLE_READ_ON_LAND=1 (DEBUG) makes the read's request at the moment of landing.
 - ChatList: topRead, told after every change in the ids (read again after layout, on the next turn of the main loop).
 - EarlierDoubleAskUITests (new, 2): the fix (no ask at landing, none through the next 5.5 s, and a swipe back to the top
-  asks) and
-  its control (first page landed, and a second ask in flight). That the list's report, not the swipe or the backstop,
-  is what lets go is not asserted by a check; it is read from the trace ("earlier hold off: list read").
+  asks) and its control (first page landed, and a second ask in flight). That the list's report, not the swipe or the
+  backstop, is what lets go is not asserted by a check; it is read from the trace ("earlier hold off: list read").
   ui-sample.sh: in the UIKit class list and the earlier-pages
   trace block.
 
