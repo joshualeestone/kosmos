@@ -15,38 +15,44 @@ changes for it).
 
 ## Finished looks like
 
-When VoiceOver (or Switch Control: same notification) focuses a message of this list that is not fully on screen and is not
-the newest row, the reader is no longer counted at the newest, that message is on screen, and the list does not put itself
-back at the end afterwards. A focus on a message already fully on screen changes nothing.
+When VoiceOver (or Switch Control: same notification) focuses something in a row before the newest message (the working
+line and the spacer after it are not messages) and that thing is not fully in the safe area, it is put on screen, the
+reader is at the newest or not by where the list then lands, and the list does not put it back off screen on the next
+layout. A focus on something already on screen, or on the newest message however tall, changes nothing.
 
 ## Change
 
 - Coordinator.focusFollow(_ element:), from UIAccessibility.elementFocusedNotification (observer added in makeUIView,
-  removed when the coordinator goes).
+  replaced if made again, removed when the coordinator goes).
   - Which row: walk the element's accessibilityContainer chain to its first UIView, then its superviews to a cell of this
-    list. If the walk reaches the list itself with no cell (UICollectionView's own element for a row with no cell), map the
-    element's accessibilityFrame (screen space) to an index path. A view chain that leaves the list (the composer) is not
-    ours: nothing happens.
-  - The newest row, a row fully on screen, or a finger on the list: nothing happens.
-  - Otherwise: atEnd = false, the row is put on screen with the list's own write (pinning), and the place is taken from
-    where it now is, so later layouts hold it there.
-- Order: whichever comes first. Focus first: atEnd is false before VoiceOver's scroll, so that scroll is followed as any
-  scroll with no finger is for a reader higher up. Scroll first: laidOut pinned it back, then the focus brings the row on
-  screen and stops the pin.
-- Debug only: KOSMOS_SAMPLE_A11YFOCUS=<s> with _MODE visible, above, after or first; KOSMOS_SAMPLE_NOFOCUSFOLLOW=1 is the
-  control arm (the observer does nothing). Report: found, at end, on screen, pins, moved, element kind.
-- A11yFocusUITests in the UIKit CI arm (ios/tools/ui-sample.sh).
+    list. If the walk reaches the list with no cell (UICollectionView's own element for a row with no cell), the row at
+    the element's frame. A view chain that leaves the list (the composer), or the list itself as the element, is ignored.
+  - Rows from the newest message on (the last id that is not "working" or "end"), or a finger on the list: nothing.
+  - Decided and moved by the focused element's own frame (a part of a tall message), the row's when it has none. Off
+    screen is measured against the safe area, not the list's own padding; the move keeps the padding.
+  - After the move: heldByFocus is set, so until the person scrolls or the reader is at the newest again only the very
+    end counts as the newest (endReached, used by hold(), scrolled() and focusFollow). Without it, a message cut off by up
+    to the list's 40 pt slack was pinned back under the bar at the next layout. Then atEnd = endReached, and a place is
+    taken when not at the end.
+- Order: whichever comes first. Focus first: atEnd is false before VoiceOver's scroll, which is then followed as any
+  scroll with no finger is for a reader higher up. Scroll first: laidOut pinned it back, then the focus brings it on.
+- Debug only: KOSMOS_SAMPLE_A11YFOCUS=<s> with _MODE visible, above, after, first, newest, below or clipped;
+  KOSMOS_SAMPLE_NOFOCUSFOLLOW=1 is the control arm (the observer does nothing). A layout pass is forced 1 s after the
+  focus. Report: found, at end, on screen, agrees (atEnd matches endReached), pins, moved, element kind, from the end.
+- A11yFocusUITests (9) in the UIKit CI arm (ios/tools/ui-sample.sh).
 
 ## Weakest premise
 
 The order and kind of VoiceOver's own scroll-to-visible, and whether its focused element for a row is the SwiftUI element in
 the cell or UICollectionView's own, cannot be seen on a simulator (VoiceOver does not run there). The checks post the same
 notification VoiceOver posts, with a real SwiftUI element for an on-screen row and a list-contained element for a row with
-no cell. A real phone with VoiceOver on is the check that remains.
+no cell. If VoiceOver scrolls first and its element is a SwiftUI one in a cell that was then reused for another row (the
+list pinned back), the follow can name the wrong row or none; not seen on a simulator. A real phone with VoiceOver on is
+the check that remains.
 
 ## Steps
 
 1. focusFollow + observer + debug hook.
-2. A11yFocusUITests, run on iOS 26.5 (CI's runtime) and 27; control arm must read pinned.
+2. A11yFocusUITests (9), run on iOS 26.5 (CI's runtime) and 27; control arm must read pinned.
 3. ui-sample.sh UIKit class list; focused validation; challenge loop (8-round cap).
 4. PR stacked on #8343; merge after it.
