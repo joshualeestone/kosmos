@@ -1124,7 +1124,13 @@ final class BoardClient: ObservableObject {
     func olderPage(_ session: String, before: Int) async -> Board.OlderRead? {
         let epoch = chatEpoch
         #if DEBUG
-        if let sample = sampleOlder(session, before: before) {
+        if var sample = sampleOlder(session, before: before) {
+            // kosmos#8221 slice 14: KOSMOS_SAMPLE_OLDER_MOVED=<k> answers the k-th sample page "moved" (the conversation changed
+            // under it), as the Mac's answer reads when it is not the range asked for, so the loaded pages start again.
+            Self.sampleOlderAsks += 1
+            if let k = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OLDER_MOVED"].flatMap(Int.init), k == Self.sampleOlderAsks {
+                sample = .moved
+            }
             // kosmos#8221 slice 7: KOSMOS_SAMPLE_OLDER_DELAY=<s> holds the sample page back, so a check sees the top, the
             // loading line, and the page landing as three moments (a sample page is otherwise there at once).
             if let s = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OLDER_DELAY"].flatMap(Double.init), s > 0 {
@@ -1522,20 +1528,25 @@ final class BoardClient: ObservableObject {
         return file
     }
     // Cleo's earlier messages in the sample (ChatView's KOSMOS_SAMPLE_OLDER=loading|failed sets the line for the shots).
+    static var sampleOlderAsks = 0
     private func sampleOlder(_ session: String, before: Int) -> Board.OlderRead? {
         guard session == "cleo" || session == "dana", sampleThreads[session] != nil else { return nil }
         // Dana's earlier page ends on the same day as her latest messages (a page cut mid-day, review 6). Built in typed
         // steps: CI's Xcode 26.6 cannot type-check this as one dictionary literal.
         let day: String = session == "dana" ? "2026-10-23" : "2026-10-20"
         let firstHour: Int = session == "dana" ? 6 : 8
+        // kosmos#8221 slice 14: KOSMOS_SAMPLE_OLDER_PAGE=<n> serves pages of n (the whole of it at once otherwise), so a second
+        // page is asked for.
+        let size = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OLDER_PAGE"].flatMap(Int.init).map { max(1, $0) } ?? before
+        let first = max(0, before - size)
         var rows: [[String: Any]] = []
-        for i in 0..<before {
+        for i in first..<before {
             let at: String = day + "T" + String(format: "%02d:%02d:00Z", firstHour + i / 60, i % 60)
             let text: String = i % 3 == 0 ? "Checking the venue list, item \(i + 1)." : "Noted."
             let from: Any = i % 2 == 0 ? "cleo" : NSNull()
             rows.append(["at": at, "text": text, "from": from])
         }
-        let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": 0])
+        let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": first])
         return Board.readOlder(status: 200, data: data, before: before)
     }
     private func loadSampleThreads() {
