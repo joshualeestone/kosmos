@@ -112,8 +112,8 @@ struct ChatList: UIViewRepresentable {
             }
         } }
         // Within endSlack of the list's top. Read where the offset is the reader's: during their scroll, when any scroll
-        // ends, after assistive focus moves the list (focusFollow), and after a layout once this list has put itself in place (never from the first offset a new list has,
-        // which is its top before it is pinned to the end).
+        // ends, after assistive focus moves the list (focusFollow), and after a layout once this list has put itself in
+        // place (never from the first offset a new list has, which is its top before it is pinned to the end).
         func readTop(_ sv: UIScrollView) {
             guard sv.contentSize.height > 0 else { return }
             atTop = sv.contentOffset.y <= -sv.adjustedContentInset.top + ChatList.endSlack
@@ -567,28 +567,31 @@ struct ChatList: UIViewRepresentable {
             #endif
             guard let list, (element as AnyObject) !== list, let source, let ip = focusedRow(element) else { return }
             // The newest message and the rows after it are left alone however tall it is: a reader there is at the newest.
-            guard let newestId = source.snapshot().itemIdentifiers.last(where: { !Self.afterNewest.contains($0) }),
-                  let newestAt = source.indexPath(for: newestId),
-                  !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
+            guard let newestId = ids.last(where: { !Self.afterNewest.contains($0) }), let newestAt = source.indexPath(for: newestId),
+                  let id = source.itemIdentifier(for: ip), !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
+            // VoiceOver puts its focus back on the same message after an update redraws the cells (apply reconfigures
+            // them); that is not the person moving, so a focus on the row last focused, with an update between, is left alone.
+            let refocus = id == lastFocusRow && appliedSinceFocus
+            lastFocusRow = id
+            appliedSinceFocus = false
+            if refocus { return }
             if ip >= newestAt {
                 // Back on the newest message: the usual slack at the end again, read now and once VoiceOver's own scroll to it
                 // has run (a scroll it makes without animation reports no end).
                 guard heldByFocus || !atEnd else { return }
                 heldByFocus = false
                 atEnd = endReached(list)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                    guard let self, let list = self.list, !self.atEnd, !self.heldByFocus, !self.moving(),
-                          !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
-                    self.atEnd = self.endReached(list)
-                }
+                rereadEnd(tries: 4)
                 return
             }
             // VoiceOver puts its focus on something on screen after a jump to the newest (a send, New messages, search
             // closing); that is not the person moving back, so a focus within a second of one is left alone.
             guard CACurrentMediaTime() - toNewestAt > 1.0 else { return }
+            // The focused element's own frame, so a part of a tall message is what is put on screen, read before the layout
+            // below (which can move the list) so it is in the list's coordinates of the same moment; the row's without one.
+            let own = elementFrame(element)
             list.layoutIfNeeded()
-            // The focused element's own frame, so a part of a tall message is what is put on screen; the row's without one.
-            guard let f = elementFrame(element) ?? list.layoutAttributesForItem(at: ip)?.frame else { return }
+            guard let f = own ?? list.layoutAttributesForItem(at: ip)?.frame else { return }
             let inset = list.adjustedContentInset, pad = list.contentInset
             // Off screen means under the bars or the box (the safe area), not in the list's own padding, which shows.
             let seenTop = list.contentOffset.y + inset.top - pad.top, seenBottom = list.contentOffset.y + list.bounds.height - inset.bottom + pad.bottom
@@ -607,6 +610,19 @@ struct ChatList: UIViewRepresentable {
             if !atEnd { place = top() }
             readTop(list)
             ChatView.trace("uikit list: assistive focus put on screen, at end \(atEnd) (\(geometry(list)))", ring: false)
+        }
+        var lastFocusRow: String?
+        var appliedSinceFocus = false
+        // Back on the newest after a focus: atEnd read again 0.6 s on, once VoiceOver's own scroll to it has run, and again
+        // while the list is still moving, a few times at most. A scroll made with animation is also read at its end
+        // (scrolled()).
+        func rereadEnd(tries: Int) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                guard let self, let list = self.list, !self.atEnd, !self.heldByFocus,
+                      !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
+                if self.moving() { if tries > 1 { self.rereadEnd(tries: tries - 1) }; return }
+                self.atEnd = self.endReached(list)
+            }
         }
         func elementFrame(_ element: Any) -> CGRect? {
             guard let list, let screen = list.window?.screen, let f = (element as? NSObject)?.accessibilityFrame,
@@ -667,6 +683,7 @@ struct ChatList: UIViewRepresentable {
 
         func apply(_ now: [String]) {
             guard let source else { return }
+            appliedSinceFocus = true
             let started = CACurrentMediaTime()
             applies += 1
             let shown = list?.indexPathsForVisibleItems.compactMap { source.itemIdentifier(for: $0) } ?? []
