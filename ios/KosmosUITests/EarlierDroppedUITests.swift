@@ -2,7 +2,10 @@ import XCTest
 
 // kosmos#8221 slice 14 (found in slice 7's review, round 3): when a read finds the conversation moved under the loaded earlier
 // pages, the pages are dropped and started again. A reader who was up in them had no row left on screen to keep, so the list
-// kept its old offset and they landed in an unrelated part of the chat. On the UIKit list they now go to the top of what
+// kept its old offset and they landed elsewhere in the chat. Here that is below Message 41, off screen (the
+// reader is one drag into the first page); a reader deeper in several pages lands further away.
+// Only the moved page path is measured; the moved gap fill, a delete and Try again reach the same list code through
+// restartEarlier and are covered by reasoning. On the UIKit list they now go to the top of what
 // remains, "Message 41 of 260", the oldest row still loaded.
 // The sample board's long chat (KOSMOS_SAMPLE_LONG, see EarlierPagesUITests) with pages of 30 (KOSMOS_SAMPLE_OLDER_PAGE), so
 // a second page is asked for, and that second ask answered "moved" (KOSMOS_SAMPLE_OLDER_MOVED=2), through the app's own
@@ -76,16 +79,18 @@ final class EarlierDroppedUITests: XCTestCase {
 
     // The moved answer comes `delay` after the ask; this waits until 2 s after it, before the page asked for again (another
     // delay on) can land.
-    private static func waitPastTheDrop(_ asked: Date) {
+    private static func waitPastTheDrop(_ app: XCUIApplication, _ asked: Date) {
         let left = delay + 2 - Date().timeIntervalSince(asked)
         if left > 0 { Thread.sleep(forTimeInterval: left) }
+        // The drop happened: no row of the first page is left (the page asked for again has not landed yet).
+        XCTAssertFalse(label(app, "Checking the venue list, item").exists, "CONTROL: a row of the first page is still drawn, so the pages were not dropped")
     }
 
     func testAReaderUpInDroppedPagesGoesToTheTopOfWhatRemains() throws {
         if !UIKitListArm.on { throw XCTSkip("the UIKit list's handling of dropped earlier pages (kosmos#8221 slice 14)") }
         let app = Self.launch(control: false)
         let asked = readerUpInTheFirstPage(app)
-        Self.waitPastTheDrop(asked)
+        Self.waitPastTheDrop(app, asked)
         let first = Self.label(app, "Message 41 of 260")
         XCTAssertTrue(Self.onScreen(app, first), "the reader was not put at the top of what remains: Message 41 is not on screen")
         XCTAssertLessThan(first.frame.minY, app.frame.midY, "Message 41 is on screen but not at the top (y \(Int(first.frame.minY)))")
@@ -105,7 +110,9 @@ final class EarlierDroppedUITests: XCTestCase {
         if !UIKitListArm.on { throw XCTSkip("the UIKit list's handling of dropped earlier pages (kosmos#8221 slice 14)") }
         let app = Self.launch(control: true)
         let asked = readerUpInTheFirstPage(app)
-        Self.waitPastTheDrop(asked)
+        Self.waitPastTheDrop(app, asked)
+        // And nothing was asked for again: with the fix off the reader is not at the top.
+        XCTAssertFalse(Self.label(app, "Loading earlier messages").exists, "CONTROL: the reader was put at the top anyway (a page was asked for again)")
         XCTAssertFalse(Self.onScreen(app, Self.label(app, "Message 41 of 260")),
                        "CONTROL: with the fix off the reader is still at Message 41, so this check cannot see the defect")
         XCTAssertFalse(Self.label(app, "Message 260 of 260").exists, "CONTROL: the drop took the reader to the newest message")
