@@ -749,7 +749,7 @@ test('room reopen: POST .../room/reopen with no body and no agent token; 2xx -> 
 test('feedback verbs call the engine and send nothing to the board', async () => {
   const written = [];
   const engine = {
-    feedback: { write: (b) => { written.push(b); return { ok: true }; }, today: () => '2026-09-12', isDateKey: (d) => /^\d{4}-\d{2}-\d{2}$/.test(d), readBody: (d) => (d === '2026-09-12' ? 'today\'s note\n' : null), noReportWords: (d) => 'words from the engine for ' + d, list: () => ['2026-09-12', '2026-09-11'] },
+    feedback: { write: (b) => { written.push(b); return { ok: true }; }, today: () => '2026-09-12', isDateKey: require('./engine/feedback').isDateKey, readBody: (d) => (d === '2026-09-12' ? 'today\'s note\n' : null), noReportWords: (d) => 'words from the engine for ' + d, list: () => ['2026-09-12', '2026-09-11'] },
     feedbackpull: { pull: async () => ({ ok: false, because: 'the collected-feedback token is not filed yet' }) },
   };
   const go = async (argv, stdin) => {
@@ -767,6 +767,10 @@ test('feedback verbs call the engine and send nothing to the board', async () =>
   assert.equal(none.out, '');
   assert.equal(none.err, 'words from the engine for 2026-01-01');
   assert.equal((await go(['feedback', 'show', 'junk'])).code, 2);
+  // kosmos#8353: an impossible date is a bad date (exit 2, the CLI's own words), never "no report yet".
+  const bad = await go(['feedback', 'show', '2026-13-45']);
+  assert.equal(bad.code, 2);
+  assert.equal(bad.err, 'that date must be a real day, as YYYY-MM-DD');
   assert.equal((await go(['feedback', 'list'])).out, '2026-09-12\n2026-09-11');
   const pull = await go(['feedback', 'pull']);
   assert.equal(pull.code, 1);
