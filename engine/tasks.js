@@ -854,7 +854,7 @@ function byNumber(p, n) {
    Josh's "Built but waiting" tile. The fields are BUILT_FIELDS, set and dropped together; setBuilt says what each is. */
 /* The note says what was covered, how it was checked and what is left. kosmos#8352: 300 characters pushed an honest partial
    toward reading as finished (about 450 was needed, cut to fit twice in one sitting), so there is room for that. The
-   Tasks row shows the start of a long one; the task's own page and `task show` show it whole. */
+   web Tasks row shows the start of a long one; the task's own page and `task show` show it whole. */
 const BUILT_NOTE_MAX = 1000;
 /* Thrown inside projects.mutate's callback to leave the store unwritten (review round 15: mutate writes the whole
    store even when the callback changes nothing, so a looping repeat mark rewrote it on every call). */
