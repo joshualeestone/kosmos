@@ -137,6 +137,9 @@ struct ChatView: View {
     // before: a delete shifts the Mac's latest window by one, so a page asked from the old count brings a row the window
     // now holds too, drawn twice. The board reads the thread again before it paints (paintTalk after a delete).
     @State private var earlierWaitsForRead: Int?
+    // The newest read whose window was shown (a whole thread or an unchanged one). A failed or refused read moves readShown
+    // but not this, and only this lifts the wait above (review 1: a failed read left the old count in place).
+    @State private var windowReadShown = 0
     // Shown on screen (not just alive in a hidden tab), and the client's forgetting count this chat was opened under.
     @State private var visible = false
     // kosmos#7354: a mark-read request is out, so the next read of the list does not send a second one.
@@ -1928,7 +1931,7 @@ struct ChatView: View {
     private func loadEarlier(_ caller: StaticString) {
         // kosmos#8221 slice 17: not from an olderCount read before the pages were dropped.
         if let w = earlierWaitsForRead {
-            guard readShown > w else { Self.trace("earlier out: waits for a read", ring: false); return }
+            guard windowReadShown > w else { Self.trace("earlier out: waits for a read", ring: false); return }
             earlierWaitsForRead = nil
         }
         // A search shortens the thread; its top showing is not a reader at the top (the board's earlierNearTop).
@@ -2793,6 +2796,7 @@ struct ChatView: View {
             // Only a read that named the shown window's tag can be answered so: the body is the one already read and
             // settled, so nothing below is run again; the Mac is answering. The retries every read makes still run: a gap
             // fill or an earlier page that failed or waited is asked again here, as after a whole read.
+            windowReadShown = mine   // kosmos#8221 slice 17
             if let t = thread { fillGap(t) }
             loadEarlier("read")
             lastRead = Date()
@@ -2801,7 +2805,7 @@ struct ChatView: View {
             return false
         case .thread(let fresh):
             let wasFull = fullRead
-            if !small { fullRead = true; threadTag = tag }
+            if !small { fullRead = true; threadTag = tag; windowReadShown = mine }   // windowReadShown: kosmos#8221 slice 17
             // The hidden headers in the same pass as the rows, so a pending reply's swap to its kept row never draws one
             // frame with the old set (onChange alone runs after that body).
             // kosmos#7265 (Josh 10-27): rows this read slid out of the latest window stay, so nothing above the reader
