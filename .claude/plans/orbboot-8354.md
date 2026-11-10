@@ -18,3 +18,6 @@ CSS only: until `.korb-on`, the cover hides the dots and shows one still frame o
 
 ## Weakest premise
 That the dots Josh saw are this cover. Reading the page says yes (88 px, centred, the same place), and the still frame cannot be confirmed on the Mac app until a build carries it.
+
+## Checks
+render-orbboot-8354, render-boot-no-flash and both gutter checks pass on this branch (29 PASS, 0 FAIL).
