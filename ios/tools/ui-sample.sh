@@ -223,6 +223,22 @@ if grep -q -E "^Test Case '-\[KosmosUITests\.KeyboardSlideUITests testRebuilt[A-
     echo "  (no trace from the app for the rebuild check)"
   fi
 fi
+# kosmos#8221 slice 15: an earlier-pages check's failure says how each page ask ended (EarlierDroppedUITests' control
+# went red 3 times in 10 on 11-10 with its first page "never landed", then passed 28 times in a row: never caught traced).
+# A page that landed and was asked for again by itself (the top still reported showing) and a page that never came read
+# the same on screen, so the lines that tell them apart: each ask, each way out of it, each restart, and the top edge.
+if grep -q -E "^Test Case '-\[KosmosUITests\.(EarlierDroppedUITests|EarlierPagesUITests) [A-Za-z0-9_]+\]' failed" "$log"; then
+  app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
+  bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
+  data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
+  if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
+    said="$(grep -E 'earlier (ask|out|answered|restart)|uikit list: atTop|uikit list: (rows landed above|earlier pages dropped)|chat shown' "$data/Documents/trace.txt" || true)"
+    echo "  the earlier pages' lines (every traced launch, oldest first; each launch starts at \"chat shown\"):"
+    if [ -n "$said" ]; then printf '%s\n' "$said" | sed 's/^/    /'; else echo "    (none in the trace)"; fi
+  else
+    echo "  (no trace from the app for the earlier-pages check)"
+  fi
+fi
 # kosmos#7609: CI's job sets this, so a red that does not repeat still leaves its result bundle to read.
 if [ -n "${UI_SAMPLE_FAILED_RESULT:-}" ] && [ -d "$work/result.xcresult" ]; then
   cp -R "$work/result.xcresult" "$UI_SAMPLE_FAILED_RESULT" && echo "  result kept for CI: $UI_SAMPLE_FAILED_RESULT"

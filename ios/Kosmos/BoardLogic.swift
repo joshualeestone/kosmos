@@ -2736,6 +2736,11 @@ enum Board {
         return next
     }
 
+    // kosmos#8221 slice 15: an answer's kind for the sample trace (a moved answer reads as a reset, not as a page).
+    static func olderKind(_ read: OlderRead) -> String {
+        switch read { case .page: return "page"; case .moved: return "moved"; case .failed: return "failed" }
+    }
+
     // Try again: the failure is cleared and the moved count starts over. After a thread that kept moving, it starts
     // again from the latest read (closed, so the next load opens at its olderCount), as the board's Try again does.
     static func retryEarlier(_ e: Earlier) -> Earlier {
