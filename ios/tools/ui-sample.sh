@@ -81,8 +81,9 @@ if [ "$uikit" = 1 ]; then
   # kosmos#8221 slice 13: A11yActionsUITests (3), VoiceOver's Message actions opens the sheet (Copy, and Delete on your own message)
   #   from a hosted cell; one control with the opener left out of the cell.
   # kosmos#8221 slice 14: EarlierDroppedUITests (2), a reader up in earlier pages that are dropped (a "moved" read) goes to
-  #   the top of what remains; one control with the fix off. Slice 16: the same for a delete that drops them (2 more).
-  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:7 ChatGapUITests:3 A11yFocusUITests:12 A11yActionsUITests:3 EarlierDroppedUITests:4"
+  #   the top of what remains; one control with the fix off. Slice 16: the same for a delete that drops them (2 more);
+  #   EarlierDoubleAskUITests (2), a page landing is not asked for again before the list says where the top is; one control.
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:7 ChatGapUITests:3 A11yFocusUITests:12 A11yActionsUITests:3 EarlierDroppedUITests:4 EarlierDoubleAskUITests:2"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done
@@ -227,7 +228,7 @@ fi
 # went red 3 times in 10 on 11-10 with its first page "never landed", then passed 28 times in a row: never caught traced).
 # A page that landed and was asked for again by itself (the top still reported showing) and a page that never came read
 # the same on screen, so the lines that tell them apart: each ask, each way out of it, each restart, and the top edge.
-if grep -q -E "^Test Case '-\[KosmosUITests\.(EarlierDroppedUITests|EarlierPagesUITests) [A-Za-z0-9_]+\]' failed" "$log"; then
+if grep -q -E "^Test Case '-\[KosmosUITests\.(EarlierDroppedUITests|EarlierPagesUITests|EarlierDoubleAskUITests) [A-Za-z0-9_]+\]' failed" "$log"; then
   app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"

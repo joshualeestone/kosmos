@@ -95,6 +95,13 @@ struct ChatView: View {
     static var sampleRebuildDone = false       // once a launch, so the hook never runs twice whatever the list's appear does
     static var sampleEarlierAsks = 0           // kosmos#8221 slice 16: pages of earlier messages asked for in this launch
     #endif
+    // kosmos#8221 slice 16: KOSMOS_SAMPLE_NOTOPFIX=1 (Debug) is the control: a landing page leaves the top showing until the list
+    // says otherwise, as before the slice. Release reads false.
+    #if DEBUG
+    static let sampleNoTopFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOTOPFIX"] == "1"
+    #else
+    static let sampleNoTopFix = false
+    #endif
     // kosmos#7420: KOSMOS_SAMPLE_NOREBUILD=1 (Debug) is the control: the recovery never rebuilds. Release reads false.
     #if DEBUG
     static let sampleNoRebuild = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOREBUILD"] == "1"
@@ -1923,6 +1930,15 @@ struct ChatView: View {
             // kosmos#8221 slice 7: the UIKit list keeps the reader's place itself (ChatList's hold, slice 3); keepAnchor
             // scrolls the lazy list's proxy, which is not there.
             else if !uikitList, case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
+            // kosmos#8221 slice 16: the rows landed above the reader, who is held where they were, so the top is no longer
+            // showing. The list says so only on the next turn of the main loop, and a read resuming before that asked for
+            // the next page with no swipe (measured: "earlier ask from read" in the same instant as a page landed). The
+            // list tells the chat where the top is again once it has drawn the rows (ChatList.apply).
+            if uikitList, !Self.sampleNoTopFix, case .page(let rows, _, _) = read, !rows.isEmpty { topVisible = false }
+            #if DEBUG
+            // KOSMOS_SAMPLE_READ_ON_LAND=1: a read's request at the moment a page lands, the race the line above closes.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_READ_ON_LAND"] == "1" { loadEarlier("read") }
+            #endif
         }
     }
 

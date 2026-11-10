@@ -887,6 +887,10 @@ struct ChatList: UIViewRepresentable {
                 if !(list.isTracking || list.isDragging || list.isDecelerating) { dragged = false }
                 ChatView.trace("uikit list: earlier pages dropped under the reader, put at the top of what remains (\(geometry(list)))", ring: false)
             }
+            // kosmos#8221 slice 16: the chat marks the top gone as a page's rows land (ChatView.loadEarlier), so after any change
+            // in the rows it is told where the top is again, changed or not, once this update is drawn. A reader still at the top
+            // is then asked for the page before, as before the slice.
+            if before != now { DispatchQueue.main.async { [weak self] in guard let self else { return }; self.toldTop?(self.atTop) } }
             redrawn += again.count
             spent += CACurrentMediaTime() - started
             if applies % 50 == 0 { ChatView.trace("uikit list: \(applies) updates, \(redrawn) cells drawn again, \(Int(spent * 1000)) ms") }
