@@ -40,7 +40,8 @@ struct ChatList: UIViewRepresentable {
     static let personScrollQuiet: CFTimeInterval = 0.3
     #if DEBUG
     static var sampleUpDone = false   // set once KOSMOS_SAMPLE_SCROLLUP has scrolled; a list made after that does not scroll again
-    static var sampleA11yDone = false   // KOSMOS_SAMPLE_A11YSCROLL scrolls once a launch, as sampleUpDone
+    // KOSMOS_SAMPLE_A11YSCROLL and KOSMOS_SAMPLE_A11YFOCUS share it: one of them runs once a launch, as sampleUpDone.
+    static var sampleA11yDone = false
     #endif
 
     final class List: UICollectionView {
@@ -195,25 +196,32 @@ struct ChatList: UIViewRepresentable {
 
         // kosmos#8221 slice 12: KOSMOS_SAMPLE_A11YFOCUS. Assistive focus moved to a message, as VoiceOver's one-finger swipe
         // does, by posting the notification VoiceOver posts (it does not run on a simulator). KOSMOS_SAMPLE_A11YFOCUS_MODE:
-        // "visible" focuses a message fully on screen with the element SwiftUI made for it (nothing may change); "above"
-        // focuses the 25th row from the end, above the screen, with an element of the list placed by that row's frame (a row
-        // with no cell has no SwiftUI element); "after" is VoiceOver's scroll to that row first, then the focus; "first" is the
-        // focus, then VoiceOver's scroll. Reported through sampleA11y, starting "focus".
+        // "visible" focuses a message fully on screen with the element SwiftUI made for it; "above" focuses the 25th row from
+        // the end, above the screen, with an element of the list placed by that row's frame (a row with no cell has no SwiftUI
+        // element); "after" is VoiceOver's scroll to that row first, then the focus; "first" is the focus, then VoiceOver's
+        // scroll; "newest" focuses the newest message with an element taller than the screen (a long reply); "below" puts the
+        // reader higher up first, the 25th row from the end below the screen, then focuses it. Reported through sampleA11y,
+        // starting "focus".
         func sampleA11yFocus(_ report: ((String) -> Void)?) {
             guard !ChatList.sampleA11yDone, let list, let source else { return }
             ChatList.sampleA11yDone = true
             let mode = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_A11YFOCUS_MODE"] ?? "above"
             let ids = source.snapshot().itemIdentifiers
-            guard ids.count > 30 else { report?("focus too few rows \(ids.count)"); return }
-            let wasAtEnd = atEnd, y0 = list.contentOffset.y
+            guard ids.count > 30, let newest = ids.last(where: { !Self.afterNewest.contains($0) }) else { report?("focus too few rows"); return }
+            var wasAtEnd = atEnd, y0 = list.contentOffset.y
             var target = ids[ids.count - 25]
             var element: Any?
             var kind = "list"
-            var found = false   // read as the focus is posted: the list element's frame is fixed, so it names another row once the list moves
-            func listElement() -> Any? {
+            // Whether the element was traced to its row, read as the focus is posted: a list element's frame is fixed, so once
+            // the list moves it names another row.
+            var found = false
+            func listElement(tall: Bool = false) -> Any? {
                 guard let ip = source.indexPath(for: target), let a = list.layoutAttributesForItem(at: ip), let w = list.window else { return nil }
                 let e = UIAccessibilityElement(accessibilityContainer: list)
-                e.accessibilityFrame = list.convert(a.frame, to: w.screen.coordinateSpace)
+                var r = a.frame
+                // A message taller than the screen: twice its height, centred on the row as a real one's element would be.
+                if tall { r = CGRect(x: r.minX, y: r.midY - list.bounds.height, width: r.width, height: list.bounds.height * 2) }
+                e.accessibilityFrame = list.convert(r, to: w.screen.coordinateSpace)
                 return e
             }
             func firstElement(_ v: UIView) -> Any? {
@@ -225,7 +233,7 @@ struct ChatList: UIViewRepresentable {
             func focus() {
                 debugPins = 0
                 debugPinsUntil = CACurrentMediaTime() + 1.5
-                guard let element else { return }
+                guard let element else { kind = "none"; return }
                 found = focusedRow(element).flatMap { source.itemIdentifier(for: $0) } == target
                 NotificationCenter.default.post(name: UIAccessibility.elementFocusedNotification, object: nil,
                                                 userInfo: [UIAccessibility.focusedElementUserInfoKey: element])
@@ -240,9 +248,9 @@ struct ChatList: UIViewRepresentable {
                 let inset = list.adjustedContentInset
                 let shown = (list.contentOffset.y + inset.top)...(list.contentOffset.y + list.bounds.height - inset.bottom)
                 for ip in list.indexPathsForVisibleItems.sorted().reversed() {
-                    guard let id = source.itemIdentifier(for: ip), id != ids.last, let a = list.layoutAttributesForItem(at: ip),
-                          shown.contains(a.frame.minY), shown.contains(a.frame.maxY), let c = list.cellForItem(at: ip),
-                          let e = firstElement(c.contentView) else { continue }
+                    guard let id = source.itemIdentifier(for: ip), let newestAt = source.indexPath(for: newest), ip < newestAt,
+                          let a = list.layoutAttributesForItem(at: ip), shown.contains(a.frame.minY), shown.contains(a.frame.maxY),
+                          let c = list.cellForItem(at: ip), let e = firstElement(c.contentView) else { continue }
                     target = id; element = e; kind = String(describing: type(of: e as AnyObject)).replacingOccurrences(of: " ", with: "")
                     break
                 }
@@ -252,10 +260,26 @@ struct ChatList: UIViewRepresentable {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { element = listElement(); focus() }
             case "first":
                 element = listElement(); focus(); voiceOverScroll()
+            case "newest":
+                target = newest
+                element = listElement(tall: true); focus()
+            case "below":
+                // Higher up, as a reader who scrolled there: the target's top 100 pt under the bottom of what shows.
+                if let ip = source.indexPath(for: target), let a = list.layoutAttributesForItem(at: ip) {
+                    atEnd = false
+                    pinning = true
+                    list.contentOffset = CGPoint(x: 0, y: max(-list.adjustedContentInset.top, a.frame.minY + 100 - list.bounds.height + list.adjustedContentInset.bottom))
+                    list.layoutIfNeeded()
+                    pinning = false
+                    place = top()
+                }
+                wasAtEnd = true   // the check's start condition is the chat opening at the newest, which it did
+                y0 = list.contentOffset.y
+                element = listElement(); focus()
             default:
                 element = listElement(); focus()
             }
-            ChatView.trace("uikit list: debug assistive focus, \(mode), from the end \(wasAtEnd)", ring: false)
+            ChatView.trace("uikit list: debug assistive focus, from the end \(wasAtEnd)", ring: false)
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
                 guard let self, let list = self.list, let source = self.source else { return }
                 var onScreen = false
@@ -264,7 +288,9 @@ struct ChatList: UIViewRepresentable {
                     onScreen = a.frame.minY >= list.contentOffset.y + inset.top - 0.5
                         && a.frame.maxY <= list.contentOffset.y + list.bounds.height - inset.bottom + 0.5
                 }
-                report?("focus found \(found), at end \(self.atEnd), on screen \(onScreen), pins \(self.debugPins), moved \(Int(y0 - list.contentOffset.y)), kind \(kind), from the end \(wasAtEnd)")
+                // Whether atEnd agrees with where the list is, as scrolled() and hold() read it.
+                let agrees = self.atEnd == (list.contentOffset.y >= self.maxY(list) - ChatList.endSlack)
+                report?("focus found \(found), at end \(self.atEnd), on screen \(onScreen), agrees \(agrees), pins \(self.debugPins), moved \(Int(y0 - list.contentOffset.y)), kind \(kind), from the end \(wasAtEnd)")
             }
         }
 
@@ -489,36 +515,44 @@ struct ChatList: UIViewRepresentable {
 
         // kosmos#8221 slice 12: VoiceOver's one-finger swipe to the element above moves its focus to a message and scrolls it
         // into view by its own path, which never calls accessibilityScroll, so a reader at the newest was put back at the end
-        // on the next layout and the message they moved to went off screen again. When assistive technology focuses a
-        // message of this list that is not the newest row and not fully on screen, the reader is no longer at the newest and
-        // that message is put on screen. Either order works: focus first, VoiceOver's scroll is then followed as any scroll
-        // with no finger is for a reader higher up; scroll first (pinned back by laidOut), the focus brings the row back.
+        // on the next layout and the message they moved to went off screen again. When assistive technology focuses
+        // something in a row before the newest message and that thing is not fully on screen, it is put on screen and the
+        // reader is at the newest or not by where the list then is.
         var focusObserver: NSObjectProtocol?
         deinit { if let focusObserver { NotificationCenter.default.removeObserver(focusObserver) } }
+        // The rows ChatView puts after the newest message (its working line and the spacer under it).
+        static let afterNewest: Set<String> = ["working", "end"]
         func focusFollow(_ element: Any) {
             #if DEBUG
             // KOSMOS_SAMPLE_NOFOCUSFOLLOW=1: the list as before this slice, the control arm of A11yFocusUITests.
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFOCUSFOLLOW"] == "1" { return }
             #endif
-            guard let list, let source, let ip = focusedRow(element), let id = source.itemIdentifier(for: ip) else { return }
-            guard id != source.snapshot().itemIdentifiers.last, !(list.isTracking || list.isDragging) else { return }
+            guard let list, let source, let ip = focusedRow(element) else { return }
+            // The newest message and the rows after it are left alone however tall it is: a reader there is at the newest.
+            guard let newest = source.snapshot().itemIdentifiers.last(where: { !Self.afterNewest.contains($0) }),
+                  let newestAt = source.indexPath(for: newest), ip < newestAt, !(list.isTracking || list.isDragging) else { return }
             list.layoutIfNeeded()
-            guard let a = list.layoutAttributesForItem(at: ip) else { return }
+            // The focused element's own frame, so a part of a tall message is what is put on screen; the row's without one.
+            guard let f = elementFrame(element) ?? list.layoutAttributesForItem(at: ip)?.frame else { return }
             let inset = list.adjustedContentInset
             let shownTop = list.contentOffset.y + inset.top, shownBottom = list.contentOffset.y + list.bounds.height - inset.bottom
-            guard a.frame.minY < shownTop - 0.5 || a.frame.maxY > shownBottom + 0.5 else { return }   // on screen: nothing to do
-            atEnd = false
-            // Above: its top at the top of what shows. Below (or taller than the screen): its bottom at the bottom, unless
-            // that would push its top off.
-            let y = a.frame.minY < shownTop || a.frame.height > shownBottom - shownTop
-                ? a.frame.minY - inset.top : a.frame.maxY - list.bounds.height + inset.bottom
+            guard f.minY < shownTop - 0.5 || f.maxY > shownBottom + 0.5 else { return }
+            let y = f.minY < shownTop || f.height > shownBottom - shownTop
+                ? f.minY - inset.top : f.maxY - list.bounds.height + inset.bottom
             pinning = true
             list.contentOffset = CGPoint(x: 0, y: min(max(y, -inset.top), maxY(list)))
-            list.layoutIfNeeded()   // the cells now on screen, for top(); laidOut does nothing while pinning
+            // The cells now on screen, for top(); laidOut does nothing while pinning.
+            list.layoutIfNeeded()
             pinning = false
-            place = top()
+            atEnd = list.contentOffset.y >= maxY(list) - ChatList.endSlack
+            if !atEnd { place = top() }
             readTop(list)
-            ChatView.trace("uikit list: assistive focus on a message off screen, put on screen, at end \(atEnd) (\(geometry(list)))", ring: false)
+            ChatView.trace("uikit list: assistive focus put on screen, at end \(atEnd) (\(geometry(list)))", ring: false)
+        }
+        func elementFrame(_ element: Any) -> CGRect? {
+            guard let list, let screen = list.window?.screen, let f = (element as? NSObject)?.accessibilityFrame,
+                  !f.isNull, !f.isEmpty else { return nil }
+            return list.convert(f, from: screen.coordinateSpace)
         }
         // The row of this list an accessibility element belongs to: its container chain to the first view, then that view's
         // superviews to a cell of this list. A chain that reaches the list with no cell (the list's own element for a row
