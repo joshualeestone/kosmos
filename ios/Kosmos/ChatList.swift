@@ -14,6 +14,9 @@ struct ChatList: UIViewRepresentable {
     let cell: (String) -> AnyView
     // Bumped by the chat to go to the newest message (a send, New messages): followed even from higher up.
     let newest: Int
+    // kosmos#8221 slice 14: bumped by the chat when the loaded earlier pages are dropped and started again (a read that found
+    // the conversation moved under them, a delete, Try again). A reader up in those pages has no row left on screen to keep.
+    var dropped: Int = 0
     // Whether the reader is at the newest message, told when it changes (never during a layout pass).
     let atEnd: (Bool) -> Void
     // kosmos#8221 slice 7: whether the reader is at the top of what is loaded (earlier messages load there), told when it
@@ -45,8 +48,12 @@ struct ChatList: UIViewRepresentable {
     // kosmos#8221 slice 13: KOSMOS_SAMPLE_NOCELLACTIONS=1 sets the sheet's opener carried into each cell to nil (configure):
     // the control arm of A11yActionsUITests. Read once a launch.
     static let sampleNoCellActions = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOCELLACTIONS"] == "1"
+    // kosmos#8221 slice 14: KOSMOS_SAMPLE_NODROPFIX=1 leaves a reader whose rows were all dropped at the old offset, as before
+    // the slice: the control arm of EarlierDroppedUITests.
+    static let sampleNoDropFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NODROPFIX"] == "1"
     #else
     static let sampleNoCellActions = false
+    static let sampleNoDropFix = false
     #endif
 
     final class List: UICollectionView {
@@ -103,6 +110,7 @@ struct ChatList: UIViewRepresentable {
         weak var list: List?
         var ids: [String] = []
         var newest = 0
+        var dropped = 0
         // At the newest message: the list is kept at its end through every change until the person scrolls away.
         var atEnd = true { didSet {
             if atEnd { place = nil; heldByFocus = false }
@@ -777,8 +785,11 @@ struct ChatList: UIViewRepresentable {
         var spent: CFTimeInterval = 0
         var applying = false   // inside source.apply: an offset change there is the update's own, not a scroll
 
-        func apply(_ now: [String]) {
+        func apply(_ now: [String], dropped: Int? = nil) {
             guard let source else { return }
+            // kosmos#8221 slice 14: the chat dropped its earlier pages since the last update.
+            let pagesDropped = dropped.map { $0 != self.dropped } ?? false
+            if let d = dropped { self.dropped = d }
             appliedSinceFocus = true
             let started = CACurrentMediaTime()
             applies += 1
@@ -856,6 +867,20 @@ struct ChatList: UIViewRepresentable {
                 // Review 2: writing the offset can end a fling or its bounce without the end being reported, which would
                 // leave the person's drag counted for the next scroll nobody made (as the fling stopped in updateUIView).
                 if !(list.isTracking || list.isDragging || list.isDecelerating) { dragged = false }
+            } else if pagesDropped, !atEnd, anchor == nil, !shown.isEmpty, !ChatList.sampleNoDropFix, let list {
+                // kosmos#8221 slice 14 (found in slice 7's review, round 3): the earlier pages were dropped with every row on
+                // screen in them, so no row is left to hold and the old offset would land the reader in an unrelated part of
+                // the chat. They go to the top of what remains, the oldest row still loaded, the nearest to where they were
+                // reading; at the top, the page before is asked for again (atTop) and lands above them, held as any page is.
+                personUntil = 0; personAskedAt = 0
+                list.layoutIfNeeded()
+                place = nil
+                pinning = true
+                list.contentOffset = CGPoint(x: list.contentOffset.x, y: -list.adjustedContentInset.top)
+                pinning = false
+                readTop(list)
+                if !(list.isTracking || list.isDragging || list.isDecelerating) { dragged = false }
+                ChatView.trace("uikit list: earlier pages dropped under the reader, put at the top of what remains (\(geometry(list)))", ring: false)
             }
             redrawn += again.count
             spent += CACurrentMediaTime() - started
@@ -891,6 +916,7 @@ struct ChatList: UIViewRepresentable {
         co.toldTop = atTop
         co.environment = context.environment
         co.newest = newest
+        co.dropped = dropped
         let reg = UICollectionView.CellRegistration<UICollectionViewCell, String> { [weak co] c, _, id in co?.configure(c, id) }
         co.source = UICollectionViewDiffableDataSource<Int, String>(collectionView: list) { cv, ip, id in
             cv.dequeueConfiguredReusableCell(using: reg, for: ip, item: id)
@@ -938,7 +964,7 @@ struct ChatList: UIViewRepresentable {
         co.told = atEnd
         co.toldTop = atTop
         co.environment = context.environment
-        co.apply(ids)
+        co.apply(ids, dropped: dropped)
         if newest != co.newest {
             co.newest = newest
             co.toNewest()

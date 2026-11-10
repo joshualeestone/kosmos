@@ -147,6 +147,9 @@ struct ChatView: View {
     // kosmos#7016 part 3: the earlier messages loaded in this chat (the board's EARLIER, per open chat), whether the
     // top of the thread is on screen, and whether the first scroll to the newest message is done.
     @State private var earlier = Board.Earlier()
+    // kosmos#8221 slice 14: bumped each time loaded earlier pages are dropped and started again (a moved read, a delete, Try
+    // again after a thread that kept moving), so the UIKit list can put a reader who was up in them at the top of what remains.
+    @State private var earlierDropped = 0
     @State private var topVisible = false
     @State private var settledAtEnd = false
     // The row to keep at the top once a page has landed above it.
@@ -660,7 +663,7 @@ struct ChatView: View {
             case "end": return AnyView(Color.clear.frame(height: endRoom).accessibilityHidden(true))
             default: return AnyView(EmptyView())   // an id with no cell draws nothing, never a gap
             }
-        }, newest: uikitNewest, atEnd: { now in
+        }, newest: uikitNewest, dropped: earlierDropped, atEnd: { now in
             atBottom = now; endVisible = now
             Self.trace("uikit list: atBottom \(atBottom)")
             if now { unseenNew = false; endSeen = true; settledAtEnd = true }
@@ -1866,7 +1869,7 @@ struct ChatView: View {
         if let why = earlier.because, !earlier.loading, !searchMode {
             VStack(spacing: 4) {
                 Text(why).font(.footnote).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
-                Button("Try again") { earlier = Board.retryEarlier(earlier); loadEarlier() }
+                Button("Try again") { restartEarlier(Board.retryEarlier(earlier)); loadEarlier() }
                     .font(.footnote.weight(.semibold)).foregroundColor(Palette.primary)
                     .frame(minHeight: 44)
             }
@@ -1894,7 +1897,7 @@ struct ChatView: View {
             // meanwhile (the board's setThread anchor), so a page landing never pulls them somewhere else.
             let shownNow = thread.map { Board.chatItems(Board.shownRows(earlier, thread: $0), now: Date(), calendar: .current) } ?? []
             let anchor = Board.anchorItem(shownNow, onScreen: onScreen)
-            earlier = next
+            restartEarlier(next)
             // kosmos#7265 review: the newest rows are one eager stack and are all "on screen" while any of it shows, so
             // a reader back at the newest message is kept there rather than at the stack's first row (a stated limit:
             // a reader stopped part way inside the newest rows as a page lands may still move).
@@ -1905,6 +1908,12 @@ struct ChatView: View {
             // scrolls the lazy list's proxy, which is not there.
             else if !uikitList, case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
+    }
+
+    // kosmos#8221 slice 14: the earlier state replaced, counting a replacement that drops loaded rows (earlierDropped).
+    private func restartEarlier(_ next: Board.Earlier) {
+        if !earlier.rows.isEmpty && next.rows.isEmpty { earlierDropped += 1 }
+        earlier = next
     }
 
     // earlierFillGap: messages that left the latest 200 while the chat was open are fetched into the loaded pages, so
@@ -1925,7 +1934,7 @@ struct ChatView: View {
                 guard opened == client.chatEpoch, earlier.opening == token else { return }
                 guard case .page(let rows, let positions, let start) = read else {
                     // Moved: start again (as the board does); failed: the next read tries again.
-                    if read == .moved { earlier = Board.resetEarlier(earlier) } else { earlier.filling = false }
+                    if read == .moved { restartEarlier(Board.resetEarlier(earlier)) } else { earlier.filling = false }
                     return
                 }
                 got = Board.gapRows(rows, positions: positions, end: end) + got
@@ -2609,7 +2618,7 @@ struct ChatView: View {
                 // earlier pages already hold would come back as a second copy. Start them again, as on a moved chat.
                 // Review 2: whenever they are open, also while their first page is still on its way. A reader scrolled up
                 // there jumps, as on a moved chat; the trade is taken over a row drawn twice.
-                if earlier.open || !earlier.rows.isEmpty { earlier = Board.resetEarlier(earlier) }
+                if earlier.open || !earlier.rows.isEmpty { restartEarlier(Board.resetEarlier(earlier)) }
                 // Review 1: only when there is something to say, so a standing line (Try again, a wait) is kept; review 2:
                 // but an earlier delete's own refusal still showing is taken away.
                 if let note = result == .gone ? Board.deleteGoneNote : Board.deletedNote(told: told, names: [agent.session: shown.name]) {
