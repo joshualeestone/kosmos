@@ -491,7 +491,7 @@ struct ChatView: View {
                 if !searchMode && visible && epoch == cleared && clears == clear { NotificationCenter.default.post(name: .chatScrollToEnd, object: nil) }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                if !searchMode && visible && epoch == cleared && clears == clear && !settledAtEnd { settledAtEnd = true; loadEarlier() }
+                if !searchMode && visible && epoch == cleared && clears == clear && !settledAtEnd { settledAtEnd = true; loadEarlier("settled") }
             }
         }
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
@@ -671,7 +671,7 @@ struct ChatView: View {
         }, atTop: { now in
             // kosmos#8221 slice 7: the reader at the top asks for the page before, as the lazy list's top marker does.
             topVisible = now
-            if now { loadEarlier() }
+            if now { loadEarlier("top") }
         }, scroller: { view in
             // kosmos#8221 slice 9: the pull past the newest message (#8072) on this list too. Its guard (allowed: at the
             // newest, not searching) reads endVisible, which this list's atEnd sets.
@@ -747,7 +747,7 @@ struct ChatView: View {
                         // earlierNearTop); the line says only that a page is loading, or that one failed, with Try again.
                         earlierFailedLine
                         Color.clear.frame(height: 1).id("top")
-                            .onAppear { guard drawnEpoch == listEpoch else { return }; Self.trace("top appear"); topVisible = true; loadEarlier() }
+                            .onAppear { guard drawnEpoch == listEpoch else { return }; Self.trace("top appear"); topVisible = true; loadEarlier("top") }
                             .onDisappear {
                                 guard drawnEpoch == listEpoch else { return }
                                 topVisible = false
@@ -785,7 +785,7 @@ struct ChatView: View {
                                 // a time): from then on, reaching the top is the person scrolling up. Checked a turn
                                 // later, so the top's own disappearance from the same jump has landed first; a chat too
                                 // short to scroll still shows its top then, and loads by itself.
-                                if !settledAtEnd { DispatchQueue.main.async { settledAtEnd = true; loadEarlier() } }
+                                if !settledAtEnd { DispatchQueue.main.async { settledAtEnd = true; loadEarlier("settled") } }
                             }
                             .onDisappear {
                                 guard drawnEpoch == listEpoch else { return }
@@ -1870,7 +1870,7 @@ struct ChatView: View {
         if let why = earlier.because, !earlier.loading, !searchMode {
             VStack(spacing: 4) {
                 Text(why).font(.footnote).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
-                Button("Try again") { restartEarlier(Board.retryEarlier(earlier)); loadEarlier() }
+                Button("Try again") { restartEarlier(Board.retryEarlier(earlier)); loadEarlier("retry") }
                     .font(.footnote.weight(.semibold)).foregroundColor(Palette.primary)
                     .frame(minHeight: 44)
             }
@@ -1879,10 +1879,12 @@ struct ChatView: View {
         }
     }
 
+    // kosmos#8221 slice 16: `caller` names who asked (settled, top, retry, read) in the sample trace, a fixed word at every call
+    // site (a StaticString, so nothing built at run time can be passed).
     // One page before what is loaded, when the person is at the top of it (or the chat is too short to scroll), never
     // while one loads, never after a failure until Try again. Called when the top appears, after every read, and on
     // Try again (the board's earlierNearTop: on scroll, after a paint, and from its button).
-    private func loadEarlier() {
+    private func loadEarlier(_ caller: StaticString) {
         // A search shortens the thread; its top showing is not a reader at the top (the board's earlierNearTop).
         // kosmos#7810: not from the kept copy or the small first page: their positions are not the window the next read
         // brings, so a page loaded from them could overlap it.
@@ -1894,7 +1896,7 @@ struct ChatView: View {
         sampleDeleteOnAsk()
         #endif
         let askedEpoch = epoch
-        Self.trace("earlier ask: before \(start.before) opening \(start.opening) epoch \(askedEpoch)/\(client.chatEpoch)", ring: false)
+        Self.trace("earlier ask from \(caller): before \(start.before) opening \(start.opening) epoch \(askedEpoch)/\(client.chatEpoch)", ring: false)
         Task {
             // kosmos#8221 slice 15: each way out named, to find which one leaves the line loading for good.
             guard let read = await client.olderPage(agent.session, before: start.before) else {
@@ -2709,7 +2711,7 @@ struct ChatView: View {
             // settled, so nothing below is run again; the Mac is answering. The retries every read makes still run: a gap
             // fill or an earlier page that failed or waited is asked again here, as after a whole read.
             if let t = thread { fillGap(t) }
-            loadEarlier()
+            loadEarlier("read")
             lastRead = Date()
             failedReads = 0
             refusal = nil
@@ -2739,7 +2741,7 @@ struct ChatView: View {
             }
             fillGap(fresh)
             // A moved reset leaves the top in view with nothing loading: the next read asks again.
-            loadEarlier()
+            loadEarlier("read")
             // A line about a question that is no longer the one up would read as a warning about the next one.
             if pressLine != nil, fresh.choices?.key != pressLineKey { pressLine = nil }
             #if DEBUG
