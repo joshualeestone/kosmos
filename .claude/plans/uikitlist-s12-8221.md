@@ -30,7 +30,11 @@ layout. A focus on something already on screen, or on the newest message however
   - A finger on the list (tracking, dragging, a fling): nothing.
   - Rows from the newest message on (the last id that is not "working" or "end"): not moved, however tall the message.
     If the reader was off the newest (heldByFocus or not atEnd), heldByFocus is cleared and atEnd read with the usual
-    slack, now and again 0.6 s later (VoiceOver's scroll to it may have no animation, so no scroll end).
+    slack, now and again 0.6 s later, retried while the list is still moving, up to four times (VoiceOver's scroll to
+    it may have no animation, so no scroll end).
+  - A focus on the same row as the last focus, with an update (apply) between: nothing. That is VoiceOver putting its
+    focus back after the cells were redrawn (a streaming reply), not the person moving. Cost: a person who swipes back to
+    the very message they last focused, after an update, is not followed; it was put on screen at the first focus.
   - Within 1 s of toNewest() (a send, New messages, search closing): nothing, since VoiceOver puts its focus on something
     on screen after such a jump and that is not the person moving.
   - Decided and moved by the focused element's own frame (a part of a tall message), the row's when it has none. Off
@@ -54,8 +58,8 @@ notification VoiceOver posts, with a real SwiftUI element for an on-screen row a
 no cell. If VoiceOver scrolls first and its element is a SwiftUI one in a cell that was then reused for another row (the
 list pinned back), the follow can name the wrong row or none; not seen on a simulator. A real phone with VoiceOver on is
 the check that remains. Also unseen there: a focus VoiceOver moves by itself (refocusing a reconfigured cell after an
-update, or after an announcement), which the follow takes as the person's when it lands off screen; only the jump to the
-newest is excluded.
+update, or after an announcement), which the follow takes as the person's when it lands off screen; the jump to the newest and
+a refocus of the same row after an update are excluded, other self-moves are not.
 
 ## Steps
 
