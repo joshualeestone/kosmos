@@ -101,4 +101,17 @@ the timing, not measured.
   trace shows "debug delete on ask" and then "earlier pages dropped under the reader, put at the top of what remains".
   Slice 14's moved check failed once (run 3, line 74, "the first page never landed"). That is the setup flake slice 15
   instruments, in a check this slice does not change; its timing is on the card (comment 6773740316).
-- node: 121 of 121 across the test files that read the touched files. Room suite 865 of 865.
+- The flake caught (hunt, 12 runs planned of slice 14's moved check with the request lines, before the double-ask fix):
+  run 6 failed at line 74 with "earlier ask from read" 10 ms after the first page landed and 60 ms before the list's
+  "atTop false"; run 2 showed the same ask in a run that still passed. Card comments 6775301855 and the one after.
+- Final code, EarlierDoubleAskUITests + EarlierDroppedUITests + EarlierPagesUITests, 2 runs on the iOS 26.5 simulator:
+  8 of 8 passed both times (fix and control arms of the double ask, both delete arms, both moved arms, both page checks).
+  The trace in each run: 9 "earlier hold on", 9 "earlier hold kept: top changed" (an atTop change queued before the
+  landing, set aside), 9 "earlier hold off: list read" (no backstop releases), and one "earlier ask from read", in the
+  fix-off control. Run 1 on the code before reviews 7 and 8 (comments and test timing only since) read the same.
+- Room suite 871 of 871 (pins for the hold, the landing number, the wiring in both list paths, StaticString caller, and
+  the backstop rule; the hold pin fails with the guard removed, measured). LogicTests: every run*.sh passes
+  (run.sh 2135 of 2135). node: 121 of 121 across the test files that read the touched files. Full run-tests validation
+  passed on 8343ef1227's successor d9c7aa8626 (hash a5beb519be5c).
+- Review: 8 rounds on two models (the standing cap), no BLOCKER open. The design changed twice on review findings
+  (rounds 2 and 3); rounds 4 to 8 found ordering holes and stale prose, each fixed.
