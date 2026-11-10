@@ -17,6 +17,7 @@ final class ChatGapUITests: XCTestCase {
     // fades the messages behind it out. The screenshot is the check of that fade; this asserts the line is drawn on screen above
     // the box while the newest message is not, so the reader is higher up when it is seen.
     func testTheWorkingLineShowsToAReaderHigherUp() throws {
+        guard UIKitListArm.on else { throw XCTSkip("the lazy list keeps its working line's row (kosmos#8283); UIKit list only") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40"]
         UIKitListArm.set(app)
@@ -37,6 +38,7 @@ final class ChatGapUITests: XCTestCase {
     }
 
     private func measure(largest: Bool) throws {
+        guard UIKitListArm.on else { throw XCTSkip("the lazy list keeps its working line's row (kosmos#8283); UIKit list only") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana"]
         if largest { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }

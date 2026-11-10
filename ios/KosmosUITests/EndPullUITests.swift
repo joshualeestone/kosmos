@@ -82,7 +82,8 @@ final class EndPullUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
         let waited = openFinished(row)
         let before = row.frame.minY
-        // kosmos#8283: the working line shows before the pull, so its going under the dots below is a real change.
+        // kosmos#8283: the working line shows before the pull (on the UIKit list, so its going under the dots below is a real
+        // change; on the lazy list, as the dots' reference).
         let working = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Dana is working'")).firstMatch
         XCTAssertTrue(working.exists, "CONTROL: no working line before the pull, so its hiding is not checked")
         pullUp(app, distance: 420)
@@ -95,21 +96,32 @@ final class EndPullUITests: XCTestCase {
         XCTAssertLessThanOrEqual(landed, before + 20, "the list landed below where it opened, " + waited)
         XCTAssertGreaterThanOrEqual(landed, before - 160, "the list did not bounce back, " + waited)
         if before - landed > 20 { print("UI-NOTE kosmos#8072: the long chat landed \(Int(before - landed)) pt above where it opened") }
-        // kosmos#8283: the working line is drawn over the strip above the box, in the room the dots rest in, so it is taken away
-        // while they show. The dots rest clear of the newest message above them (its whole bubble, the time line under it
-        // included), and of the box and its 18 pt fade below.
-        XCTAssertFalse(working.exists, "the working line shows under the dots")
-        let bubble = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'You' AND label CONTAINS 'Message 260 of 260'")).firstMatch
-        XCTAssertTrue(bubble.exists, "CONTROL: the newest message's bubble was not found")
-        let dot = dots(app).frame, above = dot.minY - bubble.frame.maxY, below = Self.box(app).frame.minY - dot.maxY
-        let said = "\(above) under the newest message's bubble, \(below) above the box"
-        print("UI-NOTE kosmos#8283 \(UIKitListArm.on ? "uikit" : "lazy"): dots " + said)
-        // 1 pt: at the true end they rest about 2.5 pt under it (restsAbove 11.5); measured 11-09, -0.5 at 14.5.
-        XCTAssertGreaterThanOrEqual(above, 1, "the dots touch the newest message: " + said)
-        XCTAssertGreaterThanOrEqual(below, 18, "the box's fade cuts the dots: " + said)
-        // kosmos#7609: and not stuck high, which the allowance above cannot see.
-        XCTAssertLessThanOrEqual(above, 40, "the list did not come back to its end: " + said)
-        XCTAssertLessThanOrEqual(below, 40, "the list did not come back to its end: " + said)
+        if UIKitListArm.on {
+            // kosmos#8283: on the UIKit list the working line is drawn over the strip above the box, in the room the dots rest in,
+            // so it is taken away while they show. The dots rest clear of the newest message above them (its whole bubble, the
+            // time line under it included), and of the box and its 18 pt fade below.
+            XCTAssertFalse(working.exists, "the working line shows under the dots")
+            let bubble = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'You' AND label CONTAINS 'Message 260 of 260'")).firstMatch
+            XCTAssertTrue(bubble.exists, "CONTROL: the newest message's bubble was not found")
+            let dot = dots(app).frame, above = dot.minY - bubble.frame.maxY, below = Self.box(app).frame.minY - dot.maxY
+            let said = "\(above) under the newest message's bubble, \(below) above the box"
+            print("UI-NOTE kosmos#8283 uikit: dots " + said)
+            // 1 pt: at the true end they rest about 2.5 pt under it (restsAbove 11.5); measured 11-09, -0.5 at 14.5.
+            XCTAssertGreaterThanOrEqual(above, 1, "the dots touch the newest message: " + said)
+            XCTAssertGreaterThanOrEqual(below, 18, "the box's fade cuts the dots: " + said)
+            // kosmos#7609: and not stuck high, which the allowance above cannot see.
+            XCTAssertLessThanOrEqual(above, 40, "the list did not come back to its end: " + said)
+            XCTAssertLessThanOrEqual(below, 40, "the list did not come back to its end: " + said)
+        } else {
+            // The lazy list keeps its working line's row (kosmos#8283): clear of the working line, and of the box and its fade.
+            XCTAssertTrue(working.exists, "CONTROL: no working line, so this checks no gap")
+            let dot = dots(app).frame, above = dot.minY - working.frame.maxY, below = Self.box(app).frame.minY - dot.maxY
+            XCTAssertGreaterThanOrEqual(above, 8, "the dots hang off the working line: \(above) above, \(below) below")
+            XCTAssertGreaterThanOrEqual(below, 18, "the box's fade cuts the dots: \(above) above, \(below) below")
+            // kosmos#7609: and not stuck high, which the allowance above cannot see: the true landing has 11.5 above and 21.5 below.
+            XCTAssertLessThanOrEqual(above, 40, "the list did not come back to its end: \(above) above, \(below) below")
+            XCTAssertLessThanOrEqual(below, 40, "the list did not come back to its end: \(above) above, \(below) below")
+        }
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "end-pull-dots-long"; shot.lifetime = .keepAlways; add(shot)
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dots(app))
         wait(for: [gone], timeout: 20)

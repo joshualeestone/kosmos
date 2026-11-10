@@ -789,30 +789,33 @@ check(roomSource.contains("let period = still ? 1.6 : 1.1, low: Float = still ? 
 check(roomSource.contains("withTransaction(t) { up = false }"), "kosmos#7427 review 3: WaveDots (the control) restarts when the line scrolls back into view")
 check(chatSource.contains("#else\n            LayerWaveDots(still: !animated)") && !chatSource.contains("repeatForever(autoreverses: true)) { bright = true }") && agentsSource.contains("WorkingDots(color: Palette.pillWord(pill))"), "kosmos#7427: the chat's working line and the Agents pill use the wave, not a pulse in unison")
 check(roomSource.contains("still: still || reduceMotion)"), "kosmos#7427: the dots are still under Reduce Motion")
-// kosmos#8283: the working line takes no row in either list (an idle chat had an empty row under its newest message); it is
+check(chatSource.contains("WorkingLine(name: shown.name, animated: false).hidden()") && roomSource.contains("still: still || reduceMotion)"),
+      "kosmos#7348: the working line's kept room is drawn with still dots, so no animation runs in every chat that is not working")
+// kosmos#8283: on the UIKit list the working line takes no row (an idle chat had an empty row under its newest message); it is
 // drawn over the strip above the box only while the agent works (plus one hidden copy with still dots, #7348, that measures
 // it), taken away while the pull's dots rest in the same room (watched by that view alone, so the list is not drawn again
-// mid-pull), and the room at the end grows with it at large text sizes. WorkingLine(name: appears twice, both in
-// WorkingStrip, so no copy is drawn anywhere else.
+// mid-pull), and the room at the end grows with it at large text sizes. The lazy list keeps its row and its follow: without
+// the row a long chat did not open at its newest message on iOS 26.5.
 let dotsDriverSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/DotsRefresh.swift"), encoding: .utf8)) ?? ""
 check(chatSource.contains("if working && !endPull.dotsUp {\n                WorkingLine(name: name).lineLimit(1)")
       && chatSource.contains("WorkingLine(name: name, animated: false).lineLimit(1).hidden()")
-      && chatSource.components(separatedBy: "WorkingLine(name:").count - 1 == 2
       && chatSource.contains("@ObservedObject var endPull: EndPullDriver")
-      && chatSource.contains(".overlay(alignment: .topLeading) { WorkingStrip(endPull: endPull, working: working, name: shown.name, lineHeight: $workingLineHeight) }")
+      && chatSource.contains("if uikitList { WorkingStrip(endPull: endPull, working: working, name: shown.name, lineHeight: $workingLineHeight) }")
       && dotsDriverSource.contains("@Published private(set) var dotsUp = false")
       && dotsDriverSource.contains("if seen != dotsSeen { dotsSeen = seen; noteDots() }")
       && dotsDriverSource.contains("dotsSeen = false\n        noteDots()")
       && dotsDriverSource.contains("let now = self.dots != nil && self.dotsSeen")
       && chatSource.contains("private var endRoom: CGFloat { max(ChatView.fadeHeight + 8, workingLineHeight + 10) }")
-      && chatSource.components(separatedBy: "frame(height: endRoom)").count - 1 == 2
-      && !chatSource.contains("\"working\", \"end\"") && !chatSource.contains(".id(\"working\")")
-      // The agent starting to work raises no "New messages" on either list and moves only a reader already at the newest (the
-      // lazy list's one onChange); and the capsule sits above the line at a large text size.
+      && chatSource.contains("case \"end\": return AnyView(Color.clear.frame(height: endRoom)")
+      && !chatSource.contains("\"working\", \"end\"")
+      // The lazy list: its row, its end and its follow as before.
+      && chatSource.contains(".padding(.top, 12).id(\"working\")")
+      && chatSource.contains("Color.clear.frame(height: ChatView.fadeHeight + 8).id(\"end\")")
+      && chatSource.contains(".onChange(of: working) { now in if now { follow(proxy) } }")
+      // The UIKit list: the agent starting to work raises no "New messages"; the capsule sits above the line at a large text size.
       && chatSource.components(separatedBy: ".onChange(of: working)").count - 1 == 1
-      && chatSource.contains(".onChange(of: working) { now in if now && atBottom && !searching { goNewest(proxy, animated: true) } }")
-      && chatSource.contains(".padding(.bottom, endRoom)   // above the fade (kosmos#7346)"),
-      "kosmos#8283: the working line is drawn over the strip above the box, never as a row kept in the list")
+      && chatSource.contains(".padding(.bottom, uikitList ? endRoom : 8 + ChatView.fadeHeight)"),
+      "kosmos#8283: the working line is drawn over the strip above the box on the UIKit list, and kept as a row on the lazy list")
 check(agentsSource.contains(".id(agent.session)"), "review 1: a notice for another agent while a chat is open starts that chat afresh, not the old one renamed")
 if let a = content.range(of: ".onChange(of: pushManager.accountChanges)"), let c = content.range(of: "agentRequest = nil; roomRequest = nil") {
     check(a.lowerBound < c.lowerBound && content.distance(from: a.lowerBound, to: c.lowerBound) < 400, "review 1: a sign-out drops a chat or room a notice asked for")

@@ -3,6 +3,15 @@
 Card: joshualeestone/kosmos#8283 (Josh 2026-11-09 07:25, his screenshots: about 72 pt between the newest message and the box,
 against Discord's about 34).
 
+## Scope after CI (11-09 evening): the new (UIKit) list only
+
+CI's old-list job failed twice (5 of 56: the 260-message chat did not open at its newest message). Reproduced on this Mac's
+iOS 26.5 simulator (CI's runtime): main 0 of 10 failed, this branch 3 of 10; putting back the old list's 28 pt working row
+alone cured it (0 of 5). Restoring the old list's follow on `working` did not. So the old list keeps its working row, its end,
+its follow and its dots' rest exactly as on main; the gap change, the line over the strip and the new tests apply to the UIKit
+list, the one Josh uses ("New chat list" on). The old list is the fallback #8221 replaces. Final: old list on 26.5 10 of 10,
+UIKit list on 26.5 9 of 9 (bubble to box 45 pt, the same as on 27).
+
 ## Finished looks like
 
 With the keyboard up, the room between the newest message (its time line included) and the box's visible edge is about

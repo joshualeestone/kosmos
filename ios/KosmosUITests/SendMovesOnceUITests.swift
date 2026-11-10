@@ -45,8 +45,8 @@ final class SendMovesOnceUITests: XCTestCase {
         try assertStill(app, "No step", neighbour: "Message 260 of 260.", since: send(app, box, "No step"))
     }
 
-    // The agent picking the message up: its "is working" line appears when the post answers. It is drawn over the strip above
-    // the box (kosmos#8283), so it takes no room in the list and moves nothing.
+    // The agent picking the message up: its "is working" line appears when the post answers and moves nothing: on the lazy
+    // list it has had its room all along, and on the UIKit list it is drawn over the strip above the box (kosmos#8283).
     func testTheWorkingLineAppearingMovesNothing() throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let (app, box) = openDana(["KOSMOS_SAMPLE_SEND_WORKS": "1"])
