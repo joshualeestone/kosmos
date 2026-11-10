@@ -78,7 +78,9 @@ if [ "$uikit" = 1 ]; then
   #   the default and the largest text size, and the line seen from higher up. This arm only (the lazy list keeps its row).
   # kosmos#8221 slice 12: A11yFocusUITests (12), assistive focus on a message off screen, before the newest, brings it on screen and
   #   moves the reader by where the list lands, in either order with VoiceOver's own scroll; one on screen, or the newest, changes nothing; two controls.
-  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:7 ChatGapUITests:3 A11yFocusUITests:12"
+  # kosmos#8221 slice 13: A11yActionsUITests (3), VoiceOver's Message actions opens the sheet (Copy, and Delete on your own message)
+  #   from a hosted cell; one control with the opener left out of the cell.
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:7 ChatGapUITests:3 A11yFocusUITests:12 A11yActionsUITests:3"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done
