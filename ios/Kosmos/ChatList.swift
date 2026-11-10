@@ -193,6 +193,81 @@ struct ChatList: UIViewRepresentable {
             }
         }
 
+        // kosmos#8221 slice 12: KOSMOS_SAMPLE_A11YFOCUS. Assistive focus moved to a message, as VoiceOver's one-finger swipe
+        // does, by posting the notification VoiceOver posts (it does not run on a simulator). KOSMOS_SAMPLE_A11YFOCUS_MODE:
+        // "visible" focuses a message fully on screen with the element SwiftUI made for it (nothing may change); "above"
+        // focuses the 25th row from the end, above the screen, with an element of the list placed by that row's frame (a row
+        // with no cell has no SwiftUI element); "after" is VoiceOver's scroll to that row first, then the focus; "first" is the
+        // focus, then VoiceOver's scroll. Reported through sampleA11y, starting "focus".
+        func sampleA11yFocus(_ report: ((String) -> Void)?) {
+            guard !ChatList.sampleA11yDone, let list, let source else { return }
+            ChatList.sampleA11yDone = true
+            let mode = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_A11YFOCUS_MODE"] ?? "above"
+            let ids = source.snapshot().itemIdentifiers
+            guard ids.count > 30 else { report?("focus too few rows \(ids.count)"); return }
+            let wasAtEnd = atEnd, y0 = list.contentOffset.y
+            var target = ids[ids.count - 25]
+            var element: Any?
+            var kind = "list"
+            var found = false   // read as the focus is posted: the list element's frame is fixed, so it names another row once the list moves
+            func listElement() -> Any? {
+                guard let ip = source.indexPath(for: target), let a = list.layoutAttributesForItem(at: ip), let w = list.window else { return nil }
+                let e = UIAccessibilityElement(accessibilityContainer: list)
+                e.accessibilityFrame = list.convert(a.frame, to: w.screen.coordinateSpace)
+                return e
+            }
+            func firstElement(_ v: UIView) -> Any? {
+                if v.isAccessibilityElement { return v }
+                if let f = v.accessibilityElements?.first { return f }
+                for s in v.subviews { if let e = firstElement(s) { return e } }
+                return nil
+            }
+            func focus() {
+                debugPins = 0
+                debugPinsUntil = CACurrentMediaTime() + 1.5
+                guard let element else { return }
+                found = focusedRow(element).flatMap { source.itemIdentifier(for: $0) } == target
+                NotificationCenter.default.post(name: UIAccessibility.elementFocusedNotification, object: nil,
+                                                userInfo: [UIAccessibility.focusedElementUserInfoKey: element])
+            }
+            // VoiceOver's own scroll to the row: animated, with no finger and no accessibilityScroll; the row in the middle.
+            func voiceOverScroll() {
+                guard let ip = source.indexPath(for: target), let a = list.layoutAttributesForItem(at: ip) else { return }
+                list.setContentOffset(CGPoint(x: 0, y: min(max(a.frame.midY - list.bounds.height / 2, -list.adjustedContentInset.top), maxY(list))), animated: true)
+            }
+            switch mode {
+            case "visible":
+                let inset = list.adjustedContentInset
+                let shown = (list.contentOffset.y + inset.top)...(list.contentOffset.y + list.bounds.height - inset.bottom)
+                for ip in list.indexPathsForVisibleItems.sorted().reversed() {
+                    guard let id = source.itemIdentifier(for: ip), id != ids.last, let a = list.layoutAttributesForItem(at: ip),
+                          shown.contains(a.frame.minY), shown.contains(a.frame.maxY), let c = list.cellForItem(at: ip),
+                          let e = firstElement(c.contentView) else { continue }
+                    target = id; element = e; kind = String(describing: type(of: e as AnyObject)).replacingOccurrences(of: " ", with: "")
+                    break
+                }
+                focus()
+            case "after":
+                voiceOverScroll()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { element = listElement(); focus() }
+            case "first":
+                element = listElement(); focus(); voiceOverScroll()
+            default:
+                element = listElement(); focus()
+            }
+            ChatView.trace("uikit list: debug assistive focus, \(mode), from the end \(wasAtEnd)", ring: false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
+                guard let self, let list = self.list, let source = self.source else { return }
+                var onScreen = false
+                if let ip = source.indexPath(for: target), let a = list.layoutAttributesForItem(at: ip) {
+                    let inset = list.adjustedContentInset
+                    onScreen = a.frame.minY >= list.contentOffset.y + inset.top - 0.5
+                        && a.frame.maxY <= list.contentOffset.y + list.bounds.height - inset.bottom + 0.5
+                }
+                report?("focus found \(found), at end \(self.atEnd), on screen \(onScreen), pins \(self.debugPins), moved \(Int(y0 - list.contentOffset.y)), kind \(kind), from the end \(wasAtEnd)")
+            }
+        }
+
         // kosmos#8221 slice 2: KOSMOS_SAMPLE_SCROLLUP on this list, a fixed place to start a check from. It sets atEnd itself
         // and skips the scroll delegate, so it does not test how a person's scroll decides atEnd (NewMessagesUITests' drag
         // check does). atEnd is set before the scroll, so the layout the scroll causes cannot pin the list back to the end.
@@ -412,6 +487,68 @@ struct ChatList: UIViewRepresentable {
             if !(list.isTracking || list.isDragging) { pin() }
         }
 
+        // kosmos#8221 slice 12: VoiceOver's one-finger swipe to the element above moves its focus to a message and scrolls it
+        // into view by its own path, which never calls accessibilityScroll, so a reader at the newest was put back at the end
+        // on the next layout and the message they moved to went off screen again. When assistive technology focuses a
+        // message of this list that is not the newest row and not fully on screen, the reader is no longer at the newest and
+        // that message is put on screen. Either order works: focus first, VoiceOver's scroll is then followed as any scroll
+        // with no finger is for a reader higher up; scroll first (pinned back by laidOut), the focus brings the row back.
+        var focusObserver: NSObjectProtocol?
+        deinit { if let focusObserver { NotificationCenter.default.removeObserver(focusObserver) } }
+        func focusFollow(_ element: Any) {
+            #if DEBUG
+            // KOSMOS_SAMPLE_NOFOCUSFOLLOW=1: the list as before this slice, the control arm of A11yFocusUITests.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFOCUSFOLLOW"] == "1" { return }
+            #endif
+            guard let list, let source, let ip = focusedRow(element), let id = source.itemIdentifier(for: ip) else { return }
+            guard id != source.snapshot().itemIdentifiers.last, !(list.isTracking || list.isDragging) else { return }
+            list.layoutIfNeeded()
+            guard let a = list.layoutAttributesForItem(at: ip) else { return }
+            let inset = list.adjustedContentInset
+            let shownTop = list.contentOffset.y + inset.top, shownBottom = list.contentOffset.y + list.bounds.height - inset.bottom
+            guard a.frame.minY < shownTop - 0.5 || a.frame.maxY > shownBottom + 0.5 else { return }   // on screen: nothing to do
+            atEnd = false
+            // Above: its top at the top of what shows. Below (or taller than the screen): its bottom at the bottom, unless
+            // that would push its top off.
+            let y = a.frame.minY < shownTop || a.frame.height > shownBottom - shownTop
+                ? a.frame.minY - inset.top : a.frame.maxY - list.bounds.height + inset.bottom
+            pinning = true
+            list.contentOffset = CGPoint(x: 0, y: min(max(y, -inset.top), maxY(list)))
+            list.layoutIfNeeded()   // the cells now on screen, for top(); laidOut does nothing while pinning
+            pinning = false
+            place = top()
+            readTop(list)
+            ChatView.trace("uikit list: assistive focus on a message off screen, put on screen, at end \(atEnd) (\(geometry(list)))", ring: false)
+        }
+        // The row of this list an accessibility element belongs to: its container chain to the first view, then that view's
+        // superviews to a cell of this list. A chain that reaches the list with no cell (the list's own element for a row
+        // with no cell) is placed by the element's frame; one that leaves the list (the composer) is not ours.
+        func focusedRow(_ element: Any) -> IndexPath? {
+            guard let list else { return nil }
+            var o: NSObject? = element as? NSObject
+            for _ in 0..<40 {
+                guard let cur = o else { return nil }
+                if let v = cur as? UIView {
+                    var w: UIView? = v
+                    while let x = w {
+                        if let c = x as? UICollectionViewCell, c.superview === list { return list.indexPath(for: c) }
+                        if x === list { return rowAt(frame: (element as? NSObject)?.accessibilityFrame) }
+                        w = x.superview
+                    }
+                    return nil
+                }
+                // Public only on UIAccessibilityElement; SwiftUI's elements answer it too, so it is asked for by name.
+                let up = NSSelectorFromString("accessibilityContainer")
+                o = cur.responds(to: up) ? cur.perform(up)?.takeUnretainedValue() as? NSObject : nil
+            }
+            return nil
+        }
+        func rowAt(frame f: CGRect?) -> IndexPath? {
+            guard let list, let f, !f.isNull, !f.isEmpty, let screen = list.window?.screen else { return nil }
+            let p = list.convert(CGPoint(x: f.midX, y: f.midY), from: screen.coordinateSpace)
+            return list.indexPathForItem(at: CGPoint(x: list.bounds.midX, y: p.y))
+        }
+
         func pin() {
             guard let list else { return }
             let y = maxY(list)
@@ -555,6 +692,9 @@ struct ChatList: UIViewRepresentable {
         list.delegate = co
         list.onLayout = { [weak co] in co?.laidOut() }
         list.personScrolls = { [weak co] in co?.personScrollStarted() }
+        co.focusObserver = NotificationCenter.default.addObserver(forName: UIAccessibility.elementFocusedNotification, object: nil, queue: .main) { [weak co] n in
+            if let el = n.userInfo?[UIAccessibility.focusedElementUserInfoKey] { co?.focusFollow(el) }
+        }
         co.apply(ids)
         // A new list opens at the newest message: the chat is told so once, as it is told of every later change.
         let told = atEnd
@@ -570,6 +710,10 @@ struct ChatList: UIViewRepresentable {
         if let after = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_A11YSCROLL"].flatMap(Double.init), !Self.sampleA11yDone {
             let report = sampleA11y
             DispatchQueue.main.asyncAfter(deadline: .now() + after) { [weak co] in co?.sampleA11yScroll(report) }
+        }
+        if let after = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_A11YFOCUS"].flatMap(Double.init), !Self.sampleA11yDone {
+            let report = sampleA11y
+            DispatchQueue.main.asyncAfter(deadline: .now() + after) { [weak co] in co?.sampleA11yFocus(report) }
         }
         #endif
         return list
