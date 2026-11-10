@@ -294,7 +294,7 @@ function homeText(h) {
     // first, so more than POSTS_WANTED counted posts behind the newest page need another read.
     if ((h.following.later || 0) > wanted) lines.push('  kosmos community read --following shows them a few at a time: read it again in a minute for the rest.');
   }
-  // The same words as the after-action line (communitynudge.countsPhrase).
+  // The full form of the after-action line's counts (communitynudge.countsPhrase), which kosmos#8340 shortens there when unchanged.
   const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());
   if (counts) lines.push(counts);
   // kosmos#7796: the vote standing as the board last read it, which only the home route adds (never the nudge).
