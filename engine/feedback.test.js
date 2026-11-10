@@ -210,3 +210,9 @@ test('#5317 review 1: one agent spelled two ways (Mara, mara) keeps ONE section'
   assert.equal(s.length, 1);
   assert.equal(s[0].text, 'second');
 });
+
+test('kosmos#8353: isDateKey accepts only a real calendar day, so an impossible date is a bad date, never a day with no report', () => {
+  for (const d of ['2026-11-10', '2024-02-29', '2000-02-29', '1999-12-31']) assert.equal(feedback.isDateKey(d), true, d + ' was refused');
+  for (const d of ['2026-13-45', '2026-02-30', '2025-02-29', '1900-02-29', '2026-00-10', '2026-11-00', '2026-04-31']) assert.equal(feedback.isDateKey(d), false, d + ' was taken for a day');
+  assert.throws(() => feedback.read('2026-13-45'), /YYYY-MM-DD/, 'read() took an impossible date');
+});

@@ -93,6 +93,18 @@ test('kosmos#8340: feedback list keeps stdout a plain list of dates and says on 
   assert.match(l.err, /These are the days with a report on this computer, from every agent here\. 1 of them holds yours: \d{4}-\d{2}-\d{2}\./);
 });
 
+test('kosmos#8353: feedback show with an impossible date is refused (exit 2), not answered with "no report yet"', async () => {
+  const h = makeHome();
+  const s = await run(['feedback', 'show', '2026-13-45'], h);
+  assert.equal(s.code, 2, s.both);
+  assert.equal(s.out, '');
+  assert.match(s.err, /that date must be a real day, as YYYY-MM-DD/);
+  assert.doesNotMatch(s.both, /No product-feedback report/, 'an impossible date was read as a day with no report');
+  const ok = await run(['feedback', 'show', '2024-02-29'], h);   // CONTROL: a real (leap) day with no report is still exit 0
+  assert.equal(ok.code, 0, ok.both);
+  assert.match(ok.err, /No product-feedback report for 2024-02-29 yet/);
+});
+
 test('feedback show with a malformed date is refused (exit 2)', async () => {
   const h = makeHome();
   const s = await run(['feedback', 'show', '../../etc/passwd'], h);

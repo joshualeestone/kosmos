@@ -52,7 +52,14 @@ function dateKey(d = new Date()) {
  *  source of truth and cannot drift across sites. Requires a string, so a
  *  non-string date (a JSON number/array/object) is rejected rather than
  *  ToString-coerced into a value that echoes back oddly. */
-function isDateKey(x) { return typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x); }
+/* kosmos#8353: a real calendar day, not only the shape: 2026-13-45 or 2026-02-30 is a bad date (the CLIs exit 2), never a
+   day with "no report yet". Still a bare YYYY-MM-DD string first, which is what keeps a date out of the path. */
+function isDateKey(x) {
+  if (typeof x !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x)) return false;
+  const [y, m, d] = x.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
 
 /** Reject anything that is not a bare YYYY-MM-DD, so a caller cannot walk out
  *  of the feedback dir via the date (the same untrusted-path care store.js

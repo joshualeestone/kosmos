@@ -5899,7 +5899,7 @@ cmd_feedback() {
       KOSMOS_FEEDBACK_DATE="${1:-}" "$NODE" -e '
         const fb = require(process.argv[1] + "/engine/feedback");
         const d = process.env.KOSMOS_FEEDBACK_DATE || fb.today();
-        if (!fb.isDateKey(d)) { console.error("that date must be YYYY-MM-DD"); process.exit(2); }
+        if (!fb.isDateKey(d)) { console.error("that date must be a real day, as YYYY-MM-DD"); process.exit(2); }
         const b = fb.readBody(d);
         /* kosmos#8260: no report yet is an answer, not a failure: nothing on stdout (so a caller reading it gets no
            report), the sentence on stderr, exit 0. Agents are told to check with this before writing. */

@@ -2852,7 +2852,7 @@ async function feedbackWrite(ctx, args) {
 async function feedbackShow(ctx, args) {
   const fb = ctx.engine('feedback');
   const date = args[0] || fb.today();
-  if (!fb.isDateKey(date)) { ctx.err('that date must be YYYY-MM-DD'); return 2; }
+  if (!fb.isDateKey(date)) { ctx.err('that date must be a real day, as YYYY-MM-DD'); return 2; }
   const body = fb.readBody(date);
   // kosmos#8260: no report yet is an answer, not a failure: nothing on stdout, the sentence on stderr, exit 0, as install/kosmos.
   if (body == null) { ctx.err(fb.noReportWords(date)); return 0; }
