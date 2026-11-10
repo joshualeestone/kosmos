@@ -7,7 +7,7 @@
  *  - with the page's script not run (its first paint: the script tag is emptied): the eight dots are not drawn, and the
  *    cover's middle really has gold pixels in the shape of the still frame;
  *  - with the script run: the live canvas is on and the still frame is gone (one orb, not two);
- *  - CONTROL: the same page with the rule's mask removed draws nothing there, so the pixel read can fail.
+ *  - CONTROL: the same page with the still frame's paint removed draws nothing there, so the pixel read can fail.
  *
  *   HEADED=0 NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-orbboot-8354.js
  */
@@ -43,6 +43,8 @@ const inkPixels = async (page) => {   // gold-ish pixels inside the cover's spin
     const t = `[${scheme}]`;
     let page = await context.newPage();
     await page.setContent(FIRST, { waitUntil: 'load' });
+    const present = await page.evaluate(() => document.querySelectorAll('#boot-cover .boot-spin i').length);
+    say(present === 8, `${t} premise: the cover's eight dots are in the page`, 'present=' + present);
     const dots = await page.evaluate(() => [...document.querySelectorAll('#boot-cover .boot-spin i')].filter((i) => getComputedStyle(i).display !== 'none').length);
     say(dots === 0, `${t} first paint: none of the dots are drawn`, 'drawn=' + dots);
     const lit = await inkPixels(page);
