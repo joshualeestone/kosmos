@@ -57,13 +57,16 @@ struct ChatList: UIViewRepresentable {
     // kosmos#8221 slice 14: KOSMOS_SAMPLE_NODROPFIX=1 leaves a reader whose rows were all dropped at the old offset, as before
     // the slice: the control arm of EarlierDroppedUITests.
     static let sampleNoDropFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NODROPFIX"] == "1"
-    // kosmos#8221 slice 18: KOSMOS_SAMPLE_FOCUSNOGUARDS=1 takes away focusFollow's two "leave it alone" rules (a focus on the
-    // newest message, a focus on screen), so A11yFocusUITests' checks of those rules have a control that can see them broken.
-    static let sampleFocusNoGuards = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUSNOGUARDS"] == "1"
+    // kosmos#8221 slice 18: each takes away one of focusFollow's "leave it alone" rules, so A11yFocusUITests' check of that rule
+    // has a control that can see it broken: KOSMOS_SAMPLE_FOCUSNONEWEST=1 the newest message's, KOSMOS_SAMPLE_FOCUSNOONSCREEN=1
+    // the on-screen one. One switch each, so a control cannot pass through the other rule (review 1).
+    static let sampleFocusNoNewest = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUSNONEWEST"] == "1"
+    static let sampleFocusNoOnScreen = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUSNOONSCREEN"] == "1"
     #else
     static let sampleNoCellActions = false
     static let sampleNoDropFix = false
-    static let sampleFocusNoGuards = false
+    static let sampleFocusNoNewest = false
+    static let sampleFocusNoOnScreen = false
     #endif
 
     final class List: UICollectionView {
@@ -654,7 +657,7 @@ struct ChatList: UIViewRepresentable {
             lastFocusPart = part
             appliedSinceFocus = false
             if refocus { return }
-            if ip >= newestAt, !ChatList.sampleFocusNoGuards {
+            if ip >= newestAt, !ChatList.sampleFocusNoNewest {
                 // Back on the newest message: at the newest once it is fully shown (the working line and the room under it can
                 // keep the list more than its usual slack short of the end), read now and once VoiceOver's own scroll to it
                 // has run (a scroll it makes without animation reports no end).
@@ -677,7 +680,7 @@ struct ChatList: UIViewRepresentable {
             let inset = list.adjustedContentInset, pad = list.contentInset
             // Off screen means under the bars or the box (the safe area), not in the list's own padding, which shows.
             let seenTop = list.contentOffset.y + inset.top - pad.top, seenBottom = list.contentOffset.y + list.bounds.height - inset.bottom + pad.bottom
-            guard f.minY < seenTop - 0.5 || f.maxY > seenBottom + 0.5 || ChatList.sampleFocusNoGuards else { return }
+            guard f.minY < seenTop - 0.5 || f.maxY > seenBottom + 0.5 || ChatList.sampleFocusNoOnScreen else { return }
             // Put on screen with the padding kept, as the list rests.
             let shownTop = list.contentOffset.y + inset.top, shownBottom = list.contentOffset.y + list.bounds.height - inset.bottom
             let y = f.minY < shownTop || f.height > shownBottom - shownTop
