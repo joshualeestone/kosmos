@@ -81,8 +81,8 @@ if [ "$uikit" = 1 ]; then
   # kosmos#8221 slice 13: A11yActionsUITests (3), VoiceOver's Message actions opens the sheet (Copy, and Delete on your own message)
   #   from a hosted cell; one control with the opener left out of the cell.
   # kosmos#8221 slice 14: EarlierDroppedUITests (2), a reader up in earlier pages that are dropped (a "moved" read) goes to
-  #   the top of what remains; one control with the fix off.
-  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:7 ChatGapUITests:3 A11yFocusUITests:12 A11yActionsUITests:3 EarlierDroppedUITests:2"
+  #   the top of what remains; one control with the fix off. Slice 16: the same for a delete that drops them (2 more).
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:7 ChatGapUITests:3 A11yFocusUITests:12 A11yActionsUITests:3 EarlierDroppedUITests:4"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done
