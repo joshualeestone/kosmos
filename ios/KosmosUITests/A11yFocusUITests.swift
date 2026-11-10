@@ -112,7 +112,7 @@ final class A11yFocusUITests: XCTestCase {
     func testAFocusOnAMessageJustCutOffStaysOnScreen() throws {
         let r = try focus(mode: "clipped")
         XCTAssertTrue(r.found, "CONTROL: the focused element was not placed on its row: \(r.label)")
-        XCTAssertGreaterThanOrEqual(r.moved, 15, "the list did not bring the message down, or put it back: \(r.label)")
+        XCTAssertGreaterThanOrEqual(r.moved, 25, "the list did not bring the message down, or put it back: \(r.label)")
         XCTAssertEqual(r.pins, 0, "the list put itself back at the end after the focus: \(r.label)")
         XCTAssertFalse(r.atEnd, "the reader is still held at the newest: \(r.label)")
         XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")

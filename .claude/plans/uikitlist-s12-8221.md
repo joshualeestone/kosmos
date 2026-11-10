@@ -27,7 +27,7 @@ layout. A focus on something already on screen, or on the newest message however
   - Which row: walk the element's accessibilityContainer chain to its first UIView, then its superviews to a cell of this
     list. If the walk reaches the list with no cell (UICollectionView's own element for a row with no cell), the row at
     the element's frame. A view chain that leaves the list (the composer), or the list itself as the element, is ignored.
-  - A finger on the list (tracking, dragging, a fling): nothing.
+  - A finger on the list (tracking, dragging, a fling), or slice 11's scroll without a finger still running: nothing.
   - Rows from the newest message on (the last id that is not "working" or "end"): not moved, however tall the message.
     If the reader was off the newest (heldByFocus or not atEnd), heldByFocus is cleared and the reader is at the newest
     once that message is wholly shown (newestShown: measured 11-09, with it fully in view the list was 53 pt short of its
@@ -36,9 +36,11 @@ layout. A focus on something already on screen, or on the newest message however
   - A focus on the same row as the last focus, with an update (apply) between: nothing. That is VoiceOver putting its
     focus back after the cells were redrawn (a streaming reply), not the person moving. Cost: a person who swipes back to
     the very message they last focused, after an update, is not followed; it was put on screen at the first focus.
-  - Within 1 s of toNewest() (a send, New messages, search closing): nothing, since VoiceOver puts its focus on something
+  - Within 1 s of toNewest() (a send, New messages, search closing) or of the list being made (a chat opening): nothing, since VoiceOver puts its focus on something
     on screen after such a jump and that is not the person moving.
-  - Decided and moved by the focused element's own frame (a part of a tall message), the row's when it has none. Off
+  - Decided and moved by the focused element's own frame (a part of a tall message), the row's when it has none; with
+    the row's frame, measured again after the layout the move causes (rows drawn for the first time change height) and
+    put right once. Off
     screen is measured against the safe area, not the list's own padding; the move keeps the padding.
   - After the move: heldByFocus is set, so until the person scrolls or the reader is at the newest again only the very
     end counts as the newest (endReached, used by hold(), scrolled() and focusFollow). Without it, a message cut off by up
