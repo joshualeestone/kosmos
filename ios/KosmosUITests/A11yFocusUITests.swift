@@ -3,7 +3,7 @@ import XCTest
 /// kosmos#8221 slice 12: on the UIKit list, assistive focus (VoiceOver's one-finger swipe to the element above) moving to a
 /// message above the screen while the reader is at the newest: the reader is no longer held at the end, and that message is
 /// on screen and stays there. VoiceOver does not run on a simulator, so the app posts the notification VoiceOver posts, 6 s
-/// after the chat opens (KOSMOS_SAMPLE_A11YFOCUS), in one of four modes (KOSMOS_SAMPLE_A11YFOCUS_MODE, see
+/// after the chat opens (KOSMOS_SAMPLE_A11YFOCUS), in one of seven modes (KOSMOS_SAMPLE_A11YFOCUS_MODE, see
 /// ChatList.sampleA11yFocus), and reports what the list did. The UIKit list only: the lazy list has no such pin.
 final class A11yFocusUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
@@ -105,6 +105,17 @@ final class A11yFocusUITests: XCTestCase {
         XCTAssertLessThan(r.moved, 0, "the list did not move down to the message: \(r.label)")
         XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")
         XCTAssertEqual(r.pins, 0, "the list put itself back at the end after the focus: \(r.label)")
+    }
+
+    // At the newest, a message cut off by only 20 pt at the top (inside the list's 40 pt of slack at the end): it comes on
+    // screen and stays there through the next layout, not pinned back under the bar.
+    func testAFocusOnAMessageJustCutOffStaysOnScreen() throws {
+        let r = try focus(mode: "clipped")
+        XCTAssertTrue(r.found, "CONTROL: the focused element was not placed on its row: \(r.label)")
+        XCTAssertGreaterThanOrEqual(r.moved, 15, "the list did not bring the message down, or put it back: \(r.label)")
+        XCTAssertEqual(r.pins, 0, "the list put itself back at the end after the focus: \(r.label)")
+        XCTAssertFalse(r.atEnd, "the reader is still held at the newest: \(r.label)")
+        XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")
     }
 
     // A message already on screen, focused with the element SwiftUI made for it: found by its cell, and nothing changes.
