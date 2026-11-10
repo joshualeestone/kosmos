@@ -29,8 +29,9 @@ layout. A focus on something already on screen, or on the newest message however
     the element's frame. A view chain that leaves the list (the composer), or the list itself as the element, is ignored.
   - A finger on the list (tracking, dragging, a fling): nothing.
   - Rows from the newest message on (the last id that is not "working" or "end"): not moved, however tall the message.
-    If the reader was off the newest (heldByFocus or not atEnd), heldByFocus is cleared and atEnd read with the usual
-    slack, now and again 0.6 s later, retried while the list is still moving, up to four times (VoiceOver's scroll to
+    If the reader was off the newest (heldByFocus or not atEnd), heldByFocus is cleared and the reader is at the newest
+    once that message is wholly shown (newestShown: measured 11-09, with it fully in view the list was 53 pt short of its
+    end, more than the 40 pt slack) or the list is within the usual slack of its end, read now and again 0.6 s later, retried while the list is still moving, up to four times (VoiceOver's scroll to
     it may have no animation, so no scroll end).
   - A focus on the same row as the last focus, with an update (apply) between: nothing. That is VoiceOver putting its
     focus back after the cells were redrawn (a streaming reply), not the person moving. Cost: a person who swipes back to
@@ -41,8 +42,9 @@ layout. A focus on something already on screen, or on the newest message however
     screen is measured against the safe area, not the list's own padding; the move keeps the padding.
   - After the move: heldByFocus is set, so until the person scrolls or the reader is at the newest again only the very
     end counts as the newest (endReached, used by hold(), scrolled() and focusFollow). Without it, a message cut off by up
-    to the list's 40 pt slack was pinned back under the bar at the next layout. Then atEnd = endReached, and a place is
-    taken when not at the end.
+    to the list's 40 pt slack was pinned back under the bar at the next layout. Then atEnd = endReached, and when not at
+    the end the place is held by the focused row itself (measured 11-09: held by the highest row on screen, rows drawn
+    for the first time below it came in 16 pt taller than estimated and pushed a message put at the bottom back off).
 - Order: whichever comes first. Focus first: atEnd is false before VoiceOver's scroll, which is then followed as any
   scroll with no finger is for a reader higher up. Scroll first: laidOut pinned it back, then the focus brings it on.
 - Debug only: KOSMOS_SAMPLE_A11YFOCUS=<s> with _MODE visible, above, after, first, newest, below, clipped or back;
