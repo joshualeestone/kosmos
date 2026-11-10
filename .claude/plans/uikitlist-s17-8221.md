@@ -66,4 +66,13 @@ after it.
 
 ## Results
 
-(after the simulator runs)
+- EarlierDeleteShiftUITests, final code, 3 runs on the iOS 26.5 simulator: both checks passed every run. In each run's
+  trace the page after the delete is asked "before 39" with the fix (the window as it now is) and "before 40" in the
+  control (the count from before the delete), and the control counts the moved message twice.
+- EarlierDeleteShiftUITests + EarlierDroppedUITests on the code before the last test change (round 3): 6 of 6 in run 1;
+  run 2's control stopped at its own setup check because at a 6 s page delay the drag back into the first page landed
+  after the delete. The class now uses 8 s, as EarlierDroppedUITests does, and passed the 3 runs above.
+- The first version of the check could not see the defect (its control counted the message once): a reader left at the
+  top asks nothing on the drop, so the check now drags back into the first page first, as slice 14's does.
+- Room suite 871 of 871; LogicTests run.sh 2135 of 2135.
+- Review: 4 rounds on two models, converged (round 4 found nothing new beyond the documented moved-path gap).
