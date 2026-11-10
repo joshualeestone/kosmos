@@ -3,7 +3,7 @@ import XCTest
 /// kosmos#8221 slice 12: on the UIKit list, assistive focus (VoiceOver's one-finger swipe to the element above) moving to a
 /// message above the screen while the reader is at the newest: the reader is no longer held at the end, and that message is
 /// on screen and stays there. VoiceOver does not run on a simulator, so the app posts the notification VoiceOver posts, 6 s
-/// after the chat opens (KOSMOS_SAMPLE_A11YFOCUS), in one of eight modes (KOSMOS_SAMPLE_A11YFOCUS_MODE, see
+/// after the chat opens (KOSMOS_SAMPLE_A11YFOCUS), in one of ten modes (KOSMOS_SAMPLE_A11YFOCUS_MODE, see
 /// ChatList.sampleA11yFocus), and reports what the list did. The UIKit list only: the lazy list has no such pin.
 final class A11yFocusUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
@@ -126,6 +126,23 @@ final class A11yFocusUITests: XCTestCase {
         XCTAssertTrue(r.onScreen, "CONTROL: the newest message is not on screen after the scroll to it: \(r.label)")
         XCTAssertTrue(r.atEnd, "back on the newest message, the reader is still counted higher up: \(r.label)")
         XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")
+    }
+
+    // The same message focused again after an update redrew the cells (VoiceOver putting its focus back), with the reader
+    // back at the newest in between: not followed. If the refocus rule were gone the list would move up 783 pt again.
+    func testARefocusAfterAnUpdateIsNotFollowed() throws {
+        let r = try focus(mode: "refocus")
+        XCTAssertTrue(r.found, "CONTROL: the focused element was not placed on its row: \(r.label)")
+        XCTAssertEqual(r.moved, 0, "a refocus after an update moved the list: \(r.label)")
+        XCTAssertTrue(r.atEnd, "a refocus after an update took the reader off the newest: \(r.label)")
+    }
+
+    // A focus 0.3 s after a jump to the newest (VoiceOver's own, after a send or New messages): not followed.
+    func testAFocusRightAfterAJumpToTheNewestIsNotFollowed() throws {
+        let r = try focus(mode: "afterjump")
+        XCTAssertTrue(r.found, "CONTROL: the focused element was not placed on its row: \(r.label)")
+        XCTAssertEqual(r.moved, 0, "a focus right after a jump to the newest moved the list: \(r.label)")
+        XCTAssertTrue(r.atEnd, "a focus right after a jump to the newest took the reader off it: \(r.label)")
     }
 
     // A message already on screen, focused with the element SwiftUI made for it: found by its cell, and nothing changes.
