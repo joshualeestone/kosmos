@@ -10,6 +10,8 @@ import XCTest
 // due (through the sheet's own delete), and KOSMOS_SAMPLE_DELETE_SHIFTS=1 shifts the window as the Mac does. Position 39 is the
 // message that moves: "Checking the venue list, item 40." The control (KOSMOS_SAMPLE_NOREADFIRST=1) asks as before the slice,
 // and the check counts that message twice. UIKit list only (slice 14's place keeping is the UIKit list's).
+// The control relies on the top showing (slice 14's drop) before the loop's next 5 s read lands; if that read came first, the
+// page would be asked from the fresh count and the control would go red. It can fail the check, never pass it wrongly.
 final class EarlierDeleteShiftUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
@@ -70,7 +72,7 @@ final class EarlierDeleteShiftUITests: XCTestCase {
         Thread.sleep(forTimeInterval: Self.delay)
         let landed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: loading)
         _ = XCTWaiter().wait(for: [landed], timeout: Self.delay + 10)
-        XCTAssertFalse(loading.exists, "CONTROL: the page asked for after the delete never landed")
+        XCTAssertFalse(loading.exists, "the line is still up after the page asked for after the delete was due")
         // One step up: the new page's last rows come on screen above the window's first, where a second copy would be.
         Self.drag(app, older: true)
         Thread.sleep(forTimeInterval: 1)

@@ -20,11 +20,14 @@ twice) and then asks from the count it read before. The server's older route ans
 positions up to it, the one that moved into the window included, and the range check (olderCount + rows == before) holds
 for it, on the board (earlierFetch) and the phone (readOlder) alike.
 
+On a moved answer the board does not wait: earlierMore resets and repaints from its last body and the next scroll asks
+from that body's count. The phone now waits there for a read, deliberately stricter than the board (review 3).
+
 Not in scope: a shrink check like the board's (#5841) on the phone. It would catch the duplicate after the fact by
 dropping the pages again (the reader jumps); this slice stops it being asked for.
 
-Applies on both chat lists and in Release (the stale count is the chat's, not a list's): after a delete with pages open
-there is one more thread read, and after a moved answer the next page waits up to one 5 s read. Only the UIKit list is
+Applies on both chat lists and in Release (the stale count is the chat's, not a list's): after every delete there is
+one more thread read, and after a moved answer the next page waits up to one 5 s read. Only the UIKit list is
 measured (the checks are UIKit-only). A Try again tapped before that read lands does nothing until it does (the line is
 blank for up to one read); rare, since the next read usually lands first. Only a read that shows a window (a whole thread
 or an unchanged one) lifts the wait; a failed read does not (review 1).
@@ -52,13 +55,13 @@ after it.
 
 ## Change
 
-- ChatView: earlierWaitsForRead, set on a delete that drops the pages (with an immediate read) and on a moved answer (page
+- ChatView: earlierWaitsForRead, set on every delete (with an immediate read) and on a moved answer (page
   or gap fill); loadEarlier waits while it is set and no read started after it has been shown, and traces "earlier out:
   waits for a read". KOSMOS_SAMPLE_NOREADFIRST=1 is the control. Cleared on a chat reset.
 - BoardClient (DEBUG): KOSMOS_SAMPLE_DELETE_SHIFTS=1 makes Dana's long chat shift its window on a delete as the Mac's does.
 - EarlierDeleteShiftUITests (new, 2): the fix and its control, counting "Checking the venue list, item 40." (position 39,
   the message that moves) once the page asked for after the delete has landed.
-- EarlierDroppedUITests: at the top of what remains, the page before is now asked for within one read (up to 7 s).
+- EarlierDroppedUITests: at the top of what remains, the page before is now asked for within one read (up to 10 s).
 - ui-sample.sh: the new class in the UIKit list and the earlier-pages trace block.
 
 ## Results
