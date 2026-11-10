@@ -42,6 +42,11 @@ struct ChatList: UIViewRepresentable {
     static var sampleUpDone = false   // set once KOSMOS_SAMPLE_SCROLLUP has scrolled; a list made after that does not scroll again
     // KOSMOS_SAMPLE_A11YSCROLL, _A11YFOCUS and _A11YACTIONS share it: one of them runs once a launch, as sampleUpDone.
     static var sampleA11yDone = false
+    // kosmos#8221 slice 13: KOSMOS_SAMPLE_NOCELLACTIONS=1 sets the sheet's opener carried into each cell to nil (configure):
+    // the control arm of A11yActionsUITests. Read once a launch.
+    static let sampleNoCellActions = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOCELLACTIONS"] == "1"
+    #else
+    static let sampleNoCellActions = false
     #endif
 
     final class List: UICollectionView {
@@ -130,12 +135,8 @@ struct ChatList: UIViewRepresentable {
 
         func configure(_ c: UICollectionViewCell, _ id: String) {
             guard let cell else { return }
-            var env = environment
-            #if DEBUG
-            // kosmos#8221 slice 13: KOSMOS_SAMPLE_NOCELLACTIONS=1 sets the sheet's opener carried into the cell to nil: the
-            // control arm of A11yActionsUITests.
-            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOCELLACTIONS"] == "1" { env.openMessageActions = nil }
-            #endif
+            let env = environment
+            let open = ChatList.sampleNoCellActions ? nil : env.openMessageActions
             c.contentConfiguration = UIHostingConfiguration {
                 // The long-press sheet's host is the chat's (messageActionsHost); a hosted cell does not inherit SwiftUI's
                 // environment, so the two values the bubbles read are carried in.
@@ -143,7 +144,7 @@ struct ChatList: UIViewRepresentable {
                 // bubble), which a hosting configuration would otherwise space 8 pt apart (measured 11-07: the list stepped
                 // 8 pt as such a send became its two rows). The lazy list's stack has no spacing either.
                 VStack(alignment: .leading, spacing: 0) { cell(id) }
-                    .environment(\.openMessageActions, env.openMessageActions)
+                    .environment(\.openMessageActions, open)
                     .environment(\.shownMessageActions, env.shownMessageActions)
             }
             .margins(.horizontal, 16).margins(.vertical, 0)
