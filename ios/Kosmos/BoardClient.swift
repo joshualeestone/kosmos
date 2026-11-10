@@ -1125,7 +1125,7 @@ final class BoardClient: ObservableObject {
         let epoch = chatEpoch
         #if DEBUG
         if var sample = sampleOlder(session, before: before) {
-            // kosmos#8221 slice 14: KOSMOS_SAMPLE_OLDER_MOVED=<k> answers the k-th sample page "moved" (the conversation changed
+            // kosmos#8221 slice 14: KOSMOS_SAMPLE_OLDER_MOVED=<k> answers the k-th sample page asked for in this launch (any chat) "moved" (the conversation changed
             // under it), as the Mac's answer reads when it is not the range asked for, so the loaded pages start again.
             Self.sampleOlderAsks += 1
             if let k = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OLDER_MOVED"].flatMap(Int.init), k == Self.sampleOlderAsks {

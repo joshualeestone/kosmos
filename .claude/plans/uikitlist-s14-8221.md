@@ -36,6 +36,12 @@ wholesale.
 - ios/KosmosUITests/EarlierDroppedUITests.swift: the fix and its control, UIKit arm only.
 - ios/tools/ui-sample.sh: EarlierDroppedUITests:2 in the UIKit class list.
 
+## Coverage
+
+Measured: the moved page path only (EarlierDroppedUITests). The moved gap fill, a delete with earlier pages open and Try
+again after a thread that kept moving all go through restartEarlier and the same ChatList branch; covered by reasoning, not
+by a check. A fling running at the drop is stopped first (as toNewest does); not measured.
+
 ## Results
 
 On this Mac (iPhone 17e, iOS 26.5, UIKit arm), 01:41-01:45 CST: EarlierDroppedUITests 2 of 2, the fix arm (Message 41 at the top after the drop, held as the page asked for again lands) and the control (fix off: Message 41 not on screen after the drop).

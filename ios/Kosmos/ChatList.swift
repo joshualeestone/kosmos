@@ -872,7 +872,11 @@ struct ChatList: UIViewRepresentable {
                 // screen in them, so no row is left to hold and the old offset would land the reader in an unrelated part of
                 // the chat. They go to the top of what remains, the oldest row still loaded, the nearest to where they were
                 // reading; at the top, the page before is asked for again (atTop) and lands above them, held as any page is.
+                // A fling still running would carry the reader on from the top; it is stopped in place first, as toNewest
+                // does. A focused message was in a dropped row, so focus no longer holds the place.
+                if list.isDecelerating { list.setContentOffset(list.contentOffset, animated: false) }
                 personUntil = 0; personAskedAt = 0
+                heldByFocus = false
                 list.layoutIfNeeded()
                 place = nil
                 pinning = true
