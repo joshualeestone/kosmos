@@ -22,6 +22,9 @@ struct ChatList: UIViewRepresentable {
     // kosmos#8221 slice 7: whether the reader is at the top of what is loaded (earlier messages load there), told when it
     // changes (never during a layout pass). A chat too short to scroll is at its top.
     var atTop: (Bool) -> Void = { _ in }
+    // kosmos#8221 slice 16: where the top is, read again after every change in the rows, changed or not. It says where the
+    // reader is and asks for nothing (atTop above asks when the reader reaches the top).
+    var topRead: (Bool) -> Void = { _ in }
     // kosmos#8221 slice 9: the list's scroll view, handed to the chat once it is made, for the pull past the newest message
     // (EndPullDriver watches its offset and its pan, and takes no delegate).
     var scroller: (UIScrollView) -> Void = { _ in }
@@ -117,6 +120,7 @@ struct ChatList: UIViewRepresentable {
             if atEnd != oldValue { let v = atEnd; DispatchQueue.main.async { [weak self] in self?.told?(v) } }
         } }
         var toldTop: ((Bool) -> Void)?
+        var readTopTold: ((Bool) -> Void)?
         var atTop = false { didSet {
             if atTop != oldValue {
                 ChatView.trace("uikit list: atTop \(atTop)", ring: false)
@@ -887,16 +891,16 @@ struct ChatList: UIViewRepresentable {
                 if !(list.isTracking || list.isDragging || list.isDecelerating) { dragged = false }
                 ChatView.trace("uikit list: earlier pages dropped under the reader, put at the top of what remains (\(geometry(list)))", ring: false)
             }
-            // kosmos#8221 slice 16: the chat marks the top gone as a page's rows land above (ChatView.loadEarlier), so after such
-            // an update it is told where the top is, changed or not, read again on the next turn of the main loop. A reader still
-            // at the top is then asked for the page before. Only for rows added above with nothing dropped: after a drop (a
-            // delete, a moved answer) the next page waits for the next read, as it did before this slice (review 1).
-            if !pagesDropped, let first = before.first, let at = now.firstIndex(of: first), at > 0 {
+            // kosmos#8221 slice 16: the chat holds its requests for earlier pages from the moment a page's rows land
+            // (ChatView.loadEarlier) until it is told where the top is. After every change in the rows (a page, a day line
+            // replaced, a drop, a new message), that is read again on the next turn of the main loop and told, whether it
+            // changed or not. Telling asks for nothing: after a drop the next page waits for the next read (review 1).
+            if before != now {
                 DispatchQueue.main.async { [weak self] in
                     guard let self, let list = self.list else { return }
                     list.layoutIfNeeded()
                     self.readTop(list)
-                    self.toldTop?(self.atTop)
+                    self.readTopTold?(self.atTop)
                 }
             }
             redrawn += again.count
@@ -931,6 +935,7 @@ struct ChatList: UIViewRepresentable {
         co.cell = cell
         co.told = atEnd
         co.toldTop = atTop
+        co.readTopTold = topRead
         co.environment = context.environment
         co.newest = newest
         co.dropped = dropped
@@ -980,6 +985,7 @@ struct ChatList: UIViewRepresentable {
         co.cell = cell
         co.told = atEnd
         co.toldTop = atTop
+        co.readTopTold = topRead
         co.environment = context.environment
         co.apply(ids, dropped: dropped)
         if newest != co.newest {
