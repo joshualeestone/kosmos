@@ -42,9 +42,9 @@ final class EarlierDeleteShiftUITests: XCTestCase {
         (older ? a : b).press(forDuration: 0.05, thenDragTo: older ? b : a, withVelocity: .slow, thenHoldForDuration: 0.4)
     }
 
-    // To the top, the first page landed, on up to its top so the second page is asked for, and then past the delete and the
-    // page asked for after it. Leaves the reader where slice 14 puts them, at the top of what remains, scrolled up one step so
-    // the end of the new page and the start of the window are both drawn.
+    // To the top, the first page landed, on up to its top so the second page is asked for, one drag back into it, then past
+    // the delete and the page asked for after it. Leaves the reader where slice 14 puts them, at the top of what remains,
+    // scrolled up one step so the end of the new page and the start of the window are both drawn.
     private func deleteUnderTheReader(_ app: XCUIApplication) {
         XCTAssertTrue(Self.label(app, "Message 260 of 260").waitForExistence(timeout: 20), "the long chat did not open at its newest message")
         UIKitListArm.assertDrawn(app)
@@ -61,6 +61,11 @@ final class EarlierDeleteShiftUITests: XCTestCase {
         drags = 0
         while !loading.exists && drags < 30 { Self.drag(app, older: true); drags += 1 }
         XCTAssertTrue(loading.exists, "CONTROL: the first page's top did not ask for the second")
+        // One drag back down into the first page, as EarlierDroppedUITests does: off its top, so the drop carries the reader up
+        // to the top of what remains (slice 14) and the top shows again. A reader left at the top asks nothing on the drop
+        // (its top never changed), so it would not reach the ask this check is about (measured: the first control run).
+        Self.drag(app, older: false)
+        XCTAssertTrue(Self.label(app, "Checking the venue list, item").exists, "CONTROL: no row of the first page is drawn before the drop")
         // The delete comes 2 s before the second page is due; then the page asked for after it lands (up to a read and a delay).
         Thread.sleep(forTimeInterval: Self.delay)
         let landed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: loading)
