@@ -72474,11 +72474,13 @@ function tskRow(t, at) {
   /* #3951: a built row says who marked it and what is left, the agent's own words. */
   /* On any marked open task, not only in the Built group (review round 5: a built task whose agent needs the person
      sits under Needs Your Decision, and still says who marked it and offers the undo). */
+  /* kosmos#8352: a long note keeps the row readable and says there is more, so a partial does not read as finished. */
+  const builtNoteRow = String(t.builtNote || '').length > 240 ? t.builtNote.slice(0, 240).trimEnd() + '... (the rest is on its page)' : t.builtNote;
   const builtLine = !t.builtAt || t.state === 'closed' ? ''
     : '<div class="why">Marked built' + (t.builtByPerson ? ' by you' : t.builtBy ? ' by ' + esc(tskAgentName(t.builtBy)) : '')
       /* An empty ago (a time ahead of this device's clock) leaves no stray space before the colon (review round 11). */
       + (t.builtAt && agoWords(Date.now() - Date.parse(t.builtAt)) ? ' ' + esc(agoWords(Date.now() - Date.parse(t.builtAt))) : '')
-      + (t.builtNote ? ': ' + esc(t.builtNote) : '')
+      + (t.builtNote ? ': ' + esc(builtNoteRow) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
       + ' <button type="button" class="tsk-unbuild' + (t.builtNote ? ' tsk-unbuild-own' : '') + '" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Undo marking task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain)) + ' built">Undo</button></div>';
   const whoLeft = t.state === 'closed' || typeof tkWhoLeftWords !== 'function' ? '' : tkWhoLeftWords(t, tskAgentName);   // kosmos#8137; typeof: tests lift this function alone

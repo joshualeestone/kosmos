@@ -654,3 +654,16 @@ test('#5678 review 7: the list names neither a former holder nor a further one; 
   const free = fall.find((r) => r.number === 4);
   assert.deepEqual([free.ownerNames, free.ownerFrom], [['A'], 2], 'the tree did not speak through its lowest held task');
 });
+
+/* kosmos#8352: room for an honest partial; the limit still holds. */
+test('kosmos#8352: a built note of 1000 characters is kept whole and one more is refused', () => {
+  assert.equal(tasks.BUILT_NOTE_MAX, 1000);
+  const id = projects.create({ name: 'Note cap ' + Math.random().toString(36).slice(2), agents: ['rex'] }).id;
+  const n = tasks.create(id, { sentence: 'A partial' }).number;
+  const over = tasks.setBuilt(id, n, { by: 'rex', note: 'x'.repeat(1001) });
+  assert.equal(over.ok, false);
+  assert.match(over.because, /1000 characters or fewer/);
+  const fits = tasks.setBuilt(id, n, { by: 'rex', note: 'y'.repeat(1000) });
+  assert.equal(fits.ok, true, fits.because);
+  assert.equal(projects.readAll().find((p) => p.id === id).tasks.find((t) => t.number === n).builtNote.length, 1000);
+});
