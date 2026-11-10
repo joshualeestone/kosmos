@@ -672,4 +672,7 @@ test('kosmos#8352: a built note of 1000 characters is kept whole and one more is
   const fits = tasks.setBuilt(id, n, { by: 'rex', note: 'y'.repeat(1000) });
   assert.equal(fits.ok, true, fits.because);
   assert.equal(projects.readAll().find((p) => p.id === id).tasks.find((t) => t.number === n).builtNote.length, 1000);
+  const emoji = tasks.create(id, { sentence: 'Emoji' }).number;
+  assert.equal(tasks.setBuilt(id, emoji, { by: 'rex', note: '\u{1F600}'.repeat(1000) }).ok, true, 'characters, not UTF-16 units');
+  assert.equal(tasks.setBuilt(id, emoji, { by: 'rex', note: '\u{1F600}'.repeat(1001) }).ok, false);
 });

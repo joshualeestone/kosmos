@@ -968,7 +968,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   /* #5705 review 3: format characters (zero-width and the like) are not a note, so a note of only those is none. Checked
      on a copy (review 4): the stored note keeps them, as an emoji or a right-to-left name needs them. */
   const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
-  if (said.length > BUILT_NOTE_MAX) return { ok: false, because: `keep the note to ${BUILT_NOTE_MAX} characters or fewer` };
+  if (Array.from(said).length > BUILT_NOTE_MAX) return { ok: false, because: `keep the note to ${BUILT_NOTE_MAX} characters or fewer` };
   const isPerson = person === true;
   /* kosmos#8067: a command copied from a nudge with its placeholder unfilled. Quoted, the shell passes it, and it would replace a
      real note, be typed into colleagues' panes, and pass for an account of a task's checks. */
