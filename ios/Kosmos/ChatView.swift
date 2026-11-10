@@ -1889,15 +1889,15 @@ struct ChatView: View {
         else { return }
         let start = Board.startLoad(earlier, olderCount: t.olderCount)
         earlier = start
-        let opened = epoch
-        Self.trace("earlier ask: before \(start.before) opening \(start.opening) epoch \(opened)/\(client.chatEpoch)", ring: false)
+        let askedEpoch = epoch
+        Self.trace("earlier ask: before \(start.before) opening \(start.opening) epoch \(askedEpoch)/\(client.chatEpoch)", ring: false)
         Task {
             // kosmos#8221 slice 15: each way out named, to find which one leaves the line loading for good.
             guard let read = await client.olderPage(agent.session, before: start.before) else {
                 Self.trace("earlier out: nil read, opening \(start.opening) now \(earlier.opening) loading \(earlier.loading)", ring: false); return
             }
-            guard opened == client.chatEpoch else {
-                Self.trace("earlier out: epoch \(opened)/\(client.chatEpoch) loading \(earlier.loading)", ring: false); return
+            guard askedEpoch == client.chatEpoch else {
+                Self.trace("earlier out: epoch \(askedEpoch)/\(client.chatEpoch) loading \(earlier.loading)", ring: false); return
             }
             guard let next = Board.finishLoad(earlier, with: read, opening: start.opening) else {
                 Self.trace("earlier out: finishLoad nil, asked \(start.opening) now \(earlier.opening) loading \(earlier.loading) open \(earlier.open)", ring: false); return
