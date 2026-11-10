@@ -33,8 +33,10 @@ wholesale.
   as before. KOSMOS_SAMPLE_NODROPFIX=1 (DEBUG) switches it off: the control.
 - BoardClient (DEBUG): KOSMOS_SAMPLE_OLDER_PAGE=<n> serves sample pages of n; KOSMOS_SAMPLE_OLDER_MOVED=<k> answers the
   k-th sample page "moved".
-- ios/KosmosUITests/EarlierDroppedUITests.swift: the fix and its control, UIKit arm only.
-- ios/tools/ui-sample.sh: EarlierDroppedUITests:2 in the UIKit class list.
+- ios/KosmosUITests/EarlierDroppedUITests.swift: a reader one drag into the first page, and one waiting at its top (review
+  3: their top does not change, so the list tells the chat again and the page is asked for at once), each with a fix-off
+  control. UIKit arm only.
+- ios/tools/ui-sample.sh: EarlierDroppedUITests:4 in the UIKit class list.
 
 ## Coverage
 
