@@ -852,9 +852,10 @@ function byNumber(p, n) {
 
 /* #3951: "built, waiting to ship". An agent (or the person) marks an OPEN task built; the Tasks page counts it in
    Josh's "Built but waiting" tile. The fields are BUILT_FIELDS, set and dropped together; setBuilt says what each is. */
-/* The note says what is left in a sentence or two; 300 characters is SENTENCE_MAX's room for a task's own sentence,
-   plus a clause, and keeps the row's line readable. */
-const BUILT_NOTE_MAX = 300;
+/* The note says what was covered, how it was checked and what is left. kosmos#8352: 300 characters pushed an honest partial
+   toward reading as finished (about 450 was needed, cut to fit twice in one sitting), so there is room for that. The
+   Tasks row shows the start of a long one; the task's own page and `task show` show it whole. */
+const BUILT_NOTE_MAX = 1000;
 /* Thrown inside projects.mutate's callback to leave the store unwritten (review round 15: mutate writes the whole
    store even when the callback changes nothing, so a looping repeat mark rewrote it on every call). */
 const NO_WRITE = Symbol('no write');

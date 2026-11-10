@@ -319,6 +319,19 @@ test('#6923: a Tasks view row closed as replaced says so under the row; a plain 
 });
 
 /* kosmos#8301: built, and closed without running, are said apart from done. */
+/* kosmos#8352: a long built note says there is more on the row; a short one is untouched. */
+test('kosmos#8352: the row shows the start of a long built note and says the rest is on its page', () => {
+  const base = Object.assign({}, rows().find((t) => t.number === 1), { state: 'built', builtAt: new Date().toISOString() });
+  const at = { depth: 0, crumb: false, kids: 0 };
+  const long = 'a'.repeat(240) + 'THE-TAIL';
+  const cut = rowHtml(Object.assign({}, base, { builtNote: long }), at);
+  assert.match(cut, /a{240}\.\.\. \(the rest is on its page\)/);
+  assert.equal(cut.includes('THE-TAIL'), false);
+  const whole = rowHtml(Object.assign({}, base, { builtNote: 'b'.repeat(240) }), at);
+  assert.match(whole, /b{240}/);
+  assert.equal(whole.includes('the rest is on its page'), false, 'CONTROL: a note that fits is shown whole');
+});
+
 test('kosmos#8301: the chip and label say built and closed without running apart from done', () => {
   const row = Object.assign({}, rows().find((t) => t.number === 1), { subtasks: { done: 2, built: 1, held: 0, unrun: 1, total: 4 } });
   const html = rowHtml(row, { depth: 0, crumb: false, kids: 0 });
