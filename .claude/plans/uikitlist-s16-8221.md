@@ -42,12 +42,19 @@ Weakest premise: that a delete fired by a timer behaves the same as one fired fr
 confirmation and a dismissal, and the dismissal could move focus or scroll. Would change my mind: a report of a reader
 moved somewhere else after deleting from the sheet with older pages open.
 
-For the double ask: when a page's rows land, the chat marks the top as not showing at once (UIKit list, pages with rows
-only), and the list re-reports its top after every change in its rows, changed or not. Rejected: reporting synchronously
-from the list (the report is deferred so state is not changed during a view update), and a time guard after landing (it
-only narrows the gap). Weakest premise: that every landing with rows changes the list's ids, so the re-report always comes;
-a reader left marked "not at the top" while they are would need a swipe to load more. Would change my mind: a report of
-earlier messages not loading at the top until a swipe.
+For the double ask (third design, after two review rounds): when a page's rows land, the chat holds its requests for
+earlier pages until the list says where the top is. After every change in its rows the list reads the top again on the
+next turn of the main loop and tells the chat through a new callback (topRead) that only records it and asks for nothing.
+A swipe that reaches the top still asks (atTop, which also lets go of the hold). A 1 s backstop lets go of a landing the
+list never draws (rows all hidden): nothing moved on screen then, so asking is safe.
+Rejected, in order: (1) marking the top gone at landing and relying on a re-report after "rows added above", because real
+chats start with a day line that a landing replaces, a landing and a drop can share an update, and hidden rows change
+nothing, and each case left a reader at the top marked "not at the top" until a swipe (review 2). (2) Re-reporting through
+atTop after every change, because atTop asks, and after a drop that asked at once from a stale olderCount (review 1).
+(3) Reporting synchronously from the list, because the report is deferred so state is not changed during a view update.
+(4) A time guard alone, because it only narrows the gap. Weakest premise: that the list's update for a landing runs
+within 1 s. If it did not, the backstop would reopen the gap; a main-thread stall that long would show anyway.
+Would change my mind: a trace with "earlier ask from read" inside a hold.
 
 Why the race hit so often in checks (2 of 6 hunt runs within 10 ms): while a check waits, XCTest reads the app's whole
 accessibility tree about once a second, which blocks the app's main thread; the page's landing and the 5 s read both queue
@@ -64,10 +71,11 @@ the timing, not measured.
 - ui-sample.sh: EarlierDroppedUITests 2 -> 4 in the UIKit class list.
 - ChatView: loadEarlier(_ caller: StaticString) names who asked (settled, top, retry, read) in the sample trace; the room
   suite's allow-list adds "caller", and two source pins follow the new call text.
-- ChatView: on a landing page with rows, topVisible = false (UIKit list); KOSMOS_SAMPLE_NOTOPFIX=1 is the control;
+- ChatView: earlierLanding, set as a page with rows lands (UIKit list) and cleared by topRead, atTop, a chat reset or the
+  1 s backstop; loadEarlier asks for nothing while it is set. KOSMOS_SAMPLE_NOTOPFIX=1 is the control (no hold);
   KOSMOS_SAMPLE_READ_ON_LAND=1 (DEBUG) makes the read's request at the moment of landing.
-- ChatList.Coordinator.apply: after a change in the ids, the chat is told the current top on the next turn of the main loop.
-- EarlierDoubleAskUITests (new, 2): the fix and its control. ui-sample.sh: in the UIKit class list and the earlier-pages
+- ChatList: topRead, told after every change in the ids (read again after layout, on the next turn of the main loop).
+- EarlierDoubleAskUITests (new, 2): the fix (no ask at landing, none 2 s later, and a swipe back to the top asks) and its control (first page landed, and a second ask in flight). ui-sample.sh: in the UIKit class list and the earlier-pages
   trace block.
 
 ## Results

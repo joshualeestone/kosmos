@@ -69,6 +69,13 @@ final class EarlierDoubleAskUITests: XCTestCase {
         // And it stays so: nothing asks while the reader stays below the top.
         Thread.sleep(forTimeInterval: 2)
         XCTAssertFalse(Self.label(app, "Loading earlier messages").exists, "a page was asked for later with no swipe")
+        // Review 2: the hold lets go. Back up to the top of the first page, the page before it is asked for.
+        let loading = Self.label(app, "Loading earlier messages")
+        let a = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+        let b = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+        var drags = 0
+        while !loading.exists && drags < 25 { a.press(forDuration: 0.05, thenDragTo: b, withVelocity: .slow, thenHoldForDuration: 0.4); drags += 1 }
+        XCTAssertTrue(loading.exists, "at the top of the first page, the page before it was not asked for (\(drags) drags): the hold did not let go")
     }
 
     func testControlWithoutTheFixThePageIsAskedAgainAsItLands() throws {

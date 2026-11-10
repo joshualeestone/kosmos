@@ -159,6 +159,10 @@ struct ChatView: View {
     // again after a thread that kept moving), so the UIKit list can put a reader who was up in them at the top of what remains.
     @State private var earlierDropped = 0
     @State private var topVisible = false
+    // kosmos#8221 slice 16: a page's rows have landed and the list has not yet said where the top is; no page is asked for
+    // meanwhile. landings counts them, so the backstop in loadEarlier lets go only of its own.
+    @State private var earlierLanding = false
+    @State private var earlierLandings = 0
     @State private var settledAtEnd = false
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
@@ -522,6 +526,7 @@ struct ChatView: View {
             retryNote = nil
             retrySettling = []
             earlier = Board.Earlier()
+            earlierLanding = false   // kosmos#8221 slice 16: no hold carried into another chat
             settledAtEnd = false
             fileStates = [:]
             previewURL = nil
@@ -677,8 +682,13 @@ struct ChatView: View {
             if now { unseenNew = false; endSeen = true; settledAtEnd = true }
         }, atTop: { now in
             // kosmos#8221 slice 7: the reader at the top asks for the page before, as the lazy list's top marker does.
+            earlierLanding = false
             topVisible = now
             if now { loadEarlier("top") }
+        }, topRead: { now in
+            // kosmos#8221 slice 16: where the top is after the rows changed. Lets go of a landing's hold; asks for nothing.
+            earlierLanding = false
+            topVisible = now
         }, scroller: { view in
             // kosmos#8221 slice 9: the pull past the newest message (#8072) on this list too. Its guard (allowed: at the
             // newest, not searching) reads endVisible, which this list's atEnd sets.
@@ -1529,6 +1539,7 @@ struct ChatView: View {
             // scrolling or another chat opened. Nothing of the new list is drawn yet: no row counted, the end not shown (so a
             // new list that also stays empty is checked again), and no earlier page asked for by its top (settledAtEnd).
             anchorLetGo = false; rowTops.reset(); endSeen = false; endVisible = false; topVisible = false; onScreen = []; settledAtEnd = false
+            earlierLanding = false   // kosmos#8221 slice 16: the rebuilt list has not drawn a landing
             positionId = nil
             // TestFlight 37 review 1: the new list is sent to its newest, so the reader is at the newest from here; a rebuilt
             // list that stays blank is then checked and rebuilt again by the later look (within its budget).
@@ -1895,6 +1906,8 @@ struct ChatView: View {
         // A search shortens the thread; its top showing is not a reader at the top (the board's earlierNearTop).
         // kosmos#7810: not from the kept copy or the small first page: their positions are not the window the next read
         // brings, so a page loaded from them could overlap it.
+        // kosmos#8221 slice 16: not while a landing page's rows wait for the list to say where the top is.
+        guard !earlierLanding else { return }
         guard fullRead, !searchMode, let t = thread, Board.shouldAsk(settled: settledAtEnd, topVisible: topVisible, earlier: earlier, olderCount: t.olderCount)
         else { return }
         let start = Board.startLoad(earlier, olderCount: t.olderCount)
@@ -1930,13 +1943,19 @@ struct ChatView: View {
             // kosmos#8221 slice 7: the UIKit list keeps the reader's place itself (ChatList's hold, slice 3); keepAnchor
             // scrolls the lazy list's proxy, which is not there.
             else if !uikitList, case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
-            // kosmos#8221 slice 16: the rows landed above the reader, who is held where they were, so the top is no longer
-            // showing. The list says so only on the next turn of the main loop, and a read resuming before that asked for
-            // the next page with no swipe (measured: "earlier ask from read" in the same instant as a page landed). The
-            // list tells the chat where the top is again once it has drawn the rows (ChatList.apply).
-            if uikitList, !Self.sampleNoTopFix, case .page(let rows, _, _) = read, !rows.isEmpty { topVisible = false }
+            // kosmos#8221 slice 16: the rows landed above the reader, who is held where they were. The list says whether the
+            // top still shows only on the next turn of the main loop, and a read resuming before that asked for the next page
+            // with no swipe (measured: "earlier ask from read" in the same instant as a page landed). So no page is asked for
+            // until the list has said where the top is (topRead, or atTop on a change). Backstop: rows the list never draws
+            // (all hidden) bring no report, so the hold lets go after 1 s; nothing moved on screen then, so asking is safe.
+            if uikitList, !Self.sampleNoTopFix, case .page(let rows, _, _) = read, !rows.isEmpty {
+                earlierLanding = true
+                earlierLandings += 1
+                let mine = earlierLandings
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { if earlierLandings == mine { earlierLanding = false } }
+            }
             #if DEBUG
-            // KOSMOS_SAMPLE_READ_ON_LAND=1: a read's request at the moment a page lands, the race the line above closes.
+            // KOSMOS_SAMPLE_READ_ON_LAND=1: a read's request at the moment a page lands, the race the hold above closes.
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_READ_ON_LAND"] == "1" { loadEarlier("read") }
             #endif
         }
