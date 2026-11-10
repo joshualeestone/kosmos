@@ -47,13 +47,12 @@ function dateKey(d = new Date()) {
   return `${y}-${m}-${day}`;
 }
 
-/** True iff x is a bare YYYY-MM-DD STRING. The one date-shape gate, shared by
- *  the engine and the /api/feedback route so this path-safety check has a single
- *  source of truth and cannot drift across sites. Requires a string, so a
- *  non-string date (a JSON number/array/object) is rejected rather than
- *  ToString-coerced into a value that echoes back oddly. */
-/* kosmos#8353: a real calendar day, not only the shape: 2026-13-45 or 2026-02-30 is a bad date (the CLIs exit 2), never a
-   day with "no report yet". Still a bare YYYY-MM-DD string first, which is what keeps a date out of the path. */
+/** True iff x is a bare YYYY-MM-DD STRING naming a real calendar day. The one date gate, shared by the engine, both
+ *  CLIs and the /api/feedback route so this path-safety check has a single source of truth and cannot drift across
+ *  sites. Requires a string, so a non-string date (a JSON number/array/object) is rejected rather than ToString-coerced
+ *  into a value that echoes back oddly. kosmos#8353: the shape alone let 2026-13-45 or 2026-02-30 read as a day with "no
+ *  report yet"; it is now a bad date. The shape is checked first, which is what keeps a date out of the path. Years 0000
+ *  to 0099 are refused (Date.UTC maps them to 19xx); nothing writes them. */
 function isDateKey(x) {
   if (typeof x !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x)) return false;
   const [y, m, d] = x.split('-').map(Number);
@@ -61,7 +60,7 @@ function isDateKey(x) {
   return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
 }
 
-/** Reject anything that is not a bare YYYY-MM-DD, so a caller cannot walk out
+/** Reject anything that is not a bare YYYY-MM-DD naming a real day, so a caller cannot walk out
  *  of the feedback dir via the date (the same untrusted-path care store.js
  *  takes with agent names). */
 function assertDate(date) {
@@ -277,7 +276,9 @@ function list() {
     throw err;
   }
   return names
-    .filter((n) => /^\d{4}-\d{2}-\d{2}\.md$/.test(n))
+    // kosmos#8353 review 1: the same gate as the readers, so a file stored under an impossible date before #8353 (the
+    // POST route then took 2026-02-30) is left out here rather than listed and then refused by read().
+    .filter((n) => n.endsWith('.md') && isDateKey(n.slice(0, -3)))
     .map((n) => n.slice(0, -3))
     .sort()
     .reverse();
@@ -354,7 +355,7 @@ function reportsForTriage(opts) {
   const o = opts || {};
   const since = o.since || '';
   const notes = [];
-  if (since && !isDateKey(since)) return { ok: false, because: '--since must be YYYY-MM-DD', reports: [], notes };
+  if (since && !isDateKey(since)) return { ok: false, because: '--since must be a real day, as YYYY-MM-DD', reports: [], notes };
   const reports = [];
   if (o.dir && samePath(o.dir, dir())) {
     /* Review 3: --dir naming this computer's own store reads it as the default did, not as a plain folder (newest

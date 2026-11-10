@@ -216,3 +216,20 @@ test('kosmos#8353: isDateKey accepts only a real calendar day, so an impossible 
   for (const d of ['2026-13-45', '2026-02-30', '2025-02-29', '1900-02-29', '2026-00-10', '2026-11-00', '2026-04-31']) assert.equal(feedback.isDateKey(d), false, d + ' was taken for a day');
   assert.throws(() => feedback.read('2026-13-45'), /YYYY-MM-DD/, 'read() took an impossible date');
 });
+
+test('kosmos#8353 review 1: a report stored under an impossible date before #8353 is left out of list(), so the readers that walk it do not throw', () => {
+  const real = feedback.write('a real day', { date: '2026-11-01' });
+  assert.ok(real, 'CONTROL: the real report was written');
+  const bad = nodePath.join(feedback.dir(), '2026-02-30.md');
+  fs.writeFileSync(bad, 'stored before #8353, when the POST route took any YYYY-MM-DD shape\n');
+  const later = nodePath.join(feedback.dir(), '2026-13-45.md');   // sorts NEWEST, the case unchanged() would meet first
+  fs.writeFileSync(later, 'x\n');
+  try {
+    const days = feedback.list();
+    assert.ok(days.includes('2026-11-01'), 'CONTROL: the real day is listed');
+    assert.ok(!days.includes('2026-02-30') && !days.includes('2026-13-45'), 'an impossible date was listed: ' + days);
+    assert.doesNotThrow(() => feedback.daysOf(null));
+    assert.doesNotThrow(() => feedback.listNote(null));
+    assert.doesNotThrow(() => feedback.unchanged(null, '', '2026-11-20'));
+  } finally { fs.rmSync(bad, { force: true }); fs.rmSync(later, { force: true }); }
+});
