@@ -43,8 +43,8 @@ anything, both the code and its at-top check went. Also measured at 03:4x: at th
 as present, so a reader there is not a case these checks can see.
 - ios/tools/ui-sample.sh: EarlierDroppedUITests:2 in the UIKit class list.
 - CI (after the PR's first run was cancelled at the UIKit job's 50-minute limit twice, with nothing printed): the job gets
-  60 minutes (.github/workflows/ios.yml), and ui-sample.sh --uikit stops any one test at 7 minutes, so a hang fails by
-  name. Weakest premise: that the cancels were the suite running long (main's own job reached 50 on a retried flaky
+  60 minutes (.github/workflows/ios.yml), and ui-sample.sh --uikit stops any one test at 7 minutes (14 with its
+  retry), so one hang fails as a test; two may still reach the limit. Weakest premise: that the cancels were the suite running long (main's own job reached 50 on a retried flaky
   check the same morning), not a hang in the new checks. The per-test limit is what tells the two apart if it recurs.
 
 ## Coverage

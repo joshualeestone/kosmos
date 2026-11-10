@@ -120,8 +120,8 @@ echo "ui-sample: ${dtype##*.} on ${runtime##*.}, the $arm chat list"
 only=""; want=0
 for c in $classes; do only="$only -only-testing:KosmosUITests/${c%%:*}"; want=$((want + ${c##*:})); done
 log="$work/xcodebuild.log"
-# kosmos#8221 slice 14: on the UIKit run, a test that runs past 7 minutes is stopped and named as failed, so a hang reads as
-# a test that failed rather than a CI job cancelled at its limit with nothing printed (this script prints at the end).
+# kosmos#8221 slice 14: on the UIKit run, a test that runs past 7 minutes is stopped and counted as failed. With its retry
+# (-retry-tests-on-failure) one hang costs up to 14 minutes, which still fits the job's 60; two hangs may not.
 allow=""
 if [ "$uikit" = 1 ]; then allow="-test-timeouts-enabled YES -default-test-execution-time-allowance 420 -maximum-test-execution-time-allowance 420"; fi
 # shellcheck disable=SC2086  # $only, $skip and $allow are lists of separate arguments
