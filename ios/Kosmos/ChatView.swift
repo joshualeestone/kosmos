@@ -102,6 +102,13 @@ struct ChatView: View {
     #else
     static let sampleNoTopFix = false
     #endif
+    // kosmos#8221 slice 17: KOSMOS_SAMPLE_NOREADFIRST=1 (Debug) is the control: after a delete the next page is asked from the
+    // olderCount read before it, as before the slice. Release reads false.
+    #if DEBUG
+    static let sampleNoReadFirst = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOREADFIRST"] == "1"
+    #else
+    static let sampleNoReadFirst = false
+    #endif
     // kosmos#7420: KOSMOS_SAMPLE_NOREBUILD=1 (Debug) is the control: the recovery never rebuilds. Release reads false.
     #if DEBUG
     static let sampleNoRebuild = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOREBUILD"] == "1"
@@ -125,6 +132,11 @@ struct ChatView: View {
     // Reads are numbered: only one newer than the last shown is shown, so a slow earlier read never undoes a newer one.
     @State private var readsStarted = 0
     @State private var readShown = 0
+    // kosmos#8221 slice 17: after a delete or a "moved" answer drops the earlier pages, no page is asked for until a read
+    // started after the drop has been shown (its number is above this). Until then the chat's olderCount is the one from
+    // before: a delete shifts the Mac's latest window by one, so a page asked from the old count brings a row the window
+    // now holds too, drawn twice. The board reads the thread again before it paints (paintTalk after a delete).
+    @State private var earlierWaitsForRead: Int?
     // Shown on screen (not just alive in a hidden tab), and the client's forgetting count this chat was opened under.
     @State private var visible = false
     // kosmos#7354: a mark-read request is out, so the next read of the list does not send a second one.
@@ -528,6 +540,7 @@ struct ChatView: View {
             retryNote = nil
             retrySettling = []
             earlier = Board.Earlier()
+            earlierWaitsForRead = nil   // kosmos#8221 slice 17
             earlierLanding = false; topDuringHold = nil; earlierLandings += 1   // kosmos#8221 slice 16: no hold or report carried into another chat
             settledAtEnd = false
             fileStates = [:]
@@ -1913,6 +1926,11 @@ struct ChatView: View {
     // while one loads, never after a failure until Try again. Called when the top appears, after every read, and on
     // Try again (the board's earlierNearTop: on scroll, after a paint, and from its button).
     private func loadEarlier(_ caller: StaticString) {
+        // kosmos#8221 slice 17: not from an olderCount read before the pages were dropped.
+        if let w = earlierWaitsForRead {
+            guard readShown > w else { Self.trace("earlier out: waits for a read", ring: false); return }
+            earlierWaitsForRead = nil
+        }
         // A search shortens the thread; its top showing is not a reader at the top (the board's earlierNearTop).
         // kosmos#7810: not from the kept copy or the small first page: their positions are not the window the next read
         // brings, so a page loaded from them could overlap it.
@@ -1944,6 +1962,8 @@ struct ChatView: View {
             let shownNow = thread.map { Board.chatItems(Board.shownRows(earlier, thread: $0), now: Date(), calendar: .current) } ?? []
             let anchor = Board.anchorItem(shownNow, onScreen: onScreen)
             restartEarlier(next)
+            // kosmos#8221 slice 17: a moved answer started the pages again; the next waits for a read of the thread as it is.
+            if case .moved = read { earlierWaitsForRead = readsStarted }
             // kosmos#7265 review: the newest rows are one eager stack and are all "on screen" while any of it shows, so
             // a reader back at the newest message is kept there rather than at the stack's first row (a stated limit:
             // a reader stopped part way inside the newest rows as a page lands may still move).
@@ -2023,7 +2043,7 @@ struct ChatView: View {
                 guard opened == client.chatEpoch, earlier.opening == token else { return }
                 guard case .page(let rows, let positions, let start) = read else {
                     // Moved: start again (as the board does); failed: the next read tries again.
-                    if read == .moved { restartEarlier(Board.resetEarlier(earlier)) } else { earlier.filling = false }
+                    if read == .moved { restartEarlier(Board.resetEarlier(earlier)); earlierWaitsForRead = readsStarted } else { earlier.filling = false }
                     return
                 }
                 got = Board.gapRows(rows, positions: positions, end: end) + got
@@ -2707,7 +2727,15 @@ struct ChatView: View {
                 // earlier pages already hold would come back as a second copy. Start them again, as on a moved chat.
                 // Review 2: whenever they are open, also while their first page is still on its way. A reader scrolled up
                 // there jumps, as on a moved chat; the trade is taken over a row drawn twice.
-                if earlier.open || !earlier.rows.isEmpty { restartEarlier(Board.resetEarlier(earlier)) }
+                if earlier.open || !earlier.rows.isEmpty {
+                    restartEarlier(Board.resetEarlier(earlier))
+                    // kosmos#8221 slice 17: the next page waits for a read of the window as it is now, and that read
+                    // goes at once, as the board's paintTalk does after a delete.
+                    if !Self.sampleNoReadFirst {
+                        earlierWaitsForRead = readsStarted
+                        Task { await read() }
+                    }
+                }
                 // Review 1: only when there is something to say, so a standing line (Try again, a wait) is kept; review 2:
                 // but an earlier delete's own refusal still showing is taken away.
                 if let note = result == .gone ? Board.deleteGoneNote : Board.deletedNote(told: told, names: [agent.session: shown.name]) {

@@ -1069,6 +1069,17 @@ final class BoardClient: ObservableObject {
             // The sample chats (a Debug build only): removed in memory, as the Mac would; nobody had read it.
             guard sample.rows.contains(where: { $0.atRaw == at && $0.who == .person }) else { return .refused("No message of yours at that time.") }
             sampleThreads[agent.session] = Board.withoutMessage(sample, at: at)
+            // kosmos#8221 slice 17: KOSMOS_SAMPLE_DELETE_SHIFTS=1 makes Dana's long chat behave as the Mac's latest window
+            // does on a delete: one message fewer, so the newest earlier message moves into the window (olderCount - 1). It
+            // is built as sampleOlder builds that position, with an id of its own (a page holding it keys it by position).
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_DELETE_SHIFTS"] == "1", agent.session == "dana",
+               let now = sampleThreads["dana"], now.olderCount > 0 {
+                let p = now.olderCount - 1
+                let atP: String = "2026-10-23T" + String(format: "%02d:%02d:00Z", 6 + p / 60, p % 60)
+                let text: String = p % 3 == 0 ? "Checking the venue list, item \(p + 1)." : "Noted."
+                let row = Board.ChatRow(id: "sample-shifted-\(p)", atRaw: atP, at: Board.isoDate(atP), text: text, who: p % 2 == 0 ? .agent : .person)
+                sampleThreads["dana"] = Board.Thread(rows: [row] + now.rows, olderCount: p, choices: now.choices)
+            }
             return .deleted(told: [])
         }
         #endif
