@@ -44,7 +44,7 @@ final class A11yActionsUITests: XCTestCase {
         let (app, r) = try run(on: "Great. What is left?", fixOff: true)
         XCTAssertTrue(r.found, "CONTROL: no element with the message's label and an action: \(r.label)")
         XCTAssertTrue(r.ran, "CONTROL: the action did not run: \(r.label)")
-        XCTAssertFalse(app.buttons["Copy text"].waitForExistence(timeout: 4), "CONTROL: the sheet opened with no opener in the cell")
+        XCTAssertFalse(app.buttons["Copy text"].waitForExistence(timeout: 8), "CONTROL: the sheet opened with no opener in the cell")
     }
 
     // The person's own message: Copy and Delete.
