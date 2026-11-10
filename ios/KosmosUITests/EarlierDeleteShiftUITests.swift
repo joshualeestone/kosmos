@@ -15,7 +15,9 @@ import XCTest
 final class EarlierDeleteShiftUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
-    private static let delay: Double = 6
+    // 8 s, as EarlierDroppedUITests: the delete comes 2 s before the second page is due, and the drag back into the first page
+    // with XCTest's wait for the app to be idle took longer than 4 s (measured: the setup check ran after the drop at 6).
+    private static let delay: Double = 8
     private static let moved = "Checking the venue list, item 40."
 
     private static func launch(control: Bool) -> XCUIApplication {
