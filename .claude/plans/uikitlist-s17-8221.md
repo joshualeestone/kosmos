@@ -13,9 +13,12 @@ the window, and the phone has no check for a thread that shrank below its earlie
 the message stays drawn twice: at the end of the page and at the start of the window. The same stale count follows a
 "moved" answer.
 
-Checked against the board before building: after a delete it repaints through paintTalk, which reads the thread first,
-so its next page is asked from the fresh count. Its earlierFetch range check catches a shrunk range but not this one
-(olderCount + rows == before still holds for the old count), and neither does the phone's readOlder.
+Checked against the board before building. It keeps its earlier pages on a delete and asks the next one from its own
+EARLIER.before, and it reads the thread again (paintTalk) before it paints; when no pages are open the first is asked
+from that fresh read. The phone instead restarts its pages on a delete (deleteMine, so a row the pages hold is not drawn
+twice) and then asks from the count it read before. The server's older route answers a page asked from the old count with
+positions up to it, the one that moved into the window included, and the range check (olderCount + rows == before) holds
+for it, on the board (earlierFetch) and the phone (readOlder) alike.
 
 Not in scope: a shrink check like the board's (#5841) on the phone. It would catch the duplicate after the fact by
 dropping the pages again (the reader jumps); this slice stops it being asked for.
@@ -25,6 +28,9 @@ there is one more thread read, and after a moved answer the next page waits up t
 measured (the checks are UIKit-only). A Try again tapped before that read lands does nothing until it does (the line is
 blank for up to one read); rare, since the next read usually lands first. Only a read that shows a window (a whole thread
 or an unchanged one) lifts the wait; a failed read does not (review 1).
+Every delete sets the wait, also with no pages open, since the first page would be asked from the same count (review 2).
+Measured for a delete only: for a moved answer the checks show the next page still comes (EarlierDroppedUITests' moved
+arm, within one read), not that no row is drawn twice; the control switch covers both (review 2).
 
 ## Finished looks like
 
