@@ -39,7 +39,7 @@ final class EarlierDoubleAskUITests: XCTestCase {
         XCTAssertTrue(Self.label(app, "Message 260 of 260").waitForExistence(timeout: 20), "the long chat did not open at its newest message")
         UIKitListArm.assertDrawn(app)
         let loading = Self.label(app, "Loading earlier messages")
-        let near = Self.label(app, "Message 6")
+        let near = Self.label(app, "Message 6")   // Message 60 to 69: near the top of the latest messages
         var swipes = 0
         while !near.exists && swipes < 60 { app.swipeDown(); swipes += 1 }
         XCTAssertTrue(near.exists, "never came near the top (\(swipes) swipes)")
@@ -62,6 +62,7 @@ final class EarlierDoubleAskUITests: XCTestCase {
         let app = Self.launch(control: false)
         let seen = toTheTop(app)
         Self.pastTheFirstPage(seen)
+        XCTAssertTrue(Self.label(app, "Checking the venue list, item").exists, "the first page has not landed")
         XCTAssertTrue(Self.label(app, "Message 41 of 260").exists, "the first page's landing did not keep the reader's rows")
         XCTAssertFalse(Self.label(app, "Loading earlier messages").exists,
                        "the next page was asked for as the first landed, with no swipe (the read's request at landing went out)")
@@ -75,6 +76,8 @@ final class EarlierDoubleAskUITests: XCTestCase {
         let app = Self.launch(control: true)
         let seen = toTheTop(app)
         Self.pastTheFirstPage(seen)
+        // Review 1: the first page has landed, so a line still up is a second page asked for, not the first still coming.
+        XCTAssertTrue(Self.label(app, "Checking the venue list, item").exists, "CONTROL: the first page has not landed")
         XCTAssertTrue(Self.label(app, "Loading earlier messages").exists,
                       "CONTROL: with the fix off no page was asked for as the first landed, so this check cannot see the defect")
     }
