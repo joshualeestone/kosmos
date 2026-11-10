@@ -202,7 +202,8 @@ struct ChatList: UIViewRepresentable {
         // scroll; "newest" focuses the newest message with an element taller than the screen (a long reply); "below" puts the
         // reader higher up first, the 25th row from the end below the screen, then focuses it; "clipped" focuses an element
         // cut off by 20 pt at the top while at the newest; "back" is "above", then the newest focused and scrolled to without
-        // animation. Reported through sampleA11y, starting "focus".
+        // animation; "refocus" focuses the same row again after an update; "afterjump" focuses 0.3 s after a jump to the
+        // newest. Reported through sampleA11y, starting "focus".
         func sampleA11yFocus(_ report: ((String) -> Void)?) {
             guard !ChatList.sampleA11yDone, let list, let source else { return }
             ChatList.sampleA11yDone = true
@@ -289,9 +290,25 @@ struct ChatList: UIViewRepresentable {
                         list.setContentOffset(CGPoint(x: 0, y: min(a.frame.maxY - list.bounds.height + list.adjustedContentInset.bottom, self.maxY(list))), animated: false)
                     }
                 }
+            case "refocus":
+                // The 25th row from the end focused (put on screen), then the reader back at the end with an update between,
+                // then the same row focused again: VoiceOver putting its focus back after the cells were redrawn.
+                element = listElement(); focus()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.atEnd = true
+                    self.pin()
+                    self.apply(self.ids)
+                    list.layoutIfNeeded()
+                    y0 = list.contentOffset.y
+                    element = listElement(); focus()
+                }
+            case "afterjump":
+                // A jump to the newest (a send, New messages), then 0.3 s later a focus above the screen: VoiceOver's own.
+                self.toNewest()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { y0 = list.contentOffset.y; element = listElement(); focus() }
             case "clipped":
                 // At the newest, an element whose top is 20 pt under the top bar (VoiceOver stepping up to a message only just
-                // cut off): it comes down 20 pt plus the list's top padding (32 pt here), inside the usual 40 pt slack at the end.
+                // cut off): it comes down 20 pt plus the list's 12 pt top padding, 32 pt in all, inside the 40 pt slack at the end.
                 let seenTop = list.contentOffset.y + list.adjustedContentInset.top - list.contentInset.top
                 if let ip = list.indexPathForItem(at: CGPoint(x: list.bounds.midX, y: seenTop + 10)), let id = source.itemIdentifier(for: ip),
                    let w = list.window {
@@ -374,6 +391,7 @@ struct ChatList: UIViewRepresentable {
             }
             if sv.isTracking || sv.isDragging || (sv.isDecelerating && dragged) || (fingerlessScrolling() && !own) {
                 heldByFocus = false
+                rereadGen += 1
                 atEnd = endReached(sv)
                 readTop(sv)
                 place = nil
@@ -473,7 +491,7 @@ struct ChatList: UIViewRepresentable {
             atEnd = endReached(sv)
             readTop(sv)
             ChatView.trace("uikit list: scroll ended, at end \(atEnd) (was \(wasAtEnd)), by the person \(byPerson), after a \(how) (\(geometry(sv)))", ring: false)
-            if !atEnd { place = top() }
+            if !atEnd { place = focusPlace() ?? top() }
         }
 
         // The highest row on screen (any part of it below the top of the list) and how far its top is below the
@@ -585,7 +603,8 @@ struct ChatList: UIViewRepresentable {
                 guard heldByFocus || !atEnd else { return }
                 heldByFocus = false
                 atEnd = newestShown() || endReached(list)
-                rereadEnd(tries: 4)
+                rereadGen += 1
+                rereadEnd(tries: 4, gen: rereadGen)
                 return
             }
             // VoiceOver puts its focus on something on screen after a jump to the newest (a send, New messages, search
@@ -639,14 +658,24 @@ struct ChatList: UIViewRepresentable {
         var appliedSinceFocus = false
         // Back on the newest after a focus: atEnd read again 0.6 s on, once VoiceOver's own scroll to it has run, and again
         // while the list is still moving, a few times at most. A scroll made with animation is also read at its end
-        // (scrolled()).
-        func rereadEnd(tries: Int) {
+        // (scrolled()). A later focus back on the newest, or a scroll of the person's, starts a new count (rereadGen), and
+        // the older reads do nothing.
+        var rereadGen = 0
+        func rereadEnd(tries: Int, gen: Int) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                guard let self, let list = self.list, !self.atEnd, !self.heldByFocus,
+                guard let self, gen == self.rereadGen, let list = self.list, !self.atEnd, !self.heldByFocus,
                       !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
-                if self.moving() { if tries > 1 { self.rereadEnd(tries: tries - 1) }; return }
+                if self.moving() { if tries > 1 { self.rereadEnd(tries: tries - 1, gen: gen) }; return }
                 self.atEnd = self.newestShown() || self.endReached(list)
             }
+        }
+        // While a focus holds the reader (heldByFocus), the place is the focused row's, when it is on screen: a scroll that
+        // ends then (VoiceOver's own, to that row) keeps holding by it rather than by the highest row on screen.
+        func focusPlace() -> (id: String, dy: CGFloat)? {
+            guard heldByFocus, let list, let source, let id = lastFocusRow, let ip = source.indexPath(for: id),
+                  let a = list.layoutAttributesForItem(at: ip), a.frame.maxY > list.contentOffset.y,
+                  a.frame.minY < list.contentOffset.y + list.bounds.height else { return nil }
+            return (id, a.frame.minY - list.contentOffset.y)
         }
         func elementFrame(_ element: Any) -> CGRect? {
             guard let list, let screen = list.window?.screen, let f = (element as? NSObject)?.accessibilityFrame,
@@ -665,7 +694,9 @@ struct ChatList: UIViewRepresentable {
                     var w: UIView? = v
                     while let x = w {
                         if let c = x as? UICollectionViewCell, c.superview === list { return list.indexPath(for: c) }
-                        if x === list { return rowAt(frame: (element as? NSObject)?.accessibilityFrame) }
+                        // Only an element whose container is the list itself is placed by its frame; one in another view
+                        // of the list (not a cell) is not a message.
+                        if x === list { return v === list ? rowAt(frame: (element as? NSObject)?.accessibilityFrame) : nil }
                         w = x.superview
                     }
                     return nil
