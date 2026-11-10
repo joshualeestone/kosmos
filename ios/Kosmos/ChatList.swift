@@ -130,7 +130,12 @@ struct ChatList: UIViewRepresentable {
 
         func configure(_ c: UICollectionViewCell, _ id: String) {
             guard let cell else { return }
-            let env = environment
+            var env = environment
+            #if DEBUG
+            // kosmos#8221 slice 13: KOSMOS_SAMPLE_NOCELLACTIONS=1 leaves the sheet's opener out of the cell, as a hosted cell
+            // with nothing carried in would be: the control arm of A11yActionsUITests.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOCELLACTIONS"] == "1" { env.openMessageActions = nil }
+            #endif
             c.contentConfiguration = UIHostingConfiguration {
                 // The long-press sheet's host is the chat's (messageActionsHost); a hosted cell does not inherit SwiftUI's
                 // environment, so the two values the bubbles read are carried in.
@@ -366,6 +371,34 @@ struct ChatList: UIViewRepresentable {
                     ChatView.trace("uikit list: debug scroll-by done")
                 }
             }
+        }
+
+        // kosmos#8221 slice 13: KOSMOS_SAMPLE_A11YACTIONS. VoiceOver's "Message actions" (the rotor action that opens the
+        // long-press sheet) on a message drawn by this list. VoiceOver does not run on a simulator and a UI test cannot
+        // perform a custom action, so the app finds the accessibility element a cell on screen hands out whose label
+        // contains KOSMOS_SAMPLE_A11YACTIONS_TEXT, and runs its "Message actions" action as VoiceOver would. Reported through
+        // sampleA11y, starting "actions": whether such an element was found, its action names, and whether one ran.
+        func sampleA11yActions(_ report: ((String) -> Void)?) {
+            guard !ChatList.sampleA11yDone, let list else { return }
+            ChatList.sampleA11yDone = true
+            let text = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_A11YACTIONS_TEXT"] ?? ": "
+            // Every element under a view: a view that is one, and what a container hands out, containers within it included.
+            func elements(_ o: NSObject, _ out: inout [NSObject], depth: Int = 0) {
+                guard depth < 40 else { return }
+                if o.isAccessibilityElement { out.append(o) }
+                for e in o.accessibilityElements ?? [] { if let e = e as? NSObject { elements(e, &out, depth: depth + 1) } }
+                if let v = o as? UIView { for s in v.subviews { elements(s, &out, depth: depth + 1) } }
+            }
+            var all: [NSObject] = []
+            for c in list.visibleCells { elements(c.contentView, &all) }
+            let picked = all.first { ($0.accessibilityLabel ?? "").contains(text) && !($0.accessibilityCustomActions ?? []).isEmpty }
+            let actions = picked?.accessibilityCustomActions ?? []
+            let names = actions.map { $0.name.replacingOccurrences(of: " ", with: "_") }
+            var ran = false
+            if let a = actions.first(where: { $0.name == "Message actions" }) {
+                if let h = a.actionHandler { ran = h(a) } else if let t = a.target as? NSObject { t.perform(a.selector, with: a); ran = true }
+            }
+            report?("actions elements \(all.count), found \(picked != nil), names \(names.isEmpty ? "none" : names.joined(separator: "|")), ran \(ran)")
         }
         #endif
 
@@ -888,6 +921,10 @@ struct ChatList: UIViewRepresentable {
         if let after = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_A11YFOCUS"].flatMap(Double.init), !Self.sampleA11yDone {
             let report = sampleA11y
             DispatchQueue.main.asyncAfter(deadline: .now() + after) { [weak co] in co?.sampleA11yFocus(report) }
+        }
+        if let after = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_A11YACTIONS"].flatMap(Double.init), !Self.sampleA11yDone {
+            let report = sampleA11y
+            DispatchQueue.main.asyncAfter(deadline: .now() + after) { [weak co] in co?.sampleA11yActions(report) }
         }
         #endif
         return list
