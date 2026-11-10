@@ -35,9 +35,9 @@ layout. A focus on something already on screen, or on the newest message however
     end, more than the 40 pt slack) or the list is within the usual slack of its end, read now and again 0.6 s later,
     retried while the list is still moving, up to four times (VoiceOver's scroll to it may have no animation, so no
     scroll end). A later focus back or a scroll of the person's starts a new count; the older reads do nothing.
-  - A focus on the same row as the last focus, with an update (apply) between: nothing. That is VoiceOver putting its
-    focus back after the cells were redrawn (a streaming reply), not the person moving. Cost: a person who swipes back to
-    the very message they last focused, after an update, is not followed; it was put on screen at the first focus.
+  - The same element focused again (same row, same place within the row), with an update (apply) between: nothing. That is VoiceOver putting its
+    focus back after the cells were redrawn (a streaming reply), not the person moving. Another part of the same message
+    is followed. Cost: a person who swipes back to the very element they last focused, after an update, is not followed.
   - Within 1 s of toNewest() (a send, New messages, search closing) or of the list being made (a chat opening): nothing, since VoiceOver puts its focus on something
     on screen after such a jump and that is not the person moving.
   - Decided and moved by the focused element's own frame (a part of a tall message), the row's when it has none; with
@@ -49,7 +49,9 @@ layout. A focus on something already on screen, or on the newest message however
     to the list's 40 pt slack was pinned back under the bar at the next layout. Then atEnd = endReached, and when not at
     the end the place is held by the focused row itself (measured 11-09: held by the highest row on screen, rows drawn
     for the first time below it came in 16 pt taller than estimated and pushed a message put at the bottom back off). A
-    scroll that ends while heldByFocus (VoiceOver's own, to that row) keeps the place on the focused row (focusPlace).
+    scroll that ends while heldByFocus (VoiceOver's own, to that row), or a layout after one with no end reported, keeps
+    the place on the focused row (focusPlace). Trade-off: while heldByFocus only the very end counts as the newest, so a
+    VoiceOver scroll that stops a few points short leaves the reader counted higher up until they scroll or reach it.
 - Order: whichever comes first. Focus first: atEnd is false before VoiceOver's scroll, which is then followed as any
   scroll with no finger is for a reader higher up. Scroll first: laidOut pinned it back, then the focus brings it on.
 - Debug only: KOSMOS_SAMPLE_A11YFOCUS=<s> with _MODE visible, above, after, first, newest, below, clipped, back,

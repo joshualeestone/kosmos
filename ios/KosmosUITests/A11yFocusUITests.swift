@@ -28,6 +28,7 @@ final class A11yFocusUITests: XCTestCase {
         let words = label.replacingOccurrences(of: ",", with: "").split(separator: " ").map(String.init)
         func after(_ key: String) -> String? { words.firstIndex(of: key).flatMap { $0 + 1 < words.count ? words[$0 + 1] : nil } }
         print("UI-NOTE kosmos#8221 slice 12 \(mode)\(fixOff ? ", fix off" : ""): \(label)")
+        XCTAssertFalse(label.contains("too few rows"), "CONTROL: the sample chat had too few rows for the check: \(label)")
         XCTAssertEqual(words.last, "true", "CONTROL: the focus did not start at the newest message: \(label)")
         XCTAssertFalse(after("kind") == "none", "CONTROL: no element was found to focus: \(label)")
         guard words.contains("focus"), let found = after("found"), let pins = after("pins").flatMap(Int.init),

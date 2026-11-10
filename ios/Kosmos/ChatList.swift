@@ -374,7 +374,7 @@ struct ChatList: UIViewRepresentable {
         }
 
         // Whether the reader is at the newest is read during the person's own scroll, when any scroll ends (scrolled()), when
-        // a hold reaches the end (hold()) and when assistive focus moves the list (focusFollow).
+        // a hold reaches the end (hold()), and on assistive focus (focusFollow, and rereadEnd after a focus back on the newest).
         // For a reader higher up, any move that is not this list's own (pin, hold, a layout pass, an update) drops the place,
         // so a scroll with no finger on the list is followed (NewMessagesUITests' SCROLLBY check).
         // kosmos#8221 slice 4 (CI run 42535962501): the scroll nobody made at a chat's open on a slow device is a deceleration
@@ -540,7 +540,7 @@ struct ChatList: UIViewRepresentable {
                 }
             }
             guard list.contentSize.height > 0, !(list.isTracking || list.isDragging || list.isDecelerating), !fingerlessScrolling() else { return }
-            if atEnd { pin() } else if !moving() { if place == nil { place = top() } else { hold() } }
+            if atEnd { pin() } else if !moving() { if place == nil { place = focusPlace() ?? top() } else { hold() } }
             if !moving() { readTop(list) }
         }
 
@@ -588,12 +588,15 @@ struct ChatList: UIViewRepresentable {
             guard let newestId = ids.last(where: { !Self.afterNewest.contains($0) }), let newestAt = source.indexPath(for: newestId),
                   let id = source.itemIdentifier(for: ip), !(list.isTracking || list.isDragging || list.isDecelerating),
                   !fingerlessScrolling() else { return }
-            // VoiceOver puts its focus back on the same message after an update redraws the cells (apply reconfigures
-            // them); that is not the person moving, so a focus on the row last focused, with an update between, is left alone.
-            // Every update counts (the focus's own atEnd change makes one), so any later focus on the same row is let go; by
-            // then the row has been put on screen and the reader is off the end, so VoiceOver's own scroll is followed anyway.
-            let refocus = id == lastFocusRow && appliedSinceFocus
+            // VoiceOver puts its focus back on the same element after an update redraws the cells (apply reconfigures
+            // them); that is not the person moving, so the same element (its row and where it starts within the row) focused
+            // again with an update between is left alone. Another part of the same message is followed.
+            let rowTop = list.layoutAttributesForItem(at: ip)?.frame.minY
+            var part: Int?
+            if let e = elementFrame(element)?.minY, let r = rowTop { part = Int((e - r).rounded()) }
+            let refocus = id == lastFocusRow && part == lastFocusPart && appliedSinceFocus
             lastFocusRow = id
+            lastFocusPart = part
             appliedSinceFocus = false
             if refocus { return }
             if ip >= newestAt {
@@ -628,9 +631,11 @@ struct ChatList: UIViewRepresentable {
             list.contentOffset = CGPoint(x: 0, y: min(max(y, -inset.top), maxY(list)))
             // The cells now on screen, for top(); laidOut does nothing while pinning.
             list.layoutIfNeeded()
-            // Rows drawn for the first time in that pass come in at their real heights, which can move the row itself: with
-            // the row's own frame (not a fixed element frame), it is measured again and put right once.
-            if own == nil, let b = list.layoutAttributesForItem(at: ip)?.frame {
+            // Rows drawn for the first time in that pass come in at their real heights, which can move the row itself. When
+            // the element stands for the whole row (none of its own, or the list's own element for a row with no cell), the
+            // row is measured again and put right once.
+            let wholeRow = own == nil || ((element as? UIAccessibilityElement)?.accessibilityContainer as AnyObject?) === list
+            if wholeRow, let b = list.layoutAttributesForItem(at: ip)?.frame {
                 let s0 = list.contentOffset.y + inset.top, s1 = list.contentOffset.y + list.bounds.height - inset.bottom
                 if b.minY < s0 - 0.5 || b.maxY > s1 + 0.5 {
                     let y2 = b.minY < s0 || b.height > s1 - s0 ? b.minY - inset.top : b.maxY - list.bounds.height + inset.bottom
@@ -655,6 +660,7 @@ struct ChatList: UIViewRepresentable {
             return a.frame.maxY <= seenBottom + 0.5 && a.frame.minY < seenBottom
         }
         var lastFocusRow: String?
+        var lastFocusPart: Int?
         var appliedSinceFocus = false
         // Back on the newest after a focus: atEnd read again 0.6 s on, once VoiceOver's own scroll to it has run, and again
         // while the list is still moving, a few times at most. A scroll made with animation is also read at its end
