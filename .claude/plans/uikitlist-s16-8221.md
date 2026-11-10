@@ -45,7 +45,7 @@ moved somewhere else after deleting from the sheet with older pages open.
 
 For the double ask (third design, after two review rounds): when a page's rows land, the chat holds its requests for
 earlier pages until the list says where the top is. After every change in its rows the list reads the top again on the
-next turn of the main loop and tells the chat through a new callback (topRead) that only records it and asks for nothing.
+next turn of the main loop and tells the chat through a new callback (topRead).
 A swipe that reaches the top after the hold still asks (atTop). A 1 s backstop lets go of a landing the
 list never draws (rows all hidden): nothing moved on screen then, so asking is safe. Each landing is numbered and the
 list's report echoes the number of the update it read after, so a report queued before a landing cannot let go of it;
@@ -53,7 +53,11 @@ a new list's first update sends no report (makeUIView tells it at the newest) (r
 hold is kept, not acted on, since it is queued without a number and may predate the landing; the list's report for the
 landing settles it, and when that report lets go of a hold with the top showing (a chat too short to scroll) it asks for
 the page before at once. The backstop acts on a kept atTop change. A chat reset or rebuild bumps the landing number, so
-a report queued for the old list changes nothing (review 4). Setting and letting go of the
+a report queued for the old list changes nothing (review 4). The backstop asks only on a top change read during the
+hold, never on topVisible itself, which can still be from before the landing (review 6). Cost: the report runs a
+layout and a top reading after every change in the rows, each new message included (UIKit list only). Known gaps:
+no check tells a release by the report from one by the backstop (the trace does), and a Try again tap during a hold
+waits for the next read (a failure line and a landing do not coexist). Setting and letting go of the
 hold write fixed trace lines ("earlier hold on", "earlier hold kept: top changed",
 "earlier hold off: list read | backstop"), which
 ui-sample.sh prints on a failed earlier-pages check, so the weakest premise below can be seen.

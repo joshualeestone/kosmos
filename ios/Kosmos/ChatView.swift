@@ -1968,9 +1968,9 @@ struct ChatView: View {
                     Self.trace("earlier hold off: backstop", ring: false)
                     earlierLanding = false
                     // Review 4: a top change that came during the hold, acted on now.
-                    // Review 5: and asks at the top, as topRead does when it lets go.
-                    if let top = topDuringHold { topDuringHold = nil; topVisible = top }
-                    if topVisible { loadEarlier("top") }
+                    // Review 6: asks only on a top change read during the hold. topVisible itself may still be from before
+                    // the landing, when the reader was at the top and has since been carried down by the new rows.
+                    if let top = topDuringHold { topDuringHold = nil; topVisible = top; if top { loadEarlier("top") } }
                 }
             }
             #if DEBUG
