@@ -1965,7 +1965,7 @@ struct ChatView: View {
             let shownNow = thread.map { Board.chatItems(Board.shownRows(earlier, thread: $0), now: Date(), calendar: .current) } ?? []
             let anchor = Board.anchorItem(shownNow, onScreen: onScreen)
             restartEarlier(next)
-            // kosmos#8221 slice 17: a moved answer started the pages again; the next waits for a read of the thread as it is.
+            // kosmos#8221 slice 17: after a moved answer the next page waits for a read of the thread as it is.
             if case .moved = read, !Self.sampleNoReadFirst { earlierWaitsForRead = readsStarted }
             // kosmos#7265 review: the newest rows are one eager stack and are all "on screen" while any of it shows, so
             // a reader back at the newest message is kept there rather than at the stack's first row (a stated limit:
