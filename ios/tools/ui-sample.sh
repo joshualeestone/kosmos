@@ -76,7 +76,9 @@ if [ "$uikit" = 1 ]; then
   #   scroll that moves nothing, a jump to the newest during one, and three control arms with the fix off.
   # kosmos#8283: ChatGapUITests (3), the room between the newest message and the box and the working line's place in it, at
   #   the default and the largest text size, and the line seen from higher up. This arm only (the lazy list keeps its row).
-  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:7 ChatGapUITests:3"
+  # kosmos#8221 slice 12: A11yFocusUITests (6), VoiceOver's focus moving to a message above the screen brings it on screen and
+  #   takes the reader off the newest, in either order with VoiceOver's own scroll; one on screen changes nothing; two controls.
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:7 ChatGapUITests:3 A11yFocusUITests:6"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done
