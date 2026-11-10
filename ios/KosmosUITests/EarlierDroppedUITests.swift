@@ -8,9 +8,10 @@ import XCTest
 // again reach the same list code through restartEarlier and are covered by reasoning. On the UIKit list the reader now goes to
 // the top of what remains, "Message 41 of 260", the oldest row still loaded.
 // The sample board's long chat (KOSMOS_SAMPLE_LONG, see EarlierPagesUITests) with pages of 30 (KOSMOS_SAMPLE_OLDER_PAGE), so
-// a second page is asked for, and that second ask answered "moved" (KOSMOS_SAMPLE_OLDER_MOVED=2), through the app's own
-// handling of such an answer. Each page is held back 8 s (KOSMOS_SAMPLE_OLDER_DELAY), long enough to step one drag down into
-// the first page (off its top, and with Message 41 below the screen) before the moved answer comes.
+// a second page is asked for, and the pages dropped while it is on its way: by that ask answered "moved"
+// (KOSMOS_SAMPLE_OLDER_MOVED=2), or by a delete 2 s before it is due (Drop). Each page is held back 8 s
+// (KOSMOS_SAMPLE_OLDER_DELAY), long enough to step one drag down into the first page (off its top, and with Message 41 below
+// the screen) before the drop.
 // The control (KOSMOS_SAMPLE_NODROPFIX=1) leaves the reader at the old offset, as before the slice: Message 41 is not on screen
 // after the drop, so the check can see the defect. UIKit list only: the lazy list's earlier pages are kosmos#7016's, unchanged.
 final class EarlierDroppedUITests: XCTestCase {

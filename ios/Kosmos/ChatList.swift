@@ -17,7 +17,7 @@ struct ChatList: UIViewRepresentable {
     // kosmos#8221 slice 14: bumped by the chat when the loaded earlier pages are dropped and started again (a read that found
     // the conversation moved under them, during a load or a gap fill, a delete, Try again). A reader up in those pages has no row left on screen to keep.
     var dropped: Int = 0
-    // kosmos#8221 slice 16: how many earlier pages have landed with rows (ChatView.earlierLandings); topRead echoes the one
+    // kosmos#8221 slice 16: ChatView.earlierLandings (bumped by each landing, chat reset and rebuild); topRead echoes the one
     // its reading came after, so a reading queued before a landing cannot let go of that landing's hold (review 3).
     var landing: Int = 0
     // Whether the reader is at the newest message, told when it changes (never during a layout pass).
