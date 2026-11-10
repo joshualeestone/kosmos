@@ -163,6 +163,8 @@ struct ChatView: View {
     // meanwhile. landings counts them, so the backstop in loadEarlier lets go only of its own.
     @State private var earlierLanding = false
     @State private var earlierLandings = 0
+    // Review 4: an atTop change that came during the hold, kept for the backstop (the list's report says where the top is).
+    @State private var topDuringHold: Bool?
     @State private var settledAtEnd = false
     // The row to keep at the top once a page has landed above it.
     @State private var keepAnchor: String?
@@ -526,7 +528,7 @@ struct ChatView: View {
             retryNote = nil
             retrySettling = []
             earlier = Board.Earlier()
-            earlierLanding = false   // kosmos#8221 slice 16: no hold carried into another chat
+            earlierLanding = false; topDuringHold = nil; earlierLandings += 1   // kosmos#8221 slice 16: no hold or report carried into another chat
             settledAtEnd = false
             fileStates = [:]
             previewURL = nil
@@ -682,17 +684,22 @@ struct ChatView: View {
             if now { unseenNew = false; endSeen = true; settledAtEnd = true }
         }, atTop: { now in
             // kosmos#8221 slice 7: the reader at the top asks for the page before, as the lazy list's top marker does.
-            if earlierLanding { Self.trace("earlier hold off: top changed", ring: false) }
-            earlierLanding = false
+            // kosmos#8221 slice 16 review 4: during a landing's hold this change may have been read before the landing (it is
+            // queued, not numbered), so it is kept, not acted on: the list's report for the landing says where the top is.
+            if earlierLanding { topDuringHold = now; Self.trace("earlier hold kept: top changed", ring: false); return }
             topVisible = now
             if now { loadEarlier("top") }
         }, topRead: { now, seen in
             // kosmos#8221 slice 16: where the top is after the rows changed. Lets go of a landing's hold; asks for nothing.
             // A reading from before the newest landing describes the rows before it, so it changes nothing (review 3).
             guard seen >= earlierLandings else { return }
-            if earlierLanding { Self.trace("earlier hold off: list read", ring: false) }
+            let held = earlierLanding
             earlierLanding = false
+            topDuringHold = nil
             topVisible = now
+            // Review 4: a reader still at the top after the landing (a chat too short to scroll) is asked for the page before
+            // now, as atTop would have. A hold follows only a landing, never a drop, so the page asked for is a fresh one.
+            if held { Self.trace("earlier hold off: list read", ring: false); if now { loadEarlier("top") } }
         }, scroller: { view in
             // kosmos#8221 slice 9: the pull past the newest message (#8072) on this list too. Its guard (allowed: at the
             // newest, not searching) reads endVisible, which this list's atEnd sets.
@@ -1543,7 +1550,7 @@ struct ChatView: View {
             // scrolling or another chat opened. Nothing of the new list is drawn yet: no row counted, the end not shown (so a
             // new list that also stays empty is checked again), and no earlier page asked for by its top (settledAtEnd).
             anchorLetGo = false; rowTops.reset(); endSeen = false; endVisible = false; topVisible = false; onScreen = []; settledAtEnd = false
-            earlierLanding = false   // kosmos#8221 slice 16: the rebuilt list has not drawn a landing
+            earlierLanding = false; topDuringHold = nil; earlierLandings += 1   // kosmos#8221 slice 16: the rebuilt list has not drawn a landing
             positionId = nil
             // TestFlight 37 review 1: the new list is sent to its newest, so the reader is at the newest from here; a rebuilt
             // list that stays blank is then checked and rebuilt again by the later look (within its budget).
@@ -1961,6 +1968,8 @@ struct ChatView: View {
                     guard earlierLandings == mine, earlierLanding else { return }
                     Self.trace("earlier hold off: backstop", ring: false)
                     earlierLanding = false
+                    // Review 4: a top change that came during the hold, acted on now.
+                    if let top = topDuringHold { topDuringHold = nil; topVisible = top; if top { loadEarlier("top") } }
                 }
             }
             #if DEBUG
