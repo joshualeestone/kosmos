@@ -578,6 +578,8 @@ let traceLines = (chatSource + "\n" + roomTraceSource + "\n" + listTraceSource +
 let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a, b)", "waited", "personScrolling", "scrollBox.underFinger", "place", "Int(back)", "tall", "inset", "sized", "now ?? \"none\"", "Self.sampleRows(rows, held: r.id)", "Self.sampleRows(rows, held: kept.row)", "Int(reading.content)", "Int(r.content)", "Int(r.top)", "Int(top)", "Int(bottom)", "self.scroll.map { Self.numbers($0) } ?? \"no scroll\"", "atBottom", "earlier.filling", "earlier.loading", "earlier.open", "earlier.rows.count", "endSeen",
     "endVisible", "topVisible", "scenePhase == .active", "fresh.olderCount", "fresh.rows.count", "Int(diagKeyboard)", "Int(now.height)", "Int(now.width)", "mine",
     "personScrolling", "phase == .active ? \"active\" : phase == .background ? \"background\" : \"inactive\"", "pinned", "settledAtEnd", "why",
+    // kosmos#8221 slice 15: an earlier page ask's counters and positions, and the answer's kind in fixed words (olderKind, pinned below).
+    "start.before", "start.opening", "opened", "client.chatEpoch", "earlier.opening", "Board.olderKind(read)", "next.rows.count", "next.before", "next.opening", "next.loading",
     "Int(x.rounded())", "self.shifts",   // build 16: the stack's width and a sideways offset, both numbers
     "Int(moved)",   // kosmos#7609: how far iOS 26 moved the list when the keyboard came up (a number of points)
     "Int(f * 100)",   // kosmos#7609: where on the screen a reader's message is placed again (a percentage)
@@ -657,6 +659,8 @@ check(!roomTraceSource.isEmpty && traceLines.contains { $0.contains("ChatView.tr
 check(traceLines.count >= 10 && !tracedValues.isEmpty && strayValues.isEmpty,
       "kosmos#7420: the diagnostic records only allowed numbers and flags (\(tracedValues.count) values; not allowed: \(strayValues))")
 check(!chatSource.contains("keepAnchor scrollTo \\(id)"), "review 1: no message id in the record")
+// kosmos#8221 slice 15: Board.olderKind is admitted by name, so its body is pinned: three fixed words.
+check(((try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardLogic.swift"), encoding: .utf8)) ?? "").contains("switch read { case .page: return \"page\"; case .moved: return \"moved\"; case .failed: return \"failed\" }"), "kosmos#8221 slice 15: an answer's kind in the record is one of three fixed words")
 // kosmos#7645: the will-show handler picks the reader's row through Board.holdRow (tested in LogicTests) and saves the
 // offset with the read-back holdRow returns, so a fall-back saves the place as it is now. Wiring guard, not behaviour.
 check(chatSource.contains("let held = Board.holdRow(rowsNow, back: back, below: Double(top), above: Double(bottom))") && chatSource.contains("back = held.back")
