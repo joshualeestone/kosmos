@@ -579,7 +579,7 @@ let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a,
     "endVisible", "topVisible", "scenePhase == .active", "fresh.olderCount", "fresh.rows.count", "Int(diagKeyboard)", "Int(now.height)", "Int(now.width)", "mine",
     "personScrolling", "phase == .active ? \"active\" : phase == .background ? \"background\" : \"inactive\"", "pinned", "settledAtEnd", "why",
     // kosmos#8221 slice 15: an earlier page ask's counters and positions, and the answer's kind in fixed words (olderKind, pinned below).
-    "start.before", "start.opening", "askedEpoch", "client.chatEpoch", "earlier.opening", "Board.olderKind(read)", "next.rows.count", "next.before", "next.opening", "next.loading",
+    "caller", "start.before", "start.opening", "askedEpoch", "client.chatEpoch", "earlier.opening", "Board.olderKind(read)", "next.rows.count", "next.before", "next.opening", "next.loading",
     "Int(x.rounded())", "self.shifts",   // build 16: the stack's width and a sideways offset, both numbers
     "Int(moved)",   // kosmos#7609: how far iOS 26 moved the list when the keyboard came up (a number of points)
     "Int(f * 100)",   // kosmos#7609: where on the screen a reader's message is placed again (a percentage)
@@ -602,7 +602,7 @@ let listGeometrySource = (try? String(contentsOf: repo.appendingPathComponent("i
 // not used on the UIKit list (its own hold keeps the place).
 check(listGeometrySource.contains("atTop = sv.contentOffset.y <= -sv.adjustedContentInset.top + ChatList.endSlack")
       && listGeometrySource.contains("co.toldTop = atTop"), "kosmos#8221 slice 7: the UIKit list reads and tells when the reader is at its top")
-check(chatSource.contains("}, atTop: { now in") && chatSource.contains("            topVisible = now\n            if now { loadEarlier() }"),
+check(chatSource.contains("}, atTop: { now in") && chatSource.contains("            topVisible = now\n            if now { loadEarlier(\"top\") }"),
       "kosmos#8221 slice 7: the UIKit list's top asks for earlier messages")
 check(chatSource.contains("case \"earlier-failed\": return AnyView(earlierFailedLine)")
       && chatSource.components(separatedBy: ".overlay(alignment: .top) { earlierLoadingLine }").count - 1 == 2,
@@ -1969,7 +1969,7 @@ check(chatSource.contains("guard fullRead, earlier.open, !earlier.filling"), "ko
 check(chatSource.contains("if !Self.sampleNoKeep, wasFull { earlier = Board.carryDropped("), "kosmos#7810: carryDropped only from a whole window")
 check(chatSource.contains("private func dropChoices() {\n        // kosmos#7810: the shown window no longer matches the Mac's body, so the next read asks for it whole.\n        threadTag = nil"), "kosmos#7810: a missed read clears the tag, so the buttons come back")
 check(chatSource.contains("thread = nil\n            fullRead = false; threadTag = nil"), "kosmos#7810: a fresh chat starts with no whole window and no tag")
-check(chatSource.contains("if let t = thread { fillGap(t) }\n            loadEarlier()\n            lastRead = Date()"), "kosmos#7810: an unchanged read still retries the gap fill and the earlier page")
+check(chatSource.contains("if let t = thread { fillGap(t) }\n            loadEarlier(\"read\")\n            lastRead = Date()"), "kosmos#7810: an unchanged read still retries the gap fill and the earlier page")
 check(chatSource.contains("if small, fullRead, case .thread = result { return false }"), "kosmos#7810: a late small page is never drawn over a whole window")
 // kosmos#7838: the project's own page.
 print("project info page (#7838)")
