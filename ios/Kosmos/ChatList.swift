@@ -872,7 +872,8 @@ struct ChatList: UIViewRepresentable {
                 // screen in them, so no row is left to hold and the old offset would land the reader in an unrelated part of
                 // the chat. They go to the top of what remains, the oldest row still loaded, the nearest to where they were
                 // reading; at the top, the page before is asked for again and lands above them, held as any page is. A reader
-                // who was at the top already (waiting there for the page) does not change atTop, so the chat is told again.
+                // who was at the top already (waiting there for the page) does not change atTop, so the chat is told again
+                // (measured 11-10: with this branch off, the page was asked for again within 2 s anyway, by another path).
                 // A fling still running would carry the reader on from the top; it is stopped in place first, as toNewest
                 // does. Unlike toNewest, a finger on the list is moved too, as the hold above moves it: no row under it stays.
                 // A focused message was in a dropped row, so focus no longer holds the place.
