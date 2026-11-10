@@ -291,7 +291,10 @@ struct ChatView: View {
                     LinearGradient(colors: [Palette.chatGround.opacity(0), Palette.chatGround], startPoint: .top, endPoint: .bottom)
                         .frame(height: ChatView.fadeHeight).offset(y: -ChatView.fadeHeight).allowsHitTesting(false).accessibilityHidden(true)
                 }
-                .overlay(alignment: .topLeading) { WorkingStrip(endPull: endPull, working: working, name: shown.name, lineHeight: $workingLineHeight) }
+                // kosmos#8283: on the UIKit list only; the lazy list keeps its working row (see conversationLazy).
+                .overlay(alignment: .topLeading) {
+                    if uikitList { WorkingStrip(endPull: endPull, working: working, name: shown.name, lineHeight: $workingLineHeight) }
+                }
             }
         }
         // kosmos#8045: the tray holds the keyboard's room while it is open (AttachMenu.swift, PhotoTrayFollowsKeyboard).
@@ -422,11 +425,11 @@ struct ChatView: View {
             shifts.attach(send: shiftSender())
             openCount.shown(rowsDrawn: !onScreen.isEmpty)
             // kosmos#8072: pull past the newest message for a read. Only with the end marker showing and nobody searching.
-            // kosmos#8283: 3 pt lower than Mona Lisa's B (14.5), now that the working line's row is gone and the room under the
-            // newest message is the end marker's alone: measured 11-09 at the true end of a long chat (UIKit list), at 14.5 the dots
-            // touched the newest message's time line (-0.5 pt) with 21.5 pt above the box. Both lists alike: the UIKit list keeps
-            // no room under its end now (slice 9 had set its dots 12 pt lower, 2.5, for that room).
-            endPull.restsAbove = 11.5
+            endPull.restsAbove = 14.5   // Mona Lisa's B, set by measuring: 11.5 pt under the working line, 21.5 above the box, clear of its fade
+            // kosmos#8283: on the UIKit list the working line's row is gone and the room under the newest message is the end
+            // marker's alone: measured 11-09 at the true end of a long chat, at 14.5 the dots touched the newest message's time
+            // line (-0.5 pt) with 21.5 pt above the box, so they rest 3 pt lower there.
+            if uikitList { endPull.restsAbove = 11.5 }
             endPull.allowed = { endVisible && !searchMode }
             endPull.refresh = { _ = await read() }
             scrollBox.endPull = endPull
@@ -607,9 +610,9 @@ struct ChatView: View {
             }
     }
 
-    // The room under the newest message: the box's fade plus 8 pt (#7346), or the working line drawn over the strip (4 pt above
-    // it) with 6 pt clear of the message, whichever is more. 26 pt either way at the default size (the line is 16); at the largest
-    // text the line covered 30 pt of the newest message without this (measured 11-09).
+    // The UIKit list's room under the newest message: the box's fade plus 8 pt (#7346), or the working line drawn over the
+    // strip (4 pt above it) with 6 pt clear of the message, whichever is more. 26 pt either way at the default size (the line
+    // is 16); at the largest text the line covered 30 pt of the newest message without this (measured 11-09).
     private var endRoom: CGFloat { max(ChatView.fadeHeight + 8, workingLineHeight + 10) }
 
     @ViewBuilder private var conversation: some View {
@@ -758,10 +761,16 @@ struct ChatView: View {
                         // lands); on iOS 17+ every row is lazy and the id anchor holds the place (see idAnchor).
                         chatRows(items)
                         pendingBubbles(pendingLayout)
-                        // kosmos#8283: no row for the working line. It is drawn over the strip above the box (WorkingStrip),
-                        // so its coming and going still moves nothing (#7348) and an idle chat has no empty row under its
-                        // newest message.
-                        Color.clear.frame(height: endRoom).id("end")   // the fade plus 8 pt (kosmos#7346), or the working line's room (endRoom)
+                        // kosmos#7348: the line always has its room, so its coming and going moves nothing (measured: 27 pt
+                        // when an agent picked up a message just sent). Hidden, so VoiceOver does not hear it, and drawn with
+                        // still dots, so no animation runs in every chat that is not working.
+                        // kosmos#8283: kept on this list. Without the row, a long chat did not open at its newest message on
+                        // iOS 26.5 (CI's runner and this Mac, 3 of 10; main 0 of 10; the row's room put back, 0 of 5).
+                        ZStack {
+                            if working { WorkingLine(name: shown.name) } else { WorkingLine(name: shown.name, animated: false).hidden() }
+                        }
+                        .padding(.top, 12).id("working")
+                        Color.clear.frame(height: ChatView.fadeHeight + 8).id("end")   // the fade plus 8 pt (kosmos#7346): at the end, the newest message sits clear of it
                             .onAppear {
                                 guard drawnEpoch == listEpoch else { return }
                                 Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
@@ -988,11 +997,7 @@ struct ChatView: View {
                     if Self.idAnchor, quietFollowKey == key { return }   // review 5: older rows landing; the newest is the same
                     follow(proxy)
                 }
-                // kosmos#8283: the agent starting to work is no new message (its line shows above the box), so a reader higher up
-                // is not moved and gets no "New messages". A reader at the newest is still put at it, as before: removing that made
-                // CI's long-chat checks fail to open at the newest on the slower runner (PR #8332, 5 of 56), where this is what
-                // landed them after the agent's state arrived.
-                .onChange(of: working) { now in if now && atBottom && !searching { goNewest(proxy, animated: true) } }
+                .onChange(of: working) { now in if now { follow(proxy) } }
                 // Only a message just sent scrolls down; one settling into its row does not move the person's place.
                 // While searching too, unlike the board's jumpToOwnSend: the phone keeps the sent bubble on screen below
                 // what matched, and it is the send's only feedback.
@@ -2149,7 +2154,8 @@ struct ChatView: View {
                 .background(Capsule().fill(Palette.card).shadow(color: .black.opacity(0.15), radius: 6, y: 2))
         }
         .buttonStyle(.plain)
-        .padding(.bottom, endRoom)   // above the fade (kosmos#7346), and above the working line at a large text size (kosmos#8283)
+        // Above the fade (kosmos#7346); on the UIKit list, above the working line at a large text size too (kosmos#8283).
+        .padding(.bottom, uikitList ? endRoom : 8 + ChatView.fadeHeight)
     }
 
     // MARK: - Sending
@@ -3163,23 +3169,31 @@ struct BubbleTail: Shape {
     }
 }
 
-// kosmos#8283 (Josh 11-09, against Discord's "is typing"): "<dots> <name> is working" over the strip just above the box, in the
-// room the box's fade keeps clear of the newest message (endRoom), so it takes no row in the list: an idle chat has no empty row
-// under its newest message, and the line coming and going moves nothing (#7348). Its bottom sits 4 pt above the strip's top, on
-// a ground that fades in from 6 pt above it, so a reader higher up sees messages fade out behind it, never its words over theirs.
-// Not while the pull's dots show (#8072): they rest in the same room, centred, and a long name would reach them. One line always,
-// so its height is known: a hidden copy with still dots measures it (lineHeight, for endRoom).
+// kosmos#8283 (Josh 11-09, against Discord's "is typing"), the UIKit list only: "<dots> <name> is working" over the strip
+// just above the box, in the room the box's fade keeps clear of the newest message (endRoom), so it takes no row in the list:
+// an idle chat has no empty row under its newest message, and the line coming and going moves nothing (#7348). Its bottom
+// sits 4 pt above the strip's top, on a ground that fades in from 6 pt above it, so a reader higher up sees messages fade out
+// behind it, never its words over theirs. Not while the pull's dots show (#8072): they rest in the same room, centred, and a
+// long name would reach them. One line always, so its height is known: a hidden copy with still dots measures it
+// (lineHeight, for endRoom).
 struct WorkingStrip: View {
     @ObservedObject var endPull: EndPullDriver
     let working: Bool
     let name: String
     @Binding var lineHeight: CGFloat
 
+    // Written only when it changes the room under the newest message (endRoom), so at the default text size the chat's state
+    // is never changed by it as a chat opens.
+    private func note(_ h: CGFloat) {
+        let room = { (line: CGFloat) in max(ChatView.fadeHeight + 8, line + 10) }
+        if room(h) != room(lineHeight) { lineHeight = h }
+    }
+
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             WorkingLine(name: name, animated: false).lineLimit(1).hidden()
                 .background(GeometryReader { g in
-                    Color.clear.onAppear { if lineHeight != g.size.height { lineHeight = g.size.height } }.onChange(of: g.size.height) { lineHeight = $0 }
+                    Color.clear.onAppear { note(g.size.height) }.onChange(of: g.size.height) { note($0) }
                 })
                 .padding(.horizontal, 16).padding(.bottom, 4)
             if working && !endPull.dotsUp {
