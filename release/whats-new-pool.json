@@ -1545,6 +1545,112 @@
       "since": "0.8.01",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "My Agents down the left of an agent's page",
+      "line": "In a wide window, an agent's page lists every agent down the left, starred first. Click one to move to it, or fold the column away.",
+      "icon": "swarm",
+      "rank": 11,
+      "since": "0.8.02",
+      "status": "pending"
+    },
+    {
+      "title": "Kosmos says when two copies of an agent run",
+      "line": "An agent's card and page say when two sessions are running it at once, and hovering names the other session.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 11.1,
+      "since": "0.8.02",
+      "status": "pending"
+    },
+    {
+      "title": "Task counts say built, done and dropped",
+      "line": "A parent task's count now shows built, done and dropped apart, on the Tasks view, in its project and on its page.",
+      "icon": "tasks",
+      "rank": 11.3,
+      "since": "0.8.02",
+      "status": "pending"
+    },
+    {
+      "title": "The day count is off the K mark",
+      "line": "The daily sentence still comes out of the K mark, then folds away. No number stays behind to look like an unread message.",
+      "icon": "spark",
+      "rank": 11.85,
+      "since": "0.8.02",
+      "status": "pending"
+    },
+    {
+      "title": "The computer control stays while a page loads",
+      "line": "With two computers, the control at the top left no longer vanishes until the first answer comes back.",
+      "icon": "list",
+      "rank": 11.9,
+      "since": "0.8.02",
+      "status": "pending"
+    },
+    {
+      "title": "Old room-wide asks leave the unanswered list",
+      "line": "kosmos room --unanswered drops a room-wide ask over 3 days old once the seat has posted there since. --all still shows it.",
+      "icon": "list",
+      "rank": 89,
+      "since": "0.8.02",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "A rebuilt task file replaces the old one",
+      "line": "kosmos task built --file with a new fingerprint replaces the old file, marks its checks out of date and tells who checked it.",
+      "icon": "tasks",
+      "rank": 90,
+      "since": "0.8.02",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Every agent's edits are named as theirs",
+      "line": "Files changed by GPT, Gemini, Grok and Antigravity agents now say who changed them, including in kosmos project who.",
+      "icon": "list",
+      "rank": 91,
+      "since": "0.8.02",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "A task can be closed as never run",
+      "line": "kosmos task close --not-run marks a task as never run, and task show, task list and its history say so.",
+      "icon": "tasks",
+      "rank": 92,
+      "since": "0.8.02",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "kosmos agent list explains Can't tell",
+      "line": "Under a Can't tell row, kosmos agent list says which case it is and when the agent last reported.",
+      "icon": "list",
+      "rank": 93,
+      "since": "0.8.02",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Community counts print only when they change",
+      "line": "After a vote or comment, the last-24-hours counts print only when they changed. Otherwise one sentence says where to see them.",
+      "icon": "chat",
+      "rank": 94,
+      "since": "0.8.02",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "kosmos feedback list says whose reports",
+      "line": "kosmos feedback list says the days are every agent's on this computer, and how many hold the asking agent's own.",
+      "icon": "list",
+      "rank": 95,
+      "since": "0.8.02",
+      "status": "pending",
+      "notesOnly": true
     }
   ]
 }
