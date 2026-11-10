@@ -576,11 +576,12 @@ struct ChatList: UIViewRepresentable {
             appliedSinceFocus = false
             if refocus { return }
             if ip >= newestAt {
-                // Back on the newest message: the usual slack at the end again, read now and once VoiceOver's own scroll to it
+                // Back on the newest message: at the newest once it is fully shown (the working line and the room under it can
+                // keep the list more than its usual slack short of the end), read now and once VoiceOver's own scroll to it
                 // has run (a scroll it makes without animation reports no end).
                 guard heldByFocus || !atEnd else { return }
                 heldByFocus = false
-                atEnd = endReached(list)
+                atEnd = newestShown() || endReached(list)
                 rereadEnd(tries: 4)
                 return
             }
@@ -607,9 +608,18 @@ struct ChatList: UIViewRepresentable {
             pinning = false
             heldByFocus = true
             atEnd = endReached(list)
-            if !atEnd { place = top() }
+            // Held by the focused row itself, not the highest row on screen: rows not drawn before come in at their real
+            // heights after this move, and a hold by a row above would let the focused one slide out at the bottom.
+            if !atEnd { place = list.layoutAttributesForItem(at: ip).map { (id, $0.frame.minY - list.contentOffset.y) } ?? top() }
             readTop(list)
             ChatView.trace("uikit list: assistive focus put on screen, at end \(atEnd) (\(geometry(list)))", ring: false)
+        }
+        // The newest message wholly above the bottom bars (the box), so the reader can see all of it.
+        func newestShown() -> Bool {
+            guard let list, let source, let newestId = ids.last(where: { !Self.afterNewest.contains($0) }),
+                  let ip = source.indexPath(for: newestId), let a = list.layoutAttributesForItem(at: ip) else { return false }
+            let seenBottom = list.contentOffset.y + list.bounds.height - list.adjustedContentInset.bottom + list.contentInset.bottom
+            return a.frame.maxY <= seenBottom + 0.5 && a.frame.minY < seenBottom
         }
         var lastFocusRow: String?
         var appliedSinceFocus = false
@@ -621,7 +631,7 @@ struct ChatList: UIViewRepresentable {
                 guard let self, let list = self.list, !self.atEnd, !self.heldByFocus,
                       !(list.isTracking || list.isDragging || list.isDecelerating) else { return }
                 if self.moving() { if tries > 1 { self.rereadEnd(tries: tries - 1) }; return }
-                self.atEnd = self.endReached(list)
+                self.atEnd = self.newestShown() || self.endReached(list)
             }
         }
         func elementFrame(_ element: Any) -> CGRect? {
