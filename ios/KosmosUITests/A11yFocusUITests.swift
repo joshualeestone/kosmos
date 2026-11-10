@@ -3,7 +3,7 @@ import XCTest
 /// kosmos#8221 slice 12: on the UIKit list, assistive focus (VoiceOver's one-finger swipe to the element above) moving to a
 /// message above the screen while the reader is at the newest: the reader is no longer held at the end, and that message is
 /// on screen and stays there. VoiceOver does not run on a simulator, so the app posts the notification VoiceOver posts, 6 s
-/// after the chat opens (KOSMOS_SAMPLE_A11YFOCUS), in one of seven modes (KOSMOS_SAMPLE_A11YFOCUS_MODE, see
+/// after the chat opens (KOSMOS_SAMPLE_A11YFOCUS), in one of eight modes (KOSMOS_SAMPLE_A11YFOCUS_MODE, see
 /// ChatList.sampleA11yFocus), and reports what the list did. The UIKit list only: the lazy list has no such pin.
 final class A11yFocusUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
@@ -115,6 +115,16 @@ final class A11yFocusUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(r.moved, 15, "the list did not bring the message down, or put it back: \(r.label)")
         XCTAssertEqual(r.pins, 0, "the list put itself back at the end after the focus: \(r.label)")
         XCTAssertFalse(r.atEnd, "the reader is still held at the newest: \(r.label)")
+        XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")
+    }
+
+    // Up to a message above, then back to the newest with VoiceOver's own scroll made without animation (so no scroll end is
+    // reported): the reader is at the newest again, so the next reply is followed.
+    func testGoingBackToTheNewestPutsTheReaderAtTheNewestAgain() throws {
+        let r = try focus(mode: "back")
+        XCTAssertTrue(r.found, "CONTROL: the newest message's element was not placed on its row: \(r.label)")
+        XCTAssertTrue(r.onScreen, "CONTROL: the newest message is not on screen after the scroll to it: \(r.label)")
+        XCTAssertTrue(r.atEnd, "back on the newest message, the reader is still counted higher up: \(r.label)")
         XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")
     }
 

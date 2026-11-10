@@ -27,7 +27,12 @@ layout. A focus on something already on screen, or on the newest message however
   - Which row: walk the element's accessibilityContainer chain to its first UIView, then its superviews to a cell of this
     list. If the walk reaches the list with no cell (UICollectionView's own element for a row with no cell), the row at
     the element's frame. A view chain that leaves the list (the composer), or the list itself as the element, is ignored.
-  - Rows from the newest message on (the last id that is not "working" or "end"), or a finger on the list: nothing.
+  - A finger on the list (tracking, dragging, a fling): nothing.
+  - Rows from the newest message on (the last id that is not "working" or "end"): not moved, however tall the message.
+    If the reader was off the newest (heldByFocus or not atEnd), heldByFocus is cleared and atEnd read with the usual
+    slack, now and again 0.6 s later (VoiceOver's scroll to it may have no animation, so no scroll end).
+  - Within 1 s of toNewest() (a send, New messages, search closing): nothing, since VoiceOver puts its focus on something
+    on screen after such a jump and that is not the person moving.
   - Decided and moved by the focused element's own frame (a part of a tall message), the row's when it has none. Off
     screen is measured against the safe area, not the list's own padding; the move keeps the padding.
   - After the move: heldByFocus is set, so until the person scrolls or the reader is at the newest again only the very
@@ -36,10 +41,10 @@ layout. A focus on something already on screen, or on the newest message however
     taken when not at the end.
 - Order: whichever comes first. Focus first: atEnd is false before VoiceOver's scroll, which is then followed as any
   scroll with no finger is for a reader higher up. Scroll first: laidOut pinned it back, then the focus brings it on.
-- Debug only: KOSMOS_SAMPLE_A11YFOCUS=<s> with _MODE visible, above, after, first, newest, below or clipped;
-  KOSMOS_SAMPLE_NOFOCUSFOLLOW=1 is the control arm (the observer does nothing). A layout pass is forced 1 s after the
-  focus. Report: found, at end, on screen, agrees (atEnd matches endReached), pins, moved, element kind, from the end.
-- A11yFocusUITests (9) in the UIKit CI arm (ios/tools/ui-sample.sh).
+- Debug only: KOSMOS_SAMPLE_A11YFOCUS=<s> with _MODE visible, above, after, first, newest, below, clipped or back;
+  KOSMOS_SAMPLE_NOFOCUSFOLLOW=1 is the control arm (the observer does nothing). A layout pass is forced 2 s after the
+  hook starts (after every mode's focus), and pins are counted for 3 s after each focus. Report: found, at end, on screen, agrees (atEnd matches endReached), pins, moved, element kind, from the end.
+- A11yFocusUITests (10) in the UIKit CI arm (ios/tools/ui-sample.sh).
 
 ## Weakest premise
 
@@ -48,11 +53,13 @@ the cell or UICollectionView's own, cannot be seen on a simulator (VoiceOver doe
 notification VoiceOver posts, with a real SwiftUI element for an on-screen row and a list-contained element for a row with
 no cell. If VoiceOver scrolls first and its element is a SwiftUI one in a cell that was then reused for another row (the
 list pinned back), the follow can name the wrong row or none; not seen on a simulator. A real phone with VoiceOver on is
-the check that remains.
+the check that remains. Also unseen there: a focus VoiceOver moves by itself (refocusing a reconfigured cell after an
+update, or after an announcement), which the follow takes as the person's when it lands off screen; only the jump to the
+newest is excluded.
 
 ## Steps
 
 1. focusFollow + observer + debug hook.
-2. A11yFocusUITests (9), run on iOS 26.5 (CI's runtime) and 27; control arm must read pinned.
+2. A11yFocusUITests (10), run on iOS 26.5 (CI's runtime) and 27; control arm must read pinned.
 3. ui-sample.sh UIKit class list; focused validation; challenge loop (8-round cap).
 4. PR stacked on #8343; merge after it.
