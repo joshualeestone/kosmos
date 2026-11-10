@@ -10,13 +10,13 @@ final class A11yFocusUITests: XCTestCase {
 
     private struct Report { let found: Bool; let atEnd: Bool; let onScreen: Bool; let agrees: Bool; let pins: Int; let moved: Int; let kind: String; let label: String }
 
-    private func focus(mode: String, fixOff: Bool = false, noGuards: Bool = false) throws -> Report {
+    private func focus(mode: String, fixOff: Bool = false, ruleOff: String? = nil) throws -> Report {
         guard UIKitListArm.on else { throw XCTSkip("the lazy list has no pin to the end (UIKit list only)") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "1",
                                  "KOSMOS_SAMPLE_A11YFOCUS": "6", "KOSMOS_SAMPLE_A11YFOCUS_MODE": mode]
         if fixOff { app.launchEnvironment["KOSMOS_SAMPLE_NOFOCUSFOLLOW"] = "1" }
-        if noGuards { app.launchEnvironment["KOSMOS_SAMPLE_FOCUSNOGUARDS"] = "1" }
+        if let rule = ruleOff { app.launchEnvironment[rule] = "1" }
         UIKitListArm.set(app)
         app.launch()
         UIKitListArm.assertDrawn(app)
@@ -28,7 +28,7 @@ final class A11yFocusUITests: XCTestCase {
         let label = marker.label
         let words = label.replacingOccurrences(of: ",", with: "").split(separator: " ").map(String.init)
         func after(_ key: String) -> String? { words.firstIndex(of: key).flatMap { $0 + 1 < words.count ? words[$0 + 1] : nil } }
-        print("UI-NOTE kosmos#8221 slice 12 \(mode)\(fixOff ? ", fix off" : "")\(noGuards ? ", no guards" : ""): \(label)")
+        print("UI-NOTE kosmos#8221 slice 12 \(mode)\(fixOff ? ", fix off" : "")\(ruleOff.map { ", \($0)" } ?? ""): \(label)")
         XCTAssertFalse(label.contains("too few rows"), "CONTROL: the sample chat had too few rows for the check: \(label)")
         XCTAssertEqual(words.last, "true", "CONTROL: the focus did not start at the newest message: \(label)")
         XCTAssertFalse(after("kind") == "none", "CONTROL: no element was found to focus: \(label)")
@@ -51,18 +51,19 @@ final class A11yFocusUITests: XCTestCase {
         XCTAssertTrue(r.atEnd, "CONTROL: without the fix the reader left the newest: \(r.label)")
     }
 
-    // kosmos#8221 slice 18: controls for the two "leave it alone" rules. With them taken away (KOSMOS_SAMPLE_FOCUSNOGUARDS) a
-    // focus on screen and a focus on the tall newest message both move the list, so the checks that say they do not can fail.
+    // kosmos#8221 slice 18: controls for the two "leave it alone" rules, each taken away alone. Without the on-screen rule a
+    // focus on screen moves the list; without the newest rule a focus on the newest message (an element taller than the
+    // screen) takes the reader off the newest. So the checks that say they do not can fail.
     func testWithoutTheOnScreenRuleAFocusOnScreenMovesTheList() throws {
-        let r = try focus(mode: "visible", noGuards: true)
+        let r = try focus(mode: "visible", ruleOff: "KOSMOS_SAMPLE_FOCUSNOONSCREEN")
         XCTAssertTrue(r.found, "CONTROL: the SwiftUI element was not traced to its row: \(r.label)")
         XCTAssertNotEqual(r.moved, 0, "CONTROL: without the on-screen rule a focus on screen still moved nothing, so its check cannot see it broken: \(r.label)")
     }
 
     func testWithoutTheNewestRuleAFocusOnATallNewestMessageMovesTheReader() throws {
-        let r = try focus(mode: "newest", noGuards: true)
+        let r = try focus(mode: "newest", ruleOff: "KOSMOS_SAMPLE_FOCUSNONEWEST")
         XCTAssertTrue(r.found, "CONTROL: the focused element was not placed on the newest row: \(r.label)")
-        XCTAssertTrue(r.moved != 0 || !r.atEnd, "CONTROL: without the newest rule the reader stayed at the newest, so its check cannot see it broken: \(r.label)")
+        XCTAssertFalse(r.atEnd, "CONTROL: without the newest rule the reader stayed at the newest, so its check cannot see it broken: \(r.label)")
     }
 
     func testWithoutTheFixVoiceOversScrollIsPutBackAtTheEnd() throws {
