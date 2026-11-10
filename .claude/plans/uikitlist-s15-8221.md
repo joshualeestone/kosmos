@@ -48,7 +48,7 @@ before it (the missed top report).
 - ios/LogicTests/room/main.swift: the new traced values judged and added to the record's allow-list (counters, positions,
   fixed words); olderKind's body pinned, as heightLine's and numbers' are. Found by the existing guard on the first run.
 - ios/tools/ui-sample.sh: when an EarlierDroppedUITests or EarlierPagesUITests check fails, print those lines from the
-  app's trace (asks, exits, answers, restarts, atTop, the hold and drop lines, "chat shown" per launch).
+  app's trace (asks, exits, answers, restarts, atTop, the hold and drop lines, and "chat shown" or "chat back" for each showing).
 
 ## Coverage
 
