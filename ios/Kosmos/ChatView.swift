@@ -1890,9 +1890,19 @@ struct ChatView: View {
         let start = Board.startLoad(earlier, olderCount: t.olderCount)
         earlier = start
         let opened = epoch
+        Self.trace("earlier ask: before \(start.before) opening \(start.opening) epoch \(opened)/\(client.chatEpoch)")
         Task {
-            guard let read = await client.olderPage(agent.session, before: start.before), opened == client.chatEpoch,
-                  let next = Board.finishLoad(earlier, with: read, opening: start.opening) else { return }
+            // kosmos#8221 slice 15: each way out named, to find which one leaves the line loading for good.
+            guard let read = await client.olderPage(agent.session, before: start.before) else {
+                Self.trace("earlier out: nil read, opening \(start.opening) now \(earlier.opening) loading \(earlier.loading)"); return
+            }
+            guard opened == client.chatEpoch else {
+                Self.trace("earlier out: epoch \(opened)/\(client.chatEpoch) loading \(earlier.loading)"); return
+            }
+            guard let next = Board.finishLoad(earlier, with: read, opening: start.opening) else {
+                Self.trace("earlier out: finishLoad nil, asked \(start.opening) now \(earlier.opening) loading \(earlier.loading) open \(earlier.open)"); return
+            }
+            Self.trace("earlier landed: opening \(start.opening) rows \(next.rows.count) before \(next.before)")
             // The row kept in place is the topmost one on screen as the page lands, wherever the person has scrolled
             // meanwhile (the board's setThread anchor), so a page landing never pulls them somewhere else.
             let shownNow = thread.map { Board.chatItems(Board.shownRows(earlier, thread: $0), now: Date(), calendar: .current) } ?? []
@@ -1913,6 +1923,7 @@ struct ChatView: View {
     // kosmos#8221 slice 14: the earlier state replaced, counting a replacement that drops loaded rows (earlierDropped).
     private func restartEarlier(_ next: Board.Earlier) {
         if !earlier.rows.isEmpty && next.rows.isEmpty { earlierDropped += 1 }
+        Self.trace("earlier restart: opening \(earlier.opening)->\(next.opening) loading \(earlier.loading)->\(next.loading) rows \(earlier.rows.count)->\(next.rows.count)")
         earlier = next
     }
 
