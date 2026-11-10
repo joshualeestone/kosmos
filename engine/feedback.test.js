@@ -222,7 +222,7 @@ test('kosmos#8353 review 1: a report stored under an impossible date before #835
   assert.ok(real, 'CONTROL: the real report was written');
   const bad = nodePath.join(feedback.dir(), '2026-02-30.md');
   fs.writeFileSync(bad, 'stored before #8353, when the POST route took any YYYY-MM-DD shape\n');
-  const later = nodePath.join(feedback.dir(), '2026-13-45.md');   // sorts NEWEST, the case unchanged() would meet first
+  const later = nodePath.join(feedback.dir(), '2026-13-45.md');   // sorts newest: covers daysOf/listNote (unchanged() skips days after its own)
   fs.writeFileSync(later, 'x\n');
   try {
     const days = feedback.list();
