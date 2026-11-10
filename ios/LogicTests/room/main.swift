@@ -665,8 +665,9 @@ check(chatSource.contains("        guard !earlierLanding else { return }\n      
       "kosmos#8221 slice 16: no earlier page is asked for during a landing's hold")
 check(chatSource.contains("landing: earlierLandings, atEnd:") && chatSource.contains("guard seen >= earlierLandings else { return }"),
       "kosmos#8221 slice 16: the list is told the landing number, and an older report is ignored")
-check(listGeometrySource.contains("co.readTopTold = topRead\n        co.landing = landing") && listGeometrySource.contains("self.readTopTold?(self.atTop, seen)"),
-      "kosmos#8221 slice 16: the list reports the top with the landing it read after")
+check(listGeometrySource.components(separatedBy: "co.readTopTold = topRead\n        co.landing = landing").count == 3 && listGeometrySource.contains("self.readTopTold?(self.atTop, seen)"),
+      "kosmos#8221 slice 16: the list reports the top with the landing it read after (wired in makeUIView and updateUIView)")
+check(chatSource.contains("private func loadEarlier(_ caller: StaticString) {"), "kosmos#8221 slice 16: the caller in the record is a fixed word (StaticString)")
 // kosmos#8221 slice 15: Board.olderKind is admitted by name, so its body is pinned: three fixed words.
 check(((try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardLogic.swift"), encoding: .utf8)) ?? "").contains("static func olderKind(_ read: OlderRead) -> String {\n        switch read { case .page: return \"page\"; case .moved: return \"moved\"; case .failed: return \"failed\" }"), "kosmos#8221 slice 15: an answer's kind in the record is one of three fixed words")
 // kosmos#7645: the will-show handler picks the reader's row through Board.holdRow (tested in LogicTests) and saves the
