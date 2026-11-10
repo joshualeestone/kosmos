@@ -867,7 +867,7 @@ struct ChatList: UIViewRepresentable {
                 // Review 2: writing the offset can end a fling or its bounce without the end being reported, which would
                 // leave the person's drag counted for the next scroll nobody made (as the fling stopped in updateUIView).
                 if !(list.isTracking || list.isDragging || list.isDecelerating) { dragged = false }
-            } else if pagesDropped, !atEnd, anchor == nil, !shown.isEmpty, !ChatList.sampleNoDropFix, let list {
+            } else if pagesDropped, !atEnd, !shown.isEmpty, !shown.contains(where: kept.contains), !ChatList.sampleNoDropFix, let list {
                 // kosmos#8221 slice 14 (found in slice 7's review, round 3): the earlier pages were dropped with every row on
                 // screen in them, so no row is left to hold and the old offset would land the reader in an unrelated part of
                 // the chat. They go to the top of what remains, the oldest row still loaded, the nearest to where they were
