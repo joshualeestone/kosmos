@@ -42,3 +42,4 @@ focus checks found SwiftUI's elements by a similar walk (its first element only)
 - "ran" in the report says a handler was called, not that a sheet opened: SwiftUI's action returns true with a nil opener
   (the control reads ran true). The checks assert the sheet itself (round 2).
 - The control waits 8 s for the sheet, longer than the 5 s the positive checks allow it to open (round 2).
+- The switch is read once a launch (ChatList.sampleNoCellActions), so configure keeps a let env. The "never mutated" release warning a reviewer expected from the earlier var env did not show in a release typecheck of that commit (26 other warnings did), round 3.
