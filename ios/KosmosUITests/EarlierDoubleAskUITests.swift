@@ -66,8 +66,8 @@ final class EarlierDoubleAskUITests: XCTestCase {
         XCTAssertTrue(Self.label(app, "Message 41 of 260").exists, "the first page's landing did not keep the reader's rows")
         XCTAssertFalse(Self.label(app, "Loading earlier messages").exists,
                        "the next page was asked for as the first landed, with no swipe (the read's request at landing went out)")
-        // And it stays so: nothing asks while the reader stays below the top.
-        Thread.sleep(forTimeInterval: 2)
+        // And it stays so: nothing asks while the reader stays below the top, through one whole 5 s read (review 5).
+        Thread.sleep(forTimeInterval: 5.5)
         XCTAssertFalse(Self.label(app, "Loading earlier messages").exists, "a page was asked for later with no swipe")
         // Review 2: the hold lets go. Back up to the top of the first page, the page before it is asked for.
         let loading = Self.label(app, "Loading earlier messages")

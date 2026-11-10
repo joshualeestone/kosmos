@@ -659,6 +659,14 @@ check(!roomTraceSource.isEmpty && traceLines.contains { $0.contains("ChatView.tr
 check(traceLines.count >= 10 && !tracedValues.isEmpty && strayValues.isEmpty,
       "kosmos#7420: the diagnostic records only allowed numbers and flags (\(tracedValues.count) values; not allowed: \(strayValues))")
 check(!chatSource.contains("keepAnchor scrollTo \\(id)"), "review 1: no message id in the record")
+// kosmos#8221 slice 16: the landing hold's wiring. Every request for an earlier page passes the hold; the list's report reaches
+// the chat with the landing it was read after; and a report from before the newest landing changes nothing.
+check(chatSource.contains("        guard !earlierLanding else { return }\n        guard fullRead, !searchMode, let t = thread, Board.shouldAsk("),
+      "kosmos#8221 slice 16: no earlier page is asked for during a landing's hold")
+check(chatSource.contains("landing: earlierLandings, atEnd:") && chatSource.contains("guard seen >= earlierLandings else { return }"),
+      "kosmos#8221 slice 16: the list is told the landing number, and an older report is ignored")
+check(listGeometrySource.contains("co.readTopTold = topRead\n        co.landing = landing") && listGeometrySource.contains("self.readTopTold?(self.atTop, seen)"),
+      "kosmos#8221 slice 16: the list reports the top with the landing it read after")
 // kosmos#8221 slice 15: Board.olderKind is admitted by name, so its body is pinned: three fixed words.
 check(((try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardLogic.swift"), encoding: .utf8)) ?? "").contains("static func olderKind(_ read: OlderRead) -> String {\n        switch read { case .page: return \"page\"; case .moved: return \"moved\"; case .failed: return \"failed\" }"), "kosmos#8221 slice 15: an answer's kind in the record is one of three fixed words")
 // kosmos#7645: the will-show handler picks the reader's row through Board.holdRow (tested in LogicTests) and saves the

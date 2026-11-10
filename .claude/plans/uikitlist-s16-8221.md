@@ -46,7 +46,7 @@ moved somewhere else after deleting from the sheet with older pages open.
 For the double ask (third design, after two review rounds): when a page's rows land, the chat holds its requests for
 earlier pages until the list says where the top is. After every change in its rows the list reads the top again on the
 next turn of the main loop and tells the chat through a new callback (topRead) that only records it and asks for nothing.
-A swipe that reaches the top still asks (atTop, which also lets go of the hold). A 1 s backstop lets go of a landing the
+A swipe that reaches the top after the hold still asks (atTop). A 1 s backstop lets go of a landing the
 list never draws (rows all hidden): nothing moved on screen then, so asking is safe. Each landing is numbered and the
 list's report echoes the number of the update it read after, so a report queued before a landing cannot let go of it;
 a new list's first update sends no report (makeUIView tells it at the newest) (review 3). An atTop change during a
@@ -54,7 +54,8 @@ hold is kept, not acted on, since it is queued without a number and may predate 
 landing settles it, and when that report lets go of a hold with the top showing (a chat too short to scroll) it asks for
 the page before at once. The backstop acts on a kept atTop change. A chat reset or rebuild bumps the landing number, so
 a report queued for the old list changes nothing (review 4). Setting and letting go of the
-hold write fixed trace lines ("earlier hold on", "earlier hold kept: top changed", "earlier hold off: list read | backstop"), which
+hold write fixed trace lines ("earlier hold on", "earlier hold kept: top changed",
+"earlier hold off: list read | backstop"), which
 ui-sample.sh prints on a failed earlier-pages check, so the weakest premise below can be seen.
 Rejected, in order: (1) marking the top gone at landing and relying on a re-report after "rows added above", because real
 chats start with a day line that a landing replaces, a landing and a drop can share an update, and hidden rows change
@@ -80,7 +81,7 @@ the timing, not measured.
 - ui-sample.sh: EarlierDroppedUITests 2 -> 4 in the UIKit class list.
 - ChatView: loadEarlier(_ caller: StaticString) names who asked (settled, top, retry, read) in the sample trace; the room
   suite's allow-list adds "caller", and two source pins follow the new call text.
-- ChatView: earlierLanding, set as a page with rows lands (UIKit list) and cleared by topRead, atTop, a chat reset or the
+- ChatView: earlierLanding, set as a page with rows lands (UIKit list) and cleared by topRead, a chat reset, a rebuild or the
   1 s backstop; loadEarlier asks for nothing while it is set. KOSMOS_SAMPLE_NOTOPFIX=1 is the control (no hold);
   KOSMOS_SAMPLE_READ_ON_LAND=1 (DEBUG) makes the read's request at the moment of landing.
 - ChatList: topRead, told after every change in the ids (read again after layout, on the next turn of the main loop).

@@ -690,15 +690,14 @@ struct ChatView: View {
             topVisible = now
             if now { loadEarlier("top") }
         }, topRead: { now, seen in
-            // kosmos#8221 slice 16: where the top is after the rows changed. Lets go of a landing's hold; asks for nothing.
+            // kosmos#8221 slice 16: where the top is after the rows changed, and the end of a landing's hold.
             // A reading from before the newest landing describes the rows before it, so it changes nothing (review 3).
             guard seen >= earlierLandings else { return }
             let held = earlierLanding
             earlierLanding = false
             topDuringHold = nil
             topVisible = now
-            // Review 4: a reader still at the top after the landing (a chat too short to scroll) is asked for the page before
-            // now, as atTop would have. A hold follows only a landing, never a drop, so the page asked for is a fresh one.
+            // Review 4: a reader still at the top after the landing (a chat too short to scroll) is asked for the page before.
             if held { Self.trace("earlier hold off: list read", ring: false); if now { loadEarlier("top") } }
         }, scroller: { view in
             // kosmos#8221 slice 9: the pull past the newest message (#8072) on this list too. Its guard (allowed: at the
@@ -1957,7 +1956,7 @@ struct ChatView: View {
             // kosmos#8221 slice 16: the rows landed above the reader, who is held where they were. The list says whether the
             // top still shows only on the next turn of the main loop, and a read resuming before that asked for the next page
             // with no swipe (measured: "earlier ask from read" in the same instant as a page landed). So no page is asked for
-            // until the list has said where the top is (topRead, or atTop on a change). Backstop: rows the list never draws
+            // until the list has said where the top is (topRead). Backstop: rows the list never draws
             // (all hidden) bring no report, so the hold lets go after 1 s; nothing moved on screen then, so asking is safe.
             if uikitList, !Self.sampleNoTopFix, case .page(let rows, _, _) = read, !rows.isEmpty {
                 earlierLanding = true
@@ -1969,7 +1968,9 @@ struct ChatView: View {
                     Self.trace("earlier hold off: backstop", ring: false)
                     earlierLanding = false
                     // Review 4: a top change that came during the hold, acted on now.
-                    if let top = topDuringHold { topDuringHold = nil; topVisible = top; if top { loadEarlier("top") } }
+                    // Review 5: and asks at the top, as topRead does when it lets go.
+                    if let top = topDuringHold { topDuringHold = nil; topVisible = top }
+                    if topVisible { loadEarlier("top") }
                 }
             }
             #if DEBUG

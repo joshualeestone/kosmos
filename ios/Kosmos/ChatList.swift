@@ -25,8 +25,8 @@ struct ChatList: UIViewRepresentable {
     // kosmos#8221 slice 7: whether the reader is at the top of what is loaded (earlier messages load there), told when it
     // changes (never during a layout pass). A chat too short to scroll is at its top.
     var atTop: (Bool) -> Void = { _ in }
-    // kosmos#8221 slice 16: where the top is, read again after every change in the rows, changed or not. It says where the
-    // reader is and asks for nothing (atTop above asks when the reader reaches the top).
+    // kosmos#8221 slice 16: where the top is, read again after every change in the rows, changed or not, with the landing
+    // number it was read after (ChatView's topRead).
     var topRead: (Bool, Int) -> Void = { _, _ in }
     // kosmos#8221 slice 9: the list's scroll view, handed to the chat once it is made, for the pull past the newest message
     // (EndPullDriver watches its offset and its pan, and takes no delegate).
@@ -898,13 +898,13 @@ struct ChatList: UIViewRepresentable {
             // kosmos#8221 slice 16: the chat holds its requests for earlier pages from the moment a page's rows land
             // (ChatView.loadEarlier) until it is told where the top is. After every change in the rows (a page, a day line
             // replaced, a drop, a new message), that is read again on the next turn of the main loop and told, whether it
-            // changed or not. Telling asks for nothing: after a drop the next page waits for the next read (review 1).
-            // Not on a new list's first update, which makeUIView tells itself (at the newest, not at the top) (review 3).
+            // changed or not. Not on a new list's first update, which makeUIView tells itself (at the newest, not at the top) (review 3).
             if before != now, !before.isEmpty {
                 let seen = landing
                 DispatchQueue.main.async { [weak self] in
                     guard let self, let list = self.list else { return }
                     list.layoutIfNeeded()
+                    guard list.contentSize.height > 0 else { return }   // review 5: only a reading that was taken
                     self.readTop(list)
                     self.readTopTold?(self.atTop, seen)
                 }
