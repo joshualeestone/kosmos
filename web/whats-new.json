@@ -4,7 +4,7 @@
     {
       "icon": "swarm",
       "title": "My Agents down the left of an agent's page",
-      "line": "In a wide window, an agent's page lists every agent down the left, starred first. Click one to move to it, or fold the column away."
+      "line": "In a wide window, an agent's page lists every agent down the left, starred first. Click one to move to it, or fold the list to avatars."
     },
     {
       "icon": "shield",
@@ -30,7 +30,7 @@
     {
       "icon": "swarm",
       "title": "Added agents keep their account and model",
-      "line": "An agent you add from Found agents stays on the Claude account and model it was using, and Kosmos says if it could not tell."
+      "line": "An agent you add from Found agents stays on the Claude account and model it was using, and Kosmos says if it could not."
     }
   ]
 }

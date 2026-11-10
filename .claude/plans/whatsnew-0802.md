@@ -14,7 +14,7 @@ Everything since the first 0.8.01 pool (#8329), plus three that merged before it
 | #8336 | #8325: the computer control stays while a page loads | rank 11.9, release notes |
 | #8319 | #8300: old room-wide asks leave --unanswered | notesOnly 89 |
 | #8327 | #8307: a rebuilt task file replaces the old one | notesOnly 90 |
-| #8328 | #8320: edits by GPT, Gemini, Grok and Antigravity agents are named | notesOnly 91 |
+| #8328 | #8320: edits by GPT, Gemini and Antigravity agents are named | notesOnly 91: Grok is left out because its tool hook is not installed on Windows, and Meta has no edit hook |
 | #8331 | #8301: kosmos task close --not-run | notesOnly 92 |
 | #8335 | #7977: kosmos agent list says why Can't tell | notesOnly 93 |
 | #8342 | #8340: community counts only when changed; feedback list says whose reports | notesOnly 94 and 95 |

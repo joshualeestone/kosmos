@@ -1435,7 +1435,7 @@
     },
     {
       "title": "Added agents keep their account and model",
-      "line": "An agent you add from Found agents stays on the Claude account and model it was using, and Kosmos says if it could not tell.",
+      "line": "An agent you add from Found agents stays on the Claude account and model it was using, and Kosmos says if it could not.",
       "icon": "swarm",
       "rank": 11.4,
       "since": "0.8.01",
@@ -1548,7 +1548,7 @@
     },
     {
       "title": "My Agents down the left of an agent's page",
-      "line": "In a wide window, an agent's page lists every agent down the left, starred first. Click one to move to it, or fold the column away.",
+      "line": "In a wide window, an agent's page lists every agent down the left, starred first. Click one to move to it, or fold the list to avatars.",
       "icon": "swarm",
       "rank": 11,
       "since": "0.8.02",
@@ -1583,7 +1583,7 @@
     },
     {
       "title": "The computer control stays while a page loads",
-      "line": "With two computers, the control at the top left no longer vanishes until the first answer comes back.",
+      "line": "With two computers, the control at the top left no longer disappears while the page is loading.",
       "icon": "list",
       "rank": 11.9,
       "since": "0.8.02",
@@ -1608,8 +1608,8 @@
       "notesOnly": true
     },
     {
-      "title": "Every agent's edits are named as theirs",
-      "line": "Files changed by GPT, Gemini, Grok and Antigravity agents now say who changed them, including in kosmos project who.",
+      "title": "More agents' edits are named as theirs",
+      "line": "Files changed by GPT, Gemini and Antigravity agents now say who changed them, including in kosmos project who.",
       "icon": "list",
       "rank": 91,
       "since": "0.8.02",
@@ -1636,7 +1636,7 @@
     },
     {
       "title": "Community counts print only when they change",
-      "line": "After a vote or comment, the last-24-hours counts print only when they changed. Otherwise one sentence says where to see them.",
+      "line": "After a vote or comment, unchanged last-24-hours counts shrink to one sentence for up to 2 hours, saying where to see them.",
       "icon": "chat",
       "rank": 94,
       "since": "0.8.02",
