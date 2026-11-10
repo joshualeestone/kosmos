@@ -93,6 +93,7 @@ struct ChatView: View {
     @State private var sampleA11yResult: String?   // kosmos#8221 slice 11: KOSMOS_SAMPLE_A11YSCROLL's result, for its check
     @State private var sampleRebuilds: Int?   // kosmos#7420: KOSMOS_SAMPLE_REBUILD's marker: the rebuilds counted once they have settled
     static var sampleRebuildDone = false       // once a launch, so the hook never runs twice whatever the list's appear does
+    static var sampleEarlierAsks = 0           // kosmos#8221 slice 16: pages of earlier messages asked for in this launch
     #endif
     // kosmos#7420: KOSMOS_SAMPLE_NOREBUILD=1 (Debug) is the control: the recovery never rebuilds. Release reads false.
     #if DEBUG
@@ -1889,6 +1890,9 @@ struct ChatView: View {
         else { return }
         let start = Board.startLoad(earlier, olderCount: t.olderCount)
         earlier = start
+        #if DEBUG
+        sampleDeleteOnAsk()
+        #endif
         let askedEpoch = epoch
         Self.trace("earlier ask: before \(start.before) opening \(start.opening) epoch \(askedEpoch)/\(client.chatEpoch)", ring: false)
         Task {
@@ -1919,6 +1923,23 @@ struct ChatView: View {
             else if !uikitList, case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
+
+    #if DEBUG
+    // kosmos#8221 slice 16: KOSMOS_SAMPLE_DELETE_ON_ASK=<k> deletes the person's newest message through deleteMine (the
+    // sheet's Delete) 2 s before the k-th page asked for in this launch is due (KOSMOS_SAMPLE_OLDER_DELAY), so a delete
+    // drops the loaded earlier pages while a reader is up in them, as slice 14's moved answer does.
+    private func sampleDeleteOnAsk() {
+        Self.sampleEarlierAsks += 1
+        let env = ProcessInfo.processInfo.environment
+        guard let k = env["KOSMOS_SAMPLE_DELETE_ON_ASK"].flatMap(Int.init), k == Self.sampleEarlierAsks else { return }
+        let due = max(0, (env["KOSMOS_SAMPLE_OLDER_DELAY"].flatMap(Double.init) ?? 0) - 2)
+        DispatchQueue.main.asyncAfter(deadline: .now() + due) {
+            guard let row = thread?.rows.last(where: Board.canDelete) else { return }
+            Self.trace("debug delete on ask", ring: false)
+            deleteMine(row)
+        }
+    }
+    #endif
 
     // kosmos#8221 slice 14: the earlier state replaced, counting a replacement that drops loaded rows (earlierDropped).
     private func restartEarlier(_ next: Board.Earlier) {
