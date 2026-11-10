@@ -26,13 +26,15 @@ layout. A focus on something already on screen, or on the newest message however
   replaced if made again, removed when the coordinator goes).
   - Which row: walk the element's accessibilityContainer chain to its first UIView, then its superviews to a cell of this
     list. If the walk reaches the list with no cell (UICollectionView's own element for a row with no cell), the row at
-    the element's frame. A view chain that leaves the list (the composer), or the list itself as the element, is ignored.
+    the element's frame. A view chain that leaves the list (the composer), one through a view of the list that is not a cell,
+    or the list itself as the element, is ignored.
   - A finger on the list (tracking, dragging, a fling), or slice 11's scroll without a finger still running: nothing.
   - Rows from the newest message on (the last id that is not "working" or "end"): not moved, however tall the message.
     If the reader was off the newest (heldByFocus or not atEnd), heldByFocus is cleared and the reader is at the newest
     once that message is wholly shown (newestShown: measured 11-09, with it fully in view the list was 53 pt short of its
-    end, more than the 40 pt slack) or the list is within the usual slack of its end, read now and again 0.6 s later, retried while the list is still moving, up to four times (VoiceOver's scroll to
-    it may have no animation, so no scroll end).
+    end, more than the 40 pt slack) or the list is within the usual slack of its end, read now and again 0.6 s later,
+    retried while the list is still moving, up to four times (VoiceOver's scroll to it may have no animation, so no
+    scroll end). A later focus back or a scroll of the person's starts a new count; the older reads do nothing.
   - A focus on the same row as the last focus, with an update (apply) between: nothing. That is VoiceOver putting its
     focus back after the cells were redrawn (a streaming reply), not the person moving. Cost: a person who swipes back to
     the very message they last focused, after an update, is not followed; it was put on screen at the first focus.
@@ -46,13 +48,15 @@ layout. A focus on something already on screen, or on the newest message however
     end counts as the newest (endReached, used by hold(), scrolled() and focusFollow). Without it, a message cut off by up
     to the list's 40 pt slack was pinned back under the bar at the next layout. Then atEnd = endReached, and when not at
     the end the place is held by the focused row itself (measured 11-09: held by the highest row on screen, rows drawn
-    for the first time below it came in 16 pt taller than estimated and pushed a message put at the bottom back off).
+    for the first time below it came in 16 pt taller than estimated and pushed a message put at the bottom back off). A
+    scroll that ends while heldByFocus (VoiceOver's own, to that row) keeps the place on the focused row (focusPlace).
 - Order: whichever comes first. Focus first: atEnd is false before VoiceOver's scroll, which is then followed as any
   scroll with no finger is for a reader higher up. Scroll first: laidOut pinned it back, then the focus brings it on.
-- Debug only: KOSMOS_SAMPLE_A11YFOCUS=<s> with _MODE visible, above, after, first, newest, below, clipped or back;
+- Debug only: KOSMOS_SAMPLE_A11YFOCUS=<s> with _MODE visible, above, after, first, newest, below, clipped, back,
+  refocus or afterjump;
   KOSMOS_SAMPLE_NOFOCUSFOLLOW=1 is the control arm (the observer does nothing). A layout pass is forced 2 s after the
   hook starts (after every mode's focus), and pins are counted for 3 s after each focus. Report: found, at end, on screen, agrees (atEnd matches endReached), pins, moved, element kind, from the end.
-- A11yFocusUITests (10) in the UIKit CI arm (ios/tools/ui-sample.sh).
+- A11yFocusUITests (12) in the UIKit CI arm (ios/tools/ui-sample.sh).
 
 ## Weakest premise
 
@@ -68,6 +72,6 @@ a refocus of the same row after an update are excluded, other self-moves are not
 ## Steps
 
 1. focusFollow + observer + debug hook.
-2. A11yFocusUITests (10), run on iOS 26.5 (CI's runtime) and 27; control arm must read pinned.
+2. A11yFocusUITests (12), run on iOS 26.5 (CI's runtime) and 27; control arm must read pinned.
 3. ui-sample.sh UIKit class list; focused validation; challenge loop (8-round cap).
 4. PR stacked on #8343; merge after it.
