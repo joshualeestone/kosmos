@@ -147,7 +147,7 @@ struct ChatView: View {
     // kosmos#7016 part 3: the earlier messages loaded in this chat (the board's EARLIER, per open chat), whether the
     // top of the thread is on screen, and whether the first scroll to the newest message is done.
     @State private var earlier = Board.Earlier()
-    // kosmos#8221 slice 14: bumped each time loaded earlier pages are dropped and started again (a moved read, a delete, Try
+    // kosmos#8221 slice 14: bumped each time loaded earlier pages are dropped and started again (a moved read or gap fill, a delete, Try
     // again after a thread that kept moving), so the UIKit list can put a reader who was up in them at the top of what remains.
     @State private var earlierDropped = 0
     @State private var topVisible = false
