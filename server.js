@@ -12002,7 +12002,7 @@ const server = http.createServer(async (req, res) => {
     let date;
     try { date = new URL(req.url, ROUTING_BASE).searchParams.get('date') || feedback.today(); }
     catch { date = feedback.today(); }
-    if (!feedback.isDateKey(date)) { sendJson(res, 400, { error: 'date must be YYYY-MM-DD' }); return; }
+    if (!feedback.isDateKey(date)) { sendJson(res, 400, { error: 'date must be a real day, as YYYY-MM-DD' }); return; }
     try { sendJson(res, 200, { ok: true, date, dates: feedback.list(), report: feedback.readBody(date) }); }
     catch { sendJson(res, 500, { error: 'the feedback reports could not be read' }); }
     return;
@@ -12020,7 +12020,7 @@ const server = http.createServer(async (req, res) => {
         // left for write() to throw is then an IO failure (ENOSPC/EACCES/...),
         // which is a 500, not "your date is wrong" (a misleading 400).
         if (body.date != null && !feedback.isDateKey(body.date)) {
-          sendJson(res, 400, { error: 'the date must be YYYY-MM-DD' }); return;
+          sendJson(res, 400, { error: 'the date must be a real day, as YYYY-MM-DD' }); return;
         }
         let saved;
         try { saved = feedback.write(body.body, body.date ? { date: body.date } : undefined); }
