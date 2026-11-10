@@ -871,9 +871,11 @@ struct ChatList: UIViewRepresentable {
                 // kosmos#8221 slice 14 (found in slice 7's review, round 3): the earlier pages were dropped with every row on
                 // screen in them, so no row is left to hold and the old offset would land the reader in an unrelated part of
                 // the chat. They go to the top of what remains, the oldest row still loaded, the nearest to where they were
-                // reading; at the top, the page before is asked for again (atTop) and lands above them, held as any page is.
+                // reading; at the top, the page before is asked for again and lands above them, held as any page is. A reader
+                // who was at the top already (waiting there for the page) does not change atTop, so the chat is told again.
                 // A fling still running would carry the reader on from the top; it is stopped in place first, as toNewest
-                // does. A focused message was in a dropped row, so focus no longer holds the place.
+                // does. Unlike toNewest, a finger on the list is moved too, as the hold above moves it: no row under it stays.
+                // A focused message was in a dropped row, so focus no longer holds the place.
                 if list.isDecelerating { list.setContentOffset(list.contentOffset, animated: false) }
                 personUntil = 0; personAskedAt = 0
                 heldByFocus = false
@@ -882,7 +884,9 @@ struct ChatList: UIViewRepresentable {
                 pinning = true
                 list.contentOffset = CGPoint(x: list.contentOffset.x, y: -list.adjustedContentInset.top)
                 pinning = false
+                let wasTop = atTop
                 readTop(list)
+                if wasTop && atTop { let v = toldTop; DispatchQueue.main.async { v?(true) } }
                 if !(list.isTracking || list.isDragging || list.isDecelerating) { dragged = false }
                 ChatView.trace("uikit list: earlier pages dropped under the reader, put at the top of what remains (\(geometry(list)))", ring: false)
             }

@@ -1528,6 +1528,7 @@ final class BoardClient: ObservableObject {
         return file
     }
     // Cleo's earlier messages in the sample (ChatView's KOSMOS_SAMPLE_OLDER=loading|failed sets the line for the shots).
+    // Debug only: sample pages asked for in this launch, every chat and gap fill counted (KOSMOS_SAMPLE_OLDER_MOVED).
     static var sampleOlderAsks = 0
     private func sampleOlder(_ session: String, before: Int) -> Board.OlderRead? {
         guard session == "cleo" || session == "dana", sampleThreads[session] != nil else { return nil }
