@@ -12,7 +12,7 @@ state; the composer, a finger and slice 11's scroll as guards).
 ## Finished looks like
 
 With focusFollow's two "leave it alone" rules taken away (a DEBUG switch), a focus on an on-screen message moves the
-list, and a focus on the tall newest message moves the reader off the newest. Two new controls assert exactly that and
+list, and a focus on the newest message moves the reader off the newest. Two new controls assert exactly that and
 pass, so the existing checks are shown able to fail.
 
 ## Decided
@@ -32,4 +32,9 @@ Would change my mind: the control reading moved 0 on a run.
 
 ## Results
 
-(after the simulator runs)
+- A11yFocusUITests, 2 runs on the iOS 26.5 simulator: 14 of 14 both times. The new controls read: visible with the
+  rules off, moved 93 and off the newest; newest with the rules off, moved 26 and off the newest. The same modes with the
+  rules on read moved 0 and at the newest, so each existing check is now shown able to fail.
+- Limit, measured: the sample's newest message is 68 pt tall (row 11739 to 11807), not taller than the screen. So the
+  newest rule is exercised on an ordinary newest message; "however tall it is" is still reasoned, not measured.
+- Room suite 866 of 866.
