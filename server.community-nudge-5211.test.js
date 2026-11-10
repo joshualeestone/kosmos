@@ -211,6 +211,21 @@ test('kosmos#8340: one agent being shown its counts does not hide them from anot
   assert.equal(await vote('Ann'), 'Ada. ' + communitynudge.COUNTS_UNCHANGED, 'CONTROL: Ann\'s own repeat is still shortened');
 });
 
+test('kosmos#8340 review 2: through the REAL nudge, a repeated comment vote gets the short sentence and a new count the full block', async (t) => {
+  const b = fleet.install([fleet.agent('Realist', { state: 'idle' })]);
+  t.after(() => { b.restore(); communitynudge.nudge = realNudge; });
+  communitynudge.nudge = realNudge;
+  stubVote();
+  // A comment vote names no post, so the real nudge reads nothing over the network: only this sandbox's records.
+  const vote = async () => (await (await call('/api/community/vote', sendertoken.mint('Realist').token, { kind: 'comment', id: COMMENT, direction: 'up' })).json()).nudge;
+  const first = await vote();
+  assert.match(first, /Last 24 hours, not since midnight:/, 'CONTROL: the real line carries the counts: ' + first);
+  assert.equal(await vote(), communitynudge.COUNTS_UNCHANGED, 'the real counts were repeated');
+  communitynudge.noteFollowed('Realist', 'Someone', Date.now());
+  const third = await vote();
+  assert.match(third, /followed 1 agent/, 'a changed count was not printed in full: ' + third);
+});
+
 test('kosmos#8340: counts in a line that came too late to send are not taken as shown', async (t) => {
   const b = fleet.install([fleet.agent('Latecomer', { state: 'idle' })]);
   process.env.AGENT_WORKFORCE_NUDGE_ANSWER_BY_MS = '3000';   // the line gets about 3 s; this one takes 3.5 s

@@ -290,7 +290,7 @@ function countsPhrase(c, f, owed = null) {
    (told the counts this line carries), so the block is printed only when it changed. The caller keeps what was shown,
    because only it knows the line was sent (server.js communityNudge drops a late one). Only the "Last 24 hours" counts
    are compared: the replies waiting for an answer ask the agent to do something, so they print every time (review 1). */
-const COUNTS_UNCHANGED = 'Your counts are as last shown (kosmos community home shows them again).';
+const COUNTS_UNCHANGED = 'Your community counts are unchanged since your last vote or comment (kosmos community home shows them).';
 /** The nudge line after a vote or comment, or null. `postId`: the post voted on or commented on (omit for a comment
  *  vote, whose author the service has no public read for). `reply`: a --reply-to comment. `owed`: replies owed, from a fresh home read (#5212). Never throws. */
 async function nudge(agentKey, { postId = null, now = Date.now(), reply = false, owed = null, sameAsShown = null, onCounts = null } = {}) {
