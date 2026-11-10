@@ -33,12 +33,15 @@ wholesale.
   as before. KOSMOS_SAMPLE_NODROPFIX=1 (DEBUG) switches it off: the control.
 - BoardClient (DEBUG): KOSMOS_SAMPLE_OLDER_PAGE=<n> serves sample pages of n; KOSMOS_SAMPLE_OLDER_MOVED=<k> answers the
   k-th sample page "moved".
-- ios/KosmosUITests/EarlierDroppedUITests.swift: a reader one drag into the first page, with a fix-off control; and one
-  waiting at its top (review 3: their top does not change, so the list tells the chat again). The at-top check has no
-  control: one was written and, with the fix off, the page was asked for again anyway within 2 s (measured 11-10 03:1x), by
-  another path, so it could not see a defect and was removed. The re-tell stays (it costs nothing and does not wait on that
-  path). UIKit arm only.
-- ios/tools/ui-sample.sh: EarlierDroppedUITests:3 in the UIKit class list.
+- ios/KosmosUITests/EarlierDroppedUITests.swift: a reader one drag into the first page, with a fix-off control. UIKit arm
+  only.
+
+Tried and removed (review 3, then 7): telling the chat again when a reader already waiting at the top stays at the top
+(their atTop does not change). Its fix-off control failed: the page was asked for again within 2 s anyway (measured 11-10
+03:1x, by another path; reasoned to be the chat's loadEarlier after each read). With no check able to show it did
+anything, both the code and its at-top check went. Also measured at 03:4x: at the first page's very top no row of it read
+as present, so a reader there is not a case these checks can see.
+- ios/tools/ui-sample.sh: EarlierDroppedUITests:2 in the UIKit class list.
 
 ## Coverage
 
@@ -50,5 +53,4 @@ by a check. A fling running at the drop is stopped first (as toNewest does); not
 
 On this Mac (iPhone 17e simulator, iOS 26.5, UIKit arm), the first two checks, 01:41, 02:14 and 02:39 CST: 2 of 2 each
 time (fix arm: Message 41 at the top after the drop, held as the page asked for again lands; control, fix off: Message 41
-not on screen after the drop). 03:06: the at-top check passed, its control failed as described above. Final run: see the
-PR.
+not on screen after the drop). 03:06 and 03:4x: the at-top checks, since removed (above). Final run: see the PR.

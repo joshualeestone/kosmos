@@ -50,7 +50,7 @@ final class EarlierDroppedUITests: XCTestCase {
 
     // Up to the first page's top, where the second page is asked for, then one drag down into it. Returns when the second ask
     // went out. Shared by both arms, so the control is the same path with the fix off.
-    private func readerUpInTheFirstPage(_ app: XCUIApplication, stayAtTop: Bool = false) -> Date {
+    private func readerUpInTheFirstPage(_ app: XCUIApplication) -> Date {
         XCTAssertTrue(Self.label(app, "Message 260 of 260").waitForExistence(timeout: 20), "the long chat did not open at its newest message")
         UIKitListArm.assertDrawn(app)
         let first = Self.label(app, "Message 41 of 260")
@@ -69,15 +69,10 @@ final class EarlierDroppedUITests: XCTestCase {
         while !loading.exists && drags < 30 { Self.drag(app, older: true); drags += 1 }
         XCTAssertTrue(loading.exists, "CONTROL: the first page's top did not ask for the second (\(drags) drags)")
         let asked = Date()
-        // One drag back down into the first page: off its top, and every row on screen is in it. Or none: the reader waits at
-        // the top for the second page, every row on screen still in the first.
-        if !stayAtTop { Self.drag(app, older: false) }
+        // One drag back down into the first page: off its top, and every row on screen is in it.
+        Self.drag(app, older: false)
         // Rows of the first page are on screen now, so their absence after the drop (waitPastTheDrop) can be seen to change.
-        // Not for a reader at the first page's top: measured 11-10 03:4x, no such row read as present there, so that check
-        // rests on the loading line instead (testAReaderWaitingAtTheTopIsAskedForThePageAgain).
-        if !stayAtTop {
-            XCTAssertTrue(Self.label(app, "Checking the venue list, item").exists, "CONTROL: no row of the first page is drawn before the drop")
-        }
+        XCTAssertTrue(Self.label(app, "Checking the venue list, item").exists, "CONTROL: no row of the first page is drawn before the drop")
         XCTAssertFalse(Self.onScreen(app, first), "CONTROL: Message 41 is on screen, so the reader still has a row that stays")
         XCTAssertFalse(Self.onScreen(app, Self.label(app, "Message 260 of 260")), "CONTROL: the reader is at the newest message")
         XCTAssertTrue(loading.exists, "CONTROL: the moved answer came before the reader was in place (raise the delay)")
@@ -86,11 +81,11 @@ final class EarlierDroppedUITests: XCTestCase {
 
     // The moved answer comes `delay` after the ask; this waits until 2 s after it, before the page asked for again (another
     // delay on) can land.
-    private static func waitPastTheDrop(_ app: XCUIApplication, _ asked: Date, checkRows: Bool = true) {
+    private static func waitPastTheDrop(_ app: XCUIApplication, _ asked: Date) {
         let left = delay + 2 - Date().timeIntervalSince(asked)
         if left > 0 { Thread.sleep(forTimeInterval: left) }
         // The drop happened: no row of the first page is left (the page asked for again has not landed yet).
-        if checkRows { XCTAssertFalse(label(app, "Checking the venue list, item").exists, "CONTROL: a row of the first page is still drawn, so the pages were not dropped") }
+        XCTAssertFalse(label(app, "Checking the venue list, item").exists, "CONTROL: a row of the first page is still drawn, so the pages were not dropped")
     }
 
     func testAReaderUpInDroppedPagesGoesToTheTopOfWhatRemains() throws {
@@ -111,19 +106,6 @@ final class EarlierDroppedUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 1)
         XCTAssertTrue(first.exists, "the page asked for again moved the reader off Message 41")
         XCTAssertEqual(first.frame.minY, y0, accuracy: 8, "the page asked for again moved the reader \(Int(first.frame.minY - y0)) pt")
-    }
-
-    // Review 3: a reader who was already at the top, waiting for the second page, is at the top after the drop too, so the
-    // list's top does not change; the list tells the chat again. This checks the outcome (at the top, the page asked for
-    // again), not the fix: a fix-off control asked for the page again anyway (measured 11-10, by another path), so it was
-    // removed, and Message 41 on screen holds either way for a reader already at the top.
-    func testAReaderWaitingAtTheTopIsAskedForThePageAgain() throws {
-        if !UIKitListArm.on { throw XCTSkip("the UIKit list's handling of dropped earlier pages (kosmos#8221 slice 14)") }
-        let app = Self.launch(control: false)
-        let asked = readerUpInTheFirstPage(app, stayAtTop: true)
-        Self.waitPastTheDrop(app, asked, checkRows: false)
-        XCTAssertTrue(Self.onScreen(app, Self.label(app, "Message 41 of 260")), "the reader waiting at the top is not at the top of what remains")
-        XCTAssertTrue(Self.label(app, "Loading earlier messages").exists, "the page before was not asked for again for a reader already at the top")
     }
 
     func testControlWithoutTheFixTheReaderLandsElsewhere() throws {

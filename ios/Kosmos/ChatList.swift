@@ -15,7 +15,7 @@ struct ChatList: UIViewRepresentable {
     // Bumped by the chat to go to the newest message (a send, New messages): followed even from higher up.
     let newest: Int
     // kosmos#8221 slice 14: bumped by the chat when the loaded earlier pages are dropped and started again (a read that found
-    // the conversation moved under them, a delete, Try again). A reader up in those pages has no row left on screen to keep.
+    // the conversation moved under them, during a load or a gap fill, a delete, Try again). A reader up in those pages has no row left on screen to keep.
     var dropped: Int = 0
     // Whether the reader is at the newest message, told when it changes (never during a layout pass).
     let atEnd: (Bool) -> Void
@@ -871,9 +871,7 @@ struct ChatList: UIViewRepresentable {
                 // kosmos#8221 slice 14 (found in slice 7's review, round 3): the earlier pages were dropped with every row on
                 // screen in them, so no row is left to hold and the old offset would land the reader in an unrelated part of
                 // the chat. They go to the top of what remains, the oldest row still loaded, the nearest to where they were
-                // reading; at the top, the page before is asked for again and lands above them, held as any page is. A reader
-                // who was at the top already (waiting there for the page) does not change atTop, so the chat is told again
-                // (measured 11-10: with this branch off, the page was asked for again within 2 s anyway, by another path).
+                // reading; at the top, the page before is asked for again and lands above them, held as any page is.
                 // A fling still running would carry the reader on from the top; it is stopped in place first, as toNewest
                 // does. Unlike toNewest, a finger on the list is moved too, as the hold above moves it: no row under it stays.
                 // A focused message was in a dropped row, so focus no longer holds the place.
@@ -885,9 +883,7 @@ struct ChatList: UIViewRepresentable {
                 pinning = true
                 list.contentOffset = CGPoint(x: list.contentOffset.x, y: -list.adjustedContentInset.top)
                 pinning = false
-                let wasTop = atTop
                 readTop(list)
-                if wasTop && atTop { let v = toldTop; DispatchQueue.main.async { v?(true) } }
                 if !(list.isTracking || list.isDragging || list.isDecelerating) { dragged = false }
                 ChatView.trace("uikit list: earlier pages dropped under the reader, put at the top of what remains (\(geometry(list)))", ring: false)
             }
