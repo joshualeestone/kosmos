@@ -656,6 +656,12 @@ test('#5678 review 7: the list names neither a former holder nor a further one; 
 });
 
 /* kosmos#8352: room for an honest partial; the limit still holds. */
+test('kosmos#8352: what agents are told the note holds is the real limit', () => {
+  const taught = fs.readFileSync(nodePath.join(__dirname, 'defaults.js'), 'utf8').match(/it holds (\d+) characters/);
+  assert.ok(taught, 'the instruction no longer says what the note holds');
+  assert.equal(Number(taught[1]), tasks.BUILT_NOTE_MAX);
+});
+
 test('kosmos#8352: a built note of 1000 characters is kept whole and one more is refused', () => {
   assert.equal(tasks.BUILT_NOTE_MAX, 1000);
   const id = projects.create({ name: 'Note cap ' + Math.random().toString(36).slice(2), agents: ['rex'] }).id;

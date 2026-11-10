@@ -508,7 +508,7 @@ const BLOCK = [
   'kept to the tasks you hold, in every project you are on.',
   '',
   '**When it is done, mark it built and say how each check went,** in a short note',
-  '(it holds 300 characters):',
+  '(it holds 1000 characters, room to say what is covered, how it was checked and what is not):',
   '',
   '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
   '',
@@ -1285,8 +1285,9 @@ function block() {
  *     not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent who hits the error searches its instructions for its words; the even case
  *     no longer needs that, since kosmos.ps1 names the here-string itself.
+ *  48 kosmos#8352: the built note holds 1000 characters, and says what room that is for. No new heading.
  */
-const DOCTRINE_VERSION = 47;
+const DOCTRINE_VERSION = 48;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
