@@ -120,7 +120,8 @@ echo "ui-sample: ${dtype##*.} on ${runtime##*.}, the $arm chat list"
 only=""; want=0
 for c in $classes; do only="$only -only-testing:KosmosUITests/${c%%:*}"; want=$((want + ${c##*:})); done
 log="$work/xcodebuild.log"
-# kosmos#8221 slice 14: on the UIKit run, a test that runs past 7 minutes is stopped and counted as failed. With its retry
+# kosmos#8221 slice 14: on the UIKit run, a test that runs past 7 minutes is stopped (failed by xcodebuild; the tally never
+# sees it, so it is named as TIMED OUT below, on a pass as well as a failure). With its retry
 # (-retry-tests-on-failure) one hang costs up to 14 minutes, which still fits the job's 60; two hangs may not.
 allow=""
 if [ "$uikit" = 1 ]; then allow="-test-timeouts-enabled YES -default-test-execution-time-allowance 420 -maximum-test-execution-time-allowance 420"; fi
@@ -144,6 +145,17 @@ flaky_report() {
     echo "FLAKY $t: $(grep -m1 -F "error: -[KosmosUITests.${t%%.*} ${t##*.}]" "$log" | sed 's/.*\] : //' | cut -c1-200)"
   done
 }
+# kosmos#8221 slice 14: a test stopped at its time limit (--uikit) prints "exceeded execution time allowance", never "failed"
+# (measured 11-10 06:59), so the tally does not count it, and one that then passed on its retry would read as a clean pass.
+timedout="$(sed -n "s/^Test Case '-\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\]' exceeded execution time allowance.*/\1.\2/p" "$log" | sort -u)"
+timedout_report() {
+  [ -n "$timedout" ] || return 0
+  [ -n "${GITHUB_ACTIONS:-}" ] && echo "::warning title=ui-sample::TIMED OUT (stopped at the per-test limit): $(printf '%s' "$timedout" | paste -sd ' ' -)"
+  printf '%s\n' "$timedout" | while IFS= read -r t; do
+    last="$(printf '%s\n' "$tally" | grep -m1 -E "^${t//./\\.} (passed|failed|skipped|flaky)$" | awk '{print $2}')"
+    echo "TIMED OUT $t (last result: ${last:-none})"
+  done
+}
 # Review 1: each class must have run exactly its own number, so one class gaining a test cannot hide another skipping one.
 short=""
 for c in $classes; do
@@ -157,6 +169,7 @@ if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ] && [ -z "$sh
   [ -n "$flaky" ] && note="$note ($(printf '%s\n' "$flaky" | wc -l | tr -d ' ') FLAKY: failed once, then did not, named below)"
   echo "PASS  ui-sample: $ran of $want UI checks passed on a fresh simulator$note"
   flaky_report
+  timedout_report
   # kosmos#7348: name them and why, since the log is deleted with the run.
   sed -n 's/.*-\[KosmosUITests\.\([A-Za-z0-9_]* [A-Za-z0-9_]*\)\] : Test skipped - /SKIPPED \1: /p' "$log" | cut -c1-300
   exit 0
@@ -168,9 +181,7 @@ why=""
 echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)${short:+; per class:$short}"
 [ -n "$why" ] && printf '%s\n' "$why"
 [ -n "$stillred" ] && printf '%s\n' "$stillred" | sed 's/^/STILLRED /'
-# kosmos#8221 slice 14: a test stopped at its time limit (--uikit) prints "exceeded execution time allowance", never "failed"
-# (measured 11-10 06:59), so the tally does not count it; named here.
-sed -n "s/^Test Case '-\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\]' exceeded execution time allowance.*/TIMED OUT \1.\2/p" "$log" | sort -u
+timedout_report
 flaky_report
 # kosmos#7609: as ui-keyboard.sh does, the read-higher-up check's scroll trace, read from the app's own data container
 # before cleanup deletes the simulator (--keep keeps the log, not the simulator). The bundle id is the built app's.
