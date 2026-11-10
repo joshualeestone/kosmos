@@ -59,7 +59,7 @@ struct ChatList: UIViewRepresentable {
     static let sampleNoDropFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NODROPFIX"] == "1"
     // kosmos#8221 slice 18: each takes away one of focusFollow's "leave it alone" rules, so A11yFocusUITests' check of that rule
     // has a control that can see it broken: KOSMOS_SAMPLE_FOCUSNONEWEST=1 the newest message's, KOSMOS_SAMPLE_FOCUSNOONSCREEN=1
-    // the on-screen one. One switch each, so a control cannot pass through the other rule (review 1).
+    // the on-screen one. One switch each, so a control cannot pass through the other rule.
     static let sampleFocusNoNewest = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUSNONEWEST"] == "1"
     static let sampleFocusNoOnScreen = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUSNOONSCREEN"] == "1"
     #else
