@@ -11576,8 +11576,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .myagents-list .lrow > .lav > .lwarn { display: block; position: absolute; left: 50%; top: 50%; width: 18px; height: 16px; transform: translate(-50%, -52%); }
 .myagents-list .lrow > .lav > .lpres { display: block; position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; }
 .myagents-list .lrow > .lname { grid-column: 2; display: flex; align-items: center; gap: 6px; min-width: 0; }
-.myagents-list .lrow > .lname .namego { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.myagents-list .lrow > .lname b { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 20px; }
+.myagents-list .lrow > .lname .namego { display: block; flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.myagents-list .lrow > .lname b > :not(.namego) { flex: none; }   /* the stale triangle stays beside a name that truncates */
+.myagents-list .lrow > .lname b { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 20px; }
 .myagents-list .lrow > .lname:has(.astar) { padding-right: 70px; }
 .myagents-list .lrow > .lname .astar { right: 26px; width: 26px; height: 20px; }   /* clear of the unread count, as the rail's (render-star-6719) */
 .myagents-list .lrow > .ltitle { grid-column: 2; font-size: 12px; color: var(--k-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

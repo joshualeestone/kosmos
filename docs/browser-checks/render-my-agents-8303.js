@@ -236,6 +236,25 @@ const read = () => {
       ok(t + ' with nobody to list there is no column, and the link stays', onlyGuide.guide.hidden === true && onlyGuide.guide.back !== 'none' && onlyGuide.guide.pageLeft < 100, JSON.stringify(onlyGuide.guide));
       ok(t + ' CONTROL: it comes back with the agents', onlyGuide.back === false, JSON.stringify(onlyGuide.back));
 
+      const staleRow = await page.evaluate(() => {
+        const list = document.getElementById('my-agents-list');
+        const plainH = list.querySelector('.lrow[data-agent="dario"]').getBoundingClientRect().height;
+        const keep = { i: LAST[1].instructions, n: LAST[1].name };
+        LAST[1].instructions = { state: 'stale' }; LAST[1].running = true; LAST[1].state = 'idle'; LAST[1].context = { percent: 10 };   // a stopped row draws no triangle
+        LAST[1].name = 'A very long display name that cannot possibly fit in this column';
+        paintMyAgents();
+        const row = list.querySelector('.lrow[data-agent="mark"]');
+        const name = row.querySelector('.namego'); const mark = row.querySelector('.lname b > :not(.namego)');
+        const n = name.getBoundingClientRect(); const m = mark ? mark.getBoundingClientRect() : null; const star = row.querySelector('.astar').getBoundingClientRect();
+        const out = { hasMark: Boolean(mark), sameLine: m ? Math.abs((n.top + n.bottom) / 2 - (m.top + m.bottom) / 2) <= 3 : null, afterName: m ? m.left >= n.right - 1 : null, clearOfStar: m ? m.right <= star.left + 1 : null, shown: m ? m.width > 4 : null, truncated: name.scrollWidth > name.clientWidth, rowH: row.getBoundingClientRect().height, plainH };
+        LAST[1].instructions = keep.i; LAST[1].name = keep.n; LAST[1].running = false; LAST[1].state = 'stopped'; LAST[1].context = null;
+        paintMyAgents();
+        return out;
+      });
+      ok(t + ' the stale triangle sits beside the name, on its line', staleRow.hasMark && staleRow.sameLine && staleRow.afterName && staleRow.shown, JSON.stringify(staleRow));
+      ok(t + ' a long name truncates and leaves it visible, clear of the star', staleRow.truncated && staleRow.clearOfStar, JSON.stringify(staleRow));
+      ok(t + ' the row is no taller for it', Math.abs(staleRow.rowH - staleRow.plainH) <= 2, JSON.stringify(staleRow));
+
       const wiring = await page.evaluate(() => tick.toString().includes('keepStarFocus(paintMyAgents)'));
       ok(t + ' every poll repaints the column', wiring === true);
 
