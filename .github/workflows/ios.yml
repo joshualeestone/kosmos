@@ -280,10 +280,13 @@ jobs:
   # and was cancelled in its cleanup. Slice 14 adds two checks on the 260-message chat; two attempts of its first run were
   # cancelled at 50 with nothing printed. ui-sample.sh now stops any one test on this list at 7 minutes (14 with its retry),
   # so one hang fails as a test rather than reaching this limit.
+  # kosmos#8221 slice 16: 80 minutes, from 60. Passing runs took 46 to 52 minutes on main and other PRs on 2026-11-10 (one
+  # outlier at 29); slice 16 adds four checks of about 1.5 to 2 minutes each, and its first run was cancelled at 60 with
+  # the per-test limit never reached (no test hung).
   uikit:
     name: uikit list (sample board)
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v4
 

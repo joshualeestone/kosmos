@@ -83,6 +83,8 @@ the timing, not measured.
   and two new checks run them with .delete (fix and control). For the delete, "taken to the newest" is checked against
   Message 259, because the delete removes 260 and a check on 260 would pass whatever the list did.
 - ui-sample.sh: EarlierDroppedUITests 2 -> 4 in the UIKit class list.
+- .github/workflows/ios.yml: the UIKit list job's limit 60 -> 80 minutes. It took 46 to 52 minutes on main that day, and
+  the PR's first run, with four more checks, was cancelled at 60 with no test reaching its 7-minute limit.
 - ChatView: loadEarlier(_ caller: StaticString) names who asked (settled, top, retry, read, landed) in the sample trace;
   the room suite's allow-list adds "caller", and two source pins follow the new call text.
 - ChatView: earlierLanding, set as a page with rows lands (UIKit list) and cleared by topRead, a chat reset, a rebuild or the
