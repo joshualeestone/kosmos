@@ -1071,7 +1071,7 @@ final class BoardClient: ObservableObject {
             sampleThreads[agent.session] = Board.withoutMessage(sample, at: at)
             // kosmos#8221 slice 17: KOSMOS_SAMPLE_DELETE_SHIFTS=1 makes Dana's long chat behave as the Mac's latest window
             // does on a delete: one message fewer, so the newest earlier message moves into the window (olderCount - 1). It
-            // is built as sampleOlder builds that position, with an id of its own (a page holding it keys it by position).
+            // has the text and time sampleOlder gives that position, and an id of its own.
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_DELETE_SHIFTS"] == "1", agent.session == "dana",
                let now = sampleThreads["dana"], now.olderCount > 0 {
                 let p = now.olderCount - 1

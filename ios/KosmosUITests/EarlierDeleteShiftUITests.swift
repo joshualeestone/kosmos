@@ -84,6 +84,9 @@ final class EarlierDeleteShiftUITests: XCTestCase {
         if !UIKitListArm.on { throw XCTSkip("the UIKit list's earlier pages (kosmos#8221 slice 17)") }
         let app = Self.launch(control: false)
         deleteUnderTheReader(app)
+        // Review 1: a page was asked for after the delete and landed. Position 36 comes only with it: the pages before the drop
+        // are gone, and the window starts at 39.
+        XCTAssertTrue(Self.label(app, "Checking the venue list, item 37.").exists, "no page landed after the delete")
         XCTAssertGreaterThan(Self.count(app, Self.moved), 0, "CONTROL: the message that moved into the window is not drawn here, so this check sees nothing")
         XCTAssertEqual(Self.count(app, Self.moved), 1, "the message that moved into the window is drawn twice")
     }
