@@ -72468,8 +72468,11 @@ function tskRow(t, at) {
   /* #3951: a built row says who marked it and what is left, the agent's own words. */
   /* On any marked open task, not only in the Built group (review round 5: a built task whose agent needs the person
      sits under Needs Your Decision, and still says who marked it and offers the undo). */
-  /* kosmos#8352: a long note keeps the row readable and says there is more, so a partial does not read as finished. */
-  const builtNoteRow = String(t.builtNote || '').length > 240 ? t.builtNote.slice(0, 240).trimEnd() + '... (the rest is on its page)' : t.builtNote;
+  /* kosmos#8352: a long note keeps the row readable and says there is more, so a partial does not read as finished. Only
+     when cutting saves something: the pointer has its own length. */
+  const TSK_BUILT_NOTE_KEEP = 240;
+  const builtNoteChars = Array.from(String(t.builtNote || ''));   // by code point: never half an emoji
+  const builtNoteRow = builtNoteChars.length > TSK_BUILT_NOTE_KEEP + 40 ? builtNoteChars.slice(0, TSK_BUILT_NOTE_KEEP).join('').trimEnd() + '... (the rest is on its page)' : t.builtNote;
   const builtLine = !t.builtAt || t.state === 'closed' ? ''
     : '<div class="why">Marked built' + (t.builtByPerson ? ' by you' : t.builtBy ? ' by ' + esc(tskAgentName(t.builtBy)) : '')
       /* An empty ago (a time ahead of this device's clock) leaves no stray space before the colon (review round 11). */

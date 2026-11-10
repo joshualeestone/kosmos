@@ -534,6 +534,7 @@ enum Tasks {
     }
 
     // tskRow's builtLine: "Marked built by Rex 2 hours ago: the note", "Marked built by you".
+    // kosmos#8352: the web row shortens a long note and says so; here the row's own line limit cuts it.
     static func builtLine(_ t: Board.TaskRow, now: Date, name: (String) -> String) -> String {
         guard t.builtAt != nil, t.state != "closed" else { return "" }
         var s = "Marked built"
