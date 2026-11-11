@@ -64,6 +64,11 @@ what we wrote".
   "holds exactly our value" as ours is the indistinguishability this card exists to avoid. NIT: a second Kosmos
   install on the same account shares the person's file, so uninstalling the one that recorded can take out a value
   the other's agents use: a known gap (below).
+- Iteration 4 (sonnet): no new findings (its two WARNINGs repeat iteration 3's deferred record gap and iteration 2's
+  documented re-read residual). Converged; the final validation passed on f87d5b6dda.
+- Rebased onto main after #8361 merged (it also changed geminisettings.js: hookpaths.js). One conflict, the requires,
+  both kept. The uninstall test's sandbox engine then lacked hookpaths.js, so the undo could not load and the main
+  check went red: FIXED (the test copies geminisettings.js's require closure, with a control).
 - Validation 1: one red, the #1777 guard (the uninstall test compared process.platform with 'win32'): FIXED (a fixed
   darwin platform; the test is skipped off macOS and Linux).
 
