@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: aptzsh-8380
-diff_hash: 0154f4a43c77db937e0030354d55b651f2c75489d9f7ffa775460eda92b9c6f9
+diff_hash: 59597a64db2a58d599ddda6576d3f3a1d11db78bb17186a52d861ec35f0b1358
 validation: skipped
 subdir_audit: passed
 timestamp: 2026-11-11T15:22:23Z
@@ -38,3 +38,4 @@ Validation: SKIPPED on Splinter's instruction (11-11 09:20 CST): the change touc
 
 ### After convergence
 The first CI run sat in the tools step for 25 minutes: every lookup of the dead name waits out its timeout. Added one quick DNS check that repoints up front. Not re-reviewed: a one-line guarded addition.
+The second CI run showed the runner reads its hosts from /etc/apt/apt-mirrors.txt, which named the dead host for every pocket, and the host grep picked packages.microsoft.com. The fallback now tries known Ubuntu archive hosts by DNS and rewrites the list and sources to the first that resolves. Not re-reviewed; measured by this PR CI.
