@@ -63,6 +63,7 @@ function Get-AuthenticodeSignature {
 $d = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Get-NodeExe' }, $true) | Select-Object -First 1
 . ([scriptblock]::Create($d.Extent.Text))
 for ($i = 0; $i -lt [int] $args[3]; $i++) {
+  if ($args.Count -gt 4 -and $i -eq ([int] $args[3] - 1)) { $env:PATH = $args[4] }   # the last call sees a node on PATH
   $n = Get-NodeExe
   if ($n) { [Console]::Out.WriteLine('FOUND ' + $n.Source) } else { [Console]::Out.WriteLine('NONE') }
 }
@@ -70,7 +71,7 @@ for ($i = 0; $i -lt [int] $args[3]; $i++) {
 `;
 
 let n = 0;
-function run(ps, mode, calls) {
+function run(ps, mode, calls, laterPath) {
   const lad = path.join(SB, 'lad' + (n += 1));
   const app = path.join(lad, 'Programs', 'Kosmos', 'runtime', 'node.exe');
   fs.mkdirSync(path.dirname(app), { recursive: true });
@@ -79,7 +80,7 @@ function run(ps, mode, calls) {
   fs.writeFileSync(h, HARNESS);
   const env = { ...process.env };
   if (ps === 'powershell.exe') for (const k of Object.keys(env)) if (/^psmodulepath$/i.test(k)) delete env[k];
-  const r = spawnSync(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', h, SCRIPT, lad, mode, String(calls)], { env, encoding: 'utf8', timeout: 60000 });
+  const r = spawnSync(ps, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', h, SCRIPT, lad, mode, String(calls), ...(laterPath ? [laterPath] : [])], { env, encoding: 'utf8', timeout: 60000 });
   assert.strictEqual(r.status, 0, ps + ' harness failed: ' + r.stderr);
   const out = r.stdout.trim().split(/\r?\n/);
   const lines = r.stderr.split(/\r?\n/).filter((l) => l.startsWith('publish-r2:'));
@@ -103,15 +104,16 @@ for (const ps of RUNTIMES) {
     const r = run(ps, 'noload', 1);
     assert.deepStrictEqual(r.results, ['NONE']);
     assert.strictEqual(r.lines.length, 1);
-    assert.match(r.lines[0], /no working Get-AuthenticodeSignature \(on Windows, check its module path\) \(The Get-AuthenticodeSignature command was found in the module Microsoft\.PowerShell\.Security, but the module could not be loaded\.\)/);
+    assert.match(r.lines[0], /no working Get-AuthenticodeSignature \(on Windows, check its module path\): The Get-AuthenticodeSignature command was found in the module Microsoft\.PowerShell\.Security, but the module could not be loaded\./);
     assert.doesNotMatch(r.lines[0], /could not be read/);
   });
 
   test('#8316 ' + ps + ': a read that returns NotSigned still says the status, with no reason in brackets (control)', () => {
     const r = run(ps, 'notsigned', 1);
     assert.deepStrictEqual(r.results, ['NONE']);
-    assert.match(r.lines[0], /its signature is NotSigned, not Valid from OpenJS Foundation/);
-    assert.doesNotMatch(r.lines[0], /could not be read|\(/);
+    // Only the text after the path: a temp folder may itself hold a bracket.
+    assert.match(r.lines[0], /node\.exe: its signature is NotSigned, not Valid from OpenJS Foundation$/);
+    assert.doesNotMatch(r.lines[0], /could not be read/);
   });
 
   test('#8316 ' + ps + ': three calls read the signature once, say one line, and all return what it said (Valid)', () => {
@@ -121,6 +123,17 @@ for (const ps of RUNTIMES) {
     assert.match(r.lines[0], /using the installed Kosmos app's own \(signed by OpenJS Foundation\)/);
     assert.strictEqual(r.results.length, 3);
     assert.ok(r.results.every((x) => x.startsWith('FOUND ') && x === r.results[0]), r.results.join(' | '));
+  });
+
+  test('#8316 ' + ps + ': a node put on PATH after the verdict was kept still wins (PATH is looked at before the kept verdict)', () => {
+    const bin = path.join(SB, 'pathbin' + (n += 1));
+    fs.mkdirSync(bin, { recursive: true });
+    const node = path.join(bin, process.platform === 'win32' ? 'node.exe' : 'node');
+    fs.writeFileSync(node, '');
+    fs.chmodSync(node, 0o755);
+    const r = run(ps, 'throw', 2, bin);
+    assert.strictEqual(r.reads, 1, 'signature reads');
+    assert.deepStrictEqual(r.results, ['NONE', 'FOUND ' + node]);
   });
 
   test('#8316 ' + ps + ': a refusal is kept too: three calls, one read, three NONE', () => {

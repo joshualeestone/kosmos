@@ -40,6 +40,7 @@ if ($args[2] -ceq 'NO-LOCALAPPDATA') { $env:LOCALAPPDATA = $null } else { $env:L
 . ([scriptblock]::Create((Assignment '$KosmosAppNode')))
 . ([scriptblock]::Create((Assignment '$NodePublisher')))
 . ([scriptblock]::Create((Assignment '$script:SaidRuntimeNode')))
+. ([scriptblock]::Create((Assignment '$script:RuntimeNodeVerdict')))
 if ($args[3] -ceq 'words') {
   . ([scriptblock]::Create((Assignment '$NoNodeWhere')))
   [Console]::Out.WriteLine('WORDS ' + $NoNodeWhere)
