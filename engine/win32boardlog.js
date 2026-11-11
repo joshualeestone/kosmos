@@ -63,7 +63,11 @@ function logPath(platform, home, env) {
 /* Writes all of `bytes` to `fd`. */
 function writeAll(fd, bytes) {
   let off = 0;
-  while (off < bytes.length) off += fs.writeSync(fd, bytes, off, bytes.length - off);
+  while (off < bytes.length) {
+    const n = fs.writeSync(fd, bytes, off, bytes.length - off);
+    if (!(n > 0)) return;   // no progress: give up on this write rather than spin
+    off += n;
+  }
 }
 
 /* Copies each write on `stream` into `fd`, stamped, then lets the original write go on unchanged. */
@@ -93,8 +97,9 @@ function tee(stream, fd, lineState, now) {
  * On Windows, for the board its logon task started, when neither stream is already a file: opens the log for
  * appending and copies both streams into it. A board started by hand has its own console, and a board a test starts
  * as a child is not task-started, so neither writes this file. Returns { path, fd } when it routed, else null. `deps`
- * is for tests: platform, home, env, path (the log), isFile(fd), taskStarted(), now(), and onCrash (where the
- * uncaught-exception writer is registered; default process.on).
+ * is for tests: platform, home, env, path (the log), isFile(fd), taskStarted(), now(), handlers() (how many
+ * uncaughtException handlers there are), and onCrash (where the uncaught-exception writer is registered; default
+ * process.on).
  */
 function route(stdout, stderr, deps) {
   const d = deps || {};
@@ -103,7 +108,7 @@ function route(stdout, stderr, deps) {
   const env = d.env || process.env;
   const taskStarted = typeof d.taskStarted === 'function' ? d.taskStarted : () => require('./win32board').startedByTask(env);
   if (!taskStarted()) return null;
-  if (!d.path && require('./live-execution').inTestProcess()) return null;   // and a test that names no file of its own
+  if (!d.path && require('./live-execution').inTestRun()) return null;   // and a test that names no file of its own
   const isFile = typeof d.isFile === 'function' ? d.isFile : require('./logstamp').isRegularFile;
   if (isFile(1) || isFile(2)) return null;   // something already sends the board's output to a file: leave it as it is
   try {
@@ -117,6 +122,8 @@ function route(stdout, stderr, deps) {
     const onCrash = typeof d.onCrash === 'function' ? d.onCrash : (name, fn) => process.on(name, fn);
     onCrash('uncaughtExceptionMonitor', (err, origin) => {
       try {
+        // An error something catches is not a crash: the board lives on (win32boardwatch.js's own monitor, the same rule).
+        if (typeof d.handlers === 'function' ? d.handlers() > 0 : process.listenerCount('uncaughtException') > 0) return;
         const at = now().toISOString();
         const text = (lineState.atLineStart ? '' : '\n') + at + ' ' + String(origin || 'uncaughtException')
           + ': ' + String((err && err.stack) || err).replace(/\r?\n/g, '\n' + at + ' ') + '\n';

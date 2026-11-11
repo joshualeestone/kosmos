@@ -19,10 +19,10 @@ function fakeStream() {
 }
 function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-winlog-8373-')); }
 /* Routes two fake streams into `file`, with the crash writer captured instead of registered on this process. */
-function routeInto(t, file, extra) {
+function routeInto(t, file, extra) {   // extra.handlers: how many uncaughtException handlers the monitor sees
   boardlog.resetForTest();
   const out = fakeStream(), err = fakeStream(), crash = {};
-  const r = boardlog.route(out, err, { platform: 'win32', path: file, isFile: () => false, taskStarted: () => true, now, onCrash: (name, fn) => { crash[name] = fn; }, ...(extra || {}) });
+  const r = boardlog.route(out, err, { platform: 'win32', path: file, isFile: () => false, taskStarted: () => true, now, handlers: () => 0, onCrash: (name, fn) => { crash[name] = fn; }, ...(extra || {}) });
   t.after(() => { if (r) fs.closeSync(r.fd); boardlog.resetForTest(); });
   return { r, out, err, crash };
 }
@@ -77,6 +77,13 @@ test('#8373 an uncaught exception\'s stack is written to the file, every line st
   const e = new Error('boom'); e.stack = 'Error: boom\n    at here';
   crash.uncaughtExceptionMonitor(e, 'uncaughtException');
   assert.strictEqual(fs.readFileSync(file, 'utf8'), `${T} half a line\n${T} uncaughtException: Error: boom\n${T}     at here\n`);
+});
+
+test('#8373 an error something catches is not written as a crash', (t) => {
+  const file = path.join(scratch(), 'board.log');
+  const { crash } = routeInto(t, file, { handlers: () => 1 });
+  crash.uncaughtExceptionMonitor(new Error('caught'), 'uncaughtException');
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), '');
 });
 
 test('#8373 a big file is moved aside at start, and a file left mid-line gets its line ended first', (t) => {
