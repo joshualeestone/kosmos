@@ -550,10 +550,10 @@ fixture; mv "$R" "$H/elsewhere"; ln -s "$H/elsewhere" "$R"; run deflink -- --app
 [ "$(rc deflink)" = 1 ] && has deflink "is not a directory (or is a symlink)" && [ ! -e "$(DP)" ] && ! grep -q '^launchctl bootstrap' "$LOG" \
   && pass "#8404: a symlink at the default runner dir refuses, nothing written" || fail "#8404 deflink: rc $(rc deflink) $(cat "$T/deflink.out")"
 fixture; rm -rf "$R"; run defgone -- daemon
-[ "$(rc defgone)" = 1 ] && has defgone "is not a directory" && pass "#8404: a missing default runner dir refuses" || fail "#8404 defgone: rc $(rc defgone) $(cat "$T/defgone.out")"
+[ "$(rc defgone)" = 1 ] && has defgone "--apply would refuse now: " && has defgone "is not a directory" && pass "#8404: a missing default runner dir refuses" || fail "#8404 defgone: rc $(rc defgone) $(cat "$T/defgone.out")"
 # A dir that is not one plain directory directly in the CI home is refused, named, before anything.
 i=0
-for bad in "$H/../x" "/tmp/actions-runner" "$H/a/b" "$H/a b" "$H/.." "$H" "$H/" "actions-runner" "$H/x;y" "$H/.ssh"; do
+for bad in "$H/../x" "/tmp/actions-runner" "$H/a/b" "$H/a b" "$H/.." "$H" "$H/" "actions-runner" "$H/x;y" "$H/.ssh" "$H//"; do
   i=$((i + 1)); fixture; run "baddir$i" "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$bad" -- daemon
   [ "$(rc "baddir$i")" = 2 ] && has "baddir$i" "KOSMOS_CI_RUNNER_DIR" && has "baddir$i" "must be one directory directly in" \
     && pass "#8404: KOSMOS_CI_RUNNER_DIR '$bad' is refused" || fail "#8404 baddir '$bad': rc $(rc "baddir$i") $(cat "$T/baddir$i.out")"

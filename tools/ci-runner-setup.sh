@@ -1227,7 +1227,9 @@ daemon() {
   # default dir's window too: what it reads is only compared and everything started runs as the CI user, but a FIFO
   # swapped in between the -f test and the read of .service blocks that read (the #7877 class, unchanged here).
   if [ -L "$RUNNER_DIR" ] || [ ! -d "$RUNNER_DIR" ]; then
-    echo "refused: $RUNNER_DIR is not a directory (or is a symlink); the runner is not installed there, or something replaced it. Nothing was changed" >&2; exit 1
+    _w="$RUNNER_DIR is not a directory (or is a symlink); the runner is not installed there, or something replaced it. Nothing was changed"
+    if [ "$APPLY" = 1 ]; then echo "refused: $_w" >&2; else echo "refused: --apply would refuse now: $_w" >&2; fi
+    exit 1
   fi
   local label; label="$(runner_label)"
   local dplist="$DAEMON_DIR/$label.plist" agent="$CI_HOME/Library/LaunchAgents/$label.plist"
