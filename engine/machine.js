@@ -368,9 +368,12 @@ function sleepGate(opts) {
 function readLinuxSleep(opts) {
   const o = opts || {};
   if ('linuxSleep' in o) return o.linuxSleep;
+  // A test that hands no runner never runs the host's busctl or gsettings (a Linux CI runner's would decide the row).
+  if (!o.runner && require('./live-execution').inTestProcess()) return { idle: null, lid: null, gnome: null };
   const runner = o.runner || run;
+  const inTest = require('./live-execution').inTestProcess();
   const prop = (name) => {
-    const r = runner('busctl', ['get-property', 'org.freedesktop.login1', '/org/freedesktop/login1', 'org.freedesktop.login1.Manager', name]);
+    const r = runner('busctl', ['--system', 'get-property', 'org.freedesktop.login1', '/org/freedesktop/login1', 'org.freedesktop.login1.Manager', name]);
     if (!r || !r.ok) return null;
     const m = String(r.stdout || '').trim().match(/^(s|t)\s+"?([^"]*)"?$/);
     return m ? m[2] : null;
@@ -382,8 +385,7 @@ function readLinuxSleep(opts) {
     const usec = Number(prop('IdleActionUSec'));
     idle = { action, minutes: Number.isFinite(usec) && usec > 0 ? Math.max(1, Math.round(usec / 60e6)) : null };
     /* A test never reads the host's lid (a laptop running the suite would decide the row), as linuxjob.lingerFileOn. */
-    const hasLid = ('hasLid' in o) ? o.hasLid === true
-      : (require('./live-execution').inTestProcess() ? false : linuxHasLid());
+    const hasLid = ('hasLid' in o) ? o.hasLid === true : (inTest ? false : linuxHasLid());
     if (hasLid) {
       const battery = prop('HandleLidSwitch');
       const ext = prop('HandleLidSwitchExternalPower');
@@ -401,8 +403,12 @@ function readLinuxSleep(opts) {
     const mins = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.max(1, Math.round(n / 60)) : null; };
     const ac = get('sleep-inactive-ac-type');
     if (ac) {
+      /* The battery half only on a machine with a battery: GNOME keeps its stock "suspend after 15 minutes on battery"
+         on a desktop PC too, where nothing acts on it (review 2). Seam: opts.hasBattery. */
+      const battery = (('hasBattery' in o) ? o.hasBattery === true : (inTest ? false : linuxHasBattery()));
       gnome = { ac, acMinutes: mins(get('sleep-inactive-ac-timeout')),
-        battery: get('sleep-inactive-battery-type'), batteryMinutes: mins(get('sleep-inactive-battery-timeout')) };
+        battery: battery ? get('sleep-inactive-battery-type') : null,
+        batteryMinutes: battery ? mins(get('sleep-inactive-battery-timeout')) : null };
     }
   }
   return { idle, lid, gnome };
@@ -416,8 +422,13 @@ function readLinuxSleep(opts) {
  */
 function linuxHasLid(lidDir, supplyDir) {
   const lids = lidDir || '/proc/acpi/button/lid';
-  const supplies = supplyDir || '/sys/class/power_supply';
   try { if (fs.readdirSync(lids).length > 0) return true; } catch { /* no ACPI lid folder */ }
+  return linuxHasBattery(supplyDir);
+}
+
+/** Whether a battery powers the computer itself (not a mouse's or keyboard's, scope "Device"). */
+function linuxHasBattery(supplyDir) {
+  const supplies = supplyDir || '/sys/class/power_supply';
   const read = (n, f) => { try { return fs.readFileSync(path.join(supplies, n, f), 'utf8').trim(); } catch { return null; } };
   try {
     return fs.readdirSync(supplies).some((n) => read(n, 'type') === 'Battery' && read(n, 'scope') !== 'Device');
@@ -461,7 +472,8 @@ function linuxSleepCheck(reading) {
   if (idleStops || gnomeAc) {
     return { key: 'sleep', state: STATE.ATTENTION,
       title: 'This computer can go to sleep on its own',
-      detail: said.join(' ') + ' Your agents stop until it wakes.' + fix };
+      detail: said.join(' ') + (/turns off|restarts/.test(said.join(' ')) && !/goes to sleep/.test(said.join(' '))
+        ? ' Your agents stop until it is started again.' : ' Your agents stop until it wakes.') + fix };
   }
   if (lidStops || gnomeBatt) {
     const title = lidStops && gnomeBatt ? 'This computer goes to sleep on battery, or when its lid closes'
@@ -1878,7 +1890,8 @@ function readLinuxBoardAutostart(runner, opts) {
   /* A sandboxed board's unit sits where systemd never reads it, and systemctl would name the person's REAL board unit
      (linuxboard.runner's refusal, review 22 there; review 1 here). So a sandbox asks systemd nothing. */
   const sandboxed = Boolean(process.env.AGENT_WORKFORCE_LAUNCH) && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
-  if (unitFile && !sandboxed) {
+  if (unitFile && sandboxed) return { unitFile, unitState: null, linger: undefined, installed: ('installedRoot' in o) ? o.installedRoot : update.installedRoot(), sandboxed: true };
+  if (unitFile) {
     const r = runner('systemctl', ['--user', 'show', '-p', 'UnitFileState', lb.boardUnitName()]);
     const m = r && r.ok ? String(r.stdout || '').match(/^UnitFileState=(\S*)\s*$/m) : null;
     unitState = m && m[1] ? m[1] : null;
@@ -1921,6 +1934,7 @@ function linuxBoardAutostartCheck(reading) {
       detail: 'The service that brings Kosmos back after a restart is missing, so your agents will not come back on '
         + 'their own until it is restored. Reinstalling Kosmos puts it back.' };
   }
+  if (r.sandboxed) return unknown('This copy of Kosmos runs apart from this computer\'s own services, so we did not ask about them.');
   if (!r.unitState) return unknown('This computer\'s service manager did not answer when we asked about Kosmos\'s startup service.');
   if (r.unitState === 'masked' || r.unitState === 'masked-runtime') {
     return { key: 'autostart', state: STATE.ATTENTION,
@@ -2104,4 +2118,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxHasLid, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxHasLid, linuxHasBattery, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };

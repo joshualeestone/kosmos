@@ -134,6 +134,7 @@ test('restart reader: a sandboxed board asks systemd nothing, so it never reads 
     assert.equal(got.linger, undefined);
     assert.deepEqual(asked, [], 'no systemctl and no loginctl from a sandbox');
     assert.equal(row(got).state, STATE.UNKNOWN);
+    assert.match(row(got).detail, /runs apart from this computer's own services, so we did not ask/, 'it does not say systemd failed to answer');
   } finally {
     if (prevS === undefined) delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR; else process.env.AGENT_WORKFORCE_SYSTEMD_DIR = prevS;
     if (prevL === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = prevL;
@@ -170,7 +171,7 @@ test('sleep row: nothing read is no row at all (kosmos#8375), never a standing c
 test('sleep row: a sleep while plugged in, open and idle is the plain warning, and says where to change it', () => {
   const cases = [
     [{ idle: { action: 'suspend', minutes: 30 } }, /After 30 minutes with nobody using it, this computer goes to sleep\./, /logind\.conf\.d/, /desktop's Power settings/],
-    [{ idle: { action: 'poweroff', minutes: 1 } }, /After 1 minute .* turns off/, /logind\.conf\.d/, /desktop's Power settings/],
+    [{ idle: { action: 'poweroff', minutes: 1 } }, /After 1 minute .* turns off\. Your agents stop until it is started again\./, /logind\.conf\.d/, /desktop's Power settings/],
     [{ idle: QUIET_IDLE, gnome: { ac: 'suspend', acMinutes: 20, battery: 'nothing', batteryMinutes: null } }, /plugged in, the desktop puts it to sleep after 20 minutes/, /desktop's Power settings .*Automatic Suspend/, /logind/],
   ];
   for (const [reading, words, where, notWhere] of cases) {
@@ -260,7 +261,7 @@ function sleepRunner(over) {
   const asked = [];
   const runner = (cmd, args) => {
     asked.push([cmd, ...args]);
-    if (cmd === 'busctl') return v[args[4]] == null ? { ok: false } : { ok: true, stdout: v[args[4]] + '\n' };
+    if (cmd === 'busctl') return v[args[5]] == null ? { ok: false } : { ok: true, stdout: v[args[5]] + '\n' };
     if (cmd === 'systemctl') return v.gsd === 'active' ? { ok: true, stdout: 'active\n' } : { ok: false };
     if (cmd === 'gsettings') return v[args[2]] == null ? { ok: false } : { ok: true, stdout: v[args[2]] + '\n' };
     return { ok: false };
@@ -270,14 +271,14 @@ function sleepRunner(over) {
 
 test('sleep reader: logind, the lid and GNOME are read, and every command is a look', () => {
   const { runner, asked } = sleepRunner();
-  const got = machine.readLinuxSleep({ runner, hasLid: true });
+  const got = machine.readLinuxSleep({ runner, hasLid: true, hasBattery: true });
   assert.deepEqual(got, {
     idle: { action: 'suspend', minutes: 30 },
     lid: { battery: 'suspend', ac: 'suspend' },   // an empty HandleLidSwitchExternalPower means HandleLidSwitch applies
     gnome: { ac: 'suspend', acMinutes: 20, battery: 'suspend', batteryMinutes: 15 },
   });
   for (const a of asked) {
-    const look = (a[0] === 'busctl' && a[1] === 'get-property')
+    const look = (a[0] === 'busctl' && a[1] === '--system' && a[2] === 'get-property')
       || (a[0] === 'systemctl' && a[1] === '--user' && a[2] === 'is-active')
       || (a[0] === 'gsettings' && a[1] === 'get');
     assert.ok(look, 'a Settings read must change nothing: ' + a.join(' '));
@@ -298,6 +299,21 @@ test('sleep reader: logind unreadable and no desktop is no reading at all, and t
   assert.deepEqual(got, { idle: null, lid: null, gnome: null });
   assert.equal(asked.filter((a) => a[0] === 'busctl').length, 1, 'a logind that does not answer is asked once, not five times');
   assert.equal(sleep(got), null);
+});
+
+test('sleep reader: GNOME\'s battery setting counts only on a machine with a battery (a desktop keeps the stock suspend)', () => {
+  const { runner, asked } = sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-ac-type': "'nothing'" });
+  const desk = machine.readLinuxSleep({ runner, hasLid: false, hasBattery: false });
+  assert.equal(desk.gnome.battery, null);
+  assert.equal(sleep(desk).state, STATE.OK, 'a desktop PC with GNOME\'s defaults is not told it sleeps on battery');
+  assert.ok(!asked.some((a) => a[0] === 'gsettings' && /battery/.test(a[2])), 'the battery keys are not asked');
+  const laptop = machine.readLinuxSleep({ runner: sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-ac-type': "'nothing'" }).runner, hasLid: false, hasBattery: true });
+  assert.equal(sleep(laptop).battOnly, true, 'control: the same settings on a laptop are the battery note');
+});
+
+test('sleep reader: a test that hands no runner reads nothing from the host', () => {
+  assert.deepEqual(machine.readLinuxSleep({}), { idle: null, lid: null, gnome: null });
+  assert.deepEqual(machine.sleepGate({ platform: 'linux' }), { checkable: false, because: 'we could not read this computer\'s sleep settings' });
 });
 
 test('sleep reader: a set HandleLidSwitchExternalPower is the plugged-in answer', () => {
