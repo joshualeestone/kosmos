@@ -91,19 +91,24 @@ function run(cmd, args) {
    costs everyone one two-second wait per ten-second reading, not most of a minute (kosmos#8384). */
 let linuxTimeoutMs = 2000;
 let linuxHungUntil = 0;   // after one look times out, the others fail at once for ten seconds: one timeout per reading
-function setLinuxTimeoutForTests(ms) { linuxTimeoutMs = ms; linuxHungUntil = 0; }
+let linuxSlowInARow = 0;   // looks slower than half the timeout, back to back; two in a row is a sluggish bus
+function setLinuxTimeoutForTests(ms) { linuxTimeoutMs = ms; linuxHungUntil = 0; linuxSlowInARow = 0; }
 function linuxRun(cmd, args) {
   if (Date.now() < linuxHungUntil) return { ok: false, because: 'skipped: a Linux look timed out just now', stdout: '' };
   const started = Date.now();
-  // A look that takes over half the timeout is a sluggish bus: the rest fail at once too, so a slow bus cannot stack.
-  const slow = () => { if (Date.now() - started > linuxTimeoutMs / 2) linuxHungUntil = Date.now() + 10000; };
+  /* Two looks in a row slower than half the timeout are a sluggish bus: the rest fail at once too, so a slow bus cannot
+     stack. One slow look alone (a cold start) does not count. */
+  const slow = () => {
+    if (Date.now() - started > linuxTimeoutMs / 2) { linuxSlowInARow += 1; if (linuxSlowInARow >= 2) linuxHungUntil = Date.now() + 10000; }
+    else linuxSlowInARow = 0;
+  };
   try {
     const out = execFileSync(cmd, args, { encoding: 'utf8', timeout: linuxTimeoutMs, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
     slow();
     return { ok: true, stdout: out };
   } catch (err) {
     slow();
-    if (err && err.code === 'ETIMEDOUT') linuxHungUntil = Date.now() + 10000;   // our own timeout, not any kill
+    if (err && err.code === 'ETIMEDOUT') { linuxHungUntil = Date.now() + 10000; linuxSlowInARow = 0; }   // our own timeout, not any kill
     // stdout too: systemctl is-active prints "inactive" and exits 3, which is an answer, not a failed ask.
     return { ok: false, because: String((err && err.message) || err), missing: Boolean(err && err.code === 'ENOENT'),
       stdout: err && err.stdout ? String(err.stdout) : '' };
@@ -588,7 +593,7 @@ function linuxSleepCheck(reading) {
   if (r.skipped) {
     return { key: 'sleep', state: STATE.UNKNOWN,
       title: 'We could not check this computer\'s sleep settings just now',
-      detail: 'Another reading timed out a moment ago, so not every setting was asked; they are read again in a few seconds.' };
+      detail: 'Some of this computer\'s settings were slow to answer, so not every one was asked; they are asked again on the next visit.' };
   }
   if (!idle && !lid && !gnome && !r.gnomeUnread && !r.lidUnread) return null;
   const stops = (a) => (a && Object.prototype.hasOwnProperty.call(LINUX_STOPPING_ACTION, a)) ? LINUX_STOPPING_ACTION[a] : null;
@@ -2098,7 +2103,7 @@ function readLinuxBoardAutostart(runner, opts) {
      AGENT_WORKFORCE_LAUNCH, which linuxjob.defaultSystemdDir reads first). */
   const inTest = require('./live-execution').inTestRun();
   if (inTest && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && !process.env.AGENT_WORKFORCE_LAUNCH) {
-    return { unitFile: null, unitState: null, linger: undefined, installed: null };
+    return { unitFile: null, unitState: null, linger: undefined, installed: null, testNoHost: true };
   }
   /* Whether systemd runs this computer at all (a container, WSL without systemd): sd_booted's own test.
      Seam: opts.systemdRunning. */
@@ -2126,6 +2131,7 @@ function readLinuxBoardAutostart(runner, opts) {
     // leaves it when linger could not be turned on).
     const r = runner('systemctl', ['--user', 'show', '-p', 'UnitFileState', '-p', 'MainPID', lb.boardUnitName()]);
     const pidM = r && r.ok ? String(r.stdout || '').match(/^MainPID=(\d+)\s*$/m) : null;
+    // MainPID is this node's pid because board-run ends in exec node (as linuxboard.canRestart relies on too).
     if (pidM) held = Number(pidM[1]) === (('pid' in o) ? o.pid : process.pid);
     const m = r && r.ok ? String(r.stdout || '').match(/^UnitFileState=(\S*)\s*$/m) : null;
     // An empty state is systemd answering that it does not know the unit, not a failed ask.
@@ -2180,7 +2186,7 @@ function linuxBoardAutostartCheck(reading) {
     detail: 'Not the same as it being wrong. ' + why });
   /* A sandbox is a test or development copy that never asks systemd, so it has no row: #8375 keeps a row that can never
      read out of the could-not-check count. */
-  if (r.sandboxed) return null;
+  if (r.sandboxed || r.testNoHost) return null;   // a test that read nothing of the host gets no row, not a false sentence
   // No systemd here (a container, WSL without it), whether or not a unit file was written: nothing starts it.
   if (r.systemdRunning === false && !r.installed) {
     return { key: 'autostart', state: STATE.OK,
@@ -2221,11 +2227,13 @@ function linuxBoardAutostartCheck(reading) {
   if (r.unitState === '') return unknown('This computer\'s service manager does not know Kosmos\'s startup service, though its file is in place.');
   if (!r.unitState && r.linger === false) {
     // Only the file was read here, so the words claim no more: whether it is switched on was not read.
-    return linuxLingerOffRow(r, 'Its startup file is on this computer, but with nobody logged in this computer runs '
-      + 'no services for you, so Kosmos and your agents stay stopped until someone logs in. (Whether the service is '
-      + 'switched on could not be read.)');
+    /* Reached with no user manager running, which with linger off means nobody is logged in, while this board is
+       plainly running (loose): so the words are about after a restart, as setup.sh's are. */
+    return Object.assign(linuxLingerOffRow(r, 'Its startup file is on this computer, but with nobody logged in this computer '
+      + 'runs no services for you, so after a restart Kosmos and your agents stay stopped until someone logs in. (Whether '
+      + 'the service is switched on could not be read.)'), { title: 'Kosmos will not start by itself after a restart' });
   }
-  if (!r.unitState && r.skipped) return unknown('Another reading timed out a moment ago, so we did not ask about Kosmos\'s startup service; it is read again in a few seconds.');
+  if (!r.unitState && r.skipped) return unknown('This computer\'s services were slow to answer, so we did not ask about Kosmos\'s startup service; it is asked again on the next visit.');
   if (!r.unitState) return unknown('This computer\'s service manager did not answer when we asked about Kosmos\'s startup service.');
   if (r.unitState === 'masked' || r.unitState === 'masked-runtime') {
     /* The same way out as the masked file above: unmask, then reinstall. Unmasking can leave no unit file behind, so

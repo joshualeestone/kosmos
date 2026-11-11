@@ -738,7 +738,8 @@ test('restart: systemd silent with the file in place reads linger, and linger of
   assert.equal(got.linger, false);
   const r = row(got);
   assert.equal(r.state, STATE.ATTENTION);
-  assert.match(r.title, /stops when you log out/);
+  assert.equal(r.title, 'Kosmos will not start by itself after a restart', 'the board is running now, so the words are about after a restart');
+  assert.match(r.detail, /so after a restart Kosmos and your agents stay stopped until someone logs in/);
   assert.equal(r.admin, "loginctl enable-linger 'pat'");
   // Control: linger on, and systemd still silent, is the plain could-not-check.
   assert.equal(row({ ...got, linger: true }).state, STATE.UNKNOWN);
@@ -996,7 +997,7 @@ test('restart row: a look skipped after another timed out says it did not get to
   const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(() => ({ ok: false, because: 'skipped: a Linux look timed out just now', stdout: '' }),
     { runner: () => ({ ok: false, because: 'skipped: a Linux look timed out just now', stdout: '' }), installedRoot: BUNDLE, lingerOn: true }));
   assert.equal(got.skipped, true);
-  assert.match(row(got).detail, /so we did not ask about Kosmos's startup service; it is read again in a few seconds/);
+  assert.match(row(got).detail, /were slow to answer, so we did not ask about Kosmos's startup service; it is asked again on the next visit/);
 });
 
 test('a reading made while a look has timed out is not kept, so the next visit reads again', () => {
@@ -1071,7 +1072,7 @@ test('sleep reader: a reading with skipped looks is could-not-check for now, nev
   const row2 = sleep(got);
   assert.notEqual(row2, null);
   assert.equal(row2.state, STATE.UNKNOWN);
-  assert.match(row2.detail, /read again in a few seconds/);
+  assert.match(row2.detail, /slow to answer, so not every one was asked; they are asked again on the next visit/);
 });
 
 test('sleep: a desktop not ruled out (its ask failed) gets no plugged-in promise and the gate does not pass it', () => {
@@ -1081,13 +1082,14 @@ test('sleep: a desktop not ruled out (its ask failed) gets no plugged-in promise
   assert.equal(machine.sleepGate({ platform: 'linux', linuxSleep: { idle: QUIET_IDLE, lid: null, gnome: null, desktop: false } }).prevented, true, 'control');
 });
 
-test('linuxRun: a look slower than half the timeout trips the memory too, so a sluggish bus cannot stack', () => {
-  machine.setLinuxTimeoutForTests(400);
+test('linuxRun: two looks in a row slower than half the timeout trip the memory; one slow look alone does not', () => {
+  machine.setLinuxTimeoutForTests(1500);
   try {
-    const slow = machine.__linuxRunForTests('/bin/sleep', ['0.3']);
-    assert.equal(slow.ok, true, 'it answered');
-    const next = machine.__linuxRunForTests('/bin/echo', ['x']);
-    assert.match(String(next.because), /timed out just now/, 'the next look is skipped');
+    assert.equal(machine.__linuxRunForTests('/bin/sleep', ['0.9']).ok, true, 'one slow look answers');
+    assert.equal(machine.__linuxRunForTests('/bin/echo', ['x']).ok, true, 'and does not trip the memory on its own');
+    machine.__linuxRunForTests('/bin/sleep', ['0.9']);
+    machine.__linuxRunForTests('/bin/sleep', ['0.9']);
+    assert.match(String(machine.__linuxRunForTests('/bin/echo', ['x']).because), /timed out just now/, 'two in a row do');
   } finally { machine.setLinuxTimeoutForTests(2000); }
 });
 
