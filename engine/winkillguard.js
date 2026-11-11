@@ -35,8 +35,9 @@
  * 🛑 A SEATBELT, NOT A SANDBOX, as the Mac guard says of itself: it reads literal text. A name computed at run time,
  * a script that builds the command, Start-Process taskkill with -ArgumentList, an encoded command, a command inside
  * a quoted argument of another program (os.system("..."), node -e "..."), backtick command substitution, WMI and CIM
- * (Get-WmiObject ... | Remove-WmiObject, Invoke-CimMethod -MethodName Terminate), or any shape not listed above
- * passes. Also read: $( ... ), batch for ... do, tskill, Stop-Process (Get-Process ...), and | % { $_.Kill() }. A guard error fails open: the hook exits 0 and the call runs, as on the Mac.
+ * (Get-WmiObject ... | Remove-WmiObject, Invoke-CimMethod -MethodName Terminate), the blocks of Invoke-Command,
+ * Start-Job and . { }, a bash \' outside quotes, a Where-Object whose test is not a name (CPU -gt 0 selects nearly
+ * everything and passes; a name with -and $_.Id is still refused), or any shape not listed above passes. Also read: $( ... ), batch for ... do, tskill, Stop-Process (Get-Process ...), and | % { $_.Kill() }. A guard error fails open: the hook exits 0 and the call runs, as on the Mac.
  */
 
 const KOSMOS_IMAGES = ['node.exe', 'claude.exe', 'kosmos.exe'];
@@ -59,55 +60,99 @@ function globMatch(pat, str) {
    a wildcard counts when it can match one of them. */
 function kosmosName(raw) {
   const n = String(raw || '').trim().toLowerCase();
-  if (!n || n.length > 260) return false;
+  if (!n) return false;
   if (/[*?]/.test(n)) return KOSMOS_IMAGES.some((x) => globMatch(n, x) || globMatch(n, x.replace(/\.exe$/, '')));
   return /^(node|claude)(\.exe)?$/.test(n) || /^kosmos/.test(n);
 }
 
+/* Where each ( and { closes, and whether a quote is left open, in one pass with the tokenizer's own quote rules: a
+   quote runs to the next same quote, \" and \\ are literal inside double quotes, $( inside double quotes starts a
+   fresh context (bash command substitution) until its ), and <# ... #> and a word-start # (to the end of the line)
+   are comments. A bracket that never closes, or a close of the wrong kind, matches nothing and stays an ordinary
+   character, so a smiley :( or a regex literal cannot hide the rest of the text. Linear. */
+function scan(text, lit) {
+  const match = new Map();
+  const comments = new Map();   // start index -> index after the comment
+  const stack = [];             // { at, kind, q } : kind '(' '{' or '$(' (inside a quote, q is restored at its close)
+  let q = ''; let qAt = -1;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === q) { q = ''; continue; }
+      if (q === '"' && c === '\\' && (text[i + 1] === '"' || text[i + 1] === '\\')) { i++; continue; }
+      if (q === '"' && c === '$' && text[i + 1] === '(') { stack.push({ at: i + 1, kind: '$(', q }); q = ''; i++; continue; }
+      continue;
+    }
+    if ((c === '"' || c === "'") && !lit.has(i)) { q = c; qAt = i; continue; }
+    if (c === '<' && text[i + 1] === '#') { const e = text.indexOf('#>', i + 2); const to = e < 0 ? text.length : e + 2; comments.set(i, to); i = to - 1; continue; }
+    if (c === '#' && (i === 0 || /[\s;&|({]/.test(text[i - 1]))) { const e = text.indexOf('\n', i); const to = e < 0 ? text.length : e; comments.set(i, to); i = to - 1; continue; }
+    if (c === '(' || c === '{') { stack.push({ at: i, kind: c, q: '' }); continue; }
+    if (c === ')' || c === '}') {
+      const top = stack[stack.length - 1];
+      if (top && ((c === ')' && (top.kind === '(' || top.kind === '$(')) || (c === '}' && top.kind === '{'))) {
+        stack.pop();
+        match.set(top.at, i);
+        if (top.kind === '$(') q = top.q;   // back inside the double quote it started in
+      }
+    }
+  }
+  return { match, comments, openQuote: q ? qAt : -1 };
+}
+
 /* Words, operators and blocks, quotes removed (adjacent quoted and bare parts join into one word, as a shell does).
    - A word that held whitespace inside quotes is marked, so a wrapper's quoted command can be read again.
-   - ( ... ) and { ... } become one block token. reasonIn reads a block again as commands only where a shell or
-     PowerShell would run it: at the start of a command (a subshell, & { ... }), or after a control keyword (if,
-     else, foreach, function, try ...). A block anywhere else is code or data (an object literal, call arguments),
-     and is not read: so `(taskkill ...)` and `powershell -Command "& { Stop-Process -Name node }"` are seen, and
-     `onClick={logoff}` or `import { logoff } from` are not.
+   - A matched ( ... ) or { ... } becomes one block token. reasonIn reads a block again as commands only where a
+     shell or PowerShell would run it: at the start of a command (a subshell, & { ... }), after a control keyword
+     (if, else, foreach, function, try ...), or as $( ... ) / <( ... ) anywhere, also inside double quotes. A block
+     anywhere else is code or data (an object literal, a call's arguments), and is not read: so `(taskkill ...)` and
+     `powershell -Command "& { Stop-Process -Name node }"` are seen, and `onClick={logoff}` or `import { logoff }
+     from` are not.
    - \" and \\ inside double quotes are literal, as bash reads them.
    - A quote that never closes is an ordinary character (an apostrophe in prose must not hide the rest), found by
      reading again with that position literal.
-   - PowerShell's backtick at the end of a line joins the next line.
+   - PowerShell's backtick at the end of a line joins the next line. Comments (# to the end of the line at a word
+     start, <# ... #>) are skipped.
    Linear in the text per read; at most a few rereads for unclosed quotes. */
 function tokens(text, literalAt) {
   const lit = literalAt || new Set();
+  const sc = scan(text, lit);
+  if (sc.openQuote >= 0 && lit.size < 32) { const next = new Set(lit); next.add(sc.openQuote); return tokens(text, next); }
   const out = [];
-  let cur = ''; let has = false; let quotedSpace = false; let q = ''; let qAt = -1;
-  let wasQuoted = false;
-  const push = () => { if (has) out.push({ w: cur, quoted: quotedSpace, wasQuoted }); cur = ''; has = false; quotedSpace = false; wasQuoted = false; };
+  let cur = ''; let has = false; let quotedSpace = false; let q = ''; let wasQuoted = false;
+  const subs = [];   // $( ... ) found inside the word being built, pushed as blocks after it
+  const push = () => {
+    if (has) out.push({ w: cur, quoted: quotedSpace, wasQuoted });
+    for (const b of subs) out.push({ block: b, paren: true, glued: false, subst: true });
+    subs.length = 0;
+    cur = ''; has = false; quotedSpace = false; wasQuoted = false;
+  };
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (q) {
       if (c === q) { q = ''; continue; }
       if (q === '"' && c === '\\' && (text[i + 1] === '"' || text[i + 1] === '\\')) { cur += text[++i]; continue; }
+      if (q === '"' && c === '$' && text[i + 1] === '(' && sc.match.has(i + 1)) {
+        const close = sc.match.get(i + 1);
+        subs.push(text.slice(i + 2, close));
+        cur += text.slice(i, close + 1);
+        i = close;
+        continue;
+      }
       if (/\s/.test(c)) quotedSpace = true;
       cur += c;
       continue;
     }
-    if ((c === '"' || c === "'") && !lit.has(i)) { q = c; qAt = i; has = true; wasQuoted = true; continue; }
+    if (sc.comments.has(i)) { push(); i = sc.comments.get(i) - 1; continue; }
+    if ((c === '"' || c === "'") && !lit.has(i)) { q = c; has = true; wasQuoted = true; continue; }
     if (c === '`' && (text[i + 1] === '\n' || (text[i + 1] === '\r' && text[i + 2] === '\n'))) { i += text[i + 1] === '\r' ? 2 : 1; push(); continue; }
-    if (c === '(' || c === '{') {
-      const close = c === '(' ? ')' : '}';
-      let depth = 1; let j = i + 1; let qq = '';
-      for (; j < text.length && depth; j++) {
-        const d = text[j];
-        if (qq) { if (d === qq) qq = ''; continue; }
-        if (d === '"' || d === "'") { qq = d; continue; }
-        if (d === c) depth++;
-        else if (d === close) depth--;
-      }
-      // name( ... ): a function call in code, not a shell block. $( ... ) is bash's command substitution: it runs.
-      const glued = i > 0 && !/[\s;&|({$]/.test(text[i - 1]);
+    if ((c === '(' || c === '{') && sc.match.has(i)) {
+      const close = sc.match.get(i);
+      // name( ... ): a function call in code, not a shell block. $( ... ) and <( ... ) are bash substitutions: they run.
+      const glued = i > 0 && !/[\s;&|({$<]/.test(text[i - 1]);
+      const subst = c === '(' && (text[i - 1] === '$' || text[i - 1] === '<');
       push();
-      out.push({ block: text.slice(i + 1, depth ? text.length : j - 1), paren: c === '(', glued, subst: c === '(' && text[i - 1] === '$' });
-      i = depth ? text.length : j - 1;
+      out.push({ block: text.slice(i + 1, close), paren: c === '(', glued, subst });
+      i = close;
       continue;
     }
     if (c === ')' || c === '}') { push(); out.push({ op: ';' }); continue; }
@@ -123,7 +168,6 @@ function tokens(text, literalAt) {
     cur += c;
     has = true;
   }
-  if (q && lit.size < 32) { const next = new Set(lit); next.add(qAt); return tokens(text, next); }
   push();
   return out;
 }
@@ -144,7 +188,7 @@ function pipelines(toks) {
   return lines;
 }
 
-const base = (w) => (/^\/\//.test(String(w)) ? '' : String(w).split(/[\\/]/).pop().toLowerCase().replace(/\.exe$/, ''));   // //x: a code comment
+const base = (w) => (/^\/\//.test(String(w)) ? '' : String(w).replace(/^@/, '').split(/[\\/]/).pop().toLowerCase().replace(/\.exe$/, ''));   // //x: a code comment; @cmd: batch echo-off
 const words = (list) => list.filter((t) => t.w !== undefined);
 const sw = (w) => { const m = /^(?:\/{1,2}|-)([a-z?]+)(?::(.*))?$/i.exec(w); return m ? { name: m[1].toLowerCase(), value: m[2] } : null; };
 const isPrefixOf = (p, full) => p.length >= 1 && full.startsWith(p);
@@ -159,24 +203,28 @@ const R = {
 };
 
 function taskkill(args) {
-  let pid = false; let pidFilter = false; const ims = []; let fi = false;
+  let pid = false; let pidFilter = false; const ims = []; let fi = false; let narrowFilter = false;
   for (let i = 0; i < args.length; i++) {
     const s = sw(args[i].w);
     if (!s) continue;
     if (s.name === 'pid') pid = true;
     else if (s.name === 'im') { const v = s.value !== undefined ? s.value : (args[i + 1] && args[i + 1].w); if (v !== undefined) ims.push(v); if (s.value === undefined) i++; }
     else if (s.name === 'fi') {
-      const v = s.value !== undefined ? s.value : (args[i + 1] && args[i + 1].w);
+      const v = String((s.value !== undefined ? s.value : (args[i + 1] && args[i + 1].w)) || '');
       if (s.value === undefined) i++;
-      if (/^\s*pid\s+eq\s+\d+\s*$/i.test(String(v || ''))) pidFilter = true;   // a filter: narrows the call to one process
-      else fi = true;
+      const f = /^\s*(\w+)\s+(eq|ne|gt|lt|ge|le)\s+(.*?)\s*$/i.exec(v);
+      const field = f ? f[1].toLowerCase() : ''; const op = f ? f[2].toLowerCase() : ''; const val = f ? f[3] : '';
+      if (field === 'pid' && op === 'eq' && /^\d+$/.test(val)) pidFilter = true;   // narrows the call to one process
+      else if (field === 'imagename' && op === 'eq') { if (kosmosName(val)) ims.push(val); else narrowFilter = true; }
+      else if ((field === 'windowtitle' || field === 'modules' || field === 'services') && op === 'eq' && val && !/^\*$/.test(val)) narrowFilter = true;
+      else fi = true;   // USERNAME, STATUS, SESSION, MEMUSAGE, CPUTIME, IMAGENAME ne, a * value: ends what matches, broadly
     }
   }
   // Each /PID and /IM names more processes; only a /FI filter narrows. So a Kosmos /IM is refused even beside a
   // /PID, unless a "PID eq n" filter narrows the whole call to one process.
   const k = ims.find(kosmosName);
   if (k && !pidFilter) return R.kosmos('a taskkill of every ' + k + ' process');
-  if (fi && !ims.length && !pid && !pidFilter) return R.filter;
+  if (fi && !ims.length && !pid && !pidFilter && !narrowFilter) return R.filter;
   return '';
 }
 
@@ -223,7 +271,7 @@ function getProcessThenStop(args) {
 
 // A Map, not an object literal: a command word of constructor or __proto__ must not find Object.prototype (review 3).
 const WRAP_C = new Map([['cmd', /^\/{1,2}(c|k)$/i], ['bash', /^-[a-z]*c[a-z]*$/], ['sh', /^-[a-z]*c[a-z]*$/], ['zsh', /^-[a-z]*c[a-z]*$/]]);
-const PREFIX = /^(call|start|@|then|do|else|!|nohup|time|xargs|exec|command|sudo)$/i;   // words before the command
+const PREFIX = /^(call|start|@|then|do|else|!|nohup|time|xargs|exec|command|sudo|if|elif|while|until)$/i;   // words before the command
 const CONTROL = /^(if|elseif|else|foreach|for|while|do|until|try|catch|finally|switch|function|filter|trap|then)$/i;   // their blocks run
 const EVAL = new Set(['iex', 'invoke-expression']);
 const PS = new Set(['powershell', 'pwsh']);
@@ -242,6 +290,14 @@ function commandReason(cmd, pipe, at, depth) {
         while (i < cmd.length && cmd[i].w !== undefined && /^\/{1,2}[a-z]/i.test(cmd[i].w)) i++;
       }
       if (was === 'xargs') while (i < cmd.length && cmd[i].w !== undefined && /^-/.test(cmd[i].w)) i++;
+      if (was === 'if') {   // cmd's if [/i] [not] exist X | defined X | errorlevel N | a==b | a == b, then the command
+        const w = (k) => (cmd[k] && cmd[k].w !== undefined ? cmd[k].w : '');
+        if (/^\/i$/i.test(w(i))) i++;
+        if (/^not$/i.test(w(i))) i++;
+        if (/^(exist|defined|errorlevel|cmdextversion)$/i.test(w(i))) i += 2;
+        else if (/==/.test(w(i))) i += 1;
+        else if (w(i + 1) === '==' || /^(equ|neq|lss|leq|gtr|geq)$/i.test(w(i + 1))) i += 3;
+      }
     }
     break;
   }
@@ -330,7 +386,9 @@ function commandReason(cmd, pipe, at, depth) {
       }
       if (sn === 'foreach-object' || sn === 'foreach' || sn === '%') {
         const body = stage.slice(1).map((t) => (t.block !== undefined ? t.block : t.w)).join(' ');
-        if (/\.kill\s*\(/i.test(body)) {   // | % { $_.Kill() } stops each process like Stop-Process
+        // | % { $_.Kill() }, | % { Stop-Process $_ }, | % Kill: each stops every process it is given
+        const member = stage[1] && stage[1].w !== undefined && /^kill$/i.test(stage[1].w);
+        if (member || /\.kill\s*\(/i.test(body) || /(^|[\s;{(])(stop-process|spps)(\s|$|;)/i.test(body)) {
           if (picks) return picks === '*' ? R.allbut : R.kosmos('a Kill() of every ' + picks + ' process');
           if (filteredBy) return '';
           return getProcessThenStop(args);
@@ -347,10 +405,12 @@ function commandReason(cmd, pipe, at, depth) {
     const joined = wl.join(' ');
     if ((wl.includes('process') || /(^|[^a-z_])win32_process([^a-z_]|$)/.test(joined)) && (wl.includes('delete') || wl.includes('terminate'))
         && !(/(^|[^a-z])processid\s*=/.test(joined) && !/(^|\s)or(\s|$)/.test(joined))) {
-      return R.kosmos('a wmic command that ends processes by name or all of them');
+      const nm = /(^|[^a-z])name\s*(=|like)\s*["']?([^"'\s)]+)/.exec(joined);
+      if (nm && !kosmosName(nm[3].replace(/%/g, '*')) && !/(^|\s)or(\s|$)/.test(joined)) return '';   // another program, by name
+      return nm ? R.kosmos('a wmic command that ends every ' + nm[3] + ' process') : R.filter.replace('a taskkill with a filter and no process id', 'a wmic command with no process id');
     }
   }
-  if (name === 'logoff' && args.every((t) => /^(\d+|\/{1,2}\S+|-\S+|console|rdp-\S+)$/i.test(t.w))) return R.session('logoff');
+  if (name === 'logoff' && !args.some((t) => /^\/\?$/.test(t.w)) && args.every((t) => /^(\d+|\/{1,2}\S+|-\S+|console|rdp-\S+)$/i.test(t.w))) return R.session('logoff');
   if (name === 'shutdown') {
     const flags = args.map((t) => sw(t.w)).filter(Boolean).map((s) => s.name);
     const mi = args.findIndex((t) => { const x = sw(t.w); return x && x.name === 'm'; });
@@ -360,7 +420,13 @@ function commandReason(cmd, pipe, at, depth) {
     if (flags.some((f) => /^(s|r|l|p|h|g|sg)$/.test(f))) return flags.includes('l') ? R.session('a shutdown /l') : R.computer('a shutdown command');
     return '';
   }
-  if (name === 'restart-computer' || name === 'stop-computer') return R.computer(name === 'restart-computer' ? 'Restart-Computer' : 'Stop-Computer');
+  if (name === 'restart-computer' || name === 'stop-computer') {
+    if (args.some((t) => /^-whatif$/i.test(t.w))) return '';   // a dry run
+    const ci = args.findIndex((t) => /^-(computername|cn)$/i.test(t.w));
+    const target = ci >= 0 && args[ci + 1] ? args[ci + 1].w.toLowerCase() : '';
+    if (target && !/^(localhost|\.|127\.0\.0\.1|::1)$/.test(target)) return '';   // another computer
+    return R.computer(name === 'restart-computer' ? 'Restart-Computer' : 'Stop-Computer');
+  }
   return '';
 }
 
@@ -371,6 +437,15 @@ function reasonIn(text, depth) {
       const cmd = pipe[i];
       const head = cmd[0] && cmd[0].w !== undefined ? base(cmd[0].w) : '';
       // The pipeline and this stage's index, not a copy of the rest: copying was quadratic (reviews 3 and 4).
+      // (Get-Process node).Kill(): a block that lists processes, then .Kill()
+      if (cmd[0] && cmd[0].block !== undefined && cmd[1] && cmd[1].w !== undefined && /^\.kill$/i.test(cmd[1].w)) {
+        const inner = pipelines(tokens(cmd[0].block));
+        const c0 = inner.length === 1 && inner[0].length === 1 ? inner[0][0] : null;
+        if (c0 && c0[0] && c0[0].w !== undefined && /^(get-process|gps|ps)$/i.test(base(c0[0].w))) {
+          const k = getProcessThenStop(words(c0.slice(1)));
+          if (k) return k;
+        }
+      }
       const r = commandReason(cmd, pipe, i, depth);
       if (r) return r;
       // A block runs as commands at the start of a command, or after a control keyword; elsewhere it is code or data.
