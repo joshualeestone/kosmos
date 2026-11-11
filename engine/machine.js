@@ -395,9 +395,10 @@ function readLinuxSleep(opts) {
     if (Number.isFinite(usec) && usec >= 365 * 24 * 3600e6) idle = { action: 'ignore', minutes: null };
     else idle = { action, minutes: Number.isFinite(usec) && usec > 0 ? Math.max(1, Math.round(usec / 60e6)) : null };
     /* A test never reads the host's lid (a laptop running the suite would decide the row), as linuxjob.lingerFileOn. */
-    const hasLid = ('hasLid' in o) ? o.hasLid === true : (inTest ? false : linuxHasLid());
+    const lidRead = inTest ? null : linuxLid();
+    const hasLid = ('hasLid' in o) ? o.hasLid === true : Boolean(lidRead && lidRead.has);
     // A lid known only from a battery (no ACPI lid listed) is said as "if it has a lid": a tablet has none.
-    const lidSure = ('lidSure' in o) ? o.lidSure !== false : (inTest ? true : linuxHasLid(undefined, '/nonexistent'));
+    const lidSure = ('lidSure' in o) ? o.lidSure !== false : (lidRead ? lidRead.sure : true);
     if (hasLid) {
       const battery = prop('HandleLidSwitch');
       const ext = prop('HandleLidSwitchExternalPower');
@@ -449,10 +450,13 @@ function readLinuxSleep(opts) {
  * not one. Folders are parameters so a test passes a
  * fake tree.
  */
-function linuxHasLid(lidDir, supplyDir) {
+function linuxHasLid(lidDir, supplyDir) { return linuxLid(lidDir, supplyDir).has; }
+
+/* One read: { has, sure }, sure only when ACPI lists the lid itself (not inferred from a battery). */
+function linuxLid(lidDir, supplyDir) {
   const lids = lidDir || '/proc/acpi/button/lid';
-  try { if (fs.readdirSync(lids).length > 0) return true; } catch { /* no ACPI lid folder */ }
-  return linuxHasBattery(supplyDir);
+  try { if (fs.readdirSync(lids).length > 0) return { has: true, sure: true }; } catch { /* no ACPI lid folder */ }
+  return { has: linuxHasBattery(supplyDir), sure: false };
 }
 
 /* linuxHasLid counts a computer battery as a lid on purpose: a laptop whose ACPI lid is not listed still has one, and
@@ -476,7 +480,24 @@ const LINUX_STOPPING_ACTION = Object.freeze({
   'soft-reboot': 'restarts', 'factory-reset': 'restarts',
 });
 const LINUX_ACTION_BASE = Object.freeze({ 'goes to sleep': 'go to sleep', 'turns off': 'turn off', restarts: 'restart' });
+/* "the desktop ___", "closing the lid ___": what an action does to the computer, as an object. */
+const LINUX_ACTION_DOES = Object.freeze({ 'goes to sleep': 'puts it to sleep', 'turns off': 'turns it off', restarts: 'restarts it' });
 const minutesWords = (n) => n + (n === 1 ? ' minute' : ' minutes');
+
+/* The Linux readings run up to a dozen short commands, each with run()'s timeout, on the request that asks. Settings
+   re-reads on every visit, so a reading is kept for ten seconds; a caller with a runner or a seam always reads fresh. */
+const LINUX_READING_TTL_MS = 10000;
+const linuxReadings = new Map();
+function linuxCached(key, opts, read) {
+  const o = opts || {};
+  // opts.cacheInTest lets a test exercise the cache itself; otherwise a test always reads fresh.
+  if (o.runner || 'linuxSleep' in o || 'linuxBoard' in o || (require('./live-execution').inTestProcess() && !o.cacheInTest)) return read();
+  const hit = linuxReadings.get(key);
+  if (hit && Date.now() - hit.at >= 0 && Date.now() - hit.at < LINUX_READING_TTL_MS) return hit.value;
+  const value = read();
+  linuxReadings.set(key, { at: Date.now(), value });
+  return value;
+}
 
 /**
  * kosmos#8384: the Linux sleep row from readLinuxSleep's reading, or null when nothing could be read (#8375).
@@ -497,8 +518,8 @@ function linuxSleepCheck(reading) {
   const said = [], verbs = [];
   const say = (sentence, verb) => { said.push(sentence); verbs.push(verb); };
   if (idleStops) say('After ' + (idle.minutes ? minutesWords(idle.minutes) : 'a while') + ' with nobody using it, this computer ' + stops(idle.action) + '.', stops(idle.action));
-  if (gnomeAc) say('While it is plugged in, ' + after(gnome.acMinutes) + ' with nobody using it, the desktop ' + (stops(gnome.ac) === 'goes to sleep' ? 'puts it to sleep' : (stops(gnome.ac) === 'turns off' ? 'turns it off' : 'restarts it')) + '.', stops(gnome.ac));
-  if (gnomeBatt) say('On battery, ' + after(gnome.batteryMinutes) + ' with nobody using it, the desktop ' + (stops(gnome.battery) === 'goes to sleep' ? 'puts it to sleep' : (stops(gnome.battery) === 'turns off' ? 'turns it off' : 'restarts it')) + '.', stops(gnome.battery));
+  if (gnomeAc) say('While it is plugged in, ' + after(gnome.acMinutes) + ' with nobody using it, the desktop ' + LINUX_ACTION_DOES[stops(gnome.ac)] + '.', stops(gnome.ac));
+  if (gnomeBatt) say('On battery, ' + after(gnome.batteryMinutes) + ' with nobody using it, the desktop ' + LINUX_ACTION_DOES[stops(gnome.battery)] + '.', stops(gnome.battery));
   if (lidStops) {
     const ac = stops(lid.ac), batt = stops(lid.battery);
     const before = said.length;
@@ -513,7 +534,7 @@ function linuxSleepCheck(reading) {
     } else if (ac && batt) say('When the lid closes, this computer ' + ac + unless + '.', ac);
     else if (ac) say('When the lid closes while it is plugged in, this computer ' + ac + unless + '.', ac);
     else say('When the lid closes on battery, this computer ' + batt + unless + '.', batt);
-    if ((ac || batt) && docked) say('With another screen connected, closing the lid ' + (docked === 'goes to sleep' ? 'puts it to sleep' : (docked === 'turns off' ? 'turns it off' : 'restarts it')) + ' too.', docked);
+    if ((ac || batt) && docked) say('With another screen connected, closing the lid ' + LINUX_ACTION_DOES[docked] + ' too.', docked);
 
     if (lid.sure === false && said.length > before) {
       const lidPart = said.splice(before).map((x, i) => (i === 0 ? x.charAt(0).toLowerCase() + x.slice(1) : x)).join(' ');
@@ -596,7 +617,7 @@ function linuxSleepCheck(reading) {
     wizard's sleep step (#5877, frStepSequence), so nothing shows this today; it answers from Linux's own settings so
     that /api/sleep-status never runs pmset there, whoever asks. */
 function linuxSleepGate(opts) {
-  const reading = readLinuxSleep(opts);
+  const reading = linuxCached('sleep', opts, () => readLinuxSleep(opts));
   const row = linuxSleepCheck(reading);
   if (!row) return { checkable: false, because: 'we could not read this computer\'s sleep settings' };
   // A tick for Linux's own settings is not a reading of the desktop's: not checkable, not "prevented".
@@ -1763,7 +1784,7 @@ function labelTruthCheck(runner) {
 function boardAutostartCheck(runner, opts) {
   const platform = opts && opts.platform || process.platform;
   if (platform === 'win32') return win32BoardAutostartCheck(opts);
-  if (platform === 'linux') return linuxBoardAutostartCheck(readLinuxBoardAutostart(runner, opts));   // kosmos#8384 (opts.runner says whether a runner was given)
+  if (platform === 'linux') return linuxBoardAutostartCheck(linuxCached('board', opts, () => readLinuxBoardAutostart(runner, opts)));   // kosmos#8384 (opts.runner says whether a runner was given)
   if (platform !== 'darwin') return null;
 
   /* A consistency mirror of restartCheck/labelTruthCheck's uid guard. On the
@@ -2081,7 +2102,8 @@ function linuxBoardAutostartCheck(reading) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos stops when you log out',
       detail: 'It starts when you log in, but with nobody logged in this computer stops it and does not start it '
-        + 'after a restart, so your agents stop too. You, or an administrator, can let it keep running.',
+        + 'after a restart, so your agents stop too. You can let it keep running with the command under For IT '
+        + 'admins; if it asks for a password you do not have, an administrator runs it.',
       // Named for this account: run from an administrator's own shell, a bare enable-linger is for theirs.
       admin: LINUX_LINGER_COMMAND + (r.user ? ' ' + r.user : '') };
   }
@@ -2223,7 +2245,7 @@ function check(opts) {
     /* kosmos#8384: Linux's own sleep settings (logind, and GNOME's while it runs). Still no row when none of them
        could be read: a row that can never read anything would stand in the "could not check" count forever
        (kosmos#8375, as agentAutostartCheck returns null off darwin). */
-    sleepRow = linuxSleepCheck(readLinuxSleep(opts));   // the caller's own runner (or none), so a test with no seam never reads the host
+    sleepRow = linuxSleepCheck(linuxCached('sleep', opts, () => readLinuxSleep(opts)));   // the caller's own runner (or none), so a test with no seam never reads the host
   } else if (!isMac) {
     sleepRow = null;   // kosmos#8375: no pmset, and no reading of this platform's sleep
   } else {
@@ -2280,4 +2302,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxHasLid, linuxHasBattery, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxHasLid, linuxLid, linuxHasBattery, linuxCached, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };

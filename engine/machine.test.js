@@ -1680,12 +1680,12 @@ test('kosmos#8375 Linux draws no launchd or sleep rows and asks no macOS tool', 
   const asked = [];
   const runner = (cmd, args) => { asked.push(cmd); return { ok: false, stdout: '', stderr: 'not found', code: 127 }; };
   const opts = { claudeBin: REAL_BIN, tmuxBin: REAL_BIN, appDirs: [empty, empty], runner };
-  let linux, mac;
+  let linux, mac, linuxAsked;
   try {
     /* kosmos#8384: Linux now has its own restart row (here a from-source board, which says so) and a sleep row only
        when a Linux setting was read; every Linux tool fails here, so there is none. */
     linux = machine.check({ ...opts, platform: 'linux', linuxBoard: { unitFile: false, unitState: null, linger: undefined, installed: null } });
-    var linuxAsked = asked.slice();
+    linuxAsked = asked.slice();
     // Control, same runner: on darwin the sleep and both launchd rows are drawn and pmset is asked.
     mac = machine.check({ ...opts, platform: 'darwin', installedRoot: null, disabled: { ok: true, jobs: [] } });
   } finally { fs2.rmSync(empty, { recursive: true, force: true }); }

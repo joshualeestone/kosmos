@@ -71,6 +71,7 @@ test('restart row: a unit file on a computer with no systemd still says no syste
 
 test('restart row: each fixable arm carries its one command; the OK and the missing arms carry none', () => {
   assert.match(row({ unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE }).admin, /^loginctl enable-linger$/);
+  assert.match(row({ unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE }).detail, /if it asks for a password you do not have, an administrator runs it\./);
   assert.equal(row({ unitFile: true, unitState: 'disabled', installed: BUNDLE, unitName: 'kosmos-board.service' }).admin, 'systemctl --user enable kosmos-board.service');
   assert.equal(row({ unitFile: true, unitState: 'enabled-runtime', installed: BUNDLE, unitName: 'kosmos-board.service' }).admin, 'systemctl --user enable kosmos-board.service');
   for (const r of [
@@ -623,4 +624,31 @@ test('check() on linux draws the sleep row when a setting was read, beside the r
     assert.equal(got.attention, got.checks.filter((c) => c.state === STATE.ATTENTION).length);
     assert.ok(got.checks.find((c) => c.key === 'sleep').state === STATE.ATTENTION);
   } finally { fs.rmSync(empty, { recursive: true, force: true }); }
+});
+
+test('the test-process guard these readers lean on is true under the repo\'s own runner', () => {
+  // Every no-host-read guard above asks live-execution.inTestProcess(); if it ever read false under node --test, they
+  // would all read the host. This pins it (bulletin runtime-self-detection-is-version-dependent).
+  assert.equal(require('./live-execution').inTestProcess(), true);
+});
+
+test('a Linux reading is kept for ten seconds, and a caller with a runner or a seam always reads fresh', () => {
+  let reads = 0;
+  const read = () => { reads += 1; return { n: reads }; };
+  const key = 'test-' + Math.random();
+  assert.deepEqual(machine.linuxCached(key, { cacheInTest: true }, read), { n: 1 });
+  assert.deepEqual(machine.linuxCached(key, { cacheInTest: true }, read), { n: 1 }, 'the second ask within ten seconds is the kept one');
+  assert.deepEqual(machine.linuxCached(key, { cacheInTest: true, runner: () => ({}) }, read), { n: 2 }, 'a runner reads fresh');
+  assert.deepEqual(machine.linuxCached(key, {}, read), { n: 3 }, 'and so does any test that did not ask for the cache');
+});
+
+test('linuxLid: sure only when ACPI lists the lid, not when it is inferred from a battery', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-lid-'));
+  try {
+    const sup = path.join(root, 'ps'); fs.mkdirSync(path.join(sup, 'BAT0'), { recursive: true });
+    fs.writeFileSync(path.join(sup, 'BAT0', 'type'), 'Battery\n');
+    assert.deepEqual(machine.linuxLid(path.join(root, 'nolid'), sup), { has: true, sure: false });
+    fs.mkdirSync(path.join(root, 'lid', 'LID0'), { recursive: true });
+    assert.deepEqual(machine.linuxLid(path.join(root, 'lid'), sup), { has: true, sure: true });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
