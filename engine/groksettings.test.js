@@ -227,3 +227,19 @@ test('buildBody carries auto:true for every state and reads from_pane from env (
     assert.equal(body.from_pane, '%9');
   }
 });
+
+test('kosmos#8365: Grok uses the shared temp rule, so on win32 a backslash spelling of the temp folder is refused too', () => {
+  const back = (p) => p.split(path.sep).join('\\');
+  // A backslash path is a RELATIVE name on this host: run in a fresh folder so a broken refusal can only write there.
+  const durable = back(path.join(path.sep, 'nonexistent-durable-8365', 'hooks', 'kosmos-report-bridge.json'));
+  const ephemeralBridge = back(path.join(os.tmpdir(), 'cut-sandbox-8365', 'grok-report-bridge.js'));
+  const cwd = process.cwd();
+  const box = fs.mkdtempSync(path.join(os.tmpdir(), 'gk8365-'));
+  try {
+    process.chdir(box);
+    const r = groksettings.ensurePrepared(durable, ephemeralBridge, { platform: 'win32', node: back(path.join(path.sep, 'nonexistent-8365', 'node.exe')) });
+    assert.equal(r.prepared, false);
+    assert.match(r.because, /ephemeral/, 'refused for another reason: ' + r.because);
+    assert.deepEqual(fs.readdirSync(box), [], 'something was written');
+  } finally { process.chdir(cwd); fs.rmSync(box, { recursive: true, force: true }); }
+});
