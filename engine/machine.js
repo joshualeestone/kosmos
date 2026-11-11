@@ -421,12 +421,13 @@ function readLinuxSleep(opts) {
   let gnome = null, gnomeUnread = false;
   const gsd = runner('systemctl', ['--user', 'is-active', 'org.gnome.SettingsDaemon.Power.service']);
   if (gsd && gsd.ok && String(gsd.stdout || '').trim() === 'active') {
-    let failed = false;   // a gsettings that fails once is not asked again (each ask can wait out run()'s timeout)
+    let failed = false;   // a gsettings that fails once is not asked again (each ask can wait out the timeout)
+    const unread = new Set();   // keys that failed, or were not asked after a failure
     const get = (key) => {
-      if (failed) return null;
+      if (failed) { unread.add(key); return null; }
       const r = runner('gsettings', ['get', 'org.gnome.settings-daemon.plugins.power', key]);
       if (r && r.missing) { failed = 'missing'; return null; }   // no gsettings program: a desktop we do not read
-      if (!r || !r.ok) { failed = true; return null; }
+      if (!r || !r.ok) { failed = true; unread.add(key); return null; }
       return String(r.stdout || '').trim().replace(/^(?:u?int32)\s+/, '').replace(/^'|'$/g, '');
     };
     /* 0 is "never" (GNOME's own meaning); null is a timeout we could not read, which is not "never". */
@@ -442,8 +443,13 @@ function readLinuxSleep(opts) {
       gnome = { ac, acMinutes: mins(get('sleep-inactive-ac-timeout')),
         battery: battery ? get('sleep-inactive-battery-type') : null,
         batteryMinutes: battery ? mins(get('sleep-inactive-battery-timeout')) : null };
-      // A read that failed partway (the battery half, say) is said, not dropped.
-      if (failed === true) gnomeUnread = true;
+      /* A read that failed partway is said, not dropped, but only when it could change the answer: a timeout behind
+         a type that stops, or the battery half on a machine with a battery. Which half is kept for the words. */
+      const stopsType = (t) => Boolean(t && Object.prototype.hasOwnProperty.call(LINUX_STOPPING_ACTION, t));
+      const acLost = stopsType(ac) && unread.has('sleep-inactive-ac-timeout');
+      const battLost = battery && (unread.has('sleep-inactive-battery-type')
+        || (stopsType(gnome.battery) && unread.has('sleep-inactive-battery-timeout')));
+      if (acLost || battLost) gnomeUnread = acLost ? 'ac' : 'battery';
     }
   }
   /* No desktop settings read: is there a desktop at all? A running display manager (GDM, SDDM, LightDM) says so; its
@@ -567,9 +573,12 @@ function linuxSleepCheck(reading) {
   /* The words follow what was found: a computer set to turn off is not said to sleep, and one that
      restarts is not said to stay off. */
   const what = (vs) => ['goes to sleep', 'turns off', 'restarts'].filter((v) => vs.includes(v)).map((v) => LINUX_ACTION_BASE[v]).join(' or ');
-  const until = (vs) => (vs.includes('goes to sleep') && vs.includes('turns off') ? ' Your agents stop until it wakes or is started again.'
-    : vs.includes('goes to sleep') ? ' Your agents stop until it wakes.'
-    : (vs.includes('turns off') ? ' Your agents stop until it is started again.' : ' Your agents stop while it restarts.'));
+  const until = (vs) => {
+    const parts = [vs.includes('goes to sleep') ? 'it wakes' : null, vs.includes('turns off') ? 'it is started again' : null,
+      vs.includes('restarts') ? 'it has restarted' : null].filter(Boolean);
+    return parts.length === 1 && parts[0] === 'it has restarted' ? ' Your agents stop while it restarts.'
+      : ' Your agents stop until ' + parts.join(' or ') + '.';
+  };
   // Where to change it, only for what was found; a file path is for an administrator.
   const desktopFix = (gnomeAc || gnomeBatt)
     ? ((idleStops || lidStops) ? ' You can change the desktop\'s part in its Power settings, under Automatic Suspend.'
@@ -579,8 +588,8 @@ function linuxSleepCheck(reading) {
   /* The lid key is the plugged-in one only: closed on battery it should still sleep, or it drains in a bag.
      One file per finding, so a later fix never undoes an earlier one. */
   const files = [];
-  /* zz-: logind reads its drop-ins in name order and the last one wins, so these come after any distro or local file,
-     numbered or named. */
+  /* zz-: logind reads its drop-ins in name order and the last one wins, so these come after numbered and most named
+     files. */
   if (idleStops) files.push(['zz-kosmos-idle.conf', 'IdleAction=ignore']);
   // HandleLidSwitchExternalPower needs systemd 235 or later; older ones (CentOS 7) ignore it.
   if (lidStops && stops(lid.ac)) files.push(['zz-kosmos-lid.conf', 'HandleLidSwitchExternalPower=ignore']);
@@ -609,7 +618,7 @@ function linuxSleepCheck(reading) {
   // Before any all-clear: a GNOME read that failed, wholly or partway, is never a tick.
   if (r.gnomeUnread) {
     // Say only what was read: the plugged-in half when it answered, and Linux's own settings only when logind did.
-    const partial = gnome && gnome.ac && !stops(gnome.ac);
+    const partial = r.gnomeUnread === 'battery' && gnome && gnome.ac && !stops(gnome.ac);
     return { key: 'sleep', state: STATE.UNKNOWN,
       title: 'We could not read your desktop\'s power settings',
       detail: (partial
@@ -641,8 +650,8 @@ function linuxSleepCheck(reading) {
   }
   return { key: 'sleep', state: STATE.OK,
     title: 'Linux\'s own settings do not put this computer to sleep',
-    detail: 'So on a server your agents keep working while you are away. If this computer has a desktop, its own '
-      + 'power settings can still put it to sleep, so check them there.' };
+    detail: 'So your agents keep working while you are away, unless something outside them puts it to sleep: a '
+      + 'desktop\'s own power settings, if it has one, or the computer it runs inside, if it is a virtual machine.' };
 }
 
 /** The first-run gate on Linux, the same three answers as the Mac's sleepGate. A Linux board does not walk the

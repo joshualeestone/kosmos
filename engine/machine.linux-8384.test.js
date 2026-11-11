@@ -301,8 +301,8 @@ test('sleep row: a desktop whose own settings were not read is said plainly, und
   assert.equal(r.state, STATE.OK);
   assert.equal(r.title, 'Linux\'s own settings do not put this computer to sleep');
   assert.match(r.detail, /^Its desktop and its login screen have sleep settings of their own, which we could not read/);
-  assert.doesNotMatch(r.detail, /on a server/, 'a desktop is not told it is a server');
-  assert.match(sleep({ idle: QUIET_IDLE, lid: null, gnome: null, desktop: false }).detail, /on a server/, 'control: no display manager');
+  assert.doesNotMatch(r.detail, /virtual machine/, 'a desktop gets the desktop words');
+  assert.match(sleep({ idle: QUIET_IDLE, lid: null, gnome: null, desktop: false }).detail, /unless something outside them puts it to sleep/, 'control: no display manager');
   const { runner, asked } = sleepRunner({ IdleAction: 's "ignore"', gsd: 'inactive' });
   const dmRunner = (c, a) => (c === 'systemctl' && a[0] === 'is-active' && a[1] === 'display-manager.service') ? { ok: true, stdout: 'active\n' } : runner(c, a);
   assert.equal(machine.readLinuxSleep({ runner: dmRunner, hasLid: false }).desktop, true);
@@ -314,7 +314,7 @@ test('sleep row: OK without a desktop reading says only Linux\'s own settings we
   const r = sleep({ idle: QUIET_IDLE, lid: null, gnome: null });
   assert.equal(r.state, STATE.OK);
   assert.equal(r.title, 'Linux\'s own settings do not put this computer to sleep');
-  assert.match(r.detail, /If this computer has a desktop, its own power settings can still put it to sleep/);
+  assert.match(r.detail, /a desktop's own power settings, if it has one, or the computer it runs inside, if it is a virtual machine\.$/);
   const desk = sleep({ idle: null, lid: null, gnome: { ac: 'nothing', acMinutes: null, battery: null, batteryMinutes: null } });
   assert.match(desk.detail, /We read your desktop's power settings\./, 'only what was read is named');
 });
@@ -535,7 +535,7 @@ test('sleep row: GNOME running with its settings unreadable is could-not-check, 
 
 test('sleep row: mixed sleep and power-off say both, and "as it should" only for sleep', () => {
   const r = sleep({ idle: { action: 'suspend', minutes: 30 }, lid: { ac: 'poweroff', battery: 'poweroff' } });
-  assert.match(r.detail, /Your agents stop until it wakes or is started again\./);
+  assert.match(r.detail, /Your agents stop until it wakes or it is started again\./);
   assert.match(r.detail, /closing the lid on battery still turns it off\.$/);
   assert.doesNotMatch(r.detail, /turns it off, as it should/);
 });
@@ -681,7 +681,7 @@ test('sleep row: GNOME unreadable with logind unreadable too is still could-not-
   assert.match(sleep({ idle: QUIET_IDLE, lid: null, gnome: null, gnomeUnread: true }).detail, /Linux's own settings do not\.$/, 'control');
   const { runner } = sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-battery-type': null });
   const half = machine.readLinuxSleep({ runner, hasLid: false, hasBattery: true });
-  assert.equal(half.gnomeUnread, true);
+  assert.equal(half.gnomeUnread, 'battery');
   assert.equal(half.gnome.ac, 'suspend', 'control: the AC half was read');
   // AC quiet, battery unread: the row is could-not-check, never the all-clear.
   const quietAc = machine.readLinuxSleep({ runner: sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-ac-type': "'nothing'", 'sleep-inactive-battery-type': null }).runner, hasLid: false, hasBattery: true });
@@ -754,4 +754,21 @@ test('sleep reader: no gsettings program is a desktop we do not read, not a fail
   assert.notEqual(sleep(got).state, STATE.UNKNOWN);
   const failing = (c, a) => (c === 'gsettings' ? { ok: false } : runner(c, a));
   assert.equal(machine.readLinuxSleep({ runner: failing, hasLid: false, hasBattery: false }).gnomeUnread, true, 'control: a failed read is unread');
+});
+
+test('sleep reader: a failed read that cannot change the answer is not could-not-check, and the half that failed is named', () => {
+  // A desktop PC (no battery), plugged-in type 'nothing', its timeout read fails: fully known, so no could-not-check.
+  const { runner } = sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-ac-type': "'nothing'", 'sleep-inactive-ac-timeout': null });
+  const desk = machine.readLinuxSleep({ runner, hasLid: false, hasBattery: false });
+  assert.equal(desk.gnomeUnread, undefined);
+  assert.equal(sleep(desk).state, STATE.OK);
+  // The same failure behind a type that suspends is unread, and the words do not blame the battery.
+  const lost = machine.readLinuxSleep({ runner: sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-ac-timeout': null }).runner, hasLid: false, hasBattery: false });
+  assert.equal(lost.gnomeUnread, 'ac');
+  assert.doesNotMatch(sleep(lost).detail, /battery setting did not answer/);
+});
+
+test('sleep row: sleep plus restart says both in the closing sentence', () => {
+  assert.match(sleep({ idle: { action: 'suspend', minutes: 30 }, lid: { ac: 'reboot', battery: 'reboot' } }).detail, /Your agents stop until it wakes or it has restarted\./);
+  assert.match(sleep({ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'reboot', acMinutes: 5, battery: null, batteryMinutes: null } }).detail, /Your agents stop until it wakes or it has restarted\./);
 });
