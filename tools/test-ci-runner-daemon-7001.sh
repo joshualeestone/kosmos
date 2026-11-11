@@ -17,8 +17,8 @@
 #     each fail loud and say how to go back
 #   - kosmos#8404: a second runner of the same user, named by KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR, becomes its own
 #     daemon beside this repo's; repo without dir or dir without repo, both without the name, a non-daemon stage with
-#     any of them (told to unset, first), a symlinked or missing dir, an unknown
-#     stage (usage), and its own manual Listener or
+#     any of them, known or unknown (told to unset, first), a symlinked or missing dir (the default one
+#     too), and its own manual Listener or
 #     job each refuse; every other stage refuses the two; a dir not directly in the CI home, and a repo not owner/name,
 #     are refused
 set -u
@@ -519,7 +519,7 @@ second; echo "$CIU 6200 1 $R2/bin/Runner.Worker spawnclient 1 2" >> "$T/procs"; 
 for st in preflight create-user verify register keepalive machine-settings jq-programs "install 0123456789abcdef0123456789abcdef01234567 $(printf '0%.0s' $(seq 64))"; do
   # shellcheck disable=SC2086  # $st carries install's two arguments
   fixture; run "only-${st%% *}" "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$H/actions-runner-site" -- $st; st="${st%% *}"
-  [ "$(rc "only-$st")" = 2 ] && has "only-$st" "for the daemon stage only" && pass "#8404: $st refuses KOSMOS_CI_REPO" || fail "#8404 only-$st: rc $(rc "only-$st") $(cat "$T/only-$st.out")"
+  [ "$(rc "only-$st")" = 2 ] && has "only-$st" "for the daemon stage only (this run's stage: '$st')" && pass "#8404: $st refuses KOSMOS_CI_REPO" || fail "#8404 only-$st: rc $(rc "only-$st") $(cat "$T/only-$st.out")"
 done
 # Review 4: the repo and dir without the runner's own name are refused, naming it (left out, NAME is this repo's runner's).
 second; run twononame FX_R="$R2" FX_LABEL="$L2" KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site "KOSMOS_CI_RUNNER_DIR=$R2" -- --apply daemon
@@ -528,15 +528,29 @@ second; run twononame FX_R="$R2" FX_LABEL="$L2" KOSMOS_CI_REPO=joshualeestone/ch
 # Review 6: a non-daemon stage with only some of them set is told to unset them, never to set one more.
 fixture; run partverify KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site -- verify
 fixture; run partpre KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site "KOSMOS_CI_RUNNER_DIR=$H/actions-runner-site" -- preflight
-[ "$(rc partverify)" = 2 ] && has partverify "verify does not take them" && ! has partverify "together" \
-  && [ "$(rc partpre)" = 2 ] && has partpre "preflight does not take them" && ! has partpre "set its KOSMOS_CI_RUNNER_NAME" \
+[ "$(rc partverify)" = 2 ] && has partverify "stage: 'verify'). Unset them" && ! has partverify "together" \
+  && [ "$(rc partpre)" = 2 ] && has partpre "stage: 'preflight'). Unset them" && ! has partpre "set its KOSMOS_CI_RUNNER_NAME" \
   && pass "#8404: a non-daemon stage with some of the settings is told to unset them first" || fail "#8404 part: $(cat "$T/partverify.out") / $(cat "$T/partpre.out")"
 # A name alone is the existing knob: it is not refused at the top (the daemon then finds no agent with that label).
 fixture; run nameonly KOSMOS_CI_RUNNER_NAME=someone-else -- daemon
 [ "$(rc nameonly)" = 1 ] && ! has nameonly "together" && has nameonly "no LaunchAgent" && pass "#8404: a name alone is not refused at the top" || fail "#8404 nameonly: rc $(rc nameonly) $(cat "$T/nameonly.out")"
-# Review 4: an unknown stage with the three set reaches the usage line, not a refusal naming it as a stage.
+# Review 7: an unknown or missing stage with any of them is told to unset them (never to set one more), and without
+# them reaches the usage line.
+for v in "KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site" "KOSMOS_CI_RUNNER_DIR=$H/actions-runner-site"; do
+  fixture; run twobogus1 "$v" -- bogus; fixture; run twonone1 "$v" --
+  [ "$(rc twobogus1)" = 2 ] && has twobogus1 "stage: 'bogus'). Unset them" && [ "$(rc twonone1)" = 2 ] && has twonone1 "stage: 'none'). Unset them" \
+    && pass "#8404: an unknown or missing stage with ${v%%=*} alone is told to unset it" || fail "#8404 bogus ${v%%=*}: $(cat "$T/twobogus1.out") / $(cat "$T/twonone1.out")"
+done
 fixture; run twobogus "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$H/actions-runner-site" -- bogus
-[ "$(rc twobogus)" = 2 ] && has twobogus "usage:" && ! has twobogus "works on this repo's runner" && pass "#8404: an unknown stage with the settings gets the usage line" || fail "#8404 twobogus: rc $(rc twobogus) $(cat "$T/twobogus.out")"
+fixture; run plainbogus -- bogus
+[ "$(rc twobogus)" = 2 ] && has twobogus "Unset them" && ! has twobogus "usage:" && [ "$(rc plainbogus)" = 2 ] && has plainbogus "usage:" \
+  && pass "#8404: an unknown stage with all three is told to unset them; without them it gets the usage line (control)" || fail "#8404 twobogus: $(cat "$T/twobogus.out") / $(cat "$T/plainbogus.out")"
+# Review 7: the dir check covers the default dir too (the header says so): a symlink or nothing at actions-runner refuses.
+fixture; mv "$R" "$H/elsewhere"; ln -s "$H/elsewhere" "$R"; run deflink -- --apply daemon
+[ "$(rc deflink)" = 1 ] && has deflink "is not a directory (or is a symlink)" && [ ! -e "$(DP)" ] && ! grep -q '^launchctl bootstrap' "$LOG" \
+  && pass "#8404: a symlink at the default runner dir refuses, nothing written" || fail "#8404 deflink: rc $(rc deflink) $(cat "$T/deflink.out")"
+fixture; rm -rf "$R"; run defgone -- daemon
+[ "$(rc defgone)" = 1 ] && has defgone "is not a directory" && pass "#8404: a missing default runner dir refuses" || fail "#8404 defgone: rc $(rc defgone) $(cat "$T/defgone.out")"
 # A dir that is not one plain directory directly in the CI home is refused, named, before anything.
 i=0
 for bad in "$H/../x" "/tmp/actions-runner" "$H/a/b" "$H/a b" "$H/.." "$H" "$H/" "actions-runner" "$H/x;y" "$H/.ssh"; do
