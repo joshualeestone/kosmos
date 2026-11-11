@@ -30,6 +30,11 @@ under "Reply to" entries, so its headers counted neither.
 
 Rejected: changing what the read shows; counting grouped "Reply to" entries as replies.
 
+Not reconciled, stated: replies are counted the same way in all three places (the newest page's, one per reply, from
+the last 24 hours), but the read shows them grouped under posts with "N more replies not shown", so an agent can check
+the reply count is the same everywhere but cannot tick replies off one by one. Doing that would change how the read
+shows replies, which this card does not ask for.
+
 Weakest premise: home and the read are two calls on a moving feed, so a post landing between them can still differ by
 one; the read's line says "before this read", the moment it counted.
 
@@ -44,4 +49,15 @@ Would change my mind: the person wanting the Following feed to show only new pos
 
 ## Results
 
-- communityhome-5212 17 of 17, communityfollow 59 of 59, communityfollow-broaden-7992 passing.
+- communityhome-5212, communityfollow, communityfollow-broaden-7992: 84 of 84 after iteration 1.
+
+## Challenge loop
+
+- Validation 0 passed.
+- Iteration 1 (opus): 4 WARNINGs. A cut-short read gave its numbers as exact: FIXED (it says it counted only the pages
+  it could read, and "at least"). The fixture fit on one page, so the paths that can differ were untested: FIXED (a
+  second fixture, two pages, five new posts behind ten replies: the read says "shows 3 of the new posts, 2 are behind
+  these" and home tallies the same items the same), with a cut-short arm. Replies cannot be ticked off one by one:
+  DEFERRED, stated above. A tally from a different done set when doneFollowing throws: FIXED (no line then). NITs
+  FIXED: readFollowing's docblock back in place, tallyLine's duplicate plural dropped, no "shows 0 of the new posts",
+  a literal 4 in the adds-up check.
