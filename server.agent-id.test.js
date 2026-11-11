@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
 const { execFileSync } = require('node:child_process');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it fakes tmux with a #!/bin/sh script run by its shebang line, which Windows cannot run');   // kosmos#8378
 
 const REPO = __dirname;
 
@@ -119,7 +120,7 @@ function explain(got) {
     + JSON.stringify((b.agents || []).map((a) => a.sessionName));
 }
 
-test('#170: the board carries this install\'s agent ids and refuses to speak another install\'s', () => {
+test('#170: the board carries this install\'s agent ids and refuses to speak another install\'s', { skip: SKIP_POSIX_SHELL }, () => {
   const got = boardWithSeededIds();
   assert.equal(got.why, 'present', explain(got));
   const status = got.body;
@@ -148,7 +149,7 @@ test('#170: the board carries this install\'s agent ids and refuses to speak ano
     'the fixture stopped seeding a foreign id, so the null above is vacuous');
 });
 
-test('#704: a look that fails and then recovers is waited out, not reported as a missing agent', () => {
+test('#704: a look that fails and then recovers is waited out, not reported as a missing agent', { skip: SKIP_POSIX_SHELL }, () => {
   /* The stub refuses its first three calls (the engine answers 500 "we could
      not see what is running") and reports an empty fleet from the fourth. A
      single read would have called the seeded agents missing; the poll rides
