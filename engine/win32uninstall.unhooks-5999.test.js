@@ -402,6 +402,45 @@ test('kosmos#8361: the key homes under the data folder are covered too', { skip:
   assert.ok(r.done.some((d) => d.includes(keyFile)), JSON.stringify(r.done));
 });
 
+test('kosmos#8377: the uninstall puts back the Gemini settings Kosmos recorded filling in, from the record in the data folder', { skip: process.platform !== 'win32' && 'a win32 data path is not absolute off Windows, so this would write inside the repo; the Windows CI job runs it' }, async () => {
+  const h = home();
+  const base = path.dirname(h);
+  const store = require('./store');
+  const env = { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX', AGENT_WORKFORCE_DATA: path.join(h, 'data') };   // inside the scratch home
+  const settings = path.join(h, '.gemini', 'settings.json');
+  const rec = path.join(store.dataRootFor('win32', h, env), geminisettings.WROTE_FILE);
+  assert.ok(path.isAbsolute(rec) && rec.startsWith(h), 'the record is not inside the scratch home: ' + rec);
+  writeJson(settings, { theme: 'Dracula', security: { auth: { selectedType: 'gemini-api-key' } } });
+  writeJson(rec, { files: { [settings]: { 'security.auth.selectedType': 'gemini-api-key' } } });
+  stubSchedulers([listing([])]);
+  const r = await run(h, { env });
+  assert.deepEqual(readJson(settings), { theme: 'Dracula' });   // the emptied security.auth goes with it (removeAt)
+  assert.ok(r.done.some((d) => d.includes('put back the Gemini settings') && d.includes(settings)), JSON.stringify(r.done));
+  assert.equal(fs.existsSync(rec), false, 'the record was not used up');
+});
+
+test('kosmos#8377: --delete-data keeps a record that still holds something, and the report points at it', { skip: process.platform !== 'win32' && 'a win32 data path is not absolute off Windows, so this would write inside the repo; the Windows CI job runs it' }, async () => {
+  const h = home();
+  const base = path.dirname(h);
+  const store = require('./store');
+  const env = { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX', AGENT_WORKFORCE_DATA: path.join(h, 'data') };
+  const settings = path.join(h, '.gemini', 'settings.json');
+  const data = store.dataRootFor('win32', h, env);
+  const rec = path.join(data, geminisettings.WROTE_FILE);
+  const other = path.join(data, 'profiles.json');
+  writeJson(settings, []);   // not a settings object: undoWrites cannot finish it
+  writeJson(rec, { files: { [settings]: { 'security.auth.selectedType': 'gemini-api-key' } } });
+  writeJson(other, {});
+  stubSchedulers([listing([])]);
+  const r = await run(h, { env, deleteData: true, removeFolder: (p) => fs.rmSync(p, { recursive: true, force: true }) });
+  assert.equal(fs.existsSync(other), false, 'CONTROL: the data folder was not deleted at all, so the record surviving proves nothing');
+  assert.ok(fs.existsSync(rec), 'the record went with the data folder');
+  const line = r.notes.find((x) => x.includes(settings) && x.includes('could not be finished'));
+  assert.ok(line && line.includes('the list of what Kosmos filled in is in ' + rec), JSON.stringify(r.notes));
+  assert.ok(!r.left.some((x) => x.includes(settings)), JSON.stringify(r.left));
+  assert.ok(r.done.some((x) => x.includes(', and the list of Gemini settings Kosmos could not put back yet')), JSON.stringify(r.done));
+});
+
 test('kosmos#8361: the gone-node.exe rule keeps anything not provably this marker\'s hook on a gone node.exe at a provable place', () => {
   const OLD = 'C:\\Old\\runtime\\node.exe';
   const cmd = (node) => geminisettings.commandFor(GEMINI_BRIDGE, { platform: 'win32', node });

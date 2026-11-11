@@ -284,7 +284,7 @@ function keptRoots(o) {
 }
 
 /**
- * Delete everything in `dir` except `keep` (folders), keeping each kept folder's parents. Links are
+ * Delete everything in `dir` except `keep` (folders, or files: #8377 keeps an unfinished Gemini record), keeping each kept one's parents. Links are
  * removed as links, or kept when they lead to a kept folder; they are never followed. Returns EVERY
  * path that could not be deleted (round 2, finding 7: one failure used to stop every folder above
  * it being tidied, unreported).
@@ -407,6 +407,58 @@ function unwireHooks(bundleRoot, home, env, gone, done, left, notes) {
     else if (r.unreadable) notes.push('Codex\'s hooks.json in ' + codexHome + ' could not be checked (' + r.because
       + '). If it names codex-report-bridge.js, it is Kosmos\'s and can be deleted; otherwise it is yours, leave it.');
   }
+}
+
+/* kosmos#8377: every record of the Gemini settings Kosmos filled in. create.js writes one under the data folder of the
+   Kosmos the agent was made in, and a named Kosmos's board runs with its own data folder (worlds.envOverridesFor), so
+   each named Kosmos has its own, while the values went into the person's one ~/.gemini. Leniently listed: a Kosmos
+   whose id cannot name a folder safely is skipped (no board can have made one), and with --delete-data keptRoots
+   refuses and names it. Throws only if the data folder itself cannot be found, which steps 8-9 also name. */
+function geminiWroteRecords(home, env) {
+  const gs = require('./geminisettings');
+  const base = store.dataRootFor('win32', home, env);
+  const recs = [path.join(base, gs.WROTE_FILE)];
+  const add = (world) => {
+    try {
+      const r = path.join(store.dataRootFor('win32', home, Object.assign({}, env, worlds.envOverridesFor(base, world))), gs.WROTE_FILE);
+      if (!recs.includes(r)) recs.push(r);
+    } catch { /* not a Kosmos this can name safely */ }
+  };
+  try { for (const w of worlds.listWorlds(base)) add(w); } catch { /* no readable list: the folders below still count */ }
+  try {
+    const folder = path.dirname(worlds.worldBaseDir(base, { id: 'kosmos' }));
+    for (const e of fs.readdirSync(folder, { withFileTypes: true })) if (e.isDirectory() || e.isSymbolicLink()) add({ id: e.name });   // a junction too, as keptRoots counts it
+  } catch { /* no named Kosmos */ }
+  return recs;
+}
+/* kosmos#8377: put back the Gemini settings Kosmos filled in for a Gemini agent (the record #8376 writes, gemini-wrote.json in
+   a data folder), as setup.sh's gemini_settings_undo does on a Mac and Linux. Only values still exactly as Kosmos set them
+   go back; one the person changed since is kept and said. No record: nothing to do. The record's path is passed in so the report wording can be tested off Windows, where a win32 data path is not
+   absolute. Everything undoWrites could not finish is a NOTE, never LEFT, as setup.sh's gemini_settings_undo says it
+   on the Mac: its `left` mixes a settings file that is not JSON (no retry fixes it, so LEFT would fail every rerun
+   for good) with a save that raced a running gemini, and a busy record lock is the same call. A record that still
+   holds anything stays on disk (the caller keeps it out of the --delete-data deletion), so "the list is in" is true. */
+/* filelock's default reasons speak as "we" and of writers; the person reads this one. */
+function plainBecause(because) {
+  if (!because) return 'it did not finish';
+  if (/exclusive access|locked by another writer/.test(because)) return 'another program was using the list of what Kosmos filled in';
+  return because;
+}
+const GEMINI_FOLDERS = 'your Gemini settings files (the settings.json in each .gemini folder)';
+function undoGeminiWrites(rec, done, notes) {
+  const gs = require('./geminisettings');
+  /* Every Kosmos records the person's one ~/.gemini file separately, so two records can produce the same line. */
+  const note = (line) => { if (!notes.includes(line)) notes.push(line); };
+  if (!fs.existsSync(rec)) return;   // as undoWrites reads it: a link to nothing holds no list
+  const r = gs.undoWrites(rec);
+  const where = '; the list of what Kosmos filled in is in ' + rec;
+  if (!r || r.done !== true) {
+    note('The Gemini settings Kosmos filled in were not put back (' + plainBecause(r && r.because) + '), so they may still be in ' + GEMINI_FOLDERS + where + '.');
+    return;
+  }
+  for (const f of r.restored || []) { const line = 'put back the Gemini settings Kosmos had filled in, in ' + f; if (!done.includes(line)) done.push(line); }
+  for (const k of r.kept || []) note(k.key + ' in ' + k.file + ' was changed after Kosmos set it, so it was left as it is.');
+  for (const f of r.left || []) note(f + ' could not be finished (it could not be read or saved, or it changed while this ran), so the Gemini settings Kosmos filled in are still in it' + where + '.');
 }
 
 /* kosmos#6213: Kosmos's status line, which Windows now wires too, comes out of the same files, under the same lock.
@@ -772,6 +824,7 @@ async function uninstall(opts) {
 
   /* #5999: Claude Code's settings, once no board and no agent can wire the hooks back (both do, at start). Before the
      folder goes, while the launcher still knows it: the person deletes it next. */
+  let geminiRecordsKept = [];   // kosmos#8377: records still holding something, kept out of the --delete-data deletion
   if (everyTaskGone && boardGone) {
     const gone = typeof o.pathGone === 'function' ? o.pathGone : require('./reporthook').goneOnDisk;
     /* The launcher always passes --root, so no root is only a hand-run CLI: said as a note, not left, which would keep
@@ -782,6 +835,14 @@ async function uninstall(opts) {
       catch { left.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings, which could not be checked. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { both: true }) + '. Also delete hooks.json in each .codex-<name> folder in your home folder if it names codex-report-bridge.js.'); }
     }
     else notes.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings were not checked, because Kosmos could not tell which folder it was installed in. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { both: true }) + '. Also delete hooks.json in each .codex-<name> folder in your home folder if it names codex-report-bridge.js.');
+    // kosmos#8377: and the Gemini settings Kosmos filled in (#8376's record), before the data folder holding the record goes.
+    let recs = [];
+    try { recs = geminiWroteRecords(home, env); } catch { /* no data folder: steps 8-9 name it, and there is no record to read */ }
+    for (const rec of recs) {
+      try { undoGeminiWrites(rec, done, notes); }
+      catch { notes.push('The Gemini settings Kosmos filled in could not be checked, so they may still be in ' + GEMINI_FOLDERS + '; the list of what Kosmos filled in is in ' + rec + '.'); }
+    }
+    geminiRecordsKept = recs.filter((rec) => { try { return fs.existsSync(rec); } catch { return false; } });
   }
 
   /* 8-9: the folders, only once nothing registered, and no board, still needs them. */
@@ -891,9 +952,9 @@ async function uninstall(opts) {
            survives in a locked `remote\`, the PC is retired yet its key is still on disk. That is
            strictly better than the old delete-without-retiring, and the surviving data is already
            named in `left` (keeping the uninstall entry so the person removes Kosmos again). */
-        const failures = deleteAllExcept(dataDir, keptDirs, rm);
+        const failures = deleteAllExcept(dataDir, keptDirs.concat(geminiRecordsKept), rm);
         if (failures.length) left.push(label + ' in ' + dataDir + ', ' + failures.length + ' of which could not be deleted: ' + leftoverList(failures));
-        else done.push('deleted ' + label + ' (' + dataDir + '), keeping your projects and working folders');
+        else done.push('deleted ' + label + ' (' + dataDir + '), keeping your projects and working folders' + (geminiRecordsKept.length ? ', and the list of Gemini settings Kosmos could not put back yet' : ''));
       }
     }
   }
@@ -982,6 +1043,7 @@ async function cliMain(argv, deps) {
 }
 
 module.exports = {
+  _undoGeminiWrites: undoGeminiWrites, _geminiWroteRecords: geminiWroteRecords, _deleteAllExcept: deleteAllExcept,   // kosmos#8377, for its test
   uninstall, cliMain, classifyTask, folderRefusal, keptRoots, reportText, retirePc, defaultTunnelBin,
   FOLDER_DELETE_TRIES, FOLDER_DELETE_WAIT_MS, BOARD_GONE_WAIT_MS, BOARD_GONE_CLOCK_MS, MAX_NAMED_LEFTOVERS, REREGISTER_SETTLE_MS, RETIRE_TIMEOUT_MS, RETIRE_TIMEOUT_MAX_MS,
   DEFAULT_COORDINATOR, CONNECTOR_EXE,
