@@ -11,7 +11,7 @@ A for-you hold records its first and latest tell, and the page and CLI say "It a
 - A hold told before the count existed has no count, and none is guessed.
 
 ## Decided
-- Part 2 of the card, the suggested answer stored beside the question, is not built here: it needs a new option in both CLIs' hold parsers (the Mac one is position-based) and the route, and I split it rather than rush it at the end of a session. The card stays open for it.
+- Part 2 of the card, the suggested answer stored beside the question, is not built here: it needs a new option in both CLIs' hold parsers, the hold route, storage and its display on the card, row and task page, and I split it rather than rush it at the end of a session. The card stays open for it.
 - Every tell counts, including a few messages in a row in the task's conversation: that is how the existing marks already define a tell.
 
 ## Weakest premise
