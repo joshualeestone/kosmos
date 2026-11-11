@@ -486,8 +486,13 @@ function linuxSleepCheck(reading) {
   if (gnomeAc) say('While it is plugged in, ' + after(gnome.acMinutes) + ' with nobody using it, the desktop has it ' + LINUX_ACTION_BASE[stops(gnome.ac)] + '.', stops(gnome.ac));
   if (gnomeBatt) say('On battery, ' + after(gnome.batteryMinutes) + ' with nobody using it, the desktop has it ' + LINUX_ACTION_BASE[stops(gnome.battery)] + '.', stops(gnome.battery));
   if (lidStops) {
-    const v = stops(lid.ac) || stops(lid.battery);
-    say(stops(lid.ac) ? 'When the lid closes, this computer ' + v + '.' : 'When the lid closes on battery, this computer ' + v + '.', v);
+    const ac = stops(lid.ac), batt = stops(lid.battery);
+    // One sentence when both sides do the same; each side said when they differ (review 6: a poweroff/suspend pair).
+    if (ac && batt && ac !== batt) {
+      say('When the lid closes while it is plugged in, this computer ' + ac + '.', ac);
+      say('When the lid closes on battery, it ' + batt + '.', batt);
+    } else if (ac) say('When the lid closes, this computer ' + ac + '.', ac);
+    else say('When the lid closes on battery, this computer ' + batt + '.', batt);
   }
   /* The words follow what was found (review 3): a computer set to turn off is not said to sleep, and one that
      restarts is not said to stay off. */
@@ -526,11 +531,14 @@ function linuxSleepCheck(reading) {
         + 'your desktop\'s power settings. The login screen has a sleep setting of its own, which we cannot read: '
         + 'after a restart, before anyone logs in, it may still put this computer to sleep.' };
   }
+  /* A desktop whose own settings were not read (KDE's, a logged-out GNOME): the title stays about Linux's own settings
+     and the detail says plainly what was not read. Not UNKNOWN: on such a desktop it could never clear, and #8375 keeps
+     a row that can never read something out of the could-not-check count (review 6, decided over review 5). */
   if (r.desktop === true) {
-    return { key: 'sleep', state: STATE.UNKNOWN,
-      title: 'We could not check this computer\'s desktop sleep settings',
-      detail: 'Linux\'s own settings do not put it to sleep, but its desktop and its login screen have sleep settings of '
-        + 'their own, which we could not read. Check them in the desktop\'s Power settings.' };
+    return { key: 'sleep', state: STATE.OK,
+      title: 'Linux\'s own settings do not put this computer to sleep',
+      detail: 'Its desktop and its login screen have sleep settings of their own, which we could not read, so they may '
+        + 'still put it to sleep. Check them in the desktop\'s Power settings.' };
   }
   return { key: 'sleep', state: STATE.OK,
     title: 'Linux\'s own settings do not put this computer to sleep',
@@ -545,7 +553,9 @@ function linuxSleepGate(opts) {
   const row = linuxSleepCheck(readLinuxSleep(opts));
   if (!row) return { checkable: false, because: 'we could not read this computer\'s sleep settings' };
   if (row.state === STATE.OK) return { checkable: true, prevented: true };
-  return { checkable: true, prevented: false, because: row.title, battOnly: row.battOnly === true };
+  // The Mac's three answers exactly: only a measured ATTENTION is "not prevented" (review 6).
+  if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title, battOnly: row.battOnly === true };
+  return { checkable: false, because: row.title };
 }
 
 /* ===========================================================================
@@ -1865,44 +1875,6 @@ function win32BoardAutostartCheck(opts) {
     startAtSignIn: true };
 }
 
-/* #3182: the PER-AGENT layer of "will it come back after a restart?", one level
-   down from boardAutostartCheck (#2397). The board plist brings the APP back;
-   each agent is ALSO its own LaunchAgent (create.js plistFor writes
-   com.kosmos.agent.<name>[+<world>].plist with RunAtLoad=true + KeepAlive), and
-   that per-agent layer is what a user's agents actually rely on to come back
-   (Josh #2958: after a restart the fleet must auto-launch). RunAtLoad=true is
-   guaranteed at write time by plistFor and pinned by create.test.js, so the
-   reboot-bearing failure still worth surfacing per agent is a standing
-   `launchctl disable` override -- the present-but-disabled arm boardAutostartCheck
-   has, applied to each agent.
-
-   SCOPE, stated so the row is not read for more than it checks:
-   - It sees a DISABLED board agent (its RunAtLoad will not fire at the next login).
-   - It does NOT flag a fully DELETED agent plist. The board's roster is derived
-     from the present plists (createdroster.js reads AGENTS_DIR), so a deleted
-     plist is gone-from-roster, not a known label gone missing -- there is no
-     per-agent equivalent of the single known `com.kosmos.board` label for this to
-     miss, and no false-alarm-free signal for it here. Left out deliberately.
-   - It never reads plist CONTENT for RunAtLoad: plistFor always writes it true and
-     create.test.js reds if that regresses, so re-reading it here would be a
-     second, weaker copy of a fact already guarded.
-
-   The disabled set comes from create.disabledJobsResult(), which OWNS the
-   world-scoping (nameInThisWorld), the both-tokens `=> disabled|true` match
-   boardAutostartCheck documents, and the fail-soft -- reused here rather than
-   regrown. Removed agents are excluded (they are not expected to come back),
-   keyed by create.cleanName the way remove.js keys its own record. Both reads are
-   injectable via opts (opts.disabled / opts.removed) for tests, the same seam
-   style as boardAutostartCheck's opts.installedRoot.
-
-   #4479 (an external tester, 2026-09-28: "11 agents ... alexis, eric, larry, and 8 more", none of them his agents'
-   names): launchd's disabled-overrides list KEEPS an entry after its plist is gone, so an agent deleted any way
-   but Kosmos's remove (an older version, a wiped folder) was reported as "turned off" forever, and the names were
-   the raw job names, which a renamed agent keeps. So a disabled job counts only when its agent's plist is still
-   there, and it is named by the name the person sees (create.spokenName). A stale override is left out and NOT
-   cleaned: this is a read, and a disabled override on a label with no plist is harmless to leave. This path reads
-   the disk per disabled agent (its plist, its profile and perhaps its instructions); the OK path still does not.
-   opts.live(name) and opts.shownName(name) are the seams. */
 /* ===========================================================================
    kosmos#8384: the same row on Linux, read from the board's systemd user unit and linger
    =========================================================================== */
@@ -1929,6 +1901,9 @@ function readLinuxBoardAutostart(runner, opts) {
   if (require('./live-execution').inTestProcess() && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && !process.env.AGENT_WORKFORCE_LAUNCH) {
     return { unitFile: null, unitState: null, linger: undefined, installed: null };
   }
+  /* Whether systemd runs this computer at all (a container, WSL without systemd): sd_booted's own test (review 6).
+     Seam: opts.systemdRunning. */
+  const systemdRunning = ('systemdRunning' in o) ? o.systemdRunning : (() => { try { return fs.statSync('/run/systemd/system').isDirectory(); } catch { return false; } })();
   let unitFile = null;
   try { fs.statSync(lb.boardUnitPath()); unitFile = true; }
   catch (e) { unitFile = e && e.code === 'ENOENT' ? false : null; }   // only a proven absence is "missing"
@@ -1936,9 +1911,9 @@ function readLinuxBoardAutostart(runner, opts) {
   /* A sandboxed board's unit sits where systemd never reads it, and systemctl would name the person's REAL board unit
      (linuxboard.runner's refusal, review 22 there; review 1 here). So a sandbox asks systemd nothing. */
   const sandboxed = lb.sandboxedWithoutSystemd();
-  if (!sandboxed && !require('./live-execution').inTestProcess()) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
   if (sandboxed) return { unitFile, unitState: null, linger: undefined, installed: ('installedRoot' in o) ? o.installedRoot : update.installedRoot(), sandboxed: true };
   if (unitFile) {
+    if (!require('./live-execution').inTestProcess()) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
     const r = runner('systemctl', ['--user', 'show', '-p', 'UnitFileState', lb.boardUnitName()]);
     const m = r && r.ok ? String(r.stdout || '').match(/^UnitFileState=(\S*)\s*$/m) : null;
     unitState = m && m[1] ? m[1] : null;
@@ -1956,7 +1931,7 @@ function readLinuxBoardAutostart(runner, opts) {
   }
   const installed = ('installedRoot' in o) ? o.installedRoot : update.installedRoot();
   const user = ('user' in o) ? o.user : (() => { try { return os.userInfo().username; } catch { return ''; } })();
-  return { unitFile, unitState, linger, installed, user };
+  return { unitFile, unitState, linger, installed, user, systemdRunning };
 }
 
 /* The command that turns linger on, for the row's admin field (Settings shows it under "For IT admins"). */
@@ -1976,6 +1951,13 @@ function linuxBoardAutostartCheck(reading) {
       return { key: 'autostart', state: STATE.OK,
         title: 'Kosmos is running from source',
         detail: 'There is no startup service to check: a from-source checkout is started by hand, not by this computer when it starts.' };
+    }
+    // No systemd here (a container, WSL without it): there is nothing for a reinstall to put back (review 6).
+    if (r.systemdRunning === false) {
+      return { key: 'autostart', state: STATE.ATTENTION,
+        title: 'Kosmos will not start by itself',
+        detail: 'This computer does not run systemd, which is how Kosmos starts itself on Linux, so after a restart '
+          + 'Kosmos and your agents stay stopped until someone runs kosmos start.' };
     }
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
@@ -2028,6 +2010,44 @@ function linuxBoardAutostartCheck(reading) {
       + 'computer lets it run with nobody logged in, which is what brings it back after a restart.' };
 }
 
+/* #3182: the PER-AGENT layer of "will it come back after a restart?", one level
+   down from boardAutostartCheck (#2397). The board plist brings the APP back;
+   each agent is ALSO its own LaunchAgent (create.js plistFor writes
+   com.kosmos.agent.<name>[+<world>].plist with RunAtLoad=true + KeepAlive), and
+   that per-agent layer is what a user's agents actually rely on to come back
+   (Josh #2958: after a restart the fleet must auto-launch). RunAtLoad=true is
+   guaranteed at write time by plistFor and pinned by create.test.js, so the
+   reboot-bearing failure still worth surfacing per agent is a standing
+   `launchctl disable` override -- the present-but-disabled arm boardAutostartCheck
+   has, applied to each agent.
+
+   SCOPE, stated so the row is not read for more than it checks:
+   - It sees a DISABLED board agent (its RunAtLoad will not fire at the next login).
+   - It does NOT flag a fully DELETED agent plist. The board's roster is derived
+     from the present plists (createdroster.js reads AGENTS_DIR), so a deleted
+     plist is gone-from-roster, not a known label gone missing -- there is no
+     per-agent equivalent of the single known `com.kosmos.board` label for this to
+     miss, and no false-alarm-free signal for it here. Left out deliberately.
+   - It never reads plist CONTENT for RunAtLoad: plistFor always writes it true and
+     create.test.js reds if that regresses, so re-reading it here would be a
+     second, weaker copy of a fact already guarded.
+
+   The disabled set comes from create.disabledJobsResult(), which OWNS the
+   world-scoping (nameInThisWorld), the both-tokens `=> disabled|true` match
+   boardAutostartCheck documents, and the fail-soft -- reused here rather than
+   regrown. Removed agents are excluded (they are not expected to come back),
+   keyed by create.cleanName the way remove.js keys its own record. Both reads are
+   injectable via opts (opts.disabled / opts.removed) for tests, the same seam
+   style as boardAutostartCheck's opts.installedRoot.
+
+   #4479 (an external tester, 2026-09-28: "11 agents ... alexis, eric, larry, and 8 more", none of them his agents'
+   names): launchd's disabled-overrides list KEEPS an entry after its plist is gone, so an agent deleted any way
+   but Kosmos's remove (an older version, a wiped folder) was reported as "turned off" forever, and the names were
+   the raw job names, which a renamed agent keeps. So a disabled job counts only when its agent's plist is still
+   there, and it is named by the name the person sees (create.spokenName). A stale override is left out and NOT
+   cleaned: this is a read, and a disabled override on a label with no plist is harmless to leave. This path reads
+   the disk per disabled agent (its plist, its profile and perhaps its instructions); the OK path still does not.
+   opts.live(name) and opts.shownName(name) are the seams. */
 function agentAutostartCheck(runner, opts) {
   const o = opts || {};
   const platform = o.platform || process.platform;

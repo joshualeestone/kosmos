@@ -53,6 +53,14 @@ test('restart row: every reading has exactly one honest answer', () => {
   }
 });
 
+test('restart row: no unit and no systemd on this computer says so, and never says a reinstall fixes it (review 6)', () => {
+  const r = row({ unitFile: false, installed: BUNDLE, systemdRunning: false });
+  assert.equal(r.state, STATE.ATTENTION);
+  assert.match(r.detail, /does not run systemd.*kosmos start/);
+  assert.doesNotMatch(r.detail, /Reinstalling/);
+  assert.match(row({ unitFile: false, installed: BUNDLE, systemdRunning: true }).detail, /Reinstalling Kosmos puts it back/, 'control');
+});
+
 test('restart row: only linger off carries the admin command, and it is the read-only-safe enable-linger', () => {
   const off = row({ unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE });
   assert.match(off.admin, /loginctl enable-linger$/);
@@ -110,7 +118,8 @@ test('restart reader: reads the unit state and linger, and runs only looks', () 
     return { ok: false };
   };
   const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(runner, { installedRoot: BUNDLE, user: 'pat' }));
-  assert.deepEqual(got, { unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE, user: 'pat' });
+  assert.deepEqual(got, { unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE, user: 'pat', systemdRunning: got.systemdRunning });
+  assert.equal(typeof got.systemdRunning, 'boolean');
   assert.equal(row(got).admin, 'loginctl enable-linger pat', 'the command names this account, not the admin\'s own');
   assert.equal(row(got).state, STATE.ATTENTION, 'enabled with linger off is the log-out warning');
   for (const a of asked) {
@@ -262,10 +271,14 @@ test('sleep row: the admin field is a logind snippet for what fired, never prose
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('sleep row: a desktop whose own settings were not read is "could not check", never a tick (review 5)', () => {
+test('sleep row: a desktop whose own settings were not read is said plainly, under a title about Linux\'s own settings', () => {
   const r = sleep({ idle: QUIET_IDLE, lid: null, gnome: null, desktop: true });
-  assert.equal(r.state, STATE.UNKNOWN);
-  assert.match(r.detail, /its desktop and its login screen have sleep settings of their own, which we could not read/);
+  // OK, not UNKNOWN: on KDE it could never clear (#8375's rule); decided in the plan.
+  assert.equal(r.state, STATE.OK);
+  assert.equal(r.title, 'Linux\'s own settings do not put this computer to sleep');
+  assert.match(r.detail, /^Its desktop and its login screen have sleep settings of their own, which we could not read/);
+  assert.doesNotMatch(r.detail, /on a server/, 'a desktop is not told it is a server');
+  assert.match(sleep({ idle: QUIET_IDLE, lid: null, gnome: null, desktop: false }).detail, /on a server/, 'control: no display manager');
   const { runner, asked } = sleepRunner({ IdleAction: 's "ignore"', gsd: 'inactive' });
   const dmRunner = (c, a) => (c === 'systemctl' && a[0] === 'is-active' && a[1] === 'display-manager.service') ? { ok: true, stdout: 'active\n' } : runner(c, a);
   assert.equal(machine.readLinuxSleep({ runner: dmRunner, hasLid: false }).desktop, true);
@@ -383,6 +396,12 @@ test('sleep reader: a gsettings that fails is not asked again, and its timeout r
   assert.equal(sleep(got).state, STATE.ATTENTION);
 });
 
+test('sleep row: a lid that does different things on AC and on battery says both (review 6)', () => {
+  const r = sleep({ idle: QUIET_IDLE, lid: { ac: 'poweroff', battery: 'suspend' } });
+  assert.match(r.detail, /When the lid closes while it is plugged in, this computer turns off\. When the lid closes on battery, it goes to sleep\./);
+  assert.match(r.title, /can go to sleep or turn off when its lid closes$/);
+});
+
 test('sleep reader: a set HandleLidSwitchExternalPower is the plugged-in answer', () => {
   const { runner } = sleepRunner({ HandleLidSwitchExternalPower: 's "ignore"', IdleAction: 's "ignore"', gsd: 'inactive' });
   const got = machine.readLinuxSleep({ runner, hasLid: true });
@@ -405,6 +424,7 @@ test('sleepGate on linux gives the Mac\'s three answers from Linux\'s reading, w
   assert.equal(no.battOnly, false);
   assert.equal(gate({ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' }, gnome: null }).battOnly, true);
   assert.deepEqual(gate({ idle: null, lid: null, gnome: null }), { checkable: false, because: 'we could not read this computer\'s sleep settings' });
+  assert.deepEqual(gate({ idle: QUIET_IDLE, lid: null, gnome: null, desktop: true }), { checkable: true, prevented: true }, 'never a failed gate for what was not read');
   assert.ok(!asked.some((c) => /pmset/.test(c)), 'no pmset on Linux');
 });
 
