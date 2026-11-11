@@ -317,4 +317,11 @@ test('kosmos#8389: every tell counts, a new question starts the count again, and
   holdtold.noteTold('leo', { via: 'task', projectId: old.id, task: old.n, at: '2026-11-08T11:00:00.000Z' });
   assert.equal(read(old.id, old.n).onHoldToldCount, undefined);
   assert.ok(read(old.id, old.n).onHoldLastToldAt, 'CONTROL: the tell itself was recorded');
+  // One tell says no count in task show: never "1 times".
+  const once = held();
+  holdtold.noteTold('leo', { via: 'task', projectId: once.id, task: once.n, at: '2026-11-08T10:00:00.000Z' });
+  assert.equal(read(once.id, once.n).onHoldToldCount, 1);
+  const shown = require('./tasklist').showLines({ tasks: [{ ...read(once.id, once.n), projectId: once.id, isClosed: false }] }, once.n, once.id).lines.join('\n');
+  assert.match(shown, /waiting on the person \(you told them [^)]*\)/, 'CONTROL: the tell is shown');
+  assert.doesNotMatch(shown, /times/);
 });

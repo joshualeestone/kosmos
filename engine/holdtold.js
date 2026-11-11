@@ -22,7 +22,7 @@
  * counts while none is newer than the latest tell, so an agent asking again (as the clause tells it to) is prompted again
  * by the next answer. The clause never rides a message kept to be typed later: by then the hold may be gone.
  *
- * All six fields (kosmos#8389 added `onHoldToldCount`, the number of tells) belong to the for-you hold: they go when the hold or its mark goes, a new for-you hold is set, or its
+ * All six fields belong to the for-you hold (kosmos#8389 added `onHoldToldCount`, the number of tells): they go when the hold or its mark goes, a new for-you hold is set, or its
  * reason changes (a new question) (tasks.HOLD_TOLD_FIELDS, dropped wherever onHoldForPerson is). Every note is
  * best-effort: a failure to record never breaks the message that triggered it, which is the operation the caller is doing.
  */
@@ -98,7 +98,7 @@ function toldTargets(projectList, who, { via, projectId, task, text }) {
 
 /**
  * An agent wrote where the person reads. Marks each for-you hold it holds that the message is about: the first tell sets
- * onHoldToldAt, every tell moves onHoldLastToldAt and onHoldToldVia/Id. `msg`: { via: 'task' | 'room' | 'reply',
+ * onHoldToldAt, every tell moves onHoldLastToldAt and onHoldToldVia/Id and adds one to onHoldToldCount (kosmos#8389). `msg`: { via: 'task' | 'room' | 'reply',
  * projectId (task, room), task (task), text, id?, at? }. Returns [{ projectId, n, first }] for the holds it marked.
  * Never throws.
  */
