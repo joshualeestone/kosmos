@@ -23,7 +23,8 @@ test('CONTROL: the store is the throwaway folder', () => {
 test('another writer\'s report is never claimed: a day holding only theirs is refused', () => {
   fresh();
   fb.write('mara saw a bug', { from: 'mara', date: '2026-11-01' });
-  assert.deepEqual(fb.unchanged('leo', '', TODAY), { ok: false, why: 'none' });
+  // kosmos#8269: the refusal also names the newest earlier day holding another writer's report, so the CLI can say whose.
+  assert.deepEqual(fb.unchanged('leo', '', TODAY), { ok: false, why: 'none', newest: '2026-11-01' });
   const mine = fb.unchanged('mara', '', TODAY);   // CONTROL: the same day is found for its own writer
   assert.equal(mine.ok, true);
   assert.equal(mine.since, '2026-11-01');

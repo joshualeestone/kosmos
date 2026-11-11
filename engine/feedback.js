@@ -400,6 +400,9 @@ function reportsForTriage(opts) {
  *   it. The same pointer again is allowed, so a send that failed can be retried with the same command.
  * - Refused ({ ok: false, why: 'none' }) with no earlier report to point back to. A named agent whose only earlier
  *   report predates #5317 (stored with no section marker, so it is the unnamed section) is refused too: the safe way.
+ *   kosmos#8269: `newest` is then the newest earlier day holding ANOTHER writer's report (or null), so the CLIs can say
+ *   why. The board's daily ask (feedbacknudge.js) passes to the next agent when one is busy, so a quiet stretch can ask
+ *   an agent whose last report this computer holds none of; it is told the report it sees is another agent's.
  * `day` is the date it checked; the CLIs save under it, so a run across midnight cannot check one day and replace another.
  * Known limits: the team sees each day's writers as "Report 1", "Report 2" (forSend), so on a day with several writers
  * the pointer names the day, not which report of it; and it cannot know whether that earlier report was sent (sending
@@ -429,7 +432,14 @@ function unchanged(from, note, date) {
     if (already != null && already.trim() !== body) return { ok: false, why: 'today' };
     return { ok: true, since, day, body };
   }
-  return already != null ? { ok: false, why: 'today' } : { ok: false, why: 'none' };
+  if (already != null) return { ok: false, why: 'today' };
+  let newest = null;
+  for (const d of list()) {
+    if (d >= day) continue;
+    const raw = read(d);
+    if (raw != null && sections(stripFrontmatter(raw)).some((x) => x.text.trim())) { newest = d; break; }
+  }
+  return { ok: false, why: 'none', newest };
 }
 
 /** kosmos#8340: the days whose report holds a section by `from` (writer()'s answer; null is the unnamed section), newest

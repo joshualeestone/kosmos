@@ -2811,7 +2811,12 @@ async function feedbackWrite(ctx, args) {
       return 1;
     }
     if (u && u.why === 'today') { ctx.err('You already saved a report today, so nothing was changed. To change it, write the whole report again.'); return 2; }
-    if (!u || !u.ok) { ctx.err('There is no earlier report of yours to point back to, so nothing was saved. Write today\'s report instead.'); return 2; }
+    if (!u || !u.ok) {
+      /* kosmos#8269: the board's daily ask can reach an agent whose last report is not here; say whose the newest one is. */
+      if (u && u.newest) ctx.err('There is no earlier report of yours to point back to: the newest report here, of ' + u.newest + ', is another agent\'s, and --unchanged points back only to your own. Nothing was saved. Write today\'s report instead.');
+      else ctx.err('There is no earlier report of yours to point back to, so nothing was saved. Write today\'s report instead.');
+      return 2;
+    }
     body = u.body;
     unchangedDay = u.day;   // saved under the day it checked (review round 2)
   } else if (bf.file !== null) {

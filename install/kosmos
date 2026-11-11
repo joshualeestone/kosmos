@@ -5855,10 +5855,11 @@ cmd_feedback() {
           let u;   /* review round 3: a read that throws exits 1 quietly, so only the sentence below is shown */
           try { const fb = require(process.argv[1] + "/engine/feedback"); u = fb.unchanged(fb.writer(process.env), process.env.KOSMOS_FEEDBACK_NOTE || ""); } catch { process.exit(1); }
           if (u && u.why === "today") process.exit(5);
-          if (!u || !u.ok) process.exit(4);
+          if (!u || !u.ok) { process.stdout.write(u && u.newest ? u.newest : ""); process.exit(4); }   /* kosmos#8269: the newest day of another writer */
           process.stdout.write(u.day + "\n" + u.body);
         ' "$KOSMOS_HOME/app")" || _u_rc=$?
         if [ "$_u_rc" -eq 5 ]; then say "You already saved a report today, so nothing was changed. To change it, write the whole report again."; exit 2; fi
+        if [ "$_u_rc" -eq 4 ] && [ -n "$body" ]; then say "There is no earlier report of yours to point back to: the newest report here, of $body, is another agent's, and --unchanged points back only to your own. Nothing was saved. Write today's report instead."; exit 2; fi
         if [ "$_u_rc" -eq 4 ]; then say "There is no earlier report of yours to point back to, so nothing was saved. Write today's report instead."; exit 2; fi
         if [ "$_u_rc" -ne 0 ]; then say "We could not read your earlier reports, so nothing was saved."; exit 1; fi
         _fb_day="${body%%$'\n'*}"; body="${body#*$'\n'}"   # saved under the day it checked (review round 2)
