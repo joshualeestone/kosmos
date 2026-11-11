@@ -26,11 +26,36 @@ const setup = require('./setup-assistant');
 const store = require('./store');
 fs.mkdirSync(store.ROOT, { recursive: true });
 /* As engine/boardkeychain-4491.test.js: the launch-PATH part of the guard pinned empty, so this never reads the host's. */
+/* kosmos#8368: env pinned too, so the shell-start and plugin-variable scans (the parts of the guard that read deps.env)
+   never read the host's environment. Not the cause of the Windows failure (that is the ancestor imports below); it
+   keeps one more host input out. */
 const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude',
-  panePath: path.join(SANDBOX, 'no-launch-path'), ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [], launchRunProgs: [] };
+  panePath: path.join(SANDBOX, 'no-launch-path'), ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [], launchRunProgs: [],
+  env: { PATH: '' } };
 
 let N = 0;
 function fresh(name) { const d = path.join(SANDBOX, 'workers', name + '-' + (++N)); fs.mkdirSync(path.join(d, '.claude'), { recursive: true }); return d; }
+
+/* kosmos#8368: this file pins the guard to macOS rules (DEPS.platform 'darwin') and runs on every host. The guard covers
+   what the instruction files ABOVE the agent's folder import, and on Windows the temp folder sits inside the person's
+   home, so their own ~/.claude/CLAUDE.md is an ancestor of every sandbox here. Under macOS rules a Windows path can
+   never be carried (its backslash is a rule-syntax character), so ANY import there makes the pinned guard answer
+   ok:false. A test artifact of the pin, not a fault in the person's files: in production a Windows run returns
+   "unsupported" before this code. Asked once, of the guard itself, on a throwaway folder: only when EVERY complaint is
+   the import note (test-support/hostimports-8368.js, tested on its own) do the arms whose answer the host decides
+   skip, saying so. Never on CI, where the runner's home is clean and a skip could only hide a fault. */
+const { onlyImportComplaints, onCi } = require('../test-support/hostimports-8368');
+const HOST_NOT_CLEAN = (() => {
+  // Only where its own explanation holds: a Windows host (the backslash path under macOS rules), never on CI.
+  if (process.platform !== 'win32' || onCi(process.env)) return false;
+  const d = fresh('hostcheck');
+  fs.writeFileSync(path.join(d, '.claude', 'settings.json'), '{}\n');
+  let r;
+  try { r = setup.guardTokenOnlyFolder(d, path.basename(d), DEPS); } catch { return false; }
+  if (!r || r.ok !== false || r.pathReason || !onlyImportComplaints(r.otherReason)) return false;
+  return 'this test pins macOS rules, which cannot carry a Windows path, and this computer\'s own instruction files above '
+    + 'every temp folder import files, so the pinned guard cannot answer ok on this host (a test artifact; on CI it runs)';
+})();
 const writeJson = (file, obj) => fs.writeFileSync(file, JSON.stringify(obj, null, 2) + '\n', { mode: 0o644 });
 const sandboxOf = (file) => (JSON.parse(fs.readFileSync(file, 'utf8')).sandbox || {});
 
@@ -50,6 +75,7 @@ const WRITERS = [
   },
   {
     name: 'token-only .claude/settings.json (guardTokenOnlyFolder)',
+    hostBound: true,
     make() {
       const dir = fresh('pilot');
       const file = path.join(dir, '.claude', 'settings.json');
@@ -62,6 +88,7 @@ const WRITERS = [
   },
   {
     name: 'token-only .claude/settings.local.json (cleanLocalSettings)',
+    hostBound: true,
     make() {
       const dir = fresh('pilotlocal');
       const file = path.join(dir, '.claude', 'settings.local.json');
@@ -77,7 +104,11 @@ const WRITERS = [
 const isTemp = (file, p) => String(p).startsWith(file + '.kosmos-') && /\.kosmos-\d+-(?:t\d+-)?\d+-\d+\.tmp$/.test(String(p));
 
 for (const W of WRITERS) {
-  test(`#5434 ${W.name}: the temp renamed into the file is flushed first`, () => {
+  /* The two arms that need the guard to answer "ok". The two that expect a refusal still run on an unclean host: they
+     check their own things (the attempts made, the flush failing, the file left as it was, no temp left), measured
+     with the skip off (review 5). */
+  const needsCleanOk = { skip: (W.hostBound && HOST_NOT_CLEAN) || false };
+  test(`#5434 ${W.name}: the temp renamed into the file is flushed first`, needsCleanOk, () => {
     const { file, save, wrote } = W.make();
     const events = [];
     const fdPath = new Map();
@@ -146,7 +177,7 @@ for (const W of WRITERS) {
     assert.equal(fs.lstatSync(file).isSymbolicLink(), false, 'the file became a link');
   });
 
-  test(`#5434 ${W.name}: only this file's own dead temps are reaped`, () => {
+  test(`#5434 ${W.name}: only this file's own dead temps are reaped`, needsCleanOk, () => {
     const { file, save, folder } = W.make();
     // pid 2147483646 is chosen because it cannot be live (a dead writer); do not change it to process.pid
     const mine = file + '.kosmos-2147483646-t0-1-1.tmp';
