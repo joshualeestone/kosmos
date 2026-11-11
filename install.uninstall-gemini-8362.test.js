@@ -195,8 +195,30 @@ test('#8362: with no record, the uninstall says nothing about Gemini and leaves 
 test('#8362: the Gemini step runs before the home is deleted (it needs the bundled node)', () => {
   const s = fs.readFileSync(SETUP, 'utf8');
   const deleting = s.indexOf('info "deleting $KOSMOS_HOME"');
-  const step = s.indexOf('gemini_settings_undo "$_support"', deleting);
+  const step = s.indexOf('gemini_settings_undo_all "$_support"', deleting)   // kosmos#8402: every Kosmos's record;
   const rm = s.indexOf('rm -rf "$KOSMOS_HOME"', deleting);
   assert.ok(deleting > 0 && step > 0 && rm > 0, 'a landmark is gone from setup.sh');
   assert.ok(step < rm, 'the Gemini step runs after the home (and its node) is deleted');
+});
+
+test('kosmos#8402: a named Kosmos\'s record (its own data folder, worlds/<id>/Kosmos) is put back too', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox();
+  const store = require('./engine/store');
+  const worlds = require('./engine/worlds');
+  const base = path.join(sb.data, 'Kosmos');
+  // Where create.js writes it in a named Kosmos: supportDir() under that board's env (worlds.envOverridesFor).
+  const worldLedger = path.join(store.dataRootFor('darwin', sb.home, worlds.envOverridesFor(base, { id: 'k2' })), gs.WROTE_FILE);
+  assert.equal(worldLedger, path.join(base, 'worlds', 'k2', 'Kosmos', gs.WROTE_FILE), 'control: the named Kosmos\'s record is not where this test expects');
+  const k2File = path.join(sb.home, '.gemini-k2', '.gemini', 'settings.json');
+  assert.equal(gs.ensurePrepared(k2File, BRIDGE, { platform: 'darwin', wroteLedger: worldLedger }).prepared, true, 'control: the real writer did not prepare the file');
+  assert.equal(read(k2File).security.auth.selectedType, 'gemini-api-key', 'control: nothing was filled in');
+  // A named Kosmos with no record: nothing is said for it.
+  fs.mkdirSync(path.join(base, 'worlds', 'k3', 'Kosmos'), { recursive: true });
+  const out = runUninstall(sb);
+  assert.ok(!fs.existsSync(sb.kh), 'the uninstall did not reach its removal step: ' + out.slice(-600));
+  assert.equal(read(k2File).security, undefined, 'the named Kosmos\'s filled-in value was left');
+  assert.ok(out.includes('put back the Gemini settings Kosmos had filled in, in ' + k2File), 'the uninstall did not say it: ' + out.slice(-800));
+  assert.equal(fs.existsSync(worldLedger), false, 'the named Kosmos\'s record was kept with nothing left in it');
+  assert.equal(read(sb.mainFile).security, undefined, 'CONTROL: the main record was not put back as before');
+  assert.ok(!out.includes(path.join('worlds', 'k3')), 'a named Kosmos with no record was mentioned');
 });

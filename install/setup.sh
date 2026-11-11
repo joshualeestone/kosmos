@@ -2147,6 +2147,20 @@ gemini_settings_undo() {
   return 0
 }
 
+# kosmos#8402: a named Kosmos's board runs with its own data folder (engine/worlds.js envOverridesFor: AGENT_WORKFORCE_DATA
+# is $1/worlds/<id>, and store.dataRootFor appends Kosmos), so a Gemini agent made there records what it filled in at
+# $1/worlds/<id>/Kosmos/gemini-wrote.json, while the values went into the person's one ~/.gemini. Each record is undone
+# by its own gemini_settings_undo, so each node run stays inside _kosmos_wait_bounded. An unmatched glob stays literal
+# in sh, and gemini_settings_undo returns at once when there is no record there.
+gemini_settings_undo_all() {
+  [ -n "$1" ] || return 0
+  gemini_settings_undo "$1"
+  for _gwa_d in "${1%/}"/worlds/*/Kosmos; do
+    gemini_settings_undo "$_gwa_d"
+  done
+  return 0
+}
+
 uninstall() {
   step "Removing Kosmos."
   # #5896 slice 2: the sealed icon is proven against this install's shipped copy, which the removal below deletes
@@ -2926,7 +2940,7 @@ UNWIREEOF
       # no automatic updates, no update check), and records each one in the data folder. Only a value that is still
       # exactly what was recorded comes back out. Loads the installed engine, which wrote the record, so this needs
       # no copy of its own; an engine without the undo never wrote a record either.
-      gemini_settings_undo "$_support"
+      gemini_settings_undo_all "$_support"
       # 🔑 RETIRE THIS MAC AT THE COORDINATOR WHILE IT CAN STILL SPEAK (#793).
       # The Mac's key lives in the support folder's remote/ dir and the
       # connector in the app tree about to go; after either is gone only a
@@ -2958,7 +2972,7 @@ UNWIREEOF
     # node to edit the settings with, but the hooks it left can still be named.
     say_hooks_left "$(hook_settings_left "$KOSMOS_HOME" "")" "$KOSMOS_HOME" ""
     say_gemini_hooks_left "$(gemini_hook_settings_left "$_support")" "$_support"
-    gemini_settings_undo "$_support"
+    gemini_settings_undo_all "$_support"
   fi
   # The icon goes too, or uninstall leaves a dead app that opens nothing.
   # BOTH default locations are swept -- installs before 2026-08-13 wrote
