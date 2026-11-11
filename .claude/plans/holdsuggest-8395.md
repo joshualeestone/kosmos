@@ -57,3 +57,9 @@ feedback). Correction to my card comment: marking a task built does not touch a 
 - Iteration 2 (sonnet): 2 WARNINGs, both on this plan: the 400's precedence stated; the iPhone card number (#8405)
   recorded. NITs noted: an option-like value after --suggest is taken as the suggestion in both CLIs, as --because
   does; the CLIs echo the raw words (as --because). Engine 8, Mac CLI hold 15, Windows CLI 65: 88 of 88.
+- Iteration 3 (opus): 1 new WARNING: the CLIs cannot clear a suggestion on its own (an empty --suggest is refused;
+  the engine treats empty as clear). Stated here, not built: an agent corrects one by sending another (it replaces),
+  and one goes when the question changes or the mark comes off; a bare "clear it" from the CLI is left for when an
+  agent needs it. The markup-escape check repeats iteration 1's noted item (every caller escapes). NITs noted: the two
+  CLIs print their confirmations in a different order; both echo the raw words; an empty suggest on the person's
+  hold answers 403.
