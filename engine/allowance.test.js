@@ -562,3 +562,18 @@ test('#6213 winShortPathCached keeps a clean "no short name" for a folder that e
   assert.equal(allowance.winShortPathCached(sp, () => { throw new Error('asked again'); }), 'C:/SPACED~1', 'an answer was not kept');
 });
 
+
+test('kosmos#8365 review 1: the statusline wiring uses the temp rule for its own platform, so a win32 backslash spelling of the temp folder is refused on any host', () => {
+  const back = (p) => p.split(path.sep).join('\\');
+  // A backslash path is RELATIVE on a posix host: run in a fresh folder so a broken refusal can only write there.
+  const cwd = process.cwd();
+  const box = fs.mkdtempSync(path.join(os.tmpdir(), 'al8365-'));
+  try {
+    process.chdir(box);
+    const got = allowance.ensureStatusLine(back(path.join(path.sep, 'nonexistent-durable-8365', 'settings.json')),
+      { platform: 'win32', script: back(path.join(os.tmpdir(), 'cut-8365', 'kosmos-statusline.js')), node: back(path.join(path.sep, 'nonexistent-8365', 'node.exe')) });
+    assert.equal(got.wired, false, JSON.stringify(got));
+    assert.match(got.because, /ephemeral/, 'refused for another reason: ' + got.because);
+    assert.deepEqual(fs.readdirSync(box), [], 'something was written');
+  } finally { process.chdir(cwd); fs.rmSync(box, { recursive: true, force: true }); }
+});

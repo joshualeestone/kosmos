@@ -172,7 +172,7 @@ function ensureStatusLine(settingsPath, opts) {
   if ([node, script, accountDir].some((p) => reporthook.unsafeForCommand(p, plat))) {
     return { wired: false, because: 'the statusline command path contains characters we will not embed in a command' };
   }
-  if (reporthook.ephemeralMismatch(settingsPath, [node, script, accountDir])) {
+  if (reporthook.ephemeralMismatch(settingsPath, [node, script, accountDir], { platform: plat })) {   // kosmos#8365 review 1: the rule for its platform
     return { wired: false, because: 'a statusline command path is under the temp root, which is ephemeral, so it was not written into the durable settings file' };
   }
   const read = reporthook.readSettings(settingsPath);

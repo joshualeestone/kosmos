@@ -284,7 +284,8 @@ function entryIsOurs(entry) {
  * NOT: an ephemeral path about to be written into a durable file. Shared by
  * every writer of a Claude settings file (the report hooks here, the
  * statusline in allowance.js), so the #1582 refusal has one copy. The comment
- * inside is the refusal's history, moved here unchanged from ensureWired.
+ * inside is the refusal's history, from ensureWired; since kosmos#8365 the rule
+ * itself is hookpaths.ephemeralIntoDurable, shared with Gemini, Codex and Grok.
  */
 function ephemeralMismatch(settingsPath, commandPaths, opts) {
   /* #1582: the fifth refusal. hookScriptPath() correctly probes and, during
@@ -313,11 +314,15 @@ function ephemeralMismatch(settingsPath, commandPaths, opts) {
      NOT, which is exactly #1582's shape (~/.claude/settings.json given a
      cut-sandbox path) and leaves a fully-ephemeral setup alone. This matches
      the rationale precisely; a production settings file is never under temp. */
-  /* kosmos#8365: ONE rule, hookpaths.ephemeralIntoDurable, shared with Gemini, Codex and Grok. Its posix arm is the rule
-     this function had, line for line (the raw and resolved temp root, a non-string is neither durable nor ephemeral,
-     null paths skipped); on win32 it also catches a case-changed or 8.3 short spelling of the temp folder (#8348). The
-     cut-script coupling still holds: the sandbox is under $TMPDIR, which os.tmpdir() names. `opts.platform` picks the
-     rule (a test seam). */
+  /* #570: every path the command will carry is vetted, not just the script: the win32 report hook also carries node
+     (the exec-form command), and a durable settings file pointing at an ephemeral runtime/node.exe is the same #1582
+     defect as pointing at an ephemeral script. The caller passes them all in commandPaths.
+     kosmos#8365: ONE rule, hookpaths.ephemeralIntoDurable, shared with Gemini, Codex and Grok. On posix it is the same
+     rule this function had (the raw and resolved temp root, a non-string settings path neither durable nor ephemeral,
+     null paths skipped; measured in review 1); on win32 it also catches a case-changed, 8.3 short or other-slash
+     spelling of the temp folder (#8348). The cut-script coupling still holds: the sandbox is created under $TMPDIR
+     (test-install.sh's mktemp -d, release.sh's kosmos-release.XXXXXX), which os.tmpdir() names. `opts.platform`
+     picks the rule (a test seam). */
   return require('./hookpaths').ephemeralIntoDurable(settingsPath, commandPaths, opts);
 }
 

@@ -153,11 +153,10 @@ function ensurePrepared(hookFilePath, bridgePath, opts) {
      at an ephemeral path. During a release cut the bridge can resolve to a path inside
      the cut's temp sandbox that genuinely exists and is gone the moment the cut ends.
      Refuse to persist an ephemeral bridge path into a durable hook file; leave a
-     fully-ephemeral setup (test fixtures put both under temp) alone. os.tmpdir()
-     returns the UNRESOLVED /var/folders form on macOS while paths reaching the file
-     are the RESOLVED /private/var form, so compare against both. */
-  /* kosmos#8365: the shared rule (hookpaths.ephemeralIntoDurable), as Gemini, Codex and Claude's hooks use; on win32 it
-     also catches a case-changed or 8.3 short spelling of the temp folder. Posix: the same rule this block had. */
+     fully-ephemeral setup (test fixtures put both under temp) alone. kosmos#8365: that
+     rule is hookpaths.ephemeralIntoDurable, shared with Gemini, Codex and Claude's hooks
+     (it compares the raw and resolved temp root, and on win32 a case-changed, 8.3 short or
+     other-slash spelling too). Posix: the same rule this block had. */
   if (require('./hookpaths').ephemeralIntoDurable(hookFilePath, [bridgePath, node], { platform: plat })) {
     return { prepared: false, because: 'the bridge path is under the temp root, which is ephemeral, so it was not written into the durable hook file' };
   }
