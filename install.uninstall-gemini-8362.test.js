@@ -85,7 +85,9 @@ function sandbox({ noEngine = false, record = true, crashEngine = false } = {}) 
 
 function runUninstall(sb) {
   try {
-    return execFileSync('bash', [SETUP, '--uninstall'], {
+    // /bin/sh, as a person runs it (`sh -s -- --uninstall`): on macOS that is bash in POSIX mode, where a command
+    // substitution inherits set -e, which plain bash does not.
+    return execFileSync('/bin/sh', [SETUP, '--uninstall'], {
       encoding: 'utf8',
       env: {
         ...process.env,
