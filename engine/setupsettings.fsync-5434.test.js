@@ -36,31 +36,24 @@ const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT
 let N = 0;
 function fresh(name) { const d = path.join(SANDBOX, 'workers', name + '-' + (++N)); fs.mkdirSync(path.join(d, '.claude'), { recursive: true }); return d; }
 
-/* kosmos#8368: the token-only guard also covers what the instruction files ABOVE the agent's folder import (Claude Code
-   walks up from its cwd). On Windows the temp folder sits inside the person's home, so a person whose own
-   ~/.claude/CLAUDE.md imports files the permission rules cannot carry makes every sandbox here report ok:false: the
-   guard is right, the host is not clean. Asked once, of the guard itself, on a throwaway folder: when EVERY complaint it
-   makes is that kind (each entry's note is exactly the import note, nothing else, no PATH part), the arms that need a
-   clean "ok" skip, with its words. Anything else, a second complaint of any kind or a path with its own brackets,
-   runs the arms and fails loudly. Never on CI: a runner's home is clean, so a skip there would only hide a fault. */
-const IMPORT_NOTE = '(a file an instruction file imports, whose path the permission rules cannot carry)';
-const COVER_PREFIX = 'a file or folder Claude Code reads at start could not be covered (';
-function onlyImportComplaints(reason) {
-  let s = String(reason || '');
-  if (!s.startsWith(COVER_PREFIX)) return false;
-  s = s.slice(COVER_PREFIX.length).replace(/\): renaming that folder[\s\S]*$/, ')').replace(/\)$/, '');
-  const notes = s.match(/\([^()]*\)/g) || [];
-  return notes.length > 0 && notes.every((n) => n === IMPORT_NOTE) && !/[()]/.test(s.replace(/\([^()]*\)/g, ''));
-}
+/* kosmos#8368: this file pins the guard to macOS rules (DEPS.platform 'darwin') and runs on every host. The guard covers
+   what the instruction files ABOVE the agent's folder import, and on Windows the temp folder sits inside the person's
+   home, so their own ~/.claude/CLAUDE.md is an ancestor of every sandbox here. Under macOS rules a Windows path can
+   never be carried (its backslash is a rule-syntax character), so ANY import there makes the pinned guard answer
+   ok:false. A test artifact of the pin, not a fault in the person's files: in production a Windows run returns
+   "unsupported" before this code. Asked once, of the guard itself, on a throwaway folder: only when EVERY complaint is
+   the import note (test-support/hostimports-8368.js, tested on its own) do the arms whose answer the host decides
+   skip, saying so. Never on CI, where the runner's home is clean and a skip could only hide a fault. */
+const { onlyImportComplaints, onCi } = require('../test-support/hostimports-8368');
 const HOST_NOT_CLEAN = (() => {
-  if (process.env.GITHUB_ACTIONS === 'true') return false;
+  if (onCi(process.env)) return false;
   const d = fresh('hostcheck');
   fs.writeFileSync(path.join(d, '.claude', 'settings.json'), '{}\n');
   let r;
   try { r = setup.guardTokenOnlyFolder(d, path.basename(d), DEPS); } catch { return false; }
   if (!r || r.ok !== false || r.pathReason || !onlyImportComplaints(r.otherReason)) return false;
-  const why = String(r.otherReason);
-  return `this computer's own instruction files, above every temp folder, import files the guard cannot cover (${why.length > 160 ? why.slice(0, 160) + '...' : why}), so the token-only guard cannot answer ok here`;
+  return 'this test pins macOS rules, which cannot carry a Windows path, and this computer\'s own instruction files above '
+    + 'every temp folder import files, so the pinned guard cannot answer ok on this host (a test artifact; on CI it runs)';
 })();
 const writeJson = (file, obj) => fs.writeFileSync(file, JSON.stringify(obj, null, 2) + '\n', { mode: 0o644 });
 const sandboxOf = (file) => (JSON.parse(fs.readFileSync(file, 'utf8')).sandbox || {});

@@ -32,11 +32,18 @@ mutation check. Phase 2 (the full `npm test` on Windows, 508 failing files by ca
 - Branch: `node tools/windows-tests.js` 229 passed, 0 failed, 0 new red, 0 stale, exit 0; the 4 e2e files "ran here".
 - Mutation (uncommitted, reverted): childenv.winOpenerEnv returning the whole env -> NEW RED
   engine/childenv.win32-5895.test.js, 228 passed, 1 new red, exit 1.
-- Control for the setupsettings skip: with TEMP outside the home (C:\kt8368tmp) the guard is clean and all arms run:
-  12 pass, 0 fail (8 pass + 4 skipped in the home's TEMP).
+- Controls for the setupsettings skip (at the final code): in this box's own TEMP 4 pass, 23 skipped, 0 fail; with
+  TEMP outside the home (C:\kt8368tmp) the host is clean and the arms run: 12 pass, 0 fail; with CI=true (no skip
+  allowed) on this host: 4 fail, as they must. The skip rule's own parser: test-support.hostimports-8368.test.js 4/4.
+- The full-suite numbers above were taken before review; the final run on the reviewed code is in the proof.
 
 ## Decided
-- Skip-with-the-guard's-reason, not a production seam for the ancestor walk: the guard is correct for a real agent
-  whose folder is under the home; adding a seam only for tests would change production code for a test.
-  What would change my mind: a second test needing the same walk bounded.
+- The real cause (review 2 corrected review 1 and me): this test pins macOS rules (DEPS.platform 'darwin') and runs on
+  every host; under macOS rules a Windows path is never carriable (its backslash is a rule-syntax character,
+  setup-assistant.js IMPORT_RULE_SYNTAX), and on Windows the person's own ~/.claude/CLAUDE.md is an ancestor of every
+  temp folder, so ANY import there makes the pinned guard answer ok:false. In production a Windows run returns
+  "unsupported" before this code. A test artifact, said as one in the skip text, not blamed on the person's files.
+- Skip, not a production seam for the ancestor walk: a seam only for tests would change production code for a test,
+  and the skip is fenced (only when every complaint is the import note; never on CI, which still runs every arm).
+  What would change my mind: a second test needing the same walk bounded, or a Windows rule set for this guard.
 - Weakest part: bigint-ino's cause is inferred (other writers taking the freed records); not reproduced on demand.

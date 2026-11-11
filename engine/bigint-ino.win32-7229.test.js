@@ -20,19 +20,22 @@ const winOnly = { skip: !WIN && 'Windows file ids' };
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-ino-7229-'));
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
-/* Two different files whose number ids are equal: files are made 64 at a time, within 60 s, to find a pair; null if none did. */
+/* Two different files whose number ids are equal: files are made 64 at a time, within 45 s, to find a pair; null if none did. */
+let GAVE_UP = '';   // kosmos#8368: what the search spent before it gave up, said in the failure
 function collidingFiles(where) {
   /* An NTFS id is (sequence << 48) | record, and a record's sequence rises each time it is reused, so ids pass 2^53 once
      a record has been reused 32 times; from there a number keeps only even values, and two neighbouring records at the
      same sequence round alike. A pool of files is made and deleted until their records are past that, then compared
-     (review 6: a fresh disk needs about 32 rounds; up to 4096 now, within 60 s; keyed on the UNSIGNED id, as the number
+     (review 6: a fresh disk needs about 32 rounds; up to 4096 now, within 45 s; keyed on the UNSIGNED id, as the number
      stat reads it). */
   const pool = path.join(where, 'pool');
   fs.mkdirSync(pool, { recursive: true });
-  const until = Date.now() + 60000;
+  /* kosmos#8368: 45 s, under the 60 s per-test timeout tools/windows-tests.js gives every test, so a search that
+     gives up still reaches its own failure message (rounds, time, which bound) instead of being cancelled first. */
+  const until = Date.now() + 45000;
   const t0 = Date.now();
   let rounds = 0;
-  /* kosmos#8368: the 60 s is the bound, not the round count. On the Windows box, while other test files ran in parallel,
+  /* kosmos#8368: the time is the bound, not the round count. On the Windows box, while other test files ran in parallel,
      all 128 rounds finished in 2.8 s with no pair (the windows-tests run of 11-11), so the cap ran out long before
      the time did. Inferred, not measured: other writers on the disk take the freed records, so this pool's records are
      reused less often. Alone, a pair is found well inside 128 rounds (6 runs here, and 4 at once). */
@@ -51,11 +54,10 @@ function collidingFiles(where) {
     }
     for (const m of made) fs.unlinkSync(m);
   }
-  GAVE_UP = `${rounds} rounds of 64 files in ${Date.now() - t0} ms, ended by ${rounds >= 4096 ? 'the round cap' : 'the 60 s bound'}`;
+  GAVE_UP = `${rounds} rounds of 64 files in ${Date.now() - t0} ms, ended by ${rounds >= 4096 ? 'the round cap' : 'the 45 s bound'}`;
   return null;
 }
 let PAIR;
-let GAVE_UP = '';   // kosmos#8368: what the search spent before it gave up, said in the failure
 const pair = () => (PAIR === undefined ? (PAIR = collidingFiles(path.join(SANDBOX, 'ids'))) : PAIR);
 
 test('#7229: the download guard tells apart two files whose number ids collide', winOnly, (t) => {

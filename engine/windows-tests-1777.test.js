@@ -172,12 +172,12 @@ test('verdict: a file whose every test skipped is a new red unless ALL_SKIP_OK n
 test('kosmos#8368: off CI, an ALL_SKIP_OK file whose tests run and pass is "ran here", not stale; on CI it is still stale', () => {
   const runs = { file: 'engine/e.test.js', ok: true, tests: 3, skipped: 1 };
   const SKIP = { 'engine/e.test.js': 'needs a login' };
-  const box = w.judge([runs], {}, SKIP, {}, { onCi: false });
+  const box = w.judge([runs], {}, SKIP, {}, { ciRules: false });
   assert.deepEqual(box.stale, [], 'a box that has what the file needs runs it: not a stale entry');
   assert.deepEqual(box.ranHere, [{ file: 'engine/e.test.js', ran: 2 }]);
-  assert.equal(w.judge([runs], {}, SKIP, {}, { onCi: true }).stale.length, 1, 'on CI it is still stale');
+  assert.equal(w.judge([runs], {}, SKIP, {}, { ciRules: true }).stale.length, 1, 'on CI it is still stale');
   assert.equal(w.judge([runs], {}, SKIP).stale.length, 1, 'the default is the CI rule');
-  assert.equal(w.judge([{ ...runs, ok: false, failing: ['x'] }], {}, SKIP, {}, { onCi: false }).failed.length, 1, 'a failure off CI is still a red');
+  assert.equal(w.judge([{ ...runs, ok: false, failing: ['x'] }], {}, SKIP, {}, { ciRules: false }).failed.length, 1, 'a failure off CI is still a red');
 });
 
 test('verdict: a pass whose test count could not be read is a new red, not a silent pass', () => {
