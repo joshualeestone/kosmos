@@ -1021,8 +1021,17 @@ test('sleep row: a lid that sleeps only when docked says so in the title', () =>
 });
 
 test('the readers stand down in a child process a test spawns, not only in the test process', () => {
-  const out = require('node:child_process').execFileSync(process.execPath, ['-e',
-    "const m=require(" + JSON.stringify(path.join(__dirname, 'machine.js')) + "); process.stdout.write(JSON.stringify(m.readLinuxSleep({})))"],
-    { encoding: 'utf8', env: { ...process.env, NODE_TEST_CONTEXT: 'child-v8' } });
-  assert.deepEqual(JSON.parse(out), { idle: null, lid: null, gnome: null, desktop: null });
+  // A busctl on PATH that says "suspend", so a host read would show on any machine (a Mac has no busctl of its own).
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-child-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'busctl'), '#!/bin/sh\ncase "$*" in *USec*) echo "t 1800000000";; *) echo \'s "suspend"\';; esac\n', { mode: 0o755 });
+    const script = "const m=require(" + JSON.stringify(path.join(__dirname, 'machine.js')) + "); process.stdout.write(JSON.stringify(m.readLinuxSleep({})))";
+    const env = { ...process.env, PATH: dir + path.delimiter + process.env.PATH };
+    const child = (extra) => JSON.parse(require('node:child_process').execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', env: { ...env, ...extra } }));
+    assert.deepEqual(child({ NODE_TEST_CONTEXT: 'child-v8' }), { idle: null, lid: null, gnome: null, desktop: null });
+    // Control: the same child outside a test run does read, through the fake.
+    const env2 = { ...env }; delete env2.NODE_TEST_CONTEXT;
+    const outside = JSON.parse(require('node:child_process').execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', env: env2 }));
+    assert.deepEqual(outside.idle, { action: 'suspend', minutes: 30 });
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
