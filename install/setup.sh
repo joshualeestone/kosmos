@@ -2099,6 +2099,16 @@ say_gemini_hooks_left() {
 # #8362: take out of the Gemini settings files the values Kosmos recorded writing (the record is $1/gemini-wrote.json),
 # through the installed engine's geminisettings.undoWrites, and say what happened. With no node or no engine to do
 # it (a partial install, or the folder already gone), the record is named instead, so nothing is left silently.
+# kosmos#8402: say a line unless an earlier record already said it (gemini_settings_undo_all resets _gw_said).
+_gw_say_once() {
+  case "${_gw_said-}" in *"
+$1
+"*) return 0 ;; esac
+  info "$1"
+  _gw_said="${_gw_said-}$1
+"
+}
+
 gemini_settings_undo() {
   _gw_rec="${1%/}/gemini-wrote.json"
   [ -n "$1" ] && [ -f "$_gw_rec" ] || return 0
@@ -2149,17 +2159,14 @@ gemini_settings_undo() {
 }"
     case "$_gw_l" in
       "say "*)
-        case "${_gw_said-}" in *"
-${_gw_l#say }
-"*) ;; *) info "${_gw_l#say }"; _gw_said="${_gw_said-}${_gw_l#say }
-" ;; esac ;;
+        _gw_say_once "${_gw_l#say }" ;;
     esac
   done
   case "$_gw_out" in
     *@kosmos-gemini-done*) ;;
     *)
-      info "note: Kosmos filled in some of Gemini's settings and could not"
-      info "finish putting them back here; the files and values are listed in $_gw_rec" ;;
+      _gw_say_once "note: Kosmos filled in some of Gemini's settings and could not finish putting them back here;"
+      info "the files and values are listed in $_gw_rec" ;;
   esac
   return 0
 }
@@ -2181,9 +2188,9 @@ gemini_settings_undo_all() {
   for _gwa_d in "${1%/}"/worlds/*/Kosmos; do
     [ -f "$_gwa_d/gemini-wrote.json" ] || continue
     _gwa_id="${_gwa_d%/Kosmos}"; _gwa_id="${_gwa_id##*/}"
-    case "$_gwa_id" in default|*[!a-z0-9_-]*|"") continue ;; esac
+    case "$_gwa_id" in default|*[!abcdefghijklmnopqrstuvwxyz0123456789_-]*|"") continue ;; esac   # spelled out: in a UTF-8 locale, macOS sh's a-z also matches capitals
     if [ -n "${_gw_stopped-}" ]; then
-      info "note: so the Gemini settings filled in by your other Kosmoses were not tried; each one's list is in a folder under ${1%/}/worlds"
+      info "note: because of that, the Gemini settings your other Kosmoses filled in were not put back either; each one's list is in its own folder under ${1%/}/worlds"
       break
     fi
     gemini_settings_undo "$_gwa_d"

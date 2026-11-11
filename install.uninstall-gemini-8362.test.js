@@ -241,9 +241,9 @@ test('kosmos#8402: once one record\'s undo is stopped, the other Kosmoses\' reco
   const t0 = Date.now();
   const out = runUninstall(sb, { KOSMOS_UNINSTALL_NODE_SECONDS: '1' }, 20000);
   const took = Date.now() - t0;
-  assert.ok(took < 6000, 'the uninstall waited ' + took + ' ms: each Kosmos\'s record waited out its own bound');
+  assert.ok(took < 6000, 'the uninstall waited ' + took + ' ms');   // a hang guard only: the counts below are what catch a loop that tries every record
   assert.equal(out.split('did not finish in 1s').length - 1, 1, 'the stop was said more or less than once:\n' + out);
-  assert.equal(out.split('were not tried; each one').length - 1, 1, 'the skipped records were not said once:\n' + out);
+  assert.equal(out.split('were not put back either').length - 1, 1, 'the skipped records were not said once:\n' + out);
   assert.ok(fs.existsSync(l2) && fs.existsSync(l3), 'a record that was never tried was lost');
 });
 
@@ -265,14 +265,29 @@ test('kosmos#8402: a re-run after the folder is gone names each named Kosmos\'s 
   const odd = path.join(sb.data, 'Kosmos', 'worlds', 'Not Clean', 'Kosmos', gs.WROTE_FILE);
   fs.mkdirSync(path.dirname(odd), { recursive: true });
   fs.copyFileSync(l2, odd);
+  const upper = path.join(sb.data, 'Kosmos', 'worlds', 'NotClean', 'Kosmos', gs.WROTE_FILE);   // capitals: macOS sh's a-z matches them in a UTF-8 locale
+  fs.mkdirSync(path.dirname(upper), { recursive: true });
+  fs.copyFileSync(l2, upper);
   const dflt = path.join(sb.data, 'Kosmos', 'worlds', 'default', 'Kosmos', gs.WROTE_FILE);   // the main folder's own data, never a named Kosmos
   fs.mkdirSync(path.dirname(dflt), { recursive: true });
   fs.copyFileSync(l2, dflt);
   fs.rmSync(sb.kh, { recursive: true, force: true });
-  const out = runUninstall(sb);
+  const out = runUninstall(sb, { LC_ALL: 'en_US.UTF-8', LANG: 'en_US.UTF-8' });
   assert.ok(out.includes(sb.ledger), 'CONTROL: the main record was not named:\n' + out.slice(-800));
   assert.ok(out.includes(l2), 'the named Kosmos\'s record was not named on a re-run:\n' + out.slice(-800));
   assert.ok(!out.includes(odd), 'a folder name no board could have made was read:\n' + out.slice(-800));
+  assert.ok(!out.includes(upper), 'a folder name with capitals was read:\n' + out.slice(-800));
+  assert.equal(out.split('could not finish putting them back here').length - 1, 1, 'the opening line was said once per record:\n' + out.slice(-800));
   assert.ok(!out.includes(dflt), 'worlds/default was read as a named Kosmos:\n' + out.slice(-800));
   assert.match(out, /Kosmos is removed/, 'the uninstall stopped after the Gemini step instead of finishing');
+});
+
+test('kosmos#8402: a named Kosmos\'s record is put back when the main folder has none', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox({ record: false });
+  const k2File = path.join(sb.home, '.gemini-k2', '.gemini', 'settings.json');
+  const l2 = worldRecord(sb, 'k2', k2File);
+  assert.equal(fs.existsSync(sb.ledger), false, 'CONTROL: the main folder has a record');
+  const out = runUninstall(sb);
+  assert.equal(read(k2File).security, undefined, 'the named Kosmos\'s value was left:\n' + out.slice(-800));
+  assert.equal(fs.existsSync(l2), false, 'its record was kept with nothing left in it');
 });
