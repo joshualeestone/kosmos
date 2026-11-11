@@ -206,8 +206,12 @@ function failingTests(output, file = '') {
 
 // results: [{ file, ok, failing: [names], killed, notRun, error, tests, skipped }].
 // Returns { failed: [{ file, why }], stale: [...], known: [...] }.
-function judge(results, knownRed = KNOWN_RED, allSkipOk = ALL_SKIP_OK, flaky = FLAKY) {
-  const failed = []; const stale = []; const known = [];
+/* kosmos#8368: `onCi` says whether this run is the CI runner's. An ALL_SKIP_OK file skips there because the runner has
+   no Codex or Antigravity; on a Windows computer that has them, its tests run and pass, which is the point of having
+   them, not a stale entry. So "its tests run now" is stale only on CI, where it still catches an entry no longer needed.
+   Default true: every existing caller keeps the CI rule. */
+function judge(results, knownRed = KNOWN_RED, allSkipOk = ALL_SKIP_OK, flaky = FLAKY, { onCi = true } = {}) {
+  const failed = []; const stale = []; const known = []; const ranHere = [];
   for (const raw of results) {
     // A FLAKY test's failure is dropped before judging; a file failing only those counts as a pass.
     const skipNames = (flaky[raw.file] && flaky[raw.file].tests) || [];
@@ -243,9 +247,12 @@ function judge(results, knownRed = KNOWN_RED, allSkipOk = ALL_SKIP_OK, flaky = F
   }
   for (const [file] of Object.entries(allSkipOk)) {
     const r = results.find((x) => x.file === file);
-    if (r && r.ok && r.tests > 0 && r.skipped < r.tests) stale.push({ file, card: 'ALL_SKIP_OK', why: 'its tests run now' });
+    if (r && r.ok && r.tests > 0 && r.skipped < r.tests) {
+      if (onCi) stale.push({ file, card: 'ALL_SKIP_OK', why: 'its tests run now' });
+      else ranHere.push({ file, ran: r.tests - r.skipped });
+    }
   }
-  return { failed, stale, known };
+  return { failed, stale, known, ranHere };
 }
 
 // A stale entry fails main's run always. On a PR it fails only when the PR touches that test
@@ -387,8 +394,9 @@ function main() {
     results.push({ file, ok, failing, killed, tests, skipped: skipped || 0,
       error: !killed && run.error ? (run.error.code || run.error.message) : undefined });
   }
-  const { failed, stale, known } = judge(results);
+  const { failed, stale, known, ranHere } = judge(results, KNOWN_RED, ALL_SKIP_OK, FLAKY, { onCi: process.env.GITHUB_ACTIONS === 'true' });
   for (const k of known) console.log(`known red ${k.file} (${k.card})`);
+  for (const h of ranHere) console.log(`ran here ${h.file}: ${h.ran} of its tests ran on this computer (they skip on the CI runner, which lacks what they need)`);
   for (const f of failed) console.log(`NEW RED ${f.file}: ${f.why}. Fix it, or list it in KNOWN_RED in tools/windows-tests.js with its card`);
   const changed = changedFiles(root);
   let blocking = 0;

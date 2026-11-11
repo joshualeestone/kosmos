@@ -26,11 +26,28 @@ const setup = require('./setup-assistant');
 const store = require('./store');
 fs.mkdirSync(store.ROOT, { recursive: true });
 /* As engine/boardkeychain-4491.test.js: the launch-PATH part of the guard pinned empty, so this never reads the host's. */
+/* kosmos#8368: env pinned too (PATH empty), or the guard reads the host's own PATH: on a Windows box C:\Windows\System32
+   (over 4000 entries) made it report the launch PATH as not covered, and every save below read as not done. */
 const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude',
-  panePath: path.join(SANDBOX, 'no-launch-path'), ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [], launchRunProgs: [] };
+  panePath: path.join(SANDBOX, 'no-launch-path'), ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [], launchRunProgs: [],
+  env: { PATH: '' } };
 
 let N = 0;
 function fresh(name) { const d = path.join(SANDBOX, 'workers', name + '-' + (++N)); fs.mkdirSync(path.join(d, '.claude'), { recursive: true }); return d; }
+
+/* kosmos#8368: the token-only guard also covers what the instruction files ABOVE the agent's folder import (Claude Code
+   walks up from its cwd). On Windows the temp folder sits inside the person's home, so a person whose own
+   ~/.claude/CLAUDE.md imports files the permission rules cannot carry makes every sandbox here report ok:false: the
+   guard is right, the host is not clean. Asked once, of the guard itself, on a throwaway folder: when that is the only
+   thing it reports, the arms that need a clean "ok" skip, with its words. A clean host (CI, a Mac) runs them all. */
+const HOST_NOT_CLEAN = (() => {
+  const d = fresh('hostcheck');
+  fs.writeFileSync(path.join(d, '.claude', 'settings.json'), '{}\n');
+  let r;
+  try { r = setup.guardTokenOnlyFolder(d, path.basename(d), DEPS); } catch { return false; }
+  if (!r || r.ok !== false || r.pathReason || !/an instruction file imports/.test(String(r.otherReason || ''))) return false;
+  return `this computer's own instruction files, above every temp folder, import files the guard cannot cover (${String(r.otherReason).slice(0, 160)}...), so the token-only guard cannot answer ok here`;
+})();
 const writeJson = (file, obj) => fs.writeFileSync(file, JSON.stringify(obj, null, 2) + '\n', { mode: 0o644 });
 const sandboxOf = (file) => (JSON.parse(fs.readFileSync(file, 'utf8')).sandbox || {});
 
@@ -50,6 +67,7 @@ const WRITERS = [
   },
   {
     name: 'token-only .claude/settings.json (guardTokenOnlyFolder)',
+    hostBound: true,
     make() {
       const dir = fresh('pilot');
       const file = path.join(dir, '.claude', 'settings.json');
@@ -62,6 +80,7 @@ const WRITERS = [
   },
   {
     name: 'token-only .claude/settings.local.json (cleanLocalSettings)',
+    hostBound: true,
     make() {
       const dir = fresh('pilotlocal');
       const file = path.join(dir, '.claude', 'settings.local.json');
@@ -77,7 +96,8 @@ const WRITERS = [
 const isTemp = (file, p) => String(p).startsWith(file + '.kosmos-') && /\.kosmos-\d+-(?:t\d+-)?\d+-\d+\.tmp$/.test(String(p));
 
 for (const W of WRITERS) {
-  test(`#5434 ${W.name}: the temp renamed into the file is flushed first`, () => {
+  const needsCleanOk = { skip: (W.hostBound && HOST_NOT_CLEAN) || false };
+  test(`#5434 ${W.name}: the temp renamed into the file is flushed first`, needsCleanOk, () => {
     const { file, save, wrote } = W.make();
     const events = [];
     const fdPath = new Map();
@@ -146,7 +166,7 @@ for (const W of WRITERS) {
     assert.equal(fs.lstatSync(file).isSymbolicLink(), false, 'the file became a link');
   });
 
-  test(`#5434 ${W.name}: only this file's own dead temps are reaped`, () => {
+  test(`#5434 ${W.name}: only this file's own dead temps are reaped`, needsCleanOk, () => {
     const { file, save, folder } = W.make();
     // pid 2147483646 is chosen because it cannot be live (a dead writer); do not change it to process.pid
     const mine = file + '.kosmos-2147483646-t0-1-1.tmp';
