@@ -104,8 +104,9 @@ const WRITERS = [
 const isTemp = (file, p) => String(p).startsWith(file + '.kosmos-') && /\.kosmos-\d+-(?:t\d+-)?\d+-\d+\.tmp$/.test(String(p));
 
 for (const W of WRITERS) {
-  /* The arms whose answer the host's own imports decide: the ones that need "ok", and the two that expect a refusal
-     (on an unclean host the guard refuses anyway, so those would pass without testing the flush or the attempts). */
+  /* The two arms that need the guard to answer "ok". The two that expect a refusal still run on an unclean host: they
+     check their own things (the attempts made, the flush failing, the file left as it was, no temp left), measured
+     with the skip off (review 5). */
   const needsCleanOk = { skip: (W.hostBound && HOST_NOT_CLEAN) || false };
   test(`#5434 ${W.name}: the temp renamed into the file is flushed first`, needsCleanOk, () => {
     const { file, save, wrote } = W.make();
@@ -136,7 +137,7 @@ for (const W of WRITERS) {
     assert.equal(fs.statSync(file).mode & 0o777, 0o640, 'the mode was not kept');
   });
 
-  test(`#5434 ${W.name}: when every atomic attempt fails the save is refused and the file is left as it was`, needsCleanOk, () => {
+  test(`#5434 ${W.name}: when every atomic attempt fails the save is refused and the file is left as it was`, () => {
     const { file, save } = W.make();
     const before = fs.readFileSync(file);
     const realOpen = fs.openSync;
@@ -189,7 +190,7 @@ for (const W of WRITERS) {
     assert.equal(fs.existsSync(live), true, 'a live writer\'s temp was reaped');
   });
 
-  test(`#5434 ${W.name}: a flush that fails refuses the save, leaves the file, and leaves no temp`, needsCleanOk, () => {
+  test(`#5434 ${W.name}: a flush that fails refuses the save, leaves the file, and leaves no temp`, () => {
     const { file, save } = W.make();
     const before = fs.readFileSync(file);
     const realOpen = fs.openSync;

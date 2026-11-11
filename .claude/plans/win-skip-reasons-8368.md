@@ -20,7 +20,8 @@ mutation check. Phase 2 (the full `npm test` on Windows, 508 failing files by ca
   more host input out; review 1 corrected my first diagnosis, which blamed the PATH: that came from my own probe, which
   lacked the launch-PATH pins the test already had). HOST_NOT_CLEAN asks the guard itself, once, on a throwaway
   folder: only when EVERY complaint is the import note (and never on CI) do the four arms whose answer the host decides
-  skip, in the guard's own words: the two needing ok, and the two expecting a refusal, which an unclean host gives anyway. A clean host runs them all. The guard is right; the host is not clean.
+  skip, in the guard's own words: the two needing ok. The two expecting a refusal still run there (review 5 measured,
+  with the skip off, that they pass and check real things; round 1 had over-skipped them). A clean host runs them all. The guard is right; the host is not clean.
 - engine/bigint-ino.win32-7229.test.js: rounds up to 4096; a 45 s bound decides (under the 60 s per-test timeout, so its own failure message is reached). Cause inferred, not measured. The
   failure now says how many rounds ran, in how long, and which bound ended it, so the next one tells which.
 - tools/windows-tests.js: `judge(..., { ciRules })`. An ALL_SKIP_OK file that runs and passes is stale only on CI
@@ -32,9 +33,9 @@ mutation check. Phase 2 (the full `npm test` on Windows, 508 failing files by ca
 - Branch: `node tools/windows-tests.js` 229 passed, 0 failed, 0 new red, 0 stale, exit 0; the 4 e2e files "ran here".
 - Mutation (uncommitted, reverted): childenv.winOpenerEnv returning the whole env -> NEW RED
   engine/childenv.win32-5895.test.js, 228 passed, 1 new red, exit 1.
-- Controls for the setupsettings skip (at the final code): in this box's own TEMP 4 pass, 23 skipped, 0 fail; with
+- Controls for the setupsettings skip (at the final code): in this box's own TEMP 8 pass, 19 skipped, 0 fail; with
   TEMP outside the home (C:\kt8368tmp) the host is clean and the arms run: 12 pass, 0 fail; with CI=true (no skip
-  allowed) on this host: 4 fail, as they must. The skip rule's own parser: test-support.hostimports-8368.test.js 4/4.
+  allowed) on this host: the 4 ok-arms fail, as they must. The skip rule's own parser: test-support.hostimports-8368.test.js 5/5.
 - The full-suite numbers above were taken before review; the final run on the reviewed code is in the proof.
 
 ## Decided

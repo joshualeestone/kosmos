@@ -22,7 +22,8 @@
  *
  * SKIPS: a selected file whose EVERY test skips is a failure unless ALL_SKIP_OK names it, since
  * this job is the only place its arms run. A file that skips SOME of its tests is counted in the
- * log, not judged.
+ * log, not judged. An ALL_SKIP_OK file whose tests now run is stale on CI; off CI (your own Windows
+ * computer, which may have the runners the CI runner lacks) it reads "ran here" instead (#8368).
  *
  * MEASURED: a line a test prints starting "MEASURED: " is copied to this log even when the file passes.
  *

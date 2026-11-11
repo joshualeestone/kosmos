@@ -35,7 +35,8 @@ explicitly to learn the repo's pre-PR commands and conventions.
   news a Mac run cannot give: a Windows defect, or (more often so far) a test that assumes macOS.
   Its lists, each entry with its card or reason: `KNOWN_RED` (tests expected to fail), `FLAKY`
   (not judged), `ALL_SKIP_OK` (may skip everything on the runner) and `HOST_BRANCH_EXCLUDED`
-  (Windows-branching files left out).
+  (Windows-branching files left out). Run on your own Windows computer (no CI variable), an
+  `ALL_SKIP_OK` file whose tests run there (it has the runner) reads "ran here", not stale (#8368).
 - **Use yarn, not npm.** The scripts are also npm-runnable, but `yarn test` is the canonical
   helper (`tools/run-tests.sh`'s coverage-mismatch message names it). There is no committed
   lockfile or `packageManager` pin.
