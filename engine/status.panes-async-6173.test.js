@@ -65,7 +65,7 @@ test('#6173 control: the sync roster holds the board while tmux answers', { skip
   });
 });
 
-test('#6173: a tmux that cannot be asked fails the async roster the way it fails the sync one', async () => {
+test('#6173: a tmux that cannot be asked fails the async roster the way it fails the sync one', { skip: SKIP_POSIX_SHELL }, async () => {
   await withTmux(slowTmux('echo nope >&2; exit 7'), async () => {
     let syncErr = null;
     try { status.paneRoster(); } catch (e) { syncErr = e; }

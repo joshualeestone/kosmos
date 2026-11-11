@@ -114,8 +114,6 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
   'engine/status.panes-async-6173.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it fakes tmux with a #!/bin/sh script run by its shebang line, which Windows cannot run',
-  'server.socket-split.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it fakes tmux with a #!/bin/sh script run by its shebang line, which Windows cannot run, and its subject is the job states launchctl reports, which Windows does not have',
-  'server.agent-id.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it fakes tmux with a #!/bin/sh script run by its shebang line, which Windows cannot run',
   'engine/last-look.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it reads a real tmux server of its own, and Kosmos runs no tmux on Windows',
   'cli.inputkeep-6774.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',
   'cli.limitmsg-5805.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',

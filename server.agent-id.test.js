@@ -18,7 +18,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
 const { execFileSync } = require('node:child_process');
-const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it fakes tmux with a #!/bin/sh script run by its shebang line, which Windows cannot run');   // kosmos#8378
 
 const REPO = __dirname;
 
@@ -34,7 +33,7 @@ const REPO = __dirname;
  *
  * `tmuxScript` is the stub's body; the default reports an empty fleet.
  */
-function boardWithSeededIds(tmuxScript) {
+function boardWithSeededIds(failFirst = 0) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-id-'));
   const data = nodePath.join(sb, 'data');
   const profiles = nodePath.join(data, store.APP, 'profiles');
@@ -61,12 +60,18 @@ function boardWithSeededIds(tmuxScript) {
 
   const bin = nodePath.join(sb, 'bin');
   fs.mkdirSync(bin, { recursive: true });
-  fs.writeFileSync(nodePath.join(bin, 'tmux'), tmuxScript || '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  /* kosmos#8378: the roster comes through the pane source the Windows board itself uses (status.setPaneSource), not a
+     #!/bin/sh tmux, which Windows cannot run by its shebang; so this runs on every platform. The stub tmux stays only
+     because the sandbox guard requires AGENT_WORKFORCE_TMUX_BIN (#1651); with a pane source set, nothing runs it. A
+     pane source answering null is the failed look a refusing tmux gave (engine/status.js). */
+  fs.writeFileSync(nodePath.join(bin, 'tmux'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
   const script = `
     const http = require('node:http');
     const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
     const srv = app.server || app;
+    let looks = 0;
+    require(${JSON.stringify(nodePath.join(REPO, 'engine', 'status.js'))}).setPaneSource(() => { looks += 1; return looks <= ${failFirst} ? null : ''; });
     const WANT = ['homegrown', 'blowin'];
     const DEADLINE_MS = 20000, EVERY_MS = 250;
     const t0 = Date.now(); let tries = 0, last = null;
@@ -120,7 +125,7 @@ function explain(got) {
     + JSON.stringify((b.agents || []).map((a) => a.sessionName));
 }
 
-test('#170: the board carries this install\'s agent ids and refuses to speak another install\'s', { skip: SKIP_POSIX_SHELL }, () => {
+test('#170: the board carries this install\'s agent ids and refuses to speak another install\'s', () => {
   const got = boardWithSeededIds();
   assert.equal(got.why, 'present', explain(got));
   const status = got.body;
@@ -149,16 +154,15 @@ test('#170: the board carries this install\'s agent ids and refuses to speak ano
     'the fixture stopped seeding a foreign id, so the null above is vacuous');
 });
 
-test('#704: a look that fails and then recovers is waited out, not reported as a missing agent', { skip: SKIP_POSIX_SHELL }, () => {
-  /* The stub refuses its first three calls (the engine answers 500 "we could
+test('#704: a look that fails and then recovers is waited out, not reported as a missing agent', () => {
+  /* The pane source refuses its first three looks (the engine answers 500 "we could
      not see what is running") and reports an empty fleet from the fourth. A
      single read would have called the seeded agents missing; the poll rides
-     over the failed looks and reaches the roster. No sleep in the stub: the
+     over the failed looks and reaches the roster. No delay in the source: the
      failed look is what is under test, not the timeout that causes one. */
-  const stub = '#!/bin/sh\nC="$(dirname "$0")/calls"\nn=$(cat "$C" 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > "$C"\n[ "$n" -le 3 ] && exit 1\nexit 0\n';
-  const got = boardWithSeededIds(stub);
+  const got = boardWithSeededIds(3);
   assert.equal(got.why, 'present', explain(got));
-  assert.ok(got.tries > 1, 'the stub was meant to fail first, but the first look succeeded: the seam did not engage');
+  assert.ok(got.tries > 1, 'the pane source was meant to fail first, but the first look succeeded: the seam did not engage');
   const names = got.body.agents.map((a) => a.sessionName).sort();
   assert.deepEqual(names, ['blowin', 'homegrown']);
 });

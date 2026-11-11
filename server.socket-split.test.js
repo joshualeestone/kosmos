@@ -34,7 +34,6 @@ const { execFileSync } = require('node:child_process');
 const REPO = __dirname;
 const create = require('./engine/create');
 const jobfix = require('./test-support/jobfixture');   // #5500: the agent's job as this platform keeps it (plist / systemd unit)
-const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it fakes tmux with a #!/bin/sh script run by its shebang line, which Windows cannot run, and its subject is the job states launchctl reports, which Windows does not have');   // kosmos#8378
 
 /* #5658 (Renet, a loaded full-suite run): the control half rendered a missing ghost row as a TypeError. Under load the
    likeliest path (review 2, measured with a stub tmux slower than status.js's 5 s tmux wait) is the pane list read
@@ -119,6 +118,9 @@ function readBoardIn(sb, launchctlListStdout, systemdActiveUnits) {
     });
     const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
     const srv = app.server || app;
+    /* kosmos#8378: the empty fleet through the pane source the Windows board itself uses (status.setPaneSource), not
+       the #!/bin/sh tmux above, which Windows cannot run by its shebang (it stays for the sandbox guard, #1651). */
+    require(${JSON.stringify(nodePath.join(REPO, 'engine', 'status.js'))}).setPaneSource(() => '');
     srv.listen(0, '127.0.0.1', () => {
       http.get({ host: '127.0.0.1', port: srv.address().port, path: '/api/status' }, (res) => {
         let s = ''; res.on('data', (d) => { s += d; }); res.on('end', () => {
@@ -153,7 +155,7 @@ function readBoardIn(sb, launchctlListStdout, systemdActiveUnits) {
 const RUNNING = ['PID\tStatus\tLabel\n90870\t0\tcom.kosmos.agent.ghost\n', `${require('./engine/linuxjob').unitName('ghost')} loaded active running x\n`];
 const PARKED = ['PID\tStatus\tLabel\n-\t0\tcom.kosmos.agent.ghost\n', ''];
 
-test('#668: a job launchd says is running with no visible session says so, instead of claiming stopped', { skip: SKIP_POSIX_SHELL }, () => {
+test('#668: a job launchd says is running with no visible session says so, instead of claiming stopped', () => {
   const row = ghostRow(boardWithUnseenAgent(...RUNNING), 'running job');
   assert.equal(row.jobRunningUnseen, true,
     'the flag the card branches on is absent, so the pill stays a confident "Not running"');
@@ -193,7 +195,7 @@ function renderOffline(which, a) {
     (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null, null);
 }
 
-test('#668: the card and the row wear the could-not-check pill, not a confident "Not running"', { skip: SKIP_POSIX_SHELL }, () => {
+test('#668: the card and the row wear the could-not-check pill, not a confident "Not running"', () => {
   const row = ghostRow(boardWithUnseenAgent(...RUNNING), 'running job');
   assert.ok(row.jobRunningUnseen === true, 'the row is there but not flagged running-unseen; the route half of this fix regressed');
   for (const which of ['card', 'lrow']) {
@@ -213,7 +215,7 @@ test('#668: the card and the row wear the could-not-check pill, not a confident 
   }
 });
 
-test('#668 control: the same agent with a parked job keeps the plain not-running verdict', { skip: SKIP_POSIX_SHELL }, () => {
+test('#668 control: the same agent with a parked job keeps the plain not-running verdict', () => {
   const row = ghostRow(boardWithUnseenAgent(...PARKED), 'parked job');
   assert.equal(row.jobRunningUnseen, false, 'a parked job was dressed in running-unseen');
   assert.equal(row.state, 'stopped');
