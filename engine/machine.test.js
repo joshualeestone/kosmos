@@ -1569,6 +1569,37 @@ test('#2304 the platform threads through machine.check to the installed sub-chec
   assert.equal(installed.state, 'ok', 'check({platform:win32}) reaches installedCheck: runner present -> ok, not a tmux attention');
 });
 
+test('#8374 Windows draws no launchd rows: no restart or labels row, and no "which user" line', () => {
+  const os2 = require('node:os'); const path2 = require('node:path'); const fs2 = require('node:fs');
+  const empty = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'kosmos-8374-'));
+  // A labels dir that HOLDS a Kosmos plist, so the labels check, if it ran, would get past its
+  // empty-folder OK and reach the uid question. getuid is taken away, as on Windows.
+  const launch = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'kosmos-8374-launch-'));
+  fs2.writeFileSync(path2.join(launch, 'com.kosmos.board.plist'), '');
+  const origLaunch = process.env.AGENT_WORKFORCE_LAUNCH;
+  const origGetuid = process.getuid;
+  process.env.AGENT_WORKFORCE_LAUNCH = launch;
+  process.getuid = undefined;
+  const opts = { claudeBin: REAL_BIN, tmuxBin: REAL_BIN, pmset: 'System-wide power settings:\n', powercfg: '', appDirs: [empty, empty], boardTask: null };
+  let win, mac;
+  try {
+    win = machine.check({ ...opts, platform: 'win32' });
+    // Control, same machine state: on darwin both rows are still drawn, and the labels row says the uid line.
+    mac = machine.check({ ...opts, platform: 'darwin', installedRoot: null, disabled: { ok: true, jobs: [] } });
+  } finally {
+    process.getuid = origGetuid;
+    if (origLaunch === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = origLaunch;
+    fs2.rmSync(empty, { recursive: true, force: true });
+    fs2.rmSync(launch, { recursive: true, force: true });
+  }
+  const winKeys = win.checks.map((c) => c.key);
+  assert.ok(!winKeys.includes('restart') && !winKeys.includes('labels'), 'win32 keys: ' + winKeys.join(','));
+  assert.ok(!JSON.stringify(win.checks).includes('which user'), 'no "which user" line on win32');
+  const macKeys = mac.checks.map((c) => c.key);
+  assert.ok(macKeys.includes('restart') && macKeys.includes('labels'), 'control, darwin keys: ' + macKeys.join(','));
+  assert.ok(JSON.stringify(mac.checks).includes('which user'), 'control: darwin with no uid still says the uid line');
+});
+
 test('#2304 an empty or unknown platform falls back to the real platform', () => {
   // `(opts && opts.platform) || process.platform`: an empty string is falsy and
   // falls back, so this box (darwin) still requires tmux -- absent tmux is

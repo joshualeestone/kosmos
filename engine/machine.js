@@ -1809,8 +1809,11 @@ function check(opts) {
   const checks = [
     installedCheck(opts),
     sleepRow,
-    restartCheck(runner),
-    labelTruthCheck(runner),
+    /* kosmos#8374: both ask launchd (gui/<uid>, LaunchAgents labels), which Windows does not have. Run there,
+       they had no uid and drew "we could not tell which user this computer is running Kosmos as" on a box whose
+       autostart row below already answers the restart question. Off on win32; filtered out below. */
+    platformOf(opts) === 'win32' ? null : restartCheck(runner),
+    platformOf(opts) === 'win32' ? null : labelTruthCheck(runner),
     // #2397: the board's own login job -- present + enabled? #570 gave it a win32
     // arm (the board's Scheduled Task); it still returns null on any OTHER
     // platform, so filter falsy rather than render an empty row.
