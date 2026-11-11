@@ -94,8 +94,5 @@ test('a person\'s own hooks.json, or none at all, is not touched', () => {
   assert.deepEqual(hooks.unwireInstall(home(), [THIS], { platform: 'win32' }), { ours: false, changed: false });
 });
 
-test('the uninstall names only the ~/.codex-<label> homes, never ~/.codex', () => {
-  const src = fs.readFileSync(path.join(__dirname, 'win32uninstall.js'), 'utf8');
-  assert.match(src, /d\.startsWith\('\.codex-'\)/);
-  assert.match(src, /require\('\.\/codexhooks'\)\.unwireInstall\(codexHome, roots/);
-});
+// The uninstall wiring itself (only ~/.codex-<label>, never ~/.codex; the task gate; the sentences) is tested
+// behaviourally in engine/win32uninstall.unhooks-5999.test.js.
