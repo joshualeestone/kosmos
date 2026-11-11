@@ -10,14 +10,6 @@
       ]
     },
     {
-      "icon": "swarm",
-      "title": "Codex edits on Windows say who made them",
-      "line": "A file a Codex agent changes on Windows now records the agent as its writer, with an undo copy.",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "icon": "shield",
       "title": "Removing Kosmos takes out its agent hooks",
       "line": "Removing Kosmos on Windows takes its Gemini and Codex hooks out of your agents' settings, and leaves your own.",
@@ -37,6 +29,14 @@
       "icon": "chat",
       "title": "A little more room between chat lines",
       "line": "Messages in an agent conversation on the computer now have a little more space between lines."
+    },
+    {
+      "icon": "shield",
+      "title": "A warning before an agent runs twice",
+      "line": "Adding an agent that another login job also starts now warns first and names that job.",
+      "platforms": [
+        "mac"
+      ]
     }
   ]
 }

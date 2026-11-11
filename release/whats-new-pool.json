@@ -1661,14 +1661,15 @@
     },
     {
       "title": "Codex edits on Windows say who made them",
-      "line": "A file a Codex agent changes on Windows now records the agent as its writer, with an undo copy.",
+      "line": "On Windows, a Codex agent on its own Codex account now records its file edits as its own, with an undo copy.",
       "icon": "swarm",
       "platforms": [
         "windows"
       ],
-      "rank": 10.2,
+      "rank": 99,
       "since": "0.8.03",
-      "status": "pending"
+      "status": "pending",
+      "notesOnly": true
     },
     {
       "title": "Removing Kosmos takes out its agent hooks",
@@ -1703,7 +1704,7 @@
     },
     {
       "title": "Browsers Kosmos opens keep its keys out",
-      "line": "A browser Kosmos opens on Windows no longer starts with Kosmos's own keys in its environment.",
+      "line": "The browser a Kosmos sign-in opens on Windows no longer starts with Kosmos's own keys in its environment.",
       "icon": "shield",
       "platforms": [
         "windows"
