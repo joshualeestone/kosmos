@@ -234,7 +234,7 @@ function restoredLaunch(baseEnv, cwd) {
   const id = worldKey === undefined ? '' : String(e[worldKey]);
   if (id !== '' && id !== 'default') {
     try {
-      if (worldKey !== 'KOSMOS_WORLD') { delete e[worldKey]; e.KOSMOS_WORLD = id; }
+      envSet(e, 'KOSMOS_WORLD', id);   // one spelling, by the #5358 helper (envcase-5386)
       const worlds = require('./worlds');
       restored = require('./restoreworld').isRestoredWorld(worlds.baseRoot(worlds.preWorldEnv(e)), { id }) !== false;
     } catch { restored = true; }   // a named world that cannot be checked reads as restored, as on the Mac
