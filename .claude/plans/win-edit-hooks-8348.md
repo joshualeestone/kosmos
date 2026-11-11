@@ -75,6 +75,8 @@ Responses server (no account). The measurements are listed below.
   function in a runner-neutral module, engine/hookpaths.js, with unsafeForCommand (moved
   there from geminisettings.js, which imports both; Gemini behaves as before except that on win32 the temp test now
   also matches a case-changed or 8.3 short spelling, the gap a GitHub Windows runner's RUNNER~1 temp folder shows).
+  Shared by Gemini and Codex only: reporthook.ephemeralMismatch (Claude) and groksettings.js (Grok) keep their own
+  copies of the old rule. Pointing them here is kosmos#8365.
 - Lifecycle: nothing on Windows removes the hook from an account home after an uninstall or a move. The Gemini hook
   in a named Gemini home is left behind in the same way today; the uninstaller cleans only Claude's settings (#5999).
   Measured with the real Codex: a hook whose bridge is gone shows "PreToolUse Failed" and the edit is still made, so
