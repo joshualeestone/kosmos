@@ -23,7 +23,9 @@ nor a heartbeat: NO_MATCH. Later reports find the row. On the Mac the pane exist
   sends no forwarding header).
 - Residual: on a Windows board, a local, untagged, held token whose run crashed without retiring it can show "running"
   for one beat (liveness.STALE_AFTER_MS) per call, as a still-beating one already could. Also an adopted agent's token
-  (adopt.js mints untagged), from this computer only.
+  (adopt.js mints untagged), from this computer only. And a reverse proxy the person runs ON this computer that adds no
+  forwarding header reads as local (review 4; the board's own BOUNDARY note names this class): still a held, untagged,
+  unambiguous token for a created, unremoved Windows agent, for one beat per call.
 
 ## Rejected
 A hook-side retry (races registration inside the hook's 8 s budget), rewording only (the first report would still be
