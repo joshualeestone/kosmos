@@ -421,6 +421,10 @@ test('kosmos#8361: the gone-node.exe rule keeps anything not provably this marke
   const persons = path.join(home(), '.gemini-p', '.gemini', 'settings.json');
   writeJson(persons, { hooks: { AfterAgent: [{ hooks: [{ type: 'command', command: "& '" + OLD + "' 'C:\\tools\\mine.js'" }] }] } });
   assert.equal(reporthook.unwireInstall(persons, [BUNDLE], { gone, marker: geminisettings.MARKER, programToo: true }).changed, false);
+  // A person's script that only has our marker in its name is not ours either.
+  const lookalike = path.join(home(), '.gemini-l', '.gemini', 'settings.json');
+  writeJson(lookalike, { hooks: { AfterAgent: [{ hooks: [{ type: 'command', command: "& '" + OLD + "' 'C:\\tools\\gemini-report-bridge-mine.js'" }] }] } });
+  assert.equal(reporthook.unwireInstall(lookalike, [BUNDLE], { gone, marker: geminisettings.MARKER, programToo: true }).changed, false, 'a lookalike script was taken');
   // CONTROL: the same rule takes ours on a gone node.exe at a provable place.
   const control = path.join(home(), '.gemini-c', '.gemini', 'settings.json');
   writeJson(control, { hooks: { AfterAgent: [{ hooks: [{ type: 'command', command: cmd(OLD) }] }] } });

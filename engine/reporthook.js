@@ -567,8 +567,11 @@ function unwireInstall(settingsPath, roots, opts) {
      an absolute drive path, nothing a shell would expand, named node.exe, on a drive that is there now. */
   const programGone = (h) => {
     if (!o.programToo || typeof h.command !== 'string' || !h.command.includes(MARKER_HERE)) return false;
-    const m = h.command.match(/^(?:&\s*)?'([^']+)'/);
+    const m = h.command.match(/^(?:&\s*)?'([^']+)'\s+'([^']+)'$/);
     const p = m ? m[1] : '';
+    // The script is the marker's own file, as provablyGone requires: a person's script that merely names it is not ours.
+    const script = m ? m[2].split(/[\\/]/).pop() : '';
+    if (script !== MARKER_HERE + '.js' && script !== MARKER_HERE + '.sh') return false;
     if (!/^[A-Za-z]:[\\/]/.test(p) || /[%$~]/.test(p) || !/^node\.exe$/i.test(p.split(/[\\/]/).pop())) return false;
     try { return !o.gone(p.slice(0, 2) + '\\') && o.gone(p) === true; } catch { return false; }
   };
