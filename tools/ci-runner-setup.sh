@@ -45,6 +45,10 @@
 #                             owner's checkout or a root-owned copy, NEVER from a copy in $CI_USER's home, which a job can
 #                             rewrite. KOSMOS_CI_USER and KOSMOS_CI_RUNNER_NAME as for keepalive; KOSMOS_CI_DAEMON_DIR
 #                             and KOSMOS_CI_RETIRED_DIR are test seams.
+#                             kosmos#8404: for this stage only, another installed runner of the same user:
+#                             KOSMOS_CI_REPO (its owner/name, default this repo) and KOSMOS_CI_RUNNER_DIR (its directory,
+#                             one directly in the CI home, default $CI_HOME/actions-runner), with its KOSMOS_CI_RUNNER_NAME.
+#                             Every other stage refuses them (they fetch this repo's guard or read its variables).
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail).
@@ -82,6 +86,18 @@ done
 STAGE="${1:-}"
 REPO="joshualeestone/kosmos"
 REPO_URL="https://github.com/$REPO"
+# kosmos#8404: the runner the daemon stage acts on, when it is not this repo's runner in $CI_HOME/actions-runner.
+# Another runner under the same user (Mortals has three, one per repo; the old CI Mac has the relay's beside this one)
+# can be named by its repo and its dir. Only the daemon stage takes them (keepalive could, untested, so not yet): install
+# and register fetch this repo's job guard, and preflight and verify read this repo's variables and labels, so every
+# other stage refuses the two below.
+# REPO (this script's own code and variables) never changes; RUNNER_REPO is only the runner's.
+RUNNER_REPO="${KOSMOS_CI_REPO:-$REPO}"
+# It goes into a launchd label, a jq string and a gh api path: owner/name with only the characters GitHub allows.
+_ro="${RUNNER_REPO%%/*}"; _rn="${RUNNER_REPO#*/}"; _rbad=0
+[ "$_ro/$_rn" = "$RUNNER_REPO" ] || _rbad=1   # no '/' at all: both halves are the whole value
+for _rp in "$_ro" "$_rn"; do case "$_rp" in ''|.*|*/*|*[!A-Za-z0-9._-]*) _rbad=1 ;; esac; done
+[ "$_rbad" = 0 ] || { echo "refused: KOSMOS_CI_REPO '$RUNNER_REPO' must be owner/name: one '/', each part letters, digits, '.', '_' and '-', not starting with '.'" >&2; exit 2; }
 CI_USER="${KOSMOS_CI_USER:-kosmos-ci}"
 CI_HOME="${KOSMOS_CI_HOME:-/Users/$CI_USER}"; CI_HOME="${CI_HOME%/}"   # no trailing /: RUNNER_DIR must equal svc.sh's WorkingDirectory
 OWNER="${KOSMOS_CI_OWNER:-agent1}"                 # Agent1s' only user today (runbook part 2); override elsewhere
@@ -107,7 +123,11 @@ ALLOW_JOBS="${KOSMOS_CI_ALLOW_JOBS:-}"             # an ERE of non-Apple launchd
 SYSTEM_AGENTS="${KOSMOS_CI_SYSTEM_AGENTS:-/System/Library/LaunchAgents}"   # Apple's own, whatever their label
 # From CI_HOME, not HOME: a dry run rehearsed as the owner then names and checks kosmos-ci's own paths. With --apply,
 # need_user refuses unless HOME is CI_HOME, so the two agree.
-RUNNER_DIR="$CI_HOME/actions-runner"
+RUNNER_DIR="${KOSMOS_CI_RUNNER_DIR:-$CI_HOME/actions-runner}"; RUNNER_DIR="${RUNNER_DIR%/}"
+# kosmos#8404: one directory directly in the CI home, as svc.sh's WorkingDirectory spells it: it goes into pgrep
+# patterns (only '.' is escaped there) and root commands, and a path outside the home is not a runner of this user's.
+case "${RUNNER_DIR#"$CI_HOME"/}" in "$RUNNER_DIR"|''|*/*|.|..|*[!A-Za-z0-9._-]*)
+  echo "refused: KOSMOS_CI_RUNNER_DIR '$RUNNER_DIR' must be one directory directly in $CI_HOME, named with letters, digits, '.', '_' and '-'" >&2; exit 2 ;; esac
 # The jobs' PATH. .env carries it, and .env wins: runsvc.sh exports .path, then Runner.Listener's LoadAndSetEnv
 # (Program.cs) sets every .env line over it. register still writes .path to match, so the two never disagree.
 RUNNER_PATH="/usr/bin:/bin:/usr/sbin:/sbin:$BREW/bin:/usr/local/bin:$CI_HOME/.local/bin"
@@ -694,7 +714,7 @@ wait_for_listener() {
 
 # runner_busy: prints true or false; fails when the API could not say.
 runner_busy() {
-  gh api --paginate "repos/$REPO/actions/runners" --jq "$(jq_busy)" 2>/dev/null
+  gh api --paginate "repos/$RUNNER_REPO/actions/runners" --jq "$(jq_busy)" 2>/dev/null
 }
 
 # keepalive: as the CI user, over ssh or in its session. Adds KeepAlive to an installed runner's LaunchAgent and reloads
@@ -740,7 +760,7 @@ keepalive() {
     || { echo "refused: $plist has Label $label, not its own name; nothing was changed (svc.sh writes them the same)" >&2; exit 1; }
   # And it must be the label svc.sh derives for THIS runner (actions.runner.<owner>-<repo>.<name>): a job can write this
   # home, so a copy of the relay's plist with its WorkingDirectory rewritten would pass the two checks above.
-  local want_label; want_label="actions.runner.$(printf '%s' "$REPO" | tr '/' '-').$NAME"
+  local want_label; want_label="actions.runner.$(printf '%s' "$RUNNER_REPO" | tr '/' '-').$NAME"
   [ "$label" = "$want_label" ] \
     || { echo "refused: $plist has Label $label, not $want_label (this repo's runner $NAME; set KOSMOS_CI_RUNNER_NAME for another); nothing was changed" >&2; exit 1; }
   local ciuid; ciuid="$(id -u "$CI_USER" 2>/dev/null)" || { echo "refused: no user $CI_USER on this Mac" >&2; exit 1; }
@@ -1014,7 +1034,7 @@ keepalive() {
 # A dry run reads only, as root or as the CI user (another user cannot read the CI user's home or its processes' argv).
 DAEMON_DIR="${KOSMOS_CI_DAEMON_DIR:-/Library/LaunchDaemons}"   # a test seam; launchd reads only the real one
 # runner_label: svc.sh's label for this runner, which the daemon keeps.
-runner_label() { printf 'actions.runner.%s.%s' "$(printf '%s' "$REPO" | tr '/' '-')" "$NAME"; }
+runner_label() { printf 'actions.runner.%s.%s' "$(printf '%s' "$RUNNER_REPO" | tr '/' '-')" "$NAME"; }
 # daemon_xml: the one daemon plist this stage writes. Uses label and cigroup from daemon (dynamic scope); in daemon every
 # value is checked to need no XML escaping before this runs (NAME, CI_HOME at the top, CI_USER and cigroup there); in
 # verify CI_USER and cigroup are not, and a bad value only makes the comparison fail.
@@ -1495,6 +1515,10 @@ if ci_uid="$(id -u "$CI_USER" 2>/dev/null)" && owner_uid="$(id -u "$OWNER" 2>/de
   echo "refused: $CI_USER and $OWNER are the same account (uid $ci_uid); the CI user must be its own account" >&2; exit 2
 fi
 
+# kosmos#8404: another runner's repo or dir is for the daemon stage only (see RUNNER_REPO above).
+if { [ -n "${KOSMOS_CI_REPO:-}" ] || [ -n "${KOSMOS_CI_RUNNER_DIR:-}" ]; } && [ "$STAGE" != daemon ]; then
+  echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner for the daemon stage only; $STAGE works on this repo's runner in $CI_HOME/actions-runner. Unset them" >&2; exit 2
+fi
 case "$STAGE" in
   preflight) preflight ;;
   create-user) create_user ;;
