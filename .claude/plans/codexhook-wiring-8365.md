@@ -26,5 +26,9 @@ with the board's env instead of the turn's.
 ## Decided
 - A deps seam rather than lifting the inTestRun guard. Lifting it would make every existing supervisor test start a
   real `codex --version`. Rejected: exporting the closure, which would need the supervisor's private bin and env.
-- Weakest part: the seam takes installCodexHookFor's deps whole, so a test could pass a real `install`. Only tests
-  pass it, and the default stays inert in tests.
+- Hardened in review: only a set that replaces BOTH the probe (execFile) and the install counts. A partial set stays
+  inert in tests, so a test can never start a real `codex --version` or write a real hook through the seam.
+- Control 2: with the inTestRun guard removed, the no-deps check fails ("no real codex --version was started"). A spy
+  on the real child_process.execFile catches the attempt itself.
+- Weakest part: the env and bin checks pass o.env and o.bin, so they show the closure hands on what the supervisor
+  holds, not how childEnv builds it (covered by its own tests).
