@@ -92,11 +92,11 @@ STAGE="${1:-}"
 # operator to stop this repo's runner; review 4: without the name, NAME is this repo's runner's, and the stage advised
 # an install the settings refuse.
 _other=""; [ -z "${KOSMOS_CI_REPO:-}" ] || _other="${_other}r"; [ -z "${KOSMOS_CI_RUNNER_DIR:-}" ] || _other="${_other}d"
-# Review 6: the stage first, so a stage that never takes them is told to unset them, not to set one more.
-# The stages known to work on this repo's runner only; an unknown or missing stage goes on to the usage line.
-if [ -n "$_other" ]; then
-  case "$STAGE" in preflight|create-user|install|register|verify|keepalive|machine-settings|jq-programs)
-    echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner for the daemon stage only; $STAGE does not take them. Unset them" >&2; exit 2 ;; esac
+# Review 6: the stage first, so a stage that never takes them is told to unset them, not to set one more. Review 7:
+# every stage but daemon, known or not (no second copy of the stage list to fall out of step with the dispatch below);
+# once they are unset, a mistyped stage gets the usage line.
+if [ -n "$_other" ] && [ "$STAGE" != daemon ]; then
+  echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner for the daemon stage only (this run's stage: '${STAGE:-none}'). Unset them" >&2; exit 2
 fi
 case "$_other" in
   ''|rd) ;;
