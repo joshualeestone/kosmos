@@ -51,7 +51,7 @@ if (require.main === module) {
   const logPaths = [path.join(__dirname, '..', 'logs', 'board.log')];
   /* #8373: on Windows the board's host sends both streams nowhere, so the board opens its own log and copies every
      write into it, stamped as the Mac's file is (engine/win32boardlog.js). The console copy stays unstamped, so the
-     stamp below is for the Mac and Linux only. */
+     stamp below is for every board this did not route. */
   const routedLog = require('./engine/win32boardlog').route(process.stdout, process.stderr);
   if (!routedLog) {
     const shared = logstamp.sameFile(1, 2) ? { atLineStart: true } : undefined;   // both to board.log: one line state
@@ -18052,7 +18052,7 @@ const server = http.createServer(async (req, res) => {
       const routedLog = require('./engine/win32boardlog').current();
       const logPath = routedLog ? routedLog.path : path.join(__dirname, '..', 'logs', 'board.log');   // as the stamp above names it
       const logFds = routedLog ? [routedLog.fd, routedLog.fd] : [1, 2];
-      // As many lines as the ring holds, so each agent's own lines are searched as far back on Mac and Linux as on Windows.
+      // As many lines as the ring holds, so each agent's own lines are searched as far back when the file can be read as when only the ring can.
       const fileWhy = {};
       const fileLines = diagnostics.readBoardLog(logPath, logFds, diagnostics.SEARCH_LINES, fileWhy);   // stdout and stderr
       const now = new Date();   // one instant for the file's `made` and its name
