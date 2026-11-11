@@ -86,7 +86,9 @@ test('server.js installs it after the log stamp and ahead of every other engine 
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const order = [...src.matchAll(/require\('\.\/engine\/([A-Za-z0-9_.-]+)'\)/g)].map((m) => m[1]);
   assert.ok(order.includes('slowspawn'), 'not installed');
-  assert.deepEqual(order.slice(0, order.indexOf('slowspawn')).filter((n) => !['worldenv', 'logstamp', 'logring'].includes(n)), []);
+  /* #8373: win32boardlog is part of the log setup (a task-started Windows board's own board.log). What it loads on
+     Windows holds child_process as the module and calls through it, so the install below still watches those calls. */
+  assert.deepEqual(order.slice(0, order.indexOf('slowspawn')).filter((n) => !['worldenv', 'logstamp', 'win32boardlog', 'logring'].includes(n)), []);
   assert.equal(src.match(/^if \(require\.main === module\) require\('\.\/engine\/slowspawn'\)\.install\(require\('node:child_process'\)\);$/gm)?.length, 1);
 });
 
