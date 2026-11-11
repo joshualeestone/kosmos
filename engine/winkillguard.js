@@ -34,8 +34,9 @@
  *
  * 🛑 A SEATBELT, NOT A SANDBOX, as the Mac guard says of itself: it reads literal text. A name computed at run time,
  * a script that builds the command, Start-Process taskkill with -ArgumentList, an encoded command, a command inside
- * a quoted argument of another program (os.system("..."), node -e "..."), a ForEach-Object that kills, or any shape
- * not listed above passes. A guard error fails open: the hook exits 0 and the call runs, as on the Mac.
+ * a quoted argument of another program (os.system("..."), node -e "..."), backtick command substitution, WMI and CIM
+ * (Get-WmiObject ... | Remove-WmiObject, Invoke-CimMethod -MethodName Terminate), or any shape not listed above
+ * passes. Also read: $( ... ), batch for ... do, tskill, Stop-Process (Get-Process ...), and | % { $_.Kill() }. A guard error fails open: the hook exits 0 and the call runs, as on the Mac.
  */
 
 const KOSMOS_IMAGES = ['node.exe', 'claude.exe', 'kosmos.exe'];
@@ -102,9 +103,10 @@ function tokens(text, literalAt) {
         if (d === c) depth++;
         else if (d === close) depth--;
       }
-      const glued = i > 0 && !/[\s;&|({]/.test(text[i - 1]);   // name( ... ): a function call in code, not a shell block
+      // name( ... ): a function call in code, not a shell block. $( ... ) is bash's command substitution: it runs.
+      const glued = i > 0 && !/[\s;&|({$]/.test(text[i - 1]);
       push();
-      out.push({ block: text.slice(i + 1, depth ? text.length : j - 1), paren: c === '(', glued });
+      out.push({ block: text.slice(i + 1, depth ? text.length : j - 1), paren: c === '(', glued, subst: c === '(' && text[i - 1] === '$' });
       i = depth ? text.length : j - 1;
       continue;
     }
@@ -228,7 +230,7 @@ const PS = new Set(['powershell', 'pwsh']);
 
 /* The reason one command (a list of words) would stop everything, reading through a wrapper; '' otherwise. The next
    stage of its pipeline is given for Get-Process | Stop-Process. */
-function commandReason(cmd, rest, depth) {
+function commandReason(cmd, pipe, at, depth) {
   if (!cmd.length) return '';
   let i = 0;
   for (;;) {
@@ -272,14 +274,39 @@ function commandReason(cmd, rest, depth) {
     }
     return '';
   }
+  if (name === 'for') {   // cmd's for %i in (...) do <command>: the command after do runs
+    const d = args.findIndex((t) => /^do$/i.test(t.w));
+    if (d >= 0) return wrapRest(d + 1);
+  }
+  if (name === 'tskill') {   // tskill <name>: every process of that name in this session
+    const n0 = args.find((t) => !/^\/{1,2}/.test(t.w));
+    if (n0 && kosmosName(n0.w)) return R.kosmos('a tskill of every ' + n0.w + ' process');
+  }
   if (name === 'taskkill') return taskkill(args);
-  if (name === 'stop-process' || name === 'spps' || name === 'kill') return stopProcess(raw);
-  if ((name === 'get-process' || name === 'gps' || name === 'ps') && rest && rest.length) {
+  if (name === 'stop-process' || name === 'spps' || name === 'kill') {
+    const own = stopProcess(raw);
+    if (own) return own;
+    // Stop-Process (Get-Process node), or -InputObject (Get-Process ...): the processes come from that block.
+    if (!raw.some((t) => t.w !== undefined && /^-whatif$/i.test(t.w))) {
+      for (const t of raw) {
+        if (t.block === undefined) continue;
+        const inner = pipelines(tokens(t.block));
+        const c0 = inner[0] && inner[0][0];
+        if (inner.length === 1 && inner[0].length === 1 && c0 && c0[0] && c0[0].w !== undefined && /^(get-process|gps|ps)$/i.test(base(c0[0].w))) {
+          const r = getProcessThenStop(words(c0.slice(1)));
+          if (r) return r;
+        }
+      }
+    }
+    return '';
+  }
+  if ((name === 'get-process' || name === 'gps' || name === 'ps') && pipe && at + 1 < pipe.length) {
     // Through any Where-Object / Sort-Object / Select-Object stages to a Stop-Process. A Where-Object whose script
     // block names a Kosmos process selects it (the idiomatic `| Where-Object { $_.Name -eq 'node' } | Stop-Process`);
     // one that names none, a Select-Object, or -Id, filters.
     let filteredBy = ''; let picks = '';
-    for (const stage of rest) {
+    for (let si = at + 1; si < pipe.length; si++) {
+      const stage = pipe[si];
       const sn = stage[0] && stage[0].w !== undefined ? base(stage[0].w) : '';
       if (sn === 'stop-process' || sn === 'spps' || sn === 'kill') {
         const own = stopProcess(stage.slice(1));   // Stop-Process -Name x reads its own names
@@ -300,6 +327,15 @@ function commandReason(cmd, rest, depth) {
         else if (m && positive) picks = m[0].replace(/^[^\w]/, '');
         else filteredBy = 'where';
         continue;
+      }
+      if (sn === 'foreach-object' || sn === 'foreach' || sn === '%') {
+        const body = stage.slice(1).map((t) => (t.block !== undefined ? t.block : t.w)).join(' ');
+        if (/\.kill\s*\(/i.test(body)) {   // | % { $_.Kill() } stops each process like Stop-Process
+          if (picks) return picks === '*' ? R.allbut : R.kosmos('a Kill() of every ' + picks + ' process');
+          if (filteredBy) return '';
+          return getProcessThenStop(args);
+        }
+        break;
       }
       if (sn === 'select-object' || sn === 'select') { filteredBy = 'select'; continue; }
       if (sn === 'sort-object' || sn === 'sort') continue;
@@ -334,15 +370,14 @@ function reasonIn(text, depth) {
     for (let i = 0; i < pipe.length; i++) {
       const cmd = pipe[i];
       const head = cmd[0] && cmd[0].w !== undefined ? base(cmd[0].w) : '';
-      // The rest of the pipeline only for a process list (slicing it for every stage was quadratic, review 3).
-      const rest = head === 'get-process' || head === 'gps' || head === 'ps' ? pipe.slice(i + 1) : null;
-      const r = commandReason(cmd, rest, depth);
+      // The pipeline and this stage's index, not a copy of the rest: copying was quadratic (reviews 3 and 4).
+      const r = commandReason(cmd, pipe, i, depth);
       if (r) return r;
       // A block runs as commands at the start of a command, or after a control keyword; elsewhere it is code or data.
       const control = cmd[0] && cmd[0].w !== undefined && CONTROL.test(cmd[0].w);
       for (let k = 0; k < cmd.length; k++) {
         const t = cmd[k];
-        if (t.block === undefined || !(k === 0 || control)) continue;
+        if (t.block === undefined || !(k === 0 || control || t.subst)) continue;   // $( ... ) runs wherever it is
         if (t.paren && t.glued) continue;   // name(...): a call's arguments are values, not commands
         const b = reasonIn(t.block, depth + 1);
         if (b) return b;
