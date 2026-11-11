@@ -5,7 +5,7 @@
    Windows cwd with Windows rules, and engine/win32codexsup.js installs the hook into a NAMED Codex home at start.
    The pure arms run on any host (platform and node are injected). The last test drives the REAL Codex for Windows,
    the pinned build, against a local fake model server and a stub board; it runs only on win32 with that Codex found
-   (KOSMOS_TEST_CODEX_BIN, or codex on PATH). What it proves was measured by hand first: work notes on card #8348. */
+   (KOSMOS_TEST_CODEX_BIN, or a codex.exe on PATH; an npm codex.cmd shim is not found without a shell, so set the variable). What it proves was measured by hand first: work notes on card #8348. */
 
 require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
@@ -28,6 +28,18 @@ const home = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 
 const W = { platform: 'win32', node: 'C:\\Program Files\\Kosmos\\runtime\\node.exe' };
 const WBRIDGE = 'C:\\Users\\a b\\AppData\\Local\\Programs\\Kosmos\\app\\bin\\codex-report-bridge.js';
 const V = hooks.HASH_VERIFIED_FOR;
+
+test('the trust record is measured for the Codex Kosmos ships for Windows; moving that pin fails here until it is re-measured', () => {
+  // On a bump of CODEX_WIN32 in engine/runners.js: run the real-Codex arm below on the new Windows build (it checks the
+  // record with a broken-hash control), then move HASH_VERIFIED_FOR. Without this, every Windows Codex agent would
+  // lose its hook quietly, the only trace a codex-hook-skipped line in its supervisor log.
+  const runners = require('./runners');
+  for (const arch of Object.keys(runners.CODEX_WIN32)) {
+    const m = /\/codex-([0-9]+\.[0-9]+\.[0-9]+)-win32-/.exec(runners.CODEX_WIN32[arch].url);
+    assert.ok(m, `the ${arch} pin names its version`);
+    assert.equal(m[1], V, `the Windows ${arch} Codex pin`);
+  }
+});
 
 test('the win32 command is the call operator on two single-quoted literals; the posix form is unchanged', () => {
   assert.equal(hooks.commandFor(WBRIDGE, W), `& '${W.node}' '${WBRIDGE}'`);
@@ -69,7 +81,7 @@ test('install on win32 refuses a path with a quote in it, and writes nothing', (
   assert.equal(hooks.unsafeForWin32(WBRIDGE), false, 'spaces and backslashes are fine');
   assert.equal(hooks.unsafeForWin32('C:\\Users\\a[1]\\node.exe'), false, 'brackets are fine (measured: the call operator ran it)');
   assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
-  assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
+  assert.equal(fs.existsSync(path.join(h, 'config.toml')), false, 'and no trust record');
 });
 
 test('install on win32 never overwrites a hooks.json that is not ours', () => {
@@ -117,7 +129,7 @@ test('nextConfig on any host: a win32 key spelled with doubled backslashes is th
   assert.ok(hooks.nextConfig('model = "x"\n', heading, line).append, 'a config without it still gets the append');
 });
 
-test('the win32 key written as a basic string with doubled backslashes counts as written by hand, not appended beside', () => {
+test('install leaves a record already written another way alone (on Windows: the key as a basic string, backslashes doubled), never a second table beside it', () => {
   const h = home();
   const file = path.join(fs.realpathSync.native(h), 'hooks.json');
   const escaped = `[hooks.state."${file.replace(/\\/g, '\\\\')}:pre_tool_use:0:0"]\ntrusted_hash = "sha256:${'c'.repeat(64)}"\n`;

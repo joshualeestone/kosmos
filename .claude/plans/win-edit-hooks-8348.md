@@ -63,13 +63,19 @@ Responses server (no account). The measurements are listed below.
   as any hand-edited record is on the Mac; the refusal says the hook may not run. Not rewritten: Codex itself writes a
   Windows path key as a literal string (measured: it wrote `[projects.'c:\users\...']`), so only a person makes the
   doubled spelling, and their edit is theirs.
-- Start-up order: the version probe is asynchronous and runs after presence is stamped. Only an agent with a named
+- Start-up order: the version probe is asynchronous and runs after presence is stamped. The install itself runs in
+  the supervisor (the Mac runs it as a CLI) and takes the config.toml lock synchronously, so under contention (two
+  agents on one account starting together) it can hold that supervisor up to the lock's 2 s wait, once, at start.
+  Accepted: a short stall at start, no lost work. Only an agent with a named
   home waits on it, and only its first turn waits (bounded by the probe's 15 s), so that turn's edits are recorded.
 - Lifecycle: nothing on Windows removes the hook from an account home after an uninstall or a move. The Gemini hook
   in a named Gemini home is left behind in the same way today; the uninstaller cleans only Claude's settings (#5999).
   Measured with the real Codex: a hook whose bridge is gone shows "PreToolUse Failed" and the edit is still made, so
   a leftover costs one failed node start per edit, not the agent. Cleaning both up at uninstall is kosmos#8361, not
   this PR.
+- A Codex version other than 0.149.1 gets no hook, and says so only in its supervisor log. Guarded instead of
+  surfaced: a test fails when the Windows Codex pin (runners.CODEX_WIN32) moves without HASH_VERIFIED_FOR moving with it,
+  as codexhooks-5812 does for the Mac pin.
 - The weakest part: the live on-board check ("changed by" shown on a real project file) needs an OpenAI sign-in on
   the box. The real-Codex test proves the hook, the bridge and the keep call, but not the board's display. That check
   is owed on #8348 itself, which stays open (this PR only addresses it), on the next Windows staging build with an

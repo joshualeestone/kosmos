@@ -83,7 +83,7 @@ function commandFor(bridge, opts) {
      `& '<node>' '<bridge>'`, the form geminisettings.js uses for the same reason (measured: ran). The node is absolute
      (the node doing the install: a Windows box usually has no node on PATH). install() refuses a path with a quote in
      it (unsafeForWin32) before it gets here. `opts` ({ platform, node }) makes both forms testable on any host. */
-  if ((o.platform || process.platform) === 'win32') return `& '${o.node || process.execPath}' '${bridge}'`;
+  if ((o.platform || process.platform) === 'win32') return `& '${String(o.node || process.execPath)}' '${String(bridge)}'`;
   return `'${String(bridge).replace(/'/g, "'\\''")}'`;
 }
 
