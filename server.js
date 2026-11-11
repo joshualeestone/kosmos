@@ -45,13 +45,17 @@ const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process
    bootstrap's own named-world lines (#1704/#2528, none on the default world) come before this and carry no time. */
 if (require.main === module) {
   const logstamp = require('./engine/logstamp');
-  const shared = logstamp.sameFile(1, 2) ? { atLineStart: true } : undefined;   // both to board.log: one line state
+  /* #8373: on Windows the board's host sends both streams nowhere, so the board opens its own log and copies every
+     write into it (engine/win32boardlog.js). The stamp then marks that file, as it marks fd 1 on the Mac. */
+  const routedLog = require('./engine/win32boardlog').route(process.stdout, process.stderr);
+  const outFd = routedLog ? routedLog.fd : 1, errFd = routedLog ? routedLog.fd : 2;
+  const shared = logstamp.sameFile(outFd, errFd) ? { atLineStart: true } : undefined;   // both to board.log: one line state
   /* Where board.log is: install/kosmos puts the app at $KOSMOS_HOME/app/server.js and the log at
      $KOSMOS_HOME/logs/board.log, so it is ../logs/board.log from here (KOSMOS_HOME itself is not exported to the board,
      so it is not read; engine/logstamp.test.js pins this layout against install/kosmos). */
-  const logPaths = [path.join(__dirname, '..', 'logs', 'board.log')];
-  logstamp.install(process.stdout, 1, { shared, logPaths });
-  logstamp.install(process.stderr, 2, { shared, logPaths });
+  const logPaths = [routedLog ? routedLog.path : path.join(__dirname, '..', 'logs', 'board.log')];
+  logstamp.install(process.stdout, outFd, { shared, logPaths });
+  logstamp.install(process.stderr, errFd, { shared, logPaths });
   /* #5959: and the board's own lines into memory for the diagnostics file, whatever the streams are (a pipe on Windows
      too). Installed after the stamp, so it wraps it and records each line before the stamp's time is added. */
   const logring = require('./engine/logring');
@@ -18042,10 +18046,13 @@ const server = http.createServer(async (req, res) => {
       }
       const diagnostics = require('./engine/diagnostics');
       const logring = require('./engine/logring');
-      const logPath = path.join(__dirname, '..', 'logs', 'board.log');   // as the stamp above names it
+      // #8373: a Windows board writes its log through the descriptor engine/win32boardlog.js opened.
+      const routedLog = require('./engine/win32boardlog').current();
+      const logPath = routedLog ? routedLog.path : path.join(__dirname, '..', 'logs', 'board.log');   // as the stamp above names it
+      const logFds = routedLog ? [routedLog.fd, routedLog.fd] : [1, 2];
       // As many lines as the ring holds, so each agent's own lines are searched as far back on Mac and Linux as on Windows.
       const fileWhy = {};
-      const fileLines = diagnostics.readBoardLog(logPath, [1, 2], diagnostics.SEARCH_LINES, fileWhy);   // stdout and stderr
+      const fileLines = diagnostics.readBoardLog(logPath, logFds, diagnostics.SEARCH_LINES, fileWhy);   // stdout and stderr
       const now = new Date();   // one instant for the file's `made` and its name
       const file = diagnostics.build({
         version: updates.RUNNING, platform: process.platform, now,
