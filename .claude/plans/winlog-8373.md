@@ -16,7 +16,7 @@ The Mac keeps `logs/board.log` beside `runtime/` in its KOSMOS_HOME (install/set
 
 ## Also decided
 - One file per Kosmos: the anchor is one for every world, so two boards must not share a file the diagnostics read as their own output.
-- Only a board carrying the logon task's marker: a hand-started board has its own console, and a test's child board is not marked. The marker is an environment variable, so a second board started from inside the task board's process tree inherits it; it is not cleared, because server.js reads it later for the exit watch.
+- Only a board carrying the logon task's marker: a hand-started board has its own console, and a test's child board is not marked. The marker is an environment variable, so a second board started from inside the task board's process tree inherits it; it is not cleared, because server.js reads it later for the exit watch. Such a second board cannot also serve (the first holds the port); while it starts it can append, and over 20 MB its start-up rotation moves the first board's open file to `.old`.
 - A file over 20 MB at start is moved to `.old` (one copy). The Mac's file is not rotated; a laptop board runs for months.
 - Not redacted, as on the Mac. It holds what the board prints, the same text a Mac's board.log holds.
 

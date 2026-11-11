@@ -49,7 +49,7 @@ if (require.main === module) {
      $KOSMOS_HOME/logs/board.log, so it is ../logs/board.log from here (KOSMOS_HOME itself is not exported to the board,
      so it is not read; engine/logstamp.test.js pins this layout against install/kosmos). */
   const logPaths = [path.join(__dirname, '..', 'logs', 'board.log')];
-  /* #8373: on Windows the board's host sends both streams nowhere, so the board opens its own log and copies every
+  /* #8373: a task-started Windows board's host sends both streams nowhere, so the board opens its own log and copies every
      write into it, stamped as the Mac's file is (engine/win32boardlog.js). The console copy stays unstamped, so the
      stamp below is for every board this did not route. */
   const routedLog = require('./engine/win32boardlog').route(process.stdout, process.stderr);
@@ -18048,7 +18048,7 @@ const server = http.createServer(async (req, res) => {
       }
       const diagnostics = require('./engine/diagnostics');
       const logring = require('./engine/logring');
-      // #8373: a Windows board writes its log through the descriptor engine/win32boardlog.js opened.
+      // #8373: a task-started Windows board writes its log through the descriptor engine/win32boardlog.js opened.
       const routedLog = require('./engine/win32boardlog').current();
       const logPath = routedLog ? routedLog.path : path.join(__dirname, '..', 'logs', 'board.log');   // as the stamp above names it
       const logFds = routedLog ? [routedLog.fd, routedLog.fd] : [1, 2];

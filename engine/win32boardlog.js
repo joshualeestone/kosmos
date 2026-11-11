@@ -22,8 +22,8 @@
  * start and exit lines (engine/win32boardwatch.js) under the same name.
  *
  * WHAT IT CANNOT SEE. Only writes made through process.stdout and process.stderr: a child started with inherited
- * stdio, and anything written to the descriptors below JavaScript, never pass through it; node's report of an uncaught
- * exception is written to the file from an uncaughtExceptionMonitor. Nor does anything written before server.js runs:
+ * stdio, and anything written to the descriptors below JavaScript, never pass through it; an uncaught exception's stack
+ * is written to the file from an uncaughtExceptionMonitor (its own line, not node's full report). Nor does anything written before server.js runs:
  * the logon shim's own lines (win32board.js BOOT_JS: a fallback to the previous version, a missing engine pointer)
  * and the world bootstrap's named-world lines still go nowhere.
  *
@@ -33,7 +33,10 @@
  * WHO. Only a board that carries its logon task's marker (win32board.startedByTask): a board started by hand writes to
  * its own console, and a board a test starts as a child is not marked. The marker is an environment variable, so a
  * second board started from inside the task board's own process tree inherits it and would append to the same file.
- * It is not cleared here, because server.js reads the same marker later to arm its exit watch.
+ * It is not cleared here, because server.js reads the same marker later to arm its exit watch. Such a second board
+ * cannot also serve (the first holds the port), but while it starts it can append to the file, and if the file is over
+ * ROTATE_BYTES it moves the first board's open file to `.old`, after which the first board writes there and its
+ * diagnostics fall back to the ring.
  *
  * Nothing here throws into the board: when the file cannot be opened the board runs as it did before.
  */
@@ -47,7 +50,7 @@ const LINE_TEXT_ENCODINGS = /^(utf-?8|latin1|binary|ascii)$/i;   // engine/logst
 
 let routed = null;   // { path, fd } once route() has opened the log in this process
 
-/** The log's path for `platform` and its world, from the same root the durable anchor uses. */
+/** The log's path for `platform` and its world, beside the anchor's `runtime\` for the same `home` and `env`. */
 function logPath(platform, home, env) {
   const e = env || {};
   const anchor = require('./win32anchor').anchorDir(platform, home, e);   // <base>\runtime
@@ -104,7 +107,7 @@ function route(stdout, stderr, deps) {
   const isFile = typeof d.isFile === 'function' ? d.isFile : require('./logstamp').isRegularFile;
   if (isFile(1) || isFile(2)) return null;   // something already sends the board's output to a file: leave it as it is
   try {
-    const file = d.path || logPath(platform, d.home || env.AGENT_WORKFORCE_HOME || os.homedir(), env);
+    const file = d.path || logPath(platform, d.home || os.homedir(), env);   // the anchor's own callers pass os.homedir()
     fs.mkdirSync((d.path ? path : path.win32).dirname(file), { recursive: true });
     try { if (fs.statSync(file).size > ROTATE_BYTES) fs.renameSync(file, file + '.old'); } catch { /* none yet */ }
     const fd = fs.openSync(file, 'a');
