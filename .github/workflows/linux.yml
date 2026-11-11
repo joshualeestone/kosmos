@@ -60,9 +60,29 @@ jobs:
       - name: which node is this
         run: node --version
       - name: install system dependencies
+        # kosmos#8380: as test.yml's Linux tools step: only what the image lacks, and Ubuntu hosts the runner cannot
+        # resolve are pinned from a public resolver before trying again.
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq tmux lsof zsh >/dev/null
+          missing=""
+          for t in tmux lsof zsh; do command -v "$t" >/dev/null 2>&1 || missing="$missing $t"; done
+          if [ -z "$missing" ]; then echo "all three tools are on the image"; exit 0; fi
+          repoint_security() {   # Ubuntu's own DNS stopped answering (11-11); pin each Ubuntu host the runner cannot resolve
+            # to an address from a public resolver. apt still checks every index's signature, so a wrong address cannot pass.
+            pinned=0
+            for h in security.ubuntu.com archive.ubuntu.com azure.archive.ubuntu.com; do
+              if timeout 5 getent hosts "$h" >/dev/null 2>&1; then continue; fi
+              ip=$(curl -sS -m 10 "https://dns.google/resolve?name=$h&type=A" 2>/dev/null | grep -oE '"data":"[0-9.]+"' | head -1 | cut -d'"' -f4 || true)
+              if [ -n "$ip" ]; then echo "$ip $h" | sudo tee -a /etc/hosts >/dev/null; echo "::warning::kosmos#8380: $h did not resolve, so it was pinned to $ip from a public resolver for this run only"; pinned=1; fi
+            done
+            [ "$pinned" = 1 ]
+          }
+          timeout 5 getent hosts security.ubuntu.com >/dev/null 2>&1 || { echo "security.ubuntu.com does not resolve"; repoint_security || true; }
+          sudo apt-get update -qq || true
+          if ! sudo apt-get install -y -qq $missing >/dev/null; then
+            repoint_security || true   # bash -e with pipefail: a function run bare could end the step
+            sudo apt-get update -qq || true
+            sudo apt-get install -y -qq $missing >/dev/null
+          fi
       - name: the node suite on Linux (#4919)
         run: |
           KOSMOS_TEST_PART=node KOSMOS_NO_WAIT=1 tools/run-tests.sh
