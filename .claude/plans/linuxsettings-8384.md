@@ -33,4 +33,5 @@ Shape posted on the card first (issuecomment 6801308249). Built on `linuxrows-83
 - Any wizard change: Linux does not show that screen (above).
 
 ## Weakest premise
+`held` (systemd runs this board now) compares the unit's MainPID with this process, which holds because board-run ends in `exec node`, as linuxboard.canRestart also relies on; a wrapper in front of node would make a held board read as loose.
 Command output shapes (busctl `s "x"`, `t N`; gsettings `'x'`, `uint32 N`; `systemctl show` `UnitFileState=`) are from the tools' documented formats, not measured on a Linux board.

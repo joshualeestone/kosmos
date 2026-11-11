@@ -92,14 +92,20 @@ function run(cmd, args) {
 let linuxTimeoutMs = 2000;
 let linuxHungUntil = 0;   // after one look times out, the others fail at once for ten seconds: one timeout per reading
 let linuxSlowInARow = 0;   // looks slower than half the timeout, back to back; two in a row is a sluggish bus
-function setLinuxTimeoutForTests(ms) { linuxTimeoutMs = ms; linuxHungUntil = 0; linuxSlowInARow = 0; }
+let linuxLastSlowAt = 0;   // ...and only within a few seconds of each other: one slow look an hour ago is not "in a row"
+function setLastSlowAtForTests(t) { linuxLastSlowAt = t; }
+function setLinuxTimeoutForTests(ms) { linuxTimeoutMs = ms; linuxHungUntil = 0; linuxSlowInARow = 0; linuxLastSlowAt = 0; }
 function linuxRun(cmd, args) {
   if (Date.now() < linuxHungUntil) return { ok: false, because: 'skipped: a Linux look timed out just now', stdout: '' };
   const started = Date.now();
   /* Two looks in a row slower than half the timeout are a sluggish bus: the rest fail at once too, so a slow bus cannot
      stack. One slow look alone (a cold start) does not count. */
   const slow = () => {
-    if (Date.now() - started > linuxTimeoutMs / 2) { linuxSlowInARow += 1; if (linuxSlowInARow >= 2) linuxHungUntil = Date.now() + 10000; }
+    if (Date.now() - started > linuxTimeoutMs / 2) {
+      linuxSlowInARow = Date.now() - linuxLastSlowAt < 5000 ? linuxSlowInARow + 1 : 1;
+      linuxLastSlowAt = Date.now();
+      if (linuxSlowInARow >= 2) linuxHungUntil = Date.now() + 10000;
+    }
     else linuxSlowInARow = 0;
   };
   try {
@@ -434,6 +440,9 @@ function readLinuxSleep(opts) {
     // A year or more (infinity prints 2^64-1) is never, in practice.
     if (Number.isFinite(usec) && usec >= 365 * 24 * 3600e6) idle = { action: 'ignore', minutes: null };
     else idle = { action, minutes: Number.isFinite(usec) && usec > 0 ? Math.max(1, Math.round(usec / 60e6)) : null };
+  }
+  // The lid is read whatever IdleAction said (a logind without it still has a lid switch), but not after a dead bus.
+  if (!logindDown) {
     /* A test never reads the host's lid (a laptop running the suite would decide the row), as linuxjob.lingerFileOn. */
     const lidRead = inTest || ('hasLid' in o && 'lidSure' in o) ? null : linuxLid();
     const hasLid = ('hasLid' in o) ? o.hasLid === true : Boolean(lidRead && lidRead.has);
@@ -561,7 +570,8 @@ const minutesWords = (n) => n + (n === 1 ? ' minute' : ' minutes');
 
 /* The Linux readings run up to a dozen short commands, each with linuxRun's two-second timeout, on the request that asks. Settings
    re-reads on every visit, so a reading is kept for ten seconds; a caller with a runner or a seam always reads fresh.
-   Accepted: for up to ten seconds after Kosmos is reinstalled or its service changed, the row can show the old reading. */
+   Accepted: for up to ten seconds after Kosmos is reinstalled, or a fix from For IT admins is run, the row can show the
+   old reading. */
 const LINUX_READING_TTL_MS = 10000;
 const linuxReadings = new Map();
 function clearLinuxReadingsForTests() { linuxReadings.clear(); }
@@ -590,12 +600,7 @@ function linuxCached(key, opts, read) {
 function linuxSleepCheck(reading) {
   const r = reading || {};
   const idle = r.idle || null, lid = r.lid || null, gnome = r.gnome || null;
-  if (r.skipped) {
-    return { key: 'sleep', state: STATE.UNKNOWN,
-      title: 'We could not check this computer\'s sleep settings just now',
-      detail: 'Some of this computer\'s settings were slow to answer, so not every one was asked; they are asked again on the next visit.' };
-  }
-  if (!idle && !lid && !gnome && !r.gnomeUnread && !r.lidUnread) return null;
+  if (!idle && !lid && !gnome && !r.gnomeUnread && !r.lidUnread && !r.skipped) return null;
   const stops = (a) => (a && Object.prototype.hasOwnProperty.call(LINUX_STOPPING_ACTION, a)) ? LINUX_STOPPING_ACTION[a] : null;
   const idleStops = Boolean(idle && stops(idle.action));
   const gnomeAc = Boolean(gnome && stops(gnome.ac) && gnome.acMinutes !== 0);
@@ -672,7 +677,8 @@ function linuxSleepCheck(reading) {
     const vs = verbs;
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION,
       title: 'This computer can ' + what(plugged) + ' on its own',
-      detail: said.join(' ') + until(vs) + desktopFix + logindFix + lidNote }, extra);
+      detail: said.join(' ') + until(vs) + desktopFix + logindFix + lidNote
+        + (r.skipped ? ' Some other settings were slow to answer and were not asked.' : '') }, extra);
   }
   if (lidStops || gnomeBatt) {
     const dockedOnly = lid && !stops(lid.ac) && !stops(lid.battery) && stops(lid.docked);
@@ -692,7 +698,14 @@ function linuxSleepCheck(reading) {
             : ' We could not tell whether a desktop\'s own power settings put it to sleep while plugged in.')
           : ' Plugged in and open, it keeps working, so for overnight work leave it plugged in and open.')
         + desktopFix + logindFix
-        + (r.gnomeUnread === 'battery' ? ' Part of your desktop\'s power settings could not be read.' : '') + lidNote }, extra);
+        + (r.gnomeUnread === 'battery' ? ' Part of your desktop\'s power settings could not be read.' : '') + lidNote
+        + (r.skipped ? ' Some other settings were slow to answer and were not asked.' : '') }, extra);
+  }
+  // A skipped look after a finding was read does not hide the finding; only an otherwise quiet reading is unknown.
+  if (r.skipped) {
+    return { key: 'sleep', state: STATE.UNKNOWN,
+      title: 'We could not check this computer\'s sleep settings just now',
+      detail: 'Some of this computer\'s settings were slow to answer, so not every one was asked; they are asked again on the next visit.' };
   }
   if (r.lidUnread) {
     return { key: 'sleep', state: STATE.UNKNOWN,
@@ -2480,4 +2493,4 @@ function check(opts) {
 }
 
 /* linuxCached, linuxLid, linuxHasBattery and __clearLinuxReadingsForTests are exported for engine/machine.linux-8384.test.js. */
-module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxLid, linuxHasBattery, linuxCached, setLinuxTimeoutForTests, __linuxRunForTests: linuxRun, __clearLinuxReadingsForTests: clearLinuxReadingsForTests, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxLid, linuxHasBattery, linuxCached, setLinuxTimeoutForTests, __linuxRunForTests: linuxRun, __setLastSlowAtForTests: setLastSlowAtForTests, __clearLinuxReadingsForTests: clearLinuxReadingsForTests, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };

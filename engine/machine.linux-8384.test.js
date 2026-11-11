@@ -388,7 +388,10 @@ test('sleep reader: GNOME\'s settings count only while its power service runs (c
 });
 
 test('sleep reader: logind unreadable and no desktop is no reading at all, and the row is absent', () => {
-  const { runner, asked } = sleepRunner({ IdleAction: null, gsd: 'inactive' });
+  // A logind that does not answer at all (a dead bus), not one that lacks IdleAction.
+  const { runner: base } = sleepRunner({ gsd: 'inactive' });
+  const asked = [];
+  const runner = (c, a) => { asked.push([c, ...a]); return c === 'busctl' ? { ok: false, because: 'Connection refused' } : base(c, a); };
   const got = machine.readLinuxSleep({ runner, hasLid: true });
   assert.deepEqual(got, { idle: null, lid: null, gnome: null, desktop: null }, 'no display-manager ask when it cannot change the row');
   assert.equal(asked.filter((a) => a[0] === 'busctl').length, 1, 'a logind that does not answer is asked once, not five times');
@@ -782,10 +785,16 @@ test('restart: the linger command keeps every user name, single-quoted, and the 
   assert.equal(at('pat'), "loginctl enable-linger 'pat'");
   assert.equal(at('pat@corp.example.com'), "loginctl enable-linger 'pat@corp.example.com'", 'a directory account keeps its name');
   // Run through sh with echo in place of loginctl: each name comes back as one word, unchanged.
-  for (const name of ['CORP\\pat', "o'brien", 'pat; rm -rf ~', '$(whoami)']) {
-    const out = require('node:child_process').execFileSync('/bin/sh', ['-c', at(name).replace(/^loginctl enable-linger/, 'printf %s')], { encoding: 'utf8' });
-    assert.equal(out, name, name);
-  }
+  // Hostile names whose injection would only create a marker in a temp folder: a quoting slip can never harm the machine.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-quote-'));
+  const marker = path.join(dir, 'pwned');
+  try {
+    for (const name of ['CORP\\pat', "o'brien", 'pat; touch ' + marker, '$(touch ' + marker + ')', "x'; touch " + marker + "; '"]) {
+      const out = require('node:child_process').execFileSync('/bin/sh', ['-c', at(name).replace(/^loginctl enable-linger/, 'printf %s')], { encoding: 'utf8' });
+      assert.equal(out, name, name);
+      assert.equal(fs.existsSync(marker), false, 'nothing ran: ' + name);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('restart: systemd silent and linger off says only the file was read', () => {
@@ -1103,4 +1112,35 @@ test('sleep reader: other "no user session" texts from systemctl also mean GNOME
     };
     assert.equal(sleep(machine.readLinuxSleep({ runner: r, hasLid: false })).state, STATE.OK, why);
   }
+});
+
+test('sleep reader: a logind without IdleAction still has its lid read', () => {
+  const r = (c, a) => {
+    if (c === 'systemctl') return { ok: false, stdout: 'inactive\n' };
+    if (c !== 'busctl') return { ok: false };
+    if (a[5] === 'IdleAction') return { ok: false, because: 'Unknown property or interface.' };
+    return { ok: true, stdout: a[5] === 'BlockInhibited' ? 's ""\n' : 's "suspend"\n' };
+  };
+  const got = machine.readLinuxSleep({ runner: r, hasLid: true });
+  assert.equal(got.idle, null);
+  assert.equal(got.lid.battery, 'suspend');
+  assert.equal(sleep(got).state, STATE.ATTENTION);
+});
+
+test('sleep row: a skipped look does not hide a finding already read', () => {
+  const r = sleep({ idle: { action: 'suspend', minutes: 30 }, lid: null, gnome: null, skipped: true });
+  assert.equal(r.state, STATE.ATTENTION);
+  assert.match(r.detail, /After 30 minutes.*Some other settings were slow to answer and were not asked\.$/);
+  assert.equal(sleep({ idle: QUIET_IDLE, lid: null, gnome: null, skipped: true }).state, STATE.UNKNOWN, 'control: nothing found');
+});
+
+test('linuxRun: slow looks far apart in time are not "in a row"', () => {
+  machine.setLinuxTimeoutForTests(1500);
+  try {
+    machine.__linuxRunForTests('/bin/sleep', ['0.9']);
+    // Pretend the last slow look was long ago: the next slow one starts the count again.
+    machine.__setLastSlowAtForTests(Date.now() - 60000);
+    machine.__linuxRunForTests('/bin/sleep', ['0.9']);
+    assert.equal(machine.__linuxRunForTests('/bin/echo', ['x']).ok, true, 'not tripped');
+  } finally { machine.setLinuxTimeoutForTests(2000); }
 });
