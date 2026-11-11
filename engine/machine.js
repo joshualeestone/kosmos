@@ -94,9 +94,15 @@ let linuxHungUntil = 0;   // after one look times out, the others fail at once f
 function setLinuxTimeoutForTests(ms) { linuxTimeoutMs = ms; linuxHungUntil = 0; }
 function linuxRun(cmd, args) {
   if (Date.now() < linuxHungUntil) return { ok: false, because: 'skipped: a Linux look timed out just now', stdout: '' };
+  const started = Date.now();
+  // A look that takes over half the timeout is a sluggish bus: the rest fail at once too, so a slow bus cannot stack.
+  const slow = () => { if (Date.now() - started > linuxTimeoutMs / 2) linuxHungUntil = Date.now() + 10000; };
   try {
-    return { ok: true, stdout: execFileSync(cmd, args, { encoding: 'utf8', timeout: linuxTimeoutMs, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }) };
+    const out = execFileSync(cmd, args, { encoding: 'utf8', timeout: linuxTimeoutMs, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+    slow();
+    return { ok: true, stdout: out };
   } catch (err) {
+    slow();
     if (err && err.code === 'ETIMEDOUT') linuxHungUntil = Date.now() + 10000;   // our own timeout, not any kill
     // stdout too: systemctl is-active prints "inactive" and exits 3, which is an answer, not a failed ask.
     return { ok: false, because: String((err && err.message) || err), missing: Boolean(err && err.code === 'ENOENT'),
@@ -456,7 +462,8 @@ function readLinuxSleep(opts) {
   // Not active is an answer (inactive, failed, unknown...); no answer at all (a timeout, no user bus) is not.
   /* No user manager at all (nobody logged in: "Failed to connect to bus") is an answer too: no session, so GNOME's
      power service is not running. */
-  const noUserBus = Boolean(gsd && !gsd.ok && /Failed to connect to bus|No medium found|XDG_RUNTIME_DIR/i.test(String(gsd.because || '')));
+  const noUserBus = Boolean(gsd && !gsd.ok && !/^skipped/.test(String(gsd.because || ''))
+    && /Failed to connect to (?:user scope )?bus|No medium found|XDG_RUNTIME_DIR|Connection refused|No such file or directory/i.test(String(gsd.because || '')));
   const gsdAsked = Boolean(gsd && (gsd.ok || String(gsd.stdout || '').trim() || noUserBus));
   if (gsd && gsd.ok && String(gsd.stdout || '').trim() === 'active') {
     let failed = false;   // a gsettings that fails once is not asked again (each ask can wait out the timeout)
@@ -2199,7 +2206,7 @@ function linuxBoardAutostartCheck(reading) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'The service that brings Kosmos back after a restart is missing, so your agents will not come back on '
-        + 'their own until it is restored. Reinstalling Kosmos puts it back (Kosmos restarts for a moment; your agents keep running).' };
+        + 'their own until it is restored. Reinstalling Kosmos puts it back (Kosmos restarts for a moment).' };
   }
   /* The file proves the mask, whether or not systemd answers. A reinstall alone cannot fix it: it writes through the
      /dev/null link and enable still refuses. So: unmask (which removes only the link), then reinstall. */
@@ -2208,7 +2215,7 @@ function linuxBoardAutostartCheck(reading) {
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service has been replaced by an empty one on this computer, so Kosmos and your agents will '
         + 'not come back on their own after a restart. Run the command under For IT admins from this account, then '
-        + 'reinstall Kosmos (Kosmos restarts for a moment; your agents keep running).',
+        + 'reinstall Kosmos (Kosmos restarts for a moment).',
       admin: 'systemctl --user unmask ' + (r.unitName || 'kosmos-board.service') };
   }
   if (r.unitState === '') return unknown('This computer\'s service manager does not know Kosmos\'s startup service, though its file is in place.');
@@ -2221,16 +2228,16 @@ function linuxBoardAutostartCheck(reading) {
   if (!r.unitState && r.skipped) return unknown('Another reading timed out a moment ago, so we did not ask about Kosmos\'s startup service; it is read again in a few seconds.');
   if (!r.unitState) return unknown('This computer\'s service manager did not answer when we asked about Kosmos\'s startup service.');
   if (r.unitState === 'masked' || r.unitState === 'masked-runtime') {
+    /* The same way out as the masked file above: unmask, then reinstall. Unmasking can leave no unit file behind, so
+       enable alone may fail; the reinstall writes it again. A runtime mask lives in /run and needs --runtime. */
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service is blocked on this computer (masked), so it cannot start, even by hand, until '
-        + 'that is undone. Your agents will not come back on their own after a restart. The command under For IT '
-        + 'admins is run from this account, not an administrator\'s. If it does not lift the block, an administrator '
-        + 'can.',
-      // A runtime mask lives in /run and needs --runtime to lift.
-      admin: 'systemctl --user unmask ' + (r.unitState === 'masked-runtime' ? '--runtime ' : '') + (r.unitName || 'kosmos-board.service')
-        + ' && systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
+        + 'that is undone. Your agents will not come back on their own after a restart. Run the command under For IT '
+        + 'admins from this account, then reinstall Kosmos (Kosmos restarts for a moment).',
+      admin: 'systemctl --user unmask ' + (r.unitState === 'masked-runtime' ? '--runtime ' : '') + (r.unitName || 'kosmos-board.service') };
   }
+
   /* static, indirect, generated and the like cannot be switched on and are not what Kosmos writes: say we
      could not tell, rather than "switched off, reinstall". */
   /* enabled-runtime is a link in /run, gone at the next restart: switched on now, but not after a restart. */
@@ -2238,8 +2245,7 @@ function linuxBoardAutostartCheck(reading) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself after a restart',
       detail: 'Its startup service is switched on only until this computer next restarts, so after that Kosmos and your '
-        + 'agents will not come back on their own. Reinstalling Kosmos switches it on for good (Kosmos restarts for a moment; '
-        + 'your agents keep running), or run the command under For IT admins from this account, not an administrator\'s.',
+        + 'agents will not come back on their own. Reinstalling Kosmos switches it on for good (Kosmos restarts for a moment), or run the command under For IT admins from this account, not an administrator\'s.',
       admin: 'systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
   }
   if (!['enabled', 'disabled', 'linked', 'linked-runtime'].includes(r.unitState)) {
@@ -2249,8 +2255,7 @@ function linuxBoardAutostartCheck(reading) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service is on this computer but switched off, so Kosmos and your agents will not come '
-        + 'back on their own after a restart. Reinstalling Kosmos switches it back on (Kosmos restarts for a moment; your '
-        + 'agents keep running), or run the command under For IT admins from this account, not an administrator\'s.',
+        + 'back on their own after a restart. Reinstalling Kosmos switches it back on (Kosmos restarts for a moment), or run the command under For IT admins from this account, not an administrator\'s.',
       admin: 'systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
   }
   if (r.linger === true) {

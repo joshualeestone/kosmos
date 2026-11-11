@@ -437,9 +437,10 @@ test('sleep row: the external-screen exception is said only when logind\'s docke
   assert.doesNotMatch(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' } }).detail, /another screen/, 'not read, not said');
 });
 
-test('restart row: masked offers the unmask and enable commands for this board\'s unit', () => {
-  assert.equal(row({ unitFile: true, unitState: 'masked', installed: BUNDLE, unitName: 'kosmos-board.service' }).admin,
-    'systemctl --user unmask kosmos-board.service && systemctl --user enable kosmos-board.service');
+test('restart row: masked offers unmask for this board\'s unit, then a reinstall (as the masked file does)', () => {
+  const r = row({ unitFile: true, unitState: 'masked', installed: BUNDLE, unitName: 'kosmos-board.service' });
+  assert.equal(r.admin, 'systemctl --user unmask kosmos-board.service');
+  assert.match(r.detail, /Run the command under For IT admins from this account, then reinstall Kosmos \(Kosmos restarts for a moment\)\.$/);
 });
 
 test('restart reader: a test with a unit folder but no runner runs no host command (review 9)', () => {
@@ -476,7 +477,7 @@ test('restart reader: a unit file replaced by a link to /dev/null (mask --force)
   assert.equal(got.maskedFile, true);
   const r = row(got);
   assert.equal(r.state, STATE.ATTENTION);
-  assert.match(r.detail, /replaced by an empty one.*Run the command under For IT admins from this account, then reinstall Kosmos \(Kosmos restarts for a moment; your agents keep running\)\./);
+  assert.match(r.detail, /replaced by an empty one.*Run the command under For IT admins from this account, then reinstall Kosmos \(Kosmos restarts for a moment\)\./);
   assert.equal(r.admin, 'systemctl --user unmask ' + require('./linuxboard').boardUnitName(), 'unmask removes only the link, then the reinstall writes the file');
 });
 
@@ -498,7 +499,7 @@ test('sleep row: the lid fix says it is the plugged-in case only', () => {
 
 test('restart row: a runtime mask is lifted with --runtime', () => {
   assert.match(row({ unitFile: true, unitState: 'masked-runtime', installed: BUNDLE, unitName: 'kosmos-board.service' }).admin,
-    /^systemctl --user unmask --runtime kosmos-board\.service && /);
+    /^systemctl --user unmask --runtime kosmos-board\.service$/);
 });
 
 test('sleep reader: an idle time of a year or more is no idle action', () => {
@@ -520,7 +521,7 @@ test('restart row: from source with no systemd is the from-source answer, not a 
 
 test('restart row: masked tells who runs the command, and the logind table knows factory-reset', () => {
   const masked = row({ unitFile: true, unitState: 'masked', installed: BUNDLE }).detail;
-  assert.match(masked, /The command under For IT admins is run from this account, not an administrator's/);
+  assert.match(masked, /Run the command under For IT admins from this account/);
   assert.doesNotMatch(masked, /every account/);
   assert.match(sleep({ idle: { action: 'factory-reset', minutes: 5 } }).title, /can restart on its own/);
 });
@@ -698,10 +699,9 @@ test('sleep row: the title\'s "on its own" names only what happens plugged in an
   assert.match(r.detail, /When the lid closes, this computer turns off/);
 });
 
-test('restart row: the masked fix names reinstalling and an administrator as the way out', () => {
+test('restart row: the masked fix is unmask first, then the reinstall (a reinstall alone cannot lift a mask)', () => {
   const d = row({ unitFile: true, unitState: 'masked', installed: BUNDLE }).detail;
-  assert.match(d, /If it does not lift the block, an administrator can\./);
-  assert.doesNotMatch(d, /reinstall/i, 'a reinstall cannot lift a mask');
+  assert.ok(d.indexOf('Run the command') < d.indexOf('reinstall Kosmos'), 'unmask comes first');
 });
 
 test('check() and the gate share the ten-second reading, so a Settings visit asks once', () => {
@@ -838,9 +838,9 @@ test('sleep reader: after one dead logind ask the rest are not asked; a property
   assert.equal(got.lid.noExt, true);
 });
 
-test('restart: every reinstall sentence says Kosmos restarts for a moment and the agents keep running', () => {
+test('restart: every reinstall sentence says Kosmos restarts for a moment, and claims nothing about the agents', () => {
   for (const r of [{ unitFile: false, installed: BUNDLE, systemdRunning: true }, { unitFile: true, unitState: 'disabled', installed: BUNDLE }, { unitFile: true, unitState: 'enabled-runtime', installed: BUNDLE }]) {
-    assert.match(row(r).detail, /Reinstalling Kosmos [^.]*\(Kosmos restarts for a moment; your agents keep running\)/, JSON.stringify(r));
+    assert.match(row(r).detail, /Reinstalling Kosmos [^.]*\(Kosmos restarts for a moment\)/, JSON.stringify(r));
   }
 });
 
@@ -1079,4 +1079,26 @@ test('sleep: a desktop not ruled out (its ask failed) gets no plugged-in promise
   assert.equal(r.battOnly, undefined);
   assert.equal(machine.sleepGate({ platform: 'linux', linuxSleep: { idle: QUIET_IDLE, lid: null, gnome: null, desktop: null } }).checkable, false);
   assert.equal(machine.sleepGate({ platform: 'linux', linuxSleep: { idle: QUIET_IDLE, lid: null, gnome: null, desktop: false } }).prevented, true, 'control');
+});
+
+test('linuxRun: a look slower than half the timeout trips the memory too, so a sluggish bus cannot stack', () => {
+  machine.setLinuxTimeoutForTests(400);
+  try {
+    const slow = machine.__linuxRunForTests('/bin/sleep', ['0.3']);
+    assert.equal(slow.ok, true, 'it answered');
+    const next = machine.__linuxRunForTests('/bin/echo', ['x']);
+    assert.match(String(next.because), /timed out just now/, 'the next look is skipped');
+  } finally { machine.setLinuxTimeoutForTests(2000); }
+});
+
+test('sleep reader: other "no user session" texts from systemctl also mean GNOME is not running', () => {
+  for (const why of ['Failed to connect to user scope bus via local transport: Connection refused', 'Failed to connect to bus: No such file or directory']) {
+    const r = (c, a) => {
+      if (c === 'systemctl' && a[0] === '--user') return { ok: false, stdout: '', because: why };
+      if (c === 'systemctl' && a[1] === 'display-manager.service') return { ok: true, stdout: 'active\n' };
+      if (c === 'busctl') return { ok: true, stdout: a[5] === 'IdleActionUSec' ? 't 0\n' : 's "ignore"\n' };
+      return { ok: false };
+    };
+    assert.equal(sleep(machine.readLinuxSleep({ runner: r, hasLid: false })).state, STATE.OK, why);
+  }
 });
