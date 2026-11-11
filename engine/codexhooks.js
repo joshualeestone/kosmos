@@ -291,4 +291,100 @@ if (require.main === module) {
   process.exitCode = r.ok ? 0 : 1;
 }
 
-module.exports = { install, removeOurs, isOurs, HASH_VERIFIED_FOR, trustHash, commandFor, hooksJson, stateHeading, nextConfig, unsafeForWin32, HOOKS_FILE, MATCHER };
+/* kosmos#8361: removing Kosmos takes its Codex hook out of an account's Codex home (the Windows uninstall), by the
+   #5999 rules the Claude and Gemini hooks follow: only a hooks.json in exactly our shape, and only when its node or its
+   bridge lies in THIS install's folder (`roots`, every spelling of it), or one of them is provably gone (`gone(p)`).
+   Another install's live hook stays. The trust record goes with it only when it is exactly what install() writes for
+   that command (the heading for the canonical hooks.json, then the one trusted_hash line with that command's hash);
+   a record anyone changed is left. hooks.json goes FIRST, then the record (a lone record is inert; a hooks.json
+   without its record stops the Codex TUI), under the config.toml lock install takes.
+   Returns { ours, changed, recordRemoved?, unreadable?, stuck?, because? }: `unreadable` is a file not known to be ours
+   (the person's, perhaps), `stuck` one of ours a retry cannot take out. Never throws. */
+const BUSY = 'another program was writing the Codex config';
+function unwireInstall(home, roots, opts) {
+  const o = opts || {};
+  const gone = typeof o.gone === 'function' ? o.gone : () => false;
+  const plat = o.platform || process.platform;
+  try {
+    const hooksFile = path.join(home, HOOKS_FILE);
+    let text;
+    try { text = fs.readFileSync(hooksFile, 'utf8'); } catch (e) {
+      /* Review 3: no file is nothing to do. Review 4: one that is there but cannot be read is not known to be ours (in a
+         ~/.codex-<label> it can be the person's own, which install() never overwrites), so it is named as unreadable,
+         never as ours: the uninstall says to delete it only if it names our bridge. */
+      if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return { ours: false, changed: false };
+      return { ours: false, changed: false, unreadable: true, because: 'hooks.json could not be read (' + ((e && e.code) || 'unknown') + ')' };
+    }
+    if (!isOurs(text)) return { ours: false, changed: false };
+    const command = JSON.parse(text).hooks[EVENT][0].hooks[0].command;
+    const m = /^& '([^']+)' '([^']+)'$/.exec(command) || /^'(.*)'$/.exec(command);
+    const paths = m ? (m.length === 3 ? [m[1], m[2]] : [m[1].replace(/'\\''/g, "'")]) : [];
+    const norm = (s) => String(s).replace(/\//g, '\\').toLowerCase();
+    const prefixes = [...new Set((roots || []).filter((r) => typeof r === 'string' && r.trim()).map((r) => norm(r).replace(/\\+$/, '') + '\\'))];
+    // Review 6: a path with a `..` segment is never inside a root by prefix (install() never writes one).
+    const plain = (p) => !/(^|\\)\.\.(\\|$)/.test(norm(p));
+    const inRoots = paths.some((p) => plain(p) && prefixes.some((r) => norm(p).startsWith(r)));
+    /* Review 3: "provably gone" by the #5999 rules reporthook.unwireInstall applies: an absolute drive-letter path (a
+       \\server one is never looked at), nothing a shell would expand, the expected file (node.exe, or the bridge), on a
+       drive that is there now (an unplugged drive is not a deleted folder). Anything else is kept. */
+    const provablyGone = (p, name) => {
+      if (!/^[A-Za-z]:[\\/]/.test(p) || /[%$~]/.test(p) || p.split(/[\\/]/).pop().toLowerCase() !== name) return false;
+      try { return !gone(p.slice(0, 2) + '\\') && gone(p) === true; } catch { return false; }
+    };
+    const dead = paths.length === 2 && (provablyGone(paths[0], 'node.exe') || provablyGone(paths[1], 'codex-report-bridge.js'));
+    if (!inRoots && !dead) return { ours: false, changed: false, because: 'it belongs to another Kosmos folder that is still there' };
+    const cfg = path.join(home, 'config.toml');
+    const heading = stateHeading(path.join(require('./trust').canonicalOnDisk(home), HOOKS_FILE), plat);
+    const line = `trusted_hash = "${trustHash(command)}"`;
+    const locked = require('./filelock').withFileLock(cfg, () => {
+      /* Review 1: judged again under the lock, a regular file still in our shape with the same command (a person's
+         editor takes no lock of ours), and hooks.json goes FIRST: a record left alone is inert, a hooks.json left
+         without its record is what stops the Codex TUI. */
+      let st;
+      try { st = fs.lstatSync(hooksFile); } catch (e) { if (e && e.code === 'ENOENT') return { ours: false, changed: false }; throw e; }
+      // Review 5: these two looked like ours a moment ago, so they are named (as unreadable ones are), never removed.
+      if (!st.isFile()) return { ours: false, changed: false, unreadable: true, because: 'hooks.json is not a plain file' };
+      const now = fs.readFileSync(hooksFile, 'utf8');
+      if (!isOurs(now) || JSON.parse(now).hooks[EVENT][0].hooks[0].command !== command) return { ours: false, changed: false, unreadable: true, because: 'hooks.json changed while it was being checked' };
+      fs.unlinkSync(hooksFile);
+      let recordRemoved = false;
+      /* Review 2: hooks.json is already gone, so a record that cannot be rewritten (config.toml held by another program)
+         leaves the hook taken out, said as such: the record left is inert. */
+      try {
+        let cfgText = null;
+        try { cfgText = fs.readFileSync(cfg, 'utf8'); } catch { cfgText = null; }
+        if (cfgText !== null && heading) {
+          const lines = cfgText.split('\n');
+          const at = lines.indexOf(heading);
+          /* Review 1: the record is ours to remove only when nothing else lives in its table: after any blank lines,
+             the next line is another table heading or the end. A key below it would otherwise move into the table
+             above (or duplicate one there, and Codex would not load the file). This is deliberately stricter than
+             nextConfig's "our exact form" (which install may rewrite in place): removing is the side that must not guess. */
+          let next = at + 2;
+          while (next < lines.length && lines[next] === '') next += 1;
+          const tableEnds = next >= lines.length || lines[next].startsWith('[');
+          if (at !== -1 && lines.indexOf(heading, at + 1) === -1 && lines[at + 1] === line && tableEnds) {
+            // The blank lines after the record go with it, but never the file's final newline.
+            const drop = next >= lines.length ? 2 + Math.max(0, next - (at + 2) - 1) : next - at;
+            lines.splice(at, drop);
+            let mode = 0o600;
+            try { mode = fs.statSync(cfg).mode & 0o777; } catch { mode = 0o600; }
+            require('./securewrite').writeSecret(cfg, lines.join('\n'), mode, { atomicOnly: true, ownTempsOnly: true });
+            recordRemoved = true;
+          }
+        }
+      } catch { recordRemoved = false; }
+      return { ours: true, changed: true, recordRemoved };
+    }, { busy: BUSY, cannotAccess: 'its folder would not let Kosmos lock it' });
+    if (locked && locked.ok === true) return locked.value;
+    /* Review 8, as #5999's unwireOne: only a busy lock is unfinished work a retry can finish; a folder that refuses
+       the lock is `stuck` (a retry cannot clear it), which the uninstall files as a note, not a leftover. */
+    const because = (locked && locked.because) || 'it could not be locked';
+    return { ours: true, changed: false, stuck: because !== BUSY, because };
+  } catch (e) {
+    // A read-only hooks.json, a folder that will not let it go: a retry cannot clear these either.
+    return { ours: true, changed: false, stuck: true, because: 'it could not be read or changed (' + ((e && e.code) || 'unknown') + ')' };
+  }
+}
+
+module.exports = { install, removeOurs, unwireInstall, isOurs, HASH_VERIFIED_FOR, trustHash, commandFor, hooksJson, stateHeading, nextConfig, unsafeForWin32, HOOKS_FILE, MATCHER };
