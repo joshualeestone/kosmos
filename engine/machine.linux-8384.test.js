@@ -257,7 +257,7 @@ test('sleep row: a type with no timeout (0, never) and actions that leave the ag
   const r = sleep({ idle: { action: 'lock', minutes: 10 }, lid: { ac: 'lock', battery: 'ignore' },
     gnome: { ac: 'suspend', acMinutes: 0, battery: 'blank', batteryMinutes: 5 } });
   assert.equal(r.state, STATE.OK);
-  assert.match(r.title, /^This computer is not set to go to sleep on its own$/);
+  assert.equal(r.title, 'Nothing we could read puts this computer to sleep');
   assert.match(r.detail, /We read Linux's own settings and your desktop's power settings\./);
   assert.match(r.detail, /The login screen has a sleep setting of its own, which we cannot read/, 'GDM\'s own suspend is named, not vouched for');
 });
@@ -385,7 +385,7 @@ test('sleep reader: GNOME\'s settings count only while its power service runs (c
 test('sleep reader: logind unreadable and no desktop is no reading at all, and the row is absent', () => {
   const { runner, asked } = sleepRunner({ IdleAction: null, gsd: 'inactive' });
   const got = machine.readLinuxSleep({ runner, hasLid: true });
-  assert.deepEqual(got, { idle: null, lid: null, gnome: null, desktop: false });
+  assert.deepEqual(got, { idle: null, lid: null, gnome: null, desktop: null }, 'no display-manager ask when it cannot change the row');
   assert.equal(asked.filter((a) => a[0] === 'busctl').length, 1, 'a logind that does not answer is asked once, not five times');
   assert.equal(sleep(got), null);
 });
@@ -451,6 +451,22 @@ test('restart reader: a test with a unit folder but no runner runs no host comma
     assert.equal(ctl.unitState, 'enabled');
     assert.equal(fs.existsSync(marker), true);
   } finally { process.env.PATH = prevPath; fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('sleep row: a lid that sleeps only when docked (HandleLidSwitchDocked) is a finding, not a false OK (review 10)', () => {
+  const r = sleep({ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'ignore', docked: 'suspend' } });
+  assert.equal(r.state, STATE.ATTENTION);
+  assert.match(r.detail, /When the lid closes with another screen connected, this computer goes to sleep\./);
+});
+
+test('restart row: a runtime mask is lifted with --runtime', () => {
+  assert.match(row({ unitFile: true, unitState: 'masked-runtime', installed: BUNDLE, unitName: 'kosmos-board.service' }).admin,
+    /^systemctl --user unmask --runtime kosmos-board\.service && /);
+});
+
+test('sleep reader: an idle time of a year or more is no idle action', () => {
+  const { runner } = sleepRunner({ IdleActionUSec: 't ' + String(366 * 24 * 3600e6), gsd: 'inactive' });
+  assert.deepEqual(machine.readLinuxSleep({ runner, hasLid: false }).idle, { action: 'ignore', minutes: null });
 });
 
 test('sleep row: a lid that sleeps only while plugged in says so', () => {

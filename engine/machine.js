@@ -374,6 +374,8 @@ function readLinuxSleep(opts) {
   if (!o.runner && inTest) return { idle: null, lid: null, gnome: null, desktop: null };
   /* A board started with no login session (cron, or after the session ended) has no XDG_RUNTIME_DIR, and systemctl
      --user cannot reach the user manager without it: linuxjob's fix, for its runner (#4918 review 12; review 3). */
+  // ensureRuntimeDir sets XDG_RUNTIME_DIR for this process when it is missing, as linuxjob's runner does: an
+  // environment fix for the reads, not a change to the computer.
   if (!o.runner) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
   const runner = o.runner || run;
   const prop = (name) => {
@@ -389,7 +391,8 @@ function readLinuxSleep(opts) {
     const raw = prop('IdleActionUSec');
     const usec = raw === null ? NaN : Number(raw);   // unreadable is no number, so the words say a while
     /* IdleActionSec=infinity prints the largest 64-bit number: the action never comes (review 4), so it is not one. */
-    if (Number.isFinite(usec) && usec >= 2 ** 53) idle = { action: 'ignore', minutes: null };
+    // A year or more (infinity prints 2^64-1) is never, in practice (reviews 4, 10).
+    if (Number.isFinite(usec) && usec >= 365 * 24 * 3600e6) idle = { action: 'ignore', minutes: null };
     else idle = { action, minutes: Number.isFinite(usec) && usec > 0 ? Math.max(1, Math.round(usec / 60e6)) : null };
     /* A test never reads the host's lid (a laptop running the suite would decide the row), as linuxjob.lingerFileOn. */
     const hasLid = ('hasLid' in o) ? o.hasLid === true : (inTest ? false : linuxHasLid());
@@ -429,7 +432,8 @@ function readLinuxSleep(opts) {
      login screen and the desktop's own power settings (KDE's PowerDevil, a logged-out GNOME) are then not read, and
      the row says it could not check rather than a tick (review 5). */
   let desktop = null;
-  if (!gnome) {
+  // Only when it can change the row: with logind unread there is no Linux reading to put a desktop beside (review 10).
+  if (!gnome && idle) {
     const dm = runner('systemctl', ['is-active', 'display-manager.service']);
     desktop = Boolean(dm && dm.ok && String(dm.stdout || '').trim() === 'active');
   }
@@ -486,7 +490,7 @@ function linuxSleepCheck(reading) {
   const gnomeAc = Boolean(gnome && stops(gnome.ac) && gnome.acMinutes !== 0);
   const gnomeBatt = Boolean(gnome && stops(gnome.battery) && gnome.batteryMinutes !== 0);
   const after = (m) => (m ? 'after ' + minutesWords(m) : 'after a while');
-  const lidStops = Boolean(lid && (stops(lid.ac) || stops(lid.battery)));
+  const lidStops = Boolean(lid && (stops(lid.ac) || stops(lid.battery) || stops(lid.docked)));
   const said = [], verbs = [];
   const say = (sentence, verb) => { said.push(sentence); verbs.push(verb); };
   if (idleStops) say('After ' + (idle.minutes ? minutesWords(idle.minutes) : 'a while') + ' with nobody using it, this computer ' + stops(idle.action) + '.', stops(idle.action));
@@ -495,8 +499,10 @@ function linuxSleepCheck(reading) {
   if (lidStops) {
     const ac = stops(lid.ac), batt = stops(lid.battery);
     const unless = lid.docked && !stops(lid.docked) ? ', unless another screen is connected' : '';
-    // One sentence when both sides do the same; each side said when they differ (review 6: a poweroff/suspend pair).
-    if (ac && batt && ac !== batt) {
+    const docked = stops(lid.docked);
+    // A lid that sleeps only when another screen is connected (HandleLidSwitchDocked, not the default; review 10).
+    if (!ac && !batt) say('When the lid closes with another screen connected, this computer ' + docked + '.', docked);
+    else if (ac && batt && ac !== batt) {
       say('When the lid closes while it is plugged in, this computer ' + ac + unless + '.', ac);
       say('When the lid closes on battery, it ' + batt + unless + '.', batt);
     } else if (ac && batt) say('When the lid closes, this computer ' + ac + unless + '.', ac);
@@ -541,7 +547,8 @@ function linuxSleepCheck(reading) {
   if (gnome) {
     return { key: 'sleep', state: STATE.OK,
       // Only the desktop's half read (logind unreachable, a container): the title says whose settings (review 4).
-      title: idle || lid ? 'This computer is not set to go to sleep on its own' : 'Your desktop\'s power settings do not put this computer to sleep',
+      // Not "is not set to sleep": the login screen's own setting was not read (review 10).
+      title: idle || lid ? 'Nothing we could read puts this computer to sleep' : 'Your desktop\'s power settings do not put this computer to sleep',
       detail: 'So your agents keep working while you are away. We read ' + (idle || lid ? 'Linux\'s own settings and ' : '')
         + 'your desktop\'s power settings. The login screen has a sleep setting of its own, which we cannot read: '
         + 'after a restart, before anyone logs in, it may still put this computer to sleep.' };
@@ -1995,7 +2002,9 @@ function linuxBoardAutostartCheck(reading) {
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service is blocked on this computer (masked), so it cannot start, even by hand, until '
         + 'that is undone. Your agents will not come back on their own after a restart.',
-      admin: 'systemctl --user unmask ' + (r.unitName || 'kosmos-board.service') + ' && systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
+      // A runtime mask lives in /run and needs --runtime to lift (review 10).
+      admin: 'systemctl --user unmask ' + (r.unitState === 'masked-runtime' ? '--runtime ' : '') + (r.unitName || 'kosmos-board.service')
+        + ' && systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
   }
   /* static, indirect, generated and the like cannot be switched on and are not what Kosmos writes (review 4): say we
      could not tell, rather than "switched off, reinstall". */
