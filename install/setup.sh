@@ -2027,8 +2027,9 @@ say_hooks_left() {
 
 # #8364: the Gemini settings files that still hold a hook running the report bridge from the data folder $1's bin/,
 # one per line: the default home (or AGENT_WORKFORCE_GEMINI_HOME) and each named account's. Matched right after a
-# quote, as the hook command writes it. Used when no node could take the hooks out, and on a re-run after the folder
-# was already removed.
+# double quote, as commandFor writes the hook command: narrower than the node step's match (which also takes a single
+# quote, a space or the start), so this names, never edits. Used when no node could take the hooks out, when
+# KOSMOS_HOME is not an install, and on a re-run after the folder was already removed.
 gemini_hook_settings_left() {
   local _gh_bin _gh_real _gh_home _gh_f
   [ -n "$1" ] || return 0
@@ -2047,8 +2048,9 @@ gemini_hook_settings_left() {
 # removes from $2/bin.
 say_gemini_hooks_left() {
   [ -n "$1" ] || return 0
-  info "note: these Gemini CLI settings files still hold Kosmos's hooks, which run a script this uninstall removes,"
-  info "so Gemini CLI may show errors there until they are gone; delete the entries naming gemini-report-bridge inside $2/bin:"
+  info "note: these Gemini CLI settings files still hold Kosmos's hooks, which run a script that this uninstall removes"
+  info "or that is already gone, so Gemini CLI may show errors there until they are gone; delete the entries naming"
+  info "gemini-report-bridge inside $2/bin:"
   printf '%s\n' "$1" | while IFS= read -r _sf; do [ -n "$_sf" ] && info "  $_sf"; done
   return 0
 }
