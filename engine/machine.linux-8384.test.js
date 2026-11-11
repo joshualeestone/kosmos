@@ -61,6 +61,14 @@ test('restart row: no unit and no systemd on this computer says so, and never sa
   assert.match(row({ unitFile: false, installed: BUNDLE, systemdRunning: true }).detail, /Reinstalling Kosmos puts it back/, 'control');
 });
 
+test('restart row: a unit file on a computer with no systemd still says no systemd, and asks systemctl nothing (review 8)', () => {
+  assert.match(row({ unitFile: true, unitState: null, installed: BUNDLE, systemdRunning: false }).detail, /does not run systemd/);
+  const asked = [];
+  const got = withUnitDir(true, () => machine.readLinuxBoardAutostart((c) => { asked.push(c); return { ok: false }; }, { installedRoot: BUNDLE, lingerOn: true, systemdRunning: false }));
+  assert.equal(got.unitState, null);
+  assert.ok(!asked.includes('systemctl'), 'no systemd, no systemctl');
+});
+
 test('restart row: only linger off carries the admin command, and it is the read-only-safe enable-linger', () => {
   const off = row({ unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE });
   assert.match(off.admin, /loginctl enable-linger$/);
@@ -192,12 +200,12 @@ test('sleep row: nothing read is no row at all (kosmos#8375), never a standing c
 
 test('sleep row: a stop while plugged in, open and idle is the plain warning, in words for what it does', () => {
   const cases = [
-    [{ idle: { action: 'suspend', minutes: 30 } }, /can go to sleep on its own$/, /After 30 minutes with nobody using it, this computer goes to sleep\. Your agents stop until it wakes\. An administrator can change it, then restart the computer\.$/, true],
+    [{ idle: { action: 'suspend', minutes: 30 } }, /can go to sleep on its own$/, /After 30 minutes with nobody using it, this computer goes to sleep\. Your agents stop until it wakes\. An administrator can change it from a root shell, then restart the computer\.$/, true],
     [{ idle: { action: 'poweroff', minutes: 1 } }, /can turn off on its own$/, /After 1 minute .* turns off\. Your agents stop until it is started again\./, true],
     [{ idle: { action: 'reboot', minutes: 5 } }, /can restart on its own$/, /restarts\. Your agents stop while it restarts\./, true],
     [{ idle: QUIET_IDLE, gnome: { ac: 'suspend', acMinutes: 20, battery: null, batteryMinutes: null } }, /can go to sleep on its own$/, /While it is plugged in, after 20 minutes with nobody using it, the desktop puts it to sleep\..*Power settings, under Automatic Suspend\.$/, false],
     [{ idle: QUIET_IDLE, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can turn off on its own$/, /the desktop turns it off\. Your agents stop until it is started again\./, false],
-    [{ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can go to sleep or turn off on its own$/, /Automatic Suspend\. An administrator can change the rest, then restart the computer\.$/, true],
+    [{ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can go to sleep or turn off on its own$/, /Automatic Suspend\. An administrator can change the rest from a root shell, then restart the computer\.$/, true],
   ];
   for (const [reading, title, detail, admin] of cases) {
     const r = sleep(reading);
@@ -208,7 +216,7 @@ test('sleep row: a stop while plugged in, open and idle is the plain warning, in
     assert.match(r.title, title, label);
     assert.match(r.detail, detail, label);
     assert.doesNotMatch(r.detail, /\/etc\//, 'a file path is for the admin field, not the sentence: ' + label);
-    if (admin) { assert.match(r.admin, /' > \/etc\/systemd\/logind\.conf\.d\/kosmos-idle\.conf$/, label); assert.match(r.detail, /then restart the computer\.$/, label); }
+    if (admin) { assert.match(r.admin, /' > \/etc\/systemd\/logind\.conf\.d\/99-kosmos-idle\.conf$/, label); assert.match(r.detail, /then restart the computer\.$/, label); }
     else assert.equal(r.admin, undefined, 'no logind advice when only the desktop fired: ' + label);
     assert.equal(r.settings, undefined, 'no "Open sleep settings" button: that opens macOS\'s pane');
   }
@@ -216,7 +224,7 @@ test('sleep row: a stop while plugged in, open and idle is the plain warning, in
 
 test('sleep row: the lid and battery are the expected pauses, as on the Mac (battOnly), even when the lid sleeps on AC', () => {
   const cases = [
-    [{ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' } }, /can go to sleep when its lid closes$/, /When the lid closes, this computer goes to sleep\./],
+    [{ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' } }, /can go to sleep when its lid closes$/, /When the lid closes, this computer goes to sleep, unless another screen is connected\./],
     [{ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' } }, /when its lid closes$/, /When the lid closes on battery/],
     [{ idle: QUIET_IDLE, gnome: { ac: 'nothing', acMinutes: null, battery: 'suspend', batteryMinutes: 15 } }, /can go to sleep on battery$/, /On battery, after 15 minutes with nobody using it, the desktop puts it to sleep/],
     [{ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' }, gnome: { ac: 'nothing', acMinutes: null, battery: 'suspend', batteryMinutes: 15 } }, /on battery, or when its lid closes$/, /On battery.*When the lid closes/],
@@ -258,7 +266,7 @@ test('sleep row: only the desktop read, the OK title says it was the desktop\'s 
 
 test('sleep row: the admin field is a logind snippet for what fired, never prose', () => {
   assert.equal(sleep({ idle: { action: 'suspend', minutes: 30 } }).admin,
-    "mkdir -p /etc/systemd/logind.conf.d && printf '[Login]\\nIdleAction=ignore\\n' > /etc/systemd/logind.conf.d/kosmos-idle.conf");
+    "mkdir -p /etc/systemd/logind.conf.d && printf '[Login]\\nIdleAction=ignore\\n' > /etc/systemd/logind.conf.d/99-kosmos-idle.conf");
   // The lid fix is the plugged-in key only, so closed on battery it still sleeps (review 7); battery-only offers none.
   assert.equal(sleep({ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' } }).admin, undefined);
   // Run for real into a temp file (no sudo, the path swapped): the file it writes is what logind reads, one key a line.
@@ -266,7 +274,7 @@ test('sleep row: the admin field is a logind snippet for what fired, never prose
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-logind-'));
   try {
     const out = path.join(tmp, 'kosmos.conf');
-    const local = lidCmd.replace(/^mkdir -p \S+ && /, '').replace('/etc/systemd/logind.conf.d/kosmos-lid.conf', JSON.stringify(out));
+    const local = lidCmd.replace(/^mkdir -p \S+ && /, '').replace('/etc/systemd/logind.conf.d/99-kosmos-lid.conf', JSON.stringify(out));
     assert.notEqual(local, lidCmd, 'control: the path was swapped, so nothing is written under /etc');
     require('node:child_process').execFileSync('/bin/sh', ['-c', local]);
     assert.equal(fs.readFileSync(out, 'utf8'), '[Login]\nHandleLidSwitchExternalPower=ignore\n');
@@ -401,24 +409,12 @@ test('sleep reader: a gsettings that fails is not asked again, and its timeout r
 
 test('sleep row: a lid that does different things on AC and on battery says both (review 6)', () => {
   const r = sleep({ idle: QUIET_IDLE, lid: { ac: 'poweroff', battery: 'suspend' } });
-  assert.match(r.detail, /When the lid closes while it is plugged in, this computer turns off\. When the lid closes on battery, it goes to sleep\./);
+  assert.match(r.detail, /When the lid closes while it is plugged in, this computer turns off, unless another screen is connected\. When the lid closes on battery, it goes to sleep\./);
   assert.match(r.title, /can go to sleep or turn off when its lid closes$/);
 });
 
-test('sleep reader: inside a virtual machine GNOME\'s idle suspend is not a finding (gsd-power skips it there)', () => {
-  const { runner } = sleepRunner({ IdleAction: 's "ignore"' });
-  const vm = machine.readLinuxSleep({ runner, hasLid: false, hasBattery: false, vm: true });
-  assert.equal(vm.gnome.ac, 'nothing');
-  assert.equal(sleep(vm).state, STATE.OK);
-  const metal = machine.readLinuxSleep({ runner: sleepRunner({ IdleAction: 's "ignore"' }).runner, hasLid: false, hasBattery: false, vm: false });
-  assert.equal(sleep(metal).state, STATE.ATTENTION, 'control: the same settings on real hardware');
-  const asked = [];
-  machine.readLinuxSleep({ runner: (c, a) => { asked.push(c); return sleepRunner({ IdleAction: 's "ignore"' }).runner(c, a); }, hasLid: false, hasBattery: false });
-  assert.ok(asked.includes('systemd-detect-virt'), 'with no seam, systemd-detect-virt is asked');
-});
-
 test('sleep row: a lid that sleeps only while plugged in says so', () => {
-  assert.match(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'ignore' } }).detail, /When the lid closes while it is plugged in, this computer goes to sleep\./);
+  assert.match(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'ignore' } }).detail, /When the lid closes while it is plugged in, this computer goes to sleep, unless another screen is connected\./);
 });
 
 test('sleep reader: a set HandleLidSwitchExternalPower is the plugged-in answer', () => {
@@ -443,7 +439,8 @@ test('sleepGate on linux gives the Mac\'s three answers from Linux\'s reading, w
   assert.equal(no.battOnly, false);
   assert.equal(gate({ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' }, gnome: null }).battOnly, true);
   assert.deepEqual(gate({ idle: null, lid: null, gnome: null }), { checkable: false, because: 'we could not read this computer\'s sleep settings' });
-  assert.deepEqual(gate({ idle: QUIET_IDLE, lid: null, gnome: null, desktop: true }), { checkable: true, prevented: true }, 'never a failed gate for what was not read');
+  assert.deepEqual(gate({ idle: QUIET_IDLE, lid: null, gnome: null, desktop: true }), { checkable: false, because: 'we could not read this computer\'s desktop sleep settings' },
+    'a desktop not read is neither a failed gate nor a passed one (review 8)');
   assert.ok(!asked.some((c) => /pmset/.test(c)), 'no pmset on Linux');
 });
 
