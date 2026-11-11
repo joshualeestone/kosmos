@@ -2131,6 +2131,15 @@ function resolveAgentSender(req, body, roster, opts) {
   if (byName.ok && byName.twins !== true && liveness.alive(byName.key) === true) {
     return { ok: true, card: { sessionName: byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
   }
+  /* kosmos#8372: a session's START is its own proof of life. On Windows the roster row appears only once Claude Code
+     registers the session, a moment after SessionStart, and the heartbeat is written only after an authenticated
+     report, so the `started` report could pass neither path and every session opened with "reporting is OFF" while its
+     later reports landed. The report route passes `startedReport` for a `started` report only; the token must still be
+     held (a retired or never-issued one is refused below as before) and name exactly one agent. The route then beats
+     liveness for it, so the agent's next reports pass on the heartbeat while registration catches up. */
+  if (opts && opts.startedReport === true && byName.ok && byName.twins !== true) {
+    return { ok: true, card: { sessionName: byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
+  }
   /* The original refusal, verbatim: `resolve` deliberately gives the same
      sentence for "never issued" and "issued but no card", so that a probe
      cannot confirm a token was ever real. Substituting a message here would
@@ -19327,6 +19336,7 @@ const server = http.createServer(async (req, res) => {
         const sender = resolveAgentSender(req, body, roster, {
           denyPaneFallback,
           denyBecause: 'this board only records a report from the account that started it; run `kosmos report` from that account, or present an agent token',
+          startedReport: body.state === 'started',   // kosmos#8372: a start proves life on the agent's own token
         });
         if (!sender.ok) { noteTurnEndRefusal(body, sender.because); sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
