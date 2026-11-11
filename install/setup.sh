@@ -2129,15 +2129,26 @@ gemini_settings_undo() {
       case "$_gw_out" in
         *@kosmos-gemini-done*) ;;
         *)
+          _gw_stopped=yes   # kosmos#8402: the next record names the same files; gemini_settings_undo_all stops here
           if [ -n "$_kwb_abandoned" ]; then _gw_how="could not be stopped and is left to finish on its own (it may still edit those files later)"; else _gw_how="was stopped"; fi
           info "putting back the Gemini settings Kosmos filled in did not finish in ${_kwb_secs}s and ${_gw_how}; a settings file may be on a slow or stalled network folder" ;;
       esac
     fi
   fi
   [ -z "$_gw_tmp" ] || rm -f "$_gw_tmp"
-  printf '%s\n' "$_gw_out" | while IFS= read -r _gw_l; do
-    case "$_gw_l" in "say "*) info "${_gw_l#say }" ;; esac
-  done
+  # kosmos#8402: read in this shell (a here-document, not a pipe), so a line one record already said is not said again by
+  # the next (every Kosmos records the person's one ~/.gemini file). _gw_said is reset by gemini_settings_undo_all.
+  while IFS= read -r _gw_l; do
+    case "$_gw_l" in
+      "say "*)
+        case "${_gw_said-}" in *"
+${_gw_l#say }
+"*) ;; *) info "${_gw_l#say }"; _gw_said="${_gw_said-}${_gw_l#say }
+" ;; esac ;;
+    esac
+  done <<GWEOF
+$_gw_out
+GWEOF
   case "$_gw_out" in
     *@kosmos-gemini-done*) ;;
     *)
@@ -2152,10 +2163,23 @@ gemini_settings_undo() {
 # $1/worlds/<id>/Kosmos/gemini-wrote.json, while the values went into the person's one ~/.gemini. Each record is undone
 # by its own gemini_settings_undo, so each node run stays inside _kosmos_wait_bounded. An unmatched glob stays literal
 # in sh, and gemini_settings_undo returns at once when there is no record there.
+# Names follow engine/worlds.js: only an id it could have made (CLEAN_ID, [a-z0-9_-]) and never "default", whose data is
+# the main folder's. If one record's node had to be stopped (a stalled mount), the rest name the same files, so they are
+# not tried: the person is told once where they are (kosmos#8388 review 7's rule for the unwire).
 gemini_settings_undo_all() {
   [ -n "$1" ] || return 0
+  _gw_said="
+"
+  _gw_stopped=""
   gemini_settings_undo "$1"
   for _gwa_d in "${1%/}"/worlds/*/Kosmos; do
+    [ -f "$_gwa_d/gemini-wrote.json" ] || continue
+    _gwa_id="${_gwa_d%/Kosmos}"; _gwa_id="${_gwa_id##*/}"
+    case "$_gwa_id" in default|*[!a-z0-9_-]*|"") continue ;; esac
+    if [ -n "${_gw_stopped-}" ]; then
+      info "note: the Gemini settings your other Kosmoses filled in were not tried after that; their lists are in ${1%/}/worlds"
+      break
+    fi
     gemini_settings_undo "$_gwa_d"
   done
   return 0

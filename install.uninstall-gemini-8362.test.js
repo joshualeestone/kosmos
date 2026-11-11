@@ -195,7 +195,7 @@ test('#8362: with no record, the uninstall says nothing about Gemini and leaves 
 test('#8362: the Gemini step runs before the home is deleted (it needs the bundled node)', () => {
   const s = fs.readFileSync(SETUP, 'utf8');
   const deleting = s.indexOf('info "deleting $KOSMOS_HOME"');
-  const step = s.indexOf('gemini_settings_undo_all "$_support"', deleting)   // kosmos#8402: every Kosmos's record;
+  const step = s.indexOf('gemini_settings_undo_all "$_support"', deleting);   // kosmos#8402: the step that undoes every Kosmos's record
   const rm = s.indexOf('rm -rf "$KOSMOS_HOME"', deleting);
   assert.ok(deleting > 0 && step > 0 && rm > 0, 'a landmark is gone from setup.sh');
   assert.ok(step < rm, 'the Gemini step runs after the home (and its node) is deleted');
@@ -221,4 +221,54 @@ test('kosmos#8402: a named Kosmos\'s record (its own data folder, worlds/<id>/Ko
   assert.equal(fs.existsSync(worldLedger), false, 'the named Kosmos\'s record was kept with nothing left in it');
   assert.equal(read(sb.mainFile).security, undefined, 'CONTROL: the main record was not put back as before');
   assert.ok(!out.includes(path.join('worlds', 'k3')), 'a named Kosmos with no record was mentioned');
+});
+
+/* kosmos#8402: a named Kosmos's record, written where create.js writes it in that Kosmos, for the file given. */
+function worldRecord(sb, id, file) {
+  const store = require('./engine/store');
+  const worlds = require('./engine/worlds');
+  const ledger = path.join(store.dataRootFor('darwin', sb.home, worlds.envOverridesFor(path.join(sb.data, 'Kosmos'), { id })), gs.WROTE_FILE);
+  fs.mkdirSync(path.dirname(ledger), { recursive: true });
+  if (fs.existsSync(file)) fs.writeFileSync(ledger, JSON.stringify({ files: { [file]: { 'security.auth.selectedType': 'gemini-api-key' } } }) + '\n');
+  else gs.ensurePrepared(file, BRIDGE, { platform: 'darwin', wroteLedger: ledger });
+  return ledger;
+}
+
+test('kosmos#8402: once one record\'s undo is stopped, the other Kosmoses\' records are not tried, and that is said once', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox({ hangEngine: true });
+  const l2 = worldRecord(sb, 'k2', sb.mainFile);
+  const l3 = worldRecord(sb, 'k3', sb.mainFile);
+  const t0 = Date.now();
+  const out = runUninstall(sb, { KOSMOS_UNINSTALL_NODE_SECONDS: '1' }, 20000);
+  const took = Date.now() - t0;
+  assert.ok(took < 6000, 'the uninstall waited ' + took + ' ms: each Kosmos\'s record waited out its own bound');
+  assert.equal(out.split('did not finish in 1s').length - 1, 1, 'the stop was said more or less than once:\n' + out);
+  assert.equal(out.split('were not tried after that').length - 1, 1, 'the skipped records were not said once:\n' + out);
+  assert.ok(fs.existsSync(l2) && fs.existsSync(l3), 'a record that was never tried was lost');
+});
+
+test('kosmos#8402: a line every record would say is said once', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox();
+  const w = read(sb.mainFile);
+  w.security.auth.selectedType = 'oauth-personal';   // the person changed it, so each record keeps it and names it
+  fs.writeFileSync(sb.mainFile, JSON.stringify(w, null, 2) + '\n');
+  worldRecord(sb, 'k2', sb.mainFile);
+  const out = runUninstall(sb);
+  const line = 'security.auth.selectedType in ' + sb.mainFile + ' was changed after Kosmos set it';
+  assert.ok(out.includes(line), 'CONTROL: the kept value was not named at all:\n' + out);
+  assert.equal(out.split(line).length - 1, 1, 'the same line was said once per record:\n' + out);
+});
+
+test('kosmos#8402: a re-run after the folder is gone names each named Kosmos\'s record too, and skips a folder no board could have made', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox();
+  const l2 = worldRecord(sb, 'k2', path.join(sb.home, '.gemini-k2', '.gemini', 'settings.json'));
+  const odd = path.join(sb.data, 'Kosmos', 'worlds', 'Not Clean', 'Kosmos', gs.WROTE_FILE);
+  fs.mkdirSync(path.dirname(odd), { recursive: true });
+  fs.copyFileSync(l2, odd);
+  fs.rmSync(sb.kh, { recursive: true, force: true });
+  const out = runUninstall(sb);
+  assert.ok(out.includes(sb.ledger), 'CONTROL: the main record was not named:\n' + out.slice(-800));
+  assert.ok(out.includes(l2), 'the named Kosmos\'s record was not named on a re-run:\n' + out.slice(-800));
+  assert.ok(!out.includes(odd), 'a folder name no board could have made was read:\n' + out.slice(-800));
+  assert.match(out, /Kosmos is removed/, 'the uninstall stopped after the Gemini step instead of finishing');
 });
