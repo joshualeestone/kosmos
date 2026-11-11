@@ -32,7 +32,7 @@ test.after(() => { if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: tru
 const theirHook = { type: 'command', command: 'echo mine' };
 const PLAT = { platform: 'darwin' };
 
-function sandbox({ noNode = false } = {}) {
+function sandbox({ noNode = false, hangNode = false } = {}) {
   const root = fs.mkdtempSync(path.join(tmpRoot, 'sb-'));
   const kh = path.join(root, 'kosmos-home');
   const home = path.join(root, 'home');
@@ -40,7 +40,10 @@ function sandbox({ noNode = false } = {}) {
   const support = path.join(data, 'Kosmos');             // what the uninstall resolves with no store.js to ask
   fs.mkdirSync(path.join(kh, 'runtime', 'bin'), { recursive: true });
   fs.mkdirSync(path.join(kh, 'bin'), { recursive: true });
-  if (!noNode) fs.symlinkSync(process.execPath, path.join(kh, 'runtime', 'bin', 'node'));
+  // kosmos#8388: a node that does not return in time (a settings file on a stalled mount). It ends by itself after 20 s,
+  // so a red run (the bound gone) leaves nothing running long after the test.
+  if (hangNode) fs.writeFileSync(path.join(kh, 'runtime', 'bin', 'node'), '#!/bin/sh\nexec sleep 20\n', { mode: 0o755 });
+  else if (!noNode) fs.symlinkSync(process.execPath, path.join(kh, 'runtime', 'bin', 'node'));
   fs.writeFileSync(path.join(kh, 'bin', 'kosmos'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(kh, 'VERSION'), '0.0.0\n');
   const bridge = path.join(support, 'bin', 'gemini-report-bridge.js');
@@ -77,7 +80,7 @@ function sandbox({ noNode = false } = {}) {
   return { root, kh, home, data, support, bridge, mainFile, workFile, otherFile, nestedFile, brokenFile };
 }
 
-function runUninstall(sb, extra = {}) {
+function runUninstall(sb, extra = {}, timeout = 0) {
   // The runner's own Gemini home override must never reach the uninstall: it would point it at a real file.
   const base = { ...process.env };
   delete base.AGENT_WORKFORCE_GEMINI_HOME;
@@ -97,6 +100,8 @@ function runUninstall(sb, extra = {}) {
         KOSMOS_APP_DIR: path.join(sb.root, 'apps'),
         KOSMOS_SYS_APP_DIR: path.join(sb.root, 'sysapps'),
       },
+      ...(timeout ? { timeout } : {}),
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (e) {
     return String((e.stdout || '') + (e.stderr || ''));
@@ -141,6 +146,20 @@ test('#8364: with no node, every Gemini file still pointing at this install\'s b
   const notice = out.slice(out.indexOf('Gemini CLI settings files'));
   for (const f of [sb.mainFile, sb.workFile, sb.brokenFile]) assert.ok(notice.includes(f), f + ' was not named');
   for (const f of [sb.otherFile, sb.nestedFile]) assert.ok(!notice.includes(f), f + ' (not this install\'s) was named');
+});
+
+test('kosmos#8388: a node step stopped at its time limit names the Gemini settings and does not read them again', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox({ hangNode: true });
+  const before = fs.readFileSync(sb.mainFile, 'utf8');
+  const t0 = Date.now();
+  const out = runUninstall(sb, { KOSMOS_UNINSTALL_NODE_SECONDS: '1' }, 15000);
+  const took = Date.now() - t0;
+  assert.ok(took < 6000, 'the uninstall waited ' + took + ' ms on a node that never returns (a slow runner gets room)');
+  assert.ok(!fs.existsSync(sb.kh), 'the uninstall did not reach its removal step: ' + out.slice(-600));
+  assert.equal(fs.readFileSync(sb.mainFile, 'utf8'), before, 'a Gemini file changed though the node step never ran');
+  assert.ok(out.includes('the same goes for Gemini CLI') && out.includes(path.join(sb.support, 'bin')), 'the stop did not name the Gemini settings:\n' + out);
+  // The fallback reads the files that may have stalled node, so after a stop it must not run.
+  assert.doesNotMatch(out, /these Gemini CLI settings files still hold Kosmos's hooks/, 'the Gemini fallback ran after a stop:\n' + out);
 });
 
 test('#8364: with no node and no Gemini files at all, the uninstall still finishes', { skip: SKIP_OFF_POSIX }, () => {

@@ -26,9 +26,13 @@ bounds its other call into the installed engine (_kosmos_data_root) with a poll-
 - Untested, stated: the ABANDON path (no uninterruptible process can be made in a test). Review 4's NITs 2 to 5 are
   residuals, not fixed in this slice.
 
+- #8364 (merged as 83fa6fb89c) takes Gemini's hooks out in the SAME node call, so that call is bounded already. After a
+  stop, gemini_hook_settings_left is skipped like hook_settings_left (it reads the files that may have stalled node),
+  and a second sentence names the Gemini settings to check by hand. Rebased by squashing reviews 1 to 6 into one commit
+  (the old commits are on the local branch backup-8388-0efeaf) and resolving the one conflict on the node call.
+
 ## Not in this slice
-The Gemini hook unwire (#8364) is not on main (only gemini_settings_undo is); whoever lands it wraps its node step
-with the helper.
+Nothing known: every node step in the uninstall that reads the person's settings goes through the helper.
 
 ## Tests
 install.uninstall-unwire-5998.test.js (5 for this card; 14 in the file; runUninstall returns stdout and stderr): a
@@ -38,4 +42,9 @@ written 08. 8 mutation arms: 7 red; `no-term` survives by design (a node that ob
 only timing differs). bash 3.2 and dash parse the file; a reviewer ran the test file under dash too (14/14).
 install.uninstall-gemini-8362.test.js: a Gemini undo that never returns (busy loop) with a 1 s limit: the uninstall
 ends under 6 s, says it did not finish in 1s, leaves the settings unchanged and keeps and names the record, no job line.
-Mutation: the Gemini wait made a plain `wait` reds it (held to the 90 s test timeout).
+Mutation: the Gemini wait made a plain `wait` reds it (at the 15 s test timeout; the fixture ends itself at 20 s).
+install.uninstall-geminihooks-8364.test.js: a node that never returns: the uninstall ends under 6 s, the Gemini file is
+unchanged, the stop names the Gemini settings, and the Gemini fallback notice does not appear. Two mutation arms red it
+(the skip-after-stop guard removed; the Gemini sentence removed).
+Related sweep: 43 files (install.*.test.js, engine/geminisettings*), 476/478; the two reds are #1290's file-reading
+tests, which read paths relative to the working directory and pass 3/3 from the repo root.
