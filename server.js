@@ -50,13 +50,10 @@ if (require.main === module) {
      so it is not read; engine/logstamp.test.js pins this layout against install/kosmos). */
   const logPaths = [path.join(__dirname, '..', 'logs', 'board.log')];
   /* #8373: on Windows the board's host sends both streams nowhere, so the board opens its own log and copies every
-     write into it (engine/win32boardlog.js). The stamp then marks that file, as it marks fd 1 on the Mac. */
+     write into it, stamped as the Mac's file is (engine/win32boardlog.js). The console copy stays unstamped, so the
+     stamp below is for the Mac and Linux only. */
   const routedLog = require('./engine/win32boardlog').route(process.stdout, process.stderr);
-  if (routedLog) {
-    const shared = { atLineStart: true };   // both streams go to the one routed file: one line state
-    logstamp.install(process.stdout, routedLog.fd, { shared, logPaths: [routedLog.path] });
-    logstamp.install(process.stderr, routedLog.fd, { shared, logPaths: [routedLog.path] });
-  } else {
+  if (!routedLog) {
     const shared = logstamp.sameFile(1, 2) ? { atLineStart: true } : undefined;   // both to board.log: one line state
     logstamp.install(process.stdout, 1, { shared, logPaths });
     logstamp.install(process.stderr, 2, { shared, logPaths });
