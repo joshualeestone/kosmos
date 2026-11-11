@@ -16,4 +16,4 @@
 That a Linux board's commands fail the way the test's runner does. Not run on a real Linux board.
 
 ## Not done
-`sleepGate` (the setup wizard's sleep read) still asks pmset off Windows. On Linux that read fails and the gate reads as unknown, which is honest; it is on #8384.
+`sleepGate` (the setup wizard's sleep read) still asks pmset off Windows. On Linux that read fails and the gate reads as unknown, which is honest; it is on #8384, with the setup wizard's sleep step, which still shows the macOS Energy settings on Linux.
