@@ -18,6 +18,8 @@
  * the page needs it.
  *
  * openerEnv(env = process.env) -> a new object holding only the listed variables that are set.
+ * winOpenerEnv(env = process.env) -> the same for the Windows opener (kosmos#5895): its own list, matched case-blind,
+ *   one entry per name.
  * hasDesktop(env = process.env) -> true when something can show a page: a display (DISPLAY or WAYLAND_DISPLAY), WSL
  *   (WSL_DISTRO_NAME, where xdg-open hands the page to Windows), or VS Code Remote (BROWSER with VSCODE_IPC_HOOK_CLI,
  *   which forwards the page to the person's own machine). BROWSER alone does not count: on a server it is often a
@@ -63,7 +65,9 @@ function openerEnv(env = process.env) {
  * CommonProgramFiles family, ALLUSERSPROFILE (ProgramData's older name) and the ARM64 folders, which hold no secret and which an
  * installed browser may look up. MEASURED as well
  * (2026-11-11): Edge itself, started cold (headless, its own throwaway profile), rendered a page with this list, and
- * also with an EMPTY environment, so a missing variable here cannot stop Edge from starting.
+ * also with an EMPTY environment, so a missing variable here cannot stop Edge from starting. Not measured: Chrome and
+ * Firefox (not on the box). rundll32 exits 0 once it hands the URL off, so a browser that failed to start for want of
+ * a variable would still read as opened, the person left with the link (kosmos#8369).
  */
 const WIN_OPENER_KEYS = Object.freeze([
   'SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'PATH', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA',
@@ -77,7 +81,9 @@ const WIN_OPENER_LOWER = new Set(WIN_OPENER_KEYS.map((k) => k.toLowerCase()));
 
 function winOpenerEnv(env = process.env) {
   const out = {};
-  const seen = new Set();   // one per name, case-blind: the first spelling wins, so the child never gets PATH and Path both
+  /* One per name, case-blind: the first spelling in the source wins (on purpose, not node's own rule, which sorts
+     and keeps PATH over Path), so the child never gets PATH and Path both. */
+  const seen = new Set();
   for (const [k, v] of Object.entries(env)) {
     const low = k.toLowerCase();
     if (typeof v !== 'string' || !v || !WIN_OPENER_LOWER.has(low) || seen.has(low)) continue;

@@ -5340,7 +5340,8 @@ test('kosmos#5889: the company sign-in opener passes only the desktop allowlist;
 test('kosmos#5895: on Windows the opener gets only its measured list, case-blind; the board\'s own variables stay out', async (t) => {
   /* Windows gets its own measured list (childenv.winOpenerEnv), matched case-insensitively: the board's own
      variables, from the source or from the board's process, no longer reach the opener, and the listed ones do, each
-     under the name it came with. The platform is the seam's, so this runs on any host. */
+     under the name it came with. The platform is the seam's, so this runs on the macOS and Linux CI (on a Windows
+     host the company flow itself does not start: it needs a tunnel stub). */
   const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opener-5895-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

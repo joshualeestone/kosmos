@@ -47,6 +47,8 @@ Rejected, measured 2026-11-11: handing the URL to explorer.exe, which does give 
 handler (sign-in links always carry one). The durable route, the person's environment rebuilt from the registry, is
 kosmos#8369, with the Chrome and Firefox cold-start measurement. What would change my mind: a report of a tool
 launched from the browser failing for a missing variable, which would move #8369 up.
+Proxy values kept on Windows as on macOS and Linux (#5889): a proxy URL can carry a user and password, but it is the
+person's own setting, and the sign-in page may not load without it.
 Weakest part: only Edge was started cold. Another default browser (Chrome, Firefox) was not measured, and rundll32
 exits 0 once it hands the URL off, so a browser that failed for want of a variable would read as opened.
 
