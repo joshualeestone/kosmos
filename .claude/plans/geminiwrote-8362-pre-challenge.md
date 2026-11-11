@@ -2,25 +2,28 @@
 pre_challenge: true
 method: challenge-loop
 branch: geminiwrote-8362
-diff_hash: e8f952ad03b3c2b165fdb0c93ffa1ec566a69b2401f81fa68aed292499fbabb0
+diff_hash: 6acaf5e139ce9a2d20e7d2d3bb352c06c56ad989b16338988640e3006a404e63
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-11T14:35:16Z
-iterations: 6
+timestamp: 2026-11-11T18:09:49Z
+iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6
-**Converged:** Yes (iteration 6 found no new findings; all of its items repeat earlier ledger entries)
-**Total findings acted on:** 0 BLOCKERs, 10 WARNINGs, 0 CONVENTIONs, plus NITs
-**Fixed:** 6 WARNINGs and 9 NITs | **Deferred:** 4 WARNINGs (documented) | **Carded:** 1 (#8364) | **Asked:** 0
+**Iterations:** 8
+**Converged:** Yes (iteration 8 found no new findings; its one WARNING, recurring every round, is carded as #8388)
+**Total findings acted on:** 0 BLOCKERs, 11 WARNINGs, 0 CONVENTIONs, plus NITs
+**Fixed:** 7 WARNINGs and 10 NITs | **Deferred:** 4 WARNINGs (documented) | **Carded:** 2 (#8364, #8388) | **Asked:** 0
 
 Full run-tests validation passed on every committed iteration (logs g8362-val-1..5), the last on 9b9d5d4723 (the
 final code before the last rebase). Two rebases: onto #8361 (one conflict, the requires, both kept; the uninstall test's
 sandbox engine then needed hookpaths.js, fixed) and onto #8365 (hookpaths.js only, no conflict); after the second, the
-focused set (10 files, 189 tests: 129 pass, 0 fail, 60 Windows-only skipped) was re-run on c7c6e1ec41.
+focused set (10 files, 189 tests: 129 pass, 0 fail, 60 Windows-only skipped) was re-run on c7c6e1ec41. Then the
+uninstall test was switched to /bin/sh (a person's uninstall runs under it, and on macOS only there does a command
+substitution inherit set -e; found on #8364), iterations 7 and 8 ran, and the branch was rebased onto #8382 (the CI
+fix for the Ubuntu DNS outage, #8380). Full run-tests validation passed on the final head, 0abd44ed2c.
 
 ### Per-Iteration Breakdown
 
@@ -63,9 +66,22 @@ focused set (10 files, 189 tests: 129 pass, 0 fail, 60 Windows-only skipped) was
 - [WARNING] engine/geminisettings.js - a value the person re-chose to the same value (gemini's /auth writes gemini-api-key) is taken out --> DEFERRED: no record can tell it apart; named in the weakest premise
 - [NIT] header claimed no engine dependencies --> FIXED; [NIT] the left message did not cover every reason --> FIXED; [NIT] the fallback named sign-in when only updates were recorded --> FIXED; [NIT] create.js now says the Windows uninstall does not read the record --> FIXED; [NIT] plan test count --> FIXED
 
-#### Iteration 6
+#### Iteration 6 (first convergence; the branch then changed, so 7 and 8 ran)
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 0 NITs (three WARNINGs and three NITs, each a repeat of iterations 2, 3 and 5)
+**Self-generated:** 0
+**Converged** - no new actionable findings.
+
+#### Iteration 7
+**Reviewer model:** opus (after the uninstall test moved to /bin/sh)
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 5 NITs
+**Self-generated:** 0 of the above
+- [WARNING] engine/geminisettings.js - an emptied settings file was named as still holding Kosmos's values and stayed in the record --> FIXED (fa29dd6733: an empty file is dropped quietly), with a check shown failing without it
+- [NIT] the re-run arm did not assert the uninstall finished --> FIXED; [NIT] a gemini still running at uninstall may save the values back afterwards --> stated as a residual in the plan; the watchdog --> a repeat
+
+#### Iteration 8
+**Reviewer model:** sonnet
+**New findings:** 0 (its WARNING, no watchdog on the node step, recurs every round: carded as #8388 for all three uninstall node steps)
 **Self-generated:** 0
 **Converged** - no new actionable findings.
 
@@ -83,6 +99,8 @@ focused set (10 files, 189 tests: 129 pass, 0 fail, 60 Windows-only skipped) was
 | 8 | 3 | WARNING | engine/geminisettings.js | BRANCH | a failed record at birth is lost | DEFERRED | known gap; in plan |
 | 9 | 4r | WARNING | install.uninstall-gemini-8362.test.js | BRANCH | sandbox engine missed hookpaths.js after rebase | FIXED | 11e2a39b48 |
 | 10 | 5 | WARNING | engine/geminisettings.js | BRANCH | a re-chosen identical value is taken out | DEFERRED | accepted; in plan |
+| 11 | 7 | WARNING | engine/geminisettings.js | BRANCH | an emptied file named as still holding our values | FIXED | fa29dd6733 |
+| 12 | 1-8 | WARNING | install/setup.sh | BRANCH | the node step has no watchdog | CARDED | #8388 |
 
 ### NITs (non-blocking, across all iterations)
 - The uninstall's node step has no watchdog (as its Claude sibling; the lock wait is bounded at 2 s)
