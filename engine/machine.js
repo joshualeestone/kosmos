@@ -88,7 +88,8 @@ function run(cmd, args) {
 
 /* The Linux looks are all local and answer in milliseconds, so they get two seconds, not run()'s five. They block the
    whole board while they run (execFileSync): after one times out the rest fail at once for ten seconds, and each
-   reading has its own time budget (linuxBudgeted), so a hung or sluggish bus costs a few seconds, not a minute. */
+   reading has its own time budget (linuxBudgeted: 1.5 s plus one look), so a hung or sluggish bus costs a Settings
+   visit at most about seven seconds for both readings, once per ten-second reading, not a minute. */
 let linuxTimeoutMs = 2000;
 let linuxHungUntil = 0;   // after one look times out, the others fail at once for ten seconds: one timeout per reading
 function setLinuxTimeoutForTests(ms) { linuxTimeoutMs = ms; linuxHungUntil = 0; }
@@ -108,7 +109,7 @@ function linuxRun(cmd, args) {
 /* One reading spends at most LINUX_READING_BUDGET_MS in its looks: once spent, the rest are skipped (and said as
    skipped), so a sluggish bus can never freeze the board for long, however each look is paced. opts.now is a test's
    clock. */
-const LINUX_READING_BUDGET_MS = 2500;
+const LINUX_READING_BUDGET_MS = 1500;   // checked before each look, so a reading takes at most this plus one look
 function linuxBudgeted(runner, opts) {
   const now = (opts && typeof opts.now === 'function') ? opts.now : Date.now;
   const start = now();
@@ -582,7 +583,8 @@ function linuxCached(key, opts, read) {
   const hungBefore = Date.now() < linuxHungUntil;
   const value = read();
   // A reading made while a look timed out, at its start or end, is not kept: the next visit reads again.
-  if (!hungBefore && Date.now() >= linuxHungUntil) linuxReadings.set(key, { at: now, value });
+  // Nor one with skipped looks: its row says it is asked again on the next visit, so it must be.
+  if (!hungBefore && Date.now() >= linuxHungUntil && !(value && value.skipped)) linuxReadings.set(key, { at: now, value });
   return value;
 }
 
@@ -603,8 +605,8 @@ function linuxSleepCheck(reading) {
   const after = (m) => (m ? 'after ' + minutesWords(m) : 'after a while');
   const lidByDesktop = Boolean(lid && lid.desktopHandles);
   const lidStops = !lidByDesktop && Boolean(lid && (stops(lid.ac) || stops(lid.battery) || stops(lid.docked)));
-  const lidNote = lidByDesktop ? ' What closing the lid does is up to your desktop, which holds it right now (this can '
-    + 'change when another screen is connected or removed).' : '';
+  const lidNote = lidByDesktop ? ' What closing the lid does is up to something else on this computer, such as your desktop, '
+    + 'which holds it right now (this can change when another screen is connected or removed).' : '';
   const said = [], verbs = [];
   const plugged = [];   // the verbs of what happens plugged in, open and idle: the title's "on its own"
   const say = (sentence, verb) => { said.push(sentence); verbs.push(verb); };
@@ -2138,10 +2140,12 @@ function readLinuxBoardAutostart(runnerIn, opts) {
     if (!inTest) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
     // One ask: the switch, and whether systemd is the one running this board now (held) or not (loose, as setup.sh
     // leaves it when linger could not be turned on).
-    const r = runner('systemctl', ['--user', 'show', '-p', 'UnitFileState', '-p', 'MainPID', lb.boardUnitName()]);
+    const r = runner('systemctl', ['--user', 'show', '-p', 'UnitFileState', '-p', 'MainPID', '-p', 'ActiveState', lb.boardUnitName()]);
     const pidM = r && r.ok ? String(r.stdout || '').match(/^MainPID=(\d+)\s*$/m) : null;
     // MainPID is this node's pid because board-run ends in exec node (as linuxboard.canRestart relies on too).
     if (pidM) held = Number(pidM[1]) === (('pid' in o) ? o.pid : process.pid);
+    // The unit running, but not as this process: not known which (setup.sh would call it held), so no loose words.
+    if (held === false && r && /^ActiveState=active\s*$/m.test(String(r.stdout || ''))) held = null;
     const m = r && r.ok ? String(r.stdout || '').match(/^UnitFileState=(\S*)\s*$/m) : null;
     // An empty state is systemd answering that it does not know the unit, not a failed ask.
     unitState = m ? m[1] : null;
@@ -2159,6 +2163,7 @@ function readLinuxBoardAutostart(runnerIn, opts) {
     if (linger === undefined) {
       const u = (() => { try { return os.userInfo().username; } catch { return ''; } })();
       const r = u ? runner('loginctl', ['show-user', u, '-p', 'Linger']) : null;
+      if (r && /^skipped/.test(String(r.because || ''))) skipped = true;
       const m = r && r.ok ? String(r.stdout || '').match(/^Linger=(yes|no)\s*$/m) : null;
       linger = m ? m[1] === 'yes' : undefined;
     }

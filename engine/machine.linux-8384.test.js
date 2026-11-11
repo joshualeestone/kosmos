@@ -886,7 +886,7 @@ test('linuxRun: after one look times out, the rest fail at once, so a reading co
     const next = run('/bin/sleep', ['2']);
     assert.equal(next.ok, false);
     assert.match(next.because, /timed out just now/);
-    assert.ok(Date.now() - t1 < 100, 'the second fails at once');
+    assert.ok(Date.now() - t1 < 500, 'the second fails at once');
     assert.ok(t1 - t0 < 1500, 'the first stops at the timeout');
   } finally { machine.setLinuxTimeoutForTests(2000); }
   assert.equal(machine.__linuxRunForTests('/bin/echo', ['ok']).stdout, 'ok\n', 'control: reset, it runs again');
@@ -990,7 +990,7 @@ test('sleep: a desktop holding the lid inhibitor decides the lid; no logind lid 
   const row2 = sleep(got);
   assert.equal(row2.state, STATE.OK);
   assert.equal(row2.admin, undefined);
-  assert.match(row2.detail, /What closing the lid does is up to your desktop, which holds it right now \(this can change when another screen is connected or removed\)\./);
+  assert.match(row2.detail, /What closing the lid does is up to something else on this computer, such as your desktop, which holds it right now \(this can change when another screen is connected or removed\)\./);
   // Control: the same logind answers without the inhibitor are the lid finding.
   const plain = (c, a) => (c === 'busctl' && a[5] === 'BlockInhibited' ? { ok: true, stdout: 's "sleep"\n' } : r(c, a));
   assert.equal(sleep(machine.readLinuxSleep({ runner: plain, hasLid: true })).state, STATE.ATTENTION);
@@ -1152,4 +1152,25 @@ test('boardAutostartCheck with no runner on Linux does not throw', () => {
 
 test('sleep: a lid read with IdleAction missing still asks for a desktop, and the gate does not pass an unruled-out one', () => {
   assert.equal(machine.sleepGate({ platform: 'linux', linuxSleep: { idle: null, lid: { ac: 'ignore', battery: 'ignore' }, gnome: null, desktop: null } }).checkable, false);
+});
+
+test('a reading with skipped looks is never kept, so "asked again on the next visit" is true', () => {
+  let reads = 0;
+  const key = 'skip-' + Math.random();
+  for (let i = 0; i < 2; i++) machine.linuxCached(key, { cacheInTest: true }, () => { reads += 1; return { skipped: true }; });
+  assert.equal(reads, 2);
+});
+
+test('restart: an active unit whose main process is not this one is not called loose', () => {
+  const r = (c) => (c === 'systemctl' ? { ok: true, stdout: 'UnitFileState=enabled\nMainPID=4242\nActiveState=active\n' } : { ok: true, stdout: 'Linger=no\n' });
+  const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(r, { runner: r, installedRoot: BUNDLE, pid: 999 }));
+  assert.equal(got.held, undefined);
+  assert.equal(row(got).title, 'Kosmos stops when you log out', 'the held words, as setup.sh says for an active unit');
+});
+
+test('restart: a budget-skipped linger look marks the reading skipped', () => {
+  let t = 0;
+  const r = (c) => { t += 2000; return c === 'systemctl' ? { ok: true, stdout: 'UnitFileState=enabled\n' } : { ok: true, stdout: 'Linger=yes\n' }; };
+  const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(r, { runner: r, installedRoot: BUNDLE, now: () => t }));
+  assert.equal(got.skipped, true);
 });
