@@ -410,13 +410,18 @@ function readLinuxSleep(opts) {
     };
     /* 0 is "never" (GNOME's own meaning); null is a timeout we could not read, which is not "never" (review 4). */
     const mins = (v) => { if (v === null || v === '') return null; const n = Number(v); return !Number.isFinite(n) ? null : (n <= 0 ? 0 : Math.max(1, Math.round(n / 60))); };
-    const ac = get('sleep-inactive-ac-type');
+    let ac = get('sleep-inactive-ac-type');
+    /* GNOME's power service skips its idle suspend inside a virtual machine (gsd-power: "Ignoring sleep timeout with
+       suspend action inside VM"), so there a GNOME "suspend" is not a finding (review 7; from gnome-settings-daemon's
+       source, not measured). Seam: opts.vm. */
+    const vm = ('vm' in o) ? o.vm === true : (() => { const v = runner('systemd-detect-virt', ['--vm']); return Boolean(v && v.ok && String(v.stdout || '').trim() && String(v.stdout).trim() !== 'none'); })();
     if (ac) {
       /* The battery half only on a machine with a battery: GNOME keeps its stock "suspend after 15 minutes on battery"
          on a desktop PC too, where nothing acts on it (review 2). Seam: opts.hasBattery. */
       const battery = (('hasBattery' in o) ? o.hasBattery === true : (inTest ? false : linuxHasBattery()));
-      gnome = { ac, acMinutes: mins(get('sleep-inactive-ac-timeout')),
-        battery: battery ? get('sleep-inactive-battery-type') : null,
+      const vmSkip = (t) => (vm && t === 'suspend' ? 'nothing' : t);
+      gnome = { ac: vmSkip(ac), acMinutes: mins(get('sleep-inactive-ac-timeout')),
+        battery: battery ? vmSkip(get('sleep-inactive-battery-type')) : null,
         batteryMinutes: battery ? mins(get('sleep-inactive-battery-timeout')) : null };
     }
   }
@@ -483,15 +488,16 @@ function linuxSleepCheck(reading) {
   const said = [], verbs = [];
   const say = (sentence, verb) => { said.push(sentence); verbs.push(verb); };
   if (idleStops) say('After ' + (idle.minutes ? minutesWords(idle.minutes) : 'a while') + ' with nobody using it, this computer ' + stops(idle.action) + '.', stops(idle.action));
-  if (gnomeAc) say('While it is plugged in, ' + after(gnome.acMinutes) + ' with nobody using it, the desktop has it ' + LINUX_ACTION_BASE[stops(gnome.ac)] + '.', stops(gnome.ac));
-  if (gnomeBatt) say('On battery, ' + after(gnome.batteryMinutes) + ' with nobody using it, the desktop has it ' + LINUX_ACTION_BASE[stops(gnome.battery)] + '.', stops(gnome.battery));
+  if (gnomeAc) say('While it is plugged in, ' + after(gnome.acMinutes) + ' with nobody using it, the desktop ' + (stops(gnome.ac) === 'goes to sleep' ? 'puts it to sleep' : (stops(gnome.ac) === 'turns off' ? 'turns it off' : 'restarts it')) + '.', stops(gnome.ac));
+  if (gnomeBatt) say('On battery, ' + after(gnome.batteryMinutes) + ' with nobody using it, the desktop ' + (stops(gnome.battery) === 'goes to sleep' ? 'puts it to sleep' : (stops(gnome.battery) === 'turns off' ? 'turns it off' : 'restarts it')) + '.', stops(gnome.battery));
   if (lidStops) {
     const ac = stops(lid.ac), batt = stops(lid.battery);
     // One sentence when both sides do the same; each side said when they differ (review 6: a poweroff/suspend pair).
     if (ac && batt && ac !== batt) {
       say('When the lid closes while it is plugged in, this computer ' + ac + '.', ac);
       say('When the lid closes on battery, it ' + batt + '.', batt);
-    } else if (ac) say('When the lid closes, this computer ' + ac + '.', ac);
+    } else if (ac && batt) say('When the lid closes, this computer ' + ac + '.', ac);
+    else if (ac) say('When the lid closes while it is plugged in, this computer ' + ac + '.', ac);
     else say('When the lid closes on battery, this computer ' + batt + '.', batt);
   }
   /* The words follow what was found (review 3): a computer set to turn off is not said to sleep, and one that
@@ -501,14 +507,18 @@ function linuxSleepCheck(reading) {
     : (vs.includes('turns off') ? ' Your agents stop until it is started again.' : ' Your agents stop while it restarts.'));
   // Where to change it, only for what was found (review 1); a file path is for an administrator (review 3).
   const desktopFix = (gnomeAc || gnomeBatt) ? ' You can change the desktop\'s part in its Power settings, under Automatic Suspend.' : '';
-  const logind = idleStops || lidStops;
   /* A real snippet, as the other admin fields are commands (review 4); Settings shows it as code. Restarting the
      computer applies it: restarting systemd-logind by hand can end the sessions logged in. */
-  const keys = [idleStops ? 'IdleAction=ignore' : null, lidStops ? 'HandleLidSwitch=ignore' : null, lidStops ? 'HandleLidSwitchExternalPower=ignore' : null].filter(Boolean);
+  /* The lid key is the plugged-in one only: closed on battery it should still sleep, or it drains in a bag (review 7).
+     One file per finding, so a later fix never undoes an earlier one (review 7). */
+  const files = [];
+  if (idleStops) files.push(['kosmos-idle.conf', 'IdleAction=ignore']);
+  if (lidStops && stops(lid.ac)) files.push(['kosmos-lid.conf', 'HandleLidSwitchExternalPower=ignore']);
   /* One command that pastes as it reads (review 5: a line of prose in a code box did not), for an administrator's root
      shell, as the Windows row's command is for an administrator's prompt; then a restart applies it. */
-  const extra = logind ? { admin: 'mkdir -p /etc/systemd/logind.conf.d && printf \'[Login]\\n' + keys.join('\\n') + '\\n\' > /etc/systemd/logind.conf.d/kosmos.conf' } : {};
-  const logindFix = logind ? (desktopFix ? ' An administrator can change the rest, then restart the computer.' : ' An administrator can change it, then restart the computer.') : '';
+  const extra = files.length ? { admin: ['mkdir -p /etc/systemd/logind.conf.d'].concat(files.map(([f, k]) =>
+    'printf \'[Login]\\n' + k + '\\n\' > /etc/systemd/logind.conf.d/' + f)).join(' && ') } : {};
+  const logindFix = files.length ? (desktopFix ? ' An administrator can change the rest, then restart the computer.' : ' An administrator can change it, then restart the computer.') : '';
   if (idleStops || gnomeAc) {
     const vs = verbs;
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION,
@@ -1903,7 +1913,9 @@ function readLinuxBoardAutostart(runner, opts) {
   }
   /* Whether systemd runs this computer at all (a container, WSL without systemd): sd_booted's own test (review 6).
      Seam: opts.systemdRunning. */
-  const systemdRunning = ('systemdRunning' in o) ? o.systemdRunning : (() => { try { return fs.statSync('/run/systemd/system').isDirectory(); } catch { return false; } })();
+  const systemdRunning = ('systemdRunning' in o) ? o.systemdRunning
+    : (require('./live-execution').inTestProcess() ? null   // a test never reads the host's (review 7)
+      : (() => { try { return fs.statSync('/run/systemd/system').isDirectory(); } catch { return false; } })());
   let unitFile = null;
   try { fs.statSync(lb.boardUnitPath()); unitFile = true; }
   catch (e) { unitFile = e && e.code === 'ENOENT' ? false : null; }   // only a proven absence is "missing"
