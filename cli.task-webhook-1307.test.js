@@ -21,6 +21,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const { execFile } = require('node:child_process');
 const { withoutAgentIdentity } = require('./test-support/agent-env');   // kosmos#6740: never run the CLI as the agent running the test
+const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, through bash, which Windows does not have');   // kosmos#8378
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const TASKS = {
@@ -58,7 +59,7 @@ function stubBoard() {
   });
 }
 
-test('install/kosmos: task list marks and quotes webhook tasks, one line per task, wording by whether it is given out', async () => {
+test('install/kosmos: task list marks and quotes webhook tasks, one line per task, wording by whether it is given out', { skip: SKIP_BASH }, async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-home-1307-'));
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-data-1307-'));
   fs.mkdirSync(path.join(home, 'runtime', 'bin'), { recursive: true });

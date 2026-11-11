@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
+const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs the report hook (install/kosmos-report-hook.sh) through /bin/sh, which Windows does not have');   // kosmos#8378
 
 const HOOK = path.join(__dirname, 'install', 'kosmos-report-hook.sh');
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'rhtf-'));
@@ -96,7 +97,7 @@ test('with no runnable CLI the hook still exits 0 and sends nothing', () => {
   assert.equal(fs.readFileSync(LOG, 'utf8'), '');
 });
 
-test('a jq that fails on the signature sends nothing, rather than the one hash of nothing for every failure', () => {
+test('a jq that fails on the signature sends nothing, rather than the one hash of nothing for every failure', { skip: SKIP_BASH }, () => {
   /* It must fail ONLY on the signature's -cS call: a jq that fails everywhere cannot read the event name, so the hook
      stops before this branch and the test would pass for the wrong reason. */
   const real = cp.execFileSync('/bin/sh', ['-c', 'command -v jq || true'], { encoding: 'utf8' }).trim() || '/usr/bin/jq';

@@ -26,6 +26,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs the kill guard (install/kosmos-report-hook.sh) through /bin/bash, which Windows does not have');   // kosmos#8378
 
 const HOOK = path.join(__dirname, 'install', 'kosmos-report-hook.sh');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4671-'));
@@ -108,7 +109,7 @@ const ALLOWED_BASH = [
 for (const noJq of [false, true]) {
   const how = noJq ? ' (no jq)' : '';
   for (const cmd of BLOCKED_BASH) {
-    test(`#4671 blocks Bash${how}: ${JSON.stringify(cmd)}`, () => {
+    test(`#4671 blocks Bash${how}: ${JSON.stringify(cmd)}`, { skip: SKIP_BASH }, () => {
       const r = run('Bash', { command: cmd }, { noJq });
       assert.equal(r.code, 2, 'must block (exit 2): ' + r.stderr);
       assert.match(r.stderr, /kosmos#4671/);
@@ -116,20 +117,20 @@ for (const noJq of [false, true]) {
     });
   }
   for (const cmd of ALLOWED_BASH) {
-    test(`#4671 CONTROL allows Bash${how}: ${JSON.stringify(cmd)}`, () => {
+    test(`#4671 CONTROL allows Bash${how}: ${JSON.stringify(cmd)}`, { skip: SKIP_BASH }, () => {
       const r = run('Bash', { command: cmd }, { noJq });
       assert.equal(r.code, 0, 'must not block: ' + r.stderr);
     });
   }
 }
 
-test('#4671 the reason names what was matched', () => {
+test('#4671 the reason names what was matched', { skip: SKIP_BASH }, () => {
   assert.match(run('Bash', { command: 'KILL -9 N1' }).stderr, /a signal to process id -1/);
   assert.match(run('Bash', { command: 'PKILL -u 501' }).stderr, /matches every process you own/);
   assert.match(run('Bash', { command: 'LAUNCHCTL reboot' }).stderr, /launchctl command/);
 });
 
-test('#4671 guards any tool with a runnable field, and the tools that write code', () => {
+test('#4671 guards any tool with a runnable field, and the tools that write code', { skip: SKIP_BASH }, () => {
   assert.equal(run('Monitor', { command: 'KILL -9 N1' }).code, 2);
   assert.equal(run('mcp__x__run', { script: 'KILL -9 N1' }).code, 2);
   assert.equal(run('mcp__x__py', { code: 'import os\nos.KILL(N1, 9)' }).code, 2);
@@ -141,7 +142,7 @@ test('#4671 guards any tool with a runnable field, and the tools that write code
   assert.equal(run('NotebookEdit', { notebook_path: '/tmp/n.ipynb', new_source: 'import os\nos.KILL(N1, 9)' }).code, 2);
 });
 
-test('#4671 CONTROL: only what runs or is written is read (with jq), and documents are not checked', () => {
+test('#4671 CONTROL: only what runs or is written is read (with jq), and documents are not checked', { skip: SKIP_BASH }, () => {
   assert.equal(run('Bash', { command: 'echo ok', description: 'KILL stale PKILL -u runs, KILL -9 N1' }).code, 0, 'a description is not run');
   assert.equal(run('Edit', { file_path: '/tmp/x.sh', old_string: 'KILL -9 N1', new_string: '' }).code, 0, 'deleting the line must be allowed');
   assert.equal(run('Write', { file_path: '/tmp/x.js', content: "child.KILL('SIGKILL');\nprocess.KILL(pid, 0);\n" }).code, 0);
@@ -151,7 +152,7 @@ test('#4671 CONTROL: only what runs or is written is read (with jq), and documen
   assert.equal(run('Read', { file_path: '/tmp/KILL -9 N1.txt' }).code, 0, 'a path argument is not a command');
 });
 
-test('#4671 round 3: a document path skips only written content, never a runnable field; CRLF is an end', () => {
+test('#4671 round 3: a document path skips only written content, never a runnable field; CRLF is an end', { skip: SKIP_BASH }, () => {
   assert.equal(run('mcp__x', { file_path: 'a.md', command: 'KILL -9 N1' }).code, 2, 'with jq');
   assert.equal(run('mcp__x', { file_path: 'a.md', command: 'KILL -9 N1' }, { noJq: true }).code, 2, 'without jq');
   assert.equal(run('Bash', { command: 'PKILL -u $USER\r\n' }).code, 2);
@@ -162,18 +163,18 @@ test('#4671 round 3: a document path skips only written content, never a runnabl
   assert.equal(run('mcp__x', { args: 'KILL -9 N1' }).code, 2, 'a string args is read');
 });
 
-test('#4671 CONTROL: malformed tool_input fails open, never blocks everything or crashes', () => {
+test('#4671 CONTROL: malformed tool_input fails open, never blocks everything or crashes', { skip: SKIP_BASH }, () => {
   assert.equal(run('mcp__x', { command: 'ls', edits: [3, 'x', { new_string: 'ok' }] }).code, 0);
   assert.equal(run('mcp__x', { command: 'KILL -9 N1', edits: ['x'] }).code, 2, 'a bad sibling field must not hide the command');
   assert.equal(run('mcp__x', 'just a string').code, 0);
 });
 
-test('#4671 the operator can turn it off for an agent (KOSMOS_KILL_GUARD=off in the agent\'s launch environment)', () => {
+test('#4671 the operator can turn it off for an agent (KOSMOS_KILL_GUARD=off in the agent\'s launch environment)', { skip: SKIP_BASH }, () => {
   assert.equal(run('Bash', { command: 'KILL -9 N1' }, { env: { KOSMOS_KILL_GUARD: 'off' } }).code, 0);
   assert.equal(run('Bash', { command: 'KILL -9 N1' }, { env: { KOSMOS_KILL_GUARD: 'on' } }).code, 2, 'any other value keeps it on');
 });
 
-test('#4671 maintaining the guard is not refused by it: writing the hook itself, or this test, passes (both paths)', () => {
+test('#4671 maintaining the guard is not refused by it: writing the hook itself, or this test, passes (both paths)', { skip: SKIP_BASH }, () => {
   for (const noJq of [false, true]) {
     for (const f of [HOOK, __filename]) {
       // raw: the file exactly as it is on disk, placeholders NOT decoded
@@ -183,13 +184,13 @@ test('#4671 maintaining the guard is not refused by it: writing the hook itself,
   }
 });
 
-test('#4671 round 5: a multi-line script Write is read as lines on both paths', () => {
+test('#4671 round 5: a multi-line script Write is read as lines on both paths', { skip: SKIP_BASH }, () => {
   for (const noJq of [false, true]) {
     assert.equal(run('Write', { file_path: '/tmp/stop.sh', content: 'KILL -TERM "$PID"\nwait "$PID"\ngit log N1 --oneline\n' }, { noJq }).code, 0);
   }
 });
 
-test('#4671 round 6: a large escape-heavy Write finishes well inside the hook\'s 15 s timeout on both paths', () => {
+test('#4671 round 6: a large escape-heavy Write finishes well inside the hook\'s 15 s timeout on both paths', { skip: SKIP_BASH }, () => {
   // 2 MB of pretty-printed JSON (every quote escaped in the payload) plus backslash-heavy paths.
   const big = JSON.stringify(Array.from({ length: 35000 }, (_, i) => ({ path: 'C:\\Users\\x\\' + i, re: '^a\\d+$' })), null, 2);
   assert.ok(big.length > 2e6, 'the fixture is really over 2 MB: ' + big.length);
@@ -202,13 +203,13 @@ test('#4671 round 6: a large escape-heavy Write finishes well inside the hook\'s
   }
 });
 
-test('#4671 round 6: without jq, an Edit that REPLACES a dangerous line with a safe one is allowed', () => {
+test('#4671 round 6: without jq, an Edit that REPLACES a dangerous line with a safe one is allowed', { skip: SKIP_BASH }, () => {
   const r = run('Edit', { file_path: '/tmp/x.sh', old_string: 'PKILL -u me', new_string: 'PKILL -u me node' }, { noJq: true });
   assert.equal(r.code, 0, r.stderr);
   assert.equal(run('Edit', { file_path: '/tmp/x.sh', old_string: 'echo', new_string: 'PKILL -u me' }, { noJq: true }).code, 2, 'the new text is still read');
 });
 
-test('#4671 round 7: a large multi-line script without jq reads as lines too (no size cap with perl)', () => {
+test('#4671 round 7: a large multi-line script without jq reads as lines too (no size cap with perl)', { skip: SKIP_BASH }, () => {
   const pad = '# ' + 'x'.repeat(78) + '\n';
   const content = pad.repeat(3700) + 'KILL -9 $PID\nhead N1 f\n';   // ~300 KB
   assert.ok(content.length > 262144);
@@ -216,14 +217,14 @@ test('#4671 round 7: a large multi-line script without jq reads as lines too (no
   assert.equal(run('Write', { file_path: '/tmp/x.sh', content: content + 'KILL -9 N1\n' }, { noJq: true }).code, 2);
 });
 
-test('#4671 round 7: without jq, a .md write and a description are not read, as with jq', () => {
+test('#4671 round 7: without jq, a .md write and a description are not read, as with jq', { skip: SKIP_BASH }, () => {
   assert.equal(run('Edit', { file_path: '/t/x.md', old_string: 'a', new_string: 'KILL -9 N1' }, { noJq: true }).code, 0);
   assert.equal(run('Bash', { command: 'echo hi', description: 'never KILL -9 N1' }, { noJq: true }).code, 0);
   assert.equal(run('Task', { description: 'x', prompt: 'Never run KILL -9 N1 or PKILL -u me.' }, { noJq: true }).code, 0, 'a subagent prompt that forbids it');
   assert.equal(run('Bash', { command: 'KILL -9 N1', description: 'x' }, { noJq: true }).code, 2, 'the command is still read');
 });
 
-test('#4671 round 8 nits: .MD is a document on both paths; a to-do list is not read; invalid UTF-8 does not fail open', () => {
+test('#4671 round 8 nits: .MD is a document on both paths; a to-do list is not read; invalid UTF-8 does not fail open', { skip: SKIP_BASH }, () => {
   for (const noJq of [false, true]) {
     assert.equal(run('Write', { file_path: '/tmp/README.MD', content: 'never KILL -9 N1' }, { noJq }).code, 0);
     assert.equal(run('TodoWrite', { todos: [{ content: 'find why KILL -9 N1 ended the session', status: 'pending', activeForm: 'finding' }] }, { noJq }).code, 0);
@@ -236,7 +237,7 @@ test('#4671 round 8 nits: .MD is a document on both paths; a to-do list is not r
   assert.equal(r.status, 2, r.stderr);
 });
 
-test('#4671 the awk fallback (no perl) blocks and allows like the rest, and stays inside the timeout', () => {
+test('#4671 the awk fallback (no perl) blocks and allows like the rest, and stays inside the timeout', { skip: SKIP_BASH }, () => {
   for (const cmd of ['KILL -9 N1', 'PKILL -u me', 'PGREP -u $USER | xargs KILL']) assert.equal(run('Bash', { command: cmd }, { noJq: true, noPerl: true }).code, 2, cmd);
   assert.equal(run('Bash', { command: 'KILL -9 $PID\nsleep 1\ngit log N1' }, { noJq: true, noPerl: true }).code, 0);
   const big = 'x'.repeat(1_500_000) + '\nKILL -9 N1\n';
@@ -245,11 +246,11 @@ test('#4671 the awk fallback (no perl) blocks and allows like the rest, and stay
   assert.ok(Date.now() - t0 < 12000, 'over the cap it is matched raw, linearly');
 });
 
-test('#4671 only PreToolUse is guarded: the same payload on another event is not blocked', () => {
+test('#4671 only PreToolUse is guarded: the same payload on another event is not blocked', { skip: SKIP_BASH }, () => {
   assert.equal(run('Bash', { command: 'KILL -9 N1' }, { event: 'PostToolUse' }).code, 0);
 });
 
-test('#4671 KNOWN GAP, pinned so it is not mistaken for coverage: a pid computed at run time passes', () => {
+test('#4671 KNOWN GAP, pinned so it is not mistaken for coverage: a pid computed at run time passes', { skip: SKIP_BASH }, () => {
   // The 2026-09-29 script itself: minus one sat in a list, and the call took a variable. A text match
   // cannot see that; the card records the runtime guard that could, and why it is a separate decision.
   const r = run('Write', { file_path: '/tmp/t.js', content: "const pids = [N1, 999999];\nfor (const pid of pids) process.KILL(pid, 'SIGKILL');\n" });
@@ -270,7 +271,7 @@ test('#5420 every grep in the kill guard runs in the locale it picked: C for GNU
   for (const g of greps) assert.equal(g, 'LC_ALL="$_lc" grep', 'every grep in _kill_all_reason runs in the picked locale');
 });
 
-test('#5420 the guard runs its greps in C under GNU grep, and in the caller\'s locale under BSD grep', () => {
+test('#5420 the guard runs its greps in C under GNU grep, and in the caller\'s locale under BSD grep', { skip: SKIP_BASH }, () => {
   // A fake grep first on PATH: it answers --version as the flavour asked for, records the LC_ALL each guard
   // grep (the -Eq -- calls) ran with, and otherwise runs the real grep, so every decision is real.
   const dir = fs.mkdtempSync(path.join(SANDBOX, 'fakegrep-'));
@@ -301,7 +302,7 @@ test('#5420 the guard runs its greps in C under GNU grep, and in the caller\'s l
   }
 });
 
-test('#5420 the code arm still reads Unicode spaces as JavaScript does, now that the greps run in C', () => {
+test('#5420 the code arm still reads Unicode spaces as JavaScript does, now that the greps run in C', { skip: SKIP_BASH }, () => {
   // In C, [[:space:]] is ASCII only. JavaScript treats these as whitespace, so the minus one below is still a
   // minus one to node; under the UTF-8 locale the old greps caught some of them, and all must still block.
   for (const ws of ['\u00a0', '\u1680', '\u2000', '\u2003', '\u2007', '\u200a', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff']) {
@@ -316,7 +317,7 @@ test('#5420 the code arm still reads Unicode spaces as JavaScript does, now that
   assert.equal(run('Write', { file_path: '/tmp/x.js', content: 'process.KILL(\u00e9N1, 9);\n' }).code, 0);
 });
 
-test('#5420 the argv arm reads Unicode spaces too, and a signal 0 after one stays allowed', () => {
+test('#5420 the argv arm reads Unicode spaces too, and a signal 0 after one stays allowed', { skip: SKIP_BASH }, () => {
   for (const ws of ['\u00a0', '\u1680', '\u2000', '\u2003', '\u2007', '\u200a', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff']) {
     const name = `U+${ws.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`;
     for (const content of [

@@ -21,6 +21,7 @@ const http = require('node:http');
 const { answerProof, mintedTokens } = require('./test-support/boardproof-stub');
 const nodePath = require('node:path');
 const { spawn } = require('node:child_process');
+const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs the supervisor (bin/agent-supervisor.sh) through /bin/bash, which Windows does not have');   // kosmos#8378
 
 const SUP = nodePath.join(__dirname, 'bin', 'agent-supervisor.sh');
 const ROOT = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-sup-agyseed-4417-'));
@@ -88,7 +89,7 @@ async function run(name, { signedIn, adopt = false, extraEnv = {}, gitWork = fal
   return { r, reports, calls: fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '', session };
 }
 
-test('#4417: a launched, hooked, trusted, signed-in agy agent sends one idle, as the new pane, AFTER its session is claimed', async () => {
+test('#4417: a launched, hooked, trusted, signed-in agy agent sends one idle, as the new pane, AFTER its session is claimed', { skip: SKIP_BASH }, async () => {
   const out = await run('seed', { signedIn: true });
   assert.match(out.calls, /^new-session -d -s \S+ -P -F #\{pane_id\}/m, 'the agy arm did not launch: ' + out.r.err);
   assert.equal(out.reports.length, 1, 'expected exactly one launch-time report, got ' + out.reports.length + ': ' + out.r.err);
@@ -102,7 +103,7 @@ test('#4417: a launched, hooked, trusted, signed-in agy agent sends one idle, as
   assert.match(out.reports[0].callsBefore, /^set-option -t \S+ @kosmos_runner antigravity$/m, 'the report arrived before the runner was recorded');
 });
 
-test('#4417: no confirmed sign-in, or a sign-in check that said signed out, sends nothing', async () => {
+test('#4417: no confirmed sign-in, or a sign-in check that said signed out, sends nothing', { skip: SKIP_BASH }, async () => {
   for (const signedIn of [undefined, false]) {
     const out = await run('nosign', { signedIn });
     assert.match(out.calls, /^new-session /m, 'control: the agy arm launched: ' + out.r.err);
@@ -110,7 +111,7 @@ test('#4417: no confirmed sign-in, or a sign-in check that said signed out, send
   }
 });
 
-test('#4417: a folder agy was not made to trust sends nothing (its settings are a dangling link, so agytrust refuses)', async () => {
+test('#4417: a folder agy was not made to trust sends nothing (its settings are a dangling link, so agytrust refuses)', { skip: SKIP_BASH }, async () => {
   const dir = fs.mkdtempSync(nodePath.join(ROOT, 'badagy-'));
   fs.symlinkSync(nodePath.join(dir, 'gone.json'), nodePath.join(dir, 'settings.json'));
   const out = await run('untrusted', { signedIn: true, extraEnv: { AGENT_WORKFORCE_AGY_HOME: dir } });
@@ -118,13 +119,13 @@ test('#4417: a folder agy was not made to trust sends nothing (its settings are 
   assert.equal(out.reports.length, 0, 'an idle was sent while agy would ask to trust the folder');
 });
 
-test('#4417: a folder where no hook could be written (inside a git project) sends nothing', async () => {
+test('#4417: a folder where no hook could be written (inside a git project) sends nothing', { skip: SKIP_BASH }, async () => {
   const out = await run('nohook', { signedIn: true, gitWork: true });
   assert.match(out.calls, /^new-session /m, 'control: the agy arm launched: ' + out.r.err);
   assert.equal(out.reports.length, 0, 'an idle was sent with no hook in place to ever correct it');
 });
 
-test('#4417: the adopt path sends nothing, even with every gate value set in the inherited environment', async () => {
+test('#4417: the adopt path sends nothing, even with every gate value set in the inherited environment', { skip: SKIP_BASH }, async () => {
   const out = await run('adopt', {
     signedIn: true, adopt: true,
     /* NODE_BIN and _eng too (review 9): the adopt path never sets them, so without them the gate fails on NODE_BIN

@@ -28,6 +28,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const { start, server, boardAuthState } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
+const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, through bash, which Windows does not have');   // kosmos#8378
 
 let base;
 test.before(async () => {
@@ -175,7 +176,7 @@ test('#5319: the route adds a same-text task and names the open one, with the cl
   assert.doesNotMatch(quoted.json.note, /["\\]/, 'the note holds no double quote or backslash');
 });
 
-test('#5319: the macOS CLI prints the note from a real answer, and nothing without one', () => {
+test('#5319: the macOS CLI prints the note from a real answer, and nothing without one', { skip: SKIP_BASH }, () => {
   const mac = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
   const i = mac.indexOf('added to ${project:-the project}');
   assert.ok(i > 0, 'the macOS CLI still says the task was added');

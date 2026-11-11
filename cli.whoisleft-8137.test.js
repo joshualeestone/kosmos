@@ -13,6 +13,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const winCli = require('./tools/windows/kosmos-cli');
+const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, through bash, which Windows does not have');   // kosmos#8378
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const ROWS = {
@@ -83,7 +84,7 @@ async function windowsCli(args) {
 }
 
 for (const [name, run] of [['install/kosmos', bashCli], ['the Windows CLI', windowsCli]]) {
-  test(name + ': task list says who is still to finish, on its own line, and only on the several-agent task', async () => {
+  test(name + ': task list says who is still to finish, on its own line, and only on the several-agent task', { skip: run === bashCli && SKIP_BASH }, async () => {
     const r = await run(['task', 'list', 'p1']);
     assert.equal(r.code, 0, r.text);
     const lines = r.text.split('\n');
@@ -94,7 +95,7 @@ for (const [name, run] of [['install/kosmos', bashCli], ['the Windows CLI', wind
     assert.equal(lines.filter((l) => l.includes('still to finish')).length, 1, 'control: not on the one-agent task: ' + r.text);
   });
 
-  test(name + ': marking a part built says who is left, and a task with nobody left reads as before', async () => {
+  test(name + ': marking a part built says who is left, and a task with nobody left reads as before', { skip: run === bashCli && SKIP_BASH }, async () => {
     const r = await run(['task', 'built', 'p1', '7', 'my half']);
     assert.equal(r.code, 0, r.text);
     assert.match(r.text, /Closing it clears the mark\. Your part only\. Still to finish: amy\. amy was told\./);
