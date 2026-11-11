@@ -10,58 +10,96 @@
  * forms of the same act before it runs.
  *
  * It reads the text a tool call would run or write, splits it into commands (newlines, ; & && || and pipes, outside
- * quotes), and looks only at a command in command position: the first word of a command, or the command inside
- * cmd /c, bash -c or powershell -Command. A word inside an argument (a commit message, a grep pattern, a path) is
- * not a command. Switches may be written /X, //X (Git Bash, which Claude Code's Bash tool uses on Windows) or -X,
+ * quotes), and looks only at a command in command position: the first word of a command (after call, start and
+ * its switches, then, do, else, nohup, time, xargs), the inside of ( ) and { } (a subshell, a script block, an if
+ * body), and the command inside cmd /c, bash/sh/zsh -c (also -lc and the like) or powershell -Command. A word
+ * inside an argument (a commit message, a grep pattern, a path) is not a command. An unclosed quote is an ordinary
+ * character, so an apostrophe does not hide what follows. Switches may be written /X, //X (Git Bash, which Claude Code's Bash tool uses on Windows) or -X,
  * in any case. Refused:
  *   - taskkill /IM of a name a Kosmos process has (node, claude, kosmos*, .exe or not, or a wildcard that matches
  *     one), unless /PID narrows it to exact processes;
  *   - taskkill /FI with no /PID (or "PID eq <n>" filter) and no other /IM: a filter alone ends every process it matches;
  *   - Stop-Process (spps, kill) by -Name / -ProcessName (or a prefix, or -Name:x), any of the names a Kosmos name;
- *   - Get-Process (gps, ps) piped straight into Stop-Process, unless Get-Process names only other processes or
- *     takes -Id;
+ *   - Get-Process (gps, ps) piped into Stop-Process, through Sort-Object, unless Get-Process names only other
+ *     processes or takes -Id, or a Where-Object or Select-Object in between filters it; a Where-Object whose script
+ *     block names a Kosmos process selects it, and is refused;
  *   - wmic ... process ... delete / call terminate with no ProcessId;
  *   - logoff, shutdown with an end verb (s r l p h g, not a for abort), Restart-Computer, Stop-Computer.
  * Allowed: taskkill /PID <n> (with /T and /F), Stop-Process -Id <n>, any other process name, a Get-Process filtered
  * before Stop-Process (Where-Object, -Id), shutdown /a.
  *
  * 🛑 A SEATBELT, NOT A SANDBOX, as the Mac guard says of itself: it reads literal text. A name computed at run time,
- * a script that builds the command, Start-Process taskkill with -ArgumentList, an encoded command, or any shape not
- * listed above passes.
+ * a script that builds the command, Start-Process taskkill with -ArgumentList, an encoded command, a command inside
+ * a quoted argument of another program (os.system("..."), node -e "..."), a ForEach-Object that kills, or any shape
+ * not listed above passes. A guard error fails open: the hook exits 0 and the call runs, as on the Mac.
  */
 
 const KOSMOS_IMAGES = ['node.exe', 'claude.exe', 'kosmos.exe'];
 
-/* Does this image-name pattern (cmd's * and ? wildcards) match a Kosmos process? Plain names match by prefix, as
-   kosmos-anything does; node and node.exe both count. */
-function kosmosName(raw) {
-  const n = String(raw || '').trim().toLowerCase();
-  if (!n) return false;
-  if (/[*?]/.test(n)) {
-    const re = new RegExp('^' + n.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
-    return KOSMOS_IMAGES.some((x) => re.test(x) || re.test(x.replace(/\.exe$/, '')));
+/* Does a cmd image-name pattern (* and ? wildcards) match this name? An iterative two-pointer match: linear, so a
+   run of stars cannot backtrack (a regex built from the pattern did, review round 2: 30 stars took 18.7 s). */
+function globMatch(pat, str) {
+  let p = 0; let s = 0; let star = -1; let mark = 0;
+  while (s < str.length) {
+    if (p < pat.length && (pat[p] === '?' || pat[p] === str[s])) { p++; s++; }
+    else if (p < pat.length && pat[p] === '*') { star = p++; mark = s; }
+    else if (star >= 0) { p = star + 1; s = ++mark; }
+    else return false;
   }
-  return /^(node|claude|kosmos)(\.exe)?$/.test(n) || /^kosmos/.test(n);
+  while (p < pat.length && pat[p] === '*') p++;
+  return p === pat.length;
 }
 
-/* Words and operators, quotes removed (adjacent quoted and bare parts join into one word, as a shell does). A word
-   that held whitespace inside quotes is marked, so a wrapper's quoted command can be read again. Linear time. */
-function tokens(text) {
+/* Does this image name or pattern name a Kosmos process? node, claude and kosmos-anything, with or without .exe;
+   a wildcard counts when it can match one of them. */
+function kosmosName(raw) {
+  const n = String(raw || '').trim().toLowerCase();
+  if (!n || n.length > 260) return false;
+  if (/[*?]/.test(n)) return KOSMOS_IMAGES.some((x) => globMatch(n, x) || globMatch(n, x.replace(/\.exe$/, '')));
+  return /^(node|claude)(\.exe)?$/.test(n) || /^kosmos/.test(n);
+}
+
+/* Words, operators and blocks, quotes removed (adjacent quoted and bare parts join into one word, as a shell does).
+   - A word that held whitespace inside quotes is marked, so a wrapper's quoted command can be read again.
+   - ( ... ) and { ... } become one block token whose text is read again as commands (a subshell, a script block,
+     an if body), so `(taskkill ...)` and `powershell -Command "& { Stop-Process -Name node }"` are seen.
+   - \" and \\ inside double quotes are literal, as bash reads them.
+   - A quote that never closes is an ordinary character (an apostrophe in prose must not hide the rest), found by
+     reading again with that position literal.
+   - PowerShell's backtick at the end of a line joins the next line.
+   Linear in the text per read; at most a few rereads for unclosed quotes. */
+function tokens(text, literalAt) {
+  const lit = literalAt || new Set();
   const out = [];
-  let cur = '';
-  let has = false;
-  let quotedSpace = false;
-  let q = '';
+  let cur = ''; let has = false; let quotedSpace = false; let q = ''; let qAt = -1;
   const push = () => { if (has) out.push({ w: cur, quoted: quotedSpace }); cur = ''; has = false; quotedSpace = false; };
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (q) {
       if (c === q) { q = ''; continue; }
+      if (q === '"' && c === '\\' && (text[i + 1] === '"' || text[i + 1] === '\\')) { cur += text[++i]; continue; }
       if (/\s/.test(c)) quotedSpace = true;
       cur += c;
       continue;
     }
-    if (c === '"' || c === "'") { q = c; has = true; continue; }
+    if ((c === '"' || c === "'") && !lit.has(i)) { q = c; qAt = i; has = true; continue; }
+    if (c === '`' && (text[i + 1] === '\n' || (text[i + 1] === '\r' && text[i + 2] === '\n'))) { i += text[i + 1] === '\r' ? 2 : 1; push(); continue; }
+    if (c === '(' || c === '{') {
+      const close = c === '(' ? ')' : '}';
+      let depth = 1; let j = i + 1; let qq = '';
+      for (; j < text.length && depth; j++) {
+        const d = text[j];
+        if (qq) { if (d === qq) qq = ''; continue; }
+        if (d === '"' || d === "'") { qq = d; continue; }
+        if (d === c) depth++;
+        else if (d === close) depth--;
+      }
+      push();
+      out.push({ block: text.slice(i + 1, depth ? text.length : j - 1) });
+      i = depth ? text.length : j - 1;
+      continue;
+    }
+    if (c === ')' || c === '}') { push(); out.push({ op: ';' }); continue; }
     if (c === '\n' || c === '\r' || c === ';') { push(); out.push({ op: ';' }); continue; }
     if (c === '&' || c === '|') {
       push();
@@ -74,6 +112,7 @@ function tokens(text) {
     cur += c;
     has = true;
   }
+  if (q && lit.size < 32) { const next = new Set(lit); next.add(qAt); return tokens(text, next); }
   push();
   return out;
 }
@@ -87,7 +126,7 @@ function pipelines(toks) {
   for (const t of toks) {
     if (t.op === '|') { endCmd(); continue; }
     if (t.op) { endCmd(); if (pipe.length) lines.push(pipe); pipe = []; continue; }
-    cmd.push(t);
+    cmd.push(t);   // a block stays in its command (Where-Object { ... } reads it), and is also read as commands below
   }
   endCmd();
   if (pipe.length) lines.push(pipe);
@@ -95,6 +134,7 @@ function pipelines(toks) {
 }
 
 const base = (w) => String(w).split(/[\\/]/).pop().toLowerCase().replace(/\.exe$/, '');
+const words = (list) => list.filter((t) => t.w !== undefined);
 const sw = (w) => { const m = /^(?:\/{1,2}|-)([a-z?]+)(?::(.*))?$/i.exec(w); return m ? { name: m[1].toLowerCase(), value: m[2] } : null; };
 const isPrefixOf = (p, full) => p.length >= 1 && full.startsWith(p);
 
@@ -102,7 +142,7 @@ const R = {
   kosmos: (what) => what + ': every agent and the Kosmos board stop at once, and Kosmos has to be started again',
   filter: 'a taskkill with a filter and no process id: it ends every process the filter matches, Kosmos and your open apps with them',
   session: (what) => what + ': it ends your whole login session',
-  computer: (what) => what + ': it restarts or stops the computer',
+  computer: (what) => what + ': it restarts, stops or suspends the computer',
   allps: 'a Get-Process piped into Stop-Process with no name: it stops every process you own',
 };
 
@@ -162,18 +202,27 @@ function getProcessThenStop(args) {
   return k ? R.kosmos('a Stop-Process of every ' + k + ' process') : '';
 }
 
-const WRAP_C = { cmd: /^\/(c|k)$/i, bash: /^-c$/, sh: /^-c$/ };
+const WRAP_C = { cmd: /^\/{1,2}(c|k)$/i, bash: /^-[a-z]*c[a-z]*$/, sh: /^-[a-z]*c[a-z]*$/, zsh: /^-[a-z]*c[a-z]*$/ };
+const PREFIX = /^(call|start|@|then|do|else|!|nohup|time|xargs)$/i;   // words before the command: cmd, sh keywords, wrappers
 const PS = new Set(['powershell', 'pwsh']);
 
 /* The reason one command (a list of words) would stop everything, reading through a wrapper; '' otherwise. The next
    stage of its pipeline is given for Get-Process | Stop-Process. */
-function commandReason(cmd, next, depth) {
+function commandReason(cmd, rest, depth) {
   if (!cmd.length) return '';
   let i = 0;
-  while (i < cmd.length && /^(call|start|&|@)$/i.test(cmd[i].w)) i++;   // cmd's call/start prefix, PowerShell's & call
-  if (i >= cmd.length) return '';
+  for (;;) {
+    while (i < cmd.length && cmd[i].w !== undefined && PREFIX.test(cmd[i].w)) {
+      const was = cmd[i].w.toLowerCase(); i++;
+      // start's own switches (/b /min ...) and an empty title, xargs's flags, come before the command
+      if (was === 'start') while (i < cmd.length && cmd[i].w !== undefined && (/^\/{1,2}[a-z]/i.test(cmd[i].w) || cmd[i].w === '')) i++;
+      if (was === 'xargs') while (i < cmd.length && cmd[i].w !== undefined && /^-/.test(cmd[i].w)) i++;
+    }
+    break;
+  }
+  if (i >= cmd.length || cmd[i].w === undefined) return '';
   const name = base(cmd[i].w);
-  const args = cmd.slice(i + 1);
+  const args = words(cmd.slice(i + 1));
   // A wrapper: read the command it runs (quoted: as text again; bare: the rest of the words).
   const wrapRest = (j) => {
     if (j >= args.length || depth > 3) return '';
@@ -190,21 +239,41 @@ function commandReason(cmd, next, depth) {
   }
   if (name === 'taskkill') return taskkill(args);
   if (name === 'stop-process' || name === 'spps' || name === 'kill') return stopProcess(args);
-  if ((name === 'get-process' || name === 'gps' || name === 'ps') && next && next.length) {
-    const nn = base(next[0].w);
-    if (nn === 'stop-process' || nn === 'spps' || nn === 'kill') return getProcessThenStop(args);
+  if ((name === 'get-process' || name === 'gps' || name === 'ps') && rest && rest.length) {
+    // Through any Where-Object / Sort-Object / Select-Object stages to a Stop-Process. A Where-Object whose script
+    // block names a Kosmos process selects it (the idiomatic `| Where-Object { $_.Name -eq 'node' } | Stop-Process`);
+    // one that names none, a Select-Object, or -Id, filters.
+    let filteredBy = ''; let picks = '';
+    for (const stage of rest) {
+      const sn = stage[0] && stage[0].w !== undefined ? base(stage[0].w) : '';
+      if (sn === 'stop-process' || sn === 'spps' || sn === 'kill') {
+        if (picks) return R.kosmos('a Stop-Process of every ' + picks + ' process');
+        if (filteredBy) return '';
+        return getProcessThenStop(args);
+      }
+      if (sn === 'where-object' || sn === 'where' || sn === '?') {
+        const body = stage.slice(1).map((t) => (t.block !== undefined ? t.block : t.w)).join(' ');
+        const m = /(?:^|[^\w.-])(node|claude|kosmos[\w.-]*)(?:\.exe)?(?![\w-])/i.exec(body);
+        if (m) picks = m[0].replace(/^[^\w]/, ''); else filteredBy = 'where';
+        continue;
+      }
+      if (sn === 'select-object' || sn === 'select') { filteredBy = 'select'; continue; }
+      if (sn === 'sort-object' || sn === 'sort') continue;
+      break;
+    }
   }
   if (name === 'wmic') {
-    const words = args.map((t) => t.w.toLowerCase());
-    const joined = words.join(' ');
-    if (words.includes('process') && (words.includes('delete') || words.includes('terminate')) && !/processid\s*=/.test(joined)) {
+    const wl = args.map((t) => t.w.toLowerCase());
+    const joined = wl.join(' ');
+    if ((wl.includes('process') || /(^|[^a-z_])win32_process([^a-z_]|$)/.test(joined)) && (wl.includes('delete') || wl.includes('terminate'))
+        && !/(^|[^a-z])processid\s*=/.test(joined)) {
       return R.kosmos('a wmic command that ends processes by name or all of them');
     }
   }
   if (name === 'logoff') return R.session('logoff');
   if (name === 'shutdown') {
     const flags = args.map((t) => sw(t.w)).filter(Boolean).map((s) => s.name);
-    if (flags.includes('a')) return '';
+    if (flags.includes('a') || flags.includes('m')) return '';   // abort, or another computer (/m \\host)
     if (flags.some((f) => /^(s|r|l|p|h|g|sg)$/.test(f))) return flags.includes('l') ? R.session('a shutdown /l') : R.computer('a shutdown command');
     return '';
   }
@@ -213,10 +282,12 @@ function commandReason(cmd, next, depth) {
 }
 
 function reasonIn(text, depth) {
+  if (depth > 6) return '';
   for (const pipe of pipelines(tokens(text))) {
     for (let i = 0; i < pipe.length; i++) {
-      const r = commandReason(pipe[i], pipe[i + 1], depth);
+      const r = commandReason(pipe[i], pipe.slice(i + 1), depth);
       if (r) return r;
+      for (const t of pipe[i]) if (t.block !== undefined) { const b = reasonIn(t.block, depth + 1); if (b) return b; }
     }
   }
   return '';

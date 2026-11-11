@@ -64,6 +64,22 @@ const REFUSED = [
   'Get-Process -ErrorAction SilentlyContinue | Stop-Process',
   'Get-Process -IncludeUserName | Stop-Process -Force',
   'C:\\Windows\\System32\\taskkill.exe /F /IM node.exe',
+  // Wrappers and command positions a shell or PowerShell reads as a command.
+  'cmd //c "taskkill //F //IM node.exe"',
+  'cmd.exe //c taskkill //F //IM node.exe',
+  'bash -lc "taskkill //F //IM node.exe"',
+  '(taskkill /F /IM node.exe)',
+  'if true; then taskkill /F /IM node.exe; fi',
+  'powershell -Command "& { taskkill /F /IM node.exe }"',
+  'powershell -Command "if ($true) { Stop-Process -Name node }"',
+  'start /b taskkill /F /IM node.exe',
+  "Get-Process | Where-Object { $_.Name -eq 'node' } | Stop-Process",
+  'Get-Process | Sort-Object CPU | Stop-Process',
+  // An unclosed apostrophe does not hide what follows; an escaped quote inside a wrapper is read.
+  "echo it's && taskkill /F /IM node.exe",
+  'bash -c "taskkill //F //IM \\"node.exe\\""',
+  'wmic path win32_process where name="node.exe" call terminate',
+  `wmic process where "name='node.exe' and ParentProcessId=4" delete`,
 ];
 const ALLOWED = [
   'taskkill /PID 4242',          // the card's control: one exact process id
@@ -96,6 +112,10 @@ const ALLOWED = [
   'Get-Process -Id 4242 | Stop-Process',
   'Get-Process notepad | Stop-Process',
   'ps aux | grep node',
+  'Get-Process | Where-Object { $_.Id -eq 4242 } | Stop-Process',
+  'Get-Process | Select-Object -First 1 | Stop-Process',
+  'shutdown /m \\\\host /s',
+  "echo it's done",
 ];
 
 test('#8406: every listed Windows form of "stop everything" is refused, in any case', () => {
@@ -107,7 +127,8 @@ test('#8406: one exact process id, other names and ordinary commands pass (contr
 });
 
 test('#8406: long lines stay fast (the hook has a short timeout and a Write can be megabytes on one line)', () => {
-  for (const s of ['ps a '.repeat(80000), 'gps '.repeat(100000), 'kill x '.repeat(60000), 'taskkill /IM x '.repeat(30000), '"'.repeat(400000)]) {
+  for (const s of ['ps a '.repeat(80000), 'gps '.repeat(100000), 'kill x '.repeat(60000), 'taskkill /IM x '.repeat(30000), '"'.repeat(400000),
+    'taskkill /IM ' + '*'.repeat(200000) + 'a', '('.repeat(100000), "it's ".repeat(50000)]) {
     const t0 = Date.now();
     guard.reason(s);
     assert.ok(Date.now() - t0 < 1500, s.slice(0, 12) + '... took ' + (Date.now() - t0) + ' ms for ' + s.length + ' chars');
