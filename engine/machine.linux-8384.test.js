@@ -629,7 +629,7 @@ test('check() on linux draws the sleep row when a setting was read, beside the r
 });
 
 test('the test-process guard these readers lean on is true under the repo\'s own runner', () => {
-  // Every no-host-read guard above asks live-execution.inTestProcess(); if it ever read false under node --test, they
+  // Every no-host-read guard above asks live-execution.inTestRun(); if it ever read false under node --test, they
   // would all read the host. This pins it (bulletin runtime-self-detection-is-version-dependent).
   assert.equal(require('./live-execution').inTestRun(), true);
 });
@@ -1025,7 +1025,10 @@ test('the readers stand down in a child process a test spawns, not only in the t
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-child-'));
   try {
     fs.writeFileSync(path.join(dir, 'busctl'), '#!/bin/sh\ncase "$*" in *USec*) echo "t 1800000000";; *) echo \'s "suspend"\';; esac\n', { mode: 0o755 });
-    const script = "const m=require(" + JSON.stringify(path.join(__dirname, 'machine.js')) + "); process.stdout.write(JSON.stringify(m.readLinuxSleep({})))";
+    // Every other command the reader runs is faked too, so the control child reads nothing of the host either.
+    fs.writeFileSync(path.join(dir, 'systemctl'), '#!/bin/sh\necho inactive\nexit 3\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(dir, 'gsettings'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    const script = "const m=require(" + JSON.stringify(path.join(__dirname, 'machine.js')) + "); process.stdout.write(JSON.stringify(m.readLinuxSleep({ hasLid: false, lidSure: true, hasBattery: false })))";
     const env = { ...process.env, PATH: dir + path.delimiter + process.env.PATH };
     const child = (extra) => JSON.parse(require('node:child_process').execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', env: { ...env, ...extra } }));
     assert.deepEqual(child({ NODE_TEST_CONTEXT: 'child-v8' }), { idle: null, lid: null, gnome: null, desktop: null });
@@ -1034,4 +1037,16 @@ test('the readers stand down in a child process a test spawns, not only in the t
     const outside = JSON.parse(require('node:child_process').execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', env: env2 }));
     assert.deepEqual(outside.idle, { action: 'suspend', minutes: 30 });
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('restart: a loose board (running, not by systemd) with linger off says it will not start after a restart, as setup.sh does', () => {
+  const r = row({ unitFile: true, unitState: 'enabled', linger: false, held: false, installed: BUNDLE, user: 'pat' });
+  assert.equal(r.title, 'Kosmos will not start by itself after a restart');
+  assert.match(r.detail, /It is running now and keeps running when you log out, but after this computer restarts it starts only when you log in/);
+  assert.equal(row({ unitFile: true, unitState: 'enabled', linger: false, held: true, installed: BUNDLE }).title, 'Kosmos stops when you log out', 'control: held');
+  const runner = (c) => (c === 'systemctl' ? { ok: true, stdout: 'UnitFileState=enabled\nMainPID=4242\n' } : { ok: true, stdout: 'Linger=no\n' });
+  const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(runner, { runner, installedRoot: BUNDLE, pid: 999 }));
+  assert.equal(got.held, false);
+  const got2 = withUnitDir(true, () => machine.readLinuxBoardAutostart(runner, { runner, installedRoot: BUNDLE, pid: 4242 }));
+  assert.equal(got2.held, true);
 });

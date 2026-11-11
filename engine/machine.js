@@ -558,9 +558,10 @@ function linuxCached(key, opts, read) {
   const now = typeof o.now === 'function' ? o.now() : Date.now();   // seam: a test's clock
   const hit = linuxReadings.get(key);
   if (hit && now - hit.at >= 0 && now - hit.at < LINUX_READING_TTL_MS) return hit.value;
+  const hungBefore = Date.now() < linuxHungUntil;
   const value = read();
-  // A reading made while a look timed out is not kept: the next visit reads again once the bus is back.
-  if (Date.now() >= linuxHungUntil) linuxReadings.set(key, { at: now, value });
+  // A reading made while a look timed out, at its start or end, is not kept: the next visit reads again.
+  if (!hungBefore && Date.now() >= linuxHungUntil) linuxReadings.set(key, { at: now, value });
   return value;
 }
 
@@ -2094,7 +2095,7 @@ function readLinuxBoardAutostart(runner, opts) {
      unmask cannot bring it back. */
   let maskedFile = false;
   try { maskedFile = fs.lstatSync(lb.boardUnitPath()).isSymbolicLink() && fs.readlinkSync(lb.boardUnitPath()) === '/dev/null'; } catch { /* as read above */ }
-  let unitState = null, skipped = false;
+  let unitState = null, skipped = false, held = null;
   /* A test that gave no runner never runs the host's systemctl or loginctl, even with a unit folder of its own:
      check() hands this the real run() then. */
   const noRun = inTest && !o.runner;
@@ -2104,7 +2105,11 @@ function readLinuxBoardAutostart(runner, opts) {
   if (sandboxed) return { unitFile, unitState: null, linger: undefined, sandboxed: true };
   if (unitFile && systemdRunning !== false && !noRun) {
     if (!inTest) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
-    const r = runner('systemctl', ['--user', 'show', '-p', 'UnitFileState', lb.boardUnitName()]);
+    // One ask: the switch, and whether systemd is the one running this board now (held) or not (loose, as setup.sh
+    // leaves it when linger could not be turned on).
+    const r = runner('systemctl', ['--user', 'show', '-p', 'UnitFileState', '-p', 'MainPID', lb.boardUnitName()]);
+    const pidM = r && r.ok ? String(r.stdout || '').match(/^MainPID=(\d+)\s*$/m) : null;
+    if (pidM) held = Number(pidM[1]) === (('pid' in o) ? o.pid : process.pid);
     const m = r && r.ok ? String(r.stdout || '').match(/^UnitFileState=(\S*)\s*$/m) : null;
     // An empty state is systemd answering that it does not know the unit, not a failed ask.
     unitState = m ? m[1] : null;
@@ -2117,7 +2122,8 @@ function readLinuxBoardAutostart(runner, opts) {
      and the file in place, linger off is the likely reason, and it is the answer the person can act on. */
   else if ((unitState !== 'enabled' && !(unitFile && unitState === null)) || noRun || systemdRunning === false) linger = undefined;
   else {
-    try { linger = require('./linuxjob').lingerFileOn(); } catch { linger = undefined; }
+    // linuxjob.lingerFileOn guards the test process only; a child a test spawned must not read the host's either.
+    try { linger = inTest ? undefined : require('./linuxjob').lingerFileOn(); } catch { linger = undefined; }
     if (linger === undefined) {
       const u = (() => { try { return os.userInfo().username; } catch { return ''; } })();
       const r = u ? runner('loginctl', ['show-user', u, '-p', 'Linger']) : null;
@@ -2128,6 +2134,7 @@ function readLinuxBoardAutostart(runner, opts) {
   const installed = ('installedRoot' in o) ? o.installedRoot : update.installedRoot();
   const user = ('user' in o) ? o.user : (() => { try { return os.userInfo().username; } catch { return ''; } })();
   const out = { unitFile, unitState, linger, installed, user, systemdRunning, unitName: lb.boardUnitName(), maskedFile };
+  if (held !== null) out.held = held;
   if (skipped) out.skipped = true;
   return out;
 }
@@ -2240,6 +2247,12 @@ function linuxBoardAutostartCheck(reading) {
       title: 'Kosmos starts itself when this computer starts',
       detail: 'Its startup service is switched on and keeps running with nobody logged in, so Kosmos and your '
         + 'agents come back on their own after a restart.' };
+  }
+  if (r.linger === false && r.held === false) {
+    // Loose, as setup.sh words it: running now and outliving a logout, but after a restart it starts only at login.
+    return Object.assign(linuxLingerOffRow(r, 'It is running now and keeps running when you log out, but after this computer '
+      + 'restarts it starts only when you log in, and then stops when you log out, so your agents stop too.'),
+      { title: 'Kosmos will not start by itself after a restart' });
   }
   if (r.linger === false) {
     return linuxLingerOffRow(r, 'It starts when you log in, but with nobody logged in this computer stops it and does '
