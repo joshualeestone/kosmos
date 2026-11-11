@@ -1989,6 +1989,7 @@ function linuxBoardAutostartCheck(reading) {
   const unknown = (why) => ({ key: 'autostart', state: STATE.UNKNOWN,
     title: 'We could not check whether Kosmos starts by itself',
     detail: 'Not the same as it being wrong. ' + why });
+  // A sandbox is a test or development copy, not a person's computer, so its standing could-not-check is expected.
   if (r.sandboxed) return unknown('This copy of Kosmos runs apart from this computer\'s own services, so we did not ask about them.');
   // No systemd here (a container, WSL without it), whether or not a unit file was written: nothing starts it.
   if (r.systemdRunning === false && !r.installed) {

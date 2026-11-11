@@ -278,15 +278,18 @@ test('sleep row: the admin field is a logind snippet for what fired, never prose
     "mkdir -p /etc/systemd/logind.conf.d && printf '[Login]\\nIdleAction=ignore\\n' > /etc/systemd/logind.conf.d/zz-kosmos-idle.conf");
   // The lid fix is the plugged-in key only, so closed on battery it still sleeps (review 7); battery-only offers none.
   assert.equal(sleep({ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' } }).admin, undefined);
-  // Run for real into a temp file (no sudo, the path swapped): the file it writes is what logind reads, one key a line.
-  const lidCmd = sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' } }).admin;
+  /* Run for real with /etc/systemd/logind.conf.d swapped for a temp folder (no root): every file it writes is what logind
+     reads, one [Login] section and one key a line. Idle, lid and docked all fire here, so all three files are made. */
+  const cmd = sleep({ idle: { action: 'suspend', minutes: 30 }, lid: { ac: 'suspend', battery: 'suspend', docked: 'suspend' } }).admin;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-logind-'));
   try {
-    const out = path.join(tmp, 'kosmos.conf');
-    const local = lidCmd.replace(/^mkdir -p \S+ && /, '').replace('/etc/systemd/logind.conf.d/zz-kosmos-lid.conf', JSON.stringify(out));
-    assert.notEqual(local, lidCmd, 'control: the path was swapped, so nothing is written under /etc');
+    const local = cmd.split('/etc/systemd/logind.conf.d').join(tmp);
+    assert.ok(!local.includes('/etc/'), 'control: every path was swapped, so nothing is written under /etc');
     require('node:child_process').execFileSync('/bin/sh', ['-c', local]);
-    assert.equal(fs.readFileSync(out, 'utf8'), '[Login]\nHandleLidSwitchExternalPower=ignore\n');
+    assert.deepEqual(fs.readdirSync(tmp).sort(), ['zz-kosmos-idle.conf', 'zz-kosmos-lid-docked.conf', 'zz-kosmos-lid.conf']);
+    assert.equal(fs.readFileSync(path.join(tmp, 'zz-kosmos-idle.conf'), 'utf8'), '[Login]\nIdleAction=ignore\n');
+    assert.equal(fs.readFileSync(path.join(tmp, 'zz-kosmos-lid.conf'), 'utf8'), '[Login]\nHandleLidSwitchExternalPower=ignore\n');
+    assert.equal(fs.readFileSync(path.join(tmp, 'zz-kosmos-lid-docked.conf'), 'utf8'), '[Login]\nHandleLidSwitchDocked=ignore\n');
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
