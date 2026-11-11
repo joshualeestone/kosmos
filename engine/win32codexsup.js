@@ -96,7 +96,7 @@ function codexVersionOf(out) {
    for one version only (codexhooks.js), and install the bridge that ships beside this engine. No home (the person's
    default ~/.codex) is nothing to do and nothing to say. The probe is asynchronous and bounded (15 s), once per agent
    start, so a slow Codex start holds neither the supervisor nor the agent's presence. Resolves { ok, because }; never
-   rejects. `deps` ({ execFile, install, bridge }) are seams for tests. */
+   rejects. `deps` ({ execFile, install, bridge, personHomes, canonical }) are seams for tests. */
 function installCodexHookFor(home, bin, env, deps) {
   const d = deps || {};
   if (!home) return Promise.resolve({ ok: false, because: null });
@@ -169,8 +169,16 @@ function superviseCodexStreaming(spec, opts) {
   /* kosmos#8348: put the Codex edit hook into the agent's named Codex home. A seam for tests; the default asks the
      codex it will run for its version (the hook's trust record is known for one version only, codexhooks.js) and
      installs the bridge that ships beside this engine. Inside a test the default does nothing. */
+  /* kosmos#8365 item 2: `codexHookDeps` ({ execFile, install, bridge, personHomes, canonical }, installCodexHookFor's
+     own seams) lets a test drive THIS closure, the one production runs, with nothing real behind it: the wiring (the
+     agent's home, the codex the turns run, the turn's own environment) is then what the test sees. Only a set that
+     replaces both the probe and the install counts, so a test can never start a real `codex --version` or write a real
+     hook through it; without one, a test run does nothing here. */
+  const testDeps = o.codexHookDeps && typeof o.codexHookDeps.execFile === 'function' && typeof o.codexHookDeps.install === 'function'
+    ? o.codexHookDeps : null;
   const installCodexHook = typeof o.installCodexHook === 'function' ? o.installCodexHook
-    : (home) => (require('./live-execution').inTestRun() ? { ok: false, because: null } : installCodexHookFor(home, binNow(), turnEnv));
+    : (home) => (testDeps ? installCodexHookFor(home, binNow(), turnEnv, testDeps)
+      : require('./live-execution').inTestRun() ? { ok: false, because: null } : installCodexHookFor(home, binNow(), turnEnv));
 
   let running = true;
   let sessionId = null;      // the Kosmos board id

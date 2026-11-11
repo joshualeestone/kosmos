@@ -253,6 +253,62 @@ test('the supervisor installs the hook into the named home of a codex agent, aft
   assert.deepEqual(dflt, [], 'a codex agent on the default ~/.codex is not given one either');
 });
 
+test('kosmos#8365 item 2: the closure production runs probes the codex the turns run, with the turn env, and installs into the named home', async () => {
+  const probes = [];
+  const installs = [];
+  const order = [];
+  const turnEnv = { CODEX_HOME: 'C:\\Users\\a\\.codex-work1', PATH: 'C:\\turn' };
+  const events = [];
+  const turns = [];
+  const h = superviseCodexStreaming({ name: 'coder', cwd: 'C:/w', runner: 'codex', configDir: 'C:\\Users\\a\\.codex-work1' }, supOpts({
+    bin: 'C:\\runners\\codex.exe',
+    env: turnEnv,
+    codexHookDeps: {
+      personHomes: ['C:\\Users\\a\\.codex'], canonical: (p) => p.toLowerCase(),
+      execFile: (bin, args, opts, cb) => { order.push('probe'); probes.push({ bin, args, env: opts.env }); cb(null, 'codex-cli 0.149.1\n'); },
+      install: (home, bridge, version) => { order.push('install'); installs.push({ home, bridge, version }); return { ok: true }; },
+    },
+    runTurn: async (t) => { order.push('turn'); turns.push({ bin: t.bin, env: t.env }); return { ok: true }; },
+    onEvent: (e) => events.push(e.action),
+  }));
+  await new Promise((res) => h.send('hi', () => res()));
+  await tick(); await tick(); await tick();
+  assert.equal(probes.length, 1, 'the default closure ran (not cut short in a test run)');
+  assert.equal(probes[0].bin, 'C:\\runners\\codex.exe', 'it probes the codex the turns run');
+  assert.deepEqual(probes[0].args, ['--version']);
+  assert.equal(probes[0].env, turnEnv, "with the turn's own environment, so a bare name resolves as the turns resolve it");
+  assert.deepEqual(installs.map((i) => [i.home, i.version]), [['C:\\Users\\a\\.codex-work1', '0.149.1']]);
+  assert.ok(events.includes('codex-hook-installed'));
+  assert.deepEqual(turns, [{ bin: 'C:\\runners\\codex.exe', env: turnEnv }], 'the turn runs that same codex with that same env');
+  assert.deepEqual(order, ['probe', 'install', 'turn'], 'and only after the hook is in');
+});
+
+test('kosmos#8365 item 2: the same closure never touches the person\'s own home, and without its deps a test run does nothing', async () => {
+  const probes = [];
+  superviseCodexStreaming({ name: 'c3', cwd: 'C:/w', runner: 'codex', configDir: 'C:\\Users\\a\\.codex' }, supOpts({
+    codexHookDeps: { personHomes: ['C:\\Users\\a\\.codex'], canonical: (p) => p.toLowerCase(),
+      execFile: (b, a, o, cb) => { probes.push(b); cb(null, 'codex-cli 0.149.1'); }, install: () => { probes.push('install'); return { ok: true }; } },
+    onEvent: () => {},
+  }));
+  await tick(); await tick();
+  assert.deepEqual(probes, [], "the person's own home: no probe, no install");
+  /* No deps (and a partial set) inside a test: nothing real starts. Caught at the attempt, not by its answer: a spy on
+     the real child_process.execFile, which installCodexHookFor would call synchronously once reached. */
+  const cp = require('node:child_process');
+  const realExecFile = cp.execFile;
+  const spawned = [];
+  cp.execFile = (...a) => { spawned.push(a[0]); throw new Error('a test must not start a real process here'); };
+  try {
+    const events = [];
+    superviseCodexStreaming({ name: 'c4', cwd: 'C:/w', runner: 'codex', configDir: 'C:\\Users\\a\\.codex-work2' }, supOpts({ onEvent: (e) => events.push(e.action) }));
+    superviseCodexStreaming({ name: 'c5', cwd: 'C:/w', runner: 'codex', configDir: 'C:\\Users\\a\\.codex-work3' },
+      supOpts({ codexHookDeps: { install: () => ({ ok: true }) }, onEvent: (e) => events.push(e.action) }));
+    await tick(); await tick(); await tick();
+    assert.deepEqual(spawned, [], 'no real codex --version was started');
+    assert.equal(events.some((e) => /codex-hook/.test(e)), false, 'no deps or a partial set, inside a test: the default does nothing');
+  } finally { cp.execFile = realExecFile; }
+});
+
 test('the first turn waits for the hook to be set up, then runs', async () => {
   let release;
   const turns = [];
