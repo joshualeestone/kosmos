@@ -78,7 +78,9 @@ function runUninstall(sb, extra = {}) {
   const base = { ...process.env };
   delete base.AGENT_WORKFORCE_GEMINI_HOME;
   try {
-    return execFileSync('bash', [SETUP, '--uninstall'], {
+    // /bin/sh, as a person runs it (`sh -s -- --uninstall`): on macOS that is bash in POSIX mode, where a command
+    // substitution inherits set -e, which plain bash does not, so only /bin/sh shows a check that ends the uninstall.
+    return execFileSync('/bin/sh', [SETUP, '--uninstall'], {
       encoding: 'utf8',
       env: {
         ...base,
