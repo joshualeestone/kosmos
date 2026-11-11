@@ -46,6 +46,24 @@ const REFUSED = [
   'shutdown -s -t 60',
   'Restart-Computer -Force',
   'Stop-Computer',
+  // Git Bash (Claude Code's Bash tool on Windows) doubles the slash so it is not read as a path.
+  'taskkill //F //IM node.exe',
+  'taskkill //IM node.exe',
+  'shutdown //s //t 0',
+  'bash -c "taskkill //F //IM claude.exe"',
+  // A filter alone ends every process it matches.
+  'taskkill /F /FI "STATUS eq RUNNING"',
+  'taskkill /F /FI "SESSION eq 1"',
+  'taskkill /F /FI "MEMUSAGE gt 0"',
+  // Every name in a list, colon syntax and unique prefixes.
+  'Stop-Process -Name notepad,node',
+  'Stop-Process -Name "notepad","node"',
+  'Stop-Process -Name:node',
+  'Stop-Process -Nam node',
+  // A whole Get-Process with only flags that are not names.
+  'Get-Process -ErrorAction SilentlyContinue | Stop-Process',
+  'Get-Process -IncludeUserName | Stop-Process -Force',
+  'C:\\Windows\\System32\\taskkill.exe /F /IM node.exe',
 ];
 const ALLOWED = [
   'taskkill /PID 4242',          // the card's control: one exact process id
@@ -60,6 +78,24 @@ const ALLOWED = [
   'kill -9 4242',
   'git status',
   'node engine/server.js',
+  // Mentions, paths and arguments are not commands.
+  'git commit -m "handle logoff"',
+  'cat app/logoff/index.js',
+  'npm test -- --grep logoff',
+  'function logoff() { return 1 }',
+  'grep -r shutdown src',
+  'rg shutdown -g "*.js"',
+  'git log -p -S shutdown',
+  'git commit -m "never run taskkill /F /IM node.exe"',
+  'kill 4242 && sort -n node_list.txt',
+  // Narrowed by /PID, other names, wildcards that cannot match a Kosmos process.
+  'taskkill /F /T /PID 4242 /IM node.exe',
+  'taskkill /IM node.exe /FI "PID eq 4242"',
+  'taskkill /FI "USERNAME eq me" /IM notepad.exe',
+  'taskkill /F /IM chrome*',
+  'Get-Process -Id 4242 | Stop-Process',
+  'Get-Process notepad | Stop-Process',
+  'ps aux | grep node',
 ];
 
 test('#8406: every listed Windows form of "stop everything" is refused, in any case', () => {
@@ -68,6 +104,14 @@ test('#8406: every listed Windows form of "stop everything" is refused, in any c
 
 test('#8406: one exact process id, other names and ordinary commands pass (control)', () => {
   for (const c of ALLOWED) assert.equal(guard.reason(c), '', 'allowed: ' + c);
+});
+
+test('#8406: long lines stay fast (the hook has a short timeout and a Write can be megabytes on one line)', () => {
+  for (const s of ['ps a '.repeat(80000), 'gps '.repeat(100000), 'kill x '.repeat(60000), 'taskkill /IM x '.repeat(30000), '"'.repeat(400000)]) {
+    const t0 = Date.now();
+    guard.reason(s);
+    assert.ok(Date.now() - t0 < 1500, s.slice(0, 12) + '... took ' + (Date.now() - t0) + ' ms for ' + s.length + ' chars');
+  }
 });
 
 test('#8406: the hook returns 2 and says why on stderr, before anything is sent to the board', async () => {
@@ -92,6 +136,7 @@ test('#8406: the same hook lets taskkill /PID through: exit 0, not 2 (control)',
     throttleDir: path.join(TMP, 't2'), ppid: 4242, now: () => 1000, stdout: () => {}, stderr: () => {}, platform: 'win32',
   });
   assert.equal(code, 0);
+  assert.ok(sent.length > 0, 'the control does reach the board, so the refused arm\'s empty send list can fail');
 });
 
 test('#8406: KOSMOS_KILL_GUARD=off turns it off, as on the Mac', () => {
