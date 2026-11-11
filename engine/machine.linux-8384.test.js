@@ -475,7 +475,7 @@ test('restart reader: a unit file replaced by a link to /dev/null (mask --force)
   assert.equal(got.maskedFile, true);
   const r = row(got);
   assert.equal(r.state, STATE.ATTENTION);
-  assert.match(r.detail, /replaced by an empty one.*Run the command under For IT admins from this account, then reinstall Kosmos\./);
+  assert.match(r.detail, /replaced by an empty one.*Run the command under For IT admins from this account, then reinstall Kosmos \(that restarts Kosmos and your agents\)\./);
   assert.equal(r.admin, 'systemctl --user unmask ' + require('./linuxboard').boardUnitName(), 'unmask removes only the link, then the reinstall writes the file');
 });
 
@@ -799,4 +799,45 @@ test('sleep: on a logind with no HandleLidSwitchExternalPower (before systemd 23
   assert.equal(got.lid.noExt, true);
   assert.match(sleep(got).admin, /HandleLidSwitch=ignore\\n' > \/etc\/systemd\/logind\.conf\.d\/zz-kosmos-lid\.conf$/);
   assert.doesNotMatch(sleep(got).admin, /ExternalPower/);
+});
+
+test('sleep: on an older logind the one lid key covers battery too, and the words do not promise battery sleep', () => {
+  const r = sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend', noExt: true } });
+  assert.doesNotMatch(r.detail, /still puts it to sleep/);
+  assert.match(r.detail, /On this computer that change also stops the lid putting it to sleep on battery\./);
+  assert.match(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend', noExt: false } }).detail, /still puts it to sleep, as it should/, 'control');
+});
+
+test('sleep reader: GNOME\'s service that could not be asked, with a desktop running, is unread, not quiet', () => {
+  const { runner } = sleepRunner({ IdleAction: 's "ignore"' });
+  const timedOut = (c, a) => {
+    if (c === 'systemctl' && a[0] === '--user') return { ok: false, stdout: '' };            // no answer at all
+    if (c === 'systemctl' && a[1] === 'display-manager.service') return { ok: true, stdout: 'active\n' };
+    return runner(c, a);
+  };
+  const got = machine.readLinuxSleep({ runner: timedOut, hasLid: false });
+  assert.equal(got.gnomeUnread, 'service');
+  assert.equal(sleep(got).state, STATE.UNKNOWN);
+  const inactive = (c, a) => (c === 'systemctl' && a[0] === '--user' ? { ok: false, stdout: 'inactive\n' } : timedOut(c, a));
+  const quiet = machine.readLinuxSleep({ runner: inactive, hasLid: false });
+  assert.equal(quiet.gnomeUnread, undefined, 'control: "inactive" is an answer');
+  assert.equal(sleep(quiet).state, STATE.OK);
+});
+
+test('sleep reader: after one dead logind ask the rest are not asked; a property this logind lacks is not a dead bus', () => {
+  const asked = [];
+  const dead = (c, a) => { asked.push(a[5]); if (c !== 'busctl') return { ok: false }; return a[5] === 'IdleAction' ? { ok: true, stdout: 's "ignore"\n' } : { ok: false, because: 'Connection timed out' }; };
+  machine.readLinuxSleep({ runner: dead, hasLid: true });
+  assert.deepEqual(asked.filter(Boolean), ['IdleAction', 'IdleActionUSec'], 'stopped after the first dead ask');
+  const asked2 = [];
+  const old = (c, a) => { asked2.push(a[5]); if (c !== 'busctl') return { ok: false }; if (a[5] === 'HandleLidSwitchExternalPower') return { ok: false, because: 'Unknown property or interface.' }; return { ok: true, stdout: a[5] === 'IdleActionUSec' ? 't 0\n' : 's "suspend"\n' }; };
+  const got = machine.readLinuxSleep({ runner: old, hasLid: true });
+  assert.ok(asked2.includes('HandleLidSwitchDocked'), 'still asked after a missing property');
+  assert.equal(got.lid.noExt, true);
+});
+
+test('restart: every reinstall sentence says it restarts Kosmos and the agents', () => {
+  for (const r of [{ unitFile: false, installed: BUNDLE, systemdRunning: true }, { unitFile: true, unitState: 'disabled', installed: BUNDLE }, { unitFile: true, unitState: 'enabled-runtime', installed: BUNDLE }]) {
+    assert.match(row(r).detail, /Reinstalling Kosmos [^.]*\(that restarts Kosmos and your agents\)\./, JSON.stringify(r));
+  }
 });

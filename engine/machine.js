@@ -87,13 +87,15 @@ function run(cmd, args) {
 }
 
 /* The Linux looks are all local and answer in milliseconds, so they get two seconds, not run()'s five. They block the
-   whole board while they run (execFileSync), so a hung bus costs everyone up to about eight seconds once per ten-second
-   reading, not most of a minute (kosmos#8384). */
+   whole board while they run (execFileSync); each reader stops asking after its first failure, so a hung bus costs
+   everyone a few seconds once per ten-second reading, not most of a minute (kosmos#8384). */
 function linuxRun(cmd, args) {
   try {
     return { ok: true, stdout: execFileSync(cmd, args, { encoding: 'utf8', timeout: 2000, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }) };
   } catch (err) {
-    return { ok: false, because: String((err && err.message) || err), missing: Boolean(err && err.code === 'ENOENT') };
+    // stdout too: systemctl is-active prints "inactive" and exits 3, which is an answer, not a failed ask.
+    return { ok: false, because: String((err && err.message) || err), missing: Boolean(err && err.code === 'ENOENT'),
+      stdout: err && err.stdout ? String(err.stdout) : '' };
   }
 }
 
@@ -390,9 +392,12 @@ function readLinuxSleep(opts) {
   // environment fix for the reads, not a change to the computer.
   if (!o.runner && !inTest) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
   const runner = o.runner || o.linuxSleepRead || linuxRun;
+  let logindDown = false;   // after one failed ask, logind is not asked again (each ask can wait out the timeout)
   const prop = (name) => {
+    if (logindDown) return undefined;
     const r = runner('busctl', ['--system', 'get-property', 'org.freedesktop.login1', '/org/freedesktop/login1', 'org.freedesktop.login1.Manager', name]);
-    if (!r || !r.ok) return null;
+    // A property this logind does not have answers with an error too; only a dead bus is undefined (asked no more).
+    if (!r || !r.ok) { if (!/UnknownProperty|Unknown property|InvalidArgs/i.test(String((r && (r.because || r.stderr)) || ''))) logindDown = true; return null; }
     const m = String(r.stdout || '').trim().match(/^(s|t)\s+"?([^"]*)"?$/);
     return m ? m[2] : null;
   };
@@ -422,6 +427,8 @@ function readLinuxSleep(opts) {
   }
   let gnome = null, gnomeUnread = false;
   const gsd = runner('systemctl', ['--user', 'is-active', 'org.gnome.SettingsDaemon.Power.service']);
+  // Not active is an answer (inactive, failed, unknown...); no answer at all (a timeout, no user bus) is not.
+  const gsdAsked = Boolean(gsd && (gsd.ok || String(gsd.stdout || '').trim()));
   if (gsd && gsd.ok && String(gsd.stdout || '').trim() === 'active') {
     let failed = false;   // a gsettings that fails once is not asked again (each ask can wait out the timeout)
     const unread = new Set();   // keys that failed, or were not asked after a failure
@@ -462,6 +469,8 @@ function readLinuxSleep(opts) {
   if (!gnome && idle) {
     const dm = runner('systemctl', ['is-active', 'display-manager.service']);
     desktop = Boolean(dm && dm.ok && String(dm.stdout || '').trim() === 'active');
+    // A desktop is running and GNOME's service could not be asked: that is an unread desktop, not a quiet one.
+    if (desktop && !gsdAsked && !gnomeUnread) gnomeUnread = 'service';
   }
   return gnomeUnread ? { idle, lid, gnome, desktop, gnomeUnread } : { idle, lid, gnome, desktop };
 }
@@ -595,15 +604,17 @@ function linuxSleepCheck(reading) {
   if (idleStops) files.push(['zz-kosmos-idle.conf', 'IdleAction=ignore']);
   // HandleLidSwitchExternalPower needs systemd 235 or later; older ones (CentOS 7) ignore it.
   if (lidStops && stops(lid.ac)) files.push(['zz-kosmos-lid.conf', lid.noExt ? 'HandleLidSwitch=ignore' : 'HandleLidSwitchExternalPower=ignore']);
+  // On that older logind the one key covers battery too, and the words say so.
+  const lidBothNote = lidStops && stops(lid.ac) && lid.noExt ? ' On this computer that change also stops the lid putting it to sleep on battery.' : '';
   if (lidStops && stops(lid.docked)) files.push(['zz-kosmos-lid-docked.conf', 'HandleLidSwitchDocked=ignore']);
   /* One command that pastes as it reads, for an administrator's root
      shell, as the Windows row's command is for an administrator's prompt; then a restart applies it. */
   const extra = files.length ? { admin: ['mkdir -p /etc/systemd/logind.conf.d'].concat(files.map(([f, k]) =>
     'printf \'[Login]\\n' + k + '\\n\' > /etc/systemd/logind.conf.d/' + f)).join(' && ') } : {};
   // The lid fix is the plugged-in key only, so say so.
-  const lidAcOnly = lidStops && stops(lid.ac) && stops(lid.battery) ? ' After that, closing the lid on battery still ' + (stops(lid.battery) === 'goes to sleep' ? 'puts it to sleep, as it should.' : (stops(lid.battery) === 'turns off' ? 'turns it off.' : 'restarts it.')) : '';
+  const lidAcOnly = lidStops && stops(lid.ac) && stops(lid.battery) && !lid.noExt ? ' After that, closing the lid on battery still ' + (stops(lid.battery) === 'goes to sleep' ? 'puts it to sleep, as it should.' : (stops(lid.battery) === 'turns off' ? 'turns it off.' : 'restarts it.')) : '';
   const logindFix = files.length ? (desktopFix ? ' An administrator can change the rest from a root shell, then restart the computer.'
-    : ' An administrator can change ' + (files.length > 1 ? 'them' : 'it') + ' from a root shell, then restart the computer.') + lidAcOnly : '';
+    : ' An administrator can change ' + (files.length > 1 ? 'them' : 'it') + ' from a root shell, then restart the computer.') + lidAcOnly + lidBothNote : '';
   if (idleStops || gnomeAc) {
     const vs = verbs;
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION,
@@ -1890,7 +1901,7 @@ function boardAutostartCheck(runner, opts) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start itself when you log in',
       detail: 'The login job that brings Kosmos back after a restart is missing, so your agents will not '
-        + 'come back on their own until it is restored. Reinstalling Kosmos puts it back.' };
+        + 'come back on their own until it is restored. Reinstalling Kosmos puts it back (that restarts Kosmos and your agents).' };
   }
 
   /* File present. The only thing that stops RunAtLoad from bringing it back is a
@@ -2115,7 +2126,7 @@ function linuxBoardAutostartCheck(reading) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'The service that brings Kosmos back after a restart is missing, so your agents will not come back on '
-        + 'their own until it is restored. Reinstalling Kosmos puts it back.' };
+        + 'their own until it is restored. Reinstalling Kosmos puts it back (that restarts Kosmos and your agents).' };
   }
   /* The file proves the mask, whether or not systemd answers. A reinstall alone cannot fix it: it writes through the
      /dev/null link and enable still refuses. So: unmask (which removes only the link), then reinstall. */
@@ -2124,7 +2135,7 @@ function linuxBoardAutostartCheck(reading) {
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service has been replaced by an empty one on this computer, so Kosmos and your agents will '
         + 'not come back on their own after a restart. Run the command under For IT admins from this account, then '
-        + 'reinstall Kosmos.',
+        + 'reinstall Kosmos (that restarts Kosmos and your agents).',
       admin: 'systemctl --user unmask ' + (r.unitName || 'kosmos-board.service') };
   }
   if (r.unitState === '') return unknown('This computer\'s service manager does not know Kosmos\'s startup service, though its file is in place.');
@@ -2153,7 +2164,7 @@ function linuxBoardAutostartCheck(reading) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself after a restart',
       detail: 'Its startup service is switched on only until this computer next restarts, so after that Kosmos and your '
-        + 'agents will not come back on their own. Reinstalling Kosmos switches it on for good.',
+        + 'agents will not come back on their own. Reinstalling Kosmos switches it on for good (that restarts Kosmos and your agents).',
       admin: 'systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
   }
   if (!['enabled', 'disabled', 'linked', 'linked-runtime'].includes(r.unitState)) {
@@ -2163,7 +2174,7 @@ function linuxBoardAutostartCheck(reading) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service is on this computer but switched off, so Kosmos and your agents will not come '
-        + 'back on their own after a restart. Reinstalling Kosmos switches it back on.',
+        + 'back on their own after a restart. Reinstalling Kosmos switches it back on (that restarts Kosmos and your agents).',
       admin: 'systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
   }
   if (r.linger === true) {
