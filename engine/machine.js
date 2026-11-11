@@ -1791,16 +1791,10 @@ function check(opts) {
     sleepRow = win32SleepCheck(readWin32Sleep(opts));
     sleepRow.settings = true;
   } else if (!isMac) {
-    /* kosmos#8375: Linux has no pmset to read and no System Settings to send a person to. A laptop can still sleep,
-       so the row stays, said in words that hold on any computer, with no button. */
-    sleepRow = {
-      key: 'sleep',
-      state: STATE.UNKNOWN,
-      title: 'We could not read this computer\'s sleep settings',
-      detail: 'That setting decides whether your agents keep working when you walk away. You can see it in this '
-        + 'computer\'s power settings.',
-      settings: false,
-    };
+    /* kosmos#8375: Linux has no pmset, and this board has no Linux reading of sleep yet, so there is no row: a row
+       that can never read anything would stand in the "could not check" count forever (as agentAutostartCheck
+       returns null off darwin). Reading Linux's own sleep and restart settings is kosmos#8384. */
+    sleepRow = null;
   } else {
     const pm = (opts && typeof opts.pmset === 'string')
       ? { ok: true, stdout: opts.pmset }
