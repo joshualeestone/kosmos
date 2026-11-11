@@ -156,6 +156,7 @@ test('#8362: a re-run after the folder is already gone names the record', { skip
   const out = runUninstall(sb);
   assert.ok(out.includes(sb.ledger), 'the record was not named when nothing could undo it: ' + out.slice(-600));
   assert.equal(fs.readFileSync(sb.mainFile, 'utf8'), before, 'the file changed with nothing to change it');
+  assert.match(out, /Kosmos is removed/, 'the uninstall stopped after the Gemini step instead of finishing');
 });
 
 test('#8362: with no record, the uninstall says nothing about Gemini and leaves the file alone', { skip: SKIP_OFF_POSIX }, () => {

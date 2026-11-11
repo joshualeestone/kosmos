@@ -130,6 +130,15 @@ test('undo: a file that cannot be read is left, named, and kept in the record fo
   assert.deepEqual(gs.undoWrites(sb.ledger).restored, [sb.file], 'a later run did not finish it');
 });
 
+test('undo: a file the person emptied has nothing to undo, and is not named', () => {
+  const sb = sandbox();
+  gs.ensurePrepared(sb.file, BRIDGE, sb.opts);
+  fs.writeFileSync(sb.file, '');
+  assert.deepEqual(gs.undoWrites(sb.ledger), { done: true, restored: [], kept: [], left: [] });
+  assert.equal(fs.readFileSync(sb.file, 'utf8'), '', 'an emptied file was written to');
+  assert.equal(fs.existsSync(sb.ledger), false, 'the record kept a file with nothing of ours in it');
+});
+
 test('undo: a file that is gone has nothing to undo; no record at all is nothing to do', () => {
   const sb = sandbox();
   gs.ensurePrepared(sb.file, BRIDGE, sb.opts);
