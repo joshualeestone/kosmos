@@ -300,7 +300,7 @@ function Get-NodeExe {
   if ($script:SaidRuntimeNode -and $stamp -and $stamp -ceq $script:RuntimeNodeStamp) { return $script:RuntimeNodeVerdict }
   $shim = $found | Select-Object -First 1
   # kosmos#8316: a failure says why, in the exception's own first line (or its type when the message is blank).
-  $firstLine = { param($e) $l = (("$($e.Message)" -split '\r?\n') | Where-Object { $_.Trim() } | Select-Object -First 1); if ($l) { "$l".Trim() } else { $e.GetType().Name } }
+  $firstLine = { param($e) $l = (("$($e.Message)" -split '\r?\n') | Where-Object { $_.Trim() } | Select-Object -First 1); if ($l) { "$l".Trim().TrimEnd('.') } else { $e.GetType().Name } }
   $readErr = ''
   # Off Windows (pwsh) there is no Authenticode cmdlet: nothing can be checked, so nothing is used. Windows
   # PowerShell 5.1 started with pwsh 7's PSModulePath fails here too (measured on the release PC, 11-11: its module

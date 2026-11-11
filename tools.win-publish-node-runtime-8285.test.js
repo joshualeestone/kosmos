@@ -128,7 +128,8 @@ for (const ps of RUNTIMES) {
     const w = pc([], [[APP, 'unsigned']]);
     const r = harness(ps, w);
     assert.strictEqual(r.found, 'NONE');
-    assert.match(r.said, /NOT using the Kosmos app's node at .*: its signature is \S+.*, not Valid from OpenJS Foundation/);
+    // #8316: a read that throws on the empty file says "could not be read: <why>, so it is not known to be Valid".
+    assert.match(r.said, /NOT using the Kosmos app's node at .*: its signature (is \S+.*, not|could not be read.*, so it is not known to be) Valid from OpenJS Foundation/);
   });
   test('#8285 ' + ps + ': a Valid signature from ANOTHER publisher is NOT run (the publisher check, not the status, refuses it)', () => {
     const w = pc([], [[APP, 'other']]);
