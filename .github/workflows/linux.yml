@@ -60,9 +60,15 @@ jobs:
       - name: which node is this
         run: node --version
       - name: install system dependencies
+        # kosmos#8380: as test.yml's Linux tools step, only what the image lacks, with the release's own archive
+        # when the first install fails (security.ubuntu.com unreachable).
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq tmux lsof zsh >/dev/null
+          missing=""
+          for t in tmux lsof zsh; do command -v "$t" >/dev/null 2>&1 || missing="$missing $t"; done
+          if [ -z "$missing" ]; then echo "all three tools are on the image"; exit 0; fi
+          codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+          sudo apt-get update -qq || true
+          sudo apt-get install -y -qq $missing >/dev/null || sudo apt-get install -y -qq -t "$codename" $missing >/dev/null
       - name: the node suite on Linux (#4919)
         run: |
           KOSMOS_TEST_PART=node KOSMOS_NO_WAIT=1 tools/run-tests.sh
