@@ -93,8 +93,10 @@ const KOSMOS_STILL_OPEN = 'Kosmos is still open. Close Kosmos, then remove it ag
 /* #5999: what a person does about entries Kosmos could not take out of the file named by `where`. Removing Kosmos again
    is the fix (the launcher keeps its Remove entry while anything is left); editing by hand is not advised: on Windows
    only the argument line names kosmos-report-hook, and deleting that line alone leaves a broken entry (round 3). */
+const CLAUDE_UNTIL = 'Claude Code may show an error each time it uses a tool';
+const GEMINI_UNTIL = 'Gemini CLI may show a hook error while it runs';   // kosmos#8361: Gemini's leftover is not measured
 const hooksByHand = (where, runner) => 'Close any other program that may be using ' + where + ', then remove Kosmos again. Until then '
-  + (runner && runner.app ? runner.app + ' may show a hook error while it runs' : 'Claude Code may show an error each time it uses a tool');
+  + (runner && runner.both ? CLAUDE_UNTIL + ', and ' + GEMINI_UNTIL : runner && runner.app ? GEMINI_UNTIL : CLAUDE_UNTIL);
 const STARTUP_UNREADABLE = 'Kosmos could not check whether it starts when you sign in. Nothing was removed. Try again in a minute.';
 const STARTUP_WOULD_NOT_SWITCH_OFF = 'Kosmos could not switch off the job that starts it when you sign in, so nothing was removed. Try again in a minute';
 
@@ -756,9 +758,9 @@ async function uninstall(opts) {
     if (o.bundleRoot) {
       // Round 2: nothing in this step may stop the removal before the folders and the report.
       try { unwireHooks(o.bundleRoot, home, env, gone, done, left, notes); }
-      catch { left.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings, which could not be checked. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { app: 'Claude Code or Gemini CLI' }) + '.'); }
+      catch { left.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings, which could not be checked. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { both: true }) + '.'); }
     }
-    else notes.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings were not checked, because Kosmos could not tell which folder it was installed in. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { app: 'Claude Code or Gemini CLI' }) + '.');
+    else notes.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings were not checked, because Kosmos could not tell which folder it was installed in. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { both: true }) + '.');
   }
 
   /* 8-9: the folders, only once nothing registered, and no board, still needs them. */
