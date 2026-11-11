@@ -97,7 +97,7 @@ function linuxRun(cmd, args) {
   try {
     return { ok: true, stdout: execFileSync(cmd, args, { encoding: 'utf8', timeout: linuxTimeoutMs, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }) };
   } catch (err) {
-    if (err && (err.code === 'ETIMEDOUT' || err.signal === 'SIGTERM')) linuxHungUntil = Date.now() + 10000;
+    if (err && err.code === 'ETIMEDOUT') linuxHungUntil = Date.now() + 10000;   // our own timeout, not any kill
     // stdout too: systemctl is-active prints "inactive" and exits 3, which is an answer, not a failed ask.
     return { ok: false, because: String((err && err.message) || err), missing: Boolean(err && err.code === 'ENOENT'),
       stdout: err && err.stdout ? String(err.stdout) : '' };
@@ -467,7 +467,7 @@ function readLinuxSleep(opts) {
     /* Not special-cased inside a virtual machine: gsd-power may skip its idle suspend there, but that is not measured, and a false alarm costs less than a false OK. */
     const ac = get('sleep-inactive-ac-type');
     // GNOME runs but its settings could not be read: that is a failed read, not a desktop Kosmos does not read.
-    if (!ac && failed !== 'missing') gnomeUnread = true;
+    if (!ac && failed !== 'missing') gnomeUnread = 'ac';
     if (ac) {
       /* The battery half only on a machine with a battery: GNOME keeps its stock "suspend after 15 minutes on battery"
          on a desktop PC too, where nothing acts on it. Seam: opts.hasBattery. */
@@ -665,7 +665,7 @@ function linuxSleepCheck(reading) {
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION, title },
       acUnknown ? {} : { battOnly: true },
       { detail: said.join(' ')
-        + (acUnknown ? (r.desktop === true || r.gnomeUnread === true || r.gnomeUnread === 'ac'
+        + (acUnknown ? (r.desktop === true || r.gnomeUnread === 'ac'
             ? ' Your desktop\'s own power settings could not be read, so we cannot tell whether it keeps working while plugged in.'
             : ' We could not tell whether a desktop\'s own power settings put it to sleep while plugged in.')
           : ' Plugged in and open, it keeps working, so for overnight work leave it plugged in and open.')
@@ -2161,8 +2161,9 @@ function linuxBoardAutostartCheck(reading) {
   const unknown = (why) => ({ key: 'autostart', state: STATE.UNKNOWN,
     title: 'We could not check whether Kosmos starts by itself',
     detail: 'Not the same as it being wrong. ' + why });
-  // A sandbox is a test or development copy, not a person's computer, so its standing could-not-check is expected.
-  if (r.sandboxed) return unknown('This copy of Kosmos runs apart from this computer\'s own services, so we did not ask about them.');
+  /* A sandbox is a test or development copy that never asks systemd, so it has no row: #8375 keeps a row that can never
+     read out of the could-not-check count. */
+  if (r.sandboxed) return null;
   // No systemd here (a container, WSL without it), whether or not a unit file was written: nothing starts it.
   if (r.systemdRunning === false && !r.installed) {
     return { key: 'autostart', state: STATE.OK,
@@ -2250,8 +2251,10 @@ function linuxBoardAutostartCheck(reading) {
   }
   if (r.linger === false && r.held === false) {
     // Loose, as setup.sh words it: running now and outliving a logout, but after a restart it starts only at login.
-    return Object.assign(linuxLingerOffRow(r, 'It is running now and keeps running when you log out, but after this computer '
-      + 'restarts it starts only when you log in, and then stops when you log out, so your agents stop too.'),
+    // "usually": logind keeps user processes at logout by default (KillUserProcesses=no), as setup.sh assumes too.
+    return Object.assign(linuxLingerOffRow(r, 'It is running now and usually keeps running when you log out, but after this '
+      + 'computer restarts it starts only when you log in, and then stops when you log out, so your agents stop too. (If '
+      + 'something other than this computer\'s service manager runs it, a container\'s own rule say, that decides instead.)'),
       { title: 'Kosmos will not start by itself after a restart' });
   }
   if (r.linger === false) {

@@ -174,8 +174,7 @@ test('restart reader: a sandboxed board asks systemd nothing, so it never reads 
     assert.equal(got.unitState, null);
     assert.equal(got.linger, undefined);
     assert.deepEqual(asked, [], 'no systemctl and no loginctl from a sandbox');
-    assert.equal(row(got).state, STATE.UNKNOWN);
-    assert.match(row(got).detail, /runs apart from this computer's own services, so we did not ask/, 'it does not say systemd failed to answer');
+    assert.equal(row(got), null, 'a sandbox has no row, not a standing could-not-check');
   } finally {
     if (prevS === undefined) delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR; else process.env.AGENT_WORKFORCE_SYSTEMD_DIR = prevS;
     if (prevL === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = prevL;
@@ -529,7 +528,7 @@ test('restart row: masked tells who runs the command, and the logind table knows
 test('sleep row: GNOME running with its settings unreadable is could-not-check, not a tick', () => {
   const { runner } = sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-ac-type': null });
   const got = machine.readLinuxSleep({ runner, hasLid: false });
-  assert.equal(got.gnomeUnread, true);
+  assert.equal(got.gnomeUnread, 'ac');
   const r = sleep(got);
   assert.equal(r.state, STATE.UNKNOWN);
   assert.match(r.title, /could not read your desktop's power settings/);
@@ -677,10 +676,10 @@ test('restart row: systemd answering with an empty state is "does not know", not
 });
 
 test('sleep row: GNOME unreadable with logind unreadable too is still could-not-check, and a half-read GNOME says so', () => {
-  const none = sleep({ idle: null, lid: null, gnome: null, gnomeUnread: true });
+  const none = sleep({ idle: null, lid: null, gnome: null, gnomeUnread: 'ac' });
   assert.equal(none.state, STATE.UNKNOWN);
   assert.match(none.detail, /Linux's own settings could not be read either\.$/, 'never claims logind was read');
-  assert.match(sleep({ idle: QUIET_IDLE, lid: null, gnome: null, gnomeUnread: true }).detail, /Linux's own settings do not\.$/, 'control');
+  assert.match(sleep({ idle: QUIET_IDLE, lid: null, gnome: null, gnomeUnread: 'ac' }).detail, /Linux's own settings do not\.$/, 'control');
   const { runner } = sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-battery-type': null });
   const half = machine.readLinuxSleep({ runner, hasLid: false, hasBattery: true });
   assert.equal(half.gnomeUnread, 'battery');
@@ -757,7 +756,7 @@ test('sleep reader: no gsettings program is a desktop we do not read, not a fail
   assert.equal(got.gnomeUnread, undefined);
   assert.notEqual(sleep(got).state, STATE.UNKNOWN);
   const failing = (c, a) => (c === 'gsettings' ? { ok: false } : runner(c, a));
-  assert.equal(machine.readLinuxSleep({ runner: failing, hasLid: false, hasBattery: false }).gnomeUnread, true, 'control: a failed read is unread');
+  assert.equal(machine.readLinuxSleep({ runner: failing, hasLid: false, hasBattery: false }).gnomeUnread, 'ac', 'control: a failed read is unread');
 });
 
 test('sleep reader: a failed read that cannot change the answer is not could-not-check, and the half that failed is named', () => {
@@ -898,7 +897,7 @@ test('sleep reader: a failed ExternalPower ask is not older systemd, and no lid 
 });
 
 test('sleep row: a lid finding with the plugged-in desktop setting unread makes no plugged-in promise', () => {
-  for (const unread of [true, 'service', 'ac']) {
+  for (const unread of ['service', 'ac']) {
     const r = sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' }, gnome: null, gnomeUnread: unread });
     assert.equal(r.state, STATE.ATTENTION, String(unread));
     assert.equal(r.battOnly, undefined, 'not the battery-only kind: ' + unread);
@@ -1042,7 +1041,7 @@ test('the readers stand down in a child process a test spawns, not only in the t
 test('restart: a loose board (running, not by systemd) with linger off says it will not start after a restart, as setup.sh does', () => {
   const r = row({ unitFile: true, unitState: 'enabled', linger: false, held: false, installed: BUNDLE, user: 'pat' });
   assert.equal(r.title, 'Kosmos will not start by itself after a restart');
-  assert.match(r.detail, /It is running now and keeps running when you log out, but after this computer restarts it starts only when you log in/);
+  assert.match(r.detail, /It is running now and usually keeps running when you log out, but after this computer restarts it starts only when you log in.*a container's own rule say, that decides instead/);
   assert.equal(row({ unitFile: true, unitState: 'enabled', linger: false, held: true, installed: BUNDLE }).title, 'Kosmos stops when you log out', 'control: held');
   const runner = (c) => (c === 'systemctl' ? { ok: true, stdout: 'UnitFileState=enabled\nMainPID=4242\n' } : { ok: true, stdout: 'Linger=no\n' });
   const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(runner, { runner, installedRoot: BUNDLE, pid: 999 }));
