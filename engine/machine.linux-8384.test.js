@@ -211,12 +211,12 @@ test('sleep row: nothing read is no row at all (kosmos#8375), never a standing c
 
 test('sleep row: a stop while plugged in, open and idle is the plain warning, in words for what it does', () => {
   const cases = [
-    [{ idle: { action: 'suspend', minutes: 30 } }, /can go to sleep on its own$/, /After 30 minutes with nobody using it, this computer goes to sleep\. Your agents stop until it wakes\. An administrator can change it from a root shell, then restart the computer\.$/, true],
+    [{ idle: { action: 'suspend', minutes: 30 } }, /can go to sleep on its own$/, /After 30 minutes with nobody using it, this computer goes to sleep\. Your agents stop until it wakes\. An administrator can change it from a root shell, then restart the computer\. Your agents stop while it restarts, and come back by themselves only if Kosmos starts by itself \(the row about that says\)\.$/, true],
     [{ idle: { action: 'poweroff', minutes: 1 } }, /can turn off on its own$/, /After 1 minute .* turns off\. Your agents stop until it is started again\./, true],
     [{ idle: { action: 'reboot', minutes: 5 } }, /can restart on its own$/, /restarts\. Your agents stop while it restarts\./, true],
     [{ idle: QUIET_IDLE, gnome: { ac: 'suspend', acMinutes: 20, battery: null, batteryMinutes: null } }, /can go to sleep on its own$/, /While it is plugged in, after 20 minutes with nobody using it, the desktop puts it to sleep\..*Power settings, under Automatic Suspend\.$/, false],
     [{ idle: QUIET_IDLE, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can turn off on its own$/, /the desktop turns it off\. Your agents stop until it is started again\./, false],
-    [{ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can go to sleep or turn off on its own$/, /Automatic Suspend\. An administrator can change the rest from a root shell, then restart the computer\.$/, true],
+    [{ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can go to sleep or turn off on its own$/, /Automatic Suspend\. An administrator can change the rest from a root shell, then restart the computer\. Your agents stop while it restarts, and come back by themselves only if Kosmos starts by itself \(the row about that says\)\.$/, true],
   ];
   for (const [reading, title, detail, admin] of cases) {
     const r = sleep(reading);
@@ -227,7 +227,7 @@ test('sleep row: a stop while plugged in, open and idle is the plain warning, in
     assert.match(r.title, title, label);
     assert.match(r.detail, detail, label);
     assert.doesNotMatch(r.detail, /\/etc\//, 'a file path is for the admin field, not the sentence: ' + label);
-    if (admin) { assert.match(r.admin, /' > \/etc\/systemd\/logind\.conf\.d\/zz-kosmos-idle\.conf$/, label); assert.match(r.detail, /then restart the computer\.$/, label); }
+    if (admin) { assert.match(r.admin, /' > \/etc\/systemd\/logind\.conf\.d\/zz-kosmos-idle\.conf$/, label); assert.match(r.detail, /then restart the computer\. Your agents stop while it restarts, and come back by themselves only if Kosmos starts by itself \(the row about that says\)\.$/, label); }
     else assert.equal(r.admin, undefined, 'no logind advice when only the desktop fired: ' + label);
     assert.equal(r.settings, undefined, 'no "Open sleep settings" button: that opens macOS\'s pane');
   }
@@ -475,7 +475,7 @@ test('restart reader: a unit file replaced by a link to /dev/null (mask --force)
   assert.equal(got.maskedFile, true);
   const r = row(got);
   assert.equal(r.state, STATE.ATTENTION);
-  assert.match(r.detail, /replaced by an empty one.*Run the command under For IT admins from this account, then reinstall Kosmos \(that restarts Kosmos and your agents\)\./);
+  assert.match(r.detail, /replaced by an empty one.*Run the command under For IT admins from this account, then reinstall Kosmos \(Kosmos restarts for a moment; your agents keep running\)\./);
   assert.equal(r.admin, 'systemctl --user unmask ' + require('./linuxboard').boardUnitName(), 'unmask removes only the link, then the reinstall writes the file');
 });
 
@@ -491,7 +491,7 @@ test('restart row: no systemd allows for something else starting it, such as a c
 
 test('sleep row: the lid fix says it is the plugged-in case only', () => {
   assert.match(sleep({ idle: { action: 'suspend', minutes: 30 }, lid: { ac: 'suspend', battery: 'suspend' } }).detail,
-    /then restart the computer\. After that, closing the lid on battery still puts it to sleep, as it should\.$/);
+    /the row about that says\)\. After that, closing the lid on battery still puts it to sleep, as it should\.$/);
   assert.doesNotMatch(sleep({ idle: { action: 'suspend', minutes: 30 } }).detail, /closing the lid/, 'control: no lid, no lid sentence');
 });
 
@@ -663,7 +663,7 @@ test('linuxLid: sure only when ACPI lists the lid, not when it is inferred from 
     fs.writeFileSync(path.join(sup, 'BAT0', 'type'), 'Battery\n');
     assert.deepEqual(machine.linuxLid(path.join(root, 'nolid'), sup), { has: true, sure: false });
     fs.mkdirSync(path.join(root, 'lid', 'LID0'), { recursive: true });
-    assert.deepEqual(machine.linuxLid(path.join(root, 'lid'), sup), { has: true, sure: true });
+    assert.deepEqual(machine.linuxLid(path.join(root, 'lid'), sup), { has: true, sure: true }, 'a listed lid plus a battery is a laptop');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -836,8 +836,29 @@ test('sleep reader: after one dead logind ask the rest are not asked; a property
   assert.equal(got.lid.noExt, true);
 });
 
-test('restart: every reinstall sentence says it restarts Kosmos and the agents', () => {
+test('restart: every reinstall sentence says Kosmos restarts for a moment and the agents keep running', () => {
   for (const r of [{ unitFile: false, installed: BUNDLE, systemdRunning: true }, { unitFile: true, unitState: 'disabled', installed: BUNDLE }, { unitFile: true, unitState: 'enabled-runtime', installed: BUNDLE }]) {
-    assert.match(row(r).detail, /Reinstalling Kosmos [^.]*\(that restarts Kosmos and your agents\)\./, JSON.stringify(r));
+    assert.match(row(r).detail, /Reinstalling Kosmos [^.]*\(Kosmos restarts for a moment; your agents keep running\)/, JSON.stringify(r));
   }
+});
+
+test('restart: the Mac arm\'s words are untouched by this Linux card', () => {
+  const mac = machine.boardAutostartCheck(() => ({ ok: false }), { platform: 'darwin', installedRoot: '/Applications/Kosmos.app' });
+  if (mac && /missing/.test(mac.detail)) assert.match(mac.detail, /Reinstalling Kosmos puts it back\.$/);
+  const src = fs.readFileSync(path.join(__dirname, 'machine.js'), 'utf8');
+  assert.ok(src.includes("come back on their own until it is restored. Reinstalling Kosmos puts it back.' };"), 'the Mac sentence as main has it');
+});
+
+test('restart: the enable command says whose account runs it', () => {
+  for (const st of ['disabled', 'enabled-runtime']) {
+    assert.match(row({ unitFile: true, unitState: st, installed: BUNDLE }).detail, /run the command under For IT admins from this account, not an administrator's\./, st);
+  }
+});
+
+test('linuxLid: a lid listed with no battery (a desktop board) is not sure', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-lid2-'));
+  try {
+    fs.mkdirSync(path.join(root, 'lid', 'LID0'), { recursive: true }); fs.mkdirSync(path.join(root, 'ps'));
+    assert.deepEqual(machine.linuxLid(path.join(root, 'lid'), path.join(root, 'ps')), { has: true, sure: false });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
