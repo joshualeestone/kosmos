@@ -13,7 +13,8 @@ run --unchanged, which can only be refused.
 
 ## Change
 - engine/feedback.js `unchanged()`: the 'none' refusal also returns `newest`, the newest EARLIER day holding any
-  writer's non-empty report (never today), or null.
+  writer's non-empty report (never today), or null. For a NAMED writer the unnamed section does not count (review 1:
+  a pre-#5317 or no-identity report may be the writer's own, so calling it another agent's could be false).
 - Both CLIs (install/kosmos, tools/windows/kosmos-cli.js): with `newest`, the refusal says "the newest report here,
   of DATE, is another agent's, and --unchanged points back only to your own". Without it, the old sentence.
 - The daily ask (feedbacknudge.nudgeText) and the Project Manager line (roles.js) say "your own last report", that
@@ -36,4 +37,6 @@ cli.feedback-unchanged-8269.test.js (5): Mac real CLI and engine: only another a
 named, today's report of theirs not named, nothing saved); your own older report still pointed back to over their
 newer one; no reports at all keeps the plain sentence. Windows: the sentence with and without `newest`. The ask and
 the PM line. 5 mutation arms all red (no newest; today counted; Mac or Windows old sentence; ask reverted).
+engine/feedback-unchanged-8269.test.js (3): an empty section is not named; for a named writer the unnamed
+section is not named (control: the unnamed writer finds that day as its own). 2 more mutation arms red.
 Updated two pins of the refusal's shape (engine/feedback-unchanged-7886, engine/feedback-listnote-8340).
