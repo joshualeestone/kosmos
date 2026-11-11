@@ -174,7 +174,7 @@ test('#5999: without the install folder (a hand-run CLI; the launcher always pas
   stubSchedulers([listing([])]);
   const r = await run(h, { bundleRoot: null });
   assert.equal(fs.readFileSync(def, 'utf8'), bytes);
-  assert.ok(r.notes.some((l) => /Claude Code's settings were not checked/.test(l) && /could not tell which folder/.test(l)), JSON.stringify(r.notes));
+  assert.ok(r.notes.some((l) => /Claude Code's and Gemini CLI's settings were not checked/.test(l) && /could not tell which folder/.test(l)), JSON.stringify(r.notes));
   assert.ok(!r.left.some((l) => /Claude Code's settings/.test(l)), 'no root was made a leftover, which keeps the removal unfinished for good: ' + JSON.stringify(r.left));
 });
 
@@ -369,4 +369,31 @@ test('kosmos#8361: while a Kosmos task is still registered, the Gemini hooks are
   stubSchedulers([listing(['Kosmos\\Kosmos Agent abc'])]);
   await run(h);
   assert.equal(fs.readFileSync(named, 'utf8'), bytes);
+});
+
+test('kosmos#8361: a Gemini hook naming an EARLIER folder\'s node.exe (now gone) is taken out; a live one elsewhere stays', async () => {
+  const h = home();
+  const named = path.join(h, '.gemini-old', '.gemini', 'settings.json');
+  const OLD_NODE = 'C:\\Users\\someone\\Desktop\\KosmosOld\\runtime\\node.exe';
+  const LIVE_NODE = 'C:\\Kosmos2\\runtime\\node.exe';
+  const live = geminiOurs(LIVE_NODE);
+  // BeforeTool with its matcher, as geminisettings writes it.
+  writeJson(named, { hooks: { BeforeTool: [{ matcher: geminisettings.TOOL_MATCHER, ...geminiOurs(OLD_NODE) }], AfterAgent: [live] } });
+  stubSchedulers([listing([])]);
+  const r = await run(h, { pathGone: (p) => p === OLD_NODE });
+  assert.deepEqual(readJson(named), { hooks: { AfterAgent: [live] } }, 'the dead one stayed or the live one went');
+  assert.ok(r.done.some((d) => d.includes('Gemini CLI\'s settings') && d.includes('earlier Kosmos folder')), JSON.stringify(r.done));
+});
+
+test('kosmos#8361: the key homes under the data folder are covered too', async () => {
+  const h = home();
+  const base = path.dirname(h);
+  const store = require('./store');
+  const env = { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX' };
+  const keyFile = path.join(store.dataRootFor('win32', h, env), 'gemini-key-home', 'work', '.gemini', 'settings.json');
+  writeJson(keyFile, { hooks: { SessionStart: [geminiOurs()] } });
+  stubSchedulers([listing([])]);
+  const r = await run(h);
+  assert.deepEqual(readJson(keyFile), {});
+  assert.ok(r.done.some((d) => d.includes(keyFile)), JSON.stringify(r.done));
 });
