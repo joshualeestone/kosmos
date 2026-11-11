@@ -5333,7 +5333,8 @@ test('kosmos#5889: the company sign-in opener passes only the desktop allowlist;
     assert.equal(fs.existsSync(out), false, `an opener was started on a Linux board with no display (${JSON.stringify(extra)})`);
   }
   remote.resetForTests();
-  // Windows: its own test below (kosmos#5895), so it runs on a Windows host too, where the arms above cannot.
+  // Windows: its own test below (kosmos#5895). Like the arms above it needs the company flow, which runs on the
+  // macOS and Linux CI; the list itself is tested on a real Windows host in engine/childenv.win32-5895.test.js.
 });
 
 test('kosmos#5895: on Windows the opener gets only its measured list, case-blind; the board\'s own variables stay out', async (t) => {
@@ -5362,13 +5363,6 @@ test('kosmos#5895: on Windows the opener gets only its measured list, case-blind
     assert.equal(got.systemdrive, 'C:', 'a listed variable in another case is kept, under its own name');
     assert.equal(got.http_proxy, 'http://proxy.test:3128', 'the person\'s proxy is kept');
   } finally { delete process.env.KOSMOS_5889_PROBE; remote.resetForTests(); }
-});
-
-test('kosmos#5895: winOpenerEnv keeps exactly the listed Windows variables, case-blind, and nothing else', () => {
-  const childenv = require('./childenv');
-  const got = childenv.winOpenerEnv({ PATH: 'p', Path: 'q', ComSpec: 'c', comspec: 'd', SystemRoot: 'w', TOKEN: 't', HOME: 'h', EMPTY_PATHEXT: '', PATHEXT: '' });
-  assert.deepEqual(got, { PATH: 'p', Path: 'q', ComSpec: 'c', comspec: 'd', SystemRoot: 'w' }, 'listed names in any case, nothing else, no empty values');
-  for (const k of childenv.WIN_OPENER_KEYS) assert.equal(childenv.winOpenerEnv({ [k.toUpperCase()]: 'v' })[k.toUpperCase()], 'v', k);
 });
 
 /* kosmos#5995 item 4: the Kosmos+ sign-in shows the name this computer will be sent under, and the person can keep it,

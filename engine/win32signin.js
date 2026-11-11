@@ -435,11 +435,19 @@ function listeningLoopbackPorts(pid) {
   });
 }
 
+/* The rundll32 launch that opens a link: [command, args, options]. kosmos#5895: the browser it starts inherits
+   rundll32's environment (measured), so it gets only childenv.winOpenerEnv's list, never the board's whole
+   environment (its tokens among it), the same list the company sign-in opener uses (remote.js runCompanyOpener). */
+function browserOpenCommand(link, env) {
+  const src = env || process.env;
+  return [path.win32.join(src.SystemRoot || 'C:\\Windows', 'System32', 'rundll32.exe'), ['url.dll,FileProtocolHandler', link],
+    { detached: true, stdio: 'ignore', windowsHide: false, env: require('./childenv').winOpenerEnv(src) }];
+}
+
 /** Open a link in the default browser, outside this process tree. Never throws. */
 function openInDefaultBrowser(link) {
   try {
-    const child = spawn(path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'rundll32.exe'),
-      ['url.dll,FileProtocolHandler', link], { detached: true, stdio: 'ignore', windowsHide: false });
+    const child = spawn(...browserOpenCommand(link));
     child.on('error', () => { /* the page's own link is the fallback */ });
     child.unref();
   } catch { /* the page's own link is the fallback */ }
@@ -712,7 +720,7 @@ function createSigninHost() {
 
 module.exports = {
   createSigninHost, setSpawn, setBrowserOpener, setPortFinder, signinLineForClaudeFile,
-  signinLinkToOpen, parseListeningLoopbackPorts, listeningLoopbackPorts, openInDefaultBrowser, NO_OP_OPENER,
+  signinLinkToOpen, parseListeningLoopbackPorts, listeningLoopbackPorts, openInDefaultBrowser, browserOpenCommand, NO_OP_OPENER,
   UNSAFE_ON_COMMAND_LINE,   // also guards the OpenAI device page openaiaccounts opens with openInDefaultBrowser
   SIGNIN_ARGS, SIGNIN_OUTPUT_LIMIT_CHARS, STDERR_TAIL_LINES, SENT_FRAGMENT_MIN_CHARS,
   REDACTION_MARKER,

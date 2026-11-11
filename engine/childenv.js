@@ -56,19 +56,29 @@ function openerEnv(env = process.env) {
  * handler and a variable outside the list did not reach it; Windows itself adds a few to the started process
  * (LOGONSERVER and two browser-profile ones), none of them the board's. Windows variable names are case-insensitive
  * (engine/win32env.js), so the match is too, and each kept variable keeps the name it came with.
- * Kept on purpose, as on the other platforms: the proxy variables (the person's network settings).
+ * Kept on purpose, as on the other platforms: the proxy variables (the person's network settings). Also kept: the
+ * CommonProgramFiles family, which holds no secret and which an installed browser may look up. MEASURED as well
+ * (2026-11-11): Edge itself, started cold (headless, its own throwaway profile), rendered a page with this list, and
+ * also with an EMPTY environment, so a missing variable here cannot stop Edge from starting.
  */
 const WIN_OPENER_KEYS = Object.freeze([
   'SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'PATH', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA',
   'LOCALAPPDATA', 'TEMP', 'TMP', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'ProgramData', 'PUBLIC',
   'SystemDrive', 'USERNAME', 'USERDOMAIN', 'COMPUTERNAME', 'OS', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS',
+  'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432',
   'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY',
 ]);
 const WIN_OPENER_LOWER = new Set(WIN_OPENER_KEYS.map((k) => k.toLowerCase()));
 
 function winOpenerEnv(env = process.env) {
   const out = {};
-  for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v && WIN_OPENER_LOWER.has(k.toLowerCase())) out[k] = v;
+  const seen = new Set();   // one per name, case-blind: the first spelling wins, so the child never gets PATH and Path both
+  for (const [k, v] of Object.entries(env)) {
+    const low = k.toLowerCase();
+    if (typeof v !== 'string' || !v || !WIN_OPENER_LOWER.has(low) || seen.has(low)) continue;
+    seen.add(low);
+    out[k] = v;
+  }
   return out;
 }
 

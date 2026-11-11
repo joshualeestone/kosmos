@@ -16,19 +16,30 @@ whole environment, because no Windows list had been checked on a Windows machine
   started the handler, and a variable outside the list did not reach it. Windows itself adds LOGONSERVER and two
   FPS_BROWSER_* variables to the started process, none of them the board's.
 
+- Edge itself started cold (2026-11-11): headless, with its own throwaway profile so the person's running Edge was
+  not used, msedge.exe rendered a page with ONLY this list, and also with an EMPTY environment and with SystemRoot
+  alone. So a variable missing from the list cannot stop Edge from starting; the list decides only what it inherits.
+
 ## Change
 - engine/childenv.js: `WIN_OPENER_KEYS` and `winOpenerEnv(env)`: keeps the listed variables that are set and
   non-empty, matched case-insensitively (Windows names are, engine/win32env.js), each under the name it came with.
+- The CommonProgramFiles family is added to the list (no secrets; an installed browser may look it up). One entry
+  per name, case-blind, first spelling wins, so a child never gets PATH and Path both.
+- engine/win32signin.js: the Claude and OpenAI sign-in opener (openInDefaultBrowser) launched the same
+  `rundll32 url.dll,FileProtocolHandler` with the board's whole environment, the same leak. It now passes the same
+  list (browserOpenCommand).
 - engine/remote.js runCompanyOpener: win32 uses `winOpenerEnv` (it passed `undefined`, the whole environment).
 - engine/remote.test.js: the #5889 win32 arm, which asserted the environment WAS inherited, is flipped and split into
   its own test (a board token and a board variable stay out, a listed variable in another case is kept under its own
-  name, the proxy is kept, the opener still runs); plus a `winOpenerEnv` unit test.
+  name, the proxy is kept, the opener still runs); plus engine/childenv.win32-5895.test.js ("win32" in its name, so the Windows CI job runs it): the list's unit
+  test, the sign-in opener's command, and a real Windows child started with the list.
 
 Kept on purpose, as on the other platforms: the proxy variables (the person's network settings; a proxy URL can
 carry a user and password, which is the person's, and the page needs it).
-Weakest part: the browser itself was not started cold with the list; the measured stand-in uses the same launch path.
+Weakest part: only Edge was started cold. Another default browser (Chrome, Firefox) was not measured, and rundll32
+exits 0 once it hands the URL off, so a browser that failed for want of a variable would read as opened.
 
 ## Verification limits
 The company-flow tests (two #5889 tests and the new #5895 arm) fail on this Windows box at `companyStart`, on
 origin/main as well: they need a tunnel stub only the Mac/Linux CI runners have. They are verified by CI (the
-platform is a seam, so the win32 arm runs there). The `winOpenerEnv` unit test runs here and passes.
+platform is a seam, so the win32 arm runs there). engine/childenv.win32-5895.test.js runs here and passes (3/3).
