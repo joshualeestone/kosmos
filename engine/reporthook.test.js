@@ -453,3 +453,24 @@ test('#570 + #1582 control: an ephemeral node in an ephemeral settings file is N
   const r = reporthook.ensureWired(fresh(), WIN_SCRIPT, { platform: 'win32', node: ephemeralNode });
   assert.equal(r.wired, true, 'an ephemeral node with an ephemeral settings file must still wire');
 });
+
+test('kosmos#8365: Claude\'s hook wiring uses the shared temp rule, so on win32 a backslash or case-changed spelling of the temp folder is refused too', () => {
+  const back = (p) => p.split(path.sep).join('\\');
+  const dead = back(path.join(os.tmpdir(), 'tmp.FAKE8365', 'app', 'bin', 'kosmos-report-hook.sh'));
+  /* On this host a backslash path is a RELATIVE file name, so a broken refusal would write it into the cwd: run inside a
+     fresh folder, and check nothing landed there. */
+  const cwd = process.cwd();
+  const box = fs.mkdtempSync(path.join(os.tmpdir(), 'rh8365-'));
+  let got;
+  try {
+    process.chdir(box);
+    got = reporthook.ensureWired(back(DURABLE_SETTINGS), dead, { platform: 'win32', node: back(path.join(path.sep, 'nonexistent-8365', 'node.exe')) });
+    assert.deepEqual(fs.readdirSync(box), [], 'something was written');
+  } finally { process.chdir(cwd); fs.rmSync(box, { recursive: true, force: true }); }
+  assert.equal(got.wired, false, 'a backslash spelling of the temp folder was written into a durable file');
+  assert.match(got.because, /temp root|ephemeral/);
+  // CONTROL: the same durable file and a script outside temp is not refused for being ephemeral.
+  const live = back(path.join(path.sep, 'nonexistent-durable-8365', 'app', 'bin', 'kosmos-report-hook.sh'));
+  assert.equal(reporthook.ephemeralMismatch(back(DURABLE_SETTINGS), [live], { platform: 'win32' }), false);
+  assert.equal(reporthook.ephemeralMismatch(back(DURABLE_SETTINGS), [dead], { platform: 'win32' }), true);
+});

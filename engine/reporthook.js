@@ -29,7 +29,6 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
 const securewrite = require('./securewrite');
 
 const HOOK_EVENTS = Object.freeze([
@@ -287,7 +286,7 @@ function entryIsOurs(entry) {
  * statusline in allowance.js), so the #1582 refusal has one copy. The comment
  * inside is the refusal's history, moved here unchanged from ensureWired.
  */
-function ephemeralMismatch(settingsPath, commandPaths) {
+function ephemeralMismatch(settingsPath, commandPaths, opts) {
   /* #1582: the fifth refusal. hookScriptPath() correctly probes and, during
      a release cut, resolves an app/bin/kosmos-report-hook.sh that GENUINELY
      EXISTS inside the cut's temp sandbox -- so the value is right and
@@ -314,32 +313,12 @@ function ephemeralMismatch(settingsPath, commandPaths) {
      NOT, which is exactly #1582's shape (~/.claude/settings.json given a
      cut-sandbox path) and leaves a fully-ephemeral setup alone. This matches
      the rationale precisely; a production settings file is never under temp. */
-  const rawTmp = os.tmpdir();
-  let realTmp = rawTmp;
-  try { realTmp = fs.realpathSync(rawTmp); } catch { /* keep the raw value */ }
-  /* Type-safe on purpose: this module never throws for an expected shape,
-     and its callers fail soft. A non-string settingsPath must NOT throw
-     here: this answers false, and the caller's readSettings answers it with
-     a sentence. underRoot returns false for a non-string rather than calling
-     .startsWith on it (#1582 review). */
-  const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
-  /* #570: every path the command will carry is vetted, not just the script:
-     the win32 report hook also carries node (the exec-form command), and a
-     durable settings file pointing at an ephemeral runtime/node.exe is the
-     same #1582 defect as pointing at an ephemeral script. The caller passes
-     them all in commandPaths. */
-  const scriptEphemeral = (commandPaths || []).some((p) => underRoot(p, rawTmp) || underRoot(p, realTmp));
-  /* Durable = a real settings path that is NOT under temp. A null/undefined
-     settingsPath is neither durable nor ephemeral here, so this answers false
-     and the caller's readSettings handles the malformed input. */
-  const settingsDurable = typeof settingsPath === 'string'
-    && !underRoot(settingsPath, rawTmp) && !underRoot(settingsPath, realTmp);
-  /* Coupling this fix relies on, verified against the cut scripts (#1582
-     review): the sandbox is created with `mktemp -d` (test-install.sh:56)
-     and `${TMPDIR:-/tmp}/kosmos-release.XXXXXX` (release.sh:350), both under
-     $TMPDIR, and the setup Node process shares that $TMPDIR -- so os.tmpdir()
-     here names the same root the ephemeral script lives under. */
-  return scriptEphemeral && settingsDurable;
+  /* kosmos#8365: ONE rule, hookpaths.ephemeralIntoDurable, shared with Gemini, Codex and Grok. Its posix arm is the rule
+     this function had, line for line (the raw and resolved temp root, a non-string is neither durable nor ephemeral,
+     null paths skipped); on win32 it also catches a case-changed or 8.3 short spelling of the temp folder (#8348). The
+     cut-script coupling still holds: the sandbox is under $TMPDIR, which os.tmpdir() names. `opts.platform` picks the
+     rule (a test seam). */
+  return require('./hookpaths').ephemeralIntoDurable(settingsPath, commandPaths, opts);
 }
 
 /**
@@ -430,7 +409,7 @@ function ensureWired(settingsPath, scriptPath, opts) {
     return { wired: false, because: 'the hook command path contains characters we will not embed in a command' };
   }
   /* #1582: the fifth refusal (ephemeralMismatch above carries its history). */
-  if (ephemeralMismatch(settingsPath, node !== null ? [scriptPath, node] : [scriptPath])) {
+  if (ephemeralMismatch(settingsPath, node !== null ? [scriptPath, node] : [scriptPath], { platform: plat })) {
     return { wired: false, because: 'a hook command path is under the temp root, which is ephemeral, so it was not written into the durable settings file' };
   }
   const read = readSettings(settingsPath);

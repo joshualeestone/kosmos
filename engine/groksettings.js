@@ -33,7 +33,6 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
 const securewrite = require('./securewrite');
 
 /* The lifecycle events wired to the report bridge. These MUST equal the bridge's
@@ -157,18 +156,10 @@ function ensurePrepared(hookFilePath, bridgePath, opts) {
      fully-ephemeral setup (test fixtures put both under temp) alone. os.tmpdir()
      returns the UNRESOLVED /var/folders form on macOS while paths reaching the file
      are the RESOLVED /private/var form, so compare against both. */
-  {
-    const rawTmp = os.tmpdir();
-    let realTmp = rawTmp;
-    try { realTmp = fs.realpathSync(rawTmp); } catch { /* keep the raw value */ }
-    const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
-    const ephemeral = (p) => underRoot(p, rawTmp) || underRoot(p, realTmp);
-    const bridgeEphemeral = ephemeral(bridgePath) || (node !== null && ephemeral(node));
-    const fileDurable = typeof hookFilePath === 'string'
-      && !underRoot(hookFilePath, rawTmp) && !underRoot(hookFilePath, realTmp);
-    if (bridgeEphemeral && fileDurable) {
-      return { prepared: false, because: 'the bridge path is under the temp root, which is ephemeral, so it was not written into the durable hook file' };
-    }
+  /* kosmos#8365: the shared rule (hookpaths.ephemeralIntoDurable), as Gemini, Codex and Claude's hooks use; on win32 it
+     also catches a case-changed or 8.3 short spelling of the temp folder. Posix: the same rule this block had. */
+  if (require('./hookpaths').ephemeralIntoDurable(hookFilePath, [bridgePath, node], { platform: plat })) {
+    return { prepared: false, because: 'the bridge path is under the temp root, which is ephemeral, so it was not written into the durable hook file' };
   }
 
   let target = hookFilePath;
