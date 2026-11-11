@@ -236,7 +236,10 @@ struct ChatList: UIViewRepresentable {
         // reader higher up first, the 25th row from the end below the screen, then focuses it; "clipped" focuses an element
         // cut off by 20 pt at the top while at the newest; "back" is "above", then the newest focused and scrolled to without
         // animation; "refocus" focuses the same row again after an update; "afterjump" focuses 0.3 s after a jump to the
-        // newest. Reported through sampleA11y, starting "focus".
+        // newest; "newestpart" (slice 19, with KOSMOS_SAMPLE_TALLNEWEST) focuses the first 80 pt of a newest reply taller
+        // than the screen, above it, and "newestclipped" an 80 pt part of it crossing the top of the screen by 20 pt, each
+        // with an element in the newest row's cell as SwiftUI makes one for a paragraph. Reported through sampleA11y,
+        // starting "focus".
         func sampleA11yFocus(_ report: ((String) -> Void)?) {
             guard !ChatList.sampleA11yDone, let list, let source else { return }
             ChatList.sampleA11yDone = true
@@ -251,8 +254,8 @@ struct ChatList: UIViewRepresentable {
             // Whether the element was traced to its row, read as the focus is posted: a list element's frame is fixed, so once
             // the list moves it names another row.
             var found = false
-            // The part's frame in the list (newestpart), for whether it shows at the end.
-            var partFrame: CGRect?
+            // Where the part (newestpart, newestclipped) starts within its row, for whether it shows at the end.
+            var partOffset: CGFloat?
             func listElement(tall: Bool = false) -> Any? {
                 guard let ip = source.indexPath(for: target), let a = list.layoutAttributesForItem(at: ip), let w = list.window else { return nil }
                 let e = UIAccessibilityElement(accessibilityContainer: list)
@@ -301,16 +304,19 @@ struct ChatList: UIViewRepresentable {
             case "newest":
                 target = newestId
                 element = listElement(tall: true); focus()
-            case "newestpart":
+            case "newestpart", "newestclipped":
                 // kosmos#8221 slice 19: with KOSMOS_SAMPLE_TALLNEWEST the newest message is taller than the screen; at the
-                // newest its top is above it. An element for its first 80 pt, as VoiceOver stepping up to the reply's first
-                // paragraph focuses.
+                // newest its top is above it. An element for 80 pt of it, as VoiceOver stepping up through the reply focuses
+                // a paragraph: its first 80 pt (wholly above), or 80 pt whose top is 20 pt above the top of what shows
+                // (crossing it). Its container is the cell's own view, as a SwiftUI element's is, so it stands for itself.
                 target = newestId
-                if let ip = source.indexPath(for: newestId), let a = list.layoutAttributesForItem(at: ip), let w = list.window {
-                    let r = CGRect(x: a.frame.minX, y: a.frame.minY + 8, width: a.frame.width, height: 80)
-                    partFrame = r
-                    let e = UIAccessibilityElement(accessibilityContainer: list)
-                    e.accessibilityFrame = list.convert(r, to: w.screen.coordinateSpace)
+                if let ip = source.indexPath(for: newestId), let a = list.layoutAttributesForItem(at: ip), let c = list.cellForItem(at: ip),
+                   let w = list.window {
+                    let seenTop = list.contentOffset.y + list.adjustedContentInset.top - list.contentInset.top
+                    let top = mode == "newestpart" ? a.frame.minY + 8 : seenTop - 20
+                    partOffset = top - a.frame.minY
+                    let e = UIAccessibilityElement(accessibilityContainer: c.contentView)
+                    e.accessibilityFrame = list.convert(CGRect(x: a.frame.minX, y: top, width: a.frame.width, height: 80), to: w.screen.coordinateSpace)
                     element = e
                 }
                 focus()
@@ -384,11 +390,12 @@ struct ChatList: UIViewRepresentable {
                 }
                 // Whether atEnd agrees with where the list is, as scrolled() and hold() read it.
                 let agrees = self.atEnd == self.endReached(list)
-                // The part (newestpart) wholly between the bars; the row it is in is taller than the screen, so never on screen.
+                // The part (newestpart, newestclipped) wholly between the bars, measured from where its row is now; the row is
+                // taller than the screen, so never on screen itself.
                 var part = ""
-                if let p = partFrame {
-                    let inset = list.adjustedContentInset
-                    let shown = p.minY >= list.contentOffset.y + inset.top - 0.5 && p.maxY <= list.contentOffset.y + list.bounds.height - inset.bottom + 0.5
+                if let o = partOffset, let ip = source.indexPath(for: target), let a = list.layoutAttributesForItem(at: ip) {
+                    let inset = list.adjustedContentInset, top = a.frame.minY + o
+                    let shown = top >= list.contentOffset.y + inset.top - 0.5 && top + 80 <= list.contentOffset.y + list.bounds.height - inset.bottom + 0.5
                     part = ", part shown \(shown)"
                 }
                 report?("focus found \(found), at end \(self.atEnd), on screen \(onScreen), agrees \(agrees), pins \(self.debugPins), moved \(Int(y0 - list.contentOffset.y)), kind \(kind)\(whereRow)\(part), from the end \(wasAtEnd)")
@@ -668,7 +675,8 @@ struct ChatList: UIViewRepresentable {
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFOCUSFOLLOW"] == "1" { return }
             #endif
             guard let list, (element as AnyObject) !== list, let source, let ip = focusedRow(element) else { return }
-            // The newest message and the rows after it are left alone however tall it is: a reader there is at the newest.
+            // The newest message and the rows after it are left alone however tall it is (a reader there is at the newest),
+            // except a part of the newest above the top of the screen (slice 19, below).
             guard let newestId = ids.last(where: { !Self.afterNewest.contains($0) }), let newestAt = source.indexPath(for: newestId),
                   let id = source.itemIdentifier(for: ip), !(list.isTracking || list.isDragging || list.isDecelerating),
                   !fingerlessScrolling() else { return }
@@ -683,12 +691,15 @@ struct ChatList: UIViewRepresentable {
             lastFocusPart = part
             appliedSinceFocus = false
             if refocus { return }
-            // kosmos#8221 slice 19: a part of the newest message wholly above the screen (VoiceOver stepping up through a reply
-            // taller than the screen) is followed as a message above is, so the part read aloud is the part shown. The newest
-            // message as a whole, or a part of it that reaches the screen, still keeps a reader at the newest.
+            // kosmos#8221 slice 19: a part of the newest message (an element shorter than its row) that starts above the top of
+            // the screen and does not reach below its bottom, as VoiceOver stepping up through a reply taller than the screen
+            // focuses, is followed as a message above is, so the part read aloud is the part shown. The newest message as a
+            // whole, or an element reaching past both edges, still keeps a reader at the newest.
             var newestPart = false
-            if ip == newestAt, !ChatList.sampleFocusNoNewestPart, let e = elementFrame(element) {
-                newestPart = e.maxY < list.contentOffset.y + list.adjustedContentInset.top - list.contentInset.top - 0.5
+            if ip == newestAt, !ChatList.sampleFocusNoNewestPart, let e = elementFrame(element), let row = list.layoutAttributesForItem(at: ip)?.frame {
+                let top = list.contentOffset.y + list.adjustedContentInset.top - list.contentInset.top
+                let bottom = list.contentOffset.y + list.bounds.height - list.adjustedContentInset.bottom + list.contentInset.bottom
+                newestPart = e.height < row.height - 0.5 && e.minY < top - 0.5 && e.maxY <= bottom + 0.5
             }
             if ip >= newestAt, !newestPart, !ChatList.sampleFocusNoNewest {
                 // Back on the newest message: at the newest once it is fully shown (the working line and the room under it can
@@ -725,8 +736,7 @@ struct ChatList: UIViewRepresentable {
             // Rows drawn for the first time in that pass come in at their real heights, which can move the row itself. When
             // the element stands for the whole row (none of its own, or the list's own element for a row with no cell), the
             // row is measured again and put right once.
-            // A part of the newest message stands for itself, not its row (slice 19): the row is taller than the screen.
-            let wholeRow = !newestPart && (own == nil || ((element as? UIAccessibilityElement)?.accessibilityContainer as AnyObject?) === list)
+            let wholeRow = own == nil || ((element as? UIAccessibilityElement)?.accessibilityContainer as AnyObject?) === list
             if wholeRow, let b = list.layoutAttributesForItem(at: ip)?.frame {
                 let s0 = list.contentOffset.y + inset.top, s1 = list.contentOffset.y + list.bounds.height - inset.bottom
                 if b.minY < s0 - 0.5 || b.maxY > s1 + 0.5 {
