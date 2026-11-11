@@ -67,7 +67,9 @@ jobs:
           for t in tmux lsof zsh; do command -v "$t" >/dev/null 2>&1 || missing="$missing $t"; done
           if [ -z "$missing" ]; then echo "all three tools are on the image"; exit 0; fi
           repoint_security() {   # the runner's own Ubuntu mirror also carries the -security pocket, so point it there
-            main=$(grep -rhoE 'https?://[A-Za-z0-9.-]+/ubuntu/?' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | grep -v 'security.ubuntu.com' | head -1)
+            main=$(grep -rhoE 'https?://[A-Za-z0-9.-]+/ubuntu/?' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | grep -v 'security.ubuntu.com' | grep -v 'ubuntu-ports' | head -1)
+            # a runner whose sources say mirror+file: has no URL in them; its mirror list does (review round 2)
+            [ -n "$main" ] || main=$(grep -m1 -oE 'https?://[A-Za-z0-9.-]+/ubuntu/?' /etc/apt/apt-mirrors.txt 2>/dev/null || true)
             [ -n "$main" ] || return 1
             echo "pointing the security pocket at $main"
             sudo sed -i -E "s#https?://security.ubuntu.com/ubuntu/?#${main}#g" /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
