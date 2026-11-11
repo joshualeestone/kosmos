@@ -10,6 +10,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const childenv = require('./childenv');
 
+test('the Windows opener list is exactly this (change it here on purpose: a name added reaches the browser)', () => {
+  const EXPECTED = [
+    'SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'PATH', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA',
+    'LOCALAPPDATA', 'TEMP', 'TMP', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'ProgramData', 'PUBLIC',
+    'SystemDrive', 'USERNAME', 'USERDOMAIN', 'COMPUTERNAME', 'OS', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS',
+    'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432', 'ALLUSERSPROFILE',
+    'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY',
+  ];
+  assert.deepEqual([...childenv.WIN_OPENER_KEYS], EXPECTED);
+  for (const k of EXPECTED) assert.doesNotMatch(k, /TOKEN|SECRET|KEY|PASS|AUTH|KOSMOS/i, `${k} looks like a credential`);
+});
+
 test('winOpenerEnv keeps exactly the listed Windows variables, case-blind, one per name, and nothing else', () => {
   const got = childenv.winOpenerEnv({ PATH: 'p', Path: 'q', ComSpec: 'c', comspec: 'd', SystemRoot: 'w', TOKEN: 't',
     HOME: 'h', KOSMOS_AGENT_TOKEN: 'a'.repeat(32), EMPTY_PATHEXT: '', PATHEXT: '', commonprogramfiles: 'cpf' });

@@ -39,6 +39,14 @@ whole environment, because no Windows list had been checked on a Windows machine
 
 Kept on purpose, as on the other platforms: the proxy variables (the person's network settings; a proxy URL can
 carry a user and password, which is the person's, and the page needs it).
+Decided: an allowlist of the board's environment, not the person's own. A browser started cold keeps this list for
+its life and passes it to what it launches (a vscode:// handler, a downloaded installer), so a person's own variables
+(JAVA_HOME, OneDrive) are missing there; before this PR it got the board's whole environment, tokens included.
+Rejected, measured 2026-11-11: handing the URL to explorer.exe, which does give the handler Explorer's environment
+(the caller's marker did not reach it), but exits 1 even on success, and a URL with a query string never reached the
+handler (sign-in links always carry one). The durable route, the person's environment rebuilt from the registry, is
+kosmos#8369, with the Chrome and Firefox cold-start measurement. What would change my mind: a report of a tool
+launched from the browser failing for a missing variable, which would move #8369 up.
 Weakest part: only Edge was started cold. Another default browser (Chrome, Firefox) was not measured, and rundll32
 exits 0 once it hands the URL off, so a browser that failed for want of a variable would read as opened.
 

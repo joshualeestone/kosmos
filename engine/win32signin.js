@@ -35,6 +35,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const liveExecution = require('./live-execution');
+const childenv = require('./childenv');
 
 /**
  * The arguments, always. On Windows the sign-in is `auth login` whatever
@@ -444,7 +445,7 @@ function browserOpenCommand(link, env) {
   const src = env || process.env;
   const rootKey = Object.keys(src).find((k) => k.toLowerCase() === 'systemroot');   // case-blind, as Windows reads it
   return [path.win32.join((rootKey && src[rootKey]) || 'C:\\Windows', 'System32', 'rundll32.exe'), ['url.dll,FileProtocolHandler', link],
-    { detached: true, stdio: 'ignore', windowsHide: false, env: require('./childenv').winOpenerEnv(src) }];
+    { detached: true, stdio: 'ignore', windowsHide: false, env: childenv.winOpenerEnv(src) }];
 }
 
 /** Open a link in the default browser, outside this process tree. Never throws. */
