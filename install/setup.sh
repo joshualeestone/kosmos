@@ -2032,10 +2032,11 @@ say_hooks_left() {
 gemini_hook_settings_left() {
   [ -n "$1" ] || return 0
   _gh_bin="${1%/}/bin/gemini-report-bridge"
+  _gh_real="$(cd -P "${1%/}/bin" 2>/dev/null && pwd)/gemini-report-bridge" || _gh_real="$_gh_bin"
   _gh_home="${AGENT_WORKFORCE_HOME:-$HOME}"
   for _gh_f in "${AGENT_WORKFORCE_GEMINI_HOME:-$_gh_home/.gemini}/settings.json" "$_gh_home"/.gemini-*/.gemini/settings.json; do
-    [ -f "$_gh_f" ] && grep -qF -e "\"$_gh_bin" "$_gh_f" 2>/dev/null && printf '%s\n' "$_gh_f"
-  done
+    [ -f "$_gh_f" ] && grep -qF -e "\"$_gh_bin" -e "\"$_gh_real" "$_gh_f" 2>/dev/null && printf '%s\n' "$_gh_f"
+  done | awk '!seen[$0]++'   # one line per file, though the override may name a file the account list names too
   return 0
 }
 
@@ -2803,7 +2804,7 @@ if (support) {
   try {
     for (const d of fs.readdirSync(home).sort()) if (d.startsWith('.gemini-')) gfiles.push(path.join(home, d, '.gemini', 'settings.json'));
   } catch { /* no home listing: the default file alone */ }
-  for (const file of gfiles) cleanFile(file, geminiIsOurs, inBin, /gemini-report-bridge/, geminiLeft, false);
+  for (const file of [...new Set(gfiles)]) cleanFile(file, geminiIsOurs, inBin, /gemini-report-bridge/, geminiLeft, false);
 }
 // The last line says the program finished; without it (a node that crashed or cannot run here) the shell names
 // the files itself. Gemini's files are marked, so they are named under Gemini's own sentence.
