@@ -92,6 +92,9 @@ function agentCliDir(root, exists) {
   return has(path.join(dir, AGENT_CLI_SHIM)) ? dir : null;
 }
 
+/* kosmos#7593: git's environment config the restored-world guard sets (childEnv below). */
+const GIT_GUARD_KEYS = ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1'];
+
 /**
  * The environment the agent starts with: ours, minus the markers that would make
  * it a child, plus its own token.
@@ -99,7 +102,7 @@ function agentCliDir(root, exists) {
  * 🔑 A PURE FUNCTION OVER AN ENV OBJECT, so the stripping is assertable from a
  * Mac without spawning anything.
  */
-function childEnv(baseEnv, token, configDir, cliDir, runner) {
+function childEnv(baseEnv, token, configDir, cliDir, runner, opts) {
   const env = Object.assign({}, baseEnv || {});
   for (const k of INHERITED_MARKERS) envDelete(env, k);
   /* #570: the agent's `kosmos` command. Every instruction and every message the
@@ -185,7 +188,64 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      rebuilds its own default from the machine and user values; what is lost is only a module path added in the
      launching shell's session and nowhere else. */
   envDelete(env, 'PSModulePath');
+  /* kosmos#7593 (the win32 half of #5536 4c-1): an agent in a world a restore made starts with git's hooks and
+     fsmonitor off. Its projects keep their own .git from the backup, whose core.hooksPath and core.fsmonitor run
+     commands as soon as the provider runs git there. Git's environment config is command scope, so it outranks the
+     repo's own .git/config (GIT_CONFIG_COUNT needs git 2.31 or later; an older git ignores it). NUL is Windows's
+     /dev/null (as landedcheck.js uses). GIT_CONFIG_COUNT is replaced, not extended: inherited entries are lost, which
+     errs toward the guard. An ordinary agent gets all five deleted, so an inherited value never switches hooks off,
+     or on: the card's step 3, and a difference from the Mac pane, which leaves an ordinary agent's inherited values
+     alone. A GIT_CONFIG_PARAMETERS the board inherits is command scope too and git reads it after these, so a
+     core.hooksPath there would win; it cannot come from a backup, so it is left as the person set it. Every place a
+     Windows agent's environment is built passes the answer: launch(), launchStreaming() and the per-turn supervisor
+     (win32codexsup). Whether the launch is restored is the caller's (restoredLaunch), so this stays a pure function. ONLY
+     hooks and fsmonitor: a restored .git/config can still run commands through filter drivers, textconv, core.pager,
+     core.sshCommand, credential helpers or includes; #5536's review screen (4c-2) shows those. */
+  if (opts && opts.restoredGit) {
+    envSet(env, 'GIT_CONFIG_COUNT', '2');
+    envSet(env, 'GIT_CONFIG_KEY_0', 'core.hooksPath');
+    envSet(env, 'GIT_CONFIG_VALUE_0', 'NUL');
+    envSet(env, 'GIT_CONFIG_KEY_1', 'core.fsmonitor');
+    envSet(env, 'GIT_CONFIG_VALUE_1', 'false');
+  } else {
+    for (const k of GIT_GUARD_KEYS) envDelete(env, k);
+  }
   return env;
+}
+
+/* kosmos#7593: whether an agent starting from `baseEnv` in folder `cwd` starts in a world a restore made, by the
+   Mac supervisor's rule (bin/agent-supervisor.sh, #5536 4c-1):
+   1. A named world asks restoreworld.isRestoredWorld against the real base (preWorldEnv: a board inside a world has
+      that world's roots applied, and the base must be read from the originals it recorded). It fails closed, and so
+      does this: a throw is "restored".
+   2. Whatever the world, the restore mark two folders above the agent's own absolute folder (a restored agent lives
+      at <world>\workers\<name>, the mark at <world>\restored-world.json) counts. This needs no base. A mark that is a
+      link counts, and so does one whose lstat fails for any reason but "not there", as isRestoredWorld's does.
+   The default world is never one by rule 1: prepare cannot make it.
+   Review 3: as on the Mac, only a NAMED world fails closed. Which world it is, and rule 2, use no other module (the
+   world name read straight from the env, the mark's name a constant pinned to restoreworld.RESTORED_MARK by a test),
+   so a module that fails to load can never switch every ordinary agent's hooks off. */
+const RESTORED_MARK_NAME = 'restored-world.json';
+function restoredLaunch(baseEnv, cwd) {
+  const e = Object.assign({}, baseEnv || {});
+  let restored = false;
+  // KOSMOS_WORLD in any spelling (#5358), the sorted-first one, as envCanon picks it.
+  const worldKey = Object.keys(e).sort().find((k) => k.toUpperCase() === 'KOSMOS_WORLD');
+  const id = worldKey === undefined ? '' : String(e[worldKey]);
+  if (id !== '' && id !== 'default') {
+    try {
+      envSet(e, 'KOSMOS_WORLD', id);   // one spelling, by the #5358 helper (envcase-5386)
+      const worlds = require('./worlds');
+      restored = require('./restoreworld').isRestoredWorld(worlds.baseRoot(worlds.preWorldEnv(e)), { id }) !== false;
+    } catch { restored = true; }   // a named world that cannot be checked reads as restored, as on the Mac
+  }
+  if (!restored && typeof cwd === 'string' && path.win32.isAbsolute(cwd)) {
+    try {
+      const mark = path.win32.join(path.win32.dirname(path.win32.dirname(path.win32.resolve(cwd))), RESTORED_MARK_NAME);
+      try { fs.lstatSync(mark); restored = true; } catch (err) { if (!(err && (err.code === 'ENOENT' || err.code === 'ENOTDIR'))) restored = true; }
+    } catch { restored = true; }   // never throws into a launch (path work on a string cannot fail in practice)
+  }
+  return restored;
 }
 
 /**
@@ -439,7 +499,7 @@ function launch(spec) {
   try {
     child = spawner()('cmd.exe', ['/c', 'start', '', '/min', bin].concat(argv), {
       cwd: s.cwd,
-      env: childEnv(process.env, prepared.token, s.configDir, agentCliDir(), s.runner),
+      env: childEnv(process.env, prepared.token, s.configDir, agentCliDir(), s.runner, { restoredGit: restoredLaunch(process.env, s.cwd) }),   // #7593
       detached: true,
       windowsHide: true,
       stdio: 'ignore',
@@ -584,7 +644,7 @@ function launchStreaming(spec) {
   try {
     child = spawner()(bin, argv, {
       cwd: s.cwd,
-      env: childEnv(process.env, prepared.token, s.configDir, agentCliDir(), s.runner),
+      env: childEnv(process.env, prepared.token, s.configDir, agentCliDir(), s.runner, { restoredGit: restoredLaunch(process.env, s.cwd) }),   // #7593
       windowsHide: true,
       /* 🔑 PIPES, AND THIS IS THE WHOLE POINT. `launch()` passes 'ignore' so the
          agent is nobody's child; here stdin is the delivery channel and stdout is
@@ -620,5 +680,5 @@ module.exports = {
   /* binFor is exported for the codex supervisor (#3380), which spawns `codex exec`
      per turn and needs the same path-hint-with-bare-name-fallback the streaming
      launch uses. Pure, so it is safe to share. */
-  childEnv, agentCliDir, argvFor, binFor, AUTONOMY, INHERITED_MARKERS, setSpawn,
+  childEnv, restoredLaunch, GIT_GUARD_KEYS, RESTORED_MARK_NAME, agentCliDir, argvFor, binFor, AUTONOMY, INHERITED_MARKERS, setSpawn,
 };

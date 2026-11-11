@@ -943,4 +943,4 @@ function stopListings() {
 }
 
 module.exports = { memberTag, prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, listRestoredAgentsInChild, startListings, stopListings, isRestoredWorld, worldName,
-  RESTORE_DIR, LIST_CHILD_TIMEOUT_MS };
+  RESTORE_DIR, RESTORED_MARK, LIST_CHILD_TIMEOUT_MS };
