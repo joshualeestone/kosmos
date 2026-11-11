@@ -57,6 +57,8 @@ function sandbox({ noNode = false } = {}) {
   main.hooks.AfterAgent[0].hooks.push({ type: 'command', command: 'say done' });
   // A hook of the person's that names our data folder's bin/ in one argument and the bridge's name in another: theirs.
   main.hooks.BeforeAgent.push({ hooks: [{ type: 'command', command: 'bash "' + path.join(path.dirname(bridge), 'my-own.sh') + '" --tag gemini-report-bridge' }] });
+  // And one whose script merely starts with the bridge's name, in the same folder: also theirs.
+  main.hooks.SessionEnd.push({ hooks: [{ type: 'command', command: 'node "' + bridge.replace(/\.js$/, '-mine.js') + '"' }] });
   fs.writeFileSync(mainFile, JSON.stringify(main, null, 2) + '\n');
   fs.chmodSync(mainFile, 0o640);
 
@@ -115,6 +117,7 @@ test('#8364: uninstall takes this install\'s Gemini hooks out and keeps everythi
   assert.ok(!names(main, sb.bridge), 'a Kosmos hook was left in ~/.gemini/settings.json');
   assert.deepEqual(main.hooks.BeforeTool, [{ matcher: 'shell', hooks: [theirHook] }], 'the person\'s own hook was not kept as it was');
   assert.ok(names(main.hooks.BeforeAgent, 'my-own.sh'), 'a hook of the person\'s naming our folder and the bridge\'s name apart was taken for ours');
+  assert.ok(names(main.hooks.SessionEnd, 'gemini-report-bridge-mine.js'), 'a script whose name merely starts with the bridge\'s was taken for ours');
   assert.deepEqual(main.hooks.AfterAgent, [{ hooks: [{ type: 'command', command: 'say done' }] }], 'a hook sharing our entry was not kept');
   assert.equal(main.hooks.SessionStart, undefined, 'an event left with nothing was kept as an empty list');
   assert.deepEqual(main.ui, { theme: 'Dracula' }, 'the person\'s own setting was lost');
