@@ -185,7 +185,9 @@ function toldWords(x) {
   const answered = typeof x.onHoldAnsweredAt === 'string' && !require('./holdtold').answeredOpen(x)
     ? whenWords(x.onHoldAnsweredAt) || one(x.onHoldAnsweredAt) : '';
   if (answered) return ' (they answered ' + answered + ': if that settles it, take it off hold)';
-  if (told) return ' (you told them ' + told + ')';
+  // kosmos#8389: how many times, when it was counted; a hold told before the count was kept says the latest time alone.
+  const times = Number.isInteger(x.onHoldToldCount) && x.onHoldToldCount > 1 ? x.onHoldToldCount + ' times, last ' : '';
+  if (told) return ' (you told them ' + times + told + ')';
   return ' (Kosmos has not seen you tell them: ask them in the task, or name task ' + x.number + ' when you ask)';
 }
 /* kosmos#8271: how fresh a hold is, in calendar days. Nothing for a hold made before this was recorded or a time ahead of this clock. */

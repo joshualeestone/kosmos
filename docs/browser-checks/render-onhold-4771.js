@@ -392,7 +392,8 @@ function chk(ok, label, extra) {
       await page.evaluate((pid) => tskGoToProject(pid), launch.id);
       await page.waitForSelector('.tkcard-for-you', { state: 'attached', timeout: 6000 }).catch(() => {});
       const card = await page.evaluate(() => { const e = document.querySelector('.tkcard-for-you'); return e ? e.textContent.trim() : null; });
-      chk(card === 'On hold until you answer: needs your yes on the price', `${tag} #7797 the project's task card says it waits on your answer`, card);
+      // kosmos#8389 review 4: and, as the Tasks row does, that it asked you (the column is what most people see).
+      chk(card === 'On hold until you answer: needs your yes on the price. It asked you 2 hours ago.', `${tag} #7797 the project's task card says it waits on your answer (kosmos#8389: and that it asked)`, card);
       /* kosmos#7797: and the project's own card in the Projects list reads Question (no member asks here). */
       await page.evaluate(() => showTab('projects'));
       await page.waitForFunction((pid) => { const r = document.querySelector('#pj-list .pj-row[data-project="' + pid + '"]'); return r && /Question/.test(r.textContent); }, launch.id, { timeout: 6000 }).catch(() => {});

@@ -7021,8 +7021,9 @@ function createAgentInner(opts) {
            <configDir>/.gemini. The default (configDir null) is unchanged. See the
            helper's comment for why the append lives there and not in geminiaccounts. */
         const geminiHome = geminiStorageHome(configDir);
-        /* #8362: what this fills in is recorded in Kosmos's data folder, for the uninstall to take back out. Only the
-           Mac and Linux uninstall (install/setup.sh) reads the record so far; the Windows one does not yet. */
+        /* #8362: what this fills in is recorded in Kosmos's data folder, for the uninstall to take back out. Both
+           uninstalls read it: install/setup.sh on the Mac and Linux (the main data folder's only), and
+           engine/win32uninstall.js on Windows (every Kosmos's, #8377). */
         geminisettings.ensurePrepared(path.join(geminiHome, 'settings.json'), geminiBridgePath(),
           { wroteLedger: path.join(supportDir(), geminisettings.WROTE_FILE) });
       } catch { /* a gemini agent that self-reports late is not a failed creation */ }
