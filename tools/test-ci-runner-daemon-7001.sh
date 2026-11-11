@@ -515,7 +515,7 @@ second; echo "$CIU 6200 1 $R2/bin/Runner.Worker spawnclient 1 2" >> "$T/procs"; 
 [ "$(rc twojob)" = 1 ] && has twojob "a job is running (Runner.Worker 6200" && ! has twojob 6100 && [ ! -e "$D2" ] \
   && pass "#8404: the second runner's own job refuses its daemon, named" || fail "#8404 twojob: rc $(rc twojob) $(cat "$T/twojob.out")"
 # The two settings are for the daemon stage only: every other stage refuses them before reading anything.
-for st in preflight create-user verify register keepalive jq-programs "install 0123456789abcdef0123456789abcdef01234567 $(printf '0%.0s' $(seq 64))"; do
+for st in preflight create-user verify register keepalive machine-settings jq-programs "install 0123456789abcdef0123456789abcdef01234567 $(printf '0%.0s' $(seq 64))"; do
   # shellcheck disable=SC2086  # $st carries install's two arguments
   fixture; run "only-${st%% *}" "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$H/actions-runner-site" -- $st; st="${st%% *}"
   [ "$(rc "only-$st")" = 2 ] && has "only-$st" "for the daemon stage only" && pass "#8404: $st refuses KOSMOS_CI_REPO" || fail "#8404 only-$st: rc $(rc "only-$st") $(cat "$T/only-$st.out")"

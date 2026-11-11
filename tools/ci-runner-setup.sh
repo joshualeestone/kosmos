@@ -49,7 +49,8 @@
 #                             KOSMOS_CI_REPO (its owner/name, default this repo) and KOSMOS_CI_RUNNER_DIR (its directory,
 #                             one directly in the CI home, default $CI_HOME/actions-runner), with its KOSMOS_CI_RUNNER_NAME.
 #                             Set them with its KOSMOS_CI_RUNNER_NAME, all three or none. Every other stage refuses them
-#                             (see RUNNER_REPO below for why).
+#                             (see RUNNER_REPO below for why). Since kosmos#8404 the runner dir, the default one too,
+#                             must be a real directory: a symlink there is refused (a job can leave one at that name).
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail).
@@ -96,7 +97,7 @@ case "$_other" in
   rd) [ -n "${KOSMOS_CI_RUNNER_NAME:-}" ] || { echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner: set its KOSMOS_CI_RUNNER_NAME too (left out, it is this repo's runner's)" >&2; exit 2; }
       # The stages known to work on this repo's runner only; an unknown or missing stage goes on to the usage line.
       case "$STAGE" in preflight|create-user|install|register|verify|keepalive|machine-settings|jq-programs)
-        echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner for the daemon stage only; $STAGE works on this repo's runner in the CI home's actions-runner. Unset them" >&2; exit 2 ;; esac ;;
+        echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner for the daemon stage only; $STAGE does not take them. Unset them" >&2; exit 2 ;; esac ;;
   *) echo "refused: set KOSMOS_CI_REPO, KOSMOS_CI_RUNNER_DIR and KOSMOS_CI_RUNNER_NAME together (another runner is named by its repo, its directory and its name), or none of them" >&2; exit 2 ;;
 esac
 REPO="joshualeestone/kosmos"
