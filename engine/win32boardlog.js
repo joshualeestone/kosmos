@@ -46,7 +46,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 const ROTATE_BYTES = 20 * 1024 * 1024;
-const LINE_TEXT_ENCODINGS = /^(utf-?8|latin1|binary|ascii)$/i;   // engine/logstamp.js's
+// The same set as engine/logstamp.js.
+const LINE_TEXT_ENCODINGS = /^(utf-?8|latin1|binary|ascii)$/i;
 
 let routed = null;   // { path, fd } once route() has opened the log in this process
 
