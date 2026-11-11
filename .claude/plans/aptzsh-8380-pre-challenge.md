@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: aptzsh-8380
-diff_hash: cb5d29e869550f6e32036647da62fc25eca0c8a4c69ee62c13de145085446294
+diff_hash: 0154f4a43c77db937e0030354d55b651f2c75489d9f7ffa775460eda92b9c6f9
 validation: skipped
 subdir_audit: passed
 timestamp: 2026-11-11T15:22:23Z
@@ -35,3 +35,6 @@ Validation: SKIPPED on Splinter's instruction (11-11 09:20 CST): the change touc
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs
 **Converged.**
+
+### After convergence
+The first CI run sat in the tools step for 25 minutes: every lookup of the dead name waits out its timeout. Added one quick DNS check that repoints up front. Not re-reviewed: a one-line guarded addition.
