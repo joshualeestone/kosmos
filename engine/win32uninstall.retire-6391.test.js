@@ -125,7 +125,7 @@ test('#6391 source order: the retire call precedes deleteAllExcept in uninstall(
   // Anchor on the retire INVOCATION itself (robust to call-site wrapping like `(retire(...) || {})`),
   // and on the delete call. If either is renamed, update both.
   const retireAt = src.indexOf('retire({ remoteDir');
-  const deleteAt = src.indexOf('const failures = deleteAllExcept(dataDir, keptDirs, rm)');
+  const deleteAt = src.indexOf('const failures = deleteAllExcept(dataDir, keptDirs');   // #8377 appends the unfinished Gemini records
   assert.ok(retireAt !== -1, 'retire call site not found (renamed?) — update this guard');
   assert.ok(deleteAt !== -1, 'deleteAllExcept call site not found (renamed?) — update this guard');
   assert.ok(retireAt < deleteAt, 'the retire call moved BELOW deleteAllExcept — the key would be deleted before it is retired');
