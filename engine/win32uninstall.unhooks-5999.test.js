@@ -388,15 +388,16 @@ test('kosmos#8361: a Gemini hook naming an EARLIER folder\'s node.exe (now gone)
   assert.ok(r.done.some((d) => d.includes('Gemini CLI\'s settings') && d.includes('earlier Kosmos folder')), JSON.stringify(r.done));
 });
 
-test('kosmos#8361: the key homes under the data folder are covered too', async () => {
+test('kosmos#8361: the key homes under the data folder are covered too', { skip: process.platform !== 'win32' && 'a win32 data path is not absolute off Windows, so this would write inside the repo; the Windows CI job runs it' }, async () => {
   const h = home();
   const base = path.dirname(h);
   const store = require('./store');
-  const env = { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX' };
+  const env = { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX', AGENT_WORKFORCE_DATA: path.join(h, 'data') };   // inside the scratch home
   const keyFile = path.join(store.dataRootFor('win32', h, env), 'gemini-key-home', 'work', '.gemini', 'settings.json');
+  assert.ok(path.isAbsolute(keyFile) && keyFile.startsWith(h), 'the key home is not inside the scratch home: ' + keyFile);
   writeJson(keyFile, { hooks: { SessionStart: [geminiOurs()] } });
   stubSchedulers([listing([])]);
-  const r = await run(h);
+  const r = await run(h, { env });
   assert.deepEqual(readJson(keyFile), {});
   assert.ok(r.done.some((d) => d.includes(keyFile)), JSON.stringify(r.done));
 });
