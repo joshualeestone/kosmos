@@ -361,7 +361,7 @@ test('sleep reader: logind, the lid and GNOME are read, and every command is a l
   const got = machine.readLinuxSleep({ runner, hasLid: true, hasBattery: true });
   assert.deepEqual(got, {
     idle: { action: 'suspend', minutes: 30 },
-    lid: { battery: 'suspend', ac: 'suspend', docked: null },   // an empty HandleLidSwitchExternalPower means HandleLidSwitch applies
+    lid: { battery: 'suspend', ac: 'suspend', docked: null, sure: true },   // an empty HandleLidSwitchExternalPower means HandleLidSwitch applies
     gnome: { ac: 'suspend', acMinutes: 20, battery: 'suspend', batteryMinutes: 15 },
     desktop: null,   // GNOME was read, so the display manager is not asked
   });
@@ -501,6 +501,23 @@ test('sleep reader: an idle time of a year or more is no idle action', () => {
   assert.deepEqual(machine.readLinuxSleep({ runner, hasLid: false }).idle, { action: 'ignore', minutes: null });
 });
 
+test('sleep row: a lid known only from a battery is said as "if it has a lid" (a tablet has none)', () => {
+  const r = sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend', sure: false } });
+  assert.match(r.detail, /^If it has a lid: when the lid closes, this computer goes to sleep\./);
+  assert.match(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend', sure: true } }).detail, /^When the lid closes/, 'control');
+  const { runner } = sleepRunner({ IdleAction: 's "ignore"', gsd: 'inactive' });
+  assert.equal(machine.readLinuxSleep({ runner, hasLid: true, lidSure: false }).lid.sure, false);
+});
+
+test('restart row: from source with no systemd is the from-source answer, not a vague could-not-check', () => {
+  assert.match(row({ unitFile: true, unitState: null, installed: null, systemdRunning: false }).title, /running from source/);
+});
+
+test('restart row: masked tells who runs the command, and the logind table knows factory-reset', () => {
+  assert.match(row({ unitFile: true, unitState: 'masked', installed: BUNDLE }).detail, /from this account, not an administrator's\. If it changes nothing, an administrator may have blocked it for every account/);
+  assert.match(sleep({ idle: { action: 'factory-reset', minutes: 5 } }).title, /can restart on its own/);
+});
+
 test('sleep row: a lid that sleeps only while plugged in says so', () => {
   assert.match(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'ignore' } }).detail, /When the lid closes while it is plugged in, this computer goes to sleep\./);
 });
@@ -508,7 +525,7 @@ test('sleep row: a lid that sleeps only while plugged in says so', () => {
 test('sleep reader: a set HandleLidSwitchExternalPower is the plugged-in answer', () => {
   const { runner } = sleepRunner({ HandleLidSwitchExternalPower: 's "ignore"', IdleAction: 's "ignore"', gsd: 'inactive' });
   const got = machine.readLinuxSleep({ runner, hasLid: true });
-  assert.deepEqual(got.lid, { battery: 'suspend', ac: 'ignore', docked: null });
+  assert.deepEqual(got.lid, { battery: 'suspend', ac: 'ignore', docked: null, sure: true });
   assert.equal(sleep(got).battOnly, true);
 });
 
