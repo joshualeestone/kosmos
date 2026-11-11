@@ -45,17 +45,22 @@ const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process
    bootstrap's own named-world lines (#1704/#2528, none on the default world) come before this and carry no time. */
 if (require.main === module) {
   const logstamp = require('./engine/logstamp');
-  /* #8373: on Windows the board's host sends both streams nowhere, so the board opens its own log and copies every
-     write into it (engine/win32boardlog.js). The stamp then marks that file, as it marks fd 1 on the Mac. */
-  const routedLog = require('./engine/win32boardlog').route(process.stdout, process.stderr);
-  const outFd = routedLog ? routedLog.fd : 1, errFd = routedLog ? routedLog.fd : 2;
-  const shared = logstamp.sameFile(outFd, errFd) ? { atLineStart: true } : undefined;   // both to board.log: one line state
   /* Where board.log is: install/kosmos puts the app at $KOSMOS_HOME/app/server.js and the log at
      $KOSMOS_HOME/logs/board.log, so it is ../logs/board.log from here (KOSMOS_HOME itself is not exported to the board,
      so it is not read; engine/logstamp.test.js pins this layout against install/kosmos). */
-  const logPaths = [routedLog ? routedLog.path : path.join(__dirname, '..', 'logs', 'board.log')];
-  logstamp.install(process.stdout, outFd, { shared, logPaths });
-  logstamp.install(process.stderr, errFd, { shared, logPaths });
+  const logPaths = [path.join(__dirname, '..', 'logs', 'board.log')];
+  /* #8373: on Windows the board's host sends both streams nowhere, so the board opens its own log and copies every
+     write into it (engine/win32boardlog.js). The stamp then marks that file, as it marks fd 1 on the Mac. */
+  const routedLog = require('./engine/win32boardlog').route(process.stdout, process.stderr);
+  if (routedLog) {
+    const shared = { atLineStart: true };   // both streams go to the one routed file: one line state
+    logstamp.install(process.stdout, routedLog.fd, { shared, logPaths: [routedLog.path] });
+    logstamp.install(process.stderr, routedLog.fd, { shared, logPaths: [routedLog.path] });
+  } else {
+    const shared = logstamp.sameFile(1, 2) ? { atLineStart: true } : undefined;   // both to board.log: one line state
+    logstamp.install(process.stdout, 1, { shared, logPaths });
+    logstamp.install(process.stderr, 2, { shared, logPaths });
+  }
   /* #5959: and the board's own lines into memory for the diagnostics file, whatever the streams are (a pipe on Windows
      too). Installed after the stamp, so it wraps it and records each line before the stamp's time is added. */
   const logring = require('./engine/logring');
