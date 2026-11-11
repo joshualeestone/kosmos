@@ -26427,6 +26427,14 @@ function freshWords(seconds) {
    Worded as what Kosmos has seen, never as a fact about the agent: an ask that named no task is not seen. Branches on
    whether each mark is there, not on its age words: agoWords gives '' for a time ahead of this clock (a slow phone), and
    a recorded ask must never read as none. An answer counts only while the agent has not asked again since. */
+/* kosmos#8395: the holder's suggested answer to a for-you hold's question, as one plain sentence after it ('' when none).
+   Plain text: every caller escapes it. */
+function tskHoldSuggestWords(t) {
+  if (!t || t.onHold !== true || t.onHoldForPerson !== true || typeof t.onHoldSuggest !== 'string' || !t.onHoldSuggest.trim()) return '';
+  const s = t.onHoldSuggest.trim();
+  return ' Suggested: ' + s + (/[.!?]$/.test(s) ? '' : '.');
+}
+
 function tskHoldToldWords(t) {
   if (!t || t.onHold !== true || t.onHoldForPerson !== true) return '';
   const at = (v) => (typeof v === 'string' && Number.isFinite(Date.parse(v)) ? Date.parse(v) : null);
@@ -72008,6 +72016,7 @@ function paintProjectTasks(p) {
         /* kosmos#8389 review 4: and whether it asked them, and how many times, as the Tasks row says (tskHoldToldWords): this
            column is what most people see. typeof: tests lift this function alone. */
         ? '<span class="tkcard-from tkcard-for-you" style="overflow-wrap:anywhere;">On hold until you answer' + (typeof t.onHoldBecause === 'string' && t.onHoldBecause ? ': ' + esc(t.onHoldBecause) + (/[.!?]$/.test(t.onHoldBecause) ? '' : '.') : '.')
+          + (typeof tskHoldSuggestWords === 'function' ? esc(tskHoldSuggestWords(t)) : '')   // kosmos#8395
           + (typeof tskHoldToldWords === 'function' ? esc(tskHoldToldWords(t)) : '') + '</span>'
         : t.onHold === true && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tkcard-from" style="overflow-wrap:anywhere;">On hold: ' + esc(t.onHoldBecause) + (tskHoldConfirmedWords(t) ? (/[.!?]$/.test(t.onHoldBecause) ? ' ' : '. ') + esc(tskHoldConfirmedWords(t)) : '') + '</span>' : t.onHold === true && tskHoldConfirmedWords(t) ? '<span class="tkcard-from">On hold. ' + esc(tskHoldConfirmedWords(t)) + '</span>' : '')   // kosmos#7749
       + chip + '</button>';
@@ -72474,6 +72483,7 @@ function tskRow(t, at) {
   const forYouLine = t.state === 'decision' && t.onHold === true && t.onHoldForPerson === true
     ? '<div class="why tsk-for-you" style="overflow-wrap:anywhere;">'
       + (typeof t.onHoldBecause === 'string' && t.onHoldBecause ? 'On hold until you answer: ' + esc(t.onHoldBecause) + '.' : 'On hold until you answer.')
+      + esc(tskHoldSuggestWords(t))   // kosmos#8395
       + tskHoldToldWords(t)
       + ' Open it and take it off hold once you have.</div>'
     : '';
@@ -74654,7 +74664,10 @@ function tkPaintHoldUntil(p, t) {
   const n = m ? Number(m[1]) : 0;
   const gone = m && !(p.tasks || []).some((x) => x && x.number === n);
   const why = held && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tk-hold-why" style="overflow-wrap:anywhere;">Why: ' + esc(t.onHoldBecause) + (tskHoldConfirmedWords(t) && !/[.!?]$/.test(t.onHoldBecause) ? '.' : '') + '</span> ' + (tskHoldConfirmedWords(t) ? '<span class="tk-hold-why">' + esc(tskHoldConfirmedWords(t)) + '</span> ' : '') : '';   // kosmos#7749
-  const html = why + (!u ? ''
+  // kosmos#8395: the holder's suggested answer, beside the question it answers.
+  const sug = held ? tskHoldSuggestWords(t).trim() : '';
+  const why2 = why + (sug ? '<span class="tk-hold-suggest" style="overflow-wrap:anywhere;">' + esc(sug) + '</span> ' : '');
+  const html = why2 + (!u ? ''
     : m ? (gone ? 'Task ' + n + ' is no longer on this project, so this can come off hold.'
       : u.met === true ? 'Task ' + n + ' is closed, so this can come off hold.' : 'Waiting for task ' + n + ' to close.')
     : Number.isFinite(at) ? (u.met === true ? 'That time has passed, so this can come off hold.' : 'Waiting until ' + esc(tkHoldWhen(at)) + '.')

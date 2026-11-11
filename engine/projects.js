@@ -4075,6 +4075,9 @@ function blockRules(sessionName, cliShown) {
       'When a task cannot go on until your person decides or does something only they can, put it on hold for them:',
       `\`${cliShown} task hold <project-id> <task-number> --because "<what you need from them>" --for-you\`. It then shows`,
       'in what is waiting on them.',
+      /* kosmos#8395: an answer suggested beside the question lets the person answer in a word. */
+      'If you know the answer you would give, add it: `--suggest "<your answer>"`. It shows beside your question, so they',
+      'can answer in a word.',
       /* #5300: every member showed its agent's one role (five Project Managers on one project). */
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
