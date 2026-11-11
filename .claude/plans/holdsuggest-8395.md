@@ -17,8 +17,7 @@ prints it under "Suggested answer:". It goes when the question does, and agents 
   and when the hold comes off or the task closes. Not added to HOLD_TOLD_FIELDS. A suggestion sent in the call that
   changes the question is kept (it answers the new one).
 - Only an agent's for-you hold carries one: refused (400) on a hold not for the person or on the person's own screen
-  hold, and (403) when an agent sends one for the person's hold. The hold's own earlier refusals (a finished task 409,
-  the person's hold 403, nothing to unmark 409) come first, so those statuses win when they apply.
+  hold, and (403) when an agent sends one for the person's hold.
 - Shown with a single page helper, tskHoldSuggestWords (plain text, escaped by every caller). Agents learn of it in
   their project instructions, after the --for-you line.
 - Both CLIs take --suggest anywhere after the task number (the Mac parser lifts it with its value before the
@@ -63,3 +62,7 @@ feedback). Correction to my card comment: marking a task built does not touch a 
   agent needs it. The markup-escape check repeats iteration 1's noted item (every caller escapes). NITs noted: the two
   CLIs print their confirmations in a different order; both echo the raw words; an empty suggest on the person's
   hold answers 403.
+- Iteration 4 (sonnet): 1 WARNING, on this plan: its stated order of refusal codes was wrong in two cases; the sentence
+  is DELETED (the tests pin each status; a claim about their order is not guarded by anything). NITs noted, tests to
+  add if a later round asks: a close through the parts path, the hold route's pass-through, the person taking the
+  hold over; tk-hold-suggest has no style rule.
