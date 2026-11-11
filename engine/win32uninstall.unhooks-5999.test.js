@@ -476,7 +476,6 @@ test('kosmos#8361: a person\'s script with our marker in its name, run by this i
 /* kosmos#8361, the Codex half: the hook #8348 writes into each named Codex home goes with the uninstall, by the same
    rules; the person's own ~/.codex is never looked at, even holding a hook in our exact shape. */
 const codexhooks = require('./codexhooks');
-const CODEX_BRIDGE = BUNDLE + '\\app\\bin\\codex-report-bridge.js';
 const codexInstall = (dir, root) => {
   fs.mkdirSync(dir, { recursive: true });
   const r = root || BUNDLE;
@@ -501,7 +500,6 @@ test('kosmos#8361: the uninstall takes this install\'s Codex hook and its record
   assert.equal(fs.readFileSync(path.join(other, 'hooks.json'), 'utf8'), otherBytes, 'another install\'s live hook was taken');
   assert.ok(r.done.some((d) => d.includes('Codex') && d.includes(named) && d.includes('trust entry')), JSON.stringify(r.done));
   assert.ok(!r.left.some((l) => /Codex/.test(l)), JSON.stringify(r.left));
-  assert.equal(CODEX_BRIDGE.endsWith('codex-report-bridge.js'), true);
 });
 
 test('kosmos#8361: while a Kosmos task is still registered, the Codex hook is not touched either', async () => {

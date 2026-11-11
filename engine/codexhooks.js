@@ -296,7 +296,8 @@ if (require.main === module) {
    bridge lies in THIS install's folder (`roots`, every spelling of it), or one of them is provably gone (`gone(p)`).
    Another install's live hook stays. The trust record goes with it only when it is exactly what install() writes for
    that command (the heading for the canonical hooks.json, then the one trusted_hash line with that command's hash);
-   a record anyone changed is left. The record goes first, then hooks.json, under the config.toml lock install takes.
+   a record anyone changed is left. hooks.json goes FIRST, then the record (a lone record is inert; a hooks.json
+   without its record stops the Codex TUI), under the config.toml lock install takes.
    Returns { ours, changed, recordRemoved?, because? }. Never throws. */
 function unwireInstall(home, roots, opts) {
   const o = opts || {};
@@ -328,6 +329,9 @@ function unwireInstall(home, roots, opts) {
       if (!isOurs(now) || JSON.parse(now).hooks[EVENT][0].hooks[0].command !== command) return { ours: false, changed: false, because: 'hooks.json changed while it was being checked' };
       fs.unlinkSync(hooksFile);
       let recordRemoved = false;
+      /* Review 2: hooks.json is already gone, so a record that cannot be rewritten (config.toml held by another program)
+         leaves the hook taken out, said as such: the record left is inert. */
+      try {
       let cfgText = null;
       try { cfgText = fs.readFileSync(cfg, 'utf8'); } catch { cfgText = null; }
       if (cfgText !== null && heading) {
@@ -349,6 +353,7 @@ function unwireInstall(home, roots, opts) {
           recordRemoved = true;
         }
       }
+      } catch { recordRemoved = false; }
       return { ours: true, changed: true, recordRemoved };
     }, { busy: 'another program was writing the Codex config', cannotAccess: 'its folder would not let Kosmos lock it' });
     if (locked && locked.ok === true) return locked.value;

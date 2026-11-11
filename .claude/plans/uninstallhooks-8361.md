@@ -10,9 +10,10 @@ The Windows uninstall took Kosmos's report hooks out of Claude Code's settings o
 - `codexhooks.unwireInstall(home, roots, { gone, platform })`: takes out OUR hooks.json (isOurs: the exact shape
   install writes) only when its node or its bridge lies in this install's folder (every spelling, case- and
   slash-blind, as reporthook.unwireInstall compares) or one of them is provably gone; another install's live hook
-  stays. The trust record goes first, and only when it is exactly the heading for the canonical hooks.json followed by
+  stays. hooks.json goes first (a lone record is inert), then the trust record, and only when it is exactly the heading for the canonical hooks.json followed by
   the one trusted_hash line with that command's hash; a record anyone changed stays. Both under the config.toml lock
-  install takes. A blank line after the record goes with it, never the file's final newline.
+  install takes. The blank lines after the record go with it, never the file's final newline; a record that cannot be rewritten leaves
+  the hook taken out all the same.
 - `win32uninstall.unwireHooks` runs it on every `~/.codex-<label>` (codexHomes), the only homes the hook is ever written
   into (win32codexsup never gives it to the person's ~/.codex), after the Gemini loop, with done/left sentences.
 - Tested in engine/uninstallhooks-codex.win32-8361.test.js (8): this install's hook plus record, the rest of the config
