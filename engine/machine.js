@@ -432,7 +432,7 @@ function readLinuxSleep(opts) {
       // HandleLidSwitchDocked (default ignore) decides a closed lid with another screen connected.
       // ext null: this logind has no such setting (before systemd 235), so the fix names HandleLidSwitch instead.
       // ext undefined: the ask failed, so the plugged-in lid is not known and no lid fix is offered for it.
-      if (battery) lid = { battery, ac: ext || battery, docked: prop('HandleLidSwitchDocked') || null, sure: lidSure, noExt: ext === null, extUnread: ext === undefined };
+      if (battery) lid = { battery, ac: ext === undefined ? null : (ext || battery), docked: prop('HandleLidSwitchDocked') || null, sure: lidSure, noExt: ext === null, extUnread: ext === undefined };
     }
   }
   let gnome = null, gnomeUnread = false;
@@ -635,9 +635,16 @@ function linuxSleepCheck(reading) {
     const lidWords = lid && lid.sure === false ? 'when its lid closes, if it has one' : 'when its lid closes';
     const title = lidStops && gnomeBatt ? 'This computer can ' + what(verbs) + ' on battery, or ' + lidWords
       : (lidStops ? 'This computer can ' + what(verbs) + ' ' + lidWords : 'This computer can ' + what(verbs) + ' on battery');
-    return Object.assign({ key: 'sleep', state: STATE.ATTENTION, battOnly: true, title,
-      detail: said.join(' ') + ' Plugged in and open, it keeps working, so for overnight work leave it plugged in and open.' + desktopFix + logindFix
-        + (r.gnomeUnread ? ' Part of your desktop\'s power settings could not be read.' : '') }, extra);
+    /* The plugged-in promise needs the plugged-in desktop setting: when that was not read, there is no promise and the
+       row is not the battery-only kind. */
+    const acUnknown = r.gnomeUnread && r.gnomeUnread !== 'battery';
+    return Object.assign({ key: 'sleep', state: STATE.ATTENTION, title },
+      acUnknown ? {} : { battOnly: true },
+      { detail: said.join(' ')
+        + (acUnknown ? ' Your desktop\'s plugged-in power setting could not be read, so we cannot tell whether it keeps working while plugged in.'
+          : ' Plugged in and open, it keeps working, so for overnight work leave it plugged in and open.')
+        + desktopFix + logindFix
+        + (r.gnomeUnread === 'battery' ? ' Part of your desktop\'s power settings could not be read.' : '') }, extra);
   }
   // Before any all-clear: a GNOME read that failed, wholly or partway, is never a tick.
   if (r.gnomeUnread) {
@@ -1849,7 +1856,7 @@ function labelTruthCheck(runner) {
 function boardAutostartCheck(runner, opts) {
   const platform = opts && opts.platform || process.platform;
   if (platform === 'win32') return win32BoardAutostartCheck(opts);
-  if (platform === 'linux') {
+  if (platformOf(opts) === 'linux') {   // as check() and sleepGate read the platform
     // A runner handed straight to this function is the caller's, as on the Mac and Windows arms.
     const lo = runner && runner !== run ? Object.assign({}, opts, { runner }) : opts;
     return linuxBoardAutostartCheck(linuxCached('board', lo, () => readLinuxBoardAutostart(runner === run ? linuxRun : runner, lo)));
@@ -2154,7 +2161,7 @@ function linuxBoardAutostartCheck(reading) {
     // Only the file was read here, so the words claim no more: whether it is switched on was not read.
     return linuxLingerOffRow(r, 'Its startup file is on this computer, but with nobody logged in this computer runs '
       + 'no services for you, so Kosmos and your agents stay stopped until someone logs in. (Whether the service is '
-      + 'switched on could not be read until then.)');
+      + 'switched on could not be read.)');
   }
   if (!r.unitState) return unknown('This computer\'s service manager did not answer when we asked about Kosmos\'s startup service.');
   if (r.unitState === 'masked' || r.unitState === 'masked-runtime') {

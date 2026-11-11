@@ -790,7 +790,8 @@ test('restart: the linger command keeps every user name, single-quoted, and the 
 test('restart: systemd silent and linger off says only the file was read', () => {
   const r = row({ unitFile: true, unitState: null, linger: false, installed: BUNDLE, user: 'pat' });
   assert.match(r.detail, /^Its startup file is on this computer/);
-  assert.match(r.detail, /Whether the service is switched on could not be read until then/);
+  assert.match(r.detail, /\(Whether the service is switched on could not be read\.\) You can let it keep running/);
+  assert.doesNotMatch(r.detail, /until then/);
   assert.doesNotMatch(r.detail, /service is in place/);
 });
 
@@ -893,4 +894,29 @@ test('sleep reader: a failed ExternalPower ask is not older systemd, and no lid 
   const r = sleep(got);
   assert.doesNotMatch(r.detail, /also stops the lid putting it to sleep on battery/);
   assert.equal(r.admin, undefined, 'no lid fix written on a guess');
+});
+
+test('sleep row: a lid finding with the plugged-in desktop setting unread makes no plugged-in promise', () => {
+  for (const unread of [true, 'service', 'ac']) {
+    const r = sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' }, gnome: null, gnomeUnread: unread });
+    assert.equal(r.state, STATE.ATTENTION, String(unread));
+    assert.equal(r.battOnly, undefined, 'not the battery-only kind: ' + unread);
+    assert.doesNotMatch(r.detail, /Plugged in and open, it keeps working/, String(unread));
+    assert.match(r.detail, /plugged-in power setting could not be read/, String(unread));
+  }
+  // Control: only the battery half unread keeps the plugged-in promise, and says the part that was not read.
+  const batt = sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' }, gnome: { ac: 'nothing', acMinutes: 0 }, gnomeUnread: 'battery' });
+  assert.equal(batt.battOnly, true);
+  assert.match(batt.detail, /Plugged in and open, it keeps working.*Part of your desktop's power settings could not be read\.$/);
+});
+
+test('sleep reader: a failed ExternalPower ask words only the battery half of the lid', () => {
+  const r = (c, a) => {
+    if (c !== 'busctl') return { ok: false };
+    if (a[5] === 'HandleLidSwitchExternalPower') return { ok: false, because: 'Connection timed out' };
+    return { ok: true, stdout: a[5] === 'IdleActionUSec' ? 't 0\n' : (a[5] === 'IdleAction' ? 's "ignore"\n' : 's "suspend"\n') };
+  };
+  const got = machine.readLinuxSleep({ runner: r, hasLid: true });
+  assert.equal(got.lid.ac, null);
+  assert.match(sleep(got).detail, /^When the lid closes on battery, this computer goes to sleep\./);
 });
