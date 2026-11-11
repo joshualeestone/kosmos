@@ -615,6 +615,14 @@ async function main(io) {
   const event = field(evt, 'hook_event_name');
   if (!event) return 0;
 
+  /* kosmos#8406: the Windows twin of the bash hook's #4671 kill guard, first, before anything is sent. Exit 2 refuses
+     the tool call, and Claude Code shows the agent the reason on stderr. */
+  const guard = require('./winkillguard').check(evt, env);
+  if (guard.block) {
+    (o.stderr || ((s) => process.stderr.write(s)))(guard.message);
+    return 2;
+  }
+
   /* Where and as whom this hook speaks to the board, worked out once, the first time it is needed. */
   let conn = null;
   const connection = () => {
