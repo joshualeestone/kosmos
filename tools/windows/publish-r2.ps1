@@ -280,7 +280,8 @@ function Get-GitLine([string[]] $GitArgs) {
 # half a second on the release PC online (11-09), not measured offline; it runs only when PATH has no node.
 # Said on stderr once per run (the first verdict), so the run's log shows which binary checked the build, and names a
 # .cmd shim it skipped on PATH, if there was one. kosmos#8316: that first verdict is also kept for the run, so every
-# later call returns what the line said, without reading the signature again. Returns an object with .Source, or $null.
+# later call returns what the line said, without reading the signature again. A refusal is kept too: a read that
+# failed is retried only by running the script again. Returns an object with .Source, or $null.
 $KosmosAppNode = 'Programs\Kosmos\runtime\node.exe'   # ONE place: the stderr line always names the binary returned
 $NodePublisher = 'OpenJS Foundation'
 $script:SaidRuntimeNode = $false   # declared for StrictMode, as the script's other run-wide flags
@@ -297,9 +298,8 @@ function Get-NodeExe {
   $p = Join-Path $env:LOCALAPPDATA $KosmosAppNode
   if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return $null }
   # A read that throws (a locked file, a broken module) is no signature: not used, and the caller refuses cleanly.
-  # kosmos#8316: the line says why, in the exception's own first line. A command that cannot be run at all (its
-  # module did not load, as in Windows PowerShell 5.1 started from pwsh 7 with pwsh's PSModulePath) is the same
-  # case as having no cmdlet, so it takes that branch, which names the module path.
+  # kosmos#8316: the line says why, in the exception's own first line. A CommandNotFoundException (the command
+  # cannot run, for example its module did not load) takes the no-cmdlet branch, which names the module path.
   $readErr = ''
   $sig = $null
   if ($canCheck) {
