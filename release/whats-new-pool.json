@@ -1661,7 +1661,7 @@
     },
     {
       "title": "Codex edits on Windows say who made them",
-      "line": "On Windows, a Codex agent on its own Codex account now records its file edits as its own, with an undo copy.",
+      "line": "On Windows, a Codex agent on its own Codex account records its file edits as its own, and keeps an undo copy when undo is on.",
       "icon": "swarm",
       "platforms": [
         "windows"
@@ -1691,7 +1691,8 @@
       ],
       "rank": 12.4,
       "since": "0.8.03",
-      "status": "pending"
+      "status": "pending",
+      "notesOnly": true
     },
     {
       "title": "Linux Settings shows only its own checks",
