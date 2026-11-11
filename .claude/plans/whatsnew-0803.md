@@ -19,7 +19,7 @@ Pool PR before the 0.8.03 staging cut. Data only. `build` read prod 0.8.02, mark
 
 ## Decided
 - "A little more room between chat lines" (rank 10.5) and "The restart note says what was checked" (rank 10.45, mac) are 0.8.01 items never in a prod window; they give Mac its lines. It shipped in 0.8.01 and is on prod; #5711 counts an item as new until a prod window names it.
-- Window: Mac 3, Windows 2 after the Codex line left it. The 0.8.01 warning before an agent runs twice (mac) fills the slot.
+- Window: Mac 3, Windows 3 (the chat line is untagged) after the Codex line left it. The 0.8.01 warning before an agent runs twice (mac) fills the slot.
 - Two lines were reworded so a windows-tagged highlight names no Mac and the untagged Linux line names no Mac (the build refuses a tag and a named platform that disagree).
 
 ## Weakest premise
