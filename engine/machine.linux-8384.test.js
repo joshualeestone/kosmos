@@ -980,7 +980,7 @@ test('sleep: a desktop holding the lid inhibitor decides the lid; no logind lid 
   const row2 = sleep(got);
   assert.equal(row2.state, STATE.OK);
   assert.equal(row2.admin, undefined);
-  assert.match(row2.detail, /What closing the lid does is up to your desktop's own Power settings, which hold it right now \(this can change when another screen is connected or removed\)\./);
+  assert.match(row2.detail, /What closing the lid does is up to your desktop, which holds it right now \(this can change when another screen is connected or removed\)\./);
   // Control: the same logind answers without the inhibitor are the lid finding.
   const plain = (c, a) => (c === 'busctl' && a[5] === 'BlockInhibited' ? { ok: true, stdout: 's "sleep"\n' } : r(c, a));
   assert.equal(sleep(machine.readLinuxSleep({ runner: plain, hasLid: true })).state, STATE.ATTENTION);
@@ -1048,4 +1048,35 @@ test('restart: a loose board (running, not by systemd) with linger off says it w
   assert.equal(got.held, false);
   const got2 = withUnitDir(true, () => machine.readLinuxBoardAutostart(runner, { runner, installedRoot: BUNDLE, pid: 4242 }));
   assert.equal(got2.held, true);
+});
+
+test('sleep reader: nobody logged in (no user bus) means GNOME is not running, not an unread desktop', () => {
+  const r = (c, a) => {
+    if (c === 'systemctl' && a[0] === '--user') return { ok: false, stdout: '', because: 'Failed to connect to bus: No medium found' };
+    if (c === 'systemctl' && a[1] === 'display-manager.service') return { ok: true, stdout: 'active\n' };
+    if (c === 'busctl') return { ok: true, stdout: a[5] === 'IdleActionUSec' ? 't 0\n' : 's "ignore"\n' };
+    return { ok: false };
+  };
+  const got = machine.readLinuxSleep({ runner: r, hasLid: false });
+  assert.equal(got.gnomeUnread, undefined);
+  const row2 = sleep(got);
+  assert.equal(row2.state, STATE.OK, 'the logged-out desktop row, as decided');
+  assert.doesNotMatch(row2.detail, /Your desktop is running/);
+});
+
+test('sleep reader: a reading with skipped looks is could-not-check for now, never an absent row', () => {
+  const skip = () => ({ ok: false, because: 'skipped: a Linux look timed out just now', stdout: '' });
+  const got = machine.readLinuxSleep({ runner: skip, hasLid: true });
+  assert.equal(got.skipped, true);
+  const row2 = sleep(got);
+  assert.notEqual(row2, null);
+  assert.equal(row2.state, STATE.UNKNOWN);
+  assert.match(row2.detail, /read again in a few seconds/);
+});
+
+test('sleep: a desktop not ruled out (its ask failed) gets no plugged-in promise and the gate does not pass it', () => {
+  const r = sleep({ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' }, gnome: null, desktop: null });
+  assert.equal(r.battOnly, undefined);
+  assert.equal(machine.sleepGate({ platform: 'linux', linuxSleep: { idle: QUIET_IDLE, lid: null, gnome: null, desktop: null } }).checkable, false);
+  assert.equal(machine.sleepGate({ platform: 'linux', linuxSleep: { idle: QUIET_IDLE, lid: null, gnome: null, desktop: false } }).prevented, true, 'control');
 });

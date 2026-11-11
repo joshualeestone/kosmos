@@ -381,7 +381,8 @@ function sleepGate(opts) {
  *
  * Returns { idle, lid, gnome }, each null when it could not be read or does not apply:
  *   idle  { action, minutes }      lid { ac, battery, docked }      gnome { ac, acMinutes, battery, batteryMinutes }
- *   desktop: true when no desktop settings were read but a display manager runs (null when not asked)
+ *   desktop: when no desktop settings were read, true if a display manager runs, false if it does not, null if that
+ *   could not be asked (or was not: GNOME's settings were read, or logind was not)
  * Seams: opts.linuxSleep replaces the whole reading; opts.hasLid, opts.lidSure and opts.hasBattery the machine's
  * shape; opts.runner (bypasses the cache) or opts.linuxSleepRead (keeps it) the commands.
  */
@@ -396,7 +397,9 @@ function readLinuxSleep(opts) {
      --user cannot reach the user manager without it: linuxjob's fix, for its runner (#4918 review 12). It sets the
      variable for this process only, not a change to the computer. */
   if (!o.runner && !inTest) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
-  const runner = o.runner || o.linuxSleepRead || linuxRun;
+  const baseRunner = o.runner || o.linuxSleepRead || linuxRun;
+  let skipped = false;   // a look skipped after another timed out: said, never read as "nothing there"
+  const runner = (c, a) => { const r = baseRunner(c, a); if (r && /^skipped/.test(String(r.because || ''))) skipped = true; return r; };
   let logindDown = false;   // after one failed ask, logind is not asked again (each ask can wait out the timeout)
   const prop = (name) => {
     if (logindDown) return undefined;
@@ -451,7 +454,10 @@ function readLinuxSleep(opts) {
   let gnome = null, gnomeUnread = false;
   const gsd = runner('systemctl', ['--user', 'is-active', 'org.gnome.SettingsDaemon.Power.service']);
   // Not active is an answer (inactive, failed, unknown...); no answer at all (a timeout, no user bus) is not.
-  const gsdAsked = Boolean(gsd && (gsd.ok || String(gsd.stdout || '').trim()));
+  /* No user manager at all (nobody logged in: "Failed to connect to bus") is an answer too: no session, so GNOME's
+     power service is not running. */
+  const noUserBus = Boolean(gsd && !gsd.ok && /Failed to connect to bus|No medium found|XDG_RUNTIME_DIR/i.test(String(gsd.because || '')));
+  const gsdAsked = Boolean(gsd && (gsd.ok || String(gsd.stdout || '').trim() || noUserBus));
   if (gsd && gsd.ok && String(gsd.stdout || '').trim() === 'active') {
     let failed = false;   // a gsettings that fails once is not asked again (each ask can wait out the timeout)
     const unread = new Set();   // keys that failed, or were not asked after a failure
@@ -498,27 +504,25 @@ function readLinuxSleep(opts) {
     if (desktop !== false && !gsdAsked && !gnomeUnread) gnomeUnread = 'service';
   }
   const out = { idle, lid, gnome, desktop };
+  if (skipped) out.skipped = true;
   if (gnomeUnread) out.gnomeUnread = gnomeUnread;
   if (lidUnread) out.lidUnread = true;
   return out;
 }
 
 /**
- * Whether this machine has a lid whose switch logind acts on: an ACPI lid button, or a battery that powers the
- * computer itself. A wireless mouse's or keyboard's battery is listed in the same folder with scope "Device" and is
- * not one. Folders are parameters so a test passes a fake tree.
+ * Whether this machine has a lid whose switch logind acts on, in one read: { has, sure }. has: an ACPI lid button, or
+ * a battery that powers the computer itself (counted on purpose: a laptop whose ACPI lid is not listed still has one,
+ * and a tablet with no lid only reads its harmless lid setting). sure: only an ACPI lid with a battery beside it (a lid
+ * listed with no battery may be a desktop board's firmware declaring one). A wireless mouse's or keyboard's battery is
+ * listed in the same folder with scope "Device" and is not one. Folders are parameters so a test passes a fake tree.
  */
-
-/* One read: { has, sure }, sure only when ACPI lists the lid itself (not inferred from a battery). */
 function linuxLid(lidDir, supplyDir) {
   const lids = lidDir || '/proc/acpi/button/lid';
-  // A lid listed with no battery may be a desktop board's firmware declaring one, so it is not sure.
   try { if (fs.readdirSync(lids).length > 0) return { has: true, sure: linuxHasBattery(supplyDir) }; } catch { /* no ACPI lid folder */ }
   return { has: linuxHasBattery(supplyDir), sure: false };
 }
 
-/* linuxLid counts a computer battery as a lid on purpose: a laptop whose ACPI lid is not listed still has one, and
-   a tablet with no lid only reads its (harmless) lid setting. */
 /** Whether a battery powers the computer itself (not a mouse's or keyboard's, scope "Device"). */
 function linuxHasBattery(supplyDir) {
   const supplies = supplyDir || '/sys/class/power_supply';
@@ -574,6 +578,11 @@ function linuxCached(key, opts, read) {
 function linuxSleepCheck(reading) {
   const r = reading || {};
   const idle = r.idle || null, lid = r.lid || null, gnome = r.gnome || null;
+  if (r.skipped) {
+    return { key: 'sleep', state: STATE.UNKNOWN,
+      title: 'We could not check this computer\'s sleep settings just now',
+      detail: 'Another reading timed out a moment ago, so not every setting was asked; they are read again in a few seconds.' };
+  }
   if (!idle && !lid && !gnome && !r.gnomeUnread && !r.lidUnread) return null;
   const stops = (a) => (a && Object.prototype.hasOwnProperty.call(LINUX_STOPPING_ACTION, a)) ? LINUX_STOPPING_ACTION[a] : null;
   const idleStops = Boolean(idle && stops(idle.action));
@@ -582,8 +591,8 @@ function linuxSleepCheck(reading) {
   const after = (m) => (m ? 'after ' + minutesWords(m) : 'after a while');
   const lidByDesktop = Boolean(lid && lid.desktopHandles);
   const lidStops = !lidByDesktop && Boolean(lid && (stops(lid.ac) || stops(lid.battery) || stops(lid.docked)));
-  const lidNote = lidByDesktop ? ' What closing the lid does is up to your desktop\'s own Power settings, which hold it right '
-    + 'now (this can change when another screen is connected or removed).' : '';
+  const lidNote = lidByDesktop ? ' What closing the lid does is up to your desktop, which holds it right now (this can '
+    + 'change when another screen is connected or removed).' : '';
   const said = [], verbs = [];
   const plugged = [];   // the verbs of what happens plugged in, open and idle: the title's "on its own"
   const say = (sentence, verb) => { said.push(sentence); verbs.push(verb); };
@@ -661,7 +670,8 @@ function linuxSleepCheck(reading) {
       : (lidStops ? 'This computer can ' + what(verbs) + ' ' + lidWords : 'This computer can ' + what(verbs) + ' on battery');
     /* The plugged-in promise needs the plugged-in desktop setting: when that was not read, there is no promise and the
        row is not the battery-only kind. */
-    const acUnknown = (r.gnomeUnread && r.gnomeUnread !== 'battery') || (r.desktop === true && !gnome);
+    // A desktop seen, or not ruled out (the ask failed), with its settings unread: no plugged-in promise.
+    const acUnknown = (r.gnomeUnread && r.gnomeUnread !== 'battery') || (r.desktop !== false && r.desktop !== undefined && !gnome);
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION, title },
       acUnknown ? {} : { battOnly: true },
       { detail: said.join(' ')
@@ -728,7 +738,7 @@ function linuxSleepGate(opts) {
   const row = linuxSleepCheck(reading);
   if (!row) return { checkable: false, because: 'we could not read this computer\'s sleep settings' };
   // A tick for Linux's own settings is not a reading of the desktop's: not checkable, not "prevented".
-  if (row.state === STATE.OK && reading && reading.desktop === true) return { checkable: false, because: 'we could not read this computer\'s desktop sleep settings' };
+  if (row.state === STATE.OK && reading && (reading.desktop === true || (reading.desktop === null && !reading.gnome && reading.idle))) return { checkable: false, because: 'we could not read this computer\'s desktop sleep settings' };
   if (row.state === STATE.OK) return { checkable: true, prevented: true };
   // The Mac's three answers exactly: only a measured ATTENTION is "not prevented".
   if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title, battOnly: row.battOnly === true };
