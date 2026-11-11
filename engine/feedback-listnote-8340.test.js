@@ -41,5 +41,5 @@ test('listNote: says the days are every agent\'s, and how many are yours; none o
   const kip = fb.listNote('kip');
   assert.match(kip, /^These are the days with a report on this computer, from every agent here\. None of them holds one of yours yet/);
   assert.match(kip, /feedback write --unchanged/);
-  assert.deepEqual(fb.unchanged('kip', '', '2026-11-09'), { ok: false, why: 'none' }, 'CONTROL: the refusal the note warns about is real');
+  assert.deepEqual(fb.unchanged('kip', '', '2026-11-09'), { ok: false, why: 'none', newest: '2026-11-03' }, 'CONTROL: the refusal the note warns about is real (kosmos#8269: naming mara\'s newest day)');
 });
