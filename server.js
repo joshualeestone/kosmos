@@ -2073,11 +2073,13 @@ function inboxSince(raw) {
  *      tied, listable tmux pane. Unchanged, and still the strongest.
  *   2. a token that resolves to a NAME plus a LIVE HEARTBEAT -- an agent with
  *      no pane at all, which is every agent on a machine without tmux.
- *   2b. kosmos#8372, `started` only, from THIS computer: a token that resolves
- *      to a NAME, was not issued to another computer, and belongs to an agent
- *      with a profile that was not removed. A session's start is the moment it
- *      has neither a row (not registered yet) nor a heartbeat (written only
- *      after an authenticated report); the route then beats liveness.
+ *   2b. kosmos#8372, `started` only, on a board running on WINDOWS, from THIS
+ *      computer (a loopback socket peer with no forwarding header): a token that
+ *      resolves to a NAME, was not issued to another computer, and belongs to an
+ *      agent launched here (a Windows session record) or with a profile, and not
+ *      removed. A session's start is the moment it has neither a row (not
+ *      registered yet) nor a heartbeat (written only after an authenticated
+ *      report); the route then beats liveness.
  *   3. no token: the pane, as before.
  *
  * ⚠️ PATH 2 IS NOT A RELAXATION OF PATH 1. `resolve` refuses a cardless agent
@@ -19375,7 +19377,9 @@ const server = http.createServer(async (req, res) => {
         const sender = resolveAgentSender(req, body, roster, {
           denyPaneFallback,
           denyBecause: 'this board only records a report from the account that started it; run `kosmos report` from that account, or present an agent token',
-          startedReport: body.state === 'started' && !isRemoteRequest(req),   // kosmos#8372: a local run's start proves life
+          /* kosmos#8372: a local run's start proves life. Review 3: "local" is the SOCKET peer (loopback, which a client
+             cannot forge) AND no forwarding header, since with the network bind open a direct network caller sends none. */
+          startedReport: body.state === 'started' && isLoopbackPeer(req) && !isRemoteRequest(req),
         });
         if (!sender.ok) { noteTurnEndRefusal(body, sender.because); sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 

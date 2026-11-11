@@ -10,30 +10,28 @@ once Claude Code registers the session, a moment after SessionStart (win32superv
 token is minted before launch (win32create.mintForRun), so it is already held. So the `started` report had neither a row
 nor a heartbeat: NO_MATCH. Later reports find the row. On the Mac the pane exists first, so path 1 holds.
 
-## Change
-- resolveAgentSender path 2b (opts.startedReport): a token that resolves BY NAME (held, not retired or revoked, not
-  ambiguous) is accepted for a `started` report when startedMayProveLife holds: the token was NOT issued to another
-  computer (launcher 'remote'), Kosmos has a profile for the agent, and the agent was not removed. The report route sets
-  startedReport only for `state === 'started'` from this computer (not through the remote forwarder). The route then
-  beats liveness, so the next reports pass on path 2 while registration catches up.
+## Change (as it stands after three review rounds)
+- resolveAgentSender path 2b (opts.startedReport, from startedMayProveLife): a `started` report is accepted with no
+  roster row and no heartbeat when ALL hold: the board runs on Windows; the request is from this computer (a loopback
+  socket peer AND no forwarding header); the token resolves BY NAME (held, not retired or revoked, not ambiguous) and is
+  not tagged launcher 'remote'; the agent has a Windows session record (written before its run token is minted) or a
+  profile; and it has no removal record. The route then beats liveness, so the next reports pass on path 2.
 - sendertoken.resolveName also returns the token's launcher.
-- Review 1 (measured): the first version let ANY held token bootstrap a heartbeat by sending `started`, including a
-  remote-issued one from the network, a token for a never-created name, and a removed agent whose revoke failed. Each is
-  now refused, with a test and a mutation arm.
-- Review 2: only on a board running on Windows (a Mac or Linux pane exists before Claude starts, and a Mac run that
-  ended without retiring its token must stay mute); "created here" is a Windows session record (written before the run
-  token is minted, so a brand-new agent's first start passes) OR a profile.
-- Residual, stated: on a Windows board, a local run's token whose run crashed without retiring it can show "running" for
-  one beat (liveness.STALE_AFTER_MS) per call, as a still-beating one already could. A token minted before launcher tags
-  existed (#4530) and issued to another computer carries no 'remote' tag; it still needs a session record or profile
-  for its name and a request from this computer.
+- Review 1 (measured by the reviewer): the first version let ANY held token bootstrap a heartbeat, a remote one from the
+  network included. Review 2: Windows boards only (a Mac run's kept token stays mute) and a session record counts as
+  created. Review 3: "this computer" is the socket peer, not headers alone (with the network bind open a direct caller
+  sends no forwarding header).
+- Residual: on a Windows board, a local, untagged, held token whose run crashed without retiring it can show "running"
+  for one beat (liveness.STALE_AFTER_MS) per call, as a still-beating one already could. Also an adopted agent's token
+  (adopt.js mints untagged), from this computer only.
 
 ## Rejected
 A hook-side retry (races registration inside the hook's 8 s budget), rewording only (the first report would still be
 lost), a supervisor-side start (Windows-lane code; the board already has the token).
 
 ## Tests
-server.startedproof-8372.test.js (3): a first `started` on a held token with no row and no heartbeat is recorded and
+server.startedproof-8372.test.js (8): the first `started` on a held token with no row and no heartbeat is recorded and
 beats liveness, and the next `working` passes; CONTROL a no-row agent's `working` with no start is still refused; a
-never-issued or revoked token's `started` is refused and beats nothing. 5 mutation arms red. 263 related files: one red,
-engine/create.test.js, only under the sweep's temp HOME, and red the same way on main (control): not this change.
+never-issued, revoked or retired token is refused; a remote-tagged token, a never-created name, a removed agent and a
+forwarded request are refused (each beside a local control that is recorded); a Mac board refuses; a brand-new agent
+with only its session record is recorded; a non-loopback socket peer is refused. 12 mutation arms, all red.
