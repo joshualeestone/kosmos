@@ -22,7 +22,7 @@ function scratch() { return fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-winlog
 function routeInto(t, file, extra) {
   boardlog.resetForTest();
   const out = fakeStream(), err = fakeStream(), crash = {};
-  const r = boardlog.route(out, err, { platform: 'win32', path: file, isFile: () => false, now, onCrash: (name, fn) => { crash[name] = fn; }, ...(extra || {}) });
+  const r = boardlog.route(out, err, { platform: 'win32', path: file, isFile: () => false, taskStarted: () => true, now, onCrash: (name, fn) => { crash[name] = fn; }, ...(extra || {}) });
   t.after(() => { if (r) fs.closeSync(r.fd); boardlog.resetForTest(); });
   return { r, out, err, crash };
 }
@@ -32,6 +32,7 @@ test('#8373 the log sits beside the durable runtime folder; a named Kosmos has i
   assert.strictEqual(boardlog.logPath('win32', 'C:\\Users\\p', env), 'C:\\Users\\p\\AppData\\Local\\Kosmos\\logs\\board.log');
   assert.strictEqual(boardlog.logPath('win32', 'C:\\Users\\p', { ...env, KOSMOS_WORLD: 'acme' }),
     'C:\\Users\\p\\AppData\\Local\\Kosmos\\logs\\board-acme.log');
+  assert.strictEqual(boardlog.logPath('win32', 'C:\\Users\\p', { ...env, KOSMOS_WORLD: 'a b' }).endsWith('\\board-a_b.log'), true, 'odd characters stay out of the name');
 });
 
 test('#8373 both streams reach the file stamped; the console gets the board\'s own text and its callbacks', (t) => {
@@ -77,18 +78,19 @@ test('#8373 a big file is moved aside at start, and a file left mid-line gets it
   assert.strictEqual(fs.readFileSync(file, 'utf8'), `${T} fresh\n`);
   boardlog.resetForTest();   // first's descriptor is closed by its own after()
   fs.writeFileSync(file, 'cut off');
-  const second = boardlog.route(fakeStream(), fakeStream(), { platform: 'win32', path: file, isFile: () => false, now, onCrash: () => {} });
+  const second = boardlog.route(fakeStream(), fakeStream(), { platform: 'win32', path: file, isFile: () => false, taskStarted: () => true, now, onCrash: () => {} });
   t.after(() => { if (second) fs.closeSync(second.fd); boardlog.resetForTest(); });
   assert.strictEqual(fs.readFileSync(file, 'utf8'), 'cut off\n');
 });
 
-test('#8373 nothing changes off Windows, when either stream is already a file, or in a test with no file named', () => {
+test('#8373 nothing changes off Windows, for a board its task did not start, when either stream is already a file, or in a test with no file named', () => {
   boardlog.resetForTest();
   const dir = scratch();
-  const deps = (extra) => ({ platform: 'win32', isFile: () => false, onCrash: () => {}, ...extra });
+  const deps = (extra) => ({ platform: 'win32', isFile: () => false, taskStarted: () => true, onCrash: () => {}, ...extra });
   assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ platform: 'darwin', path: path.join(dir, 'a.log') })), null);
   assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ path: path.join(dir, 'b.log'), isFile: (fd) => fd === 1 })), null);
   assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ path: path.join(dir, 'c.log'), isFile: (fd) => fd === 2 })), null);
+  assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ path: path.join(dir, 'd.log'), taskStarted: () => false })), null, 'a board started by hand or by a test');
   assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ env: { LOCALAPPDATA: dir } })), null, 'a test process never writes the real log');
   assert.deepStrictEqual(fs.readdirSync(dir), [], 'no file was made');
   assert.strictEqual(boardlog.current(), null);
@@ -100,7 +102,7 @@ test('#8373 a log that cannot be opened leaves the board as it was', () => {
   fs.writeFileSync(blocked, 'a file where the folder should be');
   const out = fakeStream();
   const before = out.write;
-  assert.strictEqual(boardlog.route(out, fakeStream(), { platform: 'win32', path: path.join(blocked, 'board.log'), isFile: () => false, onCrash: () => {} }), null);
+  assert.strictEqual(boardlog.route(out, fakeStream(), { platform: 'win32', path: path.join(blocked, 'board.log'), isFile: () => false, taskStarted: () => true, onCrash: () => {} }), null);
   assert.strictEqual(out.write, before, 'the stream was not wrapped');
   assert.strictEqual(boardlog.current(), null);
 });
