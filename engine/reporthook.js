@@ -537,7 +537,14 @@ function unwireInstall(settingsPath, roots, opts) {
     });
   };
   const carries = (s) => typeof s === 'string' && s.includes(MARKER_HERE) && inside(s);
-  const inRoots = (h) => !!h && (carries(h.command) || (Array.isArray(h.args) && h.args.some(carries)));
+  /* kosmos#8361 review 8: for Gemini's form the install folder shows only in the node.exe path, so the script must also
+     be exactly the marker's own file, or a person's script with our marker in its name would count as ours. */
+  const scriptExact = (h) => {
+    const m = typeof h.command === 'string' ? h.command.match(/^(?:&\s*)?'([^']+)'\s+'([^']+)'$/) : null;
+    const script = m ? m[2].split(/[\\/]/).pop() : '';
+    return script === MARKER_HERE + '.js' || script === MARKER_HERE + '.sh';
+  };
+  const inRoots = (h) => !!h && (carries(h.command) || (Array.isArray(h.args) && h.args.some(carries))) && (!o.programToo || scriptExact(h));
   /* The script path a hook names: an arg carrying the marker (exec form), or the quoted or bare word of the command
      that carries it (the old shell form). */
   const scriptPaths = (h) => {

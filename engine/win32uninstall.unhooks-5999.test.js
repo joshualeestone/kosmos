@@ -462,3 +462,12 @@ test('kosmos#8361: AGENT_WORKFORCE_GEMINI_HOME names the default Gemini home, as
   await run(h, { env: { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX', AGENT_WORKFORCE_GEMINI_HOME: moved } });
   assert.deepEqual(readJson(file), {});
 });
+
+test('kosmos#8361: a person\'s script with our marker in its name, run by this install\'s own node.exe, stays', () => {
+  const file = path.join(home(), '.gemini-mine', '.gemini', 'settings.json');
+  const theirs = { hooks: [{ type: 'command', command: "& '" + NODE + "' 'C:\\tools\\gemini-report-bridge-mine.js'" }] };
+  writeJson(file, { hooks: { AfterAgent: [theirs, geminiOurs()] } });
+  const r = reporthook.unwireInstall(file, [BUNDLE], { gone: () => false, marker: geminisettings.MARKER, programToo: true });
+  assert.equal(r.changed, true, 'CONTROL: ours beside it was not taken');
+  assert.deepEqual(readJson(file), { hooks: { AfterAgent: [theirs] } });
+});

@@ -380,7 +380,7 @@ function unwireHooks(bundleRoot, home, env, gone, done, left, notes) {
     try { unwireStatusLineOne(file, roots, gone, filelock, done, left, notes); }
     catch { notes.push('Claude Code\'s settings file ' + file + ' could not be checked for Kosmos\'s status line. If it has a "statusLine" entry naming kosmos-statusline.js, delete that entry.'); }
   }
-  // kosmos#8361: Gemini's, by the same rules: only this install's entries, or ones whose script is provably gone.
+  // kosmos#8361: Gemini's, by the same rules: only this install's entries, or ones whose script or node.exe is provably gone.
   const gemini = { marker: require('./geminisettings').MARKER, app: 'Gemini CLI', programToo: true };
   for (const file of geminiSettingsFiles(home, env)) {
     try { unwireOne(file, roots, gone, filelock, reporthook, done, left, notes, gemini); }
