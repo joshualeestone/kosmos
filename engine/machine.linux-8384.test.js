@@ -130,7 +130,7 @@ test('restart reader: reads the unit state and linger, and runs only looks', () 
   const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(runner, { runner, installedRoot: BUNDLE, user: 'pat' }));
   assert.deepEqual(got, { unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE, user: 'pat', systemdRunning: null, unitName: require('./linuxboard').boardUnitName(), maskedFile: false },
     'systemdRunning is null in a test with no seam: the host\'s /run/systemd is not read');
-  assert.equal(row(got).admin, 'loginctl enable-linger pat', 'the command names this account, not the admin\'s own');
+  assert.equal(row(got).admin, "loginctl enable-linger 'pat'", 'the command names this account, not the admin\'s own');
   assert.equal(row(got).state, STATE.ATTENTION, 'enabled with linger off is the log-out warning');
   for (const a of asked) {
     assert.ok((a[0] === 'systemctl' && a[2] === 'show') || (a[0] === 'loginctl' && a[1] === 'show-user'),
@@ -302,7 +302,7 @@ test('sleep row: a desktop whose own settings were not read is said plainly, und
   assert.equal(r.title, 'Linux\'s own settings do not put this computer to sleep');
   assert.match(r.detail, /^Its desktop and its login screen have sleep settings of their own, which we could not read/);
   assert.doesNotMatch(r.detail, /virtual machine/, 'a desktop gets the desktop words');
-  assert.match(sleep({ idle: QUIET_IDLE, lid: null, gnome: null, desktop: false }).detail, /unless something outside them puts it to sleep/, 'control: no display manager');
+  assert.match(sleep({ idle: QUIET_IDLE, lid: null, gnome: null, desktop: false }).detail, /unless something else puts it to sleep/, 'control: no display manager');
   const { runner, asked } = sleepRunner({ IdleAction: 's "ignore"', gsd: 'inactive' });
   const dmRunner = (c, a) => (c === 'systemctl' && a[0] === 'is-active' && a[1] === 'display-manager.service') ? { ok: true, stdout: 'active\n' } : runner(c, a);
   assert.equal(machine.readLinuxSleep({ runner: dmRunner, hasLid: false }).desktop, true);
@@ -366,7 +366,7 @@ test('sleep reader: logind, the lid and GNOME are read, and every command is a l
   const got = machine.readLinuxSleep({ runner, hasLid: true, hasBattery: true });
   assert.deepEqual(got, {
     idle: { action: 'suspend', minutes: 30 },
-    lid: { battery: 'suspend', ac: 'suspend', docked: null, sure: true },   // an empty HandleLidSwitchExternalPower means HandleLidSwitch applies
+    lid: { battery: 'suspend', ac: 'suspend', docked: null, sure: true, noExt: false },   // an empty HandleLidSwitchExternalPower means HandleLidSwitch applies
     gnome: { ac: 'suspend', acMinutes: 20, battery: 'suspend', batteryMinutes: 15 },
     desktop: null,   // GNOME was read, so the display manager is not asked
   });
@@ -475,8 +475,8 @@ test('restart reader: a unit file replaced by a link to /dev/null (mask --force)
   assert.equal(got.maskedFile, true);
   const r = row(got);
   assert.equal(r.state, STATE.ATTENTION);
-  assert.match(r.detail, /replaced by an empty one.*Reinstalling Kosmos puts it back/);
-  assert.equal(r.admin, undefined, 'no unmask command that cannot work');
+  assert.match(r.detail, /replaced by an empty one.*Run the command under For IT admins from this account, then reinstall Kosmos\./);
+  assert.equal(r.admin, 'systemctl --user unmask ' + require('./linuxboard').boardUnitName(), 'unmask removes only the link, then the reinstall writes the file');
 });
 
 test('restart row: a /dev/null mask is said even when systemd did not answer (review 12)', () => {
@@ -556,7 +556,7 @@ test('sleep row: a lid that sleeps only while plugged in says so', () => {
 test('sleep reader: a set HandleLidSwitchExternalPower is the plugged-in answer', () => {
   const { runner } = sleepRunner({ HandleLidSwitchExternalPower: 's "ignore"', IdleAction: 's "ignore"', gsd: 'inactive' });
   const got = machine.readLinuxSleep({ runner, hasLid: true });
-  assert.deepEqual(got.lid, { battery: 'suspend', ac: 'ignore', docked: null, sure: true });
+  assert.deepEqual(got.lid, { battery: 'suspend', ac: 'ignore', docked: null, sure: true, noExt: false });
   assert.equal(sleep(got).battOnly, true);
 });
 
@@ -698,7 +698,9 @@ test('sleep row: the title\'s "on its own" names only what happens plugged in an
 });
 
 test('restart row: the masked fix names reinstalling and an administrator as the way out', () => {
-  assert.match(row({ unitFile: true, unitState: 'masked', installed: BUNDLE }).detail, /If it does not lift the block, reinstalling Kosmos, or an administrator, can\./);
+  const d = row({ unitFile: true, unitState: 'masked', installed: BUNDLE }).detail;
+  assert.match(d, /If it does not lift the block, an administrator can\./);
+  assert.doesNotMatch(d, /reinstall/i, 'a reinstall cannot lift a mask');
 });
 
 test('check() and the gate share the ten-second reading, so a Settings visit asks once', () => {
@@ -736,7 +738,7 @@ test('restart: systemd silent with the file in place reads linger, and linger of
   const r = row(got);
   assert.equal(r.state, STATE.ATTENTION);
   assert.match(r.title, /stops when you log out/);
-  assert.equal(r.admin, 'loginctl enable-linger pat');
+  assert.equal(r.admin, "loginctl enable-linger 'pat'");
   // Control: linger on, and systemd still silent, is the plain could-not-check.
   assert.equal(row({ ...got, linger: true }).state, STATE.UNKNOWN);
 });
@@ -773,12 +775,15 @@ test('sleep row: sleep plus restart says both in the closing sentence', () => {
   assert.match(sleep({ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'reboot', acMinutes: 5, battery: null, batteryMinutes: null } }).detail, /Your agents stop until it wakes or it has restarted\./);
 });
 
-test('restart: the linger command carries the user name only when it is shell-safe', () => {
+test('restart: the linger command keeps every user name, single-quoted, and the quoting holds when run', () => {
   const at = (user) => row({ unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE, user }).admin;
-  assert.equal(at('pat'), 'loginctl enable-linger pat');
-  assert.equal(at('pat.lee'), 'loginctl enable-linger pat.lee');
-  assert.equal(at('CORP\\pat'), 'loginctl enable-linger', 'a domain account is left for the admin to name');
-  assert.equal(at('pat; rm -rf ~'), 'loginctl enable-linger');
+  assert.equal(at('pat'), "loginctl enable-linger 'pat'");
+  assert.equal(at('pat@corp.example.com'), "loginctl enable-linger 'pat@corp.example.com'", 'a directory account keeps its name');
+  // Run through sh with echo in place of loginctl: each name comes back as one word, unchanged.
+  for (const name of ['CORP\\pat', "o'brien", 'pat; rm -rf ~', '$(whoami)']) {
+    const out = require('node:child_process').execFileSync('/bin/sh', ['-c', at(name).replace(/^loginctl enable-linger/, 'printf %s')], { encoding: 'utf8' });
+    assert.equal(out, name, name);
+  }
 });
 
 test('restart: systemd silent and linger off says only the file was read', () => {
@@ -786,4 +791,12 @@ test('restart: systemd silent and linger off says only the file was read', () =>
   assert.match(r.detail, /^Its startup file is on this computer/);
   assert.match(r.detail, /Whether the service is switched on could not be read until then/);
   assert.doesNotMatch(r.detail, /service is in place/);
+});
+
+test('sleep: on a logind with no HandleLidSwitchExternalPower (before systemd 235) the lid fix names HandleLidSwitch', () => {
+  const { runner } = sleepRunner({ IdleAction: 's "ignore"', HandleLidSwitchExternalPower: null, gsd: 'inactive' });
+  const got = machine.readLinuxSleep({ runner, hasLid: true });
+  assert.equal(got.lid.noExt, true);
+  assert.match(sleep(got).admin, /HandleLidSwitch=ignore\\n' > \/etc\/systemd\/logind\.conf\.d\/zz-kosmos-lid\.conf$/);
+  assert.doesNotMatch(sleep(got).admin, /ExternalPower/);
 });

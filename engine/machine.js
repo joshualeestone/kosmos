@@ -86,8 +86,9 @@ function run(cmd, args) {
   }
 }
 
-/* The Linux looks are all local and answer in milliseconds, so they get two seconds, not run()'s five: a hung bus then
-   costs a Settings visit seconds, not most of a minute (kosmos#8384). */
+/* The Linux looks are all local and answer in milliseconds, so they get two seconds, not run()'s five. They block the
+   whole board while they run (execFileSync), so a hung bus costs everyone up to about eight seconds once per ten-second
+   reading, not most of a minute (kosmos#8384). */
 function linuxRun(cmd, args) {
   try {
     return { ok: true, stdout: execFileSync(cmd, args, { encoding: 'utf8', timeout: 2000, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }) };
@@ -415,7 +416,8 @@ function readLinuxSleep(opts) {
       const ext = prop('HandleLidSwitchExternalPower');
       // logind: an unset HandleLidSwitchExternalPower means HandleLidSwitch applies on AC too.
       // HandleLidSwitchDocked (default ignore) decides a closed lid with another screen connected.
-      if (battery) lid = { battery, ac: ext || battery, docked: prop('HandleLidSwitchDocked'), sure: lidSure };
+      // ext null: this logind has no such setting (before systemd 235), so the fix names HandleLidSwitch instead.
+      if (battery) lid = { battery, ac: ext || battery, docked: prop('HandleLidSwitchDocked'), sure: lidSure, noExt: ext === null };
     }
   }
   let gnome = null, gnomeUnread = false;
@@ -592,7 +594,7 @@ function linuxSleepCheck(reading) {
      files. */
   if (idleStops) files.push(['zz-kosmos-idle.conf', 'IdleAction=ignore']);
   // HandleLidSwitchExternalPower needs systemd 235 or later; older ones (CentOS 7) ignore it.
-  if (lidStops && stops(lid.ac)) files.push(['zz-kosmos-lid.conf', 'HandleLidSwitchExternalPower=ignore']);
+  if (lidStops && stops(lid.ac)) files.push(['zz-kosmos-lid.conf', lid.noExt ? 'HandleLidSwitch=ignore' : 'HandleLidSwitchExternalPower=ignore']);
   if (lidStops && stops(lid.docked)) files.push(['zz-kosmos-lid-docked.conf', 'HandleLidSwitchDocked=ignore']);
   /* One command that pastes as it reads, for an administrator's root
      shell, as the Windows row's command is for an administrator's prompt; then a restart applies it. */
@@ -650,7 +652,7 @@ function linuxSleepCheck(reading) {
   }
   return { key: 'sleep', state: STATE.OK,
     title: 'Linux\'s own settings do not put this computer to sleep',
-    detail: 'So your agents keep working while you are away, unless something outside them puts it to sleep: a '
+    detail: 'So your agents keep working while you are away, unless something else puts it to sleep: a '
       + 'desktop\'s own power settings, if it has one, or the computer it runs inside, if it is a virtual machine.' };
 }
 
@@ -2066,10 +2068,10 @@ function readLinuxBoardAutostart(runner, opts) {
 
 /* The command that turns linger on, for the row's admin field (Settings shows it under "For IT admins"). */
 const LINUX_LINGER_COMMAND = 'loginctl enable-linger';
-/* The linger command for this account. A user name that is not shell-safe (a domain account with a backslash, say)
-   is left out, so the pasted line never runs something else; the command then needs the name added by hand. */
+/* The linger command for this account, the name single-quoted so any name (pat@corp.example.com, CORP\\pat) is kept
+   and the pasted line can never run anything else. */
 function lingerAdmin(user) {
-  return LINUX_LINGER_COMMAND + (user && /^[a-z_][a-z0-9_.-]*\$?$/i.test(user) ? ' ' + user : '');
+  return LINUX_LINGER_COMMAND + (user ? " '" + String(user).replace(/'/g, "'\\''") + "'" : '');
 }
 /* The one "stops when you log out" row; the two arms differ only in what was read before it. */
 function linuxLingerOffRow(r, lead) {
@@ -2115,13 +2117,15 @@ function linuxBoardAutostartCheck(reading) {
       detail: 'The service that brings Kosmos back after a restart is missing, so your agents will not come back on '
         + 'their own until it is restored. Reinstalling Kosmos puts it back.' };
   }
-  // The file proves the mask, whether or not systemd answers. It stays ahead of the masked state below: unmask on a
-  // /dev/null link would remove Kosmos's own file, so that case gets the reinstall words and no command.
+  /* The file proves the mask, whether or not systemd answers. A reinstall alone cannot fix it: it writes through the
+     /dev/null link and enable still refuses. So: unmask (which removes only the link), then reinstall. */
   if (r.maskedFile) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service has been replaced by an empty one on this computer, so Kosmos and your agents will '
-        + 'not come back on their own after a restart. Reinstalling Kosmos puts it back.' };
+        + 'not come back on their own after a restart. Run the command under For IT admins from this account, then '
+        + 'reinstall Kosmos.',
+      admin: 'systemctl --user unmask ' + (r.unitName || 'kosmos-board.service') };
   }
   if (r.unitState === '') return unknown('This computer\'s service manager does not know Kosmos\'s startup service, though its file is in place.');
   if (!r.unitState && r.linger === false) {
@@ -2136,8 +2140,8 @@ function linuxBoardAutostartCheck(reading) {
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service is blocked on this computer (masked), so it cannot start, even by hand, until '
         + 'that is undone. Your agents will not come back on their own after a restart. The command under For IT '
-        + 'admins is run from this account, not an administrator\'s. If it does not lift the block, reinstalling '
-        + 'Kosmos, or an administrator, can.',
+        + 'admins is run from this account, not an administrator\'s. If it does not lift the block, an administrator '
+        + 'can.',
       // A runtime mask lives in /run and needs --runtime to lift.
       admin: 'systemctl --user unmask ' + (r.unitState === 'masked-runtime' ? '--runtime ' : '') + (r.unitName || 'kosmos-board.service')
         + ' && systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
