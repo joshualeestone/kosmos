@@ -1281,7 +1281,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
 }
 
 /* kosmos#8259: drop a for-you hold's told and answered marks (engine/holdtold.js), wherever the mark itself goes. */
-const HOLD_TOLD_FIELDS = Object.freeze(['onHoldToldAt', 'onHoldLastToldAt', 'onHoldToldVia', 'onHoldToldId', 'onHoldAnsweredAt']);
+const HOLD_TOLD_FIELDS = Object.freeze(['onHoldToldAt', 'onHoldLastToldAt', 'onHoldToldVia', 'onHoldToldId', 'onHoldAnsweredAt', 'onHoldToldCount']);
 function dropHoldTold(changed) {
   for (const k of HOLD_TOLD_FIELDS) delete changed[k];
 }

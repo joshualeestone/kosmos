@@ -22,7 +22,7 @@
  * counts while none is newer than the latest tell, so an agent asking again (as the clause tells it to) is prompted again
  * by the next answer. The clause never rides a message kept to be typed later: by then the hold may be gone.
  *
- * All five fields belong to the for-you hold: they go when the hold or its mark goes, a new for-you hold is set, or its
+ * All six fields (kosmos#8389 added `onHoldToldCount`, the number of tells) belong to the for-you hold: they go when the hold or its mark goes, a new for-you hold is set, or its
  * reason changes (a new question) (tasks.HOLD_TOLD_FIELDS, dropped wherever onHoldForPerson is). Every note is
  * best-effort: a failure to record never breaks the message that triggered it, which is the operation the caller is doing.
  */
@@ -122,6 +122,10 @@ function noteTold(who, msg, o = {}) {
         const when = Date.parse(at) < floor ? new Date(Math.max(floor, Date.now())).toISOString() : at;
         const next = { ...x, onHoldLastToldAt: when, onHoldToldVia: msg.via };
         if (first) next.onHoldToldAt = when;
+        /* kosmos#8389: how many times it was put to them. Counted from the first tell; a hold told before this was recorded
+           has no count, so none is shown rather than a guessed one. */
+        if (first) next.onHoldToldCount = 1;
+        else if (Number.isInteger(x.onHoldToldCount) && x.onHoldToldCount > 0) next.onHoldToldCount = x.onHoldToldCount + 1;
         if (id) next.onHoldToldId = id; else delete next.onHoldToldId;
         return next;
       });
