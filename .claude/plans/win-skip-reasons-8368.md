@@ -1,0 +1,40 @@
+# win-skip-reasons-8368: the Windows suite green on a real Windows box (kosmos#8368, phase 1)
+
+**Posture:** production
+
+Splinter's call (11-11): #8368 closes on phase 1 — `node tools/windows-tests.js` green on a real Windows box, plus a
+mutation check. Phase 2 (the full `npm test` on Windows, 508 failing files by cause) is #8378.
+
+## Measured on the Windows box (origin/main 53a164708d)
+`node tools/windows-tests.js`: 226 passed, 2 new red, 4 stale:
+- engine/setupsettings.fsync-5434: 4 token-only tests fail "the save did not happen". The guard read the HOST: its
+  launch-PATH part read process.env.PATH (C:\Windows\System32, over 4000 entries, "could not cover"), and its import
+  part read this computer's own ~/.claude/CLAUDE.md, an ANCESTOR of every temp folder on Windows (TEMP sits inside the
+  home), whose imports the permission rules cannot carry. A clean CI runner has neither.
+- engine/bigint-ino.win32-7229: "no colliding pair could be made on this disk" after 2.8 s, i.e. all 128 rounds ran
+  out long before the 60 s bound, during a run with heavy parallel file churn. Alone: 6 of 6 passed, 4 at once passed.
+- 4 STALE (ALL_SKIP_OK, "its tests run now"): the win32 agy/codex e2e files skip on the runner (no runners there) and
+  RUN on a box that has them, so every real Windows box with the runners fails the suite.
+
+## Change
+- engine/setupsettings.fsync-5434.test.js: DEPS pins `env: { PATH: '' }`. HOST_NOT_CLEAN asks the guard itself, once,
+  on a throwaway folder: when its only complaint is "an instruction file imports" (no PATH reason), the two arms that
+  need a clean ok skip, in the guard's own words. A clean host runs them all. The guard is right; the host is not clean.
+- engine/bigint-ino.win32-7229.test.js: rounds up to 4096; the 60 s bound decides. Cause inferred, not measured.
+- tools/windows-tests.js: `judge(..., { onCi })`. An ALL_SKIP_OK file that runs and passes is stale only on CI
+  (GITHUB_ACTIONS === 'true'), where it still catches an entry no longer needed; elsewhere it prints "ran here".
+  Default onCi true, so every existing caller keeps the CI rule.
+- engine/windows-tests-1777.test.js: the off-CI rule, the CI rule, the default, and a failure off CI still red.
+
+## Verified
+- Branch: `node tools/windows-tests.js` 229 passed, 0 failed, 0 new red, 0 stale, exit 0; the 4 e2e files "ran here".
+- Mutation (uncommitted, reverted): childenv.winOpenerEnv returning the whole env -> NEW RED
+  engine/childenv.win32-5895.test.js, 228 passed, 1 new red, exit 1.
+- Control for the setupsettings skip: with TEMP outside the home (C:\kt8368tmp) the guard is clean and all arms run:
+  12 pass, 0 fail (8 pass + 4 skipped in the home's TEMP).
+
+## Decided
+- Skip-with-the-guard's-reason, not a production seam for the ancestor walk: the guard is correct for a real agent
+  whose folder is under the home; adding a seam only for tests would change production code for a test.
+  What would change my mind: a second test needing the same walk bounded.
+- Weakest part: bigint-ino's cause is inferred (other writers taking the freed records); not reproduced on demand.
