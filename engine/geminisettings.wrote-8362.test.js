@@ -107,14 +107,14 @@ test('undo: a value the person changed since stays, and is named; the rest still
   assert.equal(s.general, undefined);
 });
 
-test('undo: a value that equals ours but whose type differs is not ours', () => {
+test('undo: a value loose equality would match (0 == false) is not ours', () => {
   const sb = sandbox();
   gs.ensurePrepared(sb.file, BRIDGE, sb.opts);
   const s0 = readJSON(sb.file);
-  s0.general.enableAutoUpdate = 'false';
+  s0.general.enableAutoUpdate = 0;
   write(sb.file, s0);
   gs.undoWrites(sb.ledger);
-  assert.equal(readJSON(sb.file).general.enableAutoUpdate, 'false');
+  assert.equal(readJSON(sb.file).general.enableAutoUpdate, 0);
 });
 
 test('undo: a file that cannot be read is left, named, and kept in the record for a later run', () => {
@@ -137,6 +137,18 @@ test('undo: a file that is gone has nothing to undo; no record at all is nothing
   assert.deepEqual(gs.undoWrites(sb.ledger), { done: true, restored: [], kept: [], left: [] });
   assert.equal(fs.existsSync(sb.ledger), false);
   assert.deepEqual(gs.undoWrites(sb.ledger), { done: true, restored: [], kept: [], left: [] });
+});
+
+test('undo: a file that cannot be reached (not gone) is left, named, and kept in the record', { skip: process.getuid && process.getuid() === 0 ? 'root reads every folder' : false }, () => {
+  const sb = sandbox();
+  gs.ensurePrepared(sb.file, BRIDGE, sb.opts);
+  const folder = path.dirname(path.dirname(sb.file));
+  fs.chmodSync(folder, 0o000);
+  let r;
+  try { r = gs.undoWrites(sb.ledger); } finally { fs.chmodSync(folder, 0o755); }
+  assert.deepEqual(r.left, [sb.file], 'a file that could not be reached was dropped as if it were gone');
+  assert.ok(readJSON(sb.ledger).files[sb.file], 'the record forgot a file it could not reach');
+  assert.equal(readJSON(sb.file).security.auth.selectedType, 'gemini-api-key');
 });
 
 test('a record that is not a record is never replaced, by the writer or the undo', () => {

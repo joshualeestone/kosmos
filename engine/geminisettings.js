@@ -126,7 +126,8 @@ function definitionFor(bridgePath, opts, matcher) {
  * not prepare costs the agent a self-report / a first-run picker, not its
  * existence, which is the pre-#3296 world, not a corruption.
  * `opts` ({ platform, node }) picks the command form, see commandFor; both
- * default to this process.
+ * default to this process. #8362: `opts.wroteLedger`, a path, records what this call
+ * filled in (see WROTE_FILE), and the result then carries `recorded`.
  */
 function ensurePrepared(settingsPath, bridgePath, opts) {
   const o = opts || {};
@@ -357,7 +358,13 @@ function undoWrites(ledgerPath) {
     for (const file of Object.keys(led.files)) {
       const entry = led.files[file];
       let target;
-      try { target = fs.realpathSync(file); } catch { delete led.files[file]; continue; }   // gone: nothing of ours left in it
+      try { target = fs.realpathSync(file); }
+      catch (err) {
+        // Gone: nothing of ours is left in it. Anything else (a folder it cannot read) is not gone, so it is named.
+        if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) delete led.files[file];
+        else out.left.push(file);
+        continue;
+      }
       let data;
       let mode;
       try {
