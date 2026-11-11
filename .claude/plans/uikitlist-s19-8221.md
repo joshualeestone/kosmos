@@ -20,7 +20,7 @@ VoiceOver's own scroll to the part not being pinned back.
 
 ## Change
 
-- ChatList.focusFollow: newestPart (an element shorter than its row that starts above the top of what shows and does
+- ChatList.focusFollow: newestPart (an element under three quarters of its row's height that starts above the top of what shows and does
   not reach below its bottom) skips the newest branch and is followed as a message above is. DEBUG switch
   KOSMOS_SAMPLE_FOCUSNONEWESTPART for the control.
 - Sample: KOSMOS_SAMPLE_TALLNEWEST (newest reply of 24 paragraphs); A11yFocus modes newestpart (the reply's first
@@ -35,8 +35,15 @@ VoiceOver's own scroll to the part not being pinned back.
 - The whole-row re-measure skip was untested and near-inert: removed; the sample part now sits in the cell's view.
 - Not covered: the newest-part rule with VoiceOver's own scroll before or after the focus (slice 12's first/after
   orders); reasoned to work through scrolled() and rereadEnd, not measured.
-- Known trade-off: if a real reply's element is a little shorter than its row (padding), a focus on the whole tall
-  reply now shows its top and leaves the newest, so a reply still growing is not followed while it is focused.
+- Known trade-off (raised again in challenge iteration 1, then narrowed): a part must be under three quarters of its
+  row's height, so a whole reply's element a little shorter than its row (padding) is not taken for a part. A real part
+  that large (a code block most of a reply) is held at the newest as before.
+
+## Challenge loop
+
+- Iteration 1 (sonnet): 2 WARNINGs. The part rule took any element shorter than its row: FIXED (under 3/4 of the
+  row). The newest-part rule with VoiceOver's own scroll before or after: DEFERRED, since the rule only chooses the
+  branch once per focus and then runs the same follow code slice 12's first/after checks cover for a message above.
 
 ## Results
 

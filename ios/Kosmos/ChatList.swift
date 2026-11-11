@@ -691,15 +691,16 @@ struct ChatList: UIViewRepresentable {
             lastFocusPart = part
             appliedSinceFocus = false
             if refocus { return }
-            // kosmos#8221 slice 19: a part of the newest message (an element shorter than its row) that starts above the top of
-            // the screen and does not reach below its bottom, as VoiceOver stepping up through a reply taller than the screen
-            // focuses, is followed as a message above is, so the part read aloud is the part shown. The newest message as a
-            // whole, or an element reaching past both edges, still keeps a reader at the newest.
+            // kosmos#8221 slice 19: a part of the newest message (an element under three quarters of its row's height, not the
+            // message as a whole) that starts above the top of the screen and does not reach below its bottom, as VoiceOver
+            // stepping up through a reply taller than the screen focuses, is followed as a message above is, so the part read
+            // aloud is the part shown. The newest message as a whole, or an element reaching past both edges, still keeps a
+            // reader at the newest.
             var newestPart = false
             if ip == newestAt, !ChatList.sampleFocusNoNewestPart, let e = elementFrame(element), let row = list.layoutAttributesForItem(at: ip)?.frame {
                 let top = list.contentOffset.y + list.adjustedContentInset.top - list.contentInset.top
                 let bottom = list.contentOffset.y + list.bounds.height - list.adjustedContentInset.bottom + list.contentInset.bottom
-                newestPart = e.height < row.height - 0.5 && e.minY < top - 0.5 && e.maxY <= bottom + 0.5
+                newestPart = e.height < row.height * 0.75 && e.minY < top - 0.5 && e.maxY <= bottom + 0.5
             }
             if ip >= newestAt, !newestPart, !ChatList.sampleFocusNoNewest {
                 // Back on the newest message: at the newest once it is fully shown (the working line and the room under it can
