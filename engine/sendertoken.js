@@ -970,7 +970,8 @@ function resolveName(token) {
     /* The filename IS the safeKey'd session name. #4792: `name` is the agent's own name when the token carries it
        (null for an older token: the caller has only the key). `twins` says this file holds named tokens for more
        than one name, so the KEY alone does not say which agent: a caller that resolves by key must refuse. */
-    return { ok: true, key, name: tokenName(hit, key), twins: namesClash(held, key), instance: hit.instance || null };
+    // kosmos#8372: `launcher` too ('remote' for a token issued to another computer), so a caller can tell a run's token from it.
+    return { ok: true, key, name: tokenName(hit, key), twins: namesClash(held, key), instance: hit.instance || null, launcher: hit.launcher || null };
   }
   return no;
 }

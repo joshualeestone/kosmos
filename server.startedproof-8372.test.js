@@ -28,6 +28,7 @@ const { start, server } = require('./server');
 const fleet = require('./test-support/fleet');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
+const store = require('./engine/store');
 
 test.before(async () => { await start(0); });
 test.after(() => {
@@ -52,6 +53,7 @@ function board(t) {
 
 test('kosmos#8372: a session\'s first report (started) on its own held token is recorded with no row and no heartbeat yet, and its next reports pass', async (t) => {
   board(t);
+  store.writeProfile('winagent', { displayName: 'Win Agent' });   // a Windows agent Kosmos created
   const tok = sendertoken.mint('winagent').token;
   assert.notEqual(liveness.alive('winagent'), true, 'CONTROL: no heartbeat before the first report');
   const first = await report({ state: 'started', auto: true }, tok);
@@ -63,20 +65,61 @@ test('kosmos#8372: a session\'s first report (started) on its own held token is 
 
 test('kosmos#8372 CONTROL: without a start first, a no-row agent\'s working report is still refused, as before', async (t) => {
   board(t);
+  store.writeProfile('coldagent', { displayName: 'Cold' });
   const tok = sendertoken.mint('coldagent').token;
   const r = await report({ state: 'working', auto: true }, tok);
   assert.equal(r.json.recorded, false);
   assert.equal(r.json.because, 'we could not match that to one of your agents');
 });
 
-test('kosmos#8372: a start on a token that is not held (never issued, or retired) is refused exactly as before', async (t) => {
+test('kosmos#8372: a start on a token that is not held (never issued, or revoked) is refused exactly as before', async (t) => {
   board(t);
   const never = await report({ state: 'started', auto: true }, 'ab'.repeat(32));
   assert.equal(never.json.recorded, false);
   assert.equal(never.json.because, 'we could not match that to one of your agents');
+  store.writeProfile('goneagent', { displayName: 'Gone' });
   const m = sendertoken.mint('goneagent');
   sendertoken.revoke('goneagent');
   const gone = await report({ state: 'started', auto: true }, m.token);
   assert.equal(gone.json.recorded, false, 'a revoked token started a session: ' + JSON.stringify(gone.json));
   assert.equal(liveness.alive('goneagent'), null, 'a refused start beat liveness');
+});
+
+test('kosmos#8372 review 1: a retired run token (empty list, as a run end leaves it) cannot start a session', async (t) => {
+  board(t);
+  store.writeProfile('retiredagent', { displayName: 'Retired' });
+  const m = sendertoken.mint('retiredagent');
+  sendertoken.retire('retiredagent', m.instance);
+  const r = await report({ state: 'started', auto: true }, m.token);
+  assert.equal(r.json.recorded, false, JSON.stringify(r.json));
+  assert.equal(liveness.alive('retiredagent'), null);
+});
+
+test('kosmos#8372 review 1: a start cannot bootstrap a remote-issued token, a never-created name, a removed agent, or a forwarded request', async (t) => {
+  board(t);
+  // CONTROL in this test: a local, created, launched agent's start is recorded.
+  store.writeProfile('okagent', { displayName: 'Ok' });
+  assert.equal((await report({ state: 'started', auto: true }, sendertoken.mint('okagent').token)).json.recorded, true, 'CONTROL failed');
+  // A token issued to another computer (POST /api/agent-token tags it 'remote'; nothing retires those).
+  store.writeProfile('faragent', { displayName: 'Far' });
+  const far = await report({ state: 'started', auto: true }, sendertoken.mint('faragent', { launcher: 'remote' }).token);
+  assert.equal(far.json.recorded, false, 'a remote-issued token started a session: ' + JSON.stringify(far.json));
+  // A name Kosmos never created (no profile).
+  const ghost = await report({ state: 'started', auto: true }, sendertoken.mint('ghostagent').token);
+  assert.equal(ghost.json.recorded, false, 'a never-created name started a session');
+  // An agent the person removed, whose token was left (a failed revoke).
+  store.writeProfile('removedagent', { displayName: 'Removed' });
+  const rtok = sendertoken.mint('removedagent').token;
+  fs.writeFileSync(path.join(store.ROOT, 'removed.json'), JSON.stringify([{ name: 'removedagent', shownAs: 'Removed', removedAt: new Date().toISOString() }]));
+  t.after(() => fs.rmSync(path.join(store.ROOT, 'removed.json'), { force: true }));
+  assert.equal((await report({ state: 'started', auto: true }, rtok)).json.recorded, false, 'a removed agent started a session');
+  // The same local, created agent's start, but forwarded (a remote session): refused.
+  store.writeProfile('fwdagent', { displayName: 'Fwd' });
+  const res = await fetch(`http://127.0.0.1:${server.address().port}/api/report`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': sendertoken.mint('fwdagent').token, 'x-forwarded-for': '203.0.113.9' },
+    body: JSON.stringify({ state: 'started', auto: true }),
+  });
+  const fwd = await res.json().catch(() => ({}));
+  assert.notEqual(fwd.recorded, true, 'a forwarded start bootstrapped a heartbeat: ' + JSON.stringify(fwd));
+  for (const n of ['faragent', 'ghostagent', 'removedagent', 'fwdagent']) assert.notEqual(liveness.alive(n), true, n + ' got a heartbeat');
 });

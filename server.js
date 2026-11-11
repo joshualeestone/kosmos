@@ -2068,19 +2068,27 @@ function inboxSince(raw) {
 /**
  * Who is sending this? One derivation, used by every route that needs it.
  *
- * 🛑 THREE EVIDENCE PATHS, IN ORDER, AND THE THIRD IS NEW (#1112).
+ * 🛑 FOUR EVIDENCE PATHS, IN ORDER (#1112, kosmos#8372).
  *   1. a token that resolves to a ROSTER CARD  -- an agent that is a live,
  *      tied, listable tmux pane. Unchanged, and still the strongest.
  *   2. a token that resolves to a NAME plus a LIVE HEARTBEAT -- an agent with
  *      no pane at all, which is every agent on a machine without tmux.
+ *   2b. kosmos#8372, `started` only, from THIS computer: a token that resolves
+ *      to a NAME, was not issued to another computer, and belongs to an agent
+ *      with a profile that was not removed. A session's start is the moment it
+ *      has neither a row (not registered yet) nor a heartbeat (written only
+ *      after an authenticated report); the route then beats liveness.
  *   3. no token: the pane, as before.
  *
  * ⚠️ PATH 2 IS NOT A RELAXATION OF PATH 1. `resolve` refuses a cardless agent
  * on purpose, and that refusal still stands on its own evidence. What path 2
  * adds is DIFFERENT evidence for the same fact: the pane proves an agent is
  * running BY EXISTING; a heartbeat proves it BY BEATING. Without a beat inside
- * the window there is no path 2 at all, so nothing here lets a token alone
- * speak for an agent that is not running.
+ * the window there is no path 2 at all. Path 2b is the one exception, and it is
+ * narrow on purpose: a local run's own `started` (its claim that it just began),
+ * never a remote-issued token, an unknown name or a removed agent. A held token
+ * whose run crashed without retiring it can therefore show "running" until the
+ * beat goes stale, as a still-beating one already could.
  *
  * 🔑 `alive()` RETURNS null FOR "NO RECORD", AND null IS NOT true. Every Mac
  * agent has no heartbeat record, so path 2 simply never fires for them and
@@ -2131,13 +2139,18 @@ function resolveAgentSender(req, body, roster, opts) {
   if (byName.ok && byName.twins !== true && liveness.alive(byName.key) === true) {
     return { ok: true, card: { sessionName: byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
   }
-  /* kosmos#8372: a session's START is its own proof of life. On Windows the roster row appears only once Claude Code
+  /* kosmos#8372: a LOCAL run's start is its own proof of life. On Windows the roster row appears only once Claude Code
      registers the session, a moment after SessionStart, and the heartbeat is written only after an authenticated
      report, so the `started` report could pass neither path and every session opened with "reporting is OFF" while its
-     later reports landed. The report route passes `startedReport` for a `started` report only; the token must still be
-     held (a retired or never-issued one is refused below as before) and name exactly one agent. The route then beats
-     liveness for it, so the agent's next reports pass on the heartbeat while registration catches up. */
-  if (opts && opts.startedReport === true && byName.ok && byName.twins !== true) {
+     later reports landed. The report route passes `startedReport` only for a `started` report from THIS computer (never
+     through the remote forwarder). The token must still be held (a retired, revoked or never-issued one is refused below
+     as before), name exactly one agent, not be one issued to another computer (launcher 'remote': nothing retires those,
+     so they would let a leaked token bootstrap a heartbeat from the network), and belong to an agent Kosmos has a profile
+     for and has not removed (review 1: otherwise a fresh token for any name, or a removed agent whose revoke failed, could
+     put a "running" card on the board with one call). The route then beats liveness, so the agent's next reports pass on
+     the heartbeat while registration catches up. ⚠️ This is a third, narrow way for a held token to speak without a row:
+     the heartbeat it writes lasts liveness.STALE_AFTER_MS, as any report's does. */
+  if (opts && opts.startedReport === true && byName.ok && byName.twins !== true && startedMayProveLife(byName)) {
     return { ok: true, card: { sessionName: byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
   }
   /* The original refusal, verbatim: `resolve` deliberately gives the same
@@ -2145,6 +2158,20 @@ function resolveAgentSender(req, body, roster, opts) {
      cannot confirm a token was ever real. Substituting a message here would
      undo that. */
   return carded;
+}
+
+/* kosmos#8372: whether a held token's agent may prove life by its own `started` report: not a token issued to another
+   computer, an agent Kosmos has a profile for, and not one the person removed. An unreadable profile list or a throw is
+   no; an unreadable removal list reads as none, as remove.removedAgents gives it to every caller. */
+function startedMayProveLife(byName) {
+  try {
+    if (!byName || byName.launcher === 'remote') return false;
+    const known = require('./engine/register').known();
+    if (!known.ok || !known.names.some((n) => n === byName.key || n === byName.name)) return false;
+    const removed = require('./engine/remove').removedAgents();
+    if (removed.some((r) => r && typeof r.name === 'string' && (r.name === byName.name || store.safeKey(r.name) === byName.key))) return false;
+    return true;
+  } catch { return false; }
 }
 
 /**
@@ -19336,7 +19363,7 @@ const server = http.createServer(async (req, res) => {
         const sender = resolveAgentSender(req, body, roster, {
           denyPaneFallback,
           denyBecause: 'this board only records a report from the account that started it; run `kosmos report` from that account, or present an agent token',
-          startedReport: body.state === 'started',   // kosmos#8372: a start proves life on the agent's own token
+          startedReport: body.state === 'started' && !isRemoteRequest(req),   // kosmos#8372: a local run's start proves life
         });
         if (!sender.ok) { noteTurnEndRefusal(body, sender.because); sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 

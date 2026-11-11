@@ -11,12 +11,17 @@ token is minted before launch (win32create.mintForRun), so it is already held. S
 nor a heartbeat: NO_MATCH. Later reports find the row. On the Mac the pane exists first, so path 1 holds.
 
 ## Change
-- resolveAgentSender takes `opts.startedReport`: with it, a token that resolves BY NAME (held, not retired, and with no
-  second name under its key) is accepted for that one report, as the paneless card. The report route sets it only for
-  `state === 'started'`. The route already beats liveness after any authenticated report, so the next reports pass on
-  path 2 while registration catches up.
-- Unchanged: an unknown, revoked or ambiguous token is refused with the same words; every other state needs a row or a
-  heartbeat as before; the Mac never reaches this branch at SessionStart.
+- resolveAgentSender path 2b (opts.startedReport): a token that resolves BY NAME (held, not retired or revoked, not
+  ambiguous) is accepted for a `started` report when startedMayProveLife holds: the token was NOT issued to another
+  computer (launcher 'remote'), Kosmos has a profile for the agent, and the agent was not removed. The report route sets
+  startedReport only for `state === 'started'` from this computer (not through the remote forwarder). The route then
+  beats liveness, so the next reports pass on path 2 while registration catches up.
+- sendertoken.resolveName also returns the token's launcher.
+- Review 1 (measured): the first version let ANY held token bootstrap a heartbeat by sending `started`, including a
+  remote-issued one from the network, a token for a never-created name, and a removed agent whose revoke failed. Each is
+  now refused, with a test and a mutation arm.
+- Residual, stated: a LOCAL run's token whose run crashed without retiring it can show "running" for one beat
+  (liveness.STALE_AFTER_MS) per call, as a still-beating one already could.
 
 ## Rejected
 A hook-side retry (races registration inside the hook's 8 s budget), rewording only (the first report would still be
