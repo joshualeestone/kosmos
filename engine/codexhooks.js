@@ -319,24 +319,36 @@ function unwireInstall(home, roots, opts) {
     const heading = stateHeading(path.join(require('./trust').canonicalOnDisk(home), HOOKS_FILE), plat);
     const line = `trusted_hash = "${trustHash(command)}"`;
     const locked = require('./filelock').withFileLock(cfg, () => {
+      /* Review 1: judged again under the lock, a regular file still in our shape with the same command (a person's
+         editor takes no lock of ours), and hooks.json goes FIRST: a record left alone is inert, a hooks.json left
+         without its record is what stops the Codex TUI. */
+      const st = fs.lstatSync(hooksFile);
+      if (!st.isFile()) return { ours: false, changed: false, because: 'hooks.json is not a plain file' };
+      const now = fs.readFileSync(hooksFile, 'utf8');
+      if (!isOurs(now) || JSON.parse(now).hooks[EVENT][0].hooks[0].command !== command) return { ours: false, changed: false, because: 'hooks.json changed while it was being checked' };
+      fs.unlinkSync(hooksFile);
       let recordRemoved = false;
       let cfgText = null;
       try { cfgText = fs.readFileSync(cfg, 'utf8'); } catch { cfgText = null; }
       if (cfgText !== null && heading) {
         const lines = cfgText.split('\n');
         const at = lines.indexOf(heading);
-        const after = lines[at + 2];
-        if (at !== -1 && lines.indexOf(heading, at + 1) === -1 && lines[at + 1] === line
-          && (after === undefined || after === '' || after.startsWith('['))) {
-          // A blank line after the record goes with it, unless it is only the file's final newline.
-          lines.splice(at, after === '' && at + 2 < lines.length - 1 ? 3 : 2);
+        /* Review 1: the record is ours to remove only when nothing else lives in its table: after any blank lines,
+           the next line is another table heading or the end. A key below it would otherwise move into the table
+           above (or duplicate one there, and Codex would not load the file). */
+        let next = at + 2;
+        while (next < lines.length && lines[next] === '') next += 1;
+        const tableEnds = next >= lines.length || lines[next].startsWith('[');
+        if (at !== -1 && lines.indexOf(heading, at + 1) === -1 && lines[at + 1] === line && tableEnds) {
+          // The blank lines after the record go with it, but never the file's final newline.
+          const drop = next >= lines.length ? 2 + Math.max(0, next - (at + 2) - 1) : next - at;
+          lines.splice(at, drop);
           let mode = 0o600;
           try { mode = fs.statSync(cfg).mode & 0o777; } catch { mode = 0o600; }
           require('./securewrite').writeSecret(cfg, lines.join('\n'), mode, { atomicOnly: true, ownTempsOnly: true });
           recordRemoved = true;
         }
       }
-      fs.unlinkSync(hooksFile);
       return { ours: true, changed: true, recordRemoved };
     }, { busy: 'another program was writing the Codex config', cannotAccess: 'its folder would not let Kosmos lock it' });
     if (locked && locked.ok === true) return locked.value;

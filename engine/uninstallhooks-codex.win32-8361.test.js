@@ -42,6 +42,16 @@ test('a record in the middle goes with its blank line; the tables after it stay'
   assert.equal(cfgOf(h), 'model = "x"\n[projects.\'C:\\w\']\ntrust_level = "trusted"\n');
 });
 
+test('a record with a key below it (after a blank line) is not ours to remove: hooks.json goes, the record stays', () => {
+  const h = installed(THIS);
+  fs.appendFileSync(path.join(h, 'config.toml'), '\nenabled = false\n');
+  const before = cfgOf(h);
+  const r = hooks.unwireInstall(h, [THIS], { platform: 'win32' });
+  assert.deepEqual(r, { ours: true, changed: true, recordRemoved: false });
+  assert.equal(cfgOf(h), before);
+  assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
+});
+
 test('the folder named in another spelling (forward slashes, other case) still counts as this install', () => {
   const h = installed(THIS);
   const r = hooks.unwireInstall(h, [THIS.replace(/\\/g, '/').toLowerCase()], { platform: 'win32' });
