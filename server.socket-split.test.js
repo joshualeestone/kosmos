@@ -119,7 +119,9 @@ function readBoardIn(sb, launchctlListStdout, systemdActiveUnits) {
     const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
     const srv = app.server || app;
     /* kosmos#8378: the empty fleet through the pane source the Windows board itself uses (status.setPaneSource), not
-       the #!/bin/sh tmux above, which Windows cannot run by its shebang (it stays for the sandbox guard, #1651). */
+       the #!/bin/sh tmux above, which Windows cannot run by its shebang (it stays for the sandbox guard, #1651). On
+       Windows this still runs the macOS launchd arm (the darwin probe forced above): it shows the roster and ghost-row
+       path works on a Windows host, not that a Windows scheduled task gets the could-not-check pill. */
     require(${JSON.stringify(nodePath.join(REPO, 'engine', 'status.js'))}).setPaneSource(() => '');
     srv.listen(0, '127.0.0.1', () => {
       http.get({ host: '127.0.0.1', port: srv.address().port, path: '/api/status' }, (res) => {

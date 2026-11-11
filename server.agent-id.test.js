@@ -31,7 +31,8 @@ const REPO = __dirname;
  * or a deadline passes, and a failure names what last came back, so a look
  * that failed and an agent that is absent are different sentences.
  *
- * `tmuxScript` is the stub's body; the default reports an empty fleet.
+ * kosmos#8378: the roster now comes through the pane source (status.setPaneSource), not the stub tmux. `failFirst` is
+ * how many looks answer null (a failed look) before the empty fleet; the default, 0, is the empty fleet at once.
  */
 function boardWithSeededIds(failFirst = 0) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-id-'));
@@ -62,7 +63,7 @@ function boardWithSeededIds(failFirst = 0) {
   fs.mkdirSync(bin, { recursive: true });
   /* kosmos#8378: the roster comes through the pane source the Windows board itself uses (status.setPaneSource), not a
      #!/bin/sh tmux, which Windows cannot run by its shebang; so this runs on every platform. The stub tmux stays only
-     because the sandbox guard requires AGENT_WORKFORCE_TMUX_BIN (#1651); with a pane source set, nothing runs it. A
+     because the sandbox guard requires AGENT_WORKFORCE_TMUX_BIN (#1651); with a pane source set, the roster never runs it. A
      pane source answering null is the failed look a refusing tmux gave (engine/status.js). */
   fs.writeFileSync(nodePath.join(bin, 'tmux'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 

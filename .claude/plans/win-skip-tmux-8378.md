@@ -24,9 +24,14 @@ giving the board an empty fleet, and the logic under test runs on the Windows bo
   goes red ("the seam did not engage").
 - `server.socket-split` (#668): the same seam gives the empty fleet; it already faked launchctl and forced the darwin
   probe on every non-Linux host. Its own control (a parked job keeps the plain verdict) passes beside the two arms.
+  On Windows this runs the macOS launchd arm (the darwin probe is forced): it shows the roster and ghost-row path
+  works on a Windows host, NOT that #668 holds for a Windows scheduled task (see Not covered).
 - In both, the `#!/bin/sh` stub tmux stays only because the sandbox guard requires AGENT_WORKFORCE_TMUX_BIN (#1651);
-  with a pane source set, nothing runs it. On macOS and Linux the tests now read the roster through the seam too, which
-  is what their subjects (ids, the poll, the ghost row) need; how tmux is read is tested elsewhere.
+  with a pane source set, the roster never runs it. On macOS and Linux the tests now read the roster through the seam too, which
+  is what their subjects (ids, the poll, the ghost row) need; how tmux is read is tested elsewhere. On macOS and Linux #704
+  no longer drives the real refusing-tmux path (a stub exiting 1, sh answering null); it injects the null. The path
+  from a failed tmux to the 500 is covered by engine/last-look ("a tmux that is not there is said in words") and the
+  status tests.
 
 **Skipped on Windows with their reason (5 tests):**
 - `engine/status.panes-async-6173` (all 4): its subject is the tmux roster itself (async against sync, the board
@@ -48,5 +53,7 @@ without tmux (engine/win32roster.js and its tests, run by the Windows job); a Wi
 turning while the roster is read" check was not looked for here.
 
 ## Not covered (later #8378 PRs)
+A Windows twin of #668: a scheduled task the supervisor says is running, with no session visible, should get the
+could-not-check pill rather than "Not running". Nothing here tests that on Windows.
 POSIX modes, signals, the bare-bash files, the three held-back files above, and the plain assertions. The new list
 entries sit at the top of HOST_BRANCH_EXCLUDED rather than in an order; reordering that list is left alone here.
