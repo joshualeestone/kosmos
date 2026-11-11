@@ -398,8 +398,11 @@ function unwireHooks(bundleRoot, home, env, gone, done, left, notes) {
     try { r = require('./codexhooks').unwireInstall(codexHome, roots, { gone, platform: 'win32' }); }
     catch { r = { ours: false, changed: false, unreadable: true, because: 'Kosmos\'s check of it failed' }; }   // review 5: not known to be ours
     if (r.changed) done.push('took Kosmos\'s file-edit hook out of Codex\'s settings (' + codexHome + ')' + (r.recordRemoved ? ', with its trust entry' : ''));
-    else if (r.ours) left.push('Kosmos\'s file-edit hook in Codex\'s settings (' + codexHome + '), which could not be taken out ('
+    // Review 8, as unwireOne: a busy lock is a leftover a retry can finish; one a retry cannot clear is a note.
+    else if (r.ours && r.stuck) notes.push('Codex\'s settings in ' + codexHome + ' still have Kosmos\'s file-edit hook, which Kosmos could not take out ('
       + (r.because || 'the file did not change') + '). Delete hooks.json in that folder; Codex runs fine without it.');
+    else if (r.ours) left.push('Kosmos\'s file-edit hook in Codex\'s settings (' + codexHome + '), which could not be taken out ('
+      + (r.because || 'the file did not change') + '). Close the other program and remove Kosmos again, or delete hooks.json in that folder; Codex runs fine without it.');
     // Review 4: a hooks.json Kosmos could not read may be the person's own, so the advice is conditional.
     else if (r.unreadable) notes.push('Codex\'s hooks.json in ' + codexHome + ' could not be checked (' + r.because
       + '). If it names codex-report-bridge.js, it is Kosmos\'s and can be deleted; otherwise it is yours, leave it.');

@@ -174,7 +174,7 @@ test('#5999: without the install folder (a hand-run CLI; the launcher always pas
   stubSchedulers([listing([])]);
   const r = await run(h, { bundleRoot: null });
   assert.equal(fs.readFileSync(def, 'utf8'), bytes);
-  assert.ok(r.notes.some((l) => /Claude Code's and Gemini CLI's settings were not checked/.test(l) && /could not tell which folder/.test(l) && /hooks.json in each .codex-<name> folder in your home folder if it names codex-report-bridge.js.$/.test(l)), JSON.stringify(r.notes));
+  assert.ok(r.notes.some((l) => /Claude Code's and Gemini CLI's settings were not checked/.test(l) && /could not tell which folder/.test(l) && /hooks\.json in each \.codex-<name> folder in your home folder if it names codex-report-bridge\.js\.$/.test(l)), JSON.stringify(r.notes));
   assert.ok(!r.left.some((l) => /Claude Code's settings/.test(l)), 'no root was made a leftover, which keeps the removal unfinished for good: ' + JSON.stringify(r.left));
 });
 
@@ -527,6 +527,26 @@ test('kosmos#8361: a Codex check that throws is never reported as Kosmos\'s hook
   } finally { codexhooks.unwireInstall = orig; }
   assert.ok(!r.left.some((l) => /Codex/.test(l)), JSON.stringify(r.left));
   assert.ok(r.notes.some((n) => n.includes(named) && /If it names codex-report-bridge\.js/.test(n)), JSON.stringify(r.notes));
+});
+
+test('kosmos#8361: a Codex hook a retry cannot take out is a note (the removal can finish); a busy one is a leftover', async () => {
+  const h = home();
+  const stuckHome = path.join(h, '.codex-a');
+  const busyHome = path.join(h, '.codex-b');
+  fs.mkdirSync(stuckHome, { recursive: true });
+  fs.mkdirSync(busyHome, { recursive: true });
+  const orig = codexhooks.unwireInstall;
+  codexhooks.unwireInstall = (dir) => (dir === stuckHome
+    ? { ours: true, changed: false, stuck: true, because: 'its folder would not let Kosmos lock it' }
+    : { ours: true, changed: false, stuck: false, because: 'another program was writing the Codex config' });
+  let r;
+  try {
+    stubSchedulers([listing([])]);
+    r = await run(h);
+  } finally { codexhooks.unwireInstall = orig; }
+  assert.ok(!r.left.some((l) => l.includes(stuckHome)), 'a stuck folder kept the removal unfinished for good: ' + JSON.stringify(r.left));
+  assert.ok(r.notes.some((n) => n.includes(stuckHome) && /would not let Kosmos lock it/.test(n)), JSON.stringify(r.notes));
+  assert.ok(r.left.some((l) => l.includes(busyHome) && /remove Kosmos again/.test(l)), JSON.stringify(r.left));
 });
 
 test('kosmos#8361: while a Kosmos task is still registered, the Codex hook is not touched either', async () => {

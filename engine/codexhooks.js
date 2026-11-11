@@ -298,7 +298,9 @@ if (require.main === module) {
    that command (the heading for the canonical hooks.json, then the one trusted_hash line with that command's hash);
    a record anyone changed is left. hooks.json goes FIRST, then the record (a lone record is inert; a hooks.json
    without its record stops the Codex TUI), under the config.toml lock install takes.
-   Returns { ours, changed, recordRemoved?, because? }. Never throws. */
+   Returns { ours, changed, recordRemoved?, unreadable?, stuck?, because? }: `unreadable` is a file not known to be ours
+   (the person's, perhaps), `stuck` one of ours a retry cannot take out. Never throws. */
+const BUSY = 'another program was writing the Codex config';
 function unwireInstall(home, roots, opts) {
   const o = opts || {};
   const gone = typeof o.gone === 'function' ? o.gone : () => false;
@@ -373,11 +375,15 @@ function unwireInstall(home, roots, opts) {
         }
       } catch { recordRemoved = false; }
       return { ours: true, changed: true, recordRemoved };
-    }, { busy: 'another program was writing the Codex config', cannotAccess: 'its folder would not let Kosmos lock it' });
+    }, { busy: BUSY, cannotAccess: 'its folder would not let Kosmos lock it' });
     if (locked && locked.ok === true) return locked.value;
-    return { ours: true, changed: false, because: (locked && locked.because) || 'it could not be locked' };
+    /* Review 8, as #5999's unwireOne: only a busy lock is unfinished work a retry can finish; a folder that refuses
+       the lock is `stuck` (a retry cannot clear it), which the uninstall files as a note, not a leftover. */
+    const because = (locked && locked.because) || 'it could not be locked';
+    return { ours: true, changed: false, stuck: because !== BUSY, because };
   } catch (e) {
-    return { ours: true, changed: false, because: 'it could not be read or changed (' + ((e && e.code) || 'unknown') + ')' };
+    // A read-only hooks.json, a folder that will not let it go: a retry cannot clear these either.
+    return { ours: true, changed: false, stuck: true, because: 'it could not be read or changed (' + ((e && e.code) || 'unknown') + ')' };
   }
 }
 

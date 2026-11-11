@@ -144,10 +144,24 @@ test('a config.toml held by another writer leaves hooks.json and the record as t
     assert.equal(r.ours, true);
     assert.equal(r.changed, false);
     assert.match(r.because, /another program was writing the Codex config/);
+    assert.equal(r.stuck, false, 'a busy lock is work a retry can finish');
   } finally {
     delete process.env.AGENT_WORKFORCE_LOCK_MS;
     fs.rmSync(path.join(h, 'config.toml.lock'), { recursive: true, force: true });
   }
+  assert.equal(fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), before.hooks);
+  assert.equal(cfgOf(h), before.cfg);
+});
+
+test('a folder that refuses the lock is stuck (a retry cannot clear it), and both files stay', () => {
+  const h = installed(THIS);
+  const before = { hooks: fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), cfg: cfgOf(h) };
+  const real = require('./filelock');
+  const orig = real.withFileLock;
+  real.withFileLock = (f, fn, o) => ({ ok: false, because: o.cannotAccess });   // what an unwritable folder answers
+  let r;
+  try { r = hooks.unwireInstall(h, [THIS], { platform: 'win32' }); } finally { real.withFileLock = orig; }
+  assert.deepEqual([r.ours, r.changed, r.stuck], [true, false, true]);
   assert.equal(fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), before.hooks);
   assert.equal(cfgOf(h), before.cfg);
 });

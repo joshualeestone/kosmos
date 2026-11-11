@@ -16,7 +16,7 @@ The Windows uninstall took Kosmos's report hooks out of Claude Code's settings o
   the hook taken out all the same.
 - `win32uninstall.unwireHooks` runs it on every `~/.codex-<label>` (codexHomes), the only homes the hook is ever written
   into (win32codexsup never gives it to the person's ~/.codex), after the Gemini loop, with done/left sentences.
-- Tested in engine/uninstallhooks-codex.win32-8361.test.js (14): this install's hook plus record, the rest of the config
+- Tested in engine/uninstallhooks-codex.win32-8361.test.js (15): this install's hook plus record, the rest of the config
   kept, a mid-file record, a key below the record keeps the record, another spelling of the folder, another install's
   live hook kept, a gone bridge taken, a gone node.exe taken but an unplugged drive kept, a hand-changed record kept, a
   person's own or missing hooks.json untouched, an unreadable hooks.json never claimed as ours, a busy config.toml
@@ -26,6 +26,11 @@ The Windows uninstall took Kosmos's report hooks out of Claude Code's settings o
   turned into a non-file or changed under the lock, and a Codex check that failed outright.
 - A config.toml saved with CRLF line endings keeps its trust record (lines are matched on LF only). That is safe, a lone
   record does nothing, and install() writes LF.
+- As #5999's unwireOne: a busy config.toml lock is a leftover (close the other program and remove Kosmos again); a
+  folder that refuses the lock, or a hooks.json that cannot be deleted, is `stuck` and goes to the notes, so the
+  removal can still finish.
+- Review: 8 rounds, the fleet cap. Round 8's WARNING (the stuck case above) was fixed after round 8 and not reviewed
+  again; the proof says converged: false.
 
 ## Decided (at the Gemini half; the Codex point below is superseded by the section above)
 - The Codex half is not built here. `codexhooks.removeOurs` exists, but on main the Codex hook is installed only by the Mac supervisor: nothing on Windows writes it, and #8348 (the Windows Codex hook) is an open card with no code. Calling a removal for a Windows file that is never written, with a trust-record shape not yet decided for Windows, would be a guess, so the removal belongs with #8348; noted on both cards.
