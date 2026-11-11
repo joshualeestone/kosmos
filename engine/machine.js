@@ -588,6 +588,13 @@ function linuxSleepCheck(reading) {
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION, battOnly: true, title,
       detail: said.join(' ') + ' Plugged in and open, it keeps working, so for overnight work leave it plugged in and open.' + desktopFix + logindFix }, extra);
   }
+  // Before any all-clear: a GNOME read that failed, wholly or partway, is never a tick.
+  if (r.gnomeUnread) {
+    return { key: 'sleep', state: STATE.UNKNOWN,
+      title: 'We could not read your desktop\'s power settings',
+      detail: 'Your desktop is running, but its power settings did not answer when we asked, so we cannot tell '
+        + 'whether it puts this computer to sleep. Linux\'s own settings do not.' };
+  }
   /* Nothing read puts it to sleep. The title says whose settings those were. */
   if (gnome) {
     return { key: 'sleep', state: STATE.OK,
@@ -601,12 +608,6 @@ function linuxSleepCheck(reading) {
   /* A desktop whose own settings were not read (KDE's, a logged-out GNOME): the title stays about Linux's own settings
      and the detail says plainly what was not read. Not UNKNOWN: on such a desktop it could never clear, and #8375 keeps
      a row that can never read something out of the could-not-check count. */
-  if (r.gnomeUnread) {
-    return { key: 'sleep', state: STATE.UNKNOWN,
-      title: 'We could not read your desktop\'s power settings',
-      detail: 'Your desktop is running, but its power settings did not answer when we asked, so we cannot tell '
-        + 'whether it puts this computer to sleep. Linux\'s own settings do not.' };
-  }
   if (r.desktop === true) {
     return { key: 'sleep', state: STATE.OK,
       title: 'Linux\'s own settings do not put this computer to sleep',

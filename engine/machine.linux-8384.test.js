@@ -680,6 +680,12 @@ test('sleep row: GNOME unreadable with logind unreadable too is still could-not-
   const { runner } = sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-battery-type': null });
   const half = machine.readLinuxSleep({ runner, hasLid: false, hasBattery: true });
   assert.equal(half.gnomeUnread, true);
+  assert.equal(half.gnome.ac, 'suspend', 'control: the AC half was read');
+  // AC quiet, battery unread: the row is could-not-check, never the all-clear.
+  const quietAc = machine.readLinuxSleep({ runner: sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-ac-type': "'nothing'", 'sleep-inactive-battery-type': null }).runner, hasLid: false, hasBattery: true });
+  assert.equal(sleep(quietAc).state, STATE.UNKNOWN);
+  // AC suspends, battery unread: the finding still shows.
+  assert.equal(sleep(half).state, STATE.ATTENTION);
 });
 
 test('sleep row: the title\'s "on its own" names only what happens plugged in and idle, not the lid', () => {
