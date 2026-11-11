@@ -56,8 +56,9 @@ VoiceOver's own scroll to the part not being pinned back.
   down to an on-screen part of the newest takes the newest branch, counts the reader at the newest again, and the next
   layout pins the list back 32 pt. The focused part stays visible; the list moves back and forth at the top edge.
 - Iteration 3 (sonnet): 2 WARNINGs, 3 NITs. A part taller than the screen (a long code block) reaches past both
-  edges and was held: FIXED (a part taller than what shows passes the bottom test), with newestlongpart and its control
-  (14 -> 22). The fixed 0.75 split rests on what a real whole-message element measures: DEFERRED, it is this plan's
+  edges and was held: FIXED (a part taller than what shows passes the bottom test), with newestlongpart (a part 1.5 times the
+  list's height from 200 pt above the top, so past both edges) and its control (14 -> 22). The control uses the rule
+  switch: for an element past both edges, the rule without the new clause reads false, the same as the rule off. The fixed 0.75 split rests on what a real whole-message element measures: DEFERRED, it is this plan's
   weakest premise and only a phone with VoiceOver can settle it. Doc comment reflow and "the two edge tests": FIXED.
   Slice order of the ui-sample.sh comments: left (only the count is read).
 

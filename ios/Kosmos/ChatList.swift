@@ -243,7 +243,7 @@ struct ChatList: UIViewRepresentable {
         // newest; "newestpart" (slice 19, with KOSMOS_SAMPLE_TALLNEWEST) focuses the first 80 pt of a newest reply taller
         // than the screen, above it, "newestclipped" an 80 pt part of it crossing the top of the screen by 20 pt, and
         // "newestwhole" the whole reply (its row less 4 pt at each end), and "newestlongpart" a part 1.5 times the list's
-        // height from 8 pt below the reply's top, each with an element in the newest row's cell as SwiftUI makes one.
+        // height from 200 pt above the top of what shows (past both edges), each with an element in the newest row's cell as SwiftUI makes one.
         // Reported through sampleA11y, starting "focus".
         func sampleA11yFocus(_ report: ((String) -> Void)?) {
             guard !ChatList.sampleA11yDone, let list, let source else { return }
@@ -325,8 +325,9 @@ struct ChatList: UIViewRepresentable {
                 target = newestId
                 if let ip = source.indexPath(for: newestId), let a = list.layoutAttributesForItem(at: ip), let c = list.cellForItem(at: ip),
                    let w = list.window {
+                    let seenTop = list.contentOffset.y + list.adjustedContentInset.top - list.contentInset.top
                     let e = UIAccessibilityElement(accessibilityContainer: c.contentView)
-                    e.accessibilityFrame = list.convert(CGRect(x: a.frame.minX, y: a.frame.minY + 8, width: a.frame.width, height: list.bounds.height * 1.5),
+                    e.accessibilityFrame = list.convert(CGRect(x: a.frame.minX, y: seenTop - 200, width: a.frame.width, height: list.bounds.height * 1.5),
                                                         to: w.screen.coordinateSpace)
                     element = e
                 }
