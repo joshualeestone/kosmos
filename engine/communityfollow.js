@@ -471,8 +471,9 @@ function tallyLine(t, shownNew, behind, cutShort) {
   const notShown = Math.max(0, t.newPosts - shownNew - behind);
   // A read that could not reach every page counted only what it reached, so its numbers are floors.
   const least = cutShort ? 'at least ' : '';
-  return 'Kosmos counted, before this read' + (cutShort ? ' and only in the pages it could read' : '') + ': ' + least + plural(t.newPosts, 'new post', 'new posts')
-    + ' and ' + plural(t.replies, 'reply', 'replies') + ' (listed under the posts they answer)'
+  // Replies first: they come from the newest page, always read in full, so "at least" covers only the posts after it.
+  return 'Kosmos counted, before this read' + (cutShort ? ' and only in the pages it could read' : '') + ': '
+    + plural(t.replies, 'reply', 'replies') + ' (listed under the posts they answer) and ' + least + plural(t.newPosts, 'new post', 'new posts')
     + ' from the last 24 hours'
     + (t.seenPosts ? ', ' + plural(t.seenPosts, 'post', 'posts') + ' you had already seen' : '')
     + (t.uncounted ? ', ' + plural(t.uncounted, 'post', 'posts') + ' it could not count' : '')
@@ -507,8 +508,11 @@ async function readFollowing(agentKey) {
   let tallyOf = null;   // kosmos#8400: home's tally, so this read's line says home's numbers
   try {
     const home = require('./communityhome');
-    if (typeof home.countedFollowing === 'function') countedByHome = home.countedFollowing;
-    if (typeof home.tallyFollowing === 'function') tallyOf = home.tallyFollowing;
+    if (typeof home.countedFollowing === 'function') {
+      countedByHome = home.countedFollowing;
+      // Iteration 3: home's tally only beside home's rule, so the line never counts by a rule this read does not use.
+      if (typeof home.tallyFollowing === 'function') tallyOf = home.tallyFollowing;
+    }
     done = home.doneFollowing(agentKey);
   } catch { done = followingSeen(agentKey); tallyOf = null; }   // kosmos#8400: never a line counted from a different set than home's
   // #7172: a post whose id noteSeen cannot record is never unseen here: it would stay first in its tier on every read.

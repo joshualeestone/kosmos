@@ -17,16 +17,19 @@ and a read marks posts seen in between; the read showed every post on the newest
 under "Reply to" entries, so its headers counted neither.
 
 - communityhome.tallyFollowing(items, done, now, firstPage) is the one tally: newPosts (countedFollowing), seenPosts
-  (last 24 hours, countable id, done), uncounted (last 24 hours, an id no read can record), olderPosts, replies (the
-  newest page's from the last 24 hours, one per reply). newPosts + seenPosts + uncounted = every post from the last 24
-  hours.
+  (last 24 hours, countable id, done), uncounted (last 24 hours, an id no read can record), olderPosts, replies and
+  olderReplies (the newest page's, from and before the last 24 hours, one per reply, counted on the page as read before
+  any repeated post is dropped). Posts are counted once each (distinctPosts; a post with no usable id is never a
+  repeat). newPosts + seenPosts + uncounted = every post from the last 24 hours.
 - Home: unchanged count line, plus tallyWords ("Of the P posts in the last 24 hours, N are new, S you have already
   seen, U Kosmos could not count."), only when there is more than the new ones.
 - The nudge: "N new posts you have not been shown (and M replies) in the last 24 hours".
 - read --following: tallyLine, from the same tally over the items it read (the newest page, then the older pages'
-  posts: what home counts), taken before noteSeen: "Kosmos counted, before this read: N new posts and M replies from
-  the last 24 hours (and K posts you had already seen or it could not count). This read shows X of the new posts, L
-  are behind these, D could not be shown." X + L + D = N.
+  posts: what home counts), taken before noteSeen: "Kosmos counted, before this read: M replies (listed under the
+  posts they answer) and N new posts from the last 24 hours, S posts you had already seen, U posts it could not count,
+  and O older items from before then. This read shows X of the new posts, L are behind these, D could not be shown."
+  X + L + D = N. Cut short, it says "and only in the pages it could read" and "at least" before the posts (replies
+  come first because the newest page is always read in full). Taken only when home exports both its rule and its tally.
 
 Rejected: changing what the read shows; counting grouped "Reply to" entries as replies.
 
@@ -49,7 +52,9 @@ Would change my mind: the person wanting the Following feed to show only new pos
 
 ## Results
 
-- communityhome-5212, communityfollow, communityfollow-broaden-7992: 84 of 84 after iteration 1.
+- communityhome-5212 and communityfollow: 79 of 79 after iteration 3's fixes (the focused set grew and was re-run;
+  the earlier 84 was a different file set). Each iteration-3 test was shown to fail with its fix reverted, one at a
+  time.
 
 ## Challenge loop
 
@@ -68,3 +73,13 @@ Would change my mind: the person wanting the Following feed to show only new pos
   printed item is now in the line), and has no "at least" on replies. DEFERRED, stated: the nudge points to home and has
   no reconciliation of its own; nothing marks which printed headers are the new posts (it would change how the feed
   renders); a moving feed can shift a count by one between home's call and the read's.
+- Validation 2 passed.
+- Iteration 3 (opus): FIXED, each with a test that fails without it: replies were counted after dropping a repeated
+  post, so the page edge moved by one and a reply past it counted (now counted on the page as read); home's titles
+  came from the undeduped feed, so a repeated post gave two titles (now from distinctPosts); the read's cut-short line
+  read "at least N new posts and M replies", as if "at least" covered the replies (replies now come first); the read
+  took home's tally even without home's rule (now only with both); two posts with an empty id were merged into one
+  (now never a repeat). Tests added for a repeated post across pages, an unusable cursor, and no line when the seen
+  list cannot be read. DECIDED, not tested: "D could not be shown" is not reachable today, because entryOf drops an
+  entry only when communityread.itemOf gets a non-object, and every counted post is an object of kind post; the arm
+  stays as a guard so X + L + D = N holds if that changes. Weakest premise: that itemOf stays that permissive.

@@ -127,6 +127,20 @@ function countedFollowing(it, done, now) {
   return Boolean(it && it.kind === 'post' && UUID_RE.test(String(it.id == null ? '' : it.id)) && Date.parse(it.created_at) > now - DAY_MS && done instanceof Set && !done.has(key(it.id)));
 }
 
+/* kosmos#8400: `items` with a post that repeats (a moving feed shifts one between pages) kept once, at its first place,
+   as the read lists it once. A post with no usable id is never a repeat: two of them are two posts. Replies untouched. */
+function distinctPosts(items) {
+  const ids = new Set();
+  return (Array.isArray(items) ? items : []).filter((it) => {
+    if (!it || it.kind !== 'post' || it.id == null) return true;
+    const k = String(it.id).trim().toLowerCase();
+    if (!k) return true;
+    if (ids.has(k)) return false;
+    ids.add(k);
+    return true;
+  });
+}
+
 /* kosmos#8400: THE tally of a Following feed's items, so the nudge, home and read --following say one set of numbers.
    `items`: the feed's items as read (the newest page, then older pages' posts); `firstPage`: how many of them are the
    newest page (replies are counted there only, the one page read --following shows replies from). Of the posts:
@@ -137,15 +151,11 @@ function countedFollowing(it, done, now) {
    and replies: the newest page's replies from the last 24 hours, one per reply (not per post they answer).
    newPosts + seenPosts + uncounted is every post from the last 24 hours. `done` is doneFollowing's set. */
 function tallyFollowing(items, done, now, firstPage = communityread.MAX_ITEMS) {
-  // A post that repeats (a moving feed shifts one between pages) is one post, as the read lists it once.
-  const ids = new Set();
-  const list = (Array.isArray(items) ? items : []).filter((it) => {
-    if (!it || it.kind !== 'post' || it.id == null) return true;
-    const k = String(it.id).toLowerCase();
-    if (ids.has(k)) return false;
-    ids.add(k);
-    return true;
-  });
+  const all = Array.isArray(items) ? items : [];
+  const list = distinctPosts(all);
+  // Replies from the newest page as read, before any post is dropped as a repeat (iteration 3: dropping one first
+  // moved the page's edge by one item, so a reply just past it was counted).
+  const head = all.slice(0, firstPage);
   const day = (it) => Date.parse(it && it.created_at) > now - DAY_MS;
   const isPost = (it) => Boolean(it && it.kind === 'post');
   const recent = list.filter((it) => isPost(it) && day(it));
@@ -156,8 +166,8 @@ function tallyFollowing(items, done, now, firstPage = communityread.MAX_ITEMS) {
     seenPosts: countable - newPosts,
     uncounted: recent.length - countable,
     olderPosts: list.filter((it) => isPost(it) && !day(it)).length,
-    replies: list.slice(0, firstPage).filter((it) => it && it.kind === 'reply' && day(it)).length,
-    olderReplies: list.slice(0, firstPage).filter((it) => it && it.kind === 'reply' && !day(it)).length,
+    replies: head.filter((it) => it && it.kind === 'reply' && day(it)).length,
+    olderReplies: head.filter((it) => it && it.kind === 'reply' && !day(it)).length,
   };
 }
 
@@ -255,7 +265,8 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         /* kosmos#5372: not a post this agent was already shown in read --following or read directly, nor one it commented on from this
            board: the nudge kept sending an agent back to a post it had read and answered. */
         const done = doneFollowing(agentKey);
-        const fresh = f.json.items.filter((it) => countedFollowing(it, done, now));
+        // kosmos#8400 iteration 3: from the posts the tally counts (each once), so a repeated post is one title.
+        const fresh = distinctPosts(f.json.items).filter((it) => countedFollowing(it, done, now));
         // Replies on the newest page only, the one page read --following takes replies from (older pages add posts
         // only). It lists a few per post and says how many more it did not show, so a reply counted here is shown or
         // counted there (one whose entry the read cannot build is neither). Replies are never marked shown, so they are counted as "in the last 24 hours", not as new.
