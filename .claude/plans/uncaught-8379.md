@@ -12,8 +12,11 @@ engine/win32boardlog.js and engine/win32boardwatch.js record a crash only when n
 - A behavioural test that loads the whole board and counts `process.listenerCount('uncaughtException')`: loading server.js starts a board. The source scan covers every module the board can load, loaded or not.
 - Scanning tools/ and bin/: those are other processes (a release script embeds its own node handler), not the board.
 
+## Not seen
+An event name built from pieces, a domain reached without a literal require, and anything in node_modules (the board's dependencies). bin/ bridges are spawned by the board, never required into it (each guards its entry with require.main).
+
 ## Weakest premise
-That a handler always names the event as a literal somewhere in board code. One that builds the name from pieces would be missed. A comment naming the event in a board module now reds the test, which is the price of not stripping comments; the fix is to reword the comment.
+That a handler always names the event as a literal somewhere in board code. A comment naming the event in a board module now reds the test, which is the price of not stripping comments; the fix is to reword the comment.
 
 ## Would change my mind
 A real need for a board-level handler: then it goes in ALLOWED and both monitors change in the same PR.
