@@ -470,6 +470,7 @@ const LINUX_STOPPING_ACTION = Object.freeze({
   suspend: 'goes to sleep', hibernate: 'goes to sleep', 'hybrid-sleep': 'goes to sleep',
   'suspend-then-hibernate': 'goes to sleep', 'sleep': 'goes to sleep',
   poweroff: 'turns off', halt: 'turns off', shutdown: 'turns off', reboot: 'restarts', kexec: 'restarts',
+  'soft-reboot': 'restarts',
 });
 const LINUX_ACTION_BASE = Object.freeze({ 'goes to sleep': 'go to sleep', 'turns off': 'turn off', restarts: 'restart' });
 const minutesWords = (n) => n + (n === 1 ? ' minute' : ' minutes');
@@ -500,7 +501,8 @@ function linuxSleepCheck(reading) {
     const ac = stops(lid.ac), batt = stops(lid.battery);
     const unless = lid.docked && !stops(lid.docked) ? ', unless another screen is connected' : '';
     const docked = stops(lid.docked);
-    // A lid that sleeps only when another screen is connected (HandleLidSwitchDocked, not the default; review 10).
+    /* logind asks the docked setting first when another screen is connected, so a docked stop is said whenever it is
+       set, beside the others (reviews 10, 11). */
     if (!ac && !batt) say('When the lid closes with another screen connected, this computer ' + docked + '.', docked);
     else if (ac && batt && ac !== batt) {
       say('When the lid closes while it is plugged in, this computer ' + ac + unless + '.', ac);
@@ -508,6 +510,7 @@ function linuxSleepCheck(reading) {
     } else if (ac && batt) say('When the lid closes, this computer ' + ac + unless + '.', ac);
     else if (ac) say('When the lid closes while it is plugged in, this computer ' + ac + unless + '.', ac);
     else say('When the lid closes on battery, this computer ' + batt + unless + '.', batt);
+    if ((ac || batt) && docked) say('With another screen connected, closing the lid ' + (docked === 'goes to sleep' ? 'puts it to sleep' : (docked === 'turns off' ? 'turns it off' : 'restarts it')) + ' too.', docked);
   }
   /* The words follow what was found (review 3): a computer set to turn off is not said to sleep, and one that
      restarts is not said to stay off. */
@@ -515,7 +518,9 @@ function linuxSleepCheck(reading) {
   const until = (vs) => (vs.includes('goes to sleep') ? ' Your agents stop until it wakes.'
     : (vs.includes('turns off') ? ' Your agents stop until it is started again.' : ' Your agents stop while it restarts.'));
   // Where to change it, only for what was found (review 1); a file path is for an administrator (review 3).
-  const desktopFix = (gnomeAc || gnomeBatt) ? ' You can change the desktop\'s part in its Power settings, under Automatic Suspend.' : '';
+  const desktopFix = (gnomeAc || gnomeBatt)
+    ? ((idleStops || lidStops) ? ' You can change the desktop\'s part in its Power settings, under Automatic Suspend.'
+      : ' You can change it in the desktop\'s Power settings, under Automatic Suspend.') : '';
   /* A real snippet, as the other admin fields are commands (review 4); Settings shows it as code. Restarting the
      computer applies it: restarting systemd-logind by hand can end the sessions logged in. */
   /* The lid key is the plugged-in one only: closed on battery it should still sleep, or it drains in a bag (review 7).
@@ -525,6 +530,7 @@ function linuxSleepCheck(reading) {
      numbered or named (reviews 8, 9). */
   if (idleStops) files.push(['zz-kosmos-idle.conf', 'IdleAction=ignore']);
   if (lidStops && stops(lid.ac)) files.push(['zz-kosmos-lid.conf', 'HandleLidSwitchExternalPower=ignore']);
+  if (lidStops && stops(lid.docked)) files.push(['zz-kosmos-lid-docked.conf', 'HandleLidSwitchDocked=ignore']);
   /* One command that pastes as it reads (review 5: a line of prose in a code box did not), for an administrator's root
      shell, as the Windows row's command is for an administrator's prompt; then a restart applies it. */
   const extra = files.length ? { admin: ['mkdir -p /etc/systemd/logind.conf.d'].concat(files.map(([f, k]) =>
@@ -1934,6 +1940,10 @@ function readLinuxBoardAutostart(runner, opts) {
   let unitFile = null;
   try { fs.statSync(lb.boardUnitPath()); unitFile = true; }
   catch (e) { unitFile = e && e.code === 'ENOENT' ? false : null; }   // only a proven absence is "missing"
+  /* `mask --force` swaps Kosmos's own file for a link to /dev/null: the service is gone, not just switched off, and an
+     unmask cannot bring it back (review 11). */
+  let maskedFile = false;
+  try { maskedFile = fs.lstatSync(lb.boardUnitPath()).isSymbolicLink() && fs.readlinkSync(lb.boardUnitPath()) === '/dev/null'; } catch { /* as read above */ }
   let unitState = null;
   /* A test that gave no runner never runs the host's systemctl or loginctl, even with a unit folder of its own:
      check() hands this the real run() then (review 9). */
@@ -1963,7 +1973,7 @@ function readLinuxBoardAutostart(runner, opts) {
   }
   const installed = ('installedRoot' in o) ? o.installedRoot : update.installedRoot();
   const user = ('user' in o) ? o.user : (() => { try { return os.userInfo().username; } catch { return ''; } })();
-  return { unitFile, unitState, linger, installed, user, systemdRunning, unitName: lb.boardUnitName() };
+  return { unitFile, unitState, linger, installed, user, systemdRunning, unitName: lb.boardUnitName(), maskedFile };
 }
 
 /* The command that turns linger on, for the row's admin field (Settings shows it under "For IT admins"). */
@@ -1997,11 +2007,18 @@ function linuxBoardAutostartCheck(reading) {
         + 'their own until it is restored. Reinstalling Kosmos puts it back.' };
   }
   if (!r.unitState) return unknown('This computer\'s service manager did not answer when we asked about Kosmos\'s startup service.');
+  if (r.maskedFile) {
+    return { key: 'autostart', state: STATE.ATTENTION,
+      title: 'Kosmos will not start by itself',
+      detail: 'Its startup service has been replaced by an empty one on this computer, so Kosmos and your agents will '
+        + 'not come back on their own after a restart. Reinstalling Kosmos puts it back.' };
+  }
   if (r.unitState === 'masked' || r.unitState === 'masked-runtime') {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service is blocked on this computer (masked), so it cannot start, even by hand, until '
-        + 'that is undone. Your agents will not come back on their own after a restart.',
+        + 'that is undone. Your agents will not come back on their own after a restart. If undoing it says the service '
+        + 'does not exist, reinstalling Kosmos puts it back.',
       // A runtime mask lives in /run and needs --runtime to lift (review 10).
       admin: 'systemctl --user unmask ' + (r.unitState === 'masked-runtime' ? '--runtime ' : '') + (r.unitName || 'kosmos-board.service')
         + ' && systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };

@@ -126,7 +126,7 @@ test('restart reader: reads the unit state and linger, and runs only looks', () 
     return { ok: false };
   };
   const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(runner, { runner, installedRoot: BUNDLE, user: 'pat' }));
-  assert.deepEqual(got, { unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE, user: 'pat', systemdRunning: null, unitName: require('./linuxboard').boardUnitName() },
+  assert.deepEqual(got, { unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE, user: 'pat', systemdRunning: null, unitName: require('./linuxboard').boardUnitName(), maskedFile: false },
     'systemdRunning is null in a test with no seam: the host\'s /run/systemd is not read');
   assert.equal(row(got).admin, 'loginctl enable-linger pat', 'the command names this account, not the admin\'s own');
   assert.equal(row(got).state, STATE.ATTENTION, 'enabled with linger off is the log-out warning');
@@ -424,7 +424,11 @@ test('sleep row: a lid that does different things on AC and on battery says both
 
 test('sleep row: the external-screen exception is said only when logind\'s docked setting was read as leaving it awake', () => {
   assert.match(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend', docked: 'ignore' } }).detail, /goes to sleep, unless another screen is connected\./);
-  assert.doesNotMatch(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend', docked: 'suspend' } }).detail, /another screen/);
+  const dockedToo = sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend', docked: 'suspend' } });
+  assert.doesNotMatch(dockedToo.detail, /unless another screen/);
+  assert.match(dockedToo.detail, /With another screen connected, closing the lid puts it to sleep too\./, 'logind asks the docked setting first (review 11)');
+  assert.match(dockedToo.admin, /zz-kosmos-lid\.conf && printf '\[Login\]\\nHandleLidSwitchDocked=ignore\\n' > \/etc\/systemd\/logind\.conf\.d\/zz-kosmos-lid-docked\.conf$/);
+  assert.match(sleep({ idle: { action: 'soft-reboot', minutes: 5 } }).title, /can restart on its own/);
   assert.doesNotMatch(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' } }).detail, /another screen/, 'not read, not said');
 });
 
@@ -457,6 +461,18 @@ test('sleep row: a lid that sleeps only when docked (HandleLidSwitchDocked) is a
   const r = sleep({ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'ignore', docked: 'suspend' } });
   assert.equal(r.state, STATE.ATTENTION);
   assert.match(r.detail, /When the lid closes with another screen connected, this computer goes to sleep\./);
+});
+
+test('restart reader: a unit file replaced by a link to /dev/null (mask --force) reads as gone, and the row says reinstall', () => {
+  const got = withUnitDir(false, (dir) => {
+    fs.symlinkSync('/dev/null', path.join(dir, require('./linuxboard').boardUnitName()));
+    return machine.readLinuxBoardAutostart(() => ({ ok: true, stdout: 'UnitFileState=masked\n' }), { runner: () => ({ ok: true, stdout: 'UnitFileState=masked\n' }), installedRoot: BUNDLE });
+  });
+  assert.equal(got.maskedFile, true);
+  const r = row(got);
+  assert.equal(r.state, STATE.ATTENTION);
+  assert.match(r.detail, /replaced by an empty one.*Reinstalling Kosmos puts it back/);
+  assert.equal(r.admin, undefined, 'no unmask command that cannot work');
 });
 
 test('restart row: a runtime mask is lifted with --runtime', () => {
