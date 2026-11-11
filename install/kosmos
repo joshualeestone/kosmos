@@ -6069,7 +6069,7 @@ cmd_task() {
       say "  kosmos task hold <project-id> <task-number> [--because \"<why>\"]  put it on hold (Kosmos stops nudging anyone about it or handing it out)"
       say "      [--until-task <n> | --until <date or time>]                 ...and say what it waits for; Kosmos tells its owner once it has happened"
       say "      [--for-you]                                                 ...and it waits on your person: it joins what is waiting on them"
-      say "      [--suggest \"<answer>\"]                                     ...with --for-you: your suggested answer, shown beside the question"
+      say "      [--suggest \"<answer>\"]                                      ...with --for-you: your suggested answer, shown beside the question"
       say "      [--not-for-you]                                             ...or it no longer waits on them: it stays on hold, off their list"
       say "  kosmos task unhold <project-id> <task-number>                 take it off hold"
       say "  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m>  a job you run on a schedule: the board shows when it runs"
@@ -6362,7 +6362,7 @@ cmd_task() {
         elif [ "$_ha" = --for-you ] && [ "$_hi" -gt 2 ] && [ -z "$_hvalue" ]; then _hold_for=1
         elif [ "$_ha" = --not-for-you ] && [ "$_hi" -gt 2 ] && [ -z "$_hvalue" ]; then _hold_notfor=1; else set -- "$@" "$_ha"; fi
         if [ -n "$_hvalue" ]; then _hprev=""; else _hprev="$_ha"; fi; done
-      if [ -n "$_hsug" ] && [ -z "$_hold_suggest" ]; then say "--suggest needs a few words, so nothing was done."; say "$_holdusage"; exit 2; fi
+      if [ -n "$_hsug" ] && [ -z "$(printf '%s' "$_hold_suggest" | tr -d '[:space:]')" ]; then say "--suggest needs a few words, so nothing was done."; say "$_holdusage"; exit 2; fi
       if [ -n "$_hsug" ] && [ -z "$_hold_for" ]; then say "--suggest goes with --for-you (a suggested answer to what you ask your person), so nothing was done."; say "$_holdusage"; exit 2; fi
       if [ -n "$_hold_for" ] && [ -n "$_hold_notfor" ]; then say "Give --for-you or --not-for-you, not both, so nothing was done."; say "$_holdusage"; exit 2; fi
       # kosmos#7749: why it is parked, in a few words, anywhere after the task number.

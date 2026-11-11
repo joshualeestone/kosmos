@@ -135,7 +135,7 @@ const USAGE = {
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
     '      [--until-task <n> | --until <date or time>]                 ...and say what it waits for; Kosmos tells its owner once it has happened',
     '      [--for-you]                                                 ...and it waits on your person: it joins what is waiting on them',
-    '      [--suggest "<answer>"]                                     ...with --for-you: your suggested answer, shown beside the question',
+    '      [--suggest "<answer>"]                                      ...with --for-you: your suggested answer, shown beside the question',
     '      [--not-for-you]                                             ...or it no longer waits on them: it stays on hold, off their list',
     '  kosmos task unhold <project-id> <task-number>                 take it off hold',
     '  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m>  a job you run on a schedule: the board shows when it runs',
@@ -1818,7 +1818,7 @@ function taskHoldAs(want) {
       }
       args = kept;
     }
-    if (sawSuggest && !suggest) { ctx.err('--suggest needs a few words, so nothing was done.'); ctx.err(HOLD_USAGE); return 2; }
+    if (sawSuggest && !(suggest && suggest.trim())) { ctx.err('--suggest needs a few words, so nothing was done.'); ctx.err(HOLD_USAGE); return 2; }
     if (sawSuggest && !forPerson) { ctx.err('--suggest goes with --for-you (a suggested answer to what you ask your person), so nothing was done.'); ctx.err(HOLD_USAGE); return 2; }
     if (forPerson && notForPerson) { ctx.err('Give --for-you or --not-for-you, not both, so nothing was done.'); ctx.err(HOLD_USAGE); return 2; }
     /* kosmos#7749: why it is parked, right after the task number or after a condition, as install/kosmos. */

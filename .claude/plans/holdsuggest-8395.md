@@ -1,7 +1,7 @@
 # holdsuggest-8395: a suggested answer beside a for-you hold's question
 
-Card: joshualeestone/kosmos#8395 (part 2 of #8389, split to Angel by Ice Cream Kitty). Built on her part 1 branch,
-askedcount-8389 (it changes the same column card); rebased onto main once that merges.
+Card: joshualeestone/kosmos#8395 (part 2 of #8389, split to Angel by Ice Cream Kitty). Built on her part 1 branch
+(askedcount-8389, PR #8398) and rebased onto main after it merged (15:05 CST 11-11).
 
 ## Finished looks like
 
@@ -43,3 +43,12 @@ feedback). Correction to my card comment: marking a task built does not touch a 
 ## Results
 
 - Engine and hold tests 54 of 54; Mac CLI hold 15 of 15; Windows CLI 65 of 65.
+
+## Challenge loop
+
+- Iteration 1 (opus): 1 WARNING: the iPhone app also shows the for-you question (ios/Kosmos/TasksLogic.swift) and
+  does not show the suggestion: DEFERRED to its own card (an iOS change needs its own Swift checks and LogicTests run).
+  NITs FIXED: a suggestion of only spaces is refused by both CLIs (it would have cleared a stored one and claimed an
+  older board); the help lines align; a test replaces one suggestion with another; this plan's base. NITs noted: the
+  CLI echoes the raw words, not the tidied ones (as --because does); no hostile-value escape check on the page (every
+  caller escapes); an agent's null suggest on the person's hold is refused (the CLIs never send one).
