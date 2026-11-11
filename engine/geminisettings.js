@@ -316,7 +316,8 @@ function recordWrites(ledgerPath, file, wrote) {
   const r = filelock.withFileLock(ledgerPath, () => {
     const led = readRecord(ledgerPath);
     if (!led) return false;
-    led.files[file] = Object.assign({}, led.files[file], wrote);
+    const had = led.files[file];
+    led.files[file] = Object.assign({}, had && typeof had === 'object' && !Array.isArray(had) ? had : {}, wrote);
     saveRecord(ledgerPath, led);
     return true;
   });
@@ -367,9 +368,11 @@ function undoWrites(ledgerPath) {
       }
       let data;
       let mode;
+      let raw;
       try {
         mode = fs.statSync(target).mode & 0o7777;
-        data = JSON.parse(fs.readFileSync(target, 'utf8'));
+        raw = fs.readFileSync(target, 'utf8');
+        data = JSON.parse(raw);
       } catch { out.left.push(file); continue; }
       if (!data || typeof data !== 'object' || Array.isArray(data) || !entry || typeof entry !== 'object') { out.left.push(file); continue; }
       let changed = false;
@@ -381,6 +384,11 @@ function undoWrites(ledgerPath) {
         changed = true;
       }
       if (changed) {
+        /* A gemini still running may save the file between the read above and this write; if it did, ours would undo
+           its save, so the file is left and named instead. (The check and the write are not one step.) */
+        let now = null;
+        try { now = fs.readFileSync(target, 'utf8'); } catch { /* unreadable now: left below */ }
+        if (now !== raw) { out.left.push(file); continue; }
         try {
           securewrite.writeSecret(target, JSON.stringify(data, null, 2) + '\n', mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
         } catch { out.left.push(file); continue; }

@@ -151,6 +151,25 @@ test('undo: a file that cannot be reached (not gone) is left, named, and kept in
   assert.equal(readJSON(sb.file).security.auth.selectedType, 'gemini-api-key');
 });
 
+test('undo: a save made by a running gemini between the read and the write is not overwritten', (t) => {
+  const sb = sandbox();
+  gs.ensurePrepared(sb.file, BRIDGE, sb.opts);
+  const theirs = { ...readJSON(sb.file), ui: { theme: 'saved by gemini' } };
+  // The undo reads the settings file twice; between the two, gemini saves it.
+  const real = fs.readFileSync;
+  let reads = 0;
+  t.mock.method(fs, 'readFileSync', function (f, ...rest) {
+    if (f === sb.file && ++reads === 2) fs.writeFileSync(sb.file, JSON.stringify(theirs, null, 2) + '\n');
+    return real.call(this, f, ...rest);
+  });
+  const r = gs.undoWrites(sb.ledger);
+  t.mock.restoreAll();
+  assert.equal(reads, 2, 'control: the undo did not read the file twice, so the save was never placed between them');
+  assert.deepEqual(r.left, [sb.file], 'a file changed under the undo was not named');
+  assert.deepEqual(readJSON(sb.file), theirs, 'the save made between the read and the write was overwritten');
+  assert.ok(readJSON(sb.ledger).files[sb.file], 'the record forgot a file it did not finish');
+});
+
 test('a record that is not a record is never replaced, by the writer or the undo', () => {
   const sb = sandbox();
   write(sb.ledger, ['not', 'a', 'record']);

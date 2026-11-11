@@ -49,6 +49,11 @@ what we wrote".
   wroteLedger: FIXED; the re-run check asserts the file is unchanged: FIXED; recorded:false is not reported by
   create.js, the node step has no watchdog (as its Claude sibling), removeAt removes a person's own empty object,
   the tests run setup.sh with bash: noted.
+- Iteration 2 (sonnet): 2 WARNINGs. A gemini saving the file between the undo's read and write would lose its save:
+  FIXED (re-read just before the write; changed means left and named; the two are still not one step). removeAt
+  also removes an empty general or security object the person had before Kosmos wrote into it: DEFERRED, by design
+  (an empty object and an absent one read the same to gemini). NIT: a malformed record entry is replaced, not spread:
+  FIXED. Other NITs noted (the record's name is written twice, in JS and setup.sh, guarded by the install test).
 - Validation 1: one red, the #1777 guard (the uninstall test compared process.platform with 'win32'): FIXED (a fixed
   darwin platform; the test is skipped off macOS and Linux).
 
@@ -58,7 +63,7 @@ what we wrote".
   undoWrites.
 - engine/create.js: the birth write passes the record path (supportDir()/gemini-wrote.json).
 - install/setup.sh: gemini_settings_undo, called before the home is deleted, and in the folder-already-gone branch.
-- engine/geminisettings.wrote-8362.test.js (12) and install.uninstall-gemini-8362.test.js (5, the real setup.sh).
+- engine/geminisettings.wrote-8362.test.js (13) and install.uninstall-gemini-8362.test.js (5, the real setup.sh).
 
 ## Results
 
