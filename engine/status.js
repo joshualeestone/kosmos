@@ -9078,6 +9078,9 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
  * MAY speak; a fresh beat says something holding it IS RUNNING. A token on its
  * own would put a card on the board for an agent that exited hours ago, which
  * is precisely the failure the pane never had -- a dead pane disappears.
+ * kosmos#8372: the beat itself can now come from one more place, a LOCAL run's
+ * own `started` report on its token (server.js resolveAgentSender path 2b), so a
+ * session that has not registered yet is not invisible; it ages out like any beat.
  *
  * 🔑 `alive()` RETURNS null FOR "NO RECORD", AND null IS NOT true. Every Mac
  * agent has no liveness record, so no Mac agent can arrive here even if this
