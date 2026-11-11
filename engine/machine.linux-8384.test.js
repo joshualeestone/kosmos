@@ -726,3 +726,32 @@ test('boardAutostartCheck: a runner handed straight in is used, as on the Mac an
   const got = withUnitDir(true, () => machine.boardAutostartCheck(() => ({ ok: true, stdout: 'UnitFileState=disabled\n' }), { platform: 'linux', installedRoot: BUNDLE }));
   assert.match(got.detail, /switched off/);
 });
+
+test('restart: systemd silent with the file in place reads linger, and linger off is the log-out answer with its command', () => {
+  const asked = [];
+  const runner = (c) => { asked.push(c); return c === 'loginctl' ? { ok: true, stdout: 'Linger=no\n' } : { ok: false }; };
+  const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(runner, { runner, installedRoot: BUNDLE, user: 'pat', systemdRunning: true }));
+  assert.equal(got.unitState, null);
+  assert.equal(got.linger, false);
+  const r = row(got);
+  assert.equal(r.state, STATE.ATTENTION);
+  assert.match(r.title, /stops when you log out/);
+  assert.equal(r.admin, 'loginctl enable-linger pat');
+  // Control: linger on, and systemd still silent, is the plain could-not-check.
+  assert.equal(row({ ...got, linger: true }).state, STATE.UNKNOWN);
+});
+
+test('sleep row: a lid inferred from a battery is hedged in the title too', () => {
+  assert.equal(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend', sure: false } }).title, 'This computer can go to sleep when its lid closes, if it has one');
+  assert.equal(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend', sure: true } }).title, 'This computer can go to sleep when its lid closes');
+});
+
+test('sleep reader: no gsettings program is a desktop we do not read, not a failed read', () => {
+  const { runner } = sleepRunner({ IdleAction: 's "ignore"' });
+  const missing = (c, a) => (c === 'gsettings' ? { ok: false, missing: true } : runner(c, a));
+  const got = machine.readLinuxSleep({ runner: missing, hasLid: false, hasBattery: false });
+  assert.equal(got.gnomeUnread, undefined);
+  assert.notEqual(sleep(got).state, STATE.UNKNOWN);
+  const failing = (c, a) => (c === 'gsettings' ? { ok: false } : runner(c, a));
+  assert.equal(machine.readLinuxSleep({ runner: failing, hasLid: false, hasBattery: false }).gnomeUnread, true, 'control: a failed read is unread');
+});

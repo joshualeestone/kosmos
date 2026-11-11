@@ -86,6 +86,16 @@ function run(cmd, args) {
   }
 }
 
+/* The Linux looks are all local and answer in milliseconds, so they get two seconds, not run()'s five: a hung bus then
+   costs a Settings visit seconds, not most of a minute (kosmos#8384). */
+function linuxRun(cmd, args) {
+  try {
+    return { ok: true, stdout: execFileSync(cmd, args, { encoding: 'utf8', timeout: 2000, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }) };
+  } catch (err) {
+    return { ok: false, because: String((err && err.message) || err), missing: Boolean(err && err.code === 'ENOENT') };
+  }
+}
+
 /* ===========================================================================
    Sleep
    =========================================================================== */
@@ -378,7 +388,7 @@ function readLinuxSleep(opts) {
   // ensureRuntimeDir sets XDG_RUNTIME_DIR for this process when it is missing, as linuxjob's runner does: an
   // environment fix for the reads, not a change to the computer.
   if (!o.runner && !inTest) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
-  const runner = o.runner || o.linuxSleepRead || run;
+  const runner = o.runner || o.linuxSleepRead || linuxRun;
   const prop = (name) => {
     const r = runner('busctl', ['--system', 'get-property', 'org.freedesktop.login1', '/org/freedesktop/login1', 'org.freedesktop.login1.Manager', name]);
     if (!r || !r.ok) return null;
@@ -396,7 +406,7 @@ function readLinuxSleep(opts) {
     if (Number.isFinite(usec) && usec >= 365 * 24 * 3600e6) idle = { action: 'ignore', minutes: null };
     else idle = { action, minutes: Number.isFinite(usec) && usec > 0 ? Math.max(1, Math.round(usec / 60e6)) : null };
     /* A test never reads the host's lid (a laptop running the suite would decide the row), as linuxjob.lingerFileOn. */
-    const lidRead = inTest ? null : linuxLid();
+    const lidRead = inTest || ('hasLid' in o && 'lidSure' in o) ? null : linuxLid();
     const hasLid = ('hasLid' in o) ? o.hasLid === true : Boolean(lidRead && lidRead.has);
     // A lid known only from a battery (no ACPI lid listed) is said as "if it has a lid": a tablet has none.
     const lidSure = ('lidSure' in o) ? o.lidSure !== false : (lidRead ? lidRead.sure : true);
@@ -415,6 +425,7 @@ function readLinuxSleep(opts) {
     const get = (key) => {
       if (failed) return null;
       const r = runner('gsettings', ['get', 'org.gnome.settings-daemon.plugins.power', key]);
+      if (r && r.missing) { failed = 'missing'; return null; }   // no gsettings program: a desktop we do not read
       if (!r || !r.ok) { failed = true; return null; }
       return String(r.stdout || '').trim().replace(/^(?:u?int32)\s+/, '').replace(/^'|'$/g, '');
     };
@@ -423,7 +434,7 @@ function readLinuxSleep(opts) {
     /* Not special-cased inside a virtual machine: gsd-power may skip its idle suspend there, but that is not measured, and a false alarm costs less than a false OK. */
     const ac = get('sleep-inactive-ac-type');
     // GNOME runs but its settings could not be read: that is a failed read, not a desktop Kosmos does not read.
-    if (!ac) gnomeUnread = true;
+    if (!ac && failed !== 'missing') gnomeUnread = true;
     if (ac) {
       /* The battery half only on a machine with a battery: GNOME keeps its stock "suspend after 15 minutes on battery"
          on a desktop PC too, where nothing acts on it. Seam: opts.hasBattery. */
@@ -432,7 +443,7 @@ function readLinuxSleep(opts) {
         battery: battery ? get('sleep-inactive-battery-type') : null,
         batteryMinutes: battery ? mins(get('sleep-inactive-battery-timeout')) : null };
       // A read that failed partway (the battery half, say) is said, not dropped.
-      if (failed) gnomeUnread = true;
+      if (failed === true) gnomeUnread = true;
     }
   }
   /* No desktop settings read: is there a desktop at all? A running display manager (GDM, SDDM, LightDM) says so; its
@@ -474,7 +485,8 @@ function linuxHasBattery(supplyDir) {
 }
 
 /* What each Linux action does to the agents, in words; an action not listed here leaves them running. */
-/* GNOME's "logout" is left out on purpose: with linger on (the restart row's ask) the board outlives a logout, and
+/* GNOME's "interactive" is left out too: it asks first, in a dialog, and does nothing unanswered.
+   GNOME's "logout" is left out on purpose: with linger on (the restart row's ask) the board outlives a logout, and
    without it the restart row already warns that logging out stops the agents. */
 const LINUX_STOPPING_ACTION = Object.freeze({
   suspend: 'goes to sleep', hibernate: 'goes to sleep', 'hybrid-sleep': 'goes to sleep',
@@ -588,8 +600,9 @@ function linuxSleepCheck(reading) {
       detail: said.join(' ') + until(vs) + desktopFix + logindFix }, extra);
   }
   if (lidStops || gnomeBatt) {
-    const title = lidStops && gnomeBatt ? 'This computer can ' + what(verbs) + ' on battery, or when its lid closes'
-      : (lidStops ? 'This computer can ' + what(verbs) + ' when its lid closes' : 'This computer can ' + what(verbs) + ' on battery');
+    const lidWords = lid && lid.sure === false ? 'when its lid closes, if it has one' : 'when its lid closes';
+    const title = lidStops && gnomeBatt ? 'This computer can ' + what(verbs) + ' on battery, or ' + lidWords
+      : (lidStops ? 'This computer can ' + what(verbs) + ' ' + lidWords : 'This computer can ' + what(verbs) + ' on battery');
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION, battOnly: true, title,
       detail: said.join(' ') + ' Plugged in and open, it keeps working, so for overnight work leave it plugged in and open.' + desktopFix + logindFix }, extra);
   }
@@ -1806,7 +1819,7 @@ function boardAutostartCheck(runner, opts) {
   if (platform === 'linux') {
     // A runner handed straight to this function is the caller's, as on the Mac and Windows arms.
     const lo = runner && runner !== run ? Object.assign({}, opts, { runner }) : opts;
-    return linuxBoardAutostartCheck(linuxCached('board', lo, () => readLinuxBoardAutostart(runner, lo)));
+    return linuxBoardAutostartCheck(linuxCached('board', lo, () => readLinuxBoardAutostart(runner === run ? linuxRun : runner, lo)));
   }   // kosmos#8384 (opts.runner says whether a runner was given)
   if (platform !== 'darwin') return null;
 
@@ -2025,7 +2038,9 @@ function readLinuxBoardAutostart(runner, opts) {
   let linger;
   if ('lingerOn' in o) linger = o.lingerOn;
   // Only the switched-on arm uses linger, so it is asked only then.
-  else if (unitState !== 'enabled' || noRun) linger = undefined;
+  /* Linger is asked when the unit is switched on, and when systemd did not answer at all: with no user manager running
+     and the file in place, linger off is the likely reason, and it is the answer the person can act on. */
+  else if ((unitState !== 'enabled' && !(unitFile && unitState === null)) || noRun || systemdRunning === false) linger = undefined;
   else {
     try { linger = require('./linuxjob').lingerFileOn(); } catch { linger = undefined; }
     if (linger === undefined) {
@@ -2086,6 +2101,14 @@ function linuxBoardAutostartCheck(reading) {
         + 'not come back on their own after a restart. Reinstalling Kosmos puts it back.' };
   }
   if (r.unitState === '') return unknown('This computer\'s service manager does not know Kosmos\'s startup service, though its file is in place.');
+  if (!r.unitState && r.linger === false) {
+    return { key: 'autostart', state: STATE.ATTENTION,
+      title: 'Kosmos stops when you log out',
+      detail: 'Its startup service is in place, but with nobody logged in this computer does not run it, so Kosmos '
+        + 'and your agents stay stopped until someone logs in. You can let it keep running with the command under For '
+        + 'IT admins; if it asks for a password you do not have, an administrator runs it.',
+      admin: LINUX_LINGER_COMMAND + (r.user ? ' ' + r.user : '') };
+  }
   if (!r.unitState) return unknown('This computer\'s service manager did not answer when we asked about Kosmos\'s startup service.');
   if (r.unitState === 'masked' || r.unitState === 'masked-runtime') {
     return { key: 'autostart', state: STATE.ATTENTION,
@@ -2328,4 +2351,5 @@ function check(opts) {
   };
 }
 
+/* linuxCached, linuxLid, linuxHasBattery and __clearLinuxReadingsForTests are exported for engine/machine.linux-8384.test.js. */
 module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxHasLid, linuxLid, linuxHasBattery, linuxCached, __clearLinuxReadingsForTests: clearLinuxReadingsForTests, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
