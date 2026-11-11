@@ -217,7 +217,7 @@ function superviseCodexStreaming(spec, opts) {
     /* The env every turn runs under: CODEX_HOME (the account), the sender token,
        the agent's `kosmos` on PATH, the child markers stripped. Built with the
        same helper a streaming claude child uses, so the account rule cannot drift. */
-    turnEnv = o.env || win32launch.childEnv(process.env, p.token, s.configDir, cliDir, runner);
+    turnEnv = o.env || win32launch.childEnv(process.env, p.token, s.configDir, cliDir, runner, { restoredGit: win32launch.restoredLaunch(process.env, s.cwd) });   // #7593: per-turn agents too
     /* gemini/grok: the account's key (or none, for a Grok subscription), see win32keyed. */
     if (!o.env && runner === 'antigravity') turnEnv = require('./win32agy').turnEnv(turnEnv);
     else if (!o.env && runner !== 'codex') turnEnv = win32keyed.turnEnv(runner, turnEnv, s.configDir || null);

@@ -12,7 +12,9 @@ const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
 
-// Every root this process could reach is a sandbox.
+// Every root this process could reach is a sandbox, and no world is inherited (an agent on this box runs inside one;
+// preWorldEnv would then put its real roots back and the checks would read outside this sandbox).
+for (const k of Object.keys(process.env)) if (/^(KOSMOS_WORLD|KOSMOS_PRE_WORLD_ROOTS)$/i.test(k)) delete process.env[k];
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-restoreguard-7593-'));
 process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'support');

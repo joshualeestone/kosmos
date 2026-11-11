@@ -15,10 +15,13 @@ launch (`engine/win32launch.js` childEnv, at its two spawn sites) had no restore
   failure other than "not there" counts). The default world is never restored by the first rule. Never throws.
 - `childEnv(..., opts)`: `opts.restoredGit` sets the five keys with `core.hooksPath=NUL` (as landedcheck.js uses);
   otherwise all five are deleted in every spelling, so an inherited value never switches hooks off or on. childEnv
-  stays a pure function: both spawn sites pass `restoredLaunch(process.env, s.cwd)`.
+  stays a pure function. Every place a Windows agent's environment is built passes `restoredLaunch(process.env, s.cwd)`:
+  launch(), launchStreaming(), and the per-turn supervisor for codex, gemini, grok and antigravity (win32codexsup;
+  round 1 BLOCKER: the card named only the two spawn sites). An ordinary agent losing inherited GIT_CONFIG_* is the
+  card's step 3 and a difference from the Mac pane, which leaves them.
 - `restoreworld.RESTORED_MARK` exported so the launch names the mark from its one source.
 
-## Tests (engine/win32launch.restoreguard-7593.test.js, 7)
+## Tests (engine/win32launch.restoreguard-7593.test.js, 7; engine/win32launch.restoreguard-wiring-7593.test.js, 5)
 childEnv both ways with inherited spellings (any host); restoredLaunch against a real world prepareRestoreWorld made, an
 ordinary world, the default world, an unplaceable id (fails closed), the mark beside the agent with a no-mark control,
 a relative folder; and step 4 of the card on real git (2.55 on the box): a repo in a Restored world whose own
@@ -34,3 +37,6 @@ as the Mac half.
 Hooks and fsmonitor only. A restored .git/config can still run commands through filter drivers, textconv, core.pager,
 core.sshCommand, credential helpers or includes; #5536's review screen (4c-2) shows those before the person enables
 an agent.
+
+The wiring file drives the real launch(), launchStreaming() and the per-turn supervisor (codex, gemini, antigravity),
+each with a restored folder and an unmarked control; removing the supervisor's argument fails its three arms (run).

@@ -92,6 +92,9 @@ function agentCliDir(root, exists) {
   return has(path.join(dir, AGENT_CLI_SHIM)) ? dir : null;
 }
 
+/* kosmos#7593: git's environment config the restored-world guard sets (childEnv below). */
+const GIT_GUARD_KEYS = ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1'];
+
 /**
  * The environment the agent starts with: ours, minus the markers that would make
  * it a child, plus its own token.
@@ -191,7 +194,11 @@ function childEnv(baseEnv, token, configDir, cliDir, runner, opts) {
      repo's own .git/config (GIT_CONFIG_COUNT needs git 2.31 or later; an older git ignores it). NUL is Windows's
      /dev/null (as landedcheck.js uses). GIT_CONFIG_COUNT is replaced, not extended: inherited entries are lost, which
      errs toward the guard. An ordinary agent gets all five deleted, so an inherited value never switches hooks off,
-     or on. Whether the launch is restored is the caller's (restoredLaunch), so this stays a pure function. ONLY
+     or on: the card's step 3, and a difference from the Mac pane, which leaves an ordinary agent's inherited values
+     alone. A GIT_CONFIG_PARAMETERS the board inherits is command scope too and git reads it after these, so a
+     core.hooksPath there would win; it cannot come from a backup, so it is left as the person set it. Every place a
+     Windows agent's environment is built passes the answer: launch(), launchStreaming() and the per-turn supervisor
+     (win32codexsup). Whether the launch is restored is the caller's (restoredLaunch), so this stays a pure function. ONLY
      hooks and fsmonitor: a restored .git/config can still run commands through filter drivers, textconv, core.pager,
      core.sshCommand, credential helpers or includes; #5536's review screen (4c-2) shows those. */
   if (opts && opts.restoredGit) {
@@ -205,8 +212,6 @@ function childEnv(baseEnv, token, configDir, cliDir, runner, opts) {
   }
   return env;
 }
-
-const GIT_GUARD_KEYS = ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1'];
 
 /* kosmos#7593: whether an agent starting from `baseEnv` in folder `cwd` starts in a world a restore made, by the
    Mac supervisor's rule (bin/agent-supervisor.sh, #5536 4c-1):
