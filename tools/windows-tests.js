@@ -411,6 +411,6 @@ function main() {
   return failed.length || blocking ? 1 : 0;
 }
 
-module.exports = { childEnv, guardsScheduler, schedulerLine, PRELOAD, selectFiles, failingTests, failureDetail, judge, staleBlocks, FLAKY, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
+module.exports = { childEnv, onCi, guardsScheduler, schedulerLine, PRELOAD, selectFiles, failingTests, failureDetail, judge, staleBlocks, FLAKY, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
 
 if (require.main === module) process.exitCode = main();

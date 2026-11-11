@@ -21,9 +21,9 @@ mutation check. Phase 2 (the full `npm test` on Windows, 508 failing files by ca
   lacked the launch-PATH pins the test already had). HOST_NOT_CLEAN asks the guard itself, once, on a throwaway
   folder: only when EVERY complaint is the import note (and never on CI) do the four arms whose answer the host decides
   skip, in the guard's own words: the two needing ok, and the two expecting a refusal, which an unclean host gives anyway. A clean host runs them all. The guard is right; the host is not clean.
-- engine/bigint-ino.win32-7229.test.js: rounds up to 4096; the 60 s bound decides. Cause inferred, not measured. The
+- engine/bigint-ino.win32-7229.test.js: rounds up to 4096; a 45 s bound decides (under the 60 s per-test timeout, so its own failure message is reached). Cause inferred, not measured. The
   failure now says how many rounds ran, in how long, and which bound ended it, so the next one tells which.
-- tools/windows-tests.js: `judge(..., { onCi })`. An ALL_SKIP_OK file that runs and passes is stale only on CI
+- tools/windows-tests.js: `judge(..., { ciRules })`. An ALL_SKIP_OK file that runs and passes is stale only on CI
   (onCi(process.env), the CI variable, the same rule as the scheduler guard), where it still catches an entry no longer needed; elsewhere it prints "ran here".
   Default onCi true, so every existing caller keeps the CI rule.
 - engine/windows-tests-1777.test.js: the off-CI rule, the CI rule, the default, and a failure off CI still red.

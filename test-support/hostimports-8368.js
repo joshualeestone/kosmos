@@ -10,25 +10,28 @@
  * run never reaches that code (the guard says unsupported on win32 first). So on such a host the macOS-pinned guard
  * cannot answer ok, and the arms whose answer the host decides must skip, saying why.
  *
- * onlyImportComplaints(reason): true only when EVERY complaint in the guard's joined `otherReason` is the import note.
- * Anything else (a second complaint of any kind, a path carrying its own brackets, another shape) is false, so the arms
- * run and fail loudly. onCi(env): the same rule tools/windows-tests.js uses for CI; a test never skips there, where the
- * runner's home is clean and a skip could only hide a fault.
+ * onlyImportComplaints(reason): true only when the guard's joined `otherReason` lists nothing but import entries,
+ * each an absolute path (no comma, no brackets) followed by the import note. The guard also lists entries with no note
+ * at all (a bare path, a sentence), so the WHOLE list must match that shape, not just its notes: anything else is
+ * false, so the arms run and fail loudly. onCi: tools/windows-tests.js's own CI rule; a test never skips on CI.
  */
+
+const { onCi } = require('../tools/windows-tests');
 
 const IMPORT_NOTE = '(a file an instruction file imports, whose path the permission rules cannot carry)';
 const COVER_PREFIX = 'a file or folder Claude Code reads at start could not be covered (';
+const RENAME_SUFFIX = /\): renaming that folder[\s\S]*$/;
+
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const ENTRY = `(?:[A-Za-z]:[\\\\/]|/)[^,()]*? ${esc(IMPORT_NOTE)}`;
+const ONLY_IMPORTS = new RegExp(`^${ENTRY}(?:, ${ENTRY})*$`);
 
 function onlyImportComplaints(reason) {
   let s = String(reason || '');
   if (!s.startsWith(COVER_PREFIX)) return false;
-  s = s.slice(COVER_PREFIX.length).replace(/\): renaming that folder[\s\S]*$/, ')');
+  s = s.slice(COVER_PREFIX.length).replace(RENAME_SUFFIX, ')');
   if (!s.endsWith(')')) return false;
-  s = s.slice(0, -1);
-  const notes = s.match(/\([^()]*\)/g) || [];
-  return notes.length > 0 && notes.every((n) => n === IMPORT_NOTE) && !/[()]/.test(s.replace(/\([^()]*\)/g, ''));
+  return ONLY_IMPORTS.test(s.slice(0, -1));
 }
-
-function onCi(env = process.env) { return !!env.CI && !/^(false|0)$/i.test(String(env.CI)); }
 
 module.exports = { onlyImportComplaints, onCi, IMPORT_NOTE, COVER_PREFIX };

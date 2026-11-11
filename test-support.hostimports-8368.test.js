@@ -22,6 +22,15 @@ test('a second complaint of any kind beside the imports: no, so the arms run', (
   assert.equal(onlyImportComplaints(reason(["the agents' folder (it could not be read: EPERM), so other agents' config homes are not found"])), false);
 });
 
+test('an entry the guard lists with NO note, beside the imports: no (the shapes it really emits)', () => {
+  const imp = entry('C:\\x\\B.md', IMPORT_NOTE);
+  assert.equal(onlyImportComplaints(reason([imp, 'C:\\Windows'], '')), false, 'a bare path (an uncovered PATH entry)');
+  assert.equal(onlyImportComplaints(reason(['C:\\Windows', imp])), false, 'a bare path first');
+  assert.equal(onlyImportComplaints(reason(['the job of the agent bob, which could not be read, so its config home is not known', imp])), false, 'a sentence with commas');
+  assert.equal(onlyImportComplaints(reason([imp, 'the links inside the shell startup folders (more than Kosmos follows), so some of their targets are not denied'])), false);
+  assert.equal(onlyImportComplaints(reason([imp, 'C:/agentdir/linkedfile'], '')), false, 'a forward-slash bare path');
+});
+
 test('a path with its own brackets, an empty list, another shape, or nothing: no', () => {
   assert.equal(onlyImportComplaints(reason([entry('C:\\Program Files (x86)\\B.md', IMPORT_NOTE)])), false, 'brackets in the path: not ours to guess');
   assert.equal(onlyImportComplaints(COVER_PREFIX + ')'), false);
