@@ -20,8 +20,13 @@ nor a heartbeat: NO_MATCH. Later reports find the row. On the Mac the pane exist
 - Review 1 (measured): the first version let ANY held token bootstrap a heartbeat by sending `started`, including a
   remote-issued one from the network, a token for a never-created name, and a removed agent whose revoke failed. Each is
   now refused, with a test and a mutation arm.
-- Residual, stated: a LOCAL run's token whose run crashed without retiring it can show "running" for one beat
-  (liveness.STALE_AFTER_MS) per call, as a still-beating one already could.
+- Review 2: only on a board running on Windows (a Mac or Linux pane exists before Claude starts, and a Mac run that
+  ended without retiring its token must stay mute); "created here" is a Windows session record (written before the run
+  token is minted, so a brand-new agent's first start passes) OR a profile.
+- Residual, stated: on a Windows board, a local run's token whose run crashed without retiring it can show "running" for
+  one beat (liveness.STALE_AFTER_MS) per call, as a still-beating one already could. A token minted before launcher tags
+  existed (#4530) and issued to another computer carries no 'remote' tag; it still needs a session record or profile
+  for its name and a request from this computer.
 
 ## Rejected
 A hook-side retry (races registration inside the hook's 8 s budget), rewording only (the first report would still be

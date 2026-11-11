@@ -24,14 +24,17 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
-const { start, server } = require('./server');
+const serverMod = require('./server');
+const { start, server } = serverMod;
 const fleet = require('./test-support/fleet');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
 const store = require('./engine/store');
 
-test.before(async () => { await start(0); });
+// kosmos#8372 review 2: path 2b exists only on a board running on Windows; these tests are that board.
+test.before(async () => { serverMod._setStartedProofPlatformForTest('win32'); await start(0); });
 test.after(() => {
+  serverMod._setStartedProofPlatformForTest(null);
   server.closeAllConnections(); server.close();
   for (const d of [SANDBOX, process.env.HOME]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
 });
@@ -122,4 +125,24 @@ test('kosmos#8372 review 1: a start cannot bootstrap a remote-issued token, a ne
   const fwd = await res.json().catch(() => ({}));
   assert.notEqual(fwd.recorded, true, 'a forwarded start bootstrapped a heartbeat: ' + JSON.stringify(fwd));
   for (const n of ['faragent', 'ghostagent', 'removedagent', 'fwdagent']) assert.notEqual(liveness.alive(n), true, n + ' got a heartbeat');
+});
+
+test('kosmos#8372 review 2: on a Mac (or Linux) board a start proves nothing new: its pane exists first, and a kept run token stays mute', async (t) => {
+  board(t);
+  store.writeProfile('macagent', { displayName: 'Mac' });
+  const tok = sendertoken.mint('macagent').token;
+  serverMod._setStartedProofPlatformForTest('darwin');
+  t.after(() => serverMod._setStartedProofPlatformForTest('win32'));
+  const r = await report({ state: 'started', auto: true }, tok);
+  assert.equal(r.json.recorded, false, 'a Mac board let a token start a session with no pane: ' + JSON.stringify(r.json));
+  assert.notEqual(liveness.alive('macagent'), true);
+});
+
+test('kosmos#8372 review 2: a brand-new Windows agent (its session recorded, its profile not written yet) has its first start recorded', async (t) => {
+  board(t);
+  const win32sessions = require('./engine/win32sessions');
+  assert.equal(win32sessions.record('sess-newagent-1', { name: 'newagent', runner: 'claude' }).ok, true, 'CONTROL: the session was recorded');
+  const tok = sendertoken.mint('newagent').token;
+  const r = await report({ state: 'started', auto: true }, tok);
+  assert.equal(r.json.recorded, true, 'a new agent with only its session record was refused: ' + JSON.stringify(r.json));
 });

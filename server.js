@@ -2145,9 +2145,9 @@ function resolveAgentSender(req, body, roster, opts) {
      later reports landed. The report route passes `startedReport` only for a `started` report from THIS computer (never
      through the remote forwarder). The token must still be held (a retired, revoked or never-issued one is refused below
      as before), name exactly one agent, not be one issued to another computer (launcher 'remote': nothing retires those,
-     so they would let a leaked token bootstrap a heartbeat from the network), and belong to an agent Kosmos has a profile
-     for and has not removed (review 1: otherwise a fresh token for any name, or a removed agent whose revoke failed, could
-     put a "running" card on the board with one call). The route then beats liveness, so the agent's next reports pass on
+     so they would let a leaked token bootstrap a heartbeat from the network), and belong to an agent Kosmos launched here
+     or has a profile for and has not removed (review 1: otherwise a fresh token for any name, or a removed agent whose revoke
+     failed, could put a "running" card on the board with one call); and only on a board on Windows (review 2). The route then beats liveness, so the agent's next reports pass on
      the heartbeat while registration catches up. ⚠️ This is a third, narrow way for a held token to speak without a row:
      the heartbeat it writes lasts liveness.STALE_AFTER_MS, as any report's does. */
   if (opts && opts.startedReport === true && byName.ok && byName.twins !== true && startedMayProveLife(byName)) {
@@ -2160,14 +2160,26 @@ function resolveAgentSender(req, body, roster, opts) {
   return carded;
 }
 
-/* kosmos#8372: whether a held token's agent may prove life by its own `started` report: not a token issued to another
-   computer, an agent Kosmos has a profile for, and not one the person removed. An unreadable profile list or a throw is
+/* kosmos#8372: whether a held token's agent may prove life by its own `started` report (any `started`, automatic or not):
+   a board on Windows, not a token issued to another computer, an agent Kosmos launched here (a Windows session record) or
+   has a profile for, and not one the person removed. An unreadable profile list or a throw is
    no; an unreadable removal list reads as none, as remove.removedAgents gives it to every caller. */
+/* Review 2: only a board on Windows. On a Mac or Linux the agent's tmux pane exists before Claude starts, so path 1 already
+   holds at SessionStart, and a Mac run that ended without retiring its token (agent-supervisor.sh keeps it until the next
+   launch) must not be able to show as running. A test seam, as status.js's platform seams are. */
+let startedProofPlatform = null;
+function _setStartedProofPlatformForTest(p) { startedProofPlatform = typeof p === 'string' ? p : null; }
 function startedMayProveLife(byName) {
   try {
+    if ((startedProofPlatform || process.platform) !== 'win32') return false;
     if (!byName || byName.launcher === 'remote') return false;
+    /* Created here: a Windows launch records its session under the agent's name BEFORE it mints the run token
+       (win32create.prepareSession, then mintForRun), so a brand-new agent's first start passes even though its profile
+       is written only after the launch succeeds (review 2); an older agent also has a profile. */
+    const recorded = Object.values(require('./engine/win32sessions').read()).some((r) => r && (r.name === byName.name || r.name === byName.key));
     const known = require('./engine/register').known();
-    if (!known.ok || !known.names.some((n) => n === byName.key || n === byName.name)) return false;
+    const profiled = known.ok && known.names.some((n) => n === byName.key || n === byName.name);
+    if (!recorded && !profiled) return false;
     const removed = require('./engine/remove').removedAgents();
     if (removed.some((r) => r && typeof r.name === 'string' && (r.name === byName.name || store.safeKey(r.name) === byName.key))) return false;
     return true;
@@ -30329,7 +30341,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 /* kosmos#8340: ages one agent's shown-counts record, so a test can show the block comes back after COUNTS_SHOWN_FOR_MS. */
 function _ageCountsShownForTest(agentKey, ms) { const e = COUNTS_SHOWN.get(String(agentKey)); if (e) e.at -= ms; return Boolean(e); }
-module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
+module.exports = { _setStartedProofPlatformForTest, _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
   _autobalanceSweepDepsForTest: autobalanceSweepDeps, // kosmos#7152 slice 3: the sweep's wiring, for its test
