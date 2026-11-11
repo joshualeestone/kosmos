@@ -1051,7 +1051,7 @@ test('the readers stand down in a child process a test spawns, not only in the t
 test('restart: a loose board (running, not by systemd) with linger off says it will not start after a restart, as setup.sh does', () => {
   const r = row({ unitFile: true, unitState: 'enabled', linger: false, held: false, installed: BUNDLE, user: 'pat' });
   assert.equal(r.title, 'Kosmos will not start by itself after a restart');
-  assert.match(r.detail, /It is running now and usually keeps running when you log out, but after this computer restarts it starts only when you log in.*a container's own rule say, that decides instead/);
+  assert.match(r.detail, /It is running now and usually keeps running when you log out, but after this computer restarts it starts only when you log in.*such as a container's own restart rule, that decides instead/);
   assert.equal(row({ unitFile: true, unitState: 'enabled', linger: false, held: true, installed: BUNDLE }).title, 'Kosmos stops when you log out', 'control: held');
   const runner = (c) => (c === 'systemctl' ? { ok: true, stdout: 'UnitFileState=enabled\nMainPID=4242\n' } : { ok: true, stdout: 'Linger=no\n' });
   const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(runner, { runner, installedRoot: BUNDLE, pid: 999 }));
@@ -1091,16 +1091,6 @@ test('sleep: a desktop not ruled out (its ask failed) gets no plugged-in promise
   assert.equal(machine.sleepGate({ platform: 'linux', linuxSleep: { idle: QUIET_IDLE, lid: null, gnome: null, desktop: false } }).prevented, true, 'control');
 });
 
-test('linuxRun: two looks in a row slower than half the timeout trip the memory; one slow look alone does not', () => {
-  machine.setLinuxTimeoutForTests(1500);
-  try {
-    assert.equal(machine.__linuxRunForTests('/bin/sleep', ['0.9']).ok, true, 'one slow look answers');
-    assert.equal(machine.__linuxRunForTests('/bin/echo', ['x']).ok, true, 'and does not trip the memory on its own');
-    machine.__linuxRunForTests('/bin/sleep', ['0.9']);
-    machine.__linuxRunForTests('/bin/sleep', ['0.9']);
-    assert.match(String(machine.__linuxRunForTests('/bin/echo', ['x']).because), /timed out just now/, 'two in a row do');
-  } finally { machine.setLinuxTimeoutForTests(2000); }
-});
 
 test('sleep reader: other "no user session" texts from systemctl also mean GNOME is not running', () => {
   for (const why of ['Failed to connect to user scope bus via local transport: Connection refused', 'Failed to connect to bus: No such file or directory']) {
@@ -1134,13 +1124,32 @@ test('sleep row: a skipped look does not hide a finding already read', () => {
   assert.equal(sleep({ idle: QUIET_IDLE, lid: null, gnome: null, skipped: true }).state, STATE.UNKNOWN, 'control: nothing found');
 });
 
-test('linuxRun: slow looks far apart in time are not "in a row"', () => {
-  machine.setLinuxTimeoutForTests(1500);
-  try {
-    machine.__linuxRunForTests('/bin/sleep', ['0.9']);
-    // Pretend the last slow look was long ago: the next slow one starts the count again.
-    machine.__setLastSlowAtForTests(Date.now() - 60000);
-    machine.__linuxRunForTests('/bin/sleep', ['0.9']);
-    assert.equal(machine.__linuxRunForTests('/bin/echo', ['x']).ok, true, 'not tripped');
-  } finally { machine.setLinuxTimeoutForTests(2000); }
+
+test('a reading spends at most its time budget in looks; the rest are skipped and said so', () => {
+  let t = 1000;
+  const asked = [];
+  const slowRunner = (c, a) => { asked.push(a[5] || a[1]); t += 1000; return c === 'busctl' ? { ok: true, stdout: a[5] === 'IdleActionUSec' ? 't 0\n' : 's "ignore"\n' } : { ok: false, stdout: 'inactive\n' }; };
+  const got = machine.readLinuxSleep({ runner: slowRunner, hasLid: true, now: () => t });
+  assert.ok(asked.length <= 4, 'stopped asking once the budget was spent: ' + asked.length + ' asks');
+  assert.equal(got.skipped, true);
+  assert.equal(sleep(got).state, STATE.UNKNOWN);
+  // Control: the same answers at no cost read everything.
+  const fast = (c, a) => (c === 'busctl' ? { ok: true, stdout: a[5] === 'IdleActionUSec' ? 't 0\n' : 's "ignore"\n' } : { ok: false, stdout: 'inactive\n' });
+  assert.equal(machine.readLinuxSleep({ runner: fast, hasLid: true, now: () => t }).skipped, undefined);
+});
+
+test('the restart reader has the same budget', () => {
+  let t = 0;
+  const r = (c) => { t += 3000; return c === 'systemctl' ? { ok: true, stdout: 'UnitFileState=enabled\n' } : { ok: true, stdout: 'Linger=yes\n' }; };
+  const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(r, { runner: r, installedRoot: BUNDLE, now: () => t }));
+  assert.equal(got.unitState, 'enabled', 'the first look fits the budget');
+  assert.equal(got.linger, undefined, 'the next one is skipped');
+});
+
+test('boardAutostartCheck with no runner on Linux does not throw', () => {
+  assert.doesNotThrow(() => machine.boardAutostartCheck(undefined, { platform: 'linux', linuxBoard: { unitFile: false, installed: null } }));
+});
+
+test('sleep: a lid read with IdleAction missing still asks for a desktop, and the gate does not pass an unruled-out one', () => {
+  assert.equal(machine.sleepGate({ platform: 'linux', linuxSleep: { idle: null, lid: { ac: 'ignore', battery: 'ignore' }, gnome: null, desktop: null } }).checkable, false);
 });

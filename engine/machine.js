@@ -87,38 +87,33 @@ function run(cmd, args) {
 }
 
 /* The Linux looks are all local and answer in milliseconds, so they get two seconds, not run()'s five. They block the
-   whole board while they run (execFileSync), so after one times out the rest fail at once for ten seconds: a hung bus
-   costs everyone one two-second wait per ten-second reading, not most of a minute (kosmos#8384). */
+   whole board while they run (execFileSync): after one times out the rest fail at once for ten seconds, and each
+   reading has its own time budget (linuxBudgeted), so a hung or sluggish bus costs a few seconds, not a minute. */
 let linuxTimeoutMs = 2000;
 let linuxHungUntil = 0;   // after one look times out, the others fail at once for ten seconds: one timeout per reading
-let linuxSlowInARow = 0;   // looks slower than half the timeout, back to back; two in a row is a sluggish bus
-let linuxLastSlowAt = 0;   // ...and only within a few seconds of each other: one slow look an hour ago is not "in a row"
-function setLastSlowAtForTests(t) { linuxLastSlowAt = t; }
-function setLinuxTimeoutForTests(ms) { linuxTimeoutMs = ms; linuxHungUntil = 0; linuxSlowInARow = 0; linuxLastSlowAt = 0; }
+function setLinuxTimeoutForTests(ms) { linuxTimeoutMs = ms; linuxHungUntil = 0; }
 function linuxRun(cmd, args) {
   if (Date.now() < linuxHungUntil) return { ok: false, because: 'skipped: a Linux look timed out just now', stdout: '' };
-  const started = Date.now();
-  /* Two looks in a row slower than half the timeout are a sluggish bus: the rest fail at once too, so a slow bus cannot
-     stack. One slow look alone (a cold start) does not count. */
-  const slow = () => {
-    if (Date.now() - started > linuxTimeoutMs / 2) {
-      linuxSlowInARow = Date.now() - linuxLastSlowAt < 5000 ? linuxSlowInARow + 1 : 1;
-      linuxLastSlowAt = Date.now();
-      if (linuxSlowInARow >= 2) linuxHungUntil = Date.now() + 10000;
-    }
-    else linuxSlowInARow = 0;
-  };
   try {
     const out = execFileSync(cmd, args, { encoding: 'utf8', timeout: linuxTimeoutMs, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
-    slow();
     return { ok: true, stdout: out };
   } catch (err) {
-    slow();
-    if (err && err.code === 'ETIMEDOUT') { linuxHungUntil = Date.now() + 10000; linuxSlowInARow = 0; }   // our own timeout, not any kill
+    if (err && err.code === 'ETIMEDOUT') linuxHungUntil = Date.now() + 10000;   // our own timeout, not any kill
     // stdout too: systemctl is-active prints "inactive" and exits 3, which is an answer, not a failed ask.
     return { ok: false, because: String((err && err.message) || err), missing: Boolean(err && err.code === 'ENOENT'),
       stdout: err && err.stdout ? String(err.stdout) : '' };
   }
+}
+
+/* One reading spends at most LINUX_READING_BUDGET_MS in its looks: once spent, the rest are skipped (and said as
+   skipped), so a sluggish bus can never freeze the board for long, however each look is paced. opts.now is a test's
+   clock. */
+const LINUX_READING_BUDGET_MS = 2500;
+function linuxBudgeted(runner, opts) {
+  const now = (opts && typeof opts.now === 'function') ? opts.now : Date.now;
+  const start = now();
+  return (cmd, args) => (now() - start > LINUX_READING_BUDGET_MS
+    ? { ok: false, because: 'skipped: this reading ran out of time', stdout: '' } : runner(cmd, args));
 }
 
 /* ===========================================================================
@@ -414,7 +409,7 @@ function readLinuxSleep(opts) {
      --user cannot reach the user manager without it: linuxjob's fix, for its runner (#4918 review 12). It sets the
      variable for this process only, not a change to the computer. */
   if (!o.runner && !inTest) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
-  const baseRunner = o.runner || o.linuxSleepRead || linuxRun;
+  const baseRunner = linuxBudgeted(o.runner || o.linuxSleepRead || linuxRun, o);
   let skipped = false;   // a look skipped after another timed out: said, never read as "nothing there"
   const runner = (c, a) => { const r = baseRunner(c, a); if (r && /^skipped/.test(String(r.because || ''))) skipped = true; return r; };
   let logindDown = false;   // after one failed ask, logind is not asked again (each ask can wait out the timeout)
@@ -516,7 +511,7 @@ function readLinuxSleep(opts) {
      the row says it could not check rather than a tick. */
   let desktop = null;
   // Only when it can change the row: with logind unread there is no Linux reading to put a desktop beside.
-  if (!gnome && idle) {
+  if (!gnome && (idle || lid)) {
     const dm = runner('systemctl', ['is-active', 'display-manager.service']);
     const dmAsked = Boolean(dm && (dm.ok || String(dm.stdout || '').trim()));
     desktop = dmAsked ? Boolean(dm.ok && String(dm.stdout || '').trim() === 'active') : null;
@@ -763,7 +758,7 @@ function linuxSleepGate(opts) {
   const row = linuxSleepCheck(reading);
   if (!row) return { checkable: false, because: 'we could not read this computer\'s sleep settings' };
   // A tick for Linux's own settings is not a reading of the desktop's: not checkable, not "prevented".
-  if (row.state === STATE.OK && reading && (reading.desktop === true || (reading.desktop === null && !reading.gnome && reading.idle))) return { checkable: false, because: 'we could not read this computer\'s desktop sleep settings' };
+  if (row.state === STATE.OK && reading && (reading.desktop === true || (reading.desktop === null && !reading.gnome && (reading.idle || reading.lid)))) return { checkable: false, because: 'we could not read this computer\'s desktop sleep settings' };
   if (row.state === STATE.OK) return { checkable: true, prevented: true };
   // The Mac's three answers exactly: only a measured ATTENTION is "not prevented".
   if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title, battOnly: row.battOnly === true };
@@ -1929,7 +1924,7 @@ function boardAutostartCheck(runner, opts) {
   if (platformOf(opts) === 'linux') {   // as check() and sleepGate read the platform
     // A runner handed straight to this function is the caller's, as on the Mac and Windows arms.
     const lo = runner && runner !== run ? Object.assign({}, opts, { runner }) : opts;
-    return linuxBoardAutostartCheck(linuxCached('board', lo, () => readLinuxBoardAutostart(runner === run ? linuxRun : runner, lo)));
+    return linuxBoardAutostartCheck(linuxCached('board', lo, () => readLinuxBoardAutostart(!runner || runner === run ? linuxRun : runner, lo)));
   }   // kosmos#8384 (opts.runner says whether a runner was given)
   if (platform !== 'darwin') return null;
 
@@ -2105,8 +2100,9 @@ function win32BoardAutostartCheck(opts) {
  * UnitFileState word or null (systemd did not answer), linger true / false / undefined (could not tell).
  * Seams: opts.linuxBoard replaces the whole reading; opts.lingerOn replaces the linger read.
  */
-function readLinuxBoardAutostart(runner, opts) {
+function readLinuxBoardAutostart(runnerIn, opts) {
   const o = opts || {};
+  const runner = linuxBudgeted(runnerIn || linuxRun, o);
   if ('linuxBoard' in o) return o.linuxBoard;
   const lb = require('./linuxboard');
   /* Unlike readLinuxSleep, a passed runner is not enough here: the unit file is read from disk, not through the runner,
@@ -2290,7 +2286,7 @@ function linuxBoardAutostartCheck(reading) {
     // "usually": logind keeps user processes at logout by default (KillUserProcesses=no), as setup.sh assumes too.
     return Object.assign(linuxLingerOffRow(r, 'It is running now and usually keeps running when you log out, but after this '
       + 'computer restarts it starts only when you log in, and then stops when you log out, so your agents stop too. (If '
-      + 'something other than this computer\'s service manager runs it, a container\'s own rule say, that decides instead.)'),
+      + 'something else starts Kosmos here, such as a container\'s own restart rule, that decides instead.)'),
       { title: 'Kosmos will not start by itself after a restart' });
   }
   if (r.linger === false) {
@@ -2493,4 +2489,4 @@ function check(opts) {
 }
 
 /* linuxCached, linuxLid, linuxHasBattery and __clearLinuxReadingsForTests are exported for engine/machine.linux-8384.test.js. */
-module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxLid, linuxHasBattery, linuxCached, setLinuxTimeoutForTests, __linuxRunForTests: linuxRun, __setLastSlowAtForTests: setLastSlowAtForTests, __clearLinuxReadingsForTests: clearLinuxReadingsForTests, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxLid, linuxHasBattery, linuxCached, setLinuxTimeoutForTests, __linuxRunForTests: linuxRun, __budgetedForTests: linuxBudgeted, __clearLinuxReadingsForTests: clearLinuxReadingsForTests, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
