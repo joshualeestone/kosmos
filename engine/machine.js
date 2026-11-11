@@ -386,7 +386,9 @@ function readLinuxSleep(opts) {
   // A logind that does not answer its first question is not asked four more (each ask can wait out run()'s timeout).
   if (action) {
     const usec = Number(prop('IdleActionUSec'));
-    idle = { action, minutes: Number.isFinite(usec) && usec > 0 ? Math.max(1, Math.round(usec / 60e6)) : null };
+    /* IdleActionSec=infinity prints the largest 64-bit number: the action never comes (review 4), so it is not one. */
+    if (Number.isFinite(usec) && usec >= 2 ** 53) idle = { action: 'ignore', minutes: null };
+    else idle = { action, minutes: Number.isFinite(usec) && usec > 0 ? Math.max(1, Math.round(usec / 60e6)) : null };
     /* A test never reads the host's lid (a laptop running the suite would decide the row), as linuxjob.lingerFileOn. */
     const hasLid = ('hasLid' in o) ? o.hasLid === true : (inTest ? false : linuxHasLid());
     if (hasLid) {
@@ -399,11 +401,15 @@ function readLinuxSleep(opts) {
   let gnome = null;
   const gsd = runner('systemctl', ['--user', 'is-active', 'org.gnome.SettingsDaemon.Power.service']);
   if (gsd && gsd.ok && String(gsd.stdout || '').trim() === 'active') {
+    let failed = false;   // a gsettings that fails once is not asked again (each ask can wait out run()'s timeout)
     const get = (key) => {
+      if (failed) return null;
       const r = runner('gsettings', ['get', 'org.gnome.settings-daemon.plugins.power', key]);
-      return r && r.ok ? String(r.stdout || '').trim().replace(/^(?:u?int32)\s+/, '').replace(/^'|'$/g, '') : null;
+      if (!r || !r.ok) { failed = true; return null; }
+      return String(r.stdout || '').trim().replace(/^(?:u?int32)\s+/, '').replace(/^'|'$/g, '');
     };
-    const mins = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.max(1, Math.round(n / 60)) : null; };
+    /* 0 is "never" (GNOME's own meaning); null is a timeout we could not read, which is not "never" (review 4). */
+    const mins = (v) => { if (v === null || v === '') return null; const n = Number(v); return !Number.isFinite(n) ? null : (n <= 0 ? 0 : Math.max(1, Math.round(n / 60))); };
     const ac = get('sleep-inactive-ac-type');
     if (ac) {
       /* The battery half only on a machine with a battery: GNOME keeps its stock "suspend after 15 minutes on battery"
@@ -459,14 +465,15 @@ function linuxSleepCheck(reading) {
   if (!idle && !lid && !gnome) return null;
   const stops = (a) => (a && Object.prototype.hasOwnProperty.call(LINUX_STOPPING_ACTION, a)) ? LINUX_STOPPING_ACTION[a] : null;
   const idleStops = Boolean(idle && stops(idle.action));
-  const gnomeAc = Boolean(gnome && stops(gnome.ac) && gnome.acMinutes);
-  const gnomeBatt = Boolean(gnome && stops(gnome.battery) && gnome.batteryMinutes);
+  const gnomeAc = Boolean(gnome && stops(gnome.ac) && gnome.acMinutes !== 0);
+  const gnomeBatt = Boolean(gnome && stops(gnome.battery) && gnome.batteryMinutes !== 0);
+  const after = (m) => (m ? 'after ' + minutesWords(m) : 'after a while');
   const lidStops = Boolean(lid && (stops(lid.ac) || stops(lid.battery)));
   const said = [], verbs = [];
   const say = (sentence, verb) => { said.push(sentence); verbs.push(verb); };
   if (idleStops) say('After ' + (idle.minutes ? minutesWords(idle.minutes) : 'a while') + ' with nobody using it, this computer ' + stops(idle.action) + '.', stops(idle.action));
-  if (gnomeAc) say('While it is plugged in, after ' + minutesWords(gnome.acMinutes) + ' with nobody using it, the desktop has it ' + stops(gnome.ac).replace(/^goes/, 'go').replace(/^turns/, 'turn').replace(/^restarts/, 'restart') + '.', stops(gnome.ac));
-  if (gnomeBatt) say('On battery, after ' + minutesWords(gnome.batteryMinutes) + ' with nobody using it, the desktop has it ' + stops(gnome.battery).replace(/^goes/, 'go').replace(/^turns/, 'turn').replace(/^restarts/, 'restart') + '.', stops(gnome.battery));
+  if (gnomeAc) say('While it is plugged in, ' + after(gnome.acMinutes) + ' with nobody using it, the desktop has it ' + stops(gnome.ac).replace(/^goes/, 'go').replace(/^turns/, 'turn').replace(/^restarts/, 'restart') + '.', stops(gnome.ac));
+  if (gnomeBatt) say('On battery, ' + after(gnome.batteryMinutes) + ' with nobody using it, the desktop has it ' + stops(gnome.battery).replace(/^goes/, 'go').replace(/^turns/, 'turn').replace(/^restarts/, 'restart') + '.', stops(gnome.battery));
   if (lidStops) {
     const v = stops(lid.ac) || stops(lid.battery);
     say(stops(lid.ac) ? 'When the lid closes, this computer ' + v + '.' : 'When the lid closes on battery, this computer ' + v + '.', v);
@@ -482,7 +489,10 @@ function linuxSleepCheck(reading) {
   // Where to change it, only for what was found (review 1); a file path is for an administrator (review 3).
   const desktopFix = (gnomeAc || gnomeBatt) ? ' You can change the desktop\'s part in its Power settings, under Automatic Suspend.' : '';
   const logind = idleStops || lidStops;
-  const extra = logind ? { admin: 'logind decides this part. Change IdleAction or HandleLidSwitch in a file under /etc/systemd/logind.conf.d, then restart the computer. (Restarting systemd-logind by hand can end the sessions logged in.)' } : {};
+  /* A real snippet, as the other admin fields are commands (review 4); Settings shows it as code. Restarting the
+     computer applies it: restarting systemd-logind by hand can end the sessions logged in. */
+  const keys = [idleStops ? 'IdleAction=ignore' : null, lidStops ? 'HandleLidSwitch=ignore HandleLidSwitchExternalPower=ignore' : null].filter(Boolean).join(' ');
+  const extra = logind ? { admin: 'In /etc/systemd/logind.conf.d/kosmos.conf, under [Login]: ' + keys + ', then restart the computer' } : {};
   const logindFix = logind ? (desktopFix ? ' An administrator can change the rest.' : ' An administrator can change it.') : '';
   if (idleStops || gnomeAc) {
     const vs = verbs;
@@ -500,7 +510,8 @@ function linuxSleepCheck(reading) {
      its power service as a unit, are not read, and the tick is what a person reads). */
   if (gnome) {
     return { key: 'sleep', state: STATE.OK,
-      title: 'This computer is not set to go to sleep on its own',
+      // Only the desktop's half read (logind unreachable, a container): the title says whose settings (review 4).
+      title: idle || lid ? 'This computer is not set to go to sleep on its own' : 'Your desktop\'s power settings do not put this computer to sleep',
       detail: 'So your agents keep working while you are away. We read ' + (idle || lid ? 'Linux\'s own settings and ' : '')
         + 'your desktop\'s power settings. The login screen has a sleep setting of its own, which we cannot read: '
         + 'after a restart, before anyone logs in, it may still put this computer to sleep.' };
@@ -1908,7 +1919,7 @@ function readLinuxBoardAutostart(runner, opts) {
      (linuxboard.runner's refusal, review 22 there; review 1 here). So a sandbox asks systemd nothing. */
   const sandboxed = lb.sandboxedWithoutSystemd();
   if (!sandboxed && !require('./live-execution').inTestProcess()) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
-  if (unitFile && sandboxed) return { unitFile, unitState: null, linger: undefined, installed: ('installedRoot' in o) ? o.installedRoot : update.installedRoot(), sandboxed: true };
+  if (sandboxed) return { unitFile, unitState: null, linger: undefined, installed: ('installedRoot' in o) ? o.installedRoot : update.installedRoot(), sandboxed: true };
   if (unitFile) {
     const r = runner('systemctl', ['--user', 'show', '-p', 'UnitFileState', lb.boardUnitName()]);
     const m = r && r.ok ? String(r.stdout || '').match(/^UnitFileState=(\S*)\s*$/m) : null;
@@ -1939,6 +1950,7 @@ function linuxBoardAutostartCheck(reading) {
   const unknown = (why) => ({ key: 'autostart', state: STATE.UNKNOWN,
     title: 'We could not check whether Kosmos starts by itself',
     detail: 'Not the same as it being wrong. ' + why });
+  if (r.sandboxed) return unknown('This copy of Kosmos runs apart from this computer\'s own services, so we did not ask about them.');
   if (r.unitFile === null || r.unitFile === undefined) return unknown('We could not read the folder this computer keeps its startup services in.');
   if (r.unitFile === false) {
     // As the Mac and Windows arms: a from-source checkout has no startup service, and that is not a problem.
@@ -1952,13 +1964,17 @@ function linuxBoardAutostartCheck(reading) {
       detail: 'The service that brings Kosmos back after a restart is missing, so your agents will not come back on '
         + 'their own until it is restored. Reinstalling Kosmos puts it back.' };
   }
-  if (r.sandboxed) return unknown('This copy of Kosmos runs apart from this computer\'s own services, so we did not ask about them.');
   if (!r.unitState) return unknown('This computer\'s service manager did not answer when we asked about Kosmos\'s startup service.');
   if (r.unitState === 'masked' || r.unitState === 'masked-runtime') {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service is blocked on this computer (masked), so it cannot start, even by hand, until '
         + 'that is undone. Your agents will not come back on their own after a restart.' };
+  }
+  /* static, indirect, generated and the like cannot be switched on and are not what Kosmos writes (review 4): say we
+     could not tell, rather than "switched off, reinstall". */
+  if (!['enabled', 'enabled-runtime', 'disabled', 'linked', 'linked-runtime'].includes(r.unitState)) {
+    return unknown('Its startup service is set up in a way Kosmos did not expect (' + r.unitState + '), so we cannot tell whether it starts by itself.');
   }
   if (r.unitState !== 'enabled' && r.unitState !== 'enabled-runtime') {
     return { key: 'autostart', state: STATE.ATTENTION,

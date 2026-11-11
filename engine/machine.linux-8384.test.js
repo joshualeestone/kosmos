@@ -63,6 +63,15 @@ test('restart row: only linger off carries the admin command, and it is the read
   ]) assert.equal(row(r).admin, undefined, JSON.stringify(r));
 });
 
+test('restart row: a unit state Kosmos never writes (static, indirect, generated) is unknown, not "switched off"', () => {
+  for (const st of ['static', 'indirect', 'generated', 'transient', 'bad']) {
+    const r = row({ unitFile: true, unitState: st, installed: BUNDLE });
+    assert.equal(r.state, STATE.UNKNOWN, st);
+    assert.match(r.detail, new RegExp('did not expect \\(' + st + '\\)'), st);
+  }
+  assert.match(row({ unitFile: true, unitState: 'linked', installed: BUNDLE }).detail, /switched off/, 'control: linked is off');
+});
+
 test('restart row: an enabled-runtime unit counts as switched on, masked-runtime as masked', () => {
   assert.equal(row({ unitFile: true, unitState: 'enabled-runtime', linger: true, installed: BUNDLE }).state, STATE.OK);
   assert.match(row({ unitFile: true, unitState: 'masked-runtime', installed: BUNDLE }).detail, /masked/);
@@ -129,7 +138,7 @@ test('restart reader: a sandboxed board asks systemd nothing, so it never reads 
     fs.mkdirSync(units, { recursive: true });
     fs.writeFileSync(path.join(units, require('./linuxboard').boardUnitName()), '[Unit]\n');
     const got = machine.readLinuxBoardAutostart((c) => { asked.push(c); return { ok: true, stdout: 'UnitFileState=enabled\nLinger=yes\n' }; }, { installedRoot: BUNDLE });
-    assert.equal(got.unitFile, true, 'control: the sandbox\'s own unit file is seen');
+    assert.equal(got.sandboxed, true);
     assert.equal(got.unitState, null);
     assert.equal(got.linger, undefined);
     assert.deepEqual(asked, [], 'no systemctl and no loginctl from a sandbox');
@@ -216,11 +225,27 @@ test('sleep row: the lid and battery are the expected pauses, as on the Mac (bat
 
 test('sleep row: a type with no timeout (0, never) and actions that leave the agents running are not findings', () => {
   const r = sleep({ idle: { action: 'lock', minutes: 10 }, lid: { ac: 'lock', battery: 'ignore' },
-    gnome: { ac: 'suspend', acMinutes: null, battery: 'blank', batteryMinutes: 5 } });
+    gnome: { ac: 'suspend', acMinutes: 0, battery: 'blank', batteryMinutes: 5 } });
   assert.equal(r.state, STATE.OK);
   assert.match(r.title, /^This computer is not set to go to sleep on its own$/);
   assert.match(r.detail, /We read Linux's own settings and your desktop's power settings\./);
   assert.match(r.detail, /The login screen has a sleep setting of its own, which we cannot read/, 'GDM\'s own suspend is named, not vouched for');
+});
+
+test('sleep row: a GNOME timeout that could not be read is not "never" (review 4)', () => {
+  const r = sleep({ idle: QUIET_IDLE, gnome: { ac: 'suspend', acMinutes: null, battery: null, batteryMinutes: null } });
+  assert.equal(r.state, STATE.ATTENTION);
+  assert.match(r.detail, /While it is plugged in, after a while with nobody using it, the desktop has it go to sleep/);
+});
+
+test('sleep row: only the desktop read, the OK title says it was the desktop\'s settings', () => {
+  const r = sleep({ idle: null, lid: null, gnome: { ac: 'nothing', acMinutes: 0, battery: null, batteryMinutes: null } });
+  assert.equal(r.title, 'Your desktop\'s power settings do not put this computer to sleep');
+});
+
+test('sleep row: the admin field is a logind snippet for what fired, never prose', () => {
+  assert.equal(sleep({ idle: { action: 'suspend', minutes: 30 } }).admin, 'In /etc/systemd/logind.conf.d/kosmos.conf, under [Login]: IdleAction=ignore, then restart the computer');
+  assert.match(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' } }).admin, /\[Login\]: HandleLidSwitch=ignore HandleLidSwitchExternalPower=ignore,/);
 });
 
 test('sleep row: OK without a desktop reading says only Linux\'s own settings were read, in the title too', () => {
@@ -314,6 +339,22 @@ test('sleep reader: GNOME\'s battery setting counts only on a machine with a bat
   assert.ok(!asked.some((a) => a[0] === 'gsettings' && /battery/.test(a[2])), 'the battery keys are not asked');
   const laptop = machine.readLinuxSleep({ runner: sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-ac-type': "'nothing'" }).runner, hasLid: false, hasBattery: true });
   assert.equal(sleep(laptop).battOnly, true, 'control: the same settings on a laptop are the battery note');
+});
+
+test('sleep reader: IdleActionSec=infinity is no idle action, not 307 trillion minutes (review 4)', () => {
+  const { runner } = sleepRunner({ IdleActionUSec: 't 18446744073709551615', gsd: 'inactive' });
+  const got = machine.readLinuxSleep({ runner, hasLid: false });
+  assert.deepEqual(got.idle, { action: 'ignore', minutes: null });
+  assert.equal(sleep(got).state, STATE.OK);
+});
+
+test('sleep reader: a gsettings that fails is not asked again, and its timeout reads as unknown, not never', () => {
+  const { runner, asked } = sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-ac-timeout': null });
+  const got = machine.readLinuxSleep({ runner, hasLid: false, hasBattery: true });
+  assert.equal(got.gnome.ac, 'suspend');
+  assert.equal(got.gnome.acMinutes, null);
+  assert.equal(asked.filter((a) => a[0] === 'gsettings').length, 2, 'type, then the failed timeout, then nothing more');
+  assert.equal(sleep(got).state, STATE.ATTENTION);
 });
 
 test('sleep reader: a set HandleLidSwitchExternalPower is the plugged-in answer', () => {
