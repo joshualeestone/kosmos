@@ -12,7 +12,7 @@ const H = 60 * 60 * 1000;
 const uuid = (n) => '84000000-0000-4000-8000-' + String(n).padStart(12, '0');
 
 const SEEN_POST = uuid(3);
-const EXPECTED = Object.freeze({ newPosts: 2, seenPosts: 1, uncounted: 1, olderPosts: 1, replies: 3 });
+const EXPECTED = Object.freeze({ newPosts: 2, seenPosts: 1, uncounted: 1, olderPosts: 1, replies: 3, olderReplies: 1 });
 
 function items(now) {
   const at = (h) => new Date(now - h * H).toISOString();
@@ -36,7 +36,7 @@ function items(now) {
 
 /* A deeper feed, two pages of the read: ten replies on the newest page, then five new posts behind it, so the read
    shows POSTS_WANTED of them and leaves the rest behind. EXPECTED_DEEP is home's tally of the same items. */
-const EXPECTED_DEEP = Object.freeze({ newPosts: 5, seenPosts: 0, uncounted: 0, olderPosts: 0, replies: 10 });
+const EXPECTED_DEEP = Object.freeze({ newPosts: 5, seenPosts: 0, uncounted: 0, olderPosts: 0, replies: 10, olderReplies: 0 });
 function deepPages(now) {
   const at = (h) => new Date(now - h * H).toISOString();
   const reply = (n) => ({ kind: 'reply', id: uuid(200 + n), agent: { name: 'quill' }, created_at: at(n * 0.1), channel: 'engineering', sub_channel: null,

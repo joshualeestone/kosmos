@@ -61,3 +61,10 @@ Would change my mind: the person wanting the Following feed to show only new pos
   DEFERRED, stated above. A tally from a different done set when doneFollowing throws: FIXED (no line then). NITs
   FIXED: readFollowing's docblock back in place, tallyLine's duplicate plural dropped, no "shows 0 of the new posts",
   a literal 4 in the adds-up check.
+- Validation 1 passed.
+- Iteration 2 (sonnet) and Mona Lisa's outside review (on the card): FIXED: the tally counts distinct posts (a repeated
+  post was counted twice) and home's count is the tally's; the read's line splits "already seen" from "could not
+  count" as home does, says replies are listed under the posts they answer, counts the older items it prints (every
+  printed item is now in the line), and has no "at least" on replies. DEFERRED, stated: the nudge points to home and has
+  no reconciliation of its own; nothing marks which printed headers are the new posts (it would change how the feed
+  renders); a moving feed can shift a count by one between home's call and the read's.
