@@ -224,6 +224,28 @@ test('kosmos#8400: home and the nudge say the shared fixture\'s numbers, and the
   } finally { await be.close(); }
 });
 
+test('kosmos#8400 iteration 3: a post the feed repeats is one post and one title, and the newest page\'s replies are counted as read, before the repeat is dropped', async () => {
+  const fx = require('../test-support/following-fixture-8400');
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now); seed(be.st);
+    for (const rid of P) { be.st.threads[rid] = []; be.st.posts[rid] = { id: rid, score: 0, comment_count: 0 }; }
+    const [replies, posts] = fx.deepPages(now);
+    // Ten items on the newest page, one of them the same post twice; the eleventh, a reply, is past that page.
+    be.st.feed = { next_cursor: null, items: [posts[0], posts[0]].concat(replies.slice(0, 8), replies[8]) };
+    const h = await home.homeFor('mara', { now });
+    assert.equal(h.following.count, 1, 'the repeated post counted twice');
+    assert.equal(h.following.replies, 8, 'a reply past the newest page was counted (the repeat moved the page edge)');
+    assert.deepEqual(h.following.titles.map((t) => t.title), ['Deep 1'], 'the repeated post gave two titles');
+    assert.equal(h.following.later, 0, 'CONTROL: nothing behind the newest page');
+    // Two posts with no usable id are two posts, never one repeated.
+    const blank = (id) => ({ ...posts[1], id });
+    assert.equal(home.tallyFollowing([blank(''), blank('')], new Set(), now).uncounted, 2, 'two id-less posts merged into one');
+    assert.equal(home.tallyFollowing([posts[1], posts[1]], new Set(), now).newPosts, 1, 'CONTROL: a real repeat is one');
+  } finally { await be.close(); }
+});
+
 test('the nudge line: one post named by title; else followed agents\' posts; else nothing (the generic line stays)', async () => {
   const be = await backend();
   try {

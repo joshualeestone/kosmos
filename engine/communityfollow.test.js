@@ -352,11 +352,11 @@ test('kosmos#8400: read --following says the shared fixture\'s numbers, counted 
     const r = await cf.readFollowing('mara');
     assert.equal(r.ok, true, r.because);
     const line = r.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:'));
-    assert.equal(line, 'Kosmos counted, before this read: 2 new posts and 3 replies (listed under the posts they answer) from the last 24 hours, 1 post you had already seen, 1 post it could not count, and 2 older items from before then. This read shows 2 of the new posts.', r.text);
+    assert.equal(line, 'Kosmos counted, before this read: 3 replies (listed under the posts they answer) and 2 new posts from the last 24 hours, 1 post you had already seen, 1 post it could not count, and 2 older items from before then. This read shows 2 of the new posts.', r.text);
     // It adds up: shown + behind + not shown is the new count, and a second read, after the marks, counts none new.
     const again = await cf.readFollowing('mara');
     const line2 = again.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:')) || '';
-    assert.match(line2, /^Kosmos counted, before this read: 0 new posts and 3 replies/, 'the posts the first read showed still counted as new: ' + again.text);
+    assert.match(line2, /^Kosmos counted, before this read: 3 replies \(listed under the posts they answer\) and 0 new posts/, 'the posts the first read showed still counted as new: ' + again.text);
     assert.doesNotMatch(line2, /shows 0 of the new posts/, 'with no new posts the line still talked about showing them');
   } finally { await b.close(); }
 });
@@ -372,15 +372,58 @@ test('kosmos#8400: on two pages, the read says home\'s numbers and shown + behin
     assert.deepEqual(home.tallyFollowing(fx.deepPages(now).flat(), home.doneFollowing('mara'), now), fx.EXPECTED_DEEP, 'CONTROL: the deeper fixture');
     const r = await cf.readFollowing('mara');
     const line = r.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read'));
-    assert.equal(line, 'Kosmos counted, before this read: 5 new posts and 10 replies (listed under the posts they answer) from the last 24 hours. This read shows 3 of the new posts, 2 are behind these.', r.text);
+    assert.equal(line, 'Kosmos counted, before this read: 10 replies (listed under the posts they answer) and 5 new posts from the last 24 hours. This read shows 3 of the new posts, 2 are behind these.', r.text);
     fresh(); const b2 = await backend();
     try {
       await cf.follow('mara', 'quill');
       b2.st.pages = fx.deepPages(now); b2.st.failPage = 1;   // the second page does not answer
       const cut = await cf.readFollowing('mara');
       const cutLine = cut.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read')) || '';
-      assert.match(cutLine, /^Kosmos counted, before this read and only in the pages it could read: at least 0 new posts and 10 replies/, cut.text);
+      assert.match(cutLine, /^Kosmos counted, before this read and only in the pages it could read: 10 replies \(listed under the posts they answer\) and at least 0 new posts/, cut.text);
     } finally { await b2.close(); }
+  } finally { await b.close(); }
+});
+
+test('kosmos#8400 iteration 3: a post repeated across pages is one post, an unusable cursor reads "at least", and no line when the seen list cannot be read', async () => {
+  const fx = require('../test-support/following-fixture-8400');
+  const home = require('./communityhome');
+  const lineOf = (r) => r.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read')) || '';
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');
+    const now = Date.now();
+    const [replies, posts] = fx.deepPages(now);
+    // A moving feed: the newest page's first post shows again at the top of the next page.
+    const first = replies.slice(0, 9).concat(posts[0]);
+    b.st.pages = [first, [posts[0], posts[1], posts[2]]];
+    assert.deepEqual(home.tallyFollowing(b.st.pages.flat(), home.doneFollowing('mara'), now),
+      { newPosts: 3, seenPosts: 0, uncounted: 0, olderPosts: 0, replies: 9, olderReplies: 0 }, 'CONTROL: the repeat counted once');
+    const r = await cf.readFollowing('mara');
+    assert.equal(lineOf(r), 'Kosmos counted, before this read: 9 replies (listed under the posts they answer) and 3 new posts from the last 24 hours. This read shows 3 of the new posts.', r.text);
+    assert.doesNotMatch(r.text, /could not be shown/, 'a repeated post read as one not shown: ' + r.text);
+    // An unusable next cursor: the line says its posts are a floor, and the replies (the newest page, read in full) are not.
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [replies.slice(0, 9).concat(posts[0]), [posts[1]]];
+    b.st.cursorOf = (i) => (i === 0 ? 'not a cursor!' : undefined);
+    try {
+      const odd = await cf.readFollowing('mara');
+      assert.ok(odd.text.includes(cf.CUT_SHORT), 'CONTROL: the read was not cut short, so this tests nothing: ' + odd.text);
+      assert.equal(lineOf(odd), 'Kosmos counted, before this read and only in the pages it could read: 9 replies (listed under the posts they answer) and at least 1 new post from the last 24 hours. This read shows 1 of the new posts.', odd.text);
+    } finally { b.st.cursorOf = undefined; }
+    // The seen list cannot be read: the read falls back to its own record, so it says no numbers counted from a
+    // different set than home's.
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [replies.slice(0, 9).concat(posts[0])];
+    const control = await cf.readFollowing('mara');
+    assert.ok(lineOf(control), 'CONTROL: no line even with the seen list readable: ' + control.text);
+    fresh(); await cf.follow('mara', 'quill');
+    const real = home.doneFollowing;
+    home.doneFollowing = () => { throw new Error('unreadable'); };
+    try {
+      const blind = await cf.readFollowing('mara');
+      assert.equal(blind.ok, true, blind.because);
+      assert.equal(lineOf(blind), '', 'a line counted without home\'s seen list: ' + blind.text);
+    } finally { home.doneFollowing = real; }
   } finally { await b.close(); }
 });
 
@@ -998,6 +1041,10 @@ test('#7172 read --following: behind the newest page, the DEEPEST counted posts 
       const bare = await cf.readFollowing('mara');
       assert.equal(bare.ok, true, bare.because);
       assert.deepEqual(shownIn(bare.text), [31, 32, 33], 'without home\'s rule the read did not fall back to newest first');
+      // kosmos#8400 iteration 3: without home's rule there is no tally line either (home's tally beside another rule
+      // would count posts this read does not treat as new).
+      assert.ok(typeof home.tallyFollowing === 'function', 'CONTROL: home still has its tally, so this tests the gate');
+      assert.ok(!bare.text.includes('Kosmos counted, before this read'), 'a tally line beside a rule the read does not use: ' + bare.text);
     } finally { home.countedFollowing = rule; }
     // A post whose id cannot be recorded as shown is never counted, so it cannot keep the deepest place: the three
     // counted ones above it are taken first.
