@@ -169,8 +169,12 @@ function superviseCodexStreaming(spec, opts) {
   /* kosmos#8348: put the Codex edit hook into the agent's named Codex home. A seam for tests; the default asks the
      codex it will run for its version (the hook's trust record is known for one version only, codexhooks.js) and
      installs the bridge that ships beside this engine. Inside a test the default does nothing. */
+  /* kosmos#8365 item 2: `codexHookDeps` ({ execFile, install, bridge }, installCodexHookFor's own seams) lets a test
+     drive THIS closure, the one production runs, with nothing real behind it: the wiring (the agent's home, the codex
+     the turns run, the turn's own environment) is then what the test sees. Without it, a test run does nothing here. */
   const installCodexHook = typeof o.installCodexHook === 'function' ? o.installCodexHook
-    : (home) => (require('./live-execution').inTestRun() ? { ok: false, because: null } : installCodexHookFor(home, binNow(), turnEnv));
+    : (home) => (o.codexHookDeps ? installCodexHookFor(home, binNow(), turnEnv, o.codexHookDeps)
+      : require('./live-execution').inTestRun() ? { ok: false, because: null } : installCodexHookFor(home, binNow(), turnEnv));
 
   let running = true;
   let sessionId = null;      // the Kosmos board id
