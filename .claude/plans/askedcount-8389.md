@@ -5,7 +5,7 @@ A for-you hold records its first and latest tell, and the page and CLI say "It a
 
 ## Change
 - Each tell is counted: `onHoldToldCount`, from 1 at the first tell, one more per tell, dropped with the other tell marks (a new question starts again).
-- CLI (`task show`, the hold line in `task list`): "you told them N times, last <time>" from two tells.
+- CLI (`task show` only; `task list` shows no tell at all, before or after this): "you told them N times, last <time>" from two tells; one tell reads as before.
 - Page: from three tells, "It asked you N times, first X ago, last Y ago." Two keep the existing "and again" sentence, which already says both times.
 - A hold told before the count existed has no count, and none is guessed.
 
