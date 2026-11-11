@@ -19,4 +19,12 @@ ios/LogicTests/tasks/main.swift:
 - . and ! endings get no extra full stop, as ? does;
 - premise: the board's tskHoldSuggestWords and row text;
 - the read trims, and drops blank and non-text values.
-Every iPhone logic suite passes (run.sh 2135/2135, tasks 156/156, room 871/871 and the rest).
+Every iPhone logic suite passes (run.sh 2135/2135, tasks 160/160, room 871/871 and the rest).
+
+## Review ledger
+- R1 opus: 0 B, 2 W (the plan's "word for word" was false: the board then adds tskHoldToldWords; the task page gap unnamed), NITs (a control that could not go red, untested . and ! endings, trim notes). Fixed; both older gaps raised on #8405.
+- R2 sonnet: 0 B/W/C, NITs only. Converged. Every iPhone suite passes (the reviewer ran all thirteen).
+
+## Status
+- [x] built and reviewed
+- [ ] rebase onto main once #8395 merges; full validation; proof; PR; mog
