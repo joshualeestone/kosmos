@@ -16,9 +16,13 @@ The Windows uninstall took Kosmos's report hooks out of Claude Code's settings o
   the hook taken out all the same.
 - `win32uninstall.unwireHooks` runs it on every `~/.codex-<label>` (codexHomes), the only homes the hook is ever written
   into (win32codexsup never gives it to the person's ~/.codex), after the Gemini loop, with done/left sentences.
-- Tested in engine/uninstallhooks-codex.win32-8361.test.js (8): this install's hook plus record, the rest of the config
-  kept, a mid-file record, another spelling of the folder, another install's live hook kept, a gone bridge taken, a
-  hand-changed record kept, and a person's own or missing hooks.json untouched.
+- Tested in engine/uninstallhooks-codex.win32-8361.test.js (12): this install's hook plus record, the rest of the config
+  kept, a mid-file record, a key below the record keeps the record, another spelling of the folder, another install's
+  live hook kept, a gone bridge taken, a gone node.exe taken but an unplugged drive kept, a hand-changed record kept, a
+  person's own or missing hooks.json untouched, an unreadable hooks.json never claimed as ours, a busy config.toml
+  lock leaving both files as they were, and a hooks.json swapped between the look and the lock left alone.
+- A hooks.json Kosmos cannot read is not called Kosmos's (in a ~/.codex-<label> it can be the person's own): the
+  uninstall gives a note saying to delete it only if it names codex-report-bridge.js.
 
 ## Decided (at the Gemini half; the Codex point below is superseded by the section above)
 - The Codex half is not built here. `codexhooks.removeOurs` exists, but on main the Codex hook is installed only by the Mac supervisor: nothing on Windows writes it, and #8348 (the Windows Codex hook) is an open card with no code. Calling a removal for a Windows file that is never written, with a trust-record shape not yet decided for Windows, would be a guess, so the removal belongs with #8348; noted on both cards.

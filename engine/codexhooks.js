@@ -307,9 +307,11 @@ function unwireInstall(home, roots, opts) {
     const hooksFile = path.join(home, HOOKS_FILE);
     let text;
     try { text = fs.readFileSync(hooksFile, 'utf8'); } catch (e) {
-      // Review 3: no file is nothing to do; one that is there but cannot be read is named, as Claude's and Gemini's are.
+      /* Review 3: no file is nothing to do. Review 4: one that is there but cannot be read is not known to be ours (in a
+         ~/.codex-<label> it can be the person's own, which install() never overwrites), so it is named as unreadable,
+         never as ours: the uninstall says to delete it only if it names our bridge. */
       if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return { ours: false, changed: false };
-      return { ours: true, changed: false, because: 'hooks.json could not be read (' + ((e && e.code) || 'unknown') + ')' };
+      return { ours: false, changed: false, unreadable: true, because: 'hooks.json could not be read (' + ((e && e.code) || 'unknown') + ')' };
     }
     if (!isOurs(text)) return { ours: false, changed: false };
     const command = JSON.parse(text).hooks[EVENT][0].hooks[0].command;
@@ -344,27 +346,27 @@ function unwireInstall(home, roots, opts) {
       /* Review 2: hooks.json is already gone, so a record that cannot be rewritten (config.toml held by another program)
          leaves the hook taken out, said as such: the record left is inert. */
       try {
-      let cfgText = null;
-      try { cfgText = fs.readFileSync(cfg, 'utf8'); } catch { cfgText = null; }
-      if (cfgText !== null && heading) {
-        const lines = cfgText.split('\n');
-        const at = lines.indexOf(heading);
-        /* Review 1: the record is ours to remove only when nothing else lives in its table: after any blank lines,
-           the next line is another table heading or the end. A key below it would otherwise move into the table
-           above (or duplicate one there, and Codex would not load the file). */
-        let next = at + 2;
-        while (next < lines.length && lines[next] === '') next += 1;
-        const tableEnds = next >= lines.length || lines[next].startsWith('[');
-        if (at !== -1 && lines.indexOf(heading, at + 1) === -1 && lines[at + 1] === line && tableEnds) {
-          // The blank lines after the record go with it, but never the file's final newline.
-          const drop = next >= lines.length ? 2 + Math.max(0, next - (at + 2) - 1) : next - at;
-          lines.splice(at, drop);
-          let mode = 0o600;
-          try { mode = fs.statSync(cfg).mode & 0o777; } catch { mode = 0o600; }
-          require('./securewrite').writeSecret(cfg, lines.join('\n'), mode, { atomicOnly: true, ownTempsOnly: true });
-          recordRemoved = true;
+        let cfgText = null;
+        try { cfgText = fs.readFileSync(cfg, 'utf8'); } catch { cfgText = null; }
+        if (cfgText !== null && heading) {
+          const lines = cfgText.split('\n');
+          const at = lines.indexOf(heading);
+          /* Review 1: the record is ours to remove only when nothing else lives in its table: after any blank lines,
+             the next line is another table heading or the end. A key below it would otherwise move into the table
+             above (or duplicate one there, and Codex would not load the file). */
+          let next = at + 2;
+          while (next < lines.length && lines[next] === '') next += 1;
+          const tableEnds = next >= lines.length || lines[next].startsWith('[');
+          if (at !== -1 && lines.indexOf(heading, at + 1) === -1 && lines[at + 1] === line && tableEnds) {
+            // The blank lines after the record go with it, but never the file's final newline.
+            const drop = next >= lines.length ? 2 + Math.max(0, next - (at + 2) - 1) : next - at;
+            lines.splice(at, drop);
+            let mode = 0o600;
+            try { mode = fs.statSync(cfg).mode & 0o777; } catch { mode = 0o600; }
+            require('./securewrite').writeSecret(cfg, lines.join('\n'), mode, { atomicOnly: true, ownTempsOnly: true });
+            recordRemoved = true;
+          }
         }
-      }
       } catch { recordRemoved = false; }
       return { ours: true, changed: true, recordRemoved };
     }, { busy: 'another program was writing the Codex config', cannotAccess: 'its folder would not let Kosmos lock it' });

@@ -104,5 +104,49 @@ test('a person\'s own hooks.json, or none at all, is not touched', () => {
   assert.deepEqual(hooks.unwireInstall(home(), [THIS], { platform: 'win32' }), { ours: false, changed: false });
 });
 
+test('a hooks.json that cannot be read is not claimed as ours (it may be the person\'s own) and is left', () => {
+  const h = home();
+  fs.mkdirSync(path.join(h, 'hooks.json'));   // a read of it fails (EISDIR) on every platform
+  const r = hooks.unwireInstall(h, [THIS], { platform: 'win32' });
+  assert.equal(r.ours, false);
+  assert.equal(r.changed, false);
+  assert.equal(r.unreadable, true);
+  assert.match(r.because, /could not be read/);
+  assert.equal(fs.statSync(path.join(h, 'hooks.json')).isDirectory(), true);
+});
+
+test('a config.toml held by another writer leaves hooks.json and the record as they were, and says so', () => {
+  const h = installed(THIS);
+  const before = { hooks: fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), cfg: cfgOf(h) };
+  fs.mkdirSync(path.join(h, 'config.toml.lock'));   // a live writer's lock: fresh, so never stolen as stale
+  process.env.AGENT_WORKFORCE_LOCK_MS = '60';
+  try {
+    const r = hooks.unwireInstall(h, [THIS], { platform: 'win32' });
+    assert.equal(r.ours, true);
+    assert.equal(r.changed, false);
+    assert.match(r.because, /another program was writing the Codex config/);
+  } finally {
+    delete process.env.AGENT_WORKFORCE_LOCK_MS;
+    fs.rmSync(path.join(h, 'config.toml.lock'), { recursive: true, force: true });
+  }
+  assert.equal(fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), before.hooks);
+  assert.equal(cfgOf(h), before.cfg);
+});
+
+test('a hooks.json changed to another command between the look and the lock is left', () => {
+  const h = installed(THIS);
+  const file = path.join(h, 'hooks.json');
+  const real = require('./filelock');
+  const orig = real.withFileLock;
+  const swapped = fs.readFileSync(file, 'utf8').replace('codex-report-bridge.js', 'codex-report-bridge.js'.replace('bridge', 'bridge2'));
+  // Swap the file just before the locked section runs, as a person's editor (which takes no lock of ours) could.
+  real.withFileLock = (f, fn, o) => orig(f, () => { fs.writeFileSync(file, swapped); return fn(); }, o);
+  try {
+    const r = hooks.unwireInstall(h, [THIS], { platform: 'win32' });
+    assert.equal(r.changed, false);
+  } finally { real.withFileLock = orig; }
+  assert.equal(fs.readFileSync(file, 'utf8'), swapped);
+});
+
 // The uninstall wiring itself (only ~/.codex-<label>, never ~/.codex; the task gate; the sentences) is tested
 // behaviourally in engine/win32uninstall.unhooks-5999.test.js.

@@ -400,6 +400,9 @@ function unwireHooks(bundleRoot, home, env, gone, done, left, notes) {
     if (r.changed) done.push('took Kosmos\'s file-edit hook out of Codex\'s settings (' + codexHome + ')' + (r.recordRemoved ? ', with its trust entry' : ''));
     else if (r.ours) left.push('Kosmos\'s file-edit hook in Codex\'s settings (' + codexHome + '), which could not be taken out ('
       + (r.because || 'the file did not change') + '). Delete hooks.json in that folder; Codex runs fine without it.');
+    // Review 4: a hooks.json Kosmos could not read may be the person's own, so the advice is conditional.
+    else if (r.unreadable) notes.push('Codex\'s hooks.json in ' + codexHome + ' could not be checked (' + r.because
+      + '). If it names codex-report-bridge.js, it is Kosmos\'s and can be deleted; otherwise it is yours, leave it.');
   }
 }
 
