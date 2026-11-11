@@ -1,5 +1,5 @@
 'use strict';
-/* #8379 item 1: the board keeps no thrown error alive.
+/* #8379 item 1: the board's own code adds no uncaughtException handler, capture callback or domain.
 
    engine/win32boardlog.js (#8373) and engine/win32boardwatch.js record a crash from an uncaughtExceptionMonitor only
    when no uncaughtException handler exists, because a process with a handler lives on. A handler added to the board
@@ -11,8 +11,10 @@
    a string holding a slash and a star. It counts:
      - every string literal that is exactly the event's name, in any quote: this catches a handler added by any call,
        including one whose event name is held in a variable or a list;
-     - any call of setUncaughtExceptionCaptureCallback, and any require of the domain module.
-   The literals the two monitors use themselves are allowed by file and by count, so a second one in either file reds. */
+     - any mention of setUncaughtExceptionCaptureCallback, and a literal require of `domain` or `node:domain`.
+   The literals the two monitors use themselves are allowed by file and by count, so a second one in either file reds.
+   NOT SEEN: an event name built from pieces, a domain reached without a literal require, and anything in node_modules
+   (the board's dependencies are not read). */
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -29,6 +31,8 @@ const ALLOWED = {
 };
 
 function boardSources() {
+  const dirs = fs.readdirSync(path.join(ROOT, 'engine'), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  assert.deepStrictEqual(dirs, [], 'engine/ has a folder this scan does not read');
   const engine = fs.readdirSync(path.join(ROOT, 'engine'))
     .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
     .map((f) => 'engine/' + f);
