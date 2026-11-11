@@ -51,6 +51,16 @@ test('#8373 both streams reach the file stamped; the console gets the board\'s o
   assert.strictEqual(called, 2, 'callbacks still run');
 });
 
+test('#8373 a hex write is copied as it is and leaves the line state; a latin1 write keeps its bytes', (t) => {
+  const file = path.join(scratch(), 'board.log');
+  const { out } = routeInto(t, file);
+  out.write('ab\n');
+  out.write('6869', 'hex');
+  out.write('caf\u00e9\n', 'latin1');
+  const bytes = fs.readFileSync(file);
+  assert.deepStrictEqual(bytes, Buffer.concat([Buffer.from(T + ' ab\n'), Buffer.from('hi'), Buffer.from(T + ' caf', 'latin1'), Buffer.from([0xe9, 0x0a])]));
+});
+
 test('#8373 diagnostics read the routed file back as this board\'s output', (t) => {
   const file = path.join(scratch(), 'logs', 'board.log');
   const { r, out } = routeInto(t, file);
