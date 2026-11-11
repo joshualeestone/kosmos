@@ -94,12 +94,23 @@ test('a refusal on win32 leaves the shared home as it is, so one agent cannot ta
   const h = home();
   assert.deepEqual(hooks.install(h, WBRIDGE, V, W), { ok: true });   // agent A
   const before = { hooks: fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), cfg: fs.readFileSync(path.join(h, 'config.toml'), 'utf8') };
-  // agent B on the same account: its version probe failed, another Codex, an unsafe node path
+  // agent B on the same account: its version probe failed, an unsafe node path, a relative bridge
   assert.equal(hooks.install(h, WBRIDGE, null, W).ok, false);
-  assert.equal(hooks.install(h, WBRIDGE, '0.150.0', W).ok, false);
   assert.equal(hooks.install(h, WBRIDGE, V, { platform: 'win32', node: "C:\\o'k\\node.exe" }).ok, false);
+  assert.equal(hooks.install(h, 'bin\\codex-report-bridge.js', V, W).ok, false);
   assert.equal(fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), before.hooks, "agent A's hook stays");
   assert.equal(fs.readFileSync(path.join(h, 'config.toml'), 'utf8'), before.cfg, 'and its record');
+  // A Codex of another version, read by the probe, is the whole account's Codex: our hooks.json is taken back.
+  assert.equal(hooks.install(h, WBRIDGE, '0.150.0', W).ok, false);
+  assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
+});
+
+test('nextConfig on any host: a win32 key spelled with doubled backslashes is the same key, written by hand', () => {
+  const heading = hooks.stateHeading('C:\\Users\\a\\.codex-work1\\hooks.json', 'win32');
+  const line = `trusted_hash = "sha256:${'a'.repeat(64)}"`;
+  const escaped = '[hooks.state."C:\\\\Users\\\\a\\\\.codex-work1\\\\hooks.json:pre_tool_use:0:0"]\ntrusted_hash = "sha256:' + 'b'.repeat(64) + '"\n';
+  assert.deepEqual(hooks.nextConfig(escaped, heading, line), { handEdited: true });
+  assert.ok(hooks.nextConfig('model = "x"\n', heading, line).append, 'a config without it still gets the append');
 });
 
 test('the win32 key written as a basic string with doubled backslashes counts as written by hand, not appended beside', () => {
@@ -135,17 +146,47 @@ function supOpts(over) {
   }, over || {});
 }
 
-test('the supervisor installs the hook into the named home of a codex agent, and says why when it could not', () => {
+const tick = () => new Promise((r) => setImmediate(r));
+
+test('the supervisor installs the hook into the named home of a codex agent, after presence, and says why when it could not', async () => {
   const homes = [];
   const events = [];
+  const calls = [];
+  const stream = { started() { calls.push('started'); }, event() {}, wrote() {}, stopped() {}, rekey() {} };
   superviseCodexStreaming({ name: 'coder', cwd: 'C:/w', runner: 'codex', configDir: 'C:\\Users\\a\\.codex-work1' },
-    supOpts({ installCodexHook: (h) => { homes.push(h); return { ok: false, because: 'the reason' }; }, onEvent: (e) => events.push(e) }));
+    supOpts({ stream, installCodexHook: (h) => { calls.push('hook'); homes.push(h); return Promise.resolve({ ok: false, because: 'the reason' }); }, onEvent: (e) => events.push(e) }));
+  await tick();
   assert.deepEqual(homes, ['C:\\Users\\a\\.codex-work1']);
+  assert.deepEqual(calls, ['started', 'hook'], 'presence is stamped before the hook is set up');
   assert.ok(events.some((e) => e.action === 'codex-hook-skipped' && e.because === 'the reason'));
   const none = [];
   superviseCodexStreaming({ name: 'g', cwd: 'C:/w', runner: 'gemini', configDir: 'C:\\g' },
     supOpts({ installCodexHook: (h) => { none.push(h); return { ok: true }; }, onEvent: () => {} }));
   assert.deepEqual(none, [], 'a gemini agent is not given a Codex hook');
+});
+
+test('the first turn waits for the hook to be set up, then runs', async () => {
+  let release;
+  const turns = [];
+  const h = superviseCodexStreaming({ name: 'coder', cwd: 'C:/w', runner: 'codex', configDir: 'C:\\h' },
+    supOpts({ installCodexHook: () => new Promise((r) => { release = r; }), runTurn: async (t) => { turns.push(t.message); return { ok: true }; }, onEvent: () => {} }));
+  await new Promise((res) => h.send('first', () => res()));
+  await tick();
+  assert.deepEqual(turns, [], 'no turn while the hook is being set up');
+  release({ ok: true });
+  await tick(); await tick();
+  assert.deepEqual(turns, ['first']);
+});
+
+test('a hook setup that throws is reported and does not hold the turns', async () => {
+  const turns = [];
+  const events = [];
+  const h = superviseCodexStreaming({ name: 'coder', cwd: 'C:/w', runner: 'codex', configDir: 'C:\\h' },
+    supOpts({ installCodexHook: () => { throw Object.assign(new Error('x'), { code: 'EBOOM' }); }, runTurn: async (t) => { turns.push(t.message); return { ok: true }; }, onEvent: (e) => events.push(e) }));
+  await new Promise((res) => h.send('hi', () => res()));
+  await tick(); await tick();
+  assert.deepEqual(turns, ['hi']);
+  assert.ok(events.some((e) => e.action === 'codex-hook-skipped' && /EBOOM/.test(e.because)));
 });
 
 test('codexVersionOf reads the version from a `codex --version` line, and nothing else', () => {
@@ -156,12 +197,12 @@ test('codexVersionOf reads the version from a `codex --version` line, and nothin
   assert.equal(codexVersionOf(undefined), null);
 });
 
-test('installCodexHookFor probes the codex it will run, with the turn env, and hands the version and the shipped bridge to install', () => {
+test('installCodexHookFor probes the codex it will run, with the turn env, and hands the version and the shipped bridge to install', async () => {
   const calls = [];
   const installs = [];
   const env = { PATH: 'C:\\turn' };
-  const r = installCodexHookFor('C:\\Users\\a\\.codex-work1', 'C:\\bin\\codex.exe', env, {
-    execFileSync: (bin, args, opts) => { calls.push({ bin, args, env: opts.env, timeout: opts.timeout }); return 'codex-cli 0.149.1\n'; },
+  const r = await installCodexHookFor('C:\\Users\\a\\.codex-work1', 'C:\\bin\\codex.exe', env, {
+    execFile: (bin, args, opts, cb) => { calls.push({ bin, args, env: opts.env, timeout: opts.timeout }); cb(null, 'codex-cli 0.149.1\n'); },
     install: (home, bridge, version) => { installs.push({ home, bridge, version }); return { ok: true }; },
   });
   assert.deepEqual(r, { ok: true });
@@ -170,15 +211,16 @@ test('installCodexHookFor probes the codex it will run, with the turn env, and h
   assert.ok(fs.existsSync(installs[0].bridge), 'the bridge it names ships beside this engine');
 });
 
-test('installCodexHookFor: a failed probe installs with no version (refused there); no home asks nothing', () => {
+test('installCodexHookFor: a failed or throwing probe installs with no version (refused there); no home asks nothing', async () => {
   const installs = [];
-  installCodexHookFor('C:\\h', 'codex', {}, {
-    execFileSync: () => { throw Object.assign(new Error('nope'), { code: 'ENOENT' }); },
-    install: (home, bridge, version) => { installs.push(version); return { ok: false, because: 'x' }; },
-  });
-  assert.deepEqual(installs, [null]);
+  const inst = (home, bridge, version) => { installs.push(version); return { ok: false, because: 'x' }; };
+  await installCodexHookFor('C:\\h', 'codex', {}, { execFile: (b, a, o, cb) => cb(Object.assign(new Error('nope'), { code: 'ENOENT' })), install: inst });
+  await installCodexHookFor('C:\\h', 'codex', {}, { execFile: () => { throw new Error('spawn'); }, install: inst });
+  assert.deepEqual(installs, [null, null]);
+  const thrown = await installCodexHookFor('C:\\h', 'codex', {}, { execFile: (b, a, o, cb) => cb(null, 'codex-cli 0.149.1'), install: () => { throw new Error('x'); } });
+  assert.equal(thrown.ok, false, 'an install that throws resolves, never rejects');
   let asked = 0;
-  const r = installCodexHookFor(null, 'codex', {}, { execFileSync: () => { asked += 1; return ''; }, install: () => { asked += 1; return { ok: true }; } });
+  const r = await installCodexHookFor(null, 'codex', {}, { execFile: () => { asked += 1; }, install: () => { asked += 1; return { ok: true }; } });
   assert.deepEqual(r, { ok: false, because: null });
   assert.equal(asked, 0, 'the default ~/.codex: no probe, no install');
 });
@@ -290,5 +332,19 @@ test(`the REAL Codex for Windows (${V}) runs the installed hook, and the bridge 
     const r3 = await runCodex(h.toLowerCase(), work, model.port, { KOSMOS_PORT: String(board.port) });
     assert.equal(r3.err, null, `codex exec failed: ${r3.stderr}`);
     assert.equal(board.seen.length, 2, 'the hook ran for a home given in another case');
+
+    // A hook left behind after Kosmos moved or was removed (its bridge is gone): Codex reports the hook failed and
+    // still makes the edit. Nothing on Windows removes the hook from an account home today (plan: Decided).
+    const h2 = home();
+    const gone = path.join(home(), 'gone', 'codex-report-bridge.js');
+    assert.deepEqual(hooks.install(h2, gone, V), { ok: true });
+    board.seen.length = 0;
+    fs.writeFileSync(path.join(work, 'existing.txt'), 'old line\n');
+    fs.rmSync(path.join(work, 'hello.txt'), { force: true });
+    const r4 = await runCodex(h2, work, model.port, { KOSMOS_PORT: String(board.port) });
+    assert.equal(r4.err, null, `codex exec failed: ${r4.stderr}`);
+    assert.match(String(r4.stderr), /hook: PreToolUse Failed/, 'the hook ran and failed');
+    assert.equal(fs.readFileSync(path.join(work, 'existing.txt'), 'utf8'), 'new line\n', 'and the edit was still made');
+    assert.deepEqual(board.seen, []);
   } finally { board.server.close(); model.server.close(); }
 });

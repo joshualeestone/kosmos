@@ -53,7 +53,7 @@
  * An agent on the default ~/.codex gets no hook.
  *
  * install(home, bridge, version, opts?) -> { ok, because? }. Never throws. On every refusal our hooks.json is gone after
- * it, except on win32, where a refusal leaves the files as they are (the home is shared; see refuse in install).
+ * it, except on win32, where only a Codex of another version takes it back (the home is shared; see refuse in install).
  */
 
 const fs = require('node:fs');
@@ -88,9 +88,9 @@ function commandFor(bridge, opts) {
 
 /* kosmos#8348: a path refused for the win32 command. It rides in a single-quoted PowerShell literal, which only a single
    quote ends (PowerShell also counts U+2018..U+201B as one), so those are refused, with CR/LF and, over-refusing as
-   geminisettings.unsafeForCommand does, the double quotes, dollar, backtick and percent. A backslash is the separator. */
+   geminisettings.unsafeForCommand does, the curly double quotes U+201C..U+201E, the straight double quote, dollar, backtick and percent. A backslash is the separator. */
 function unsafeForWin32(p) {
-  return typeof p !== 'string' || /['"`$%\r\n‘-„]/.test(p);
+  return typeof p !== 'string' || /['"`$%\r\n\u2018-\u201E]/.test(p);
 }
 
 function sortKeys(v) {
@@ -201,19 +201,24 @@ function removeOurs(home) {
 function install(home, bridge, version, opts) {
   const plat = (opts && opts.platform) || process.platform;
   const node = plat === 'win32' ? ((opts && opts.node) || process.execPath) : null;
-  /* kosmos#8348: on win32 a refusal leaves the files as they are. There the home is the ACCOUNT's, shared by every
-     Codex agent on it, so one agent's refusal (its version probe failed, say) must not take the hook from another agent
-     already running on it; and Kosmos runs `codex exec` there, which skips a hook whose record does not count without
-     a word (measured), so a hooks.json left behind cannot stop an agent the way the TUI's review screen would. */
-  const refuse = (because) => {
-    if (plat !== 'win32' && typeof home === 'string' && path.isAbsolute(home)) removeOurs(home);
+  /* The full-path test of the platform the command is for (kosmos#8348: a win32 install tested on a Mac must judge a
+     C:\ path as Windows does; a posix temp home is absolute to both). */
+  const isAbs = plat === 'win32' ? path.win32.isAbsolute : path.isAbsolute;
+  /* kosmos#8348: on win32 a refusal leaves the files as they are, except for a Codex of ANOTHER VERSION. There the home
+     is the ACCOUNT's, shared by every Codex agent on it, so one agent's own trouble (its version probe failed, a busy
+     lock, a path we will not quote) must not take the hook from another agent already running on it. A different
+     version that the probe did read is the whole account's Codex (all its agents run the same one), and our record was
+     never measured for it, so our hooks.json is taken back as on the Mac. (Measured for 0.149.1 only: `codex exec`
+     skips a hook whose record does not count without a word; a later Codex is not assumed to.) */
+  const refuse = (because, otherVersion) => {
+    if ((plat !== 'win32' || otherVersion) && typeof home === 'string' && isAbs(home)) removeOurs(home);
     return { ok: false, because };
   };
   try {
-    if (typeof home !== 'string' || !path.isAbsolute(home) || typeof bridge !== 'string' || !path.isAbsolute(bridge)) {
+    if (typeof home !== 'string' || !isAbs(home) || typeof bridge !== 'string' || !isAbs(bridge)) {
       return refuse('the Codex home or the bridge is not a full path');
     }
-    if (version !== HASH_VERIFIED_FOR) return refuse(`this Codex is ${version || 'of an unknown version'}, and the hook's trust record is known only for ${HASH_VERIFIED_FOR}`);
+    if (version !== HASH_VERIFIED_FOR) return refuse(`this Codex is ${version || 'of an unknown version'}, and the hook's trust record is known only for ${HASH_VERIFIED_FOR}`, typeof version === 'string' && version !== '');
     if (plat === 'win32' && (unsafeForWin32(bridge) || unsafeForWin32(node))) return refuse('the bridge or node path has a character we will not put in a command');
     const st = fs.lstatSync(home);
     if (!st.isDirectory()) return refuse('the Codex home is not a folder');
@@ -263,7 +268,8 @@ function install(home, bridge, version, opts) {
 }
 
 /* The supervisor's call: `node codexhooks.js install <home> <bridge> <codex version>`. Exit 0 only when the hook and
-   its record are in place; otherwise our hooks.json is gone and the reason goes to stderr. */
+   its record are in place; otherwise our hooks.json is gone and the reason goes to stderr. This CLI is the Mac
+   supervisor's (posix rules); Windows calls install() directly, with its own refusal rule (kosmos#8348). */
 if (require.main === module) {
   const [verb, home, bridge, version] = process.argv.slice(2);
   const r = verb === 'install' ? install(home, bridge, version) : { ok: false, because: 'usage: codexhooks.js install <home> <bridge> <codex version>' };

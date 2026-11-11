@@ -18,6 +18,7 @@ Responses server (no account). The measurements are listed below.
 - Trust key: `[hooks.state.'<hooks.json path>:pre_tool_use:0:0']`, a TOML literal-string key, in the on-disk spelling
   with backslashes. Forward slashes, a `\\?\` prefix, all lowercase and a lowercase drive letter do not run. With
   CODEX_HOME given lowercased, the on-disk spelling still runs (Codex canonicalizes; = fs.realpathSync.native).
+- A hook that fails (its bridge path is gone) shows "hook: PreToolUse Failed", and the patch is still applied.
 - trusted_hash uses the same formula as the Mac (codexhooks.trustHash).
 
 ## Change
@@ -41,6 +42,17 @@ Responses server (no account). The measurements are listed below.
 - Named homes only. Rejected: writing into the person's ~/.codex (their own Codex would then run our hook) and adding
   a private per-agent Codex home on Windows (a much larger change to auth and runtime). What would change my mind:
   Windows agents moving to private homes, as the Mac did in #4592.
+- The shared account home: on win32 a refusal leaves our files in place, so one agent's trouble (a failed version
+  probe, a busy lock, a path we will not quote) cannot take the hook from another agent already running on the same
+  account. A different Codex version that the probe did read is the whole account's Codex, so then our hooks.json is
+  taken back, as on the Mac.
+- Start-up order: the version probe is asynchronous and runs after presence is stamped. Only an agent with a named
+  home waits on it, and only its first turn waits (bounded by the probe's 15 s), so that turn's edits are recorded.
+- Lifecycle: nothing on Windows removes the hook from an account home after an uninstall or a move. The Gemini hook
+  in a named Gemini home is left behind in the same way today; the uninstaller cleans only Claude's settings (#5999).
+  Measured with the real Codex: a hook whose bridge is gone shows "PreToolUse Failed" and the edit is still made, so
+  a leftover costs one failed node start per edit, not the agent. Cleaning both up at uninstall is a follow-up card,
+  not this PR.
 - The weakest part: the live on-board check ("changed by" shown on a real project file) needs an OpenAI sign-in on
   the box. The real-Codex test proves the hook, the bridge and the keep call, but not the board's display. That check
   is owed on the next Windows staging build with an account.
