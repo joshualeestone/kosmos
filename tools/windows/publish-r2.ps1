@@ -316,7 +316,7 @@ function Get-NodeExe {
   $why = if ($shim) { "no node executable on PATH (skipped the shim $($shim.Source): cmd.exe would mangle the arguments)" } else { 'no node on PATH' }
   $because = if ($readErr) { " ($readErr)" } else { '' }
   $line = if ($trusted) { "using the installed Kosmos app's own (signed by $NodePublisher): $p" }
-    elseif (-not $canCheck) { "NOT using the Kosmos app's node at ${p}: this PowerShell has no working Get-AuthenticodeSignature (on Windows, check its module path)$because" }
+    elseif (-not $canCheck) { "NOT using the Kosmos app's node at ${p}: this PowerShell has no working Get-AuthenticodeSignature (on Windows, check its module path)$(if ($readErr) { ": $readErr" })" }
     elseif ($readErr) { "NOT using the Kosmos app's node at ${p}: its signature could not be read$because, so it is not known to be Valid from $NodePublisher" }
     else { "NOT using the Kosmos app's node at ${p}: its signature is $(if ($sig) { "$($sig.Status)" } else { 'unreadable' })$(if ($signer) { " from $signer" }), not Valid from $NodePublisher" }
   [Console]::Error.WriteLine("publish-r2: $why; $line")
