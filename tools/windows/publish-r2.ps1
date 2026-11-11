@@ -296,7 +296,7 @@ function Get-NodeExe {
   if (-not $env:LOCALAPPDATA) { return $null }
   $p = Join-Path $env:LOCALAPPDATA $KosmosAppNode
   if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return $null }
-  $stamp = try { $it = Get-Item -LiteralPath $p -ErrorAction Stop; "$($it.Length)|$($it.LastWriteTimeUtc.Ticks)" } catch { '' }
+  $stamp = try { $it = Get-Item -LiteralPath $p -ErrorAction Stop; "$p|$($it.Length)|$($it.LastWriteTimeUtc.Ticks)" } catch { '' }
   if ($script:SaidRuntimeNode -and $stamp -and $stamp -ceq $script:RuntimeNodeStamp) { return $script:RuntimeNodeVerdict }
   $shim = $found | Select-Object -First 1
   # kosmos#8316: a failure says why, in the exception's own first line (or its type when the message is blank).

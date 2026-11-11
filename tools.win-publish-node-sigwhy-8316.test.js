@@ -5,7 +5,8 @@
  *  1. A signature read that THROWS used to be said as "its signature is unreadable", which reads like an unsigned node.
  *     The line now carries the exception's own first line; a command that cannot run at all (CommandNotFoundException,
  *     its module did not load) takes the "no working Get-AuthenticodeSignature" branch, which names the module path.
- *  2. The verdict is read once per run and kept, so every call returns what the one stderr line said.
+ *  2. The verdict is kept with node.exe's length and last-write time. A later call returns it without reading again
+ *     while both are unchanged, and reads and says again when either changed (an update rewrote the file).
  *
  * Get-NodeExe and its script-level values are parsed out of the real script and run under the script's own Stop and
  * StrictMode, with Get-AuthenticodeSignature replaced by a stub function (a function wins over a cmdlet of the same
@@ -79,8 +80,11 @@ $d = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.Func
 . ([scriptblock]::Create($d.Extent.Text))
 for ($i = 0; $i -lt [int] $args[3]; $i++) {
   if ($args.Count -gt 4 -and $i -eq ([int] $args[3] - 1)) {
-    # Before the last call: TOUCH rewrites the app's node (a longer file, a later write time); anything else is a PATH.
-    if ($args[4] -ceq 'TOUCH') { $f = Join-Path $env:LOCALAPPDATA $KosmosAppNode; [IO.File]::WriteAllText($f, 'changed'); (Get-Item -LiteralPath $f).LastWriteTimeUtc = [DateTime]::UtcNow.AddMinutes(5) }
+    # Before the last call: TOUCHTIME moves only the app node's write time (same length); TOUCHLEN changes only its
+    # length (write time put back); anything else is a PATH.
+    $f = Join-Path $env:LOCALAPPDATA $KosmosAppNode
+    if ($args[4] -ceq 'TOUCHTIME') { (Get-Item -LiteralPath $f).LastWriteTimeUtc = (Get-Item -LiteralPath $f).LastWriteTimeUtc.AddMinutes(5) }
+    elseif ($args[4] -ceq 'TOUCHLEN') { $was = (Get-Item -LiteralPath $f).LastWriteTimeUtc; [IO.File]::WriteAllText($f, 'changed'); (Get-Item -LiteralPath $f).LastWriteTimeUtc = $was }
     else { $env:PATH = $args[4] }
   }
   $n = Get-NodeExe
@@ -173,12 +177,14 @@ for (const ps of RUNTIMES) {
     assert.match(r.lines[0], /could not be read: IOException, so it is not known/);
   });
 
-  test('#8316 ' + ps + ': a node file that changed after the verdict is read again, and said again', () => {
-    const r = run(ps, 'valid', 2, 'TOUCH');
-    assert.strictEqual(r.reads, 2, 'signature reads');
-    assert.strictEqual(r.lines.length, 2, r.lines.join(' | '));
-    assert.strictEqual(r.results.length, 2);
-  });
+  for (const [how, what] of [['TOUCHTIME', 'write time alone'], ['TOUCHLEN', 'length alone']]) {
+    test('#8316 ' + ps + ': a node file whose ' + what + ' changed after the verdict is read again, and said again', () => {
+      const r = run(ps, 'valid', 2, how);
+      assert.strictEqual(r.reads, 2, 'signature reads');
+      assert.strictEqual(r.lines.length, 2, r.lines.join(' | '));
+      assert.strictEqual(r.results.length, 2);
+    });
+  }
 
   test('#8316 ' + ps + ': a refusal is kept too: three calls, one read, three NONE', () => {
     const r = run(ps, 'throw', 3);
