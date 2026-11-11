@@ -64,3 +64,8 @@ JSON.parse does not (one with comments) is named, never edited.
   named in that branch), with a check. NITs FIXED: the unwire's comment names Gemini's rule; the fallback's variables
   are local, as its sibling's. NITs noted: the real-path arms are untested (the test's temp root is already real);
   the order check compares positions; Windows also removes hooks whose script is gone.
+- Validation 3 passed.
+- Iteration 4 (sonnet): 2 WARNINGs. The match tested the bridge's name and the folder separately, so a hook of the
+  person's naming both apart would be taken: FIXED (the bridge's path as one string, after a quote, a space or the
+  start), with a fixture that must survive. The sentence said "could not be taken out" in branches where nothing
+  tried: FIXED (it now says the files still hold Kosmos's hooks, true in every branch). NITs noted (as before).

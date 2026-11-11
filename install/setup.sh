@@ -2047,8 +2047,8 @@ gemini_hook_settings_left() {
 # removes from $2/bin.
 say_gemini_hooks_left() {
   [ -n "$1" ] || return 0
-  info "note: Kosmos's hooks could not be taken out of these Gemini CLI settings files, and Gemini CLI may show"
-  info "errors there until they are gone; delete the entries naming gemini-report-bridge inside $2/bin:"
+  info "note: these Gemini CLI settings files still hold Kosmos's hooks, which run a script this uninstall removes,"
+  info "so Gemini CLI may show errors there until they are gone; delete the entries naming gemini-report-bridge inside $2/bin:"
   printf '%s\n' "$1" | while IFS= read -r _sf; do [ -n "$_sf" ] && info "  $_sf"; done
   return 0
 }
@@ -2803,13 +2803,23 @@ const geminiLeft = [];
 if (support) {
   const bins = [path.join(support, 'bin')];
   try { bins.push(fs.realpathSync(path.join(support, 'bin'))); } catch { /* the given path is enough */ }
-  const inBin = insideOf(bins);
-  const geminiIsOurs = (h) => !!h && typeof h.command === 'string' && h.command.includes('gemini-report-bridge') && inBin(h.command);
+  // The bridge's own path, as one string (commandFor writes `node "<bin>/gemini-report-bridge.js"`), so a hook of the
+  // person's that names the folder in one argument and the word in another is not taken for ours.
+  const runsBridge = (s) => typeof s === 'string' && bins.some((r) => {
+    const at0 = r.replace(/\/+$/, '') + '/gemini-report-bridge';
+    let at = s.indexOf(at0);
+    while (at !== -1) {
+      if (at === 0 || /["'\s]/.test(s[at - 1])) return true;
+      at = s.indexOf(at0, at + 1);
+    }
+    return false;
+  });
+  const geminiIsOurs = (h) => !!h && runsBridge(h.command);
   const gfiles = [path.join(process.env.AGENT_WORKFORCE_GEMINI_HOME || path.join(home, '.gemini'), 'settings.json')];
   try {
     for (const d of fs.readdirSync(home).sort()) if (d.startsWith('.gemini-')) gfiles.push(path.join(home, d, '.gemini', 'settings.json'));
   } catch { /* no home listing: the default file alone */ }
-  for (const file of [...new Set(gfiles)]) cleanFile(file, geminiIsOurs, inBin, /gemini-report-bridge/, geminiLeft, false);
+  for (const file of [...new Set(gfiles)]) cleanFile(file, geminiIsOurs, runsBridge, /gemini-report-bridge/, geminiLeft, false);
 }
 // The last line says the program finished; without it (a node that crashed or cannot run here) the shell names
 // the files itself. Gemini's files are marked, so they are named under Gemini's own sentence.
