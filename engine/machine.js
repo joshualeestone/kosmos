@@ -1810,8 +1810,7 @@ function check(opts) {
   const checks = [
     installedCheck(opts),
     sleepRow,
-    /* kosmos#8374: both ask launchd, which Windows does not have. Off on win32; null is filtered out below.
-       Linux still runs them: kosmos#8375. */
+    /* kosmos#8374: both ask launchd, which Windows does not have. Off on win32; null is filtered out below. */
     isWin ? null : restartCheck(runner),
     isWin ? null : labelTruthCheck(runner),
     // #2397: the board's own login job -- present + enabled? #570 gave it a win32
