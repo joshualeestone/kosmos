@@ -333,3 +333,40 @@ test('#6213: a held lock leaves Kosmos\'s status line in place and names it as u
   assert.ok(!r.done.some((d) => /status line/.test(d)), 'reported as done past a held lock');
   assert.ok(!r.notes.some((n) => /status line/.test(n)), 'a busy lock was filed as a note, which a retry cannot clear');
 });
+
+/* ---- kosmos#8361: Gemini's settings, by the same rules ---- */
+const geminisettings = require('./geminisettings');
+const GEMINI_BRIDGE = 'C:\\Users\\someone\\AppData\\Roaming\\Kosmos\\bin\\gemini-report-bridge.js';
+const geminiOurs = (node) => ({ hooks: [{ type: 'command', command: geminisettings.commandFor(GEMINI_BRIDGE, { platform: 'win32', node: node || NODE }) }] });
+const GEMINI_PERSONS = { hooks: [{ type: 'command', command: 'C:\\tools\\gemini-audit.exe' }] };
+
+test('kosmos#8361: the uninstall takes this install\'s Gemini hooks out of the default home and every named one; others stay', async () => {
+  const h = home();
+  const def = path.join(h, '.gemini', 'settings.json');
+  const named = path.join(h, '.gemini-work', '.gemini', 'settings.json');
+  const otherInstall = path.join(h, '.gemini-other', '.gemini', 'settings.json');
+  writeJson(def, { security: { auth: { selectedType: 'gemini-api-key' } }, hooks: { AfterTool: [GEMINI_PERSONS, geminiOurs()], SessionStart: [geminiOurs()] } });
+  writeJson(named, { hooks: { AfterTool: [geminiOurs()] } });
+  const otherEntry = geminiOurs('C:\\Kosmos2\\runtime\\node.exe');
+  writeJson(otherInstall, { hooks: { AfterTool: [otherEntry] } });
+  const otherBytes = fs.readFileSync(otherInstall, 'utf8');
+  stubSchedulers([listing([])]);
+  const r = await run(h);
+  assert.deepEqual(readJson(def), { security: { auth: { selectedType: 'gemini-api-key' } }, hooks: { AfterTool: [GEMINI_PERSONS] } }, 'the default home kept ours or lost a person\'s');
+  assert.deepEqual(readJson(named), {}, 'a named home kept ours');
+  assert.equal(fs.readFileSync(otherInstall, 'utf8'), otherBytes, 'another install\'s Gemini hook was touched');
+  for (const f of [def, named]) assert.ok(r.done.some((d) => d.includes('Gemini CLI\'s settings') && d.includes(f)), 'not said for ' + f + ': ' + JSON.stringify(r.done));
+  assert.ok(!r.left.some((l) => /Gemini CLI/.test(l)), JSON.stringify(r.left));
+  // CONTROL: the Claude rules are unchanged by the marker (a Gemini entry is not a Claude hook, and the reverse).
+  assert.deepEqual(reporthook.unwireInstall(named, [BUNDLE]), { ours: false, dead: 0, changed: false });
+});
+
+test('kosmos#8361: while a Kosmos task is still registered, the Gemini hooks are not touched either', async () => {
+  const h = home();
+  const named = path.join(h, '.gemini-work', '.gemini', 'settings.json');
+  writeJson(named, { hooks: { AfterTool: [geminiOurs()] } });
+  const bytes = fs.readFileSync(named, 'utf8');
+  stubSchedulers([listing(['Kosmos\\Kosmos Agent abc'])]);
+  await run(h);
+  assert.equal(fs.readFileSync(named, 'utf8'), bytes);
+});

@@ -518,6 +518,8 @@ function ensureWired(settingsPath, scriptPath, opts) {
  */
 function unwireInstall(settingsPath, roots, opts) {
   const o = opts || {};
+  /* kosmos#8361: the same rules for another runner's hook (Gemini's), named by its own marker, which is also its script's name. */
+  const MARKER_HERE = typeof o.marker === 'string' && o.marker ? o.marker : MARKER;
   const norm = (s) => String(s).replace(/\//g, '\\').toLowerCase();
   const prefixes = [...new Set((roots || []).filter((r) => typeof r === 'string' && r.trim())
     .map((r) => norm(r).replace(/\\+$/, '') + '\\'))];
@@ -532,17 +534,17 @@ function unwireInstall(settingsPath, roots, opts) {
       return false;
     });
   };
-  const carries = (s) => typeof s === 'string' && s.includes(MARKER) && inside(s);
+  const carries = (s) => typeof s === 'string' && s.includes(MARKER_HERE) && inside(s);
   const inRoots = (h) => !!h && (carries(h.command) || (Array.isArray(h.args) && h.args.some(carries)));
   /* The script path a hook names: an arg carrying the marker (exec form), or the quoted or bare word of the command
      that carries it (the old shell form). */
   const scriptPaths = (h) => {
     const out = [];
-    if (Array.isArray(h.args)) for (const a of h.args) if (typeof a === 'string' && a.includes(MARKER)) out.push(a);
-    if (typeof h.command === 'string' && h.command.includes(MARKER)) {
+    if (Array.isArray(h.args)) for (const a of h.args) if (typeof a === 'string' && a.includes(MARKER_HERE)) out.push(a);
+    if (typeof h.command === 'string' && h.command.includes(MARKER_HERE)) {
       for (const m of h.command.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)) {
         const w = m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3];
-        if (w.includes(MARKER)) out.push(w);
+        if (w.includes(MARKER_HERE)) out.push(w);
       }
     }
     return out;
@@ -555,7 +557,7 @@ function unwireInstall(settingsPath, roots, opts) {
   const provablyGone = (x) => {
     if (!/^[A-Za-z]:[\\/]/.test(x) || /[%$~]/.test(x)) return false;
     const base = x.split(/[\\/]/).pop();
-    if (base !== MARKER + '.js' && base !== MARKER + '.sh') return false;
+    if (base !== MARKER_HERE + '.js' && base !== MARKER_HERE + '.sh') return false;
     try { return !o.gone(x.slice(0, 2) + '\\') && o.gone(x) === true; } catch { return false; }
   };
   const isDead = (h) => {
@@ -573,7 +575,7 @@ function unwireInstall(settingsPath, roots, opts) {
     // Unreadable or not an object: never rewritten, only said, when it names this install's hook.
     let raw = '';
     try { raw = fs.readFileSync(target, 'utf8'); } catch { /* unreadable */ }
-    return { ours: raw.includes(MARKER) && inside(raw.replace(/\\\\/g, '\\')), dead: 0, changed: false, unreadable: true, because: read.because };
+    return { ours: raw.includes(MARKER_HERE) && inside(raw.replace(/\\\\/g, '\\')), dead: 0, changed: false, unreadable: true, because: read.because };
   }
   const { data, prevMode } = read;
   const hooks = data.hooks;
