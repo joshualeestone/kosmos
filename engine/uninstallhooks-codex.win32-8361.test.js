@@ -58,6 +58,25 @@ test('the folder named in another spelling (forward slashes, other case) still c
   assert.equal(r.changed, true);
 });
 
+test('a lookalike folder (D:\\Other for D:\\OtherKosmos) or a `..` path out of this folder is not this install', () => {
+  const h = installed(OTHER);
+  assert.equal(hooks.unwireInstall(h, ['D:\\Other'], { platform: 'win32', gone: () => false }).changed, false, 'a lookalike prefix');
+  const escaped = THIS + '\\..\\Elsewhere';
+  const h2 = installed(escaped);
+  const r = hooks.unwireInstall(h2, [THIS], { platform: 'win32', gone: () => false });
+  assert.equal(r.changed, false, 'a .. path counted as inside the folder');
+  assert.equal(fs.existsSync(path.join(h2, 'hooks.json')), true);
+});
+
+test('a config.toml saved with CRLF line endings keeps its record (safe: a lone record does nothing); hooks.json goes', () => {
+  const h = installed(THIS);
+  const crlf = cfgOf(h).replace(/\n/g, '\r\n');
+  fs.writeFileSync(path.join(h, 'config.toml'), crlf);
+  const r = hooks.unwireInstall(h, [THIS], { platform: 'win32' });
+  assert.deepEqual(r, { ours: true, changed: true, recordRemoved: false });
+  assert.equal(cfgOf(h), crlf);
+});
+
 test('another install\'s live hook stays, record and all', () => {
   const h = installed(OTHER);
   const before = { hooks: fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), cfg: cfgOf(h) };

@@ -319,7 +319,9 @@ function unwireInstall(home, roots, opts) {
     const paths = m ? (m.length === 3 ? [m[1], m[2]] : [m[1].replace(/'\\''/g, "'")]) : [];
     const norm = (s) => String(s).replace(/\//g, '\\').toLowerCase();
     const prefixes = [...new Set((roots || []).filter((r) => typeof r === 'string' && r.trim()).map((r) => norm(r).replace(/\\+$/, '') + '\\'))];
-    const inRoots = paths.some((p) => prefixes.some((r) => norm(p).startsWith(r)));
+    // Review 6: a path with a `..` segment is never inside a root by prefix (install() never writes one).
+    const plain = (p) => !/(^|\\)\.\.(\\|$)/.test(norm(p));
+    const inRoots = paths.some((p) => plain(p) && prefixes.some((r) => norm(p).startsWith(r)));
     /* Review 3: "provably gone" by the #5999 rules reporthook.unwireInstall applies: an absolute drive-letter path (a
        \\server one is never looked at), nothing a shell would expand, the expected file (node.exe, or the bridge), on a
        drive that is there now (an unplugged drive is not a deleted folder). Anything else is kept. */

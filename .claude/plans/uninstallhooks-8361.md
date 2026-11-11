@@ -16,11 +16,11 @@ The Windows uninstall took Kosmos's report hooks out of Claude Code's settings o
   the hook taken out all the same.
 - `win32uninstall.unwireHooks` runs it on every `~/.codex-<label>` (codexHomes), the only homes the hook is ever written
   into (win32codexsup never gives it to the person's ~/.codex), after the Gemini loop, with done/left sentences.
-- Tested in engine/uninstallhooks-codex.win32-8361.test.js (12): this install's hook plus record, the rest of the config
+- Tested in engine/uninstallhooks-codex.win32-8361.test.js (14): this install's hook plus record, the rest of the config
   kept, a mid-file record, a key below the record keeps the record, another spelling of the folder, another install's
   live hook kept, a gone bridge taken, a gone node.exe taken but an unplugged drive kept, a hand-changed record kept, a
   person's own or missing hooks.json untouched, an unreadable hooks.json never claimed as ours, a busy config.toml
-  lock leaving both files as they were, and a hooks.json swapped between the look and the lock left alone.
+  lock leaving both files as they were, a hooks.json swapped between the look and the lock left alone, a lookalike folder or a `..` path not counted as this install, and a CRLF config.toml keeping its record.
 - A hooks.json Kosmos cannot read is not called Kosmos's (in a ~/.codex-<label> it can be the person's own): the
   uninstall gives a note saying to delete it only if it names codex-report-bridge.js. The same note covers one that
   turned into a non-file or changed under the lock, and a Codex check that failed outright.
