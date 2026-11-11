@@ -17,7 +17,8 @@ prints it under "Suggested answer:". It goes when the question does, and agents 
   and when the hold comes off or the task closes. Not added to HOLD_TOLD_FIELDS. A suggestion sent in the call that
   changes the question is kept (it answers the new one).
 - Only an agent's for-you hold carries one: refused (400) on a hold not for the person or on the person's own screen
-  hold, and (403) when an agent sends one for the person's hold.
+  hold, and (403) when an agent sends one for the person's hold. The hold's own earlier refusals (a finished task 409,
+  the person's hold 403, nothing to unmark 409) come first, so those statuses win when they apply.
 - Shown with a single page helper, tskHoldSuggestWords (plain text, escaped by every caller). Agents learn of it in
   their project instructions, after the --for-you line.
 - Both CLIs take --suggest anywhere after the task number (the Mac parser lifts it with its value before the
@@ -37,7 +38,7 @@ feedback). Correction to my card comment: marking a task built does not touch a 
 - web/index.html: tskHoldSuggestWords; the column card, the Tasks row, the task page.
 - engine/projects.js: one sentence in the agent instructions.
 - install/kosmos, tools/windows/kosmos-cli.js: --suggest, help and usage.
-- Tests: engine/holdsuggest-8395.test.js (7), cli.task-hold-4771.test.js (+3), tools.windows-kosmos-cli-570.test.js
+- Tests: engine/holdsuggest-8395.test.js (8), cli.task-hold-4771.test.js (+3), tools.windows-kosmos-cli-570.test.js
   (+1), docs/browser-checks/render-onhold-4771.js (+3 checks, and tskHoldSuggestWords on its surface line).
 
 ## Results
@@ -47,8 +48,12 @@ feedback). Correction to my card comment: marking a task built does not touch a 
 ## Challenge loop
 
 - Iteration 1 (opus): 1 WARNING: the iPhone app also shows the for-you question (ios/Kosmos/TasksLogic.swift) and
-  does not show the suggestion: DEFERRED to its own card (an iOS change needs its own Swift checks and LogicTests run).
+  does not show the suggestion: DEFERRED to its own card, #8405 (an iOS change needs its own Swift checks and LogicTests run).
   NITs FIXED: a suggestion of only spaces is refused by both CLIs (it would have cleared a stored one and claimed an
   older board); the help lines align; a test replaces one suggestion with another; this plan's base. NITs noted: the
   CLI echoes the raw words, not the tidied ones (as --because does); no hostile-value escape check on the page (every
   caller escapes); an agent's null suggest on the person's hold is refused (the CLIs never send one).
+- Validation 1 passed (6592ddbaa6, the surface gate satisfied by the render-holduntil-7184 re-run trailer).
+- Iteration 2 (sonnet): 2 WARNINGs, both on this plan: the 400's precedence stated; the iPhone card number (#8405)
+  recorded. NITs noted: an option-like value after --suggest is taken as the suggestion in both CLIs, as --because
+  does; the CLIs echo the raw words (as --because). Engine 8, Mac CLI hold 15, Windows CLI 65: 88 of 88.
