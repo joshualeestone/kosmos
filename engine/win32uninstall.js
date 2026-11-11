@@ -345,12 +345,6 @@ function claudeSettingsFiles(home, env) {
    ~/.gemini-<label> (geminiaccounts.js), and each key home under the data folder (win32keyed.js defaultKeyHome), which
    stays when the data is kept. A hook left there names this install's node.exe, which the person deletes next, so Gemini
    cannot run it. */
-/* kosmos#8361: the named Codex homes Kosmos's sign-in makes (~/.codex-<label>), the only ones the Codex hook
-   (codexhooks.js, #8348) is ever written into. */
-function codexHomes(home) {
-  try { return fs.readdirSync(home).sort().filter((d) => d.startsWith('.codex-')).map((d) => path.join(home, d)); } catch { return []; }
-}
-
 function geminiSettingsFiles(home, env) {
   const files = [path.join(env.AGENT_WORKFORCE_GEMINI_HOME || path.join(home, '.gemini'), 'settings.json')];
   try {
@@ -363,7 +357,13 @@ function geminiSettingsFiles(home, env) {
   return [...new Set(files)];
 }
 
-/* #5999: take THIS install's report hooks out of every Claude settings file (kosmos#8361: and every Gemini one, below). Left in, each one points at a script in
+/* kosmos#8361: the named Codex homes Kosmos's sign-in makes (~/.codex-<label>), the only ones the Codex hook
+   (codexhooks.js, #8348) is ever written into; never the person's own ~/.codex. */
+function codexHomes(home) {
+  try { return fs.readdirSync(home).sort().filter((d) => d.startsWith('.codex-')).map((d) => path.join(home, d)); } catch { return []; }
+}
+
+/* #5999: take THIS install's report hooks out of every Claude settings file (kosmos#8361: and every Gemini one, and the Codex hook in each ~/.codex-<label>, below). Left in, each one points at a script in
    the folder the person deletes next, and Claude Code reports an error on every tool call from then on. Only entries
    that are ours AND point inside `bundleRoot` go, plus ours that point at a script that is already gone (an added
    account keeps the folder Kosmos ran from when it was added), through reporthook.unwireInstall, under the #3088 lock
@@ -773,9 +773,9 @@ async function uninstall(opts) {
     if (o.bundleRoot) {
       // Round 2: nothing in this step may stop the removal before the folders and the report.
       try { unwireHooks(o.bundleRoot, home, env, gone, done, left, notes); }
-      catch { left.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings, which could not be checked. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { both: true }) + '.'); }
+      catch { left.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings, which could not be checked. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { both: true }) + '. Also delete hooks.json in each .codex-<name> folder in your home folder if it names codex-report-bridge.js (kosmos#8361).'); }
     }
-    else notes.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings were not checked, because Kosmos could not tell which folder it was installed in. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { both: true }) + '.');
+    else notes.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings were not checked, because Kosmos could not tell which folder it was installed in. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { both: true }) + '. Also delete hooks.json in each .codex-<name> folder in your home folder if it names codex-report-bridge.js (kosmos#8361).');
   }
 
   /* 8-9: the folders, only once nothing registered, and no board, still needs them. */
