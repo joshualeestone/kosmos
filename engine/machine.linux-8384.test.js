@@ -631,7 +631,7 @@ test('check() on linux draws the sleep row when a setting was read, beside the r
 test('the test-process guard these readers lean on is true under the repo\'s own runner', () => {
   // Every no-host-read guard above asks live-execution.inTestProcess(); if it ever read false under node --test, they
   // would all read the host. This pins it (bulletin runtime-self-detection-is-version-dependent).
-  assert.equal(require('./live-execution').inTestProcess(), true);
+  assert.equal(require('./live-execution').inTestRun(), true);
 });
 
 test('a Linux reading is kept for ten seconds, then read again', () => {
@@ -981,7 +981,7 @@ test('sleep: a desktop holding the lid inhibitor decides the lid; no logind lid 
   const row2 = sleep(got);
   assert.equal(row2.state, STATE.OK);
   assert.equal(row2.admin, undefined);
-  assert.match(row2.detail, /What closing the lid does is up to your desktop's own Power settings, which hold it\./);
+  assert.match(row2.detail, /What closing the lid does is up to your desktop's own Power settings, which hold it right now \(this can change when another screen is connected or removed\)\./);
   // Control: the same logind answers without the inhibitor are the lid finding.
   const plain = (c, a) => (c === 'busctl' && a[5] === 'BlockInhibited' ? { ok: true, stdout: 's "sleep"\n' } : r(c, a));
   assert.equal(sleep(machine.readLinuxSleep({ runner: plain, hasLid: true })).state, STATE.ATTENTION);
@@ -998,4 +998,31 @@ test('restart row: a look skipped after another timed out says it did not get to
     { runner: () => ({ ok: false, because: 'skipped: a Linux look timed out just now', stdout: '' }), installedRoot: BUNDLE, lingerOn: true }));
   assert.equal(got.skipped, true);
   assert.match(row(got).detail, /so we did not ask about Kosmos's startup service; it is read again in a few seconds/);
+});
+
+test('a reading made while a look has timed out is not kept, so the next visit reads again', () => {
+  machine.setLinuxTimeoutForTests(150);
+  let reads = 0;
+  const key = 'hung-' + Math.random();
+  try {
+    machine.__linuxRunForTests('/bin/sleep', ['2']);   // trips the shared timeout memory
+    machine.linuxCached(key, { cacheInTest: true }, () => { reads += 1; return {}; });
+    machine.linuxCached(key, { cacheInTest: true }, () => { reads += 1; return {}; });
+    assert.equal(reads, 2, 'not kept while the bus is hung');
+  } finally { machine.setLinuxTimeoutForTests(2000); }
+  machine.linuxCached(key, { cacheInTest: true }, () => { reads += 1; return {}; });
+  machine.linuxCached(key, { cacheInTest: true }, () => { reads += 1; return {}; });
+  assert.equal(reads, 3, 'control: kept again once the memory is clear');
+});
+
+test('sleep row: a lid that sleeps only when docked says so in the title', () => {
+  assert.equal(sleep({ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'ignore', docked: 'suspend' } }).title,
+    'This computer can go to sleep when its lid closes with another screen connected');
+});
+
+test('the readers stand down in a child process a test spawns, not only in the test process', () => {
+  const out = require('node:child_process').execFileSync(process.execPath, ['-e',
+    "const m=require(" + JSON.stringify(path.join(__dirname, 'machine.js')) + "); process.stdout.write(JSON.stringify(m.readLinuxSleep({})))"],
+    { encoding: 'utf8', env: { ...process.env, NODE_TEST_CONTEXT: 'child-v8' } });
+  assert.deepEqual(JSON.parse(out), { idle: null, lid: null, gnome: null, desktop: null });
 });

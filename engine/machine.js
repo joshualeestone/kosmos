@@ -388,7 +388,7 @@ function sleepGate(opts) {
 function readLinuxSleep(opts) {
   const o = opts || {};
   if ('linuxSleep' in o) return o.linuxSleep;
-  const inTest = require('./live-execution').inTestProcess();
+  const inTest = require('./live-execution').inTestRun();
   // A test that hands no runner never runs the host's busctl or gsettings (a Linux CI runner's would decide the row).
   // opts.linuxSleepRead: a test's runner that, unlike opts.runner, does not bypass the ten-second cache.
   if (!o.runner && !o.linuxSleepRead && inTest) return { idle: null, lid: null, gnome: null, desktop: null };
@@ -554,12 +554,13 @@ function linuxCached(key, opts, read) {
   // opts.cacheInTest lets a test exercise the cache itself; otherwise a test always reads fresh.
   // Each reading's own seam (linuxSleep for 'sleep', linuxBoard for 'board') bypasses only that reading.
   const seam = key === 'sleep' ? 'linuxSleep' : (key === 'board' ? 'linuxBoard' : null);
-  if (o.runner || (seam && seam in o) || (require('./live-execution').inTestProcess() && !o.cacheInTest)) return read();
+  if (o.runner || (seam && seam in o) || (require('./live-execution').inTestRun() && !o.cacheInTest)) return read();
   const now = typeof o.now === 'function' ? o.now() : Date.now();   // seam: a test's clock
   const hit = linuxReadings.get(key);
   if (hit && now - hit.at >= 0 && now - hit.at < LINUX_READING_TTL_MS) return hit.value;
   const value = read();
-  linuxReadings.set(key, { at: now, value });
+  // A reading made while a look timed out is not kept: the next visit reads again once the bus is back.
+  if (Date.now() >= linuxHungUntil) linuxReadings.set(key, { at: now, value });
   return value;
 }
 
@@ -580,7 +581,8 @@ function linuxSleepCheck(reading) {
   const after = (m) => (m ? 'after ' + minutesWords(m) : 'after a while');
   const lidByDesktop = Boolean(lid && lid.desktopHandles);
   const lidStops = !lidByDesktop && Boolean(lid && (stops(lid.ac) || stops(lid.battery) || stops(lid.docked)));
-  const lidNote = lidByDesktop ? ' What closing the lid does is up to your desktop\'s own Power settings, which hold it.' : '';
+  const lidNote = lidByDesktop ? ' What closing the lid does is up to your desktop\'s own Power settings, which hold it right '
+    + 'now (this can change when another screen is connected or removed).' : '';
   const said = [], verbs = [];
   const plugged = [];   // the verbs of what happens plugged in, open and idle: the title's "on its own"
   const say = (sentence, verb) => { said.push(sentence); verbs.push(verb); };
@@ -651,7 +653,9 @@ function linuxSleepCheck(reading) {
       detail: said.join(' ') + until(vs) + desktopFix + logindFix + lidNote }, extra);
   }
   if (lidStops || gnomeBatt) {
-    const lidWords = lid && lid.sure === false ? 'when its lid closes, if it has one' : 'when its lid closes';
+    const dockedOnly = lid && !stops(lid.ac) && !stops(lid.battery) && stops(lid.docked);
+    const lidWords = (dockedOnly ? 'when its lid closes with another screen connected' : 'when its lid closes')
+      + (lid && lid.sure === false ? ', if it has one' : '');
     const title = lidStops && gnomeBatt ? 'This computer can ' + what(verbs) + ' on battery, or ' + lidWords
       : (lidStops ? 'This computer can ' + what(verbs) + ' ' + lidWords : 'This computer can ' + what(verbs) + ' on battery');
     /* The plugged-in promise needs the plugged-in desktop setting: when that was not read, there is no promise and the
@@ -2074,7 +2078,7 @@ function readLinuxBoardAutostart(runner, opts) {
      A test never reads the host's own unit folder (a Linux runner's would decide the row), as linuxjob.lingerFileOn:
      it passes opts.linuxBoard, or names a folder of its own (AGENT_WORKFORCE_SYSTEMD_DIR, or a sandbox's
      AGENT_WORKFORCE_LAUNCH, which linuxjob.defaultSystemdDir reads first). */
-  const inTest = require('./live-execution').inTestProcess();
+  const inTest = require('./live-execution').inTestRun();
   if (inTest && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && !process.env.AGENT_WORKFORCE_LAUNCH) {
     return { unitFile: null, unitState: null, linger: undefined, installed: null };
   }
