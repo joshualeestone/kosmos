@@ -22,6 +22,8 @@ The Mac keeps `logs/board.log` beside `runtime/` in its KOSMOS_HOME (install/set
 
 ## Not in this
 - What only native code writes (a child with inherited stdio): not seen, as stated in the module header.
+- Lines written before server.js runs: the logon shim's own (a fallback to the previous version, a missing engine pointer) and the world bootstrap's. They still go nowhere; the shim appending to the same file is a follow-up.
+- Rotation while running: the size is checked at each start only.
 - The check on a real Windows box ("Done when": trigger one known board line and find it). That needs a build carrying this; Homer checks it after the next Windows build. The card stays open until then.
 
 ## Weakest premise

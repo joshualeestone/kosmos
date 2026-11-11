@@ -22,11 +22,13 @@
  * start and exit lines (engine/win32boardwatch.js) under the same name.
  *
  * WHAT IT CANNOT SEE. Only writes made through process.stdout and process.stderr: a child started with inherited
- * stdio, and anything written to the descriptors below JavaScript, never pass through it. The one such write that
- * matters, node's report of an uncaught exception, is written to the file from an uncaughtExceptionMonitor.
+ * stdio, and anything written to the descriptors below JavaScript, never pass through it; node's report of an uncaught
+ * exception is written to the file from an uncaughtExceptionMonitor. Nor does anything written before server.js runs:
+ * the logon shim's own lines (win32board.js BOOT_JS: a fallback to the previous version, a missing engine pointer)
+ * and the world bootstrap's named-world lines still go nowhere.
  *
  * SIZE. The Mac's file is not rotated by the board. Here, a file over ROTATE_BYTES when the board starts is moved to
- * `<name>.old` (one older copy, replaced each time), so a board that runs for months cannot grow it without end.
+ * `<name>.old` (one older copy, replaced each time). The size is checked only at each start.
  *
  * WHO. Only the board its logon task started (win32board.startedByTask): a board started by hand writes to its own
  * console, and a board a test starts as a child is not task-started.
@@ -68,7 +70,7 @@ function tee(stream, fd, lineState, now) {
       const enc = typeof encoding === 'string' ? encoding : undefined;
       if (typeof chunk === 'string' && (!enc || LINE_TEXT_ENCODINGS.test(enc))) {
         const s = stampText(chunk, lineState.atLineStart, now().toISOString());
-        writeAll(fd, Buffer.from(s.text, 'utf8'));
+        writeAll(fd, Buffer.from(s.text, enc || 'utf8'));
         lineState.atLineStart = s.atLineStart;
       } else if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) {
         const s = stampBytes(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength), lineState.atLineStart, now().toISOString());

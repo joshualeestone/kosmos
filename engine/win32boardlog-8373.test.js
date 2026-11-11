@@ -91,7 +91,10 @@ test('#8373 nothing changes off Windows, for a board its task did not start, whe
   assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ path: path.join(dir, 'b.log'), isFile: (fd) => fd === 1 })), null);
   assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ path: path.join(dir, 'c.log'), isFile: (fd) => fd === 2 })), null);
   assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ path: path.join(dir, 'd.log'), taskStarted: () => false })), null, 'a board started by hand or by a test');
-  assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ env: { LOCALAPPDATA: dir } })), null, 'a test process never writes the real log');
+  const cwd = process.cwd();   // a regression would write a relative Windows path: keep it in this folder
+  process.chdir(dir);
+  try { assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ env: { LOCALAPPDATA: dir } })), null, 'a test process never writes the real log'); }
+  finally { process.chdir(cwd); }
   assert.deepStrictEqual(fs.readdirSync(dir), [], 'no file was made');
   assert.strictEqual(boardlog.current(), null);
 });
@@ -105,4 +108,17 @@ test('#8373 a log that cannot be opened leaves the board as it was', () => {
   assert.strictEqual(boardlog.route(out, fakeStream(), { platform: 'win32', path: path.join(blocked, 'board.log'), isFile: () => false, taskStarted: () => true, onCrash: () => {} }), null);
   assert.strictEqual(out.write, before, 'the stream was not wrapped');
   assert.strictEqual(boardlog.current(), null);
+});
+
+test('#8373 server.js routes before the ring and the stamp, and its diagnostics read take the routed file', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const route = src.indexOf("require('./engine/win32boardlog').route(process.stdout, process.stderr)");
+  const unrouted = src.indexOf('if (!routedLog) {', route);
+  const stamp = src.indexOf('logstamp.install(process.stdout, 1', route);
+  const ring = src.indexOf("logring.board.tap(process.stdout, 'stdout')");
+  assert.ok(route > 0, 'server.js does not route the Windows board log');
+  assert.ok(unrouted > route && stamp > unrouted && ring > stamp, 'the order is not route, then the stamp for an unrouted board, then the ring');
+  const diag = src.indexOf("require('./engine/win32boardlog').current()");
+  assert.ok(diag > ring, 'the diagnostics route does not ask which file was routed');
+  assert.match(src.slice(diag, diag + 600), /readBoardLog\(logPath, logFds,/, 'the diagnostics read does not use the routed descriptors');
 });
