@@ -60,22 +60,21 @@ jobs:
       - name: which node is this
         run: node --version
       - name: install system dependencies
-        # kosmos#8380: as test.yml's Linux tools step: only what the image lacks, and when the install fails the
-        # security pocket is pointed at the runner's own Ubuntu mirror and tried again.
+        # kosmos#8380: as test.yml's Linux tools step: only what the image lacks, and Ubuntu hosts the runner cannot
+        # resolve are pinned from a public resolver before trying again.
         run: |
           missing=""
           for t in tmux lsof zsh; do command -v "$t" >/dev/null 2>&1 || missing="$missing $t"; done
           if [ -z "$missing" ]; then echo "all three tools are on the image"; exit 0; fi
-          repoint_security() {   # an Ubuntu archive host that resolves; archive mirrors carry the -security pocket too
-            main=""
-            for h in azure.archive.ubuntu.com archive.ubuntu.com us.archive.ubuntu.com; do
-              if timeout 5 getent hosts "$h" >/dev/null 2>&1; then main="http://$h/ubuntu/"; break; fi
+          repoint_security() {   # Ubuntu's own DNS stopped answering (11-11); pin each Ubuntu host the runner cannot resolve
+            # to an address from a public resolver. apt still checks every index's signature, so a wrong address cannot pass.
+            pinned=0
+            for h in security.ubuntu.com archive.ubuntu.com azure.archive.ubuntu.com; do
+              if timeout 5 getent hosts "$h" >/dev/null 2>&1; then continue; fi
+              ip=$(curl -sS -m 10 "https://dns.google/resolve?name=$h&type=A" 2>/dev/null | grep -oE '"data":"[0-9.]+"' | head -1 | cut -d'"' -f4 || true)
+              if [ -n "$ip" ]; then echo "$ip $h" | sudo tee -a /etc/hosts >/dev/null; echo "pinned $h to $ip"; pinned=1; fi
             done
-            [ -n "$main" ] || return 1
-            echo "pointing apt's Ubuntu sources and mirror list at $main"
-            # a runner whose sources say mirror+file: reads its hosts from this list, which named the dead host (measured 11-11)
-            if [ -f /etc/apt/apt-mirrors.txt ]; then printf '%s\n' "$main" | sudo tee /etc/apt/apt-mirrors.txt >/dev/null; fi
-            sudo sed -i -E "s#https?://security.ubuntu.com/ubuntu/?#${main}#g" /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+            [ "$pinned" = 1 ]
           }
           timeout 5 getent hosts security.ubuntu.com >/dev/null 2>&1 || { echo "security.ubuntu.com does not resolve"; repoint_security || true; }
           sudo apt-get update -qq || true
