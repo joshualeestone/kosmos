@@ -46,12 +46,11 @@ test('round 1 W3: a mark ahead of this clock (a slow phone) still reads as asked
   assert.equal(f(held({ onHoldToldAt: iso(-60e3), onHoldAnsweredAt: iso(-90e3) })), ' You answered, and it is still on hold.');
 });
 
-test('kosmos#8389: three or more counted asks say how many, first and last; two keep the "and again" sentence', () => {
+test('kosmos#8389: two or more counted asks say how many, first and last', () => {
   const four = f(held({ onHoldToldAt: iso(30 * H), onHoldLastToldAt: iso(2 * H), onHoldToldCount: 4 }));
   assert.match(four, /^ It asked you 4 times, first .+ ago, last .+ ago\.$/);
   const two = f(held({ onHoldToldAt: iso(30 * H), onHoldLastToldAt: iso(2 * H), onHoldToldCount: 2 }));
-  assert.match(two, /, and again /);
-  assert.doesNotMatch(two, /times/);
+  assert.match(two, /^ It asked you 2 times, first .+ ago, last .+ ago\.$/, 'the board and the CLI both count from two');
   const none = f(held({ onHoldToldAt: iso(30 * H), onHoldLastToldAt: iso(2 * H) }));
   assert.doesNotMatch(none, /times/, 'CONTROL: an uncounted hold shows no count');
 });

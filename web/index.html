@@ -26439,7 +26439,7 @@ function tskHoldToldWords(t) {
   if (first === null) return ' Kosmos has not seen it ask you about this yet.';
   const again = last !== null && last > first && ago(last) ? ', and again ' + ago(last) : '';
   /* kosmos#8389: how many times, when it was counted (a hold told before the count was kept shows none). */
-  const n = Number.isInteger(t.onHoldToldCount) && t.onHoldToldCount > 2 ? t.onHoldToldCount : 0;
+  const n = Number.isInteger(t.onHoldToldCount) && t.onHoldToldCount > 1 ? t.onHoldToldCount : 0;   // as the CLI says it, from two
   if (n && last !== null && ago(last)) return ' It asked you ' + n + ' times' + (ago(first) ? ', first ' + ago(first) : '') + ', last ' + ago(last) + '.';
   return ' It asked you' + (ago(first) ? ' ' + ago(first) : '') + again + '.';
 }
