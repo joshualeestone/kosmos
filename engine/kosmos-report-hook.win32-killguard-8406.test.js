@@ -106,6 +106,27 @@ const REFUSED = [
   'Stop-Process (Get-Process)',
   'Get-Process node | % { $_.Kill() }',
   'Get-Process | ForEach-Object { $_.Kill() }',
+  // An unmatched bracket or an apostrophe inside one does not hide the rest.
+  'echo smile :( && taskkill /F /IM node.exe',
+  "echo (it's) && taskkill /F /IM node.exe",
+  `x.replace(/'/g, "") ; taskkill /F /IM node.exe`,
+  // $( ) inside double quotes, and <( ).
+  'echo "$(taskkill //F //IM node.exe)"',
+  'x="$(taskkill //F //IM node.exe)"',
+  'cat <(taskkill //F //IM node.exe)',
+  // ForEach-Object forms and .Kill() on a process list.
+  'Get-Process node | ForEach-Object { Stop-Process $_ -Force }',
+  'Get-Process | ForEach-Object { Stop-Process -Id $_.Id }',
+  'gps node | % Kill',
+  '(Get-Process node).Kill()',
+  // bash if/while, cmd if conditions, @ in batch.
+  'if taskkill //F //IM node.exe; then echo ok; fi',
+  'while taskkill //F //IM node.exe; do sleep 1; done',
+  'if exist x.txt taskkill /F /IM node.exe',
+  'if errorlevel 1 taskkill /F /IM node.exe',
+  'if not exist x.txt taskkill /F /IM node.exe',
+  '@taskkill /F /IM node.exe',
+  'taskkill /F /IM ' + '*'.repeat(261),
 ];
 const ALLOWED = [
   'taskkill /PID 4242',          // the card's control: one exact process id
@@ -165,6 +186,18 @@ const ALLOWED = [
   'Get-Process node | % { $_.Name }',
   'tskill 4242',
   'for %i in (a b) do echo %i',
+  // Filters that name another program, by name or window title.
+  'taskkill /F /FI "IMAGENAME eq notepad.exe"',
+  'taskkill /F /FI "WINDOWTITLE eq My Dev Server"',
+  'wmic process where name="notepad.exe" delete',
+  // Help, dry runs and other computers.
+  'logoff /?',
+  'Restart-Computer -WhatIf',
+  'Restart-Computer -ComputerName build01',
+  // Comments are not commands.
+  '# taskkill /F /IM node.exe',
+  '<#\n  Stop-Process -Name node\n#>',
+  'echo ok # logoff',
 ];
 
 test('#8406: every listed Windows form of "stop everything" is refused, in any case', () => {
