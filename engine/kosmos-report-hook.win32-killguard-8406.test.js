@@ -96,6 +96,16 @@ const REFUSED = [
   'Get-Process | Where-Object { $_.Name -ne "notepad" } | Stop-Process',
   'Get-Process | Where-Object { $_.Name -eq "claude" } | Stop-Process -Force',
   'function Stop-All { taskkill /F /IM node.exe }',
+  // Command substitution, batch for, tskill, Stop-Process of a Get-Process block, ForEach-Object .Kill().
+  'echo $(taskkill /F /IM node.exe)',
+  'for %i in (1) do taskkill /f /im node.exe',
+  'for /f %i in (x) do taskkill //F //IM claude.exe',
+  'tskill node',
+  'Stop-Process (Get-Process node)',
+  'Stop-Process -InputObject (Get-Process claude) -Force',
+  'Stop-Process (Get-Process)',
+  'Get-Process node | % { $_.Kill() }',
+  'Get-Process | ForEach-Object { $_.Kill() }',
 ];
 const ALLOWED = [
   'taskkill /PID 4242',          // the card's control: one exact process id
@@ -151,6 +161,10 @@ const ALLOWED = [
   'Get-Process | Stop-Process -Name notepad',
   "if (a) return R.session('logoff');",
   "if (name === 'logoff') { b('logoff'); }",
+  'Stop-Process (Get-Process notepad)',
+  'Get-Process node | % { $_.Name }',
+  'tskill 4242',
+  'for %i in (a b) do echo %i',
 ];
 
 test('#8406: every listed Windows form of "stop everything" is refused, in any case', () => {
@@ -163,7 +177,7 @@ test('#8406: one exact process id, other names and ordinary commands pass (contr
 
 test('#8406: long lines stay fast (the hook has a short timeout and a Write can be megabytes on one line)', () => {
   for (const s of ['ps a '.repeat(80000), 'gps '.repeat(100000), 'kill x '.repeat(60000), 'taskkill /IM x '.repeat(30000), '"'.repeat(400000),
-    'taskkill /IM ' + '*'.repeat(200000) + 'a', '('.repeat(100000), "it's ".repeat(50000), 'a|'.repeat(500000), 'x(' .repeat(50000) + ')'.repeat(50000)]) {
+    'taskkill /IM ' + '*'.repeat(200000) + 'a', '('.repeat(100000), "it's ".repeat(50000), 'a|'.repeat(500000), 'ps | '.repeat(200000), 'gps a|'.repeat(150000), 'x(' .repeat(50000) + ')'.repeat(50000)]) {
     const t0 = Date.now();
     guard.reason(s);
     assert.ok(Date.now() - t0 < 1500, s.slice(0, 12) + '... took ' + (Date.now() - t0) + ' ms for ' + s.length + ' chars');
