@@ -243,7 +243,7 @@ test('kosmos#8402: once one record\'s undo is stopped, the other Kosmoses\' reco
   const took = Date.now() - t0;
   assert.ok(took < 6000, 'the uninstall waited ' + took + ' ms: each Kosmos\'s record waited out its own bound');
   assert.equal(out.split('did not finish in 1s').length - 1, 1, 'the stop was said more or less than once:\n' + out);
-  assert.equal(out.split('were not tried after that').length - 1, 1, 'the skipped records were not said once:\n' + out);
+  assert.equal(out.split('were not tried; each one').length - 1, 1, 'the skipped records were not said once:\n' + out);
   assert.ok(fs.existsSync(l2) && fs.existsSync(l3), 'a record that was never tried was lost');
 });
 
@@ -265,10 +265,14 @@ test('kosmos#8402: a re-run after the folder is gone names each named Kosmos\'s 
   const odd = path.join(sb.data, 'Kosmos', 'worlds', 'Not Clean', 'Kosmos', gs.WROTE_FILE);
   fs.mkdirSync(path.dirname(odd), { recursive: true });
   fs.copyFileSync(l2, odd);
+  const dflt = path.join(sb.data, 'Kosmos', 'worlds', 'default', 'Kosmos', gs.WROTE_FILE);   // the main folder's own data, never a named Kosmos
+  fs.mkdirSync(path.dirname(dflt), { recursive: true });
+  fs.copyFileSync(l2, dflt);
   fs.rmSync(sb.kh, { recursive: true, force: true });
   const out = runUninstall(sb);
   assert.ok(out.includes(sb.ledger), 'CONTROL: the main record was not named:\n' + out.slice(-800));
   assert.ok(out.includes(l2), 'the named Kosmos\'s record was not named on a re-run:\n' + out.slice(-800));
   assert.ok(!out.includes(odd), 'a folder name no board could have made was read:\n' + out.slice(-800));
+  assert.ok(!out.includes(dflt), 'worlds/default was read as a named Kosmos:\n' + out.slice(-800));
   assert.match(out, /Kosmos is removed/, 'the uninstall stopped after the Gemini step instead of finishing');
 });

@@ -2136,9 +2136,17 @@ gemini_settings_undo() {
     fi
   fi
   [ -z "$_gw_tmp" ] || rm -f "$_gw_tmp"
-  # kosmos#8402: read in this shell (a here-document, not a pipe), so a line one record already said is not said again by
-  # the next (every Kosmos records the person's one ~/.gemini file). _gw_said is reset by gemini_settings_undo_all.
-  while IFS= read -r _gw_l; do
+  # kosmos#8402: split in this shell, not through a pipe (whose loop runs in a subshell) or a here-document (which bash
+  # 3.2 writes to a temp file, so a full TMPDIR would end the uninstall here under set -e), so a line one record already
+  # said is not said again by the next: every Kosmos records the person's one ~/.gemini file. Each pass removes one line
+  # and its newline, and the text always ends in one, so the loop ends.
+  _gw_rest="$_gw_out
+"
+  while [ -n "$_gw_rest" ]; do
+    _gw_l="${_gw_rest%%
+*}"
+    _gw_rest="${_gw_rest#*
+}"
     case "$_gw_l" in
       "say "*)
         case "${_gw_said-}" in *"
@@ -2146,9 +2154,7 @@ ${_gw_l#say }
 "*) ;; *) info "${_gw_l#say }"; _gw_said="${_gw_said-}${_gw_l#say }
 " ;; esac ;;
     esac
-  done <<GWEOF
-$_gw_out
-GWEOF
+  done
   case "$_gw_out" in
     *@kosmos-gemini-done*) ;;
     *)
@@ -2177,7 +2183,7 @@ gemini_settings_undo_all() {
     _gwa_id="${_gwa_d%/Kosmos}"; _gwa_id="${_gwa_id##*/}"
     case "$_gwa_id" in default|*[!a-z0-9_-]*|"") continue ;; esac
     if [ -n "${_gw_stopped-}" ]; then
-      info "note: the Gemini settings your other Kosmoses filled in were not tried after that; their lists are in ${1%/}/worlds"
+      info "note: so the Gemini settings filled in by your other Kosmoses were not tried; each one's list is in a folder under ${1%/}/worlds"
       break
     fi
     gemini_settings_undo "$_gwa_d"
