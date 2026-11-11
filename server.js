@@ -18030,7 +18030,8 @@ const server = http.createServer(async (req, res) => {
      polled). Board-token only, like every /api read; not an agent-token route, since it carries every agent's lines.
      ⚠️ That keeps out a caller holding only an agent token, not every agent: an agent whose CLI can read the board token
      can read this too, as it can every /api read (#4491, open; see the codex-hooks route).
-     engine/diagnostics.js shapes and redacts it. board.log is read only when it is this board's stdout and stderr.
+     engine/diagnostics.js shapes and redacts it. board.log is read only when it is this board's stdout and stderr, or
+     on a task-started Windows board the file engine/win32boardlog.js opened for them.
      `?check=1` is the page's look beside the click (isDownloadCheck), as the agent export's is. */
   if (pathname === '/api/diagnostics' && req.method === 'GET') {
     try {

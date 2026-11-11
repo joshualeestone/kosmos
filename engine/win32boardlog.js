@@ -12,7 +12,7 @@
  * longer stop the board. So the board opens the file itself and copies every write into it by descriptor, with the
  * time stamp engine/logstamp.js puts on the Mac's file. Only the file's copy is stamped: what reaches the console (a
  * board started by hand, a test reading a board's stdout) is the board's own text, as on the Mac.
- * engine/diagnostics.js reads the file back through the same descriptor.
+ * engine/diagnostics.js reads the file by its path, and only when it is the file open on that descriptor.
  *
  * WHERE. `<LOCALAPPDATA>\Kosmos\logs\board.log` (the folder name is win32anchor.APP): beside the durable `runtime\`
  * folder of engine/win32anchor.js, as the Mac keeps `logs/board.log` beside `runtime/` in its KOSMOS_HOME. A named
@@ -97,7 +97,7 @@ function tee(stream, fd, lineState, now) {
  * On Windows, for the board its logon task started, when neither stream is already a file: opens the log for
  * appending and copies both streams into it. A board started by hand has its own console, and a board a test starts
  * as a child is not task-started, so neither writes this file. Returns { path, fd } when it routed, else null. `deps`
- * is for tests: platform, home, env, path (the log), isFile(fd), taskStarted(), now(), handlers() (how many
+ * is for tests: platform, home, env, path (the log), isFile(fd), taskStarted(), now(), inTest(), handlers() (how many
  * uncaughtException handlers there are), and onCrash (where the uncaught-exception writer is registered; default
  * process.on).
  */
@@ -108,14 +108,18 @@ function route(stdout, stderr, deps) {
   const env = d.env || process.env;
   const taskStarted = typeof d.taskStarted === 'function' ? d.taskStarted : () => require('./win32board').startedByTask(env);
   if (!taskStarted()) return null;
-  if (!d.path && require('./live-execution').inTestRun()) return null;   // and a test that names no file of its own
+  const inTest = typeof d.inTest === 'function' ? d.inTest : () => require('./live-execution').inTestRun();
+  if (!d.path && inTest()) return null;   // and a test that names no file of its own
   const isFile = typeof d.isFile === 'function' ? d.isFile : require('./logstamp').isRegularFile;
   if (isFile(1) || isFile(2)) return null;   // something already sends the board's output to a file: leave it as it is
+  let fd = null;
   try {
     const file = d.path || logPath(platform, d.home || os.homedir(), env);   // the anchor's own callers pass os.homedir()
     fs.mkdirSync((d.path ? path : path.win32).dirname(file), { recursive: true });
-    try { if (fs.statSync(file).size > ROTATE_BYTES) fs.renameSync(file, file + '.old'); } catch { /* none yet */ }
-    const fd = fs.openSync(file, 'a');
+    let size = 0;
+    try { size = fs.statSync(file).size; } catch { /* none yet */ }
+    if (size > ROTATE_BYTES) { try { fs.renameSync(file, file + '.old'); } catch { /* keep appending to the big one */ } }
+    fd = fs.openSync(file, 'a');
     const now = typeof d.now === 'function' ? d.now : () => new Date();
     const lineState = { atLineStart: true };
     if (require('./logstamp').endsMidLine(fd, [file])) { try { writeAll(fd, Buffer.from('\n')); } catch { /* as above */ } }
@@ -134,7 +138,10 @@ function route(stdout, stderr, deps) {
     for (const stream of [stdout, stderr]) if (stream && typeof stream.write === 'function') tee(stream, fd, lineState, now);
     routed = { path: file, fd };
     return routed;
-  } catch { return null; }
+  } catch {
+    if (fd !== null) { try { fs.closeSync(fd); } catch { /* already gone */ } }
+    return null;
+  }
 }
 
 /** What route() opened in this process, or null. */

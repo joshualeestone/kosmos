@@ -106,7 +106,8 @@ function build(inputs) {
   const ring = Array.isArray(i.ringLines) ? i.ringLines : [];
   const fileLines = Array.isArray(i.fileLines) ? i.fileLines : null;
   /* One source, oldest first: board.log when the board could read it (it already holds every line the ring does, and
-     the lines from before the last restart), otherwise the ring (output to a pipe or a terminal), which starts at this board's start. */
+     the lines from before the last restart), otherwise the ring (output to a pipe or a terminal, or a Windows log that could not be opened or was moved), which
+     starts at this board's start. */
   const all = maskKeyBlocks(fileLines
     ? fileLines.map((line) => ({ at: null, stream: null, line }))   // one shape either way; board.log lines carry their own stamp
     : ring.map((e) => ({ at: e.at || null, stream: e.stream || null, line: e.line })));
