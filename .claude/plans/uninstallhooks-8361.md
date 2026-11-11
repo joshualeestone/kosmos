@@ -6,7 +6,20 @@ The Windows uninstall took Kosmos's report hooks out of Claude Code's settings o
 ## Change
 `unwireHooks` in engine/win32uninstall.js also goes through every Gemini settings file Kosmos writes: the default agent home's (`~/.gemini/settings.json`, or AGENT_WORKFORCE_GEMINI_HOME) each named account's (`~/.gemini-<label>/.gemini/settings.json`), and each key home under the data folder (`gemini-key-home\<label>\.gemini\settings.json`), which stays when the data is kept. Same rules as Claude's, through the same `reporthook.unwireInstall`, now given the marker to look for: only this install's entries, or ones whose script, or for Gemini whose node.exe (the part that breaks, since the bridge lives in the data folder), is provably gone; a person's hook, another install's and anything else stay; under the #3088 lock on the uninstall side (the Gemini writers take no lock; the no-task, no-board gate is what keeps them from running); only once no task or board can wire them back. The sentences name Gemini CLI, and say only that it may show a hook error, since Gemini's leftover has not been measured.
 
-## Decided
+## Codex half (Homer, 11-11, after #8348's Windows Codex hook merged as #8367)
+- `codexhooks.unwireInstall(home, roots, { gone, platform })`: takes out OUR hooks.json (isOurs: the exact shape
+  install writes) only when its node or its bridge lies in this install's folder (every spelling, case- and
+  slash-blind, as reporthook.unwireInstall compares) or one of them is provably gone; another install's live hook
+  stays. The trust record goes first, and only when it is exactly the heading for the canonical hooks.json followed by
+  the one trusted_hash line with that command's hash; a record anyone changed stays. Both under the config.toml lock
+  install takes. A blank line after the record goes with it, never the file's final newline.
+- `win32uninstall.unwireHooks` runs it on every `~/.codex-<label>` (codexHomes), the only homes the hook is ever written
+  into (win32codexsup never gives it to the person's ~/.codex), after the Gemini loop, with done/left sentences.
+- Tested in engine/uninstallhooks-codex.win32-8361.test.js (8): this install's hook plus record, the rest of the config
+  kept, a mid-file record, another spelling of the folder, another install's live hook kept, a gone bridge taken, a
+  hand-changed record kept, and a person's own or missing hooks.json untouched.
+
+## Decided (at the Gemini half; the Codex point below is superseded by the section above)
 - The Codex half is not built here. `codexhooks.removeOurs` exists, but on main the Codex hook is installed only by the Mac supervisor: nothing on Windows writes it, and #8348 (the Windows Codex hook) is an open card with no code. Calling a removal for a Windows file that is never written, with a trust-record shape not yet decided for Windows, would be a guess, so the removal belongs with #8348; noted on both cards.
 - The default Gemini home is included as well as the named ones: Kosmos writes the same hooks there and they break the same way.
 
