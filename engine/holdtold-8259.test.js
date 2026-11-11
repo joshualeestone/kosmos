@@ -146,7 +146,7 @@ test('round 3: task show gives the latest ask, not the first', () => {
   holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, at: '2026-01-02T10:00:00.000Z' });
   holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, at: '2026-03-04T10:00:00.000Z' });
   const out = tasklist.showLines({ tasks: [{ ...read(id, n), projectId: id, isClosed: false }] }, n, id).lines.join('\n');
-  assert.match(out, /you told them 2026-03-04/);
+  assert.match(out, /you told them 2 times, last 2026-03-04/);   // kosmos#8389: the count, then the latest ask
   assert.doesNotMatch(out, /2026-01-02/);
 });
 
@@ -216,7 +216,7 @@ test('a direct reply tells when exactly one of the agent\'s for-you holds has th
 test('the marks go with the hold: off, unmarked, closed, newly marked or a new reason; a re-hold keeps them', () => {
   const marked = (id, n) => { holdtold.noteTold('leo', { via: 'task', projectId: id, task: n }); holdtold.markAnswered([{ projectId: id, n, holders: ['leo'] }]); };
   const has = (t) => tasks.HOLD_TOLD_FIELDS.filter((k) => k in t);
-  const ALL = ['onHoldToldAt', 'onHoldLastToldAt', 'onHoldToldVia', 'onHoldAnsweredAt'];
+  const ALL = ['onHoldToldAt', 'onHoldLastToldAt', 'onHoldToldVia', 'onHoldAnsweredAt', 'onHoldToldCount'];   // kosmos#8389
   const a = held(); marked(a.id, a.n);
   assert.deepEqual(has(read(a.id, a.n)), ALL, 'control: both marks are there');
   assert.deepEqual(has(tasks.setOnHold(a.id, a.n, true)), ALL, 'a bare re-hold is the same ask');
@@ -301,4 +301,20 @@ test('noteTold and noteAnswered never throw on nonsense', () => {
   assert.deepEqual(holdtold.noteTold('leo', null), []);
   assert.deepEqual(holdtold.noteAnswered({ via: 'task', projectId: 'no-such', task: 1 }), []);
   assert.doesNotThrow(() => holdtold.markAnswered([{ projectId: 'no-such', n: 1, holders: ['leo'] }]));
+});
+
+/* kosmos#8389: each tell is counted from the first; a new question starts again; a hold told before the count stays countless. */
+test('kosmos#8389: every tell counts, a new question starts the count again, and an uncounted hold is not guessed', () => {
+  const { id, n } = held();
+  for (let i = 0; i < 3; i += 1) holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, at: '2026-11-08T1' + i + ':00:00.000Z' });
+  assert.equal(read(id, n).onHoldToldCount, 3);
+  tasks.setOnHold(id, n, true, { forPerson: true, because: 'a different question' });
+  assert.equal(read(id, n).onHoldToldCount, undefined, 'a new question kept the old count');
+  // A hold told before the count was kept: told, no count. Another tell does not invent one.
+  const old = held();
+  holdtold.noteTold('leo', { via: 'task', projectId: old.id, task: old.n, at: '2026-11-08T10:00:00.000Z' });
+  projects.mutate(old.id, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === old.n ? (() => { const y = { ...x }; delete y.onHoldToldCount; return y; })() : x)) }));
+  holdtold.noteTold('leo', { via: 'task', projectId: old.id, task: old.n, at: '2026-11-08T11:00:00.000Z' });
+  assert.equal(read(old.id, old.n).onHoldToldCount, undefined);
+  assert.ok(read(old.id, old.n).onHoldLastToldAt, 'CONTROL: the tell itself was recorded');
 });
