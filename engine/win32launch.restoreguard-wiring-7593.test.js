@@ -88,7 +88,7 @@ async function turnEnvFor(runner, restored) {
   return seen[0];
 }
 
-for (const runner of ['codex', 'gemini', 'antigravity']) {
+for (const runner of ['codex', 'gemini', 'grok', 'antigravity']) {
   test('the per-turn supervisor (' + runner + '): a Restored agent\'s turns run with the guard; unmarked, without', { skip: SKIP }, async () => {
     assert.ok(guarded(await turnEnvFor(runner, true)), 'restored');
     assert.ok(none(await turnEnvFor(runner, false)), 'CONTROL');

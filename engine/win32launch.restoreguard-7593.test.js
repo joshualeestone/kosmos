@@ -48,6 +48,7 @@ test('an ordinary launch gets none of the five, whatever was inherited, in any s
 });
 
 test('the mark name the launch looks for is restoreworld\'s', () => {
+  assert.equal(launcher.RESTORED_MARK_NAME, rw.RESTORED_MARK, 'the launch copy of the mark name drifted');
   assert.equal(rw.RESTORED_MARK, 'restored-world.json');
 });
 
@@ -60,20 +61,20 @@ function restoredWorld() {
   return { base, id: p.world.id, dir };
 }
 
-test('restoredLaunch: a world prepareRestoreWorld made reads restored; the default world and an ordinary world do not', { skip: !WIN && 'Windows paths' }, () => {
+test('restoredLaunch: a world prepareRestoreWorld made reads restored; the default world and an ordinary world do not', () => {
   const r = restoredWorld();
   const env = { ...process.env, KOSMOS_WORLD: r.id };
-  assert.equal(launcher.restoredLaunch(env, path.join(SANDBOX, 'elsewhere', 'a', 'b')), true, 'the restored world');
+  assert.equal(launcher.restoredLaunch(env, null), true, 'the restored world');
   assert.equal(launcher.restoredLaunch({ ...process.env, kosmos_world: r.id }, null), true, 'KOSMOS_WORLD in another spelling');
   const plain = worlds.createWorld(r.base, 'Plain One');
-  assert.equal(launcher.restoredLaunch({ ...process.env, KOSMOS_WORLD: plain.id }, path.join(SANDBOX, 'elsewhere', 'a', 'b')), false, 'an ordinary world');
+  assert.equal(launcher.restoredLaunch({ ...process.env, KOSMOS_WORLD: plain.id }, null), false, 'an ordinary world');
   const noWorld = { ...process.env };
   delete noWorld.KOSMOS_WORLD;
-  assert.equal(launcher.restoredLaunch(noWorld, path.join(SANDBOX, 'elsewhere', 'a', 'b')), false, 'the default world');
+  assert.equal(launcher.restoredLaunch(noWorld, null), false, 'the default world');
   assert.equal(launcher.restoredLaunch({ ...noWorld, KOSMOS_WORLD: 'default' }, null), false, 'the default world by name');
 });
 
-test('restoredLaunch: with the world ALREADY applied (as in a real launch), the real base is read back; ordinary stays ordinary', { skip: !WIN && 'Windows paths' }, () => {
+test('restoredLaunch: with the world ALREADY applied (as in a real launch), the real base is read back; ordinary stays ordinary', () => {
   /* A launch runs inside a process whose roots are the world's own, with the originals recorded in
      KOSMOS_PRE_WORLD_ROOTS (applyAgentWorldEnv). Read naively, the world folder would be taken for the base, no world
      found there, and "not restored" answered: the Mac half's first version did exactly that. */
@@ -87,7 +88,7 @@ test('restoredLaunch: with the world ALREADY applied (as in a real launch), the 
   assert.equal(launcher.restoredLaunch(applied(plain.id), null), false, 'CONTROL: an ordinary world, applied');
 });
 
-test('restoredLaunch: a world id it cannot place reads restored (fails closed)', { skip: !WIN && 'Windows paths' }, () => {
+test('restoredLaunch: a world id it cannot place reads restored (fails closed)', () => {
   assert.equal(launcher.restoredLaunch({ ...process.env, KOSMOS_WORLD: '..\\..\\x' }, null), true);
 });
 

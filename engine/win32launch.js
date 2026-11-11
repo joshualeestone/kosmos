@@ -221,27 +221,29 @@ function childEnv(baseEnv, token, configDir, cliDir, runner, opts) {
    2. Whatever the world, the restore mark two folders above the agent's own absolute folder (a restored agent lives
       at <world>\workers\<name>, the mark at <world>\restored-world.json) counts. This needs no base. A mark that is a
       link counts, and so does one whose lstat fails for any reason but "not there", as isRestoredWorld's does.
-   The default world is never one by rule 1: prepare cannot make it. */
+   The default world is never one by rule 1: prepare cannot make it.
+   Review 3: as on the Mac, only a NAMED world fails closed. Which world it is, and rule 2, use no other module (the
+   world name read straight from the env, the mark's name a constant pinned to restoreworld.RESTORED_MARK by a test),
+   so a module that fails to load can never switch every ordinary agent's hooks off. */
+const RESTORED_MARK_NAME = 'restored-world.json';
 function restoredLaunch(baseEnv, cwd) {
   const e = Object.assign({}, baseEnv || {});
   let restored = false;
-  try {
-    const launchidentity = require('./launchidentity');
-    const { envCanon } = require('./win32env');
-    envCanon(e, launchidentity.WORLD_ENV_VAR);   // #5358: KOSMOS_WORLD in any spelling
-    const id = launchidentity.currentWorldId(e);
-    if (!launchidentity.isDefaultWorld(id)) {
-      try {
-        const worlds = require('./worlds');
-        restored = require('./restoreworld').isRestoredWorld(worlds.baseRoot(worlds.preWorldEnv(e)), { id }) !== false;
-      } catch { restored = true; }
-    }
-  } catch { restored = true; }
+  // KOSMOS_WORLD in any spelling (#5358), the sorted-first one, as envCanon picks it.
+  const worldKey = Object.keys(e).sort().find((k) => k.toUpperCase() === 'KOSMOS_WORLD');
+  const id = worldKey === undefined ? '' : String(e[worldKey]);
+  if (id !== '' && id !== 'default') {
+    try {
+      if (worldKey !== 'KOSMOS_WORLD') { delete e[worldKey]; e.KOSMOS_WORLD = id; }
+      const worlds = require('./worlds');
+      restored = require('./restoreworld').isRestoredWorld(worlds.baseRoot(worlds.preWorldEnv(e)), { id }) !== false;
+    } catch { restored = true; }   // a named world that cannot be checked reads as restored, as on the Mac
+  }
   if (!restored && typeof cwd === 'string' && path.win32.isAbsolute(cwd)) {
     try {
-      const mark = path.win32.join(path.win32.dirname(path.win32.dirname(path.win32.resolve(cwd))), require('./restoreworld').RESTORED_MARK);
+      const mark = path.win32.join(path.win32.dirname(path.win32.dirname(path.win32.resolve(cwd))), RESTORED_MARK_NAME);
       try { fs.lstatSync(mark); restored = true; } catch (err) { if (!(err && (err.code === 'ENOENT' || err.code === 'ENOTDIR'))) restored = true; }
-    } catch { restored = true; }   // never throws into a launch; a check that cannot run reads as restored
+    } catch { restored = true; }   // never throws into a launch (path work on a string cannot fail in practice)
   }
   return restored;
 }
@@ -678,5 +680,5 @@ module.exports = {
   /* binFor is exported for the codex supervisor (#3380), which spawns `codex exec`
      per turn and needs the same path-hint-with-bare-name-fallback the streaming
      launch uses. Pure, so it is safe to share. */
-  childEnv, restoredLaunch, GIT_GUARD_KEYS, agentCliDir, argvFor, binFor, AUTONOMY, INHERITED_MARKERS, setSpawn,
+  childEnv, restoredLaunch, GIT_GUARD_KEYS, RESTORED_MARK_NAME, agentCliDir, argvFor, binFor, AUTONOMY, INHERITED_MARKERS, setSpawn,
 };

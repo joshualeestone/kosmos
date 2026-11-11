@@ -21,7 +21,7 @@ launch (`engine/win32launch.js` childEnv, at its two spawn sites) had no restore
   card's step 3 and a difference from the Mac pane, which leaves them.
 - `restoreworld.RESTORED_MARK` exported so the launch names the mark from its one source.
 
-## Tests (engine/win32launch.restoreguard-7593.test.js, 7; engine/win32launch.restoreguard-wiring-7593.test.js, 5)
+## Tests (engine/win32launch.restoreguard-7593.test.js, 8; engine/win32launch.restoreguard-wiring-7593.test.js, 6)
 childEnv both ways with inherited spellings (any host); restoredLaunch against a real world prepareRestoreWorld made, an
 ordinary world, the default world, an unplaceable id (fails closed), the mark beside the agent with a no-mark control,
 a relative folder; and step 4 of the card on real git (2.55 on the box): a repo in a Restored world whose own
@@ -38,7 +38,7 @@ Hooks and fsmonitor only. A restored .git/config can still run commands through 
 core.sshCommand, credential helpers or includes; #5536's review screen (4c-2) shows those before the person enables
 an agent.
 
-The wiring file drives the real launch(), launchStreaming() and the per-turn supervisor (codex, gemini, antigravity),
+The wiring file drives the real launch(), launchStreaming() and the per-turn supervisor (codex, gemini, grok, antigravity),
 each with a restored folder and an unmarked control; removing the supervisor's argument fails its three arms (run).
 
 ## Decided (review round 2)
@@ -53,3 +53,9 @@ each with a restored folder and an unmarked control; removing the supervisor's a
   GIT_CONFIG_* keys. Harmless: it runs in the account folder, not a project.
 - Tests: rule 1 is also tested with the world already applied to the env (as in a real launch, roots moved and the
   originals in KOSMOS_PRE_WORLD_ROOTS); reading the base without preWorldEnv fails that arm (run).
+
+## Decided (review round 3)
+- Only a NAMED world fails closed, as on the Mac. The world name is read straight from the env and the mark's name is
+  a constant (RESTORED_MARK_NAME, pinned equal to restoreworld.RESTORED_MARK by a test), so neither the default-world
+  decision nor rule 2 needs another module: one that fails to load can no longer switch every ordinary agent's hooks
+  off. The rule-1 tests (no folder passed) now run on every host; rule 2 and the real-git arm stay Windows-only.
