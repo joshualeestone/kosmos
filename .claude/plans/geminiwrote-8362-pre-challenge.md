@@ -28,9 +28,9 @@ focused set (10 files, 189 tests: 129 pass, 0 fail, 60 Windows-only skipped) was
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 7 NITs
 **Self-generated:** 0 of the above
-- [WARNING] engine/geminisettings.wrote-8362.test.js — the type fixture ('false') could not catch loose equality --> FIXED (fixture 0)
-- [WARNING] .claude/plans/geminiwrote-8362.md — the Gemini hooks left pointing at a deleted bridge (setup.sh removes $_support/bin) --> CARDED #8364 (mine, next)
-- [WARNING] engine/geminisettings.js — any realpath error dropped the file from the record as gone --> FIXED (only ENOENT/ENOTDIR; else left and named), with a check
+- [WARNING] engine/geminisettings.wrote-8362.test.js - the type fixture ('false') could not catch loose equality --> FIXED (fixture 0)
+- [WARNING] .claude/plans/geminiwrote-8362.md - the Gemini hooks left pointing at a deleted bridge (setup.sh removes $_support/bin) --> CARDED #8364 (mine, next)
+- [WARNING] engine/geminisettings.js - any realpath error dropped the file from the record as gone --> FIXED (only ENOENT/ENOTDIR; else left and named), with a check
 - [NIT] ensurePrepared doc did not name wroteLedger --> FIXED; [NIT] re-run test did not assert the file unchanged --> FIXED; others noted (removeAt prunes a person's empty object; recorded:false unreported; no watchdog; tests use bash; gemini race)
 - Validation 1: one red, the #1777 host-branch guard (the test compared process.platform with 'win32') --> FIXED (fixed darwin platform)
 
@@ -38,16 +38,16 @@ focused set (10 files, 189 tests: 129 pass, 0 fail, 60 Windows-only skipped) was
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 6 NITs
 **Self-generated:** 0 of the above
-- [WARNING] engine/geminisettings.js — a gemini save between the undo's read and write would be lost --> FIXED (re-read before the write; changed means left and named), with a check shown failing without it
-- [WARNING] engine/geminisettings.js — removeAt removes a person's own empty object --> DEFERRED: an empty object and an absent one read the same to gemini; stated in the plan
+- [WARNING] engine/geminisettings.js - a gemini save between the undo's read and write would be lost --> FIXED (re-read before the write; changed means left and named), with a check shown failing without it
+- [WARNING] engine/geminisettings.js - removeAt removes a person's own empty object --> DEFERRED: an empty object and an absent one read the same to gemini; stated in the plan
 - [NIT] a malformed record entry was spread --> FIXED; others noted
 
 #### Iteration 3
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 5 NITs
 **Self-generated:** 1 of the above (the shell capture written in iteration 0)
-- [WARNING] install/setup.sh — an undo that stopped partway lost what it had said and claimed nothing was put back --> FIXED (output kept, lines said, "could not finish"), with a check shown failing against the old capture
-- [WARNING] engine/geminisettings.js — a record that fails at birth is lost for good --> DEFERRED: treating "holds exactly our value" as ours is the indistinguishability the card exists to avoid; named in the plan's weakest premise
+- [WARNING] install/setup.sh - an undo that stopped partway lost what it had said and claimed nothing was put back --> FIXED (output kept, lines said, "could not finish"), with a check shown failing against the old capture
+- [WARNING] engine/geminisettings.js - a record that fails at birth is lost for good --> DEFERRED: treating "holds exactly our value" as ours is the indistinguishability the card exists to avoid; named in the plan's weakest premise
 - [NIT] a second install sharing ~/.gemini --> named in the plan; others noted
 
 #### Iteration 4
@@ -60,14 +60,14 @@ focused set (10 files, 189 tests: 129 pass, 0 fail, 60 Windows-only skipped) was
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 7 NITs
 **Self-generated:** 0 of the above
-- [WARNING] engine/geminisettings.js — a value the person re-chose to the same value (gemini's /auth writes gemini-api-key) is taken out --> DEFERRED: no record can tell it apart; named in the weakest premise
+- [WARNING] engine/geminisettings.js - a value the person re-chose to the same value (gemini's /auth writes gemini-api-key) is taken out --> DEFERRED: no record can tell it apart; named in the weakest premise
 - [NIT] header claimed no engine dependencies --> FIXED; [NIT] the left message did not cover every reason --> FIXED; [NIT] the fallback named sign-in when only updates were recorded --> FIXED; [NIT] create.js now says the Windows uninstall does not read the record --> FIXED; [NIT] plan test count --> FIXED
 
 #### Iteration 6
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 0 NITs (three WARNINGs and three NITs, each a repeat of iterations 2, 3 and 5)
 **Self-generated:** 0
-**Converged** — no new actionable findings.
+**Converged** - no new actionable findings.
 
 ### Final Ledger (WARNINGs and above)
 
