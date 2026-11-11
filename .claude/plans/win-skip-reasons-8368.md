@@ -24,7 +24,7 @@ mutation check. Phase 2 (the full `npm test` on Windows, 508 failing files by ca
 - engine/bigint-ino.win32-7229.test.js: rounds up to 4096; the 60 s bound decides. Cause inferred, not measured. The
   failure now says how many rounds ran, in how long, and which bound ended it, so the next one tells which.
 - tools/windows-tests.js: `judge(..., { onCi })`. An ALL_SKIP_OK file that runs and passes is stale only on CI
-  (GITHUB_ACTIONS === 'true'), where it still catches an entry no longer needed; elsewhere it prints "ran here".
+  (onCi(process.env), the CI variable, the same rule as the scheduler guard), where it still catches an entry no longer needed; elsewhere it prints "ran here".
   Default onCi true, so every existing caller keeps the CI rule.
 - engine/windows-tests-1777.test.js: the off-CI rule, the CI rule, the default, and a failure off CI still red.
 
@@ -44,6 +44,6 @@ mutation check. Phase 2 (the full `npm test` on Windows, 508 failing files by ca
   temp folder, so ANY import there makes the pinned guard answer ok:false. In production a Windows run returns
   "unsupported" before this code. A test artifact, said as one in the skip text, not blamed on the person's files.
 - Skip, not a production seam for the ancestor walk: a seam only for tests would change production code for a test,
-  and the skip is fenced (only when every complaint is the import note; never on CI, which still runs every arm).
+  and the skip is fenced (only on a Windows host, only when every complaint is the import note; never on CI, which still runs every arm).
   What would change my mind: a second test needing the same walk bounded, or a Windows rule set for this guard.
 - Weakest part: bigint-ino's cause is inferred (other writers taking the freed records); not reproduced on demand.

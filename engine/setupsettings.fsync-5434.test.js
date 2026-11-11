@@ -46,7 +46,8 @@ function fresh(name) { const d = path.join(SANDBOX, 'workers', name + '-' + (++N
    skip, saying so. Never on CI, where the runner's home is clean and a skip could only hide a fault. */
 const { onlyImportComplaints, onCi } = require('../test-support/hostimports-8368');
 const HOST_NOT_CLEAN = (() => {
-  if (onCi(process.env)) return false;
+  // Only where its own explanation holds: a Windows host (the backslash path under macOS rules), never on CI.
+  if (process.platform !== 'win32' || onCi(process.env)) return false;
   const d = fresh('hostcheck');
   fs.writeFileSync(path.join(d, '.claude', 'settings.json'), '{}\n');
   let r;

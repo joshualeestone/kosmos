@@ -205,7 +205,7 @@ function failingTests(output, file = '') {
 }
 
 // results: [{ file, ok, failing: [names], killed, notRun, error, tests, skipped }].
-// Returns { failed: [{ file, why }], stale: [...], known: [...] }.
+// Returns { failed: [{ file, why }], stale: [...], known: [...], ranHere: [{ file, ran }] }.
 /* kosmos#8368: `ciRules` says whether to judge as the CI runner does (onCi below, the same CI rule as the scheduler guard). An ALL_SKIP_OK file skips there because the runner has
    no Codex or Antigravity; on a Windows computer that has them, its tests run and pass, which is the point of having
    them, not a stale entry. So "its tests run now" is stale only on CI, where it still catches an entry no longer needed.
