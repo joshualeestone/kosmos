@@ -72,7 +72,7 @@ jobs:
             for h in security.ubuntu.com archive.ubuntu.com azure.archive.ubuntu.com; do
               if timeout 5 getent hosts "$h" >/dev/null 2>&1; then continue; fi
               ip=$(curl -sS -m 10 "https://dns.google/resolve?name=$h&type=A" 2>/dev/null | grep -oE '"data":"[0-9.]+"' | head -1 | cut -d'"' -f4 || true)
-              if [ -n "$ip" ]; then echo "$ip $h" | sudo tee -a /etc/hosts >/dev/null; echo "pinned $h to $ip"; pinned=1; fi
+              if [ -n "$ip" ]; then echo "$ip $h" | sudo tee -a /etc/hosts >/dev/null; echo "::warning::kosmos#8380: $h did not resolve, so it was pinned to $ip from a public resolver for this run only"; pinned=1; fi
             done
             [ "$pinned" = 1 ]
           }
