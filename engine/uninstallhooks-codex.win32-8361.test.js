@@ -75,6 +75,16 @@ test('another install\'s hook whose bridge is provably gone is taken out', () =>
   assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
 });
 
+test('a gone node.exe counts as gone; an install on a drive that is not there now (unplugged) is kept', () => {
+  const h = installed(OTHER);
+  const node = W(OTHER).node;
+  assert.equal(hooks.unwireInstall(h, [THIS], { platform: 'win32', gone: (p) => p === node }).changed, true, 'a gone node.exe');
+  const h2 = installed(OTHER);
+  const r = hooks.unwireInstall(h2, [THIS], { platform: 'win32', gone: () => true });   // the drive root reads gone too
+  assert.equal(r.changed, false, 'an unplugged drive is not a deleted folder');
+  assert.equal(fs.existsSync(path.join(h2, 'hooks.json')), true);
+});
+
 test('a trust record changed by hand stays; only hooks.json goes', () => {
   const h = installed(THIS);
   const changed = cfgOf(h).replace(/sha256:[0-9a-f]{64}/, 'sha256:' + 'e'.repeat(64));

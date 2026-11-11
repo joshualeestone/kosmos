@@ -306,7 +306,11 @@ function unwireInstall(home, roots, opts) {
   try {
     const hooksFile = path.join(home, HOOKS_FILE);
     let text;
-    try { text = fs.readFileSync(hooksFile, 'utf8'); } catch { return { ours: false, changed: false }; }
+    try { text = fs.readFileSync(hooksFile, 'utf8'); } catch (e) {
+      // Review 3: no file is nothing to do; one that is there but cannot be read is named, as Claude's and Gemini's are.
+      if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return { ours: false, changed: false };
+      return { ours: true, changed: false, because: 'hooks.json could not be read (' + ((e && e.code) || 'unknown') + ')' };
+    }
     if (!isOurs(text)) return { ours: false, changed: false };
     const command = JSON.parse(text).hooks[EVENT][0].hooks[0].command;
     const m = /^& '([^']+)' '([^']+)'$/.exec(command) || /^'(.*)'$/.exec(command);
@@ -314,7 +318,14 @@ function unwireInstall(home, roots, opts) {
     const norm = (s) => String(s).replace(/\//g, '\\').toLowerCase();
     const prefixes = [...new Set((roots || []).filter((r) => typeof r === 'string' && r.trim()).map((r) => norm(r).replace(/\\+$/, '') + '\\'))];
     const inRoots = paths.some((p) => prefixes.some((r) => norm(p).startsWith(r)));
-    const dead = paths.some((p) => { try { return gone(p) === true; } catch { return false; } });
+    /* Review 3: "provably gone" by the #5999 rules reporthook.unwireInstall applies: an absolute drive-letter path (a
+       \\server one is never looked at), nothing a shell would expand, the expected file (node.exe, or the bridge), on a
+       drive that is there now (an unplugged drive is not a deleted folder). Anything else is kept. */
+    const provablyGone = (p, name) => {
+      if (!/^[A-Za-z]:[\\/]/.test(p) || /[%$~]/.test(p) || p.split(/[\\/]/).pop().toLowerCase() !== name) return false;
+      try { return !gone(p.slice(0, 2) + '\\') && gone(p) === true; } catch { return false; }
+    };
+    const dead = paths.length === 2 && (provablyGone(paths[0], 'node.exe') || provablyGone(paths[1], 'codex-report-bridge.js'));
     if (!inRoots && !dead) return { ours: false, changed: false, because: 'it belongs to another Kosmos folder that is still there' };
     const cfg = path.join(home, 'config.toml');
     const heading = stateHeading(path.join(require('./trust').canonicalOnDisk(home), HOOKS_FILE), plat);
@@ -323,7 +334,8 @@ function unwireInstall(home, roots, opts) {
       /* Review 1: judged again under the lock, a regular file still in our shape with the same command (a person's
          editor takes no lock of ours), and hooks.json goes FIRST: a record left alone is inert, a hooks.json left
          without its record is what stops the Codex TUI. */
-      const st = fs.lstatSync(hooksFile);
+      let st;
+      try { st = fs.lstatSync(hooksFile); } catch (e) { if (e && e.code === 'ENOENT') return { ours: false, changed: false }; throw e; }
       if (!st.isFile()) return { ours: false, changed: false, because: 'hooks.json is not a plain file' };
       const now = fs.readFileSync(hooksFile, 'utf8');
       if (!isOurs(now) || JSON.parse(now).hooks[EVENT][0].hooks[0].command !== command) return { ours: false, changed: false, because: 'hooks.json changed while it was being checked' };
