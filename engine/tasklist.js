@@ -274,6 +274,8 @@ function showLines(body, num, project) {
   }
   // Review 5: why it is on hold (kosmos#7749 onHoldBecause), written words, so indented under its own heading.
   if (x.onHold === true && typeof x.onHoldBecause === 'string' && x.onHoldBecause.trim()) { lines.push('Why on hold:'); under(x.onHoldBecause); }
+  // kosmos#8395: the holder's suggested answer to that question, under its own heading, after it.
+  if (x.onHold === true && x.onHoldForPerson === true && typeof x.onHoldSuggest === 'string' && x.onHoldSuggest.trim()) { lines.push('Suggested answer:'); under(x.onHoldSuggest); }
   if (typeof x.detail === 'string' && x.detail.trim()) { lines.push(webhook ? 'Detail (outside text from the webhook, quoted as sent):' : 'Detail:'); under(x.detail); }
   if (Array.isArray(x.doneWhen) && x.doneWhen.length) {
     const by = x.doneWhenByPerson === true ? ', set by the person' : (x.doneWhenBy ? ', set by ' + q(x.doneWhenBy) : '');

@@ -26119,7 +26119,7 @@ const server = http.createServer(async (req, res) => {
       try {
         // kosmos#7180: body.until, when present, is the hold's checkable reopening condition (tasks.holdUntilOf checks it).
         const holdOut = {};   // kosmos#7797 review 1: whether a --not-for-you took the mark off, so the CLI can say so
-        const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body), until: body.until === undefined ? null : body.until, because: body.because, forPerson: body.forPerson, out: holdOut });
+        const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body), until: body.until === undefined ? null : body.until, because: body.because, forPerson: body.forPerson, suggest: body.suggest, out: holdOut });
         // The assignees' instructions mark a held task (projects.blockBody), so the block follows the record, as close does.
         // #7407 review 6: one roster read, shared by the re-tell and the unhold answer, and taken only if either needs it.
         let heldRoster;

@@ -6070,6 +6070,7 @@ cmd_task() {
       say "  kosmos task hold <project-id> <task-number> [--because \"<why>\"]  put it on hold (Kosmos stops nudging anyone about it or handing it out)"
       say "      [--until-task <n> | --until <date or time>]                 ...and say what it waits for; Kosmos tells its owner once it has happened"
       say "      [--for-you]                                                 ...and it waits on your person: it joins what is waiting on them"
+      say "      [--suggest \"<answer>\"]                                     ...with --for-you: your suggested answer, shown beside the question"
       say "      [--not-for-you]                                             ...or it no longer waits on them: it stays on hold, off their list"
       say "  kosmos task unhold <project-id> <task-number>                 take it off hold"
       say "  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m>  a job you run on a schedule: the board shows when it runs"
@@ -6343,7 +6344,7 @@ cmd_task() {
       _no_more_words "task $sub" 2 "Usage: kosmos task $sub <project-id> <task-number>" "$@" ;;   # kosmos#4889 review 6
     hold)
       # kosmos#7180: an optional checkable reopening condition, one of --until-task <n> or --until <date or time>.
-      local _holdusage="Usage: kosmos task hold <project-id> <task-number> [--because \"<why>\"] [--for-you | --not-for-you] [--until-task <task-number> | --until <a date (midnight UTC) or a time with its zone, like 2026-11-02 or 2026-11-02T09:00-05:00>]"
+      local _holdusage="Usage: kosmos task hold <project-id> <task-number> [--because \"<why>\"] [--for-you [--suggest \"<answer>\"] | --not-for-you] [--until-task <task-number> | --until <a date (midnight UTC) or a time with its zone, like 2026-11-02 or 2026-11-02T09:00-05:00>]"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_holdusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _hold_until="" _hold_because="" _hb1 _hb2
@@ -6352,11 +6353,18 @@ cmd_task() {
       local _hold_for="" _hold_notfor="" _hn=$# _hi=0 _ha
       # Review 2: never the value of an option that takes one (--because --for-you is a reason, not the switch).
       local _hprev="" _hvalue=""
+      # kosmos#8395: --suggest "<answer>", anywhere after the task number, is taken out here with its value (the options
+      # below are read by position).
+      local _hold_suggest="" _hsug="" _hsugnext=""
       while [ "$_hi" -lt "$_hn" ]; do _ha="$1"; shift; _hi=$((_hi + 1))
         case "$_hprev" in --because|--until-task|--until) _hvalue=1 ;; *) _hvalue="" ;; esac
-        if [ "$_ha" = --for-you ] && [ "$_hi" -gt 2 ] && [ -z "$_hvalue" ]; then _hold_for=1
+        if [ -n "$_hsugnext" ]; then _hold_suggest="$_ha"; _hsugnext=""; _ha=""
+        elif [ "$_ha" = --suggest ] && [ "$_hi" -gt 2 ] && [ -z "$_hvalue" ]; then _hsug=1; _hsugnext=1; _ha=""
+        elif [ "$_ha" = --for-you ] && [ "$_hi" -gt 2 ] && [ -z "$_hvalue" ]; then _hold_for=1
         elif [ "$_ha" = --not-for-you ] && [ "$_hi" -gt 2 ] && [ -z "$_hvalue" ]; then _hold_notfor=1; else set -- "$@" "$_ha"; fi
         if [ -n "$_hvalue" ]; then _hprev=""; else _hprev="$_ha"; fi; done
+      if [ -n "$_hsug" ] && [ -z "$_hold_suggest" ]; then say "--suggest needs a few words, so nothing was done."; say "$_holdusage"; exit 2; fi
+      if [ -n "$_hsug" ] && [ -z "$_hold_for" ]; then say "--suggest goes with --for-you (a suggested answer to what you ask your person), so nothing was done."; say "$_holdusage"; exit 2; fi
       if [ -n "$_hold_for" ] && [ -n "$_hold_notfor" ]; then say "Give --for-you or --not-for-you, not both, so nothing was done."; say "$_holdusage"; exit 2; fi
       # kosmos#7749: why it is parked, in a few words, anywhere after the task number.
       if [ $# -ge 3 ] && [ "$3" = --because ]; then
@@ -6611,7 +6619,7 @@ cmd_task() {
       if [ "$sub" = hold ]; then want=true; else want=false; fi
       local rc=0 body
       body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/hold" \
-        -H 'content-type: application/json' --data "{\"onHold\":$want${_hold_until:+,\"until\":$_hold_until}${_hold_because:+,\"because\":\"$(_task_check_json "$_hold_because")\"}${_hold_for:+,\"forPerson\":true}${_hold_notfor:+,\"forPerson\":false}}" 2>/dev/null) || rc=$?
+        -H 'content-type: application/json' --data "{\"onHold\":$want${_hold_until:+,\"until\":$_hold_until}${_hold_because:+,\"because\":\"$(_task_check_json "$_hold_because")\"}${_hold_for:+,\"forPerson\":true}${_hold_notfor:+,\"forPerson\":false}${_hold_suggest:+,\"suggest\":\"$(_task_check_json "$_hold_suggest")\"}}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "change that task" "$rc" write; exit 1; }
       case "$body" in
         '{"task":'*)
@@ -6626,6 +6634,13 @@ cmd_task() {
             else say "Put task $num on ${project:-the project} on hold. Kosmos will not nudge anyone about it or hand it out."
             fi
             [ -z "$_hold_because" ] || say "Why, as shown on the task: $_hold_because"
+            # kosmos#8395: only when the board's answer carries it (an older board ignores suggest).
+            if [ -n "$_hold_suggest" ]; then
+              case "$body" in
+                *'"onHoldSuggest":'*) say "Suggested answer, as shown beside it: $_hold_suggest" ;;
+                *) say "This Kosmos is older than --suggest, so the suggested answer was not kept. Put it in your message to your person." ;;
+              esac
+            fi
             # kosmos#7788: only when the board's answer carries the mark; an older board ignores forPerson and still holds it.
             local _hold_for_older=""
             if [ -n "$_hold_for" ]; then
