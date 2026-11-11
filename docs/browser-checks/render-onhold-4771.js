@@ -1,4 +1,4 @@
-// Browser-check-surface: tskHoldToldWords tskHoldConfirmedWords tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-mins tk-repeat-mins-wrap tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause pj-one-goalask paintGoalAsk tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
+// Browser-check-surface: tskHoldToldWords tskHoldSuggestWords tskHoldConfirmedWords tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-mins tk-repeat-mins-wrap tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause pj-one-goalask paintGoalAsk tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
 'use strict';
 /**
  * On hold and paused, on the screen (kosmos#4771).
@@ -394,6 +394,26 @@ function chk(ok, label, extra) {
       const card = await page.evaluate(() => { const e = document.querySelector('.tkcard-for-you'); return e ? e.textContent.trim() : null; });
       // kosmos#8389 review 4: and, as the Tasks row does, that it asked you (the column is what most people see).
       chk(card === 'On hold until you answer: needs your yes on the price. It asked you 2 hours ago.', `${tag} #7797 the project's task card says it waits on your answer (kosmos#8389: and that it asked)`, card);
+      /* kosmos#8395: the agent's suggested answer shows right after the question, on the card, the Tasks row and the task
+         page. Taken off again after, so the checks below read what they did before. */
+      projects.mutate(launch.id, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === 2 ? { ...x, onHoldSuggest: 'the lower one' } : x)) }));
+      await page.evaluate(() => showTab('tasks'));
+      await page.evaluate((pid) => tskGoToProject(pid), launch.id);
+      await page.waitForFunction(() => { const e = document.querySelector('.tkcard-for-you'); return e && /Suggested/.test(e.textContent); }, null, { timeout: 8000 }).catch(() => {});
+      const sugCard = await page.evaluate(() => { const e = document.querySelector('.tkcard-for-you'); return e ? e.textContent.trim() : null; });
+      chk(sugCard === 'On hold until you answer: needs your yes on the price. Suggested: the lower one. It asked you 2 hours ago.',
+        `${tag} kosmos#8395 the project's task card shows the suggested answer after the question`, sugCard);
+      await page.evaluate(() => showTab('tasks'));
+      await page.waitForFunction(() => { const e = document.querySelector('#tsk-groups .tsk-for-you'); return e && /Suggested/.test(e.textContent); }, null, { timeout: 8000 }).catch(() => {});
+      const sugRow = await page.evaluate(() => { const e = document.querySelector('#tsk-groups .tsk-for-you'); return e ? e.textContent.trim() : null; });
+      chk(sugRow === 'On hold until you answer: needs your yes on the price. Suggested: the lower one. It asked you 2 hours ago. Open it and take it off hold once you have.',
+        `${tag} kosmos#8395 the Tasks row shows the suggested answer after the question`, sugRow);
+      await openTask(page, launch.id, 2);
+      await page.waitForFunction(() => /Suggested/.test(document.getElementById('tk-hold-until').textContent), null, { timeout: 6000 }).catch(() => {});
+      const sugPage = await text(page, '#tk-hold-until');
+      chk(/^Why: needs your yes on the price\. .*Suggested: the lower one\./.test(sugPage || ''),
+        `${tag} kosmos#8395 the task page shows the suggested answer after Why`, sugPage);
+      projects.mutate(launch.id, (p) => ({ ...p, tasks: p.tasks.map((x) => { if (x.number !== 2) return x; const y = { ...x }; delete y.onHoldSuggest; return y; }) }));
       /* kosmos#7797: and the project's own card in the Projects list reads Question (no member asks here). */
       await page.evaluate(() => showTab('projects'));
       await page.waitForFunction((pid) => { const r = document.querySelector('#pj-list .pj-row[data-project="' + pid + '"]'); return r && /Question/.test(r.textContent); }, launch.id, { timeout: 6000 }).catch(() => {});

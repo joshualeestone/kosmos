@@ -6635,10 +6635,11 @@ cmd_task() {
             fi
             [ -z "$_hold_because" ] || say "Why, as shown on the task: $_hold_because"
             # kosmos#8395: only when the board's answer carries it (an older board ignores suggest).
+            local _hold_sug_older=""
             if [ -n "$_hold_suggest" ]; then
               case "$body" in
                 *'"onHoldSuggest":'*) say "Suggested answer, as shown beside it: $_hold_suggest" ;;
-                *) say "This Kosmos is older than --suggest, so the suggested answer was not kept. Put it in your message to your person." ;;
+                *) say "This Kosmos is older than --suggest, so the suggested answer was not kept. Put it in your message to your person."; _hold_sug_older=1 ;;
               esac
             fi
             # kosmos#7788: only when the board's answer carries the mark; an older board ignores forPerson and still holds it.
@@ -6667,7 +6668,7 @@ cmd_task() {
                 local _hat; _hat=$(printf '%s' "$body" | sed -n 's/.*"onHoldUntil":{"at":"\([0-9TZ:.+-]*\)".*/\1/p')
                 say "It waits until ${_hat:-${4:-}}; Kosmos tells its owner when that time has passed." ;;
             esac
-            [ -z "$_hold_for_older" ] || exit 1   # held, but not all of what was asked: not 0
+            [ -z "$_hold_for_older$_hold_sug_older" ] || exit 1   # held, but not all of what was asked: not 0
           else say "Took task $num on ${project:-the project} off hold."
             # kosmos#7407: who has it now, as the board says (it carries no double quote); none from an older board.
             local _next; _next=$(printf '%s' "$body" | sed -n 's/.*"next":"\([^"]*\)".*/\1/p')

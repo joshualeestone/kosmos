@@ -74663,9 +74663,9 @@ function tkPaintHoldUntil(p, t) {
   const at = u && !m && typeof u.words === 'string' ? Date.parse(u.words) : NaN;
   const n = m ? Number(m[1]) : 0;
   const gone = m && !(p.tasks || []).some((x) => x && x.number === n);
-  const why = held && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tk-hold-why" style="overflow-wrap:anywhere;">Why: ' + esc(t.onHoldBecause) + (tskHoldConfirmedWords(t) && !/[.!?]$/.test(t.onHoldBecause) ? '.' : '') + '</span> ' + (tskHoldConfirmedWords(t) ? '<span class="tk-hold-why">' + esc(tskHoldConfirmedWords(t)) + '</span> ' : '') : '';   // kosmos#7749
-  // kosmos#8395: the holder's suggested answer, beside the question it answers.
+  // kosmos#8395: the holder's suggested answer, beside the question it answers (so the reason ends its sentence before it).
   const sug = held ? tskHoldSuggestWords(t).trim() : '';
+  const why = held && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tk-hold-why" style="overflow-wrap:anywhere;">Why: ' + esc(t.onHoldBecause) + ((tskHoldConfirmedWords(t) || sug) && !/[.!?]$/.test(t.onHoldBecause) ? '.' : '') + '</span> ' + (tskHoldConfirmedWords(t) ? '<span class="tk-hold-why">' + esc(tskHoldConfirmedWords(t)) + '</span> ' : '') : '';   // kosmos#7749
   const why2 = why + (sug ? '<span class="tk-hold-suggest" style="overflow-wrap:anywhere;">' + esc(sug) + '</span> ' : '');
   const html = why2 + (!u ? ''
     : m ? (gone ? 'Task ' + n + ' is no longer on this project, so this can come off hold.'

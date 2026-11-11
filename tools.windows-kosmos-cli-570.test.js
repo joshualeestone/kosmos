@@ -629,6 +629,32 @@ test('#7788 Windows task hold --for-you sends forPerson anywhere after the numbe
   assert.equal(off.calls.length, 0);
 });
 
+test('#8395 Windows task hold --suggest: sent with --for-you anywhere after the number, said when kept; refused alone; an older board exits 1', async () => {
+  const kept = (route, init) => {
+    const sent = JSON.parse(init.body);
+    return { body: { task: { number: 3, onHold: true, onHoldForPerson: true, ...(typeof sent.suggest === 'string' ? { onHoldSuggest: sent.suggest } : {}) } } };
+  };
+  const a = await run(['task', 'hold', 'p1', '3', '--suggest', 'the lower one', '--for-you', '--because', 'which price'], kept);
+  assert.equal(a.code, 0, a.err);
+  assert.deepEqual(a.calls[0].body, { onHold: true, because: 'which price', forPerson: true, suggest: 'the lower one' });
+  assert.match(a.out, /Suggested answer, as shown beside it: the lower one/);
+  // --suggest as the value of --because is the reason, not the option, as install/kosmos.
+  const v = await run(['task', 'hold', 'p1', '3', '--for-you', '--because', '--suggest'], kept);
+  assert.equal(v.code, 0, v.err);
+  assert.deepEqual(v.calls[0].body, { onHold: true, because: '--suggest', forPerson: true });
+  const alone = await run(['task', 'hold', 'p1', '3', '--suggest', 'yes']);
+  assert.equal(alone.code, 2, 'a suggestion with no --for-you was not refused');
+  assert.match(alone.err, /--suggest goes with --for-you/);
+  assert.equal(alone.calls.length, 0);
+  const empty = await run(['task', 'hold', 'p1', '3', '--for-you', '--suggest']);
+  assert.equal(empty.code, 2);
+  assert.match(empty.err, /--suggest needs a few words/);
+  assert.equal(empty.calls.length, 0);
+  const older = await run(['task', 'hold', 'p1', '3', '--for-you', '--suggest', 'yes'], () => ({ body: { task: { number: 3, onHold: true, onHoldForPerson: true } } }));
+  assert.equal(older.code, 1, 'a suggestion the board did not keep exited 0');
+  assert.match(older.out, /older than --suggest, so the suggested answer was not kept/);
+});
+
 test('#4771 task hold / unhold: POST .../task/<n>/hold with {onHold} and the board token; a non-number is a usage error sent nowhere', async () => {
   const on = await run(['task', 'hold', 'p1', '3'], () => ({ body: { task: { number: 3, onHold: true } } }));
   assert.equal(on.code, 0, on.err);
