@@ -357,7 +357,7 @@ function geminiSettingsFiles(home, env) {
   return [...new Set(files)];
 }
 
-/* #5999: take THIS install's report hooks out of every Claude settings file. Left in, each one points at a script in
+/* #5999: take THIS install's report hooks out of every Claude settings file (kosmos#8361: and every Gemini one, below). Left in, each one points at a script in
    the folder the person deletes next, and Claude Code reports an error on every tool call from then on. Only entries
    that are ours AND point inside `bundleRoot` go, plus ours that point at a script that is already gone (an added
    account keeps the folder Kosmos ran from when it was added), through reporthook.unwireInstall, under the #3088 lock

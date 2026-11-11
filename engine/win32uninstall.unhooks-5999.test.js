@@ -430,3 +430,35 @@ test('kosmos#8361: the gone-node.exe rule keeps anything not provably this marke
   writeJson(control, { hooks: { AfterAgent: [{ hooks: [{ type: 'command', command: cmd(OLD) }] }] } });
   assert.equal(reporthook.unwireInstall(control, [BUNDLE], { gone, marker: geminisettings.MARKER, programToo: true }).changed, true);
 });
+
+test('kosmos#8361: Gemini\'s held-lock and unreadable cases name Gemini CLI and its own marker', async () => {
+  const h = home();
+  const held = path.join(h, '.gemini-held', '.gemini', 'settings.json');
+  writeJson(held, { hooks: { AfterAgent: [geminiOurs()] } });
+  const heldBytes = fs.readFileSync(held, 'utf8');
+  fs.mkdirSync(held + '.lock');
+  const broken = path.join(h, '.gemini-broken', '.gemini', 'settings.json');
+  const text = JSON.stringify({ hooks: { AfterAgent: [geminiOurs()] } }).slice(0, -1);
+  fs.mkdirSync(path.dirname(broken), { recursive: true }); fs.writeFileSync(broken, text);
+  process.env.AGENT_WORKFORCE_LOCK_MS = '60';
+  stubSchedulers([listing([])]);
+  const r = await run(h);
+  fs.rmSync(held + '.lock', { recursive: true, force: true });
+  assert.equal(fs.readFileSync(held, 'utf8'), heldBytes);
+  const heldLine = r.left.find((l) => l.includes(held));
+  assert.ok(heldLine && /Gemini CLI's settings/.test(heldLine) && /Gemini CLI may show a hook error/.test(heldLine) && !/Claude Code/.test(heldLine), JSON.stringify(r.left));
+  assert.equal(fs.readFileSync(broken, 'utf8'), text, 'an unreadable Gemini file was rewritten');
+  const note = r.notes.find((n) => n.includes(broken));
+  assert.ok(note && /^Gemini CLI's settings file/.test(note) && /gemini-report-bridge/.test(note), JSON.stringify(r.notes));
+});
+
+test('kosmos#8361: AGENT_WORKFORCE_GEMINI_HOME names the default Gemini home, as create.js reads it', async () => {
+  const h = home();
+  const moved = path.join(h, 'elsewhere', 'gemini');
+  const file = path.join(moved, 'settings.json');
+  writeJson(file, { hooks: { AfterAgent: [geminiOurs()] } });
+  stubSchedulers([listing([])]);
+  const base = path.dirname(h);
+  await run(h, { env: { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX', AGENT_WORKFORCE_GEMINI_HOME: moved } });
+  assert.deepEqual(readJson(file), {});
+});
