@@ -397,3 +397,29 @@ test('kosmos#8361: the key homes under the data folder are covered too', async (
   assert.deepEqual(readJson(keyFile), {});
   assert.ok(r.done.some((d) => d.includes(keyFile)), JSON.stringify(r.done));
 });
+
+test('kosmos#8361: the gone-node.exe rule keeps anything not provably this marker\'s hook on a gone node.exe at a provable place', () => {
+  const OLD = 'C:\\Old\\runtime\\node.exe';
+  const cmd = (node) => geminisettings.commandFor(GEMINI_BRIDGE, { platform: 'win32', node });
+  const keep = [
+    { why: 'its drive is not there now', node: 'E:\\Old\\runtime\\node.exe' },
+    { why: 'a %VAR% path', node: '%LOCALAPPDATA%\\Old\\node.exe' },
+    { why: 'a relative path', node: 'runtime\\node.exe' },
+    { why: 'not node.exe', node: 'C:\\Old\\runtime\\python.exe' },
+  ];
+  const gone = (p) => p === 'E:\\' || /Old/.test(p);
+  for (const k of keep) {
+    const file = path.join(home(), '.gemini-k', '.gemini', 'settings.json');
+    writeJson(file, { hooks: { AfterAgent: [{ hooks: [{ type: 'command', command: cmd(k.node) }] }] } });
+    const r = reporthook.unwireInstall(file, [BUNDLE], { gone, marker: geminisettings.MARKER, programToo: true });
+    assert.equal(r.changed, false, 'removed though ' + k.why);
+  }
+  // A person's hook on a gone node.exe without our marker is not ours.
+  const persons = path.join(home(), '.gemini-p', '.gemini', 'settings.json');
+  writeJson(persons, { hooks: { AfterAgent: [{ hooks: [{ type: 'command', command: "& '" + OLD + "' 'C:\\tools\\mine.js'" }] }] } });
+  assert.equal(reporthook.unwireInstall(persons, [BUNDLE], { gone, marker: geminisettings.MARKER, programToo: true }).changed, false);
+  // CONTROL: the same rule takes ours on a gone node.exe at a provable place.
+  const control = path.join(home(), '.gemini-c', '.gemini', 'settings.json');
+  writeJson(control, { hooks: { AfterAgent: [{ hooks: [{ type: 'command', command: cmd(OLD) }] }] } });
+  assert.equal(reporthook.unwireInstall(control, [BUNDLE], { gone, marker: geminisettings.MARKER, programToo: true }).changed, true);
+});

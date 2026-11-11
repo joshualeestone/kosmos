@@ -11,8 +11,9 @@ The Windows uninstall took Kosmos's report hooks out of Claude Code's settings o
 - The default Gemini home is included as well as the named ones: Kosmos writes the same hooks there and they break the same way.
 
 ## Weakest premise
-That Gemini's settings file reads as Claude's does (one JSON object, `hooks` by event, `{ hooks: [{ type, command }] }` entries), which is what geminisettings.js writes. Not run on a real Windows machine.
+That Gemini's settings file reads as Claude's does (one JSON object, `hooks` by event, `{ hooks: [{ type, command }] }` entries), which is what geminisettings.js writes. Not run on a real Windows machine. A settings file with comments cannot be read by this step, but geminisettings.js cannot parse one either, so it never wrote hooks into one.
 
 ## Not done
+The card's Codex half is not met, so the card stays open after this merges, waiting on #8348.
 - Mac and Linux (#5998's install/setup.sh) are not in this card.
 - Grok's hook file is not covered.
