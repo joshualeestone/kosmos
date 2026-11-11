@@ -66,3 +66,11 @@ feedback). Correction to my card comment: marking a task built does not touch a 
   is DELETED (the tests pin each status; a claim about their order is not guarded by anything). NITs noted, tests to
   add if a later round asks: a close through the parts path, the hold route's pass-through, the person taking the
   hold over; tk-hold-suggest has no style rule.
+- Iteration 5 (opus): no new finding at WARNING or above; converged. NITs noted, not built: the new tskHoldSuggestWords
+  sits between tskHoldToldWords and its #8259 doc comment in web/index.html (moving it touches a surface-token line,
+  so a browser-check re-run for a comment; left for the next edit there); no test pins the --suggest sentence in the
+  agent instructions (engine/projects.js); the 400 on a hold that is not for the person is reached only by a raw API
+  call (both CLIs refuse first) and is tested in the engine only. DECIDED: a suggestion-only change restamps
+  onHoldConfirmedAt, as a same-reason re-hold does: the agent sending it is reaffirming the hold. Would change my mind:
+  the person reading a fresh suggestion as noise on a quiet hold. The changed browser check render-onhold-4771 passed
+  light and dark on this branch (recorded in the handoff, not the CI job), and CI's browser-checks job runs it again.
