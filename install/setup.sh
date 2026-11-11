@@ -2099,6 +2099,16 @@ say_gemini_hooks_left() {
 # #8362: take out of the Gemini settings files the values Kosmos recorded writing (the record is $1/gemini-wrote.json),
 # through the installed engine's geminisettings.undoWrites, and say what happened. With no node or no engine to do
 # it (a partial install, or the folder already gone), the record is named instead, so nothing is left silently.
+# kosmos#8402: say a line unless an earlier record already said it (gemini_settings_undo_all resets _gw_said).
+_gw_say_once() {
+  case "${_gw_said-}" in *"
+$1
+"*) return 0 ;; esac
+  info "$1"
+  _gw_said="${_gw_said-}$1
+"
+}
+
 gemini_settings_undo() {
   _gw_rec="${1%/}/gemini-wrote.json"
   [ -n "$1" ] && [ -f "$_gw_rec" ] || return 0
@@ -2129,21 +2139,62 @@ gemini_settings_undo() {
       case "$_gw_out" in
         *@kosmos-gemini-done*) ;;
         *)
+          _gw_stopped=yes   # kosmos#8402: the next record names the same files; gemini_settings_undo_all stops here
           if [ -n "$_kwb_abandoned" ]; then _gw_how="could not be stopped and is left to finish on its own (it may still edit those files later)"; else _gw_how="was stopped"; fi
           info "putting back the Gemini settings Kosmos filled in did not finish in ${_kwb_secs}s and ${_gw_how}; a settings file may be on a slow or stalled network folder" ;;
       esac
     fi
   fi
   [ -z "$_gw_tmp" ] || rm -f "$_gw_tmp"
-  printf '%s\n' "$_gw_out" | while IFS= read -r _gw_l; do
-    case "$_gw_l" in "say "*) info "${_gw_l#say }" ;; esac
+  # kosmos#8402: split in this shell, not through a pipe (whose loop runs in a subshell) or a here-document (which bash
+  # 3.2 writes to a temp file, so a full TMPDIR would end the uninstall here under set -e), so a line one record already
+  # said is not said again by the next: every Kosmos records the person's one ~/.gemini file. Each pass removes one line
+  # and its newline, and the text always ends in one, so the loop ends.
+  _gw_rest="$_gw_out
+"
+  while [ -n "$_gw_rest" ]; do
+    _gw_l="${_gw_rest%%
+*}"
+    _gw_rest="${_gw_rest#*
+}"
+    case "$_gw_l" in
+      "say "*)
+        _gw_say_once "${_gw_l#say }" ;;
+    esac
   done
   case "$_gw_out" in
     *@kosmos-gemini-done*) ;;
     *)
-      info "note: Kosmos filled in some of Gemini's settings and could not"
-      info "finish putting them back here; the files and values are listed in $_gw_rec" ;;
+      _gw_say_once "note: Kosmos filled in some of Gemini's settings and could not finish putting them back here;"
+      info "the files and values are listed in $_gw_rec" ;;
   esac
+  return 0
+}
+
+# kosmos#8402: a named Kosmos's board runs with its own data folder (engine/worlds.js envOverridesFor: AGENT_WORKFORCE_DATA
+# is $1/worlds/<id>, and store.dataRootFor appends Kosmos), so a Gemini agent made there records what it filled in at
+# $1/worlds/<id>/Kosmos/gemini-wrote.json, while the values went into the person's one ~/.gemini. Each record is undone
+# by its own gemini_settings_undo, so each node run stays inside _kosmos_wait_bounded. An unmatched glob stays literal
+# in sh, and gemini_settings_undo returns at once when there is no record there.
+# Names follow engine/worlds.js: only an id it could have made (CLEAN_ID, [a-z0-9_-]) and never "default", whose data is
+# the main folder's. If one record's node had to be stopped (a stalled mount), the rest name the same files, so they are
+# not tried: the person is told once where they are (kosmos#8388 review 7's rule for the unwire).
+gemini_settings_undo_all() {
+  [ -n "$1" ] || return 0
+  _gw_said="
+"
+  _gw_stopped=""
+  gemini_settings_undo "$1"
+  for _gwa_d in "${1%/}"/worlds/*/Kosmos; do
+    [ -f "$_gwa_d/gemini-wrote.json" ] || continue
+    _gwa_id="${_gwa_d%/Kosmos}"; _gwa_id="${_gwa_id##*/}"
+    case "$_gwa_id" in default|*[!abcdefghijklmnopqrstuvwxyz0123456789_-]*|"") continue ;; esac   # spelled out: in a UTF-8 locale, macOS sh's a-z also matches capitals
+    if [ -n "${_gw_stopped-}" ]; then
+      info "note: because of that, the Gemini settings your other Kosmoses filled in were not put back either; each one's list is in its own folder under ${1%/}/worlds"
+      break
+    fi
+    gemini_settings_undo "$_gwa_d"
+  done
   return 0
 }
 
@@ -2926,7 +2977,7 @@ UNWIREEOF
       # no automatic updates, no update check), and records each one in the data folder. Only a value that is still
       # exactly what was recorded comes back out. Loads the installed engine, which wrote the record, so this needs
       # no copy of its own; an engine without the undo never wrote a record either.
-      gemini_settings_undo "$_support"
+      gemini_settings_undo_all "$_support"
       # 🔑 RETIRE THIS MAC AT THE COORDINATOR WHILE IT CAN STILL SPEAK (#793).
       # The Mac's key lives in the support folder's remote/ dir and the
       # connector in the app tree about to go; after either is gone only a
@@ -2958,7 +3009,7 @@ UNWIREEOF
     # node to edit the settings with, but the hooks it left can still be named.
     say_hooks_left "$(hook_settings_left "$KOSMOS_HOME" "")" "$KOSMOS_HOME" ""
     say_gemini_hooks_left "$(gemini_hook_settings_left "$_support")" "$_support"
-    gemini_settings_undo "$_support"
+    gemini_settings_undo_all "$_support"
   fi
   # The icon goes too, or uninstall leaves a dead app that opens nothing.
   # BOTH default locations are swept -- installs before 2026-08-13 wrote
