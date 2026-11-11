@@ -355,7 +355,7 @@ function sleepGate(opts) {
 /**
  * Linux has no one sleep setting. Three things can put it to sleep on its own, and each is read, never changed:
  * - logind's IdleAction (and after how long), which applies on any machine;
- * - logind's lid switch, on AC and on battery, which only counts on a machine with a lid or a battery;
+ * - logind's lid switch, on AC and on battery, which only counts on a machine with a lid (linuxHasLid);
  * - GNOME's "automatic suspend", which only counts while GNOME's power service runs for this user. Its settings are
  *   readable on a server that merely has the schema installed, where nothing acts on them, so the running service
  *   decides whether they count, not the settings alone.
@@ -363,7 +363,7 @@ function sleepGate(opts) {
  *
  * Returns { idle, lid, gnome }, each null when it could not be read or does not apply:
  *   idle  { action, minutes }      lid { ac, battery }      gnome { ac, acMinutes, battery, batteryMinutes }
- * Seam: opts.linuxSleep replaces the whole reading.
+ * Seams: opts.linuxSleep replaces the whole reading; opts.hasLid the lid question.
  */
 function readLinuxSleep(opts) {
   const o = opts || {};
@@ -375,37 +375,28 @@ function readLinuxSleep(opts) {
     const m = String(r.stdout || '').trim().match(/^(s|t)\s+"?([^"]*)"?$/);
     return m ? m[2] : null;
   };
-  let idle = null;
+  let idle = null, lid = null;
   const action = prop('IdleAction');
+  // A logind that does not answer its first question is not asked four more (each ask can wait out run()'s timeout).
   if (action) {
     const usec = Number(prop('IdleActionUSec'));
     idle = { action, minutes: Number.isFinite(usec) && usec > 0 ? Math.max(1, Math.round(usec / 60e6)) : null };
-  }
-  const listed = (dir) => { try { return fs.readdirSync(dir).length > 0; } catch { return false; } };
-  /* Whether the lid counts: a lid (ACPI's) or a battery. Seam: opts.hasLid. A test never reads the host's (a laptop
-     running the suite would decide the row), as linuxjob.lingerFileOn. */
-  const hasLid = () => ('hasLid' in o) ? o.hasLid === true
-    : (require('./live-execution').inTestProcess() ? false : (listed('/proc/acpi/button/lid') || hasBattery()));
-  const hasBattery = () => {
-    try {
-      return fs.readdirSync('/sys/class/power_supply').some((n) => {
-        try { return fs.readFileSync(path.join('/sys/class/power_supply', n, 'type'), 'utf8').trim() === 'Battery'; } catch { return false; }
-      });
-    } catch { return false; }
-  };
-  let lid = null;
-  if (hasLid()) {
-    const battery = prop('HandleLidSwitch');
-    const ext = prop('HandleLidSwitchExternalPower');
-    // logind: an unset HandleLidSwitchExternalPower means HandleLidSwitch applies on AC too.
-    if (battery) lid = { battery, ac: ext || battery };
+    /* A test never reads the host's lid (a laptop running the suite would decide the row), as linuxjob.lingerFileOn. */
+    const hasLid = ('hasLid' in o) ? o.hasLid === true
+      : (require('./live-execution').inTestProcess() ? false : linuxHasLid());
+    if (hasLid) {
+      const battery = prop('HandleLidSwitch');
+      const ext = prop('HandleLidSwitchExternalPower');
+      // logind: an unset HandleLidSwitchExternalPower means HandleLidSwitch applies on AC too.
+      if (battery) lid = { battery, ac: ext || battery };
+    }
   }
   let gnome = null;
   const gsd = runner('systemctl', ['--user', 'is-active', 'org.gnome.SettingsDaemon.Power.service']);
   if (gsd && gsd.ok && String(gsd.stdout || '').trim() === 'active') {
     const get = (key) => {
       const r = runner('gsettings', ['get', 'org.gnome.settings-daemon.plugins.power', key]);
-      return r && r.ok ? String(r.stdout || '').trim().replace(/^uint32\s+/, '').replace(/^'|'$/g, '') : null;
+      return r && r.ok ? String(r.stdout || '').trim().replace(/^(?:u?int32)\s+/, '').replace(/^'|'$/g, '') : null;
     };
     const mins = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? Math.max(1, Math.round(n / 60)) : null; };
     const ac = get('sleep-inactive-ac-type');
@@ -417,6 +408,22 @@ function readLinuxSleep(opts) {
   return { idle, lid, gnome };
 }
 
+/**
+ * Whether this machine has a lid whose switch logind acts on: an ACPI lid button, or a battery that powers the
+ * computer itself. A wireless mouse's or keyboard's battery is listed in the same folder with scope "Device" and is
+ * not one (review 1: a desktop with a Bluetooth mouse read as a laptop). Folders are parameters so a test passes a
+ * fake tree.
+ */
+function linuxHasLid(lidDir, supplyDir) {
+  const lids = lidDir || '/proc/acpi/button/lid';
+  const supplies = supplyDir || '/sys/class/power_supply';
+  try { if (fs.readdirSync(lids).length > 0) return true; } catch { /* no ACPI lid folder */ }
+  const read = (n, f) => { try { return fs.readFileSync(path.join(supplies, n, f), 'utf8').trim(); } catch { return null; } };
+  try {
+    return fs.readdirSync(supplies).some((n) => read(n, 'type') === 'Battery' && read(n, 'scope') !== 'Device');
+  } catch { return false; }
+}
+
 /* What each Linux action does to the agents, in words; an action not listed here leaves them running. */
 const LINUX_STOPPING_ACTION = Object.freeze({
   suspend: 'goes to sleep', hibernate: 'goes to sleep', 'hybrid-sleep': 'goes to sleep',
@@ -425,39 +432,54 @@ const LINUX_STOPPING_ACTION = Object.freeze({
 });
 const minutesWords = (n) => n + (n === 1 ? ' minute' : ' minutes');
 
-/** kosmos#8384: the Linux sleep row from readLinuxSleep's reading, or null when nothing could be read (#8375). */
+/**
+ * kosmos#8384: the Linux sleep row from readLinuxSleep's reading, or null when nothing could be read (#8375).
+ *
+ * As on the Mac, closing the lid and running on battery are the expected pauses: plugged in and open it keeps
+ * working, so those findings are battOnly (review 1: a stock laptop's lid suspends on AC too, and a full alarm with
+ * nothing to press read as broken). Only a sleep that comes while it is plugged in, open and idle is the plain warning.
+ */
 function linuxSleepCheck(reading) {
   const r = reading || {};
   const idle = r.idle || null, lid = r.lid || null, gnome = r.gnome || null;
   if (!idle && !lid && !gnome) return null;
   const stops = (a) => (a && Object.prototype.hasOwnProperty.call(LINUX_STOPPING_ACTION, a)) ? LINUX_STOPPING_ACTION[a] : null;
-  // Plugged-in findings first: those are the ones that stop overnight work at a desk.
-  const always = [], batteryOnly = [];
-  if (idle && stops(idle.action)) always.push('After ' + (idle.minutes ? minutesWords(idle.minutes) : 'a while') + ' with nobody using it, this computer ' + stops(idle.action) + ' (logind\'s IdleAction).');
-  if (gnome && stops(gnome.ac) && gnome.acMinutes) always.push('While it is plugged in, the desktop puts it to sleep after ' + minutesWords(gnome.acMinutes) + ' with nobody using it (Automatic Suspend, in the desktop\'s Power settings).');
-  if (lid && stops(lid.ac)) always.push('When the lid closes, this computer ' + stops(lid.ac) + ', even while it is plugged in.');
-  else if (lid && stops(lid.battery)) batteryOnly.push('When the lid closes on battery, this computer ' + stops(lid.battery) + '.');
-  if (gnome && stops(gnome.battery) && gnome.batteryMinutes) batteryOnly.push('On battery, the desktop puts it to sleep after ' + minutesWords(gnome.batteryMinutes) + ' with nobody using it.');
-  const fix = 'Your agents stop until it wakes. Its desktop\'s Power settings change the desktop\'s part; '
-    + 'an administrator changes the rest in /etc/systemd/logind.conf.';
-  if (always.length) {
+  const idleStops = Boolean(idle && stops(idle.action));
+  const gnomeAc = Boolean(gnome && stops(gnome.ac) && gnome.acMinutes);
+  const gnomeBatt = Boolean(gnome && stops(gnome.battery) && gnome.batteryMinutes);
+  const lidStops = Boolean(lid && (stops(lid.ac) || stops(lid.battery)));
+  const said = [];
+  if (idleStops) said.push('After ' + (idle.minutes ? minutesWords(idle.minutes) : 'a while') + ' with nobody using it, this computer ' + stops(idle.action) + '.');
+  if (gnomeAc) said.push('While it is plugged in, the desktop puts it to sleep after ' + minutesWords(gnome.acMinutes) + ' with nobody using it.');
+  if (gnomeBatt) said.push('On battery, the desktop puts it to sleep after ' + minutesWords(gnome.batteryMinutes) + ' with nobody using it.');
+  if (lidStops) said.push(stops(lid.ac) ? 'When the lid closes, this computer ' + stops(lid.ac) + '.' : 'When the lid closes on battery, this computer ' + stops(lid.battery) + '.');
+  // Where to change it, only for what was found (review 1).
+  const where = [];
+  if (gnomeAc || gnomeBatt) where.push('the desktop\'s Power settings change the desktop\'s part (Automatic Suspend)');
+  if (idleStops || lidStops) where.push('an administrator changes logind\'s part in /etc/systemd/logind.conf.d');
+  const fix = where.length ? ' To change it: ' + where.join(', and ') + '.' : '';
+  if (idleStops || gnomeAc) {
     return { key: 'sleep', state: STATE.ATTENTION,
       title: 'This computer can go to sleep on its own',
-      detail: always.concat(batteryOnly).join(' ') + ' ' + fix };
+      detail: said.join(' ') + ' Your agents stop until it wakes.' + fix };
   }
-  if (batteryOnly.length) {
-    // As the Mac row's battOnly: plugged in it keeps working, and the wizard says so instead of offering a fix.
-    return { key: 'sleep', state: STATE.ATTENTION, battOnly: true,
-      title: 'This computer can go to sleep on battery',
-      detail: batteryOnly.join(' ') + ' Plugged in and open, it keeps working, so for overnight work leave it plugged in. ' + fix };
+  if (lidStops || gnomeBatt) {
+    const title = lidStops && gnomeBatt ? 'This computer goes to sleep on battery, or when its lid closes'
+      : (lidStops ? 'This computer goes to sleep when its lid closes' : 'This computer can go to sleep on battery');
+    return { key: 'sleep', state: STATE.ATTENTION, battOnly: true, title,
+      detail: said.join(' ') + ' Plugged in and open, it keeps working, so for overnight work leave it plugged in and open.' + fix };
   }
-  const read = [];
-  if (idle || lid) read.push('logind\'s settings');
-  if (gnome) read.push('the desktop\'s power settings');
+  /* Nothing read puts it to sleep. The title says whose settings those were (review 1: KDE's, or a GNOME too old to run
+     its power service as a unit, are not read, and the tick is what a person reads). */
+  if (gnome) {
+    return { key: 'sleep', state: STATE.OK,
+      title: 'This computer is not set to go to sleep on its own',
+      detail: 'So your agents keep working while you are away. We read ' + (idle || lid ? 'Linux\'s own settings and ' : '') + 'the desktop\'s power settings.' };
+  }
   return { key: 'sleep', state: STATE.OK,
-    title: 'This computer is not set to go to sleep on its own',
-    detail: 'So your agents keep working while you are away. We read ' + read.join(' and ') + '.'
-      + (gnome ? '' : ' If this computer has a desktop, its own power settings can still put it to sleep, so check them there.') };
+    title: 'Linux\'s own settings do not put this computer to sleep',
+    detail: 'So on a server your agents keep working while you are away. If this computer has a desktop, its own '
+      + 'power settings can still put it to sleep, so check them there.' };
 }
 
 /** The first-run gate on Linux, the same three answers as the Mac's sleepGate. A Linux board does not walk the
@@ -1853,13 +1875,17 @@ function readLinuxBoardAutostart(runner, opts) {
   try { fs.statSync(lb.boardUnitPath()); unitFile = true; }
   catch (e) { unitFile = e && e.code === 'ENOENT' ? false : null; }   // only a proven absence is "missing"
   let unitState = null;
-  if (unitFile) {
+  /* A sandboxed board's unit sits where systemd never reads it, and systemctl would name the person's REAL board unit
+     (linuxboard.runner's refusal, review 22 there; review 1 here). So a sandbox asks systemd nothing. */
+  const sandboxed = Boolean(process.env.AGENT_WORKFORCE_LAUNCH) && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  if (unitFile && !sandboxed) {
     const r = runner('systemctl', ['--user', 'show', '-p', 'UnitFileState', lb.boardUnitName()]);
     const m = r && r.ok ? String(r.stdout || '').match(/^UnitFileState=(\S*)\s*$/m) : null;
     unitState = m && m[1] ? m[1] : null;
   }
   let linger;
   if ('lingerOn' in o) linger = o.lingerOn;
+  else if (sandboxed) linger = undefined;
   else {
     try { linger = require('./linuxjob').lingerFileOn(); } catch { linger = undefined; }
     if (linger === undefined) {
@@ -2078,4 +2104,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxHasLid, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };

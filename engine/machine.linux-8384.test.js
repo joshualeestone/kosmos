@@ -119,6 +119,28 @@ test('restart reader: no unit file asks systemd nothing; an unreadable answer is
   assert.equal(row(odd).state, STATE.UNKNOWN);
 });
 
+test('restart reader: a sandboxed board asks systemd nothing, so it never reads the person\'s real unit', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-launch-'));
+  const prevS = process.env.AGENT_WORKFORCE_SYSTEMD_DIR, prevL = process.env.AGENT_WORKFORCE_LAUNCH;
+  delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR; process.env.AGENT_WORKFORCE_LAUNCH = dir;
+  const asked = [];
+  try {
+    const units = path.join(dir, 'systemd', 'user');   // linuxjob.defaultSystemdDir under a sandbox
+    fs.mkdirSync(units, { recursive: true });
+    fs.writeFileSync(path.join(units, require('./linuxboard').boardUnitName()), '[Unit]\n');
+    const got = machine.readLinuxBoardAutostart((c) => { asked.push(c); return { ok: true, stdout: 'UnitFileState=enabled\nLinger=yes\n' }; }, { installedRoot: BUNDLE });
+    assert.equal(got.unitFile, true, 'control: the sandbox\'s own unit file is seen');
+    assert.equal(got.unitState, null);
+    assert.equal(got.linger, undefined);
+    assert.deepEqual(asked, [], 'no systemctl and no loginctl from a sandbox');
+    assert.equal(row(got).state, STATE.UNKNOWN);
+  } finally {
+    if (prevS === undefined) delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR; else process.env.AGENT_WORKFORCE_SYSTEMD_DIR = prevS;
+    if (prevL === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = prevL;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('restart reader: a test with no unit folder of its own never reads the host\'s', () => {
   const prevS = process.env.AGENT_WORKFORCE_SYSTEMD_DIR, prevL = process.env.AGENT_WORKFORCE_LAUNCH;
   delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR; delete process.env.AGENT_WORKFORCE_LAUNCH;
@@ -145,37 +167,43 @@ test('sleep row: nothing read is no row at all (kosmos#8375), never a standing c
   assert.equal(sleep(null), null);
 });
 
-test('sleep row: each setting that stops the agents is named, plugged-in ones as ATTENTION', () => {
+test('sleep row: a sleep while plugged in, open and idle is the plain warning, and says where to change it', () => {
   const cases = [
-    [{ idle: { action: 'suspend', minutes: 30 } }, /After 30 minutes with nobody using it, this computer goes to sleep \(logind's IdleAction\)/],
-    [{ idle: { action: 'poweroff', minutes: 1 } }, /After 1 minute .* turns off/],
-    [{ idle: QUIET_IDLE, gnome: { ac: 'suspend', acMinutes: 20, battery: 'nothing', batteryMinutes: null } }, /plugged in, the desktop puts it to sleep after 20 minutes .*Automatic Suspend/],
-    [{ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' } }, /When the lid closes, this computer goes to sleep, even while it is plugged in/],
+    [{ idle: { action: 'suspend', minutes: 30 } }, /After 30 minutes with nobody using it, this computer goes to sleep\./, /logind\.conf\.d/, /desktop's Power settings/],
+    [{ idle: { action: 'poweroff', minutes: 1 } }, /After 1 minute .* turns off/, /logind\.conf\.d/, /desktop's Power settings/],
+    [{ idle: QUIET_IDLE, gnome: { ac: 'suspend', acMinutes: 20, battery: 'nothing', batteryMinutes: null } }, /plugged in, the desktop puts it to sleep after 20 minutes/, /desktop's Power settings .*Automatic Suspend/, /logind/],
   ];
-  for (const [reading, words] of cases) {
+  for (const [reading, words, where, notWhere] of cases) {
     const r = sleep(reading);
+    const label = JSON.stringify(reading);
     assert.equal(r.key, 'sleep');
-    assert.equal(r.state, STATE.ATTENTION, JSON.stringify(reading));
-    assert.equal(r.battOnly, undefined, 'plugged-in findings are not battery-only: ' + JSON.stringify(reading));
+    assert.equal(r.state, STATE.ATTENTION, label);
+    assert.equal(r.battOnly, undefined, 'plugged-in findings are not battery-only: ' + label);
     assert.match(r.title, /can go to sleep on its own/);
-    assert.match(r.detail, words);
-    assert.match(r.detail, /Power settings.*\/etc\/systemd\/logind\.conf/, 'it says where each part is changed');
+    assert.match(r.detail, words, label);
+    assert.match(r.detail, where, 'it says where the part that fired is changed: ' + label);
+    assert.doesNotMatch(r.detail, notWhere, 'and not where a part that did not fire is: ' + label);
     assert.equal(r.settings, undefined, 'no "Open sleep settings" button: that opens macOS\'s pane');
   }
 });
 
-test('sleep row: findings only on battery are battOnly, as the Mac row\'s laptop case', () => {
-  for (const reading of [
-    { idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' } },
-    { idle: QUIET_IDLE, gnome: { ac: 'nothing', acMinutes: null, battery: 'suspend', batteryMinutes: 15 } },
-  ]) {
+test('sleep row: the lid and battery are the expected pauses, as on the Mac (battOnly), even when the lid sleeps on AC', () => {
+  const cases = [
+    [{ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' } }, /when its lid closes$/, /When the lid closes, this computer goes to sleep\./],
+    [{ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' } }, /when its lid closes$/, /When the lid closes on battery/],
+    [{ idle: QUIET_IDLE, gnome: { ac: 'nothing', acMinutes: null, battery: 'suspend', batteryMinutes: 15 } }, /on battery$/, /On battery, the desktop puts it to sleep after 15 minutes/],
+    [{ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' }, gnome: { ac: 'nothing', acMinutes: null, battery: 'suspend', batteryMinutes: 15 } }, /on battery, or when its lid closes$/, /On battery.*When the lid closes/],
+  ];
+  for (const [reading, title, words] of cases) {
     const r = sleep(reading);
-    assert.equal(r.state, STATE.ATTENTION, JSON.stringify(reading));
-    assert.equal(r.battOnly, true, JSON.stringify(reading));
-    assert.match(r.title, /on battery/);
-    assert.match(r.detail, /Plugged in and open, it keeps working/);
+    const label = JSON.stringify(reading);
+    assert.equal(r.state, STATE.ATTENTION, label);
+    assert.equal(r.battOnly, true, label);
+    assert.match(r.title, title, label);
+    assert.match(r.detail, words, label);
+    assert.match(r.detail, /Plugged in and open, it keeps working/, label);
   }
-  // Control: one plugged-in finding beside a battery one makes the whole row plugged-in, and says both.
+  // Control: one plugged-in idle finding beside a lid one makes the whole row the plain warning, and says both.
   const both = sleep({ idle: { action: 'suspend', minutes: 30 }, lid: { ac: 'ignore', battery: 'suspend' } });
   assert.equal(both.battOnly, undefined);
   assert.match(both.detail, /After 30 minutes.*When the lid closes on battery/);
@@ -185,16 +213,38 @@ test('sleep row: a type with no timeout (0, never) and actions that leave the ag
   const r = sleep({ idle: { action: 'lock', minutes: 10 }, lid: { ac: 'lock', battery: 'ignore' },
     gnome: { ac: 'suspend', acMinutes: null, battery: 'blank', batteryMinutes: 5 } });
   assert.equal(r.state, STATE.OK);
-  assert.match(r.title, /not set to go to sleep on its own/);
-  assert.match(r.detail, /We read logind's settings and the desktop's power settings\.$/);
+  assert.match(r.title, /^This computer is not set to go to sleep on its own$/);
+  assert.match(r.detail, /We read Linux's own settings and the desktop's power settings\.$/);
 });
 
-test('sleep row: OK without a desktop reading says which settings were read, and that a desktop\'s own may still sleep', () => {
+test('sleep row: OK without a desktop reading says only Linux\'s own settings were read, in the title too', () => {
   const r = sleep({ idle: QUIET_IDLE, lid: null, gnome: null });
   assert.equal(r.state, STATE.OK);
-  assert.match(r.detail, /We read logind's settings\. If this computer has a desktop, its own power settings can still put it to sleep/);
+  assert.equal(r.title, 'Linux\'s own settings do not put this computer to sleep');
+  assert.match(r.detail, /If this computer has a desktop, its own power settings can still put it to sleep/);
   const desk = sleep({ idle: null, lid: null, gnome: { ac: 'nothing', acMinutes: null, battery: 'nothing', batteryMinutes: null } });
   assert.match(desk.detail, /We read the desktop's power settings\.$/, 'only what was read is named');
+});
+
+test('linuxHasLid: an ACPI lid or the computer\'s own battery counts; a wireless mouse\'s battery does not', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-sys-'));
+  const lid = path.join(root, 'lid'), sup = path.join(root, 'power_supply');
+  const supply = (name, files) => { fs.mkdirSync(path.join(sup, name), { recursive: true }); for (const [f, v] of Object.entries(files)) fs.writeFileSync(path.join(sup, name, f), v + '\n'); };
+  try {
+    fs.mkdirSync(sup, { recursive: true });
+    assert.equal(machine.linuxHasLid(lid, sup), false, 'no lid folder, no supplies');
+    supply('hid-00:1f:20:aa:bb:cc-battery', { type: 'Battery', scope: 'Device' });
+    supply('AC', { type: 'Mains' });
+    assert.equal(machine.linuxHasLid(lid, sup), false, 'a desktop with a Bluetooth mouse is not a laptop');
+    supply('BAT0', { type: 'Battery' });
+    assert.equal(machine.linuxHasLid(lid, sup), true, 'a laptop battery (no scope file) counts');
+    fs.rmSync(path.join(sup, 'BAT0'), { recursive: true });
+    supply('BAT1', { type: 'Battery', scope: 'System' });
+    assert.equal(machine.linuxHasLid(lid, sup), true, 'scope System counts');
+    fs.rmSync(path.join(sup, 'BAT1'), { recursive: true });
+    fs.mkdirSync(path.join(lid, 'LID0'), { recursive: true });
+    assert.equal(machine.linuxHasLid(lid, sup), true, 'an ACPI lid button counts on its own');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 /* The reader, through a fake runner and opts.hasLid. */
@@ -203,8 +253,9 @@ function sleepRunner(over) {
     IdleAction: 's "suspend"', IdleActionUSec: 't 1800000000',
     HandleLidSwitch: 's "suspend"', HandleLidSwitchExternalPower: 's ""',
     gsd: 'active',
-    'sleep-inactive-ac-type': "'suspend'", 'sleep-inactive-ac-timeout': 'uint32 1200',
-    'sleep-inactive-battery-type': "'suspend'", 'sleep-inactive-battery-timeout': 'uint32 900',
+    // gsettings prints the timeouts as plain numbers (type i in the schema).
+    'sleep-inactive-ac-type': "'suspend'", 'sleep-inactive-ac-timeout': '1200',
+    'sleep-inactive-battery-type': "'suspend'", 'sleep-inactive-battery-timeout': '900',
   }, over || {});
   const asked = [];
   const runner = (cmd, args) => {
@@ -242,9 +293,10 @@ test('sleep reader: GNOME\'s settings count only while its power service runs (c
 });
 
 test('sleep reader: logind unreadable and no desktop is no reading at all, and the row is absent', () => {
-  const { runner } = sleepRunner({ IdleAction: null, IdleActionUSec: null, HandleLidSwitch: null, gsd: 'inactive' });
+  const { runner, asked } = sleepRunner({ IdleAction: null, gsd: 'inactive' });
   const got = machine.readLinuxSleep({ runner, hasLid: true });
   assert.deepEqual(got, { idle: null, lid: null, gnome: null });
+  assert.equal(asked.filter((a) => a[0] === 'busctl').length, 1, 'a logind that does not answer is asked once, not five times');
   assert.equal(sleep(got), null);
 });
 
