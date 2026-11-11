@@ -1,16 +1,17 @@
 # uikitlist-s19-8221: follow a part of a tall newest reply above the screen
 
-Card: joshualeestone/kosmos#8221, slice 19 (slice 12 follow-up 2). Stacked on slice 18 (#8360), which edits the same line.
+Card: joshualeestone/kosmos#8221, slice 19 (slice 12 follow-up 2). Built on slice 18 (#8360, merged), which edits the same line.
 
 ## Finished looks like
 
-At the newest of a reply taller than the screen, a VoiceOver focus on a part of that reply wholly above the screen puts
-that part on screen and the reader is no longer held at the newest. A focus on the reply as a whole (the existing
-tall-newest check) still keeps the reader at the newest. A fix-off control shows the new check can fail.
+At the newest of a reply taller than the screen, a VoiceOver focus on a part of that reply above the top of the screen
+(wholly, or crossing the top edge) puts that part on screen and the reader is no longer held at the newest. A focus on
+the reply as a whole still keeps the reader at the newest. A fix-off control shows each new check can fail.
 
 ## Decided
 
-Follow a part of the newest message when the focused element lies wholly above the screen; keep the hold otherwise.
+Follow a part of the newest message (an element under three quarters of its row) that starts above the top of the
+screen and does not reach below its bottom; keep the hold otherwise.
 Rejected: dropping the newest hold (slice 18's control shows it moves the reader off the newest on a whole-message
 focus, which VoiceOver also makes when it refocuses); keeping it as it was (the part read aloud is not the part shown, so
 a reader using sight and speech together loses their place). Weakest premise: that a real reply exposes its parts as
@@ -22,11 +23,14 @@ VoiceOver's own scroll to the part not being pinned back.
 
 - ChatList.focusFollow: newestPart (an element under three quarters of its row's height that starts above the top of what shows and does
   not reach below its bottom) skips the newest branch and is followed as a message above is. DEBUG switch
-  KOSMOS_SAMPLE_FOCUSNONEWESTPART for the control.
+  KOSMOS_SAMPLE_FOCUSNONEWESTPART for the controls, and KOSMOS_SAMPLE_FOCUSNOPARTSIZE (only the size test) for the
+  whole-message control.
 - Sample: KOSMOS_SAMPLE_TALLNEWEST (newest reply of 24 paragraphs); A11yFocus modes newestpart (the reply's first
-  80 pt, wholly above) and newestclipped (80 pt crossing the top by 20 pt), each an element in the newest cell's own
+  80 pt, wholly above) and newestclipped (80 pt crossing the top by 20 pt) and newestwhole (the whole reply, its row less 4 pt at
+  each end), each an element in the newest cell's own
   view as SwiftUI makes one; the report gains "part shown", measured from the row at report time.
-- A11yFocusUITests: two checks and their controls (14 -> 18); ui-sample.sh tally.
+- A11yFocusUITests: three checks and their controls (14 -> 20); ui-sample.sh tally. The tall newest message is Dana's
+  (a reply), not the person's.
 
 ## Review 1 (blind, opus): 0 BLOCKERs, 2 WARNINGs, fixed
 
@@ -44,6 +48,13 @@ VoiceOver's own scroll to the part not being pinned back.
 - Iteration 1 (sonnet): 2 WARNINGs. The part rule took any element shorter than its row: FIXED (under 3/4 of the
   row). The newest-part rule with VoiceOver's own scroll before or after: DEFERRED, since the rule only chooses the
   branch once per focus and then runs the same follow code slice 12's first/after checks cover for a message above.
+- Iteration 2 (opus): 2 WARNINGs, 1 CONVENTION, 2 NITs. The size test had no check that could fail (the existing
+  newest check is rejected by the bottom edge, not the size): FIXED with newestwhole and its control
+  (KOSMOS_SAMPLE_FOCUSNOPARTSIZE). The rule's comment named the wrong guard: FIXED. This plan's Finished and Decided
+  still said "wholly above": FIXED. The tall sample message was the person's, not a reply: FIXED (Dana's).
+- Known trade-off (iteration 2 NIT): after a crossing part is followed (32 pt, inside the 40 pt end slack), stepping
+  down to an on-screen part of the newest takes the newest branch, counts the reader at the newest again, and the next
+  layout pins the list back 32 pt. The focused part stays visible; the list moves back and forth at the top edge.
 
 ## Results
 
