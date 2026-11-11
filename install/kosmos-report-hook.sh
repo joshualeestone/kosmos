@@ -215,8 +215,8 @@ json_field() { # $1 jq path, $2 sed key fallback
 # not decoded). A hook timeout fails open: the call runs.
 # The operator can turn it off for an agent by starting it with
 # KOSMOS_KILL_GUARD=off; an agent cannot change its own hook's environment.
-# Not guarded at all: Windows agents (the node hook, engine/kosmos-report-hook.js)
-# and Codex, Gemini and Grok agents, which have no such hook.
+# Windows agents have their own guard, for the Windows forms (engine/winkillguard.js, kosmos#8406).
+# Not guarded at all: Codex, Gemini and Grok agents, which have no such hook.
 _kg_text() { # what the guard reads
   if [ -n "$JQ" ]; then
     printf '%s' "$INPUT" | "$JQ" -r '
