@@ -5289,6 +5289,7 @@ test('kosmos#5889: the company sign-in opener passes only the desktop allowlist;
   const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opener-5889-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));   // removed even when an assertion fails (#4273)
+  t.after(() => remote.resetForTests());   // the company state never reaches the next test, even when an assertion fails
   const out = path.join(dir, 'env.json');
   const writer = [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.env))`];
   // The board's REAL environment carries the secrets (review 1): a child spawned with process.env would see them.
@@ -5332,7 +5333,6 @@ test('kosmos#5889: the company sign-in opener passes only the desktop allowlist;
     assert.match((await remote.companyOpen()).because, /could not open your browser/);
     assert.equal(fs.existsSync(out), false, `an opener was started on a Linux board with no display (${JSON.stringify(extra)})`);
   }
-  remote.resetForTests();
   // Windows: its own test below (kosmos#5895). Like the arms above it needs the company flow, which runs on the
   // macOS and Linux CI; the list itself is tested on a real Windows host in engine/childenv.win32-5895.test.js.
 });
@@ -5348,7 +5348,7 @@ test('kosmos#5895: on Windows the opener gets only its measured list, case-blind
   const writer = [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.env))`];
   remote.resetForTests();
   assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
-  process.env.KOSMOS_5889_PROBE = 'inherited';
+  process.env.KOSMOS_5895_PROBE = 'inherited';
   try {
     remote.setCompanyOpenSourceForTests({ platform: 'win32', env: {
       PATH: process.env.PATH, SystemRoot: process.env.SystemRoot || 'C:\\Windows', systemdrive: 'C:',
@@ -5359,10 +5359,10 @@ test('kosmos#5895: on Windows the opener gets only its measured list, case-blind
     const got = JSON.parse(fs.readFileSync(out, 'utf8'));
     assert.equal(got.SECRET_5895, undefined, 'a board variable outside the list reached the opener');
     assert.equal(got.KOSMOS_AGENT_TOKEN, undefined, 'a token reached the opener');
-    assert.equal(got.KOSMOS_5889_PROBE, undefined, 'the board process\'s own environment is no longer inherited');
+    assert.equal(got.KOSMOS_5895_PROBE, undefined, 'the board process\'s own environment is no longer inherited');
     assert.equal(got.systemdrive, 'C:', 'a listed variable in another case is kept, under its own name');
     assert.equal(got.http_proxy, 'http://proxy.test:3128', 'the person\'s proxy is kept');
-  } finally { delete process.env.KOSMOS_5889_PROBE; remote.resetForTests(); }
+  } finally { delete process.env.KOSMOS_5895_PROBE; remote.resetForTests(); }
 });
 
 /* kosmos#5995 item 4: the Kosmos+ sign-in shows the name this computer will be sent under, and the person can keep it,

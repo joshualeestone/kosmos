@@ -53,4 +53,4 @@ exits 0 once it hands the URL off, so a browser that failed for want of a variab
 ## Verification limits
 The company-flow tests (two #5889 tests and the new #5895 arm) fail on this Windows box at `companyStart`, on
 origin/main as well: they need a tunnel stub only the Mac/Linux CI runners have. They are verified by CI (the
-platform is a seam, so the win32 arm runs there). engine/childenv.win32-5895.test.js runs here and passes (3/3).
+platform is a seam, so the win32 arm runs there). engine/childenv.win32-5895.test.js runs here and passes (4/4).
