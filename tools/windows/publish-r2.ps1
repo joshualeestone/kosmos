@@ -281,8 +281,9 @@ function Get-GitLine([string[]] $GitArgs) {
 # Said on stderr when the verdict is reached, so the run's log shows which binary checked the build, and names a
 # .cmd shim it skipped on PATH, if there was one. kosmos#8316: the verdict is kept with the file's length and last-write
 # time, and a later call returns it without reading the signature again while both are unchanged; if either changed
-# (an update rewrote the file), the signature is read again and said again. A refusal is kept the same way. Returns an
-# object with .Source, or $null.
+# (an update rewrote the file), the signature is read again and said again; if they cannot be read, every call reads
+# again. A refusal is kept the same way. A swap that keeps both values is not seen: that is a writer of the folder,
+# which this check was never a boundary against (above). Returns an object with .Source, or $null.
 $KosmosAppNode = 'Programs\Kosmos\runtime\node.exe'   # ONE place: the stderr line always names the binary returned
 $NodePublisher = 'OpenJS Foundation'
 $script:SaidRuntimeNode = $false   # declared for StrictMode, as the script's other run-wide flags
@@ -298,19 +299,21 @@ function Get-NodeExe {
   $stamp = try { $it = Get-Item -LiteralPath $p -ErrorAction Stop; "$($it.Length)|$($it.LastWriteTimeUtc.Ticks)" } catch { '' }
   if ($script:SaidRuntimeNode -and $stamp -and $stamp -ceq $script:RuntimeNodeStamp) { return $script:RuntimeNodeVerdict }
   $shim = $found | Select-Object -First 1
-  # Off Windows (pwsh) there is no Authenticode cmdlet: nothing can be checked, so nothing is used.
-  $canCheck = [bool](Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue)
-  # A read that throws (a locked file, a broken module) is no signature: not used, and the caller refuses cleanly.
-  # kosmos#8316: the line says why, in the exception's own first line. A CommandNotFoundException (the command
-  # cannot run, for example its module did not load) takes the no-cmdlet branch, which names the module path.
+  # kosmos#8316: a failure says why, in the exception's own first line (or its type when the message is blank).
+  $firstLine = { param($e) $l = (("$($e.Message)" -split '\r?\n') | Where-Object { $_.Trim() } | Select-Object -First 1); if ($l) { "$l".Trim() } else { $e.GetType().Name } }
   $readErr = ''
+  # Off Windows (pwsh) there is no Authenticode cmdlet: nothing can be checked, so nothing is used. Windows
+  # PowerShell 5.1 started with pwsh 7's PSModulePath fails here too (measured on the release PC, 11-11: its module
+  # does not load), and that reason is said.
+  $canCheck = try { $null = Get-Command Get-AuthenticodeSignature -ErrorAction Stop; $true } catch { $readErr = & $firstLine $_.Exception; $false }
+  # A read that throws (a locked file, a broken module) is no signature: not used, and the caller refuses cleanly.
+  # A CommandNotFoundException (the command cannot run, for example its module did not load) takes the no-cmdlet
+  # branch, which names the module path.
   $sig = $null
   if ($canCheck) {
     try { $sig = Get-AuthenticodeSignature -LiteralPath $p -ErrorAction Stop }
     catch {
-      $readErr = (("$($_.Exception.Message)" -split '\r?\n') | Where-Object { $_.Trim() } | Select-Object -First 1)
-      if (-not $readErr) { $readErr = $_.Exception.GetType().Name }
-      $readErr = "$readErr".Trim()
+      $readErr = & $firstLine $_.Exception
       if ($_.Exception -is [System.Management.Automation.CommandNotFoundException]) { $canCheck = $false }
     }
   }
