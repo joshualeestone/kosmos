@@ -616,7 +616,8 @@ async function main(io) {
   if (!event) return 0;
 
   /* kosmos#8406: the Windows twin of the bash hook's #4671 kill guard, first, before anything is sent. Exit 2 refuses
-     the tool call, and Claude Code shows the agent the reason on stderr. */
+     the tool call, and Claude Code shows the agent the reason on stderr. A refused Write or Edit gets no keep-copy or
+     heartbeat, which is right: the edit does not happen. */
   // A guard error must never take the report or the keep-copy with it: it fails open, and the hook goes on.
   let guard = { block: false };
   try { guard = require('./winkillguard').check(evt, env); } catch { /* fail open */ }
