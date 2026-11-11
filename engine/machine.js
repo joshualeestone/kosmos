@@ -463,7 +463,7 @@ function readLinuxSleep(opts) {
   /* No user manager at all (nobody logged in: "Failed to connect to bus") is an answer too: no session, so GNOME's
      power service is not running. */
   const noUserBus = Boolean(gsd && !gsd.ok && !/^skipped/.test(String(gsd.because || ''))
-    && /Failed to connect to (?:user scope )?bus|No medium found|XDG_RUNTIME_DIR|Connection refused|No such file or directory/i.test(String(gsd.because || '')));
+    && /Failed to connect to (?:user scope )?bus|No medium found|XDG_RUNTIME_DIR/i.test(String(gsd.because || '')));
   const gsdAsked = Boolean(gsd && (gsd.ok || String(gsd.stdout || '').trim() || noUserBus));
   if (gsd && gsd.ok && String(gsd.stdout || '').trim() === 'active') {
     let failed = false;   // a gsettings that fails once is not asked again (each ask can wait out the timeout)
