@@ -28,7 +28,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const { start, server, boardAuthState } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
-const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs a line taken from install/kosmos (the Mac CLI) through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 
 let base;
 test.before(async () => {

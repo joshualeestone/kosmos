@@ -22,7 +22,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs Mac tools (/bin/sh, /usr/bin/ditto, /bin/chmod) by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs the install helper through /bin/sh by an absolute POSIX path and relies on the POSIX executable bit, neither of which Windows has');   // kosmos#8378
 
 // macOS only: codesign, ditto and stat -f run below. The Linux lane runs every root test file, so the whole file
 // skips there rather than failing on a missing tool.

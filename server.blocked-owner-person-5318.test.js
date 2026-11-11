@@ -29,7 +29,7 @@ const fleet = require('./test-support/fleet');
 const selfreport = require('./engine/selfreport');
 const you = require('./engine/you');
 const sendertoken = require('./engine/sendertoken');
-const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs a line taken from install/kosmos (the Mac CLI) through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 const WHO = 'leo';
 
 const NOTE = selfreport.BLOCKED_PERSON_NOTE;

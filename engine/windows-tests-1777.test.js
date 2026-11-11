@@ -47,10 +47,11 @@ test('every test file that branches on a win32 HOST is run on Windows or exclude
     ...fs.readdirSync(__dirname).filter((n) => n.endsWith('.test.js')).map((n) => 'engine/' + n),
     ...fs.readdirSync(ROOT).filter((n) => n.endsWith('.test.js')),
   ];
-  // Two ways a test says "this host is Windows": comparing process.platform with 'win32', or
-  // testing for the flag Windows lacks (O_NOFOLLOW is undefined there; #1761). Other indirect
+  // Three ways a test says "this host is Windows": comparing process.platform with 'win32',
+  // testing for the flag Windows lacks (O_NOFOLLOW is undefined there; #1761), or calling
+  // skipOnWin32 (test-support/skip-on-win32.js, #8378), whose Windows arm skips. Other indirect
   // signals (a hardcoded POSIX path, path.sep) are not caught; the plan names that limit.
-  const hostBranch = /process\.platform\s*[!=]==?\s*['"]win32['"]|['"]win32['"]\s*[!=]==?\s*process\.platform|O_NOFOLLOW\s*[!=]==?\s*undefined/;
+  const hostBranch = /process\.platform\s*[!=]==?\s*['"]win32['"]|['"]win32['"]\s*[!=]==?\s*process\.platform|O_NOFOLLOW\s*[!=]==?\s*undefined|\bskipOnWin32\(/;
   const loose = all.filter((f) => !selected.has(f) && !w.HOST_BRANCH_EXCLUDED[f]
     && hostBranch.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
   assert.deepEqual(loose, [], 'these branch on a win32 host and nothing runs them on Windows: add each to ALSO, or to HOST_BRANCH_EXCLUDED with why');

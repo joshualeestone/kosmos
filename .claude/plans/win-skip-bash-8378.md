@@ -52,3 +52,17 @@ anything that runs there, and the gap itself (no kill guard on Windows) is a pro
 ## Not covered (later #8378 PRs)
 tmux, POSIX modes, signals, the bare-bash files above, and the ~1,900 plain assertions; the stray `board.agent-claim` /
 `board.person-start` files.
+
+## Decided (review round 3)
+- **The #1777 audit sees the helper.** engine/windows-tests-1777.test.js's host-branch pattern now matches
+  `skipOnWin32(`, and the 19 files are in `HOST_BRANCH_EXCLUDED` (tools/windows-tests.js), each entry built from that
+  file's own reason string. So a later `skipOnWin32` in a file nothing runs on Windows fails the audit until it is
+  listed with why, as every other Windows-branching file must. Control (run): the new pattern with no entries fails
+  the audit naming these files.
+- **CLAUDE.md** (the Windows test-lists paragraph) names the helper, when to use it, the listing rule, and that a bare
+  `bash` is no reason to skip.
+- **Kept:** `engine/defaults.test.js` skips both tests whole, though most of their assertions read the defaults text.
+  Splitting the run step out, or relaxing its `ran >= 1` guard on Windows, would add a host branch for checks the Mac
+  and Linux runs already make. What would change it: those text checks ever differing by platform.
+- `tools.windows-tests-schtasks-7247.test.js` fails 2 on this box with or without this change (run on a checkout
+  without it): not this PR's.
