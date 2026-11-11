@@ -14,8 +14,9 @@
  * and on GitHub's Windows runners); what Windows cannot run is an absolute POSIX path (/bin/bash, /bin/sh, /usr/bin/...)
  * or a script run directly by its shebang line.
  *
- * The Windows coupling audit (engine/windows-tests-1777.test.js) looks for `process.platform === 'win32'` branches and
- * does not see this call. That is deliberate: its Windows arm only skips, and the reason is printed on every run.
+ * The Windows coupling audit (engine/windows-tests-1777.test.js) sees this call as a Windows branch, as it sees
+ * `process.platform === 'win32'`. So a test file that uses it must be in HOST_BRANCH_EXCLUDED in tools/windows-tests.js,
+ * with its reason (or be run on Windows), or that audit fails.
  *
  * `platform` is a seam for this helper's own tests; callers leave it out.
  */

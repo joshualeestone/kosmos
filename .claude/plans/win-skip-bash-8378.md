@@ -12,8 +12,8 @@ the Windows product queue is waiting on tonight's build.
 ## Change
 - `test-support/skip-on-win32.js`: `skipOnWin32(reason)` is the reason on Windows and `false` elsewhere, so a test
   skips only on Windows and node:test prints why. An empty or missing reason throws on every platform. Its own tests:
-  `test-support.skip-on-win32.test.js` (4). Its comment says to name the mechanism, and why the Windows coupling audit
-  does not see it (deliberate: its Windows arm only skips).
+  `test-support.skip-on-win32.test.js` (4). Its comment says to name the mechanism, and that the Windows coupling audit
+  sees the call, so a file using it must be listed in HOST_BRANCH_EXCLUDED with its reason (round 3, below).
 - 19 test files: each test that fails on Windows only for that reason gets `{ skip: SKIP_POSIX_SHELL }`, with a
   reason that names the mechanism and what it runs. Where a file loops over the bash CLI AND the Windows CLI
   (cli.inputkeep-6774, cli.limitmsg-5805, cli.whoisleft-8137), only the bash half skips; the Windows CLI's tests still
@@ -66,3 +66,7 @@ tmux, POSIX modes, signals, the bare-bash files above, and the ~1,900 plain asse
   and Linux runs already make. What would change it: those text checks ever differing by platform.
 - `tools.windows-tests-schtasks-7247.test.js` fails 2 on this box with or without this change (run on a checkout
   without it): not this PR's.
+- (round 4) The helper's comment and the Change bullet above now say the audit sees the call (they still said it did
+  not). The audit also checks that each listed skipOnWin32 file's entry carries the file's own reason, so the two
+  copies cannot drift (control, run: one word changed in a listed reason fails it, naming the file). Reasons: defaults
+  says neither shell exists on Windows; killguard says "the Mac and Linux kill guard".

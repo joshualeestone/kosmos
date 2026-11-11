@@ -26,7 +26,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac kill guard (install/kosmos-report-hook.sh) through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux kill guard (install/kosmos-report-hook.sh) through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 
 const HOOK = path.join(__dirname, 'install', 'kosmos-report-hook.sh');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4671-'));

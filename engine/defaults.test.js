@@ -11,7 +11,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const defaults = require('./defaults');
-const SKIP_POSIX_SHELL = require('../test-support/skip-on-win32').skipOnWin32('it runs the shell examples through /bin/bash or /bin/zsh by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('../test-support/skip-on-win32').skipOnWin32('it runs the shell examples only in /bin/bash or /bin/zsh, neither of which exists on Windows');   // kosmos#8378
 
 test('the composed block carries no em dash, because it teaches that rule', () => {
   assert.ok(!defaults.block().includes('—'),

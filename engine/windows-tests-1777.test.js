@@ -59,6 +59,10 @@ test('every test file that branches on a win32 HOST is run on Windows or exclude
     assert.ok(fs.existsSync(path.join(ROOT, f)), `HOST_BRANCH_EXCLUDED names ${f}, which does not exist`);
     assert.ok(!selected.has(f), `${f} is both selected and excluded`);
     assert.ok(why.length > 10, `${f} needs a reason`);
+    /* kosmos#8378: a file whose skip is skipOnWin32 says its reason twice, there and here; the entry must carry the
+       file's own reason, so the two cannot drift apart. */
+    const said = /\bskipOnWin32\('((?:\\.|[^'\\])*)'\)/.exec(fs.readFileSync(path.join(ROOT, f), 'utf8'));
+    if (said) assert.ok(why.includes(said[1].replace(/\\(.)/g, '$1')), `${f}: its HOST_BRANCH_EXCLUDED entry does not carry the reason its skipOnWin32 gives`);
   }
 });
 
