@@ -215,7 +215,12 @@ check(Board.parseTasks(Data(#"{"tasks":[{"projectId":"p","number":1,"state":"hel
 let suggested = row(1, "decision") { $0.holdForYou = true; $0.holdBecause = "which plan"; $0.holdSuggest = "the lower one, 9 dollars" }
 check(Tasks.rowLine(suggested, now: now, name: name) == "On hold until you answer: which plan. Suggested: the lower one, 9 dollars. Open it and take it off hold once you have.", "a suggestion follows the question, with a full stop")
 check(Tasks.rowLine(row(1, "decision") { $0.holdForYou = true; $0.holdSuggest = "Yes?" }, now: now, name: name) == "On hold until you answer. Suggested: Yes? Open it and take it off hold once you have.", "a suggestion that ends in ? gets no extra full stop")
-check(Tasks.rowLine(row(1, "held") { $0.holdSuggest = "yes" }, now: now, name: name) == "", "control: a plain hold shows no suggestion")
+check(!Tasks.rowLine(row(1, "decision") { $0.holdSuggest = "yes" }, now: now, name: name).contains("Suggested"), "control: a decision that is not a hold for you shows no suggestion")
+for (txt, want) in [("Yes.", " Suggested: Yes."), ("Yes!", " Suggested: Yes!"), ("yes", " Suggested: yes.")] {
+    check(Tasks.holdSuggestWords(txt) == want, "the ending of " + txt)
+}
+let notForYou = Board.parseTasks(Data(#"{"tasks":[{"projectId":"p","number":1,"state":"decision","onHold":true,"onHoldSuggest":"yes"}]}"#.utf8))?.tasks.first
+check(notForYou.map { $0.holdForYou == false && !Tasks.rowLine($0, now: now, name: name).contains("Suggested") } == true, "control: a hold not marked for the person, parsed, shows no suggestion")
 check(page.contains("return ' Suggested: ' + s + (/[.!?]$/.test(s) ? '' : '.');") && page.contains("+ esc(tskHoldSuggestWords(t))"),
       "premise: the board's row says the same words")
 let parsedSug = Board.parseTasks(Data(#"{"tasks":[{"projectId":"p","number":1,"state":"decision","onHold":true,"onHoldForPerson":true,"onHoldSuggest":"  yes  "},{"projectId":"p","number":2,"state":"decision","onHold":true,"onHoldForPerson":true,"onHoldSuggest":"   "},{"projectId":"p","number":3,"state":"decision","onHold":true,"onHoldForPerson":true,"onHoldSuggest":7}]}"#.utf8))?.tasks ?? []
