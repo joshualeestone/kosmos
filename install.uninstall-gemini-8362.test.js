@@ -19,7 +19,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 
 const SETUP = path.join(__dirname, 'install', 'setup.sh');
 const gs = require('./engine/geminisettings');
@@ -48,7 +48,7 @@ test('control: the sandbox engine holds geminisettings and what it requires', ()
   for (const f of ['geminisettings.js', 'securewrite.js', 'filelock.js', 'hookpaths.js']) assert.ok(ENGINE_FILES.includes(f), f + ' is not copied');
 });
 
-function sandbox({ noEngine = false, record = true, crashEngine = false } = {}) {
+function sandbox({ noEngine = false, record = true, crashEngine = false, hangEngine = false } = {}) {
   const root = fs.mkdtempSync(path.join(tmpRoot, 'sb-'));
   const kh = path.join(root, 'kosmos-home');
   const home = path.join(root, 'home');
@@ -63,6 +63,9 @@ function sandbox({ noEngine = false, record = true, crashEngine = false } = {}) 
     fs.writeFileSync(path.join(kh, 'app', 'engine', 'geminisettings.js'),
       "module.exports = { undoWrites: () => ({ done: true, restored: ['/put/back/settings.json'], get kept() { throw new Error('stopped'); }, left: [] }) };\n");
   }
+  // kosmos#8388: an undo that does not return in time (a settings file on a stalled mount). A busy loop, so TERM stops it;
+  // it ends by itself after 20 s, so a red run (the bound gone) leaves no process spinning after the test (review 5 W1).
+  if (hangEngine) fs.writeFileSync(path.join(kh, 'app', 'engine', 'geminisettings.js'), 'module.exports = { undoWrites: () => { const end = Date.now() + 20000; while (Date.now() < end) {} return { done: false, because: "too slow" }; } };\n');
   fs.writeFileSync(path.join(kh, 'bin', 'kosmos'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(kh, 'VERSION'), '0.0.0\n');
 
@@ -83,7 +86,7 @@ function sandbox({ noEngine = false, record = true, crashEngine = false } = {}) 
   return { root, kh, home, data, ledger, mainFile, workFile };
 }
 
-function runUninstall(sb) {
+function runUninstall(sb, extraEnv = {}, timeout = 0) {
   try {
     // /bin/sh, as a person runs it (`sh -s -- --uninstall`): on macOS that is bash in POSIX mode, where a command
     // substitution inherits set -e, which plain bash does not.
@@ -98,7 +101,10 @@ function runUninstall(sb) {
         AGENT_WORKFORCE_LAUNCH: path.join(sb.root, 'launch'),
         KOSMOS_APP_DIR: path.join(sb.root, 'apps'),
         KOSMOS_SYS_APP_DIR: path.join(sb.root, 'sysapps'),
+        ...extraEnv,
       },
+      ...(timeout ? { timeout } : {}),
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (e) {
     return String((e.stdout || '') + (e.stderr || ''));
@@ -147,6 +153,24 @@ test('#8362: an undo that stops partway says what it did, and that it did not fi
   assert.ok(!fs.existsSync(sb.kh), 'the uninstall did not reach its removal step: ' + out.slice(-600));
   assert.ok(out.includes('put back the Gemini settings Kosmos had filled in, in /put/back/settings.json'), 'what it did before stopping was not said');
   assert.ok(out.includes('could not') && out.includes('finish putting them back') && out.includes(sb.ledger), 'that it did not finish was not said');
+});
+
+test('kosmos#8388: a Gemini undo that never returns is stopped after its time limit, and the record is kept', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox({ hangEngine: true });
+  const before = fs.readFileSync(sb.mainFile, 'utf8');
+  const t0 = Date.now();
+  const out = runUninstall(sb, { KOSMOS_UNINSTALL_NODE_SECONDS: '1' }, 15000);
+  const took = Date.now() - t0;
+  // Time first, so a hang reads as a hang and not as a missing removal step (review 5 NIT 2).
+  assert.ok(took < 6000, 'the uninstall waited ' + took + ' ms on a Gemini undo that never returns (a slow runner gets room)');
+  assert.ok(!fs.existsSync(sb.kh), 'the uninstall did not reach its removal step: ' + out.slice(-600));
+  assert.ok(out.includes('putting back the Gemini settings Kosmos filled in did not finish in 1s and was stopped'), 'the stop was not said:\n' + out);
+  // The node is gone, not abandoned (review 5 NIT 3): nothing still runs from this sandbox.
+  const left = spawnSync('/bin/ps', ['-axo', 'pid=,command='], { encoding: 'utf8' }).stdout.split('\n').filter((l) => l.includes(sb.root));
+  assert.deepEqual(left, [], 'a process from the sandbox is still running');
+  assert.equal(fs.readFileSync(sb.mainFile, 'utf8'), before, 'the settings changed though the undo never ran');
+  assert.ok(fs.existsSync(sb.ledger) && out.includes(sb.ledger), 'the record was lost or not named:\n' + out);
+  assert.doesNotMatch(out, /Terminated|Killed/, 'the shell\'s own job line reached the person:\n' + out);
 });
 
 test('#8362: a re-run after the folder is already gone names the record', { skip: SKIP_OFF_POSIX }, () => {

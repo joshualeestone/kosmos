@@ -1827,6 +1827,47 @@ start_log() {
   # descriptor leak that once held a curl | sh install open forever.
 }
 
+# kosmos#8388: wait for a node step running in the background ($1, its pid), bounded by
+# KOSMOS_UNINSTALL_NODE_SECONDS (default 10; a non-numeric value falls back to 10). A step that reads the person's
+# own settings files can meet a stalled mount (a home or account folder linked to a network or cloud folder), and a
+# hang with no sentence is the worst outcome.
+# 🛑 THE WAIT IS A FOREGROUND POLL, NEVER A BLOCKING `wait` ON A PROCESS THAT HAS NOT DIED (review 1, measured):
+# a node stuck in an uninterruptible read on a hard network mount ignores TERM and even KILL until the read returns,
+# and `wait` would hang with it. So: TERM at the limit, KILL after a 2 s grace, and if it is still alive after
+# another second it is ABANDONED (left to finish on its own) and this returns. 0.2 s ticks, so a quick step is not
+# held for a whole second. Returns node's own status, or 143 when it was stopped; sets _kwb_abandoned=yes when the
+# process could not be stopped at all.
+_kosmos_wait_bounded() {
+  _kwb_pid="$1"
+  _kwb_abandoned=""
+  _kwb_secs="${KOSMOS_UNINSTALL_NODE_SECONDS:-10}"
+  case "$_kwb_secs" in ''|*[!0-9]*) _kwb_secs=10 ;; esac
+  [ "${#_kwb_secs}" -le 6 ] || _kwb_secs=10   # review 4: dash aborts on $((huge * 5)); 6 digits is days
+  # review 2: leading zeros off, or `$((08 * 5))` is an octal error (no bound under bash, an abort under dash).
+  _kwb_secs="${_kwb_secs#"${_kwb_secs%%[!0]*}"}"; [ -n "$_kwb_secs" ] || _kwb_secs=0
+  _kwb_ticks=0
+  _kwb_limit=$((_kwb_secs * 5))
+  while kill -0 "$_kwb_pid" 2>/dev/null; do
+    if [ "$_kwb_ticks" -ge "$_kwb_limit" ]; then
+      kill "$_kwb_pid" 2>/dev/null || true
+      _kwb_g=0
+      while kill -0 "$_kwb_pid" 2>/dev/null && [ "$_kwb_g" -lt 10 ]; do sleep 0.2; _kwb_g=$((_kwb_g+1)); done
+      if kill -0 "$_kwb_pid" 2>/dev/null; then
+        kill -9 "$_kwb_pid" 2>/dev/null || true
+        _kwb_g=0
+        while kill -0 "$_kwb_pid" 2>/dev/null && [ "$_kwb_g" -lt 5 ]; do sleep 0.2; _kwb_g=$((_kwb_g+1)); done
+      fi
+      if kill -0 "$_kwb_pid" 2>/dev/null; then _kwb_abandoned=yes; return 143; fi
+      wait "$_kwb_pid" 2>/dev/null || true
+      return 143
+    fi
+    sleep 0.2
+    _kwb_ticks=$((_kwb_ticks+1))
+  done
+  _kwb_rc=0; wait "$_kwb_pid" 2>/dev/null || _kwb_rc=$?
+  return "$_kwb_rc"
+}
+
 # ---- uninstall --------------------------------------------------------------
 # (Uninstall narrates to the screen only: its file transcript would live in
 # the very folder being deleted, and tee holding an unlinked file preserves
@@ -2062,9 +2103,12 @@ gemini_settings_undo() {
   _gw_rec="${1%/}/gemini-wrote.json"
   [ -n "$1" ] && [ -f "$_gw_rec" ] || return 0
   _gw_out=""
-  if [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] \
+  # kosmos#8388: bounded like the Claude unwire (_kosmos_wait_bounded): the Gemini settings live in the person's home,
+  # which can be on a stalled mount. Output goes to a temp file so node can run in the background.
+  _gw_tmp="$(mktemp "${TMPDIR:-/tmp}/kosmos-gemini-undo.XXXXXX" 2>/dev/null)" || _gw_tmp=""
+  if [ -n "$_gw_tmp" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] \
      && [ -f "$KOSMOS_HOME/app/engine/geminisettings.js" ]; then
-    _gw_out="$(KOSMOS_GS="$KOSMOS_HOME/app/engine/geminisettings.js" "$KOSMOS_HOME/runtime/bin/node" -e '
+    KOSMOS_GS="$KOSMOS_HOME/app/engine/geminisettings.js" "$KOSMOS_HOME/runtime/bin/node" -e '
       const gs = require(process.env.KOSMOS_GS);
       const say = (s) => process.stdout.write("say " + s + "\n");
       if (typeof gs.undoWrites === "function") {
@@ -2077,8 +2121,20 @@ gemini_settings_undo() {
         }
         process.stdout.write("@kosmos-gemini-done\n");
       }
-    ' "$_gw_rec" 2>/dev/null)" || true   # a node that stopped partway keeps what it said, and the marker decides
+    ' "$_gw_rec" >"$_gw_tmp" 2>/dev/null &
+    _gw_rc=0; { _kosmos_wait_bounded "$!"; } 2>/dev/null || _gw_rc=$?
+    _gw_out="$(cat "$_gw_tmp" 2>/dev/null)" || _gw_out=""   # a node that stopped partway keeps what it said; the marker decides
+    # A stop that lands after the done marker is not a stop the person needs to hear about (review 5 NIT 1).
+    if [ "$_gw_rc" = 143 ]; then
+      case "$_gw_out" in
+        *@kosmos-gemini-done*) ;;
+        *)
+          if [ -n "$_kwb_abandoned" ]; then _gw_how="could not be stopped and is left to finish on its own (it may still edit those files later)"; else _gw_how="was stopped"; fi
+          info "putting back the Gemini settings Kosmos filled in did not finish in ${_kwb_secs}s and ${_gw_how}; a settings file may be on a slow or stalled network folder" ;;
+      esac
+    fi
   fi
+  [ -z "$_gw_tmp" ] || rm -f "$_gw_tmp"
   printf '%s\n' "$_gw_out" | while IFS= read -r _gw_l; do
     case "$_gw_l" in "say "*) info "${_gw_l#say }" ;; esac
   done
@@ -2716,7 +2772,9 @@ KOSMOS_SWEEP_LIST
       _kh_real="$(cd -P "$KOSMOS_HOME" 2>/dev/null && pwd)" || _kh_real=""
       _unwire_out="$(mktemp "${TMPDIR:-/tmp}/kosmos-unwire.XXXXXX" 2>/dev/null)" || _unwire_out=""
       if [ -n "$_unwire_out" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ]; then
-        "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" "${AGENT_WORKFORCE_HOME:-$HOME}" "$_support" <<'UNWIREEOF' >"$_unwire_out" 2>/dev/null || true
+        # kosmos#8388: in the background and bounded (_kosmos_wait_bounded), so a settings file on a stalled mount
+        # cannot hang the uninstall; after a stop nothing below reads those files again (one sentence says where to look).
+        "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" "${AGENT_WORKFORCE_HOME:-$HOME}" "$_support" <<'UNWIREEOF' >"$_unwire_out" 2>/dev/null &
 const fs = require('fs');
 const path = require('path');
 const [kosmosHome, home, support] = process.argv.slice(2);
@@ -2831,13 +2889,27 @@ if (support) {
 // the files itself. Gemini's files are marked, so they are named under Gemini's own sentence.
 process.stdout.write(left.concat(geminiLeft.map((f) => '@gemini ' + f), ['@kosmos-unwire-done']).join('\n') + '\n');
 UNWIREEOF
+        # review 2: stderr of the whole wait goes nowhere, or bash prints its own "Terminated" job line beside ours.
+        _unwire_rc=0; { _kosmos_wait_bounded "$!"; } 2>/dev/null || _unwire_rc=$?
+        if [ "$_unwire_rc" = 143 ]; then
+          # review 3: a stop, not only an abandon, can mean a settings file is on a stalled mount (TERM working shows the
+          # stall was interruptible, not that it ended), so after ANY stop nothing here reads or removes a file in those
+          # folders again: the file-naming fallback below is skipped and this sentence says where to look by hand.
+          if [ -n "$_kwb_abandoned" ]; then _uw_how="could not be stopped and is left to finish on its own (it may still edit those files later)"; else _uw_how="was stopped"; fi
+          info "taking Kosmos's hooks out of Claude Code's settings did not finish in ${_kwb_secs}s and ${_uw_how}; a settings file may be on a slow or stalled network folder. Check the settings.json in each Claude folder under ${AGENT_WORKFORCE_HOME:-$HOME} for Kosmos's hooks (kosmos-report-hook) and status line (kosmos-statusline), and remove them and any file ending in .kosmos-unwire.<a number> beside it, by hand"
+          # #8364 runs in the same node call, so Gemini's settings were not finished either; gemini_hook_settings_left is
+          # skipped below for the same reason, so they are named here instead.
+          [ -z "$_support" ] || info "the same goes for Gemini CLI: check the settings.json in ${AGENT_WORKFORCE_GEMINI_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.gemini} and in each .gemini-<name>/.gemini folder under ${AGENT_WORKFORCE_HOME:-$HOME} for hooks running gemini-report-bridge inside ${_support%/}/bin, and remove them by hand"
+        fi
         if [ "$(tail -n 1 "$_unwire_out" 2>/dev/null)" = "@kosmos-unwire-done" ]; then
           _unwire_done=yes
           _unwire_left="$(grep -v '^@' "$_unwire_out" 2>/dev/null)" || _unwire_left=""
           _gemini_left="$(sed -n 's/^@gemini //p' "$_unwire_out" 2>/dev/null)" || _gemini_left=""
         fi
       fi
-      if [ -z "$_unwire_done" ]; then
+      # review 2 and 3: after a STOPPED step the fallback would read the very files that may have stalled it, and hang
+      # the same way; the sentence above says where to look instead.
+      if [ -z "$_unwire_done" ] && [ "${_unwire_rc:-0}" != 143 ]; then
         # No node that ran to the end (a partial install, a node that crashed or cannot run here) or no temp file:
         # name every settings file that still points at this install's hook, rather than leaving it silently.
         _unwire_left="$(hook_settings_left "$KOSMOS_HOME" "$_kh_real")"
