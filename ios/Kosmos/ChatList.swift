@@ -65,12 +65,16 @@ struct ChatList: UIViewRepresentable {
     // kosmos#8221 slice 19: KOSMOS_SAMPLE_FOCUSNONEWESTPART=1 takes away the rule that follows a part of the newest message
     // above the screen, the control arm of A11yFocusUITests' newest-part check.
     static let sampleFocusNoNewestPart = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUSNONEWESTPART"] == "1"
+    // KOSMOS_SAMPLE_FOCUSNOPARTSIZE=1 takes away only the size test of that rule, so any element of the newest message
+    // starting above the screen counts as a part: the control arm of the whole-message check.
+    static let sampleFocusNoPartSize = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUSNOPARTSIZE"] == "1"
     #else
     static let sampleNoCellActions = false
     static let sampleNoDropFix = false
     static let sampleFocusNoNewest = false
     static let sampleFocusNoOnScreen = false
     static let sampleFocusNoNewestPart = false
+    static let sampleFocusNoPartSize = false
     #endif
 
     final class List: UICollectionView {
@@ -237,8 +241,9 @@ struct ChatList: UIViewRepresentable {
         // cut off by 20 pt at the top while at the newest; "back" is "above", then the newest focused and scrolled to without
         // animation; "refocus" focuses the same row again after an update; "afterjump" focuses 0.3 s after a jump to the
         // newest; "newestpart" (slice 19, with KOSMOS_SAMPLE_TALLNEWEST) focuses the first 80 pt of a newest reply taller
-        // than the screen, above it, and "newestclipped" an 80 pt part of it crossing the top of the screen by 20 pt, each
-        // with an element in the newest row's cell as SwiftUI makes one for a paragraph. Reported through sampleA11y,
+        // than the screen, above it, "newestclipped" an 80 pt part of it crossing the top of the screen by 20 pt, and
+        // "newestwhole" the whole reply (its row less 4 pt at each end), each with an element in the newest row's cell as
+        // SwiftUI makes one. Reported through sampleA11y,
         // starting "focus".
         func sampleA11yFocus(_ report: ((String) -> Void)?) {
             guard !ChatList.sampleA11yDone, let list, let source else { return }
@@ -304,6 +309,16 @@ struct ChatList: UIViewRepresentable {
             case "newest":
                 target = newestId
                 element = listElement(tall: true); focus()
+            case "newestwhole":
+                // kosmos#8221 slice 19: the whole tall reply focused, with an element in its cell a little inside its row.
+                target = newestId
+                if let ip = source.indexPath(for: newestId), let a = list.layoutAttributesForItem(at: ip), let c = list.cellForItem(at: ip),
+                   let w = list.window {
+                    let e = UIAccessibilityElement(accessibilityContainer: c.contentView)
+                    e.accessibilityFrame = list.convert(a.frame.insetBy(dx: 0, dy: 4), to: w.screen.coordinateSpace)
+                    element = e
+                }
+                focus()
             case "newestpart", "newestclipped":
                 // kosmos#8221 slice 19: with KOSMOS_SAMPLE_TALLNEWEST the newest message is taller than the screen; at the
                 // newest its top is above it. An element for 80 pt of it, as VoiceOver stepping up through the reply focuses
@@ -691,16 +706,16 @@ struct ChatList: UIViewRepresentable {
             lastFocusPart = part
             appliedSinceFocus = false
             if refocus { return }
-            // kosmos#8221 slice 19: a part of the newest message (an element under three quarters of its row's height, not the
-            // message as a whole) that starts above the top of the screen and does not reach below its bottom, as VoiceOver
-            // stepping up through a reply taller than the screen focuses, is followed as a message above is, so the part read
-            // aloud is the part shown. The newest message as a whole, or an element reaching past both edges, still keeps a
-            // reader at the newest.
+            // kosmos#8221 slice 19: a part of the newest message that starts above the top of the screen and does not reach
+            // below its bottom, as VoiceOver stepping up through a reply taller than the screen focuses, is followed as a
+            // message above is, so the part read aloud is the part shown. At the newest the row's bottom shows, so an element
+            // for the whole message passes both edge tests too: the size test (under three quarters of the row's height) is
+            // what tells a part from the whole, which still keeps a reader at the newest.
             var newestPart = false
             if ip == newestAt, !ChatList.sampleFocusNoNewestPart, let e = elementFrame(element), let row = list.layoutAttributesForItem(at: ip)?.frame {
                 let top = list.contentOffset.y + list.adjustedContentInset.top - list.contentInset.top
                 let bottom = list.contentOffset.y + list.bounds.height - list.adjustedContentInset.bottom + list.contentInset.bottom
-                newestPart = e.height < row.height * 0.75 && e.minY < top - 0.5 && e.maxY <= bottom + 0.5
+                newestPart = (e.height < row.height * 0.75 || ChatList.sampleFocusNoPartSize) && e.minY < top - 0.5 && e.maxY <= bottom + 0.5
             }
             if ip >= newestAt, !newestPart, !ChatList.sampleFocusNoNewest {
                 // Back on the newest message: at the newest once it is fully shown (the working line and the room under it can

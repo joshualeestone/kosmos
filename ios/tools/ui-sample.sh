@@ -79,7 +79,7 @@ if [ "$uikit" = 1 ]; then
   # kosmos#8221 slice 12: A11yFocusUITests (12), assistive focus on a message off screen, before the newest, brings it on screen and
   #   moves the reader by where the list lands, in either order with VoiceOver's own scroll; one on screen, or the newest, changes nothing; two controls.
   # kosmos#8221 slice 18: A11yFocusUITests (2 more, 14), controls for the on-screen and newest rules (KOSMOS_SAMPLE_FOCUSNOONSCREEN, _FOCUSNONEWEST).
-  # kosmos#8221 slice 19: A11yFocusUITests (4 more, 18), a part of a tall newest message above or cut off at the top of the screen is followed, each with its control.
+  # kosmos#8221 slice 19: A11yFocusUITests (6 more, 20), a part of a tall newest message above or cut off at the top of the screen is followed and the whole message is not, each with its control.
   # kosmos#8221 slice 13: A11yActionsUITests (3), VoiceOver's Message actions opens the sheet (Copy, and Delete on your own message)
   #   from a hosted cell; one control with the opener left out of the cell.
   # kosmos#8221 slice 14: EarlierDroppedUITests (2), a reader up in earlier pages that are dropped (a "moved" read) goes to
@@ -87,7 +87,7 @@ if [ "$uikit" = 1 ]; then
   #   EarlierDoubleAskUITests (2), a page landing is not asked for again before the list says where the top is; one control.
   # kosmos#8221 slice 17: EarlierDeleteShiftUITests (2), after a delete the next page is asked from the window as it is (no
   #   message drawn twice); one control.
-  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:7 ChatGapUITests:3 A11yFocusUITests:18 A11yActionsUITests:3 EarlierDroppedUITests:4 EarlierDoubleAskUITests:2 EarlierDeleteShiftUITests:2"
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:7 ChatGapUITests:3 A11yFocusUITests:20 A11yActionsUITests:3 EarlierDroppedUITests:4 EarlierDoubleAskUITests:2 EarlierDeleteShiftUITests:2"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done

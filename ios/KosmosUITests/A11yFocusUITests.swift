@@ -3,7 +3,7 @@ import XCTest
 /// kosmos#8221 slice 12: on the UIKit list, assistive focus (VoiceOver's one-finger swipe to the element above) moving to a
 /// message above the screen while the reader is at the newest: the reader is no longer held at the end, and that message is
 /// on screen and stays there. VoiceOver does not run on a simulator, so the app posts the notification VoiceOver posts, 6 s
-/// after the chat opens (KOSMOS_SAMPLE_A11YFOCUS), in one of twelve modes (KOSMOS_SAMPLE_A11YFOCUS_MODE, see
+/// after the chat opens (KOSMOS_SAMPLE_A11YFOCUS), in one of thirteen modes (KOSMOS_SAMPLE_A11YFOCUS_MODE, see
 /// ChatList.sampleA11yFocus), and reports what the list did. The UIKit list only: the lazy list has no such pin.
 final class A11yFocusUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
@@ -145,6 +145,22 @@ final class A11yFocusUITests: XCTestCase {
         XCTAssertEqual(r.pins, 0, "the list put itself back at the end after the focus: \(r.label)")
         XCTAssertGreaterThanOrEqual(r.moved, 20, "the list did not bring the part down: \(r.label)")
         XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")
+    }
+
+    // The whole tall reply focused (its element almost its whole row, so it passes both edge tests): the reader stays at
+    // the newest and the list does not move. Without the size test it would be taken for a part and followed.
+    func testAFocusOnAWholeTallNewestMessageKeepsTheReaderAtTheNewest() throws {
+        let r = try focus(mode: "newestwhole", tallNewest: true)
+        XCTAssertTrue(r.found, "CONTROL: the focused element was not placed on the newest row: \(r.label)")
+        XCTAssertTrue(r.atEnd, "a focus on the whole newest message took the reader off it: \(r.label)")
+        XCTAssertEqual(r.moved, 0, "a focus on the whole newest message moved the list: \(r.label)")
+    }
+
+    func testWithoutThePartSizeTestAWholeTallNewestMessageIsFollowed() throws {
+        let r = try focus(mode: "newestwhole", ruleOff: "KOSMOS_SAMPLE_FOCUSNOPARTSIZE", tallNewest: true)
+        XCTAssertTrue(r.found, "CONTROL: the focused element was not placed on the newest row: \(r.label)")
+        XCTAssertFalse(r.atEnd, "CONTROL: without the size test the reader stayed at the newest: \(r.label)")
+        XCTAssertGreaterThan(r.moved, 40, "CONTROL: without the size test the list did not move: \(r.label)")
     }
 
     func testWithoutTheNewestPartRuleAPartCutOffAtTheTopStaysCutOff() throws {

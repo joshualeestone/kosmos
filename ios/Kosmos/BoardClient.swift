@@ -1607,12 +1607,12 @@ final class BoardClient: ObservableObject {
             let para = "Here is where things stand on the catalogue, with the parts that are done and the parts still waiting on photos and prices."
             for i in 0..<220 {
                 let at: String = String(format: "2026-10-23T%02d:%02d:00Z", 8 + i / 60, i % 60)
-                let from: Any = i % 2 == 0 ? "dana" : NSNull()
+                // kosmos#8221 slice 19: KOSMOS_SAMPLE_TALLNEWEST=1 makes the newest message a reply of Dana's taller than the
+                // screen.
+                let tallNewest = i == 219 && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TALLNEWEST"] == "1"
+                let from: Any = i % 2 == 0 || tallNewest ? "dana" : NSNull()
                 var text = "Message \(i + 41) of 260."
-                // kosmos#8221 slice 19: KOSMOS_SAMPLE_TALLNEWEST=1 makes the newest message a reply taller than the screen.
-                if i == 219, ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TALLNEWEST"] == "1" {
-                    text += "\n\n" + Array(repeating: para, count: 24).joined(separator: "\n\n")
-                }
+                if tallNewest { text += "\n\n" + Array(repeating: para, count: 24).joined(separator: "\n\n") }
                 if long == "varied" && i % 2 == 0 {
                     let paragraphs = [0, 1, 3, 8, 2, 14][i / 2 % 6]
                     if paragraphs > 0 { text += "\n\n" + Array(repeating: para, count: paragraphs).joined(separator: "\n\n") }
