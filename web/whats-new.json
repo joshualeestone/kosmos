@@ -27,8 +27,8 @@
     },
     {
       "icon": "shield",
-      "title": "Removing Kosmos puts back your Gemini settings",
-      "line": "Removing Kosmos puts back the Gemini sign-in and update settings it filled in, unless you changed them since.",
+      "title": "The restart note says what was checked",
+      "line": "After this computer restarts, the note says how many agents came back, names any that did not, and whether Kosmos's main records read fine.",
       "platforms": [
         "mac"
       ]

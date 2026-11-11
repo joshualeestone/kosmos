@@ -1447,7 +1447,7 @@
       "title": "The restart note says what was checked",
       "line": "After this computer restarts, the note says how many agents came back, names any that did not, and whether Kosmos's main records read fine.",
       "icon": "shield",
-      "rank": 11.6,
+      "rank": 10.45,
       "since": "0.8.01",
       "status": "pending",
       "platforms": [
@@ -1683,12 +1683,12 @@
     },
     {
       "title": "Removing Kosmos puts back your Gemini settings",
-      "line": "Removing Kosmos puts back the Gemini sign-in and update settings it filled in, unless you changed them since.",
+      "line": "Removing Kosmos now puts back the Gemini sign-in and update settings it fills in from this version on, unless you changed them.",
       "icon": "shield",
       "platforms": [
         "mac"
       ],
-      "rank": 10.4,
+      "rank": 12.4,
       "since": "0.8.03",
       "status": "pending"
     },
@@ -1698,7 +1698,8 @@
       "icon": "list",
       "rank": 12.5,
       "since": "0.8.03",
-      "status": "pending"
+      "status": "pending",
+      "notesOnly": true
     },
     {
       "title": "Browsers Kosmos opens keep its keys out",
