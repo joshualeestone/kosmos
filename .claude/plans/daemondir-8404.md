@@ -8,7 +8,7 @@ runner (Mortals has three; the old CI Mac has the relay's beside this repo's) ca
 
 ## Change
 - `KOSMOS_CI_REPO` (owner/name, validated) and `KOSMOS_CI_RUNNER_DIR` (one directory directly in the CI home,
-  validated) name another installed runner, with its `KOSMOS_CI_RUNNER_NAME`. Set both with the runner's `KOSMOS_CI_RUNNER_NAME`, or neither (a name alone is the existing knob), checked before anything else, the stage first: every stage but daemon, known or not, is told to unset them. They set the
+  validated) name another installed runner, with its `KOSMOS_CI_RUNNER_NAME`. Set both with the runner's `KOSMOS_CI_RUNNER_NAME`, or neither (a name alone is the existing knob), checked before any of their values is used, the stage first: every stage but daemon, known or not, is told to unset them. They set the
   runner's label (`runner_label`) and RUNNER_DIR (which must be a real directory, not a symlink), which every listener and worker match is already anchored
   on. The daemon stage never asks the runners API (it reads processes), so nothing there changes.
 - REPO itself (this script's code, its job guard, its variables, the registration URL) never changes.
