@@ -73,12 +73,16 @@ function sandbox({ noNode = false } = {}) {
   return { root, kh, home, data, support, bridge, mainFile, workFile, otherFile, nestedFile, brokenFile };
 }
 
-function runUninstall(sb) {
+function runUninstall(sb, extra = {}) {
+  // The runner's own Gemini home override must never reach the uninstall: it would point it at a real file.
+  const base = { ...process.env };
+  delete base.AGENT_WORKFORCE_GEMINI_HOME;
   try {
     return execFileSync('bash', [SETUP, '--uninstall'], {
       encoding: 'utf8',
       env: {
-        ...process.env,
+        ...base,
+        ...extra,
         HOME: sb.home,
         AGENT_WORKFORCE_HOME: sb.home,
         KOSMOS_HOME: sb.kh,
@@ -137,6 +141,20 @@ test('#8364: a re-run after the folder is already gone names the Gemini files it
   const out = runUninstall(sb);
   assert.match(out, /could not be taken out of these Gemini CLI settings files/, 'a re-run said nothing about the Gemini hooks');
   assert.ok(out.includes(sb.mainFile), 'the default Gemini file was not named');
+  const notice = out.slice(out.indexOf('Gemini CLI settings files'));
+  for (const f of [sb.otherFile, sb.nestedFile]) assert.ok(!notice.includes(f), f + ' (not this install\'s) was named');
+});
+
+test('#8364: AGENT_WORKFORCE_GEMINI_HOME names the default Gemini home the uninstall cleans', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox();
+  const overFile = path.join(sb.root, 'gemhome', 'settings.json');
+  gs.ensurePrepared(overFile, sb.bridge, PLAT);
+  assert.ok(names(read(overFile), sb.bridge), 'control: our hooks were never written to the override home');
+  const before = fs.readFileSync(sb.mainFile, 'utf8');
+  const out = runUninstall(sb, { AGENT_WORKFORCE_GEMINI_HOME: path.dirname(overFile) });
+  assert.ok(!fs.existsSync(sb.kh), 'the uninstall did not reach its removal step: ' + out.slice(-600));
+  assert.ok(!names(read(overFile), 'gemini-report-bridge'), 'a Kosmos hook was left in the override home');
+  assert.equal(fs.readFileSync(sb.mainFile, 'utf8'), before, '~/.gemini was changed though the override names another home');
 });
 
 test('#8364: the Gemini hooks come out before the data folder\'s bin/ (their bridge) is removed', () => {

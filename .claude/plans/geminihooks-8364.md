@@ -29,9 +29,20 @@ Would change my mind: a hook command form whose bridge path is not quoted the wa
 
 - install/setup.sh: the unwire script takes the data folder as a third argument, cleans Gemini's files with its own
   rule, and marks Gemini's leftover files; gemini_hook_settings_left (no node / re-run) and say_gemini_hooks_left.
-- install.uninstall-geminihooks-8364.test.js (4, the real setup.sh, hooks written by the real ensurePrepared).
+- install.uninstall-geminihooks-8364.test.js (5, the real setup.sh, hooks written by the real ensurePrepared).
 
 ## Results
 
-- New 4 of 4; install.uninstall-unwire-5998 9 of 9; install.uninstall-gemini-8362 7 of 7.
+- New 5 of 5; install.uninstall-unwire-5998 9 of 9; install.uninstall-gemini-8362 7 of 7.
 - Control: with the Gemini step switched off, the main check fails.
+
+## Challenge loop
+
+- Iteration 1 (opus): 2 WARNINGs. The test passed the runner's AGENT_WORKFORCE_GEMINI_HOME through to the real
+  uninstall, which could then edit a real file outside the sandbox: FIXED (removed from the test's environment; it was
+  unset on this Mac and ~/.gemini was not touched). No check covered the override: FIXED (an arm sets it to a sandbox
+  home and asserts ~/.gemini is untouched). NITs FIXED: the Gemini file list is de-duplicated (node and shell); the
+  no-node fallback also matches the data folder's real path; the re-run arm asserts another install's file is not
+  named. NITs noted: a KOSMOS_HOME that is not an install skips this step while bin/ still goes (as #8362's undo);
+  the order check compares positions in the file.
+- Validation 0 passed (before these fixes).
