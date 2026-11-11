@@ -560,8 +560,19 @@ function unwireInstall(settingsPath, roots, opts) {
     if (base !== MARKER_HERE + '.js' && base !== MARKER_HERE + '.sh') return false;
     try { return !o.gone(x.slice(0, 2) + '\\') && o.gone(x) === true; } catch { return false; }
   };
+  /* kosmos#8361 (opts.programToo, Gemini's form `& '<node.exe>' '<bridge>'`): the bridge lives in the data folder and
+     outlives an install folder, so the part that breaks is the node.exe of an earlier folder. Judged by the same rules:
+     an absolute drive path, nothing a shell would expand, named node.exe, on a drive that is there now. */
+  const programGone = (h) => {
+    if (!o.programToo || typeof h.command !== 'string' || !h.command.includes(MARKER_HERE)) return false;
+    const m = h.command.match(/^(?:&\s*)?'([^']+)'/);
+    const p = m ? m[1] : '';
+    if (!/^[A-Za-z]:[\\/]/.test(p) || /[%$~]/.test(p) || !/^node\.exe$/i.test(p.split(/[\\/]/).pop())) return false;
+    try { return !o.gone(p.slice(0, 2) + '\\') && o.gone(p) === true; } catch { return false; }
+  };
   const isDead = (h) => {
     if (typeof o.gone !== 'function' || !h) return false;
+    if (programGone(h)) return true;
     const paths = scriptPaths(h);
     return paths.length > 0 && paths.every(provablyGone);
   };

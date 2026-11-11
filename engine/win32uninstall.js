@@ -94,7 +94,7 @@ const KOSMOS_STILL_OPEN = 'Kosmos is still open. Close Kosmos, then remove it ag
    is the fix (the launcher keeps its Remove entry while anything is left); editing by hand is not advised: on Windows
    only the argument line names kosmos-report-hook, and deleting that line alone leaves a broken entry (round 3). */
 const hooksByHand = (where, runner) => 'Close any other program that may be using ' + where + ', then remove Kosmos again. Until then '
-  + ((runner && runner.app) || 'Claude Code') + ' may show an error each time it uses a tool';
+  + (runner && runner.app ? runner.app + ' may show a hook error while it runs' : 'Claude Code may show an error each time it uses a tool');
 const STARTUP_UNREADABLE = 'Kosmos could not check whether it starts when you sign in. Nothing was removed. Try again in a minute.';
 const STARTUP_WOULD_NOT_SWITCH_OFF = 'Kosmos could not switch off the job that starts it when you sign in, so nothing was removed. Try again in a minute';
 
@@ -339,13 +339,19 @@ function claudeSettingsFiles(home, env) {
 }
 
 /* kosmos#8361: the Gemini settings files Kosmos writes its report hooks into: the default agent home's (create.js
-   defaultAgentGeminiHome) and every named account's, whose CLI storage home is the .gemini folder inside
-   ~/.gemini-<label> (geminiaccounts.js). A hook left there names this install's node.exe, so it fails on every tool call. */
+   defaultAgentGeminiHome), every named account's, whose CLI storage home is the .gemini folder inside
+   ~/.gemini-<label> (geminiaccounts.js), and each key home under the data folder (win32keyed.js defaultKeyHome), which
+   stays when the data is kept. A hook left there names this install's node.exe, which the person deletes next, so Gemini
+   cannot run it. */
 function geminiSettingsFiles(home, env) {
   const files = [path.join(env.AGENT_WORKFORCE_GEMINI_HOME || path.join(home, '.gemini'), 'settings.json')];
   try {
     for (const d of fs.readdirSync(home).sort()) if (d.startsWith('.gemini-')) files.push(path.join(home, d, '.gemini', 'settings.json'));
   } catch { /* no home listing: the default file alone */ }
+  try {
+    const keyHomes = path.join(store.dataRootFor('win32', home, env), 'gemini-key-home');
+    for (const d of fs.readdirSync(keyHomes).sort()) files.push(path.join(keyHomes, d, '.gemini', 'settings.json'));
+  } catch { /* no key homes */ }
   return [...new Set(files)];
 }
 
@@ -373,7 +379,7 @@ function unwireHooks(bundleRoot, home, env, gone, done, left, notes) {
     catch { notes.push('Claude Code\'s settings file ' + file + ' could not be checked for Kosmos\'s status line. If it has a "statusLine" entry naming kosmos-statusline.js, delete that entry.'); }
   }
   // kosmos#8361: Gemini's, by the same rules: only this install's entries, or ones whose script is provably gone.
-  const gemini = { marker: require('./geminisettings').MARKER, app: 'Gemini CLI' };
+  const gemini = { marker: require('./geminisettings').MARKER, app: 'Gemini CLI', programToo: true };
   for (const file of geminiSettingsFiles(home, env)) {
     try { unwireOne(file, roots, gone, filelock, reporthook, done, left, notes, gemini); }
     catch { left.push('Kosmos\'s entries in Gemini CLI\'s settings (' + file + '), which could not be checked. ' + hooksByHand('that file', gemini) + '.'); }
@@ -405,13 +411,13 @@ function unwireOne(file, roots, gone, filelock, reporthook, done, left, notes, r
   const marker = (runner && runner.marker) || reporthook.MARKER;
   try { fs.lstatSync(file); } catch { return; }   // no file: nothing of ours to take out, and nothing to lock
   const BUSY = 'another program was writing it';
-  const locked = filelock.withFileLock(file, () => reporthook.unwireInstall(file, roots, { gone, marker }),
+  const locked = filelock.withFileLock(file, () => reporthook.unwireInstall(file, roots, { gone, marker, programToo: !!(runner && runner.programToo) }),
     { busy: BUSY, cannotAccess: 'its folder would not let Kosmos lock it' });
   let r;
   if (locked && locked.ok === true) r = locked.value;
   else {
     // Not locked, so not touched. A read-only look says whether there was anything of ours to take out.
-    const look = reporthook.unwireInstall(file, roots, { gone, dryRun: true, marker });
+    const look = reporthook.unwireInstall(file, roots, { gone, dryRun: true, marker, programToo: !!(runner && runner.programToo) });
     const because = (locked && locked.because) || 'it could not be locked';
     r = { ours: look.ours, changed: false, unreadable: look.unreadable, because: look.unreadable ? look.because : because, stuck: because !== BUSY };
   }
@@ -750,9 +756,9 @@ async function uninstall(opts) {
     if (o.bundleRoot) {
       // Round 2: nothing in this step may stop the removal before the folders and the report.
       try { unwireHooks(o.bundleRoot, home, env, gone, done, left, notes); }
-      catch { left.push('Kosmos\'s entries in Claude Code\'s settings, which could not be checked. ' + hooksByHand('the settings.json files in your .claude folders') + '.'); }
+      catch { left.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings, which could not be checked. ' + hooksByHand('the settings.json files in your .claude and .gemini folders') + '.'); }
     }
-    else notes.push('Kosmos\'s entries in Claude Code\'s settings were not checked, because Kosmos could not tell which folder it was installed in. ' + hooksByHand('the settings.json files in your .claude folders') + '.');
+    else notes.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings were not checked, because Kosmos could not tell which folder it was installed in. ' + hooksByHand('the settings.json files in your .claude and .gemini folders') + '.');
   }
 
   /* 8-9: the folders, only once nothing registered, and no board, still needs them. */
