@@ -27,12 +27,12 @@ the Windows product queue is waiting on tonight's build.
 
 ## How the set was chosen
 From the #8368 inventory (main 53a164708d, every file run alone on the Windows box), the files whose every failing test
-failed for a shell reason (23). Re-measured on main 545df024be, and every failing test's first error line read. Then
+failed for a shell reason (23, boot-adds-5584 and bundle.manifest among them). Re-measured on main 545df024be, and every failing test's first error line read. Then
 review round 1 found the premise "Windows has no bash" false, so each file's mechanism was re-read:
 - **Dropped** (bare `bash`, which works when Git Bash is on PATH; their failures are something else, a later cluster):
   `tools.shell-shard-4317` (run-tests.sh through bare bash; assertion failures) and `cli.livecheck-prefix-8156`.
 - **Left out:** `bundle.manifest.test.js` (the POSIX executable bit: the file-modes cluster).
-- **Added after looking:** `install.boot-adds-5584`. It looked like a Windows board-start difference (no
+- **Kept after looking** (first left out): `install.boot-adds-5584`. It looked like a Windows board-start difference (no
   prompter-nudges.json), but the test gives the board fake-tmux.sh, which Windows cannot run, so the heartbeat never
   ticks. The real Windows board on the box does write the file.
 
@@ -43,11 +43,11 @@ pass count is unchanged except toolfail-6071's, which rises by the fixed test.
 ## Weakest premise
 That every skipped test is ONLY about an absolute POSIX path or a shebang script. Each was checked by its first error
 line and by how the file spawns (`grep` of every spawn call). A test that also covers a Windows behaviour behind that
-call loses it on Windows. None of these files is a win32 file or in the Windows CI job's list, so that job is unchanged.
+call loses it on Windows. None of the 20 changed test files is a win32 file or in the Windows CI job's list, so that job runs them as before. The new helper test, test-support.skip-on-win32.test.js, has win32 in its name, so the Windows job now runs it too (4 tests).
 
 Specifically for `report-hook-killguard-4671` (271 skips): the Windows report hook is the node twin
 (`engine/kosmos-report-hook.js`), which has **no kill guard at all**. So these skips remove no Windows coverage of
-anything that runs there, and the gap itself (no kill guard on Windows) is a product question, carded separately.
+anything that runs there, and the gap itself (no kill guard on Windows) is a product question, carded as #8406.
 
 ## Not covered (later #8378 PRs)
 tmux, POSIX modes, signals, the bare-bash files above, and the ~1,900 plain assertions; the stray `board.agent-claim` /
