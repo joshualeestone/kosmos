@@ -1663,3 +1663,27 @@ test('sleepGate: unreadable pmset (junk, empty, failed runner) -> checkable:fals
   const deadRunner = () => ({ ok: false, stdout: '', stderr: 'boom' });
   assert.equal(machine.sleepGate({ runner: deadRunner }).checkable, false, 'a failed pmset read is uncheckable, not a gate');
 });
+
+test('kosmos#8375 Linux draws no launchd rows and asks no macOS tool; its sleep row says no macOS words', () => {
+  const os2 = require('node:os'); const path2 = require('node:path'); const fs2 = require('node:fs');
+  const empty = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'kosmos-8375-'));
+  const asked = [];
+  const runner = (cmd, args) => { asked.push(cmd); return { ok: false, stdout: '', stderr: 'not found', code: 127 }; };
+  const opts = { claudeBin: REAL_BIN, tmuxBin: REAL_BIN, appDirs: [empty, empty], runner };
+  let linux, mac;
+  try {
+    linux = machine.check({ ...opts, platform: 'linux' });
+    // Control, same runner: on darwin both launchd rows are drawn and pmset is asked.
+    mac = machine.check({ ...opts, platform: 'darwin', installedRoot: null, disabled: { ok: true, jobs: [] } });
+  } finally { fs2.rmSync(empty, { recursive: true, force: true }); }
+  const keys = linux.checks.map((c) => c.key);
+  assert.deepEqual(keys, ['installed', 'sleep'], 'linux keys');
+  const sleep = linux.checks.find((c) => c.key === 'sleep');
+  assert.equal(sleep.state, machine.STATE.UNKNOWN);
+  assert.equal(sleep.settings, false, 'no button to a pane Linux does not have');
+  assert.ok(!/System Settings|Lock Screen|Battery|macOS/.test(sleep.title + sleep.detail), 'macOS words on Linux: ' + sleep.detail);
+  const macKeys = mac.checks.map((c) => c.key);
+  assert.ok(macKeys.includes('restart') && macKeys.includes('labels'), 'control, darwin keys: ' + macKeys.join(','));
+  assert.ok(asked.includes('/usr/bin/pmset'), 'control: darwin asked pmset');
+  assert.equal(asked.filter((c) => c === '/usr/bin/pmset').length, 1, 'only darwin asked pmset, not Linux');
+});

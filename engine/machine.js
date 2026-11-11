@@ -1780,6 +1780,8 @@ function agentAutostartCheck(runner, opts) {
 function check(opts) {
   const runner = (opts && opts.runner) || run;
   const isWin = platformOf(opts) === 'win32';
+  // kosmos#8375: launchd and pmset are macOS's; Linux has neither.
+  const isMac = platformOf(opts) === 'darwin';
 
   let sleepRow;
   if (isWin) {
@@ -1788,6 +1790,17 @@ function check(opts) {
        no pane to probe for. */
     sleepRow = win32SleepCheck(readWin32Sleep(opts));
     sleepRow.settings = true;
+  } else if (!isMac) {
+    /* kosmos#8375: Linux has no pmset to read and no System Settings to send a person to. A laptop can still sleep,
+       so the row stays, said in words that hold on any computer, with no button. */
+    sleepRow = {
+      key: 'sleep',
+      state: STATE.UNKNOWN,
+      title: 'We could not read this computer\'s sleep settings',
+      detail: 'That setting decides whether your agents keep working when you walk away. You can see it in this '
+        + 'computer\'s power settings.',
+      settings: false,
+    };
   } else {
     const pm = (opts && typeof opts.pmset === 'string')
       ? { ok: true, stdout: opts.pmset }
@@ -1810,9 +1823,9 @@ function check(opts) {
   const checks = [
     installedCheck(opts),
     sleepRow,
-    /* kosmos#8374: both ask launchd, which Windows does not have. Off on win32; null is filtered out below. */
-    isWin ? null : restartCheck(runner),
-    isWin ? null : labelTruthCheck(runner),
+    /* kosmos#8374, #8375: both ask launchd, which only macOS has. Off elsewhere; null is filtered out below. */
+    isMac ? restartCheck(runner) : null,
+    isMac ? labelTruthCheck(runner) : null,
     // #2397: the board's own login job -- present + enabled? #570 gave it a win32
     // arm (the board's Scheduled Task); it still returns null on any OTHER
     // platform, so filter falsy rather than render an empty row.
