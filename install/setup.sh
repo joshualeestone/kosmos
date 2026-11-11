@@ -2025,6 +2025,30 @@ say_hooks_left() {
   return 0
 }
 
+# #8364: the Gemini settings files that still hold a hook running the report bridge from the data folder $1's bin/,
+# one per line: the default home (or AGENT_WORKFORCE_GEMINI_HOME) and each named account's. Matched right after a
+# quote, as the hook command writes it. Used when no node could take the hooks out, and on a re-run after the folder
+# was already removed.
+gemini_hook_settings_left() {
+  [ -n "$1" ] || return 0
+  _gh_bin="${1%/}/bin/gemini-report-bridge"
+  _gh_home="${AGENT_WORKFORCE_HOME:-$HOME}"
+  for _gh_f in "${AGENT_WORKFORCE_GEMINI_HOME:-$_gh_home/.gemini}/settings.json" "$_gh_home"/.gemini-*/.gemini/settings.json; do
+    [ -f "$_gh_f" ] && grep -qF -e "\"$_gh_bin" "$_gh_f" 2>/dev/null && printf '%s\n' "$_gh_f"
+  done
+  return 0
+}
+
+# #8364: say which Gemini settings files still hold Kosmos's hooks (listed in $1), which run a script the uninstall
+# removes from $2/bin.
+say_gemini_hooks_left() {
+  [ -n "$1" ] || return 0
+  info "note: Kosmos's hooks could not be taken out of these Gemini CLI settings files, and Gemini CLI may show"
+  info "errors there until they are gone; delete the entries naming gemini-report-bridge inside $2/bin:"
+  printf '%s\n' "$1" | while IFS= read -r _sf; do [ -n "$_sf" ] && info "  $_sf"; done
+  return 0
+}
+
 # #8362: take out of the Gemini settings files the values Kosmos recorded writing (the record is $1/gemini-wrote.json),
 # through the installed engine's geminisettings.undoWrites, and say what happened. With no node or no engine to do
 # it (a partial install, or the folder already gone), the record is named instead, so nothing is left silently.
@@ -2679,18 +2703,18 @@ KOSMOS_SWEEP_LIST
       # inside THIS install's home are removed (another Kosmos install on this Mac shares these files), anything
       # else in the file is kept, and a file that cannot be read or saved is named below, never rewritten wrong.
       _unwire_left=""
+      _gemini_left=""
       _unwire_done=""
       _kh_real="$(cd -P "$KOSMOS_HOME" 2>/dev/null && pwd)" || _kh_real=""
       _unwire_out="$(mktemp "${TMPDIR:-/tmp}/kosmos-unwire.XXXXXX" 2>/dev/null)" || _unwire_out=""
       if [ -n "$_unwire_out" ] && [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ]; then
-        "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" "${AGENT_WORKFORCE_HOME:-$HOME}" <<'UNWIREEOF' >"$_unwire_out" 2>/dev/null || true
+        "$KOSMOS_HOME/runtime/bin/node" - "$KOSMOS_HOME" "${AGENT_WORKFORCE_HOME:-$HOME}" "$_support" <<'UNWIREEOF' >"$_unwire_out" 2>/dev/null || true
 const fs = require('fs');
 const path = require('path');
-const [kosmosHome, home] = process.argv.slice(2);
-const roots = [kosmosHome];
-try { roots.push(fs.realpathSync(kosmosHome)); } catch { /* the given path is enough */ }
-// Inside this home: the root starts the string or follows a quote or a space (so /var/x does not match /private/var/x).
-const inside = (s) => typeof s === 'string' && roots.some((r) => {
+const [kosmosHome, home, support] = process.argv.slice(2);
+// Inside one of these folders: the folder starts the string or follows a quote or a space (so /var/x does not match
+// /private/var/x).
+const insideOf = (dirs) => (s) => typeof s === 'string' && dirs.some((r) => {
   const root = r.replace(/\/+$/, '') + '/';
   let at = s.indexOf(root);
   while (at !== -1) {
@@ -2699,6 +2723,9 @@ const inside = (s) => typeof s === 'string' && roots.some((r) => {
   }
   return false;
 });
+const roots = [kosmosHome];
+try { roots.push(fs.realpathSync(kosmosHome)); } catch { /* the given path is enough */ }
+const inside = insideOf(roots);
 const hookIsOurs = (h) => !!h && (
   (typeof h.command === 'string' && h.command.includes('kosmos-report-hook') && inside(h.command))
   || (Array.isArray(h.args) && h.args.some((a) => typeof a === 'string' && a.includes('kosmos-report-hook') && inside(a))));
@@ -2706,10 +2733,11 @@ const files = [path.join(home, '.claude', 'settings.json')];
 try {
   for (const d of fs.readdirSync(home)) if (d.startsWith('.claude-')) files.push(path.join(home, d, 'settings.json'));
 } catch { /* no home listing: the default file alone */ }
-const left = [];
-for (const file of files) {
+/* One settings file: take out every hook entry `isOurs` names (and, for Claude, this install's status line), keep the
+   rest, and save it with its mode; a file that cannot be read or saved, and holds `mark` inside `within`, goes in `into`. */
+function cleanFile(file, isOurs, within, mark, into, withStatus) {
   let target;
-  try { target = fs.realpathSync(file); } catch { continue; }   // absent, or a link to nothing: nothing of ours
+  try { target = fs.realpathSync(file); } catch { return; }   // absent, or a link to nothing: nothing of ours
   let data;
   let mode;
   try {
@@ -2717,12 +2745,12 @@ for (const file of files) {
     mode = st.mode & 0o7777;
     data = JSON.parse(fs.readFileSync(target, 'utf8'));
   } catch {
-    try { const raw = fs.readFileSync(target, 'utf8'); if (/kosmos-(report-hook|statusline)/.test(raw) && inside(raw.replace(/\\\//g, '/'))) left.push(file); } catch { /* unreadable */ }
-    continue;
+    try { const raw = fs.readFileSync(target, 'utf8'); if (mark.test(raw) && within(raw.replace(/\\\//g, '/'))) into.push(file); } catch { /* unreadable */ }
+    return;
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    if (/kosmos-(report-hook|statusline)/.test(JSON.stringify(data)) && inside(JSON.stringify(data).replace(/\\\//g, '/'))) left.push(file);
-    continue;
+    if (mark.test(JSON.stringify(data)) && within(JSON.stringify(data).replace(/\\\//g, '/'))) into.push(file);
+    return;
   }
   let changed = false;
   if (data.hooks && typeof data.hooks === 'object' && !Array.isArray(data.hooks)) {
@@ -2732,9 +2760,9 @@ for (const file of files) {
       const kept = [];
       let ours = false;
       for (const entry of list) {
-        if (!entry || !Array.isArray(entry.hooks) || !entry.hooks.some(hookIsOurs)) { kept.push(entry); continue; }
+        if (!entry || !Array.isArray(entry.hooks) || !entry.hooks.some(isOurs)) { kept.push(entry); continue; }
         ours = true;
-        const rest = entry.hooks.filter((h) => !hookIsOurs(h));
+        const rest = entry.hooks.filter((h) => !isOurs(h));
         if (rest.length) kept.push({ ...entry, hooks: rest });   // somebody else's hook shared our entry: theirs stays
       }
       if (!ours) continue;                                        // an event with nothing of ours is left exactly as it was
@@ -2744,11 +2772,11 @@ for (const file of files) {
     if (changed && Object.keys(data.hooks).length === 0) delete data.hooks;
   }
   const sl = data.statusLine;
-  if (sl && typeof sl === 'object' && typeof sl.command === 'string' && sl.command.includes('kosmos-statusline.js') && inside(sl.command)) {
+  if (withStatus && sl && typeof sl === 'object' && typeof sl.command === 'string' && sl.command.includes('kosmos-statusline.js') && inside(sl.command)) {
     delete data.statusLine;
     changed = true;
   }
-  if (!changed) continue;
+  if (!changed) return;
   const tmp = target + '.kosmos-unwire.' + process.pid;
   try {
     const fd = fs.openSync(tmp, 'wx', mode);   // exclusive: never through something already at this name
@@ -2757,25 +2785,45 @@ for (const file of files) {
     fs.renameSync(tmp, target);
   } catch {
     try { fs.unlinkSync(tmp); } catch { /* never written */ }
-    left.push(file);
+    into.push(file);
   }
 }
+const left = [];
+for (const file of files) cleanFile(file, hookIsOurs, inside, /kosmos-(report-hook|statusline)/, left, true);
+// #8364: Gemini's settings too. A Gemini agent's hooks run the report bridge in the data folder's bin/, which this
+// uninstall deletes after this step, so one left in would run a missing script every time the person uses gemini.
+// Only a hook running the bridge from inside THIS data folder's bin/ is taken out; everything else stays.
+const geminiLeft = [];
+if (support) {
+  const bins = [path.join(support, 'bin')];
+  try { bins.push(fs.realpathSync(path.join(support, 'bin'))); } catch { /* the given path is enough */ }
+  const inBin = insideOf(bins);
+  const geminiIsOurs = (h) => !!h && typeof h.command === 'string' && h.command.includes('gemini-report-bridge') && inBin(h.command);
+  const gfiles = [path.join(process.env.AGENT_WORKFORCE_GEMINI_HOME || path.join(home, '.gemini'), 'settings.json')];
+  try {
+    for (const d of fs.readdirSync(home).sort()) if (d.startsWith('.gemini-')) gfiles.push(path.join(home, d, '.gemini', 'settings.json'));
+  } catch { /* no home listing: the default file alone */ }
+  for (const file of gfiles) cleanFile(file, geminiIsOurs, inBin, /gemini-report-bridge/, geminiLeft, false);
+}
 // The last line says the program finished; without it (a node that crashed or cannot run here) the shell names
-// the files itself.
-process.stdout.write(left.concat(['@kosmos-unwire-done']).join('\n') + '\n');
+// the files itself. Gemini's files are marked, so they are named under Gemini's own sentence.
+process.stdout.write(left.concat(geminiLeft.map((f) => '@gemini ' + f), ['@kosmos-unwire-done']).join('\n') + '\n');
 UNWIREEOF
         if [ "$(tail -n 1 "$_unwire_out" 2>/dev/null)" = "@kosmos-unwire-done" ]; then
           _unwire_done=yes
-          _unwire_left="$(grep -v '^@kosmos-unwire-done$' "$_unwire_out" 2>/dev/null)" || _unwire_left=""
+          _unwire_left="$(grep -v '^@' "$_unwire_out" 2>/dev/null)" || _unwire_left=""
+          _gemini_left="$(sed -n 's/^@gemini //p' "$_unwire_out" 2>/dev/null)" || _gemini_left=""
         fi
       fi
       if [ -z "$_unwire_done" ]; then
         # No node that ran to the end (a partial install, a node that crashed or cannot run here) or no temp file:
         # name every settings file that still points at this install's hook, rather than leaving it silently.
         _unwire_left="$(hook_settings_left "$KOSMOS_HOME" "$_kh_real")"
+        _gemini_left="$(gemini_hook_settings_left "$_support")"
       fi
       [ -z "$_unwire_out" ] || rm -f "$_unwire_out"
       say_hooks_left "$_unwire_left" "$KOSMOS_HOME" "$_kh_real"
+      say_gemini_hooks_left "$_gemini_left" "$_support"
       # #8362: PUT BACK THE GEMINI SETTINGS KOSMOS FILLED IN, while the bundled node still exists. A Gemini agent's
       # birth fills three values into the person's own Gemini settings where they had none (sign in with an API key;
       # no automatic updates, no update check), and records each one in the data folder. Only a value that is still
@@ -2809,6 +2857,7 @@ UNWIREEOF
     # #5998: the folder is already gone (an earlier uninstall, from before the hooks were taken out): there is no
     # node to edit the settings with, but the hooks it left can still be named.
     say_hooks_left "$(hook_settings_left "$KOSMOS_HOME" "")" "$KOSMOS_HOME" ""
+    say_gemini_hooks_left "$(gemini_hook_settings_left "$_support")" "$_support"
     gemini_settings_undo "$_support"
   fi
   # The icon goes too, or uninstall leaves a dead app that opens nothing.
