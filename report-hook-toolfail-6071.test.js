@@ -100,11 +100,10 @@ test('a jq that fails on the signature sends nothing, rather than the one hash o
   /* It must fail ONLY on the signature's -cS call: a jq that fails everywhere cannot read the event name, so the hook
      stops before this branch and the test would pass for the wrong reason. */
   /* kosmos#8378: looked up through the same bare `bash` the hook runs under (Git Bash on Windows; /bin/sh is a path
-     Windows cannot run). Its answer is a bash path; on Windows the existence check reads it through cygpath. */
+     Windows cannot run). Its answer is a bash path; the existence check reads it through cygpath where bash has one
+     (Git Bash), and as it is elsewhere. */
   const real = cp.execFileSync('bash', ['-c', 'command -v jq || true'], { encoding: 'utf8' }).trim() || '/usr/bin/jq';
-  const realHere = process.platform === 'win32'
-    ? cp.execFileSync('bash', ['-c', 'cygpath -w "$1" 2>/dev/null || true', 'x', real], { encoding: 'utf8' }).trim() || real
-    : real;
+  const realHere = cp.execFileSync('bash', ['-c', 'cygpath -w "$1" 2>/dev/null || printf %s "$1"', 'x', real], { encoding: 'utf8' }).trim() || real;
   const bin = path.join(SB, 'badjq');
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, 'jq'), '#!/bin/sh\n[ "$1" = "-cS" ] && exit 1\nexec "' + real + '" "$@"\n');

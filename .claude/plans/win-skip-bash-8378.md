@@ -19,8 +19,9 @@ the Windows product queue is waiting on tonight's build.
   (cli.inputkeep-6774, cli.limitmsg-5805, cli.whoisleft-8137), only the bash half skips; the Windows CLI's tests still
   run on Windows.
 - **A real fix, not a skip:** `report-hook-toolfail-6071`'s jq-failure test looked jq up through `/bin/sh` and joined
-  PATH with `:`. It now looks it up through the same bare `bash` the hook runs under, reads the answer through cygpath on
-  Windows for the existence check, and joins PATH with `path.delimiter`. It passes on Windows (14 of 14) and still
+  PATH with `:`. It now looks it up through the same bare `bash` the hook runs under, reads the answer through cygpath where
+  bash has one (Git Bash; no host branch, so the Windows coupling audit is unchanged) for the existence check, and joins
+  PATH with `path.delimiter`. It passes on Windows (14 of 14) and still
   exercises the path: a fake jq that does not fail on the signature call turns it red (run).
 - Nothing changes on the Mac or Linux: the helper is `false` there, and toolfail's change is the same commands there.
 
