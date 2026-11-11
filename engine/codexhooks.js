@@ -53,7 +53,7 @@
  * An agent on the default ~/.codex gets no hook.
  *
  * install(home, bridge, version, opts?) -> { ok, because? }. Never throws. On every refusal our hooks.json is gone after
- * it (except a person's own hooks.json on win32, which is left as it is).
+ * it, except on win32, where a refusal leaves the files as they are (the home is shared; see refuse in install).
  */
 
 const fs = require('node:fs');
@@ -141,8 +141,10 @@ function nextConfig(text, heading, line) {
   const at = lines.indexOf(heading);
   /* Review 1: the key written any other way (a comment after the heading, an inline table under [hooks.state]) is not
      ours to append beside: a second definition is invalid TOML and Codex would not start at all. */
-  const key = heading.slice('[hooks.state."'.length, -'"]'.length);   // the same lengths for the win32 '...' form
-  if (at === -1 && t.includes(key)) return { handEdited: true };
+  const key = /^\[hooks\.state\.(["'])(.*)\1\]$/.exec(heading)[2];
+  /* kosmos#8348: on win32 the same key can also be spelled as a basic string with each backslash doubled; that is the
+     same table to TOML, so it counts as written another way too. */
+  if (at === -1 && (t.includes(key) || (key.includes('\\') && t.includes(key.replace(/\\/g, '\\\\'))))) return { handEdited: true };
   if (at === -1) return { append: `${t && !t.endsWith('\n') ? '\n' : ''}${heading}\n${line}\n` };
   if (lines.indexOf(heading, at + 1) !== -1) return { handEdited: true };
   const body = lines[at + 1];
@@ -199,8 +201,12 @@ function removeOurs(home) {
 function install(home, bridge, version, opts) {
   const plat = (opts && opts.platform) || process.platform;
   const node = plat === 'win32' ? ((opts && opts.node) || process.execPath) : null;
+  /* kosmos#8348: on win32 a refusal leaves the files as they are. There the home is the ACCOUNT's, shared by every
+     Codex agent on it, so one agent's refusal (its version probe failed, say) must not take the hook from another agent
+     already running on it; and Kosmos runs `codex exec` there, which skips a hook whose record does not count without
+     a word (measured), so a hooks.json left behind cannot stop an agent the way the TUI's review screen would. */
   const refuse = (because) => {
-    if (typeof home === 'string' && path.isAbsolute(home)) removeOurs(home);
+    if (plat !== 'win32' && typeof home === 'string' && path.isAbsolute(home)) removeOurs(home);
     return { ok: false, because };
   };
   try {
@@ -210,7 +216,7 @@ function install(home, bridge, version, opts) {
     if (version !== HASH_VERIFIED_FOR) return refuse(`this Codex is ${version || 'of an unknown version'}, and the hook's trust record is known only for ${HASH_VERIFIED_FOR}`);
     if (plat === 'win32' && (unsafeForWin32(bridge) || unsafeForWin32(node))) return refuse('the bridge or node path has a character we will not put in a command');
     const st = fs.lstatSync(home);
-    if (!st.isDirectory()) return refuse('the private Codex home is not a folder');
+    if (!st.isDirectory()) return refuse('the Codex home is not a folder');
     const hooksFile = path.join(home, HOOKS_FILE);
     /* kosmos#8348: on Windows the home is the ACCOUNT's Codex home, not a private one, so a hooks.json that is not ours
        (a person's own hooks) is never overwritten or removed: the Kosmos hook is skipped and theirs stays. */
@@ -221,7 +227,7 @@ function install(home, bridge, version, opts) {
     }
     /* The record's key: hooks.json under the home's canonical spelling, as Codex resolves it (review 2). */
     const heading = stateHeading(path.join(require('./trust').canonicalOnDisk(home), HOOKS_FILE), plat);
-    if (!heading) return refuse('the private Codex home has a character in its path the hook record cannot carry');
+    if (!heading) return refuse('the Codex home has a character in its path the hook record cannot carry');
     const command = commandFor(bridge, { platform: plat, node });
     const line = `trusted_hash = "${trustHash(command)}"`;
     const cfg = path.join(home, 'config.toml');

@@ -22,7 +22,7 @@ process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos
 const hooks = require('./codexhooks');
 const BRIDGE = path.join(__dirname, '..', 'bin', 'codex-report-bridge.js');
 const bridge = require(BRIDGE);
-const { superviseCodexStreaming } = require('./win32codexsup');
+const { superviseCodexStreaming, installCodexHookFor, codexVersionOf } = require('./win32codexsup');
 
 const home = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-codexhooks-8348-')));
 const W = { platform: 'win32', node: 'C:\\Program Files\\Kosmos\\runtime\\node.exe' };
@@ -61,7 +61,7 @@ test('isOurs knows the win32 file and still refuses a lookalike', () => {
   assert.equal(hooks.isOurs(hooks.hooksJson(`& '${W.node}' '${WBRIDGE}'; Remove-Item x`)), false);
 });
 
-test('install on win32 refuses a path with a quote in it, and removes only its own file', () => {
+test('install on win32 refuses a path with a quote in it, and writes nothing', () => {
   const h = home();
   assert.equal(hooks.install(h, "C:\\o'neil\\codex-report-bridge.js", V, W).ok, false);
   assert.equal(hooks.install(h, WBRIDGE, V, { platform: 'win32', node: 'C:\\n$x\\node.exe' }).ok, false);
@@ -88,8 +88,29 @@ test('install on win32 writes the record first, then our hooks.json, and is idem
   assert.equal(fs.readFileSync(path.join(h, 'config.toml'), 'utf8'), `${heading}\ntrusted_hash = "${hooks.trustHash(cmd)}"\n`);
   assert.deepEqual(hooks.install(h, WBRIDGE, V, W), { ok: true });
   assert.equal(fs.readFileSync(path.join(h, 'config.toml'), 'utf8').split(heading).length, 2, 'one record, not two');
-  assert.equal(hooks.install(h, WBRIDGE, '0.150.0', W).ok, false, 'another Codex version is refused');
-  assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false, 'and our hooks.json is taken back');
+});
+
+test('a refusal on win32 leaves the shared home as it is, so one agent cannot take the hook from another', () => {
+  const h = home();
+  assert.deepEqual(hooks.install(h, WBRIDGE, V, W), { ok: true });   // agent A
+  const before = { hooks: fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), cfg: fs.readFileSync(path.join(h, 'config.toml'), 'utf8') };
+  // agent B on the same account: its version probe failed, another Codex, an unsafe node path
+  assert.equal(hooks.install(h, WBRIDGE, null, W).ok, false);
+  assert.equal(hooks.install(h, WBRIDGE, '0.150.0', W).ok, false);
+  assert.equal(hooks.install(h, WBRIDGE, V, { platform: 'win32', node: "C:\\o'k\\node.exe" }).ok, false);
+  assert.equal(fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), before.hooks, "agent A's hook stays");
+  assert.equal(fs.readFileSync(path.join(h, 'config.toml'), 'utf8'), before.cfg, 'and its record');
+});
+
+test('the win32 key written as a basic string with doubled backslashes counts as written by hand, not appended beside', () => {
+  const h = home();
+  const file = path.join(fs.realpathSync.native(h), 'hooks.json');
+  const escaped = `[hooks.state."${file.replace(/\\/g, '\\\\')}:pre_tool_use:0:0"]\ntrusted_hash = "sha256:${'c'.repeat(64)}"\n`;
+  fs.writeFileSync(path.join(h, 'config.toml'), escaped);
+  const r = hooks.install(h, WBRIDGE, V, W);
+  assert.equal(r.ok, false);
+  assert.match(r.because, /changed by hand/);
+  assert.equal(fs.readFileSync(path.join(h, 'config.toml'), 'utf8'), escaped, 'no second table for the same key');
 });
 
 test('the bridge resolves a Windows cwd with Windows rules; a posix cwd is unchanged', () => {
@@ -127,10 +148,39 @@ test('the supervisor installs the hook into the named home of a codex agent, and
   assert.deepEqual(none, [], 'a gemini agent is not given a Codex hook');
 });
 
-test('the default installer does nothing for an agent on the default Codex home', () => {
-  const events = [];
-  superviseCodexStreaming({ name: 'coder', cwd: 'C:/w', runner: 'codex' }, supOpts({ onEvent: (e) => events.push(e) }));
-  assert.equal(events.some((e) => e.action === 'codex-hook-skipped'), false);
+test('codexVersionOf reads the version from a `codex --version` line, and nothing else', () => {
+  assert.equal(codexVersionOf('codex-cli 0.149.1\r\n'), '0.149.1');
+  assert.equal(codexVersionOf('codex-cli 0.149.1 extra'), null);
+  assert.equal(codexVersionOf('WARNING: something\ncodex-cli 0.149.1'), null);
+  assert.equal(codexVersionOf(''), null);
+  assert.equal(codexVersionOf(undefined), null);
+});
+
+test('installCodexHookFor probes the codex it will run, with the turn env, and hands the version and the shipped bridge to install', () => {
+  const calls = [];
+  const installs = [];
+  const env = { PATH: 'C:\\turn' };
+  const r = installCodexHookFor('C:\\Users\\a\\.codex-work1', 'C:\\bin\\codex.exe', env, {
+    execFileSync: (bin, args, opts) => { calls.push({ bin, args, env: opts.env, timeout: opts.timeout }); return 'codex-cli 0.149.1\n'; },
+    install: (home, bridge, version) => { installs.push({ home, bridge, version }); return { ok: true }; },
+  });
+  assert.deepEqual(r, { ok: true });
+  assert.deepEqual(calls, [{ bin: 'C:\\bin\\codex.exe', args: ['--version'], env, timeout: 15000 }]);
+  assert.deepEqual(installs, [{ home: 'C:\\Users\\a\\.codex-work1', bridge: path.join(__dirname, '..', 'bin', 'codex-report-bridge.js'), version: '0.149.1' }]);
+  assert.ok(fs.existsSync(installs[0].bridge), 'the bridge it names ships beside this engine');
+});
+
+test('installCodexHookFor: a failed probe installs with no version (refused there); no home asks nothing', () => {
+  const installs = [];
+  installCodexHookFor('C:\\h', 'codex', {}, {
+    execFileSync: () => { throw Object.assign(new Error('nope'), { code: 'ENOENT' }); },
+    install: (home, bridge, version) => { installs.push(version); return { ok: false, because: 'x' }; },
+  });
+  assert.deepEqual(installs, [null]);
+  let asked = 0;
+  const r = installCodexHookFor(null, 'codex', {}, { execFileSync: () => { asked += 1; return ''; }, install: () => { asked += 1; return { ok: true }; } });
+  assert.deepEqual(r, { ok: false, because: null });
+  assert.equal(asked, 0, 'the default ~/.codex: no probe, no install');
 });
 
 /* ---- the real Codex for Windows ---- */

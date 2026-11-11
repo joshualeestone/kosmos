@@ -85,6 +85,29 @@ function takeBatch(queue) {
     + parts.map((p, i) => '--- message ' + (i + 1) + ' of ' + parts.length + ' ---\n' + p).join('\n\n');
 }
 
+/* kosmos#8348: the Codex version a `codex --version` line names ("codex-cli 0.149.1"), or null. */
+function codexVersionOf(out) {
+  const m = /^codex-cli (\S+)$/.exec(String(out || '').trim());
+  return m ? m[1] : null;
+}
+
+/* kosmos#8348: put the Codex edit hook into an agent's NAMED Codex home: ask the codex it will run (with the turn's own
+   environment, so a bare name resolves as the turns resolve it) for its version, since the hook's trust record is known
+   for one version only (codexhooks.js), and install the bridge that ships beside this engine. No home (the person's
+   default ~/.codex) is nothing to do and nothing to say. The probe is synchronous and bounded (15 s), once per agent
+   start, in this agent's own supervisor process. `deps` ({ execFileSync, install, bridge }) are seams for tests. */
+function installCodexHookFor(home, bin, env, deps) {
+  const d = deps || {};
+  if (!home) return { ok: false, because: null };
+  const run = d.execFileSync || require('node:child_process').execFileSync;
+  let version = null;
+  try {
+    version = codexVersionOf(run(bin, ['--version'], { encoding: 'utf8', timeout: 15000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'], env: env || process.env }));
+  } catch { version = null; }
+  const bridge = d.bridge || path.join(__dirname, '..', 'bin', 'codex-report-bridge.js');
+  return (d.install || require('./codexhooks').install)(String(home), bridge, version);
+}
+
 /**
  * Supervise a codex agent. Returns a handle with `send(text, done)`, `stop()`,
  * `current()` and `sessionId`, the same surface `main()` wires a claude handle
@@ -132,18 +155,8 @@ function superviseCodexStreaming(spec, opts) {
   /* kosmos#8348: put the Codex edit hook into the agent's named Codex home. A seam for tests; the default asks the
      codex it will run for its version (the hook's trust record is known for one version only, codexhooks.js) and
      installs the bridge that ships beside this engine. Inside a test the default does nothing. */
-  const installCodexHook = typeof o.installCodexHook === 'function' ? o.installCodexHook : (home) => {
-    if (!home) return { ok: false, because: null };   // the default home: none, and nothing to say
-    if (require('./live-execution').inTestRun()) return { ok: false, because: null };
-    const bridge = path.join(__dirname, '..', 'bin', 'codex-report-bridge.js');
-    let version = null;
-    try {
-      const out = require('node:child_process').execFileSync(binNow(), ['--version'], { encoding: 'utf8', timeout: 15000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
-      const m = /^codex-cli (\S+)\s*$/.exec(String(out).trim());
-      version = m ? m[1] : null;
-    } catch { version = null; }
-    return require('./codexhooks').install(String(home), bridge, version);
-  };
+  const installCodexHook = typeof o.installCodexHook === 'function' ? o.installCodexHook
+    : (home) => (require('./live-execution').inTestRun() ? { ok: false, because: null } : installCodexHookFor(home, binNow(), turnEnv));
 
   let running = true;
   let sessionId = null;      // the Kosmos board id
@@ -296,4 +309,4 @@ function superviseCodexStreaming(spec, opts) {
   return handle;
 }
 
-module.exports = { superviseCodexStreaming, NO_STREAM };
+module.exports = { superviseCodexStreaming, installCodexHookFor, codexVersionOf, NO_STREAM };
