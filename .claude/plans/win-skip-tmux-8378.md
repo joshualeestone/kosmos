@@ -17,7 +17,7 @@ failures are not tmux, despite the name): `tools.sbom-o05` (tar and a control ch
 
 ## Change
 **Fixed, so they run on Windows (5 tests).** Review round 1 showed the tmux in these is only the fixture's way of
-giving the board an empty fleet, and the logic under test runs on the Windows board too:
+giving the board an empty fleet, and the logic under test runs on the Windows board too (except #668's job arm, below):
 - `server.agent-id` (#170, #704): the child board now gets its roster through `status.setPaneSource`, the seam the
   Windows board itself uses (server.js wires win32roster into it). Empty for #170; for #704 null three times (a failed
   look, the same fact a refusing tmux gave: engine/status.js) and then empty. Control, run: with no failed looks #704
