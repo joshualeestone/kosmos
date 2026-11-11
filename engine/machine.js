@@ -434,7 +434,18 @@ function readLinuxSleep(opts) {
       // HandleLidSwitchDocked (default ignore) decides a closed lid with another screen connected.
       // ext null: this logind has no such setting (before systemd 235), so the fix names HandleLidSwitch instead.
       // ext undefined: the ask failed, so the plugged-in lid is not known and no lid fix is offered for it.
-      if (battery) lid = { battery, ac: ext === undefined ? null : (ext || battery), docked: prop('HandleLidSwitchDocked') || null, sure: lidSure, noExt: ext === null, extUnread: ext === undefined };
+      const dockedRaw = prop('HandleLidSwitchDocked');
+      /* A desktop that holds logind's handle-lid-switch inhibitor (KDE's PowerDevil always; GNOME with another screen
+         connected) decides the lid itself, so logind's lid keys are not what happens and no logind lid fix is offered. */
+      const inhibited = prop('BlockInhibited');
+      const desktopHandles = typeof inhibited === 'string' && /(^|:)handle-lid-switch(:|$)/.test(inhibited);
+      if (battery) {
+        lid = { battery, ac: ext === undefined ? null : (ext || battery), docked: dockedRaw || null, sure: lidSure,
+          noExt: ext === null, extUnread: ext === undefined, desktopHandles };
+        // Any lid half not read (plugged in, or docked) leaves the lid unknown unless something read already stops it.
+        const stopsA = (a) => Boolean(a && Object.prototype.hasOwnProperty.call(LINUX_STOPPING_ACTION, a));
+        if (!desktopHandles && (ext === undefined || dockedRaw === undefined) && !stopsA(lid.ac) && !stopsA(battery)) lidUnread = true;
+      }
     }
   }
   let gnome = null, gnomeUnread = false;
@@ -567,7 +578,9 @@ function linuxSleepCheck(reading) {
   const gnomeAc = Boolean(gnome && stops(gnome.ac) && gnome.acMinutes !== 0);
   const gnomeBatt = Boolean(gnome && stops(gnome.battery) && gnome.batteryMinutes !== 0);
   const after = (m) => (m ? 'after ' + minutesWords(m) : 'after a while');
-  const lidStops = Boolean(lid && (stops(lid.ac) || stops(lid.battery) || stops(lid.docked)));
+  const lidByDesktop = Boolean(lid && lid.desktopHandles);
+  const lidStops = !lidByDesktop && Boolean(lid && (stops(lid.ac) || stops(lid.battery) || stops(lid.docked)));
+  const lidNote = lidByDesktop ? ' What closing the lid does is up to your desktop\'s own Power settings, which hold it.' : '';
   const said = [], verbs = [];
   const plugged = [];   // the verbs of what happens plugged in, open and idle: the title's "on its own"
   const say = (sentence, verb) => { said.push(sentence); verbs.push(verb); };
@@ -635,7 +648,7 @@ function linuxSleepCheck(reading) {
     const vs = verbs;
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION,
       title: 'This computer can ' + what(plugged) + ' on its own',
-      detail: said.join(' ') + until(vs) + desktopFix + logindFix }, extra);
+      detail: said.join(' ') + until(vs) + desktopFix + logindFix + lidNote }, extra);
   }
   if (lidStops || gnomeBatt) {
     const lidWords = lid && lid.sure === false ? 'when its lid closes, if it has one' : 'when its lid closes';
@@ -647,10 +660,12 @@ function linuxSleepCheck(reading) {
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION, title },
       acUnknown ? {} : { battOnly: true },
       { detail: said.join(' ')
-        + (acUnknown ? ' Your desktop\'s own power settings could not be read, so we cannot tell whether it keeps working while plugged in.'
+        + (acUnknown ? (r.desktop === true || r.gnomeUnread === true || r.gnomeUnread === 'ac'
+            ? ' Your desktop\'s own power settings could not be read, so we cannot tell whether it keeps working while plugged in.'
+            : ' We could not tell whether a desktop\'s own power settings put it to sleep while plugged in.')
           : ' Plugged in and open, it keeps working, so for overnight work leave it plugged in and open.')
         + desktopFix + logindFix
-        + (r.gnomeUnread === 'battery' ? ' Part of your desktop\'s power settings could not be read.' : '') }, extra);
+        + (r.gnomeUnread === 'battery' ? ' Part of your desktop\'s power settings could not be read.' : '') + lidNote }, extra);
   }
   if (r.lidUnread) {
     return { key: 'sleep', state: STATE.UNKNOWN,
@@ -667,8 +682,11 @@ function linuxSleepCheck(reading) {
       detail: (partial
         ? 'Your desktop\'s plugged-in setting does not put this computer to sleep, but its battery setting did not '
           + 'answer when we asked, so we cannot tell what it does on battery.'
-        : 'Your desktop is running, but its power settings did not answer when we asked, so we cannot tell whether '
-          + 'it puts this computer to sleep.')
+        : (r.gnomeUnread === 'service' && r.desktop !== true
+          ? 'We could not tell whether this computer has a desktop with sleep settings of its own: the services we ask '
+            + 'did not answer.'
+          : 'Your desktop is running, but its power settings did not answer when we asked, so we cannot tell whether '
+            + 'it puts this computer to sleep.'))
         + (idle ? ' Linux\'s own settings do not.' : ' Linux\'s own settings could not be read either.') };
   }
   /* Nothing read puts it to sleep. The title says whose settings those were. */
@@ -679,7 +697,7 @@ function linuxSleepCheck(reading) {
       title: idle || lid ? 'Nothing we could read puts this computer to sleep' : 'Your desktop\'s power settings do not put this computer to sleep',
       detail: 'So your agents keep working while you are away. We read ' + (idle || lid ? 'Linux\'s own settings and ' : '')
         + 'your desktop\'s power settings. The login screen has a sleep setting of its own, which we cannot read: '
-        + 'after a restart, before anyone logs in, it may still put this computer to sleep.' };
+        + 'after a restart, before anyone logs in, it may still put this computer to sleep.' + lidNote };
   }
   /* A desktop whose own settings were not read (KDE's, a logged-out GNOME): the title stays about Linux's own settings
      and the detail says plainly what was not read. Not UNKNOWN: on such a desktop it could never clear, and #8375 keeps
@@ -689,12 +707,12 @@ function linuxSleepCheck(reading) {
       title: 'Linux\'s own settings do not put this computer to sleep',
       detail: 'Its desktop and its login screen have sleep settings of their own, which we could not read. After a '
         + 'restart, before anyone logs in, the login screen may put it to sleep, and so may the desktop once someone '
-        + 'does. Check them in the desktop\'s Power settings.' };
+        + 'does. Check them in the desktop\'s Power settings.' + lidNote };
   }
   return { key: 'sleep', state: STATE.OK,
     title: 'Linux\'s own settings do not put this computer to sleep',
     detail: 'So your agents keep working while you are away, unless something else puts it to sleep: a '
-      + 'desktop\'s own power settings, if it has one, or the computer it runs inside, if it is a virtual machine.' };
+      + 'desktop\'s own power settings, if it has one, or the computer it runs inside, if it is a virtual machine.' + lidNote };
 }
 
 /** The first-run gate on Linux, the same three answers as the Mac's sleepGate. A Linux board does not walk the
@@ -2072,7 +2090,7 @@ function readLinuxBoardAutostart(runner, opts) {
      unmask cannot bring it back. */
   let maskedFile = false;
   try { maskedFile = fs.lstatSync(lb.boardUnitPath()).isSymbolicLink() && fs.readlinkSync(lb.boardUnitPath()) === '/dev/null'; } catch { /* as read above */ }
-  let unitState = null;
+  let unitState = null, skipped = false;
   /* A test that gave no runner never runs the host's systemctl or loginctl, even with a unit folder of its own:
      check() hands this the real run() then. */
   const noRun = inTest && !o.runner;
@@ -2086,6 +2104,7 @@ function readLinuxBoardAutostart(runner, opts) {
     const m = r && r.ok ? String(r.stdout || '').match(/^UnitFileState=(\S*)\s*$/m) : null;
     // An empty state is systemd answering that it does not know the unit, not a failed ask.
     unitState = m ? m[1] : null;
+    if (r && /^skipped/.test(String(r.because || ''))) skipped = true;
   }
   let linger;
   if ('lingerOn' in o) linger = o.lingerOn;
@@ -2104,7 +2123,9 @@ function readLinuxBoardAutostart(runner, opts) {
   }
   const installed = ('installedRoot' in o) ? o.installedRoot : update.installedRoot();
   const user = ('user' in o) ? o.user : (() => { try { return os.userInfo().username; } catch { return ''; } })();
-  return { unitFile, unitState, linger, installed, user, systemdRunning, unitName: lb.boardUnitName(), maskedFile };
+  const out = { unitFile, unitState, linger, installed, user, systemdRunning, unitName: lb.boardUnitName(), maskedFile };
+  if (skipped) out.skipped = true;
+  return out;
 }
 
 /* The command that turns linger on, for the row's admin field (Settings shows it under "For IT admins"). */
@@ -2175,6 +2196,7 @@ function linuxBoardAutostartCheck(reading) {
       + 'no services for you, so Kosmos and your agents stay stopped until someone logs in. (Whether the service is '
       + 'switched on could not be read.)');
   }
+  if (!r.unitState && r.skipped) return unknown('Another reading timed out a moment ago, so we did not ask about Kosmos\'s startup service; it is read again in a few seconds.');
   if (!r.unitState) return unknown('This computer\'s service manager did not answer when we asked about Kosmos\'s startup service.');
   if (r.unitState === 'masked' || r.unitState === 'masked-runtime') {
     return { key: 'autostart', state: STATE.ATTENTION,

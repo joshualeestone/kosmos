@@ -368,7 +368,7 @@ test('sleep reader: logind, the lid and GNOME are read, and every command is a l
   const got = machine.readLinuxSleep({ runner, hasLid: true, hasBattery: true });
   assert.deepEqual(got, {
     idle: { action: 'suspend', minutes: 30 },
-    lid: { battery: 'suspend', ac: 'suspend', docked: null, sure: true, noExt: false, extUnread: false },   // an empty HandleLidSwitchExternalPower means HandleLidSwitch applies
+    lid: { battery: 'suspend', ac: 'suspend', docked: null, sure: true, noExt: false, extUnread: false, desktopHandles: false },   // an empty HandleLidSwitchExternalPower means HandleLidSwitch applies
     gnome: { ac: 'suspend', acMinutes: 20, battery: 'suspend', batteryMinutes: 15 },
     desktop: null,   // GNOME was read, so the display manager is not asked
   });
@@ -558,7 +558,7 @@ test('sleep row: a lid that sleeps only while plugged in says so', () => {
 test('sleep reader: a set HandleLidSwitchExternalPower is the plugged-in answer', () => {
   const { runner } = sleepRunner({ HandleLidSwitchExternalPower: 's "ignore"', IdleAction: 's "ignore"', gsd: 'inactive' });
   const got = machine.readLinuxSleep({ runner, hasLid: true });
-  assert.deepEqual(got.lid, { battery: 'suspend', ac: 'ignore', docked: null, sure: true, noExt: false, extUnread: false });
+  assert.deepEqual(got.lid, { battery: 'suspend', ac: 'ignore', docked: null, sure: true, noExt: false, extUnread: false, desktopHandles: false });
   assert.equal(sleep(got).battOnly, true);
 });
 
@@ -903,7 +903,9 @@ test('sleep row: a lid finding with the plugged-in desktop setting unread makes 
     assert.equal(r.state, STATE.ATTENTION, String(unread));
     assert.equal(r.battOnly, undefined, 'not the battery-only kind: ' + unread);
     assert.doesNotMatch(r.detail, /Plugged in and open, it keeps working/, String(unread));
-    assert.match(r.detail, /own power settings could not be read, so we cannot tell whether it keeps working while plugged in/, String(unread));
+    assert.match(r.detail, unread === 'service'
+      ? /We could not tell whether a desktop's own power settings put it to sleep while plugged in/
+      : /own power settings could not be read, so we cannot tell whether it keeps working while plugged in/, String(unread));
   }
   // Control: only the battery half unread keeps the plugged-in promise, and says the part that was not read.
   const batt = sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' }, gnome: { ac: 'nothing', acMinutes: 0 }, gnomeUnread: 'battery' });
@@ -950,4 +952,50 @@ test('sleep reader: a hung bus before the desktop could be asked is unread, not 
   assert.equal(got.desktop, null);
   assert.equal(got.gnomeUnread, 'service');
   assert.equal(sleep(got).state, STATE.UNKNOWN);
+});
+
+test('sleep reader: a lid with its plugged-in or docked half unread is could-not-check, not an all-clear', () => {
+  const mk = (failKey) => (c, a) => {
+    if (c === 'systemctl') return { ok: false, stdout: 'inactive\n' };
+    if (c !== 'busctl') return { ok: false };
+    if (a[5] === failKey) return { ok: false, because: 'Connection reset by peer' };
+    if (a[5] === 'BlockInhibited') return { ok: true, stdout: 's "sleep:idle"\n' };
+    return { ok: true, stdout: a[5] === 'IdleActionUSec' ? 't 0\n' : 's "ignore"\n' };
+  };
+  for (const key of ['HandleLidSwitchExternalPower', 'HandleLidSwitchDocked']) {
+    const got = machine.readLinuxSleep({ runner: mk(key), hasLid: true });
+    assert.equal(got.lidUnread, true, key);
+    assert.equal(sleep(got).state, STATE.UNKNOWN, key);
+  }
+});
+
+test('sleep: a desktop holding the lid inhibitor decides the lid; no logind lid finding or fix, and the row says so', () => {
+  const r = (c, a) => {
+    if (c === 'systemctl') return { ok: false, stdout: 'inactive\n' };
+    if (c !== 'busctl') return { ok: false };
+    if (a[5] === 'BlockInhibited') return { ok: true, stdout: 's "handle-power-key:handle-suspend-key:handle-lid-switch"\n' };
+    return { ok: true, stdout: a[5] === 'IdleActionUSec' ? 't 0\n' : (a[5] === 'IdleAction' ? 's "ignore"\n' : 's "suspend"\n') };
+  };
+  const got = machine.readLinuxSleep({ runner: r, hasLid: true });
+  assert.equal(got.lid.desktopHandles, true);
+  const row2 = sleep(got);
+  assert.equal(row2.state, STATE.OK);
+  assert.equal(row2.admin, undefined);
+  assert.match(row2.detail, /What closing the lid does is up to your desktop's own Power settings, which hold it\./);
+  // Control: the same logind answers without the inhibitor are the lid finding.
+  const plain = (c, a) => (c === 'busctl' && a[5] === 'BlockInhibited' ? { ok: true, stdout: 's "sleep"\n' } : r(c, a));
+  assert.equal(sleep(machine.readLinuxSleep({ runner: plain, hasLid: true })).state, STATE.ATTENTION);
+});
+
+test('sleep row: with no desktop seen, could-not-check does not say a desktop is running', () => {
+  const got = sleep({ idle: QUIET_IDLE, lid: null, gnome: null, desktop: null, gnomeUnread: 'service' });
+  assert.match(got.detail, /^We could not tell whether this computer has a desktop/);
+  assert.doesNotMatch(got.detail, /Your desktop is running/);
+});
+
+test('restart row: a look skipped after another timed out says it did not get to ask', () => {
+  const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(() => ({ ok: false, because: 'skipped: a Linux look timed out just now', stdout: '' }),
+    { runner: () => ({ ok: false, because: 'skipped: a Linux look timed out just now', stdout: '' }), installedRoot: BUNDLE, lingerOn: true }));
+  assert.equal(got.skipped, true);
+  assert.match(row(got).detail, /so we did not ask about Kosmos's startup service; it is read again in a few seconds/);
 });
