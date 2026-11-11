@@ -18,7 +18,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 
 const SETUP = path.join(__dirname, 'install', 'setup.sh');
 const reporthook = require('./engine/reporthook');
@@ -35,7 +35,7 @@ const theirHook = { type: 'command', command: 'echo mine', timeout: 5 };
 /* A sandboxed install. linkHome: KOSMOS_HOME is a symlink to a differently named folder, and the hooks name the REAL
    path, as a real install writes them (hookScriptPath and stableNode resolve from the engine's own realpath).
    noNode: a partial install with no runtime, so nothing can edit the JSON and the leftover must be named. */
-function sandbox({ linkHome = false, noNode = false, crashNode = false } = {}) {
+function sandbox({ linkHome = false, noNode = false, crashNode = false, hangNode = false, nodeScript = null } = {}) {
   const root = fs.mkdtempSync(path.join(tmpRoot, 'sb-'));
   const real = path.join(root, linkHome ? 'real-kosmos' : 'kosmos-home');
   const kh = path.join(root, 'kosmos-home');
@@ -46,6 +46,9 @@ function sandbox({ linkHome = false, noNode = false, crashNode = false } = {}) {
   fs.mkdirSync(path.join(real, 'bin'), { recursive: true });
   if (linkHome) fs.symlinkSync(real, kh);
   if (crashNode) fs.writeFileSync(path.join(real, 'runtime', 'bin', 'node'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  // kosmos#8388: a node that never returns (a settings file on a stalled mount, or a hung require).
+  else if (hangNode) fs.writeFileSync(path.join(real, 'runtime', 'bin', 'node'), '#!/bin/sh\nexec sleep 60\n', { mode: 0o755 });
+  else if (nodeScript) fs.writeFileSync(path.join(real, 'runtime', 'bin', 'node'), nodeScript, { mode: 0o755 });
   else if (!noNode) fs.symlinkSync(process.execPath, path.join(real, 'runtime', 'bin', 'node'));
   fs.writeFileSync(path.join(real, 'bin', 'kosmos'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(real, 'VERSION'), '0.0.0\n');
@@ -100,24 +103,25 @@ function sandbox({ linkHome = false, noNode = false, crashNode = false } = {}) {
   return { root, kh, real, home, other, nested, dot, mainFile, otherStatus };
 }
 
-function runUninstall(sb) {
-  try {
-    return execFileSync('bash', [SETUP, '--uninstall'], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        HOME: sb.home,
-        AGENT_WORKFORCE_HOME: sb.home,
-        KOSMOS_HOME: sb.kh,
-        AGENT_WORKFORCE_DATA: path.join(sb.root, 'data'),
-        AGENT_WORKFORCE_LAUNCH: path.join(sb.root, 'launch'),
-        KOSMOS_APP_DIR: path.join(sb.root, 'apps'),
-        KOSMOS_SYS_APP_DIR: path.join(sb.root, 'sysapps'),
-      },
-    });
-  } catch (e) {
-    return String((e.stdout || '') + (e.stderr || ''));
-  }
+function runUninstall(sb, extraEnv = {}, timeout = 0) {
+  // kosmos#8388 review 2: stdout AND stderr, whatever the exit: the shell's own job lines go to stderr, and a check for
+  // their absence that only reads stdout could never fail.
+  const r = spawnSync('bash', [SETUP, '--uninstall'], {
+    encoding: 'utf8',
+    ...(timeout ? { timeout } : {}),
+    env: {
+      ...process.env,
+      ...extraEnv,
+      HOME: sb.home,
+      AGENT_WORKFORCE_HOME: sb.home,
+      KOSMOS_HOME: sb.kh,
+      AGENT_WORKFORCE_DATA: path.join(sb.root, 'data'),
+      AGENT_WORKFORCE_LAUNCH: path.join(sb.root, 'launch'),
+      KOSMOS_APP_DIR: path.join(sb.root, 'apps'),
+      KOSMOS_SYS_APP_DIR: path.join(sb.root, 'sysapps'),
+    },
+  });
+  return String((r.stdout || '') + (r.stderr || ''));
 }
 
 const read = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
@@ -239,4 +243,54 @@ test('#5998: the unwire step runs inside the proven-install branch, before the h
   const rm = s.indexOf('rm -rf "$KOSMOS_HOME"', deleting);
   assert.ok(step > 0 && deleting > 0 && rm > 0, 'a landmark is gone from setup.sh');
   assert.ok(deleting < step && step < rm, 'the unwire step is not between the install check and the removal of the home');
+});
+
+const STOPPED = (secs) => new RegExp('did not finish in ' + secs + 's and was stopped; a settings file may be on a slow or stalled network folder\\. Check the settings\\.json in each Claude folder under ');
+
+test('kosmos#8388: a node step that never returns is stopped after its time limit, and the person is told where to look', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox({ hangNode: true });
+  const t0 = Date.now();
+  const out = runUninstall(sb, { KOSMOS_UNINSTALL_NODE_SECONDS: '1' }, 90000);
+  const took = Date.now() - t0;
+  assert.ok(took < 6000, 'the uninstall waited ' + took + ' ms on a node that never returns (measured ~2 s; a slow runner gets room)');
+  assert.match(out, STOPPED(1), 'the stop was not said:\n' + out);
+  assert.ok(out.includes(sb.home), 'the sentence does not name where the settings are:\n' + out);
+  assert.doesNotMatch(out, /Terminated|Killed/, 'the shell\'s own job line reached the person:\n' + out);
+});
+
+test('kosmos#8388 review 1: a node that ignores TERM is stopped with KILL, and the uninstall still ends', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox({ nodeScript: "#!/bin/sh\ntrap '' TERM\nexec sleep 60\n" });
+  const t0 = Date.now();
+  const out = runUninstall(sb, { KOSMOS_UNINSTALL_NODE_SECONDS: '1' }, 90000);
+  assert.ok(Date.now() - t0 < 45000, 'the uninstall waited on a node that ignores TERM');
+  assert.match(out, STOPPED(1), out);
+  assert.doesNotMatch(out, /Terminated|Killed/, out);
+});
+
+test('kosmos#8388 review 3: after a stop nothing beside the settings is read or removed; the sentence names any copy left', { skip: SKIP_OFF_POSIX }, () => {
+  // A stopped step's folder may be the stalled one, so its temp copy is left for the person, and the sentence says so.
+  const sb = sandbox({ nodeScript: '#!/bin/sh\n: > "$HOME/.claude/settings.json.kosmos-unwire.$$"\nexec sleep 60\n' });
+  const out = runUninstall(sb, { KOSMOS_UNINSTALL_NODE_SECONDS: '1' }, 90000);
+  assert.match(out, STOPPED(1), out);
+  assert.match(out, /any file ending in \.kosmos-unwire\.<a number>/, out);
+  const left = fs.readdirSync(path.join(sb.home, '.claude')).filter((n) => n.includes('.kosmos-unwire.'));
+  assert.equal(left.length, 1, 'a file beside the settings was touched after a stop: ' + left);
+  assert.doesNotMatch(out, /could not be taken out of these Claude settings files/, 'the file-naming fallback ran after a stop:\n' + out);
+});
+
+test('kosmos#8388 review 1: a quick node step is not held for the bound', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox({});
+  const t0 = Date.now();
+  const out = runUninstall(sb, { KOSMOS_UNINSTALL_NODE_SECONDS: '30' }, 90000);
+  assert.ok(Date.now() - t0 < 4000, 'a quick step waited ' + (Date.now() - t0) + ' ms (measured ~750 ms; the poll ticks every 0.2 s)');
+  assert.doesNotMatch(out, /did not finish in/, out);
+  checkCleaned(sb, out);
+});
+
+test('kosmos#8388 review 2: a time limit written 08 (an octal error in shell arithmetic) still bounds the step', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox({ hangNode: true });
+  const t0 = Date.now();
+  const out = runUninstall(sb, { KOSMOS_UNINSTALL_NODE_SECONDS: '08' }, 90000);
+  assert.ok(Date.now() - t0 < 20000, 'a limit of 08 did not bound the step');
+  assert.match(out, STOPPED(8), out);
 });
