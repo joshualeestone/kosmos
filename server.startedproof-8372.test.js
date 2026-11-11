@@ -151,23 +151,28 @@ test('kosmos#8372 review 2: a brand-new Windows agent (its session recorded, its
 
 test('kosmos#8372 review 3: a start from a non-loopback socket peer (the network bind open, no forwarding header) is refused', async (t) => {
   board(t);
-  store.writeProfile('netagent', { displayName: 'Net' });
-  const tok = sendertoken.mint('netagent').token;
-  // The real route, with the request's socket peer set to a LAN address, as a direct network caller's would be.
   const http = require('node:http');
   const handlers = server.listeners('request');
-  const res = await new Promise((resolve, reject) => {
-    const req = new http.IncomingMessage({ remoteAddress: '192.0.2.44', destroy() {}, on() {}, once() {}, removeListener() {} });
+  // The real route, with the request's socket peer set by hand, as a direct caller's would be.
+  const startFrom = (peer, tok) => new Promise((resolve, reject) => {
+    const req = new http.IncomingMessage({ remoteAddress: peer, destroy() {}, on() {}, once() {}, removeListener() {} });
     req.method = 'POST'; req.url = '/api/report';
     req.headers = { 'content-type': 'application/json', 'x-kosmos-agent-token': tok, host: '127.0.0.1:' + server.address().port };
     const out = new http.ServerResponse(req);
     let body = '';
     out.write = (c) => { body += c; return true; };
-    out.end = (c) => { if (c) body += c; resolve({ status: out.statusCode, body }); return out; };
+    out.end = (c) => { if (c) body += c; resolve({ status: out.statusCode, json: JSON.parse(body || '{}') }); return out; };
     try { for (const h of handlers) h.call(server, req, out); } catch (e) { reject(e); }
     req.push(JSON.stringify({ state: 'started', auto: true })); req.push(null);
   });
-  const j = JSON.parse(res.body || '{}');
-  assert.notEqual(j.recorded, true, 'a network caller started a session: ' + res.body);
+  // CONTROL (review 4): the same hand-built request from a loopback peer is recorded, so the harness reaches the route.
+  store.writeProfile('loopagent', { displayName: 'Loop' });
+  const ok = await startFrom('127.0.0.1', sendertoken.mint('loopagent').token);
+  assert.equal(ok.json.recorded, true, 'CONTROL: the harness did not reach the route: ' + JSON.stringify(ok.json));
+  store.writeProfile('netagent', { displayName: 'Net' });
+  const net = await startFrom('192.0.2.44', sendertoken.mint('netagent').token);
+  assert.equal(net.status, 200, JSON.stringify(net.json));
+  assert.equal(net.json.recorded, false, 'a network caller started a session: ' + JSON.stringify(net.json));
+  assert.equal(net.json.because, 'we could not match that to one of your agents');
   assert.notEqual(liveness.alive('netagent'), true, 'a network caller beat liveness');
 });
