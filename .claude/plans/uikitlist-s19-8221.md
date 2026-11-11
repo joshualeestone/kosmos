@@ -28,4 +28,9 @@ VoiceOver's own scroll to the part not being pinned back.
 
 ## Results
 
-(filled after the simulator runs)
+- A11yFocusUITests, 2 runs on the iOS 26.5 simulator (iPhone 17e): 16 of 16 both times.
+- newestpart with the rule: the newest row 11739 to 14447 (2708 pt, taller than the 647 pt list); the list moved 2090 pt
+  up, shows 11747 to 12382, the part (11747 to 11827) shown, off the newest, pins 0, agrees. Same both runs.
+- newestpart with KOSMOS_SAMPLE_FOCUSNONEWESTPART: moved 0, shows 13838 to 14473, part shown false, at the newest. So
+  the check can fail.
+- newest (the whole-message focus) still moved 0 at the newest; slice 18's controls unchanged (26 and 93).
