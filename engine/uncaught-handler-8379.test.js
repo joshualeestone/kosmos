@@ -1,48 +1,69 @@
 'use strict';
-/* #8379 item 1: the board registers no uncaughtException handler.
+/* #8379 item 1: the board keeps no thrown error alive.
 
-   engine/win32boardlog.js (#8373) and engine/win32boardwatch.js both record a crash from an uncaughtExceptionMonitor
-   only when no uncaughtException handler exists, because a process with a handler lives on. So a handler added to the
-   board anywhere would make both stop recording crashes, and nothing else would say so. This reads the board's own
-   source (server.js and every engine module that is not a test) for any way of adding one. A handler that is meant to
-   be there goes in ALLOWED with the reason, and then both monitors need a look. */
+   engine/win32boardlog.js (#8373) and engine/win32boardwatch.js record a crash from an uncaughtExceptionMonitor only
+   when no uncaughtException handler exists, because a process with a handler lives on. A handler added to the board
+   would make both stop recording crashes, and a capture callback or a domain would make both record a crash that never
+   happened. Nothing else would say so.
+
+   So this reads the board's own source (server.js and every engine module that is not a test, which is everything the
+   board loads) as raw text, with no comment stripping: a stripper that does not parse strings swallows real code after
+   a string holding a slash and a star. It counts:
+     - every string literal that is exactly the event's name, in any quote: this catches a handler added by any call,
+       including one whose event name is held in a variable or a list;
+     - any call of setUncaughtExceptionCaptureCallback, and any require of the domain module.
+   The literals the two monitors use themselves are allowed by file and by count, so a second one in either file reds. */
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
-const ADDS = /\.\s*(on|once|addListener|prependListener|prependOnceListener)\s*\(\s*(['"`])uncaughtException\2/g;
-const ALLOWED = [];   // [file, reason]
+const EVENT = /(['"`])uncaughtException\1/g;
+const CAPTURE = /setUncaughtExceptionCaptureCallback/g;
+const DOMAIN = /require\(\s*(['"`])(node:)?domain\1\s*\)/g;
+/* file -> how many event-name literals it may hold, and why. */
+const ALLOWED = {
+  'engine/win32boardlog.js': [2, 'its monitor reads listenerCount and names the origin; it adds no handler'],
+  'engine/win32boardwatch.js': [1, 'its monitor reads listenerCount; it adds no handler'],
+};
 
 function boardSources() {
   const engine = fs.readdirSync(path.join(ROOT, 'engine'))
     .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
-    .map((f) => path.join('engine', f));
+    .map((f) => 'engine/' + f);
   return ['server.js', ...engine];
 }
 
-/* Comments are dropped first, so a comment naming the event (as this file's header does) is not a handler. */
-function handlersIn(src) {
-  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
-  return [...code.matchAll(ADDS)].length;
+function count(src) {
+  const n = (re) => (src.match(re) || []).length;
+  return { event: n(EVENT), capture: n(CAPTURE), domain: n(DOMAIN) };
 }
 
-test('#8379 the board registers no uncaughtException handler', () => {
+test('#8379 the board adds no uncaughtException handler, capture callback or domain', () => {
   const files = boardSources();
   assert.ok(files.length > 100, 'the scan found too few engine modules to mean anything: ' + files.length);
-  const found = files.filter((f) => handlersIn(fs.readFileSync(path.join(ROOT, f), 'utf8')) > 0)
-    .filter((f) => !ALLOWED.some(([a]) => a === f));
-  assert.deepStrictEqual(found, [], 'a handler means a caught crash is not recorded by win32boardlog or win32boardwatch');
+  const problems = [];
+  for (const f of files) {
+    const c = count(fs.readFileSync(path.join(ROOT, f), 'utf8'));
+    const allowed = ALLOWED[f] ? ALLOWED[f][0] : 0;
+    if (c.event !== allowed) problems.push(`${f}: ${c.event} event-name literal(s), ${allowed} allowed`);
+    if (c.capture) problems.push(`${f}: setUncaughtExceptionCaptureCallback`);
+    if (c.domain) problems.push(`${f}: require of domain`);
+  }
+  assert.deepStrictEqual(problems, [], 'a handler, a capture callback or a domain changes what win32boardlog and win32boardwatch record');
 });
 
-test('#8379 control: the scan sees every way of adding one, and not a monitor or a comment', () => {
+test('#8379 control: the scan sees each form, in real-shaped code', () => {
+  /* Each starts with what broke an earlier comment-stripping scan: a string holding a slash-star, a URL in a regex,
+     and a template holding a double slash, before the handler. */
+  const before = "const g = 'image/*'; const re = /https?:\\/\\//; const u = `${p}//h`;\n";
   for (const form of ["process.on('uncaughtException', f)", 'process.once("uncaughtException", f)',
-    'proc.addListener(`uncaughtException`, f)', "process.prependListener( 'uncaughtException' , f)",
-    "process.prependOnceListener('uncaughtException', f)"]) {
-    assert.strictEqual(handlersIn(form), 1, form);
+    'proc.addListener(`uncaughtException`, f)', "process['on']('uncaughtException', f)",
+    "for (const ev of ['uncaughtException', 'unhandledRejection']) process.on(ev, f)"]) {
+    assert.strictEqual(count(before + form).event, 1, form);
   }
-  assert.strictEqual(handlersIn("process.on('uncaughtExceptionMonitor', f)"), 0, 'a monitor is not a handler');
-  assert.strictEqual(handlersIn("// process.on('uncaughtException', f)\n/* process.on('uncaughtException', f) */"), 0);
-  assert.strictEqual(handlersIn("const u = 'http://x'; process.on('uncaughtException', f)"), 1, 'a // inside a string does not hide the line');
+  assert.strictEqual(count(before + 'process.setUncaughtExceptionCaptureCallback(f)').capture, 1);
+  assert.strictEqual(count(before + "const d = require('node:domain')").domain, 1);
+  assert.strictEqual(count(before + "process.on('uncaughtExceptionMonitor', f)").event, 0, 'a monitor is not a handler');
 });
