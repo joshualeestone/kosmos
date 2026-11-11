@@ -1,36 +1,42 @@
 {
-  "version": "0.8.02",
+  "version": "0.8.03",
   "highlights": [
     {
-      "icon": "swarm",
-      "title": "My Agents down the left of an agent's page",
-      "line": "In a wide window, an agent's page lists every agent down the left, starred first. Click one to move to it, or fold the list to avatars."
+      "icon": "shield",
+      "title": "Windows Settings stops a false warning",
+      "line": "Settings, Computer no longer says it could not tell which user Kosmos runs as, from a check that never applied here.",
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "icon": "shield",
-      "title": "Kosmos says when two copies of an agent run",
-      "line": "An agent's card and page say when two sessions are running it at once, and hovering names the other session.",
+      "title": "Removing Kosmos takes out its agent hooks",
+      "line": "Removing Kosmos on Windows takes its Gemini and Codex hooks out of your agents' settings, and leaves your own.",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "icon": "shield",
+      "title": "The restart note says what was checked",
+      "line": "After this computer restarts, the note says how many agents came back, names any that did not, and whether Kosmos's main records read fine.",
       "platforms": [
         "mac"
       ]
     },
     {
-      "icon": "swarm",
-      "title": "See when an agent sits on one step",
-      "line": "The hover on a Claude agent's card and its page say when it has been on one tool call for five minutes or more, and which tool.",
+      "icon": "chat",
+      "title": "A little more room between chat lines",
+      "line": "Messages in an agent conversation on the computer now have a little more space between lines."
+    },
+    {
+      "icon": "shield",
+      "title": "A warning before an agent runs twice",
+      "line": "Adding an agent that another login job also starts now warns first and names that job.",
       "platforms": [
         "mac"
       ]
-    },
-    {
-      "icon": "tasks",
-      "title": "Task counts say built, done and dropped",
-      "line": "A parent task's count now shows built, done and dropped apart, on the Tasks view, in its project and on its page."
-    },
-    {
-      "icon": "swarm",
-      "title": "Added agents keep their account and model",
-      "line": "An agent you add from Found agents stays on the Claude account and model it was using, and Kosmos says if it could not."
     }
   ]
 }
