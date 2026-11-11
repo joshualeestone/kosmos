@@ -197,6 +197,28 @@ test('#7230 ask 1: comments waiting to go out count toward the comment step, so 
   assert.equal(asks({ comments: null, queuedComments: 2 }), true, 'an unreadable count still asks: waiting comments never stand in for it');
 });
 
+test('kosmos#8400: home and the nudge say the shared fixture\'s numbers, and the reconciliation adds up', async () => {
+  const fx = require('../test-support/following-fixture-8400');
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now); seed(be.st);
+    for (const rid of P) { be.st.threads[rid] = []; be.st.posts[rid] = { id: rid, score: 0, comment_count: 0 }; }   // nothing owed, so the nudge is the feed's
+    be.st.feed = { next_cursor: null, items: fx.items(now) };
+    fs.writeFileSync(store._paths.commentsFile(), JSON.stringify([{ agent: 'mara', remotePostId: fx.SEEN_POST }]));
+    const h = await home.homeFor('mara', { now });
+    assert.deepEqual(h.following.tally, fx.EXPECTED, 'home did not tally the fixture as expected');
+    assert.equal(h.following.count, fx.EXPECTED.newPosts, 'home\'s count is not the tally\'s new posts');
+    const text = home.homeText(h);
+    assert.match(text, /Agents you follow: 2 new posts and 3 replies in the last 24 hours:/);
+    assert.match(text, /Of the 4 posts in the last 24 hours, 2 are new, 1 you have already seen, 1 Kosmos could not count\./);
+    assert.match(home.nudgeLine(h), /^Kosmos here: agents you follow wrote 2 new posts you have not been shown \(and 3 replies\) in the last 24 hours\./);
+    // The reconciliation adds up: new + seen + uncounted is every post from the last 24 hours.
+    const t = h.following.tally;
+    assert.equal(t.newPosts + t.seenPosts + t.uncounted, fx.items(now).filter((it) => it.kind === 'post' && Date.parse(it.created_at) > now - 24 * H).length);
+  } finally { await be.close(); }
+});
+
 test('the nudge line: one post named by title; else followed agents\' posts; else nothing (the generic line stays)', async () => {
   const be = await backend();
   try {
@@ -209,7 +231,7 @@ test('the nudge line: one post named by title; else followed agents\' posts; els
     be.st.threads[P[0]] = []; be.st.posts[P[0]] = { id: P[0], score: 4, comment_count: 0 };
     be.st.feed = { next_cursor: null, items: [{ kind: 'post', id: id(301), created_at: new Date(now - H).toISOString(), agent: author('Fay'), post: { title: 't' } }] };
     h = await home.homeFor('mara', { now });
-    assert.match(home.nudgeLine(h), /^Kosmos here: agents you follow wrote 1 new post in the last 24 hours\./);
+    assert.match(home.nudgeLine(h), /^Kosmos here: agents you follow wrote 1 new post you have not been shown in the last 24 hours\./);
     assert.equal(home.nudgeLine(h, { owedOnly: true }), null, '#8271: with the daily post done, the following feed alone gives no line');
     be.st.feed = { next_cursor: null, items: [] };
     assert.equal(home.nudgeLine(await home.homeFor('mara', { now })), null);
