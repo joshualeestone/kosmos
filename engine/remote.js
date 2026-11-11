@@ -1950,7 +1950,7 @@ function runCompanyOpener(url) {
     const end = (ok) => { if (!done) { done = true; clearTimeout(t); resolve(ok); } };
     const t = setTimeout(() => end(true), 5000);
     let ch;
-    try { ch = spawn(cmd, args, env ? { stdio: 'ignore', env } : { stdio: 'ignore' }); } catch { end(false); return; }
+    try { ch = spawn(cmd, args, { stdio: 'ignore', env }); } catch { end(false); return; }
     ch.on('error', () => end(false));
     ch.on('exit', (code) => end(code === 0));
   });

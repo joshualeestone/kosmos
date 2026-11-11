@@ -16,6 +16,7 @@ test('the Windows opener list is exactly this (change it here on purpose: a name
     'LOCALAPPDATA', 'TEMP', 'TMP', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'ProgramData', 'PUBLIC',
     'SystemDrive', 'USERNAME', 'USERDOMAIN', 'COMPUTERNAME', 'OS', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS',
     'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432', 'ALLUSERSPROFILE',
+    'ProgramFiles(Arm)', 'CommonProgramFiles(Arm)',
     'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY',
   ];
   assert.deepEqual([...childenv.WIN_OPENER_KEYS], EXPECTED);

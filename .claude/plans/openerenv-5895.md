@@ -25,7 +25,7 @@ whole environment, because no Windows list had been checked on a Windows machine
 ## Change
 - engine/childenv.js: `WIN_OPENER_KEYS` and `winOpenerEnv(env)`: keeps the listed variables that are set and
   non-empty, matched case-insensitively (Windows names are, engine/win32env.js), each under the name it came with.
-- The CommonProgramFiles family and ALLUSERSPROFILE are added to the list (no secrets; an installed browser may look it up). One entry
+- The CommonProgramFiles family, ALLUSERSPROFILE and the ARM64 folders (ProgramFiles(Arm), CommonProgramFiles(Arm)) are added to the list (no secrets; an installed browser may look it up). One entry
   per name, case-blind, first spelling wins, so a child never gets PATH and Path both.
 - engine/win32signin.js: the Claude and OpenAI sign-in opener (openInDefaultBrowser) launched the same
   `rundll32 url.dll,FileProtocolHandler` with the board's whole environment, the same leak. Its callers: the Claude

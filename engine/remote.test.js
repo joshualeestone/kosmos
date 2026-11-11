@@ -5344,6 +5344,7 @@ test('kosmos#5895: on Windows the opener gets only its measured list, case-blind
   const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opener-5895-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => remote.resetForTests());   // even when an assertion fails before the try
   const out = path.join(dir, 'env.json');
   const writer = [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.env))`];
   remote.resetForTests();
