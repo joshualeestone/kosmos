@@ -24,6 +24,7 @@ Shape posted on the card first (issuecomment 6801308249). Built on `linuxrows-83
 - A laptop with a logind lid finding and a desktop whose own settings were not read (a logged-out GNOME) is a full attention row, not battOnly: the plugged-in half is not known (reviews 28, 29).
 - The Windows arm of boardAutostartCheck keeps reading opts.platform, not platformOf: changing it would change Windows behaviour on a Linux card (review 32 asked; kept).
 - A sandboxed board has no restart row (review 32), not a standing could-not-check.
+- One timeout memory for every Linux look, sleep and restart readings alike: a hung bus may make both rows say they could not check for ten seconds. Accepted for simplicity (review 40 asked for one per tool).
 - The lid and battery are battOnly, as on the Mac; the logind fix is a pasteable command in the admin field, for a root shell (machine.js never runs sudo: its own guard test).
 - The readers' test guards ask live-execution.inTestRun() (true in a child a test spawns too, review 30); a guard test pins it under the repo's runner (review 22 asked for explicit folder flags instead; kept).
 - A test never reads the host: the unit folder needs AGENT_WORKFORCE_SYSTEMD_DIR or AGENT_WORKFORCE_LAUNCH, and the lid needs opts.hasLid, else they read as unknown / no lid.

@@ -1190,3 +1190,8 @@ test('sleep reader: the lid holder is asked straight after HandleLidSwitch', () 
   machine.readLinuxSleep({ runner: r, hasLid: true });
   assert.equal(asked[asked.indexOf('HandleLidSwitch') + 1], 'BlockInhibited');
 });
+
+test('the gate does not pass a laptop with no desktop seen (one may be started by hand)', () => {
+  assert.equal(machine.sleepGate({ platform: 'linux', linuxSleep: { idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'ignore' }, gnome: null, desktop: false } }).checkable, false);
+  assert.equal(machine.sleepGate({ platform: 'linux', linuxSleep: { idle: QUIET_IDLE, lid: null, gnome: null, desktop: false } }).prevented, true, 'control: a server');
+});

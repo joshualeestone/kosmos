@@ -84,7 +84,8 @@ test('#7416 slice 3: the sleep row carries the switch on a Mac, only with the se
     return (m.json.checks || []).find((c) => c && c.key === 'sleep');
   };
   const row = await read();
-  /* kosmos#8375, #8384: in a test process the Linux sleep reader reads nothing from the host, so there is no sleep row
+  /* kosmos#8375, #8384: in a test run (node --test, the repo's runner) the Linux sleep reader reads nothing from the host,
+     so there is no sleep row; run directly with plain node on a Linux box, it would read the host's settings
      here (the row's own arms are pinned in engine/machine.linux-8384.test.js); Windows has one, with no switch. */
   if (process.platform === 'linux') { assert.equal(row, undefined, 'a sleep row was drawn on Linux in a test process, which reads nothing from the host'); return; }
   assert.ok(row, 'CONTROL: /api/machine has a sleep row');

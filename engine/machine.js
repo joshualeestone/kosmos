@@ -765,7 +765,9 @@ function linuxSleepGate(opts) {
   const row = linuxSleepCheck(reading);
   if (!row) return { checkable: false, because: 'we could not read this computer\'s sleep settings' };
   // A tick for Linux's own settings is not a reading of the desktop's: not checkable, not "prevented".
-  if (row.state === STATE.OK && reading && (reading.desktop === true || (reading.desktop === null && !reading.gnome && (reading.idle || reading.lid)))) return { checkable: false, because: 'we could not read this computer\'s desktop sleep settings' };
+  if (row.state === STATE.OK && reading && (reading.desktop === true || (reading.desktop === null && !reading.gnome && (reading.idle || reading.lid))
+    // A laptop with no display manager seen may still run a desktop started by hand, whose own settings were not read.
+    || (reading.desktop === false && !reading.gnome && reading.lid))) return { checkable: false, because: 'we could not read this computer\'s desktop sleep settings' };
   if (row.state === STATE.OK) return { checkable: true, prevented: true };
   // The Mac's three answers exactly: only a measured ATTENTION is "not prevented".
   if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title, battOnly: row.battOnly === true };
@@ -2214,7 +2216,8 @@ function linuxBoardAutostartCheck(reading) {
   }
   if (r.systemdRunning === false && r.installed) {
     return { key: 'autostart', state: STATE.ATTENTION,
-      title: 'Kosmos will not start by itself',
+      // "may not": a container's own restart rule, which this cannot see, may start it.
+      title: 'Kosmos may not start by itself here',
       // A container may have a restart rule of its own, which this cannot see.
       detail: 'This computer does not run systemd, which is how Kosmos starts itself on Linux, so after a restart '
         + 'Kosmos and your agents stay stopped unless something else starts them (a container\'s own restart rule, '
