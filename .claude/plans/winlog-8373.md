@@ -3,7 +3,7 @@
 Card: #8373 (found by the Windows agent probing #8230 on prod 0.8.02). Handed to Baron by Splinter 08:19 CST 11-11.
 
 ## The call
-On Windows, when the board's stdout is not already a file, the board opens `<LOCALAPPDATA>\Kosmos\logs\board.log` (beside the durable `runtime\` folder, win32anchor.anchorDir) for appending and copies every stdout and stderr write into it by descriptor (engine/win32boardlog.js). The stamp (engine/logstamp.js) and the diagnostics read (engine/diagnostics.readBoardLog) are given that descriptor, so the file is treated as the Mac treats fd 1.
+On Windows, for the board its logon task started, when neither stream is already a file, the board opens `<LOCALAPPDATA>\Kosmos\logs\board.log` (beside the durable `runtime\` folder, win32anchor.anchorDir; `board-<world>.log` for a named Kosmos) for appending and copies every stdout and stderr write into it by descriptor, stamped as the Mac's file is (engine/win32boardlog.js). The console copy is not stamped. The diagnostics read (engine/diagnostics.readBoardLog) is given that descriptor. An uncaught exception's stack is written to the file too.
 
 ## Where, and why there
 The Mac keeps `logs/board.log` beside `runtime/` in its KOSMOS_HOME (install/setup.sh StandardOutPath). The Windows durable home is the anchor's base, so the log goes beside its `runtime\`.
@@ -14,8 +14,14 @@ The Mac keeps `logs/board.log` beside `runtime/` in its KOSMOS_HOME (install/set
 - `win32-logs\board.log`: already the board watchdog's own start and exit lines (engine/win32boardwatch.js), bounded and rotated, under the same name.
 - A tee only into the in-memory ring: the ring is lost at exit, which is when the log is most needed.
 
+## Also decided
+- One file per Kosmos: the anchor is one for every world, so two boards must not share a file the diagnostics read as their own output.
+- Only the task-started board: a hand-started board has its own console, and a test's child board is not task-started.
+- A file over 20 MB at start is moved to `.old` (one copy). The Mac's file is not rotated; a laptop board runs for months.
+- Not redacted, as on the Mac. It holds what the board prints, the same text a Mac's board.log holds.
+
 ## Not in this
-- Rotation: the Mac's file is not rotated by the board either.
+- What only native code writes (a child with inherited stdio): not seen, as stated in the module header.
 - The check on a real Windows box ("Done when": trigger one known board line and find it). That needs a build carrying this; Homer checks it after the next Windows build. The card stays open until then.
 
 ## Weakest premise

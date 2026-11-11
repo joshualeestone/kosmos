@@ -28,6 +28,9 @@
  * SIZE. The Mac's file is not rotated by the board. Here, a file over ROTATE_BYTES when the board starts is moved to
  * `<name>.old` (one older copy, replaced each time), so a board that runs for months cannot grow it without end.
  *
+ * WHO. Only the board its logon task started (win32board.startedByTask): a board started by hand writes to its own
+ * console, and a board a test starts as a child is not task-started.
+ *
  * Nothing here throws into the board: when the file cannot be opened the board runs as it did before.
  */
 
@@ -46,7 +49,8 @@ function logPath(platform, home, env) {
   const anchor = require('./win32anchor').anchorDir(platform, home, e);   // <base>\runtime
   const world = require('./launchidentity').currentWorldId(e);
   const p = platform === 'win32' ? path.win32 : path.posix;
-  return p.join(p.dirname(anchor), 'logs', world === 'default' ? 'board.log' : 'board-' + world + '.log');
+  const name = world === 'default' ? 'board.log' : 'board-' + String(world).replace(/[^A-Za-z0-9_-]/g, '_') + '.log';
+  return p.join(p.dirname(anchor), 'logs', name);
 }
 
 /* Writes all of `bytes` to `fd`. */
@@ -64,12 +68,12 @@ function tee(stream, fd, lineState, now) {
       const enc = typeof encoding === 'string' ? encoding : undefined;
       if (typeof chunk === 'string' && (!enc || LINE_TEXT_ENCODINGS.test(enc))) {
         const s = stampText(chunk, lineState.atLineStart, now().toISOString());
-        lineState.atLineStart = s.atLineStart;
         writeAll(fd, Buffer.from(s.text, 'utf8'));
+        lineState.atLineStart = s.atLineStart;
       } else if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) {
         const s = stampBytes(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength), lineState.atLineStart, now().toISOString());
-        lineState.atLineStart = s.atLineStart;
         writeAll(fd, s.buf);
+        lineState.atLineStart = s.atLineStart;
       } else if (typeof chunk === 'string') {
         writeAll(fd, Buffer.from(chunk, enc));   // a hex or base64 write is not text: copied as it is, like the stamp does
       }
@@ -79,22 +83,25 @@ function tee(stream, fd, lineState, now) {
 }
 
 /**
- * On Windows, when neither stream is already a file, opens the log for appending and copies both streams into it.
- * Returns { path, fd } when it did, else null. `deps` is for tests: platform, home, env, path (the log), isFile(fd),
- * now(), and onCrash (where the uncaught-exception writer is registered; default process.on).
+ * On Windows, for the board its logon task started, when neither stream is already a file: opens the log for
+ * appending and copies both streams into it. A board started by hand has its own console, and a board a test starts
+ * as a child is not task-started, so neither writes this file. Returns { path, fd } when it routed, else null. `deps`
+ * is for tests: platform, home, env, path (the log), isFile(fd), taskStarted(), now(), and onCrash (where the
+ * uncaught-exception writer is registered; default process.on).
  */
 function route(stdout, stderr, deps) {
   const d = deps || {};
   const platform = d.platform || process.platform;
   if (platform !== 'win32' || routed) return null;
-  // A test that did not name its own file never writes the person's real log.
-  if (!d.path && require('./live-execution').inTestProcess()) return null;
+  const env = d.env || process.env;
+  const taskStarted = typeof d.taskStarted === 'function' ? d.taskStarted : () => require('./win32board').startedByTask(env);
+  if (!taskStarted()) return null;
+  if (!d.path && require('./live-execution').inTestProcess()) return null;   // and a test that names no file of its own
   const isFile = typeof d.isFile === 'function' ? d.isFile : require('./logstamp').isRegularFile;
   if (isFile(1) || isFile(2)) return null;   // something already sends the board's output to a file: leave it as it is
   try {
-    const env = d.env || process.env;
     const file = d.path || logPath(platform, d.home || env.AGENT_WORKFORCE_HOME || os.homedir(), env);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.mkdirSync((d.path ? path : path.win32).dirname(file), { recursive: true });
     try { if (fs.statSync(file).size > ROTATE_BYTES) fs.renameSync(file, file + '.old'); } catch { /* none yet */ }
     const fd = fs.openSync(file, 'a');
     const now = typeof d.now === 'function' ? d.now : () => new Date();
