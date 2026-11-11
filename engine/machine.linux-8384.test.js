@@ -316,11 +316,6 @@ test('sleep reader: GNOME\'s battery setting counts only on a machine with a bat
   assert.equal(sleep(laptop).battOnly, true, 'control: the same settings on a laptop are the battery note');
 });
 
-test('sleep reader: a test that hands no runner reads nothing from the host', () => {
-  assert.deepEqual(machine.readLinuxSleep({}), { idle: null, lid: null, gnome: null });
-  assert.deepEqual(machine.sleepGate({ platform: 'linux' }), { checkable: false, because: 'we could not read this computer\'s sleep settings' });
-});
-
 test('sleep reader: a set HandleLidSwitchExternalPower is the plugged-in answer', () => {
   const { runner } = sleepRunner({ HandleLidSwitchExternalPower: 's "ignore"', IdleAction: 's "ignore"', gsd: 'inactive' });
   const got = machine.readLinuxSleep({ runner, hasLid: true });
@@ -354,9 +349,26 @@ test('check() on linux reads sleep through the caller\'s runner, and with no run
       runner, linuxBoard: { unitFile: false, installed: null } });
     assert.ok(asked.some((a) => a[0] === 'busctl'), 'logind was asked through the runner check() was given');
     assert.equal(got.checks.find((c) => c.key === 'sleep').state, STATE.ATTENTION, 'IdleAction=suspend from the fake runner');
-    const bare = machine.check({ platform: 'linux', claudeBin: process.execPath, tmuxBin: process.execPath, appDirs: [empty, empty],
-      linuxBoard: { unitFile: false, installed: null } });
+    /* A busctl on PATH that says "suspend after 30 minutes", so a host read would show a sleep row on any machine
+       (on a Mac with no busctl a host read fails quietly and looks the same as no read). */
+    const bin = path.join(empty, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'busctl'), '#!/bin/sh\ncase "$*" in *USec*) echo "t 1800000000";; *) echo \'s "suspend"\';; esac\n', { mode: 0o755 });
+    const prevPath = process.env.PATH;
+    process.env.PATH = bin + path.delimiter + prevPath;
+    let bare, gate, direct;
+    try {
+      bare = machine.check({ platform: 'linux', claudeBin: process.execPath, tmuxBin: process.execPath, appDirs: [empty, empty],
+        linuxBoard: { unitFile: false, installed: null } });
+      gate = machine.sleepGate({ platform: 'linux' });
+      direct = machine.readLinuxSleep({});
+      // Control: the fake answers when it IS asked, so the absences above are the guard, not a broken fake.
+      var control = machine.readLinuxSleep({ runner: (c, a) => { try { return { ok: true, stdout: require('node:child_process').execFileSync(c, a, { encoding: 'utf8' }) }; } catch { return { ok: false }; } } });
+    } finally { process.env.PATH = prevPath; }
     assert.equal(bare.checks.find((c) => c.key === 'sleep'), undefined, 'no seam in a test: no host read, so no sleep row');
+    assert.equal(gate.checkable, false);
+    assert.deepEqual(direct, { idle: null, lid: null, gnome: null });
+    assert.deepEqual(control.idle, { action: 'suspend', minutes: 30 }, 'control: the fake busctl does answer');
   } finally { fs.rmSync(empty, { recursive: true, force: true }); }
 });
 
