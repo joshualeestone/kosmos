@@ -437,7 +437,9 @@ function unchanged(from, note, date) {
   for (const d of list()) {
     if (d >= day) continue;
     const raw = read(d);
-    if (raw != null && sections(stripFrontmatter(raw)).some((x) => x.text.trim())) { newest = d; break; }
+    /* Review 1: for a NAMED writer the unnamed section is not provably another agent's (a report from before #5317, or
+       one written with no token and no window, may be this writer's own), so only a named section counts here. */
+    if (raw != null && sections(stripFrontmatter(raw)).some((x) => x.text.trim() && (key === '' || x.key !== ''))) { newest = d; break; }
   }
   return { ok: false, why: 'none', newest };
 }
