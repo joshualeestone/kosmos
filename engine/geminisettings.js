@@ -22,8 +22,9 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
 const securewrite = require('./securewrite');
+/* The two runner-neutral rules for a hook command written into a settings file: engine/hookpaths.js (kosmos#8348). */
+const { unsafeForCommand, ephemeralIntoDurable } = require('./hookpaths');
 
 /* The auth pre-seed: gemini reads security.auth.selectedType and, when it is the
    `gemini-api-key` constant AND GEMINI_API_KEY is in the env, boots straight to
@@ -96,24 +97,6 @@ function commandFor(bridgePath, opts) {
   return 'node "' + bridgePath + '"';
 }
 
-/* Refuse a path carrying a character that would break out of, or execute inside,
-   the quoted shell command. LOAD-BEARING: the command is a shell string.
-   posix: the path rides in a double-quoted sh string, so a quote, backslash,
-   dollar or backtick is refused (reporthook.js's posix set).
-   win32: the path rides in a single-quoted POWERSHELL literal, which only a single
-   quote can end, and PowerShell counts the typographic U+2018..U+201B as single
-   quotes too, so those are refused with it. Double quotes (straight and
-   U+201C..U+201E), dollar, backtick and percent are inert inside '...' but refused
-   anyway: over-refuse, never under-refuse (a refused path degrades to scraping),
-   and it keeps the set a superset of reporthook.js's win32 one. A backslash is
-   ALLOWED on win32, the ordinary separator; refusing it was #4010. CR/LF are
-   refused on both. A non-string is unsafe rather than throwing. */
-function unsafeForCommand(s, plat) {
-  if (typeof s !== 'string') return true;
-  if ((plat || process.platform) === 'win32') return /['"`$%\r\n\u2018-\u201E]/.test(s);
-  return /["\\$`\r\n]/.test(s);
-}
-
 function entryIsOurs(entry) {
   return !!(entry && Array.isArray(entry.hooks)
     && entry.hooks.some((h) => h && typeof h.command === 'string' && h.command.includes(MARKER)));
@@ -137,19 +120,6 @@ function definitionFor(bridgePath, opts, matcher) {
  * `opts` ({ platform, node }) picks the command form, see commandFor; both
  * default to this process.
  */
-/* #1582 class, shared with codexhooks.js (kosmos#8348): whether writing any of `paths` (nulls skipped) into the file
-   at `durablePath` would point a durable file outside the temp root at a path inside it. See ensurePrepared's comment
-   for why both spellings of the temp root are compared. */
-function ephemeralIntoDurable(durablePath, paths) {
-  const rawTmp = os.tmpdir();
-  let realTmp = rawTmp;
-  try { realTmp = fs.realpathSync(rawTmp); } catch { /* keep the raw value */ }
-  const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
-  const ephemeral = (p) => underRoot(p, rawTmp) || underRoot(p, realTmp);
-  const durable = typeof durablePath === 'string' && !ephemeral(durablePath);
-  return durable && (paths || []).some((p) => p !== null && p !== undefined && ephemeral(p));
-}
-
 function ensurePrepared(settingsPath, bridgePath, opts) {
   const o = opts || {};
   const plat = o.platform || process.platform;
@@ -297,4 +267,4 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
   return { prepared: true, changed: true };
 }
 
-module.exports = { AUTH_TYPE, HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, UPDATE_KEYS, LEGACY_UPDATE_KEYS, commandFor, unsafeForCommand, ephemeralIntoDurable, entryIsOurs, ensurePrepared };
+module.exports = { AUTH_TYPE, HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, UPDATE_KEYS, LEGACY_UPDATE_KEYS, commandFor, unsafeForCommand, entryIsOurs, ensurePrepared };

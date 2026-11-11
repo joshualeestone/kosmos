@@ -88,11 +88,11 @@ function commandFor(bridge, opts) {
 }
 
 /* kosmos#8348: a path refused for the win32 command. It rides in a single-quoted PowerShell literal, the same form
-   geminisettings.js writes for Gemini, so the one rule for it is that file's unsafeForCommand (a single quote, typographic
+   geminisettings.js writes for Gemini, so the one rule for it is the shared hookpaths.unsafeForCommand (a single quote, typographic
    ones too, CR/LF, and over-refused double quotes, dollar, backtick and percent). Measured: a bracketed path is NOT a
    problem there (`& 'C:\...\a[1]\node.exe'` ran in Windows PowerShell 5.1, the same as a plain one). */
 function unsafeForWin32(p) {
-  return require('./geminisettings').unsafeForCommand(p, 'win32');
+  return require('./hookpaths').unsafeForCommand(p, 'win32');
 }
 
 function sortKeys(v) {
@@ -182,9 +182,10 @@ function isOurs(text) {
   if (!only(group, ['matcher', 'hooks']) || group.matcher !== MATCHER || !Array.isArray(group.hooks) || group.hooks.length !== 1) return false;
   const h = group.hooks[0];
   if (!h || typeof h !== 'object' || Object.keys(h).some((k) => !HANDLER_KEYS.has(k)) || h.type !== 'command') return false;
-  /* kosmos#8348: or the win32 form, `& '<node>' '<...\codex-report-bridge.js>'`. */
+  /* kosmos#8348: or the win32 form, `& '<...\node.exe>' '<...\codex-report-bridge.js>'`: a node running the bridge,
+     nothing else in either literal's place. */
   return typeof h.command === 'string' && (/^'[^\n]*\/codex-report-bridge\.js'$/.test(h.command)
-    || /^& '[^'\n]+' '[^'\n]*[\\/]codex-report-bridge\.js'$/.test(h.command));
+    || /^& '[^'\n]*[\\/]node(?:\.exe)?' '[^'\n]*[\\/]codex-report-bridge\.js'$/i.test(h.command));
 }
 
 /* Remove the hooks.json install() wrote, so Codex has no untrusted hook to stop on. Only a regular file exactly in our
@@ -225,9 +226,9 @@ function install(home, bridge, version, opts) {
     if (plat === 'win32' && (unsafeForWin32(bridge) || unsafeForWin32(node))) return refuse('the bridge or node path has a character we will not put in a command');
     /* kosmos#8348, the #1582 class: on win32 the home is a durable account home, so an engine running from a temp
        extract (a release cut, a check) must not leave its temp bridge or node path in it. The rule geminisettings.js
-       applies to the same win32 form. (An installed Kosmos runs from %LOCALAPPDATA%\Programs\Kosmos\app, a path an
+       applies to the same win32 form (hookpaths.js). (An installed Kosmos runs from %LOCALAPPDATA%\Programs\Kosmos\app, a path an
        update swaps the new build into, so the path written stays good across updates.) */
-    if (plat === 'win32' && require('./geminisettings').ephemeralIntoDurable(path.join(home, HOOKS_FILE), [bridge, node])) {
+    if (plat === 'win32' && require('./hookpaths').ephemeralIntoDurable(path.join(home, HOOKS_FILE), [bridge, node], { platform: plat })) {
       return refuse('the bridge is under the temp folder, which is not kept, so it was not written into the Codex home');
     }
     if (version !== HASH_VERIFIED_FOR) return refuse(`this Codex is ${version || 'of an unknown version'}, and the hook's trust record is known only for ${HASH_VERIFIED_FOR}`, typeof version === 'string' && version !== '');

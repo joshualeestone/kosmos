@@ -53,7 +53,42 @@ test('install on win32 will not write a temp bridge or node into a durable Codex
   assert.match(r2.because, /temp folder/, 'the node path counts too');
   assert.equal(fs.existsSync(path.join(durable, 'hooks.json')), false);
   // Both under temp (a test, a check): allowed, as Gemini allows it.
-  assert.equal(require('./geminisettings').ephemeralIntoDurable(path.join(home(), 'hooks.json'), [tmpBridge]), false);
+  assert.equal(require('./hookpaths').ephemeralIntoDurable(path.join(home(), 'hooks.json'), [tmpBridge], { platform: 'win32' }), false);
+});
+
+test('on Windows the temp test matches the temp folder in any case and in its 8.3 short spelling', { skip: process.platform === 'win32' ? false : 'needs real Windows paths' }, () => {
+  const hp = require('./hookpaths');
+  const durable = path.join(__dirname, 'hooks.json');
+  const t = home();
+  assert.equal(hp.ephemeralIntoDurable(durable, [path.join(t.toUpperCase(), 'x.js')], { platform: 'win32' }), true, 'case-changed');
+  assert.equal(hp.ephemeralIntoDurable(path.join(t.toLowerCase(), 'hooks.json'), [path.join(t, 'x.js')], { platform: 'win32' }), false, 'both temp');
+  // A temp ROOT in its 8.3 short spelling, as on a GitHub Windows runner (TEMP=C:\Users\RUNNER~1\...), with the path
+  // in its long native spelling. os.tmpdir() reads TEMP at each call, so TEMP is pointed at the short spelling of a
+  // folder made for it (when this volume keeps short names: cmd's %~s prints it).
+  const root = path.join(t, 'a long temp root');
+  fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'x.js'), '');
+  let short = '';
+  try { short = execFileSync('cmd.exe', ['/d', '/s', '/c', `"for %I in ("${root}") do @echo %~sI"`], { encoding: 'utf8', windowsHide: true, windowsVerbatimArguments: true }).trim(); } catch { short = ''; }
+  if (short && short.toLowerCase() !== root.toLowerCase()) {
+    const saved = { TEMP: process.env.TEMP, TMP: process.env.TMP };
+    process.env.TEMP = short;
+    process.env.TMP = short;
+    try {
+      assert.equal(os.tmpdir(), short);
+      assert.equal(hp.ephemeralIntoDurable(durable, [path.join(root, 'x.js')], { platform: 'win32' }), true, `a long path under the short temp root ${short}`);
+      assert.equal(hp.ephemeralIntoDurable(path.join(root, 'hooks.json'), [path.join(root, 'x.js')], { platform: 'win32' }), false, 'a long durable path under it is temp too');
+      // The posix rule (what geminisettings had) misses it: this is the gap.
+      assert.equal(hp.ephemeralIntoDurable(durable, [path.join(root, 'x.js')], { platform: 'darwin' }), false);
+    } finally {
+      for (const k of ['TEMP', 'TMP']) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+    }
+  }
+});
+
+test('isOurs on win32 wants a node running the bridge, nothing else in the first literal', () => {
+  assert.equal(hooks.isOurs(hooks.hooksJson(`& 'C:\\Tools\\other.exe' '${WBRIDGE}'`)), false);
+  assert.equal(hooks.isOurs(hooks.hooksJson(`& 'C:\\Kosmos\\runtime\\NODE.EXE' '${WBRIDGE}'`)), true);
 });
 
 test('the win32 command is the call operator on two single-quoted literals; the posix form is unchanged', () => {
@@ -144,7 +179,7 @@ test('nextConfig on any host: a win32 key spelled with doubled backslashes is th
   assert.ok(hooks.nextConfig('model = "x"\n', heading, line).append, 'a config without it still gets the append');
 });
 
-test('install leaves a record already written another way alone (on Windows: the key as a basic string, backslashes doubled), never a second table beside it', () => {
+test('install leaves a record already written another way alone, never a second table beside it (the win32 doubled-backslash spelling is covered on every host by the nextConfig test)', () => {
   const h = home();
   const file = path.join(fs.realpathSync.native(h), 'hooks.json');
   const escaped = `[hooks.state."${file.replace(/\\/g, '\\\\')}:pre_tool_use:0:0"]\ntrusted_hash = "sha256:${'c'.repeat(64)}"\n`;
