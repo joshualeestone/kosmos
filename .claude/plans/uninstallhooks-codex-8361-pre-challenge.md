@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: uninstallhooks-codex-8361
-diff_hash: 591d855cf1d124aae3f1b812a687d479f36c96ba7827e7e00351504d98fb9596
+diff_hash: a21d628df6490869c00283130c20bed63ca53d16d2f14e3dff64e590ef24ca11
 validation: local only, substituted (npm is not on this box): engine/uninstallhooks-codex.win32-8361.test.js 15/15, engine/win32uninstall.unhooks-5999.test.js 28 pass 2 skipped, engine/win32uninstall.test.js 53/53, engine/codexhooks.win32-8348.test.js 23 pass 1 skipped, policy tests (engine.reachable 8/8, win32-separator-guard 4/4, windows-coupling-audit-1732 8/8, windows-tests-1777 23/23, fixture-discipline 20/20, no-name-refs-3071 4/4), all through the no-schtasks preload on bde24ab7c4; the full suite runs on the PR's CI
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-11T18:50:24Z
@@ -17,7 +17,7 @@ converged: false
 **Total actionable findings:** 0 BLOCKERs, at least 11 WARNINGs, 2 CONVENTIONs (plus NITs). Rounds 1 to 3 are counted from their fix commits and the "Review N" comments in the code, not from an exact tally.
 **Fixed:** every WARNING and CONVENTION | **Named as residuals:** CRLF config.toml keeps its record (safe, written in the plan) | **Asked:** 0
 
-The last suite ran on bde24ab7c4 (the head this proof covers).
+The last suite ran on bde24ab7c4. After it, one plan-only file was added (.claude/plans/uninstallhooks-codex-8361.md, a pointer giving the branch its plan by name, required by the PR gate; no code) and the diff_hash above was recomputed to cover it. That file was not reviewed.
 
 ### Per-Iteration Breakdown
 
