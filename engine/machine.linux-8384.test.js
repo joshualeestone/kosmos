@@ -5,7 +5,8 @@
  *
  *   1. Do agents come back after a restart? The board's systemd user unit (there, switched on) and linger.
  *   2. Will the computer sleep and stop the agents? logind's IdleAction and lid switch, and GNOME's automatic
- *      suspend while GNOME's power service runs.
+ *      suspend while GNOME's power service runs. sleepGate answers from the same reading, so /api/sleep-status never
+ *      runs pmset on Linux (a Linux board does not walk the wizard's sleep step, #5877).
  *
  * Every arm of both rows, the readers through their seams (a fake runner, a temp unit folder, opts.hasLid), and
  * that every command they run is a look, never a change. No real systemctl, loginctl, busctl or gsettings runs.
@@ -266,7 +267,6 @@ test('sleepGate on linux gives the Mac\'s three answers from Linux\'s reading, w
   assert.equal(no.checkable, true);
   assert.equal(no.prevented, false);
   assert.match(no.because, /can go to sleep on its own/);
-  assert.match(no.detail, /After 30 minutes/);
   assert.equal(no.battOnly, false);
   assert.equal(gate({ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' }, gnome: null }).battOnly, true);
   assert.deepEqual(gate({ idle: null, lid: null, gnome: null }), { checkable: false, because: 'we could not read this computer\'s sleep settings' });

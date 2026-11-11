@@ -460,12 +460,14 @@ function linuxSleepCheck(reading) {
       + (gnome ? '' : ' If this computer has a desktop, its own power settings can still put it to sleep, so check them there.') };
 }
 
-/** The first-run gate on Linux, the same three answers as the Mac's sleepGate. */
+/** The first-run gate on Linux, the same three answers as the Mac's sleepGate. A Linux board does not walk the
+    wizard's sleep step (#5877, frStepSequence), so nothing shows this today; it answers from Linux's own settings so
+    that /api/sleep-status never runs pmset there, whoever asks. */
 function linuxSleepGate(opts) {
   const row = linuxSleepCheck(readLinuxSleep(opts));
   if (!row) return { checkable: false, because: 'we could not read this computer\'s sleep settings' };
   if (row.state === STATE.OK) return { checkable: true, prevented: true };
-  return { checkable: true, prevented: false, because: row.title, detail: row.detail, battOnly: row.battOnly === true };
+  return { checkable: true, prevented: false, because: row.title, battOnly: row.battOnly === true };
 }
 
 /* ===========================================================================
