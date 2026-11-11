@@ -3,9 +3,10 @@
 /* #5959 slice 4: the last lines the board itself wrote, kept in memory for the diagnostics file.
 
    The board does not know where its log goes: board.log is its stdout and stderr, redirected by whatever started it
-   (launchd, install/kosmos, the Linux unit; on Windows the board's own copy, engine/win32boardlog.js),
-   and a board whose output is a pipe or a terminal has no file to read back. So the lines are taken where the board writes them. tap() wraps a stream's write (after
-   engine/logstamp.js, so the line is the board's own text, not the stamp) and keeps each finished line with the time it
+   (launchd, install/kosmos, the Linux unit; on Windows the board's own copy, engine/win32boardlog.js), and a board
+   whose output is a pipe or a terminal has no file to read back. So the lines are taken where the board writes them.
+   tap() wraps a stream's write (after engine/logstamp.js's stamp or engine/win32boardlog.js's copy, so the line is the
+   board's own text, not the stamp) and keeps each finished line with the time it
    was written. It taps whatever the stream is (a file, a pipe, a terminal), and holds only lines since this board
    started.
 
