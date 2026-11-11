@@ -137,6 +137,15 @@ test('restart reader: reads the unit state and linger, and runs only looks', () 
   assert.ok(asked.some((a) => a[0] === 'loginctl'), 'control: linger was asked of loginctl (logind\'s file is not read in a test)');
 });
 
+test('restart reader: linger is asked only when the unit is switched on, the one arm that uses it', () => {
+  const asked = [];
+  const runner = (c) => { asked.push(c); return c === 'systemctl' ? { ok: true, stdout: 'UnitFileState=disabled\n' } : { ok: true, stdout: 'Linger=yes\n' }; };
+  const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(runner, { runner, installedRoot: BUNDLE }));
+  assert.equal(got.unitState, 'disabled');
+  assert.equal(got.linger, undefined);
+  assert.deepEqual(asked, ['systemctl'], 'no loginctl for a switched-off unit');
+});
+
 test('restart reader: no unit file asks systemd nothing; an unreadable answer is null, not a guess', () => {
   const asked = [];
   const runner = (cmd, args) => { asked.push(cmd); return { ok: true, stdout: 'something else\n' }; };
