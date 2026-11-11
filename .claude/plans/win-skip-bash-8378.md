@@ -26,8 +26,8 @@ before skipping. Left out:
   expect). That is something to look at, not to skip.
 
 ## Result (each file run alone on the Windows box, the no-schtasks preload)
-Before: 22 files, 337 failing tests (plus the two left out). After: 0 failing in those 21 files; every pass count is
-unchanged (no test that passed is now skipped); 337 tests skip, each printing its reason.
+Before: 21 files, 345 failing tests on Windows (plus the two left out). After: 0 failing in those 21 files; every pass count is
+unchanged (no test that passed is now skipped); those 345 tests skip, each printing its reason.
 
 ## Weakest premise
 That every skipped test is ONLY about bash. Each was checked by its first error line (ENOENT for bash or sh or
