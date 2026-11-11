@@ -73,6 +73,20 @@ test('restoredLaunch: a world prepareRestoreWorld made reads restored; the defau
   assert.equal(launcher.restoredLaunch({ ...noWorld, KOSMOS_WORLD: 'default' }, null), false, 'the default world by name');
 });
 
+test('restoredLaunch: with the world ALREADY applied (as in a real launch), the real base is read back; ordinary stays ordinary', { skip: !WIN && 'Windows paths' }, () => {
+  /* A launch runs inside a process whose roots are the world's own, with the originals recorded in
+     KOSMOS_PRE_WORLD_ROOTS (applyAgentWorldEnv). Read naively, the world folder would be taken for the base, no world
+     found there, and "not restored" answered: the Mac half's first version did exactly that. */
+  const r = restoredWorld();
+  const applied = (id) => { const e = { ...process.env, KOSMOS_WORLD: id }; worlds.applyAgentWorldEnv(e); return e; };
+  const inRestored = applied(r.id);
+  assert.ok(inRestored.KOSMOS_PRE_WORLD_ROOTS, 'the world was applied (the roots moved, the originals recorded)');
+  assert.notEqual(worlds.baseRoot(inRestored), r.base, 'the applied roots are the world\'s, not the base');
+  assert.equal(launcher.restoredLaunch(inRestored, null), true, 'the restored world, read through the applied roots');
+  const plain = worlds.createWorld(r.base, 'Plain Applied');
+  assert.equal(launcher.restoredLaunch(applied(plain.id), null), false, 'CONTROL: an ordinary world, applied');
+});
+
 test('restoredLaunch: a world id it cannot place reads restored (fails closed)', { skip: !WIN && 'Windows paths' }, () => {
   assert.equal(launcher.restoredLaunch({ ...process.env, KOSMOS_WORLD: '..\\..\\x' }, null), true);
 });

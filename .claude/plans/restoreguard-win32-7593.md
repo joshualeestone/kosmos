@@ -40,3 +40,16 @@ an agent.
 
 The wiring file drives the real launch(), launchStreaming() and the per-turn supervisor (codex, gemini, antigravity),
 each with a restored folder and an unmarked control; removing the supervisor's argument fails its three arms (run).
+
+## Decided (review round 2)
+- core.hooksPath=NUL relies on Git for Windows (MINGW) reading NUL as the null device, as the card asks and
+  landedcheck.js already does. A Cygwin or MSYS2 git first on PATH would read it as a folder named NUL under the repo
+  top (which does not exist, so no hooks run there either; untested).
+- A mark that lstat cannot answer for (EPERM, EBUSY, a dead network drive) reads restored, stricter than the Mac's
+  `-e || -L` (which reads those as absent), to match isRestoredWorld. The cost is an ordinary agent on such a drive
+  losing its own hooks with no line saying so. Kept: a launch has no event channel at that point, and the guard
+  erring on is the safe side. What would change it: a report of an ordinary agent missing its hooks.
+- The sign-in child (win32signin) also builds its env with childEnv and no opts, so it too drops inherited
+  GIT_CONFIG_* keys. Harmless: it runs in the account folder, not a project.
+- Tests: rule 1 is also tested with the world already applied to the env (as in a real launch, roots moved and the
+  originals in KOSMOS_PRE_WORLD_ROOTS); reading the base without preWorldEnv fails that arm (run).
