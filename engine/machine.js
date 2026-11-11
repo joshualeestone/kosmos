@@ -430,6 +430,8 @@ function readLinuxSleep(opts) {
       gnome = { ac, acMinutes: mins(get('sleep-inactive-ac-timeout')),
         battery: battery ? get('sleep-inactive-battery-type') : null,
         batteryMinutes: battery ? mins(get('sleep-inactive-battery-timeout')) : null };
+      // A read that failed partway (the battery half, say) is said, not dropped.
+      if (failed) gnomeUnread = true;
     }
   }
   /* No desktop settings read: is there a desktop at all? A running display manager (GDM, SDDM, LightDM) says so; its
@@ -485,17 +487,19 @@ const LINUX_ACTION_DOES = Object.freeze({ 'goes to sleep': 'puts it to sleep', '
 const minutesWords = (n) => n + (n === 1 ? ' minute' : ' minutes');
 
 /* The Linux readings run up to a dozen short commands, each with run()'s timeout, on the request that asks. Settings
-   re-reads on every visit, so a reading is kept for ten seconds; a caller with a runner or a seam always reads fresh. */
+   re-reads on every visit, so a reading is kept for ten seconds; a caller with a runner or a seam always reads fresh.
+   Accepted: for up to ten seconds after Kosmos is reinstalled or its service changed, the row can show the old reading. */
 const LINUX_READING_TTL_MS = 10000;
 const linuxReadings = new Map();
 function linuxCached(key, opts, read) {
   const o = opts || {};
   // opts.cacheInTest lets a test exercise the cache itself; otherwise a test always reads fresh.
   if (o.runner || 'linuxSleep' in o || 'linuxBoard' in o || (require('./live-execution').inTestProcess() && !o.cacheInTest)) return read();
+  const now = typeof o.now === 'function' ? o.now() : Date.now();   // seam: a test's clock
   const hit = linuxReadings.get(key);
-  if (hit && Date.now() - hit.at >= 0 && Date.now() - hit.at < LINUX_READING_TTL_MS) return hit.value;
+  if (hit && now - hit.at >= 0 && now - hit.at < LINUX_READING_TTL_MS) return hit.value;
   const value = read();
-  linuxReadings.set(key, { at: Date.now(), value });
+  linuxReadings.set(key, { at: now, value });
   return value;
 }
 
@@ -508,7 +512,7 @@ function linuxCached(key, opts, read) {
 function linuxSleepCheck(reading) {
   const r = reading || {};
   const idle = r.idle || null, lid = r.lid || null, gnome = r.gnome || null;
-  if (!idle && !lid && !gnome) return null;
+  if (!idle && !lid && !gnome && !r.gnomeUnread) return null;
   const stops = (a) => (a && Object.prototype.hasOwnProperty.call(LINUX_STOPPING_ACTION, a)) ? LINUX_STOPPING_ACTION[a] : null;
   const idleStops = Boolean(idle && stops(idle.action));
   const gnomeAc = Boolean(gnome && stops(gnome.ac) && gnome.acMinutes !== 0);
@@ -516,7 +520,10 @@ function linuxSleepCheck(reading) {
   const after = (m) => (m ? 'after ' + minutesWords(m) : 'after a while');
   const lidStops = Boolean(lid && (stops(lid.ac) || stops(lid.battery) || stops(lid.docked)));
   const said = [], verbs = [];
+  const plugged = [];   // the verbs of what happens plugged in, open and idle: the title's "on its own"
   const say = (sentence, verb) => { said.push(sentence); verbs.push(verb); };
+  if (idleStops) plugged.push(stops(idle.action));
+  if (gnomeAc) plugged.push(stops(gnome.ac));
   if (idleStops) say('After ' + (idle.minutes ? minutesWords(idle.minutes) : 'a while') + ' with nobody using it, this computer ' + stops(idle.action) + '.', stops(idle.action));
   if (gnomeAc) say('While it is plugged in, ' + after(gnome.acMinutes) + ' with nobody using it, the desktop ' + LINUX_ACTION_DOES[stops(gnome.ac)] + '.', stops(gnome.ac));
   if (gnomeBatt) say('On battery, ' + after(gnome.batteryMinutes) + ' with nobody using it, the desktop ' + LINUX_ACTION_DOES[stops(gnome.battery)] + '.', stops(gnome.battery));
@@ -572,7 +579,7 @@ function linuxSleepCheck(reading) {
   if (idleStops || gnomeAc) {
     const vs = verbs;
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION,
-      title: 'This computer can ' + what(vs) + ' on its own',
+      title: 'This computer can ' + what(plugged) + ' on its own',
       detail: said.join(' ') + until(vs) + desktopFix + logindFix }, extra);
   }
   if (lidStops || gnomeBatt) {
@@ -1968,13 +1975,14 @@ function readLinuxBoardAutostart(runner, opts) {
      A test never reads the host's own unit folder (a Linux runner's would decide the row), as linuxjob.lingerFileOn:
      it passes opts.linuxBoard, or names a folder of its own (AGENT_WORKFORCE_SYSTEMD_DIR, or a sandbox's
      AGENT_WORKFORCE_LAUNCH, which linuxjob.defaultSystemdDir reads first). */
-  if (require('./live-execution').inTestProcess() && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && !process.env.AGENT_WORKFORCE_LAUNCH) {
+  const inTest = require('./live-execution').inTestProcess();
+  if (inTest && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && !process.env.AGENT_WORKFORCE_LAUNCH) {
     return { unitFile: null, unitState: null, linger: undefined, installed: null };
   }
   /* Whether systemd runs this computer at all (a container, WSL without systemd): sd_booted's own test.
      Seam: opts.systemdRunning. */
   const systemdRunning = ('systemdRunning' in o) ? o.systemdRunning
-    : (require('./live-execution').inTestProcess() ? null   // a test never reads the host's
+    : (inTest ? null   // a test never reads the host's
       : (() => { try { return fs.statSync('/run/systemd/system').isDirectory(); } catch { return false; } })());
   let unitFile = null;
   try { fs.statSync(lb.boardUnitPath()); unitFile = true; }
@@ -1986,16 +1994,17 @@ function readLinuxBoardAutostart(runner, opts) {
   let unitState = null;
   /* A test that gave no runner never runs the host's systemctl or loginctl, even with a unit folder of its own:
      check() hands this the real run() then. */
-  const noRun = require('./live-execution').inTestProcess() && !o.runner;
+  const noRun = inTest && !o.runner;
   /* A sandboxed board's unit sits where systemd never reads it, and systemctl would name the person's REAL board unit
      (linuxboard.runner's refusal, #4918 review 22). So a sandbox asks systemd nothing. */
   const sandboxed = lb.sandboxedWithoutSystemd();
   if (sandboxed) return { unitFile, unitState: null, linger: undefined, sandboxed: true };
   if (unitFile && systemdRunning !== false && !noRun) {
-    if (!require('./live-execution').inTestProcess()) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
+    if (!inTest) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
     const r = runner('systemctl', ['--user', 'show', '-p', 'UnitFileState', lb.boardUnitName()]);
     const m = r && r.ok ? String(r.stdout || '').match(/^UnitFileState=(\S*)\s*$/m) : null;
-    unitState = m && m[1] ? m[1] : null;
+    // An empty state is systemd answering that it does not know the unit, not a failed ask.
+    unitState = m ? m[1] : null;
   }
   let linger;
   if ('lingerOn' in o) linger = o.lingerOn;
@@ -2060,14 +2069,15 @@ function linuxBoardAutostartCheck(reading) {
       detail: 'Its startup service has been replaced by an empty one on this computer, so Kosmos and your agents will '
         + 'not come back on their own after a restart. Reinstalling Kosmos puts it back.' };
   }
+  if (r.unitState === '') return unknown('This computer\'s service manager does not know Kosmos\'s startup service, though its file is in place.');
   if (!r.unitState) return unknown('This computer\'s service manager did not answer when we asked about Kosmos\'s startup service.');
   if (r.unitState === 'masked' || r.unitState === 'masked-runtime') {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service is blocked on this computer (masked), so it cannot start, even by hand, until '
         + 'that is undone. Your agents will not come back on their own after a restart. The command under For IT '
-        + 'admins is run from this account, not an administrator\'s; if it says the service does not exist, '
-        + 'reinstalling Kosmos puts it back.',
+        + 'admins is run from this account, not an administrator\'s. If it does not lift the block, reinstalling '
+        + 'Kosmos, or an administrator, can.',
       // A runtime mask lives in /run and needs --runtime to lift.
       admin: 'systemctl --user unmask ' + (r.unitState === 'masked-runtime' ? '--runtime ' : '') + (r.unitName || 'kosmos-board.service')
         + ' && systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
@@ -2083,7 +2093,7 @@ function linuxBoardAutostartCheck(reading) {
       admin: 'systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
   }
   if (!['enabled', 'disabled', 'linked', 'linked-runtime'].includes(r.unitState)) {
-    return unknown('Its startup service is set up in a way Kosmos did not expect (' + r.unitState + '), so we cannot tell whether it starts by itself.');
+    return unknown('Its startup service is set up in a way Kosmos did not expect, so we cannot tell whether it starts by itself.');
   }
   if (r.unitState !== 'enabled') {
     return { key: 'autostart', state: STATE.ATTENTION,

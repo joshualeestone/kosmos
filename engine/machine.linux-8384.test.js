@@ -84,7 +84,8 @@ test('restart row: a unit state Kosmos never writes (static, indirect, generated
   for (const st of ['static', 'indirect', 'generated', 'transient', 'bad']) {
     const r = row({ unitFile: true, unitState: st, installed: BUNDLE });
     assert.equal(r.state, STATE.UNKNOWN, st);
-    assert.match(r.detail, new RegExp('did not expect \\(' + st + '\\)'), st);
+    assert.match(r.detail, /set up in a way Kosmos did not expect, so we cannot tell/, st);
+    assert.ok(!r.detail.includes('(' + st + ')'), 'no raw systemd word in the sentence: ' + st);
   }
   assert.match(row({ unitFile: true, unitState: 'linked', installed: BUNDLE }).detail, /switched off/, 'control: linked is off');
 });
@@ -632,6 +633,20 @@ test('the test-process guard these readers lean on is true under the repo\'s own
   assert.equal(require('./live-execution').inTestProcess(), true);
 });
 
+test('a Linux reading is kept for ten seconds, then read again', () => {
+  let reads = 0, t = 1e6;
+  const read = () => { reads += 1; return { n: reads }; };
+  const key = 'ttl-' + Math.random();
+  const o = { cacheInTest: true, now: () => t };
+  assert.deepEqual(machine.linuxCached(key, o, read), { n: 1 });
+  t += 9999;
+  assert.deepEqual(machine.linuxCached(key, o, read), { n: 1 }, 'kept at 9.999 s');
+  t += 1;
+  assert.deepEqual(machine.linuxCached(key, o, read), { n: 2 }, 'read again at 10 s');
+  t -= 60000;
+  assert.deepEqual(machine.linuxCached(key, o, read), { n: 3 }, 'a clock set back reads again');
+});
+
 test('a Linux reading is kept for ten seconds, and a caller with a runner or a seam always reads fresh', () => {
   let reads = 0;
   const read = () => { reads += 1; return { n: reads }; };
@@ -651,4 +666,28 @@ test('linuxLid: sure only when ACPI lists the lid, not when it is inferred from 
     fs.mkdirSync(path.join(root, 'lid', 'LID0'), { recursive: true });
     assert.deepEqual(machine.linuxLid(path.join(root, 'lid'), sup), { has: true, sure: true });
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('restart row: systemd answering with an empty state is "does not know", not "did not answer"', () => {
+  assert.match(row({ unitFile: true, unitState: '', installed: BUNDLE }).detail, /does not know Kosmos's startup service/);
+  assert.match(row({ unitFile: true, unitState: null, installed: BUNDLE }).detail, /did not answer/, 'control');
+  const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(() => ({ ok: true, stdout: 'UnitFileState=\n' }), { runner: () => ({ ok: true, stdout: 'UnitFileState=\n' }), installedRoot: BUNDLE, lingerOn: true }));
+  assert.equal(got.unitState, '');
+});
+
+test('sleep row: GNOME unreadable with logind unreadable too is still could-not-check, and a half-read GNOME says so', () => {
+  assert.equal(sleep({ idle: null, lid: null, gnome: null, gnomeUnread: true }).state, STATE.UNKNOWN);
+  const { runner } = sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-battery-type': null });
+  const half = machine.readLinuxSleep({ runner, hasLid: false, hasBattery: true });
+  assert.equal(half.gnomeUnread, true);
+});
+
+test('sleep row: the title\'s "on its own" names only what happens plugged in and idle, not the lid', () => {
+  const r = sleep({ idle: { action: 'suspend', minutes: 30 }, lid: { ac: 'poweroff', battery: 'poweroff' } });
+  assert.equal(r.title, 'This computer can go to sleep on its own');
+  assert.match(r.detail, /When the lid closes, this computer turns off/);
+});
+
+test('restart row: the masked fix names reinstalling and an administrator as the way out', () => {
+  assert.match(row({ unitFile: true, unitState: 'masked', installed: BUNDLE }).detail, /If it does not lift the block, reinstalling Kosmos, or an administrator, can\./);
 });
