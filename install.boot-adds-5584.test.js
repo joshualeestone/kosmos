@@ -20,6 +20,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { stopBoard } = require('./test-support/board-child');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it gives the board a fake tmux (test-support/fake-tmux.sh) that Windows cannot run by its shebang line, so the heartbeat never ticks and prompter-nudges.json is never written (a real Windows board does write it)');   // kosmos#8378
 
 // What setup.sh writes into the data folder itself; the board never does. Keep in step with the gate's comment
 // ("plus Kosmos/source-channel, which setup.sh writes to record which channel pointer the build was fetched from").
@@ -75,7 +76,7 @@ test('the list the gate reads is found, sorted, and names the installer\'s own w
       'drop it from WRITTEN_ONLY_OUTSIDE_TESTS if the boot test reports it');
 });
 
-test('#5584: a board start adds exactly the gate\'s expected files, so a new one fails here and not in the cut', async () => {
+test('#5584: a board start adds exactly the gate\'s expected files, so a new one fails here and not in the cut', { skip: SKIP_POSIX_SHELL }, async () => {
   const sb = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-bootadds-')));
   const data = path.join(sb, 'data');
   // The person data the gate seeds before installing, so what the board does with an existing home is the same.

@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -62,16 +63,16 @@ async function boardRun(mark, { mode, pre = '' } = {}) {
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
-test('#5450: board-run with no mark says the supervisor started it (the login item, or a crash relaunch)', async () => {
+test('#5450: board-run with no mark says the supervisor started it (the login item, or a crash relaunch)', { skip: SKIP_POSIX_SHELL }, async () => {
   assert.deepEqual(await boardRun(undefined), { by: 'supervisor', markLeft: false, code: 0 });
 });
 
-test('#5450: a fresh mark from `kosmos start` says a person started it, and is LEFT for the board to consume', async () => {
+test('#5450: a fresh mark from `kosmos start` says a person started it, and is LEFT for the board to consume', { skip: SKIP_POSIX_SHELL }, async () => {
   // Review 1: deleted here, a board that died before reading it would be relaunched as the supervisor's: a false note.
   assert.deepEqual(await boardRun(String(Math.floor(Date.now() / 1000))), { by: 'person', markLeft: true, code: 0 });
 });
 
-test('#5450: a stale mark is the supervisor\'s; one that cannot be judged is unknown (the timer decides); board-run leaves both', async () => {
+test('#5450: a stale mark is the supervisor\'s; one that cannot be judged is unknown (the timer decides); board-run leaves both', { skip: SKIP_POSIX_SHELL }, async () => {
   // Review 4: board-run deletes no mark (deleting a stale one could delete a person's fresh one written in between).
   // Review 5: a mark that is there but cannot be judged is evidence of a person of unknown age, so not the supervisor.
   const now = Math.floor(Date.now() / 1000);
@@ -82,19 +83,19 @@ test('#5450: a stale mark is the supervisor\'s; one that cannot be judged is unk
   assert.deepEqual(await boardRun('9'.repeat(23)), { by: 'unknown', markLeft: true, code: 0 }, 'a number too big for bash');
 });
 
-test('#5450 review 6: the 120 s bound, on both sides (with a margin for the clock ticking between write and read)', async () => {
+test('#5450 review 6: the 120 s bound, on both sides (with a margin for the clock ticking between write and read)', { skip: SKIP_POSIX_SHELL }, async () => {
   const now = Math.floor(Date.now() / 1000);
   assert.equal((await boardRun(String(now - 110))).by, 'person', '110 s old is fresh');
   assert.equal((await boardRun(String(now - 125))).by, 'supervisor', '125 s old is stale');
 });
 
-test('#5450 review 4: with no clock to judge it by, a mark that is there reads as a person (no note), and board-run still starts', async () => {
+test('#5450 review 4: with no clock to judge it by, a mark that is there reads as a person (no note), and board-run still starts', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await boardRun(String(Math.floor(Date.now() / 1000) - 3600), { pre: 'date() { return 1; };' });
   assert.equal(r.code, 0);
   assert.equal(r.by, 'person');
 });
 
-test('#5450 review 1: an unreadable mark never stops board-run (set -e): the board still starts, as unknown (review 5)', async (t) => {
+test('#5450 review 1: an unreadable mark never stops board-run (set -e): the board still starts, as unknown (review 5)', { skip: SKIP_POSIX_SHELL }, async (t) => {
   if (process.getuid && process.getuid() === 0) { t.skip('root reads a mode-000 file'); return; }
   const r = await boardRun(String(Math.floor(Date.now() / 1000)), { mode: 0o000 });
   assert.equal(r.code, 0);
@@ -138,7 +139,7 @@ async function startStop(script, extraEnv = {}) {
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
-test('#5450 review 4: `kosmos start` writes a person\'s mark, even when the board is already running; the watchdog\'s does not', async () => {
+test('#5450 review 4: `kosmos start` writes a person\'s mark, even when the board is already running; the watchdog\'s does not', { skip: SKIP_POSIX_SHELL }, async () => {
   const running = 'healthy() { return 0; }; cmd_start';   // the board answers: start says so and returns early
   const person = await startStop(running);
   assert.match(person.out.stdout + person.out.stderr, /already running/, 'fixture: start did not take the already-running path');
@@ -147,7 +148,7 @@ test('#5450 review 4: `kosmos start` writes a person\'s mark, even when the boar
   assert.equal(watchdog.markThere, false, 'the watchdog\'s start was marked as a person\'s');
 });
 
-test('#5450 review 4: `kosmos stop` removes a start\'s mark, and a killed start\'s temp mark, even when no board is running', async () => {
+test('#5450 review 4: `kosmos stop` removes a start\'s mark, and a killed start\'s temp mark, even when no board is running', { skip: SKIP_POSIX_SHELL }, async () => {
   const script = 'date +%s > "$PERSON_START_FILE"; date +%s > "$PERSON_START_FILE.4242"; running_pid() { return 1; }; healthy() { HEALTH_STATE=down; return 1; }; ( cmd_stop ) || true; ls -a "$KOSMOS_HOME"';
   const r = await startStop(script);
   assert.equal(r.markThere, false, 'a stop left the mark: ' + r.out.stdout + r.out.stderr);

@@ -35,6 +35,7 @@ process.on('exit', () => {
 });
 
 const create = require('./create');
+const SKIP_POSIX_SHELL = require('../test-support/skip-on-win32').skipOnWin32('it runs the supervisor (bin/agent-supervisor.sh) through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 const KEY = 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN';
 const script = () => fs.readFileSync(create.supervisorSource(), 'utf8');
 
@@ -54,13 +55,13 @@ function paneEnvFor(runner) {
   return execFileSync('/bin/bash', ['-c', frag], { encoding: 'utf8' }).trim();
 }
 
-test('a claude agent gets the preference handed into its pane', () => {
+test('a claude agent gets the preference handed into its pane', { skip: SKIP_POSIX_SHELL }, () => {
   const out = paneEnvFor('claude');
   assert.match(out, /-e/, 'it rides as a tmux -e flag');
   assert.match(out, new RegExp(`${KEY}=1`), `${KEY} is set to 1 for the pane`);
 });
 
-test('a codex agent does not, because the variable is not its runner\'s', () => {
+test('a codex agent does not, because the variable is not its runner\'s', { skip: SKIP_POSIX_SHELL }, () => {
   assert.equal(paneEnvFor('codex'), '', 'a codex pane carries no claude-only variable');
 });
 
@@ -73,7 +74,7 @@ function forwardedFor(runner) {
   return execFileSync('/bin/bash', ['-c', frag], { encoding: 'utf8', env: { PATH: process.env.PATH } }).trim();
 }
 
-test('the forwarding loop hands CLAUDE_CONFIG_DIR to a claude pane and not to an agy pane (#3568)', () => {
+test('the forwarding loop hands CLAUDE_CONFIG_DIR to a claude pane and not to an agy pane (#3568)', { skip: SKIP_POSIX_SHELL }, () => {
   assert.match(forwardedFor('claude'), /CLAUDE_CONFIG_DIR=\/acct/, 'CONTROL: a claude pane still gets its account folder');
   const agy = forwardedFor('antigravity');
   assert.doesNotMatch(agy, /CLAUDE_CONFIG_DIR/, 'an agy pane carries no Claude account folder');
@@ -93,7 +94,7 @@ function aliveFor(paneCmd) {
   return execFileSync('/bin/bash', ['-c', frag], { encoding: 'utf8' }).trim();
 }
 
-test('the supervisor counts a live agy pane as an agent, not a crashed shell (#3568)', () => {
+test('the supervisor counts a live agy pane as an agent, not a crashed shell (#3568)', { skip: SKIP_POSIX_SHELL }, () => {
   assert.equal(aliveFor('agy'), '1', 'a live Antigravity agent would be killed as a crashed shell');
   assert.equal(aliveFor('codex'), '1', 'CONTROL: codex still counts');
   assert.equal(aliveFor('-zsh'), '0', 'CONTROL: a shell is still a crashed pane');
@@ -112,7 +113,7 @@ function pinsCcdFor(runner) {
   return execFileSync('/bin/bash', ['-c', frag], { encoding: 'utf8' }).trim();
 }
 
-test('the server-global CLAUDE_CONFIG_DIR pin runs for a claude pane and not for an agy pane (#3568)', () => {
+test('the server-global CLAUDE_CONFIG_DIR pin runs for a claude pane and not for an agy pane (#3568)', { skip: SKIP_POSIX_SHELL }, () => {
   assert.equal(pinsCcdFor('claude'), 'pin', 'CONTROL: a default-account claude pane is still pinned');
   assert.equal(pinsCcdFor('antigravity'), 'skip', 'an agy pane would be pinned to a Claude account');
   assert.equal(pinsCcdFor('muse'), 'skip', 'a Muse pane (#3939) would be pinned to a Claude account');
@@ -131,7 +132,7 @@ test('the antigravity arm pre-answers agy folder trust before it starts the pane
   assert.ok(launch > trust, 'agytrust.js must run before the pane starts, or agy asks first');
 });
 
-test('an Antigravity agent does not either (#3568)', () => {
+test('an Antigravity agent does not either (#3568)', { skip: SKIP_POSIX_SHELL }, () => {
   assert.equal(paneEnvFor('antigravity'), '', 'an agy pane carries no claude-only variable');
   assert.equal(paneEnvFor('muse'), '', 'a Muse pane (#3939) carries no claude-only variable');
 });

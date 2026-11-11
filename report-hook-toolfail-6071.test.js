@@ -99,14 +99,19 @@ test('with no runnable CLI the hook still exits 0 and sends nothing', () => {
 test('a jq that fails on the signature sends nothing, rather than the one hash of nothing for every failure', () => {
   /* It must fail ONLY on the signature's -cS call: a jq that fails everywhere cannot read the event name, so the hook
      stops before this branch and the test would pass for the wrong reason. */
-  const real = cp.execFileSync('/bin/sh', ['-c', 'command -v jq || true'], { encoding: 'utf8' }).trim() || '/usr/bin/jq';
+  /* kosmos#8378: looked up through the same bare `bash` the hook runs under (Git Bash on Windows when it is ahead of the WSL
+     launcher on PATH, as the other tests here also need; /bin/sh is a path
+     Windows cannot run). Its answer is a bash path; the existence check reads it through cygpath where bash has one
+     (Git Bash), and as it is elsewhere. */
+  const real = cp.execFileSync('bash', ['-c', 'command -v jq || true'], { encoding: 'utf8' }).trim() || '/usr/bin/jq';
+  const realHere = cp.execFileSync('bash', ['-c', 'cygpath -w "$1" 2>/dev/null || printf %s "$1"', 'x', real], { encoding: 'utf8' }).trim() || real;
   const bin = path.join(SB, 'badjq');
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, 'jq'), '#!/bin/sh\n[ "$1" = "-cS" ] && exit 1\nexec "' + real + '" "$@"\n');
   fs.chmodSync(path.join(bin, 'jq'), 0o755);
   /* The control: the same fake jq on a call it passes through still reads the event (a failure WITH a signature). */
-  assert.ok(fs.existsSync(real), 'no real jq on this machine to pass through to: ' + real);
-  const r = run(fail('Bash', { command: 'x' }, 'e'), { PATH: bin + ':' + process.env.PATH }, 0);
+  assert.ok(fs.existsSync(realHere), 'no real jq on this machine to pass through to: ' + real + (realHere !== real ? ' (checked as ' + realHere + ')' : ''));
+  const r = run(fail('Bash', { command: 'x' }, 'e'), { PATH: bin + path.delimiter + process.env.PATH }, 0);
   assert.deepEqual(r.failed, []);
 });
 

@@ -473,8 +473,11 @@ test('#2909 v15: the section\'s shell examples run as written in bash and zsh, a
   const stub = 'kosmos() { printf "%s|" "$@" >> "' + out + '"; case "$2" in --stdin) cat >> "' + out + '";; esac; echo >> "' + out + '"; }\n';
   const body = fences.map((f) => f.replace(/<project>/g, 'proj').replace('- the first point', "- it's `x` and $HOME")).join('\n');
   let ran = 0;
-  for (const sh of ['/bin/bash', '/bin/zsh']) {
-    if (!fs.existsSync(sh)) continue;
+  /* kosmos#8378: where neither exists (Windows), the bare bash agents there are taught to use (Git Bash; it must be
+     ahead of the WSL launcher (System32's bash.exe) on PATH, as the report-hook tests also need). */
+  const shells = ['/bin/bash', '/bin/zsh'].filter((p) => fs.existsSync(p));
+  if (!shells.length) shells.push('bash');
+  for (const sh of shells) {
     ran += 1;
     fs.writeFileSync(out, '');
     const script = path.join(dir, 's.sh');
@@ -519,8 +522,11 @@ test('#6653: the shell-trap rule names dollar amounts and its kosmos msg stdin r
   const routed = m[1].replace('<agent>', 'pete') + "\nit's $1,200\nKOSMOS_MSG\n";
   const control = 'kosmos msg pete "it costs $1,200"\n';
   let ran = 0;
-  for (const sh of ['/bin/bash', '/bin/zsh']) {
-    if (!fs.existsSync(sh)) continue;
+  /* kosmos#8378: where neither exists (Windows), the bare bash agents there are taught to use (Git Bash; it must be
+     ahead of the WSL launcher (System32's bash.exe) on PATH, as the report-hook tests also need). */
+  const shells = ['/bin/bash', '/bin/zsh'].filter((p) => fs.existsSync(p));
+  if (!shells.length) shells.push('bash');
+  for (const sh of shells) {
     ran += 1;
     fs.writeFileSync(out, '');
     const script = path.join(dir, 's.sh');

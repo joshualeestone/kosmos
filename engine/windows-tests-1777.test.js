@@ -47,10 +47,12 @@ test('every test file that branches on a win32 HOST is run on Windows or exclude
     ...fs.readdirSync(__dirname).filter((n) => n.endsWith('.test.js')).map((n) => 'engine/' + n),
     ...fs.readdirSync(ROOT).filter((n) => n.endsWith('.test.js')),
   ];
-  // Two ways a test says "this host is Windows": comparing process.platform with 'win32', or
-  // testing for the flag Windows lacks (O_NOFOLLOW is undefined there; #1761). Other indirect
-  // signals (a hardcoded POSIX path, path.sep) are not caught; the plan names that limit.
-  const hostBranch = /process\.platform\s*[!=]==?\s*['"]win32['"]|['"]win32['"]\s*[!=]==?\s*process\.platform|O_NOFOLLOW\s*[!=]==?\s*undefined/;
+  // Three ways a test says "this host is Windows": comparing process.platform with 'win32',
+  // testing for the flag Windows lacks (O_NOFOLLOW is undefined there; #1761), or calling
+  // skipOnWin32 (test-support/skip-on-win32.js, #8378), whose Windows arm skips. Other indirect
+  // signals (a hardcoded POSIX path, path.sep, skipOnWin32 imported under another name) are not
+  // caught; the plan names that limit.
+  const hostBranch = /process\.platform\s*[!=]==?\s*['"]win32['"]|['"]win32['"]\s*[!=]==?\s*process\.platform|O_NOFOLLOW\s*[!=]==?\s*undefined|\bskipOnWin32\(/;
   const loose = all.filter((f) => !selected.has(f) && !w.HOST_BRANCH_EXCLUDED[f]
     && hostBranch.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
   assert.deepEqual(loose, [], 'these branch on a win32 host and nothing runs them on Windows: add each to ALSO, or to HOST_BRANCH_EXCLUDED with why');
@@ -58,6 +60,17 @@ test('every test file that branches on a win32 HOST is run on Windows or exclude
     assert.ok(fs.existsSync(path.join(ROOT, f)), `HOST_BRANCH_EXCLUDED names ${f}, which does not exist`);
     assert.ok(!selected.has(f), `${f} is both selected and excluded`);
     assert.ok(why.length > 10, `${f} needs a reason`);
+    /* kosmos#8378: a file whose skip is skipOnWin32 says its reason twice, there and here; the entry must carry the
+       file's own reason, so the two cannot drift apart. */
+    const text = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const calls = [...text.matchAll(/\bskipOnWin32\(/g)].length;
+    const said = [...text.matchAll(/\bskipOnWin32\('((?:\\.|[^'\\])*)'\)/g)].map((x) => x[1].replace(/\\(.)/g, '$1'));
+    for (const r of said) assert.ok(why.includes(r), `${f}: its HOST_BRANCH_EXCLUDED entry does not carry the reason its skipOnWin32 gives`);
+    if (why.includes('its only win32 branch is skipOnWin32')) {
+      // The entry's claim, checked: every call has a literal reason it carries, and no other host branch is in the file.
+      assert.ok(calls >= 1 && said.length === calls, `${f}: its entry says skipOnWin32, but a call there has no single-quoted reason this check can read`);
+      assert.ok(!hostBranch.test(text.replace(/\bskipOnWin32\(/g, '')), `${f}: its entry says skipOnWin32 is its only win32 branch, but it has another`);
+    }
   }
 });
 

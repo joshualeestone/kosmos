@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const NOTE = /when it sends a token it cannot first check\s+that it is talking to its own board/;
@@ -43,40 +44,40 @@ function run(h, opts = {}) {
 }
 function status(h, opts) { const r = run(h, opts); assert.equal(r.code, 0, r.out); return r.out; }
 
-test('#6358: an installed Kosmos with no runtime says it sends without the board check', () => {
+test('#6358: an installed Kosmos with no runtime says it sends without the board check', { skip: SKIP_POSIX_SHELL }, () => {
   const out = status(home({ app: true, proof: true }));
   assert.match(out, NOTE, out);
   assert.match(out, /Kosmos is running at/, 'the status line itself is still there');
 });
 
-test('#6358: an installed Kosmos missing the proof module says it too', () => {
+test('#6358: an installed Kosmos missing the proof module says it too', { skip: SKIP_POSIX_SHELL }, () => {
   assert.match(status(home({ app: true, node: true })), NOTE);
 });
 
-test('#6358: a runtime that is not executable counts as missing', () => {
+test('#6358: a runtime that is not executable counts as missing', { skip: SKIP_POSIX_SHELL }, () => {
   assert.match(status(home({ app: true, proof: true, node: 'noexec' })), NOTE);
 });
 
-test('#6358: an installed Kosmos that can run the check says nothing (CONTROL for the arms above)', () => {
+test('#6358: an installed Kosmos that can run the check says nothing (CONTROL for the arms above)', { skip: SKIP_POSIX_SHELL }, () => {
   const out = status(home({ app: true, proof: true, node: true }));
   assert.doesNotMatch(out, NOTE, out);
   assert.match(out, /Kosmos is running at/);
 });
 
-test('#6358: a source checkout (no app/server.js) says nothing', () => {
+test('#6358: a source checkout (no app/server.js) says nothing', { skip: SKIP_POSIX_SHELL }, () => {
   const out = status(home({}));
   assert.doesNotMatch(out, NOTE);
   assert.match(out, /Kosmos is running at/, 'CONTROL: status ran and said its line');
 });
 
-test('#6358: the note shows when the board is not running too, before the exit', () => {
+test('#6358: the note shows when the board is not running too, before the exit', { skip: SKIP_POSIX_SHELL }, () => {
   const r = run(home({ app: true, proof: true }), { down: true });
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, NOTE);
   assert.match(r.out, /Kosmos is not running/, 'CONTROL: the not-running branch ran');
 });
 
-test('#6358: a person is told to reinstall; an agent is told to tell its person', () => {
+test('#6358: a person is told to reinstall; an agent is told to tell its person', { skip: SKIP_POSIX_SHELL }, () => {
   const person = status(home({ app: true, proof: true }));
   assert.match(person, /^\s*Reinstalling Kosmos fixes it: curl -fsSL https:\/\/installkosmos\.com\/setup \| sh$/m);
   const agent = status(home({ app: true, proof: true }), { agent: true });
@@ -100,7 +101,7 @@ test('#6358: the proof and the status note read one rule', () => {
   assert.match(st, /^\s*if \[ -f "\$APP" \] && ! kosmos_proof_runnable; then/m, 'kosmos status no longer reads the shared rule');
 });
 
-test('#6358: the proof really reads the rule: with no runtime it sends unproven (0), with one it tries the proof', () => {
+test('#6358: the proof really reads the rule: with no runtime it sends unproven (0), with one it tries the proof', { skip: SKIP_POSIX_SHELL }, () => {
   // A port nothing listens on: an install that can run the proof tries it and gets curl's "could not connect".
   // Called under `if`, as kosmos_curl's `|| return` does: the sourced CLI sets -e, and a bare non-zero would exit.
   const net = require('node:net');

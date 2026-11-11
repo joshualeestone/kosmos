@@ -37,6 +37,11 @@ explicitly to learn the repo's pre-PR commands and conventions.
   (not judged), `ALL_SKIP_OK` (may skip everything on the runner) and `HOST_BRANCH_EXCLUDED`
   (Windows-branching files left out). Run on your own Windows computer (no CI variable), an
   `ALL_SKIP_OK` file whose tests run there (it has the runner) reads "ran here", not stale (#8368).
+  A test that cannot run on Windows (an absolute POSIX path such as /bin/bash, a script run by its
+  shebang line, tmux, POSIX modes) skips with `{ skip: skipOnWin32('<why>') }` from
+  `test-support/skip-on-win32.js`, which refuses an empty reason; a file using it also goes in
+  `HOST_BRANCH_EXCLUDED` with that reason, or is run on Windows (the #1777 audit sees the call). A bare `bash` works on Windows (Git Bash),
+  so it is no reason to skip (#8378).
 - **Use yarn, not npm.** The scripts are also npm-runnable, but `yarn test` is the canonical
   helper (`tools/run-tests.sh`'s coverage-mismatch message names it). There is no committed
   lockfile or `packageManager` pin.
