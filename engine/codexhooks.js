@@ -356,7 +356,8 @@ function unwireInstall(home, roots, opts) {
           const at = lines.indexOf(heading);
           /* Review 1: the record is ours to remove only when nothing else lives in its table: after any blank lines,
              the next line is another table heading or the end. A key below it would otherwise move into the table
-             above (or duplicate one there, and Codex would not load the file). */
+             above (or duplicate one there, and Codex would not load the file). This is deliberately stricter than
+             nextConfig's "our exact form" (which install may rewrite in place): removing is the side that must not guess. */
           let next = at + 2;
           while (next < lines.length && lines[next] === '') next += 1;
           const tableEnds = next >= lines.length || lines[next].startsWith('[');

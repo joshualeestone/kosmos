@@ -776,9 +776,9 @@ async function uninstall(opts) {
     if (o.bundleRoot) {
       // Round 2: nothing in this step may stop the removal before the folders and the report.
       try { unwireHooks(o.bundleRoot, home, env, gone, done, left, notes); }
-      catch { left.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings, which could not be checked. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { both: true }) + '. Also delete hooks.json in each .codex-<name> folder in your home folder if it names codex-report-bridge.js (kosmos#8361).'); }
+      catch { left.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings, which could not be checked. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { both: true }) + '. Also delete hooks.json in each .codex-<name> folder in your home folder if it names codex-report-bridge.js.'); }
     }
-    else notes.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings were not checked, because Kosmos could not tell which folder it was installed in. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { both: true }) + '. Also delete hooks.json in each .codex-<name> folder in your home folder if it names codex-report-bridge.js (kosmos#8361).');
+    else notes.push('Kosmos\'s entries in Claude Code\'s and Gemini CLI\'s settings were not checked, because Kosmos could not tell which folder it was installed in. ' + hooksByHand('the settings.json files in your .claude and .gemini folders', { both: true }) + '. Also delete hooks.json in each .codex-<name> folder in your home folder if it names codex-report-bridge.js.');
   }
 
   /* 8-9: the folders, only once nothing registered, and no board, still needs them. */

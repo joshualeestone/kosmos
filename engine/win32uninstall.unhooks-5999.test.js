@@ -174,7 +174,7 @@ test('#5999: without the install folder (a hand-run CLI; the launcher always pas
   stubSchedulers([listing([])]);
   const r = await run(h, { bundleRoot: null });
   assert.equal(fs.readFileSync(def, 'utf8'), bytes);
-  assert.ok(r.notes.some((l) => /Claude Code's and Gemini CLI's settings were not checked/.test(l) && /could not tell which folder/.test(l)), JSON.stringify(r.notes));
+  assert.ok(r.notes.some((l) => /Claude Code's and Gemini CLI's settings were not checked/.test(l) && /could not tell which folder/.test(l) && /hooks.json in each .codex-<name> folder in your home folder if it names codex-report-bridge.js.$/.test(l)), JSON.stringify(r.notes));
   assert.ok(!r.left.some((l) => /Claude Code's settings/.test(l)), 'no root was made a leftover, which keeps the removal unfinished for good: ' + JSON.stringify(r.left));
 });
 

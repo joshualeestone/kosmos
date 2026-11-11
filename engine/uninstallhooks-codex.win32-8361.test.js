@@ -157,7 +157,9 @@ test('a hooks.json changed to another command between the look and the lock is l
   const file = path.join(h, 'hooks.json');
   const real = require('./filelock');
   const orig = real.withFileLock;
-  const swapped = fs.readFileSync(file, 'utf8').replace('codex-report-bridge.js', 'codex-report-bridge.js'.replace('bridge', 'bridge2'));
+  // Still our exact shape, but another install's command: only the same-command half of the re-check can refuse it.
+  const swapped = fs.readFileSync(path.join(installed(OTHER), 'hooks.json'), 'utf8');
+  assert.equal(hooks.isOurs(swapped), true);
   // Swap the file just before the locked section runs, as a person's editor (which takes no lock of ours) could.
   real.withFileLock = (f, fn, o) => orig(f, () => { fs.writeFileSync(file, swapped); return fn(); }, o);
   try {
