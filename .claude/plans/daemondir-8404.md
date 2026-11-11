@@ -8,13 +8,14 @@ runner (Mortals has three; the old CI Mac has the relay's beside this repo's) ca
 
 ## Change
 - `KOSMOS_CI_REPO` (owner/name, validated) and `KOSMOS_CI_RUNNER_DIR` (one directory directly in the CI home,
-  validated) name another installed runner, with its `KOSMOS_CI_RUNNER_NAME`. Set them with the runner's `KOSMOS_CI_RUNNER_NAME`, all three or none, checked before anything else. They set the
+  validated) name another installed runner, with its `KOSMOS_CI_RUNNER_NAME`. Set both with the runner's `KOSMOS_CI_RUNNER_NAME`, or neither (a name alone is the existing knob), checked before anything else, the stage first. They set the
   runner's label (`runner_label`) and RUNNER_DIR (which must be a real directory, not a symlink), which every listener and worker match is already anchored
   on. The daemon stage never asks the runners API (it reads processes), so nothing there changes.
 - REPO itself (this script's code, its job guard, its variables, the registration URL) never changes.
 - Only the daemon stage takes them. Every other stage refuses them: install and register fetch this repo's guard and use
-  this repo's labels; preflight and verify read this repo's variables. keepalive asks this repo whether the runner is busy
-  (`runner_busy`) and checks this repo's label, so it refuses too until both move to RUNNER_REPO together, with a test.
+  this repo's labels; preflight and verify read this repo's variables. verify asks this repo's runners API (`jq_row`,
+  `runner_busy`); keepalive checks this repo's label (`want_label`), so it refuses too until that moves to RUNNER_REPO,
+  with a test.
 
 ## Not in this change
 - Mortals' runner user, mortalkombat, is an admin, and the daemon stage refuses an admin user on purpose (a daemon

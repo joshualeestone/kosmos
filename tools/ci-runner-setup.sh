@@ -48,7 +48,7 @@
 #                             kosmos#8404: for this stage only, another installed runner of the same user:
 #                             KOSMOS_CI_REPO (its owner/name, default this repo) and KOSMOS_CI_RUNNER_DIR (its directory,
 #                             one directly in the CI home, default $CI_HOME/actions-runner), with its KOSMOS_CI_RUNNER_NAME.
-#                             Set them with its KOSMOS_CI_RUNNER_NAME, all three or none. Every other stage refuses them
+#                             Set both, with its KOSMOS_CI_RUNNER_NAME, or neither. Every other stage refuses them
 #                             (see RUNNER_REPO below for why). Since kosmos#8404 the runner dir, the default one too,
 #                             must be a real directory: a symlink there is refused (a job can leave one at that name).
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
@@ -86,28 +86,32 @@ for a in "$@"; do
   [ "$a" != --apply ] || { echo "refused: --apply goes first (tools/ci-runner-setup.sh --apply <stage> ...); nothing ran" >&2; exit 2; }
 done
 STAGE="${1:-}"
-# kosmos#8404: another runner than this repo's is named by all three of its repo, its directory and its name, and only
-# for the daemon stage. Checked first, before any value is read (review 4), so an operator learns which settings to
-# set, or unset, before being told how to spell one. Review 3: a repo without its dir looked in actions-runner and told the
+# kosmos#8404: another runner than this repo's is named by its repo and its directory together, with its name (a name
+# alone is the existing KOSMOS_CI_RUNNER_NAME), and only for the daemon stage. Checked first, before any value is read
+# (review 4), so an operator learns which settings to set, or unset, before being told how to spell one. Review 3: a repo without its dir looked in actions-runner and told the
 # operator to stop this repo's runner; review 4: without the name, NAME is this repo's runner's, and the stage advised
 # an install the settings refuse.
 _other=""; [ -z "${KOSMOS_CI_REPO:-}" ] || _other="${_other}r"; [ -z "${KOSMOS_CI_RUNNER_DIR:-}" ] || _other="${_other}d"
+# Review 6: the stage first, so a stage that never takes them is told to unset them, not to set one more.
+# The stages known to work on this repo's runner only; an unknown or missing stage goes on to the usage line.
+if [ -n "$_other" ]; then
+  case "$STAGE" in preflight|create-user|install|register|verify|keepalive|machine-settings|jq-programs)
+    echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner for the daemon stage only; $STAGE does not take them. Unset them" >&2; exit 2 ;; esac
+fi
 case "$_other" in
-  '') ;;
-  rd) [ -n "${KOSMOS_CI_RUNNER_NAME:-}" ] || { echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner: set its KOSMOS_CI_RUNNER_NAME too (left out, it is this repo's runner's)" >&2; exit 2; }
-      # The stages known to work on this repo's runner only; an unknown or missing stage goes on to the usage line.
-      case "$STAGE" in preflight|create-user|install|register|verify|keepalive|machine-settings|jq-programs)
-        echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner for the daemon stage only; $STAGE does not take them. Unset them" >&2; exit 2 ;; esac ;;
-  *) echo "refused: set KOSMOS_CI_REPO, KOSMOS_CI_RUNNER_DIR and KOSMOS_CI_RUNNER_NAME together (another runner is named by its repo, its directory and its name), or none of them" >&2; exit 2 ;;
+  ''|rd) ;;
+  *) echo "refused: set KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR together, with its KOSMOS_CI_RUNNER_NAME (another runner is named by its repo, its directory and its name), or neither" >&2; exit 2 ;;
 esac
+[ "$_other" != rd ] || [ -n "${KOSMOS_CI_RUNNER_NAME:-}" ] \
+  || { echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner: set its KOSMOS_CI_RUNNER_NAME too (left out, it is this repo's runner's)" >&2; exit 2; }
 REPO="joshualeestone/kosmos"
 REPO_URL="https://github.com/$REPO"
 # kosmos#8404: the runner the daemon stage acts on, when it is not this repo's runner in $CI_HOME/actions-runner.
 # Another runner under the same user (Mortals has three, one per repo; the old CI Mac has the relay's beside this one)
 # can be named by its repo and its dir. Only the daemon stage takes them: install and register fetch this repo's job
-# guard, preflight and verify read this repo's variables and labels, and keepalive asks this repo whether the runner is
-# busy (runner_busy, on $REPO) and checks this repo's label, so every other stage refuses the two below. Opening
-# keepalive to them means moving runner_busy and its want_label to RUNNER_REPO together, with a test.
+# guard, preflight reads this repo's variables, verify asks this repo's runners API (jq_row and runner_busy, on
+# $REPO), and keepalive checks this repo's label (want_label, on $REPO), so every other stage refuses the two above.
+# Opening keepalive to them means moving its want_label to RUNNER_REPO, with a test.
 # REPO (this script's own code and variables) never changes; RUNNER_REPO is only the runner's.
 RUNNER_REPO="${KOSMOS_CI_REPO:-$REPO}"
 # It feeds only the label (owner-name.runner): the LABEL is the runner's identity, checked against .service, the agent's
@@ -1219,8 +1223,9 @@ daemon() {
     case "$pm" in "$ciuid "*|*" "?[2367]?|*" "??[2367]|"") echo "refused: $pd, the directory of $self, is not owned by root or by the sudo caller, or is writable by others (stat: ${pm:-none}), so the file could be replaced by a rename, and --apply daemon runs as root; run it from the owner's checkout or a root-owned copy" >&2; exit 2 ;; esac
   fi
   # kosmos#8404 review 3: the runner dir must be a real directory when the stage starts, not a symlink a job left at that
-  # name: root reads .service through it, and every process match is anchored on it. (A swap after this check reads
-  # contents that are only compared, and everything started runs as the CI user, as for the default dir.)
+  # name: root reads .service through it, and every process match is anchored on it. A swap after this check is the
+  # default dir's window too: what it reads is only compared and everything started runs as the CI user, but a FIFO
+  # swapped in between the -f test and the read of .service blocks that read (the #7877 class, unchanged here).
   if [ -L "$RUNNER_DIR" ] || [ ! -d "$RUNNER_DIR" ]; then
     echo "refused: $RUNNER_DIR is not a directory (or is a symlink); the runner is not installed there, or something replaced it. Nothing was changed" >&2; exit 1
   fi

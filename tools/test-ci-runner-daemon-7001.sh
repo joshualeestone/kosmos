@@ -16,7 +16,8 @@
 #   - a failed move, a login between the write and the bootstrap, a failed bootstrap and a Listener that never starts
 #     each fail loud and say how to go back
 #   - kosmos#8404: a second runner of the same user, named by KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR, becomes its own
-#     daemon beside this repo's; any of repo, dir and name without the others, a symlinked or missing dir, an unknown
+#     daemon beside this repo's; repo without dir or dir without repo, both without the name, a non-daemon stage with
+#     any of them (told to unset, first), a symlinked or missing dir, an unknown
 #     stage (usage), and its own manual Listener or
 #     job each refuse; every other stage refuses the two; a dir not directly in the CI home, and a repo not owner/name,
 #     are refused
@@ -493,10 +494,10 @@ D2="$T/daemons/$L2.plist"
 # CONTROL (review 3): the repo without its dir, or the dir without its repo, is refused at once, never sent to look in
 # actions-runner (where it told the operator to stop this repo's runner).
 second; run twonodir FX_R="$R2" FX_LABEL="$L2" "${two[@]}" -- --apply daemon
-[ "$(rc twonodir)" = 2 ] && has twonodir "set KOSMOS_CI_REPO, KOSMOS_CI_RUNNER_DIR and KOSMOS_CI_RUNNER_NAME together" && ! has twonodir 5018 && [ ! -e "$D2" ] \
+[ "$(rc twonodir)" = 2 ] && has twonodir "set KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR together" && ! has twonodir 5018 && [ ! -e "$D2" ] \
   && pass "#8404: CONTROL: the repo without its dir is refused, naming both settings, not this repo's Listener" || fail "#8404 twonodir: rc $(rc twonodir) $(cat "$T/twonodir.out")"
 second; run twonorepo FX_R="$R2" FX_LABEL="$L2" KOSMOS_CI_RUNNER_NAME=mortals-site "KOSMOS_CI_RUNNER_DIR=$R2" -- --apply daemon
-[ "$(rc twonorepo)" = 2 ] && has twonorepo "set KOSMOS_CI_REPO, KOSMOS_CI_RUNNER_DIR and KOSMOS_CI_RUNNER_NAME together" && [ ! -e "$D2" ] \
+[ "$(rc twonorepo)" = 2 ] && has twonorepo "set KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR together" && [ ! -e "$D2" ] \
   && pass "#8404: the dir without its repo is refused too" || fail "#8404 twonorepo: rc $(rc twonorepo) $(cat "$T/twonorepo.out")"
 # Review 3: a runner dir that is a symlink (a job can leave one at the name), or is not there, is refused before root reads it.
 second; mv "$R2" "$H/elsewhere"; ln -s "$H/elsewhere" "$R2"; run twolink FX_R="$R2" FX_LABEL="$L2" "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$R2" -- --apply daemon
@@ -524,6 +525,15 @@ done
 second; run twononame FX_R="$R2" FX_LABEL="$L2" KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site "KOSMOS_CI_RUNNER_DIR=$R2" -- --apply daemon
 [ "$(rc twononame)" = 2 ] && has twononame "set its KOSMOS_CI_RUNNER_NAME too" && [ ! -e "$D2" ] \
   && pass "#8404: the repo and dir without the name are refused, naming it" || fail "#8404 twononame: rc $(rc twononame) $(cat "$T/twononame.out")"
+# Review 6: a non-daemon stage with only some of them set is told to unset them, never to set one more.
+fixture; run partverify KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site -- verify
+fixture; run partpre KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site "KOSMOS_CI_RUNNER_DIR=$H/actions-runner-site" -- preflight
+[ "$(rc partverify)" = 2 ] && has partverify "verify does not take them" && ! has partverify "together" \
+  && [ "$(rc partpre)" = 2 ] && has partpre "preflight does not take them" && ! has partpre "set its KOSMOS_CI_RUNNER_NAME" \
+  && pass "#8404: a non-daemon stage with some of the settings is told to unset them first" || fail "#8404 part: $(cat "$T/partverify.out") / $(cat "$T/partpre.out")"
+# A name alone is the existing knob: it is not refused at the top (the daemon then finds no agent with that label).
+fixture; run nameonly KOSMOS_CI_RUNNER_NAME=someone-else -- daemon
+[ "$(rc nameonly)" = 1 ] && ! has nameonly "together" && has nameonly "no LaunchAgent" && pass "#8404: a name alone is not refused at the top" || fail "#8404 nameonly: rc $(rc nameonly) $(cat "$T/nameonly.out")"
 # Review 4: an unknown stage with the three set reaches the usage line, not a refusal naming it as a stage.
 fixture; run twobogus "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$H/actions-runner-site" -- bogus
 [ "$(rc twobogus)" = 2 ] && has twobogus "usage:" && ! has twobogus "works on this repo's runner" && pass "#8404: an unknown stage with the settings gets the usage line" || fail "#8404 twobogus: rc $(rc twobogus) $(cat "$T/twobogus.out")"
