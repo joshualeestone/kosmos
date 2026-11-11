@@ -16,8 +16,9 @@
 #   - a failed move, a login between the write and the bootstrap, a failed bootstrap and a Listener that never starts
 #     each fail loud and say how to go back
 #   - kosmos#8404: a second runner of the same user, named by KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR, becomes its own
-#     daemon beside this repo's (control: without the dir it is not found); its own manual Listener still refuses; every
-#     other stage refuses the two; a dir not directly in the CI home, and a repo not owner/name, are refused
+#     daemon beside this repo's; one setting without the other, a symlinked or missing dir, and its own manual Listener or
+#     job each refuse; every other stage refuses the two; a dir not directly in the CI home, and a repo not owner/name,
+#     are refused
 set -u
 _td="${TMPDIR:-/tmp}"; T="$(mktemp -d "${_td%/}/test-ci-runner-daemon-7001.XXXXXXXXXX")" || exit 1; trap 'rm -rf "$T"' EXIT
 fails=0
@@ -479,7 +480,7 @@ fixture; run npl0 -- --apply daemon; run nopidlst FX_NO_DPID=1 -- daemon
 L2=actions.runner.joshualeestone-chaoskosmos-site.mortals-site
 second() {   # a second runner beside this repo's, as svc.sh leaves it, and THIS repo's runner's Listener running (5018)
   fixture; R2="$H/actions-runner-site"; mkdir -p "$R2"; AG2="$H/Library/LaunchAgents/$L2.plist"
-  sed -e "s|$LABEL|$L2|" -e "s|$R<|$R2<|g" "$AG" > "$AG2"; printf '%s\n' "$AG2" > "$R2/.service"; listener 5018
+  sed -e "s|$LABEL|$L2|" -e "s|$R<|$R2<|g" -e "s|$R/runsvc.sh|$R2/runsvc.sh|" "$AG" > "$AG2"; printf '%s\n' "$AG2" > "$R2/.service"; listener 5018
 }
 two=(KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site KOSMOS_CI_RUNNER_NAME=mortals-site)
 second; run two FX_R="$R2" FX_LABEL="$L2" "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$R2" -- --apply daemon
@@ -488,10 +489,20 @@ D2="$T/daemons/$L2.plist"
   && [ ! -e "$AG2" ] && [ -e "$AG" ] && [ ! -e "$(DP)" ] && ! has two "pid 5018" \
   && pass "#8404: a second runner, named by its repo and dir, becomes its own daemon; this repo's runner and its Listener are untouched" \
   || fail "#8404 two: rc $(rc two) $(cat "$T/two.out")"
-# CONTROL: the same runner without the dir is looked for in actions-runner, where this repo's Listener runs, so it refuses.
+# CONTROL (review 3): the repo without its dir, or the dir without its repo, is refused at once, never sent to look in
+# actions-runner (where it told the operator to stop this repo's runner).
 second; run twonodir FX_R="$R2" FX_LABEL="$L2" "${two[@]}" -- --apply daemon
-[ "$(rc twonodir)" = 1 ] && [ ! -e "$D2" ] && pass "#8404: CONTROL: without KOSMOS_CI_RUNNER_DIR the second runner is not found, and nothing is written" \
-  || fail "#8404 twonodir: rc $(rc twonodir) $(cat "$T/twonodir.out")"
+[ "$(rc twonodir)" = 2 ] && has twonodir "set KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR together" && ! has twonodir 5018 && [ ! -e "$D2" ] \
+  && pass "#8404: CONTROL: the repo without its dir is refused, naming both settings, not this repo's Listener" || fail "#8404 twonodir: rc $(rc twonodir) $(cat "$T/twonodir.out")"
+second; run twonorepo FX_R="$R2" FX_LABEL="$L2" KOSMOS_CI_RUNNER_NAME=mortals-site "KOSMOS_CI_RUNNER_DIR=$R2" -- --apply daemon
+[ "$(rc twonorepo)" = 2 ] && has twonorepo "set KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR together" && [ ! -e "$D2" ] \
+  && pass "#8404: the dir without its repo is refused too" || fail "#8404 twonorepo: rc $(rc twonorepo) $(cat "$T/twonorepo.out")"
+# Review 3: a runner dir that is a symlink (a job can leave one at the name), or is not there, is refused before root reads it.
+second; mv "$R2" "$H/elsewhere"; ln -s "$H/elsewhere" "$R2"; run twolink FX_R="$R2" FX_LABEL="$L2" "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$R2" -- --apply daemon
+[ "$(rc twolink)" = 1 ] && has twolink "is not a directory (or is a symlink)" && [ ! -e "$D2" ] && ! grep -q -F "$R2/.service" "$LOG" \
+  && pass "#8404: a symlinked runner dir is refused before anything is read through it" || fail "#8404 twolink: rc $(rc twolink) $(cat "$T/twolink.out")"
+second; run twogone FX_R="$R2" FX_LABEL="$L2" "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$H/actions-runner-none" -- daemon
+[ "$(rc twogone)" = 1 ] && has twogone "is not a directory" && pass "#8404: a runner dir that is not there is refused" || fail "#8404 twogone: rc $(rc twogone) $(cat "$T/twogone.out")"
 # A Listener of the second runner outside the daemon (the cron stopgap's runsvc.sh start) still refuses, named.
 second; echo "$CIU 5300 1 $R2/bin/Runner.Listener run" >> "$T/procs"; run twoman FX_R="$R2" FX_LABEL="$L2" "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$R2" -- --apply daemon
 [ "$(rc twoman)" = 1 ] && has twoman "runs outside the daemon (pid 5300" && ! has twoman "5018" && [ ! -e "$D2" ] \
@@ -505,20 +516,20 @@ second; echo "$CIU 6200 1 $R2/bin/Runner.Worker spawnclient 1 2" >> "$T/procs"; 
 # The two settings are for the daemon stage only: every other stage refuses them before reading anything.
 for st in preflight create-user verify register keepalive jq-programs "install 0123456789abcdef0123456789abcdef01234567 $(printf '0%.0s' $(seq 64))"; do
   # shellcheck disable=SC2086  # $st carries install's two arguments
-  fixture; run "only-${st%% *}" "KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site" -- $st; st="${st%% *}"
+  fixture; run "only-${st%% *}" "KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site" "KOSMOS_CI_RUNNER_DIR=$H/actions-runner-site" -- $st; st="${st%% *}"
   [ "$(rc "only-$st")" = 2 ] && has "only-$st" "for the daemon stage only" && pass "#8404: $st refuses KOSMOS_CI_REPO" || fail "#8404 only-$st: rc $(rc "only-$st") $(cat "$T/only-$st.out")"
 done
-fixture; run onlydir "KOSMOS_CI_RUNNER_DIR=$H/actions-runner-site" -- verify
+fixture; run onlydir "KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site" "KOSMOS_CI_RUNNER_DIR=$H/actions-runner-site" -- verify
 [ "$(rc onlydir)" = 2 ] && has onlydir "for the daemon stage only" && pass "#8404: verify refuses KOSMOS_CI_RUNNER_DIR" || fail "#8404 onlydir: rc $(rc onlydir) $(cat "$T/onlydir.out")"
 # A dir that is not one plain directory directly in the CI home is refused, named, before anything.
 i=0
-for bad in "$H/../x" "/tmp/actions-runner" "$H/a/b" "$H/a b" "$H/.." "$H" "$H/" "actions-runner" "$H/x;y"; do
+for bad in "$H/../x" "/tmp/actions-runner" "$H/a/b" "$H/a b" "$H/.." "$H" "$H/" "actions-runner" "$H/x;y" "$H/.ssh"; do
   i=$((i + 1)); fixture; run "baddir$i" "KOSMOS_CI_RUNNER_DIR=$bad" -- daemon
   [ "$(rc "baddir$i")" = 2 ] && has "baddir$i" "KOSMOS_CI_RUNNER_DIR" && has "baddir$i" "must be one directory directly in" \
     && pass "#8404: KOSMOS_CI_RUNNER_DIR '$bad' is refused" || fail "#8404 baddir '$bad': rc $(rc "baddir$i") $(cat "$T/baddir$i.out")"
 done
 # CONTROL: the default spelled out, with a trailing slash, is this repo's runner as before.
-fixture; run okdir "KOSMOS_CI_RUNNER_DIR=$H/actions-runner/" -- daemon
+fixture; run okdir "KOSMOS_CI_REPO=joshualeestone/kosmos" "KOSMOS_CI_RUNNER_DIR=$H/actions-runner/" -- daemon
 [ "$(rc okdir)" = 0 ] && has okdir "WOULD: write $(DP)" && pass "#8404: CONTROL: the default dir spelled out is accepted and is this repo's runner" || fail "#8404 okdir: rc $(rc okdir) $(cat "$T/okdir.out")"
 # A repo that is not owner/name is refused (it goes into the label, a jq string and a gh path).
 i=0
