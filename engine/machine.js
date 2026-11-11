@@ -368,10 +368,13 @@ function sleepGate(opts) {
 function readLinuxSleep(opts) {
   const o = opts || {};
   if ('linuxSleep' in o) return o.linuxSleep;
-  // A test that hands no runner never runs the host's busctl or gsettings (a Linux CI runner's would decide the row).
-  if (!o.runner && require('./live-execution').inTestProcess()) return { idle: null, lid: null, gnome: null };
-  const runner = o.runner || run;
   const inTest = require('./live-execution').inTestProcess();
+  // A test that hands no runner never runs the host's busctl or gsettings (a Linux CI runner's would decide the row).
+  if (!o.runner && inTest) return { idle: null, lid: null, gnome: null };
+  /* A board started with no login session (cron, or after the session ended) has no XDG_RUNTIME_DIR, and systemctl
+     --user cannot reach the user manager without it: linuxjob's fix, for its runner (#4918 review 12; review 3). */
+  if (!o.runner) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
+  const runner = o.runner || run;
   const prop = (name) => {
     const r = runner('busctl', ['--system', 'get-property', 'org.freedesktop.login1', '/org/freedesktop/login1', 'org.freedesktop.login1.Manager', name]);
     if (!r || !r.ok) return null;
@@ -459,34 +462,48 @@ function linuxSleepCheck(reading) {
   const gnomeAc = Boolean(gnome && stops(gnome.ac) && gnome.acMinutes);
   const gnomeBatt = Boolean(gnome && stops(gnome.battery) && gnome.batteryMinutes);
   const lidStops = Boolean(lid && (stops(lid.ac) || stops(lid.battery)));
-  const said = [];
-  if (idleStops) said.push('After ' + (idle.minutes ? minutesWords(idle.minutes) : 'a while') + ' with nobody using it, this computer ' + stops(idle.action) + '.');
-  if (gnomeAc) said.push('While it is plugged in, the desktop puts it to sleep after ' + minutesWords(gnome.acMinutes) + ' with nobody using it.');
-  if (gnomeBatt) said.push('On battery, the desktop puts it to sleep after ' + minutesWords(gnome.batteryMinutes) + ' with nobody using it.');
-  if (lidStops) said.push(stops(lid.ac) ? 'When the lid closes, this computer ' + stops(lid.ac) + '.' : 'When the lid closes on battery, this computer ' + stops(lid.battery) + '.');
-  // Where to change it, only for what was found (review 1).
-  const where = [];
-  if (gnomeAc || gnomeBatt) where.push('the desktop\'s Power settings change the desktop\'s part (Automatic Suspend)');
-  if (idleStops || lidStops) where.push('an administrator changes logind\'s part in /etc/systemd/logind.conf.d');
-  const fix = where.length ? ' To change it: ' + where.join(', and ') + '.' : '';
+  const said = [], verbs = [];
+  const say = (sentence, verb) => { said.push(sentence); verbs.push(verb); };
+  if (idleStops) say('After ' + (idle.minutes ? minutesWords(idle.minutes) : 'a while') + ' with nobody using it, this computer ' + stops(idle.action) + '.', stops(idle.action));
+  if (gnomeAc) say('While it is plugged in, after ' + minutesWords(gnome.acMinutes) + ' with nobody using it, the desktop has it ' + stops(gnome.ac).replace(/^goes/, 'go').replace(/^turns/, 'turn').replace(/^restarts/, 'restart') + '.', stops(gnome.ac));
+  if (gnomeBatt) say('On battery, after ' + minutesWords(gnome.batteryMinutes) + ' with nobody using it, the desktop has it ' + stops(gnome.battery).replace(/^goes/, 'go').replace(/^turns/, 'turn').replace(/^restarts/, 'restart') + '.', stops(gnome.battery));
+  if (lidStops) {
+    const v = stops(lid.ac) || stops(lid.battery);
+    say(stops(lid.ac) ? 'When the lid closes, this computer ' + v + '.' : 'When the lid closes on battery, this computer ' + v + '.', v);
+  }
+  /* The words follow what was found (review 3): a computer set to turn off is not said to sleep, and one that
+     restarts is not said to stay off. */
+  const what = (vs) => {
+    const sleeps = vs.includes('goes to sleep'), off = vs.includes('turns off'), restarts = vs.includes('restarts');
+    return [sleeps ? 'go to sleep' : null, off ? 'turn off' : null, restarts ? 'restart' : null].filter(Boolean).join(' or ');
+  };
+  const until = (vs) => (vs.includes('goes to sleep') ? ' Your agents stop until it wakes.'
+    : (vs.includes('turns off') ? ' Your agents stop until it is started again.' : ' Your agents stop while it restarts.'));
+  // Where to change it, only for what was found (review 1); a file path is for an administrator (review 3).
+  const desktopFix = (gnomeAc || gnomeBatt) ? ' You can change the desktop\'s part in its Power settings, under Automatic Suspend.' : '';
+  const logind = idleStops || lidStops;
+  const extra = logind ? { admin: 'logind decides this part. Change IdleAction or HandleLidSwitch in a file under /etc/systemd/logind.conf.d, then restart the computer. (Restarting systemd-logind by hand can end the sessions logged in.)' } : {};
+  const logindFix = logind ? (desktopFix ? ' An administrator can change the rest.' : ' An administrator can change it.') : '';
   if (idleStops || gnomeAc) {
-    return { key: 'sleep', state: STATE.ATTENTION,
-      title: 'This computer can go to sleep on its own',
-      detail: said.join(' ') + (/turns off|restarts/.test(said.join(' ')) && !/goes to sleep/.test(said.join(' '))
-        ? ' Your agents stop until it is started again.' : ' Your agents stop until it wakes.') + fix };
+    const vs = verbs;
+    return Object.assign({ key: 'sleep', state: STATE.ATTENTION,
+      title: 'This computer can ' + what(vs) + ' on its own',
+      detail: said.join(' ') + until(vs) + desktopFix + logindFix }, extra);
   }
   if (lidStops || gnomeBatt) {
-    const title = lidStops && gnomeBatt ? 'This computer goes to sleep on battery, or when its lid closes'
-      : (lidStops ? 'This computer goes to sleep when its lid closes' : 'This computer can go to sleep on battery');
-    return { key: 'sleep', state: STATE.ATTENTION, battOnly: true, title,
-      detail: said.join(' ') + ' Plugged in and open, it keeps working, so for overnight work leave it plugged in and open.' + fix };
+    const title = lidStops && gnomeBatt ? 'This computer can ' + what(verbs) + ' on battery, or when its lid closes'
+      : (lidStops ? 'This computer can ' + what(verbs) + ' when its lid closes' : 'This computer can ' + what(verbs) + ' on battery');
+    return Object.assign({ key: 'sleep', state: STATE.ATTENTION, battOnly: true, title,
+      detail: said.join(' ') + ' Plugged in and open, it keeps working, so for overnight work leave it plugged in and open.' + desktopFix + logindFix }, extra);
   }
   /* Nothing read puts it to sleep. The title says whose settings those were (review 1: KDE's, or a GNOME too old to run
      its power service as a unit, are not read, and the tick is what a person reads). */
   if (gnome) {
     return { key: 'sleep', state: STATE.OK,
       title: 'This computer is not set to go to sleep on its own',
-      detail: 'So your agents keep working while you are away. We read ' + (idle || lid ? 'Linux\'s own settings and ' : '') + 'the desktop\'s power settings.' };
+      detail: 'So your agents keep working while you are away. We read ' + (idle || lid ? 'Linux\'s own settings and ' : '')
+        + 'your desktop\'s power settings. The login screen has a sleep setting of its own, which we cannot read: '
+        + 'after a restart, before anyone logs in, it may still put this computer to sleep.' };
   }
   return { key: 'sleep', state: STATE.OK,
     title: 'Linux\'s own settings do not put this computer to sleep',
@@ -1889,7 +1906,8 @@ function readLinuxBoardAutostart(runner, opts) {
   let unitState = null;
   /* A sandboxed board's unit sits where systemd never reads it, and systemctl would name the person's REAL board unit
      (linuxboard.runner's refusal, review 22 there; review 1 here). So a sandbox asks systemd nothing. */
-  const sandboxed = Boolean(process.env.AGENT_WORKFORCE_LAUNCH) && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  const sandboxed = lb.sandboxedWithoutSystemd();
+  if (!sandboxed && !require('./live-execution').inTestProcess()) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
   if (unitFile && sandboxed) return { unitFile, unitState: null, linger: undefined, installed: ('installedRoot' in o) ? o.installedRoot : update.installedRoot(), sandboxed: true };
   if (unitFile) {
     const r = runner('systemctl', ['--user', 'show', '-p', 'UnitFileState', lb.boardUnitName()]);
@@ -2061,7 +2079,7 @@ function check(opts) {
     /* kosmos#8384: Linux's own sleep settings (logind, and GNOME's while it runs). Still no row when none of them
        could be read: a row that can never read anything would stand in the "could not check" count forever
        (kosmos#8375, as agentAutostartCheck returns null off darwin). */
-    sleepRow = linuxSleepCheck(readLinuxSleep(Object.assign({}, opts, { runner })));
+    sleepRow = linuxSleepCheck(readLinuxSleep(opts));   // the caller's own runner (or none), so a test with no seam never reads the host (review 3)
   } else if (!isMac) {
     sleepRow = null;   // kosmos#8375: no pmset, and no reading of this platform's sleep
   } else {

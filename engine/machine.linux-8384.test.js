@@ -168,31 +168,35 @@ test('sleep row: nothing read is no row at all (kosmos#8375), never a standing c
   assert.equal(sleep(null), null);
 });
 
-test('sleep row: a sleep while plugged in, open and idle is the plain warning, and says where to change it', () => {
+test('sleep row: a stop while plugged in, open and idle is the plain warning, in words for what it does', () => {
   const cases = [
-    [{ idle: { action: 'suspend', minutes: 30 } }, /After 30 minutes with nobody using it, this computer goes to sleep\./, /logind\.conf\.d/, /desktop's Power settings/],
-    [{ idle: { action: 'poweroff', minutes: 1 } }, /After 1 minute .* turns off\. Your agents stop until it is started again\./, /logind\.conf\.d/, /desktop's Power settings/],
-    [{ idle: QUIET_IDLE, gnome: { ac: 'suspend', acMinutes: 20, battery: 'nothing', batteryMinutes: null } }, /plugged in, the desktop puts it to sleep after 20 minutes/, /desktop's Power settings .*Automatic Suspend/, /logind/],
+    [{ idle: { action: 'suspend', minutes: 30 } }, /can go to sleep on its own$/, /After 30 minutes with nobody using it, this computer goes to sleep\. Your agents stop until it wakes\. An administrator can change it\.$/, true],
+    [{ idle: { action: 'poweroff', minutes: 1 } }, /can turn off on its own$/, /After 1 minute .* turns off\. Your agents stop until it is started again\./, true],
+    [{ idle: { action: 'reboot', minutes: 5 } }, /can restart on its own$/, /restarts\. Your agents stop while it restarts\./, true],
+    [{ idle: QUIET_IDLE, gnome: { ac: 'suspend', acMinutes: 20, battery: null, batteryMinutes: null } }, /can go to sleep on its own$/, /While it is plugged in, after 20 minutes with nobody using it, the desktop has it go to sleep\..*Power settings, under Automatic Suspend\.$/, false],
+    [{ idle: QUIET_IDLE, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can turn off on its own$/, /the desktop has it turn off\. Your agents stop until it is started again\./, false],
+    [{ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can go to sleep or turn off on its own$/, /Automatic Suspend\. An administrator can change the rest\.$/, true],
   ];
-  for (const [reading, words, where, notWhere] of cases) {
+  for (const [reading, title, detail, admin] of cases) {
     const r = sleep(reading);
     const label = JSON.stringify(reading);
     assert.equal(r.key, 'sleep');
     assert.equal(r.state, STATE.ATTENTION, label);
     assert.equal(r.battOnly, undefined, 'plugged-in findings are not battery-only: ' + label);
-    assert.match(r.title, /can go to sleep on its own/);
-    assert.match(r.detail, words, label);
-    assert.match(r.detail, where, 'it says where the part that fired is changed: ' + label);
-    assert.doesNotMatch(r.detail, notWhere, 'and not where a part that did not fire is: ' + label);
+    assert.match(r.title, title, label);
+    assert.match(r.detail, detail, label);
+    assert.doesNotMatch(r.detail, /\/etc\//, 'a file path is for the admin field, not the sentence: ' + label);
+    if (admin) assert.match(r.admin, /\/etc\/systemd\/logind\.conf\.d.*restart the computer/, label);
+    else assert.equal(r.admin, undefined, 'no logind advice when only the desktop fired: ' + label);
     assert.equal(r.settings, undefined, 'no "Open sleep settings" button: that opens macOS\'s pane');
   }
 });
 
 test('sleep row: the lid and battery are the expected pauses, as on the Mac (battOnly), even when the lid sleeps on AC', () => {
   const cases = [
-    [{ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' } }, /when its lid closes$/, /When the lid closes, this computer goes to sleep\./],
+    [{ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' } }, /can go to sleep when its lid closes$/, /When the lid closes, this computer goes to sleep\./],
     [{ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' } }, /when its lid closes$/, /When the lid closes on battery/],
-    [{ idle: QUIET_IDLE, gnome: { ac: 'nothing', acMinutes: null, battery: 'suspend', batteryMinutes: 15 } }, /on battery$/, /On battery, the desktop puts it to sleep after 15 minutes/],
+    [{ idle: QUIET_IDLE, gnome: { ac: 'nothing', acMinutes: null, battery: 'suspend', batteryMinutes: 15 } }, /can go to sleep on battery$/, /On battery, after 15 minutes with nobody using it, the desktop has it go to sleep/],
     [{ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' }, gnome: { ac: 'nothing', acMinutes: null, battery: 'suspend', batteryMinutes: 15 } }, /on battery, or when its lid closes$/, /On battery.*When the lid closes/],
   ];
   for (const [reading, title, words] of cases) {
@@ -215,7 +219,8 @@ test('sleep row: a type with no timeout (0, never) and actions that leave the ag
     gnome: { ac: 'suspend', acMinutes: null, battery: 'blank', batteryMinutes: 5 } });
   assert.equal(r.state, STATE.OK);
   assert.match(r.title, /^This computer is not set to go to sleep on its own$/);
-  assert.match(r.detail, /We read Linux's own settings and the desktop's power settings\.$/);
+  assert.match(r.detail, /We read Linux's own settings and your desktop's power settings\./);
+  assert.match(r.detail, /The login screen has a sleep setting of its own, which we cannot read/, 'GDM\'s own suspend is named, not vouched for');
 });
 
 test('sleep row: OK without a desktop reading says only Linux\'s own settings were read, in the title too', () => {
@@ -223,8 +228,8 @@ test('sleep row: OK without a desktop reading says only Linux\'s own settings we
   assert.equal(r.state, STATE.OK);
   assert.equal(r.title, 'Linux\'s own settings do not put this computer to sleep');
   assert.match(r.detail, /If this computer has a desktop, its own power settings can still put it to sleep/);
-  const desk = sleep({ idle: null, lid: null, gnome: { ac: 'nothing', acMinutes: null, battery: 'nothing', batteryMinutes: null } });
-  assert.match(desk.detail, /We read the desktop's power settings\.$/, 'only what was read is named');
+  const desk = sleep({ idle: null, lid: null, gnome: { ac: 'nothing', acMinutes: null, battery: null, batteryMinutes: null } });
+  assert.match(desk.detail, /We read your desktop's power settings\./, 'only what was read is named');
 });
 
 test('linuxHasLid: an ACPI lid or the computer\'s own battery counts; a wireless mouse\'s battery does not', () => {
@@ -339,6 +344,20 @@ test('sleepGate on linux gives the Mac\'s three answers from Linux\'s reading, w
   assert.equal(gate({ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' }, gnome: null }).battOnly, true);
   assert.deepEqual(gate({ idle: null, lid: null, gnome: null }), { checkable: false, because: 'we could not read this computer\'s sleep settings' });
   assert.ok(!asked.some((c) => /pmset/.test(c)), 'no pmset on Linux');
+});
+
+test('check() on linux reads sleep through the caller\'s runner, and with no runner and no reading in a test reads nothing', () => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-'));
+  try {
+    const { runner, asked } = sleepRunner({ gsd: 'inactive' });
+    const got = machine.check({ platform: 'linux', claudeBin: process.execPath, tmuxBin: process.execPath, appDirs: [empty, empty],
+      runner, linuxBoard: { unitFile: false, installed: null } });
+    assert.ok(asked.some((a) => a[0] === 'busctl'), 'logind was asked through the runner check() was given');
+    assert.equal(got.checks.find((c) => c.key === 'sleep').state, STATE.ATTENTION, 'IdleAction=suspend from the fake runner');
+    const bare = machine.check({ platform: 'linux', claudeBin: process.execPath, tmuxBin: process.execPath, appDirs: [empty, empty],
+      linuxBoard: { unitFile: false, installed: null } });
+    assert.equal(bare.checks.find((c) => c.key === 'sleep'), undefined, 'no seam in a test: no host read, so no sleep row');
+  } finally { fs.rmSync(empty, { recursive: true, force: true }); }
 });
 
 test('check() on linux draws the sleep row when a setting was read, beside the restart row', () => {
