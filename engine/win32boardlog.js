@@ -30,8 +30,10 @@
  * SIZE. The Mac's file is not rotated by the board. Here, a file over ROTATE_BYTES when the board starts is moved to
  * `<name>.old` (one older copy, replaced each time). The size is checked only at each start.
  *
- * WHO. Only the board its logon task started (win32board.startedByTask): a board started by hand writes to its own
- * console, and a board a test starts as a child is not task-started.
+ * WHO. Only a board that carries its logon task's marker (win32board.startedByTask): a board started by hand writes to
+ * its own console, and a board a test starts as a child is not marked. The marker is an environment variable, so a
+ * second board started from inside the task board's own process tree inherits it and would append to the same file.
+ * It is not cleared here, because server.js reads the same marker later to arm its exit watch.
  *
  * Nothing here throws into the board: when the file cannot be opened the board runs as it did before.
  */
@@ -109,16 +111,17 @@ function route(stdout, stderr, deps) {
     const now = typeof d.now === 'function' ? d.now : () => new Date();
     const lineState = { atLineStart: true };
     if (require('./logstamp').endsMidLine(fd, [file])) { try { writeAll(fd, Buffer.from('\n')); } catch { /* as above */ } }
-    for (const stream of [stdout, stderr]) if (stream && typeof stream.write === 'function') tee(stream, fd, lineState, now);
     const onCrash = typeof d.onCrash === 'function' ? d.onCrash : (name, fn) => process.on(name, fn);
     onCrash('uncaughtExceptionMonitor', (err, origin) => {
       try {
-        const text = (lineState.atLineStart ? '' : '\n') + now().toISOString() + ' ' + String(origin || 'uncaughtException')
-          + ': ' + String((err && err.stack) || err).replace(/\r?\n/g, '\n' + now().toISOString() + ' ') + '\n';
+        const at = now().toISOString();
+        const text = (lineState.atLineStart ? '' : '\n') + at + ' ' + String(origin || 'uncaughtException')
+          + ': ' + String((err && err.stack) || err).replace(/\r?\n/g, '\n' + at + ' ') + '\n';
         writeAll(fd, Buffer.from(text, 'utf8'));
         lineState.atLineStart = true;
       } catch { /* nothing more can be done */ }
     });
+    for (const stream of [stdout, stderr]) if (stream && typeof stream.write === 'function') tee(stream, fd, lineState, now);
     routed = { path: file, fd };
     return routed;
   } catch { return null; }
