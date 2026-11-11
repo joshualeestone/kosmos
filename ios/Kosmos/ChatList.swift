@@ -242,9 +242,9 @@ struct ChatList: UIViewRepresentable {
         // animation; "refocus" focuses the same row again after an update; "afterjump" focuses 0.3 s after a jump to the
         // newest; "newestpart" (slice 19, with KOSMOS_SAMPLE_TALLNEWEST) focuses the first 80 pt of a newest reply taller
         // than the screen, above it, "newestclipped" an 80 pt part of it crossing the top of the screen by 20 pt, and
-        // "newestwhole" the whole reply (its row less 4 pt at each end), each with an element in the newest row's cell as
-        // SwiftUI makes one. Reported through sampleA11y,
-        // starting "focus".
+        // "newestwhole" the whole reply (its row less 4 pt at each end), and "newestlongpart" a part 1.5 times the list's
+        // height from 8 pt below the reply's top, each with an element in the newest row's cell as SwiftUI makes one.
+        // Reported through sampleA11y, starting "focus".
         func sampleA11yFocus(_ report: ((String) -> Void)?) {
             guard !ChatList.sampleA11yDone, let list, let source else { return }
             ChatList.sampleA11yDone = true
@@ -316,6 +316,18 @@ struct ChatList: UIViewRepresentable {
                    let w = list.window {
                     let e = UIAccessibilityElement(accessibilityContainer: c.contentView)
                     e.accessibilityFrame = list.convert(a.frame.insetBy(dx: 0, dy: 4), to: w.screen.coordinateSpace)
+                    element = e
+                }
+                focus()
+            case "newestlongpart":
+                // kosmos#8221 slice 19: one part of the tall reply taller than the screen (a long code block), above it and
+                // reaching below it.
+                target = newestId
+                if let ip = source.indexPath(for: newestId), let a = list.layoutAttributesForItem(at: ip), let c = list.cellForItem(at: ip),
+                   let w = list.window {
+                    let e = UIAccessibilityElement(accessibilityContainer: c.contentView)
+                    e.accessibilityFrame = list.convert(CGRect(x: a.frame.minX, y: a.frame.minY + 8, width: a.frame.width, height: list.bounds.height * 1.5),
+                                                        to: w.screen.coordinateSpace)
                     element = e
                 }
                 focus()
@@ -707,15 +719,17 @@ struct ChatList: UIViewRepresentable {
             appliedSinceFocus = false
             if refocus { return }
             // kosmos#8221 slice 19: a part of the newest message that starts above the top of the screen and does not reach
-            // below its bottom, as VoiceOver stepping up through a reply taller than the screen focuses, is followed as a
-            // message above is, so the part read aloud is the part shown. At the newest the row's bottom shows, so an element
-            // for the whole message passes both edge tests too: the size test (under three quarters of the row's height) is
-            // what tells a part from the whole, which still keeps a reader at the newest.
+            // below its bottom (or is itself taller than what shows, a long code block), as VoiceOver stepping up through a
+            // reply taller than the screen focuses, is followed as a message above is, so the part read aloud is the part
+            // shown. At the newest the row's bottom shows, so an element for the whole message passes the two edge tests too:
+            // the size test (under three quarters of the row's height) is what tells a part from the whole, which still keeps
+            // a reader at the newest.
             var newestPart = false
             if ip == newestAt, !ChatList.sampleFocusNoNewestPart, let e = elementFrame(element), let row = list.layoutAttributesForItem(at: ip)?.frame {
                 let top = list.contentOffset.y + list.adjustedContentInset.top - list.contentInset.top
                 let bottom = list.contentOffset.y + list.bounds.height - list.adjustedContentInset.bottom + list.contentInset.bottom
-                newestPart = (e.height < row.height * 0.75 || ChatList.sampleFocusNoPartSize) && e.minY < top - 0.5 && e.maxY <= bottom + 0.5
+                newestPart = (e.height < row.height * 0.75 || ChatList.sampleFocusNoPartSize) && e.minY < top - 0.5
+                    && (e.maxY <= bottom + 0.5 || e.height > bottom - top)
             }
             if ip >= newestAt, !newestPart, !ChatList.sampleFocusNoNewest {
                 // Back on the newest message: at the newest once it is fully shown (the working line and the room under it can

@@ -29,7 +29,7 @@ VoiceOver's own scroll to the part not being pinned back.
   80 pt, wholly above) and newestclipped (80 pt crossing the top by 20 pt) and newestwhole (the whole reply, its row less 4 pt at
   each end), each an element in the newest cell's own
   view as SwiftUI makes one; the report gains "part shown", measured from the row at report time.
-- A11yFocusUITests: three checks and their controls (14 -> 20); ui-sample.sh tally. The tall newest message is Dana's
+- A11yFocusUITests: four checks and their controls (14 -> 22); ui-sample.sh tally. The tall newest message is Dana's
   (a reply), not the person's.
 
 ## Review 1 (blind, opus): 0 BLOCKERs, 2 WARNINGs, fixed
@@ -55,6 +55,11 @@ VoiceOver's own scroll to the part not being pinned back.
 - Known trade-off (iteration 2 NIT): after a crossing part is followed (32 pt, inside the 40 pt end slack), stepping
   down to an on-screen part of the newest takes the newest branch, counts the reader at the newest again, and the next
   layout pins the list back 32 pt. The focused part stays visible; the list moves back and forth at the top edge.
+- Iteration 3 (sonnet): 2 WARNINGs, 3 NITs. A part taller than the screen (a long code block) reaches past both
+  edges and was held: FIXED (a part taller than what shows passes the bottom test), with newestlongpart and its control
+  (14 -> 22). The fixed 0.75 split rests on what a real whole-message element measures: DEFERRED, it is this plan's
+  weakest premise and only a phone with VoiceOver can settle it. Doc comment reflow and "the two edge tests": FIXED.
+  Slice order of the ui-sample.sh comments: left (only the count is read).
 
 ## Results
 
