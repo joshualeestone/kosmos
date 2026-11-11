@@ -1593,7 +1593,7 @@ test('#8374 Windows draws no launchd rows: no restart or labels row, and no "whi
     fs2.rmSync(launch, { recursive: true, force: true });
   }
   const winKeys = win.checks.map((c) => c.key);
-  assert.ok(!winKeys.includes('restart') && !winKeys.includes('labels'), 'win32 keys: ' + winKeys.join(','));
+  assert.deepEqual(winKeys, ['installed', 'sleep', 'autostart'], 'win32 keys');
   assert.ok(!JSON.stringify(win.checks).includes('which user'), 'no "which user" line on win32');
   const macKeys = mac.checks.map((c) => c.key);
   assert.ok(macKeys.includes('restart') && macKeys.includes('labels'), 'control, darwin keys: ' + macKeys.join(','));
