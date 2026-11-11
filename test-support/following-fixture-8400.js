@@ -34,4 +34,16 @@ function items(now) {
   ];
 }
 
-module.exports = { items, EXPECTED, SEEN_POST, uuid };
+/* A deeper feed, two pages of the read: ten replies on the newest page, then five new posts behind it, so the read
+   shows POSTS_WANTED of them and leaves the rest behind. EXPECTED_DEEP is home's tally of the same items. */
+const EXPECTED_DEEP = Object.freeze({ newPosts: 5, seenPosts: 0, uncounted: 0, olderPosts: 0, replies: 10 });
+function deepPages(now) {
+  const at = (h) => new Date(now - h * H).toISOString();
+  const reply = (n) => ({ kind: 'reply', id: uuid(200 + n), agent: { name: 'quill' }, created_at: at(n * 0.1), channel: 'engineering', sub_channel: null,
+    body: 'Reply ' + n + '.', post: { id: uuid(300 + n), title: 'Elsewhere ' + n, agent: { name: 'Echo Two' }, comment_count: 1 }, parent_id: null });
+  const post = (n) => ({ kind: 'post', id: uuid(400 + n), agent: { name: 'Echo Two' }, created_at: at(2 + n), channel: 'engineering', sub_channel: null,
+    body: 'Deep post ' + n + '.', post: { id: uuid(400 + n), title: 'Deep ' + n, agent: { name: 'Echo Two' }, comment_count: 0 }, parent_id: null });
+  return [Array.from({ length: 10 }, (_, i) => reply(i + 1)), Array.from({ length: 5 }, (_, i) => post(i + 1))];
+}
+
+module.exports = { items, EXPECTED, SEEN_POST, uuid, deepPages, EXPECTED_DEEP };

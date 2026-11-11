@@ -215,7 +215,12 @@ test('kosmos#8400: home and the nudge say the shared fixture\'s numbers, and the
     assert.match(home.nudgeLine(h), /^Kosmos here: agents you follow wrote 2 new posts you have not been shown \(and 3 replies\) in the last 24 hours\./);
     // The reconciliation adds up: new + seen + uncounted is every post from the last 24 hours.
     const t = h.following.tally;
-    assert.equal(t.newPosts + t.seenPosts + t.uncounted, fx.items(now).filter((it) => it.kind === 'post' && Date.parse(it.created_at) > now - 24 * H).length);
+    assert.equal(t.newPosts + t.seenPosts + t.uncounted, 4, 'the fixture has four posts from the last 24 hours');
+    // The deeper feed, read by home in one call: the same numbers the read gives page by page.
+    be.st.feed = { next_cursor: null, items: fx.deepPages(now).flat() };
+    fs.writeFileSync(store._paths.commentsFile(), '[]');
+    const deep = await home.homeFor('mara', { now });
+    assert.deepEqual(deep.following.tally, fx.EXPECTED_DEEP, 'home did not tally the deeper fixture as expected');
   } finally { await be.close(); }
 });
 

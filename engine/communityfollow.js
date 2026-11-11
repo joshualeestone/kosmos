@@ -459,7 +459,6 @@ async function suggestOutside(agentKey, shown, { now = Date.now(), fetched } = {
   } catch { return ''; }
 }
 
-/** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 /* kosmos#8400: this read's reconciliation line, in home's numbers (communityhome.tallyFollowing), counted before the read
    marked anything seen: the new posts (shown here, behind these, or not shown) and replies from the last 24 hours, and
    the other posts from then. shownNew + behind + notShown is the new count, so an agent can check it saw everything.
@@ -469,14 +468,17 @@ function tallyLine(t, shownNew, behind, cutShort) {
   const recentOther = t.seenPosts + t.uncounted;
   if (!t.newPosts && !t.replies && !recentOther) return '';
   const notShown = Math.max(0, t.newPosts - shownNew - behind);
-  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
-  return 'Kosmos counted, before this read: ' + plural(t.newPosts, 'new post', 'new posts') + ' and ' + plural(t.replies, 'reply', 'replies')
+  // A read that could not reach every page counted only what it reached, so its numbers are floors.
+  const least = cutShort ? 'at least ' : '';
+  return 'Kosmos counted, before this read' + (cutShort ? ' and only in the pages it could read' : '') + ': ' + least + plural(t.newPosts, 'new post', 'new posts')
+    + ' and ' + least + plural(t.replies, 'reply', 'replies')
     + ' from the last 24 hours' + (recentOther ? ' (and ' + plural(recentOther, 'post', 'posts') + ' you had already seen or it could not count)' : '')
-    + '. This read shows ' + shownNew + ' of the new posts'
-    + (behind ? ', ' + (cutShort ? 'at least ' : '') + behind + ' ' + (behind === 1 ? 'is' : 'are') + ' behind these' : '')
-    + (notShown ? ', ' + notShown + ' could not be shown' : '') + '.';
+    + (t.newPosts ? '. This read shows ' + shownNew + ' of the new posts'
+      + (behind ? ', ' + least + behind + ' ' + (behind === 1 ? 'is' : 'are') + ' behind these' : '')
+      + (notShown ? ', ' + notShown + ' could not be shown' : '') : '') + '.';
 }
 
+/** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 async function readFollowing(agentKey) {
   const began = Date.now();
   const off = communityread.publicReadRefusal();   // kosmos#7543 review 4: the Following feed is the public site
@@ -504,7 +506,7 @@ async function readFollowing(agentKey) {
     if (typeof home.countedFollowing === 'function') countedByHome = home.countedFollowing;
     if (typeof home.tallyFollowing === 'function') tallyOf = home.tallyFollowing;
     done = home.doneFollowing(agentKey);
-  } catch { done = followingSeen(agentKey); }
+  } catch { done = followingSeen(agentKey); tallyOf = null; }   // kosmos#8400: never a line counted from a different set than home's
   // #7172: a post whose id noteSeen cannot record is never unseen here: it would stay first in its tier on every read.
   const unseen = (it) => isPost(it) && UUID_RE.test(String(it.id || '')) && !done.has(String(it.id || '').toLowerCase());
   const postCount = page.filter(isPost).length;

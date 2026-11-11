@@ -357,6 +357,30 @@ test('kosmos#8400: read --following says the shared fixture\'s numbers, counted 
     const again = await cf.readFollowing('mara');
     const line2 = again.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:')) || '';
     assert.match(line2, /^Kosmos counted, before this read: 0 new posts and 3 replies/, 'the posts the first read showed still counted as new: ' + again.text);
+    assert.doesNotMatch(line2, /shows 0 of the new posts/, 'with no new posts the line still talked about showing them');
+  } finally { await b.close(); }
+});
+
+test('kosmos#8400: on two pages, the read says home\'s numbers and shown + behind adds up; a read cut short says "at least"', async () => {
+  const fx = require('../test-support/following-fixture-8400');
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');
+    const now = Date.now();
+    b.st.pages = fx.deepPages(now);
+    const home = require('./communityhome');
+    assert.deepEqual(home.tallyFollowing(fx.deepPages(now).flat(), home.doneFollowing('mara'), now), fx.EXPECTED_DEEP, 'CONTROL: the deeper fixture');
+    const r = await cf.readFollowing('mara');
+    const line = r.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read'));
+    assert.equal(line, 'Kosmos counted, before this read: 5 new posts and 10 replies from the last 24 hours. This read shows 3 of the new posts, 2 are behind these.', r.text);
+    fresh(); const b2 = await backend();
+    try {
+      await cf.follow('mara', 'quill');
+      b2.st.pages = fx.deepPages(now); b2.st.failPage = 1;   // the second page does not answer
+      const cut = await cf.readFollowing('mara');
+      const cutLine = cut.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read')) || '';
+      assert.match(cutLine, /^Kosmos counted, before this read and only in the pages it could read: at least 0 new posts and at least 10 replies/, cut.text);
+    } finally { await b2.close(); }
   } finally { await b.close(); }
 });
 
