@@ -17,6 +17,8 @@ Shape posted on the card first (issuecomment 6801308249). Built on `linuxrows-83
 - GNOME inside a virtual machine is not special-cased: gsd-power may skip its idle suspend there, but that is from memory of its source, not measured, and a false alarm costs less than a false OK (reviews 7 and 8 split; decided).
 - A GNOME timeout that could not be read, beside a type that stops, is a finding ("after a while"), not a non-finding: an unreadable read must not become "never" (review 4; review 12 asked the opposite, kept).
 - sleepGate: a GNOME reading that is all clear answers prevented (the desktop's settings were read; only the login screen's were not, and the row says so), while an unread desktop (a display manager, no settings read) answers not checkable. No Linux screen shows the gate today (review 13 asked for one rule; kept two, on purpose).
+- A stock laptop (logind's default lid suspend) shows a standing battOnly attention row, as a Mac laptop that sleeps on battery does; Settings draws both the same way. Kept (review 15).
+- GNOME running but its settings unreadable is could-not-check, unlike a desktop Kosmos never reads (review 15).
 - The lid and battery are battOnly, as on the Mac; the logind fix is a pasteable command in the admin field, for a root shell (machine.js never runs sudo: its own guard test).
 - A test never reads the host: the unit folder needs AGENT_WORKFORCE_SYSTEMD_DIR or AGENT_WORKFORCE_LAUNCH, and the lid needs opts.hasLid, else they read as unknown / no lid.
 

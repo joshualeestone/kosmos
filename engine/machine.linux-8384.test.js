@@ -69,12 +69,12 @@ test('restart row: a unit file on a computer with no systemd still says no syste
   assert.ok(!asked.includes('systemctl'), 'no systemd, no systemctl');
 });
 
-test('restart row: only linger off carries the admin command, and it is the read-only-safe enable-linger', () => {
-  const off = row({ unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE });
-  assert.match(off.admin, /loginctl enable-linger$/);
+test('restart row: each fixable arm carries its one command; the OK and the missing arms carry none', () => {
+  assert.match(row({ unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE }).admin, /^loginctl enable-linger$/);
+  assert.equal(row({ unitFile: true, unitState: 'disabled', installed: BUNDLE, unitName: 'kosmos-board.service' }).admin, 'systemctl --user enable kosmos-board.service');
+  assert.equal(row({ unitFile: true, unitState: 'enabled-runtime', installed: BUNDLE, unitName: 'kosmos-board.service' }).admin, 'systemctl --user enable kosmos-board.service');
   for (const r of [
     { unitFile: true, unitState: 'enabled', linger: true, installed: BUNDLE },
-    { unitFile: true, unitState: 'disabled', installed: BUNDLE },
     { unitFile: false, installed: BUNDLE },
   ]) assert.equal(row(r).admin, undefined, JSON.stringify(r));
 });
@@ -517,8 +517,35 @@ test('restart row: from source with no systemd is the from-source answer, not a 
 });
 
 test('restart row: masked tells who runs the command, and the logind table knows factory-reset', () => {
-  assert.match(row({ unitFile: true, unitState: 'masked', installed: BUNDLE }).detail, /from this account, not an administrator's\. If it changes nothing, an administrator may have blocked it for every account/);
+  const masked = row({ unitFile: true, unitState: 'masked', installed: BUNDLE }).detail;
+  assert.match(masked, /The command under For IT admins is run from this account, not an administrator's/);
+  assert.doesNotMatch(masked, /every account/);
   assert.match(sleep({ idle: { action: 'factory-reset', minutes: 5 } }).title, /can restart on its own/);
+});
+
+test('sleep row: GNOME running with its settings unreadable is could-not-check, not a tick', () => {
+  const { runner } = sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-ac-type': null });
+  const got = machine.readLinuxSleep({ runner, hasLid: false });
+  assert.equal(got.gnomeUnread, true);
+  const r = sleep(got);
+  assert.equal(r.state, STATE.UNKNOWN);
+  assert.match(r.title, /could not read your desktop's power settings/);
+});
+
+test('sleep row: mixed sleep and power-off say both, and "as it should" only for sleep', () => {
+  const r = sleep({ idle: { action: 'suspend', minutes: 30 }, lid: { ac: 'poweroff', battery: 'poweroff' } });
+  assert.match(r.detail, /Your agents stop until it wakes or is started again\./);
+  assert.match(r.detail, /closing the lid on battery still turns it off\.$/);
+  assert.doesNotMatch(r.detail, /turns it off, as it should/);
+});
+
+test('sleep row: with an uncertain lid every lid sentence is hedged, the docked one too', () => {
+  const r = sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend', docked: 'suspend', sure: false } });
+  assert.match(r.detail, /^If it has a lid: when the lid closes, this computer goes to sleep\. With another screen connected, closing the lid puts it to sleep too\./);
+});
+
+test('sleep row: the restart case is named on an unread desktop', () => {
+  assert.match(sleep({ idle: QUIET_IDLE, lid: null, gnome: null, desktop: true }).detail, /After a restart, before anyone logs in, the login screen may put it to sleep/);
 });
 
 test('sleep row: a lid that sleeps only while plugged in says so', () => {

@@ -406,7 +406,7 @@ function readLinuxSleep(opts) {
       if (battery) lid = { battery, ac: ext || battery, docked: prop('HandleLidSwitchDocked'), sure: lidSure };
     }
   }
-  let gnome = null;
+  let gnome = null, gnomeUnread = false;
   const gsd = runner('systemctl', ['--user', 'is-active', 'org.gnome.SettingsDaemon.Power.service']);
   if (gsd && gsd.ok && String(gsd.stdout || '').trim() === 'active') {
     let failed = false;   // a gsettings that fails once is not asked again (each ask can wait out run()'s timeout)
@@ -420,6 +420,8 @@ function readLinuxSleep(opts) {
     const mins = (v) => { if (v === null || v === '') return null; const n = Number(v); return !Number.isFinite(n) ? null : (n <= 0 ? 0 : Math.max(1, Math.round(n / 60))); };
     /* Not special-cased inside a virtual machine: gsd-power may skip its idle suspend there, but that is not measured, and a false alarm costs less than a false OK. */
     const ac = get('sleep-inactive-ac-type');
+    // GNOME runs but its settings could not be read: that is a failed read, not a desktop Kosmos does not read.
+    if (!ac) gnomeUnread = true;
     if (ac) {
       /* The battery half only on a machine with a battery: GNOME keeps its stock "suspend after 15 minutes on battery"
          on a desktop PC too, where nothing acts on it. Seam: opts.hasBattery. */
@@ -438,7 +440,7 @@ function readLinuxSleep(opts) {
     const dm = runner('systemctl', ['is-active', 'display-manager.service']);
     desktop = Boolean(dm && dm.ok && String(dm.stdout || '').trim() === 'active');
   }
-  return { idle, lid, gnome, desktop };
+  return gnomeUnread ? { idle, lid, gnome, desktop, gnomeUnread } : { idle, lid, gnome, desktop };
 }
 
 /**
@@ -513,12 +515,16 @@ function linuxSleepCheck(reading) {
     else say('When the lid closes on battery, this computer ' + batt + unless + '.', batt);
     if ((ac || batt) && docked) say('With another screen connected, closing the lid ' + (docked === 'goes to sleep' ? 'puts it to sleep' : (docked === 'turns off' ? 'turns it off' : 'restarts it')) + ' too.', docked);
 
-    if (lid.sure === false && said.length > before) said[before] = 'If it has a lid: ' + said[before].charAt(0).toLowerCase() + said[before].slice(1);
+    if (lid.sure === false && said.length > before) {
+      const lidPart = said.splice(before).map((x, i) => (i === 0 ? x.charAt(0).toLowerCase() + x.slice(1) : x)).join(' ');
+      said.push('If it has a lid: ' + lidPart);
+    }
   }
   /* The words follow what was found: a computer set to turn off is not said to sleep, and one that
      restarts is not said to stay off. */
   const what = (vs) => ['goes to sleep', 'turns off', 'restarts'].filter((v) => vs.includes(v)).map((v) => LINUX_ACTION_BASE[v]).join(' or ');
-  const until = (vs) => (vs.includes('goes to sleep') ? ' Your agents stop until it wakes.'
+  const until = (vs) => (vs.includes('goes to sleep') && vs.includes('turns off') ? ' Your agents stop until it wakes or is started again.'
+    : vs.includes('goes to sleep') ? ' Your agents stop until it wakes.'
     : (vs.includes('turns off') ? ' Your agents stop until it is started again.' : ' Your agents stop while it restarts.'));
   // Where to change it, only for what was found; a file path is for an administrator.
   const desktopFix = (gnomeAc || gnomeBatt)
@@ -532,6 +538,7 @@ function linuxSleepCheck(reading) {
   /* zz-: logind reads its drop-ins in name order and the last one wins, so these come after any distro or local file,
      numbered or named. */
   if (idleStops) files.push(['zz-kosmos-idle.conf', 'IdleAction=ignore']);
+  // HandleLidSwitchExternalPower needs systemd 235 or later; older ones (CentOS 7) ignore it.
   if (lidStops && stops(lid.ac)) files.push(['zz-kosmos-lid.conf', 'HandleLidSwitchExternalPower=ignore']);
   if (lidStops && stops(lid.docked)) files.push(['zz-kosmos-lid-docked.conf', 'HandleLidSwitchDocked=ignore']);
   /* One command that pastes as it reads, for an administrator's root
@@ -539,7 +546,7 @@ function linuxSleepCheck(reading) {
   const extra = files.length ? { admin: ['mkdir -p /etc/systemd/logind.conf.d'].concat(files.map(([f, k]) =>
     'printf \'[Login]\\n' + k + '\\n\' > /etc/systemd/logind.conf.d/' + f)).join(' && ') } : {};
   // The lid fix is the plugged-in key only, so say so.
-  const lidAcOnly = lidStops && stops(lid.ac) && stops(lid.battery) ? ' After that, closing the lid on battery still ' + (stops(lid.battery) === 'goes to sleep' ? 'puts it to sleep' : (stops(lid.battery) === 'turns off' ? 'turns it off' : 'restarts it')) + ', as it should.' : '';
+  const lidAcOnly = lidStops && stops(lid.ac) && stops(lid.battery) ? ' After that, closing the lid on battery still ' + (stops(lid.battery) === 'goes to sleep' ? 'puts it to sleep, as it should.' : (stops(lid.battery) === 'turns off' ? 'turns it off.' : 'restarts it.')) : '';
   const logindFix = files.length ? (desktopFix ? ' An administrator can change the rest from a root shell, then restart the computer.' : ' An administrator can change it from a root shell, then restart the computer.') + lidAcOnly : '';
   if (idleStops || gnomeAc) {
     const vs = verbs;
@@ -566,11 +573,18 @@ function linuxSleepCheck(reading) {
   /* A desktop whose own settings were not read (KDE's, a logged-out GNOME): the title stays about Linux's own settings
      and the detail says plainly what was not read. Not UNKNOWN: on such a desktop it could never clear, and #8375 keeps
      a row that can never read something out of the could-not-check count. */
+  if (r.gnomeUnread) {
+    return { key: 'sleep', state: STATE.UNKNOWN,
+      title: 'We could not read your desktop\'s power settings',
+      detail: 'Your desktop is running, but its power settings did not answer when we asked, so we cannot tell '
+        + 'whether it puts this computer to sleep. Linux\'s own settings do not.' };
+  }
   if (r.desktop === true) {
     return { key: 'sleep', state: STATE.OK,
       title: 'Linux\'s own settings do not put this computer to sleep',
-      detail: 'Its desktop and its login screen have sleep settings of their own, which we could not read, so they may '
-        + 'still put it to sleep. Check them in the desktop\'s Power settings.' };
+      detail: 'Its desktop and its login screen have sleep settings of their own, which we could not read. After a '
+        + 'restart, before anyone logs in, the login screen may put it to sleep, and so may the desktop once someone '
+        + 'does. Check them in the desktop\'s Power settings.' };
   }
   return { key: 'sleep', state: STATE.OK,
     title: 'Linux\'s own settings do not put this computer to sleep',
@@ -2030,9 +2044,9 @@ function linuxBoardAutostartCheck(reading) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service is blocked on this computer (masked), so it cannot start, even by hand, until '
-        + 'that is undone. Your agents will not come back on their own after a restart. Run the command below from '
-        + 'this account, not an administrator\'s. If it changes nothing, an administrator may have blocked it for '
-        + 'every account; if it says the service does not exist, reinstalling Kosmos puts it back.',
+        + 'that is undone. Your agents will not come back on their own after a restart. The command under For IT '
+        + 'admins is run from this account, not an administrator\'s; if it says the service does not exist, '
+        + 'reinstalling Kosmos puts it back.',
       // A runtime mask lives in /run and needs --runtime to lift.
       admin: 'systemctl --user unmask ' + (r.unitState === 'masked-runtime' ? '--runtime ' : '') + (r.unitName || 'kosmos-board.service')
         + ' && systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
@@ -2044,7 +2058,8 @@ function linuxBoardAutostartCheck(reading) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself after a restart',
       detail: 'Its startup service is switched on only until this computer next restarts, so after that Kosmos and your '
-        + 'agents will not come back on their own. Reinstalling Kosmos switches it on for good.' };
+        + 'agents will not come back on their own. Reinstalling Kosmos switches it on for good.',
+      admin: 'systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
   }
   if (!['enabled', 'disabled', 'linked', 'linked-runtime'].includes(r.unitState)) {
     return unknown('Its startup service is set up in a way Kosmos did not expect (' + r.unitState + '), so we cannot tell whether it starts by itself.');
@@ -2053,7 +2068,8 @@ function linuxBoardAutostartCheck(reading) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service is on this computer but switched off, so Kosmos and your agents will not come '
-        + 'back on their own after a restart. Reinstalling Kosmos switches it back on.' };
+        + 'back on their own after a restart. Reinstalling Kosmos switches it back on.',
+      admin: 'systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
   }
   if (r.linger === true) {
     return { key: 'autostart', state: STATE.OK,
