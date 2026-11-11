@@ -496,9 +496,16 @@ second; run twonodir FX_R="$R2" FX_LABEL="$L2" "${two[@]}" -- --apply daemon
 second; echo "$CIU 5300 1 $R2/bin/Runner.Listener run" >> "$T/procs"; run twoman FX_R="$R2" FX_LABEL="$L2" "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$R2" -- --apply daemon
 [ "$(rc twoman)" = 1 ] && has twoman "runs outside the daemon (pid 5300" && ! has twoman "5018" && [ ! -e "$D2" ] \
   && pass "#8404: the second runner's own manual Listener refuses, naming only its pid" || fail "#8404 twoman: rc $(rc twoman) $(cat "$T/twoman.out")"
+# Jobs are told apart by runner too: a job on this repo's runner does not stop the second's daemon; the second's own does.
+second; echo "$CIU 6100 1 $R/bin/Runner.Worker spawnclient 1 2" >> "$T/procs"; run twojobother FX_R="$R2" FX_LABEL="$L2" "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$R2" -- --apply daemon
+[ "$(rc twojobother)" = 0 ] && [ -f "$D2" ] && pass "#8404: a job on this repo's runner does not refuse the second runner's daemon" || fail "#8404 twojobother: rc $(rc twojobother) $(cat "$T/twojobother.out")"
+second; echo "$CIU 6200 1 $R2/bin/Runner.Worker spawnclient 1 2" >> "$T/procs"; run twojob FX_R="$R2" FX_LABEL="$L2" "${two[@]}" "KOSMOS_CI_RUNNER_DIR=$R2" -- --apply daemon
+[ "$(rc twojob)" = 1 ] && has twojob "a job is running (Runner.Worker 6200" && ! has twojob 6100 && [ ! -e "$D2" ] \
+  && pass "#8404: the second runner's own job refuses its daemon, named" || fail "#8404 twojob: rc $(rc twojob) $(cat "$T/twojob.out")"
 # The two settings are for the daemon stage only: every other stage refuses them before reading anything.
-for st in preflight verify register keepalive jq-programs; do
-  fixture; run "only-$st" "KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site" -- "$st"
+for st in preflight create-user verify register keepalive jq-programs "install 0123456789abcdef0123456789abcdef01234567 $(printf '0%.0s' $(seq 64))"; do
+  # shellcheck disable=SC2086  # $st carries install's two arguments
+  fixture; run "only-${st%% *}" "KOSMOS_CI_REPO=joshualeestone/chaoskosmos-site" -- $st; st="${st%% *}"
   [ "$(rc "only-$st")" = 2 ] && has "only-$st" "for the daemon stage only" && pass "#8404: $st refuses KOSMOS_CI_REPO" || fail "#8404 only-$st: rc $(rc "only-$st") $(cat "$T/only-$st.out")"
 done
 fixture; run onlydir "KOSMOS_CI_RUNNER_DIR=$H/actions-runner-site" -- verify

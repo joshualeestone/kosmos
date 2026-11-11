@@ -93,6 +93,8 @@ REPO_URL="https://github.com/$REPO"
 # other stage refuses the two below.
 # REPO (this script's own code and variables) never changes; RUNNER_REPO is only the runner's.
 RUNNER_REPO="${KOSMOS_CI_REPO:-$REPO}"
+# It feeds only the label (owner-name.runner): the LABEL is the runner's identity, checked against .service, the agent's
+# Label and its WorkingDirectory. Two spellings can give one label (a-b/c and a/b-c), so nothing may rely on this string.
 # It goes into a launchd label, a jq string and a gh api path: owner/name with only the characters GitHub allows.
 _ro="${RUNNER_REPO%%/*}"; _rn="${RUNNER_REPO#*/}"; _rbad=0
 [ "$_ro/$_rn" = "$RUNNER_REPO" ] || _rbad=1   # no '/' at all: both halves are the whole value
@@ -714,7 +716,7 @@ wait_for_listener() {
 
 # runner_busy: prints true or false; fails when the API could not say.
 runner_busy() {
-  gh api --paginate "repos/$RUNNER_REPO/actions/runners" --jq "$(jq_busy)" 2>/dev/null
+  gh api --paginate "repos/$REPO/actions/runners" --jq "$(jq_busy)" 2>/dev/null
 }
 
 # keepalive: as the CI user, over ssh or in its session. Adds KeepAlive to an installed runner's LaunchAgent and reloads
@@ -1036,7 +1038,7 @@ DAEMON_DIR="${KOSMOS_CI_DAEMON_DIR:-/Library/LaunchDaemons}"   # a test seam; la
 # runner_label: svc.sh's label for this runner, which the daemon keeps.
 runner_label() { printf 'actions.runner.%s.%s' "$(printf '%s' "$RUNNER_REPO" | tr '/' '-')" "$NAME"; }
 # daemon_xml: the one daemon plist this stage writes. Uses label and cigroup from daemon (dynamic scope); in daemon every
-# value is checked to need no XML escaping before this runs (NAME, CI_HOME at the top, CI_USER and cigroup there); in
+# value is checked to need no XML escaping before this runs (NAME, CI_HOME, RUNNER_DIR and RUNNER_REPO in the label at the top, CI_USER and cigroup there); in
 # verify CI_USER and cigroup are not, and a bad value only makes the comparison fail.
 daemon_xml() {
   cat <<EOF
