@@ -2068,19 +2068,29 @@ function inboxSince(raw) {
 /**
  * Who is sending this? One derivation, used by every route that needs it.
  *
- * 🛑 THREE EVIDENCE PATHS, IN ORDER, AND THE THIRD IS NEW (#1112).
+ * 🛑 FOUR EVIDENCE PATHS, IN ORDER (#1112, kosmos#8372).
  *   1. a token that resolves to a ROSTER CARD  -- an agent that is a live,
  *      tied, listable tmux pane. Unchanged, and still the strongest.
  *   2. a token that resolves to a NAME plus a LIVE HEARTBEAT -- an agent with
  *      no pane at all, which is every agent on a machine without tmux.
+ *   2b. kosmos#8372, `started` only, on a board running on WINDOWS, from THIS
+ *      computer (a loopback socket peer with no forwarding header): a token that
+ *      resolves to a NAME, was not issued to another computer, and belongs to an
+ *      agent launched here (a Windows session record) or with a profile, and not
+ *      removed. A session's start is the moment it has neither a row (not
+ *      registered yet) nor a heartbeat (written only after an authenticated
+ *      report); the route then beats liveness.
  *   3. no token: the pane, as before.
  *
  * ⚠️ PATH 2 IS NOT A RELAXATION OF PATH 1. `resolve` refuses a cardless agent
  * on purpose, and that refusal still stands on its own evidence. What path 2
  * adds is DIFFERENT evidence for the same fact: the pane proves an agent is
  * running BY EXISTING; a heartbeat proves it BY BEATING. Without a beat inside
- * the window there is no path 2 at all, so nothing here lets a token alone
- * speak for an agent that is not running.
+ * the window there is no path 2 at all. Path 2b is the one exception, and it is
+ * narrow on purpose: a local run's own `started` (its claim that it just began),
+ * never a remote-issued token, an unknown name or a removed agent. A held token
+ * whose run crashed without retiring it can therefore show "running" until the
+ * beat goes stale, as a still-beating one already could.
  *
  * 🔑 `alive()` RETURNS null FOR "NO RECORD", AND null IS NOT true. Every Mac
  * agent has no heartbeat record, so path 2 simply never fires for them and
@@ -2131,11 +2141,51 @@ function resolveAgentSender(req, body, roster, opts) {
   if (byName.ok && byName.twins !== true && liveness.alive(byName.key) === true) {
     return { ok: true, card: { sessionName: byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
   }
+  /* kosmos#8372: a LOCAL run's start is its own proof of life. On Windows the roster row appears only once Claude Code
+     registers the session, a moment after SessionStart, and the heartbeat is written only after an authenticated
+     report, so the `started` report could pass neither path and every session opened with "reporting is OFF" while its
+     later reports landed. The report route passes `startedReport` only for a `started` report from THIS computer (never
+     through the remote forwarder). The token must still be held (a retired, revoked or never-issued one is refused below
+     as before), name exactly one agent, not be one issued to another computer (launcher 'remote': nothing retires those,
+     so they would let a leaked token bootstrap a heartbeat from the network), and belong to an agent Kosmos launched here
+     or has a profile for and has not removed (review 1: otherwise a fresh token for any name, or a removed agent whose revoke
+     failed, could put a "running" card on the board with one call); and only on a board on Windows (review 2). The route then beats liveness, so the agent's next reports pass on
+     the heartbeat while registration catches up. ⚠️ This is a third, narrow way for a held token to speak without a row:
+     the heartbeat it writes lasts liveness.STALE_AFTER_MS, as any report's does. */
+  if (opts && opts.startedReport === true && byName.ok && byName.twins !== true && startedMayProveLife(byName)) {
+    return { ok: true, card: { sessionName: byName.key, isNamedOurs: true }, instance: byName.instance || null, paneless: true };
+  }
   /* The original refusal, verbatim: `resolve` deliberately gives the same
      sentence for "never issued" and "issued but no card", so that a probe
      cannot confirm a token was ever real. Substituting a message here would
      undo that. */
   return carded;
+}
+
+/* kosmos#8372: whether a held token's agent may prove life by its own `started` report (any `started`, automatic or not):
+   a board on Windows, not a token issued to another computer, an agent Kosmos launched here (a Windows session record) or
+   has a profile for, and not one the person removed. An unreadable profile list or a throw is
+   no; an unreadable removal list reads as none, as remove.removedAgents gives it to every caller. */
+/* Review 2: only a board on Windows. On a Mac or Linux the agent's tmux pane exists before Claude starts, so path 1 already
+   holds at SessionStart, and a Mac run that ended without retiring its token (agent-supervisor.sh keeps it until the next
+   launch) must not be able to show as running. A test seam, as status.js's platform seams are. */
+let startedProofPlatform = null;
+function _setStartedProofPlatformForTest(p) { startedProofPlatform = typeof p === 'string' ? p : null; }
+function startedMayProveLife(byName) {
+  try {
+    if ((startedProofPlatform || process.platform) !== 'win32') return false;
+    if (!byName || byName.launcher === 'remote') return false;
+    /* Created here: a Windows launch records its session under the agent's name BEFORE it mints the run token
+       (win32create.prepareSession, then mintForRun), so a brand-new agent's first start passes even though its profile
+       is written only after the launch succeeds (review 2); an older agent also has a profile. */
+    const recorded = Object.values(require('./engine/win32sessions').read()).some((r) => r && (r.name === byName.name || r.name === byName.key));
+    const known = require('./engine/register').known();
+    const profiled = known.ok && known.names.some((n) => n === byName.key || n === byName.name);
+    if (!recorded && !profiled) return false;
+    const removed = require('./engine/remove').removedAgents();
+    if (removed.some((r) => r && typeof r.name === 'string' && (r.name === byName.name || store.safeKey(r.name) === byName.key))) return false;
+    return true;
+  } catch { return false; }
 }
 
 /**
@@ -19327,6 +19377,9 @@ const server = http.createServer(async (req, res) => {
         const sender = resolveAgentSender(req, body, roster, {
           denyPaneFallback,
           denyBecause: 'this board only records a report from the account that started it; run `kosmos report` from that account, or present an agent token',
+          /* kosmos#8372: a local run's start proves life. Review 3: "local" is the SOCKET peer (loopback, which a client
+             cannot forge) AND no forwarding header, since with the network bind open a direct network caller sends none. */
+          startedReport: body.state === 'started' && isLoopbackPeer(req) && !isRemoteRequest(req),
         });
         if (!sender.ok) { noteTurnEndRefusal(body, sender.because); sendJson(res, 200, { recorded: false, because: sender.because }); return; }
 
@@ -30292,7 +30345,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 /* kosmos#8340: ages one agent's shown-counts record, so a test can show the block comes back after COUNTS_SHOWN_FOR_MS. */
 function _ageCountsShownForTest(agentKey, ms) { const e = COUNTS_SHOWN.get(String(agentKey)); if (e) e.at -= ms; return Boolean(e); }
-module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
+module.exports = { _setStartedProofPlatformForTest, _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
   _autobalanceSweepDepsForTest: autobalanceSweepDeps, // kosmos#7152 slice 3: the sweep's wiring, for its test
