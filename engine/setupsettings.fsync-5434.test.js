@@ -26,8 +26,9 @@ const setup = require('./setup-assistant');
 const store = require('./store');
 fs.mkdirSync(store.ROOT, { recursive: true });
 /* As engine/boardkeychain-4491.test.js: the launch-PATH part of the guard pinned empty, so this never reads the host's. */
-/* kosmos#8368: env pinned too (PATH empty), or the guard reads the host's own PATH: on a Windows box C:\Windows\System32
-   (over 4000 entries) made it report the launch PATH as not covered, and every save below read as not done. */
+/* kosmos#8368: env pinned too, so the shell-start and plugin-variable scans (the parts of the guard that read deps.env)
+   never read the host's environment. Not the cause of the Windows failure (that is the ancestor imports below); it
+   keeps one more host input out. */
 const DEPS = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude',
   panePath: path.join(SANDBOX, 'no-launch-path'), ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [], launchRunProgs: [],
   env: { PATH: '' } };
@@ -38,15 +39,28 @@ function fresh(name) { const d = path.join(SANDBOX, 'workers', name + '-' + (++N
 /* kosmos#8368: the token-only guard also covers what the instruction files ABOVE the agent's folder import (Claude Code
    walks up from its cwd). On Windows the temp folder sits inside the person's home, so a person whose own
    ~/.claude/CLAUDE.md imports files the permission rules cannot carry makes every sandbox here report ok:false: the
-   guard is right, the host is not clean. Asked once, of the guard itself, on a throwaway folder: when that is the only
-   thing it reports, the arms that need a clean "ok" skip, with its words. A clean host (CI, a Mac) runs them all. */
+   guard is right, the host is not clean. Asked once, of the guard itself, on a throwaway folder: when EVERY complaint it
+   makes is that kind (each entry's note is exactly the import note, nothing else, no PATH part), the arms that need a
+   clean "ok" skip, with its words. Anything else, a second complaint of any kind or a path with its own brackets,
+   runs the arms and fails loudly. Never on CI: a runner's home is clean, so a skip there would only hide a fault. */
+const IMPORT_NOTE = '(a file an instruction file imports, whose path the permission rules cannot carry)';
+const COVER_PREFIX = 'a file or folder Claude Code reads at start could not be covered (';
+function onlyImportComplaints(reason) {
+  let s = String(reason || '');
+  if (!s.startsWith(COVER_PREFIX)) return false;
+  s = s.slice(COVER_PREFIX.length).replace(/\): renaming that folder[\s\S]*$/, ')').replace(/\)$/, '');
+  const notes = s.match(/\([^()]*\)/g) || [];
+  return notes.length > 0 && notes.every((n) => n === IMPORT_NOTE) && !/[()]/.test(s.replace(/\([^()]*\)/g, ''));
+}
 const HOST_NOT_CLEAN = (() => {
+  if (process.env.GITHUB_ACTIONS === 'true') return false;
   const d = fresh('hostcheck');
   fs.writeFileSync(path.join(d, '.claude', 'settings.json'), '{}\n');
   let r;
   try { r = setup.guardTokenOnlyFolder(d, path.basename(d), DEPS); } catch { return false; }
-  if (!r || r.ok !== false || r.pathReason || !/an instruction file imports/.test(String(r.otherReason || ''))) return false;
-  return `this computer's own instruction files, above every temp folder, import files the guard cannot cover (${String(r.otherReason).slice(0, 160)}...), so the token-only guard cannot answer ok here`;
+  if (!r || r.ok !== false || r.pathReason || !onlyImportComplaints(r.otherReason)) return false;
+  const why = String(r.otherReason);
+  return `this computer's own instruction files, above every temp folder, import files the guard cannot cover (${why.length > 160 ? why.slice(0, 160) + '...' : why}), so the token-only guard cannot answer ok here`;
 })();
 const writeJson = (file, obj) => fs.writeFileSync(file, JSON.stringify(obj, null, 2) + '\n', { mode: 0o644 });
 const sandboxOf = (file) => (JSON.parse(fs.readFileSync(file, 'utf8')).sandbox || {});
@@ -96,6 +110,8 @@ const WRITERS = [
 const isTemp = (file, p) => String(p).startsWith(file + '.kosmos-') && /\.kosmos-\d+-(?:t\d+-)?\d+-\d+\.tmp$/.test(String(p));
 
 for (const W of WRITERS) {
+  /* The arms whose answer the host's own imports decide: the ones that need "ok", and the two that expect a refusal
+     (on an unclean host the guard refuses anyway, so those would pass without testing the flush or the attempts). */
   const needsCleanOk = { skip: (W.hostBound && HOST_NOT_CLEAN) || false };
   test(`#5434 ${W.name}: the temp renamed into the file is flushed first`, needsCleanOk, () => {
     const { file, save, wrote } = W.make();
@@ -126,7 +142,7 @@ for (const W of WRITERS) {
     assert.equal(fs.statSync(file).mode & 0o777, 0o640, 'the mode was not kept');
   });
 
-  test(`#5434 ${W.name}: when every atomic attempt fails the save is refused and the file is left as it was`, () => {
+  test(`#5434 ${W.name}: when every atomic attempt fails the save is refused and the file is left as it was`, needsCleanOk, () => {
     const { file, save } = W.make();
     const before = fs.readFileSync(file);
     const realOpen = fs.openSync;
@@ -179,7 +195,7 @@ for (const W of WRITERS) {
     assert.equal(fs.existsSync(live), true, 'a live writer\'s temp was reaped');
   });
 
-  test(`#5434 ${W.name}: a flush that fails refuses the save, leaves the file, and leaves no temp`, () => {
+  test(`#5434 ${W.name}: a flush that fails refuses the save, leaves the file, and leaves no temp`, needsCleanOk, () => {
     const { file, save } = W.make();
     const before = fs.readFileSync(file);
     const realOpen = fs.openSync;

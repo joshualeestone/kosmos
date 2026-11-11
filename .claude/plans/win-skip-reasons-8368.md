@@ -8,19 +8,21 @@ mutation check. Phase 2 (the full `npm test` on Windows, 508 failing files by ca
 ## Measured on the Windows box (origin/main 53a164708d)
 `node tools/windows-tests.js`: 226 passed, 2 new red, 4 stale:
 - engine/setupsettings.fsync-5434: 4 token-only tests fail "the save did not happen". The guard read the HOST: its
-  launch-PATH part read process.env.PATH (C:\Windows\System32, over 4000 entries, "could not cover"), and its import
-  part read this computer's own ~/.claude/CLAUDE.md, an ANCESTOR of every temp folder on Windows (TEMP sits inside the
-  home), whose imports the permission rules cannot carry. A clean CI runner has neither.
+  import part read this computer's own ~/.claude/CLAUDE.md, an ANCESTOR of every temp folder on Windows (TEMP sits
+  inside the home), whose imports the permission rules cannot carry. A clean CI runner's home has no such file.
 - engine/bigint-ino.win32-7229: "no colliding pair could be made on this disk" after 2.8 s, i.e. all 128 rounds ran
-  out long before the 60 s bound, during a run with heavy parallel file churn. Alone: 6 of 6 passed, 4 at once passed.
+  out long before the 60 s bound (the file took 5 s in all), during a run with heavy parallel file churn. Alone: 6 of 6 passed, 4 at once passed.
 - 4 STALE (ALL_SKIP_OK, "its tests run now"): the win32 agy/codex e2e files skip on the runner (no runners there) and
   RUN on a box that has them, so every real Windows box with the runners fails the suite.
 
 ## Change
-- engine/setupsettings.fsync-5434.test.js: DEPS pins `env: { PATH: '' }`. HOST_NOT_CLEAN asks the guard itself, once,
-  on a throwaway folder: when its only complaint is "an instruction file imports" (no PATH reason), the two arms that
-  need a clean ok skip, in the guard's own words. A clean host runs them all. The guard is right; the host is not clean.
-- engine/bigint-ino.win32-7229.test.js: rounds up to 4096; the 60 s bound decides. Cause inferred, not measured.
+- engine/setupsettings.fsync-5434.test.js: DEPS also pins `env` (the shell-start and plugin scans; not the cause, one
+  more host input out; review 1 corrected my first diagnosis, which blamed the PATH: that came from my own probe, which
+  lacked the launch-PATH pins the test already had). HOST_NOT_CLEAN asks the guard itself, once, on a throwaway
+  folder: only when EVERY complaint is the import note (and never on CI) do the four arms whose answer the host decides
+  skip, in the guard's own words: the two needing ok, and the two expecting a refusal, which an unclean host gives anyway. A clean host runs them all. The guard is right; the host is not clean.
+- engine/bigint-ino.win32-7229.test.js: rounds up to 4096; the 60 s bound decides. Cause inferred, not measured. The
+  failure now says how many rounds ran, in how long, and which bound ended it, so the next one tells which.
 - tools/windows-tests.js: `judge(..., { onCi })`. An ALL_SKIP_OK file that runs and passes is stale only on CI
   (GITHUB_ACTIONS === 'true'), where it still catches an entry no longer needed; elsewhere it prints "ran here".
   Default onCi true, so every existing caller keeps the CI rule.

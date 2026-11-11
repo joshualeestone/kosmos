@@ -30,11 +30,14 @@ function collidingFiles(where) {
   const pool = path.join(where, 'pool');
   fs.mkdirSync(pool, { recursive: true });
   const until = Date.now() + 60000;
+  const t0 = Date.now();
+  let rounds = 0;
   /* kosmos#8368: the 60 s is the bound, not the round count. On the Windows box, while other test files ran in parallel,
      all 128 rounds finished in 2.8 s with no pair (the windows-tests run of 11-11), so the cap ran out long before
      the time did. Inferred, not measured: other writers on the disk take the freed records, so this pool's records are
      reused less often. Alone, a pair is found well inside 128 rounds (6 runs here, and 4 at once). */
   for (let round = 0; round < 4096 && Date.now() < until; round++) {
+    rounds = round + 1;
     const made = [];
     for (let i = 0; i < 64; i++) { const file = path.join(pool, 'r' + round + '-' + i + '.txt'); fs.writeFileSync(file, 'same size\n'); made.push(file); }
     const byNumber = new Map();
@@ -48,14 +51,16 @@ function collidingFiles(where) {
     }
     for (const m of made) fs.unlinkSync(m);
   }
+  GAVE_UP = `${rounds} rounds of 64 files in ${Date.now() - t0} ms, ended by ${rounds >= 4096 ? 'the round cap' : 'the 60 s bound'}`;
   return null;
 }
 let PAIR;
+let GAVE_UP = '';   // kosmos#8368: what the search spent before it gave up, said in the failure
 const pair = () => (PAIR === undefined ? (PAIR = collidingFiles(path.join(SANDBOX, 'ids'))) : PAIR);
 
 test('#7229: the download guard tells apart two files whose number ids collide', winOnly, (t) => {
   const p = pair();
-  if (!p) { assert.fail('no colliding pair could be made on this disk (review 6: never a silent skip)'); }
+  if (!p) { assert.fail('no colliding pair could be made on this disk (review 6: never a silent skip): ' + GAVE_UP); }
   const [a, b] = p;
   assert.equal(fs.statSync(a).ino, fs.statSync(b).ino, 'the collision this test needs');
   const gated = projects.exactPathStat(fs.statSync(a), a, false);
@@ -74,7 +79,7 @@ test('#7229: the download guard tells apart two files whose number ids collide',
 
 test('#7229: the board-log reader does not take a colliding file for board.log', winOnly, (t) => {
   const p = pair();
-  if (!p) { assert.fail('no colliding pair could be made on this disk (review 6: never a silent skip)'); }
+  if (!p) { assert.fail('no colliding pair could be made on this disk (review 6: never a silent skip): ' + GAVE_UP); }
   const [log, other] = p;
   const out = fs.openSync(other, 'r');
   try {
@@ -119,7 +124,7 @@ const { Worker } = require('node:worker_threads');
 
 test('#7229 review 1: the zip\'s first check (the listed entry against the gate) refuses a colliding file swapped in', winOnly, (t) => {
   const p = pair();
-  if (!p) { assert.fail('no colliding pair could be made on this disk (review 6: never a silent skip)'); }
+  if (!p) { assert.fail('no colliding pair could be made on this disk (review 6: never a silent skip): ' + GAVE_UP); }
   const dir = path.join(SANDBOX, 'zip');
   fs.mkdirSync(dir, { recursive: true });
   const [a, b] = p;
