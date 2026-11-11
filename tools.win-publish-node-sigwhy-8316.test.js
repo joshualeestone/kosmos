@@ -46,6 +46,18 @@ $env:PATH = ''
 $env:LOCALAPPDATA = $args[1]
 $script:Mode = $args[2]
 $script:Reads = 0
+# nocmd: Get-Command itself fails for the cmdlet, as Windows PowerShell 5.1 did when started (through cmd) from
+# pwsh 7 on the release PC, 11-11. Every other lookup goes to the real Get-Command.
+function Get-Command {
+  [CmdletBinding()] param([Parameter(Position = 0)] $Name, $CommandType)
+  if ($script:Mode -ceq 'nocmd' -and "$Name" -ceq 'Get-AuthenticodeSignature') {
+    # A non-terminating error, as the real lookup writes: -ErrorAction decides whether it stops the caller.
+    $e = [System.Management.Automation.CommandNotFoundException]::new("The 'Get-AuthenticodeSignature' command was found in the module 'Microsoft.PowerShell.Security', but the module could not be loaded.")
+    $PSCmdlet.WriteError([System.Management.Automation.ErrorRecord]::new($e, 'CouldNotAutoloadMatchingModule', 'ObjectNotFound', $Name))
+    return
+  }
+  Microsoft.PowerShell.Core\Get-Command @PSBoundParameters
+}
 function Get-AuthenticodeSignature {
   [CmdletBinding()] param([string] $LiteralPath)
   $script:Reads += 1
@@ -115,7 +127,7 @@ for (const ps of RUNTIMES) {
     assert.doesNotMatch(r.lines[0], /could not be read/);
   });
 
-  test('#8316 ' + ps + ': a read that returns NotSigned still says the status, with no reason in brackets (control)', () => {
+  test('#8316 ' + ps + ': a read that returns NotSigned still says the status, with no reason (control)', () => {
     const r = run(ps, 'notsigned', 1);
     assert.deepStrictEqual(r.results, ['NONE']);
     // Only the text after the path: a temp folder may itself hold a bracket.
@@ -141,6 +153,13 @@ for (const ps of RUNTIMES) {
     const r = run(ps, 'throw', 2, bin);
     assert.strictEqual(r.reads, 1, 'signature reads');
     assert.deepStrictEqual(r.results, ['NONE', 'FOUND ' + node]);
+  });
+
+  test('#8316 ' + ps + ': a Get-Command that itself fails for the cmdlet says why, and reads nothing', () => {
+    const r = run(ps, 'nocmd', 1);
+    assert.deepStrictEqual(r.results, ['NONE']);
+    assert.strictEqual(r.reads, 0, 'no signature read');
+    assert.match(r.lines[0], /no working Get-AuthenticodeSignature \(on Windows, check its module path\): The 'Get-AuthenticodeSignature' command was found in the module 'Microsoft\.PowerShell\.Security', but the module could not be loaded\.$/);
   });
 
   test('#8316 ' + ps + ': a multi-line reason is cut to its first non-blank line', () => {
