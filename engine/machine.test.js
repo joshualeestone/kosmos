@@ -726,7 +726,7 @@ test('#2397 / #570: a platform with nothing true to say has the row omitted (nul
   const p2 = require('node:path');
   const fs2 = require('node:fs');
   const empty = fs2.mkdtempSync(p2.join(os2.tmpdir(), 'kosmos-win-'));
-  const got2 = machine.check({ pmset: DESKTOP_AWAKE, claudeBin: REAL_BIN, tmuxBin: REAL_BIN, runner: okRunner, appDirs: [empty, empty], platform: 'linux' });
+  const got2 = machine.check({ claudeBin: REAL_BIN, tmuxBin: REAL_BIN, runner: okRunner, appDirs: [empty, empty], platform: 'linux' });   // kosmos#8375: no pmset on Linux
   fs2.rmSync(empty, { recursive: true, force: true });
   assert.ok(got2.checks.every((c) => c && c.key && c.state), 'a null row leaked into checks');
   assert.ok(!got2.checks.some((c) => c.key === 'autostart'), 'the autostart row rendered on a platform we cannot read');
@@ -1662,4 +1662,23 @@ test('sleepGate: unreadable pmset (junk, empty, failed runner) -> checkable:fals
   }
   const deadRunner = () => ({ ok: false, stdout: '', stderr: 'boom' });
   assert.equal(machine.sleepGate({ runner: deadRunner }).checkable, false, 'a failed pmset read is uncheckable, not a gate');
+});
+
+test('kosmos#8375 Linux draws no launchd or sleep rows and asks no macOS tool', () => {
+  const os2 = require('node:os'); const path2 = require('node:path'); const fs2 = require('node:fs');
+  const empty = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'kosmos-8375-'));
+  const asked = [];
+  const runner = (cmd, args) => { asked.push(cmd); return { ok: false, stdout: '', stderr: 'not found', code: 127 }; };
+  const opts = { claudeBin: REAL_BIN, tmuxBin: REAL_BIN, appDirs: [empty, empty], runner };
+  let linux, mac;
+  try {
+    linux = machine.check({ ...opts, platform: 'linux' });
+    // Control, same runner: on darwin the sleep and both launchd rows are drawn and pmset is asked.
+    mac = machine.check({ ...opts, platform: 'darwin', installedRoot: null, disabled: { ok: true, jobs: [] } });
+  } finally { fs2.rmSync(empty, { recursive: true, force: true }); }
+  assert.deepEqual(linux.checks.map((c) => c.key), ['installed'], 'linux keys');
+  assert.equal(linux.unknown, 0, 'nothing Linux cannot read is counted as could-not-check');
+  const macKeys = mac.checks.map((c) => c.key);
+  assert.ok(['sleep', 'restart', 'labels'].every((k) => macKeys.includes(k)), 'control, darwin keys: ' + macKeys.join(','));
+  assert.equal(asked.filter((c) => c === '/usr/bin/pmset').length, 1, 'only darwin asked pmset, not Linux');
 });

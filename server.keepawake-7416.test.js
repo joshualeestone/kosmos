@@ -84,6 +84,8 @@ test('#7416 slice 3: the sleep row carries the switch on a Mac, only with the se
     return (m.json.checks || []).find((c) => c && c.key === 'sleep');
   };
   const row = await read();
+  /* kosmos#8375: Linux has no sleep row at all (nothing there reads sleep); Windows has one, with no switch. */
+  if (process.platform === 'linux') { assert.equal(row, undefined, 'a sleep row was drawn on Linux, which cannot read it'); return; }
   assert.ok(row, 'CONTROL: /api/machine has a sleep row');
   if (!MAC) { assert.equal('keepAwake' in row, false, 'a switch was drawn where nothing can hold the computer awake'); return; }
   assert.deepEqual(row.keepAwake, { on: false, holding: false, because: '' });

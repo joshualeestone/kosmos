@@ -174,7 +174,7 @@ test('#5999: without the install folder (a hand-run CLI; the launcher always pas
   stubSchedulers([listing([])]);
   const r = await run(h, { bundleRoot: null });
   assert.equal(fs.readFileSync(def, 'utf8'), bytes);
-  assert.ok(r.notes.some((l) => /Claude Code's and Gemini CLI's settings were not checked/.test(l) && /could not tell which folder/.test(l)), JSON.stringify(r.notes));
+  assert.ok(r.notes.some((l) => /Claude Code's and Gemini CLI's settings were not checked/.test(l) && /could not tell which folder/.test(l) && /hooks\.json in each \.codex-<name> folder in your home folder if it names codex-report-bridge\.js\.$/.test(l)), JSON.stringify(r.notes));
   assert.ok(!r.left.some((l) => /Claude Code's settings/.test(l)), 'no root was made a leftover, which keeps the removal unfinished for good: ' + JSON.stringify(r.left));
 });
 
@@ -471,4 +471,90 @@ test('kosmos#8361: a person\'s script with our marker in its name, run by this i
   const r = reporthook.unwireInstall(file, [BUNDLE], { gone: () => false, marker: geminisettings.MARKER, programToo: true });
   assert.equal(r.changed, true, 'CONTROL: ours beside it was not taken');
   assert.deepEqual(readJson(file), { hooks: { AfterAgent: [theirs] } });
+});
+
+/* kosmos#8361, the Codex half: the hook #8348 writes into each named Codex home goes with the uninstall, by the same
+   rules; the person's own ~/.codex is never looked at, even holding a hook in our exact shape. */
+const codexhooks = require('./codexhooks');
+const codexInstall = (dir, root) => {
+  fs.mkdirSync(dir, { recursive: true });
+  const r = root || BUNDLE;
+  assert.deepEqual(codexhooks.install(dir, r + '\\app\\bin\\codex-report-bridge.js', codexhooks.HASH_VERIFIED_FOR, { platform: 'win32', node: r + '\\runtime\\node.exe' }), { ok: true });
+};
+
+test('kosmos#8361: the uninstall takes this install\'s Codex hook and its record out of each ~/.codex-<label>; ~/.codex and another install\'s stay', async () => {
+  const h = home();
+  const named = path.join(h, '.codex-work');
+  const own = path.join(h, '.codex');
+  const other = path.join(h, '.codex-other');
+  codexInstall(named);
+  codexInstall(own);
+  codexInstall(other, 'C:\\Kosmos2');
+  const ownBytes = [fs.readFileSync(path.join(own, 'hooks.json'), 'utf8'), fs.readFileSync(path.join(own, 'config.toml'), 'utf8')];
+  const otherBytes = fs.readFileSync(path.join(other, 'hooks.json'), 'utf8');
+  stubSchedulers([listing([])]);
+  const r = await run(h);
+  assert.equal(fs.existsSync(path.join(named, 'hooks.json')), false, 'the named home kept our hook');
+  assert.equal(fs.readFileSync(path.join(named, 'config.toml'), 'utf8'), '', 'its trust record stayed');
+  assert.deepEqual([fs.readFileSync(path.join(own, 'hooks.json'), 'utf8'), fs.readFileSync(path.join(own, 'config.toml'), 'utf8')], ownBytes, '~/.codex was touched');
+  assert.equal(fs.readFileSync(path.join(other, 'hooks.json'), 'utf8'), otherBytes, 'another install\'s live hook was taken');
+  assert.ok(r.done.some((d) => d.includes('Codex') && d.includes(named) && d.includes('trust entry')), JSON.stringify(r.done));
+  assert.ok(!r.left.some((l) => /Codex/.test(l)), JSON.stringify(r.left));
+});
+
+test('kosmos#8361: a Codex hooks.json Kosmos cannot read is never called Kosmos\'s; the note says to delete it only if it names our bridge', async () => {
+  const h = home();
+  const named = path.join(h, '.codex-work');
+  fs.mkdirSync(path.join(named, 'hooks.json'), { recursive: true });   // unreadable on every platform (EISDIR)
+  stubSchedulers([listing([])]);
+  const r = await run(h);
+  assert.ok(!r.left.some((l) => /Codex/.test(l)), 'an unreadable file was claimed as ours: ' + JSON.stringify(r.left));
+  const note = r.notes.find((n) => n.includes(named));
+  assert.ok(note && /could not be checked/.test(note) && /If it names codex-report-bridge\.js/.test(note) && /leave it/.test(note), JSON.stringify(r.notes));
+  assert.equal(fs.statSync(path.join(named, 'hooks.json')).isDirectory(), true);
+});
+
+test('kosmos#8361: a Codex check that throws is never reported as Kosmos\'s hook; it gets the conditional note', async () => {
+  const h = home();
+  const named = path.join(h, '.codex-work');
+  fs.mkdirSync(named, { recursive: true });
+  const orig = codexhooks.unwireInstall;
+  codexhooks.unwireInstall = () => { throw new Error('broken module'); };
+  let r;
+  try {
+    stubSchedulers([listing([])]);
+    r = await run(h);
+  } finally { codexhooks.unwireInstall = orig; }
+  assert.ok(!r.left.some((l) => /Codex/.test(l)), JSON.stringify(r.left));
+  assert.ok(r.notes.some((n) => n.includes(named) && /If it names codex-report-bridge\.js/.test(n)), JSON.stringify(r.notes));
+});
+
+test('kosmos#8361: a Codex hook a retry cannot take out is a note (the removal can finish); a busy one is a leftover', async () => {
+  const h = home();
+  const stuckHome = path.join(h, '.codex-a');
+  const busyHome = path.join(h, '.codex-b');
+  fs.mkdirSync(stuckHome, { recursive: true });
+  fs.mkdirSync(busyHome, { recursive: true });
+  const orig = codexhooks.unwireInstall;
+  codexhooks.unwireInstall = (dir) => (dir === stuckHome
+    ? { ours: true, changed: false, stuck: true, because: 'its folder would not let Kosmos lock it' }
+    : { ours: true, changed: false, stuck: false, because: 'another program was writing the Codex config' });
+  let r;
+  try {
+    stubSchedulers([listing([])]);
+    r = await run(h);
+  } finally { codexhooks.unwireInstall = orig; }
+  assert.ok(!r.left.some((l) => l.includes(stuckHome)), 'a stuck folder kept the removal unfinished for good: ' + JSON.stringify(r.left));
+  assert.ok(r.notes.some((n) => n.includes(stuckHome) && /would not let Kosmos lock it/.test(n)), JSON.stringify(r.notes));
+  assert.ok(r.left.some((l) => l.includes(busyHome) && /remove Kosmos again/.test(l)), JSON.stringify(r.left));
+});
+
+test('kosmos#8361: while a Kosmos task is still registered, the Codex hook is not touched either', async () => {
+  const h = home();
+  const named = path.join(h, '.codex-work');
+  codexInstall(named);
+  const bytes = fs.readFileSync(path.join(named, 'hooks.json'), 'utf8');
+  stubSchedulers([listing(['Kosmos\\Kosmos Agent abc'])]);
+  await run(h);
+  assert.equal(fs.readFileSync(path.join(named, 'hooks.json'), 'utf8'), bytes);
 });
