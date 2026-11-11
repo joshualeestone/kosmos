@@ -3,7 +3,8 @@
 /**
  * #6173: the pane roster read without blocking the board's thread (an account move's restarts ask it). One body
  * yields each tmux call and two drivers answer it; these pin that the async driver gives the sync one's answer, from a
- * real tmux process (a stand-in shell script, so a Mac and Linux file: it is not in tools/windows-tests.js), while the
+ * real tmux process (a stand-in shell script, so a Mac and Linux file: it skips on Windows, listed in
+ * tools/windows-tests.js's HOST_BRANCH_EXCLUDED with its reason, kosmos#8378), while the
  * board's thread keeps turning.
  */
 

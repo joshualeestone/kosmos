@@ -5,7 +5,7 @@
  * speaks an id minted under another install.
  *
  * Same harness shape as server.leftover-removable.test.js: the real server
- * against a sandboxed store with a stub tmux reporting an empty fleet, so
+ * against a sandboxed store with an empty fleet (from the pane source, kosmos#8378), so
  * both seeded agents land in the offline roster deterministically. The
  * install id is PINNED by seeding ping.json, because the whole distinction
  * under test is "this install's id" versus "some other install's id".

@@ -92,8 +92,8 @@ function readBoardIn(sb, launchctlListStdout, systemdActiveUnits) {
 
   const bin = nodePath.join(sb, 'bin');
   fs.mkdirSync(bin, { recursive: true });
-  // An empty fleet: the board can see no session for ghost, which is the
-  // half of the disagreement the board holds.
+  // The board sees no session for ghost (the half of the disagreement the board holds): that empty fleet comes from
+  // the pane source set in the child below (kosmos#8378). This stub only satisfies the sandbox guard (#1651).
   fs.writeFileSync(nodePath.join(bin, 'tmux'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
   const script = `

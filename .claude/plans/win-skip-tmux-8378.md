@@ -16,7 +16,8 @@ failures are not tmux, despite the name): `tools.sbom-o05` (tar and a control ch
 `server.post-project-2837` was done in the first cluster.
 
 ## Change
-**Fixed, so they run on Windows (5 tests).** Review round 1 showed the tmux in these is only the fixture's way of
+**Fixed, so they run on Windows (5 tests)** (in `npm test` on a Windows computer, the card's done-when; the Windows CI job does
+not select either file, so CI coverage there is unchanged). Review round 1 showed the tmux in these is only the fixture's way of
 giving the board an empty fleet, and the logic under test runs on the Windows board too (except #668's job arm, below):
 - `server.agent-id` (#170, #704): the child board now gets its roster through `status.setPaneSource`, the seam the
   Windows board itself uses (server.js wires win32roster into it). Empty for #170; for #704 null three times (a failed
@@ -39,7 +40,7 @@ giving the board an empty fleet, and the logic under test runs on the Windows bo
   pass on Windows only because neither driver could spawn the fake at all, so it never reached the case it names;
   it skips with its siblings.
 - `engine/last-look` (1 of 5): reads a real tmux server of its own. Constant `SKIP_NO_TMUX`.
-- `tools/windows-tests.js`: those two files in HOST_BRANCH_EXCLUDED (20 entries now), each built from the file's own
+- `tools/windows-tests.js`: those two files in HOST_BRANCH_EXCLUDED (20 skipOnWin32 entries now, of 55), each built from the file's own
   reason, which the #1777 audit checks.
 
 ## Result (each file run alone on the Windows box, the no-schtasks preload)
