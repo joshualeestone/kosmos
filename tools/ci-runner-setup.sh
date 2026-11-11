@@ -88,13 +88,16 @@ REPO="joshualeestone/kosmos"
 REPO_URL="https://github.com/$REPO"
 # kosmos#8404: the runner the daemon stage acts on, when it is not this repo's runner in $CI_HOME/actions-runner.
 # Another runner under the same user (Mortals has three, one per repo; the old CI Mac has the relay's beside this one)
-# can be named by its repo and its dir. Only the daemon stage takes them (keepalive could, untested, so not yet): install
-# and register fetch this repo's job guard, and preflight and verify read this repo's variables and labels, so every
-# other stage refuses the two below.
+# can be named by its repo and its dir. Only the daemon stage takes them: install and register fetch this repo's job
+# guard, preflight and verify read this repo's variables and labels, and keepalive asks this repo whether the runner is
+# busy (runner_busy, on $REPO) and checks this repo's label, so every other stage refuses the two below. Opening
+# keepalive to them means moving runner_busy and its want_label to RUNNER_REPO together, with a test.
 # REPO (this script's own code and variables) never changes; RUNNER_REPO is only the runner's.
 RUNNER_REPO="${KOSMOS_CI_REPO:-$REPO}"
 # It feeds only the label (owner-name.runner): the LABEL is the runner's identity, checked against .service, the agent's
 # Label and its WorkingDirectory. Two spellings can give one label (a-b/c and a/b-c), so nothing may rely on this string.
+# Spell it as the runner was registered: svc.sh took the label from that URL as typed, case included (GitHub's own
+# names ignore case; a label does not), and another spelling finds no LaunchAgent and refuses.
 # It goes into a launchd label, a jq string and a gh api path: owner/name with only the characters GitHub allows.
 _ro="${RUNNER_REPO%%/*}"; _rn="${RUNNER_REPO#*/}"; _rbad=0
 [ "$_ro/$_rn" = "$RUNNER_REPO" ] || _rbad=1   # no '/' at all: both halves are the whole value
@@ -762,7 +765,7 @@ keepalive() {
     || { echo "refused: $plist has Label $label, not its own name; nothing was changed (svc.sh writes them the same)" >&2; exit 1; }
   # And it must be the label svc.sh derives for THIS runner (actions.runner.<owner>-<repo>.<name>): a job can write this
   # home, so a copy of the relay's plist with its WorkingDirectory rewritten would pass the two checks above.
-  local want_label; want_label="actions.runner.$(printf '%s' "$RUNNER_REPO" | tr '/' '-').$NAME"
+  local want_label; want_label="actions.runner.$(printf '%s' "$REPO" | tr '/' '-').$NAME"
   [ "$label" = "$want_label" ] \
     || { echo "refused: $plist has Label $label, not $want_label (this repo's runner $NAME; set KOSMOS_CI_RUNNER_NAME for another); nothing was changed" >&2; exit 1; }
   local ciuid; ciuid="$(id -u "$CI_USER" 2>/dev/null)" || { echo "refused: no user $CI_USER on this Mac" >&2; exit 1; }
