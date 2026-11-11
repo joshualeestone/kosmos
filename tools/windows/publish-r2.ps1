@@ -278,25 +278,28 @@ function Get-GitLine([string[]] $GitArgs) {
 # could as well put a node on PATH), and the issuer is not pinned (a root the user added would make a look-alike Valid).
 # The release PC is trusted as a whole, as before this fallback. The signature read is not under -NodeTimeoutSec: about
 # half a second on the release PC online (11-09), not measured offline; it runs only when PATH has no node.
-# Said on stderr once per run (the first verdict), so the run's log shows which binary checked the build, and names a
-# .cmd shim it skipped on PATH, if there was one. kosmos#8316: that first verdict is also kept for the run, so every
-# later call returns what the line said, without reading the signature again. A refusal is kept too: a read that
-# failed is retried only by running the script again. Returns an object with .Source, or $null.
+# Said on stderr when the verdict is reached, so the run's log shows which binary checked the build, and names a
+# .cmd shim it skipped on PATH, if there was one. kosmos#8316: the verdict is kept with the file's length and last-write
+# time, and a later call returns it without reading the signature again while both are unchanged; if either changed
+# (an update rewrote the file), the signature is read again and said again. A refusal is kept the same way. Returns an
+# object with .Source, or $null.
 $KosmosAppNode = 'Programs\Kosmos\runtime\node.exe'   # ONE place: the stderr line always names the binary returned
 $NodePublisher = 'OpenJS Foundation'
 $script:SaidRuntimeNode = $false   # declared for StrictMode, as the script's other run-wide flags
 $script:RuntimeNodeVerdict = $null
+$script:RuntimeNodeStamp = ''
 function Get-NodeExe {
   $found = @(Get-Command node -CommandType Application -ErrorAction SilentlyContinue)
   $onPath = $found | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1
   if ($onPath) { return $onPath }
   if (-not $env:LOCALAPPDATA) { return $null }
-  if ($script:SaidRuntimeNode) { return $script:RuntimeNodeVerdict }
+  $p = Join-Path $env:LOCALAPPDATA $KosmosAppNode
+  if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return $null }
+  $stamp = try { $it = Get-Item -LiteralPath $p -ErrorAction Stop; "$($it.Length)|$($it.LastWriteTimeUtc.Ticks)" } catch { '' }
+  if ($script:SaidRuntimeNode -and $stamp -and $stamp -ceq $script:RuntimeNodeStamp) { return $script:RuntimeNodeVerdict }
   $shim = $found | Select-Object -First 1
   # Off Windows (pwsh) there is no Authenticode cmdlet: nothing can be checked, so nothing is used.
   $canCheck = [bool](Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue)
-  $p = Join-Path $env:LOCALAPPDATA $KosmosAppNode
-  if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { return $null }
   # A read that throws (a locked file, a broken module) is no signature: not used, and the caller refuses cleanly.
   # kosmos#8316: the line says why, in the exception's own first line. A CommandNotFoundException (the command
   # cannot run, for example its module did not load) takes the no-cmdlet branch, which names the module path.
@@ -314,14 +317,14 @@ function Get-NodeExe {
   $signer = if ($sig -and $sig.SignerCertificate) { $sig.SignerCertificate.GetNameInfo([Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) } else { '' }
   $trusted = $sig -and "$($sig.Status)" -ceq 'Valid' -and $signer -ceq $NodePublisher
   $why = if ($shim) { "no node executable on PATH (skipped the shim $($shim.Source): cmd.exe would mangle the arguments)" } else { 'no node on PATH' }
-  $because = if ($readErr) { " ($readErr)" } else { '' }
   $line = if ($trusted) { "using the installed Kosmos app's own (signed by $NodePublisher): $p" }
     elseif (-not $canCheck) { "NOT using the Kosmos app's node at ${p}: this PowerShell has no working Get-AuthenticodeSignature (on Windows, check its module path)$(if ($readErr) { ": $readErr" })" }
-    elseif ($readErr) { "NOT using the Kosmos app's node at ${p}: its signature could not be read$because, so it is not known to be Valid from $NodePublisher" }
-    else { "NOT using the Kosmos app's node at ${p}: its signature is $(if ($sig) { "$($sig.Status)" } else { 'unreadable' })$(if ($signer) { " from $signer" }), not Valid from $NodePublisher" }
+    elseif (-not $sig) { "NOT using the Kosmos app's node at ${p}: its signature could not be read$(if ($readErr) { ": $readErr" }), so it is not known to be Valid from $NodePublisher" }
+    else { "NOT using the Kosmos app's node at ${p}: its signature is $($sig.Status)$(if ($signer) { " from $signer" }), not Valid from $NodePublisher" }
   [Console]::Error.WriteLine("publish-r2: $why; $line")
   $script:RuntimeNodeVerdict = if ($trusted) { [pscustomobject]@{ Source = $p } } else { $null }
-  $script:SaidRuntimeNode = $true   # once per run: a run checks with node two or three times, on this one path
+  $script:RuntimeNodeStamp = $stamp
+  $script:SaidRuntimeNode = $true
   $script:RuntimeNodeVerdict
 }
 # The words for a refusal when Get-NodeExe found none: where it looked, so the fix is plain.

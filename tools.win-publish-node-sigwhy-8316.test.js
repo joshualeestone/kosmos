@@ -50,6 +50,8 @@ function Get-AuthenticodeSignature {
   [CmdletBinding()] param([string] $LiteralPath)
   $script:Reads += 1
   if ($script:Mode -ceq 'throw') { throw 'The process cannot access the file because it is being used by another process.' }
+  if ($script:Mode -ceq 'multiline') { $nl = [string][char]10; throw ($nl + '  ' + $nl + 'first line of the reason' + $nl + 'second line') }
+  if ($script:Mode -ceq 'blank') { throw [System.IO.IOException]::new('') }
   if ($script:Mode -ceq 'noload') { throw [System.Management.Automation.CommandNotFoundException]::new('The Get-AuthenticodeSignature command was found in the module Microsoft.PowerShell.Security, but the module could not be loaded.') }
   $cert = [pscustomobject]@{}
   $cert | Add-Member -MemberType ScriptMethod -Name GetNameInfo -Value { 'OpenJS Foundation' }
@@ -60,10 +62,15 @@ function Get-AuthenticodeSignature {
 . ([scriptblock]::Create((Assignment '$NodePublisher')))
 . ([scriptblock]::Create((Assignment '$script:SaidRuntimeNode')))
 . ([scriptblock]::Create((Assignment '$script:RuntimeNodeVerdict')))
+. ([scriptblock]::Create((Assignment '$script:RuntimeNodeStamp')))
 $d = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Get-NodeExe' }, $true) | Select-Object -First 1
 . ([scriptblock]::Create($d.Extent.Text))
 for ($i = 0; $i -lt [int] $args[3]; $i++) {
-  if ($args.Count -gt 4 -and $i -eq ([int] $args[3] - 1)) { $env:PATH = $args[4] }   # the last call sees a node on PATH
+  if ($args.Count -gt 4 -and $i -eq ([int] $args[3] - 1)) {
+    # Before the last call: TOUCH rewrites the app's node (a longer file, a later write time); anything else is a PATH.
+    if ($args[4] -ceq 'TOUCH') { $f = Join-Path $env:LOCALAPPDATA $KosmosAppNode; [IO.File]::WriteAllText($f, 'changed'); (Get-Item -LiteralPath $f).LastWriteTimeUtc = [DateTime]::UtcNow.AddMinutes(5) }
+    else { $env:PATH = $args[4] }
+  }
   $n = Get-NodeExe
   if ($n) { [Console]::Out.WriteLine('FOUND ' + $n.Source) } else { [Console]::Out.WriteLine('NONE') }
 }
@@ -96,7 +103,7 @@ for (const ps of RUNTIMES) {
     const r = run(ps, 'throw', 1);
     assert.deepStrictEqual(r.results, ['NONE']);
     assert.strictEqual(r.lines.length, 1, 'one line: ' + r.lines.join(' | '));
-    assert.match(r.lines[0], /its signature could not be read \(The process cannot access the file because it is being used by another process\.\)/);
+    assert.match(r.lines[0], /its signature could not be read: The process cannot access the file because it is being used by another process\., so it is not known to be Valid from OpenJS Foundation$/);
     assert.doesNotMatch(r.lines[0], /unreadable/, 'not the old word, which read as an unsigned node');
   });
 
@@ -134,6 +141,24 @@ for (const ps of RUNTIMES) {
     const r = run(ps, 'throw', 2, bin);
     assert.strictEqual(r.reads, 1, 'signature reads');
     assert.deepStrictEqual(r.results, ['NONE', 'FOUND ' + node]);
+  });
+
+  test('#8316 ' + ps + ': a multi-line reason is cut to its first non-blank line', () => {
+    const r = run(ps, 'multiline', 1);
+    assert.match(r.lines[0], /could not be read: first line of the reason, so it is not known/);
+    assert.doesNotMatch(r.lines.join('\n'), /second line/);
+  });
+
+  test('#8316 ' + ps + ': a blank reason is named by the exception type', () => {
+    const r = run(ps, 'blank', 1);
+    assert.match(r.lines[0], /could not be read: IOException, so it is not known/);
+  });
+
+  test('#8316 ' + ps + ': a node file that changed after the verdict is read again, and said again', () => {
+    const r = run(ps, 'valid', 2, 'TOUCH');
+    assert.strictEqual(r.reads, 2, 'signature reads');
+    assert.strictEqual(r.lines.length, 2, r.lines.join(' | '));
+    assert.strictEqual(r.results.length, 2);
   });
 
   test('#8316 ' + ps + ': a refusal is kept too: three calls, one read, three NONE', () => {
