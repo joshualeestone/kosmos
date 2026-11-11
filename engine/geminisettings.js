@@ -25,6 +25,7 @@ const path = require('node:path');
 const securewrite = require('./securewrite');
 /* The two runner-neutral rules for a hook command written into a settings file: engine/hookpaths.js (kosmos#8348). */
 const { unsafeForCommand, ephemeralIntoDurable } = require('./hookpaths');
+const filelock = require('./filelock');
 
 /* The auth pre-seed: gemini reads security.auth.selectedType and, when it is the
    `gemini-api-key` constant AND GEMINI_API_KEY is in the env, boots straight to
@@ -66,6 +67,13 @@ const MARKER = 'gemini-report-bridge';
    inverted. A person's file may hold either, so "did they choose?" asks about both (review 1). */
 const UPDATE_KEYS = Object.freeze(['enableAutoUpdate', 'enableAutoUpdateNotification']);   // [the install, the check], in this order
 const LEGACY_UPDATE_KEYS = Object.freeze({ enableAutoUpdate: 'disableAutoUpdate', enableAutoUpdateNotification: 'disableUpdateNag' });
+
+/* #8362: the record of what ensurePrepared filled in. On the default account the settings file is the person's own
+   ~/.gemini/settings.json, and the three values below are written only where they had none, so once written they look
+   exactly like a choice of theirs. Kosmos keeps a note of each one it wrote (the file, the key, the value) in its own
+   data folder, under this name, and undoWrites takes back out only a value that is still exactly what was written.
+   A key nobody recorded (written by an install from before this record existed) is never touched. */
+const WROTE_FILE = 'gemini-wrote.json';
 
 /* The command gemini runs for a hook. Gemini executes a command hook as a SHELL
    STRING (measured: it spawns the shell with the command as the last arg), so
@@ -122,6 +130,8 @@ function definitionFor(bridgePath, opts, matcher) {
  */
 function ensurePrepared(settingsPath, bridgePath, opts) {
   const o = opts || {};
+  /* #8362: the keys this call fills in, by dotted path, with the value written; recorded only after the save. */
+  const wrote = {};
   const plat = o.platform || process.platform;
   /* On win32 the command carries a second path, the absolute node (commandFor), so
      it is vetted and checked for ephemerality with the bridge. Null elsewhere. */
@@ -187,6 +197,7 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
   if (!data.security.auth || typeof data.security.auth !== 'object' || Array.isArray(data.security.auth)) data.security.auth = {};
   if (!data.security.auth.selectedType) {
     data.security.auth.selectedType = AUTH_TYPE;
+    wrote['security.auth.selectedType'] = AUTH_TYPE;
     changed = true;
   }
 
@@ -214,8 +225,9 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
     const chose = (key) => data.general[key] !== undefined || typeof data.general[LEGACY_UPDATE_KEYS[key]] === 'boolean';
     const [installKey, checkKey] = UPDATE_KEYS;
     if (!chose(installKey)) {
-      if (!chose(checkKey)) data.general[checkKey] = false;
+      if (!chose(checkKey)) { data.general[checkKey] = false; wrote['general.' + checkKey] = false; }
       data.general[installKey] = false;
+      wrote['general.' + installKey] = false;
       changed = true;
     }
   }
@@ -264,7 +276,117 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
   } catch {
     return { prepared: false, because: 'we could not save the settings file' };
   }
+  /* #8362: after the save, never before, so a value that never reached the file is never recorded. A record that
+     cannot be kept costs only the undo at uninstall, so it does not fail the preparation. */
+  if (o.wroteLedger && Object.keys(wrote).length) {
+    let recorded = false;
+    try { recorded = recordWrites(o.wroteLedger, target, wrote); } catch { recorded = false; }
+    return { prepared: true, changed: true, recorded };
+  }
   return { prepared: true, changed: true };
 }
 
-module.exports = { AUTH_TYPE, HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, UPDATE_KEYS, LEGACY_UPDATE_KEYS, commandFor, unsafeForCommand, entryIsOurs, ensurePrepared };
+/* #8362: the record, read. Absent is an empty record; a file that is not a record of this shape is null, so neither
+   writer nor undo replaces what it cannot read. */
+function readRecord(ledgerPath) {
+  let raw;
+  try { raw = fs.readFileSync(ledgerPath, 'utf8'); }
+  catch (err) { return err && err.code === 'ENOENT' ? { files: {} } : null; }
+  try {
+    const led = JSON.parse(raw);
+    if (!led || typeof led !== 'object' || Array.isArray(led) || !led.files || typeof led.files !== 'object' || Array.isArray(led.files)) return null;
+    return led;
+  } catch { return null; }
+}
+
+function saveRecord(ledgerPath, led) {
+  if (!Object.keys(led.files).length) {
+    try { fs.unlinkSync(ledgerPath); } catch (err) { if (!err || err.code !== 'ENOENT') throw err; }
+    return;
+  }
+  fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
+  securewrite.writeSecret(ledgerPath, JSON.stringify(led, null, 2) + '\n', 0o600, { atomicOnly: true, ownTempsOnly: true });
+}
+
+/* #8362: add what one save wrote into one file to the record, under its lock (two agents made at once share it).
+   Returns whether the record now holds it. */
+function recordWrites(ledgerPath, file, wrote) {
+  fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });   // the lock is a folder beside the record
+  const r = filelock.withFileLock(ledgerPath, () => {
+    const led = readRecord(ledgerPath);
+    if (!led) return false;
+    led.files[file] = Object.assign({}, led.files[file], wrote);
+    saveRecord(ledgerPath, led);
+    return true;
+  });
+  return !!(r.ok && r.value);
+}
+
+/* #8362: the value at a dotted path, and its removal with the objects above it that the removal left empty. */
+function valueAt(obj, keys) {
+  let cur = obj;
+  for (const k of keys) {
+    if (!cur || typeof cur !== 'object' || Array.isArray(cur) || !Object.prototype.hasOwnProperty.call(cur, k)) return { has: false };
+    cur = cur[k];
+  }
+  return { has: true, value: cur };
+}
+function removeAt(obj, keys) {
+  const chain = [obj];
+  for (const k of keys.slice(0, -1)) chain.push(chain[chain.length - 1][k]);
+  delete chain[chain.length - 1][keys[keys.length - 1]];
+  for (let i = chain.length - 1; i > 0; i -= 1) {
+    if (Object.keys(chain[i]).length) break;
+    delete chain[i - 1][keys[i - 1]];
+  }
+}
+
+/**
+ * #8362: at uninstall, take back out of each recorded settings file every value Kosmos wrote that is still exactly
+ * that value. A value the person has changed since is kept, and named. A file that cannot be read as a settings object,
+ * or saved, is left and named, and stays in the record so a later run can finish it. A file that is gone has nothing to
+ * undo. Returns { done:true, restored:[file], kept:[{ file, key }], left:[file] }, or { done:false, because } when the
+ * record cannot be read or locked. Never throws for an expected shape.
+ */
+function undoWrites(ledgerPath) {
+  const out = { done: true, restored: [], kept: [], left: [] };
+  if (!fs.existsSync(ledgerPath)) return out;                     // no record: nothing Kosmos wrote is known
+  const r = filelock.withFileLock(ledgerPath, () => {
+    const led = readRecord(ledgerPath);
+    if (!led) return { done: false, because: 'the record of what Kosmos wrote could not be read' };
+    for (const file of Object.keys(led.files)) {
+      const entry = led.files[file];
+      let target;
+      try { target = fs.realpathSync(file); } catch { delete led.files[file]; continue; }   // gone: nothing of ours left in it
+      let data;
+      let mode;
+      try {
+        mode = fs.statSync(target).mode & 0o7777;
+        data = JSON.parse(fs.readFileSync(target, 'utf8'));
+      } catch { out.left.push(file); continue; }
+      if (!data || typeof data !== 'object' || Array.isArray(data) || !entry || typeof entry !== 'object') { out.left.push(file); continue; }
+      let changed = false;
+      for (const key of Object.keys(entry)) {
+        const at = valueAt(data, key.split('.'));
+        if (!at.has) continue;                                   // already gone
+        if (at.value !== entry[key]) { out.kept.push({ file, key }); continue; }
+        removeAt(data, key.split('.'));
+        changed = true;
+      }
+      if (changed) {
+        try {
+          securewrite.writeSecret(target, JSON.stringify(data, null, 2) + '\n', mode, { atomicOnly: true, ownTempsOnly: true, umaskDefault: true });
+        } catch { out.left.push(file); continue; }
+        out.restored.push(file);
+      }
+      delete led.files[file];
+    }
+    /* A record that cannot be saved still leaves the files put right; a later run finds nothing left to undo in them. */
+    try { saveRecord(ledgerPath, led); } catch { /* the files above are already restored */ }
+    return out;
+  });
+  if (!r.ok) return { done: false, because: r.because };
+  return r.value;
+}
+
+module.exports = { AUTH_TYPE, HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, UPDATE_KEYS, LEGACY_UPDATE_KEYS, WROTE_FILE, commandFor, unsafeForCommand, entryIsOurs, ensurePrepared, undoWrites };

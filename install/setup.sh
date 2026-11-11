@@ -2025,6 +2025,42 @@ say_hooks_left() {
   return 0
 }
 
+# #8362: take out of the Gemini settings files the values Kosmos recorded writing (the record is $1/gemini-wrote.json),
+# through the installed engine's geminisettings.undoWrites, and say what happened. With no node or no engine to do
+# it (a partial install, or the folder already gone), the record is named instead, so nothing is left silently.
+gemini_settings_undo() {
+  _gw_rec="${1%/}/gemini-wrote.json"
+  [ -n "$1" ] && [ -f "$_gw_rec" ] || return 0
+  _gw_out=""
+  if [ -f "$KOSMOS_HOME/runtime/bin/node" ] && [ -x "$KOSMOS_HOME/runtime/bin/node" ] \
+     && [ -f "$KOSMOS_HOME/app/engine/geminisettings.js" ]; then
+    _gw_out="$(KOSMOS_GS="$KOSMOS_HOME/app/engine/geminisettings.js" "$KOSMOS_HOME/runtime/bin/node" -e '
+      const gs = require(process.env.KOSMOS_GS);
+      const say = (s) => process.stdout.write("say " + s + "\n");
+      if (typeof gs.undoWrites === "function") {
+        const r = gs.undoWrites(process.argv[1]);
+        if (!r.done) say("note: the Gemini settings Kosmos filled in were not put back (" + r.because + "); the list is in " + process.argv[1]);
+        else {
+          for (const f of r.restored) say("put back the Gemini settings Kosmos had filled in, in " + f);
+          for (const k of r.kept) say("note: " + k.key + " in " + k.file + " was changed after Kosmos set it, so it was left as it is");
+          for (const f of r.left) say("note: " + f + " could not be read or saved, so the Gemini settings Kosmos filled in are still in it; the list is in " + process.argv[1]);
+        }
+        process.stdout.write("@kosmos-gemini-done\n");
+      }
+    ' "$_gw_rec" 2>/dev/null)" || _gw_out=""
+  fi
+  case "$_gw_out" in
+    *@kosmos-gemini-done*)
+      printf '%s\n' "$_gw_out" | while IFS= read -r _gw_l; do
+        case "$_gw_l" in "say "*) info "${_gw_l#say }" ;; esac
+      done ;;
+    *)
+      info "note: Kosmos filled in some of Gemini's settings (sign-in with an API key, updates off) and could not"
+      info "put them back here; the files and values are listed in $_gw_rec" ;;
+  esac
+  return 0
+}
+
 uninstall() {
   step "Removing Kosmos."
   # #5896 slice 2: the sealed icon is proven against this install's shipped copy, which the removal below deletes
@@ -2740,6 +2776,12 @@ UNWIREEOF
       fi
       [ -z "$_unwire_out" ] || rm -f "$_unwire_out"
       say_hooks_left "$_unwire_left" "$KOSMOS_HOME" "$_kh_real"
+      # #8362: PUT BACK THE GEMINI SETTINGS KOSMOS FILLED IN, while the bundled node still exists. A Gemini agent's
+      # birth fills three values into the person's own Gemini settings where they had none (sign in with an API key;
+      # no automatic updates, no update check), and records each one in the data folder. Only a value that is still
+      # exactly what was recorded comes back out. Loads the installed engine, which wrote the record, so this needs
+      # no copy of its own; an engine without the undo never wrote a record either.
+      gemini_settings_undo "$_support"
       # 🔑 RETIRE THIS MAC AT THE COORDINATOR WHILE IT CAN STILL SPEAK (#793).
       # The Mac's key lives in the support folder's remote/ dir and the
       # connector in the app tree about to go; after either is gone only a
@@ -2767,6 +2809,7 @@ UNWIREEOF
     # #5998: the folder is already gone (an earlier uninstall, from before the hooks were taken out): there is no
     # node to edit the settings with, but the hooks it left can still be named.
     say_hooks_left "$(hook_settings_left "$KOSMOS_HOME" "")" "$KOSMOS_HOME" ""
+    gemini_settings_undo "$_support"
   fi
   # The icon goes too, or uninstall leaves a dead app that opens nothing.
   # BOTH default locations are swept -- installs before 2026-08-13 wrote
