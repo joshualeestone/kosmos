@@ -87,12 +87,17 @@ function run(cmd, args) {
 }
 
 /* The Linux looks are all local and answer in milliseconds, so they get two seconds, not run()'s five. They block the
-   whole board while they run (execFileSync); each reader stops asking after its first failure, so a hung bus costs
-   everyone a few seconds once per ten-second reading, not most of a minute (kosmos#8384). */
+   whole board while they run (execFileSync), so after one times out the rest fail at once for ten seconds: a hung bus
+   costs everyone one two-second wait per ten-second reading, not most of a minute (kosmos#8384). */
+let linuxTimeoutMs = 2000;
+let linuxHungUntil = 0;   // after one look times out, the others fail at once for ten seconds: one timeout per reading
+function setLinuxTimeoutForTests(ms) { linuxTimeoutMs = ms; linuxHungUntil = 0; }
 function linuxRun(cmd, args) {
+  if (Date.now() < linuxHungUntil) return { ok: false, because: 'skipped: a Linux look timed out just now', stdout: '' };
   try {
-    return { ok: true, stdout: execFileSync(cmd, args, { encoding: 'utf8', timeout: 2000, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }) };
+    return { ok: true, stdout: execFileSync(cmd, args, { encoding: 'utf8', timeout: linuxTimeoutMs, maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }) };
   } catch (err) {
+    if (err && (err.code === 'ETIMEDOUT' || err.signal === 'SIGTERM')) linuxHungUntil = Date.now() + 10000;
     // stdout too: systemctl is-active prints "inactive" and exits 3, which is an answer, not a failed ask.
     return { ok: false, because: String((err && err.message) || err), missing: Boolean(err && err.code === 'ENOENT'),
       stdout: err && err.stdout ? String(err.stdout) : '' };
@@ -377,7 +382,8 @@ function sleepGate(opts) {
  * Returns { idle, lid, gnome }, each null when it could not be read or does not apply:
  *   idle  { action, minutes }      lid { ac, battery, docked }      gnome { ac, acMinutes, battery, batteryMinutes }
  *   desktop: true when no desktop settings were read but a display manager runs (null when not asked)
- * Seams: opts.linuxSleep replaces the whole reading; opts.hasLid the lid question.
+ * Seams: opts.linuxSleep replaces the whole reading; opts.hasLid, opts.lidSure and opts.hasBattery the machine's
+ * shape; opts.runner (bypasses the cache) or opts.linuxSleepRead (keeps it) the commands.
  */
 function readLinuxSleep(opts) {
   const o = opts || {};
@@ -387,9 +393,8 @@ function readLinuxSleep(opts) {
   // opts.linuxSleepRead: a test's runner that, unlike opts.runner, does not bypass the ten-second cache.
   if (!o.runner && !o.linuxSleepRead && inTest) return { idle: null, lid: null, gnome: null, desktop: null };
   /* A board started with no login session (cron, or after the session ended) has no XDG_RUNTIME_DIR, and systemctl
-     --user cannot reach the user manager without it: linuxjob's fix, for its runner (#4918 review 12). */
-  // ensureRuntimeDir sets XDG_RUNTIME_DIR for this process when it is missing, as linuxjob's runner does: an
-  // environment fix for the reads, not a change to the computer.
+     --user cannot reach the user manager without it: linuxjob's fix, for its runner (#4918 review 12). It sets the
+     variable for this process only, not a change to the computer. */
   if (!o.runner && !inTest) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
   const runner = o.runner || o.linuxSleepRead || linuxRun;
   let logindDown = false;   // after one failed ask, logind is not asked again (each ask can wait out the timeout)
@@ -397,13 +402,17 @@ function readLinuxSleep(opts) {
     if (logindDown) return undefined;
     const r = runner('busctl', ['--system', 'get-property', 'org.freedesktop.login1', '/org/freedesktop/login1', 'org.freedesktop.login1.Manager', name]);
     // A property this logind does not have answers with an error too; only a dead bus is undefined (asked no more).
-    if (!r || !r.ok) { if (!/UnknownProperty|Unknown property|InvalidArgs/i.test(String((r && (r.because || r.stderr)) || ''))) logindDown = true; return null; }
+    if (!r || !r.ok) {
+      // null: this logind has no such setting (an answer); undefined: the ask failed, and logind is asked no more.
+      if (/UnknownProperty|Unknown property|InvalidArgs/i.test(String((r && (r.because || r.stderr)) || ''))) return null;
+      logindDown = true;
+      return undefined;
+    }
     const m = String(r.stdout || '').trim().match(/^(s|t)\s+"?([^"]*)"?$/);
     return m ? m[2] : null;
   };
   let idle = null, lid = null;
   const action = prop('IdleAction');
-  // A logind that does not answer its first question is not asked four more (each ask can wait out run()'s timeout).
   if (action) {
     const raw = prop('IdleActionUSec');
     const usec = raw === null ? NaN : Number(raw);   // unreadable is no number, so the words say a while
@@ -422,7 +431,8 @@ function readLinuxSleep(opts) {
       // logind: an unset HandleLidSwitchExternalPower means HandleLidSwitch applies on AC too.
       // HandleLidSwitchDocked (default ignore) decides a closed lid with another screen connected.
       // ext null: this logind has no such setting (before systemd 235), so the fix names HandleLidSwitch instead.
-      if (battery) lid = { battery, ac: ext || battery, docked: prop('HandleLidSwitchDocked'), sure: lidSure, noExt: ext === null };
+      // ext undefined: the ask failed, so the plugged-in lid is not known and no lid fix is offered for it.
+      if (battery) lid = { battery, ac: ext || battery, docked: prop('HandleLidSwitchDocked') || null, sure: lidSure, noExt: ext === null, extUnread: ext === undefined };
     }
   }
   let gnome = null, gnomeUnread = false;
@@ -478,8 +488,7 @@ function readLinuxSleep(opts) {
 /**
  * Whether this machine has a lid whose switch logind acts on: an ACPI lid button, or a battery that powers the
  * computer itself. A wireless mouse's or keyboard's battery is listed in the same folder with scope "Device" and is
- * not one. Folders are parameters so a test passes a
- * fake tree.
+ * not one. Folders are parameters so a test passes a fake tree.
  */
 function linuxHasLid(lidDir, supplyDir) { return linuxLid(lidDir, supplyDir).has; }
 
@@ -517,7 +526,7 @@ const LINUX_ACTION_BASE = Object.freeze({ 'goes to sleep': 'go to sleep', 'turns
 const LINUX_ACTION_DOES = Object.freeze({ 'goes to sleep': 'puts it to sleep', 'turns off': 'turns it off', restarts: 'restarts it' });
 const minutesWords = (n) => n + (n === 1 ? ' minute' : ' minutes');
 
-/* The Linux readings run up to a dozen short commands, each with run()'s timeout, on the request that asks. Settings
+/* The Linux readings run up to a dozen short commands, each with linuxRun's two-second timeout, on the request that asks. Settings
    re-reads on every visit, so a reading is kept for ten seconds; a caller with a runner or a seam always reads fresh.
    Accepted: for up to ten seconds after Kosmos is reinstalled or its service changed, the row can show the old reading. */
 const LINUX_READING_TTL_MS = 10000;
@@ -604,7 +613,7 @@ function linuxSleepCheck(reading) {
      files. */
   if (idleStops) files.push(['zz-kosmos-idle.conf', 'IdleAction=ignore']);
   // HandleLidSwitchExternalPower needs systemd 235 or later; older ones (CentOS 7) ignore it.
-  if (lidStops && stops(lid.ac)) files.push(['zz-kosmos-lid.conf', lid.noExt ? 'HandleLidSwitch=ignore' : 'HandleLidSwitchExternalPower=ignore']);
+  if (lidStops && stops(lid.ac) && !lid.extUnread) files.push(['zz-kosmos-lid.conf', lid.noExt ? 'HandleLidSwitch=ignore' : 'HandleLidSwitchExternalPower=ignore']);
   // On that older logind the one key covers battery too, and the words say so.
   const lidBothNote = lidStops && stops(lid.ac) && lid.noExt ? ' On this computer that change also stops the lid putting it to sleep on battery.' : '';
   if (lidStops && stops(lid.docked)) files.push(['zz-kosmos-lid-docked.conf', 'HandleLidSwitchDocked=ignore']);
@@ -614,8 +623,8 @@ function linuxSleepCheck(reading) {
     'printf \'[Login]\\n' + k + '\\n\' > /etc/systemd/logind.conf.d/' + f)).join(' && ') } : {};
   // The lid fix is the plugged-in key only, so say so.
   const lidAcOnly = lidStops && stops(lid.ac) && stops(lid.battery) && !lid.noExt ? ' After that, closing the lid on battery still ' + (stops(lid.battery) === 'goes to sleep' ? 'puts it to sleep, as it should.' : (stops(lid.battery) === 'turns off' ? 'turns it off.' : 'restarts it.')) : '';
-  const logindFix = files.length ? (desktopFix ? ' An administrator can change the rest from a root shell, then restart the computer. Your agents stop while it restarts, and come back by themselves only if Kosmos starts by itself (the row about that says).'
-    : ' An administrator can change ' + (files.length > 1 ? 'them' : 'it') + ' from a root shell, then restart the computer. Your agents stop while it restarts, and come back by themselves only if Kosmos starts by itself (the row about that says).') + lidAcOnly + lidBothNote : '';
+  const logindFix = files.length ? (desktopFix ? ' An administrator can change the rest from a root shell (the command under For IT admins), then restart the computer. Your agents stop while it restarts, and come back by themselves only if Kosmos starts by itself (the row about that says).'
+    : ' An administrator can change ' + (files.length > 1 ? 'them' : 'it') + ' from a root shell (the command under For IT admins), then restart the computer. Your agents stop while it restarts, and come back by themselves only if Kosmos starts by itself (the row about that says).') + lidAcOnly + lidBothNote : '';
   if (idleStops || gnomeAc) {
     const vs = verbs;
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION,
@@ -2387,4 +2396,4 @@ function check(opts) {
 }
 
 /* linuxCached, linuxLid, linuxHasBattery and __clearLinuxReadingsForTests are exported for engine/machine.linux-8384.test.js. */
-module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxHasLid, linuxLid, linuxHasBattery, linuxCached, __clearLinuxReadingsForTests: clearLinuxReadingsForTests, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxHasLid, linuxLid, linuxHasBattery, linuxCached, setLinuxTimeoutForTests, __linuxRunForTests: linuxRun, __clearLinuxReadingsForTests: clearLinuxReadingsForTests, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };

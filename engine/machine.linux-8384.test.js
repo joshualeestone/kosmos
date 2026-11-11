@@ -211,12 +211,12 @@ test('sleep row: nothing read is no row at all (kosmos#8375), never a standing c
 
 test('sleep row: a stop while plugged in, open and idle is the plain warning, in words for what it does', () => {
   const cases = [
-    [{ idle: { action: 'suspend', minutes: 30 } }, /can go to sleep on its own$/, /After 30 minutes with nobody using it, this computer goes to sleep\. Your agents stop until it wakes\. An administrator can change it from a root shell, then restart the computer\. Your agents stop while it restarts, and come back by themselves only if Kosmos starts by itself \(the row about that says\)\.$/, true],
+    [{ idle: { action: 'suspend', minutes: 30 } }, /can go to sleep on its own$/, /After 30 minutes with nobody using it, this computer goes to sleep\. Your agents stop until it wakes\. An administrator can change it from a root shell \(the command under For IT admins\), then restart the computer\. Your agents stop while it restarts, and come back by themselves only if Kosmos starts by itself \(the row about that says\)\.$/, true],
     [{ idle: { action: 'poweroff', minutes: 1 } }, /can turn off on its own$/, /After 1 minute .* turns off\. Your agents stop until it is started again\./, true],
     [{ idle: { action: 'reboot', minutes: 5 } }, /can restart on its own$/, /restarts\. Your agents stop while it restarts\./, true],
     [{ idle: QUIET_IDLE, gnome: { ac: 'suspend', acMinutes: 20, battery: null, batteryMinutes: null } }, /can go to sleep on its own$/, /While it is plugged in, after 20 minutes with nobody using it, the desktop puts it to sleep\..*Power settings, under Automatic Suspend\.$/, false],
     [{ idle: QUIET_IDLE, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can turn off on its own$/, /the desktop turns it off\. Your agents stop until it is started again\./, false],
-    [{ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can go to sleep or turn off on its own$/, /Automatic Suspend\. An administrator can change the rest from a root shell, then restart the computer\. Your agents stop while it restarts, and come back by themselves only if Kosmos starts by itself \(the row about that says\)\.$/, true],
+    [{ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can go to sleep or turn off on its own$/, /Automatic Suspend\. An administrator can change the rest from a root shell \(the command under For IT admins\), then restart the computer\. Your agents stop while it restarts, and come back by themselves only if Kosmos starts by itself \(the row about that says\)\.$/, true],
   ];
   for (const [reading, title, detail, admin] of cases) {
     const r = sleep(reading);
@@ -353,7 +353,8 @@ function sleepRunner(over) {
   const asked = [];
   const runner = (cmd, args) => {
     asked.push([cmd, ...args]);
-    if (cmd === 'busctl') return v[args[5]] == null ? { ok: false } : { ok: true, stdout: v[args[5]] + '\n' };
+    // A key set to null is one this logind does not have: busctl answers that with an unknown-property error.
+    if (cmd === 'busctl') return v[args[5]] == null ? { ok: false, because: 'Failed to get property: Unknown property or interface.' } : { ok: true, stdout: v[args[5]] + '\n' };
     if (cmd === 'systemctl') return v.gsd === 'active' ? { ok: true, stdout: 'active\n' } : { ok: false };
     if (cmd === 'gsettings') return v[args[2]] == null ? { ok: false } : { ok: true, stdout: v[args[2]] + '\n' };
     return { ok: false };
@@ -366,7 +367,7 @@ test('sleep reader: logind, the lid and GNOME are read, and every command is a l
   const got = machine.readLinuxSleep({ runner, hasLid: true, hasBattery: true });
   assert.deepEqual(got, {
     idle: { action: 'suspend', minutes: 30 },
-    lid: { battery: 'suspend', ac: 'suspend', docked: null, sure: true, noExt: false },   // an empty HandleLidSwitchExternalPower means HandleLidSwitch applies
+    lid: { battery: 'suspend', ac: 'suspend', docked: null, sure: true, noExt: false, extUnread: false },   // an empty HandleLidSwitchExternalPower means HandleLidSwitch applies
     gnome: { ac: 'suspend', acMinutes: 20, battery: 'suspend', batteryMinutes: 15 },
     desktop: null,   // GNOME was read, so the display manager is not asked
   });
@@ -556,7 +557,7 @@ test('sleep row: a lid that sleeps only while plugged in says so', () => {
 test('sleep reader: a set HandleLidSwitchExternalPower is the plugged-in answer', () => {
   const { runner } = sleepRunner({ HandleLidSwitchExternalPower: 's "ignore"', IdleAction: 's "ignore"', gsd: 'inactive' });
   const got = machine.readLinuxSleep({ runner, hasLid: true });
-  assert.deepEqual(got.lid, { battery: 'suspend', ac: 'ignore', docked: null, sure: true, noExt: false });
+  assert.deepEqual(got.lid, { battery: 'suspend', ac: 'ignore', docked: null, sure: true, noExt: false, extUnread: false });
   assert.equal(sleep(got).battOnly, true);
 });
 
@@ -861,4 +862,35 @@ test('linuxLid: a lid listed with no battery (a desktop board) is not sure', () 
     fs.mkdirSync(path.join(root, 'lid', 'LID0'), { recursive: true }); fs.mkdirSync(path.join(root, 'ps'));
     assert.deepEqual(machine.linuxLid(path.join(root, 'lid'), path.join(root, 'ps')), { has: true, sure: false });
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('linuxRun: after one look times out, the rest fail at once, so a reading costs one timeout', () => {
+  machine.setLinuxTimeoutForTests(200);
+  try {
+    const run = machine.__linuxRunForTests;
+    const t0 = Date.now();
+    const slow = run('/bin/sleep', ['2']);
+    assert.equal(slow.ok, false);
+    const t1 = Date.now();
+    const next = run('/bin/sleep', ['2']);
+    assert.equal(next.ok, false);
+    assert.match(next.because, /timed out just now/);
+    assert.ok(Date.now() - t1 < 100, 'the second fails at once');
+    assert.ok(t1 - t0 < 1500, 'the first stops at the timeout');
+  } finally { machine.setLinuxTimeoutForTests(2000); }
+  assert.equal(machine.__linuxRunForTests('/bin/echo', ['ok']).stdout, 'ok\n', 'control: reset, it runs again');
+});
+
+test('sleep reader: a failed ExternalPower ask is not older systemd, and no lid fix is offered on a guess', () => {
+  const lidOnly = (c, a) => {
+    if (c !== 'busctl') return { ok: false };
+    if (a[5] === 'HandleLidSwitchExternalPower') return { ok: false, because: 'Connection timed out' };
+    return { ok: true, stdout: a[5] === 'IdleActionUSec' ? 't 0\n' : (a[5] === 'IdleAction' ? 's "ignore"\n' : 's "suspend"\n') };
+  };
+  const got = machine.readLinuxSleep({ runner: lidOnly, hasLid: true });
+  assert.equal(got.lid.noExt, false);
+  assert.equal(got.lid.extUnread, true);
+  const r = sleep(got);
+  assert.doesNotMatch(r.detail, /also stops the lid putting it to sleep on battery/);
+  assert.equal(r.admin, undefined, 'no lid fix written on a guess');
 });
