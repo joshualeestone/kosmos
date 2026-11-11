@@ -48,7 +48,8 @@
 #                             kosmos#8404: for this stage only, another installed runner of the same user:
 #                             KOSMOS_CI_REPO (its owner/name, default this repo) and KOSMOS_CI_RUNNER_DIR (its directory,
 #                             one directly in the CI home, default $CI_HOME/actions-runner), with its KOSMOS_CI_RUNNER_NAME.
-#                             Set both or neither. Every other stage refuses them (see RUNNER_REPO below for why).
+#                             Set them with its KOSMOS_CI_RUNNER_NAME, all three or none. Every other stage refuses them
+#                             (see RUNNER_REPO below for why).
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail).
@@ -84,6 +85,20 @@ for a in "$@"; do
   [ "$a" != --apply ] || { echo "refused: --apply goes first (tools/ci-runner-setup.sh --apply <stage> ...); nothing ran" >&2; exit 2; }
 done
 STAGE="${1:-}"
+# kosmos#8404: another runner than this repo's is named by all three of its repo, its directory and its name, and only
+# for the daemon stage. Checked first, before any value is read (review 4), so an operator learns which settings to
+# set, or unset, before being told how to spell one. Review 3: a repo without its dir looked in actions-runner and told the
+# operator to stop this repo's runner; review 4: without the name, NAME is this repo's runner's, and the stage advised
+# an install the settings refuse.
+_other=""; [ -z "${KOSMOS_CI_REPO:-}" ] || _other="${_other}r"; [ -z "${KOSMOS_CI_RUNNER_DIR:-}" ] || _other="${_other}d"
+case "$_other" in
+  '') ;;
+  rd) [ -n "${KOSMOS_CI_RUNNER_NAME:-}" ] || { echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner: set its KOSMOS_CI_RUNNER_NAME too (left out, it is this repo's runner's)" >&2; exit 2; }
+      # The stages known to work on this repo's runner only; an unknown or missing stage goes on to the usage line.
+      case "$STAGE" in preflight|create-user|install|register|verify|keepalive|machine-settings|jq-programs)
+        echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner for the daemon stage only; $STAGE works on this repo's runner in the CI home's actions-runner. Unset them" >&2; exit 2 ;; esac ;;
+  *) echo "refused: set KOSMOS_CI_REPO, KOSMOS_CI_RUNNER_DIR and KOSMOS_CI_RUNNER_NAME together (another runner is named by its repo, its directory and its name), or none of them" >&2; exit 2 ;;
+esac
 REPO="joshualeestone/kosmos"
 REPO_URL="https://github.com/$REPO"
 # kosmos#8404: the runner the daemon stage acts on, when it is not this repo's runner in $CI_HOME/actions-runner.
@@ -98,7 +113,8 @@ RUNNER_REPO="${KOSMOS_CI_REPO:-$REPO}"
 # Label and its WorkingDirectory. Two spellings can give one label (a-b/c and a/b-c), so nothing may rely on this string.
 # Spell it as the runner was registered: svc.sh took the label from that URL as typed, case included (GitHub's own
 # names ignore case; a label does not), and another spelling finds no LaunchAgent and refuses.
-# It goes into a launchd label, a jq string and a gh api path: owner/name with only the characters GitHub allows.
+# It goes only into the launchd label, which is pasted into the plist XML and into printed root commands: owner/name
+# with only the characters GitHub allows.
 _ro="${RUNNER_REPO%%/*}"; _rn="${RUNNER_REPO#*/}"; _rbad=0
 [ "$_ro/$_rn" = "$RUNNER_REPO" ] || _rbad=1   # no '/' at all: both halves are the whole value
 for _rp in "$_ro" "$_rn"; do case "$_rp" in ''|.*|*/*|*[!A-Za-z0-9._-]*) _rbad=1 ;; esac; done
@@ -1201,8 +1217,9 @@ daemon() {
     case "${pm%% *}" in 0|"${SUDO_UID:-0}") ;; *) pm="";; esac
     case "$pm" in "$ciuid "*|*" "?[2367]?|*" "??[2367]|"") echo "refused: $pd, the directory of $self, is not owned by root or by the sudo caller, or is writable by others (stat: ${pm:-none}), so the file could be replaced by a rename, and --apply daemon runs as root; run it from the owner's checkout or a root-owned copy" >&2; exit 2 ;; esac
   fi
-  # kosmos#8404 review 3: the runner dir must be a real directory, not a symlink a job left at that name: root reads
-  # .service and the agent through it, and every process match is anchored on it.
+  # kosmos#8404 review 3: the runner dir must be a real directory when the stage starts, not a symlink a job left at that
+  # name: root reads .service through it, and every process match is anchored on it. (A swap after this check reads
+  # contents that are only compared, and everything started runs as the CI user, as for the default dir.)
   if [ -L "$RUNNER_DIR" ] || [ ! -d "$RUNNER_DIR" ]; then
     echo "refused: $RUNNER_DIR is not a directory (or is a symlink); the runner is not installed there, or something replaced it. Nothing was changed" >&2; exit 1
   fi
@@ -1525,18 +1542,6 @@ if ci_uid="$(id -u "$CI_USER" 2>/dev/null)" && owner_uid="$(id -u "$OWNER" 2>/de
   echo "refused: $CI_USER and $OWNER are the same account (uid $ci_uid); the CI user must be its own account" >&2; exit 2
 fi
 
-# kosmos#8404: another runner is named by BOTH (review 3: a repo without its dir looked in actions-runner and told the
-# operator to stop this repo's runner, which it is not).
-if [ -n "${KOSMOS_CI_REPO:-}" ] && [ -z "${KOSMOS_CI_RUNNER_DIR:-}" ]; then _one=1
-elif [ -z "${KOSMOS_CI_REPO:-}" ] && [ -n "${KOSMOS_CI_RUNNER_DIR:-}" ]; then _one=1
-else _one=0; fi
-if [ "$_one" = 1 ]; then
-  echo "refused: set KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR together (another runner is named by its repo and its directory), or neither" >&2; exit 2
-fi
-# kosmos#8404: another runner's repo or dir is for the daemon stage only (see RUNNER_REPO above).
-if { [ -n "${KOSMOS_CI_REPO:-}" ] || [ -n "${KOSMOS_CI_RUNNER_DIR:-}" ]; } && [ "$STAGE" != daemon ]; then
-  echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner for the daemon stage only; $STAGE works on this repo's runner in $CI_HOME/actions-runner. Unset them" >&2; exit 2
-fi
 case "$STAGE" in
   preflight) preflight ;;
   create-user) create_user ;;
