@@ -110,7 +110,7 @@ test('a jq that fails on the signature sends nothing, rather than the one hash o
   fs.writeFileSync(path.join(bin, 'jq'), '#!/bin/sh\n[ "$1" = "-cS" ] && exit 1\nexec "' + real + '" "$@"\n');
   fs.chmodSync(path.join(bin, 'jq'), 0o755);
   /* The control: the same fake jq on a call it passes through still reads the event (a failure WITH a signature). */
-  assert.ok(fs.existsSync(realHere), 'no real jq on this machine to pass through to: ' + real);
+  assert.ok(fs.existsSync(realHere), 'no real jq on this machine to pass through to: ' + real + (realHere !== real ? ' (checked as ' + realHere + ')' : ''));
   const r = run(fail('Bash', { command: 'x' }, 'e'), { PATH: bin + path.delimiter + process.env.PATH }, 0);
   assert.deepEqual(r.failed, []);
 });

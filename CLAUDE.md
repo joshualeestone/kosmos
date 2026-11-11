@@ -40,7 +40,7 @@ explicitly to learn the repo's pre-PR commands and conventions.
   A test that cannot run on Windows (an absolute POSIX path such as /bin/bash, a script run by its
   shebang line, tmux, POSIX modes) skips with `{ skip: skipOnWin32('<why>') }` from
   `test-support/skip-on-win32.js`, which refuses an empty reason; a file using it also goes in
-  `HOST_BRANCH_EXCLUDED` (the #1777 audit sees the call). A bare `bash` works on Windows (Git Bash),
+  `HOST_BRANCH_EXCLUDED` with that reason, or is run on Windows (the #1777 audit sees the call). A bare `bash` works on Windows (Git Bash),
   so it is no reason to skip (#8378).
 - **Use yarn, not npm.** The scripts are also npm-runnable, but `yarn test` is the canonical
   helper (`tools/run-tests.sh`'s coverage-mismatch message names it). There is no committed

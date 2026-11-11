@@ -37,7 +37,7 @@ review round 1 found the premise "Windows has no bash" false, so each file's mec
   ticks. The real Windows board on the box does write the file.
 
 ## Result (each file run alone on the Windows box, the no-schtasks preload, at this branch's head)
-In the 20 changed test files: 0 failing (was 343). 340 tests newly skip, each printing its reason; 3 are fixed (toolfail-6071 one, defaults two). Every
+In 20 of the 22 changed test files (all but the new helper test and the #1777 audit): 0 failing (was 343). 340 tests newly skip, each printing its reason; 3 are fixed (toolfail-6071 one, defaults two). Every
 pass count is unchanged except toolfail-6071's and defaults', which rise by their fixed tests.
 
 ## Weakest premise
@@ -83,3 +83,19 @@ tmux, POSIX modes, signals, the bare-bash files above, and the ~1,900 plain asse
 - killguard's reason now says Windows does not install that hook (its hook is the node twin, with no kill guard:
   #8406), rather than "cannot run": Git Bash could run the .sh, as toolfail-6071 shows.
 - toolfail-6071's comment says Git Bash is reached when it is ahead of the WSL launcher on PATH.
+
+## Decided (review round 6): the Windows CLI, file by file
+The card says to skip the bash-CLI tests "or point at the Windows CLI where an equivalent exists". For each file
+whose skipped tests drive the Mac CLI:
+- cli.inputkeep-6774, cli.limitmsg-5805, cli.whoisleft-8137: the Windows CLI arm is in the same file's loop and runs.
+- cli.task-webhook-1307, server.blocked-owner-person-5318, server.task-same-text-5319: each has its own Windows CLI
+  test in the same file (taskList; "the Windows CLI prints the note ... (run, not read)"), which runs.
+- cli.proof-visible-6358: no equivalent state. The Mac CLI sends WITHOUT the board proof where it cannot run it, and
+  `kosmos status` names that; the Windows CLI never sends unproven (tools/windows/kosmos-cli.js refuses when
+  provenFor fails), so there is nothing for its status to name.
+- cli.startedby-5450: no equivalent. The Mac launcher tells the board who started it (KOSMOS_BOARD_STARTED_BY,
+  server.js); nothing on Windows sets it, so engine/restartnote.js falls back to its guess there. The Windows board's
+  own "started by its task" answer is win32board.startedByTask, tested in engine/win32board.test.js. Whether Windows
+  should pass started-by is a small product question; what would change it: a wrong restart note on Windows.
+- cli.start-own-pgroup-4669: no equivalent. It is about launchd killing a job's process group; Windows runs the board
+  from its scheduled task (engine/win32board.test.js).

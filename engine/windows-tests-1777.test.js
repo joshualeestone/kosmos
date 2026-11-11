@@ -50,7 +50,8 @@ test('every test file that branches on a win32 HOST is run on Windows or exclude
   // Three ways a test says "this host is Windows": comparing process.platform with 'win32',
   // testing for the flag Windows lacks (O_NOFOLLOW is undefined there; #1761), or calling
   // skipOnWin32 (test-support/skip-on-win32.js, #8378), whose Windows arm skips. Other indirect
-  // signals (a hardcoded POSIX path, path.sep) are not caught; the plan names that limit.
+  // signals (a hardcoded POSIX path, path.sep, skipOnWin32 imported under another name) are not
+  // caught; the plan names that limit.
   const hostBranch = /process\.platform\s*[!=]==?\s*['"]win32['"]|['"]win32['"]\s*[!=]==?\s*process\.platform|O_NOFOLLOW\s*[!=]==?\s*undefined|\bskipOnWin32\(/;
   const loose = all.filter((f) => !selected.has(f) && !w.HOST_BRANCH_EXCLUDED[f]
     && hostBranch.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
