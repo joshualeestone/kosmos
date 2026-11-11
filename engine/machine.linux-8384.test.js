@@ -475,6 +475,22 @@ test('restart reader: a unit file replaced by a link to /dev/null (mask --force)
   assert.equal(r.admin, undefined, 'no unmask command that cannot work');
 });
 
+test('restart row: a /dev/null mask is said even when systemd did not answer (review 12)', () => {
+  const r = row({ unitFile: true, unitState: null, installed: BUNDLE, maskedFile: true });
+  assert.equal(r.state, STATE.ATTENTION);
+  assert.match(r.detail, /replaced by an empty one/);
+});
+
+test('restart row: no systemd allows for something else starting it, such as a container\'s own rule', () => {
+  assert.match(row({ unitFile: false, installed: BUNDLE, systemdRunning: false }).detail, /unless something else starts them \(a container's own restart rule, say\) or someone runs kosmos start\./);
+});
+
+test('sleep row: the lid fix says it is the plugged-in case only', () => {
+  assert.match(sleep({ idle: { action: 'suspend', minutes: 30 }, lid: { ac: 'suspend', battery: 'suspend' } }).detail,
+    /then restart the computer\. After that, closing the lid on battery still puts it to sleep, as it should\.$/);
+  assert.doesNotMatch(sleep({ idle: { action: 'suspend', minutes: 30 } }).detail, /closing the lid/, 'control: no lid, no lid sentence');
+});
+
 test('restart row: a runtime mask is lifted with --runtime', () => {
   assert.match(row({ unitFile: true, unitState: 'masked-runtime', installed: BUNDLE, unitName: 'kosmos-board.service' }).admin,
     /^systemctl --user unmask --runtime kosmos-board\.service && /);

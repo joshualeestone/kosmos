@@ -535,7 +535,9 @@ function linuxSleepCheck(reading) {
      shell, as the Windows row's command is for an administrator's prompt; then a restart applies it. */
   const extra = files.length ? { admin: ['mkdir -p /etc/systemd/logind.conf.d'].concat(files.map(([f, k]) =>
     'printf \'[Login]\\n' + k + '\\n\' > /etc/systemd/logind.conf.d/' + f)).join(' && ') } : {};
-  const logindFix = files.length ? (desktopFix ? ' An administrator can change the rest from a root shell, then restart the computer.' : ' An administrator can change it from a root shell, then restart the computer.') : '';
+  // The lid fix is the plugged-in key only, so say so (review 12).
+  const lidAcOnly = lidStops && stops(lid.ac) && stops(lid.battery) ? ' After that, closing the lid on battery still puts it to sleep, as it should.' : '';
+  const logindFix = files.length ? (desktopFix ? ' An administrator can change the rest from a root shell, then restart the computer.' : ' An administrator can change it from a root shell, then restart the computer.') + lidAcOnly : '';
   if (idleStops || gnomeAc) {
     const vs = verbs;
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION,
@@ -1990,8 +1992,10 @@ function linuxBoardAutostartCheck(reading) {
   if (r.systemdRunning === false && r.installed) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
+      // A container may have a restart rule of its own, which this cannot see (review 12).
       detail: 'This computer does not run systemd, which is how Kosmos starts itself on Linux, so after a restart '
-        + 'Kosmos and your agents stay stopped until someone runs kosmos start.' };
+        + 'Kosmos and your agents stay stopped unless something else starts them (a container\'s own restart rule, '
+        + 'say) or someone runs kosmos start.' };
   }
   if (r.unitFile === null || r.unitFile === undefined) return unknown('We could not read the folder this computer keeps its startup services in.');
   if (r.unitFile === false) {
@@ -2006,13 +2010,14 @@ function linuxBoardAutostartCheck(reading) {
       detail: 'The service that brings Kosmos back after a restart is missing, so your agents will not come back on '
         + 'their own until it is restored. Reinstalling Kosmos puts it back.' };
   }
-  if (!r.unitState) return unknown('This computer\'s service manager did not answer when we asked about Kosmos\'s startup service.');
+  // The file proves the mask, whether or not systemd answers (review 12).
   if (r.maskedFile) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service has been replaced by an empty one on this computer, so Kosmos and your agents will '
         + 'not come back on their own after a restart. Reinstalling Kosmos puts it back.' };
   }
+  if (!r.unitState) return unknown('This computer\'s service manager did not answer when we asked about Kosmos\'s startup service.');
   if (r.unitState === 'masked' || r.unitState === 'masked-runtime') {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',

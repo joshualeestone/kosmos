@@ -15,6 +15,7 @@ Shape posted on the card first (issuecomment 6801308249). Built on `linuxrows-83
 - The per-agent Linux row (Mac `agentautostart`) is a follow-up, not here.
 - A desktop whose own power settings are not read (KDE, a logged-out GNOME; a display manager runs) is OK under the title "Linux's own settings do not put this computer to sleep", and the detail says the desktop's and login screen's settings were not read. Rejected: UNKNOWN (review 5's ask), because on such a desktop it never clears, and #8375 keeps a row that can never read something out of the could-not-check count (review 6).
 - GNOME inside a virtual machine is not special-cased: gsd-power may skip its idle suspend there, but that is from memory of its source, not measured, and a false alarm costs less than a false OK (reviews 7 and 8 split; decided).
+- A GNOME timeout that could not be read, beside a type that stops, is a finding ("after a while"), not a non-finding: an unreadable read must not become "never" (review 4; review 12 asked the opposite, kept).
 - The lid and battery are battOnly, as on the Mac; the logind fix is a pasteable command in the admin field, for a root shell (machine.js never runs sudo: its own guard test).
 - A test never reads the host: the unit folder needs AGENT_WORKFORCE_SYSTEMD_DIR or AGENT_WORKFORCE_LAUNCH, and the lid needs opts.hasLid, else they read as unknown / no lid.
 
