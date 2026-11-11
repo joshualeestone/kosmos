@@ -16,8 +16,8 @@ node, or on a re-run after the folder went, every file still pointing at the bri
 
 Extend the existing self-contained unwire (#5998) rather than load the installed engine: the hooks were written by
 every install since #3296, and the engine present at uninstall may predate any unwire. A hook is ours when its
-command contains gemini-report-bridge and names a path inside this data folder's bin/ (after a quote, a space, or at
-the start; the real path too). The Claude part is unchanged in behaviour; its loop body became cleanFile(), shared.
+command names the bridge's own path, <data folder>/bin/gemini-report-bridge, as one string after a quote, a space or the
+start (the real path too); the no-node fallback only names files, matching after a double quote as commandFor writes. The Claude part is unchanged in behaviour; its loop body became cleanFile(), shared.
 
 Rejected: matching on the marker alone (another install's hooks would go); loading the engine (above).
 
@@ -69,3 +69,8 @@ JSON.parse does not (one with comments) is named, never edited.
   person's naming both apart would be taken: FIXED (the bridge's path as one string, after a quote, a space or the
   start), with a fixture that must survive. The sentence said "could not be taken out" in branches where nothing
   tried: FIXED (it now says the files still hold Kosmos's hooks, true in every branch). NITs noted (as before).
+- Validation 4 passed.
+- Iteration 5 (opus): 1 WARNING: on a re-run the bridge may already be gone, so "a script this uninstall removes" was not
+  always true: FIXED ("removes or that is already gone"). NITs FIXED: the fallback's comment names every caller and its
+  narrower match; this plan's Decided states the one-string rule. NIT noted: the fallback greps the whole file (it only
+  names files).
