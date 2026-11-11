@@ -224,6 +224,7 @@ function keepRequestsFor(event) {
   const out = [];
   for (const file of patchPaths(input.command)) {
     if (!P.isAbsolute(file) && !P.isAbsolute(cwd)) continue;
+    if (win && /^[A-Za-z]:(?![\\/])/.test(file)) continue;   // drive-relative (D:x): it names a per-drive folder nobody can see here
     /* On win32 every path is resolved against the cwd, absolute ones too, so the board gets one spelling (backslashes,
        no `..`) and a rooted path with no drive (\x) takes the cwd's drive, as Windows itself reads it. */
     out.push({ path: win ? P.resolve(cwd, file) : (P.isAbsolute(file) ? file : P.resolve(cwd, file)), cwd, session });

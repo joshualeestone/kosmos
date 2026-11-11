@@ -100,6 +100,15 @@ function codexVersionOf(out) {
 function installCodexHookFor(home, bin, env, deps) {
   const d = deps || {};
   if (!home) return Promise.resolve({ ok: false, because: null });
+  /* The person's own Codex home is never given the hook, even when it arrives as a named one: with CODEX_HOME (or
+     AGENT_WORKFORCE_CODEX_HOME) set, the default account's agent carries that folder as its configDir (create.js,
+     codexHomeOverridden). Kosmos never puts CODEX_HOME into this supervisor's own environment, so defaultHome() here is
+     the person's: their override, or ~/.codex. Compared canonically (case and links, as Codex resolves a home). */
+  const canon = d.canonical || ((p) => String(require('./trust').canonicalOnDisk(p)).toLowerCase());
+  const personHomes = d.personHomes || [require('./codexupdate').defaultHome(), path.join(require('node:os').homedir(), '.codex')];
+  try {
+    if (personHomes.some((p) => p && canon(p) === canon(home))) return Promise.resolve({ ok: false, because: null });
+  } catch { return Promise.resolve({ ok: false, because: 'we could not tell whether its Codex home is your own, so the Codex hook was not set up' }); }
   const run = d.execFile || require('node:child_process').execFile;
   return new Promise((resolve) => {
     try {
@@ -219,6 +228,7 @@ function superviseCodexStreaming(spec, opts) {
       Promise.resolve().then(() => installCodexHook(s.configDir))
         .catch((e) => ({ ok: false, because: 'it threw (' + ((e && e.code) || 'unknown') + ')' }))
         .then((r) => {
+          if (r && r.ok) onEvent({ action: 'codex-hook-installed' });
           if (r && !r.ok && r.because) onEvent({ action: 'codex-hook-skipped', because: r.because });
         })
         .finally(() => { hookPending = false; pump(); });

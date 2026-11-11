@@ -65,9 +65,10 @@ test('install on win32 refuses a path with a quote in it, and writes nothing', (
   const h = home();
   assert.equal(hooks.install(h, "C:\\o'neil\\codex-report-bridge.js", V, W).ok, false);
   assert.equal(hooks.install(h, WBRIDGE, V, { platform: 'win32', node: 'C:\\n$x\\node.exe' }).ok, false);
-  assert.equal(hooks.install(h, WBRIDGE, V, { platform: 'win32', node: 'C:\\Users\\a[1]\\node.exe' }).ok, false, 'a wildcard bracket');
   assert.equal(hooks.unsafeForWin32('C:\\x\u2019y\\node.exe'), true, 'a typographic single quote');
   assert.equal(hooks.unsafeForWin32(WBRIDGE), false, 'spaces and backslashes are fine');
+  assert.equal(hooks.unsafeForWin32('C:\\Users\\a[1]\\node.exe'), false, 'brackets are fine (measured: the call operator ran it)');
+  assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
   assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
 });
 
@@ -134,6 +135,7 @@ test('the bridge resolves a Windows cwd with Windows rules; a posix cwd is uncha
   assert.deepEqual(bridge.keepRequestsFor(ev('\\\\srv\\share\\p', '*** Add File: a.txt\n')).map((k) => k.path), ['\\\\srv\\share\\p\\a.txt']);
   assert.deepEqual(bridge.keepRequestsFor(ev('C:\\w\\p', '*** Add File: C:/w/q/../r.txt\n*** Add File: \\top.txt\n')).map((k) => k.path),
     ['C:\\w\\r.txt', 'C:\\top.txt'], 'absolute paths come out in one spelling, a rooted one on the cwd drive');
+  assert.deepEqual(bridge.keepRequestsFor(ev('C:\\w', '*** Add File: D:x.txt\n*** Add File: ok.txt\n')).map((k) => k.path), ['C:\\w\\ok.txt'], 'a drive-relative path is skipped');
   assert.deepEqual(bridge.keepRequestsFor(ev('/w', '*** Add File: one.txt\n')), [{ path: '/w/one.txt', cwd: '/w', session: 's' }]);
   assert.deepEqual(bridge.keepRequestsFor(ev('w\\rel', '*** Add File: one.txt\n')), [], 'a relative cwd still gets nothing');
 });
@@ -220,6 +222,36 @@ test('installCodexHookFor probes the codex it will run, with the turn env, and h
   assert.deepEqual(calls, [{ bin: 'C:\\bin\\codex.exe', args: ['--version'], env, timeout: 15000 }]);
   assert.deepEqual(installs, [{ home: 'C:\\Users\\a\\.codex-work1', bridge: path.join(__dirname, '..', 'bin', 'codex-report-bridge.js'), version: '0.149.1' }]);
   assert.ok(fs.existsSync(installs[0].bridge), 'the bridge it names ships beside this engine');
+});
+
+test('installCodexHookFor never gives the hook to the person\'s own Codex home, even when it arrives as a named one', async () => {
+  let asked = 0;
+  const deps = {
+    personHomes: ['C:\\Users\\a\\MyCodex', 'C:\\Users\\a\\.codex'],
+    canonical: (p) => p.toLowerCase(),
+    execFile: (b, a, o, cb) => { asked += 1; cb(null, 'codex-cli 0.149.1'); },
+    install: () => { asked += 1; return { ok: true }; },
+  };
+  // CODEX_HOME set by the person: the default account's agent carries that folder as its configDir (create.js).
+  assert.deepEqual(await installCodexHookFor('C:\\users\\A\\mycodex', 'codex', {}, deps), { ok: false, because: null });
+  assert.deepEqual(await installCodexHookFor('C:\\Users\\a\\.codex', 'codex', {}, deps), { ok: false, because: null });
+  assert.equal(asked, 0, 'no probe, no install');
+  assert.deepEqual(await installCodexHookFor('C:\\Users\\a\\.codex-work1', 'codex', {}, deps), { ok: true }, 'a Kosmos-named home still gets it');
+  // The real default: this process's defaultHome() (a home given by CODEX_HOME) is refused.
+  const own = home();
+  const saved = process.env.CODEX_HOME;
+  const savedAw = process.env.AGENT_WORKFORCE_CODEX_HOME;
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  process.env.CODEX_HOME = own;
+  try {
+    let installed = 0;
+    const r = await installCodexHookFor(own, 'codex', {}, { execFile: (b, a, o, cb) => cb(null, 'codex-cli 0.149.1'), install: () => { installed += 1; return { ok: true }; } });
+    assert.deepEqual(r, { ok: false, because: null });
+    assert.equal(installed, 0);
+  } finally {
+    if (saved === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = saved;
+    if (savedAw !== undefined) process.env.AGENT_WORKFORCE_CODEX_HOME = savedAw;
+  }
 });
 
 test('installCodexHookFor: a failed or throwing probe installs with no version (refused there); no home asks nothing', async () => {

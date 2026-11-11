@@ -87,13 +87,12 @@ function commandFor(bridge, opts) {
   return `'${String(bridge).replace(/'/g, "'\\''")}'`;
 }
 
-/* kosmos#8348: a path refused for the win32 command. It rides in a single-quoted PowerShell literal, which only a single
-   quote ends (PowerShell also counts U+2018..U+201B as one), so those are refused, with CR/LF and, over-refusing as
-   geminisettings.unsafeForCommand does, the curly double quotes U+201C..U+201E, the straight double quote, dollar, backtick and percent. Square brackets
-   too: the call operator resolves its command with wildcard rules, so a node path holding [ or ] is not found even
-   inside single quotes. A backslash is the separator. */
+/* kosmos#8348: a path refused for the win32 command. It rides in a single-quoted PowerShell literal, the same form
+   geminisettings.js writes for Gemini, so the one rule for it is that file's unsafeForCommand (a single quote, typographic
+   ones too, CR/LF, and over-refused double quotes, dollar, backtick and percent). Measured: a bracketed path is NOT a
+   problem there (`& 'C:\...\a[1]\node.exe'` ran in Windows PowerShell 5.1, the same as a plain one). */
 function unsafeForWin32(p) {
-  return typeof p !== 'string' || /['"`$%\[\]\r\n\u2018-\u201E]/.test(p);
+  return require('./geminisettings').unsafeForCommand(p, 'win32');
 }
 
 function sortKeys(v) {
@@ -247,7 +246,7 @@ function install(home, bridge, version, opts) {
       let text = '';
       try { text = fs.readFileSync(cfg, 'utf8'); } catch { text = ''; }
       const next = nextConfig(text, heading, line);
-      if (next.handEdited) return { ok: false, because: 'the Codex hook\'s trust entry was changed by hand, so it was left alone' };
+      if (next.handEdited) return { ok: false, because: 'the Codex hook\'s trust entry was changed by hand, so it was left alone, and the hook may not run until it is put back' };
       const securewrite = require('./securewrite');
       if (next.append) {
         const created = !fs.existsSync(cfg);
