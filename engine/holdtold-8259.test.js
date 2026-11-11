@@ -313,7 +313,11 @@ test('kosmos#8389: every tell counts, a new question starts the count again, and
   const after = read(id, n).onHoldToldCount;
   assert.equal(after, 4, 'CONTROL: the first sending of that message counted');
   holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, id: 'm-77' });
-  assert.equal(read(id, n).onHoldToldCount, after, 'a repeated message id counted again');
+  assert.equal(read(id, n).onHoldToldCount, after, 'the repeated message id was counted twice');
+  // And with another ask between the two sends of that message.
+  holdtold.noteTold('leo', { via: 'task', projectId: id, task: n });
+  holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, id: 'm-77' });
+  assert.equal(read(id, n).onHoldToldCount, after + 1, 'only the ask between counted');
   tasks.setOnHold(id, n, true, { forPerson: true, because: 'a different question' });
   assert.equal(read(id, n).onHoldToldCount, undefined, 'a new question kept the old count');
   // A hold told before the count was kept: told, no count. Another tell does not invent one.

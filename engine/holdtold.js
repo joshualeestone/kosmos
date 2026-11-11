@@ -125,8 +125,13 @@ function noteTold(who, msg, o = {}) {
         /* kosmos#8389: how many times it was put to them. Counted from the first tell; a hold told before this was recorded
            has no count, so none is shown rather than a guessed one. */
         if (first) next.onHoldToldCount = 1;
-        // The same message again (a retried or drained reply carrying the id already recorded) is not a new ask.
-        else if (Number.isInteger(x.onHoldToldCount) && x.onHoldToldCount > 0) next.onHoldToldCount = x.onHoldToldCount + (id && id === x.onHoldToldId ? 0 : 1);
+        // The same message again (a retried send carrying an id already counted, even with other asks between) is not a
+        // new ask: the last few counted ids are kept with the count.
+        else if (Number.isInteger(x.onHoldToldCount) && x.onHoldToldCount > 0) {
+          const seen = Array.isArray(x.onHoldToldIds) ? x.onHoldToldIds : [];
+          next.onHoldToldCount = x.onHoldToldCount + (id && seen.includes(id) ? 0 : 1);
+        }
+        if (id) next.onHoldToldIds = [...(Array.isArray(x.onHoldToldIds) ? x.onHoldToldIds : []).filter((v) => v !== id), id].slice(-20);
         if (id) next.onHoldToldId = id; else delete next.onHoldToldId;
         return next;
       });
