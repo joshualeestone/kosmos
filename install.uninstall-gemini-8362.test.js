@@ -46,7 +46,7 @@ function sandbox({ noEngine = false, record = true } = {}) {
 
   // The data folder the uninstall resolves with no store.js to ask: AGENT_WORKFORCE_DATA/Kosmos.
   const ledger = path.join(data, 'Kosmos', gs.WROTE_FILE);
-  const opts = { platform: process.platform === 'win32' ? 'darwin' : process.platform, ...(record ? { wroteLedger: ledger } : {}) };
+  const opts = { platform: 'darwin', ...(record ? { wroteLedger: ledger } : {}) };
   // The default account: the person's own theme, then a Gemini agent's birth.
   const mainFile = path.join(home, '.gemini', 'settings.json');
   fs.mkdirSync(path.dirname(mainFile), { recursive: true });
@@ -120,8 +120,10 @@ test('#8362: with no engine to undo it, the files are left and the record is nam
 test('#8362: a re-run after the folder is already gone names the record', { skip: SKIP_OFF_POSIX }, () => {
   const sb = sandbox();
   fs.rmSync(sb.kh, { recursive: true, force: true });
+  const before = fs.readFileSync(sb.mainFile, 'utf8');
   const out = runUninstall(sb);
   assert.ok(out.includes(sb.ledger), 'the record was not named when nothing could undo it: ' + out.slice(-600));
+  assert.equal(fs.readFileSync(sb.mainFile, 'utf8'), before, 'the file changed with nothing to change it');
 });
 
 test('#8362: with no record, the uninstall says nothing about Gemini and leaves the file alone', { skip: SKIP_OFF_POSIX }, () => {

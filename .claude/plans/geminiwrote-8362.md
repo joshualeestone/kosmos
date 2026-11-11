@@ -38,8 +38,19 @@ what we wrote".
 
 - The Windows uninstall reading the record: engine/win32uninstall.js is being changed under #8361 (another agent);
   noted there.
-- The Mac/Linux uninstall does not take Kosmos's hooks out of the Gemini settings (only Claude Code's). Whether they
-  break afterwards depends on whether the bridge in the data folder survives; to measure and card separately.
+- The Mac/Linux uninstall does not take Kosmos's hooks out of the Gemini settings (only Claude Code's), and it removes
+  the data folder's bin/, where their bridge lives, so they then run a deleted script. Carded as #8364 (mine, next).
+
+## Challenge loop
+
+- Iteration 1 (opus): 3 WARNINGs. The type check's fixture ('false') could not catch loose equality: FIXED (0).
+  A file that cannot be reached was dropped as if gone: FIXED (only ENOENT/ENOTDIR are gone; else left and named),
+  with a check. The hooks left pointing at a deleted bridge: carded #8364. NITs: ensurePrepared's doc names
+  wroteLedger: FIXED; the re-run check asserts the file is unchanged: FIXED; recorded:false is not reported by
+  create.js, the node step has no watchdog (as its Claude sibling), removeAt removes a person's own empty object,
+  the tests run setup.sh with bash: noted.
+- Validation 1: one red, the #1777 guard (the uninstall test compared process.platform with 'win32'): FIXED (a fixed
+  darwin platform; the test is skipped off macOS and Linux).
 
 ## Change
 
@@ -47,7 +58,7 @@ what we wrote".
   undoWrites.
 - engine/create.js: the birth write passes the record path (supportDir()/gemini-wrote.json).
 - install/setup.sh: gemini_settings_undo, called before the home is deleted, and in the folder-already-gone branch.
-- engine/geminisettings.wrote-8362.test.js (11) and install.uninstall-gemini-8362.test.js (5, the real setup.sh).
+- engine/geminisettings.wrote-8362.test.js (12) and install.uninstall-gemini-8362.test.js (5, the real setup.sh).
 
 ## Results
 
