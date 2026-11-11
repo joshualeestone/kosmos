@@ -345,6 +345,12 @@ function claudeSettingsFiles(home, env) {
    ~/.gemini-<label> (geminiaccounts.js), and each key home under the data folder (win32keyed.js defaultKeyHome), which
    stays when the data is kept. A hook left there names this install's node.exe, which the person deletes next, so Gemini
    cannot run it. */
+/* kosmos#8361: the named Codex homes Kosmos's sign-in makes (~/.codex-<label>), the only ones the Codex hook
+   (codexhooks.js, #8348) is ever written into. */
+function codexHomes(home) {
+  try { return fs.readdirSync(home).sort().filter((d) => d.startsWith('.codex-')).map((d) => path.join(home, d)); } catch { return []; }
+}
+
 function geminiSettingsFiles(home, env) {
   const files = [path.join(env.AGENT_WORKFORCE_GEMINI_HOME || path.join(home, '.gemini'), 'settings.json')];
   try {
@@ -385,6 +391,15 @@ function unwireHooks(bundleRoot, home, env, gone, done, left, notes) {
   for (const file of geminiSettingsFiles(home, env)) {
     try { unwireOne(file, roots, gone, filelock, reporthook, done, left, notes, gemini); }
     catch { left.push('Kosmos\'s entries in Gemini CLI\'s settings (' + file + '), which could not be checked. ' + hooksByHand('that file', gemini) + '.'); }
+  }
+  // kosmos#8361: the Codex hook (#8348), only ever written into a named account's ~/.codex-<label>, never ~/.codex.
+  for (const codexHome of codexHomes(home)) {
+    let r;
+    try { r = require('./codexhooks').unwireInstall(codexHome, roots, { gone, platform: 'win32' }); }
+    catch { r = { ours: true, changed: false, because: 'it could not be checked' }; }
+    if (r.changed) done.push('took Kosmos\'s file-edit hook out of Codex\'s settings (' + codexHome + ')' + (r.recordRemoved ? ', with its trust entry' : ''));
+    else if (r.ours) left.push('Kosmos\'s file-edit hook in Codex\'s settings (' + codexHome + '), which could not be taken out ('
+      + (r.because || 'the file did not change') + '). Delete hooks.json in that folder; Codex runs fine without it.');
   }
 }
 

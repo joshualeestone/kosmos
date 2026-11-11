@@ -291,4 +291,59 @@ if (require.main === module) {
   process.exitCode = r.ok ? 0 : 1;
 }
 
-module.exports = { install, removeOurs, isOurs, HASH_VERIFIED_FOR, trustHash, commandFor, hooksJson, stateHeading, nextConfig, unsafeForWin32, HOOKS_FILE, MATCHER };
+/* kosmos#8361: removing Kosmos takes its Codex hook out of an account's Codex home (the Windows uninstall), by the
+   #5999 rules the Claude and Gemini hooks follow: only a hooks.json in exactly our shape, and only when its node or its
+   bridge lies in THIS install's folder (`roots`, every spelling of it), or one of them is provably gone (`gone(p)`).
+   Another install's live hook stays. The trust record goes with it only when it is exactly what install() writes for
+   that command (the heading for the canonical hooks.json, then the one trusted_hash line with that command's hash);
+   a record anyone changed is left. The record goes first, then hooks.json, under the config.toml lock install takes.
+   Returns { ours, changed, recordRemoved?, because? }. Never throws. */
+function unwireInstall(home, roots, opts) {
+  const o = opts || {};
+  const gone = typeof o.gone === 'function' ? o.gone : () => false;
+  const plat = o.platform || process.platform;
+  try {
+    const hooksFile = path.join(home, HOOKS_FILE);
+    let text;
+    try { text = fs.readFileSync(hooksFile, 'utf8'); } catch { return { ours: false, changed: false }; }
+    if (!isOurs(text)) return { ours: false, changed: false };
+    const command = JSON.parse(text).hooks[EVENT][0].hooks[0].command;
+    const m = /^& '([^']+)' '([^']+)'$/.exec(command) || /^'(.*)'$/.exec(command);
+    const paths = m ? (m.length === 3 ? [m[1], m[2]] : [m[1].replace(/'\\''/g, "'")]) : [];
+    const norm = (s) => String(s).replace(/\//g, '\\').toLowerCase();
+    const prefixes = [...new Set((roots || []).filter((r) => typeof r === 'string' && r.trim()).map((r) => norm(r).replace(/\\+$/, '') + '\\'))];
+    const inRoots = paths.some((p) => prefixes.some((r) => norm(p).startsWith(r)));
+    const dead = paths.some((p) => { try { return gone(p) === true; } catch { return false; } });
+    if (!inRoots && !dead) return { ours: false, changed: false, because: 'it belongs to another Kosmos folder that is still there' };
+    const cfg = path.join(home, 'config.toml');
+    const heading = stateHeading(path.join(require('./trust').canonicalOnDisk(home), HOOKS_FILE), plat);
+    const line = `trusted_hash = "${trustHash(command)}"`;
+    const locked = require('./filelock').withFileLock(cfg, () => {
+      let recordRemoved = false;
+      let cfgText = null;
+      try { cfgText = fs.readFileSync(cfg, 'utf8'); } catch { cfgText = null; }
+      if (cfgText !== null && heading) {
+        const lines = cfgText.split('\n');
+        const at = lines.indexOf(heading);
+        const after = lines[at + 2];
+        if (at !== -1 && lines.indexOf(heading, at + 1) === -1 && lines[at + 1] === line
+          && (after === undefined || after === '' || after.startsWith('['))) {
+          // A blank line after the record goes with it, unless it is only the file's final newline.
+          lines.splice(at, after === '' && at + 2 < lines.length - 1 ? 3 : 2);
+          let mode = 0o600;
+          try { mode = fs.statSync(cfg).mode & 0o777; } catch { mode = 0o600; }
+          require('./securewrite').writeSecret(cfg, lines.join('\n'), mode, { atomicOnly: true, ownTempsOnly: true });
+          recordRemoved = true;
+        }
+      }
+      fs.unlinkSync(hooksFile);
+      return { ours: true, changed: true, recordRemoved };
+    }, { busy: 'another program was writing the Codex config', cannotAccess: 'its folder would not let Kosmos lock it' });
+    if (locked && locked.ok === true) return locked.value;
+    return { ours: true, changed: false, because: (locked && locked.because) || 'it could not be locked' };
+  } catch (e) {
+    return { ours: true, changed: false, because: 'it could not be read or changed (' + ((e && e.code) || 'unknown') + ')' };
+  }
+}
+
+module.exports = { install, removeOurs, unwireInstall, isOurs, HASH_VERIFIED_FOR, trustHash, commandFor, hooksJson, stateHeading, nextConfig, unsafeForWin32, HOOKS_FILE, MATCHER };
