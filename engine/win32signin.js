@@ -437,10 +437,13 @@ function listeningLoopbackPorts(pid) {
 
 /* The rundll32 launch that opens a link: [command, args, options]. kosmos#5895: the browser it starts inherits
    rundll32's environment (measured), so it gets only childenv.winOpenerEnv's list, never the board's whole
-   environment (its tokens among it), the same list the company sign-in opener uses (remote.js runCompanyOpener). */
+   environment (its tokens among it), the same list the company sign-in opener uses (remote.js runCompanyOpener).
+   Every caller of openInDefaultBrowser gets it: the Claude and OpenAI sign-ins here and in openaiaccounts.js, and
+   the Antigravity (Google) sign-in in win32agysignin.js. */
 function browserOpenCommand(link, env) {
   const src = env || process.env;
-  return [path.win32.join(src.SystemRoot || 'C:\\Windows', 'System32', 'rundll32.exe'), ['url.dll,FileProtocolHandler', link],
+  const rootKey = Object.keys(src).find((k) => k.toLowerCase() === 'systemroot');   // case-blind, as Windows reads it
+  return [path.win32.join((rootKey && src[rootKey]) || 'C:\\Windows', 'System32', 'rundll32.exe'), ['url.dll,FileProtocolHandler', link],
     { detached: true, stdio: 'ignore', windowsHide: false, env: require('./childenv').winOpenerEnv(src) }];
 }
 

@@ -53,11 +53,14 @@ function openerEnv(env = process.env) {
  * MEASURED on the Windows box (2026-11-09): the program it starts inherits rundll32's environment, not Explorer's (a
  * caller's marker variable reached a stand-in URL handler; the default browser, Edge, is registered as a plain command
  * line, so a browser started cold gets the same). With ONLY these variables present rundll32 still started the
- * handler and a variable outside the list did not reach it; Windows itself adds a few to the started process
- * (LOGONSERVER and two browser-profile ones), none of them the board's. Windows variable names are case-insensitive
+ * handler and a variable outside the list did not reach it. Two things add to the list, neither of them a secret:
+ * node's process layer (libuv) copies a fixed set into any Windows child that lacks them, from this process
+ * (HOMEDRIVE, HOMEPATH, LOGONSERVER, PATH, SYSTEMDRIVE, SYSTEMROOT, TEMP, USERDOMAIN, USERNAME, USERPROFILE, WINDIR),
+ * and the browser adds two FPS_BROWSER_* profile ones. Windows variable names are case-insensitive
  * (engine/win32env.js), so the match is too, and each kept variable keeps the name it came with.
  * Kept on purpose, as on the other platforms: the proxy variables (the person's network settings). Also kept: the
- * CommonProgramFiles family, which holds no secret and which an installed browser may look up. MEASURED as well
+ * CommonProgramFiles family and ALLUSERSPROFILE (ProgramData's older name), which hold no secret and which an
+ * installed browser may look up. MEASURED as well
  * (2026-11-11): Edge itself, started cold (headless, its own throwaway profile), rendered a page with this list, and
  * also with an EMPTY environment, so a missing variable here cannot stop Edge from starting.
  */
@@ -65,7 +68,7 @@ const WIN_OPENER_KEYS = Object.freeze([
   'SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'PATH', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA',
   'LOCALAPPDATA', 'TEMP', 'TMP', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'ProgramData', 'PUBLIC',
   'SystemDrive', 'USERNAME', 'USERDOMAIN', 'COMPUTERNAME', 'OS', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS',
-  'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432',
+  'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432', 'ALLUSERSPROFILE',
   'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY',
 ]);
 const WIN_OPENER_LOWER = new Set(WIN_OPENER_KEYS.map((k) => k.toLowerCase()));

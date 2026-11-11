@@ -13,8 +13,10 @@ whole environment, because no Windows list had been checked on a Windows machine
   browser started cold got the board's environment, tokens included. Edge was not closed for a cold-start test (the
   person's running browser); the stand-in handler measured the same mechanism.
 - The list: with ONLY the card's 24 candidates present (plus ALL_PROXY), matched case-blind, rundll32 exited 0 and
-  started the handler, and a variable outside the list did not reach it. Windows itself adds LOGONSERVER and two
-  FPS_BROWSER_* variables to the started process, none of them the board's.
+  started the handler, and a variable outside the list did not reach it. Two things add to the list, neither a secret: node's
+  process layer (libuv) copies a fixed set into any Windows child that lacks them (HOMEDRIVE, HOMEPATH, LOGONSERVER,
+  PATH, SYSTEMDRIVE, SYSTEMROOT, TEMP, USERDOMAIN, USERNAME, USERPROFILE, WINDIR), and the browser adds two
+  FPS_BROWSER_* profile ones.
 
 - Edge itself started cold (2026-11-11): headless, with its own throwaway profile so the person's running Edge was
   not used, msedge.exe rendered a page with ONLY this list, and also with an EMPTY environment and with SystemRoot
@@ -23,10 +25,11 @@ whole environment, because no Windows list had been checked on a Windows machine
 ## Change
 - engine/childenv.js: `WIN_OPENER_KEYS` and `winOpenerEnv(env)`: keeps the listed variables that are set and
   non-empty, matched case-insensitively (Windows names are, engine/win32env.js), each under the name it came with.
-- The CommonProgramFiles family is added to the list (no secrets; an installed browser may look it up). One entry
+- The CommonProgramFiles family and ALLUSERSPROFILE are added to the list (no secrets; an installed browser may look it up). One entry
   per name, case-blind, first spelling wins, so a child never gets PATH and Path both.
 - engine/win32signin.js: the Claude and OpenAI sign-in opener (openInDefaultBrowser) launched the same
-  `rundll32 url.dll,FileProtocolHandler` with the board's whole environment, the same leak. It now passes the same
+  `rundll32 url.dll,FileProtocolHandler` with the board's whole environment, the same leak. Its callers: the Claude
+  and OpenAI sign-ins, and the Antigravity (Google) sign-in in win32agysignin.js. It now passes the same
   list (browserOpenCommand).
 - engine/remote.js runCompanyOpener: win32 uses `winOpenerEnv` (it passed `undefined`, the whole environment).
 - engine/remote.test.js: the #5889 win32 arm, which asserted the environment WAS inherited, is flipped and split into

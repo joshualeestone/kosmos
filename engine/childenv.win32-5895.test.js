@@ -39,8 +39,17 @@ test('on a real Windows host, a child started with the list keeps what Windows g
   for (const k of ['SystemRoot', 'PATH', 'USERPROFILE', 'LOCALAPPDATA']) {
     assert.ok(Object.keys(env).some((n) => n.toLowerCase() === k.toLowerCase()), `${k} is kept from the real environment`);
   }
-  const seen = JSON.parse(execFileSync(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(process.env))'], { env, encoding: 'utf8', windowsHide: true }));
+  const childEnvOf = (e) => JSON.parse(execFileSync(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(process.env))'], { env: e, encoding: 'utf8', windowsHide: true }));
+  const has = (obj, k) => Object.keys(obj).some((n) => n.toLowerCase() === k.toLowerCase());
+  const seen = childEnvOf(env);
   assert.equal(seen.KOSMOS_5895_BOARD, undefined);
-  assert.equal(Object.keys(seen).some((n) => n.toLowerCase() === 'kosmos_agent_token'), false, 'a token in any case stays out');
-  assert.ok(seen.SystemRoot || seen.SYSTEMROOT, 'the child still has SystemRoot');
+  assert.equal(has(seen, 'kosmos_agent_token'), false, 'a token in any case stays out');
+  /* Listed variables that node's process layer does NOT copy in on its own (it copies SYSTEMROOT, PATH, TEMP and a
+     few more into every Windows child), so only the list can have put them there. Control: a child given an empty
+     environment does not get them. */
+  for (const k of ['LOCALAPPDATA', 'ComSpec', 'APPDATA']) {
+    if (!has(process.env, k)) continue;
+    assert.ok(has(seen, k), `${k} reaches the child through the list`);
+    assert.equal(has(childEnvOf({}), k), false, `control: ${k} is not added to a child by node itself`);
+  }
 });
