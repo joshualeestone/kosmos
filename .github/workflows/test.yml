@@ -289,7 +289,7 @@ jobs:
           echo "installing:$missing"
           codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
           for i in 1 2 3; do
-            sudo apt-get update -qq
+            sudo apt-get update -qq || echo "apt-get update reported a failure (an unreachable mirror); installing from what it read"   # bash -e: never end the step here
             sudo apt-get install -y -qq $missing >/dev/null && exit 0
             echo "apt-get attempt $i failed; trying the release's own archive ($codename)"
             sudo apt-get install -y -qq -t "$codename" $missing >/dev/null && exit 0
