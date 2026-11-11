@@ -28,6 +28,9 @@ install only moves forward, so the installed engine at uninstall has it. Without
 or a re-run after the folder went) it names the record instead.
 
 Weakest premise: installs that wrote the values before this change have no record, so their uninstall still leaves them.
+The same holds for a value whose record failed at birth (create.js does not report recorded:false). And a second
+Kosmos install on the same account shares ~/.gemini: uninstalling the install that recorded a value takes it out even
+if the other's agents still use it (the uninstall says so, by file).
 Second: "an install only moves forward" (a downgrade to an engine without undoWrites prints the record's path, which
 is the honest fallback, not a silent miss).
 
@@ -54,6 +57,13 @@ what we wrote".
   also removes an empty general or security object the person had before Kosmos wrote into it: DEFERRED, by design
   (an empty object and an absent one read the same to gemini). NIT: a malformed record entry is replaced, not spread:
   FIXED. Other NITs noted (the record's name is written twice, in JS and setup.sh, guarded by the install test).
+- Iteration 3 (opus): 2 WARNINGs. An undo that stopped partway lost what it had said and claimed nothing was put
+  back (the capture also dropped a failed node's output): FIXED (the output is kept, its lines are said, and the note
+  says it did not finish), with a check. A record that fails at birth (the lock busy past 2 s, an unreadable record)
+  is lost, and a later birth finds the values present and records nothing: DEFERRED, a known gap (below); treating
+  "holds exactly our value" as ours is the indistinguishability this card exists to avoid. NIT: a second Kosmos
+  install on the same account shares the person's file, so uninstalling the one that recorded can take out a value
+  the other's agents use: a known gap (below).
 - Validation 1: one red, the #1777 guard (the uninstall test compared process.platform with 'win32'): FIXED (a fixed
   darwin platform; the test is skipped off macOS and Linux).
 
@@ -63,10 +73,10 @@ what we wrote".
   undoWrites.
 - engine/create.js: the birth write passes the record path (supportDir()/gemini-wrote.json).
 - install/setup.sh: gemini_settings_undo, called before the home is deleted, and in the folder-already-gone branch.
-- engine/geminisettings.wrote-8362.test.js (13) and install.uninstall-gemini-8362.test.js (5, the real setup.sh).
+- engine/geminisettings.wrote-8362.test.js (13) and install.uninstall-gemini-8362.test.js (6, the real setup.sh).
 
 ## Results
 
-- New tests 11 of 11 and 5 of 5; geminisettings 33 of 33; uninstall-unwire-5998 9 of 9; Gemini creation tests 42 of 42,
+- New tests 13 of 13 and 6 of 6; geminisettings 33 of 33; uninstall-unwire-5998 9 of 9; Gemini creation tests 42 of 42,
   with no record written to this Mac's real data folder.
 - Control: with the uninstall's call removed, the main uninstall check fails ("the auth type Kosmos filled in was left").

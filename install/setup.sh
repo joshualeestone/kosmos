@@ -2047,16 +2047,16 @@ gemini_settings_undo() {
         }
         process.stdout.write("@kosmos-gemini-done\n");
       }
-    ' "$_gw_rec" 2>/dev/null)" || _gw_out=""
+    ' "$_gw_rec" 2>/dev/null)" || true   # a node that stopped partway keeps what it said, and the marker decides
   fi
+  printf '%s\n' "$_gw_out" | while IFS= read -r _gw_l; do
+    case "$_gw_l" in "say "*) info "${_gw_l#say }" ;; esac
+  done
   case "$_gw_out" in
-    *@kosmos-gemini-done*)
-      printf '%s\n' "$_gw_out" | while IFS= read -r _gw_l; do
-        case "$_gw_l" in "say "*) info "${_gw_l#say }" ;; esac
-      done ;;
+    *@kosmos-gemini-done*) ;;
     *)
       info "note: Kosmos filled in some of Gemini's settings (sign-in with an API key, updates off) and could not"
-      info "put them back here; the files and values are listed in $_gw_rec" ;;
+      info "finish putting them back here; the files and values are listed in $_gw_rec" ;;
   esac
   return 0
 }

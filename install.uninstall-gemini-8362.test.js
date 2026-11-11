@@ -31,7 +31,7 @@ test.after(() => { if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: tru
 
 const BRIDGE = '/opt/kosmos-elsewhere/bin/gemini-report-bridge.js';
 
-function sandbox({ noEngine = false, record = true } = {}) {
+function sandbox({ noEngine = false, record = true, crashEngine = false } = {}) {
   const root = fs.mkdtempSync(path.join(tmpRoot, 'sb-'));
   const kh = path.join(root, 'kosmos-home');
   const home = path.join(root, 'home');
@@ -41,6 +41,11 @@ function sandbox({ noEngine = false, record = true } = {}) {
   fs.mkdirSync(path.join(kh, 'bin'), { recursive: true });
   fs.symlinkSync(process.execPath, path.join(kh, 'runtime', 'bin', 'node'));
   if (!noEngine) for (const f of ENGINE_FILES) fs.copyFileSync(path.join(__dirname, 'engine', f), path.join(kh, 'app', 'engine', f));
+  // An engine whose undo put one file back and then failed: the step stops before its done line.
+  if (crashEngine) {
+    fs.writeFileSync(path.join(kh, 'app', 'engine', 'geminisettings.js'),
+      "module.exports = { undoWrites: () => ({ done: true, restored: ['/put/back/settings.json'], get kept() { throw new Error('stopped'); }, left: [] }) };\n");
+  }
   fs.writeFileSync(path.join(kh, 'bin', 'kosmos'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(kh, 'VERSION'), '0.0.0\n');
 
@@ -115,6 +120,14 @@ test('#8362: with no engine to undo it, the files are left and the record is nam
   assert.equal(fs.readFileSync(sb.mainFile, 'utf8'), before, 'the file changed with no engine to change it');
   assert.ok(out.includes('could not') && out.includes(sb.ledger), 'the record was not named');
   assert.ok(fs.existsSync(sb.ledger), 'the record was lost');
+});
+
+test('#8362: an undo that stops partway says what it did, and that it did not finish', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox({ crashEngine: true });
+  const out = runUninstall(sb);
+  assert.ok(!fs.existsSync(sb.kh), 'the uninstall did not reach its removal step: ' + out.slice(-600));
+  assert.ok(out.includes('put back the Gemini settings Kosmos had filled in, in /put/back/settings.json'), 'what it did before stopping was not said');
+  assert.ok(out.includes('could not') && out.includes('finish putting them back') && out.includes(sb.ledger), 'that it did not finish was not said');
 });
 
 test('#8362: a re-run after the folder is already gone names the record', { skip: SKIP_OFF_POSIX }, () => {
