@@ -362,7 +362,8 @@ function sleepGate(opts) {
  * Other desktops' power settings (KDE's, say) are not read, and the row's words say so.
  *
  * Returns { idle, lid, gnome }, each null when it could not be read or does not apply:
- *   idle  { action, minutes }      lid { ac, battery }      gnome { ac, acMinutes, battery, batteryMinutes }
+ *   idle  { action, minutes }      lid { ac, battery, docked }      gnome { ac, acMinutes, battery, batteryMinutes }
+ *   desktop: true when no desktop settings were read but a display manager runs (null when not asked)
  * Seams: opts.linuxSleep replaces the whole reading; opts.hasLid the lid question.
  */
 function readLinuxSleep(opts) {
@@ -370,7 +371,7 @@ function readLinuxSleep(opts) {
   if ('linuxSleep' in o) return o.linuxSleep;
   const inTest = require('./live-execution').inTestProcess();
   // A test that hands no runner never runs the host's busctl or gsettings (a Linux CI runner's would decide the row).
-  if (!o.runner && inTest) return { idle: null, lid: null, gnome: null };
+  if (!o.runner && inTest) return { idle: null, lid: null, gnome: null, desktop: null };
   /* A board started with no login session (cron, or after the session ended) has no XDG_RUNTIME_DIR, and systemctl
      --user cannot reach the user manager without it: linuxjob's fix, for its runner (#4918 review 12; review 3). */
   if (!o.runner) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
@@ -396,7 +397,8 @@ function readLinuxSleep(opts) {
       const battery = prop('HandleLidSwitch');
       const ext = prop('HandleLidSwitchExternalPower');
       // logind: an unset HandleLidSwitchExternalPower means HandleLidSwitch applies on AC too.
-      if (battery) lid = { battery, ac: ext || battery };
+      // HandleLidSwitchDocked (default ignore) decides a closed lid with another screen connected (review 9).
+      if (battery) lid = { battery, ac: ext || battery, docked: prop('HandleLidSwitchDocked') };
     }
   }
   let gnome = null;
@@ -492,13 +494,14 @@ function linuxSleepCheck(reading) {
   if (gnomeBatt) say('On battery, ' + after(gnome.batteryMinutes) + ' with nobody using it, the desktop ' + (stops(gnome.battery) === 'goes to sleep' ? 'puts it to sleep' : (stops(gnome.battery) === 'turns off' ? 'turns it off' : 'restarts it')) + '.', stops(gnome.battery));
   if (lidStops) {
     const ac = stops(lid.ac), batt = stops(lid.battery);
+    const unless = lid.docked && !stops(lid.docked) ? ', unless another screen is connected' : '';
     // One sentence when both sides do the same; each side said when they differ (review 6: a poweroff/suspend pair).
     if (ac && batt && ac !== batt) {
-      say('When the lid closes while it is plugged in, this computer ' + ac + ', unless another screen is connected.', ac);
-      say('When the lid closes on battery, it ' + batt + '.', batt);
-    } else if (ac && batt) say('When the lid closes, this computer ' + ac + ', unless another screen is connected.', ac);
-    else if (ac) say('When the lid closes while it is plugged in, this computer ' + ac + ', unless another screen is connected.', ac);
-    else say('When the lid closes on battery, this computer ' + batt + '.', batt);
+      say('When the lid closes while it is plugged in, this computer ' + ac + unless + '.', ac);
+      say('When the lid closes on battery, it ' + batt + unless + '.', batt);
+    } else if (ac && batt) say('When the lid closes, this computer ' + ac + unless + '.', ac);
+    else if (ac) say('When the lid closes while it is plugged in, this computer ' + ac + unless + '.', ac);
+    else say('When the lid closes on battery, this computer ' + batt + unless + '.', batt);
   }
   /* The words follow what was found (review 3): a computer set to turn off is not said to sleep, and one that
      restarts is not said to stay off. */
@@ -512,9 +515,10 @@ function linuxSleepCheck(reading) {
   /* The lid key is the plugged-in one only: closed on battery it should still sleep, or it drains in a bag (review 7).
      One file per finding, so a later fix never undoes an earlier one (review 7). */
   const files = [];
-  // 99-: logind reads its drop-ins in name order and the last one wins, so these come after any distro file (review 8).
-  if (idleStops) files.push(['99-kosmos-idle.conf', 'IdleAction=ignore']);
-  if (lidStops && stops(lid.ac)) files.push(['99-kosmos-lid.conf', 'HandleLidSwitchExternalPower=ignore']);
+  /* zz-: logind reads its drop-ins in name order and the last one wins, so these come after any distro or local file,
+     numbered or named (reviews 8, 9). */
+  if (idleStops) files.push(['zz-kosmos-idle.conf', 'IdleAction=ignore']);
+  if (lidStops && stops(lid.ac)) files.push(['zz-kosmos-lid.conf', 'HandleLidSwitchExternalPower=ignore']);
   /* One command that pastes as it reads (review 5: a line of prose in a code box did not), for an administrator's root
      shell, as the Windows row's command is for an administrator's prompt; then a restart applies it. */
   const extra = files.length ? { admin: ['mkdir -p /etc/systemd/logind.conf.d'].concat(files.map(([f, k]) =>
@@ -1728,7 +1732,7 @@ function labelTruthCheck(runner) {
 function boardAutostartCheck(runner, opts) {
   const platform = opts && opts.platform || process.platform;
   if (platform === 'win32') return win32BoardAutostartCheck(opts);
-  if (platform === 'linux') return linuxBoardAutostartCheck(readLinuxBoardAutostart(runner, opts));   // kosmos#8384
+  if (platform === 'linux') return linuxBoardAutostartCheck(readLinuxBoardAutostart(runner, opts));   // kosmos#8384 (opts.runner says whether a runner was given)
   if (platform !== 'darwin') return null;
 
   /* A consistency mirror of restartCheck/labelTruthCheck's uid guard. On the
@@ -1924,11 +1928,14 @@ function readLinuxBoardAutostart(runner, opts) {
   try { fs.statSync(lb.boardUnitPath()); unitFile = true; }
   catch (e) { unitFile = e && e.code === 'ENOENT' ? false : null; }   // only a proven absence is "missing"
   let unitState = null;
+  /* A test that gave no runner never runs the host's systemctl or loginctl, even with a unit folder of its own:
+     check() hands this the real run() then (review 9). */
+  const noRun = require('./live-execution').inTestProcess() && !o.runner;
   /* A sandboxed board's unit sits where systemd never reads it, and systemctl would name the person's REAL board unit
      (linuxboard.runner's refusal, review 22 there; review 1 here). So a sandbox asks systemd nothing. */
   const sandboxed = lb.sandboxedWithoutSystemd();
   if (sandboxed) return { unitFile, unitState: null, linger: undefined, installed: ('installedRoot' in o) ? o.installedRoot : update.installedRoot(), sandboxed: true };
-  if (unitFile && systemdRunning !== false) {
+  if (unitFile && systemdRunning !== false && !noRun) {
     if (!require('./live-execution').inTestProcess()) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
     const r = runner('systemctl', ['--user', 'show', '-p', 'UnitFileState', lb.boardUnitName()]);
     const m = r && r.ok ? String(r.stdout || '').match(/^UnitFileState=(\S*)\s*$/m) : null;
@@ -1936,6 +1943,8 @@ function readLinuxBoardAutostart(runner, opts) {
   }
   let linger;
   if ('lingerOn' in o) linger = o.lingerOn;
+  // Only the switched-on arm uses linger, so it is asked only then (review 9).
+  else if (unitState !== 'enabled' || noRun) linger = undefined;
   else {
     try { linger = require('./linuxjob').lingerFileOn(); } catch { linger = undefined; }
     if (linger === undefined) {
@@ -1947,7 +1956,7 @@ function readLinuxBoardAutostart(runner, opts) {
   }
   const installed = ('installedRoot' in o) ? o.installedRoot : update.installedRoot();
   const user = ('user' in o) ? o.user : (() => { try { return os.userInfo().username; } catch { return ''; } })();
-  return { unitFile, unitState, linger, installed, user, systemdRunning };
+  return { unitFile, unitState, linger, installed, user, systemdRunning, unitName: lb.boardUnitName() };
 }
 
 /* The command that turns linger on, for the row's admin field (Settings shows it under "For IT admins"). */
@@ -1985,7 +1994,8 @@ function linuxBoardAutostartCheck(reading) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service is blocked on this computer (masked), so it cannot start, even by hand, until '
-        + 'that is undone. Your agents will not come back on their own after a restart.' };
+        + 'that is undone. Your agents will not come back on their own after a restart.',
+      admin: 'systemctl --user unmask ' + (r.unitName || 'kosmos-board.service') + ' && systemctl --user enable ' + (r.unitName || 'kosmos-board.service') };
   }
   /* static, indirect, generated and the like cannot be switched on and are not what Kosmos writes (review 4): say we
      could not tell, rather than "switched off, reinstall". */
