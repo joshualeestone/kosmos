@@ -21,6 +21,7 @@ Shape posted on the card first (issuecomment 6801308249). Built on `linuxrows-83
 - A stock laptop (logind's default lid suspend) shows a standing battOnly attention row, as a Mac laptop that sleeps on battery does; Settings draws both the same way. Kept (review 15).
 - GNOME running but its settings unreadable is could-not-check, unlike a desktop Kosmos never reads (review 15).
 - The lid and battery are battOnly, as on the Mac; the logind fix is a pasteable command in the admin field, for a root shell (machine.js never runs sudo: its own guard test).
+- The readers' test guards ask live-execution.inTestProcess(), the pattern linuxjob.lingerFileOn already uses; a guard test pins that it is true under the repo's runner (review 22 asked for explicit folder flags instead; kept, as the established pattern).
 - A test never reads the host: the unit folder needs AGENT_WORKFORCE_SYSTEMD_DIR or AGENT_WORKFORCE_LAUNCH, and the lid needs opts.hasLid, else they read as unknown / no lid.
 
 ## Rejected

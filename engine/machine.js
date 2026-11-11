@@ -2066,6 +2066,19 @@ function readLinuxBoardAutostart(runner, opts) {
 
 /* The command that turns linger on, for the row's admin field (Settings shows it under "For IT admins"). */
 const LINUX_LINGER_COMMAND = 'loginctl enable-linger';
+/* The linger command for this account. A user name that is not shell-safe (a domain account with a backslash, say)
+   is left out, so the pasted line never runs something else; the command then needs the name added by hand. */
+function lingerAdmin(user) {
+  return LINUX_LINGER_COMMAND + (user && /^[a-z_][a-z0-9_.-]*\$?$/i.test(user) ? ' ' + user : '');
+}
+/* The one "stops when you log out" row; the two arms differ only in what was read before it. */
+function linuxLingerOffRow(r, lead) {
+  return { key: 'autostart', state: STATE.ATTENTION,
+    title: 'Kosmos stops when you log out',
+    detail: lead + ' You can let it keep running with the command under For IT admins; if it asks for a password you '
+      + 'do not have, an administrator runs it.',
+    admin: lingerAdmin(r.user) };
+}
 
 /** kosmos#8384: the Linux "does Kosmos come back by itself" row, from readLinuxBoardAutostart's reading. */
 function linuxBoardAutostartCheck(reading) {
@@ -2102,7 +2115,8 @@ function linuxBoardAutostartCheck(reading) {
       detail: 'The service that brings Kosmos back after a restart is missing, so your agents will not come back on '
         + 'their own until it is restored. Reinstalling Kosmos puts it back.' };
   }
-  // The file proves the mask, whether or not systemd answers.
+  // The file proves the mask, whether or not systemd answers. It stays ahead of the masked state below: unmask on a
+  // /dev/null link would remove Kosmos's own file, so that case gets the reinstall words and no command.
   if (r.maskedFile) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
@@ -2111,12 +2125,10 @@ function linuxBoardAutostartCheck(reading) {
   }
   if (r.unitState === '') return unknown('This computer\'s service manager does not know Kosmos\'s startup service, though its file is in place.');
   if (!r.unitState && r.linger === false) {
-    return { key: 'autostart', state: STATE.ATTENTION,
-      title: 'Kosmos stops when you log out',
-      detail: 'Its startup service is in place, but with nobody logged in this computer does not run it, so Kosmos '
-        + 'and your agents stay stopped until someone logs in. You can let it keep running with the command under For '
-        + 'IT admins; if it asks for a password you do not have, an administrator runs it.',
-      admin: LINUX_LINGER_COMMAND + (r.user ? ' ' + r.user : '') };
+    // Only the file was read here, so the words claim no more: whether it is switched on was not read.
+    return linuxLingerOffRow(r, 'Its startup file is on this computer, but with nobody logged in this computer runs '
+      + 'no services for you, so Kosmos and your agents stay stopped until someone logs in. (Whether the service is '
+      + 'switched on could not be read until then.)');
   }
   if (!r.unitState) return unknown('This computer\'s service manager did not answer when we asked about Kosmos\'s startup service.');
   if (r.unitState === 'masked' || r.unitState === 'masked-runtime') {
@@ -2157,13 +2169,8 @@ function linuxBoardAutostartCheck(reading) {
         + 'agents come back on their own after a restart.' };
   }
   if (r.linger === false) {
-    return { key: 'autostart', state: STATE.ATTENTION,
-      title: 'Kosmos stops when you log out',
-      detail: 'It starts when you log in, but with nobody logged in this computer stops it and does not start it '
-        + 'after a restart, so your agents stop too. You can let it keep running with the command under For IT '
-        + 'admins; if it asks for a password you do not have, an administrator runs it.',
-      // Named for this account: run from an administrator's own shell, a bare enable-linger is for theirs.
-      admin: LINUX_LINGER_COMMAND + (r.user ? ' ' + r.user : '') };
+    return linuxLingerOffRow(r, 'It starts when you log in, but with nobody logged in this computer stops it and does '
+      + 'not start it after a restart, so your agents stop too.');
   }
   // Switched on, linger unreadable: say the half that was read.
   return { key: 'autostart', state: STATE.UNKNOWN,

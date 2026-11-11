@@ -772,3 +772,18 @@ test('sleep row: sleep plus restart says both in the closing sentence', () => {
   assert.match(sleep({ idle: { action: 'suspend', minutes: 30 }, lid: { ac: 'reboot', battery: 'reboot' } }).detail, /Your agents stop until it wakes or it has restarted\./);
   assert.match(sleep({ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'reboot', acMinutes: 5, battery: null, batteryMinutes: null } }).detail, /Your agents stop until it wakes or it has restarted\./);
 });
+
+test('restart: the linger command carries the user name only when it is shell-safe', () => {
+  const at = (user) => row({ unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE, user }).admin;
+  assert.equal(at('pat'), 'loginctl enable-linger pat');
+  assert.equal(at('pat.lee'), 'loginctl enable-linger pat.lee');
+  assert.equal(at('CORP\\pat'), 'loginctl enable-linger', 'a domain account is left for the admin to name');
+  assert.equal(at('pat; rm -rf ~'), 'loginctl enable-linger');
+});
+
+test('restart: systemd silent and linger off says only the file was read', () => {
+  const r = row({ unitFile: true, unitState: null, linger: false, installed: BUNDLE, user: 'pat' });
+  assert.match(r.detail, /^Its startup file is on this computer/);
+  assert.match(r.detail, /Whether the service is switched on could not be read until then/);
+  assert.doesNotMatch(r.detail, /service is in place/);
+});
