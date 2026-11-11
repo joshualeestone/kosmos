@@ -23,13 +23,30 @@ const { execFileSync } = require('node:child_process');
 
 const SETUP = path.join(__dirname, 'install', 'setup.sh');
 const gs = require('./engine/geminisettings');
-const ENGINE_FILES = ['geminisettings.js', 'securewrite.js', 'filelock.js'];   // what the undo loads from the installed engine
+/* What the undo loads from the installed engine: geminisettings.js and every engine module it requires, followed, so a
+   new require in any of them reaches the sandbox too (a hand list went stale when #8361 added hookpaths.js). */
+function engineClosure(start) {
+  const seen = new Set();
+  const visit = (name) => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    const src = fs.readFileSync(path.join(__dirname, 'engine', name), 'utf8');
+    for (const m of src.matchAll(/require\(\s*['"]\.\/([\w.-]+?)(?:\.js)?['"]\s*\)/g)) visit(m[1] + '.js');
+  };
+  visit(start);
+  return [...seen];
+}
+const ENGINE_FILES = engineClosure('geminisettings.js');
 
 let tmpRoot;
 test.before(() => { tmpRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gemundo8362-'))); });
 test.after(() => { if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: true }); });
 
 const BRIDGE = '/opt/kosmos-elsewhere/bin/gemini-report-bridge.js';
+
+test('control: the sandbox engine holds geminisettings and what it requires', () => {
+  for (const f of ['geminisettings.js', 'securewrite.js', 'filelock.js', 'hookpaths.js']) assert.ok(ENGINE_FILES.includes(f), f + ' is not copied');
+});
 
 function sandbox({ noEngine = false, record = true, crashEngine = false } = {}) {
   const root = fs.mkdtempSync(path.join(tmpRoot, 'sb-'));
