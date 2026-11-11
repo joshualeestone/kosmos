@@ -35,23 +35,25 @@ function unsafeForCommand(s, plat) {
    reaching a settings file are the RESOLVED /private/var form.
    win32 (kosmos#8348): the temp root may also be an 8.3 short name (C:\\Users\\RUNNER~1\\...), which only the NATIVE
    realpath expands, and case names no other folder there, so each path is compared in its own spelling and in its
-   native canonical one, all lowercased. A path that does not exist yet keeps its own spelling. `opts.platform` picks
-   the rule (a test seam); posix is exactly the rule geminisettings.js had. */
+   native canonical one, all lowercased, with either slash as the separator (Windows reads C:/x and C:\x as one
+   folder, and a posix host running this rule through the seam spells its paths with /). A path that does not exist
+   yet keeps its own spelling. `opts.platform` picks the rule (a test seam); posix is exactly the rule
+   geminisettings.js had. */
 function ephemeralIntoDurable(durablePath, paths, opts) {
   const win = ((opts && opts.platform) || process.platform) === 'win32';
   const rawTmp = os.tmpdir();
   const roots = [rawTmp];
   try { roots.push(fs.realpathSync(rawTmp)); } catch { /* keep the raw value */ }
   if (win) { try { roots.push(fs.realpathSync.native(rawTmp)); } catch { /* keep the others */ } }
-  const fold = (p) => (win ? p.toLowerCase() : p);
+  const fold = (p) => (win ? p.replace(/\//g, '\\').toLowerCase() : p);
   const spellings = (p) => {
     if (!win) return [p];
     const out = [p];
     try { out.push(fs.realpathSync.native(p)); } catch { /* not there yet: its own spelling */ }
     return out;
   };
-  const sep = win ? path.win32.sep : path.sep;
-  const underRoot = (p, root) => typeof p === 'string' && (fold(p) === fold(root) || fold(p).startsWith(fold(root) + sep));
+  const sep = win ? '\\' : path.sep;   // fold has made every win32 separator a backslash
+  const underRoot = (p, root) => typeof p === 'string' && (fold(p) === fold(root) || fold(p).startsWith((win ? fold(root).replace(/\\$/, '') : root) + sep));
   const ephemeral = (p) => typeof p === 'string' && spellings(p).some((s) => roots.some((r) => underRoot(s, r)));
   const durable = typeof durablePath === 'string' && !ephemeral(durablePath);
   return durable && (paths || []).some((p) => p !== null && p !== undefined && ephemeral(p));

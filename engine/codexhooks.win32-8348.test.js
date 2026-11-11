@@ -56,6 +56,19 @@ test('install on win32 will not write a temp bridge or node into a durable Codex
   assert.equal(require('./hookpaths').ephemeralIntoDurable(path.join(home(), 'hooks.json'), [tmpBridge], { platform: 'win32' }), false);
 });
 
+test('the win32 temp rule takes either slash, so it holds on any host and for a C:/ spelling', () => {
+  const hp = require('./hookpaths');
+  const tmp = os.tmpdir();
+  const fwd = (p) => p.split(path.sep).join('/');
+  const back = (p) => p.split(path.sep).join('\\');
+  const durable = path.join(__dirname, 'hooks.json');
+  for (const spell of [fwd, back]) {
+    assert.equal(hp.ephemeralIntoDurable(spell(durable), [spell(path.join(tmp, 'cut', 'x.js'))], { platform: 'win32' }), true, `${spell === fwd ? '/' : '\\'} spelling`);
+    assert.equal(hp.ephemeralIntoDurable(spell(path.join(tmp, 'h', 'hooks.json')), [spell(path.join(tmp, 'cut', 'x.js'))], { platform: 'win32' }), false);
+  }
+  assert.equal(hp.ephemeralIntoDurable(durable, [`${tmp}x/y.js`], { platform: 'win32' }), false, 'a sibling whose name only starts like the temp folder is not in it');
+});
+
 test('on Windows the temp test matches the temp folder in any case and in its 8.3 short spelling', { skip: process.platform === 'win32' ? false : 'needs real Windows paths' }, () => {
   const hp = require('./hookpaths');
   const durable = path.join(__dirname, 'hooks.json');
