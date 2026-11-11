@@ -371,13 +371,14 @@ function readLinuxSleep(opts) {
   if ('linuxSleep' in o) return o.linuxSleep;
   const inTest = require('./live-execution').inTestProcess();
   // A test that hands no runner never runs the host's busctl or gsettings (a Linux CI runner's would decide the row).
-  if (!o.runner && inTest) return { idle: null, lid: null, gnome: null, desktop: null };
+  // opts.linuxSleepRead: a test's runner that, unlike opts.runner, does not bypass the ten-second cache.
+  if (!o.runner && !o.linuxSleepRead && inTest) return { idle: null, lid: null, gnome: null, desktop: null };
   /* A board started with no login session (cron, or after the session ended) has no XDG_RUNTIME_DIR, and systemctl
      --user cannot reach the user manager without it: linuxjob's fix, for its runner (#4918 review 12). */
   // ensureRuntimeDir sets XDG_RUNTIME_DIR for this process when it is missing, as linuxjob's runner does: an
   // environment fix for the reads, not a change to the computer.
-  if (!o.runner) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
-  const runner = o.runner || run;
+  if (!o.runner && !inTest) { try { require('./linuxjob').ensureRuntimeDir(); } catch { /* as before */ } }
+  const runner = o.runner || o.linuxSleepRead || run;
   const prop = (name) => {
     const r = runner('busctl', ['--system', 'get-property', 'org.freedesktop.login1', '/org/freedesktop/login1', 'org.freedesktop.login1.Manager', name]);
     if (!r || !r.ok) return null;
@@ -491,10 +492,13 @@ const minutesWords = (n) => n + (n === 1 ? ' minute' : ' minutes');
    Accepted: for up to ten seconds after Kosmos is reinstalled or its service changed, the row can show the old reading. */
 const LINUX_READING_TTL_MS = 10000;
 const linuxReadings = new Map();
+function clearLinuxReadingsForTests() { linuxReadings.clear(); }
 function linuxCached(key, opts, read) {
   const o = opts || {};
   // opts.cacheInTest lets a test exercise the cache itself; otherwise a test always reads fresh.
-  if (o.runner || 'linuxSleep' in o || 'linuxBoard' in o || (require('./live-execution').inTestProcess() && !o.cacheInTest)) return read();
+  // Each reading's own seam (linuxSleep for 'sleep', linuxBoard for 'board') bypasses only that reading.
+  const seam = key === 'sleep' ? 'linuxSleep' : (key === 'board' ? 'linuxBoard' : null);
+  if (o.runner || (seam && seam in o) || (require('./live-execution').inTestProcess() && !o.cacheInTest)) return read();
   const now = typeof o.now === 'function' ? o.now() : Date.now();   // seam: a test's clock
   const hit = linuxReadings.get(key);
   if (hit && now - hit.at >= 0 && now - hit.at < LINUX_READING_TTL_MS) return hit.value;
@@ -575,7 +579,8 @@ function linuxSleepCheck(reading) {
     'printf \'[Login]\\n' + k + '\\n\' > /etc/systemd/logind.conf.d/' + f)).join(' && ') } : {};
   // The lid fix is the plugged-in key only, so say so.
   const lidAcOnly = lidStops && stops(lid.ac) && stops(lid.battery) ? ' After that, closing the lid on battery still ' + (stops(lid.battery) === 'goes to sleep' ? 'puts it to sleep, as it should.' : (stops(lid.battery) === 'turns off' ? 'turns it off.' : 'restarts it.')) : '';
-  const logindFix = files.length ? (desktopFix ? ' An administrator can change the rest from a root shell, then restart the computer.' : ' An administrator can change it from a root shell, then restart the computer.') + lidAcOnly : '';
+  const logindFix = files.length ? (desktopFix ? ' An administrator can change the rest from a root shell, then restart the computer.'
+    : ' An administrator can change ' + (files.length > 1 ? 'them' : 'it') + ' from a root shell, then restart the computer.') + lidAcOnly : '';
   if (idleStops || gnomeAc) {
     const vs = verbs;
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION,
@@ -590,10 +595,16 @@ function linuxSleepCheck(reading) {
   }
   // Before any all-clear: a GNOME read that failed, wholly or partway, is never a tick.
   if (r.gnomeUnread) {
+    // Say only what was read: the plugged-in half when it answered, and Linux's own settings only when logind did.
+    const partial = gnome && gnome.ac && !stops(gnome.ac);
     return { key: 'sleep', state: STATE.UNKNOWN,
       title: 'We could not read your desktop\'s power settings',
-      detail: 'Your desktop is running, but its power settings did not answer when we asked, so we cannot tell '
-        + 'whether it puts this computer to sleep. Linux\'s own settings do not.' };
+      detail: (partial
+        ? 'Your desktop\'s plugged-in setting does not put this computer to sleep, but its battery setting did not '
+          + 'answer when we asked, so we cannot tell what it does on battery.'
+        : 'Your desktop is running, but its power settings did not answer when we asked, so we cannot tell whether '
+          + 'it puts this computer to sleep.')
+        + (idle ? ' Linux\'s own settings do not.' : ' Linux\'s own settings could not be read either.') };
   }
   /* Nothing read puts it to sleep. The title says whose settings those were. */
   if (gnome) {
@@ -1792,7 +1803,11 @@ function labelTruthCheck(runner) {
 function boardAutostartCheck(runner, opts) {
   const platform = opts && opts.platform || process.platform;
   if (platform === 'win32') return win32BoardAutostartCheck(opts);
-  if (platform === 'linux') return linuxBoardAutostartCheck(linuxCached('board', opts, () => readLinuxBoardAutostart(runner, opts)));   // kosmos#8384 (opts.runner says whether a runner was given)
+  if (platform === 'linux') {
+    // A runner handed straight to this function is the caller's, as on the Mac and Windows arms.
+    const lo = runner && runner !== run ? Object.assign({}, opts, { runner }) : opts;
+    return linuxBoardAutostartCheck(linuxCached('board', lo, () => readLinuxBoardAutostart(runner, lo)));
+  }   // kosmos#8384 (opts.runner says whether a runner was given)
   if (platform !== 'darwin') return null;
 
   /* A consistency mirror of restartCheck/labelTruthCheck's uid guard. On the
@@ -2313,4 +2328,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxHasLid, linuxLid, linuxHasBattery, linuxCached, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxHasLid, linuxLid, linuxHasBattery, linuxCached, __clearLinuxReadingsForTests: clearLinuxReadingsForTests, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };

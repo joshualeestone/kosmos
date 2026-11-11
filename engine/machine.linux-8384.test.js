@@ -373,8 +373,7 @@ test('sleep reader: logind, the lid and GNOME are read, and every command is a l
   for (const a of asked) {
     const look = (a[0] === 'busctl' && a[1] === '--system' && a[2] === 'get-property')
       || (a[0] === 'systemctl' && ((a[1] === '--user' && a[2] === 'is-active') || a[1] === 'is-active'))
-      || (a[0] === 'gsettings' && a[1] === 'get')
-      || (a[0] === 'systemd-detect-virt' && a[1] === '--vm');
+      || (a[0] === 'gsettings' && a[1] === 'get');
     assert.ok(look, 'a Settings read must change nothing: ' + a.join(' '));
   }
 });
@@ -676,7 +675,10 @@ test('restart row: systemd answering with an empty state is "does not know", not
 });
 
 test('sleep row: GNOME unreadable with logind unreadable too is still could-not-check, and a half-read GNOME says so', () => {
-  assert.equal(sleep({ idle: null, lid: null, gnome: null, gnomeUnread: true }).state, STATE.UNKNOWN);
+  const none = sleep({ idle: null, lid: null, gnome: null, gnomeUnread: true });
+  assert.equal(none.state, STATE.UNKNOWN);
+  assert.match(none.detail, /Linux's own settings could not be read either\.$/, 'never claims logind was read');
+  assert.match(sleep({ idle: QUIET_IDLE, lid: null, gnome: null, gnomeUnread: true }).detail, /Linux's own settings do not\.$/, 'control');
   const { runner } = sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-battery-type': null });
   const half = machine.readLinuxSleep({ runner, hasLid: false, hasBattery: true });
   assert.equal(half.gnomeUnread, true);
@@ -684,6 +686,7 @@ test('sleep row: GNOME unreadable with logind unreadable too is still could-not-
   // AC quiet, battery unread: the row is could-not-check, never the all-clear.
   const quietAc = machine.readLinuxSleep({ runner: sleepRunner({ IdleAction: 's "ignore"', 'sleep-inactive-ac-type': "'nothing'", 'sleep-inactive-battery-type': null }).runner, hasLid: false, hasBattery: true });
   assert.equal(sleep(quietAc).state, STATE.UNKNOWN);
+  assert.match(sleep(quietAc).detail, /^Your desktop's plugged-in setting does not put this computer to sleep, but its battery setting did not answer/);
   // AC suspends, battery unread: the finding still shows.
   assert.equal(sleep(half).state, STATE.ATTENTION);
 });
@@ -696,4 +699,30 @@ test('sleep row: the title\'s "on its own" names only what happens plugged in an
 
 test('restart row: the masked fix names reinstalling and an administrator as the way out', () => {
   assert.match(row({ unitFile: true, unitState: 'masked', installed: BUNDLE }).detail, /If it does not lift the block, reinstalling Kosmos, or an administrator, can\./);
+});
+
+test('check() and the gate share the ten-second reading, so a Settings visit asks once', () => {
+  let reads = 0, t = 5e6;
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-'));
+  // A unique key per run: the cache is the module's, so this reads through the real 'sleep' key once and clears it.
+  try {
+    const counting = (c) => { if (c === 'busctl') reads += 1; return c === 'busctl' ? { ok: true, stdout: 's "ignore"\n' } : { ok: false }; };
+    machine.__clearLinuxReadingsForTests();
+    const o = { platform: 'linux', claudeBin: process.execPath, tmuxBin: process.execPath, appDirs: [empty, empty], cacheInTest: true, now: () => t,
+      linuxBoard: { unitFile: false, installed: null }, linuxSleepRead: counting };
+    machine.check(o);
+    const first = reads;
+    machine.check(o);
+    machine.sleepGate(o);
+    assert.ok(first > 0, 'control: the first visit read logind');
+    assert.equal(reads, first, 'the second visit and the gate used the kept reading');
+    t += 10000;
+    machine.check(o);
+    assert.ok(reads > first, 'ten seconds later it reads again');
+  } finally { machine.__clearLinuxReadingsForTests(); fs.rmSync(empty, { recursive: true, force: true }); }
+});
+
+test('boardAutostartCheck: a runner handed straight in is used, as on the Mac and Windows arms', () => {
+  const got = withUnitDir(true, () => machine.boardAutostartCheck(() => ({ ok: true, stdout: 'UnitFileState=disabled\n' }), { platform: 'linux', installedRoot: BUNDLE }));
+  assert.match(got.detail, /switched off/);
 });
