@@ -127,6 +127,8 @@ const REFUSED = [
   'if not exist x.txt taskkill /F /IM node.exe',
   '@taskkill /F /IM node.exe',
   'taskkill /F /IM ' + '*'.repeat(261),
+  'taskkill /F /IM node.exe>nul',
+  'taskkill /F /IM claude.exe 2>nul',
 ];
 const ALLOWED = [
   'taskkill /PID 4242',          // the card's control: one exact process id

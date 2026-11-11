@@ -34,7 +34,8 @@
  *
  * 🛑 A SEATBELT, NOT A SANDBOX, as the Mac guard says of itself: it reads literal text. A name computed at run time,
  * a script that builds the command, Start-Process taskkill with -ArgumentList, an encoded command, a command inside
- * a quoted argument of another program (os.system("..."), node -e "..."), backtick command substitution, WMI and CIM
+ * a quoted argument of another program (os.system("..."), node -e "..."), an argument-array spawn (subprocess.run(
+ * ["taskkill", ...]), spawn("taskkill", [...])), backtick command substitution, WMI and CIM
  * (Get-WmiObject ... | Remove-WmiObject, Invoke-CimMethod -MethodName Terminate), the blocks of Invoke-Command,
  * Start-Job and . { }, a bash \' outside quotes, a Where-Object whose test is not a name (CPU -gt 0 selects nearly
  * everything and passes; a name with -and $_.Id is still refused), or any shape not listed above passes. Also read: $( ... ), batch for ... do, tskill, Stop-Process (Get-Process ...), and | % { $_.Kill() }. A guard error fails open: the hook exits 0 and the call runs, as on the Mac.
@@ -59,7 +60,8 @@ function globMatch(pat, str) {
 /* Does this image name or pattern name a Kosmos process? node, claude and kosmos-anything, with or without .exe;
    a wildcard counts when it can match one of them. */
 function kosmosName(raw) {
-  const n = String(raw || '').trim().toLowerCase();
+  // A redirect glued to the name (node.exe>nul, node.exe 2>&1 written without a space) is not part of it.
+  const n = String(raw || '').trim().toLowerCase().replace(/\d?[<>].*$/, '');
   if (!n) return false;
   if (/[*?]/.test(n)) return KOSMOS_IMAGES.some((x) => globMatch(n, x) || globMatch(n, x.replace(/\.exe$/, '')));
   return /^(node|claude)(\.exe)?$/.test(n) || /^kosmos/.test(n);
