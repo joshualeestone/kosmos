@@ -15,6 +15,6 @@ That Gemini's settings file reads as Claude's does (one JSON object, `hooks` by 
 
 ## Not done
 - The auth and update settings Kosmos pre-seeds in a person's own `~/.gemini` stay after removal: filed as #8362, since they cannot be told apart from the person's own choice.
-The card's Codex half is not met, so the card stays open after this merges, waiting on #8348.
+- The card's Codex half is not met, so the card stays open after this merges, waiting on #8348.
 - Mac and Linux (#5998's install/setup.sh) are not in this card.
 - Grok's hook file is not covered.
