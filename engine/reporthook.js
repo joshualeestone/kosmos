@@ -515,6 +515,8 @@ function ensureWired(settingsPath, scriptPath, opts) {
  * many of the hooks taken out were broken ones outside `roots`; `unreadable`: the file is not settings Kosmos can
  * read, so a retry cannot change it); never throws for a shape.
  * The caller holds the #3088 lock (filelock.withFileLock) around this, as wireDefaultHooks does around ensureWired.
+ * kosmos#8361: `opts.marker` names another runner's hook (Gemini's), default this file's MARKER; `opts.programToo` also
+ * counts a hook dead when the node.exe it runs is provably gone (Gemini's bridge outlives an install folder).
  */
 function unwireInstall(settingsPath, roots, opts) {
   const o = opts || {};

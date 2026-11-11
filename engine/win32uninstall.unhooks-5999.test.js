@@ -357,8 +357,11 @@ test('kosmos#8361: the uninstall takes this install\'s Gemini hooks out of the d
   assert.equal(fs.readFileSync(otherInstall, 'utf8'), otherBytes, 'another install\'s Gemini hook was touched');
   for (const f of [def, named]) assert.ok(r.done.some((d) => d.includes('Gemini CLI\'s settings') && d.includes(f)), 'not said for ' + f + ': ' + JSON.stringify(r.done));
   assert.ok(!r.left.some((l) => /Gemini CLI/.test(l)), JSON.stringify(r.left));
-  // CONTROL: the Claude rules are unchanged by the marker (a Gemini entry is not a Claude hook, and the reverse).
-  assert.deepEqual(reporthook.unwireInstall(named, [BUNDLE]), { ours: false, dead: 0, changed: false });
+  // CONTROL: the marker decides: this install's Gemini entry is not a Claude hook, and is a Gemini one (dry runs).
+  const both = path.join(h, '.gemini-ctrl', '.gemini', 'settings.json');
+  writeJson(both, { hooks: { AfterAgent: [geminiOurs()] } });
+  assert.equal(reporthook.unwireInstall(both, [BUNDLE], { dryRun: true }).ours, false, 'the Claude marker matched a Gemini hook');
+  assert.equal(reporthook.unwireInstall(both, [BUNDLE], { dryRun: true, marker: geminisettings.MARKER }).ours, true);
 });
 
 test('kosmos#8361: while a Kosmos task is still registered, the Gemini hooks are not touched either', async () => {
