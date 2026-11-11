@@ -216,7 +216,10 @@ function keepRequestsFor(event) {
   const cwd = typeof event.cwd === 'string' ? event.cwd : '';
   if (/[\u0000-\u001f\u007f]/.test(cwd)) return [];
   const session = typeof event.session_id === 'string' ? event.session_id : '';
-  const P = require('node:path').posix;
+  /* kosmos#8348: a Windows Codex reports cwd as C:\... (measured, codex-cli 0.149.1 win32-x64), which the posix rules
+     call relative, so no keep was made. A cwd with a drive letter or a UNC start takes the win32 rules (a patch path
+     there may be C:\x, sub\x or sub/x); any other cwd keeps the posix rules exactly as before. */
+  const P = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(cwd) ? require('node:path').win32 : require('node:path').posix;
   const out = [];
   for (const file of patchPaths(input.command)) {
     if (!P.isAbsolute(file) && !P.isAbsolute(cwd)) continue;

@@ -129,6 +129,21 @@ function superviseCodexStreaming(spec, opts) {
     return bin;
   };
   const cliDir = o.cliDir !== undefined ? o.cliDir : win32launch.agentCliDir();
+  /* kosmos#8348: put the Codex edit hook into the agent's named Codex home. A seam for tests; the default asks the
+     codex it will run for its version (the hook's trust record is known for one version only, codexhooks.js) and
+     installs the bridge that ships beside this engine. Inside a test the default does nothing. */
+  const installCodexHook = typeof o.installCodexHook === 'function' ? o.installCodexHook : (home) => {
+    if (!home) return { ok: false, because: null };   // the default home: none, and nothing to say
+    if (require('./live-execution').inTestRun()) return { ok: false, because: null };
+    const bridge = path.join(__dirname, '..', 'bin', 'codex-report-bridge.js');
+    let version = null;
+    try {
+      const out = require('node:child_process').execFileSync(binNow(), ['--version'], { encoding: 'utf8', timeout: 15000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+      const m = /^codex-cli (\S+)\s*$/.exec(String(out).trim());
+      version = m ? m[1] : null;
+    } catch { version = null; }
+    return require('./codexhooks').install(String(home), bridge, version);
+  };
 
   let running = true;
   let sessionId = null;      // the Kosmos board id
@@ -170,6 +185,15 @@ function superviseCodexStreaming(spec, opts) {
     /* gemini/grok: the account's key (or none, for a Grok subscription), see win32keyed. */
     if (!o.env && runner === 'antigravity') turnEnv = require('./win32agy').turnEnv(turnEnv);
     else if (!o.env && runner !== 'codex') turnEnv = win32keyed.turnEnv(runner, turnEnv, s.configDir || null);
+    /* kosmos#8348: the Codex edit hook (changed-by and the undo copy), the Windows half of what the Mac supervisor does
+       at each launch. Only into a NAMED Codex home (s.configDir, the account Kosmos made); an agent on the person's
+       default ~/.codex gets none, because that home is theirs. Never fatal: a hook not set up costs the record, not
+       the agent. */
+    if (runner === 'codex') {
+      let r;
+      try { r = installCodexHook(s.configDir || null); } catch (e) { r = { ok: false, because: 'it threw (' + ((e && e.code) || 'unknown') + ')' }; }
+      if (r && !r.ok && r.because) onEvent({ action: 'codex-hook-skipped', because: r.because });
+    }
     /* Idle until it is told something -- measured true of a streaming claude agent,
        and true here: nothing runs until a message arrives. Presence is stamped now
        (pid + id), which is what makes `win32codexlive` see this agent as up. */
