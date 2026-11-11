@@ -80,7 +80,8 @@ test('kosmos#8384: the sentence clears when the reading turns to awake, or canno
   const h = harness(LINUX_SLEEPS);
   await h.poll();
   assert.equal(h.say.hidden, false, 'control: shown first');
-  h.answers['/api/sleep-status'] = { checkable: true, prevented: true };
+  // An awake reading that carries a sentence still shows none: the line is only for what puts the computer to sleep.
+  h.answers['/api/sleep-status'] = { checkable: true, prevented: true, detail: 'So your agents keep working while you are away.' };
   await h.poll();
   assert.equal(h.say.hidden, true);
   assert.equal(h.say.textContent, '');
