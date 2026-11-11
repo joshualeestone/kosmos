@@ -4,7 +4,8 @@
  * #5812 item 2: the Codex tool hook that tells the board, just before a Codex agent edits files, which files it is
  * about to write (the undo copy, #5153, and "changed by" on a project file). The bridge half is
  * bin/codex-report-bridge.js (its hook mode); this file puts the hook into the agent's PRIVATE Codex home
- * (engine/codexruntime.js, Kosmos-owned since #4592) at every launch.
+ * (engine/codexruntime.js, Kosmos-owned since #4592) at every launch on the Mac, and on Windows into the agent's named
+ * account home (kosmos#8348, below).
  *
  * MEASURED on codex-cli 0.149.1, the pinned build (card comment 6219788459), against the real CLI and a local fake
  * Responses server, no model quota:
@@ -88,9 +89,11 @@ function commandFor(bridge, opts) {
 
 /* kosmos#8348: a path refused for the win32 command. It rides in a single-quoted PowerShell literal, which only a single
    quote ends (PowerShell also counts U+2018..U+201B as one), so those are refused, with CR/LF and, over-refusing as
-   geminisettings.unsafeForCommand does, the curly double quotes U+201C..U+201E, the straight double quote, dollar, backtick and percent. A backslash is the separator. */
+   geminisettings.unsafeForCommand does, the curly double quotes U+201C..U+201E, the straight double quote, dollar, backtick and percent. Square brackets
+   too: the call operator resolves its command with wildcard rules, so a node path holding [ or ] is not found even
+   inside single quotes. A backslash is the separator. */
 function unsafeForWin32(p) {
-  return typeof p !== 'string' || /['"`$%\r\n\u2018-\u201E]/.test(p);
+  return typeof p !== 'string' || /['"`$%\[\]\r\n\u2018-\u201E]/.test(p);
 }
 
 function sortKeys(v) {
@@ -223,13 +226,6 @@ function install(home, bridge, version, opts) {
     const st = fs.lstatSync(home);
     if (!st.isDirectory()) return refuse('the Codex home is not a folder');
     const hooksFile = path.join(home, HOOKS_FILE);
-    /* kosmos#8348: on Windows the home is the ACCOUNT's Codex home, not a private one, so a hooks.json that is not ours
-       (a person's own hooks) is never overwritten or removed: the Kosmos hook is skipped and theirs stays. */
-    if (plat === 'win32') {
-      let existing = null;
-      try { existing = fs.readFileSync(hooksFile, 'utf8'); } catch { existing = null; }
-      if (existing !== null && !isOurs(existing)) return { ok: false, because: 'the Codex home already has its own hooks.json, so the Kosmos hook was not added' };
-    }
     /* The record's key: hooks.json under the home's canonical spelling, as Codex resolves it (review 2). */
     const heading = stateHeading(path.join(require('./trust').canonicalOnDisk(home), HOOKS_FILE), plat);
     if (!heading) return refuse('the Codex home has a character in its path the hook record cannot carry');
@@ -239,6 +235,15 @@ function install(home, bridge, version, opts) {
     /* The same lock create.js's trustCodexFolder and forgetCodexFolder take on this file. The trust record goes in
        FIRST and hooks.json after it (review 1): a hooks.json that lands without its record stops the agent. */
     const locked = require('./filelock').withFileLock(cfg, () => {
+      /* kosmos#8348: on Windows the home is the ACCOUNT's Codex home, not a private one, so a hooks.json that is not ours
+         (a person's own hooks) is never overwritten or removed: the Kosmos hook is skipped and theirs stays. Read under
+         the lock, just before anything is written, so the window for one to appear is as small as it can be (a person's
+         editor takes no lock of ours). */
+      if (plat === 'win32') {
+        let existing = null;
+        try { existing = fs.readFileSync(hooksFile, 'utf8'); } catch { existing = null; }
+        if (existing !== null && !isOurs(existing)) return { ok: false, because: 'the Codex home already has its own hooks.json, so the Kosmos hook was not added' };
+      }
       let text = '';
       try { text = fs.readFileSync(cfg, 'utf8'); } catch { text = ''; }
       const next = nextConfig(text, heading, line);

@@ -65,6 +65,9 @@ test('install on win32 refuses a path with a quote in it, and writes nothing', (
   const h = home();
   assert.equal(hooks.install(h, "C:\\o'neil\\codex-report-bridge.js", V, W).ok, false);
   assert.equal(hooks.install(h, WBRIDGE, V, { platform: 'win32', node: 'C:\\n$x\\node.exe' }).ok, false);
+  assert.equal(hooks.install(h, WBRIDGE, V, { platform: 'win32', node: 'C:\\Users\\a[1]\\node.exe' }).ok, false, 'a wildcard bracket');
+  assert.equal(hooks.unsafeForWin32('C:\\x\u2019y\\node.exe'), true, 'a typographic single quote');
+  assert.equal(hooks.unsafeForWin32(WBRIDGE), false, 'spaces and backslashes are fine');
   assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
 });
 
@@ -129,6 +132,8 @@ test('the bridge resolves a Windows cwd with Windows rules; a posix cwd is uncha
   assert.deepEqual(bridge.keepRequestsFor(ev('C:\\w\\p', '*** Add File: a.txt\n*** Update File: sub/b.txt\n*** Delete File: D:\\x\\c.txt\n')).map((k) => k.path),
     ['C:\\w\\p\\a.txt', 'C:\\w\\p\\sub\\b.txt', 'D:\\x\\c.txt']);
   assert.deepEqual(bridge.keepRequestsFor(ev('\\\\srv\\share\\p', '*** Add File: a.txt\n')).map((k) => k.path), ['\\\\srv\\share\\p\\a.txt']);
+  assert.deepEqual(bridge.keepRequestsFor(ev('C:\\w\\p', '*** Add File: C:/w/q/../r.txt\n*** Add File: \\top.txt\n')).map((k) => k.path),
+    ['C:\\w\\r.txt', 'C:\\top.txt'], 'absolute paths come out in one spelling, a rooted one on the cwd drive');
   assert.deepEqual(bridge.keepRequestsFor(ev('/w', '*** Add File: one.txt\n')), [{ path: '/w/one.txt', cwd: '/w', session: 's' }]);
   assert.deepEqual(bridge.keepRequestsFor(ev('w\\rel', '*** Add File: one.txt\n')), [], 'a relative cwd still gets nothing');
 });
@@ -162,7 +167,13 @@ test('the supervisor installs the hook into the named home of a codex agent, aft
   const none = [];
   superviseCodexStreaming({ name: 'g', cwd: 'C:/w', runner: 'gemini', configDir: 'C:\\g' },
     supOpts({ installCodexHook: (h) => { none.push(h); return { ok: true }; }, onEvent: () => {} }));
+  await tick();
   assert.deepEqual(none, [], 'a gemini agent is not given a Codex hook');
+  const dflt = [];
+  superviseCodexStreaming({ name: 'c2', cwd: 'C:/w', runner: 'codex' },
+    supOpts({ installCodexHook: (h) => { dflt.push(h); return { ok: true }; }, onEvent: () => {} }));
+  await tick();
+  assert.deepEqual(dflt, [], 'a codex agent on the default ~/.codex is not given one either');
 });
 
 test('the first turn waits for the hook to be set up, then runs', async () => {
@@ -301,7 +312,8 @@ test(`the REAL Codex for Windows (${V}) runs the installed hook, and the bridge 
   const board = await stubBoard();
   const model = await fakeModel('*** Begin Patch\n*** Add File: hello.txt\n+hi\n*** Update File: existing.txt\n@@\n-old line\n+new line\n*** End Patch\n');
   try {
-    assert.deepEqual(hooks.install(h, BRIDGE, V), { ok: true });
+    // The path production takes: the real `codex --version` probe, parsed, then install.
+    assert.deepEqual(await installCodexHookFor(h, realCodex, { ...process.env, CODEX_HOME: h }), { ok: true });
     const r = await runCodex(h, work, model.port, { KOSMOS_PORT: String(board.port) });
     assert.equal(r.err, null, `codex exec failed: ${r.stderr}`);
     assert.equal(r.killed, false, 'codex exec finished on its own, not on the timeout');

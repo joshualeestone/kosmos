@@ -46,6 +46,16 @@ Responses server (no account). The measurements are listed below.
   probe, a busy lock, a path we will not quote) cannot take the hook from another agent already running on the same
   account. A different Codex version that the probe did read is the whole account's Codex, so then our hooks.json is
   taken back, as on the Mac.
+- An interactive Codex on the same named home. The Mac refuses to put the hook into a home that resolves to the
+  person's own account (agent-supervisor.sh, Review 5), because a TUI Codex shown a hook whose record does not count
+  stops on "Hooks need review". On Windows Kosmos never runs the TUI (every turn is `codex exec`), and the named home
+  is the `~/.codex-<label>` folder Kosmos's sign-in made. Codex Desktop and a plain `codex` use `~/.codex`, which gets
+  no hook. The only way to reach the named home interactively is to set CODEX_HOME to it by hand. Even then, the
+  record is the one that Codex version computes for this exact command, so a TUI of the same version trusts it. A
+  TUI of another version would show its review screen to a person who is sitting there and can answer it. That is
+  not an unattended agent stuck. Rejected: refusing every named home, which would leave the whole feature with no
+  Windows coverage. What would change my mind: Kosmos running Codex interactively on Windows, or Codex Desktop
+  reading named homes.
 - Start-up order: the version probe is asynchronous and runs after presence is stamped. Only an agent with a named
   home waits on it, and only its first turn waits (bounded by the probe's 15 s), so that turn's edits are recorded.
 - Lifecycle: nothing on Windows removes the hook from an account home after an uninstall or a move. The Gemini hook
