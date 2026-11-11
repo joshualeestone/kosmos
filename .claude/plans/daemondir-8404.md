@@ -21,6 +21,10 @@ runner (Mortals has three; the old CI Mac has the relay's beside this repo's) ca
   gets every group its user is in). The operator step on Mortals is: create a standard user, register the runners
   under it, then one `sudo ... --apply daemon` per runner. That needs an admin password and is not code.
 - The cron stopgap on Mortals (#4402) is machine-local, not in the repo.
+- Review 5 (read and confirmed in the code): this repo's job cleanup hook, installed only on a kosmos runner, spares
+  only `actions-runner-relay` and ends every other node and tmux of the user, which includes a third runner's
+  RunnerService.js. Mortals has no kosmos runner, so it does not bite there today. It would if a kosmos runner shared a
+  user with any runner besides the relay's. That is stated with the operator steps on #8404, not changed here.
 
 ## Weakest premise
 That anchoring every match on RUNNER_DIR is enough to keep two runners of one user apart. It is how the relay's
