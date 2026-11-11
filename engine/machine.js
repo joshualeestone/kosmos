@@ -89,7 +89,8 @@ function run(cmd, args) {
 /* The Linux looks are all local and answer in milliseconds, so they get two seconds, not run()'s five. They block the
    whole board while they run (execFileSync): after one times out the rest fail at once for ten seconds, and each
    reading has its own time budget (linuxBudgeted: 1.5 s plus one look), so a hung or sluggish bus costs a Settings
-   visit at most about seven seconds for both readings, once per ten-second reading, not a minute. */
+   visit at most about seven seconds for both readings, per visit (a reading with skipped looks is not kept), not a
+   minute. Settings reads them when it opens. */
 let linuxTimeoutMs = 2000;
 let linuxHungUntil = 0;   // after one look times out, the others fail at once for ten seconds: one timeout per reading
 function setLinuxTimeoutForTests(ms) { linuxTimeoutMs = ms; linuxHungUntil = 0; }
@@ -448,19 +449,20 @@ function readLinuxSleep(opts) {
       const battery = prop('HandleLidSwitch');
       // A lid that is there but whose setting could not be read is said, never left out of an all-clear.
       if (battery === undefined) lidUnread = true;
+      /* Who decides the lid is asked next, before the less decisive keys, so a budget cut lands on those: a desktop
+         that holds logind's handle-lid-switch inhibitor (KDE's PowerDevil always; GNOME with another screen connected)
+         decides the lid itself, so logind's lid keys are not what happens and no logind lid fix is offered. */
+      const inhibited = prop('BlockInhibited');
       const ext = prop('HandleLidSwitchExternalPower');
       // logind: an unset HandleLidSwitchExternalPower means HandleLidSwitch applies on AC too.
       // HandleLidSwitchDocked (default ignore) decides a closed lid with another screen connected.
       // ext null: this logind has no such setting (before systemd 235), so the fix names HandleLidSwitch instead.
       // ext undefined: the ask failed, so the plugged-in lid is not known and no lid fix is offered for it.
       const dockedRaw = prop('HandleLidSwitchDocked');
-      /* A desktop that holds logind's handle-lid-switch inhibitor (KDE's PowerDevil always; GNOME with another screen
-         connected) decides the lid itself, so logind's lid keys are not what happens and no logind lid fix is offered. */
-      const inhibited = prop('BlockInhibited');
       const desktopHandles = typeof inhibited === 'string' && /(^|:)handle-lid-switch(:|$)/.test(inhibited);
       if (battery) {
         lid = { battery, ac: ext === undefined ? null : (ext || battery), docked: dockedRaw || null, sure: lidSure,
-          noExt: ext === null, extUnread: ext === undefined, desktopHandles };
+          noExt: ext === null, extUnread: ext === undefined, desktopHandles, holderUnknown: inhibited === undefined };
         // Any lid half not read (plugged in, or docked) leaves the lid unknown unless something read already stops it.
         const stopsA = (a) => Boolean(a && Object.prototype.hasOwnProperty.call(LINUX_STOPPING_ACTION, a));
         if (!desktopHandles && (ext === undefined || dockedRaw === undefined) && !stopsA(lid.ac) && !stopsA(battery)) lidUnread = true;
@@ -605,7 +607,9 @@ function linuxSleepCheck(reading) {
   const after = (m) => (m ? 'after ' + minutesWords(m) : 'after a while');
   const lidByDesktop = Boolean(lid && lid.desktopHandles);
   const lidStops = !lidByDesktop && Boolean(lid && (stops(lid.ac) || stops(lid.battery) || stops(lid.docked)));
-  const lidNote = lidByDesktop ? ' What closing the lid does is up to something else on this computer, such as your desktop, '
+  const holderUnknown = Boolean(lid && lid.holderUnknown && !lidByDesktop);
+  const lidNote = holderUnknown ? ' We could not tell whether something else on this computer, such as a desktop, decides the lid.'
+    : lidByDesktop ? ' What closing the lid does is up to something else on this computer, such as your desktop, '
     + 'which holds it right now (this can change when another screen is connected or removed).' : '';
   const said = [], verbs = [];
   const plugged = [];   // the verbs of what happens plugged in, open and idle: the title's "on its own"
@@ -658,10 +662,10 @@ function linuxSleepCheck(reading) {
      files. */
   if (idleStops) files.push(['zz-kosmos-idle.conf', 'IdleAction=ignore']);
   // HandleLidSwitchExternalPower needs systemd 235 or later; older ones (CentOS 7) ignore it.
-  if (lidStops && stops(lid.ac) && !lid.extUnread) files.push(['zz-kosmos-lid.conf', lid.noExt ? 'HandleLidSwitch=ignore' : 'HandleLidSwitchExternalPower=ignore']);
+  if (lidStops && stops(lid.ac) && !lid.extUnread && !holderUnknown) files.push(['zz-kosmos-lid.conf', lid.noExt ? 'HandleLidSwitch=ignore' : 'HandleLidSwitchExternalPower=ignore']);
   // On that older logind the one key covers battery too, and the words say so.
   const lidBothNote = lidStops && stops(lid.ac) && lid.noExt ? ' On this computer that change also stops the lid putting it to sleep on battery.' : '';
-  if (lidStops && stops(lid.docked)) files.push(['zz-kosmos-lid-docked.conf', 'HandleLidSwitchDocked=ignore']);
+  if (lidStops && stops(lid.docked) && !holderUnknown) files.push(['zz-kosmos-lid-docked.conf', 'HandleLidSwitchDocked=ignore']);
   /* One command that pastes as it reads, for an administrator's root
      shell, as the Windows row's command is for an administrator's prompt; then a restart applies it. */
   const extra = files.length ? { admin: ['mkdir -p /etc/systemd/logind.conf.d'].concat(files.map(([f, k]) =>
@@ -686,7 +690,8 @@ function linuxSleepCheck(reading) {
     /* The plugged-in promise needs the plugged-in desktop setting: when that was not read, there is no promise and the
        row is not the battery-only kind. */
     // A desktop seen, or not ruled out (the ask failed), with its settings unread: no plugged-in promise.
-    const acUnknown = (r.gnomeUnread && r.gnomeUnread !== 'battery') || (r.desktop !== false && r.desktop !== undefined && !gnome);
+    const acUnknown = (r.gnomeUnread && r.gnomeUnread !== 'battery') || (r.desktop !== false && r.desktop !== undefined && !gnome)
+      || holderUnknown;   // who decides the lid was not read: no promise about it either
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION, title },
       acUnknown ? {} : { battOnly: true },
       { detail: said.join(' ')

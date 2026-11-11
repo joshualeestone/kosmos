@@ -367,7 +367,7 @@ test('sleep reader: logind, the lid and GNOME are read, and every command is a l
   const got = machine.readLinuxSleep({ runner, hasLid: true, hasBattery: true });
   assert.deepEqual(got, {
     idle: { action: 'suspend', minutes: 30 },
-    lid: { battery: 'suspend', ac: 'suspend', docked: null, sure: true, noExt: false, extUnread: false, desktopHandles: false },   // an empty HandleLidSwitchExternalPower means HandleLidSwitch applies
+    lid: { battery: 'suspend', ac: 'suspend', docked: null, sure: true, noExt: false, extUnread: false, desktopHandles: false, holderUnknown: false },   // an empty HandleLidSwitchExternalPower means HandleLidSwitch applies
     gnome: { ac: 'suspend', acMinutes: 20, battery: 'suspend', batteryMinutes: 15 },
     desktop: null,   // GNOME was read, so the display manager is not asked
   });
@@ -561,7 +561,7 @@ test('sleep row: a lid that sleeps only while plugged in says so', () => {
 test('sleep reader: a set HandleLidSwitchExternalPower is the plugged-in answer', () => {
   const { runner } = sleepRunner({ HandleLidSwitchExternalPower: 's "ignore"', IdleAction: 's "ignore"', gsd: 'inactive' });
   const got = machine.readLinuxSleep({ runner, hasLid: true });
-  assert.deepEqual(got.lid, { battery: 'suspend', ac: 'ignore', docked: null, sure: true, noExt: false, extUnread: false, desktopHandles: false });
+  assert.deepEqual(got.lid, { battery: 'suspend', ac: 'ignore', docked: null, sure: true, noExt: false, extUnread: false, desktopHandles: false, holderUnknown: false });
   assert.equal(sleep(got).battOnly, true);
 });
 
@@ -790,6 +790,7 @@ test('restart: the linger command keeps every user name, single-quoted, and the 
   const marker = path.join(dir, 'pwned');
   try {
     for (const name of ['CORP\\pat', "o'brien", 'pat; touch ' + marker, '$(touch ' + marker + ')', "x'; touch " + marker + "; '"]) {
+      assert.ok(at(name).startsWith('loginctl enable-linger '), 'control: the prefix is swapped, so loginctl itself never runs');
       const out = require('node:child_process').execFileSync('/bin/sh', ['-c', at(name).replace(/^loginctl enable-linger/, 'printf %s')], { encoding: 'utf8' });
       assert.equal(out, name, name);
       assert.equal(fs.existsSync(marker), false, 'nothing ran: ' + name);
@@ -880,10 +881,10 @@ test('linuxRun: after one look times out, the rest fail at once, so a reading co
   try {
     const run = machine.__linuxRunForTests;
     const t0 = Date.now();
-    const slow = run('/bin/sleep', ['2']);
+    const slow = run(process.execPath, ['-e', 'setTimeout(() => {}, 2000)']);
     assert.equal(slow.ok, false);
     const t1 = Date.now();
-    const next = run('/bin/sleep', ['2']);
+    const next = run(process.execPath, ['-e', 'setTimeout(() => {}, 2000)']);
     assert.equal(next.ok, false);
     assert.match(next.because, /timed out just now/);
     assert.ok(Date.now() - t1 < 500, 'the second fails at once');
@@ -1014,7 +1015,7 @@ test('a reading made while a look has timed out is not kept, so the next visit r
   let reads = 0;
   const key = 'hung-' + Math.random();
   try {
-    machine.__linuxRunForTests('/bin/sleep', ['2']);   // trips the shared timeout memory
+    machine.__linuxRunForTests(process.execPath, ['-e', 'setTimeout(() => {}, 2000)']);   // trips the shared timeout memory
     machine.linuxCached(key, { cacheInTest: true }, () => { reads += 1; return {}; });
     machine.linuxCached(key, { cacheInTest: true }, () => { reads += 1; return {}; });
     assert.equal(reads, 2, 'not kept while the bus is hung');
@@ -1173,4 +1174,19 @@ test('restart: a budget-skipped linger look marks the reading skipped', () => {
   const r = (c) => { t += 2000; return c === 'systemctl' ? { ok: true, stdout: 'UnitFileState=enabled\n' } : { ok: true, stdout: 'Linger=yes\n' }; };
   const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(r, { runner: r, installedRoot: BUNDLE, now: () => t }));
   assert.equal(got.skipped, true);
+});
+
+test('sleep: when who decides the lid could not be read, no logind lid fix and no plugged-in promise', () => {
+  const r = sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend', holderUnknown: true } });
+  assert.equal(r.admin, undefined);
+  assert.equal(r.battOnly, undefined);
+  assert.match(r.detail, /We could not tell whether something else on this computer, such as a desktop, decides the lid\./);
+  assert.ok(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend', holderUnknown: false } }).admin, 'control: read, the fix is offered');
+});
+
+test('sleep reader: the lid holder is asked straight after HandleLidSwitch', () => {
+  const asked = [];
+  const r = (c, a) => { if (c === 'busctl') asked.push(a[5]); return c === 'busctl' ? { ok: true, stdout: a[5] === 'IdleActionUSec' ? 't 0\n' : 's "ignore"\n' } : { ok: false, stdout: 'inactive\n' }; };
+  machine.readLinuxSleep({ runner: r, hasLid: true });
+  assert.equal(asked[asked.indexOf('HandleLidSwitch') + 1], 'BlockInhibited');
 });
