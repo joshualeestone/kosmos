@@ -55,6 +55,8 @@ function sandbox({ noNode = false } = {}) {
   assert.equal(gs.ensurePrepared(mainFile, bridge, PLAT).prepared, true, 'control: the real writer did not wire the hooks');
   const main = JSON.parse(fs.readFileSync(mainFile, 'utf8'));
   main.hooks.AfterAgent[0].hooks.push({ type: 'command', command: 'say done' });
+  // A hook of the person's that names our data folder's bin/ in one argument and the bridge's name in another: theirs.
+  main.hooks.BeforeAgent.push({ hooks: [{ type: 'command', command: 'bash "' + path.join(path.dirname(bridge), 'my-own.sh') + '" --tag gemini-report-bridge' }] });
   fs.writeFileSync(mainFile, JSON.stringify(main, null, 2) + '\n');
   fs.chmodSync(mainFile, 0o640);
 
@@ -110,8 +112,9 @@ test('#8364: uninstall takes this install\'s Gemini hooks out and keeps everythi
   assert.ok(!fs.existsSync(sb.kh), 'the uninstall did not reach its removal step: ' + out.slice(-600));
 
   const main = read(sb.mainFile);
-  assert.ok(!names(main, 'gemini-report-bridge'), 'a Kosmos hook was left in ~/.gemini/settings.json');
+  assert.ok(!names(main, sb.bridge), 'a Kosmos hook was left in ~/.gemini/settings.json');
   assert.deepEqual(main.hooks.BeforeTool, [{ matcher: 'shell', hooks: [theirHook] }], 'the person\'s own hook was not kept as it was');
+  assert.ok(names(main.hooks.BeforeAgent, 'my-own.sh'), 'a hook of the person\'s naming our folder and the bridge\'s name apart was taken for ours');
   assert.deepEqual(main.hooks.AfterAgent, [{ hooks: [{ type: 'command', command: 'say done' }] }], 'a hook sharing our entry was not kept');
   assert.equal(main.hooks.SessionStart, undefined, 'an event left with nothing was kept as an empty list');
   assert.deepEqual(main.ui, { theme: 'Dracula' }, 'the person\'s own setting was lost');
@@ -122,7 +125,7 @@ test('#8364: uninstall takes this install\'s Gemini hooks out and keeps everythi
   assert.ok(names(read(sb.otherFile), path.join(sb.root, 'other-data')), 'ANOTHER install\'s hooks were removed');
   assert.ok(names(read(sb.nestedFile), path.join(sb.root, 'n') + sb.bridge), 'a path that merely contains ours matched: the match is not anchored');
   assert.ok(fs.readFileSync(sb.brokenFile, 'utf8').startsWith('{ "hooks": "node'), 'a file that is not JSON was rewritten');
-  assert.match(out, /could not be taken out of these Gemini CLI settings files/, 'the unreadable Gemini file was not named');
+  assert.match(out, /these Gemini CLI settings files still hold Kosmos's hooks/, 'the unreadable Gemini file was not named');
   assert.ok(out.includes(sb.brokenFile), 'the unreadable Gemini file was not named by its path');
   assert.doesNotMatch(out, /Claude settings files/, 'a Gemini file was named under Claude\'s sentence');
 });
@@ -152,7 +155,7 @@ test('#8364: a KOSMOS_HOME that is not an install is left alone, and the Gemini 
   const out = runUninstall(sb);
   assert.match(out, /does not look like a Kosmos install/, 'control: the folder was not taken for a non-install: ' + out.slice(-600));
   assert.ok(fs.existsSync(sb.kh), 'control: a folder that is not an install was deleted');
-  assert.match(out, /could not be taken out of these Gemini CLI settings files/, 'the Gemini hooks left pointing at the removed bridge were not named');
+  assert.match(out, /these Gemini CLI settings files still hold Kosmos's hooks/, 'the Gemini hooks left pointing at the removed bridge were not named');
   assert.ok(out.includes(sb.mainFile), 'the default Gemini file was not named');
 });
 
@@ -160,7 +163,7 @@ test('#8364: a re-run after the folder is already gone names the Gemini files it
   const sb = sandbox();
   fs.rmSync(sb.kh, { recursive: true, force: true });
   const out = runUninstall(sb);
-  assert.match(out, /could not be taken out of these Gemini CLI settings files/, 'a re-run said nothing about the Gemini hooks');
+  assert.match(out, /these Gemini CLI settings files still hold Kosmos's hooks/, 'a re-run said nothing about the Gemini hooks');
   assert.ok(out.includes(sb.mainFile), 'the default Gemini file was not named');
   const notice = out.slice(out.indexOf('Gemini CLI settings files'));
   for (const f of [sb.otherFile, sb.nestedFile]) assert.ok(!notice.includes(f), f + ' (not this install\'s) was named');
