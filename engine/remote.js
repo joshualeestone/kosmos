@@ -1925,7 +1925,8 @@ let companyStartInFlight = null;
    is blocked as a pop-up, and the page would say "opened" of a page that never opened. */
 function companyOpenCommand(url) {
   if (companyOpenCommandForTests) return [companyOpenCommandForTests[0], companyOpenCommandForTests.slice(1)];
-  return process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+  /* kosmos#5895: Windows by rundll32's absolute path (childenv.winUrlOpener), as the Claude sign-in opener does. */
+  return process.platform === 'win32' ? childenv.winUrlOpener(url)
     : process.platform === 'darwin' ? ['/usr/bin/open', [url]] : ['xdg-open', [url]];
 }
 let companyOpenCommandForTests = null;
@@ -1937,20 +1938,20 @@ function runCompanyOpener(url) {
   /* kosmos#5889: on macOS and Linux the opener gets only what a desktop needs (engine/childenv.js), never the board's
      whole environment (its tokens among it), since the child can be a browser that runs for a long time. On Linux
      with nothing that can show a page (childenv.hasDesktop) it is not started, and the answer is "use the link" at
-     once. Windows keeps the environment as it was: rundll32 needs Windows' own variables (SystemRoot and others), and
-     no list for it has been checked on a Windows machine; that list is kosmos#5895. Two callers: companyOpen (the
-     company sign-in) and vouchTick (connecting this computer's browser), whose existing "could not open the browser"
-     branch is what a Linux board with no display now reaches at once. */
+     once. kosmos#5895: Windows gets its own measured list (childenv.winOpenerEnv, case-insensitive): rundll32
+     hands the URL to a program that inherits rundll32's environment, and that list is what it needs. Two callers:
+     companyOpen (the company sign-in) and vouchTick (connecting this computer's browser), whose existing "could not
+     open the browser" branch is what a Linux board with no display now reaches at once. */
   const src = companyOpenSourceForTests || { platform: process.platform, env: process.env };
   if (src.platform === 'linux' && !childenv.hasDesktop(src.env)) return Promise.resolve(false);
-  const env = src.platform === 'win32' ? undefined : childenv.openerEnv(src.env);
+  const env = src.platform === 'win32' ? childenv.winOpenerEnv(src.env) : childenv.openerEnv(src.env);
   return new Promise((resolve) => {
     const [cmd, args] = companyOpenCommand(url);
     let done = false;
     const end = (ok) => { if (!done) { done = true; clearTimeout(t); resolve(ok); } };
     const t = setTimeout(() => end(true), 5000);
     let ch;
-    try { ch = spawn(cmd, args, env ? { stdio: 'ignore', env } : { stdio: 'ignore' }); } catch { end(false); return; }
+    try { ch = spawn(cmd, args, { stdio: 'ignore', env }); } catch { end(false); return; }
     ch.on('error', () => end(false));
     ch.on('exit', (code) => end(code === 0));
   });

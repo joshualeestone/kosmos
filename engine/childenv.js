@@ -18,6 +18,8 @@
  * the page needs it.
  *
  * openerEnv(env = process.env) -> a new object holding only the listed variables that are set.
+ * winOpenerEnv(env = process.env) -> the same for the Windows opener (kosmos#5895): its own list, matched case-blind,
+ *   one entry per name.
  * hasDesktop(env = process.env) -> true when something can show a page: a display (DISPLAY or WAYLAND_DISPLAY), WSL
  *   (WSL_DISTRO_NAME, where xdg-open hands the page to Windows), or VS Code Remote (BROWSER with VSCODE_IPC_HOOK_CLI,
  *   which forwards the page to the person's own machine). BROWSER alone does not count: on a server it is often a
@@ -48,8 +50,63 @@ function openerEnv(env = process.env) {
   return out;
 }
 
+/**
+ * kosmos#5895: the Windows opener's list. There the opener is `rundll32 url.dll,FileProtocolHandler <url>`, and
+ * MEASURED on the Windows box (2026-11-09): the program it starts inherits rundll32's environment, not Explorer's (a
+ * caller's marker variable reached a stand-in URL handler; the default browser, Edge, is registered as a plain command
+ * line, so a browser started cold gets the same). With ONLY these present, less the CommonProgramFiles, ALLUSERSPROFILE
+ * and ARM64 folder names (added after, and adding a name can only give rundll32 more), rundll32 still started the
+ * handler, and a variable outside the list did not reach it. Two things add to the list, neither of them a secret:
+ * node's process layer (libuv) copies a fixed set into any Windows child that lacks them, from this process
+ * (HOMEDRIVE, HOMEPATH, LOGONSERVER, PATH, SYSTEMDRIVE, SYSTEMROOT, TEMP, USERDOMAIN, USERNAME, USERPROFILE, WINDIR),
+ * and the browser adds two FPS_BROWSER_* profile ones. Windows variable names are case-insensitive
+ * (engine/win32env.js), so the match is too, and each kept variable keeps the name it came with.
+ * Kept on purpose, as on the other platforms: the proxy variables (the person's network settings). Also kept: the
+ * CommonProgramFiles family, ALLUSERSPROFILE (ProgramData's older name) and the ARM64 folders, which hold no secret
+ * and which an installed browser may look up. Left out on purpose, though they hold no secret either: the person's
+ * other variables (PSModulePath, OneDrive, PROCESSOR_IDENTIFIER and the like, and their own tools'), because the
+ * board's copies of them are not the person's; their own environment for the browser is kosmos#8369.
+ * MEASURED as well (2026-11-11): Edge itself, started cold (headless, its own throwaway profile), rendered a page with this list, and
+ * also with an EMPTY environment, so a missing variable here cannot stop Edge from starting. Not measured: Chrome and
+ * Firefox (not on the box). rundll32 exits 0 once it hands the URL off, so a browser that failed to start for want of
+ * a variable would still read as opened, the person left with the link (kosmos#8369).
+ */
+const WIN_OPENER_KEYS = Object.freeze([
+  'SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'PATH', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA',
+  'LOCALAPPDATA', 'TEMP', 'TMP', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'ProgramData', 'PUBLIC',
+  'SystemDrive', 'USERNAME', 'USERDOMAIN', 'COMPUTERNAME', 'OS', 'PROCESSOR_ARCHITECTURE', 'NUMBER_OF_PROCESSORS',
+  'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432', 'ALLUSERSPROFILE',
+  'ProgramFiles(Arm)', 'CommonProgramFiles(Arm)',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY',
+]);
+const WIN_OPENER_LOWER = new Set(WIN_OPENER_KEYS.map((k) => k.toLowerCase()));
+
+function winOpenerEnv(env = process.env) {
+  const out = {};
+  /* One per name, case-blind: the first spelling in the source wins (on purpose, not node's own rule, which sorts
+     and keeps PATH over Path), so the child never gets PATH and Path both. */
+  const seen = new Set();
+  for (const [k, v] of Object.entries(env)) {
+    const low = k.toLowerCase();
+    if (typeof v !== 'string' || !v || !WIN_OPENER_LOWER.has(low) || seen.has(low)) continue;
+    seen.add(low);
+    out[k] = v;
+  }
+  return out;
+}
+
+/* kosmos#5895: how Windows opens a URL in the default browser, the one form both Windows openers use (remote.js
+   runCompanyOpener and win32signin.js browserOpenCommand): [command, args]. rundll32 by its absolute System32 path,
+   never a bare name found through PATH (a rundll32.cmd earlier on PATH would run instead). SystemRoot is looked up
+   case-blind, as Windows reads it. */
+function winUrlOpener(url, env = process.env) {
+  const rootKey = Object.keys(env || {}).find((k) => k.toLowerCase() === 'systemroot');
+  const root = (rootKey && env[rootKey]) || 'C:\\Windows';
+  return [require('node:path').win32.join(root, 'System32', 'rundll32.exe'), ['url.dll,FileProtocolHandler', url]];
+}
+
 function hasDesktop(env = process.env) {
   return Boolean(env.DISPLAY || env.WAYLAND_DISPLAY || env.WSL_DISTRO_NAME || (env.BROWSER && env.VSCODE_IPC_HOOK_CLI));
 }
 
-module.exports = { OPENER_KEYS, openerEnv, hasDesktop };
+module.exports = { OPENER_KEYS, openerEnv, WIN_OPENER_KEYS, winOpenerEnv, winUrlOpener, hasDesktop };

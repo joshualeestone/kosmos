@@ -35,6 +35,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const liveExecution = require('./live-execution');
+const childenv = require('./childenv');
 
 /**
  * The arguments, always. On Windows the sign-in is `auth login` whatever
@@ -435,11 +436,20 @@ function listeningLoopbackPorts(pid) {
   });
 }
 
+/* The rundll32 launch that opens a link: [command, args, options]. kosmos#5895: the browser it starts inherits
+   rundll32's environment (measured), so it gets only childenv.winOpenerEnv's list, never the board's whole
+   environment (its tokens among it), the same list the company sign-in opener uses (remote.js runCompanyOpener).
+   Every caller of openInDefaultBrowser gets it: the Claude and OpenAI sign-ins here and in openaiaccounts.js, and
+   the Antigravity (Google) sign-in in win32agysignin.js. */
+function browserOpenCommand(link, env) {
+  const src = env || process.env;
+  return [...childenv.winUrlOpener(link, src), { detached: true, stdio: 'ignore', windowsHide: false, env: childenv.winOpenerEnv(src) }];
+}
+
 /** Open a link in the default browser, outside this process tree. Never throws. */
 function openInDefaultBrowser(link) {
   try {
-    const child = spawn(path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'rundll32.exe'),
-      ['url.dll,FileProtocolHandler', link], { detached: true, stdio: 'ignore', windowsHide: false });
+    const child = spawn(...browserOpenCommand(link));
     child.on('error', () => { /* the page's own link is the fallback */ });
     child.unref();
   } catch { /* the page's own link is the fallback */ }
@@ -712,7 +722,7 @@ function createSigninHost() {
 
 module.exports = {
   createSigninHost, setSpawn, setBrowserOpener, setPortFinder, signinLineForClaudeFile,
-  signinLinkToOpen, parseListeningLoopbackPorts, listeningLoopbackPorts, openInDefaultBrowser, NO_OP_OPENER,
+  signinLinkToOpen, parseListeningLoopbackPorts, listeningLoopbackPorts, openInDefaultBrowser, browserOpenCommand, NO_OP_OPENER,
   UNSAFE_ON_COMMAND_LINE,   // also guards the OpenAI device page openaiaccounts opens with openInDefaultBrowser
   SIGNIN_ARGS, SIGNIN_OUTPUT_LIMIT_CHARS, STDERR_TAIL_LINES, SENT_FRAGMENT_MIN_CHARS,
   REDACTION_MARKER,
