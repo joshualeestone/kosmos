@@ -83,6 +83,8 @@ what we wrote".
   is dropped quietly), with a check. The node step's missing watchdog: a repeat. NITs: the re-run arm asserts the
   uninstall finished: FIXED; a gemini still running at uninstall may save the values back afterwards (it holds them in
   memory): stated here as a residual; others noted.
+- Iteration 8 (sonnet): no new findings. Its WARNING (no watchdog on the node step) has come back every round, so it is
+  carded as #8388 for all three uninstall node steps rather than deferred again. Converged.
 - Validation 1: one red, the #1777 guard (the uninstall test compared process.platform with 'win32'): FIXED (a fixed
   darwin platform; the test is skipped off macOS and Linux).
 
