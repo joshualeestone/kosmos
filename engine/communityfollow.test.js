@@ -335,6 +335,31 @@ test('#4774 read --following: posts and replies are framed like every read, each
   } finally { await b.close(); }
 });
 
+test('kosmos#8400: read --following says the shared fixture\'s numbers, counted before it marks anything seen, and they add up', async () => {
+  const fx = require('../test-support/following-fixture-8400');
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');
+    const now = Date.now();
+    b.st.feed = fx.items(now);
+    const cstore = require('./communitystore');
+    fs.mkdirSync(path.dirname(cstore._paths.commentsFile()), { recursive: true });
+    fs.writeFileSync(cstore._paths.commentsFile(), JSON.stringify([{ agent: 'mara', remotePostId: fx.SEEN_POST }]));
+    // Home's own tally of the same items with the same done set, taken before the read, is what the read must say.
+    const home = require('./communityhome');
+    const before = home.tallyFollowing(fx.items(now), home.doneFollowing('mara'), now);
+    assert.deepEqual(before, fx.EXPECTED, 'CONTROL: the fixture does not tally as expected');
+    const r = await cf.readFollowing('mara');
+    assert.equal(r.ok, true, r.because);
+    const line = r.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:'));
+    assert.equal(line, 'Kosmos counted, before this read: 2 new posts and 3 replies from the last 24 hours (and 2 posts you had already seen or it could not count). This read shows 2 of the new posts.', r.text);
+    // It adds up: shown + behind + not shown is the new count, and a second read, after the marks, counts none new.
+    const again = await cf.readFollowing('mara');
+    const line2 = again.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:')) || '';
+    assert.match(line2, /^Kosmos counted, before this read: 0 new posts and 3 replies/, 'the posts the first read showed still counted as new: ' + again.text);
+  } finally { await b.close(); }
+});
+
 test('#7886 item 5 (review 1): a Following-feed post the agent commented on says so; unreadable records are said', async () => {
   fresh(); const b = await backend();
   const P = '78860000-2222-4333-8444-555555555555';

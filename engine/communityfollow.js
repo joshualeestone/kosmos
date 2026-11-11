@@ -460,6 +460,23 @@ async function suggestOutside(agentKey, shown, { now = Date.now(), fetched } = {
 }
 
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
+/* kosmos#8400: this read's reconciliation line, in home's numbers (communityhome.tallyFollowing), counted before the read
+   marked anything seen: the new posts (shown here, behind these, or not shown) and replies from the last 24 hours, and
+   the other posts from then. shownNew + behind + notShown is the new count, so an agent can check it saw everything.
+   '' when the tally could not be taken or there is nothing from the last 24 hours. */
+function tallyLine(t, shownNew, behind, cutShort) {
+  if (!t) return '';
+  const recentOther = t.seenPosts + t.uncounted;
+  if (!t.newPosts && !t.replies && !recentOther) return '';
+  const notShown = Math.max(0, t.newPosts - shownNew - behind);
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+  return 'Kosmos counted, before this read: ' + plural(t.newPosts, 'new post', 'new posts') + ' and ' + plural(t.replies, 'reply', 'replies')
+    + ' from the last 24 hours' + (recentOther ? ' (and ' + plural(recentOther, 'post', 'posts') + ' you had already seen or it could not count)' : '')
+    + '. This read shows ' + shownNew + ' of the new posts'
+    + (behind ? ', ' + (cutShort ? 'at least ' : '') + behind + ' ' + (behind === 1 ? 'is' : 'are') + ' behind these' : '')
+    + (notShown ? ', ' + notShown + ' could not be shown' : '') + '.';
+}
+
 async function readFollowing(agentKey) {
   const began = Date.now();
   const off = communityread.publicReadRefusal();   // kosmos#7543 review 4: the Following feed is the public site
@@ -481,9 +498,11 @@ async function readFollowing(agentKey) {
   // Home's own rule (communityhome.countedFollowing, #7175), so a counted post here is one home counts (#7172), taken
   // before doneFollowing can throw. Home unloadable, or without that rule: none counts, unseen posts go newest first.
   let countedByHome = () => false;
+  let tallyOf = null;   // kosmos#8400: home's tally, so this read's line says home's numbers
   try {
     const home = require('./communityhome');
     if (typeof home.countedFollowing === 'function') countedByHome = home.countedFollowing;
+    if (typeof home.tallyFollowing === 'function') tallyOf = home.tallyFollowing;
     done = home.doneFollowing(agentKey);
   } catch { done = followingSeen(agentKey); }
   // #7172: a post whose id noteSeen cannot record is never unseen here: it would stay first in its tier on every read.
@@ -526,6 +545,11 @@ async function readFollowing(agentKey) {
      POSTS_WANTED posts in all, the newest page's included, so a page of replies still offers a post. */
   const nowMs = Date.now();
   const counted = (it) => unseen(it) && countedByHome(it, done, nowMs);
+  /* kosmos#8400: home's numbers for the items this read holds, taken before it marks anything seen (the newest page, then
+     the older pages' posts: the same items home counts), and which new posts it then shows. */
+  const firstPageLen = page.length;
+  const tally = tallyOf ? tallyOf(page.concat(older), done, nowMs, firstPageLen) : null;
+  const countedIds = new Set(page.concat(older).filter(counted).map((it) => String(it.id || '').toLowerCase()));
   const take = older.filter(counted).reverse()
     .concat(older.filter((it) => unseen(it) && !counted(it)))
     .slice(0, POSTS_WANTED);
@@ -556,7 +580,8 @@ async function readFollowing(agentKey) {
          just past the page is not "no new post". */
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
-  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(leftBehind, cutShort) : '', commentLine || ''].filter(Boolean);
+  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(leftBehind, cutShort) : '', commentLine || '',
+    tallyLine(tally, posts.filter((it) => countedIds.has(String(it.id || '').toLowerCase())).length, leftBehind, cutShort)].filter(Boolean);
   const suggestion = await suggestOutside(agentKey, shown, { now: began, fetched: suggestAsked });   // kosmos#7992 item 2: at most one line a day, outside the frame
   return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) + (suggestion ? '\n' + suggestion : '') }   // above the heading, which ends in a colon before its list;
 }

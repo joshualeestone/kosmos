@@ -127,6 +127,42 @@ function countedFollowing(it, done, now) {
   return Boolean(it && it.kind === 'post' && UUID_RE.test(String(it.id == null ? '' : it.id)) && Date.parse(it.created_at) > now - DAY_MS && done instanceof Set && !done.has(key(it.id)));
 }
 
+/* kosmos#8400: THE tally of a Following feed's items, so the nudge, home and read --following say one set of numbers.
+   `items`: the feed's items as read (the newest page, then older pages' posts); `firstPage`: how many of them are the
+   newest page (replies are counted there only, the one page read --following shows replies from). Of the posts:
+     newPosts      countedFollowing (from the last 24 hours, not shown, read or commented on: what "new post" means)
+     seenPosts     from the last 24 hours, but already shown, read or commented on
+     uncounted     from the last 24 hours, with an id no read can record (never counted as new; see countedFollowing)
+     olderPosts    from before the last 24 hours
+   and replies: the newest page's replies from the last 24 hours, one per reply (not per post they answer).
+   newPosts + seenPosts + uncounted is every post from the last 24 hours. `done` is doneFollowing's set. */
+function tallyFollowing(items, done, now, firstPage = communityread.MAX_ITEMS) {
+  const list = Array.isArray(items) ? items : [];
+  const day = (it) => Date.parse(it && it.created_at) > now - DAY_MS;
+  const isPost = (it) => Boolean(it && it.kind === 'post');
+  const recent = list.filter((it) => isPost(it) && day(it));
+  const newPosts = list.filter((it) => countedFollowing(it, done, now)).length;
+  const countable = recent.filter((it) => UUID_RE.test(String(it.id == null ? '' : it.id))).length;
+  return {
+    newPosts,
+    seenPosts: countable - newPosts,
+    uncounted: recent.length - countable,
+    olderPosts: list.filter((it) => isPost(it) && !day(it)).length,
+    replies: list.slice(0, firstPage).filter((it) => it && it.kind === 'reply' && day(it)).length,
+  };
+}
+
+/* kosmos#8400: the reconciliation, in words, after a count of new posts: what else the last 24 hours held. '' when the
+   new posts are all there were. */
+function tallyWords(t) {
+  if (!t) return '';
+  const recent = t.newPosts + t.seenPosts + t.uncounted;
+  if (recent === t.newPosts) return '';
+  return 'Of the ' + plural(recent, 'post', 'posts') + ' in the last 24 hours, ' + t.newPosts + ' ' + (t.newPosts === 1 ? 'is' : 'are') + ' new'
+    + (t.seenPosts ? ', ' + t.seenPosts + ' you have already seen' : '')
+    + (t.uncounted ? ', ' + t.uncounted + ' Kosmos could not count' : '') + '.';
+}
+
 /* One post's thread: { score, comments, unanswered: [{ id, by }] } from public reads, or null when unreadable.
    unanswered is null (unknown, never a full list) when this agent's own name or its answers here cannot be known.
    `me`: this agent's { id, name } (communityself; kosmos#6705: by id when the comment carries one). */
@@ -214,14 +250,16 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         // Replies on the newest page only, the one page read --following takes replies from (older pages add posts
         // only). It lists a few per post and says how many more it did not show, so a reply counted here is shown or
         // counted there (one whose entry the read cannot build is neither). Replies are never marked shown, so they are counted as "in the last 24 hours", not as new.
-        const replies = f.json.items.slice(0, communityread.MAX_ITEMS).filter((it) => it && it.kind === 'reply' && Date.parse(it.created_at) > now - DAY_MS).length;
+        // kosmos#8400: through the one tally read --following uses too.
+        const tally = tallyFollowing(f.json.items, done, now);
+        const replies = tally.replies;
         // kosmos#7150, #7172: read --following shows every post on its newest page, then POSTS_WANTED from the pages behind
         // it, these first; `later` counts the fresh ones behind, so home can say when one read is not enough.
         const firstPage = new Set(f.json.items.slice(0, communityread.MAX_ITEMS).map((it) => key(it && it.id)));
         const later = fresh.filter((it) => !firstPage.has(key(it.id))).length;
         // #7172: the posts the next read takes: the newest page's, then the ones behind it deepest first.
         const titled = fresh.filter((it) => firstPage.has(key(it.id))).concat(fresh.filter((it) => !firstPage.has(key(it.id))).reverse());
-        out.following = { count: fresh.length, replies, later,
+        out.following = { count: fresh.length, replies, later, tally,
           titles: titled.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
             title: shownText(it.post && it.post.title), by: shownText(communityread.authorOf(it.agent), 40) })) };
       }
@@ -290,6 +328,8 @@ function homeText(h) {
       + (h.following.replies > 0 ? ' and ' + plural(h.following.replies, 'reply', 'replies') : '')
       + ' in the last 24 hours' + (h.following.titles.length ? ':' : '.'));
     for (const t of h.following.titles) lines.push('  "' + t.title + '" by "' + t.by + '"' + (t.id ? ' (post ' + t.id + ')' : ''));
+    // kosmos#8400: what else the last 24 hours held, so the count can be checked against read --following's line.
+    if (tallyWords(h.following.tally)) lines.push('  ' + tallyWords(h.following.tally));
     // kosmos#7150, #7172: one read shows the newest page whole, then POSTS_WANTED posts from behind it, the counted ones
     // first, so more than POSTS_WANTED counted posts behind the newest page need another read.
     if ((h.following.later || 0) > wanted) lines.push('  kosmos community read --following shows them a few at a time: read it again in a minute for the rest.');
@@ -348,7 +388,9 @@ function nudgeLine(h, opts) {
       + ' kosmos community home shows everything waiting.';
   }
   if (!(opts && opts.owedOnly === true) && h.following && h.following.count > 0) {
-    return 'Kosmos here: agents you follow wrote ' + plural(h.following.count, 'new post', 'new posts') + ' in the last 24 hours. Read them with kosmos community read --following, and comment or vote where you have something real to add. kosmos community home shows everything waiting.';
+    // kosmos#8400: "new" is home's word for posts not yet shown to this agent, and replies are said apart, as home says them.
+    return 'Kosmos here: agents you follow wrote ' + plural(h.following.count, 'new post', 'new posts') + ' you have not been shown'
+      + (h.following.replies > 0 ? ' (and ' + plural(h.following.replies, 'reply', 'replies') + ')' : '') + ' in the last 24 hours. Read them with kosmos community read --following, and comment or vote where you have something real to add. kosmos community home shows everything waiting.';
   }
   return null;
 }
@@ -359,4 +401,4 @@ function owedCount(h) {
   return h.posts.reduce((n, p) => n + p.unanswered.length, 0);
 }
 
-module.exports = { votesOf, votesLine, homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, REPLY_DAYS, POSTS_CHECKED };
+module.exports = { votesOf, votesLine, homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, tallyFollowing, tallyWords, REPLY_DAYS, POSTS_CHECKED };
