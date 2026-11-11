@@ -48,7 +48,7 @@
 #                             kosmos#8404: for this stage only, another installed runner of the same user:
 #                             KOSMOS_CI_REPO (its owner/name, default this repo) and KOSMOS_CI_RUNNER_DIR (its directory,
 #                             one directly in the CI home, default $CI_HOME/actions-runner), with its KOSMOS_CI_RUNNER_NAME.
-#                             Every other stage refuses them (they fetch this repo's guard or read its variables).
+#                             Set both or neither. Every other stage refuses them (see RUNNER_REPO below for why).
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail).
@@ -131,8 +131,8 @@ SYSTEM_AGENTS="${KOSMOS_CI_SYSTEM_AGENTS:-/System/Library/LaunchAgents}"   # App
 RUNNER_DIR="${KOSMOS_CI_RUNNER_DIR:-$CI_HOME/actions-runner}"; RUNNER_DIR="${RUNNER_DIR%/}"
 # kosmos#8404: one directory directly in the CI home, as svc.sh's WorkingDirectory spells it: it goes into pgrep
 # patterns (only '.' is escaped there) and root commands, and a path outside the home is not a runner of this user's.
-case "${RUNNER_DIR#"$CI_HOME"/}" in "$RUNNER_DIR"|''|*/*|.|..|*[!A-Za-z0-9._-]*)
-  echo "refused: KOSMOS_CI_RUNNER_DIR '$RUNNER_DIR' must be one directory directly in $CI_HOME, named with letters, digits, '.', '_' and '-'" >&2; exit 2 ;; esac
+case "${RUNNER_DIR#"$CI_HOME"/}" in "$RUNNER_DIR"|''|*/*|.*|*[!A-Za-z0-9._-]*)
+  echo "refused: KOSMOS_CI_RUNNER_DIR '$RUNNER_DIR' must be one directory directly in $CI_HOME, named with letters, digits, '.', '_' and '-', not starting with '.'" >&2; exit 2 ;; esac
 # The jobs' PATH. .env carries it, and .env wins: runsvc.sh exports .path, then Runner.Listener's LoadAndSetEnv
 # (Program.cs) sets every .env line over it. register still writes .path to match, so the two never disagree.
 RUNNER_PATH="/usr/bin:/bin:/usr/sbin:/sbin:$BREW/bin:/usr/local/bin:$CI_HOME/.local/bin"
@@ -1041,7 +1041,7 @@ DAEMON_DIR="${KOSMOS_CI_DAEMON_DIR:-/Library/LaunchDaemons}"   # a test seam; la
 # runner_label: svc.sh's label for this runner, which the daemon keeps.
 runner_label() { printf 'actions.runner.%s.%s' "$(printf '%s' "$RUNNER_REPO" | tr '/' '-')" "$NAME"; }
 # daemon_xml: the one daemon plist this stage writes. Uses label and cigroup from daemon (dynamic scope); in daemon every
-# value is checked to need no XML escaping before this runs (NAME, CI_HOME, RUNNER_DIR and RUNNER_REPO in the label at the top, CI_USER and cigroup there); in
+# value is checked to need no XML escaping before this runs (NAME, CI_HOME, RUNNER_DIR, and RUNNER_REPO through the label, at the top; CI_USER and cigroup there); in
 # verify CI_USER and cigroup are not, and a bad value only makes the comparison fail.
 daemon_xml() {
   cat <<EOF
@@ -1200,6 +1200,11 @@ daemon() {
     local pd pm; pd="$(dirname "$self")"; pm="$(stat -f '%u %Lp' "$pd" 2>/dev/null || true)"
     case "${pm%% *}" in 0|"${SUDO_UID:-0}") ;; *) pm="";; esac
     case "$pm" in "$ciuid "*|*" "?[2367]?|*" "??[2367]|"") echo "refused: $pd, the directory of $self, is not owned by root or by the sudo caller, or is writable by others (stat: ${pm:-none}), so the file could be replaced by a rename, and --apply daemon runs as root; run it from the owner's checkout or a root-owned copy" >&2; exit 2 ;; esac
+  fi
+  # kosmos#8404 review 3: the runner dir must be a real directory, not a symlink a job left at that name: root reads
+  # .service and the agent through it, and every process match is anchored on it.
+  if [ -L "$RUNNER_DIR" ] || [ ! -d "$RUNNER_DIR" ]; then
+    echo "refused: $RUNNER_DIR is not a directory (or is a symlink); the runner is not installed there, or something replaced it. Nothing was changed" >&2; exit 1
   fi
   local label; label="$(runner_label)"
   local dplist="$DAEMON_DIR/$label.plist" agent="$CI_HOME/Library/LaunchAgents/$label.plist"
@@ -1520,6 +1525,14 @@ if ci_uid="$(id -u "$CI_USER" 2>/dev/null)" && owner_uid="$(id -u "$OWNER" 2>/de
   echo "refused: $CI_USER and $OWNER are the same account (uid $ci_uid); the CI user must be its own account" >&2; exit 2
 fi
 
+# kosmos#8404: another runner is named by BOTH (review 3: a repo without its dir looked in actions-runner and told the
+# operator to stop this repo's runner, which it is not).
+if [ -n "${KOSMOS_CI_REPO:-}" ] && [ -z "${KOSMOS_CI_RUNNER_DIR:-}" ]; then _one=1
+elif [ -z "${KOSMOS_CI_REPO:-}" ] && [ -n "${KOSMOS_CI_RUNNER_DIR:-}" ]; then _one=1
+else _one=0; fi
+if [ "$_one" = 1 ]; then
+  echo "refused: set KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR together (another runner is named by its repo and its directory), or neither" >&2; exit 2
+fi
 # kosmos#8404: another runner's repo or dir is for the daemon stage only (see RUNNER_REPO above).
 if { [ -n "${KOSMOS_CI_REPO:-}" ] || [ -n "${KOSMOS_CI_RUNNER_DIR:-}" ]; } && [ "$STAGE" != daemon ]; then
   echo "refused: KOSMOS_CI_REPO and KOSMOS_CI_RUNNER_DIR name another runner for the daemon stage only; $STAGE works on this repo's runner in $CI_HOME/actions-runner. Unset them" >&2; exit 2
