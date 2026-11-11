@@ -214,9 +214,10 @@ test('a direct reply tells when exactly one of the agent\'s for-you holds has th
 });
 
 test('the marks go with the hold: off, unmarked, closed, newly marked or a new reason; a re-hold keeps them', () => {
-  const marked = (id, n) => { holdtold.noteTold('leo', { via: 'task', projectId: id, task: n }); holdtold.markAnswered([{ projectId: id, n, holders: ['leo'] }]); };
+  // Review 4: told in the room WITH a message id, so the id and the kept id list are among the marks that must go.
+  const marked = (id, n) => { holdtold.noteTold('leo', { via: 'room', projectId: id, text: 'on #' + n + ': can you decide?', id: 'm-' + n }); holdtold.markAnswered([{ projectId: id, n, holders: ['leo'] }]); };
   const has = (t) => tasks.HOLD_TOLD_FIELDS.filter((k) => k in t);
-  const ALL = ['onHoldToldAt', 'onHoldLastToldAt', 'onHoldToldVia', 'onHoldAnsweredAt', 'onHoldToldCount'];   // kosmos#8389
+  const ALL = ['onHoldToldAt', 'onHoldLastToldAt', 'onHoldToldVia', 'onHoldToldId', 'onHoldAnsweredAt', 'onHoldToldCount', 'onHoldToldIds'];   // kosmos#8389
   const a = held(); marked(a.id, a.n);
   assert.deepEqual(has(read(a.id, a.n)), ALL, 'control: both marks are there');
   assert.deepEqual(has(tasks.setOnHold(a.id, a.n, true)), ALL, 'a bare re-hold is the same ask');
@@ -318,14 +319,25 @@ test('kosmos#8389: every tell counts, a new question starts the count again, and
   holdtold.noteTold('leo', { via: 'task', projectId: id, task: n });
   holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, id: 'm-77' });
   assert.equal(read(id, n).onHoldToldCount, after + 1, 'only the ask between counted');
+  // Review 4: the repeat moves nothing else either: not the latest tell, so an answer since stays answered.
+  holdtold.markAnswered([{ projectId: id, n, holders: ['leo'] }], Date.now() + 1000);
+  const lastBefore = read(id, n).onHoldLastToldAt;
+  assert.equal(holdtold.answeredOpen(read(id, n)), false, 'CONTROL: answered after the last tell');
+  holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, id: 'm-77', at: Date.now() + 5000 });
+  assert.equal(read(id, n).onHoldLastToldAt, lastBefore, 'the repeated message moved the latest tell');
+  assert.equal(holdtold.answeredOpen(read(id, n)), false, 'the repeated message reopened the answer');
+  holdtold.noteTold('leo', { via: 'task', projectId: id, task: n, id: 'm-78', at: Date.now() + 5000 });
+  assert.equal(holdtold.answeredOpen(read(id, n)), true, 'CONTROL: a new message after the answer reopens it');
   tasks.setOnHold(id, n, true, { forPerson: true, because: 'a different question' });
   assert.equal(read(id, n).onHoldToldCount, undefined, 'a new question kept the old count');
   // A hold told before the count was kept: told, no count. Another tell does not invent one.
   const old = held();
   holdtold.noteTold('leo', { via: 'task', projectId: old.id, task: old.n, at: '2026-11-08T10:00:00.000Z' });
   projects.mutate(old.id, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === old.n ? (() => { const y = { ...x }; delete y.onHoldToldCount; return y; })() : x)) }));
-  holdtold.noteTold('leo', { via: 'task', projectId: old.id, task: old.n, at: '2026-11-08T11:00:00.000Z' });
+  holdtold.noteTold('leo', { via: 'task', projectId: old.id, task: old.n, at: '2026-11-08T11:00:00.000Z', id: 'm-90' });
   assert.equal(read(old.id, old.n).onHoldToldCount, undefined);
+  assert.equal(read(old.id, old.n).onHoldToldIds, undefined, 'ids kept with no count to protect');
+  assert.equal(read(old.id, old.n).onHoldToldId, 'm-90', 'CONTROL: the tell with its id was recorded');
   assert.ok(read(old.id, old.n).onHoldLastToldAt, 'CONTROL: the tell itself was recorded');
   // One tell says no count in task show: never "1 times".
   const once = held();
