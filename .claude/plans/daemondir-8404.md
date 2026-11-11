@@ -9,8 +9,8 @@ runner (Mortals has three; the old CI Mac has the relay's beside this repo's) ca
 ## Change
 - `KOSMOS_CI_REPO` (owner/name, validated) and `KOSMOS_CI_RUNNER_DIR` (one directory directly in the CI home,
   validated) name another installed runner, with its `KOSMOS_CI_RUNNER_NAME`. They set the runner's label
-  (`runner_label`, keepalive's `want_label`), the runners API it asks about, and RUNNER_DIR, which every listener and
-  worker match is already anchored on.
+  (`runner_label`, keepalive's `want_label`) and RUNNER_DIR, which every listener and worker match is already anchored
+  on. The daemon stage never asks the runners API (it reads processes), so nothing there changes.
 - REPO itself (this script's code, its job guard, its variables, the registration URL) never changes.
 - Only the daemon stage takes them. Every other stage refuses them: install and register fetch this repo's guard and use
   this repo's labels; preflight and verify read this repo's variables. keepalive could take them but has no test for it,
