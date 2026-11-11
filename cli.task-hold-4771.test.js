@@ -202,6 +202,46 @@ test('#7788 Mac CLI: a board that ignores --for-you (older) holds it, says it is
   });
 });
 
+test('#8395 Mac CLI: --suggest sends the suggested answer with --for-you, anywhere after the number, and says it was kept', async () => {
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body && w.body.forPerson ? { onHoldForPerson: true } : {}),
+    ...(w.body && typeof w.body.suggest === 'string' ? { onHoldSuggest: w.body.suggest } : {}) } }], async (env, writes) => {
+    const a = await runCli(['task', 'hold', 'p1', '3', '--suggest', 'the lower one', '--for-you', '--because', 'which price'], env);
+    assert.equal(a.code, 0, a.stdout + a.stderr);
+    assert.match(a.stdout, /Suggested answer, as shown beside it: the lower one/);
+    const b = await runCli(['task', 'hold', 'p1', '3', '--because', 'which price', '--for-you', '--suggest', 'yes'], env);
+    assert.equal(b.code, 0, b.stdout + b.stderr);
+    // --suggest as the value of --because is the reason, not the option.
+    const c = await runCli(['task', 'hold', 'p1', '3', '--for-you', '--because', '--suggest'], env);
+    assert.equal(c.code, 0, c.stdout + c.stderr);
+    assert.deepEqual(writes.map((x) => x.body), [
+      { onHold: true, because: 'which price', forPerson: true, suggest: 'the lower one' },
+      { onHold: true, because: 'which price', forPerson: true, suggest: 'yes' },
+      { onHold: true, because: '--suggest', forPerson: true },
+    ]);
+  });
+});
+
+test('#8395 Mac CLI: --suggest without --for-you, or with no words, is refused and sent nowhere', async () => {
+  await withBoard(() => [200, { task: { number: 3, onHold: true } }], async (env, writes) => {
+    const a = await runCli(['task', 'hold', 'p1', '3', '--suggest', 'yes'], env);
+    assert.equal(a.code, 2, a.stdout + a.stderr);
+    assert.match(a.stdout + a.stderr, /--suggest goes with --for-you/);
+    const b = await runCli(['task', 'hold', 'p1', '3', '--for-you', '--suggest'], env);
+    assert.equal(b.code, 2, b.stdout + b.stderr);
+    assert.match(b.stdout + b.stderr, /--suggest needs a few words/);
+    assert.equal(writes.length, 0, 'a refused --suggest still reached the board');
+  });
+});
+
+test('#8395 Mac CLI: a board that ignores --suggest (older) holds it, says it was not kept, and exits 1', async () => {
+  await withBoard(() => [200, { task: { number: 3, onHold: true, onHoldForPerson: true } }], async (env) => {
+    const a = await runCli(['task', 'hold', 'p1', '3', '--for-you', '--suggest', 'yes'], env);
+    assert.equal(a.code, 1, a.stdout + a.stderr);
+    assert.match(a.stdout, /older than --suggest, so the suggested answer was not kept/);
+    assert.doesNotMatch(a.stdout, /as shown beside it/, 'claimed a suggestion the board did not keep');
+  });
+});
+
 test('#7788 review 2 Mac CLI: --for-you as the value of --because is the reason, not the switch', async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body && w.body.forPerson ? { onHoldForPerson: true } : {}) } }], async (env, writes) => {
     const a = await runCli(['task', 'hold', 'p1', '3', '--because', '--for-you'], env);

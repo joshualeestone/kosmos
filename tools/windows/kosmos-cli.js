@@ -1864,7 +1864,8 @@ function taskHoldAs(want) {
       if (forPerson) ctx.out(forOlder ? 'This Kosmos is older than --for-you, so it is on hold but not on the list of what is waiting on your person. Ask them in their room yourself.'
         : 'It is on the list of what is waiting on your person.');
       // kosmos#8395, as install/kosmos: only when the board's answer carries it (an older board ignores suggest).
-      if (suggest) ctx.out(typeof r.json.task.onHoldSuggest === 'string' ? 'Suggested answer, as shown beside it: ' + suggest
+      const sugOlder = Boolean(suggest) && typeof r.json.task.onHoldSuggest !== 'string';
+      if (suggest) ctx.out(!sugOlder ? 'Suggested answer, as shown beside it: ' + suggest
         : 'This Kosmos is older than --suggest, so the suggested answer was not kept. Put it in your message to your person.');
       // kosmos#7797, as install/kosmos: unmarked, it stays on hold and leaves the person's list.
       // Review 4, as install/kosmos: a board that does not say whether the mark came off gets only what is true either way.
@@ -1880,7 +1881,7 @@ function taskHoldAs(want) {
         const at = r.json.task.onHoldUntil && typeof r.json.task.onHoldUntil.at === 'string' ? r.json.task.onHoldUntil.at : value;
         ctx.out('It waits until ' + at + '; Kosmos tells its owner when that time has passed.');
       }
-      return forOlder ? 1 : 0;   // held, but not all of what was asked: not 0
+      return forOlder || sugOlder ? 1 : 0;   // held, but not all of what was asked: not 0
     }
     if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
     ctx.err('Kosmos gave an answer we could not read when changing that task.');
