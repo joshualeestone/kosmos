@@ -20,7 +20,10 @@
  * in any case. Refused:
  *   - taskkill /IM of a name a Kosmos process has (node, claude, kosmos*, .exe or not, or a wildcard that matches
  *     one), even beside a /PID (each /PID and /IM adds processes), unless a "PID eq <n>" filter narrows the call;
- *   - taskkill /FI with no /PID, no "PID eq <n>" filter and no other /IM: a filter alone ends every process it matches;
+ *   - taskkill /FI with no /PID, no "PID eq <n>" filter and no other /IM: a filter alone ends every process it matches.
+ *     A filter that names another program narrows it and passes: IMAGENAME eq <other>, WINDOWTITLE eq <a title>
+ *     (not N/A or *), SERVICES eq <a service>. MODULES, USERNAME, STATUS, SESSION, MEMUSAGE, CPUTIME, and any ne,
+ *     gt or lt are broad;
  *   - Stop-Process (spps, kill) by -Name / -ProcessName (or a prefix, -Name:x, or an @( ) list), any of the names a
  *     Kosmos name, unless -WhatIf;
  *   - Get-Process (gps, ps) piped into Stop-Process, through Sort-Object, unless Get-Process names only other
@@ -78,6 +81,7 @@ function scan(text, lit) {
   const stack = [];             // { at, kind, q } : kind '(' '{' or '$(' (inside a quote, q is restored at its close)
   let q = ''; let qAt = -1;
   for (let i = 0; i < text.length; i++) {
+    if (comments.has(i)) { i = comments.get(i) - 1; continue; }   // a heredoc body recorded ahead of its newline
     const c = text[i];
     if (q) {
       if (c === q) { q = ''; continue; }
@@ -86,8 +90,35 @@ function scan(text, lit) {
       continue;
     }
     if ((c === '"' || c === "'") && !lit.has(i)) { q = c; qAt = i; continue; }
+    if (c === '<' && text[i + 1] === '<' && text[i + 2] !== '<') {
+      // A heredoc: its body is data for the command (cat, git's -m via $(cat <<'EOF' ...)), not commands, unless
+      // the command is a shell that runs it. The body runs from the next newline to a line holding only the word.
+      // The word is quoted or in capitals (EOF, 'EOF', KOSMOS_END): `x << 2` in code being written is a shift.
+      const m = /^<<(-?)\s*(?:(["'])([A-Za-z0-9_.-]+)\2|()([A-Z_][A-Z0-9_]*)(?![a-z0-9]))/.exec(text.slice(i, i + 64));
+      const nl = m ? text.indexOf('\n', i) : -1;
+      if (m && nl >= 0) {
+        const back = text.slice(Math.max(0, i - 256), i);   // bounded look back, so many << on one line stay linear
+        const lineStart = Math.max(0, i - 256) + Math.max(back.lastIndexOf('\n'), back.lastIndexOf(';'), back.lastIndexOf('|'), back.lastIndexOf('(')) + 1;
+        const head = text.slice(lineStart, i).trim().split(/\s+/)[0] || '';
+        const shell = /^(bash|sh|zsh|cmd|cmd\.exe|powershell|pwsh|powershell\.exe|pwsh\.exe|iex)$/i.test(head.replace(/^.*[\\/]/, ''));
+        if (!shell) {
+          const delim = m[3] || m[5];
+          let k = nl + 1; let to = text.length;
+          while (k <= text.length) {
+            const e = text.indexOf('\n', k); const line = text.slice(k, e < 0 ? text.length : e);
+            if ((m[1] ? line.replace(/^\t+/, '') : line) === delim) { to = e < 0 ? text.length : e; break; }
+            if (e < 0) break;
+            k = e + 1;
+          }
+          comments.set(nl, to);
+          i += m[0].length - 1;
+          continue;
+        }
+      }
+    }
     if (c === '<' && text[i + 1] === '#') { const e = text.indexOf('#>', i + 2); const to = e < 0 ? text.length : e + 2; comments.set(i, to); i = to - 1; continue; }
-    if (c === '#' && (i === 0 || /[\s;&|({]/.test(text[i - 1]))) { const e = text.indexOf('\n', i); const to = e < 0 ? text.length : e; comments.set(i, to); i = to - 1; continue; }
+    // A # at a word start begins a comment to the end of the line; ${#a} (bash's length of a) does not.
+    if (c === '#' && (i === 0 || /[\s;&|({]/.test(text[i - 1])) && !(text[i - 1] === '{' && text[i - 2] === '$')) { const e = text.indexOf('\n', i); const to = e < 0 ? text.length : e; comments.set(i, to); i = to - 1; continue; }
     if (c === '(' || c === '{') { stack.push({ at: i, kind: c, q: '' }); continue; }
     if (c === ')' || c === '}') {
       const top = stack[stack.length - 1];
@@ -118,6 +149,8 @@ function scan(text, lit) {
 function tokens(text, literalAt) {
   const lit = literalAt || new Set();
   const sc = scan(text, lit);
+  // Past 32 rereads a quote still open hides the rest of the text: the cap fails toward passing, as every limit here
+  // does. No natural input has needed more than two.
   if (sc.openQuote >= 0 && lit.size < 32) { const next = new Set(lit); next.add(sc.openQuote); return tokens(text, next); }
   const out = [];
   let cur = ''; let has = false; let quotedSpace = false; let q = ''; let wasQuoted = false;
@@ -200,7 +233,7 @@ const R = {
   filter: 'a taskkill with a filter and no process id: it ends every process the filter matches, Kosmos and your open apps with them',
   session: (what) => what + ': it ends your whole login session',
   computer: (what) => what + ': it restarts, stops or suspends the computer',
-  allps: 'a process list piped into Stop-Process with nothing that narrows it: it stops every process you own',
+  allps: 'a Stop-Process of the whole process list, with nothing that narrows it: it stops every process you own',
   allbut: 'a Stop-Process of every process but the one named: it stops nearly every process you own',
 };
 
@@ -214,11 +247,14 @@ function taskkill(args) {
     else if (s.name === 'fi') {
       const v = String((s.value !== undefined ? s.value : (args[i + 1] && args[i + 1].w)) || '');
       if (s.value === undefined) i++;
-      const f = /^\s*(\w+)\s+(eq|ne|gt|lt|ge|le)\s+(.*?)\s*$/i.exec(v);
-      const field = f ? f[1].toLowerCase() : ''; const op = f ? f[2].toLowerCase() : ''; const val = f ? f[3] : '';
+      const vt = v.trim();
+      const f = /^(\w+)\s+(eq|ne|gt|lt|ge|le)\s+/i.exec(vt);   // no lazy group over the value: that was quadratic on spaces
+      const field = f ? f[1].toLowerCase() : ''; const op = f ? f[2].toLowerCase() : ''; const val = f ? vt.slice(f[0].length).trim() : '';
       if (field === 'pid' && op === 'eq' && /^\d+$/.test(val)) pidFilter = true;   // narrows the call to one process
       else if (field === 'imagename' && op === 'eq') { if (kosmosName(val)) ims.push(val); else narrowFilter = true; }
-      else if ((field === 'windowtitle' || field === 'modules' || field === 'services') && op === 'eq' && val && !/^\*$/.test(val)) narrowFilter = true;
+      // A window title or a service names a program; MODULES does not (every process loads ntdll), and a title of N/A
+      // or * is every windowless process, the board and agents among them.
+      else if ((field === 'windowtitle' || field === 'services') && op === 'eq' && val && !/^(\*|n\/a)$/i.test(val)) narrowFilter = true;
       else fi = true;   // USERNAME, STATUS, SESSION, MEMUSAGE, CPUTIME, IMAGENAME ne, a * value: ends what matches, broadly
     }
   }
@@ -316,7 +352,14 @@ function commandReason(cmd, pipe, at, depth) {
     if (rest.length === 1 && rest[0].quoted) return reasonIn(rest[0].w, depth + 1);
     return reasonIn(rest.map((t) => (/\s/.test(t.w) ? '"' + t.w + '"' : t.w)).join(' '), depth + 1);
   };
-  if (WRAP_C.has(name)) { const re = WRAP_C.get(name); const j = args.findIndex((t) => re.test(t.w)); return j < 0 ? '' : wrapRest(j + 1); }
+  if (WRAP_C.has(name)) {
+    const re = WRAP_C.get(name);
+    const j = args.findIndex((t) => re.test(t.w));
+    if (j >= 0) return wrapRest(j + 1);
+    // cmd /c"taskkill ..." with no space: the command is glued to the switch
+    const g = name === 'cmd' ? args.find((t) => /^\/{1,2}[ck]\S/i.test(t.w)) : null;
+    return g ? reasonIn(g.w.replace(/^\/{1,2}[ck]/i, ''), depth + 1) : '';
+  }
   if (EVAL.has(name)) return wrapRest(0);   // iex "Stop-Process -Name node"
   if (PS.has(name)) {
     const j = args.findIndex((t) => { const m = /^-([a-z]+)$/i.exec(t.w); return m && isPrefixOf(m[1].toLowerCase(), 'command'); });
@@ -412,7 +455,7 @@ function commandReason(cmd, pipe, at, depth) {
       return nm ? R.kosmos('a wmic command that ends every ' + nm[3] + ' process') : R.filter.replace('a taskkill with a filter and no process id', 'a wmic command with no process id');
     }
   }
-  if (name === 'logoff' && !args.some((t) => /^\/\?$/.test(t.w)) && args.every((t) => /^(\d+|\/{1,2}\S+|-\S+|console|rdp-\S+)$/i.test(t.w))) return R.session('logoff');
+  if (name === 'logoff' && !raw.some((t) => t.block !== undefined) && !args.some((t) => /^\/\?$/.test(t.w)) && args.every((t) => /^(\d+|\/{1,2}\S+|-\S+|console|rdp-\S+)$/i.test(t.w))) return R.session('logoff');
   if (name === 'shutdown') {
     const flags = args.map((t) => sw(t.w)).filter(Boolean).map((s) => s.name);
     const mi = args.findIndex((t) => { const x = sw(t.w); return x && x.name === 'm'; });
@@ -439,8 +482,9 @@ function reasonIn(text, depth) {
       const cmd = pipe[i];
       const head = cmd[0] && cmd[0].w !== undefined ? base(cmd[0].w) : '';
       // The pipeline and this stage's index, not a copy of the rest: copying was quadratic (reviews 3 and 4).
-      // (Get-Process node).Kill(): a block that lists processes, then .Kill()
-      if (cmd[0] && cmd[0].block !== undefined && cmd[1] && cmd[1].w !== undefined && /^\.kill$/i.test(cmd[1].w)) {
+      // (Get-Process node).Kill(), or (Get-Process node) | Stop-Process: a block that lists processes, then a kill
+      const nextStop = pipe[i + 1] && pipe[i + 1][0] && pipe[i + 1][0].w !== undefined && /^(stop-process|spps|kill)$/i.test(base(pipe[i + 1][0].w));
+      if (cmd[0] && cmd[0].block !== undefined && ((cmd[1] && cmd[1].w !== undefined && /^\.kill$/i.test(cmd[1].w)) || (cmd.length === 1 && nextStop))) {
         const inner = pipelines(tokens(cmd[0].block));
         const c0 = inner.length === 1 && inner[0].length === 1 ? inner[0][0] : null;
         if (c0 && c0[0] && c0[0].w !== undefined && /^(get-process|gps|ps)$/i.test(base(c0[0].w))) {
