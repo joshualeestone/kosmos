@@ -420,7 +420,15 @@ function readLinuxSleep(opts) {
         batteryMinutes: battery ? mins(get('sleep-inactive-battery-timeout')) : null };
     }
   }
-  return { idle, lid, gnome };
+  /* No desktop settings read: is there a desktop at all? A running display manager (GDM, SDDM, LightDM) says so; its
+     login screen and the desktop's own power settings (KDE's PowerDevil, a logged-out GNOME) are then not read, and
+     the row says it could not check rather than a tick (review 5). */
+  let desktop = null;
+  if (!gnome) {
+    const dm = runner('systemctl', ['is-active', 'display-manager.service']);
+    desktop = Boolean(dm && dm.ok && String(dm.stdout || '').trim() === 'active');
+  }
+  return { idle, lid, gnome, desktop };
 }
 
 /**
@@ -445,11 +453,14 @@ function linuxHasBattery(supplyDir) {
 }
 
 /* What each Linux action does to the agents, in words; an action not listed here leaves them running. */
+/* GNOME's "logout" is left out on purpose: with linger on (the restart row's ask) the board outlives a logout, and
+   without it the restart row already warns that logging out stops the agents. */
 const LINUX_STOPPING_ACTION = Object.freeze({
   suspend: 'goes to sleep', hibernate: 'goes to sleep', 'hybrid-sleep': 'goes to sleep',
   'suspend-then-hibernate': 'goes to sleep', 'sleep': 'goes to sleep',
   poweroff: 'turns off', halt: 'turns off', shutdown: 'turns off', reboot: 'restarts', kexec: 'restarts',
 });
+const LINUX_ACTION_BASE = Object.freeze({ 'goes to sleep': 'go to sleep', 'turns off': 'turn off', restarts: 'restart' });
 const minutesWords = (n) => n + (n === 1 ? ' minute' : ' minutes');
 
 /**
@@ -472,18 +483,15 @@ function linuxSleepCheck(reading) {
   const said = [], verbs = [];
   const say = (sentence, verb) => { said.push(sentence); verbs.push(verb); };
   if (idleStops) say('After ' + (idle.minutes ? minutesWords(idle.minutes) : 'a while') + ' with nobody using it, this computer ' + stops(idle.action) + '.', stops(idle.action));
-  if (gnomeAc) say('While it is plugged in, ' + after(gnome.acMinutes) + ' with nobody using it, the desktop has it ' + stops(gnome.ac).replace(/^goes/, 'go').replace(/^turns/, 'turn').replace(/^restarts/, 'restart') + '.', stops(gnome.ac));
-  if (gnomeBatt) say('On battery, ' + after(gnome.batteryMinutes) + ' with nobody using it, the desktop has it ' + stops(gnome.battery).replace(/^goes/, 'go').replace(/^turns/, 'turn').replace(/^restarts/, 'restart') + '.', stops(gnome.battery));
+  if (gnomeAc) say('While it is plugged in, ' + after(gnome.acMinutes) + ' with nobody using it, the desktop has it ' + LINUX_ACTION_BASE[stops(gnome.ac)] + '.', stops(gnome.ac));
+  if (gnomeBatt) say('On battery, ' + after(gnome.batteryMinutes) + ' with nobody using it, the desktop has it ' + LINUX_ACTION_BASE[stops(gnome.battery)] + '.', stops(gnome.battery));
   if (lidStops) {
     const v = stops(lid.ac) || stops(lid.battery);
     say(stops(lid.ac) ? 'When the lid closes, this computer ' + v + '.' : 'When the lid closes on battery, this computer ' + v + '.', v);
   }
   /* The words follow what was found (review 3): a computer set to turn off is not said to sleep, and one that
      restarts is not said to stay off. */
-  const what = (vs) => {
-    const sleeps = vs.includes('goes to sleep'), off = vs.includes('turns off'), restarts = vs.includes('restarts');
-    return [sleeps ? 'go to sleep' : null, off ? 'turn off' : null, restarts ? 'restart' : null].filter(Boolean).join(' or ');
-  };
+  const what = (vs) => ['goes to sleep', 'turns off', 'restarts'].filter((v) => vs.includes(v)).map((v) => LINUX_ACTION_BASE[v]).join(' or ');
   const until = (vs) => (vs.includes('goes to sleep') ? ' Your agents stop until it wakes.'
     : (vs.includes('turns off') ? ' Your agents stop until it is started again.' : ' Your agents stop while it restarts.'));
   // Where to change it, only for what was found (review 1); a file path is for an administrator (review 3).
@@ -491,9 +499,11 @@ function linuxSleepCheck(reading) {
   const logind = idleStops || lidStops;
   /* A real snippet, as the other admin fields are commands (review 4); Settings shows it as code. Restarting the
      computer applies it: restarting systemd-logind by hand can end the sessions logged in. */
-  const keys = [idleStops ? 'IdleAction=ignore' : null, lidStops ? 'HandleLidSwitch=ignore HandleLidSwitchExternalPower=ignore' : null].filter(Boolean).join(' ');
-  const extra = logind ? { admin: 'In /etc/systemd/logind.conf.d/kosmos.conf, under [Login]: ' + keys + ', then restart the computer' } : {};
-  const logindFix = logind ? (desktopFix ? ' An administrator can change the rest.' : ' An administrator can change it.') : '';
+  const keys = [idleStops ? 'IdleAction=ignore' : null, lidStops ? 'HandleLidSwitch=ignore' : null, lidStops ? 'HandleLidSwitchExternalPower=ignore' : null].filter(Boolean);
+  /* One command that pastes as it reads (review 5: a line of prose in a code box did not), for an administrator's root
+     shell, as the Windows row's command is for an administrator's prompt; then a restart applies it. */
+  const extra = logind ? { admin: 'mkdir -p /etc/systemd/logind.conf.d && printf \'[Login]\\n' + keys.join('\\n') + '\\n\' > /etc/systemd/logind.conf.d/kosmos.conf' } : {};
+  const logindFix = logind ? (desktopFix ? ' An administrator can change the rest, then restart the computer.' : ' An administrator can change it, then restart the computer.') : '';
   if (idleStops || gnomeAc) {
     const vs = verbs;
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION,
@@ -515,6 +525,12 @@ function linuxSleepCheck(reading) {
       detail: 'So your agents keep working while you are away. We read ' + (idle || lid ? 'Linux\'s own settings and ' : '')
         + 'your desktop\'s power settings. The login screen has a sleep setting of its own, which we cannot read: '
         + 'after a restart, before anyone logs in, it may still put this computer to sleep.' };
+  }
+  if (r.desktop === true) {
+    return { key: 'sleep', state: STATE.UNKNOWN,
+      title: 'We could not check this computer\'s desktop sleep settings',
+      detail: 'Linux\'s own settings do not put it to sleep, but its desktop and its login screen have sleep settings of '
+        + 'their own, which we could not read. Check them in the desktop\'s Power settings.' };
   }
   return { key: 'sleep', state: STATE.OK,
     title: 'Linux\'s own settings do not put this computer to sleep',
@@ -1905,7 +1921,9 @@ function readLinuxBoardAutostart(runner, opts) {
   const o = opts || {};
   if ('linuxBoard' in o) return o.linuxBoard;
   const lb = require('./linuxboard');
-  /* A test never reads the host's own unit folder (a Linux runner's would decide the row), as linuxjob.lingerFileOn:
+  /* Unlike readLinuxSleep, a passed runner is not enough here: the unit file is read from disk, not through the runner,
+     so a test names a folder of its own (review 5).
+     A test never reads the host's own unit folder (a Linux runner's would decide the row), as linuxjob.lingerFileOn:
      it passes opts.linuxBoard, or names a folder of its own (AGENT_WORKFORCE_SYSTEMD_DIR, or a sandbox's
      AGENT_WORKFORCE_LAUNCH, which linuxjob.defaultSystemdDir reads first). */
   if (require('./live-execution').inTestProcess() && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && !process.env.AGENT_WORKFORCE_LAUNCH) {
@@ -1927,7 +1945,6 @@ function readLinuxBoardAutostart(runner, opts) {
   }
   let linger;
   if ('lingerOn' in o) linger = o.lingerOn;
-  else if (sandboxed) linger = undefined;
   else {
     try { linger = require('./linuxjob').lingerFileOn(); } catch { linger = undefined; }
     if (linger === undefined) {
@@ -1938,7 +1955,8 @@ function readLinuxBoardAutostart(runner, opts) {
     }
   }
   const installed = ('installedRoot' in o) ? o.installedRoot : update.installedRoot();
-  return { unitFile, unitState, linger, installed };
+  const user = ('user' in o) ? o.user : (() => { try { return os.userInfo().username; } catch { return ''; } })();
+  return { unitFile, unitState, linger, installed, user };
 }
 
 /* The command that turns linger on, for the row's admin field (Settings shows it under "For IT admins"). */
@@ -1973,10 +1991,17 @@ function linuxBoardAutostartCheck(reading) {
   }
   /* static, indirect, generated and the like cannot be switched on and are not what Kosmos writes (review 4): say we
      could not tell, rather than "switched off, reinstall". */
-  if (!['enabled', 'enabled-runtime', 'disabled', 'linked', 'linked-runtime'].includes(r.unitState)) {
+  /* enabled-runtime is a link in /run, gone at the next restart (review 5): switched on now, but not after a restart. */
+  if (r.unitState === 'enabled-runtime') {
+    return { key: 'autostart', state: STATE.ATTENTION,
+      title: 'Kosmos will not start by itself after a restart',
+      detail: 'Its startup service is switched on only until this computer next restarts, so after that Kosmos and your '
+        + 'agents will not come back on their own. Reinstalling Kosmos switches it on for good.' };
+  }
+  if (!['enabled', 'disabled', 'linked', 'linked-runtime'].includes(r.unitState)) {
     return unknown('Its startup service is set up in a way Kosmos did not expect (' + r.unitState + '), so we cannot tell whether it starts by itself.');
   }
-  if (r.unitState !== 'enabled' && r.unitState !== 'enabled-runtime') {
+  if (r.unitState !== 'enabled') {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos will not start by itself',
       detail: 'Its startup service is on this computer but switched off, so Kosmos and your agents will not come '
@@ -1992,8 +2017,9 @@ function linuxBoardAutostartCheck(reading) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos stops when you log out',
       detail: 'It starts when you log in, but with nobody logged in this computer stops it and does not start it '
-        + 'after a restart, so your agents stop too. An administrator can let it keep running.',
-      admin: 'To let Kosmos run with nobody logged in, run: ' + LINUX_LINGER_COMMAND };
+        + 'after a restart, so your agents stop too. You, or an administrator, can let it keep running.',
+      // Named for this account: run from an administrator's own shell, a bare enable-linger is for theirs (review 5).
+      admin: LINUX_LINGER_COMMAND + (r.user ? ' ' + r.user : '') };
   }
   // Switched on, linger unreadable: say the half that was read.
   return { key: 'autostart', state: STATE.UNKNOWN,

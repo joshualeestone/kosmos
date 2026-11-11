@@ -72,8 +72,11 @@ test('restart row: a unit state Kosmos never writes (static, indirect, generated
   assert.match(row({ unitFile: true, unitState: 'linked', installed: BUNDLE }).detail, /switched off/, 'control: linked is off');
 });
 
-test('restart row: an enabled-runtime unit counts as switched on, masked-runtime as masked', () => {
-  assert.equal(row({ unitFile: true, unitState: 'enabled-runtime', linger: true, installed: BUNDLE }).state, STATE.OK);
+test('restart row: an enabled-runtime unit is switched on only until the next restart; masked-runtime is masked', () => {
+  const rt = row({ unitFile: true, unitState: 'enabled-runtime', linger: true, installed: BUNDLE });
+  assert.equal(rt.state, STATE.ATTENTION);
+  assert.match(rt.title, /will not start by itself after a restart/);
+  assert.match(rt.detail, /only until this computer next restarts/);
   assert.match(row({ unitFile: true, unitState: 'masked-runtime', installed: BUNDLE }).detail, /masked/);
 });
 
@@ -106,8 +109,9 @@ test('restart reader: reads the unit state and linger, and runs only looks', () 
     if (cmd === 'loginctl') return { ok: true, stdout: 'Linger=no\n' };
     return { ok: false };
   };
-  const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(runner, { installedRoot: BUNDLE }));
-  assert.deepEqual(got, { unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE });
+  const got = withUnitDir(true, () => machine.readLinuxBoardAutostart(runner, { installedRoot: BUNDLE, user: 'pat' }));
+  assert.deepEqual(got, { unitFile: true, unitState: 'enabled', linger: false, installed: BUNDLE, user: 'pat' });
+  assert.equal(row(got).admin, 'loginctl enable-linger pat', 'the command names this account, not the admin\'s own');
   assert.equal(row(got).state, STATE.ATTENTION, 'enabled with linger off is the log-out warning');
   for (const a of asked) {
     assert.ok((a[0] === 'systemctl' && a[2] === 'show') || (a[0] === 'loginctl' && a[1] === 'show-user'),
@@ -179,12 +183,12 @@ test('sleep row: nothing read is no row at all (kosmos#8375), never a standing c
 
 test('sleep row: a stop while plugged in, open and idle is the plain warning, in words for what it does', () => {
   const cases = [
-    [{ idle: { action: 'suspend', minutes: 30 } }, /can go to sleep on its own$/, /After 30 minutes with nobody using it, this computer goes to sleep\. Your agents stop until it wakes\. An administrator can change it\.$/, true],
+    [{ idle: { action: 'suspend', minutes: 30 } }, /can go to sleep on its own$/, /After 30 minutes with nobody using it, this computer goes to sleep\. Your agents stop until it wakes\. An administrator can change it, then restart the computer\.$/, true],
     [{ idle: { action: 'poweroff', minutes: 1 } }, /can turn off on its own$/, /After 1 minute .* turns off\. Your agents stop until it is started again\./, true],
     [{ idle: { action: 'reboot', minutes: 5 } }, /can restart on its own$/, /restarts\. Your agents stop while it restarts\./, true],
     [{ idle: QUIET_IDLE, gnome: { ac: 'suspend', acMinutes: 20, battery: null, batteryMinutes: null } }, /can go to sleep on its own$/, /While it is plugged in, after 20 minutes with nobody using it, the desktop has it go to sleep\..*Power settings, under Automatic Suspend\.$/, false],
     [{ idle: QUIET_IDLE, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can turn off on its own$/, /the desktop has it turn off\. Your agents stop until it is started again\./, false],
-    [{ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can go to sleep or turn off on its own$/, /Automatic Suspend\. An administrator can change the rest\.$/, true],
+    [{ idle: { action: 'suspend', minutes: 30 }, gnome: { ac: 'shutdown', acMinutes: 30, battery: null, batteryMinutes: null } }, /can go to sleep or turn off on its own$/, /Automatic Suspend\. An administrator can change the rest, then restart the computer\.$/, true],
   ];
   for (const [reading, title, detail, admin] of cases) {
     const r = sleep(reading);
@@ -195,7 +199,7 @@ test('sleep row: a stop while plugged in, open and idle is the plain warning, in
     assert.match(r.title, title, label);
     assert.match(r.detail, detail, label);
     assert.doesNotMatch(r.detail, /\/etc\//, 'a file path is for the admin field, not the sentence: ' + label);
-    if (admin) assert.match(r.admin, /\/etc\/systemd\/logind\.conf\.d.*restart the computer/, label);
+    if (admin) { assert.match(r.admin, /' > \/etc\/systemd\/logind\.conf\.d\/kosmos\.conf$/, label); assert.match(r.detail, /then restart the computer\.$/, label); }
     else assert.equal(r.admin, undefined, 'no logind advice when only the desktop fired: ' + label);
     assert.equal(r.settings, undefined, 'no "Open sleep settings" button: that opens macOS\'s pane');
   }
@@ -244,8 +248,29 @@ test('sleep row: only the desktop read, the OK title says it was the desktop\'s 
 });
 
 test('sleep row: the admin field is a logind snippet for what fired, never prose', () => {
-  assert.equal(sleep({ idle: { action: 'suspend', minutes: 30 } }).admin, 'In /etc/systemd/logind.conf.d/kosmos.conf, under [Login]: IdleAction=ignore, then restart the computer');
-  assert.match(sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' } }).admin, /\[Login\]: HandleLidSwitch=ignore HandleLidSwitchExternalPower=ignore,/);
+  assert.equal(sleep({ idle: { action: 'suspend', minutes: 30 } }).admin,
+    "mkdir -p /etc/systemd/logind.conf.d && printf '[Login]\\nIdleAction=ignore\\n' > /etc/systemd/logind.conf.d/kosmos.conf");
+  // Run for real into a temp file (no sudo, the path swapped): the file it writes is what logind reads, one key a line.
+  const lidCmd = sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' } }).admin;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-logind-'));
+  try {
+    const out = path.join(tmp, 'kosmos.conf');
+    const local = lidCmd.replace(/^mkdir -p \S+ && /, '').replace('/etc/systemd/logind.conf.d/kosmos.conf', JSON.stringify(out));
+    assert.notEqual(local, lidCmd, 'control: the path was swapped, so nothing is written under /etc');
+    require('node:child_process').execFileSync('/bin/sh', ['-c', local]);
+    assert.equal(fs.readFileSync(out, 'utf8'), '[Login]\nHandleLidSwitch=ignore\nHandleLidSwitchExternalPower=ignore\n');
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('sleep row: a desktop whose own settings were not read is "could not check", never a tick (review 5)', () => {
+  const r = sleep({ idle: QUIET_IDLE, lid: null, gnome: null, desktop: true });
+  assert.equal(r.state, STATE.UNKNOWN);
+  assert.match(r.detail, /its desktop and its login screen have sleep settings of their own, which we could not read/);
+  const { runner, asked } = sleepRunner({ IdleAction: 's "ignore"', gsd: 'inactive' });
+  const dmRunner = (c, a) => (c === 'systemctl' && a[0] === 'is-active' && a[1] === 'display-manager.service') ? { ok: true, stdout: 'active\n' } : runner(c, a);
+  assert.equal(machine.readLinuxSleep({ runner: dmRunner, hasLid: false }).desktop, true);
+  assert.equal(machine.readLinuxSleep({ runner, hasLid: false }).desktop, false, 'control: no display manager');
+  assert.ok(asked.some((a) => a[0] === 'systemctl' && a[1] === 'is-active' && a[2] === 'display-manager.service'));
 });
 
 test('sleep row: OK without a desktop reading says only Linux\'s own settings were read, in the title too', () => {
@@ -306,10 +331,11 @@ test('sleep reader: logind, the lid and GNOME are read, and every command is a l
     idle: { action: 'suspend', minutes: 30 },
     lid: { battery: 'suspend', ac: 'suspend' },   // an empty HandleLidSwitchExternalPower means HandleLidSwitch applies
     gnome: { ac: 'suspend', acMinutes: 20, battery: 'suspend', batteryMinutes: 15 },
+    desktop: null,   // GNOME was read, so the display manager is not asked
   });
   for (const a of asked) {
     const look = (a[0] === 'busctl' && a[1] === '--system' && a[2] === 'get-property')
-      || (a[0] === 'systemctl' && a[1] === '--user' && a[2] === 'is-active')
+      || (a[0] === 'systemctl' && ((a[1] === '--user' && a[2] === 'is-active') || a[1] === 'is-active'))
       || (a[0] === 'gsettings' && a[1] === 'get');
     assert.ok(look, 'a Settings read must change nothing: ' + a.join(' '));
   }
@@ -326,7 +352,7 @@ test('sleep reader: GNOME\'s settings count only while its power service runs (c
 test('sleep reader: logind unreadable and no desktop is no reading at all, and the row is absent', () => {
   const { runner, asked } = sleepRunner({ IdleAction: null, gsd: 'inactive' });
   const got = machine.readLinuxSleep({ runner, hasLid: true });
-  assert.deepEqual(got, { idle: null, lid: null, gnome: null });
+  assert.deepEqual(got, { idle: null, lid: null, gnome: null, desktop: false });
   assert.equal(asked.filter((a) => a[0] === 'busctl').length, 1, 'a logind that does not answer is asked once, not five times');
   assert.equal(sleep(got), null);
 });
