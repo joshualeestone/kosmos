@@ -5,8 +5,9 @@ lines of install/setup.sh.
 
 ## Finished looks like
 
-After a Mac/Linux uninstall, no Gemini settings file (~/.gemini/settings.json or AGENT_WORKFORCE_GEMINI_HOME, and every
-~/.gemini-<label>/.gemini/settings.json) holds a hook running this install's report bridge, which the uninstall
+After a Mac/Linux uninstall, no Gemini settings file it looks in (~/.gemini/settings.json, or AGENT_WORKFORCE_GEMINI_HOME
+as set at uninstall, and every ~/.gemini-<label>/.gemini/settings.json) holds a hook running this install's report
+bridge, which the uninstall
 deletes with the data folder's bin/. Everything else in those files stays: the person's own hooks, a hook sharing one
 of our entries, another install's hooks, and their settings. A file that cannot be read or saved is named; with no
 node, or on a re-run after the folder went, every file still pointing at the bridge is named.
@@ -24,6 +25,10 @@ Weakest premise: a second Kosmos install sharing the same data folder is not pro
 same bridge, which this uninstall deletes anyway.
 
 Would change my mind: a hook command form whose bridge path is not quoted the way commandFor writes it.
+
+Limits, stated: a default home wired while AGENT_WORKFORCE_GEMINI_HOME pointed somewhere else, and uninstalled without
+it, is neither cleaned nor named (the Windows uninstall has the same reach). A settings file gemini accepts but
+JSON.parse does not (one with comments) is named, never edited.
 
 ## Change
 
@@ -46,3 +51,6 @@ Would change my mind: a hook command form whose bridge path is not quoted the wa
   named. NITs noted: a KOSMOS_HOME that is not an install skips this step while bin/ still goes (as #8362's undo);
   the order check compares positions in the file.
 - Validation 0 passed (before these fixes).
+- Iteration 2 (sonnet): 1 WARNING: a home wired under a different AGENT_WORKFORCE_GEMINI_HOME is outside the list:
+  DEFERRED, stated in the plan (Finished narrowed to the files it looks in; Limits). NITs: a commented settings file is
+  named, not cleaned (stated); the order check and the .gemini-* glob noted. Validation 1 passed.
