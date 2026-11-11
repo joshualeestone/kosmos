@@ -59,6 +59,12 @@ function Get-Command {
   }
   Microsoft.PowerShell.Core\Get-Command @PSBoundParameters
 }
+# nostamp: node.exe's length and write time cannot be read (Get-Item throws), so nothing may be kept.
+function Get-Item {
+  [CmdletBinding()] param([string] $LiteralPath, [Parameter(Position = 0)] $Path)
+  if ($script:Mode -ceq 'nostamp') { throw [System.UnauthorizedAccessException]::new('Access to the path is denied.') }
+  Microsoft.PowerShell.Management\Get-Item @PSBoundParameters
+}
 function Get-AuthenticodeSignature {
   [CmdletBinding()] param([string] $LiteralPath)
   $script:Reads += 1
@@ -68,7 +74,7 @@ function Get-AuthenticodeSignature {
   if ($script:Mode -ceq 'noload') { throw [System.Management.Automation.CommandNotFoundException]::new('The Get-AuthenticodeSignature command was found in the module Microsoft.PowerShell.Security, but the module could not be loaded.') }
   $cert = [pscustomobject]@{}
   $cert | Add-Member -MemberType ScriptMethod -Name GetNameInfo -Value { 'OpenJS Foundation' }
-  if ($script:Mode -ceq 'valid') { return [pscustomobject]@{ Status = 'Valid'; SignerCertificate = $cert } }
+  if ($script:Mode -ceq 'valid' -or $script:Mode -ceq 'nostamp') { return [pscustomobject]@{ Status = 'Valid'; SignerCertificate = $cert } }
   [pscustomobject]@{ Status = 'NotSigned'; SignerCertificate = $null }
 }
 . ([scriptblock]::Create((Assignment '$KosmosAppNode')))
@@ -119,7 +125,7 @@ for (const ps of RUNTIMES) {
     const r = run(ps, 'throw', 1);
     assert.deepStrictEqual(r.results, ['NONE']);
     assert.strictEqual(r.lines.length, 1, 'one line: ' + r.lines.join(' | '));
-    assert.match(r.lines[0], /its signature could not be read: The process cannot access the file because it is being used by another process\., so it is not known to be Valid from OpenJS Foundation$/);
+    assert.match(r.lines[0], /its signature could not be read: The process cannot access the file because it is being used by another process, so it is not known to be Valid from OpenJS Foundation$/);
     assert.doesNotMatch(r.lines[0], /unreadable/, 'not the old word, which read as an unsigned node');
   });
 
@@ -127,7 +133,7 @@ for (const ps of RUNTIMES) {
     const r = run(ps, 'noload', 1);
     assert.deepStrictEqual(r.results, ['NONE']);
     assert.strictEqual(r.lines.length, 1);
-    assert.match(r.lines[0], /no working Get-AuthenticodeSignature \(on Windows, check its module path\): The Get-AuthenticodeSignature command was found in the module Microsoft\.PowerShell\.Security, but the module could not be loaded\./);
+    assert.match(r.lines[0], /no working Get-AuthenticodeSignature \(on Windows, check its module path\): The Get-AuthenticodeSignature command was found in the module Microsoft\.PowerShell\.Security, but the module could not be loaded$/);
     assert.doesNotMatch(r.lines[0], /could not be read/);
   });
 
@@ -163,7 +169,7 @@ for (const ps of RUNTIMES) {
     const r = run(ps, 'nocmd', 1);
     assert.deepStrictEqual(r.results, ['NONE']);
     assert.strictEqual(r.reads, 0, 'no signature read');
-    assert.match(r.lines[0], /no working Get-AuthenticodeSignature \(on Windows, check its module path\): The 'Get-AuthenticodeSignature' command was found in the module 'Microsoft\.PowerShell\.Security', but the module could not be loaded\.$/);
+    assert.match(r.lines[0], /no working Get-AuthenticodeSignature \(on Windows, check its module path\): The 'Get-AuthenticodeSignature' command was found in the module 'Microsoft\.PowerShell\.Security', but the module could not be loaded$/);
   });
 
   test('#8316 ' + ps + ': a multi-line reason is cut to its first non-blank line', () => {
@@ -185,6 +191,14 @@ for (const ps of RUNTIMES) {
       assert.strictEqual(r.results.length, 2);
     });
   }
+
+  test('#8316 ' + ps + ': a stamp that cannot be read keeps nothing: three calls, three reads, three lines', () => {
+    const r = run(ps, 'nostamp', 3);
+    assert.strictEqual(r.reads, 3, 'signature reads');
+    assert.strictEqual(r.lines.length, 3, r.lines.join(' | '));
+    assert.strictEqual(r.results.length, 3);
+    assert.ok(r.results.every((x) => x.startsWith('FOUND ')), r.results.join(' | '));
+  });
 
   test('#8316 ' + ps + ': a refusal is kept too: three calls, one read, three NONE', () => {
     const r = run(ps, 'throw', 3);
