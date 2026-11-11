@@ -53,6 +53,13 @@ test('a bare re-hold keeps it; restating the same reason keeps it', () => {
   assert.equal(read(id, n).onHoldSuggest, 'yes', 'restating the same question dropped the suggestion');
 });
 
+test('a new suggestion for the same question replaces the old one', () => {
+  const { id, n } = fresh();
+  ask(id, n, { suggest: 'yes' });
+  ask(id, n, { suggest: 'no, the other one' });
+  assert.equal(read(id, n).onHoldSuggest, 'no, the other one');
+});
+
 test('a new question drops the old suggestion; one sent with it is kept', () => {
   const { id, n } = fresh();
   ask(id, n, { suggest: 'yes' });

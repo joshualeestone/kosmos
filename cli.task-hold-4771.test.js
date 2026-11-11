@@ -226,6 +226,8 @@ test('#8395 Mac CLI: --suggest without --for-you, or with no words, is refused a
     const a = await runCli(['task', 'hold', 'p1', '3', '--suggest', 'yes'], env);
     assert.equal(a.code, 2, a.stdout + a.stderr);
     assert.match(a.stdout + a.stderr, /--suggest goes with --for-you/);
+    const blank = await runCli(['task', 'hold', 'p1', '3', '--for-you', '--suggest', '   '], env);
+    assert.equal(blank.code, 2, 'a suggestion of only spaces was sent');
     const b = await runCli(['task', 'hold', 'p1', '3', '--for-you', '--suggest'], env);
     assert.equal(b.code, 2, b.stdout + b.stderr);
     assert.match(b.stdout + b.stderr, /--suggest needs a few words/);
