@@ -2043,7 +2043,7 @@ gemini_settings_undo() {
         else {
           for (const f of r.restored) say("put back the Gemini settings Kosmos had filled in, in " + f);
           for (const k of r.kept) say("note: " + k.key + " in " + k.file + " was changed after Kosmos set it, so it was left as it is");
-          for (const f of r.left) say("note: " + f + " could not be read or saved, so the Gemini settings Kosmos filled in are still in it; the list is in " + process.argv[1]);
+          for (const f of r.left) say("note: " + f + " could not be finished (it could not be read or saved, or it changed while this ran), so the Gemini settings Kosmos filled in are still in it; the list is in " + process.argv[1]);
         }
         process.stdout.write("@kosmos-gemini-done\n");
       }
@@ -2055,7 +2055,7 @@ gemini_settings_undo() {
   case "$_gw_out" in
     *@kosmos-gemini-done*) ;;
     *)
-      info "note: Kosmos filled in some of Gemini's settings (sign-in with an API key, updates off) and could not"
+      info "note: Kosmos filled in some of Gemini's settings and could not"
       info "finish putting them back here; the files and values are listed in $_gw_rec" ;;
   esac
   return 0

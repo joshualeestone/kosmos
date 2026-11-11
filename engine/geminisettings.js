@@ -16,8 +16,8 @@
  * a second run is a no-op). This settings file is the agent's home config; an
  * installer that eats it is worse than a board that scrapes.
  *
- * ⚠️ ZERO ENGINE DEPENDENCIES beyond node builtins, deliberately: create.js
- * calls this at birth and passes every path, so nothing here resolves a home.
+ * ⚠️ NOTHING HERE RESOLVES A HOME, deliberately: create.js calls this at birth
+ * and passes every path (the settings file, the bridge, and #8362's record).
  */
 
 const fs = require('node:fs');
