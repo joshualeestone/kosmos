@@ -1,7 +1,7 @@
 'use strict';
 require('../test-support/tmpscope');
 /* kosmos#8406: the Windows report hook (engine/kosmos-report-hook.js) refuses a tool call whose text would stop every
- * Kosmos process or end the login session, the Windows twin of #4671's bash guard. "win32" in this name puts it on
+ * Kosmos process or end the login session, the Windows twin of #4671s bash guard. "win32" in this name puts it on
  * the Windows CI job (tools/windows-tests.js); it is pure text work, so it runs on any host too.
  *   node --test engine/kosmos-report-hook.win32-killguard-8406.test.js */
 const test = require('node:test');
@@ -46,7 +46,7 @@ const REFUSED = [
   'shutdown -s -t 60',
   'Restart-Computer -Force',
   'Stop-Computer',
-  // Git Bash (Claude Code's Bash tool on Windows) doubles the slash so it is not read as a path.
+  // Git Bash (the Claude Code Bash tool on Windows) doubles the slash so it is not read as a path.
   'taskkill //F //IM node.exe',
   'taskkill //IM node.exe',
   'shutdown //s //t 0',
@@ -129,6 +129,16 @@ const REFUSED = [
   'taskkill /F /IM ' + '*'.repeat(261),
   'taskkill /F /IM node.exe>nul',
   'taskkill /F /IM claude.exe 2>nul',
+  // A heredoc fed to a shell runs; one fed to cat is data, but the text after it is read.
+  'cat <<EOF\nlogoff\nEOF\ntaskkill /F /IM node.exe',
+  'bash <<EOF\ntaskkill //F //IM node.exe\nEOF',
+  'const y = x << 2;\ntaskkill /F /IM node.exe',
+  // Broad filters: every process loads ntdll; N/A is every windowless process.
+  'taskkill /F /FI "MODULES eq ntdll.dll"',
+  'taskkill /F /FI "WINDOWTITLE eq N/A"',
+  'echo ${#a}; taskkill /F /IM node.exe',
+  '(Get-Process node) | Stop-Process',
+  'cmd /c"taskkill /F /IM node.exe"',
 ];
 const ALLOWED = [
   'taskkill /PID 4242',          // the card's control: one exact process id
@@ -200,6 +210,11 @@ const ALLOWED = [
   '# taskkill /F /IM node.exe',
   '<#\n  Stop-Process -Name node\n#>',
   'echo ok # logoff',
+  // The standard commit and PR forms: a heredoc body is data for cat, not commands.
+  "git commit -m \"$(cat <<'EOF'\nwinkill\n\nStop-Process -Name node is now refused.\nlogoff\nEOF\n)\"",
+  "gh pr create --title x --body \"$(cat <<'EOF'\nlogoff\nEOF\n)\"",
+  'logoff (user)',
+  '  logoff ();',
 ];
 
 test('#8406: every listed Windows form of "stop everything" is refused, in any case', () => {
@@ -212,7 +227,7 @@ test('#8406: one exact process id, other names and ordinary commands pass (contr
 
 test('#8406: long lines stay fast (the hook has a short timeout and a Write can be megabytes on one line)', () => {
   for (const s of ['ps a '.repeat(80000), 'gps '.repeat(100000), 'kill x '.repeat(60000), 'taskkill /IM x '.repeat(30000), '"'.repeat(400000),
-    'taskkill /IM ' + '*'.repeat(200000) + 'a', '('.repeat(100000), "it's ".repeat(50000), 'a|'.repeat(500000), 'ps | '.repeat(200000), 'gps a|'.repeat(150000), 'x(' .repeat(50000) + ')'.repeat(50000)]) {
+    'taskkill /IM ' + '*'.repeat(200000) + 'a', '('.repeat(100000), "it's ".repeat(50000), 'a|'.repeat(500000), 'ps | '.repeat(200000), 'taskkill /FI "PID eq a' + ' '.repeat(200000) + 'b"', 'a <<EOF b '.repeat(40000) + '\n', 'gps a|'.repeat(150000), 'x(' .repeat(50000) + ')'.repeat(50000)]) {
     const t0 = Date.now();
     guard.reason(s);
     assert.ok(Date.now() - t0 < 1500, s.slice(0, 12) + '... took ' + (Date.now() - t0) + ' ms for ' + s.length + ' chars');
