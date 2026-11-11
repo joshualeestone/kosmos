@@ -103,7 +103,7 @@ test('#8373 a big file is moved aside at start, and a file left mid-line gets it
 test('#8373 nothing changes off Windows, for a board its task did not start, when either stream is already a file, or in a test with no file named', () => {
   boardlog.resetForTest();
   const dir = scratch();
-  const deps = (extra) => ({ platform: 'win32', isFile: () => false, taskStarted: () => true, onCrash: () => {}, ...extra });
+  const deps = (extra) => ({ platform: 'win32', isFile: () => false, taskStarted: () => true, inTest: () => true, onCrash: () => {}, ...extra });
   assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ platform: 'darwin', path: path.join(dir, 'a.log') })), null);
   assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ path: path.join(dir, 'b.log'), isFile: (fd) => fd === 1 })), null);
   assert.strictEqual(boardlog.route(fakeStream(), fakeStream(), deps({ path: path.join(dir, 'c.log'), isFile: (fd) => fd === 2 })), null);
