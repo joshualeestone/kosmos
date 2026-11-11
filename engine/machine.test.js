@@ -1597,7 +1597,10 @@ test('#8374 Windows draws no launchd rows: no restart or labels row, and no "whi
   assert.ok(!JSON.stringify(win.checks).includes('which user'), 'no "which user" line on win32');
   const macKeys = mac.checks.map((c) => c.key);
   assert.ok(macKeys.includes('restart') && macKeys.includes('labels'), 'control, darwin keys: ' + macKeys.join(','));
-  assert.ok(JSON.stringify(mac.checks).includes('which user'), 'control: darwin with no uid still says the uid line');
+  // On the labels row itself: darwin's autostart row has its own uid sentence, so a whole-checks search would
+  // still pass if the labels row lost this one.
+  const macLabels = mac.checks.find((c) => c.key === 'labels');
+  assert.match(macLabels.detail, /which user/, 'control: darwin labels row with no uid says the uid line');
 });
 
 test('#2304 an empty or unknown platform falls back to the real platform', () => {
