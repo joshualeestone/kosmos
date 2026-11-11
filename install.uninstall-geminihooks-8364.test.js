@@ -135,6 +135,14 @@ test('#8364: with no node, every Gemini file still pointing at this install\'s b
   for (const f of [sb.otherFile, sb.nestedFile]) assert.ok(!notice.includes(f), f + ' (not this install\'s) was named');
 });
 
+test('#8364: with no node and no Gemini files at all, the uninstall still finishes', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox({ noNode: true });
+  for (const d of fs.readdirSync(sb.home)) if (d === '.gemini' || d.startsWith('.gemini-')) fs.rmSync(path.join(sb.home, d), { recursive: true, force: true });
+  const out = runUninstall(sb);
+  assert.ok(!fs.existsSync(sb.kh), 'the uninstall stopped before removing the install (a failing check under set -e): ' + out.slice(-600));
+  assert.doesNotMatch(out, /Gemini CLI settings files/, 'Gemini files were named though there are none');
+});
+
 test('#8364: a re-run after the folder is already gone names the Gemini files it left', { skip: SKIP_OFF_POSIX }, () => {
   const sb = sandbox();
   fs.rmSync(sb.kh, { recursive: true, force: true });

@@ -34,11 +34,11 @@ JSON.parse does not (one with comments) is named, never edited.
 
 - install/setup.sh: the unwire script takes the data folder as a third argument, cleans Gemini's files with its own
   rule, and marks Gemini's leftover files; gemini_hook_settings_left (no node / re-run) and say_gemini_hooks_left.
-- install.uninstall-geminihooks-8364.test.js (5, the real setup.sh, hooks written by the real ensurePrepared).
+- install.uninstall-geminihooks-8364.test.js (6, the real setup.sh, hooks written by the real ensurePrepared).
 
 ## Results
 
-- New 5 of 5; install.uninstall-unwire-5998 9 of 9; install.uninstall-gemini-8362 7 of 7.
+- New 6 of 6; install.uninstall-unwire-5998 9 of 9; install.uninstall-gemini-8362 7 of 7.
 - Control: with the Gemini step switched off, the main check fails.
 
 ## Challenge loop
@@ -53,4 +53,8 @@ JSON.parse does not (one with comments) is named, never edited.
 - Validation 0 passed (before these fixes).
 - Iteration 2 (sonnet): 1 WARNING: a home wired under a different AGENT_WORKFORCE_GEMINI_HOME is outside the list:
   DEFERRED, stated in the plan (Finished narrowed to the files it looks in; Limits). NITs: a commented settings file is
-  named, not cleaned (stated); the order check and the .gemini-* glob noted. Validation 1 passed.
+  named, not cleaned (stated); the order check and the .gemini-* glob noted.
+- Validation 1 FAILED (I first wrote here that it passed, before reading it): tools/test-data-root-1511.sh, an
+  uninstall with no runtime exited 1 silently. gemini_hook_settings_left ended its loop on an absent file; under the
+  file's pipefail that status reached the pipe into awk, and set -e ended the uninstall. FIXED (an if per file), with a
+  check (no node, no Gemini files) shown failing without the fix.

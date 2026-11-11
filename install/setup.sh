@@ -2035,7 +2035,9 @@ gemini_hook_settings_left() {
   _gh_real="$(cd -P "${1%/}/bin" 2>/dev/null && pwd)/gemini-report-bridge" || _gh_real="$_gh_bin"
   _gh_home="${AGENT_WORKFORCE_HOME:-$HOME}"
   for _gh_f in "${AGENT_WORKFORCE_GEMINI_HOME:-$_gh_home/.gemini}/settings.json" "$_gh_home"/.gemini-*/.gemini/settings.json; do
-    [ -f "$_gh_f" ] && grep -qF -e "\"$_gh_bin" -e "\"$_gh_real" "$_gh_f" 2>/dev/null && printf '%s\n' "$_gh_f"
+    # An if, not an && chain: under pipefail a last file that is absent would end the loop non-zero and, through set -e,
+    # the whole uninstall with it.
+    if [ -f "$_gh_f" ] && grep -qF -e "\"$_gh_bin" -e "\"$_gh_real" "$_gh_f" 2>/dev/null; then printf '%s\n' "$_gh_f"; fi
   done | awk '!seen[$0]++'   # one line per file, though the override may name a file the account list names too
   return 0
 }
