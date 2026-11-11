@@ -373,7 +373,7 @@ function sleepGate(opts) {
 /**
  * Linux has no one sleep setting. Three things can put it to sleep on its own, and each is read, never changed:
  * - logind's IdleAction (and after how long), which applies on any machine;
- * - logind's lid switch, on AC and on battery, which only counts on a machine with a lid (linuxHasLid);
+ * - logind's lid switch, on AC and on battery, which only counts on a machine with a lid (linuxLid);
  * - GNOME's "automatic suspend", which only counts while GNOME's power service runs for this user. Its settings are
  *   readable on a server that merely has the schema installed, where nothing acts on them, so the running service
  *   decides whether they count, not the settings alone.
@@ -411,7 +411,7 @@ function readLinuxSleep(opts) {
     const m = String(r.stdout || '').trim().match(/^(s|t)\s+"?([^"]*)"?$/);
     return m ? m[2] : null;
   };
-  let idle = null, lid = null;
+  let idle = null, lid = null, lidUnread = false;
   const action = prop('IdleAction');
   if (action) {
     const raw = prop('IdleActionUSec');
@@ -427,6 +427,8 @@ function readLinuxSleep(opts) {
     const lidSure = ('lidSure' in o) ? o.lidSure !== false : (lidRead ? lidRead.sure : true);
     if (hasLid) {
       const battery = prop('HandleLidSwitch');
+      // A lid that is there but whose setting could not be read is said, never left out of an all-clear.
+      if (battery === undefined) lidUnread = true;
       const ext = prop('HandleLidSwitchExternalPower');
       // logind: an unset HandleLidSwitchExternalPower means HandleLidSwitch applies on AC too.
       // HandleLidSwitchDocked (default ignore) decides a closed lid with another screen connected.
@@ -478,11 +480,16 @@ function readLinuxSleep(opts) {
   // Only when it can change the row: with logind unread there is no Linux reading to put a desktop beside.
   if (!gnome && idle) {
     const dm = runner('systemctl', ['is-active', 'display-manager.service']);
-    desktop = Boolean(dm && dm.ok && String(dm.stdout || '').trim() === 'active');
-    // A desktop is running and GNOME's service could not be asked: that is an unread desktop, not a quiet one.
-    if (desktop && !gsdAsked && !gnomeUnread) gnomeUnread = 'service';
+    const dmAsked = Boolean(dm && (dm.ok || String(dm.stdout || '').trim()));
+    desktop = dmAsked ? Boolean(dm.ok && String(dm.stdout || '').trim() === 'active') : null;
+    /* GNOME's service could not be asked, and a desktop is running or could not be ruled out (a hung bus): that is
+       an unread desktop, not a quiet one. */
+    if (desktop !== false && !gsdAsked && !gnomeUnread) gnomeUnread = 'service';
   }
-  return gnomeUnread ? { idle, lid, gnome, desktop, gnomeUnread } : { idle, lid, gnome, desktop };
+  const out = { idle, lid, gnome, desktop };
+  if (gnomeUnread) out.gnomeUnread = gnomeUnread;
+  if (lidUnread) out.lidUnread = true;
+  return out;
 }
 
 /**
@@ -490,7 +497,6 @@ function readLinuxSleep(opts) {
  * computer itself. A wireless mouse's or keyboard's battery is listed in the same folder with scope "Device" and is
  * not one. Folders are parameters so a test passes a fake tree.
  */
-function linuxHasLid(lidDir, supplyDir) { return linuxLid(lidDir, supplyDir).has; }
 
 /* One read: { has, sure }, sure only when ACPI lists the lid itself (not inferred from a battery). */
 function linuxLid(lidDir, supplyDir) {
@@ -500,7 +506,7 @@ function linuxLid(lidDir, supplyDir) {
   return { has: linuxHasBattery(supplyDir), sure: false };
 }
 
-/* linuxHasLid counts a computer battery as a lid on purpose: a laptop whose ACPI lid is not listed still has one, and
+/* linuxLid counts a computer battery as a lid on purpose: a laptop whose ACPI lid is not listed still has one, and
    a tablet with no lid only reads its (harmless) lid setting. */
 /** Whether a battery powers the computer itself (not a mouse's or keyboard's, scope "Device"). */
 function linuxHasBattery(supplyDir) {
@@ -555,7 +561,7 @@ function linuxCached(key, opts, read) {
 function linuxSleepCheck(reading) {
   const r = reading || {};
   const idle = r.idle || null, lid = r.lid || null, gnome = r.gnome || null;
-  if (!idle && !lid && !gnome && !r.gnomeUnread) return null;
+  if (!idle && !lid && !gnome && !r.gnomeUnread && !r.lidUnread) return null;
   const stops = (a) => (a && Object.prototype.hasOwnProperty.call(LINUX_STOPPING_ACTION, a)) ? LINUX_STOPPING_ACTION[a] : null;
   const idleStops = Boolean(idle && stops(idle.action));
   const gnomeAc = Boolean(gnome && stops(gnome.ac) && gnome.acMinutes !== 0);
@@ -637,14 +643,20 @@ function linuxSleepCheck(reading) {
       : (lidStops ? 'This computer can ' + what(verbs) + ' ' + lidWords : 'This computer can ' + what(verbs) + ' on battery');
     /* The plugged-in promise needs the plugged-in desktop setting: when that was not read, there is no promise and the
        row is not the battery-only kind. */
-    const acUnknown = r.gnomeUnread && r.gnomeUnread !== 'battery';
+    const acUnknown = (r.gnomeUnread && r.gnomeUnread !== 'battery') || (r.desktop === true && !gnome);
     return Object.assign({ key: 'sleep', state: STATE.ATTENTION, title },
       acUnknown ? {} : { battOnly: true },
       { detail: said.join(' ')
-        + (acUnknown ? ' Your desktop\'s plugged-in power setting could not be read, so we cannot tell whether it keeps working while plugged in.'
+        + (acUnknown ? ' Your desktop\'s own power settings could not be read, so we cannot tell whether it keeps working while plugged in.'
           : ' Plugged in and open, it keeps working, so for overnight work leave it plugged in and open.')
         + desktopFix + logindFix
         + (r.gnomeUnread === 'battery' ? ' Part of your desktop\'s power settings could not be read.' : '') }, extra);
+  }
+  if (r.lidUnread) {
+    return { key: 'sleep', state: STATE.UNKNOWN,
+      title: 'We could not read this computer\'s lid setting',
+      detail: 'Nothing else we read puts it to sleep, but its lid setting did not answer when we asked, so we cannot '
+        + 'tell what closing the lid does.' };
   }
   // Before any all-clear: a GNOME read that failed, wholly or partway, is never a tick.
   if (r.gnomeUnread) {
@@ -2403,4 +2415,4 @@ function check(opts) {
 }
 
 /* linuxCached, linuxLid, linuxHasBattery and __clearLinuxReadingsForTests are exported for engine/machine.linux-8384.test.js. */
-module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxHasLid, linuxLid, linuxHasBattery, linuxCached, setLinuxTimeoutForTests, __linuxRunForTests: linuxRun, __clearLinuxReadingsForTests: clearLinuxReadingsForTests, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, readLinuxSleep, linuxLid, linuxHasBattery, linuxCached, setLinuxTimeoutForTests, __linuxRunForTests: linuxRun, __clearLinuxReadingsForTests: clearLinuxReadingsForTests, linuxSleepCheck, linuxSleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, linuxBoardAutostartCheck, readLinuxBoardAutostart, agentAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };

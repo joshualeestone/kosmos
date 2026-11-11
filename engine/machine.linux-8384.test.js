@@ -319,24 +319,24 @@ test('sleep row: OK without a desktop reading says only Linux\'s own settings we
   assert.match(desk.detail, /We read your desktop's power settings\./, 'only what was read is named');
 });
 
-test('linuxHasLid: an ACPI lid or the computer\'s own battery counts; a wireless mouse\'s battery does not', () => {
+test('linuxLid: an ACPI lid or the computer\'s own battery counts; a wireless mouse\'s battery does not', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-8384-sys-'));
   const lid = path.join(root, 'lid'), sup = path.join(root, 'power_supply');
   const supply = (name, files) => { fs.mkdirSync(path.join(sup, name), { recursive: true }); for (const [f, v] of Object.entries(files)) fs.writeFileSync(path.join(sup, name, f), v + '\n'); };
   try {
     fs.mkdirSync(sup, { recursive: true });
-    assert.equal(machine.linuxHasLid(lid, sup), false, 'no lid folder, no supplies');
+    assert.equal(machine.linuxLid(lid, sup).has, false, 'no lid folder, no supplies');
     supply('hid-00:1f:20:aa:bb:cc-battery', { type: 'Battery', scope: 'Device' });
     supply('AC', { type: 'Mains' });
-    assert.equal(machine.linuxHasLid(lid, sup), false, 'a desktop with a Bluetooth mouse is not a laptop');
+    assert.equal(machine.linuxLid(lid, sup).has, false, 'a desktop with a Bluetooth mouse is not a laptop');
     supply('BAT0', { type: 'Battery' });
-    assert.equal(machine.linuxHasLid(lid, sup), true, 'a laptop battery (no scope file) counts');
+    assert.equal(machine.linuxLid(lid, sup).has, true, 'a laptop battery (no scope file) counts');
     fs.rmSync(path.join(sup, 'BAT0'), { recursive: true });
     supply('BAT1', { type: 'Battery', scope: 'System' });
-    assert.equal(machine.linuxHasLid(lid, sup), true, 'scope System counts');
+    assert.equal(machine.linuxLid(lid, sup).has, true, 'scope System counts');
     fs.rmSync(path.join(sup, 'BAT1'), { recursive: true });
     fs.mkdirSync(path.join(lid, 'LID0'), { recursive: true });
-    assert.equal(machine.linuxHasLid(lid, sup), true, 'an ACPI lid button counts on its own');
+    assert.equal(machine.linuxLid(lid, sup).has, true, 'an ACPI lid button counts on its own');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -355,7 +355,8 @@ function sleepRunner(over) {
     asked.push([cmd, ...args]);
     // A key set to null is one this logind does not have: busctl answers that with an unknown-property error.
     if (cmd === 'busctl') return v[args[5]] == null ? { ok: false, because: 'Failed to get property: Unknown property or interface.' } : { ok: true, stdout: v[args[5]] + '\n' };
-    if (cmd === 'systemctl') return v.gsd === 'active' ? { ok: true, stdout: 'active\n' } : { ok: false };
+    // As systemctl is-active does: exit 0 with "active", or non-zero printing "inactive".
+    if (cmd === 'systemctl') return v.gsd === 'active' ? { ok: true, stdout: 'active\n' } : { ok: false, stdout: 'inactive\n' };
     if (cmd === 'gsettings') return v[args[2]] == null ? { ok: false } : { ok: true, stdout: v[args[2]] + '\n' };
     return { ok: false };
   };
@@ -902,7 +903,7 @@ test('sleep row: a lid finding with the plugged-in desktop setting unread makes 
     assert.equal(r.state, STATE.ATTENTION, String(unread));
     assert.equal(r.battOnly, undefined, 'not the battery-only kind: ' + unread);
     assert.doesNotMatch(r.detail, /Plugged in and open, it keeps working/, String(unread));
-    assert.match(r.detail, /plugged-in power setting could not be read/, String(unread));
+    assert.match(r.detail, /own power settings could not be read, so we cannot tell whether it keeps working while plugged in/, String(unread));
   }
   // Control: only the battery half unread keeps the plugged-in promise, and says the part that was not read.
   const batt = sleep({ idle: QUIET_IDLE, lid: { ac: 'suspend', battery: 'suspend' }, gnome: { ac: 'nothing', acMinutes: 0 }, gnomeUnread: 'battery' });
@@ -919,4 +920,34 @@ test('sleep reader: a failed ExternalPower ask words only the battery half of th
   const got = machine.readLinuxSleep({ runner: r, hasLid: true });
   assert.equal(got.lid.ac, null);
   assert.match(sleep(got).detail, /^When the lid closes on battery, this computer goes to sleep\./);
+});
+
+test('sleep row: a non-GNOME desktop (display manager, nothing read) with a lid finding makes no plugged-in promise', () => {
+  const r = sleep({ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' }, gnome: null, desktop: true });
+  assert.equal(r.battOnly, undefined);
+  assert.doesNotMatch(r.detail, /Plugged in and open, it keeps working/);
+  assert.equal(sleep({ idle: QUIET_IDLE, lid: { ac: 'ignore', battery: 'suspend' }, gnome: null, desktop: false }).battOnly, true, 'control: no desktop');
+});
+
+test('sleep reader: a lid whose setting could not be read is could-not-check, never an all-clear', () => {
+  const r = (c, a) => {
+    if (c === 'systemctl') return { ok: false, stdout: 'inactive\n' };
+    if (c !== 'busctl') return { ok: false };
+    if (a[5] === 'HandleLidSwitch') return { ok: false, because: 'Connection timed out' };
+    return { ok: true, stdout: a[5] === 'IdleActionUSec' ? 't 0\n' : 's "ignore"\n' };
+  };
+  const got = machine.readLinuxSleep({ runner: r, hasLid: true });
+  assert.equal(got.lidUnread, true);
+  const row2 = sleep(got);
+  assert.equal(row2.state, STATE.UNKNOWN);
+  assert.match(row2.title, /could not read this computer's lid setting/);
+  assert.deepEqual(machine.sleepGate({ platform: 'linux', linuxSleep: got }).checkable, false);
+});
+
+test('sleep reader: a hung bus before the desktop could be asked is unread, not quiet', () => {
+  const hung = (c, a) => (c === 'busctl' ? { ok: true, stdout: a[5] === 'IdleActionUSec' ? 't 0\n' : 's "ignore"\n' } : { ok: false, stdout: '' });
+  const got = machine.readLinuxSleep({ runner: hung, hasLid: false });
+  assert.equal(got.desktop, null);
+  assert.equal(got.gnomeUnread, 'service');
+  assert.equal(sleep(got).state, STATE.UNKNOWN);
 });
