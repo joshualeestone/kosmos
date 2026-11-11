@@ -61,8 +61,15 @@ test('every test file that branches on a win32 HOST is run on Windows or exclude
     assert.ok(why.length > 10, `${f} needs a reason`);
     /* kosmos#8378: a file whose skip is skipOnWin32 says its reason twice, there and here; the entry must carry the
        file's own reason, so the two cannot drift apart. */
-    const said = /\bskipOnWin32\('((?:\\.|[^'\\])*)'\)/.exec(fs.readFileSync(path.join(ROOT, f), 'utf8'));
-    if (said) assert.ok(why.includes(said[1].replace(/\\(.)/g, '$1')), `${f}: its HOST_BRANCH_EXCLUDED entry does not carry the reason its skipOnWin32 gives`);
+    const text = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const calls = [...text.matchAll(/\bskipOnWin32\(/g)].length;
+    const said = [...text.matchAll(/\bskipOnWin32\('((?:\\.|[^'\\])*)'\)/g)].map((x) => x[1].replace(/\\(.)/g, '$1'));
+    for (const r of said) assert.ok(why.includes(r), `${f}: its HOST_BRANCH_EXCLUDED entry does not carry the reason its skipOnWin32 gives`);
+    if (why.includes('its only win32 branch is skipOnWin32')) {
+      // The entry's claim, checked: every call has a literal reason it carries, and no other host branch is in the file.
+      assert.ok(calls >= 1 && said.length === calls, `${f}: its entry says skipOnWin32, but a call there has no single-quoted reason this check can read`);
+      assert.ok(!hostBranch.test(text.replace(/\bskipOnWin32\(/g, '')), `${f}: its entry says skipOnWin32 is its only win32 branch, but it has another`);
+    }
   }
 });
 

@@ -11,7 +11,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const defaults = require('./defaults');
-const SKIP_POSIX_SHELL = require('../test-support/skip-on-win32').skipOnWin32('it runs the shell examples only in /bin/bash or /bin/zsh, neither of which exists on Windows');   // kosmos#8378
 
 test('the composed block carries no em dash, because it teaches that rule', () => {
   assert.ok(!defaults.block().includes('—'),
@@ -458,7 +457,7 @@ test('#2909 v15: an agent holding the old headings is still offered the line-bre
     'the section is offered to an agent that already has it');
 });
 
-test('#2909 v15: the section\'s shell examples run as written in bash and zsh, and deliver the lines', { skip: SKIP_POSIX_SHELL }, (t) => {
+test('#2909 v15: the section\'s shell examples run as written in bash and zsh, and deliver the lines', (t) => {
   const { spawnSync } = require('node:child_process');
   const fs = require('node:fs');
   const os = require('node:os');
@@ -474,8 +473,10 @@ test('#2909 v15: the section\'s shell examples run as written in bash and zsh, a
   const stub = 'kosmos() { printf "%s|" "$@" >> "' + out + '"; case "$2" in --stdin) cat >> "' + out + '";; esac; echo >> "' + out + '"; }\n';
   const body = fences.map((f) => f.replace(/<project>/g, 'proj').replace('- the first point', "- it's `x` and $HOME")).join('\n');
   let ran = 0;
-  for (const sh of ['/bin/bash', '/bin/zsh']) {
-    if (!fs.existsSync(sh)) continue;
+  /* kosmos#8378: where neither exists (Windows), the bare bash agents there are taught to use (Git Bash). */
+  const shells = ['/bin/bash', '/bin/zsh'].filter((p) => fs.existsSync(p));
+  if (!shells.length) shells.push('bash');
+  for (const sh of shells) {
     ran += 1;
     fs.writeFileSync(out, '');
     const script = path.join(dir, 's.sh');
@@ -494,7 +495,7 @@ test('#2909 v15: the section\'s shell examples run as written in bash and zsh, a
    double-quoted argument. The trap paragraph names it and gives kosmos msg a stdin route, since the
    line-breaks section deliberately shows no msg form. The route is RUN, with a control proving the
    double-quoted form really loses the number in the same shell, so the test can show the danger. */
-test('#6653: the shell-trap rule names dollar amounts and its kosmos msg stdin route delivers them', { skip: SKIP_POSIX_SHELL }, (t) => {
+test('#6653: the shell-trap rule names dollar amounts and its kosmos msg stdin route delivers them', (t) => {
   const { spawnSync } = require('node:child_process');
   const fs = require('node:fs');
   const os = require('node:os');
@@ -520,8 +521,10 @@ test('#6653: the shell-trap rule names dollar amounts and its kosmos msg stdin r
   const routed = m[1].replace('<agent>', 'pete') + "\nit's $1,200\nKOSMOS_MSG\n";
   const control = 'kosmos msg pete "it costs $1,200"\n';
   let ran = 0;
-  for (const sh of ['/bin/bash', '/bin/zsh']) {
-    if (!fs.existsSync(sh)) continue;
+  /* kosmos#8378: where neither exists (Windows), the bare bash agents there are taught to use (Git Bash). */
+  const shells = ['/bin/bash', '/bin/zsh'].filter((p) => fs.existsSync(p));
+  if (!shells.length) shells.push('bash');
+  for (const sh of shells) {
     ran += 1;
     fs.writeFileSync(out, '');
     const script = path.join(dir, 's.sh');

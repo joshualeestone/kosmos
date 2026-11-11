@@ -14,7 +14,7 @@ the Windows product queue is waiting on tonight's build.
   skips only on Windows and node:test prints why. An empty or missing reason throws on every platform. Its own tests:
   `test-support.skip-on-win32.test.js` (4). Its comment says to name the mechanism, and that the Windows coupling audit
   sees the call, so a file using it must be listed in HOST_BRANCH_EXCLUDED with its reason (round 3, below).
-- 19 test files: each test that fails on Windows only for that reason gets `{ skip: SKIP_POSIX_SHELL }`, with a
+- 18 test files: each test that fails on Windows only for that reason gets `{ skip: SKIP_POSIX_SHELL }`, with a
   reason that names the mechanism and what it runs. Where a file loops over the bash CLI AND the Windows CLI
   (cli.inputkeep-6774, cli.limitmsg-5805, cli.whoisleft-8137), only the bash half skips; the Windows CLI's tests still
   run on Windows.
@@ -37,8 +37,8 @@ review round 1 found the premise "Windows has no bash" false, so each file's mec
   ticks. The real Windows board on the box does write the file.
 
 ## Result (each file run alone on the Windows box, the no-schtasks preload, at this branch's head)
-In the 20 changed test files: 0 failing (was 343). 342 tests newly skip, each printing its reason; 1 is fixed. Every
-pass count is unchanged except toolfail-6071's, which rises by the fixed test.
+In the 20 changed test files: 0 failing (was 343). 340 tests newly skip, each printing its reason; 3 are fixed (toolfail-6071 one, defaults two). Every
+pass count is unchanged except toolfail-6071's and defaults', which rise by their fixed tests.
 
 ## Weakest premise
 That every skipped test is ONLY about an absolute POSIX path or a shebang script. Each was checked by its first error
@@ -55,13 +55,13 @@ tmux, POSIX modes, signals, the bare-bash files above, and the ~1,900 plain asse
 
 ## Decided (review round 3)
 - **The #1777 audit sees the helper.** engine/windows-tests-1777.test.js's host-branch pattern now matches
-  `skipOnWin32(`, and the 19 files are in `HOST_BRANCH_EXCLUDED` (tools/windows-tests.js), each entry built from that
+  `skipOnWin32(`, and the 18 files are in `HOST_BRANCH_EXCLUDED` (tools/windows-tests.js), each entry built from that
   file's own reason string. So a later `skipOnWin32` in a file nothing runs on Windows fails the audit until it is
   listed with why, as every other Windows-branching file must. Control (run): the new pattern with no entries fails
   the audit naming these files.
 - **CLAUDE.md** (the Windows test-lists paragraph) names the helper, when to use it, the listing rule, and that a bare
   `bash` is no reason to skip.
-- **Kept:** `engine/defaults.test.js` skips both tests whole, though most of their assertions read the defaults text.
+- **Superseded in round 5 (see below):** `engine/defaults.test.js` skips both tests whole, though most of their assertions read the defaults text.
   Splitting the run step out, or relaxing its `ran >= 1` guard on Windows, would add a host branch for checks the Mac
   and Linux runs already make. What would change it: those text checks ever differing by platform.
 - `tools.windows-tests-schtasks-7247.test.js` fails 2 on this box with or without this change (run on a checkout
@@ -70,3 +70,16 @@ tmux, POSIX modes, signals, the bare-bash files above, and the ~1,900 plain asse
   not). The audit also checks that each listed skipOnWin32 file's entry carries the file's own reason, so the two
   copies cannot drift (control, run: one word changed in a listed reason fails it, naming the file). Reasons: defaults
   says neither shell exists on Windows; killguard says "the Mac and Linux kill guard".
+
+## Decided (review round 5)
+- **engine/defaults.test.js is fixed, not skipped.** On Windows agents are taught the heredoc and stdin forms for Git
+  Bash (engine/defaults.js), so skipping those two tests lost the one check that the taught forms run in the shell they
+  are taught for. Each now runs the examples in whichever of /bin/bash and /bin/zsh exist, and in bare `bash` where
+  neither does (Git Bash on Windows). No host branch, so the file leaves HOST_BRANCH_EXCLUDED. On the box: 30 of 30
+  pass, the #6653 control (a double-quoted `$1,200` loses its number) included.
+- The #1777 audit, for an entry that says "its only win32 branch is skipOnWin32", now also checks that every call in
+  the file has a single-quoted reason the entry carries, and that the file has no other host branch (control, run: a
+  `process.platform === 'win32'` line added to a listed file fails it, naming the file).
+- killguard's reason now says Windows does not install that hook (its hook is the node twin, with no kill guard:
+  #8406), rather than "cannot run": Git Bash could run the .sh, as toolfail-6071 shows.
+- toolfail-6071's comment says Git Bash is reached when it is ahead of the WSL launcher on PATH.
