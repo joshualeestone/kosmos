@@ -2,9 +2,11 @@
 
 /**
  * The runner-neutral rules for a hook command Kosmos writes into a runner's settings file (kosmos#8348): which paths may
- * ride in the command, and whether a path is too short-lived for the file it goes into. Shared by geminisettings.js
- * (Gemini) and codexhooks.js (Codex), which write the same win32 form, `& '<node>' '<bridge>'`. Moved here unchanged from
- * geminisettings.js, except that on win32 the temp test also compares canonical, case-folded spellings.
+ * ride in the command, and whether a path is too short-lived for the file it goes into. unsafeForCommand is shared by
+ * geminisettings.js (Gemini) and codexhooks.js (Codex), which write the same win32 form, `& '<node>' '<bridge>'`.
+ * ephemeralIntoDurable is the one #1582 rule for every hook writer: those two, and since kosmos#8365 Claude's report hook
+ * and statusline (reporthook.ephemeralMismatch) and Grok (groksettings.js). Moved here unchanged from geminisettings.js,
+ * except that on win32 the temp test also compares canonical, case-folded spellings.
  */
 
 const fs = require('node:fs');
