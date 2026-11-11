@@ -15902,6 +15902,9 @@ window.kosmosMeasureScrollbarWidth();
            so this is purely information; it never appears on a granted/checking row nor on a
            fixable desktop (no data-battonly), where "Turn On" can still set Sleep to Never. */
         .s3-battonly{display:none}
+        /* kosmos#8384: Turn On opens macOS's Energy pane, which Linux has not got; its fix is in the sentence below the row. */
+        html[data-kosmos-platform="linux"] .s3-gate-row[data-gate="sleep"] .s3-on{display:none}
+        #fr-pane-3 .s3-gate-say{margin:6px 0 0;font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
         .s3-gate-row[data-battonly] .s3-req{display:none}
         .s3-gate-row[data-battonly] .s3-battonly{display:flex;flex-basis:100%;width:100%;margin:2px 0 0}
         #fr-pane-3 .s3-battonly-note{margin:0;font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
@@ -15920,7 +15923,9 @@ window.kosmosMeasureScrollbarWidth();
              aria-hidden subtree), positioned over the switch by frSyncSwitchOverlays(), and
              opens the exact macOS pane. The switch VISUAL (gray -> blue + swipe hint) is
              mirrored from the gate row's state by frPollGates. -->
-        <div class="s3-mock" data-win-hide>
+        <!-- kosmos#8384: the Energy pane is macOS's, so Linux hides it and the row's own sentence (data-gate-say below) says
+             what Linux's settings do. -->
+        <div class="s3-mock" data-win-hide data-linux-hide>
           <div class="s3-win" aria-hidden="true">
             <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Energy</span></div>
             <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Prevent automatic sleeping when the display is off</span><span class="s3-sw" data-sw-gate="sleep"></span></div></div>
@@ -15937,10 +15942,13 @@ window.kosmosMeasureScrollbarWidth();
                "Turn On" is replaced by an honest note. The step no longer gates Next
                (FR_GATES.sleep gatesNext:false), so this is purely information that stays
                on the screen while the user moves on -- Mona Lisa's copy. -->
-          <div class="s3-battonly">
+          <div class="s3-battonly" data-linux-hide>
             <p class="s3-battonly-note">Your agents keep working while this computer is plugged in and open. They pause when it sleeps or you close the lid, and on a laptop macOS gives no built-in switch to stop that on battery. For overnight work, leave it plugged in and open.</p>
           </div>
         </div>
+        <!-- kosmos#8384: what the sleep reading found, in its own words, when it says the computer sleeps. Only a reading
+             that carries a sentence (Linux's, from engine/machine.js linuxSleepGate) fills it; frPollGates sets it. -->
+        <p class="s3-gate-say" data-gate-say="sleep" hidden></p>
 
         <p data-win-only hidden data-win-copy="s3BatteryNote"></p>
         <!-- win32-board-copy (W-11): Windows has no Accessibility grant for this, so the whole second step is hidden there. -->
@@ -28371,7 +28379,8 @@ function machineRows(report) {
         + ' style="margin-top:10px;font-size:.875rem;padding:calc(.45em - 1px) calc(1em - 1px);">Open sleep settings</button>'
       : '')
     /* win32-board-copy (W-22): a command line is for an administrator, so it sits behind
-       a disclosure. Only the Windows autostart row carries admin (engine/machine.js). */
+       a disclosure. The Windows autostart row carries admin, and the Linux one when linger is off
+       (kosmos#8384, the enable-linger command); see engine/machine.js. */
     + (c.admin
       ? '<details class="fr-hatch"><summary>' + windowsCopy('adminDetailsSummary') + '</summary>'
         + '<p class="dhint" style="margin:6px 0 0;"><code>' + esc(c.admin) + '</code></p></details>'
@@ -88814,6 +88823,9 @@ const FR_GATES = {
     // machine.js sets this ONLY on that state, so the honest note replaces the useless
     // "Turn On" only there, never on a fixable desktop (where Turn On can set Never).
     battOnly: (r) => r.battOnly === true,
+    // kosmos#8384: Linux's reading says what puts the computer to sleep (r.detail); the Mac and Windows readings carry
+    // no sentence, so their screens are unchanged.
+    say: (r) => (typeof r.detail === 'string' ? r.detail : ''),
   },
   'tmux': {
     url: '/api/a11y-status',
@@ -88872,9 +88884,10 @@ async function frReadGate(row) {
   // NOTE: the tmux-a11y row (the only route that returned actionable:true) was removed
   // 2026-09-19, so this branch is currently dormant; kept as generic, zero-cost machinery.
   const actionable = r.actionable === true;
-  if (spec.granted(r)) return { state: 'granted', battOnly, actionable: false };
-  if (spec.blocked(r)) return { state: 'blocked', battOnly, actionable: false };
-  return { state: 'uncheckable', battOnly, actionable };
+  const say = spec.say ? String(spec.say(r) || '') : '';   // kosmos#8384
+  if (spec.granted(r)) return { state: 'granted', battOnly, actionable: false, say };
+  if (spec.blocked(r)) return { state: 'blocked', battOnly, actionable: false, say };
+  return { state: 'uncheckable', battOnly, actionable, say };
 }
 async function frPollGates(screenEl, gen) {
   if (gen !== FR_GATE_GEN) return;
@@ -88921,6 +88934,14 @@ async function frPollGates(screenEl, gen) {
     // #2587: the laptop sleep row (battOnly) shows an honest note in place of the
     // useless Turn On (CSS keys on [data-battonly]); clear it otherwise.
     if (reads[i].battOnly && st === 'blocked') row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
+    // kosmos#8384: the reading's own sentence under the row, only while it says the computer sleeps.
+    const sayEl = typeof screenEl.querySelector === 'function'
+      ? screenEl.querySelector('[data-gate-say="' + row.getAttribute('data-gate') + '"]') : null;
+    if (sayEl) {
+      const text = st === 'blocked' ? (reads[i].say || '') : '';
+      sayEl.textContent = text;
+      sayEl.hidden = !text;
+    }
     // #2620: mirror the gate state onto the paired mock switch. The switch sits ABOVE its
     // row, so CSS cannot reach it from the row; copy the three state attrs so the decorative
     // .s3-sw shows gray/off, blue/granted, or the swipe hint, matching the real gate. Null-safe

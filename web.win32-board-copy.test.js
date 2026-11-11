@@ -296,7 +296,8 @@ test('#2245: after an open, a list that was cut short keeps its partial note (Vi
 test('one CSS rule hides the Mac-only surfaces, and it is on each one the audits named', () => {
   assert.match(PAGE, /html\[data-kosmos-platform="win32"\] \[data-win-hide\] \{ display: none !important; \}/);
   const HIDDEN_ON_WINDOWS = {
-    'S3 Energy mock (traffic lights)': /<div class="s3-mock" data-win-hide>\s*<div class="s3-win" aria-hidden="true">\s*<div class="s3-bar">[^\n]*>Energy</,
+    // kosmos#8384: Linux hides it too (its sleep sentence sits under the row instead).
+    'S3 Energy mock (traffic lights)': /<div class="s3-mock" data-win-hide data-linux-hide>\s*<div class="s3-win" aria-hidden="true">\s*<div class="s3-bar">[^\n]*>Energy</,
     'S3 Accessibility mock': /<div class="s3-mock" data-win-hide>\s*<div class="s3-win" aria-hidden="true">\s*<div class="s3-bar">[^\n]*>Accessibility</,
     'S3 Accessibility caption': /<p class="s3-step-cap" data-win-hide>2 &middot; when prompted, switch Kosmos to On<\/p>/,
     'S3 Accessibility gate row': /<div class="s3-gate-row" data-gate="tmux" data-win-hide>/,
@@ -797,6 +798,10 @@ test('#5865: Settings on Linux has no Dock line, app icon, Accessibility or tmux
     // installs that never happen.
     'Update Kosmos automatically': /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide data-linux-hide>/,
     'its status line (auto-update)': /<p class="dhint" id="auto-msg"[^>]*data-win-hide data-linux-hide>/,
+    // kosmos#8384: the first-run sleep step's macOS Energy pane, and its macOS-worded battery note. Linux says what its
+    // own settings do in the sentence under the row (data-gate-say), filled from engine/machine.js linuxSleepGate.
+    'first run: the Energy pane': /<div class="s3-mock" data-win-hide data-linux-hide>\s*<div class="s3-win" aria-hidden="true">\s*<div class="s3-bar">[^\n]*>Energy</,
+    'first run: the macOS battery note': /<div class="s3-battonly" data-linux-hide>\s*<p class="s3-battonly-note">/,
   };
   for (const [name, re] of Object.entries(HIDDEN_ON_LINUX)) assert.match(PAGE, re, name + ' shows on Linux');
   const markup = PAGE.replace(/<script\b[\s\S]*?<\/script>/g, '').replace(/<style\b[\s\S]*?<\/style>/g, '').replace(/<!--[\s\S]*?-->/g, '');

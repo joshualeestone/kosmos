@@ -75,5 +75,6 @@ test('facts unreadable -> UNKNOWN, never a confident NO', () => {
 });
 
 test('any OTHER platform still gets no row (we have nothing true to say about it)', () => {
-  assert.equal(machine.boardAutostartCheck(() => ({ ok: false }), { platform: 'linux' }), null);
+  // kosmos#8384: Linux has its own row now (engine/machine.linux-8384.test.js); a platform Kosmos does not run on has none.
+  assert.equal(machine.boardAutostartCheck(() => ({ ok: false }), { platform: 'freebsd' }), null);
 });
