@@ -122,8 +122,10 @@ test('kosmos#8372 review 1: a start cannot bootstrap a remote-issued token, a ne
     method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': sendertoken.mint('fwdagent').token, 'x-forwarded-for': '203.0.113.9' },
     body: JSON.stringify({ state: 'started', auto: true }),
   });
-  const fwd = await res.json().catch(() => ({}));
-  assert.notEqual(fwd.recorded, true, 'a forwarded start bootstrapped a heartbeat: ' + JSON.stringify(fwd));
+  const fwd = await res.json();
+  assert.equal(res.status, 200, 'the forwarded start was refused before the route (so this arm would test nothing): ' + JSON.stringify(fwd));
+  assert.equal(fwd.recorded, false, 'a forwarded start bootstrapped a heartbeat: ' + JSON.stringify(fwd));
+  assert.equal(fwd.because, 'we could not match that to one of your agents');
   for (const n of ['faragent', 'ghostagent', 'removedagent', 'fwdagent']) assert.notEqual(liveness.alive(n), true, n + ' got a heartbeat');
 });
 
@@ -145,4 +147,27 @@ test('kosmos#8372 review 2: a brand-new Windows agent (its session recorded, its
   const tok = sendertoken.mint('newagent').token;
   const r = await report({ state: 'started', auto: true }, tok);
   assert.equal(r.json.recorded, true, 'a new agent with only its session record was refused: ' + JSON.stringify(r.json));
+});
+
+test('kosmos#8372 review 3: a start from a non-loopback socket peer (the network bind open, no forwarding header) is refused', async (t) => {
+  board(t);
+  store.writeProfile('netagent', { displayName: 'Net' });
+  const tok = sendertoken.mint('netagent').token;
+  // The real route, with the request's socket peer set to a LAN address, as a direct network caller's would be.
+  const http = require('node:http');
+  const handlers = server.listeners('request');
+  const res = await new Promise((resolve, reject) => {
+    const req = new http.IncomingMessage({ remoteAddress: '192.0.2.44', destroy() {}, on() {}, once() {}, removeListener() {} });
+    req.method = 'POST'; req.url = '/api/report';
+    req.headers = { 'content-type': 'application/json', 'x-kosmos-agent-token': tok, host: '127.0.0.1:' + server.address().port };
+    const out = new http.ServerResponse(req);
+    let body = '';
+    out.write = (c) => { body += c; return true; };
+    out.end = (c) => { if (c) body += c; resolve({ status: out.statusCode, body }); return out; };
+    try { for (const h of handlers) h.call(server, req, out); } catch (e) { reject(e); }
+    req.push(JSON.stringify({ state: 'started', auto: true })); req.push(null);
+  });
+  const j = JSON.parse(res.body || '{}');
+  assert.notEqual(j.recorded, true, 'a network caller started a session: ' + res.body);
+  assert.notEqual(liveness.alive('netagent'), true, 'a network caller beat liveness');
 });
