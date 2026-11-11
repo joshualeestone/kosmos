@@ -443,9 +443,7 @@ function listeningLoopbackPorts(pid) {
    the Antigravity (Google) sign-in in win32agysignin.js. */
 function browserOpenCommand(link, env) {
   const src = env || process.env;
-  const rootKey = Object.keys(src).find((k) => k.toLowerCase() === 'systemroot');   // case-blind, as Windows reads it
-  return [path.win32.join((rootKey && src[rootKey]) || 'C:\\Windows', 'System32', 'rundll32.exe'), ['url.dll,FileProtocolHandler', link],
-    { detached: true, stdio: 'ignore', windowsHide: false, env: childenv.winOpenerEnv(src) }];
+  return [...childenv.winUrlOpener(link, src), { detached: true, stdio: 'ignore', windowsHide: false, env: childenv.winOpenerEnv(src) }];
 }
 
 /** Open a link in the default browser, outside this process tree. Never throws. */

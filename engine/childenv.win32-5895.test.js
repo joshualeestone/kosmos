@@ -46,6 +46,17 @@ test('the Claude/OpenAI sign-in opener passes only the list to rundll32', () => 
   assert.equal(opts.detached, true);
 });
 
+test('winUrlOpener: rundll32 by its absolute System32 path, SystemRoot found case-blind', () => {
+  assert.deepEqual(childenv.winUrlOpener('https://x.test/?a=1&b=2', { SYSTEMROOT: 'D:\\Win' }),
+    ['D:\\Win\\System32\\rundll32.exe', ['url.dll,FileProtocolHandler', 'https://x.test/?a=1&b=2']]);
+  assert.equal(childenv.winUrlOpener('u', {})[0], 'C:\\Windows\\System32\\rundll32.exe', 'no SystemRoot: the usual place');
+});
+
+test('on a real Windows host, the rundll32 the openers start exists where winUrlOpener says', { skip: process.platform === 'win32' ? false : 'needs a real Windows host' }, () => {
+  const [cmd] = childenv.winUrlOpener('https://x.test/', childenv.winOpenerEnv(process.env));
+  assert.ok(require('node:fs').existsSync(cmd), cmd);
+});
+
 test('on a real Windows host, a child started with the list keeps what Windows gave and never sees a board variable', { skip: process.platform === 'win32' ? false : 'needs a real Windows environment' }, () => {
   const { execFileSync } = require('node:child_process');
   const env = childenv.winOpenerEnv({ ...process.env, KOSMOS_5895_BOARD: 'board-only', kosmos_agent_token: 'c'.repeat(32) });

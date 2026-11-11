@@ -1925,7 +1925,8 @@ let companyStartInFlight = null;
    is blocked as a pop-up, and the page would say "opened" of a page that never opened. */
 function companyOpenCommand(url) {
   if (companyOpenCommandForTests) return [companyOpenCommandForTests[0], companyOpenCommandForTests.slice(1)];
-  return process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+  /* kosmos#5895: Windows by rundll32's absolute path (childenv.winUrlOpener), as the Claude sign-in opener does. */
+  return process.platform === 'win32' ? childenv.winUrlOpener(url)
     : process.platform === 'darwin' ? ['/usr/bin/open', [url]] : ['xdg-open', [url]];
 }
 let companyOpenCommandForTests = null;

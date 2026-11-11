@@ -31,6 +31,9 @@ whole environment, because no Windows list had been checked on a Windows machine
   `rundll32 url.dll,FileProtocolHandler` with the board's whole environment, the same leak. Its callers: the Claude
   and OpenAI sign-ins, and the Antigravity (Google) sign-in in win32agysignin.js. It now passes the same
   list (browserOpenCommand).
+- engine/childenv.js `winUrlOpener(url, env)`: the one way both Windows openers start rundll32, by its absolute
+  System32 path (SystemRoot case-blind). The company opener ran a bare `rundll32` found through PATH, so a rundll32.cmd
+  earlier on PATH would have run instead; the sign-in opener already used the absolute path.
 - engine/remote.js runCompanyOpener: win32 uses `winOpenerEnv` (it passed `undefined`, the whole environment).
 - engine/remote.test.js: the #5889 win32 arm, which asserted the environment WAS inherited, is flipped and split into
   its own test (a board token and a board variable stay out, a listed variable in another case is kept under its own

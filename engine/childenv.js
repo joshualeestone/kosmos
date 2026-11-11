@@ -62,9 +62,11 @@ function openerEnv(env = process.env) {
  * and the browser adds two FPS_BROWSER_* profile ones. Windows variable names are case-insensitive
  * (engine/win32env.js), so the match is too, and each kept variable keeps the name it came with.
  * Kept on purpose, as on the other platforms: the proxy variables (the person's network settings). Also kept: the
- * CommonProgramFiles family, ALLUSERSPROFILE (ProgramData's older name) and the ARM64 folders, which hold no secret and which an
- * installed browser may look up. MEASURED as well
- * (2026-11-11): Edge itself, started cold (headless, its own throwaway profile), rendered a page with this list, and
+ * CommonProgramFiles family, ALLUSERSPROFILE (ProgramData's older name) and the ARM64 folders, which hold no secret
+ * and which an installed browser may look up. Left out on purpose, though they hold no secret either: the person's
+ * other variables (PSModulePath, OneDrive, PROCESSOR_IDENTIFIER and the like, and their own tools'), because the
+ * board's copies of them are not the person's; their own environment for the browser is kosmos#8369.
+ * MEASURED as well (2026-11-11): Edge itself, started cold (headless, its own throwaway profile), rendered a page with this list, and
  * also with an EMPTY environment, so a missing variable here cannot stop Edge from starting. Not measured: Chrome and
  * Firefox (not on the box). rundll32 exits 0 once it hands the URL off, so a browser that failed to start for want of
  * a variable would still read as opened, the person left with the link (kosmos#8369).
@@ -93,8 +95,18 @@ function winOpenerEnv(env = process.env) {
   return out;
 }
 
+/* kosmos#5895: how Windows opens a URL in the default browser, the one form both Windows openers use (remote.js
+   runCompanyOpener and win32signin.js browserOpenCommand): [command, args]. rundll32 by its absolute System32 path,
+   never a bare name found through PATH (a rundll32.cmd earlier on PATH would run instead). SystemRoot is looked up
+   case-blind, as Windows reads it. */
+function winUrlOpener(url, env = process.env) {
+  const rootKey = Object.keys(env || {}).find((k) => k.toLowerCase() === 'systemroot');
+  const root = (rootKey && env[rootKey]) || 'C:\\Windows';
+  return [require('node:path').win32.join(root, 'System32', 'rundll32.exe'), ['url.dll,FileProtocolHandler', url]];
+}
+
 function hasDesktop(env = process.env) {
   return Boolean(env.DISPLAY || env.WAYLAND_DISPLAY || env.WSL_DISTRO_NAME || (env.BROWSER && env.VSCODE_IPC_HOOK_CLI));
 }
 
-module.exports = { OPENER_KEYS, openerEnv, WIN_OPENER_KEYS, winOpenerEnv, hasDesktop };
+module.exports = { OPENER_KEYS, openerEnv, WIN_OPENER_KEYS, winOpenerEnv, winUrlOpener, hasDesktop };
