@@ -31,8 +31,18 @@ bounds its other call into the installed engine (_kosmos_data_root) with a poll-
   and a second sentence names the Gemini settings to check by hand. Rebased by squashing reviews 1 to 6 into one commit
   (the old commits are on the local branch backup-8388-0efeaf) and resolving the one conflict on the node call.
 
+- Review 7: the end of uninstall() read the same Claude settings files again (left skipDangerousModePermissionPrompt,
+  switchModelsOnFlag, the status-line sweep), unbounded, so a stall moved past the removal instead of going away. After
+  a stop (_unwire_stopped) those three checks are skipped and one line says so. A stop that lands after node's done line
+  is not reported as a stop. The Gemini sentence names the .kosmos-unwire copy too.
+- Residual, stated: the trust-dialog sweep near the end reads .claude.json in the same ~/.claude-* folders, unbounded.
+  It is kept, not skipped: it is a different file, and its note about a permission setting left in effect is the one
+  the person most needs. A folder that stalled on settings.json may stall it too. Also residual (review 7 NIT 3): when
+  settings.json is a link, the temp copy sits beside the real file, not the link the sentence points at.
+
 ## Not in this slice
-Nothing known: every node step in the uninstall that reads the person's settings goes through the helper.
+Every node step in the uninstall that reads the person's settings goes through the helper. Bounding the shell's own
+later reads (the trust-dialog sweep) is not in this slice.
 
 ## Tests
 install.uninstall-unwire-5998.test.js (5 for this card; 14 in the file; runUninstall returns stdout and stderr): a

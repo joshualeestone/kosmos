@@ -2768,6 +2768,7 @@ KOSMOS_SWEEP_LIST
       # bridge from inside this data folder's bin/ (where its bridge lives), not from this install's home.
       _unwire_left=""
       _gemini_left=""
+      _unwire_stopped=""   # kosmos#8388 review 7: read again at the end of uninstall, so those reads are skipped too
       _unwire_done=""
       _kh_real="$(cd -P "$KOSMOS_HOME" 2>/dev/null && pwd)" || _kh_real=""
       _unwire_out="$(mktemp "${TMPDIR:-/tmp}/kosmos-unwire.XXXXXX" 2>/dev/null)" || _unwire_out=""
@@ -2891,7 +2892,9 @@ process.stdout.write(left.concat(geminiLeft.map((f) => '@gemini ' + f), ['@kosmo
 UNWIREEOF
         # review 2: stderr of the whole wait goes nowhere, or bash prints its own "Terminated" job line beside ours.
         _unwire_rc=0; { _kosmos_wait_bounded "$!"; } 2>/dev/null || _unwire_rc=$?
-        if [ "$_unwire_rc" = 143 ]; then
+        # review 7 NIT 2: a stop that lands after the done line (node was exiting) finished the work; not a stop to report.
+        if [ "$_unwire_rc" = 143 ] && [ "$(tail -n 1 "$_unwire_out" 2>/dev/null)" != "@kosmos-unwire-done" ]; then
+          _unwire_stopped=yes
           # review 3: a stop, not only an abandon, can mean a settings file is on a stalled mount (TERM working shows the
           # stall was interruptible, not that it ended), so after ANY stop nothing here reads or removes a file in those
           # folders again: the file-naming fallback below is skipped and this sentence says where to look by hand.
@@ -2899,7 +2902,7 @@ UNWIREEOF
           info "taking Kosmos's hooks out of Claude Code's settings did not finish in ${_kwb_secs}s and ${_uw_how}; a settings file may be on a slow or stalled network folder. Check the settings.json in each Claude folder under ${AGENT_WORKFORCE_HOME:-$HOME} for Kosmos's hooks (kosmos-report-hook) and status line (kosmos-statusline), and remove them and any file ending in .kosmos-unwire.<a number> beside it, by hand"
           # #8364 runs in the same node call, so Gemini's settings were not finished either; gemini_hook_settings_left is
           # skipped below for the same reason, so they are named here instead.
-          [ -z "$_support" ] || info "the same goes for Gemini CLI: check the settings.json in ${AGENT_WORKFORCE_GEMINI_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.gemini} and in each .gemini-<name>/.gemini folder under ${AGENT_WORKFORCE_HOME:-$HOME} for hooks running gemini-report-bridge inside ${_support%/}/bin, and remove them by hand"
+          [ -z "$_support" ] || info "the same goes for Gemini CLI: check the settings.json in ${AGENT_WORKFORCE_GEMINI_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.gemini} and in each .gemini-<name>/.gemini folder under ${AGENT_WORKFORCE_HOME:-$HOME} for hooks running gemini-report-bridge inside ${_support%/}/bin, and remove them and any file ending in .kosmos-unwire.<a number> beside it, by hand"
         fi
         if [ "$(tail -n 1 "$_unwire_out" 2>/dev/null)" = "@kosmos-unwire-done" ]; then
           _unwire_done=yes
@@ -2909,7 +2912,7 @@ UNWIREEOF
       fi
       # review 2 and 3: after a STOPPED step the fallback would read the very files that may have stalled it, and hang
       # the same way; the sentence above says where to look instead.
-      if [ -z "$_unwire_done" ] && [ "${_unwire_rc:-0}" != 143 ]; then
+      if [ -z "$_unwire_done" ] && [ -z "$_unwire_stopped" ]; then
         # No node that ran to the end (a partial install, a node that crashed or cannot run here) or no temp file:
         # name every settings file that still points at this install's hook, rather than leaving it silently.
         _unwire_left="$(hook_settings_left "$KOSMOS_HOME" "$_kh_real")"
@@ -3386,7 +3389,13 @@ UNWIREEOF
   # an uninstaller cannot tell, so deleting it would overstep. The
   # reversibility contract is honored by NAMING what was left, per the
   # header's rule that anything not removed is left alone and named.
-  if [ -f "$HOME/.claude/settings.json" ] && grep -Eq '"skipDangerousModePermissionPrompt": *true' "$HOME/.claude/settings.json" 2>/dev/null; then
+  # kosmos#8388 review 7: after a stopped hook unwire these three checks would read the same settings files that may
+  # have stalled it, with no time limit, and hang the uninstall after it said it was done. Skipped, and said.
+  if [ -n "${_unwire_stopped:-}" ]; then
+    printf '  The checks for settings Kosmos left in Claude Code'"'"'s settings.json files were skipped,\n'
+    printf '  because reading those files did not finish (see the note above).\n\n'
+  fi
+  if [ -z "${_unwire_stopped:-}" ] && [ -f "$HOME/.claude/settings.json" ] && grep -Eq '"skipDangerousModePermissionPrompt": *true' "$HOME/.claude/settings.json" 2>/dev/null; then
     # ⚠️ THE VALUE, NOT THE KEY (#932): the sibling gate below learned this
     # first (hasTrustDialogAccepted). A key present and false, set by the
     # person's own hand or flipped back after install, means nothing was
@@ -3398,7 +3407,7 @@ UNWIREEOF
   fi
   # #5039: the same rule for the model-switch setting Kosmos's agents write beside it (the person may also have set
   # it with "Switch automatically"; an uninstaller cannot tell). The value, as above.
-  if [ -f "$HOME/.claude/settings.json" ] && grep -Eq '"switchModelsOnFlag": *true' "$HOME/.claude/settings.json" 2>/dev/null; then
+  if [ -z "${_unwire_stopped:-}" ] && [ -f "$HOME/.claude/settings.json" ] && grep -Eq '"switchModelsOnFlag": *true' "$HOME/.claude/settings.json" 2>/dev/null; then
     printf '  A setting was left in place: switchModelsOnFlag in ~/.claude/settings.json\n'
     printf '  (Claude switches to another model when Opus safeguards flag a message).\n'
     printf '  Set it to false there if you want to be asked instead.\n\n'
@@ -3413,7 +3422,7 @@ UNWIREEOF
   # Two passes over the same glob rather than one space-joined list, so a path with a
   # space in it is printed whole.
   _sl_left=""
-  for _sl in "$HOME/.claude/settings.json" "$HOME"/.claude-*/settings.json; do
+  [ -n "${_unwire_stopped:-}" ] || for _sl in "$HOME/.claude/settings.json" "$HOME"/.claude-*/settings.json; do
     [ -f "$_sl" ] && grep -q 'kosmos-statusline\.js' "$_sl" 2>/dev/null && _sl_left=yes
   done
   if [ -n "$_sl_left" ]; then

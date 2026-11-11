@@ -256,6 +256,10 @@ test('kosmos#8388: a node step that never returns is stopped after its time limi
   assert.match(out, STOPPED(1), 'the stop was not said:\n' + out);
   assert.ok(out.includes(sb.home), 'the sentence does not name where the settings are:\n' + out);
   assert.doesNotMatch(out, /Terminated|Killed/, 'the shell\'s own job line reached the person:\n' + out);
+  // review 7: the end of the uninstall reads the same settings files again (left settings, the status line); after a
+  // stop those reads are skipped and said. The status line is still in the file here, so the notice would show if read.
+  assert.match(out, /settings\.json files were skipped,/, 'the skipped checks were not said:\n' + out);
+  assert.doesNotMatch(out, /A Kosmos status line is still in these settings files/, 'the status-line check read the files after a stop:\n' + out);
 });
 
 test('kosmos#8388 review 1: a node that ignores TERM is stopped with KILL, and the uninstall still ends', { skip: SKIP_OFF_POSIX }, () => {
@@ -284,6 +288,7 @@ test('kosmos#8388 review 1: a quick node step is not held for the bound', { skip
   const out = runUninstall(sb, { KOSMOS_UNINSTALL_NODE_SECONDS: '30' }, 90000);
   assert.ok(Date.now() - t0 < 4000, 'a quick step waited ' + (Date.now() - t0) + ' ms (measured ~750 ms; the poll ticks every 0.2 s)');
   assert.doesNotMatch(out, /did not finish in/, out);
+  assert.doesNotMatch(out, /settings\.json files were skipped,/, 'a step that finished skipped the later checks:\n' + out);
   checkCleaned(sb, out);
 });
 
