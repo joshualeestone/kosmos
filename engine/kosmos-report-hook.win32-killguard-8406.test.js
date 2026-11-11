@@ -23,7 +23,7 @@ const REFUSED = [
   'taskkill /F /T /IM Kosmos.exe',
   'taskkill /F /IM *',
   'taskkill /F /IM no*',
-  'taskkill /F /FI "USERNAME eq joshu"',
+  'taskkill /F /FI "USERNAME eq me"',
   'taskkill /F /FI "IMAGENAME eq node.exe"',
   'taskkill /F /FI "IMAGENAME ne explorer.exe"',
   'cmd /c "taskkill /F /IM node.exe"',
@@ -80,6 +80,22 @@ const REFUSED = [
   'bash -c "taskkill //F //IM \\"node.exe\\""',
   'wmic path win32_process where name="node.exe" call terminate',
   `wmic process where "name='node.exe' and ParentProcessId=4" delete`,
+  // Each /PID and /IM adds processes, so a /PID does not make a Kosmos /IM safe.
+  'taskkill /F /T /PID 4242 /IM node.exe',
+  // PowerShell with bare words (no -Command), iex, start "title", prefixes and array names.
+  'powershell Stop-Process -Name node',
+  'powershell -NoProfile Stop-Process -Name node -Force',
+  'powershell -ExecutionPolicy Bypass taskkill /F /IM node.exe',
+  'iex "Stop-Process -Name node"',
+  'start "kill" taskkill /F /IM node.exe',
+  'sudo taskkill /IM node.exe',
+  'Stop-Process -Name @("node","claude")',
+  'shutdown /s /m \\\\localhost',
+  `wmic process where "processid=1 or name='node.exe'" delete`,
+  // A Where-Object that keeps everything but one name.
+  'Get-Process | Where-Object { $_.Name -ne "notepad" } | Stop-Process',
+  'Get-Process | Where-Object { $_.Name -eq "claude" } | Stop-Process -Force',
+  'function Stop-All { taskkill /F /IM node.exe }',
 ];
 const ALLOWED = [
   'taskkill /PID 4242',          // the card's control: one exact process id
@@ -105,7 +121,6 @@ const ALLOWED = [
   'git commit -m "never run taskkill /F /IM node.exe"',
   'kill 4242 && sort -n node_list.txt',
   // Narrowed by /PID, other names, wildcards that cannot match a Kosmos process.
-  'taskkill /F /T /PID 4242 /IM node.exe',
   'taskkill /IM node.exe /FI "PID eq 4242"',
   'taskkill /FI "USERNAME eq me" /IM notepad.exe',
   'taskkill /F /IM chrome*',
@@ -116,6 +131,26 @@ const ALLOWED = [
   'Get-Process | Select-Object -First 1 | Stop-Process',
   'shutdown /m \\\\host /s',
   "echo it's done",
+  // Object.prototype keys as command words must not throw.
+  'constructor x',
+  '__proto__ x',
+  '  constructor = Foo;',
+  // Code being written: a logoff or shutdown identifier, a call, a comment, an object literal.
+  'promise.then(logoff)',
+  'onClick={logoff}',
+  'import { logoff } from "./auth"',
+  'module.exports = { logoff }',
+  '    logoff()',
+  'function a() {\n  logoff();\n}',
+  'logoff() {}',
+  'logoff = true',
+  '//logoff',
+  'const x = () => { shutdown -s }',
+  // Dry runs and named Stop-Process at the end of a list.
+  'Get-Process | Stop-Process -WhatIf',
+  'Get-Process | Stop-Process -Name notepad',
+  "if (a) return R.session('logoff');",
+  "if (name === 'logoff') { b('logoff'); }",
 ];
 
 test('#8406: every listed Windows form of "stop everything" is refused, in any case', () => {
@@ -123,12 +158,12 @@ test('#8406: every listed Windows form of "stop everything" is refused, in any c
 });
 
 test('#8406: one exact process id, other names and ordinary commands pass (control)', () => {
-  for (const c of ALLOWED) assert.equal(guard.reason(c), '', 'allowed: ' + c);
+  for (const c of ALLOWED) assert.equal(guard.reason(c), '', 'allowed: ' + c);   // assert.equal: a throw fails it too
 });
 
 test('#8406: long lines stay fast (the hook has a short timeout and a Write can be megabytes on one line)', () => {
   for (const s of ['ps a '.repeat(80000), 'gps '.repeat(100000), 'kill x '.repeat(60000), 'taskkill /IM x '.repeat(30000), '"'.repeat(400000),
-    'taskkill /IM ' + '*'.repeat(200000) + 'a', '('.repeat(100000), "it's ".repeat(50000)]) {
+    'taskkill /IM ' + '*'.repeat(200000) + 'a', '('.repeat(100000), "it's ".repeat(50000), 'a|'.repeat(500000), 'x(' .repeat(50000) + ')'.repeat(50000)]) {
     const t0 = Date.now();
     guard.reason(s);
     assert.ok(Date.now() - t0 < 1500, s.slice(0, 12) + '... took ' + (Date.now() - t0) + ' ms for ' + s.length + ' chars');
@@ -173,4 +208,20 @@ test('#8406: what is read: command and written code fields; a .md file\'s conten
   assert.equal(guard.check(pre('Write', { file_path: 'C:\\w\\notes.md', content: 'never run taskkill /F /IM node.exe' }), {}).block, false);
   assert.equal(guard.check(pre('Edit', { file_path: 'C:\\w\\x.cmd', old_string: 'taskkill /F /IM node.exe', new_string: 'rem gone' }), {}).block, false);
   assert.equal(guard.check({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'logoff' } }, {}).block, false, 'only PreToolUse');
+});
+
+test('#8406: a guard that throws fails open, and the hook still reports (the keep-copy and heartbeat are not lost)', async () => {
+  const g = require('./winkillguard');
+  const was = g.check;
+  g.check = () => { throw new Error('boom'); };
+  const sent = [];
+  try {
+    const code = await hook.main({
+      input: JSON.stringify(bash('git status')), env: { KOSMOS_AGENT_TOKEN: 'ab12' }, url: 'http://127.0.0.1:16180',
+      boardToken: 'BT', fetchImpl: async (u) => { sent.push(u); return { ok: true, status: 200, text: async () => '{"recorded":true}' }; },
+      throttleDir: path.join(TMP, 't3'), ppid: 4242, now: () => 1000, stdout: () => {}, stderr: () => {}, platform: 'win32',
+    });
+    assert.equal(code, 0);
+    assert.ok(sent.length > 0, 'the report still went to the board');
+  } finally { g.check = was; }
 });

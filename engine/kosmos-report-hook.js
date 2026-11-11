@@ -595,10 +595,10 @@ function setMark(io) {
 }
 
 /**
- * Read the event, map it, deliver it. Always resolves to an exit code of 0
- * (fail-safe); SessionStart additionally prints a systemMessage on a delivery
+ * Read the event, map it, deliver it. Resolves to an exit code of 0 (fail-safe), except 2 for a PreToolUse the
+ * kill guard refuses (kosmos#8406); SessionStart additionally prints a systemMessage on a delivery
  * failure so the person learns reporting is off. `io` is fully injectable for
- * tests: { input, env, uid, storeRoot, fetchImpl, now, throttleDir, stdout }.
+ * tests: { input, env, uid, storeRoot, fetchImpl, now, throttleDir, stdout, stderr }.
  */
 async function main(io) {
   const o = io || {};
@@ -617,7 +617,9 @@ async function main(io) {
 
   /* kosmos#8406: the Windows twin of the bash hook's #4671 kill guard, first, before anything is sent. Exit 2 refuses
      the tool call, and Claude Code shows the agent the reason on stderr. */
-  const guard = require('./winkillguard').check(evt, env);
+  // A guard error must never take the report or the keep-copy with it: it fails open, and the hook goes on.
+  let guard = { block: false };
+  try { guard = require('./winkillguard').check(evt, env); } catch { /* fail open */ }
   if (guard.block) {
     (o.stderr || ((s) => process.stderr.write(s)))(guard.message);
     return 2;
