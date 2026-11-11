@@ -514,6 +514,21 @@ test('kosmos#8361: a Codex hooks.json Kosmos cannot read is never called Kosmos\
   assert.equal(fs.statSync(path.join(named, 'hooks.json')).isDirectory(), true);
 });
 
+test('kosmos#8361: a Codex check that throws is never reported as Kosmos\'s hook; it gets the conditional note', async () => {
+  const h = home();
+  const named = path.join(h, '.codex-work');
+  fs.mkdirSync(named, { recursive: true });
+  const orig = codexhooks.unwireInstall;
+  codexhooks.unwireInstall = () => { throw new Error('broken module'); };
+  let r;
+  try {
+    stubSchedulers([listing([])]);
+    r = await run(h);
+  } finally { codexhooks.unwireInstall = orig; }
+  assert.ok(!r.left.some((l) => /Codex/.test(l)), JSON.stringify(r.left));
+  assert.ok(r.notes.some((n) => n.includes(named) && /If it names codex-report-bridge\.js/.test(n)), JSON.stringify(r.notes));
+});
+
 test('kosmos#8361: while a Kosmos task is still registered, the Codex hook is not touched either', async () => {
   const h = home();
   const named = path.join(h, '.codex-work');

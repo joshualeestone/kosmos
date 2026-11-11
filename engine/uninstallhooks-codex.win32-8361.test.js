@@ -144,6 +144,7 @@ test('a hooks.json changed to another command between the look and the lock is l
   try {
     const r = hooks.unwireInstall(h, [THIS], { platform: 'win32' });
     assert.equal(r.changed, false);
+    assert.equal(r.unreadable, true, 'named for the person, as an unreadable one is');
   } finally { real.withFileLock = orig; }
   assert.equal(fs.readFileSync(file, 'utf8'), swapped);
 });

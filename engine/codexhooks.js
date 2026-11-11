@@ -338,9 +338,10 @@ function unwireInstall(home, roots, opts) {
          without its record is what stops the Codex TUI. */
       let st;
       try { st = fs.lstatSync(hooksFile); } catch (e) { if (e && e.code === 'ENOENT') return { ours: false, changed: false }; throw e; }
-      if (!st.isFile()) return { ours: false, changed: false, because: 'hooks.json is not a plain file' };
+      // Review 5: these two looked like ours a moment ago, so they are named (as unreadable ones are), never removed.
+      if (!st.isFile()) return { ours: false, changed: false, unreadable: true, because: 'hooks.json is not a plain file' };
       const now = fs.readFileSync(hooksFile, 'utf8');
-      if (!isOurs(now) || JSON.parse(now).hooks[EVENT][0].hooks[0].command !== command) return { ours: false, changed: false, because: 'hooks.json changed while it was being checked' };
+      if (!isOurs(now) || JSON.parse(now).hooks[EVENT][0].hooks[0].command !== command) return { ours: false, changed: false, unreadable: true, because: 'hooks.json changed while it was being checked' };
       fs.unlinkSync(hooksFile);
       let recordRemoved = false;
       /* Review 2: hooks.json is already gone, so a record that cannot be rewritten (config.toml held by another program)

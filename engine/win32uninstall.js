@@ -396,7 +396,7 @@ function unwireHooks(bundleRoot, home, env, gone, done, left, notes) {
   for (const codexHome of codexHomes(home)) {
     let r;
     try { r = require('./codexhooks').unwireInstall(codexHome, roots, { gone, platform: 'win32' }); }
-    catch { r = { ours: true, changed: false, because: 'it could not be checked' }; }
+    catch { r = { ours: false, changed: false, unreadable: true, because: 'it could not be checked' }; }   // review 5: not known to be ours
     if (r.changed) done.push('took Kosmos\'s file-edit hook out of Codex\'s settings (' + codexHome + ')' + (r.recordRemoved ? ', with its trust entry' : ''));
     else if (r.ours) left.push('Kosmos\'s file-edit hook in Codex\'s settings (' + codexHome + '), which could not be taken out ('
       + (r.because || 'the file did not change') + '). Delete hooks.json in that folder; Codex runs fine without it.');
