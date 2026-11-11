@@ -35,7 +35,7 @@ const messagesEngine = require('./engine/messages');
 const chatEngine = require('./engine/chat');
 const projects = require('./engine/projects');
 const selfreport = require('./engine/selfreport');
-const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it fakes tmux with a shell script (test-support/fake-tmux.sh), which Windows cannot run');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it fakes tmux with a shell script (test-support/fake-tmux.sh) run directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 // One install for the whole file (a second install() fails its own arrangement
 // assertion once a prior test has left projects/reports behind). mara is the
@@ -117,7 +117,7 @@ test('a post that did NOT reach a room (no such project) does not attribute any 
   assert.equal(selfreport.read('liv').project, null, 'a failed post must not attribute a project onto a working agent');
 });
 
-test('a PANE-resolved poster (no agent token) is attributed the same way (the resolveAgentSender pane branch)', { skip: SKIP_BASH }, async () => {
+test('a PANE-resolved poster (no agent token) is attributed the same way (the resolveAgentSender pane branch)', { skip: SKIP_POSIX_SHELL }, async () => {
   const p = room('Pane 2837', 'fixture');
   selfreport.record('fixture', { state: 'working' });
   // No token: the sender is resolved from the pane. The test fake-tmux answers

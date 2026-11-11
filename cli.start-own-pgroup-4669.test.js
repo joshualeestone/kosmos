@@ -25,7 +25,7 @@ const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
 // #4796: a data root of its own, so the CLI never reads this computer's board token.
 const DATA4796 = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'kosmos-cli-start-own-pgroup-4669-'));
-const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs kosmos start through /bin/bash and a launchd job, which Windows does not have');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs kosmos start through /bin/bash, and reads /bin/ps, by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 process.on('exit', () => { try { require('node:fs').rmSync(DATA4796, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
@@ -134,14 +134,14 @@ async function startThenEndTheJob(cli) {
   }
 }
 
-test('#4669 a board started by `kosmos start` survives the end of the launchd job that ran it', { skip: SKIP_BASH }, async () => {
+test('#4669 a board started by `kosmos start` survives the end of the launchd job that ran it', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await startThenEndTheJob(CLI);
   assert.equal(r.inGroup, false, 'the board must not be in the job\'s process group');
   assert.equal(r.alive, true, 'the board must still be running after the job\'s group is killed');
   assert.equal(r.answers, true, 'and still answering');
 });
 
-test('#4669 CONTROL: without the fix, ending the job takes the board down (the harness can see the failure)', { skip: SKIP_BASH }, async () => {
+test('#4669 CONTROL: without the fix, ending the job takes the board down (the harness can see the failure)', { skip: SKIP_POSIX_SHELL }, async () => {
   const src = fs.readFileSync(CLI, 'utf8');
   const lines = src.split('\n');
   const launch = lines.findIndex((l) => /nohup "\$NODE" "\$APP"/.test(l));

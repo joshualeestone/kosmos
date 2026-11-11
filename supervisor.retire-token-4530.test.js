@@ -26,7 +26,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs the supervisor (bin/agent-supervisor.sh) and fake runners as bash scripts, which Windows does not have');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs the supervisor (bin/agent-supervisor.sh) and its fake runners through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 
 const REPO = __dirname;
 const SHIPPED = process.env.SUPERVISOR_UNDER_TEST || path.join(REPO, 'bin', 'agent-supervisor.sh');
@@ -138,7 +138,7 @@ function fixture(runnerKind = 'claude') {
   return { root, tokens, live, resolves, start, ends, until, settles, endSession, flag, cleanup, store };
 }
 
-test('#4530 RELAUNCH: after a relaunch the agent has exactly one live token, and the previous one does not resolve', { skip: SKIP_BASH }, async () => {
+test('#4530 RELAUNCH: after a relaunch the agent has exactly one live token, and the previous one does not resolve', { skip: SKIP_POSIX_SHELL }, async () => {
   const f = fixture();
   try {
     const one = f.start();
@@ -168,7 +168,7 @@ test('#4530 RELAUNCH: after a relaunch the agent has exactly one live token, and
   } finally { f.cleanup(); }
 });
 
-test('#4530 EXIT: when a run\'s session ends, its supervisor retires that run\'s token', { skip: SKIP_BASH }, async () => {
+test('#4530 EXIT: when a run\'s session ends, its supervisor retires that run\'s token', { skip: SKIP_POSIX_SHELL }, async () => {
   const f = fixture();
   try {
     const one = f.start();
@@ -183,7 +183,7 @@ test('#4530 EXIT: when a run\'s session ends, its supervisor retires that run\'s
   } finally { f.cleanup(); }
 });
 
-test('#4530 ADOPT: a supervisor restarted mid-run retires the adopted run\'s token when the session ends', { skip: SKIP_BASH }, async () => {
+test('#4530 ADOPT: a supervisor restarted mid-run retires the adopted run\'s token when the session ends', { skip: SKIP_POSIX_SHELL }, async () => {
   const f = fixture();
   try {
     const one = f.start();
@@ -206,7 +206,7 @@ test('#4530 ADOPT: a supervisor restarted mid-run retires the adopted run\'s tok
   } finally { f.cleanup(); }
 });
 
-test('#4530 OTHERS: a launch and an exit leave a remote agent\'s token alone (tagged remote)', { skip: SKIP_BASH }, async () => {
+test('#4530 OTHERS: a launch and an exit leave a remote agent\'s token alone (tagged remote)', { skip: SKIP_POSIX_SHELL }, async () => {
   const f = fixture();
   try {
     f.flag('notwin');   // so the untagged sweep runs, and this proves it spares a tagged remote token
@@ -224,7 +224,7 @@ test('#4530 OTHERS: a launch and an exit leave a remote agent\'s token alone (ta
 /* Every runner that launches differently: Antigravity makes its session itself (it needs the pane id)
    instead of through launch_pane, and review iteration 2 found it losing a live token on exit. */
 for (const kind of ['claude', 'antigravity']) {
-  test(`#4530 FLAKE (${kind}): a tmux that fails to answer once does not retire a live run's token`, { skip: SKIP_BASH }, async () => {
+  test(`#4530 FLAKE (${kind}): a tmux that fails to answer once does not retire a live run's token`, { skip: SKIP_POSIX_SHELL }, async () => {
     const f = fixture(kind);
     try {
       const one = f.start();
@@ -237,7 +237,7 @@ for (const kind of ['claude', 'antigravity']) {
     } finally { f.cleanup(); }
   });
 
-  test(`#4530 STOPPED (${kind}): a supervisor stopped while its run lives does not take the run's token with it`, { skip: SKIP_BASH }, async () => {
+  test(`#4530 STOPPED (${kind}): a supervisor stopped while its run lives does not take the run's token with it`, { skip: SKIP_POSIX_SHELL }, async () => {
     const f = fixture(kind);
     try {
       const one = f.start();
@@ -251,7 +251,7 @@ for (const kind of ['claude', 'antigravity']) {
   });
 }
 
-test('#4530 ONES: "no such session" answered once more after the loop, by a session that is alive, retires nothing', { skip: SKIP_BASH }, async () => {
+test('#4530 ONES: "no such session" answered once more after the loop, by a session that is alive, retires nothing', { skip: SKIP_POSIX_SHELL }, async () => {
   const f = fixture();
   try {
     const one = f.start();
@@ -266,7 +266,7 @@ test('#4530 ONES: "no such session" answered once more after the loop, by a sess
   } finally { f.cleanup(); }
 });
 
-test('#4530 LOSER: a launch that mints and then loses the session name retires only its own token', { skip: SKIP_BASH }, async () => {
+test('#4530 LOSER: a launch that mints and then loses the session name retires only its own token', { skip: SKIP_POSIX_SHELL }, async () => {
   const f = fixture();
   try {
     /* The winner: a live run of this session, minted the way the supervisor mints. */
@@ -279,7 +279,7 @@ test('#4530 LOSER: a launch that mints and then loses the session name retires o
   } finally { f.cleanup(); }
 });
 
-test('#4530 TWIN, adopt: the adopter reads THIS session\'s run, not the -discord twin listed before it (exact name, not first row or prefix)', { skip: SKIP_BASH }, async () => {
+test('#4530 TWIN, adopt: the adopter reads THIS session\'s run, not the -discord twin listed before it (exact name, not first row or prefix)', { skip: SKIP_POSIX_SHELL }, async () => {
   const f = fixture();
   try {
     const one = f.start();
@@ -298,7 +298,7 @@ test('#4530 TWIN, adopt: the adopter reads THIS session\'s run, not the -discord
   } finally { f.cleanup(); }
 });
 
-test('#4530 TWIN, launch race: a run whose session dies at once never stamps its instance on the -discord twin', { skip: SKIP_BASH }, async () => {
+test('#4530 TWIN, launch race: a run whose session dies at once never stamps its instance on the -discord twin', { skip: SKIP_POSIX_SHELL }, async () => {
   const f = fixture();
   try {
     f.flag('dieatonce');   // the runner starts and its session is gone before the claim
@@ -314,7 +314,7 @@ const mintUntagged = (f) => f.store(`(() => { const m = s.mint(${JSON.stringify(
 /* A past run of the SAME launcher, so an arm can see that the sweep has run before judging what it kept. */
 const mintPastRun = (f) => f.store(`(() => { const m = s.mint(${JSON.stringify(NAME)}, { launcher: 'supervisor:${NAME}' }); return m.token; })()`);
 
-test('#4530 UNTAGGED, launch: a token minted before #4530 is retired by the next launch', { skip: SKIP_BASH }, async () => {
+test('#4530 UNTAGGED, launch: a token minted before #4530 is retired by the next launch', { skip: SKIP_POSIX_SHELL }, async () => {
   const f = fixture();
   try {
     f.flag('notwin');
@@ -331,7 +331,7 @@ test('#4530 UNTAGGED, launch: a token minted before #4530 is retired by the next
   } finally { f.cleanup(); }
 });
 
-test('#4530 UNTAGGED, twin: an untagged token is kept while the -discord twin has a session', { skip: SKIP_BASH }, async () => {
+test('#4530 UNTAGGED, twin: an untagged token is kept while the -discord twin has a session', { skip: SKIP_POSIX_SHELL }, async () => {
   const f = fixture();   // the stand-in lists the twin
   try {
     const twinRun = mintUntagged(f);   // may be the twin's live pre-#4530 run: same token file
@@ -345,7 +345,7 @@ test('#4530 UNTAGGED, twin: an untagged token is kept while the -discord twin ha
   } finally { f.cleanup(); }
 });
 
-test('#4530 UNTAGGED, adopt: adopting a live run never retires untagged tokens', { skip: SKIP_BASH }, async () => {
+test('#4530 UNTAGGED, adopt: adopting a live run never retires untagged tokens', { skip: SKIP_POSIX_SHELL }, async () => {
   const f = fixture();
   try {
     f.flag('notwin');

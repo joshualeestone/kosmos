@@ -1,39 +1,53 @@
-# win-skip-bash-8378: the first #8378 cluster, tests that need bash, skip on Windows with their reason (kosmos#8378)
+# win-skip-bash-8378: the first #8378 cluster, tests that run POSIX shell paths, skip on Windows with their reason (kosmos#8378)
 
 **Posture:** production
 
 ## Problem
 #8378 (phase 2 of #8368): on a Windows computer the full suite is red on main for macOS and Linux reasons. The largest
-cause is tests that spawn bash (`/bin/bash`, `/bin/sh`, a bare `bash`) or `install/kosmos`, the Mac and Linux CLI, which
-Windows does not have. Test hygiene, done now because the Windows product queue is waiting on tonight's build.
+cause is tests that run a POSIX shell path. **Windows has bash** (a bare `bash` reaches Git Bash, on the box and on
+GitHub's Windows runners); what it cannot run is an absolute POSIX path (`/bin/bash`, `/bin/sh`, `/usr/bin/ditto`) or a
+script run directly by its shebang line (`install/kosmos`, `test-support/fake-tmux.sh`). Test hygiene, done now because
+the Windows product queue is waiting on tonight's build.
 
 ## Change
 - `test-support/skip-on-win32.js`: `skipOnWin32(reason)` is the reason on Windows and `false` elsewhere, so a test
-  skips only on Windows and node:test prints why. An empty or missing reason throws. Its own tests:
-  `test-support.skip-on-win32.test.js` (4).
-- 21 test files: each test that fails on Windows only because it spawns bash gets `{ skip: SKIP_BASH }`, with a reason
-  that names what it runs (the supervisor script, the kill guard, install/kosmos, run-tests.sh, a fake tmux script).
-  Where a file loops over the bash CLI AND the Windows CLI (cli.inputkeep-6774, cli.limitmsg-5805, cli.whoisleft-8137,
-  cli.livecheck-prefix-8156), only the bash half skips; the Windows CLI's tests still run on Windows.
-- Nothing changes on the Mac or Linux: the helper is `false` there.
+  skips only on Windows and node:test prints why. An empty or missing reason throws on every platform. Its own tests:
+  `test-support.skip-on-win32.test.js` (4). Its comment says to name the mechanism, and why the Windows coupling audit
+  does not see it (deliberate: its Windows arm only skips).
+- 19 test files: each test that fails on Windows only for that reason gets `{ skip: SKIP_POSIX_SHELL }`, with a
+  reason that names the mechanism and what it runs. Where a file loops over the bash CLI AND the Windows CLI
+  (cli.inputkeep-6774, cli.limitmsg-5805, cli.whoisleft-8137), only the bash half skips; the Windows CLI's tests still
+  run on Windows.
+- **A real fix, not a skip:** `report-hook-toolfail-6071`'s jq-failure test looked jq up through `/bin/sh` and joined
+  PATH with `:`. It now looks it up through the same bare `bash` the hook runs under, reads the answer through cygpath on
+  Windows for the existence check, and joins PATH with `path.delimiter`. It passes on Windows (14 of 14) and still
+  exercises the path: a fake jq that does not fail on the signature call turns it red (run).
+- Nothing changes on the Mac or Linux: the helper is `false` there, and toolfail's change is the same commands there.
 
 ## How the set was chosen
-From the #8368 inventory (main 53a164708d, every file run alone on the Windows box), the files whose EVERY failing test
-fails for the bash reason (23). Re-measured on current main (545df024be) and every failing test's first error line read
-before skipping. Left out:
-- `bundle.manifest.test.js`: its one failure is the POSIX executable bit (the file-modes cluster, a later PR).
-- `install.boot-adds-5584.test.js`: a real assertion (a board start on Windows adds files the install gate does not
-  expect). That is something to look at, not to skip.
+From the #8368 inventory (main 53a164708d, every file run alone on the Windows box), the files whose every failing test
+failed for a shell reason (23). Re-measured on main 545df024be, and every failing test's first error line read. Then
+review round 1 found the premise "Windows has no bash" false, so each file's mechanism was re-read:
+- **Dropped** (bare `bash`, which works when Git Bash is on PATH; their failures are something else, a later cluster):
+  `tools.shell-shard-4317` (run-tests.sh through bare bash; assertion failures) and `cli.livecheck-prefix-8156`.
+- **Left out:** `bundle.manifest.test.js` (the POSIX executable bit: the file-modes cluster).
+- **Added after looking:** `install.boot-adds-5584`. It looked like a Windows board-start difference (no
+  prompter-nudges.json), but the test gives the board fake-tmux.sh, which Windows cannot run, so the heartbeat never
+  ticks. The real Windows board on the box does write the file.
 
-## Result (each file run alone on the Windows box, the no-schtasks preload)
-Before: 21 files, 345 failing tests on Windows (plus the two left out). After: 0 failing in those 21 files; every pass count is
-unchanged (no test that passed is now skipped); those 345 tests skip, each printing its reason.
+## Result (each file run alone on the Windows box, the no-schtasks preload, at this branch's head)
+In the 20 changed test files: 0 failing (was 343). 342 tests newly skip, each printing its reason; 1 is fixed. Every
+pass count is unchanged except toolfail-6071's, which rises by the fixed test.
 
 ## Weakest premise
-That every skipped test is ONLY about bash. Each was checked by its first error line (ENOENT for bash or sh or
-install/kosmos, a fake tmux shell script EFTYPE, "neither /bin/bash nor /bin/zsh exists"). A test that also covers a
-Windows behaviour behind its bash call would lose that coverage on Windows; none of the 21 files is a win32 file or in
-the Windows CI job's list, so the Windows CI job is unaffected either way.
+That every skipped test is ONLY about an absolute POSIX path or a shebang script. Each was checked by its first error
+line and by how the file spawns (`grep` of every spawn call). A test that also covers a Windows behaviour behind that
+call loses it on Windows. None of these files is a win32 file or in the Windows CI job's list, so that job is unchanged.
+
+Specifically for `report-hook-killguard-4671` (271 skips): the Windows report hook is the node twin
+(`engine/kosmos-report-hook.js`), which has **no kill guard at all**. So these skips remove no Windows coverage of
+anything that runs there, and the gap itself (no kill guard on Windows) is a product question, carded separately.
 
 ## Not covered (later #8378 PRs)
-tmux, POSIX modes, signals, and the ~1,900 plain assertions; the stray `board.agent-claim` / `board.person-start` files.
+tmux, POSIX modes, signals, the bare-bash files above, and the ~1,900 plain assertions; the stray `board.agent-claim` /
+`board.person-start` files.

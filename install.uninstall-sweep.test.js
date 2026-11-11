@@ -11,7 +11,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux uninstall through /bin/bash, which Windows does not have');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac and Linux uninstall through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 
 const SH = fs.readFileSync(path.join(__dirname, 'install', 'setup.sh'), 'utf8');
 
@@ -30,7 +30,7 @@ test('the uninstall sweeps live sessions by @kosmos_agent, after the plist loop'
   assert.doesNotMatch(tail, /kill-server/, 'the sweep must never kill the server; it is not ours on a shared machine');
 });
 
-test('the sweep survives a tmux with nothing to list, which is every clean Mac (#224 find)', { skip: SKIP_BASH }, () => {
+test('the sweep survives a tmux with nothing to list, which is every clean Mac (#224 find)', { skip: SKIP_POSIX_SHELL }, () => {
   /* 🛑 EXECUTED, under the script's own `set -euo pipefail`, because this
      is the defect a source pin cannot fail toward: the unguarded pipeline
      read green in every string check while `list-sessions` exiting 1 (no
@@ -73,7 +73,7 @@ test('the sweep survives a tmux with nothing to list, which is every clean Mac (
     'a serverless tmux aborted the uninstall mid-flight again: the guard is gone');
 });
 
-test('the sweep flag reaches the shell that reads it, proven with a session to stop', { skip: SKIP_BASH }, () => {
+test('the sweep flag reaches the shell that reads it, proven with a session to stop', { skip: SKIP_POSIX_SHELL }, () => {
   /* The pipeline form assigned _agents_stopped in a subshell, so the
      closing message that branches on it was wrong for every machine whose
      only agents ran without background jobs. The heredoc loop runs in the

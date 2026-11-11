@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
-const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs tools/prove-it-fails.sh through /bin/bash and reads /bin/ps, which Windows does not have');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs tools/prove-it-fails.sh through /bin/bash, and reads /bin/ps, by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 
 const SCRIPT = path.join(__dirname, 'tools', 'prove-it-fails.sh');
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -89,7 +89,7 @@ function sandbox(t) {
 
 // Exit 128 + the signal's number, as a shell reports a death by that signal (review 2: TERM is not an interrupt).
 for (const [sig, want, colleague] of [['SIGTERM', 143, false], ['SIGHUP', 129, false], ['SIGINT', 130, false], ['SIGTERM', 143, true]]) {
-  test(`#7619 a ${sig} while the test runs restores the broken file and ends the test${colleague ? ', and leaves a colleague\'s edit alone' : ''}`, { skip: SKIP_BASH }, async (t) => {
+  test(`#7619 a ${sig} while the test runs restores the broken file and ends the test${colleague ? ', and leaves a colleague\'s edit alone' : ''}`, { skip: SKIP_POSIX_SHELL }, async (t) => {
     let passed = false;
     const dir = sandbox(t);
     // Without the outer runner's context, or the inner node --test reads itself as nested and runs nothing.
@@ -136,7 +136,7 @@ for (const [sig, want, colleague] of [['SIGTERM', 143, false], ['SIGHUP', 129, f
   });
 }
 
-test('#7619 an ordinary run (no signal) still restores the break, through the same path-limited restore', { skip: SKIP_BASH }, (t) => {
+test('#7619 an ordinary run (no signal) still restores the break, through the same path-limited restore', { skip: SKIP_POSIX_SHELL }, (t) => {
   const dir = sandbox(t);
   // A test that reads the file and goes red on the break.
   fs.writeFileSync(path.join(dir, 'quick.test.js'),
@@ -159,7 +159,7 @@ test('#7619 an ordinary run (no signal) still restores the break, through the sa
   assert.equal(execFileSync('git', ['-C', dir, 'status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }), ' M b.js\n');
 });
 
-test('#7619 review 3: a TERM after the break is written but before it is recorded still restores it', { skip: SKIP_BASH }, async (t) => {
+test('#7619 review 3: a TERM after the break is written but before it is recorded still restores it', { skip: SKIP_POSIX_SHELL }, async (t) => {
   let passed = false;
   const dir = sandbox(t);
   const env = { ...process.env, PIF_TEST_PAUSE_AFTER_BREAK: '8' }; delete env.NODE_TEST_CONTEXT;
@@ -186,7 +186,7 @@ test('#7619 review 3: a TERM after the break is written but before it is recorde
   passed = true;
 });
 
-test('#7619 review 3: a broken file someone edits again mid-run is left alone and named, not overwritten', { skip: SKIP_BASH }, async (t) => {
+test('#7619 review 3: a broken file someone edits again mid-run is left alone and named, not overwritten', { skip: SKIP_POSIX_SHELL }, async (t) => {
   let passed = false;
   const dir = sandbox(t);
   const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
@@ -218,7 +218,7 @@ test('#7619 review 3: a broken file someone edits again mid-run is left alone an
   passed = true;
 });
 
-test('#7629 B1: a signal also ends what the test itself started (a child it spawned is not left running)', { skip: SKIP_BASH }, async (t) => {
+test('#7629 B1: a signal also ends what the test itself started (a child it spawned is not left running)', { skip: SKIP_POSIX_SHELL }, async (t) => {
   let passed = false;
   const dir = sandbox(t);
   // A test that starts a long-running child of its own (as a test server would), records its pid, then holds.
@@ -254,7 +254,7 @@ test('#7629 B1: a signal also ends what the test itself started (a child it spaw
   passed = true;
 });
 
-test('#7629 B1 review 2: a child that keeps forking leaves nothing behind (the tree is stopped as it is read)', { skip: SKIP_BASH }, async (t) => {
+test('#7629 B1 review 2: a child that keeps forking leaves nothing behind (the tree is stopped as it is read)', { skip: SKIP_POSIX_SHELL }, async (t) => {
   let passed = false;
   const dir = sandbox(t);
   // A child that forks a new long sleeper every 50 ms and records each pid: without the STOP, the ones it forks

@@ -13,7 +13,6 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const cp = require('node:child_process');
 const sh = require('./tools/shell-shard');
-const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs tools/run-tests.sh through bash with POSIX stub programs, which Windows does not have');   // kosmos#8378
 
 const ROOT = __dirname;
 const WF = path.join(ROOT, '.github', 'workflows', 'test.yml');
@@ -320,7 +319,7 @@ test('the limit step fails loudly when the clock never started, instead of readi
   assert.equal(r.summary, '', 'no percentage may be reported without a clock');
 });
 
-test('run-tests.sh refuses a bad part, a bad or misplaced shard, and node arguments to a shell run, first', { skip: SKIP_BASH }, (t) => {
+test('run-tests.sh refuses a bad part, a bad or misplaced shard, and node arguments to a shell run, first', (t) => {
   const { spawnSync } = require('node:child_process');
   /* Stub node and yarn that exit 97, first on the PATH: if a refusal were missing, the run would
      reach the suite and fail at once with 97, rather than run the real suite on this machine. */
@@ -385,7 +384,7 @@ test('#6799: the list header states how many commands it lists (test.yml points 
   assert.notEqual(listed(off), sh.macOnly(text, all).size, 'CONTROL: a header one count off must not match');
 });
 
-test('#6791 review 2: run-tests.sh hands its platform to shell-shard.js (a lost forward would turn the macOS job into all of test:shell, green)', { skip: SKIP_BASH }, () => {
+test('#6791 review 2: run-tests.sh hands its platform to shell-shard.js (a lost forward would turn the macOS job into all of test:shell, green)', () => {
   const stub = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'shard-6791-stub-'));
   const log = path.join(stub, 'argv.log');
   fs.writeFileSync(path.join(stub, 'node'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexit 0\n`, { mode: 0o755 });

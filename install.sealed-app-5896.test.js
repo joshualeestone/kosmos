@@ -22,7 +22,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs the Mac install helpers through /bin/sh, which Windows does not have');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs Mac tools (/bin/sh, /usr/bin/ditto, /bin/chmod) by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 
 // macOS only: codesign, ditto and stat -f run below. The Linux lane runs every root test file, so the whole file
 // skips there rather than failing on a missing tool.
@@ -357,7 +357,7 @@ it('#5896: a sealed copy that does not come out whole falls back to building the
 // #5912 (review): after this uninstall the sealed icon can open only the DEFAULT install (the config naming this one is
 // removed), so it stays only when this install is not the default and the default home's bin/kosmos is runnable,
 // the same test native-app/main.swift makes before it opens a home.
-test('#5912: sealed_opens_another: only a runnable default install can open the icon afterwards', { skip: SKIP_BASH }, () => {
+test('#5912: sealed_opens_another: only a runnable default install can open the icon afterwards', { skip: SKIP_POSIX_SHELL }, () => {
   const home = fs.mkdtempSync(path.join(tmpRoot || os.tmpdir(), 'acct-'));
   const def = path.join(home, '.local', 'share', 'kosmos');
   const ask = (self) => {

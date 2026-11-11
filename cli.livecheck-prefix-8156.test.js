@@ -17,7 +17,6 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { scaleBudget } = require('./test-support/eventually');
-const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, through bash, which Windows does not have');   // kosmos#8378
 
 const ROOT = __dirname;
 const GUARD = fs.readFileSync(path.join(ROOT, 'tools', 'lib', 'launchagent-leak-guard.sh'), 'utf8');
@@ -51,7 +50,7 @@ for (const [label, cmd, args] of [
   ['the Mac CLI', 'bash', ['install/kosmos', 'agent', '--help']],
   ['the Windows CLI', process.execPath, ['tools/windows/kosmos-cli.js', 'agent', '--help']],
 ]) {
-  test('#8156: ' + label + '\'s agent help names the prefix the leak guard skips', { skip: cmd === 'bash' && SKIP_BASH }, () => {
+  test('#8156: ' + label + '\'s agent help names the prefix the leak guard skips', () => {
     const out = helpOf(cmd, args);
     assert.ok(out.includes('kosmos agent create'), 'not the agent help: ' + out);   // CONTROL: the right text was read
     assert.ok(out.includes(PREFIX + '<something>'), label + ' does not name ' + PREFIX + ':\n' + out);

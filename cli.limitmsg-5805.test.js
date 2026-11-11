@@ -71,7 +71,7 @@ function withStubBoard(fn, reply) {
 }
 
 const { withoutAgentIdentity } = require('./test-support/agent-env');   // kosmos#6740: never run the CLI as the agent running the test
-const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, through bash, which Windows does not have');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const envFor = (port) => ({ ...withoutAgentIdentity(process.env), AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
 
 const HELD = '{"delivery":{"state":"could_not","held":true,"heldBy":"limit","heldUntil":"2026-10-13T20:00:00.000Z","id":"m77","because":"held: casey is out of usage"}}';
@@ -79,19 +79,19 @@ const BEHIND = '{"delivery":{"state":"could_not","held":true,"heldBy":"limit","h
 const NOT = '{"delivery":{"state":"could_not","because":"nobody by that name"}}';
 
 for (const [label, run] of [['bash', runCli], ['Windows', runWinCli]]) {
-  test(`#5805 2a: ${label} kosmos msg says a held message is held, until when, not to re-send, and exits 0`, { skip: label === 'bash' && SKIP_BASH }, () => withStubBoard(async (port) => {
+  test(`#5805 2a: ${label} kosmos msg says a held message is held, until when, not to re-send, and exits 0`, { skip: label === 'bash' && SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
     const out = await run(['msg', 'casey', 'go ahead'], envFor(port));
     assert.equal(out.code, 0, out.stdout + out.stderr);
     assert.match(out.stdout, /Held for casey: it is out of usage until 2026-10-13T20:00:00\.000Z\. Kosmos types it after the reset; do not re-send\./);
     assert.doesNotMatch(out.stdout + out.stderr, /Not delivered/);
   }, HELD));
-  test(`#5805 2a review 5: ${label} kosmos msg words a message queued behind a backlog as that, not as out of usage`, { skip: label === 'bash' && SKIP_BASH }, () => withStubBoard(async (port) => {
+  test(`#5805 2a review 5: ${label} kosmos msg words a message queued behind a backlog as that, not as out of usage`, { skip: label === 'bash' && SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
     const out = await run(['msg', 'casey', 'and another'], envFor(port));
     assert.equal(out.code, 0, out.stdout + out.stderr);
     assert.match(out.stdout, /Held for casey: it still has messages kept from while it was out of usage, and Kosmos types this one after them\. Do not re-send\./);
     assert.doesNotMatch(out.stdout, /it is out of usage/);
   }, BEHIND));
-  test(`#5805 2a CONTROL: ${label} kosmos msg still says Not delivered and exits 1 for a plain could_not`, { skip: label === 'bash' && SKIP_BASH }, () => withStubBoard(async (port) => {
+  test(`#5805 2a CONTROL: ${label} kosmos msg still says Not delivered and exits 1 for a plain could_not`, { skip: label === 'bash' && SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
     const out = await run(['msg', 'casey', 'go ahead'], envFor(port));
     assert.equal(out.code, 1, out.stdout + out.stderr);
     assert.match(out.stdout + out.stderr, /Not delivered: nobody by that name\./);

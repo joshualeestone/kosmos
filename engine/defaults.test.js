@@ -11,7 +11,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const defaults = require('./defaults');
-const SKIP_BASH = require('../test-support/skip-on-win32').skipOnWin32('it runs the shell examples in bash and zsh, which Windows does not have');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('../test-support/skip-on-win32').skipOnWin32('it runs the shell examples through /bin/bash or /bin/zsh by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 
 test('the composed block carries no em dash, because it teaches that rule', () => {
   assert.ok(!defaults.block().includes('—'),
@@ -458,7 +458,7 @@ test('#2909 v15: an agent holding the old headings is still offered the line-bre
     'the section is offered to an agent that already has it');
 });
 
-test('#2909 v15: the section\'s shell examples run as written in bash and zsh, and deliver the lines', { skip: SKIP_BASH }, (t) => {
+test('#2909 v15: the section\'s shell examples run as written in bash and zsh, and deliver the lines', { skip: SKIP_POSIX_SHELL }, (t) => {
   const { spawnSync } = require('node:child_process');
   const fs = require('node:fs');
   const os = require('node:os');
@@ -494,7 +494,7 @@ test('#2909 v15: the section\'s shell examples run as written in bash and zsh, a
    double-quoted argument. The trap paragraph names it and gives kosmos msg a stdin route, since the
    line-breaks section deliberately shows no msg form. The route is RUN, with a control proving the
    double-quoted form really loses the number in the same shell, so the test can show the danger. */
-test('#6653: the shell-trap rule names dollar amounts and its kosmos msg stdin route delivers them', { skip: SKIP_BASH }, (t) => {
+test('#6653: the shell-trap rule names dollar amounts and its kosmos msg stdin route delivers them', { skip: SKIP_POSIX_SHELL }, (t) => {
   const { spawnSync } = require('node:child_process');
   const fs = require('node:fs');
   const os = require('node:os');

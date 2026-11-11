@@ -29,7 +29,7 @@ const fleet = require('./test-support/fleet');
 const selfreport = require('./engine/selfreport');
 const you = require('./engine/you');
 const sendertoken = require('./engine/sendertoken');
-const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos, the Mac and Linux CLI, through bash, which Windows does not have');   // kosmos#8378
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 const WHO = 'leo';
 
 const NOTE = selfreport.BLOCKED_PERSON_NOTE;
@@ -111,7 +111,7 @@ test('#5318: the route records a blocked report naming a person, and answers wit
 
 const { execFileSync } = require('node:child_process');
 
-test('#5318: the macOS CLI lifts the note from a real answer and prints it only when there is one', { skip: SKIP_BASH }, () => {
+test('#5318: the macOS CLI lifts the note from a real answer and prints it only when there is one', { skip: SKIP_POSIX_SHELL }, () => {
   const mac = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
   const i = mac.indexOf('say "Recorded. The board reads it from here."');
   assert.ok(i > 0, 'the macOS CLI still says Recorded');

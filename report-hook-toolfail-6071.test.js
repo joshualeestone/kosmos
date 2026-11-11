@@ -11,7 +11,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
-const SKIP_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs the report hook (install/kosmos-report-hook.sh) through /bin/sh, which Windows does not have');   // kosmos#8378
 
 const HOOK = path.join(__dirname, 'install', 'kosmos-report-hook.sh');
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'rhtf-'));
@@ -97,17 +96,22 @@ test('with no runnable CLI the hook still exits 0 and sends nothing', () => {
   assert.equal(fs.readFileSync(LOG, 'utf8'), '');
 });
 
-test('a jq that fails on the signature sends nothing, rather than the one hash of nothing for every failure', { skip: SKIP_BASH }, () => {
+test('a jq that fails on the signature sends nothing, rather than the one hash of nothing for every failure', () => {
   /* It must fail ONLY on the signature's -cS call: a jq that fails everywhere cannot read the event name, so the hook
      stops before this branch and the test would pass for the wrong reason. */
-  const real = cp.execFileSync('/bin/sh', ['-c', 'command -v jq || true'], { encoding: 'utf8' }).trim() || '/usr/bin/jq';
+  /* kosmos#8378: looked up through the same bare `bash` the hook runs under (Git Bash on Windows; /bin/sh is a path
+     Windows cannot run). Its answer is a bash path; on Windows the existence check reads it through cygpath. */
+  const real = cp.execFileSync('bash', ['-c', 'command -v jq || true'], { encoding: 'utf8' }).trim() || '/usr/bin/jq';
+  const realHere = process.platform === 'win32'
+    ? cp.execFileSync('bash', ['-c', 'cygpath -w "$1" 2>/dev/null || true', 'x', real], { encoding: 'utf8' }).trim() || real
+    : real;
   const bin = path.join(SB, 'badjq');
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, 'jq'), '#!/bin/sh\n[ "$1" = "-cS" ] && exit 1\nexec "' + real + '" "$@"\n');
   fs.chmodSync(path.join(bin, 'jq'), 0o755);
   /* The control: the same fake jq on a call it passes through still reads the event (a failure WITH a signature). */
-  assert.ok(fs.existsSync(real), 'no real jq on this machine to pass through to: ' + real);
-  const r = run(fail('Bash', { command: 'x' }, 'e'), { PATH: bin + ':' + process.env.PATH }, 0);
+  assert.ok(fs.existsSync(realHere), 'no real jq on this machine to pass through to: ' + real);
+  const r = run(fail('Bash', { command: 'x' }, 'e'), { PATH: bin + path.delimiter + process.env.PATH }, 0);
   assert.deepEqual(r.failed, []);
 });
 
