@@ -3,20 +3,21 @@ import XCTest
 /// kosmos#8221 slice 12: on the UIKit list, assistive focus (VoiceOver's one-finger swipe to the element above) moving to a
 /// message above the screen while the reader is at the newest: the reader is no longer held at the end, and that message is
 /// on screen and stays there. VoiceOver does not run on a simulator, so the app posts the notification VoiceOver posts, 6 s
-/// after the chat opens (KOSMOS_SAMPLE_A11YFOCUS), in one of ten modes (KOSMOS_SAMPLE_A11YFOCUS_MODE, see
+/// after the chat opens (KOSMOS_SAMPLE_A11YFOCUS), in one of eleven modes (KOSMOS_SAMPLE_A11YFOCUS_MODE, see
 /// ChatList.sampleA11yFocus), and reports what the list did. The UIKit list only: the lazy list has no such pin.
 final class A11yFocusUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
-    private struct Report { let found: Bool; let atEnd: Bool; let onScreen: Bool; let agrees: Bool; let pins: Int; let moved: Int; let kind: String; let label: String }
+    private struct Report { let found: Bool; let atEnd: Bool; let onScreen: Bool; let agrees: Bool; let pins: Int; let moved: Int; let kind: String; let partShown: Bool?; let label: String }
 
-    private func focus(mode: String, fixOff: Bool = false, ruleOff: String? = nil) throws -> Report {
+    private func focus(mode: String, fixOff: Bool = false, ruleOff: String? = nil, tallNewest: Bool = false) throws -> Report {
         guard UIKitListArm.on else { throw XCTSkip("the lazy list has no pin to the end (UIKit list only)") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "1",
                                  "KOSMOS_SAMPLE_A11YFOCUS": "6", "KOSMOS_SAMPLE_A11YFOCUS_MODE": mode]
         if fixOff { app.launchEnvironment["KOSMOS_SAMPLE_NOFOCUSFOLLOW"] = "1" }
         if let rule = ruleOff { app.launchEnvironment[rule] = "1" }
+        if tallNewest { app.launchEnvironment["KOSMOS_SAMPLE_TALLNEWEST"] = "1" }
         UIKitListArm.set(app)
         app.launch()
         UIKitListArm.assertDrawn(app)
@@ -39,7 +40,8 @@ final class A11yFocusUITests: XCTestCase {
             throw NSError(domain: "A11yFocusUITests", code: 1, userInfo: [NSLocalizedDescriptionKey: "unreadable report: \(label)"])
         }
         return Report(found: found == "true", atEnd: words[at + 2] == "true", onScreen: words[on + 2] == "true", agrees: agrees == "true", pins: pins,
-                      moved: moved, kind: kind, label: label)
+                      moved: moved, kind: kind, partShown: after("part") == "shown" ? after("shown").map { $0 == "true" } : nil,
+                      label: label)
     }
 
     // The controls: before this slice the focus changed nothing, so the message stayed off screen with the reader at the end.
@@ -111,6 +113,26 @@ final class A11yFocusUITests: XCTestCase {
         XCTAssertTrue(r.found, "CONTROL: the focused element was not placed on the newest row: \(r.label)")
         XCTAssertTrue(r.atEnd, "a focus on the newest message took the reader off it: \(r.label)")
         XCTAssertEqual(r.moved, 0, "a focus on the newest message moved the list: \(r.label)")
+    }
+
+    // kosmos#8221 slice 19: the newest message a reply taller than the screen, the reader at the newest, its first paragraph
+    // (above the screen) focused as VoiceOver stepping up through the reply does: that paragraph comes on screen and the
+    // reader is no longer held at the newest. Without the rule the paragraph stays off screen and the reader at the end.
+    func testAFocusOnAPartOfATallNewestMessageAboveTheScreenBringsItOnScreen() throws {
+        let r = try focus(mode: "newestpart", tallNewest: true)
+        XCTAssertTrue(r.found, "CONTROL: the focused element was not placed on the newest row: \(r.label)")
+        XCTAssertEqual(r.partShown, true, "the focused part of the newest message is not on screen: \(r.label)")
+        XCTAssertFalse(r.atEnd, "the reader is still held at the newest: \(r.label)")
+        XCTAssertEqual(r.pins, 0, "the list put itself back at the end after the focus: \(r.label)")
+        XCTAssertGreaterThan(r.moved, 40, "the list did not move up: \(r.label)")
+        XCTAssertTrue(r.agrees, "at the newest or not disagrees with where the list is: \(r.label)")
+    }
+
+    func testWithoutTheNewestPartRuleAPartAboveTheScreenStaysOffIt() throws {
+        let r = try focus(mode: "newestpart", ruleOff: "KOSMOS_SAMPLE_FOCUSNONEWESTPART", tallNewest: true)
+        XCTAssertTrue(r.found, "CONTROL: the focused element was not placed on the newest row: \(r.label)")
+        XCTAssertEqual(r.partShown, false, "CONTROL: without the rule the part came on screen anyway: \(r.label)")
+        XCTAssertTrue(r.atEnd, "CONTROL: without the rule the reader left the newest: \(r.label)")
     }
 
     // A reader higher up, a message below the screen focused: it comes on screen from below, and the reader's place is

@@ -62,11 +62,15 @@ struct ChatList: UIViewRepresentable {
     // the on-screen one. One switch each, so a control cannot pass through the other rule.
     static let sampleFocusNoNewest = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUSNONEWEST"] == "1"
     static let sampleFocusNoOnScreen = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUSNOONSCREEN"] == "1"
+    // kosmos#8221 slice 19: KOSMOS_SAMPLE_FOCUSNONEWESTPART=1 takes away the rule that follows a part of the newest message
+    // above the screen, the control arm of A11yFocusUITests' newest-part check.
+    static let sampleFocusNoNewestPart = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUSNONEWESTPART"] == "1"
     #else
     static let sampleNoCellActions = false
     static let sampleNoDropFix = false
     static let sampleFocusNoNewest = false
     static let sampleFocusNoOnScreen = false
+    static let sampleFocusNoNewestPart = false
     #endif
 
     final class List: UICollectionView {
@@ -247,6 +251,8 @@ struct ChatList: UIViewRepresentable {
             // Whether the element was traced to its row, read as the focus is posted: a list element's frame is fixed, so once
             // the list moves it names another row.
             var found = false
+            // The part's frame in the list (newestpart), for whether it shows at the end.
+            var partFrame: CGRect?
             func listElement(tall: Bool = false) -> Any? {
                 guard let ip = source.indexPath(for: target), let a = list.layoutAttributesForItem(at: ip), let w = list.window else { return nil }
                 let e = UIAccessibilityElement(accessibilityContainer: list)
@@ -295,6 +301,19 @@ struct ChatList: UIViewRepresentable {
             case "newest":
                 target = newestId
                 element = listElement(tall: true); focus()
+            case "newestpart":
+                // kosmos#8221 slice 19: with KOSMOS_SAMPLE_TALLNEWEST the newest message is taller than the screen; at the
+                // newest its top is above it. An element for its first 80 pt, as VoiceOver stepping up to the reply's first
+                // paragraph focuses.
+                target = newestId
+                if let ip = source.indexPath(for: newestId), let a = list.layoutAttributesForItem(at: ip), let w = list.window {
+                    let r = CGRect(x: a.frame.minX, y: a.frame.minY + 8, width: a.frame.width, height: 80)
+                    partFrame = r
+                    let e = UIAccessibilityElement(accessibilityContainer: list)
+                    e.accessibilityFrame = list.convert(r, to: w.screen.coordinateSpace)
+                    element = e
+                }
+                focus()
             case "below":
                 // Higher up, as a reader who scrolled there: the target's top 100 pt under the bottom of what shows.
                 if let ip = source.indexPath(for: target), let a = list.layoutAttributesForItem(at: ip) {
@@ -365,7 +384,14 @@ struct ChatList: UIViewRepresentable {
                 }
                 // Whether atEnd agrees with where the list is, as scrolled() and hold() read it.
                 let agrees = self.atEnd == self.endReached(list)
-                report?("focus found \(found), at end \(self.atEnd), on screen \(onScreen), agrees \(agrees), pins \(self.debugPins), moved \(Int(y0 - list.contentOffset.y)), kind \(kind)\(whereRow), from the end \(wasAtEnd)")
+                // The part (newestpart) wholly between the bars; the row it is in is taller than the screen, so never on screen.
+                var part = ""
+                if let p = partFrame {
+                    let inset = list.adjustedContentInset
+                    let shown = p.minY >= list.contentOffset.y + inset.top - 0.5 && p.maxY <= list.contentOffset.y + list.bounds.height - inset.bottom + 0.5
+                    part = ", part shown \(shown)"
+                }
+                report?("focus found \(found), at end \(self.atEnd), on screen \(onScreen), agrees \(agrees), pins \(self.debugPins), moved \(Int(y0 - list.contentOffset.y)), kind \(kind)\(whereRow)\(part), from the end \(wasAtEnd)")
             }
         }
 
@@ -657,7 +683,14 @@ struct ChatList: UIViewRepresentable {
             lastFocusPart = part
             appliedSinceFocus = false
             if refocus { return }
-            if ip >= newestAt, !ChatList.sampleFocusNoNewest {
+            // kosmos#8221 slice 19: a part of the newest message wholly above the screen (VoiceOver stepping up through a reply
+            // taller than the screen) is followed as a message above is, so the part read aloud is the part shown. The newest
+            // message as a whole, or a part of it that reaches the screen, still keeps a reader at the newest.
+            var newestPart = false
+            if ip == newestAt, !ChatList.sampleFocusNoNewestPart, let e = elementFrame(element) {
+                newestPart = e.maxY < list.contentOffset.y + list.adjustedContentInset.top - list.contentInset.top - 0.5
+            }
+            if ip >= newestAt, !newestPart, !ChatList.sampleFocusNoNewest {
                 // Back on the newest message: at the newest once it is fully shown (the working line and the room under it can
                 // keep the list more than its usual slack short of the end), read now and once VoiceOver's own scroll to it
                 // has run (a scroll it makes without animation reports no end).
@@ -692,7 +725,8 @@ struct ChatList: UIViewRepresentable {
             // Rows drawn for the first time in that pass come in at their real heights, which can move the row itself. When
             // the element stands for the whole row (none of its own, or the list's own element for a row with no cell), the
             // row is measured again and put right once.
-            let wholeRow = own == nil || ((element as? UIAccessibilityElement)?.accessibilityContainer as AnyObject?) === list
+            // A part of the newest message stands for itself, not its row (slice 19): the row is taller than the screen.
+            let wholeRow = !newestPart && (own == nil || ((element as? UIAccessibilityElement)?.accessibilityContainer as AnyObject?) === list)
             if wholeRow, let b = list.layoutAttributesForItem(at: ip)?.frame {
                 let s0 = list.contentOffset.y + inset.top, s1 = list.contentOffset.y + list.bounds.height - inset.bottom
                 if b.minY < s0 - 0.5 || b.maxY > s1 + 0.5 {
