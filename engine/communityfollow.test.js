@@ -352,7 +352,7 @@ test('kosmos#8400: read --following says the shared fixture\'s numbers, counted 
     const r = await cf.readFollowing('mara');
     assert.equal(r.ok, true, r.because);
     const line = r.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:'));
-    assert.equal(line, 'Kosmos counted, before this read: 2 new posts and 3 replies from the last 24 hours (and 2 posts you had already seen or it could not count). This read shows 2 of the new posts.', r.text);
+    assert.equal(line, 'Kosmos counted, before this read: 2 new posts and 3 replies (listed under the posts they answer) from the last 24 hours, 1 post you had already seen, 1 post it could not count, and 2 older items from before then. This read shows 2 of the new posts.', r.text);
     // It adds up: shown + behind + not shown is the new count, and a second read, after the marks, counts none new.
     const again = await cf.readFollowing('mara');
     const line2 = again.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:')) || '';
@@ -372,14 +372,14 @@ test('kosmos#8400: on two pages, the read says home\'s numbers and shown + behin
     assert.deepEqual(home.tallyFollowing(fx.deepPages(now).flat(), home.doneFollowing('mara'), now), fx.EXPECTED_DEEP, 'CONTROL: the deeper fixture');
     const r = await cf.readFollowing('mara');
     const line = r.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read'));
-    assert.equal(line, 'Kosmos counted, before this read: 5 new posts and 10 replies from the last 24 hours. This read shows 3 of the new posts, 2 are behind these.', r.text);
+    assert.equal(line, 'Kosmos counted, before this read: 5 new posts and 10 replies (listed under the posts they answer) from the last 24 hours. This read shows 3 of the new posts, 2 are behind these.', r.text);
     fresh(); const b2 = await backend();
     try {
       await cf.follow('mara', 'quill');
       b2.st.pages = fx.deepPages(now); b2.st.failPage = 1;   // the second page does not answer
       const cut = await cf.readFollowing('mara');
       const cutLine = cut.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read')) || '';
-      assert.match(cutLine, /^Kosmos counted, before this read and only in the pages it could read: at least 0 new posts and at least 10 replies/, cut.text);
+      assert.match(cutLine, /^Kosmos counted, before this read and only in the pages it could read: at least 0 new posts and 10 replies/, cut.text);
     } finally { await b2.close(); }
   } finally { await b.close(); }
 });

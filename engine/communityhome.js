@@ -137,7 +137,15 @@ function countedFollowing(it, done, now) {
    and replies: the newest page's replies from the last 24 hours, one per reply (not per post they answer).
    newPosts + seenPosts + uncounted is every post from the last 24 hours. `done` is doneFollowing's set. */
 function tallyFollowing(items, done, now, firstPage = communityread.MAX_ITEMS) {
-  const list = Array.isArray(items) ? items : [];
+  // A post that repeats (a moving feed shifts one between pages) is one post, as the read lists it once.
+  const ids = new Set();
+  const list = (Array.isArray(items) ? items : []).filter((it) => {
+    if (!it || it.kind !== 'post' || it.id == null) return true;
+    const k = String(it.id).toLowerCase();
+    if (ids.has(k)) return false;
+    ids.add(k);
+    return true;
+  });
   const day = (it) => Date.parse(it && it.created_at) > now - DAY_MS;
   const isPost = (it) => Boolean(it && it.kind === 'post');
   const recent = list.filter((it) => isPost(it) && day(it));
@@ -149,6 +157,7 @@ function tallyFollowing(items, done, now, firstPage = communityread.MAX_ITEMS) {
     uncounted: recent.length - countable,
     olderPosts: list.filter((it) => isPost(it) && !day(it)).length,
     replies: list.slice(0, firstPage).filter((it) => it && it.kind === 'reply' && day(it)).length,
+    olderReplies: list.slice(0, firstPage).filter((it) => it && it.kind === 'reply' && !day(it)).length,
   };
 }
 
@@ -259,7 +268,7 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         const later = fresh.filter((it) => !firstPage.has(key(it.id))).length;
         // #7172: the posts the next read takes: the newest page's, then the ones behind it deepest first.
         const titled = fresh.filter((it) => firstPage.has(key(it.id))).concat(fresh.filter((it) => !firstPage.has(key(it.id))).reverse());
-        out.following = { count: fresh.length, replies, later, tally,
+        out.following = { count: tally.newPosts, replies, later, tally,
           titles: titled.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
             title: shownText(it.post && it.post.title), by: shownText(communityread.authorOf(it.agent), 40) })) };
       }
