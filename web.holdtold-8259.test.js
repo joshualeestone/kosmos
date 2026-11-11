@@ -54,3 +54,14 @@ test('kosmos#8389: two or more counted asks say how many, first and last', () =>
   const none = f(held({ onHoldToldAt: iso(30 * H), onHoldLastToldAt: iso(2 * H) }));
   assert.doesNotMatch(none, /times/, 'CONTROL: an uncounted hold shows no count');
 });
+
+/* kosmos#8389 review 4: the board's column card (what most people see; the Tasks tab hides under 25 tasks) says it too,
+   not only the Tasks row. The real card is checked painted by docs/browser-checks/render-onhold-4771.js. */
+test('kosmos#8389: the board column card carries the same sentence as the Tasks row', () => {
+  const at = SCRIPT.indexOf('function paintProjectTasks(');
+  assert.ok(at > -1, 'CONTROL: paintProjectTasks is on the page');
+  const body = SCRIPT.slice(at, SCRIPT.indexOf('\nfunction ', at + 1));
+  const card = body.slice(body.indexOf('tkcard-for-you'), body.indexOf('</span>', body.indexOf('tkcard-for-you')) + 300);
+  assert.ok(body.includes('tkcard-for-you'), 'CONTROL: the for-you card is painted there');
+  assert.match(card, /esc\(tskHoldToldWords\(t\)\)/, 'the column card says nothing of whether it asked, or how often');
+});

@@ -6,8 +6,10 @@
  *
  * Told: each time, after the for-you mark went on, that a holder of an open part writes about the task where the person
  * reads it. The FIRST tell is `onHoldToldAt` (ISO), the age of the ask; the latest is `onHoldLastToldAt`, with
- * `onHoldToldVia` ('task', 'room' or 'reply', where it last asked) and, when that message has one, `onHoldToldId`. About
- * the task means:
+ * `onHoldToldVia` ('task', 'room' or 'reply', where it last asked) and, when that message has one, `onHoldToldId`.
+ * kosmos#8389: `onHoldToldCount` is how many tells, and `onHoldToldIds` the last few counted message ids, so the same
+ * message again is not a new ask. Only a room post carries an id (it keeps it across a retried send); a reply or a task
+ * message is a new row each time, so it has none to repeat. About the task means:
  *   - in the task's own conversation (`kosmos task message <p> <n>`): always;
  *   - in the project's room (`kosmos post`): the post names the task (#12, or task 12);
  *   - to the person directly (`kosmos reply`): the reply says "task 12" (a bare #12 there is more often a card number),
@@ -18,12 +20,13 @@
  * the room naming the task. The line the holder is typed gets one more sentence (clauseFor): the task is on hold waiting
  * on the person, so if this answers it, take it off hold, else say what it still needs; and the task records
  * `onHoldAnsweredAt` (markAnswered): in the task's conversation whenever the person writes there (it is in the task's
- * record whoever was reached), directly once the line was placed, in the room once every holder it reached was typed it. Directly and in the room that is once per tell: an answer
+ * record whoever was reached), directly once the line was placed, in the room once every holder it reached was typed it.
+ * Directly and in the room that is once per tell: an answer
  * counts while none is newer than the latest tell, so an agent asking again (as the clause tells it to) is prompted again
  * by the next answer. The clause never rides a message kept to be typed later: by then the hold may be gone.
  *
- * All six fields belong to the for-you hold (kosmos#8389 added `onHoldToldCount`, the number of tells): they go when the hold or its mark goes, a new for-you hold is set, or its
- * reason changes (a new question) (tasks.HOLD_TOLD_FIELDS, dropped wherever onHoldForPerson is). Every note is
+ * All seven fields belong to the for-you hold (kosmos#8389 added `onHoldToldCount` and `onHoldToldIds`): they go when
+ * the hold or its mark goes, a new for-you hold is set, or its reason changes (a new question) (tasks.HOLD_TOLD_FIELDS, dropped wherever onHoldForPerson is). Every note is
  * best-effort: a failure to record never breaks the message that triggered it, which is the operation the caller is doing.
  */
 
@@ -112,7 +115,10 @@ function noteTold(who, msg, o = {}) {
     const out = [];
     for (const { p, t } of toldTargets(list, who, msg)) {
       let first = false;
-      const wrote = stamp(p.id, t.number, (x) => isForYou(x) && holdsPart(x, who), (x) => {
+      /* Review 4: the same message again (a retried send carrying an id already counted, even with other asks between)
+         is not a new ask, so it moves nothing: not the count, not the latest tell (which would reopen an answer). */
+      const seen = (x) => Boolean(id) && Array.isArray(x.onHoldToldIds) && x.onHoldToldIds.includes(id);
+      const wrote = stamp(p.id, t.number, (x) => isForYou(x) && holdsPart(x, who) && !seen(x), (x) => {
         first = !x.onHoldToldAt;
         /* Round 2: a reply drained from the outbox carries its original send time, which can be older than a tell already
            recorded; the latest tell never moves back before an earlier one, so such a reply counts as a tell now. A first
@@ -125,13 +131,9 @@ function noteTold(who, msg, o = {}) {
         /* kosmos#8389: how many times it was put to them. Counted from the first tell; a hold told before this was recorded
            has no count, so none is shown rather than a guessed one. */
         if (first) next.onHoldToldCount = 1;
-        // The same message again (a retried send carrying an id already counted, even with other asks between) is not a
-        // new ask: the last few counted ids are kept with the count.
-        else if (Number.isInteger(x.onHoldToldCount) && x.onHoldToldCount > 0) {
-          const seen = Array.isArray(x.onHoldToldIds) ? x.onHoldToldIds : [];
-          next.onHoldToldCount = x.onHoldToldCount + (id && seen.includes(id) ? 0 : 1);
-        }
-        if (id) next.onHoldToldIds = [...(Array.isArray(x.onHoldToldIds) ? x.onHoldToldIds : []).filter((v) => v !== id), id].slice(-20);
+        else if (Number.isInteger(x.onHoldToldCount) && x.onHoldToldCount > 0) next.onHoldToldCount = x.onHoldToldCount + 1;
+        // The last few counted ids, kept with the count only (a hold with no count has nothing for them to protect).
+        if (id && Number.isInteger(next.onHoldToldCount)) next.onHoldToldIds = [...(Array.isArray(x.onHoldToldIds) ? x.onHoldToldIds : []), id].slice(-20);
         if (id) next.onHoldToldId = id; else delete next.onHoldToldId;
         return next;
       });
