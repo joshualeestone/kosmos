@@ -137,6 +137,19 @@ function definitionFor(bridgePath, opts, matcher) {
  * `opts` ({ platform, node }) picks the command form, see commandFor; both
  * default to this process.
  */
+/* #1582 class, shared with codexhooks.js (kosmos#8348): whether writing any of `paths` (nulls skipped) into the file
+   at `durablePath` would point a durable file outside the temp root at a path inside it. See ensurePrepared's comment
+   for why both spellings of the temp root are compared. */
+function ephemeralIntoDurable(durablePath, paths) {
+  const rawTmp = os.tmpdir();
+  let realTmp = rawTmp;
+  try { realTmp = fs.realpathSync(rawTmp); } catch { /* keep the raw value */ }
+  const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
+  const ephemeral = (p) => underRoot(p, rawTmp) || underRoot(p, realTmp);
+  const durable = typeof durablePath === 'string' && !ephemeral(durablePath);
+  return durable && (paths || []).some((p) => p !== null && p !== undefined && ephemeral(p));
+}
+
 function ensurePrepared(settingsPath, bridgePath, opts) {
   const o = opts || {};
   const plat = o.platform || process.platform;
@@ -156,18 +169,8 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
      temp) alone. os.tmpdir() returns the UNRESOLVED /var/folders form on macOS
      while paths reaching a settings file are the RESOLVED /private/var form, so
      compare against both. */
-  {
-    const rawTmp = os.tmpdir();
-    let realTmp = rawTmp;
-    try { realTmp = fs.realpathSync(rawTmp); } catch { /* keep the raw value */ }
-    const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
-    const ephemeral = (p) => underRoot(p, rawTmp) || underRoot(p, realTmp);
-    const bridgeEphemeral = ephemeral(bridgePath) || (node !== null && ephemeral(node));
-    const settingsDurable = typeof settingsPath === 'string'
-      && !underRoot(settingsPath, rawTmp) && !underRoot(settingsPath, realTmp);
-    if (bridgeEphemeral && settingsDurable) {
-      return { prepared: false, because: 'the bridge path is under the temp root, which is ephemeral, so it was not written into the durable settings file' };
-    }
+  if (ephemeralIntoDurable(settingsPath, [bridgePath, node])) {
+    return { prepared: false, because: 'the bridge path is under the temp root, which is ephemeral, so it was not written into the durable settings file' };
   }
 
   let target = settingsPath;
@@ -294,4 +297,4 @@ function ensurePrepared(settingsPath, bridgePath, opts) {
   return { prepared: true, changed: true };
 }
 
-module.exports = { AUTH_TYPE, HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, UPDATE_KEYS, LEGACY_UPDATE_KEYS, commandFor, unsafeForCommand, entryIsOurs, ensurePrepared };
+module.exports = { AUTH_TYPE, HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, UPDATE_KEYS, LEGACY_UPDATE_KEYS, commandFor, unsafeForCommand, ephemeralIntoDurable, entryIsOurs, ensurePrepared };

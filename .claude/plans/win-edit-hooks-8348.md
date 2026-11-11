@@ -68,6 +68,11 @@ Responses server (no account). The measurements are listed below.
   agents on one account starting together) it can hold that supervisor up to the lock's 2 s wait, once, at start.
   Accepted: a short stall at start, no lost work. Only an agent with a named
   home waits on it, and only its first turn waits (bounded by the probe's 15 s), so that turn's edits are recorded.
+- Updates and temp extracts: an installed Kosmos runs its engine from %LOCALAPPDATA%ProgramsKosmosapp, and an
+  update swaps the new build into that same path (win32apply; older builds move aside), so the bridge path written
+  stays good across updates. An engine running from a temp extract (a release cut, a check) must not write its temp
+  path into a durable home: install refuses that with the #1582 rule geminisettings.js already applies, now one shared
+  function (geminisettings.ephemeralIntoDurable).
 - Lifecycle: nothing on Windows removes the hook from an account home after an uninstall or a move. The Gemini hook
   in a named Gemini home is left behind in the same way today; the uninstaller cleans only Claude's settings (#5999).
   Measured with the real Codex: a hook whose bridge is gone shows "PreToolUse Failed" and the edit is still made, so

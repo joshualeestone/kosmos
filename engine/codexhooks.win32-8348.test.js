@@ -5,7 +5,8 @@
    Windows cwd with Windows rules, and engine/win32codexsup.js installs the hook into a NAMED Codex home at start.
    The pure arms run on any host (platform and node are injected). The last test drives the REAL Codex for Windows,
    the pinned build, against a local fake model server and a stub board; it runs only on win32 with that Codex found
-   (KOSMOS_TEST_CODEX_BIN, or a codex.exe on PATH; an npm codex.cmd shim is not found without a shell, so set the variable). What it proves was measured by hand first: work notes on card #8348. */
+   (KOSMOS_TEST_CODEX_BIN, or a codex.exe on PATH; an npm codex.cmd shim is not found without a shell, so set the
+   variable). What it proves was measured by hand first: work notes on card #8348. */
 
 require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
@@ -39,6 +40,20 @@ test('the trust record is measured for the Codex Kosmos ships for Windows; movin
     assert.ok(m, `the ${arch} pin names its version`);
     assert.equal(m[1], V, `the Windows ${arch} Codex pin`);
   }
+});
+
+test('install on win32 will not write a temp bridge or node into a durable Codex home (the #1582 rule Gemini follows)', () => {
+  // A durable home: this source folder. The refusal comes before anything is read or written, and the version given
+  // is not the verified one, so even a regression here would refuse on the version and write nothing.
+  const durable = __dirname;
+  const tmpBridge = path.join(os.tmpdir(), 'cut', 'app', 'bin', 'codex-report-bridge.js');
+  const r = hooks.install(durable, tmpBridge, 'not-a-version', W);
+  assert.match(r.because, /temp folder/);
+  const r2 = hooks.install(durable, WBRIDGE, 'not-a-version', { platform: 'win32', node: path.join(os.tmpdir(), 'cut', 'runtime', 'node.exe') });
+  assert.match(r2.because, /temp folder/, 'the node path counts too');
+  assert.equal(fs.existsSync(path.join(durable, 'hooks.json')), false);
+  // Both under temp (a test, a check): allowed, as Gemini allows it.
+  assert.equal(require('./geminisettings').ephemeralIntoDurable(path.join(home(), 'hooks.json'), [tmpBridge]), false);
 });
 
 test('the win32 command is the call operator on two single-quoted literals; the posix form is unchanged', () => {

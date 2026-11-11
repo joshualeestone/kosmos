@@ -213,6 +213,8 @@ function install(home, bridge, version, opts) {
      never measured for it, so our hooks.json is taken back as on the Mac. (Measured for 0.149.1 only: `codex exec`
      skips a hook whose record does not count without a word; a later Codex is not assumed to.) */
   const refuse = (because, otherVersion) => {
+    /* Outside the config.toml lock, as on the Mac: removeOurs deletes only a file in exactly our shape, and on win32
+       only for a Codex version every agent on the home shares, so no other writer is putting ours back meanwhile. */
     if ((plat !== 'win32' || otherVersion) && typeof home === 'string' && isAbs(home)) removeOurs(home);
     return { ok: false, because };
   };
@@ -220,8 +222,15 @@ function install(home, bridge, version, opts) {
     if (typeof home !== 'string' || !isAbs(home) || typeof bridge !== 'string' || !isAbs(bridge)) {
       return refuse('the Codex home or the bridge is not a full path');
     }
-    if (version !== HASH_VERIFIED_FOR) return refuse(`this Codex is ${version || 'of an unknown version'}, and the hook's trust record is known only for ${HASH_VERIFIED_FOR}`, typeof version === 'string' && version !== '');
     if (plat === 'win32' && (unsafeForWin32(bridge) || unsafeForWin32(node))) return refuse('the bridge or node path has a character we will not put in a command');
+    /* kosmos#8348, the #1582 class: on win32 the home is a durable account home, so an engine running from a temp
+       extract (a release cut, a check) must not leave its temp bridge or node path in it. The rule geminisettings.js
+       applies to the same win32 form. (An installed Kosmos runs from %LOCALAPPDATA%\Programs\Kosmos\app, a path an
+       update swaps the new build into, so the path written stays good across updates.) */
+    if (plat === 'win32' && require('./geminisettings').ephemeralIntoDurable(path.join(home, HOOKS_FILE), [bridge, node])) {
+      return refuse('the bridge is under the temp folder, which is not kept, so it was not written into the Codex home');
+    }
+    if (version !== HASH_VERIFIED_FOR) return refuse(`this Codex is ${version || 'of an unknown version'}, and the hook's trust record is known only for ${HASH_VERIFIED_FOR}`, typeof version === 'string' && version !== '');
     const st = fs.lstatSync(home);
     if (!st.isDirectory()) return refuse('the Codex home is not a folder');
     const hooksFile = path.join(home, HOOKS_FILE);
