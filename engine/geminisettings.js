@@ -372,6 +372,7 @@ function undoWrites(ledgerPath) {
       try {
         mode = fs.statSync(target).mode & 0o7777;
         raw = fs.readFileSync(target, 'utf8');
+        if (!raw.trim()) { delete led.files[file]; continue; }   // emptied since: nothing of ours is left in it
         data = JSON.parse(raw);
       } catch { out.left.push(file); continue; }
       if (!data || typeof data !== 'object' || Array.isArray(data) || !entry || typeof entry !== 'object') { out.left.push(file); continue; }

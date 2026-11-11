@@ -78,6 +78,11 @@ what we wrote".
   now covers every reason; the fallback no longer names sign-in when only updates were recorded; create.js says the
   Windows uninstall does not read the record yet; this plan's test count. Validation on the rebased branch passed
   (11e2a39b48) before these.
+- After the /bin/sh switch (the uninstall test now runs setup.sh as a person does): iteration 7 (opus), 1 new WARNING:
+  an emptied settings file was named as still holding Kosmos's values, and stayed in the record: FIXED (an empty file
+  is dropped quietly), with a check. The node step's missing watchdog: a repeat. NITs: the re-run arm asserts the
+  uninstall finished: FIXED; a gemini still running at uninstall may save the values back afterwards (it holds them in
+  memory): stated here as a residual; others noted.
 - Validation 1: one red, the #1777 guard (the uninstall test compared process.platform with 'win32'): FIXED (a fixed
   darwin platform; the test is skipped off macOS and Linux).
 
@@ -87,10 +92,10 @@ what we wrote".
   undoWrites.
 - engine/create.js: the birth write passes the record path (supportDir()/gemini-wrote.json).
 - install/setup.sh: gemini_settings_undo, called before the home is deleted, and in the folder-already-gone branch.
-- engine/geminisettings.wrote-8362.test.js (13) and install.uninstall-gemini-8362.test.js (7, the real setup.sh).
+- engine/geminisettings.wrote-8362.test.js (14) and install.uninstall-gemini-8362.test.js (7, the real setup.sh).
 
 ## Results
 
-- New tests 13 of 13 and 7 of 7; geminisettings 33 of 33; uninstall-unwire-5998 9 of 9; Gemini creation tests 42 of 42,
+- New tests 14 of 14 and 7 of 7; geminisettings 33 of 33; uninstall-unwire-5998 9 of 9; Gemini creation tests 42 of 42,
   with no record written to this Mac's real data folder.
 - Control: with the uninstall's call removed, the main uninstall check fails ("the auth type Kosmos filled in was left").
