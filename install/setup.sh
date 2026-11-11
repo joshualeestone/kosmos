@@ -2033,13 +2033,13 @@ say_hooks_left() {
 gemini_hook_settings_left() {
   local _gh_bin _gh_real _gh_home _gh_f
   [ -n "$1" ] || return 0
-  _gh_bin="${1%/}/bin/gemini-report-bridge"
-  _gh_real="$(cd -P "${1%/}/bin" 2>/dev/null && pwd)/gemini-report-bridge" || _gh_real="$_gh_bin"
+  _gh_bin="${1%/}/bin/gemini-report-bridge.js"
+  _gh_real="$(cd -P "${1%/}/bin" 2>/dev/null && pwd)/gemini-report-bridge.js" || _gh_real="$_gh_bin"
   _gh_home="${AGENT_WORKFORCE_HOME:-$HOME}"
   for _gh_f in "${AGENT_WORKFORCE_GEMINI_HOME:-$_gh_home/.gemini}/settings.json" "$_gh_home"/.gemini-*/.gemini/settings.json; do
     # An if, not an && chain: under pipefail a last file that is absent would end the loop non-zero and, through set -e,
     # the whole uninstall with it.
-    if [ -f "$_gh_f" ] && grep -qF -e "\"$_gh_bin" -e "\"$_gh_real" "$_gh_f" 2>/dev/null; then printf '%s\n' "$_gh_f"; fi
+    if [ -f "$_gh_f" ] && grep -qF -e "\"$_gh_bin\\\"" -e "\"$_gh_real\\\"" -e "\"$_gh_bin\"" -e "\"$_gh_real\"" "$_gh_f" 2>/dev/null; then printf '%s\n' "$_gh_f"; fi
   done | awk '!seen[$0]++'   # one line per file, though the override may name a file the account list names too
   return 0
 }
@@ -2808,10 +2808,14 @@ if (support) {
   // The bridge's own path, as one string (commandFor writes `node "<bin>/gemini-report-bridge.js"`), so a hook of the
   // person's that names the folder in one argument and the word in another is not taken for ours.
   const runsBridge = (s) => typeof s === 'string' && bins.some((r) => {
-    const at0 = r.replace(/\/+$/, '') + '/gemini-report-bridge';
+    const at0 = r.replace(/\/+$/, '') + '/gemini-report-bridge.js';
     let at = s.indexOf(at0);
     while (at !== -1) {
-      if (at === 0 || /["'\s]/.test(s[at - 1])) return true;
+      const after = s[at + at0.length];
+      // Whole on both sides: a quote, a space or the start before it, and a quote (or a JSON-escaped one, read raw from a
+      // file that does not parse), a space or the end after it.
+      const endsHere = after === undefined || /["'\s]/.test(after) || (after === '\\' && s[at + at0.length + 1] === '"');
+      if ((at === 0 || /["'\s]/.test(s[at - 1])) && endsHere) return true;
       at = s.indexOf(at0, at + 1);
     }
     return false;

@@ -16,8 +16,8 @@ node, or on a re-run after the folder went, every file still pointing at the bri
 
 Extend the existing self-contained unwire (#5998) rather than load the installed engine: the hooks were written by
 every install since #3296, and the engine present at uninstall may predate any unwire. A hook is ours when its
-command names the bridge's own path, <data folder>/bin/gemini-report-bridge, as one string after a quote, a space or the
-start (the real path too); the no-node fallback only names files, matching after a double quote as commandFor writes. The Claude part is unchanged in behaviour; its loop body became cleanFile(), shared.
+command names the bridge's own path, <data folder>/bin/gemini-report-bridge.js, as one string with a quote, a space or
+the start before it and a quote, a space or the end after it (the real path too); the no-node fallback only names files, matching after a double quote as commandFor writes. The Claude part is unchanged in behaviour; its loop body became cleanFile(), shared.
 
 Rejected: matching on the marker alone (another install's hooks would go); loading the engine (above).
 
@@ -28,7 +28,8 @@ Would change my mind: a hook command form whose bridge path is not quoted the wa
 
 Limits, stated: a default home wired while AGENT_WORKFORCE_GEMINI_HOME pointed somewhere else, and uninstalled without
 it, is neither cleaned nor named (the Windows uninstall has the same reach). A settings file gemini accepts but
-JSON.parse does not (one with comments) is named, never edited.
+JSON.parse does not (one with comments) is named, never edited. Gemini key homes under the data folder exist only on
+Windows (win32keyed.js), so this list has none.
 
 ## Change
 
@@ -74,3 +75,7 @@ JSON.parse does not (one with comments) is named, never edited.
   always true: FIXED ("removes or that is already gone"). NITs FIXED: the fallback's comment names every caller and its
   narrower match; this plan's Decided states the one-string rule. NIT noted: the fallback greps the whole file (it only
   names files).
+- Validation 5 passed.
+- Iteration 6 (sonnet): 1 WARNING: the match was not anchored on the right, so <bin>/gemini-report-bridge-mine.sh would
+  match: FIXED (the path ends in .js, then a quote, a space or the end; the shell fallback looks for the path with its
+  closing quote, plain or JSON-escaped), with a fixture that must survive. NIT: Windows-only key homes stated in Limits.
