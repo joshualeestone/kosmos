@@ -74,6 +74,7 @@ jobs:
             echo "pointing the security pocket at $main"
             sudo sed -i -E "s#https?://security.ubuntu.com/ubuntu/?#${main}#g" /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           }
+          timeout 5 getent hosts security.ubuntu.com >/dev/null 2>&1 || { echo "security.ubuntu.com does not resolve"; repoint_security || true; }
           sudo apt-get update -qq || true
           if ! sudo apt-get install -y -qq $missing >/dev/null; then
             repoint_security || true   # bash -e with pipefail: a function run bare could end the step

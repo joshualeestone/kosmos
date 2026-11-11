@@ -295,6 +295,8 @@ jobs:
             echo "pointing the security pocket at $main"
             sudo sed -i -E "s#https?://security.ubuntu.com/ubuntu/?#${main}#g" /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
           }
+          # A name that does not resolve costs apt a long wait per index; ask DNS once, quickly, and repoint up front.
+          timeout 5 getent hosts security.ubuntu.com >/dev/null 2>&1 || { echo "security.ubuntu.com does not resolve"; repoint_security || true; }
           for i in 1 2 3; do
             sudo apt-get update -qq || echo "apt-get update reported a failure (an unreachable mirror); installing from what it read"   # bash -e: never end the step here
             sudo apt-get install -y -qq $missing >/dev/null && exit 0
