@@ -216,11 +216,18 @@ function keepRequestsFor(event) {
   const cwd = typeof event.cwd === 'string' ? event.cwd : '';
   if (/[\u0000-\u001f\u007f]/.test(cwd)) return [];
   const session = typeof event.session_id === 'string' ? event.session_id : '';
-  const P = require('node:path').posix;
+  /* kosmos#8348: a Windows Codex reports cwd as C:\... (measured, codex-cli 0.149.1 win32-x64), which the posix rules
+     call relative, so no keep was made. A cwd with a drive letter or a UNC start takes the win32 rules (a patch path
+     there may be C:\x, sub\x or sub/x); any other cwd keeps the posix rules exactly as before. */
+  const win = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(cwd);
+  const P = win ? require('node:path').win32 : require('node:path').posix;
   const out = [];
   for (const file of patchPaths(input.command)) {
     if (!P.isAbsolute(file) && !P.isAbsolute(cwd)) continue;
-    out.push({ path: P.isAbsolute(file) ? file : P.resolve(cwd, file), cwd, session });
+    if (win && /^[A-Za-z]:(?![\\/])/.test(file)) continue;   // drive-relative (D:x): it names a per-drive folder nobody can see here
+    /* On win32 every path is resolved against the cwd, absolute ones too, so the board gets one spelling (backslashes,
+       no `..`) and a rooted path with no drive (\x) takes the cwd's drive, as Windows itself reads it. */
+    out.push({ path: win ? P.resolve(cwd, file) : (P.isAbsolute(file) ? file : P.resolve(cwd, file)), cwd, session });
     if (out.length >= KEEP_MAX) break;
   }
   return out;

@@ -4,7 +4,8 @@
  * #5812 item 2: the Codex tool hook that tells the board, just before a Codex agent edits files, which files it is
  * about to write (the undo copy, #5153, and "changed by" on a project file). The bridge half is
  * bin/codex-report-bridge.js (its hook mode); this file puts the hook into the agent's PRIVATE Codex home
- * (engine/codexruntime.js, Kosmos-owned since #4592) at every launch.
+ * (engine/codexruntime.js, Kosmos-owned since #4592) at every launch on the Mac, and on Windows into the agent's named
+ * account home (kosmos#8348, below).
  *
  * MEASURED on codex-cli 0.149.1, the pinned build (card comment 6219788459), against the real CLI and a local fake
  * Responses server, no model quota:
@@ -45,7 +46,15 @@
  * launch, before this agent's Codex starts; the window is a previous Codex for the same home still exiting, and the
  * change is rare (the bridge's path moved).
  *
- * install(home, bridge, version) -> { ok, because? }. Never throws. On every refusal our hooks.json is gone after it.
+ * kosmos#8348, WINDOWS: engine/win32codexsup.js installs the same hook at each Codex agent's start, into the agent's
+ * NAMED Codex home (the account's, not a private one: Windows has no codexruntime home), with opts.platform 'win32'
+ * forms measured on codex-cli 0.149.1 win32-x64: a PowerShell command (commandFor) and a TOML literal-string trust key
+ * (stateHeading). There Kosmos runs `codex exec`, which skips an untrusted hook silently (measured), so a missing record
+ * costs the record, not the agent. Because that home is shared, a hooks.json that is not ours is never overwritten.
+ * An agent on the default ~/.codex gets no hook.
+ *
+ * install(home, bridge, version, opts?) -> { ok, because? }. Never throws. On every refusal our hooks.json is gone after
+ * it, except on win32, where only a Codex of another version takes it back (the home is shared; see refuse in install).
  */
 
 const fs = require('node:fs');
@@ -66,8 +75,24 @@ const HOOK_TIMEOUT_SEC = 10;
 
 /* The command Codex runs for the hook, through a shell: the bridge path in single quotes, so a space (Application
    Support) or any other shell character in it is literal. */
-function commandFor(bridge) {
+function commandFor(bridge, opts) {
+  const o = opts || {};
+  /* kosmos#8348, win32, MEASURED on codex-cli 0.149.1 win32-x64 (card #8348): Codex runs a hook through POWERSHELL
+     there (%ComSpec% stayed literal, $PSVersionTable expanded), where a leading quoted path is an expression that runs
+     nothing (measured: "Failed"), so the win32 form is the call operator on two single-quoted literals,
+     `& '<node>' '<bridge>'`, the form geminisettings.js uses for the same reason (measured: ran). The node is absolute
+     (the node doing the install: a Windows box usually has no node on PATH). install() refuses a path with a quote in
+     it (unsafeForWin32) before it gets here. `opts` ({ platform, node }) makes both forms testable on any host. */
+  if ((o.platform || process.platform) === 'win32') return `& '${String(o.node || process.execPath)}' '${String(bridge)}'`;
   return `'${String(bridge).replace(/'/g, "'\\''")}'`;
+}
+
+/* kosmos#8348: a path refused for the win32 command. It rides in a single-quoted PowerShell literal, the same form
+   geminisettings.js writes for Gemini, so the one rule for it is the shared hookpaths.unsafeForCommand (a single quote, typographic
+   ones too, CR/LF, and over-refused double quotes, dollar, backtick and percent). Measured: a bracketed path is NOT a
+   problem there (`& 'C:\...\a[1]\node.exe'` ran in Windows PowerShell 5.1, the same as a plain one). */
+function unsafeForWin32(p) {
+  return require('./hookpaths').unsafeForCommand(p, 'win32');
 }
 
 function sortKeys(v) {
@@ -89,13 +114,20 @@ function hooksJson(command) {
 /* The [hooks.state."..."] heading for the hooks.json at `file`. Null for a path a TOML basic string would need escapes
    for (a quote, a backslash or a control character): Codex keys on the path as it reads it, and we will not guess at
    how an escaped spelling compares. A POSIX Kosmos data root has none of these. */
-function stateKey(file) {
+function stateKey(file, platform) {
   const key = `${file}:${EVENT_KEY}:0:0`;
+  /* kosmos#8348, win32: every Windows path has backslashes, so the key is a TOML LITERAL string ('...'), in which a
+     backslash is just a backslash. MEASURED on codex-cli 0.149.1 win32-x64 (card #8348): the key in the on-disk spelling
+     with backslashes ran the hook; forward slashes, a \\?\ prefix, all lowercase and a lowercase drive letter did not;
+     with CODEX_HOME given lowercased, the on-disk spelling still ran (Codex canonicalizes the home, as on the Mac). A
+     literal string cannot hold a single quote or a control character other than tab, so such a path gets no key. */
+  if ((platform || process.platform) === 'win32') return /['\u0000-\u0008\u000a-\u001f\u007f]/.test(key) ? null : key;
   return /["\\\u0000-\u001f\u007f]/.test(key) ? null : key;
 }
-function stateHeading(file) {
-  const key = stateKey(file);
-  return key ? `[hooks.state."${key}"]` : null;
+function stateHeading(file, platform) {
+  const key = stateKey(file, platform);
+  if (!key) return null;
+  return (platform || process.platform) === 'win32' ? `[hooks.state.'${key}']` : `[hooks.state."${key}"]`;
 }
 
 /* What to do to config.toml for `heading` + `line`: { append } (the bytes to add at the end), { text } (the whole new
@@ -111,8 +143,10 @@ function nextConfig(text, heading, line) {
   const at = lines.indexOf(heading);
   /* Review 1: the key written any other way (a comment after the heading, an inline table under [hooks.state]) is not
      ours to append beside: a second definition is invalid TOML and Codex would not start at all. */
-  const key = heading.slice('[hooks.state."'.length, -'"]'.length);
-  if (at === -1 && t.includes(key)) return { handEdited: true };
+  const key = /^\[hooks\.state\.(["'])(.*)\1\]$/.exec(heading)[2];
+  /* kosmos#8348: on win32 the same key can also be spelled as a basic string with each backslash doubled; that is the
+     same table to TOML, so it counts as written another way too. */
+  if (at === -1 && (t.includes(key) || (key.includes('\\') && t.includes(key.replace(/\\/g, '\\\\'))))) return { handEdited: true };
   if (at === -1) return { append: `${t && !t.endsWith('\n') ? '\n' : ''}${heading}\n${line}\n` };
   if (lines.indexOf(heading, at + 1) !== -1) return { handEdited: true };
   const body = lines[at + 1];
@@ -148,7 +182,10 @@ function isOurs(text) {
   if (!only(group, ['matcher', 'hooks']) || group.matcher !== MATCHER || !Array.isArray(group.hooks) || group.hooks.length !== 1) return false;
   const h = group.hooks[0];
   if (!h || typeof h !== 'object' || Object.keys(h).some((k) => !HANDLER_KEYS.has(k)) || h.type !== 'command') return false;
-  return typeof h.command === 'string' && /^'[^\n]*\/codex-report-bridge\.js'$/.test(h.command);
+  /* kosmos#8348: or the win32 form, `& '<...\node.exe>' '<...\codex-report-bridge.js>'`: a node running the bridge,
+     nothing else in either literal's place. */
+  return typeof h.command === 'string' && (/^'[^\n]*\/codex-report-bridge\.js'$/.test(h.command)
+    || /^& '[^'\n]*[\\/]node(?:\.exe)?' '[^'\n]*[\\/]codex-report-bridge\.js'$/i.test(h.command));
 }
 
 /* Remove the hooks.json install() wrote, so Codex has no untrusted hook to stop on. Only a regular file exactly in our
@@ -164,32 +201,62 @@ function removeOurs(home) {
   } catch { return false; }
 }
 
-function install(home, bridge, version) {
-  const refuse = (because) => {
-    if (typeof home === 'string' && path.isAbsolute(home)) removeOurs(home);
+function install(home, bridge, version, opts) {
+  const plat = (opts && opts.platform) || process.platform;
+  const node = plat === 'win32' ? ((opts && opts.node) || process.execPath) : null;
+  /* The full-path test of the platform the command is for (kosmos#8348: a win32 install tested on a Mac must judge a
+     C:\ path as Windows does; a posix temp home is absolute to both). */
+  const isAbs = plat === 'win32' ? path.win32.isAbsolute : path.isAbsolute;
+  /* kosmos#8348: on win32 a refusal leaves the files as they are, except for a Codex of ANOTHER VERSION. There the home
+     is the ACCOUNT's, shared by every Codex agent on it, so one agent's own trouble (its version probe failed, a busy
+     lock, a path we will not quote) must not take the hook from another agent already running on it. A different
+     version that the probe did read is the whole account's Codex (all its agents run the same one), and our record was
+     never measured for it, so our hooks.json is taken back as on the Mac. (Measured for 0.149.1 only: `codex exec`
+     skips a hook whose record does not count without a word; a later Codex is not assumed to.) */
+  const refuse = (because, otherVersion) => {
+    /* Outside the config.toml lock, as on the Mac: removeOurs deletes only a file in exactly our shape, and on win32
+       only for a Codex version every agent on the home shares, so no other writer is putting ours back meanwhile. */
+    if ((plat !== 'win32' || otherVersion) && typeof home === 'string' && isAbs(home)) removeOurs(home);
     return { ok: false, because };
   };
   try {
-    if (typeof home !== 'string' || !path.isAbsolute(home) || typeof bridge !== 'string' || !path.isAbsolute(bridge)) {
+    if (typeof home !== 'string' || !isAbs(home) || typeof bridge !== 'string' || !isAbs(bridge)) {
       return refuse('the Codex home or the bridge is not a full path');
     }
-    if (version !== HASH_VERIFIED_FOR) return refuse(`this Codex is ${version || 'of an unknown version'}, and the hook's trust record is known only for ${HASH_VERIFIED_FOR}`);
+    if (plat === 'win32' && (unsafeForWin32(bridge) || unsafeForWin32(node))) return refuse('the bridge or node path has a character we will not put in a command');
+    /* kosmos#8348, the #1582 class: on win32 the home is a durable account home, so an engine running from a temp
+       extract (a release cut, a check) must not leave its temp bridge or node path in it. The rule geminisettings.js
+       applies to the same win32 form (hookpaths.js). (An installed Kosmos runs from %LOCALAPPDATA%\Programs\Kosmos\app, a path an
+       update swaps the new build into, so the path written stays good across updates.) */
+    if (plat === 'win32' && require('./hookpaths').ephemeralIntoDurable(path.join(home, HOOKS_FILE), [bridge, node], { platform: plat })) {
+      return refuse('the bridge is under the temp folder, which is not kept, so it was not written into the Codex home');
+    }
+    if (version !== HASH_VERIFIED_FOR) return refuse(`this Codex is ${version || 'of an unknown version'}, and the hook's trust record is known only for ${HASH_VERIFIED_FOR}`, typeof version === 'string' && version !== '');
     const st = fs.lstatSync(home);
-    if (!st.isDirectory()) return refuse('the private Codex home is not a folder');
+    if (!st.isDirectory()) return refuse('the Codex home is not a folder');
     const hooksFile = path.join(home, HOOKS_FILE);
     /* The record's key: hooks.json under the home's canonical spelling, as Codex resolves it (review 2). */
-    const heading = stateHeading(path.join(require('./trust').canonicalOnDisk(home), HOOKS_FILE));
-    if (!heading) return refuse('the private Codex home has a character in its path the hook record cannot carry');
-    const command = commandFor(bridge);
+    const heading = stateHeading(path.join(require('./trust').canonicalOnDisk(home), HOOKS_FILE), plat);
+    if (!heading) return refuse('the Codex home has a character in its path the hook record cannot carry');
+    const command = commandFor(bridge, { platform: plat, node });
     const line = `trusted_hash = "${trustHash(command)}"`;
     const cfg = path.join(home, 'config.toml');
     /* The same lock create.js's trustCodexFolder and forgetCodexFolder take on this file. The trust record goes in
        FIRST and hooks.json after it (review 1): a hooks.json that lands without its record stops the agent. */
     const locked = require('./filelock').withFileLock(cfg, () => {
+      /* kosmos#8348: on Windows the home is the ACCOUNT's Codex home, not a private one, so a hooks.json that is not ours
+         (a person's own hooks) is never overwritten or removed: the Kosmos hook is skipped and theirs stays. Read under
+         the lock, just before anything is written, so the window for one to appear is as small as it can be (a person's
+         editor takes no lock of ours). */
+      if (plat === 'win32') {
+        let existing = null;
+        try { existing = fs.readFileSync(hooksFile, 'utf8'); } catch { existing = null; }
+        if (existing !== null && !isOurs(existing)) return { ok: false, because: 'the Codex home already has its own hooks.json, so the Kosmos hook was not added' };
+      }
       let text = '';
       try { text = fs.readFileSync(cfg, 'utf8'); } catch { text = ''; }
       const next = nextConfig(text, heading, line);
-      if (next.handEdited) return { ok: false, because: 'the Codex hook\'s trust entry was changed by hand, so it was left alone' };
+      if (next.handEdited) return { ok: false, because: 'the Codex hook\'s trust entry was changed by hand, so it was left alone, and the hook may not run until it is put back' };
       const securewrite = require('./securewrite');
       if (next.append) {
         const created = !fs.existsSync(cfg);
@@ -215,7 +282,8 @@ function install(home, bridge, version) {
 }
 
 /* The supervisor's call: `node codexhooks.js install <home> <bridge> <codex version>`. Exit 0 only when the hook and
-   its record are in place; otherwise our hooks.json is gone and the reason goes to stderr. */
+   its record are in place; otherwise our hooks.json is gone and the reason goes to stderr. This CLI is the Mac
+   supervisor's (posix rules); Windows calls install() directly, with its own refusal rule (kosmos#8348). */
 if (require.main === module) {
   const [verb, home, bridge, version] = process.argv.slice(2);
   const r = verb === 'install' ? install(home, bridge, version) : { ok: false, because: 'usage: codexhooks.js install <home> <bridge> <codex version>' };
@@ -223,4 +291,4 @@ if (require.main === module) {
   process.exitCode = r.ok ? 0 : 1;
 }
 
-module.exports = { install, removeOurs, isOurs, HASH_VERIFIED_FOR, trustHash, commandFor, hooksJson, stateHeading, nextConfig, HOOKS_FILE, MATCHER };
+module.exports = { install, removeOurs, isOurs, HASH_VERIFIED_FOR, trustHash, commandFor, hooksJson, stateHeading, nextConfig, unsafeForWin32, HOOKS_FILE, MATCHER };

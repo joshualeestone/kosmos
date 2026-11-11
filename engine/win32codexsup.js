@@ -85,6 +85,43 @@ function takeBatch(queue) {
     + parts.map((p, i) => '--- message ' + (i + 1) + ' of ' + parts.length + ' ---\n' + p).join('\n\n');
 }
 
+/* kosmos#8348: the Codex version a `codex --version` line names ("codex-cli 0.149.1"), or null. */
+function codexVersionOf(out) {
+  const m = /^codex-cli (\S+)$/.exec(String(out || '').trim());
+  return m ? m[1] : null;
+}
+
+/* kosmos#8348: put the Codex edit hook into an agent's NAMED Codex home: ask the codex it will run (with the turn's own
+   environment, so a bare name resolves as the turns resolve it) for its version, since the hook's trust record is known
+   for one version only (codexhooks.js), and install the bridge that ships beside this engine. No home (the person's
+   default ~/.codex) is nothing to do and nothing to say. The probe is asynchronous and bounded (15 s), once per agent
+   start, so a slow Codex start holds neither the supervisor nor the agent's presence. Resolves { ok, because }; never
+   rejects. `deps` ({ execFile, install, bridge }) are seams for tests. */
+function installCodexHookFor(home, bin, env, deps) {
+  const d = deps || {};
+  if (!home) return Promise.resolve({ ok: false, because: null });
+  /* The person's own Codex home is never given the hook, even when it arrives as a named one: with CODEX_HOME (or
+     AGENT_WORKFORCE_CODEX_HOME) set, the default account's agent carries that folder as its configDir (create.js,
+     codexHomeOverridden). Kosmos never puts CODEX_HOME into this supervisor's own environment, so defaultHome() here is
+     the person's: their override, or ~/.codex. Compared canonically (case and links, as Codex resolves a home). */
+  /* Lowercased because this module runs on Windows, where a path's case does not name another folder. */
+  const canon = d.canonical || ((p) => String(require('./trust').canonicalOnDisk(p)).toLowerCase());
+  const personHomes = d.personHomes || [require('./codexupdate').defaultHome(), path.join(require('node:os').homedir(), '.codex')];
+  try {
+    if (personHomes.some((p) => p && canon(p) === canon(home))) return Promise.resolve({ ok: false, because: null });
+  } catch { return Promise.resolve({ ok: false, because: 'we could not tell whether its Codex home is your own, so the Codex hook was not set up' }); }
+  const run = d.execFile || require('node:child_process').execFile;
+  return new Promise((resolve) => {
+    try {
+      run(bin, ['--version'], { encoding: 'utf8', timeout: 15000, windowsHide: true, env: env || process.env },
+        (err, stdout) => resolve(err ? null : codexVersionOf(stdout)));
+    } catch { resolve(null); }
+  }).then((version) => {
+    const bridge = d.bridge || path.join(__dirname, '..', 'bin', 'codex-report-bridge.js');
+    return (d.install || require('./codexhooks').install)(String(home), bridge, version);
+  }).catch(() => ({ ok: false, because: 'we could not set up the Codex hook' }));
+}
+
 /**
  * Supervise a codex agent. Returns a handle with `send(text, done)`, `stop()`,
  * `current()` and `sessionId`, the same surface `main()` wires a claude handle
@@ -129,6 +166,11 @@ function superviseCodexStreaming(spec, opts) {
     return bin;
   };
   const cliDir = o.cliDir !== undefined ? o.cliDir : win32launch.agentCliDir();
+  /* kosmos#8348: put the Codex edit hook into the agent's named Codex home. A seam for tests; the default asks the
+     codex it will run for its version (the hook's trust record is known for one version only, codexhooks.js) and
+     installs the bridge that ships beside this engine. Inside a test the default does nothing. */
+  const installCodexHook = typeof o.installCodexHook === 'function' ? o.installCodexHook
+    : (home) => (require('./live-execution').inTestRun() ? { ok: false, because: null } : installCodexHookFor(home, binNow(), turnEnv));
 
   let running = true;
   let sessionId = null;      // the Kosmos board id
@@ -137,6 +179,7 @@ function superviseCodexStreaming(spec, opts) {
   let turnEnv = null;
   const queue = [];
   let turning = false;
+  let hookPending = false;   // kosmos#8348: the Codex hook is being set up; the first turn waits for it
   let turnChild = null;      // the in-flight `codex exec` child, killed on stop
 
   const handle = { sessionId: null };
@@ -176,11 +219,26 @@ function superviseCodexStreaming(spec, opts) {
     stream.started(supervisorPid, sessionId);
     onEvent(Object.assign({ action: 'started', sessionId }, p.tokenBecause ? { because: 'it has no reporting token: ' + p.tokenBecause } : {}));
     pruneEnded(sessionId);
+    /* kosmos#8348: the Codex edit hook (changed-by and the undo copy), the Windows half of what the Mac supervisor does
+       at each launch. Only into a NAMED Codex home (s.configDir, the account Kosmos made); an agent on the person's
+       default ~/.codex gets none, because that home is theirs. Set up after presence is stamped, and the first turn
+       waits for it (bounded by the probe's 15 s) so its edits are recorded. Never fatal: a hook not set up costs the
+       record, not the agent. */
+    if (runner === 'codex' && s.configDir) {
+      hookPending = true;
+      Promise.resolve().then(() => installCodexHook(s.configDir))
+        .catch((e) => ({ ok: false, because: 'it threw (' + ((e && e.code) || 'unknown') + ')' }))
+        .then((r) => {
+          if (r && r.ok) onEvent({ action: 'codex-hook-installed' });
+          if (r && !r.ok && r.because) onEvent({ action: 'codex-hook-skipped', because: r.because });
+        })
+        .finally(() => { hookPending = false; pump(); });
+    }
     pump();
   }
 
   function pump() {
-    if (turning || !running || queue.length === 0) return;
+    if (turning || hookPending || !running || queue.length === 0) return;
     turning = true;
     const msg = takeBatch(queue);   // everything pending, not just the oldest
     /* Busy the moment a turn starts, idle when it ends -- the same two transitions
@@ -272,4 +330,4 @@ function superviseCodexStreaming(spec, opts) {
   return handle;
 }
 
-module.exports = { superviseCodexStreaming, NO_STREAM };
+module.exports = { superviseCodexStreaming, installCodexHookFor, codexVersionOf, NO_STREAM };
