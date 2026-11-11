@@ -34,11 +34,11 @@ JSON.parse does not (one with comments) is named, never edited.
 
 - install/setup.sh: the unwire script takes the data folder as a third argument, cleans Gemini's files with its own
   rule, and marks Gemini's leftover files; gemini_hook_settings_left (no node / re-run) and say_gemini_hooks_left.
-- install.uninstall-geminihooks-8364.test.js (6, the real setup.sh, hooks written by the real ensurePrepared).
+- install.uninstall-geminihooks-8364.test.js (7, the real setup.sh, hooks written by the real ensurePrepared).
 
 ## Results
 
-- New 6 of 6; install.uninstall-unwire-5998 9 of 9; install.uninstall-gemini-8362 7 of 7.
+- New 7 of 7; install.uninstall-unwire-5998 9 of 9; install.uninstall-gemini-8362 7 of 7.
 - Control: with the Gemini step switched off, the main check fails.
 
 ## Challenge loop
@@ -58,3 +58,9 @@ JSON.parse does not (one with comments) is named, never edited.
   uninstall with no runtime exited 1 silently. gemini_hook_settings_left ended its loop on an absent file; under the
   file's pipefail that status reached the pipe into awk, and set -e ended the uninstall. FIXED (an if per file), with a
   check (no node, no Gemini files) shown failing without the fix.
+- Validation 2 passed (with the pipefail fix and the /bin/sh tests).
+- Iteration 3 (opus): 1 WARNING: a KOSMOS_HOME that is not an install skipped the Gemini step while the data folder's
+  bin/ (the bridge) is still removed, so its hooks were left pointing at nothing with no word: FIXED (the files are
+  named in that branch), with a check. NITs FIXED: the unwire's comment names Gemini's rule; the fallback's variables
+  are local, as its sibling's. NITs noted: the real-path arms are untested (the test's temp root is already real);
+  the order check compares positions; Windows also removes hooks whose script is gone.

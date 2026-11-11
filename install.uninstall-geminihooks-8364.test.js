@@ -145,6 +145,17 @@ test('#8364: with no node and no Gemini files at all, the uninstall still finish
   assert.doesNotMatch(out, /Gemini CLI settings files/, 'Gemini files were named though there are none');
 });
 
+test('#8364: a KOSMOS_HOME that is not an install is left alone, and the Gemini files are still named', { skip: SKIP_OFF_POSIX }, () => {
+  const sb = sandbox();
+  fs.rmSync(path.join(sb.kh, 'bin'), { recursive: true, force: true });   // no bin/kosmos: not provably an install
+  fs.rmSync(path.join(sb.kh, 'VERSION'), { force: true });
+  const out = runUninstall(sb);
+  assert.match(out, /does not look like a Kosmos install/, 'control: the folder was not taken for a non-install: ' + out.slice(-600));
+  assert.ok(fs.existsSync(sb.kh), 'control: a folder that is not an install was deleted');
+  assert.match(out, /could not be taken out of these Gemini CLI settings files/, 'the Gemini hooks left pointing at the removed bridge were not named');
+  assert.ok(out.includes(sb.mainFile), 'the default Gemini file was not named');
+});
+
 test('#8364: a re-run after the folder is already gone names the Gemini files it left', { skip: SKIP_OFF_POSIX }, () => {
   const sb = sandbox();
   fs.rmSync(sb.kh, { recursive: true, force: true });

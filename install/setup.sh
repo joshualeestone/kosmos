@@ -2030,6 +2030,7 @@ say_hooks_left() {
 # quote, as the hook command writes it. Used when no node could take the hooks out, and on a re-run after the folder
 # was already removed.
 gemini_hook_settings_left() {
+  local _gh_bin _gh_real _gh_home _gh_f
   [ -n "$1" ] || return 0
   _gh_bin="${1%/}/bin/gemini-report-bridge"
   _gh_real="$(cd -P "${1%/}/bin" 2>/dev/null && pwd)/gemini-report-bridge" || _gh_real="$_gh_bin"
@@ -2705,6 +2706,8 @@ KOSMOS_SWEEP_LIST
       # may predate any unwire function, so nothing here loads the app's code. Only items that are ours AND point
       # inside THIS install's home are removed (another Kosmos install on this Mac shares these files), anything
       # else in the file is kept, and a file that cannot be read or saved is named below, never rewritten wrong.
+      # #8364: Gemini CLI's settings too, by the same rules, except that a Gemini hook is ours when it runs the report
+      # bridge from inside this data folder's bin/ (where its bridge lives), not from this install's home.
       _unwire_left=""
       _gemini_left=""
       _unwire_done=""
@@ -2855,6 +2858,9 @@ UNWIREEOF
       rm -rf "$KOSMOS_HOME"
     else
       info "note: $KOSMOS_HOME does not look like a Kosmos install, so it was left alone."
+      # #8364: the Gemini hooks point into the data folder's bin/, which goes below whichever branch ran, so the files
+      # still holding them are named here (nothing here may edit them: there is no node of this install to trust).
+      say_gemini_hooks_left "$(gemini_hook_settings_left "$_support")" "$_support"
     fi
   else
     # #5998: the folder is already gone (an earlier uninstall, from before the hooks were taken out): there is no
