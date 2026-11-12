@@ -14,8 +14,9 @@ while a Claude supervisor is up between children (restarting after a crash, or w
   record whose pipe is gone AND whose pid is dead is NOT live, whatever its state file says (the supervisor is dead,
   so a pid in the state file is stale or someone else's). A record whose pipe looks gone while its pid is alive
   decides nothing (a look can miss a busy pipe), and neither does a missing record: then #8410's state-file rule answers.
-- A starting supervisor removes any older record first, so a crashed run's record cannot make a live agent read Not
-  running when the new pipe fails to open (review 1).
+- A starting supervisor removes an older record whose pipe is gone (a crashed run), so it cannot make a live agent read
+  Not running when the new pipe fails to open (review 1); it keeps one whose pipe is up (a restart overlap, review 3),
+  and removes that one too if its own pipe then fails to open (review 4).
 - Proof of life is the pipe, not the pid: Windows removes a pipe when its process dies (crash, killed tree, Fast
   Startup's logoff), and while it lives nobody else can hold the random name it made. Measured on Windows by Homer (on the
   card): existsSync reads a live pipe true in about 0.1 ms, false after close, never-created, and after taskkill /F.
@@ -48,6 +49,10 @@ matches the Mac, whose launchctl pid is the supervisor's, and a supervisor-less 
 - Comments: the five state-file limits are lifted only when the pipe is up or the pipe and pid are both gone; the
   "nobody else can hold the name" claim is replaced by what actually protects it (random name, record in the account's
   folder, prefix check).
+
+## Tests that only the Windows runner can really judge
+- The 200-look and 100-connection tests (a look opens a pipe instance only on Windows), the foreign-pipe test (Windows
+  only), and the error listener on the presence server's connections. Off Windows the pipe is a unix socket stand-in.
 
 ## Review 3 (applied)
 - BLOCKER fixed: the tests' made-up pipe names now carry the real `kosmos-sup-` prefix (FAKE()), so the reader's
