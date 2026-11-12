@@ -31,8 +31,8 @@ For a Claude agent the state file names the CHILD's pid, not the supervisor's, a
 So a supervisor that is up BETWEEN children (restarting after a crash, or waiting on blockedBy) still reads "Not
 running", exactly as before this change: no regression, but not the Mac's wider answer either. Closing it needs the
 supervisor to record its own pid: kosmos#8415.
-Review 2, also left to #8415: a pid reused within one boot when the file outlived its process (the supervisor itself
-crashed or was killed, so its own clear never ran), and
+Review 2, also left to #8415: a pid reused within one boot when the file outlived its process (the supervisor crashed
+or was killed, or its own clear failed), and
 Fast Startup (uptime counts from the last FULL boot, so the boot rule does not see a hibernated shutdown). Both err
 toward "could not check" for a stopped agent, the side #668 asks for.
 Review 6: two cases leave a LIVE agent reading "Not running", as every Windows agent did before this branch: two failed

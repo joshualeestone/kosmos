@@ -591,8 +591,8 @@ function liveIdentity(name) {
  * roster cannot see it reads "could not check", never "Not running".
  *
  * ⚠️ WHAT IT NAMES IS THE AGENT'S PROCESS, NOT THE SUPERVISOR. For a Claude agent the supervisor records its child
- * (win32supervisor: stream.started(child.pid)) and clears the file when the child exits; a codex supervisor records its
- * own pid. So while a Claude supervisor is up BETWEEN children (restarting after a crash, or waiting on blockedBy) this
+ * (win32supervisor: stream.started(child.pid)) and clears the file when the child exits; a per-turn supervisor (codex, gemini, grok,
+ * antigravity) records its own pid. So while a Claude supervisor is up BETWEEN children (restarting after a crash, or waiting on blockedBy) this
  * leaves the agent out and it reads "Not running", as it did before #8410. A Mac's launchctl PID is the supervisor's,
  * which is wider. Closing that window needs the supervisor to record its own pid (kosmos#8415).
  *
@@ -601,12 +601,14 @@ function liveIdentity(name) {
  * a reboot, a power cut or a killed process tree leaves the file behind, and Windows reuses pids quickly, so its pid
  * could name somebody else's process now.
  * ⚠️ LIMITS. Two err toward "could not check" for a STOPPED agent: a pid reused within this boot after the file
- * outlived its process (the supervisor itself crashed or was killed), and a Fast Startup shutdown, which hibernates the
+ * outlived its process (the supervisor crashed or was killed, or its clear failed), and a Fast Startup shutdown, which hibernates the
  * kernel so uptime still counts from the last full boot. Telling the agent's own process from a stranger needs more
  * than a pid (kosmos#8415). Three leave a LIVE agent reading "Not running", as every Windows agent did before #8410:
  * the between-children window above; two failed state writes in a row, after which the publisher clears the file
  * rather than leave an older state on disk (flush below); and a wall-clock step after boot, which moves the boot line
- * later. `opts.bootMs` and `opts.isAlive` are test seams. The file is named by the
+ * later. Each board poll reads every agent's file, seen or not; on Windows a read at the moment the supervisor renames
+ * its file in can make that write fail, which (twice in a row) is the clear above. The added risk is one short read
+ * per agent per poll against the publisher's 250 ms retry. `opts.bootMs` and `opts.isAlive` are test seams. The file is named by the
  * agent's store key, which for a valid agent name is the name itself. Fail-soft to an empty set: "we could not look"
  * must never dress a stopped agent as running unseen.
  */
