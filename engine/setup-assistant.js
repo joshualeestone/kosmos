@@ -457,6 +457,19 @@ function linksIn(dir) {
   try { names = fs.readdirSync(dir); } catch { return []; }
   return names.filter((n) => { try { return fs.lstatSync(path.join(dir, n)).isSymbolicLink(); } catch { return false; } });
 }
+/* #8437: whether a deny rule guards one of the places the token-only guard exists to protect (as opposed to a start-up
+   file, an import or a sibling glob): its path is one of them, or under one, in the form the rule is written in.
+   Case-blind on Windows. `rules` is tokenOnlySettingsRules' answer. */
+function isProtectedRule(rule, rules, platform = 'win32') {
+  const m = /^(?:Read|Edit)\((\/\/.+)\)$/.exec(String(rule));
+  if (!m) return false;
+  const low = (x) => (platform === 'win32' ? String(x).toLowerCase() : String(x));
+  const inner = low(m[1]);
+  const places = [...(rules.tokenPaths || []), ...(rules.tokenTmps || []), ...(rules.tokenDirs || []), ...(rules.launchSecretDirs || []),
+    ...(rules.undoDirs || []), ...(rules.undoSwitches || []), ...(rules.settingsFiles || []), ...(rules.trustedFiles || []),
+    ...(rules.trustedDirs || []), rules.settingsDir, rules.listFile, rules.guardRecord].filter(Boolean);
+  return places.some((p) => { const pre = low(ruleAbs(p, platform)); return inner === pre || inner.startsWith(pre + '/') || inner.startsWith(pre + '.'); });
+}
 /* #5664 step A: on Windows, Claude Code resolves junctions and 8.3 names on the path a tool touches, and a rule on a
    link's OWN path covers nothing (measured, 2.1.319). So for every Read or Edit rule whose literal part (before its first
    `*`) reaches a different real path, the same rule on the real path is added beside it. A real path the rules cannot
@@ -467,11 +480,12 @@ function linksIn(dir) {
    Pure apart from `real` and `links` (a folder listing; both passed in for tests); Windows only (elsewhere the rules are
    returned as they are). */
 function withRealTwins(rules, platform = process.platform, real = realOrLeafStrict, tooWide = (p) => path.win32.parse(p).root === p, links = linksIn) {
-  if (platform !== 'win32') return { rules, unsafe: [], tokenUnsafe: [] };
+  if (platform !== 'win32') return { rules, unsafe: [], tokenUnsafe: [], misses: [] };
   const out = [];
   const seen = new Set(rules);
   const unsafe = [];
   const tokenUnsafe = [];   // the subset that names a board-token rule (the refusal names the token first)
+  const misses = [];   // #8437: each gap with the rule it came from, so the guard can tell a protected place from an incidental one
   const cache = new Map();
   const linkCache = new Map();
   const tokenFile = require('./boardauth').TOKEN_FILE;
@@ -490,7 +504,7 @@ function withRealTwins(rules, platform = process.platform, real = realOrLeafStri
     // A token rule ends in the token's own name (board.token, or its temp copy .board.token.*), not merely holds it.
     const leaf = rest ? rest.slice(rest.lastIndexOf('/') + 1) : literal.slice(literal.lastIndexOf('/') + 1);
     const isToken = leaf === tokenFile || leaf === '.' + tokenFile + '.*';
-    const miss = (why) => { unsafe.push(why); if (isToken) tokenUnsafe.push(why); };
+    const miss = (why) => { unsafe.push(why); misses.push({ rule: r, why, isToken }); if (isToken) tokenUnsafe.push(why); };
     /* A share (\\host\...) is never resolved: that is a network lookup that can send this person's Windows credentials
        to the host it names (as readingsHoldGuide says). Nor is a rule on one claimed: shares (and a mapped drive, which
        resolves to one) were not measured to hold (the card), so it is named, and a token rule there refuses. */
@@ -513,7 +527,7 @@ function withRealTwins(rules, platform = process.platform, real = realOrLeafStri
     if (ruleHasPatternChar(rule, '/')) { miss(`${native} (it leads to ${to}, a path the permission rules cannot carry)`); continue; }
     if (!seen.has(rule)) { seen.add(rule); out.push(rule); }
   }
-  return { rules: out, unsafe: [...new Set(unsafe)], tokenUnsafe: [...new Set(tokenUnsafe)] };
+  return { rules: out, unsafe: [...new Set(unsafe)], tokenUnsafe: [...new Set(tokenUnsafe)], misses };
 }
 /* #4752: on Windows every absolute rule is ALSO written in the older native spelling, beside the //c/ form Claude
    Code's docs say it matches: these are deny rules, the new form is not measured on Windows here, and an extra deny
@@ -2793,7 +2807,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     if (stale.size || staleWrites.size) process.stderr.write(`#5663: ${agentName}: pruned ${stale.size} file-tool and ${staleWrites.size} sandbox launch rule(s) whose paths are gone\n`);
     /* #5664 step A: on Windows each rule is also written on the real path it reaches (junctions, 8.3 names), since a
        rule on a link's own path covers nothing there; one whose real path the rules cannot carry makes it not whole. */
-    let realTwins = { rules: rules.deny, unsafe: [], tokenUnsafe: [] };
+    let realTwins = { rules: rules.deny, unsafe: [], tokenUnsafe: [], misses: [] };
     // The twins resolve real paths on THIS host's filesystem, which means something only on a Windows host (a test that
     // passes platform 'win32' elsewhere has POSIX paths, which would read back as shares).
     if (plat === 'win32' && process.platform === 'win32') {
@@ -2803,13 +2817,19 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
       realTwins = withRealTwins(rules.deny, plat, realOrLeafStrict, (p) => { const q = String(p).toLowerCase(); return path.win32.parse(p).root === p || holdsW(q, homeReal) || holdsW(q, dirReal); });
     }
     /* A rule whose real place cannot be denied leaves that place open to the file tools (a rule on a link's own path
-       covers nothing): the board token, another agent's sender token, the launch hand-off, the guard's own settings.
-       As a rule that cannot be written refuses the guard (tokenRuleDropped, reviews 16 and 17), so does this: nothing
-       written, and said in its own words (the token's first when it is one of them). */
-    if (realTwins.unsafe.length) {
-      const what = realTwins.tokenUnsafe.length ? 'the board token is' : 'a place the guard protects is';
-      return { ok: false, because: what + ' reached through a link or share whose real place Kosmos cannot deny: ' + realTwins.unsafe.join('; ') + '. So the guard cannot be written whole' };
+       covers nothing). #8437: for a PROTECTED place (the board token and its temp copy, the sender-token folders, the
+       launch hand-off, the undo stores, the guard's own settings, list and record, the records the board trusts) that
+       refuses the guard, as a rule that cannot be written does (tokenRuleDropped, reviews 16 and 17): nothing written,
+       said in its own words. For anything else (an instruction file's import, a start-up file, a sibling glob) it is a
+       gap like any start-up file the rules cannot carry: the guard is written and says it is not whole, as on Linux, so
+       one import on a share no longer switches off the token's protection for every agent. */
+    const protectedMiss = (m) => m.isToken || isProtectedRule(m.rule, rules);
+    const hardMisses = realTwins.misses.filter(protectedMiss);
+    if (hardMisses.length) {
+      const what = hardMisses.some((m) => m.isToken) ? 'the board token is' : 'a place the guard protects is';
+      return { ok: false, because: what + ' reached through a link or share whose real place Kosmos cannot deny: ' + [...new Set(hardMisses.map((m) => m.why))].join('; ') + '. So the guard cannot be written whole' };
     }
+    rules.configUnsafe.push(...new Set(realTwins.misses.map((m) => m.why)));
     const deny = [...new Set([...had, ...realTwins.rules])];
     /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so
        it goes too (Kosmos never writes it for an agent) and the board log says so. */
@@ -3526,6 +3546,7 @@ module.exports = {
   legacyWinEquivalent,
   withNativeTwins,
   withRealTwins,   // #5664 step A
+  isProtectedRule,   // #8437
   realOrLeafStrict,
   ruleUnwritable,
   migrateKept,
