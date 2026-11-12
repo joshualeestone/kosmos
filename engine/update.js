@@ -580,6 +580,7 @@ function maybeAutoInstall() {
    says, before the installer stops it, what it is installing and from which channel; it leaves a small record beside
    install.status; and the next board to start reads that record once and says whether it came back on that version.
    Best-effort throughout: a log line or a record that cannot be written must never stop or fail an update. */
+const AUTO_STILL_RUNNING_MS = 30 * 60 * 1000;   // review 4: longer than any install takes; older is an interrupted one
 let autoLog = (line) => { try { process.stdout.write(line + '\n'); } catch { /* a closed stdout */ } };
 function setAutoLog(f) { autoLog = typeof f === 'function' ? f : (line) => { try { process.stdout.write(line + '\n'); } catch { /* a closed stdout */ } }; }
 /* Review 1: only under an ABSOLUTE root. A root a test names in another OS's form (C:\\Users\\...) is relative on a Mac,
@@ -615,11 +616,15 @@ function noteAutoUpdateAtBoot() {
   /* Review 3: a board that restarts (a crash, a person's restart) while the installer is still downloading is not the
      end of the attempt. The #1728 marker holds the attempt's start stamp until it ends, and install.status gets the
      same stamp when it does; still running, the record is kept so the board the installer starts can report it. */
+  /* Review 4: bounded by the marker's age. A marker with no status is ALSO what an installer killed mid-run leaves
+     (readStartedRecord reads it as interrupted), and unbounded it would say "still installing" on every boot. */
   let marker = '';
-  try { marker = fs.readFileSync(installStartedFile(), 'utf8').trim(); } catch { /* none */ }
+  let markerAge = Infinity;
+  try { marker = fs.readFileSync(installStartedFile(), 'utf8').trim(); markerAge = Date.now() - fs.statSync(installStartedFile()).mtimeMs; } catch { /* none */ }
   const st = readStatusRaw();
-  const stillRunning = Boolean(rec.startedAt) && marker === String(rec.startedAt) && !(st && String(st.startedAt) === String(rec.startedAt));
-  if (stillRunning && !sameVersion(rec.to, RUNNING)) {
+  const stillRunning = Boolean(rec.startedAt) && marker === String(rec.startedAt) && markerAge < AUTO_STILL_RUNNING_MS
+    && !(st && String(st.startedAt) === String(rec.startedAt));
+  if (stillRunning && !sameVersion(rec.to, RUNNING) && !newer(RUNNING, rec.to)) {
     const line = `Kosmos started on ${RUNNING} while its automatic update to ${rec.to} (${channel} channel) is still installing; the installer stops this board again when it is ready.`;
     autoLog(line);
     return line;
@@ -627,7 +632,7 @@ function noteAutoUpdateAtBoot() {
   try { fs.unlinkSync(file); } catch { /* read once anyway */ }
   let line;
   if (sameVersion(rec.to, RUNNING)) line = `Kosmos started again on ${RUNNING} after its automatic update from ${rec.from || 'the version before'} (${channel} channel).`;
-  else if (newer(RUNNING, rec.to)) line = `Kosmos started on ${RUNNING}, newer than the ${rec.to} its last automatic update was installing (${channel} channel); an install since then replaced it.`;
+  else if (newer(RUNNING, rec.to)) line = `Kosmos started on ${RUNNING}, newer than the ${rec.to} its last automatic update was installing (${channel} channel).`;
   else line = `Kosmos's automatic update to ${rec.to} (${channel} channel) did not finish; this board is running ${RUNNING}. The installer's own record is in ${installLog() || 'install.log'}.`;
   autoLog(line);
   return line;
