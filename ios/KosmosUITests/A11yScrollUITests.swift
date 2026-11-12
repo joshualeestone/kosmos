@@ -33,7 +33,7 @@ final class A11yScrollUITests: XCTestCase {
         let words = label.replacingOccurrences(of: ",", with: "").split(separator: " ").map(String.init)
         func after(_ key: String) -> String? { words.firstIndex(of: key).flatMap { $0 + 1 < words.count ? words[$0 + 1] : nil } }
         XCTAssertEqual(words.last, "true", "CONTROL: the scroll did not start at the newest message: \(label)")
-        print("UI-NOTE kosmos#8221 slice 11 \(mode)\(fixOff ? ", fix off" : ""): \(label)")
+        print("UI-NOTE kosmos#8221 slice 11 \(mode)\(fixOff ? ", fix off" : "")\(windowByClock ? ", by the clock" : "")\(noStallGrace ? ", no stall grace" : ""): \(label)")
         guard let pins = after("pins").flatMap(Int.init), let moved = after("moved").flatMap(Int.init),
               let at = words.firstIndex(of: "at"), at + 2 < words.count, words[at + 1] == "end",
               let window = after("window"), let dragged = after("dragged"), let short = after("short").flatMap(Int.init) else {
@@ -90,9 +90,11 @@ final class A11yScrollUITests: XCTestCase {
         XCTAssertFalse(r.atEnd, "the reader is still counted at the newest after scrolling up: \(r.label)")
     }
 
-    // The control: the window read by the clock alone, as before kosmos#8442. The stall closes it, and the scroll is undone.
+    // The control: the list as before kosmos#8442, the window read by the clock alone and no stall grace (either one alone
+    // keeps this scroll: measured on a simulator, the grace alone gave pins 1, moved 373). The stall closes the window, and
+    // the scroll is undone (measured: pins 13, moved 0, as CI run 42906709675's pins 8, moved 0).
     func testWithTheWindowByTheClockAStalledScrollIsPutBackAtTheEnd() throws {
-        let r = try scrollUp(mode: "stalled", windowByClock: true)
+        let r = try scrollUp(mode: "stalled", windowByClock: true, noStallGrace: true)
         XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened: \(r.label)")
         XCTAssertGreaterThan(r.pins, 0, "the control was not put back at the end, so the stalled check cannot see the defect: \(r.label)")
         XCTAssertLessThan(r.moved, 300, "the control's stalled scroll ran on: \(r.label)")
@@ -110,7 +112,8 @@ final class A11yScrollUITests: XCTestCase {
     }
 
     // Its control: no stall grace. Recorded, not asserted to fail: whether the display's frames or the overdue check run
-    // first after a stall is the system's choice, so this arm shows what the grace is for when it happens (UI-NOTE).
+    // first after a stall is the system's choice. Measured on a simulator (iOS 27.0) it kept the scroll too (pins 0, moved
+    // 408): the animation's end was reported and closed the window as the person's. The grace is for when it is not.
     func testWithoutTheStallGraceAnAnimatedStalledScroll() throws {
         let r = try scrollUp(mode: "stalledAnimated", noStallGrace: true)
         XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened: \(r.label)")
