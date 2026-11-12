@@ -25,6 +25,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 
+// kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
+const { skipOnWin32 } = require('./test-support/skip-on-win32');
+const SKIP_MAC_PUBLISH = skipOnWin32('it runs tools/publish-kosmos-windows.sh, Mac-side release tooling that never runs on Windows, and builds its fixture with the zip command, which Windows does not have');
+
 const SCRIPT = path.resolve(__dirname, 'tools/publish-kosmos-windows.sh');
 
 // Build a fixture zip carrying app/package.json at the given version, the way the real build
@@ -109,7 +113,7 @@ function snapshotDist(dist) {
   return snapshot;
 }
 
-test('#2008: stages the alias, a versioned copy, sha sidecars and latest-win.json', () => {
+test('#2008: stages the alias, a versioned copy, sha sidecars and latest-win.json', { skip: SKIP_MAC_PUBLISH }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-fix-'));
   const site = freshSite();
   const zip = fixtureZip(dir, '9.9.9');
@@ -138,7 +142,7 @@ test('#2008: stages the alias, a versioned copy, sha sidecars and latest-win.jso
     'the sidecar must carry the real sha AND name its own file (so shasum -c verifies in place)');
 });
 
-test('#2008: the version comes from the ZIP, not the repo -- so a versioned name never lies about the build', () => {
+test('#2008: the version comes from the ZIP, not the repo -- so a versioned name never lies about the build', { skip: SKIP_MAC_PUBLISH }, () => {
   // The discriminating control: the fixture is version 3.2.1, which is NOT this repo's
   // package.json version. If the script read the repo instead of the zip, the versioned name
   // and manifest would carry the wrong (repo) version. A working link to a mislabelled build
@@ -154,7 +158,7 @@ test('#2008: the version comes from the ZIP, not the repo -- so a versioned name
   assert.equal(lj.version, '3.2.1', 'latest-win.json.version must be the build version, not the repo version');
 });
 
-test('#2008: refuses a missing zip and a zip with no baked version, rather than staging a mislabelled artifact', () => {
+test('#2008: refuses a missing zip and a zip with no baked version, rather than staging a mislabelled artifact', { skip: SKIP_MAC_PUBLISH }, () => {
   const site = freshSite();
   assert.throws(() => run(path.join(os.tmpdir(), 'no-such-file.zip'), site), /no such zip/,
     'a missing zip must be refused');
@@ -177,7 +181,7 @@ test('#2008: refuses a missing zip and a zip with no baked version, rather than 
   assert.deepEqual(fs.readdirSync(path.join(site, 'dist')), [], 'a refusal must stage nothing');
 });
 
-test('#2008: the versioned name is immutable -- republishing DIFFERENT bytes under the same version is refused, same bytes is idempotent', () => {
+test('#2008: the versioned name is immutable -- republishing DIFFERENT bytes under the same version is refused, same bytes is idempotent', { skip: SKIP_MAC_PUBLISH }, () => {
   const site = freshSite();
   const dirA = fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-fix-'));
   const zipA = fixtureZip(dirA, '1.0.0');  // build the zip ONCE
@@ -219,7 +223,7 @@ test('#2008: the versioned name is immutable -- republishing DIFFERENT bytes und
   }
 });
 
-test('#2008: an explicit <version> arg overrides the zip-baked version -- the distinct code path that skips the in-zip read', () => {
+test('#2008: an explicit <version> arg overrides the zip-baked version -- the distinct code path that skips the in-zip read', { skip: SKIP_MAC_PUBLISH }, () => {
   // The zip is baked at 9.9.9, but the operator passes 7.7.7 explicitly. The explicit arg must
   // win AND the unzip/in-zip read must be skipped entirely -- a genuinely different branch from
   // every other arm here (all of which exercise the default in-zip read). If the arg were ignored
@@ -236,7 +240,7 @@ test('#2008: an explicit <version> arg overrides the zip-baked version -- the di
   assert.equal(lj.version, '7.7.7', 'latest-win.json.version must be the explicit arg');
 });
 
-test('#2008: the version guard ACCEPTS a legitimate build-metadata version (+ and _) -- proving it does not over-reject', () => {
+test('#2008: the version guard ACCEPTS a legitimate build-metadata version (+ and _) -- proving it does not over-reject', { skip: SKIP_MAC_PUBLISH }, () => {
   // The reject side of the path-escape guard is covered above (../evil). This is the positive
   // control: the charset deliberately allows semver build-metadata (`+`) and `_`, so a real build
   // named e.g. 1.2.3+win.5 must be STAGED, not refused. A guard that over-rejected a valid version
@@ -252,7 +256,7 @@ test('#2008: the version guard ACCEPTS a legitimate build-metadata version (+ an
   assert.equal(lj.version, V, 'latest-win.json.version must carry the build-metadata version verbatim');
 });
 
-test('#2008: the ARCH path-escape guard refuses an arch with a path separator, staging nothing', () => {
+test('#2008: the ARCH path-escape guard refuses an arch with a path separator, staging nothing', { skip: SKIP_MAC_PUBLISH }, () => {
   // ARCH feeds the same staged filenames as VERSION; a "/" in it (KOSMOS_WIN_ARCH=../x) would make
   // cp write outside dist/. The reject side of the VERSION guard is covered (../evil); this is the
   // matching reject test for ARCH, so the guard cannot regress silently.
@@ -262,7 +266,7 @@ test('#2008: the ARCH path-escape guard refuses an arch with a path separator, s
   assert.deepEqual(fs.readdirSync(path.join(site, 'dist')), [], 'a refused arch must stage nothing');
 });
 
-test('#2008: the repoint NOTICE fires only on re-publishing an already-present version, not on a forward release or a same-version rerun', () => {
+test('#2008: the repoint NOTICE fires only on re-publishing an already-present version, not on a forward release or a same-version rerun', { skip: SKIP_MAC_PUBLISH }, () => {
   const site = freshSite();
   const zip1 = fixtureZipIn('1.0.0');
   const zip2 = fixtureZipIn('2.0.0');
@@ -294,7 +298,7 @@ test('#2008: the repoint NOTICE fires only on re-publishing an already-present v
 // The channel (Josh, 2026-09-12: every cut goes to STAGING first, and to prod only after his go).
 // ---------------------------------------------------------------------------------------------
 
-test('staging (the default): stages ONLY the versioned zip, its sidecar and latest-win-staging.json', () => {
+test('staging (the default): stages ONLY the versioned zip, its sidecar and latest-win-staging.json', { skip: SKIP_MAC_PUBLISH }, () => {
   const site = freshSite();
   const dist = path.join(site, 'dist');
   const out = run(fixtureZipIn('4.0.0'), site);
@@ -310,7 +314,7 @@ test('staging (the default): stages ONLY the versioned zip, its sidecar and late
   assert.match(out, /on the STAGING channel/, 'the publish must say it staged, not published to prod');
 });
 
-test('staging leaves the alias, its sidecar and latest-win.json byte-identical', () => {
+test('staging leaves the alias, its sidecar and latest-win.json byte-identical', { skip: SKIP_MAC_PUBLISH }, () => {
   const site = freshSite();
   const dist = path.join(site, 'dist');
   run(fixtureZipIn('1.0.0'), site, PROD);   // prod today: 1.0.0
@@ -325,7 +329,7 @@ test('staging leaves the alias, its sidecar and latest-win.json byte-identical',
     'the staging pointer names the new build');
 });
 
-test('prod (KOSMOS_CUT_CHANNEL=prod) keeps today\'s outputs: the five files, the exact pointer bytes, no staging pointer', () => {
+test('prod (KOSMOS_CUT_CHANNEL=prod) keeps today\'s outputs: the five files, the exact pointer bytes, no staging pointer', { skip: SKIP_MAC_PUBLISH }, () => {
   const site = freshSite();
   const dist = path.join(site, 'dist');
   const out = run(fixtureZipIn('5.0.0'), site, PROD);
@@ -343,7 +347,7 @@ test('prod (KOSMOS_CUT_CHANNEL=prod) keeps today\'s outputs: the five files, the
   assert.match(out, /^ {3}alias: {5}kosmos-win-x64\.zip \([0-9a-f]{64}\)$/m);
 });
 
-test('one pointer writer: the staging pointer and the prod pointer for one build are the same bytes', () => {
+test('one pointer writer: the staging pointer and the prod pointer for one build are the same bytes', { skip: SKIP_MAC_PUBLISH }, () => {
   // promote-channel.sh --family win copies latest-win-staging.json onto latest-win.json. That is
   // only a faithful promote if a staging publish and a prod publish of the same build write the
   // same bytes -- which holds only while both go through tools/lib/write-latest-win-pointer.js.
@@ -358,14 +362,14 @@ test('one pointer writer: the staging pointer and the prod pointer for one build
     'the staging pointer must equal the prod pointer byte for byte');
 });
 
-test('an unknown KOSMOS_WIN_CUT_CHANNEL is refused before anything is staged', () => {
+test('an unknown KOSMOS_WIN_CUT_CHANNEL is refused before anything is staged', { skip: SKIP_MAC_PUBLISH }, () => {
   const site = freshSite();
   assert.throws(() => run(fixtureZipIn('7.0.0'), site, { KOSMOS_WIN_CUT_CHANNEL: 'Prod' }),
     /KOSMOS_WIN_CUT_CHANNEL must be 'staging' or 'prod' \(got 'Prod'\)/, 'a mistyped channel must be refused, not guessed');
   assert.deepEqual(fs.readdirSync(path.join(site, 'dist')), [], 'a refused channel must stage nothing');
 });
 
-test('the Mac cut\'s KOSMOS_CUT_CHANNEL=prod does NOT move Windows prod: a bare publish still stages', () => {
+test('the Mac cut\'s KOSMOS_CUT_CHANNEL=prod does NOT move Windows prod: a bare publish still stages', { skip: SKIP_MAC_PUBLISH }, () => {
   // The shared variable defaults to prod in release.sh. When it was shared, an operator who
   // exported it for a Mac cut published Windows straight to prod with no log line.
   const site = freshSite();
@@ -387,7 +391,7 @@ function freshApprovalLog() {
   return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-log-')), 'approvals.log');
 }
 
-test('break-glass: a direct prod publish without Josh\'s go for this exact zip is refused, staging and logging nothing', () => {
+test('break-glass: a direct prod publish without Josh\'s go for this exact zip is refused, staging and logging nothing', { skip: SKIP_MAC_PUBLISH }, () => {
   const zip = fixtureZipIn('8.0.0');
   const sha = sha256OfFile(zip);
   const refusals = [
@@ -409,7 +413,7 @@ test('break-glass: a direct prod publish without Josh\'s go for this exact zip i
   }
 });
 
-test('break-glass: an approval that cannot be logged is refused, staging nothing', () => {
+test('break-glass: an approval that cannot be logged is refused, staging nothing', { skip: SKIP_MAC_PUBLISH }, () => {
   const site = freshSite();
   const notADirectory = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-log-')), 'a-file');
   fs.writeFileSync(notADirectory, '');
@@ -419,7 +423,7 @@ test('break-glass: an approval that cannot be logged is refused, staging nothing
   assert.deepEqual(fs.readdirSync(path.join(site, 'dist')), [], 'a refusal must stage nothing');
 });
 
-test('break-glass: with the approved sha and a reference it publishes prod, logs path=direct first, and prints a banner', () => {
+test('break-glass: with the approved sha and a reference it publishes prod, logs path=direct first, and prints a banner', { skip: SKIP_MAC_PUBLISH }, () => {
   const site = freshSite();
   const log = freshApprovalLog();
   const zip = fixtureZipIn('8.2.0');

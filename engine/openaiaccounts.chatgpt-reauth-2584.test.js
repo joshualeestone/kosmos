@@ -26,6 +26,10 @@ process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 const openai = require('./openaiaccounts');
 const { eventually } = require('../test-support/eventually');
 
+// kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const SKIP_BASH_MOCK = skipOnWin32('it fakes codex with a #!/bin/bash script (with a TERM trap) run by its shebang line, which Windows cannot do');
+
 function idToken(email) {
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
   return `${b64({ alg: 'none' })}.${b64({ email })}.`;
@@ -63,6 +67,10 @@ printf '{"auth_mode":"chatgpt","tokens":{"id_token":"%s"}}' "$FAKE_ID_TOKEN" > "
 exit 0
 `);
 fs.chmodSync(MOCK, 0o755);
+/* kosmos#8378: the tests refused before any sign-in starts pass a runner every computer has (this node), so the
+   runner check lets them through to the check they are about, on Windows too, where the bash MOCK is not runnable.
+   Nothing is started with it: each asserts the refusal. */
+const UPFRONT_BIN = process.execPath;
 
 // #5727: poll chatgptLoginStatus via the shared eventually() helper, which scales its
 // deadline by KOSMOS_TEST_TIME_SCALE so this does not false-red on a contended box. At
@@ -86,7 +94,7 @@ async function eventuallyTrue(fn, msg, ms = 4000) {
 }
 const terminal = (x) => x.state === 'connected' || x.state === 'error';
 
-test('happy path: a matching reauth refreshes the SAME account in place, and leaves no staging dir', async () => {
+test('happy path: a matching reauth refreshes the SAME account in place, and leaves no staging dir', { skip: SKIP_BASH_MOCK }, async () => {
   // Give the pre-reauth account a marker the fresh sign-in will NOT write, so the
   // promote is observable (a same-email refresh otherwise produces identical bytes).
   const dir = nodePath.join(SANDBOX, '.codex-refresh');
@@ -113,7 +121,7 @@ test('happy path: a matching reauth refreshes the SAME account in place, and lea
   assert.equal(workSlots().length, slotsBefore, 'the throwaway staging dir was cleaned up');
 });
 
-test('FAIL CLOSED: a sign-in whose identity cannot be decoded is refused, and the live account is UNCHANGED', async () => {
+test('FAIL CLOSED: a sign-in whose identity cannot be decoded is refused, and the live account is UNCHANGED', { skip: SKIP_BASH_MOCK }, async () => {
   // The live account is a normal decodable chatgpt account; the fresh sign-in lands an
   // auth.json whose id_token does not decode (email null) -- pre-fix the && guard
   // short-circuited to the promote branch and copied it over the live account.
@@ -136,12 +144,12 @@ test('a reauth target whose OWN identity cannot be read is refused up front (can
   // A chatgpt account whose id_token does not decode: authMode chatgpt, email null.
   fs.writeFileSync(nodePath.join(dir, 'auth.json'),
     JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: 'not-a-decodable-jwt' } }));
-  const r = openai.startChatgptLogin({ codexBin: MOCK, reauthDir: dir });
+  const r = openai.startChatgptLogin({ codexBin: UPFRONT_BIN, reauthDir: dir });
   assert.equal(r.ok, false);
   assert.match(r.because, /could not read this account/i);
 });
 
-test('identity mismatch: a reauth that lands a DIFFERENT account is refused and the live account is UNCHANGED', async () => {
+test('identity mismatch: a reauth that lands a DIFFERENT account is refused and the live account is UNCHANGED', { skip: SKIP_BASH_MOCK }, async () => {
   const dir = writeChatgptAccount('.codex-mine', 'owner@example.com');
   const before = authBytes(dir);
   process.env.FAKE_ID_TOKEN = idToken('someone-else@example.com'); // a different account signs in
@@ -155,7 +163,7 @@ test('identity mismatch: a reauth that lands a DIFFERENT account is refused and 
   assert.equal(workSlots().length, 0, 'the staging dir was cleaned up');
 });
 
-test('a FAILED reauth (codex nonzero exit) leaves the live account byte-identical and no staging litter', async () => {
+test('a FAILED reauth (codex nonzero exit) leaves the live account byte-identical and no staging litter', { skip: SKIP_BASH_MOCK }, async () => {
   const dir = writeChatgptAccount('.codex-keepme', 'keep@example.com');
   const before = authBytes(dir);
   process.env.FAKE_CODEX_FAIL = '1';
@@ -170,7 +178,7 @@ test('a FAILED reauth (codex nonzero exit) leaves the live account byte-identica
   assert.equal(workSlots().length, 0, 'a failed reauth leaves no staging account behind');
 });
 
-test('a CANCELLED reauth leaves the live account byte-identical', async () => {
+test('a CANCELLED reauth leaves the live account byte-identical', { skip: SKIP_BASH_MOCK }, async () => {
   const dir = writeChatgptAccount('.codex-cancel', 'c@example.com');
   const before = authBytes(dir);
   process.env.FAKE_CODEX_SLEEP = '1';
@@ -187,7 +195,7 @@ test('a CANCELLED reauth leaves the live account byte-identical', async () => {
   assert.equal(workSlots().length, 0, 'cancel removes the staging dir once the child exits');
 });
 
-test('a second concurrent reauth of the SAME account is refused, and the reservation is released after the first ends', async () => {
+test('a second concurrent reauth of the SAME account is refused, and the reservation is released after the first ends', { skip: SKIP_BASH_MOCK }, async () => {
   const dir = writeChatgptAccount('.codex-concurrent', 'conc@example.com');
   process.env.FAKE_CODEX_SLEEP = '1'; // the first reauth stays in-flight
   process.env.FAKE_ID_TOKEN = idToken('conc@example.com');
@@ -211,7 +219,7 @@ test('a second concurrent reauth of the SAME account is refused, and the reserva
   await waitFor(third.sessionId, terminal); // let it settle so no session dangles
 });
 
-test('a promote FAILURE (live dir not writable) is refused and the live account is byte-identical', async () => {
+test('a promote FAILURE (live dir not writable) is refused and the live account is byte-identical', { skip: SKIP_BASH_MOCK }, async () => {
   const dir = writeChatgptAccount('.codex-nowrite', 'nw@example.com');
   const before = authBytes(dir);
   process.env.FAKE_ID_TOKEN = idToken('nw@example.com'); // identity matches, so we reach the promote
@@ -238,7 +246,7 @@ test('a promote FAILURE (live dir not writable) is refused and the live account 
    its own reauth. A new sign-in under an existing account's name is refused before it reserves anything. */
 test('#5994 premise: a new sign-in cannot stage into an existing account\'s folder', () => {
   const dir = writeChatgptAccount('.codex-taken9', 'taken9@example.com');
-  const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', label: 'taken9' });
+  const r = openai.startChatgptLogin({ codexBin: UPFRONT_BIN, mode: 'browser', label: 'taken9' });
   assert.equal(r.ok, false);
   assert.match(r.because, /already an OpenAI account by that name/);
   assert.equal(openai.removeAccount(dir, []).removed, true, 'the refused start left a hold on the account');
@@ -255,7 +263,7 @@ async function startHeldReauth(dirName, email) {
   return { dir, sessionId: r.sessionId };
 }
 
-test('#5994: removeAccount cancels the account\'s own unfinished reauth and deletes it', async () => {
+test('#5994: removeAccount cancels the account\'s own unfinished reauth and deletes it', { skip: SKIP_BASH_MOCK }, async () => {
   const { dir, sessionId } = await startHeldReauth('.codex-busy', 'busy@example.com');
   const rm = openai.removeAccount(dir, []);
   assert.equal(rm.ok, true, rm.because);
@@ -265,7 +273,7 @@ test('#5994: removeAccount cancels the account\'s own unfinished reauth and dele
   await eventuallyTrue(() => workSlots().length === 0, 'the cancelled reauth\'s staging slot was never freed');
 });
 
-test('#5994: a cancelled reauth that writes a valid auth.json as it dies does not promote into a folder now at that path', async () => {
+test('#5994: a cancelled reauth that writes a valid auth.json as it dies does not promote into a folder now at that path', { skip: SKIP_BASH_MOCK }, async () => {
   const dir = writeChatgptAccount('.codex-back10', 'back10@example.com');
   process.env.FAKE_CODEX_WRITE_ON_TERM = '1';
   process.env.FAKE_ID_TOKEN = idToken('back10@example.com');   // the SAME account, so a promote would be accepted
@@ -283,7 +291,7 @@ test('#5994: a cancelled reauth that writes a valid auth.json as it dies does no
   assert.equal(openai.chatgptLoginStatus(r.sessionId).state, 'cancelled');
 });
 
-test('#5994: forgetAccount cancels the account\'s own unfinished reauth and moves it aside', async () => {
+test('#5994: forgetAccount cancels the account\'s own unfinished reauth and moves it aside', { skip: SKIP_BASH_MOCK }, async () => {
   const { dir, sessionId } = await startHeldReauth('.codex-busy2', 'busy2@example.com');
   const f = openai.forgetAccount(dir, []);
   assert.equal(f.ok, true, f.because);
@@ -294,7 +302,7 @@ test('#5994: forgetAccount cancels the account\'s own unfinished reauth and move
   await eventuallyTrue(() => workSlots().length === 0, 'the staging slot was never freed');
 });
 
-test('#5994: a REFUSED remove or forget (agents on the account: the #2570 pre-flight) cancels nothing', async () => {
+test('#5994: a REFUSED remove or forget (agents on the account: the #2570 pre-flight) cancels nothing', { skip: SKIP_BASH_MOCK }, async () => {
   const { dir, sessionId } = await startHeldReauth('.codex-busy3', 'busy3@example.com');
   const rm = openai.removeAccount(dir, ['ava']);
   assert.equal(rm.ok, false);
@@ -309,7 +317,7 @@ test('#5994: a REFUSED remove or forget (agents on the account: the #2570 pre-fl
   await waitFor(sessionId, (x) => x.state === 'cancelled');
 });
 
-test('#5994: the cancelled reauth\'s late exit does not release a hold a NEW sign-in takes on the same path', async () => {
+test('#5994: the cancelled reauth\'s late exit does not release a hold a NEW sign-in takes on the same path', { skip: SKIP_BASH_MOCK }, async () => {
   const { dir, sessionId } = await startHeldReauth('.codex-busy4', 'busy4@example.com');
   assert.equal(openai.removeAccount(dir, []).removed, true);
   // A new sign-in labelled with the same name now reserves that same path, while the old child is still dying.
@@ -331,7 +339,7 @@ test('#5994: the cancelled reauth\'s late exit does not release a hold a NEW sig
   await eventuallyTrue(() => !fs.existsSync(nodePath.join(SANDBOX, '.codex-busy4')), 'the cancelled sign-in never exited');
 });
 
-test('#5994: a forget that FAILS at the move (no free name to move it to) cancels nothing', async () => {
+test('#5994: a forget that FAILS at the move (no free name to move it to) cancels nothing', { skip: SKIP_BASH_MOCK }, async () => {
   const { dir, sessionId } = await startHeldReauth('.codex-busy6', 'busy6@example.com');
   const taken = [nodePath.join(SANDBOX, '.removed-codex-busy6')];
   for (let n = 2; n < 500; n += 1) taken.push(nodePath.join(SANDBOX, `.removed-codex-busy6-${n}`));
@@ -351,7 +359,7 @@ test('#5994: a forget that FAILS at the move (no free name to move it to) cancel
   await waitFor(sessionId, (x) => x.state === 'cancelled');
 });
 
-test('#5994: an account already gone from the disk still has its own unfinished reauth cancelled', async () => {
+test('#5994: an account already gone from the disk still has its own unfinished reauth cancelled', { skip: SKIP_BASH_MOCK }, async () => {
   const { dir, sessionId } = await startHeldReauth('.codex-gone7', 'gone7@example.com');
   fs.rmSync(dir, { recursive: true, force: true });   // removed outside Kosmos
   const rm = openai.removeAccount(dir, []);
@@ -363,7 +371,7 @@ test('#5994: an account already gone from the disk still has its own unfinished 
 });
 
 // Skipped as root, which ignores the read-only mode (review 8).
-test('#5994: a rename or delete that THROWS (home not writable) cancels nothing', { skip: typeof process.getuid === 'function' && process.getuid() === 0 }, async () => {
+test('#5994: a rename or delete that THROWS (home not writable) cancels nothing', { skip: SKIP_BASH_MOCK || (typeof process.getuid === 'function' && process.getuid() === 0) }, async () => {
   const { dir, sessionId } = await startHeldReauth('.codex-ro11', 'ro11@example.com');
   let f; let rm;
   fs.chmodSync(SANDBOX, 0o555);   // the home cannot be renamed out of: the forget's move throws, the account whole
@@ -379,7 +387,7 @@ test('#5994: a rename or delete that THROWS (home not writable) cancels nothing'
   assert.ok(st !== 'cancelled' && st !== 'error', 'a failed rename or delete cancelled the sign-in: ' + st);
 });
 
-test('#5994: a delete that fails PART WAY, after auth.json is gone, cancels the sign-in so it cannot finish into the remains', { skip: typeof process.getuid === 'function' && process.getuid() === 0 }, async (t) => {
+test('#5994: a delete that fails PART WAY, after auth.json is gone, cancels the sign-in so it cannot finish into the remains', { skip: SKIP_BASH_MOCK || (typeof process.getuid === 'function' && process.getuid() === 0) }, async (t) => {
   const { dir, sessionId } = await startHeldReauth('.codex-half12', 'half12@example.com');
   const stuck = nodePath.join(dir, 'sessions');
   fs.mkdirSync(stuck, { recursive: true });
@@ -395,7 +403,7 @@ test('#5994: a delete that fails PART WAY, after auth.json is gone, cancels the 
   assert.equal(openai.chatgptLoginStatus(sessionId).state, 'cancelled', 'the sign-in was left to finish into a half-deleted folder');
 });
 
-test('#5994: a reauth cancelled a moment ago (its child still exiting) does not refuse the remove', async () => {
+test('#5994: a reauth cancelled a moment ago (its child still exiting) does not refuse the remove', { skip: SKIP_BASH_MOCK }, async () => {
   openai.setChatgptTimers({ forceKill: 4000 });   // the TERM-ignoring child lives until this SIGKILL
   let r = null;
   const slotsBefore = new Set(workSlots());
@@ -426,7 +434,7 @@ test('#5994: a reauth cancelled a moment ago (its child still exiting) does not 
   }
 });
 
-test('#5994: any OTHER hold still refuses (a new sign-in staging into that name)', async () => {
+test('#5994: any OTHER hold still refuses (a new sign-in staging into that name)', { skip: SKIP_BASH_MOCK }, async () => {
   process.env.FAKE_CODEX_SLEEP = '1';
   const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', label: 'staging5' });
   assert.equal(r.ok, true, r.because);
@@ -446,14 +454,14 @@ test('#5994: any OTHER hold still refuses (a new sign-in staging into that name)
 
 test('a bogus reauth target is refused up front (not an account / an api-key account)', () => {
   // not a codex home at all
-  const bad = openai.startChatgptLogin({ codexBin: MOCK, reauthDir: nodePath.join(SANDBOX, 'not-an-account') });
+  const bad = openai.startChatgptLogin({ codexBin: UPFRONT_BIN, reauthDir: nodePath.join(SANDBOX, 'not-an-account') });
   assert.equal(bad.ok, false);
   assert.match(bad.because, /not an OpenAI account/i);
   // an api-key account cannot be reauthed via this flow
   const keyDir = nodePath.join(SANDBOX, '.codex-key');
   fs.mkdirSync(keyDir, { recursive: true });
   fs.writeFileSync(nodePath.join(keyDir, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-abc' }));
-  const key = openai.startChatgptLogin({ codexBin: MOCK, reauthDir: keyDir });
+  const key = openai.startChatgptLogin({ codexBin: UPFRONT_BIN, reauthDir: keyDir });
   assert.equal(key.ok, false);
   assert.match(key.because, /API key/i);
 });

@@ -18,6 +18,12 @@ const http = require('node:http');
 const { execFileSync, spawnSync, spawn } = require('node:child_process');
 const alarm = require('./tools/gap-alarm');
 
+// kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
+const { skipOnWin32 } = require('./test-support/skip-on-win32');
+const SKIP_SHEBANG_POSTS = skipOnWin32('it posts through #!/bin/sh stub commands run by their shebang line, and points claude-msg at the tmux socket folder under process.getuid(), neither of which Windows has; gap-alarm is a Mac fleet tool run by launchd');
+const SKIP_SHEBANG_GIT = skipOnWin32('it puts a #!/bin/sh git on a colon-separated PATH, which Windows can neither run by its shebang line nor read; gap-alarm is a Mac fleet tool run by launchd');
+const SKIP_LAUNCHD_PLIST = skipOnWin32('it builds and installs a launchd LaunchAgent (a Mac file) from POSIX paths; gap-alarm is a Mac fleet tool run by launchd');
+
 const SCRIPT = path.join(__dirname, 'tools', 'gap-alarm.js');
 const H = 3600;
 const NOW = 1_800_000_000;
@@ -104,7 +110,7 @@ const ptrs = (prodSha, stagingSha, builtAt, pv = '0.6.99', sv = '0.7.05') => JSO
   prod: { version: pv, sha: prodSha, builtAt: NOW - 200 * H }, staging: { version: sv, sha: stagingSha, builtAt },
 });
 
-test('end to end: an alarm reaches both channels once, repeats after a day, and clears once', () => {
+test('end to end: an alarm reaches both channels once, repeats after a day, and clears once', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 60 * H], ['m1', NOW - 30 * H], ['m2', NOW - H]]);
   const s = stubs();
   const base = {
@@ -141,7 +147,7 @@ test('end to end: an alarm reaches both channels once, repeats after a day, and 
   assert.equal(s.gh.read(), after, 'the all-clear was repeated');
 });
 
-test('a pane message that does not go is said on the card; a post that goes nowhere does not count as told', () => {
+test('a pane message that does not go is said on the card; a post that goes nowhere does not count as told', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
   const s = stubs();
   const base = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_POINTERS: ptrs(shas.prod, shas.staging, NOW - 90 * H), GAP_ALARM_TO: 'test-pane:0.0' };
@@ -165,7 +171,7 @@ test('a pane message that does not go is said on the card; a post that goes nowh
   assert.match(s2.msg.read(), /staging-hours/, 'the retry after a failed post did not go');
 });
 
-test('could not tell: a build not in the checkout exits 2 and says so, and is not a pass', () => {
+test('could not tell: a build not in the checkout exits 2 and says so, and is not a pass', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir } = repoWith([['a', NOW - H]]);
   const s = stubs();
   const r = run([], {
@@ -199,7 +205,7 @@ test('review 13: a cut straight to prod (staging behind prod) measures main agai
   assert.equal(c.staging.ahead, 2);
 });
 
-test('review 11: a post time stamped in the future (a fast clock) does not silence a standing alarm', () => {
+test('review 11: a post time stamped in the future (a fast clock) does not silence a standing alarm', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
   const s = stubs();
   const future = NOW + 30 * 24 * H;
@@ -210,7 +216,7 @@ test('review 11: a post time stamped in the future (a fast clock) does not silen
   assert.match(s.gh.read(), /staging-hours/, 'a future post stamp silenced the standing alarm on the card');
 });
 
-test('review 11: a state that cannot be kept posts at most once a day, and still says a lasting could-not-tell', () => {
+test('review 11: a state that cannot be kept posts at most once a day, and still says a lasting could-not-tell', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
   const s = stubs();
   const blocker = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-nostate-'));
@@ -228,7 +234,7 @@ test('review 11: a state that cannot be kept posts at most once a day, and still
   assert.equal((s2.gh.read().match(/could not tell/g) || []).length, 1, 'with no state, a lasting could-not-tell was not said exactly once');
 });
 
-test('review 10: a could-not-tell spell stamped in the future (a clock jump) is treated as starting now, so it is still said', () => {
+test('review 10: a could-not-tell spell stamped in the future (a clock jump) is treated as starting now, so it is still said', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir } = repoWith([['a', NOW - H]]);
   const s = stubs();
   fs.writeFileSync(s.state, JSON.stringify({ pane: null, card: null, lastRunAt: NOW - H, unknownSince: NOW + 30 * 24 * H }) + '\n');
@@ -240,7 +246,7 @@ test('review 10: a could-not-tell spell stamped in the future (a clock jump) is 
   assert.match(s.msg.read(), /could not tell/, 'a future-stamped spell was never said');
 });
 
-test('review 9: a could-not-tell that comes and goes posts nothing; one that lasts is said once', () => {
+test('review 9: a could-not-tell that comes and goes posts nothing; one that lasts is said once', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H]]);
   const s = stubs();
   const base = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.msg.bin, GAP_ALARM_GH_CMD: s.gh.bin };
@@ -274,7 +280,7 @@ test('main\'s hours run from when work LANDED on main: a merge commit\'s older s
   assert.ok(!v.reasons.includes('main-hours'), 'a merge that landed an hour ago alarmed on its side branch\'s age: ' + JSON.stringify(v));
 });
 
-test('claude-msg exit 7 is told-but-uncertain: it counts as posted and the card says "may not have gone", never "did not go"', () => {
+test('claude-msg exit 7 is told-but-uncertain: it counts as posted and the card says "may not have gone", never "did not go"', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
   const s = stubs();
   const env = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.unpaintedMsg.bin, GAP_ALARM_GH_CMD: s.failGh.bin,
@@ -300,7 +306,7 @@ test('claude-msg exit 7 is told-but-uncertain: it counts as posted and the card 
   assert.equal(JSON.parse(fs.readFileSync(s2.state, 'utf8')).pane.key, 'alarm:staging-hours', 'exit 7 did not count as told for the pane');
 });
 
-test('claude-msg exit 8 (a possible loss, #4898) is a failure: the card says "did not go" and the pane is tried again after the backoff', () => {
+test('claude-msg exit 8 (a possible loss, #4898) is a failure: the card says "did not go" and the pane is tried again after the backoff', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
   const s = stubs();
   const env = { KOSMOS_REPO_DIR: dir, GAP_ALARM_STATE: s.state, GAP_ALARM_MSG_CMD: s.busyMsg.bin, GAP_ALARM_GH_CMD: s.gh.bin,
@@ -316,7 +322,7 @@ test('claude-msg exit 8 (a possible loss, #4898) is a failure: the card says "di
   assert.equal(tries(), 2, 'an exit-8 pane was counted as told and never tried again');
 });
 
-test('a state file from before per-channel clocks is read as both channels: no repost on the first run after an upgrade', () => {
+test('a state file from before per-channel clocks is read as both channels: no repost on the first run after an upgrade', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
   const s = stubs();
   fs.writeFileSync(s.state, JSON.stringify({ key: 'alarm:staging-hours', at: NOW - H }) + '\n');
@@ -332,7 +338,7 @@ test('a state file from before per-channel clocks is read as both channels: no r
   assert.equal(st.unknownSince, null, 'a measured run left a could-not-tell spell open');
 });
 
-test('a state that cannot be recorded is said, is not fatal, and leaves no temp file behind', () => {
+test('a state that cannot be recorded is said, is not fatal, and leaves no temp file behind', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
   const s = stubs();
   // The state path is an existing non-empty directory, so the rename onto it fails.
@@ -352,7 +358,7 @@ test('a state that cannot be recorded is said, is not fatal, and leaves no temp 
   assert.match(r.out, /posted to pane \(unconfirmed\) and card: /, 'the log line hides that the pane post is unconfirmed');
 });
 
-test('review 7: a clear gap proves life on the card once a week (never the pane); a run records lastRunAt; no cut time is claimed with nothing in staging', () => {
+test('review 7: a clear gap proves life on the card once a week (never the pane); a run records lastRunAt; no cut time is claimed with nothing in staging', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H]]);
   const s = stubs();
   // staging == prod, nothing waiting on main: clear.
@@ -377,7 +383,7 @@ test('review 7: an all-clear never follows an alarm this channel failed to annou
   assert.deepEqual(alarm.decidePost({ alarm: false, reasons: [] }, { key: 'alarm:main-hours', at: NOW - H }, NOW), { post: 'cleared', key: 'clear' }, 'CONTROL');
 });
 
-test('a git failure is could-not-tell with GIT\'s own first stderr line, not the command line', () => {
+test('a git failure is could-not-tell with GIT\'s own first stderr line, not the command line', { skip: SKIP_SHEBANG_GIT }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 50 * H]]);
   // A git on PATH whose fetch fails with multi-line stderr, and is the real git otherwise.
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-gitfail-'));
@@ -388,7 +394,7 @@ test('a git failure is could-not-tell with GIT\'s own first stderr line, not the
   assert.equal(JSON.parse(r.out).why, 'git fetch: fatal: could not read Username for https://github.com: terminal prompts disabled');
 });
 
-test('a fetch that hangs is could-not-tell with the reason, not a run that never ends', () => {
+test('a fetch that hangs is could-not-tell with the reason, not a run that never ends', { skip: SKIP_SHEBANG_GIT }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 50 * H]]);
   // A git on PATH that hangs on fetch and is the real git for everything else.
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-gapalarm-hang-'));
@@ -463,7 +469,7 @@ test('the pointers are read from the served files: app.commit and built.at, and 
   } finally { server.close(); }
 });
 
-test('under the test runner with no seams, the real claude-msg and gh are never called', () => {
+test('under the test runner with no seams, the real claude-msg and gh are never called', { skip: SKIP_SHEBANG_POSTS }, () => {
   const { dir, shas } = repoWith([['prod', NOW - 100 * H], ['staging', NOW - 90 * H]]);
   // Stubs where the DEFAULTS resolve (HOME/.claude/scripts/claude-msg, and gh on PATH), and a PATH
   // with no real gh on it at all, so not even the control can reach the real card. So a guard
@@ -507,7 +513,7 @@ function installCopies() {
   return { main: path.join(dir, 'tools', 'gap-alarm.js'), worktree: path.join(wt, 'tools', 'gap-alarm.js') };
 }
 
-test('the LaunchAgent: hourly, a stable node path, escaped; installs from the main checkout into a sandbox, and refuses a linked worktree', () => {
+test('the LaunchAgent: hourly, a stable node path, escaped; installs from the main checkout into a sandbox, and refuses a linked worktree', { skip: SKIP_LAUNCHD_PLIST }, () => {
   const p = alarm.plist({ node: '/opt/node & co/bin/node', script: '/x/tools/gap-alarm.js', home: '/Users/somebody' });
   assert.match(p, /<key>Label<\/key><string>com\.kosmos\.gap-alarm<\/string>/);
   assert.match(p, /<string>\/opt\/node &amp; co\/bin\/node<\/string><string>\/x\/tools\/gap-alarm\.js<\/string>/, 'the node path was not escaped');

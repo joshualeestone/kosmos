@@ -40,6 +40,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
+// kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
+const { skipOnWin32 } = require('./test-support/skip-on-win32');
+const SKIP_MAC_RELEASE_CUT = skipOnWin32('it runs the Mac release cut (tools/release.sh), which hands POSIX paths from Git Bash to native node, so node reads them as other Windows paths; the release cut only runs on a Mac');
+
 /* #3647: step 1c also checks the Developer ID Installer identity (`security
    find-identity -v`) and the notary key (`secrets-map.sh path`). The sandbox has
    neither (an empty HOME; CI's Linux has no `security`), so the arms that must reach
@@ -152,7 +156,7 @@ function run(dir, version) {
   return { said: (r.stdout || '') + (r.stderr || ''), status: r.status, touched: before !== after };
 }
 
-test('a version past the end of the 0.2 line is refused', () => {
+test('a version past the end of the 0.2 line is refused', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const dir = sandbox('0.2.78');
   const r = run(dir, '0.2.100');
   assert.equal(r.status, 1);
@@ -161,7 +165,7 @@ test('a version past the end of the 0.2 line is refused', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('standing at 0.2.99, anything but 0.3.0 is refused', () => {
+test('standing at 0.2.99, anything but 0.3.0 is refused', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /* The arm that matters, and it is exercised rather than read: the sandbox is
      what makes standing at 0.2.99 free. */
   const dir = sandbox('0.2.99');
@@ -173,7 +177,7 @@ test('standing at 0.2.99, anything but 0.3.0 is refused', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('standing at 0.2.99, 0.3.0 gets through', () => {
+test('standing at 0.2.99, 0.3.0 gets through', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /* 🔑 THE POSITIVE CONTROL, and without it every test above passes on a script
      that refuses everything. "Through" means it reached the first thing the
      script needs and stopped there, on a site checkout the sandbox does not
@@ -187,7 +191,7 @@ test('standing at 0.2.99, 0.3.0 gets through', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('standing at 0.2.99, the string Josh actually said is refused too', () => {
+test('standing at 0.2.99, the string Josh actually said is refused too', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /**
    * 🛑 "0.3.00" IS THE LIKELIEST THING TO BE TYPED, because it is the string in
    * his instruction: "when we get to 0.2.99 then lets roll to 0.3.00". The gate
@@ -209,7 +213,7 @@ test('standing at 0.2.99, the string Josh actually said is refused too', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('an ordinary next version is not refused', () => {
+test('an ordinary next version is not refused', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const dir = sandbox('0.2.78');
   const r = run(dir, '0.2.79');
   assert.ok(!/end of the 0\.2 line|last of the 0\.2 line/.test(r.said), r.said.slice(0, 200));
@@ -241,7 +245,7 @@ test('it refuses rather than correcting', () => {
  * spelling per line".
  */
 
-test('on the 0.6 line an unpadded patch is refused, and the refusal spells it', () => {
+test('on the 0.6 line an unpadded patch is refused, and the refusal spells it', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const dir = sandbox('0.6.00');
   const r = run(dir, '0.6.1');
   assert.equal(r.status, 1, '0.6.1 was allowed to publish alongside 0.6.01');
@@ -250,7 +254,7 @@ test('on the 0.6 line an unpadded patch is refused, and the refusal spells it', 
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('on the 0.6 line the padded successor gets through', () => {
+test('on the 0.6 line the padded successor gets through', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /* 🔑 THE POSITIVE CONTROL. Without it every case here passes on a script that
      refuses everything, which is the failure mode this file already survived
      once: sourcing a lib above the gate turned both positive controls red while
@@ -262,7 +266,7 @@ test('on the 0.6 line the padded successor gets through', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('a three-digit patch on the 0.6 line is refused, naming the next line', () => {
+test('a three-digit patch on the 0.6 line is refused, naming the next line', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const dir = sandbox('0.6.98');
   const r = run(dir, '0.6.100');
   assert.equal(r.status, 1);
@@ -272,7 +276,7 @@ test('a three-digit patch on the 0.6 line is refused, naming the next line', () 
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('standing at 0.6.99, staying on the line is refused', () => {
+test('standing at 0.6.99, staying on the line is refused', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const dir = sandbox('0.6.99');
   const r = run(dir, '0.6.05');
   assert.equal(r.status, 1);
@@ -282,7 +286,7 @@ test('standing at 0.6.99, staying on the line is refused', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('standing at 0.6.99, a RE-CUT of 0.6.99 gets through (a cut that aborted after its bump)', () => {
+test('standing at 0.6.99, a RE-CUT of 0.6.99 gets through (a cut that aborted after its bump)', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /* 2026-09-26: the 0.6.99 cut aborted at step 3 after step 2 had bumped main to 0.6.99, and the
      retry was refused here as "staying on the line". A re-cut of the same version is the same
      release, so it must pass this guard (and reach the next thing the script needs). */
@@ -294,7 +298,7 @@ test('standing at 0.6.99, a RE-CUT of 0.6.99 gets through (a cut that aborted af
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('standing at 0.6.99, 0.7.00 gets through', () => {
+test('standing at 0.6.99, 0.7.00 gets through', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const dir = sandbox('0.6.99');
   const r = run(dir, '0.7.00');
   assert.match(r.said, /no site checkout at/, r.said.slice(0, 300));
@@ -302,7 +306,7 @@ test('standing at 0.6.99, 0.7.00 gets through', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('#4046: standing at 0.6.99, 0.7.01 gets through (each platform takes the next free number)', () => {
+test('#4046: standing at 0.6.99, 0.7.01 gets through (each platform takes the next free number)', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /* Baron's ruling on #4046: Windows took 0.7.00, so the Mac opens the 0.7 line at 0.7.01. Measured
      on the card; pinned here so the guard's comment and its code cannot drift apart again. */
   const dir = sandbox('0.6.99');
@@ -313,7 +317,7 @@ test('#4046: standing at 0.6.99, 0.7.01 gets through (each platform takes the ne
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('standing at 0.6.99, the unpadded 0.7.0 is refused', () => {
+test('standing at 0.6.99, the unpadded 0.7.0 is refused', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /* 🛑 The likeliest thing to be typed, because it is the ordinary spelling
      everywhere else in software, and it is the exact failure the padded scheme
      exists to prevent: 0.7.0 and 0.7.00 are the same version to every install. */
@@ -325,7 +329,7 @@ test('standing at 0.6.99, the unpadded 0.7.0 is refused', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('the 0.5 line keeps its own spelling and is not refused retroactively', () => {
+test('the 0.5 line keeps its own spelling and is not refused retroactively', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /* ⚠️ 0.5.100, 0.5.101 and 0.5.102 are published. A guard that refused the
      line they are on would be rewriting history rather than shaping the next
      cut, and the first person to hit it would have no idea why. */
@@ -360,7 +364,7 @@ for (const [from, to, re] of [
   ['0.6.50', '0.06.51', /not three numbers in this repo's spelling/],
   ['0.6.50', '00.6.51', /not three numbers in this repo's spelling/],
 ]) {
-  test(`#4075: standing at ${from}, ${to} is refused`, () => {
+  test(`#4075: standing at ${from}, ${to} is refused`, { skip: SKIP_MAC_RELEASE_CUT }, () => {
     const dir = sandbox(from);
     const r = run(dir, to);
     assert.equal(r.status, 1, r.said.slice(0, 300));
@@ -377,7 +381,7 @@ for (const [from, to, why] of [
   ['0.5.102', '0.6.00', 'the move from the 0.5 line to the padded 0.6 line'],
   ['0.2.99', '0.3.0', 'the 0.2 line ending'],
 ]) {
-  test(`#4075 CONTROL: standing at ${from}, ${to} gets through (${why})`, () => {
+  test(`#4075 CONTROL: standing at ${from}, ${to} gets through (${why})`, { skip: SKIP_MAC_RELEASE_CUT }, () => {
     const dir = sandbox(from);
     const r = run(dir, to);
     assert.ok(!/older than|skips a line|major version|not three numbers/.test(r.said), r.said.slice(0, 300));
@@ -386,7 +390,7 @@ for (const [from, to, why] of [
     fs.rmSync(dir, { recursive: true, force: true });
   });
 }
-test('#4075: KOSMOS_ALLOW_VERSION_JUMP=1 lets a deliberate jump through, and only the value 1 does', () => {
+test('#4075: KOSMOS_ALLOW_VERSION_JUMP=1 lets a deliberate jump through, and only the value 1 does', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const dir = sandbox('0.6.50');
   const off = runEnv(dir, '1.0.00', { KOSMOS_ALLOW_VERSION_JUMP: '' });
   const truthy = runEnv(dir, '1.0.00', { KOSMOS_ALLOW_VERSION_JUMP: 'true' });
@@ -398,7 +402,7 @@ test('#4075: KOSMOS_ALLOW_VERSION_JUMP=1 lets a deliberate jump through, and onl
   assert.equal(on.touched, false);
   fs.rmSync(dir, { recursive: true, force: true });
 });
-test('#4075: the refusals hold when the override is exported to this test run (a cut that set it runs this file)', () => {
+test('#4075: the refusals hold when the override is exported to this test run (a cut that set it runs this file)', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const keep = process.env.KOSMOS_ALLOW_VERSION_JUMP;
   process.env.KOSMOS_ALLOW_VERSION_JUMP = '1';
   try {
@@ -411,7 +415,7 @@ test('#4075: the refusals hold when the override is exported to this test run (a
     if (keep === undefined) delete process.env.KOSMOS_ALLOW_VERSION_JUMP; else process.env.KOSMOS_ALLOW_VERSION_JUMP = keep;
   }
 });
-test('#4075: the override does not waive "three numbers", and an option-shaped version is refused', () => {
+test('#4075: the override does not waive "three numbers", and an option-shaped version is refused', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   for (const [v, env] of [['0.5.1a', { KOSMOS_ALLOW_VERSION_JUMP: '1' }], ['--version', {}], ['-p', {}], ['--', {}]]) {
     const dir = sandbox('0.5.101');
     const r = runEnv(dir, v, env);
@@ -421,7 +425,7 @@ test('#4075: the override does not waive "three numbers", and an option-shaped v
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
-test('#4075: a checkout whose own version is not three numbers refuses (fails closed), unless overridden', () => {
+test('#4075: a checkout whose own version is not three numbers refuses (fails closed), unless overridden', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const dir = sandbox('0.6.50-rc1');
   const r = run(dir, '0.6.51');
   const o = runEnv(dir, '0.6.51', { KOSMOS_ALLOW_VERSION_JUMP: '1' });
@@ -435,14 +439,14 @@ test('#4075: a checkout whose own version is not three numbers refuses (fails cl
   assert.match(o.said, /no site checkout at/, 'CONTROL: the override lets it through: ' + o.said.slice(0, 200));
   fs.rmSync(dir, { recursive: true, force: true });
 });
-test('#4075: the skip message names the real major', () => {
+test('#4075: the skip message names the real major', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const dir = sandbox('1.0.50');
   const r = run(dir, '1.3.00');
   assert.equal(r.status, 1);
   assert.match(r.said, /next line is 1\.1, not 1\.3/, r.said.slice(0, 300));
   fs.rmSync(dir, { recursive: true, force: true });
 });
-test('#4075: a version that is not three numbers is refused, not compared', () => {
+test('#4075: a version that is not three numbers is refused, not compared', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   // On the 0.5 line: from 0.6 on, the spelling guard above answers first ("past the end of the line").
   const dir = sandbox('0.5.101');
   const r = run(dir, '0.5.1a');
@@ -769,7 +773,7 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
   return { said: (r.stdout || '') + (r.stderr || ''), status: r.status, touched: before !== after };
 }
 
-test('a cut refuses when local main has commits origin does not (the stranded bump)', () => {
+test('a cut refuses when local main has commits origin does not (the stranded bump)', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02', { diverge: 'local-ahead' });
   const r = run_git(dir, '0.6.03', home, site);
   assert.equal(r.status, 1, 'it cut from a diverged tree');
@@ -796,7 +800,7 @@ test('a cut refuses when local main has commits origin does not (the stranded bu
    This arm restores it by combining the two conditions that actually conflict:
    a diverged tree AND no entry. Only one of the two guards can speak first, so
    which message comes back IS the ordering. */
-test('a diverged tree refuses for DIVERGENCE, not for the missing entry (pins the order)', () => {
+test('a diverged tree refuses for DIVERGENCE, not for the missing entry (pins the order)', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02', { diverge: 'local-ahead' });
   const r = run_git(dir, '0.6.03', home, site, { entry: false });
   assert.equal(r.status, 1, 'it did not refuse at all');
@@ -808,7 +812,7 @@ test('a diverged tree refuses for DIVERGENCE, not for the missing entry (pins th
   fs.rmSync(site, { recursive: true, force: true });
 });
 
-test('a cut is NOT refused merely for being behind origin', () => {
+test('a cut is NOT refused merely for being behind origin', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /* 🔑 THE ARM THAT STOPS THIS GUARD OVER-REFUSING. Behind is an ancestor, and
      cutting an older tree deliberately must stay possible. Without this the
      guard could be written as "local must equal origin", which would pass the
@@ -829,7 +833,7 @@ test('a cut is NOT refused merely for being behind origin', () => {
    The negative assertion is therefore the load-bearing one: it never reached step 2.
    Their positive control is the arm directly above, same sandbox, entry present,
    which does reach step 2. So the pair is a contrast, not a single reading. */
-test('no versions entry refuses at step 1, before anything is built', () => {
+test('no versions entry refuses at step 1, before anything is built', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const r = run_git(dir, '0.6.03', home, site, { entry: false });
   assert.equal(r.status, 1, 'it did not refuse');
@@ -842,7 +846,7 @@ test('no versions entry refuses at step 1, before anything is built', () => {
   fs.rmSync(site, { recursive: true, force: true });
 });
 
-test('a missing versions page is reported as unreadable, not as a missing entry', () => {
+test('a missing versions page is reported as unreadable, not as a missing entry', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /* Two different operator actions: fix the path, versus write the entry. */
   const { dir, home, site } = git_sandbox('0.6.02');
   const r = run_git(dir, '0.6.03', home, site, { entry: 'missing-file' });
@@ -859,7 +863,7 @@ test('a missing versions page is reported as unreadable, not as a missing entry'
   fs.rmSync(site, { recursive: true, force: true });
 });
 
-test('a stale versions entry also refuses at step 1, naming the drift', () => {
+test('a stale versions entry also refuses at step 1, naming the drift', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const r = run_git(dir, '0.6.03', home, site, { staleBy: 45 });
   assert.equal(r.status, 1, 'it did not refuse');
@@ -892,7 +896,7 @@ test('a stale versions entry also refuses at step 1, naming the drift', () => {
    12 minutes is the number that separates them: inside the late bound of 20,
    outside the early bound of 4. So this arm is red the moment step 1 stops being
    stricter, and it is the only thing in the tree that is. */
-test('an entry 12 minutes old is refused at step 1, which the LATE bound would allow', () => {
+test('an entry 12 minutes old is refused at step 1, which the LATE bound would allow', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const r = run_git(dir, '0.6.03', home, site, { staleBy: 12 });
   assert.equal(r.status, 1, 'step 1 accepted a stamp the cut will age past the late bound');
@@ -903,7 +907,7 @@ test('an entry 12 minutes old is refused at step 1, which the LATE bound would a
   fs.rmSync(site, { recursive: true, force: true });
 });
 
-test('a clean tree in step with origin gets past the guard', () => {
+test('a clean tree in step with origin gets past the guard', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const r = run_git(dir, '0.6.03', home, site);
   assert.ok(!/local main has commits origin\/main does not/.test(r.said), r.said.slice(0, 400));
@@ -926,7 +930,7 @@ const edKey = () => {
   return { spki: der.toString('base64'), raw: der.subarray(12).toString('base64url') };
 };
 for (const listed of [false, true]) {
-  test(`#7568: a cut whose service key set ${listed ? 'lists' : 'lacks'} the live coordinator key ${listed ? 'gets past step 1d3' : 'is refused at step 1d3, before the bump'}`, () => {
+  test(`#7568: a cut whose service key set ${listed ? 'lists' : 'lacks'} the live coordinator key ${listed ? 'gets past step 1d3' : 'is refused at step 1d3, before the bump'}`, { skip: SKIP_MAC_RELEASE_CUT }, () => {
     const live = edKey();
     const other = edKey();
     const { dir, home, site } = git_sandbox('0.6.02', { serviceKeys: listed ? [other.spki, live.spki] : [other.spki] });
@@ -949,7 +953,7 @@ for (const listed of [false, true]) {
 /* #6149: under KOSMOS_ALLOW_VERSION_JUMP (which turns #4075's forward-only rule off) a cut naming a version below the
    setup floor is refused at step 1a-floor, before anything is bumped; without the override #4075 stands in for it, and
    the arm above (0.6.03, no override) is the control that the floor does not refuse the fixtures' own versions. */
-test('#6149: with the version-jump override, a cut below the setup floor is refused at step 1a-floor, before the bump', () => {
+test('#6149: with the version-jump override, a cut below the setup floor is refused at step 1a-floor, before the bump', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const r = run_git(dir, '0.6.03', home, site, { env: { KOSMOS_ALLOW_VERSION_JUMP: '1' } });
   assert.match(r.said, /setup floor \(kosmos#6149\): this cut's version \(KOSMOS_ALLOW_VERSION_JUMP is set\) names 0\.6\.03/, r.said.slice(-600));
@@ -958,7 +962,7 @@ test('#6149: with the version-jump override, a cut below the setup floor is refu
   fs.rmSync(site, { recursive: true, force: true });
 });
 
-test('#6149 CONTROL: with the version-jump override, a cut at or above the setup floor gets past step 1a-floor', () => {
+test('#6149 CONTROL: with the version-jump override, a cut at or above the setup floor gets past step 1a-floor', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.7.49');
   const r = run_git(dir, '0.7.50', home, site, { env: { KOSMOS_ALLOW_VERSION_JUMP: '1' } });
   assert.ok(!/setup floor \(kosmos#6149\)/.test(r.said), r.said.slice(-600));
@@ -974,7 +978,7 @@ function stagingPair(site, installer) {
   fs.writeFileSync(path.join(site, 'dist', 'latest-staging.json'), JSON.stringify({ version: '0.7.49', sha256: 'b'.repeat(64), artifact: 'kosmos-0.7.49-arm64.tar.gz' }));
   fs.writeFileSync(path.join(site, 'setup-staging'), installer);
 }
-test('#6149: a prod cut refuses at step 1a-floor when the untouched setup-staging does not know the read-only app', () => {
+test('#6149: a prod cut refuses at step 1a-floor when the untouched setup-staging does not know the read-only app', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   stagingPair(site, '#!/bin/sh\necho an installer from before 0.7.42\n');
   const r = run_git(dir, '0.6.03', home, site);
@@ -983,7 +987,7 @@ test('#6149: a prod cut refuses at step 1a-floor when the untouched setup-stagin
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(site, { recursive: true, force: true });
 });
-test('#6149 CONTROL: the same untouched staging pair with a current installer gets past step 1a-floor', () => {
+test('#6149 CONTROL: the same untouched staging pair with a current installer gets past step 1a-floor', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   stagingPair(site, '#!/bin/sh\n[ -n "$KOSMOS_READONLY_APP" ] && echo current\n');
   const r = run_git(dir, '0.6.03', home, site);
@@ -1011,7 +1015,7 @@ function siteWithOrigin(site, installer) {
   fs.rmSync(other, { recursive: true, force: true });
   return bare;
 }
-test('#6149: step 1a-floor reads the site origin/main after a fetch: a bad staging pair there refuses the cut', () => {
+test('#6149: step 1a-floor reads the site origin/main after a fetch: a bad staging pair there refuses the cut', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const bare = siteWithOrigin(site, '#!/bin/sh\necho an installer cut before #4449\n');
   assert.ok(!fs.existsSync(path.join(site, 'setup-staging')), 'the checkout itself must not hold the pair');
@@ -1020,7 +1024,7 @@ test('#6149: step 1a-floor reads the site origin/main after a fetch: a bad stagi
   assert.ok(!/== 2\. the version, in one place ==/.test(r.said), 'it went on past the floor to the bump');
   for (const d of [dir, site, bare]) fs.rmSync(d, { recursive: true, force: true });
 });
-test('#6149 CONTROL: a current staging pair on the site origin/main gets past step 1a-floor', () => {
+test('#6149 CONTROL: a current staging pair on the site origin/main gets past step 1a-floor', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const bare = siteWithOrigin(site, '#!/bin/sh\n[ -n "$KOSMOS_READONLY_APP" ] && echo current\n');
   const r = run_git(dir, '0.6.03', home, site);
@@ -1032,7 +1036,7 @@ test('#6149 CONTROL: a current staging pair on the site origin/main gets past st
 /* #5934: step 1c refuses a cut with a leftover KOSMOS_TEST_PART (anything but all) or KOSMOS_TEST_PART_LOCAL,
    because step 3's `yarn test` inherits them and would run part of the suite. Driven through the REAL release.sh,
    which tools/test-cut-testpart-guard-5934.sh (the extracted guard) cannot see. */
-test('#5934: a leftover KOSMOS_TEST_PART refuses the cut in step 1c, before the bump', () => {
+test('#5934: a leftover KOSMOS_TEST_PART refuses the cut in step 1c, before the bump', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const r = run_git(dir, '0.6.03', home, site, { env: { KOSMOS_TEST_PART: 'node', KOSMOS_TEST_PART_LOCAL: '1' } });
   assert.equal(r.status, 1, r.said.slice(-400));
@@ -1045,7 +1049,7 @@ test('#5934: a leftover KOSMOS_TEST_PART refuses the cut in step 1c, before the 
 
 /* #6468: a cut whose manifest-signing key does not load as a pinned key stops at 1c, before the bump: the stub
    secrets map hands back a file that is not a key at all. (The probe seam the other arms take is the control.) */
-test('#6468: a missing or unpinned manifest-signing key refuses the cut in step 1c, before the bump', () => {
+test('#6468: a missing or unpinned manifest-signing key refuses the cut in step 1c, before the bump', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const r = run_git(dir, '0.6.03', home, site, { env: { KOSMOS_MANIFEST_KEY_PROBE_BIN: undefined } });
   assert.equal(r.status, 1, r.said.slice(-400));
@@ -1056,7 +1060,7 @@ test('#6468: a missing or unpinned manifest-signing key refuses the cut in step 
   fs.rmSync(site, { recursive: true, force: true });
 });
 
-test('#5934 CONTROL: KOSMOS_TEST_PART=all (the whole suite) gets past step 1c', () => {
+test('#5934 CONTROL: KOSMOS_TEST_PART=all (the whole suite) gets past step 1c', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const r = run_git(dir, '0.6.03', home, site, { env: { KOSMOS_TEST_PART: 'all' } });
   assert.ok(!/#5934/.test(r.said), r.said.slice(-400));
@@ -1076,7 +1080,7 @@ test('#5934 CONTROL: KOSMOS_TEST_PART=all (the whole suite) gets past step 1c', 
    a blocker: an unreadable page plus a valid pending file passed step 1 and the cut
    died after the whole build. A fixture here would have caught it, so here it is. */
 
-test('#1455: a version with NO page entry but a valid pending FILE gets past step 1', () => {
+test('#1455: a version with NO page entry but a valid pending FILE gets past step 1', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const r = run_git(dir, '0.6.03', home, site, { entry: false, pending: true });
   assert.match(r.said, /is pending as an entry file/, r.said.slice(0, 600));
@@ -1085,7 +1089,7 @@ test('#1455: a version with NO page entry but a valid pending FILE gets past ste
   fs.rmSync(site, { recursive: true, force: true });
 });
 
-test('#1455 CONTROL: the same missing entry with NO pending file still refuses at step 1', () => {
+test('#1455 CONTROL: the same missing entry with NO pending file still refuses at step 1', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /* Without this the arm above could be passing because the gate stopped checking,
      rather than because the pending file was accepted. */
   const { dir, home, site } = git_sandbox('0.6.02');
@@ -1096,7 +1100,7 @@ test('#1455 CONTROL: the same missing entry with NO pending file still refuses a
   fs.rmSync(site, { recursive: true, force: true });
 });
 
-test('#1455 BLOCKER: an UNREADABLE versions page is not excused by a pending file', () => {
+test('#1455 BLOCKER: an UNREADABLE versions page is not excused by a pending file', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /* The finding a grep-based wiring check could never make. Before the fix this
      returned 0 at step 1 and the cut spent the suite, the browser gate, the install
      gate and the build before dying at 7a on a raw node ENOENT. */
@@ -1108,7 +1112,7 @@ test('#1455 BLOCKER: an UNREADABLE versions page is not excused by a pending fil
   fs.rmSync(site, { recursive: true, force: true });
 });
 
-test('#1455: a MALFORMED pending entry is refused at step 1, not after the build', () => {
+test('#1455: a MALFORMED pending entry is refused at step 1, not after the build', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   /* A 2-space-indented fragment passes a substring check and then kills the cut at 7b,
      because reinsert-versions-entry.js anchors on the 4-space shape. Step 1 is three
      seconds; 7b is after everything. */
@@ -1142,7 +1146,7 @@ test('#1455: a MALFORMED pending entry is refused at step 1, not after the build
 // is pinned in tools.whats-new-check-3955.test.js; these prove the script stops on the answer).
 /* kosmos#7349: since the same checks run before the cut marks itself, a refusal that is true from the start stops there,
    not at 1b-ii. These two arms prove that stop; the '#7349' arm below reaches 1b-ii itself. */
-test('#3955: a highlights file for another version stops the cut before it marks itself (kosmos#7349), before anything is bumped', () => {
+test('#3955: a highlights file for another version stops the cut before it marks itself (kosmos#7349), before anything is bumped', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02', { whatsNewFor: '0.6.02' });
   const r = run_git(dir, '0.6.03', home, site);
   assert.match(r.said, /not ready for 0\.6\.03/, r.said.slice(0, 800));
@@ -1153,7 +1157,7 @@ test('#3955: a highlights file for another version stops the cut before it marks
   fs.rmSync(site, { recursive: true, force: true });
 });
 
-test('#3955: KOSMOS_CUT_NO_WHATS_NEW=1 lets the same cut through, and says there will be no window', () => {
+test('#3955: KOSMOS_CUT_NO_WHATS_NEW=1 lets the same cut through, and says there will be no window', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02', { whatsNewFor: '0.6.02' });
   const r = run_git(dir, '0.6.03', home, site, { noWhatsNew: true });
   assert.match(r.said, /KOSMOS_CUT_NO_WHATS_NEW=1: 0\.6\.03 ships with no highlights/, r.said.slice(0, 800));
@@ -1162,7 +1166,7 @@ test('#3955: KOSMOS_CUT_NO_WHATS_NEW=1 lets the same cut through, and says there
   fs.rmSync(site, { recursive: true, force: true });
 });
 
-test('#3955 round 11: with the opt-out set and a real highlights file for the version, the cut says the window WILL show', () => {
+test('#3955 round 11: with the opt-out set and a real highlights file for the version, the cut says the window WILL show', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');   // its whats-new.json is for 0.6.03, the cut version
   const r = run_git(dir, '0.6.03', home, site, { noWhatsNew: true });
   assert.match(r.said, /the highlights check is not enforced; web\/whats-new\.json is for 0\.6\.03, so the "Kosmos has been updated" window will show on the Mac/, r.said.slice(0, 800));
@@ -1172,7 +1176,7 @@ test('#3955 round 11: with the opt-out set and a real highlights file for the ve
 });
 
 // #5713: step 1b-ii's prod-check, through the REAL release.sh: the pool must record what Mac prod serves.
-test('#5713: prod newer than the pool records stops the cut before it marks itself (kosmos#7349), before anything is bumped', () => {
+test('#5713: prod newer than the pool records stops the cut before it marks itself (kosmos#7349), before anything is bumped', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');   // the pool records prod 0.6.02
   fs.writeFileSync(path.join(site, 'dist', 'latest.json'), JSON.stringify({ version: '0.6.05', manifest: 'kosmos-0.6.05-arm64.manifest.json' }));
   fs.writeFileSync(path.join(site, 'dist', 'kosmos-0.6.05-arm64.manifest.json'), JSON.stringify({ version: '0.6.05', app: { commit: 'b'.repeat(40) } }));
@@ -1188,7 +1192,7 @@ test('#5713: prod newer than the pool records stops the cut before it marks itse
 /* kosmos#7617: a pool item merged after the list was built. The file is for the cut version and prod matches the pool, so
    both older checks pass; only the list no longer being what the pool builds can stop it. Every other arm here is the
    control: its file IS what its pool builds, and it gets past this check. */
-test('#7617: a list that is no longer what the pool builds stops the cut before it marks itself, before anything is bumped', (t) => {
+test('#7617: a list that is no longer what the pool builds stops the cut before it marks itself, before anything is bumped', { skip: SKIP_MAC_RELEASE_CUT }, (t) => {
   const { dir, home, site } = git_sandbox('0.6.02', { whatsNewPoolExtra:
     { icon: 'chat', title: 'Merged after the list', line: 'A pool item that landed after web/whats-new.json was built.', rank: 1, since: '0.6.02', status: 'pending' } });
   t.after(() => { for (const d of [dir, site]) fs.rmSync(d, { recursive: true, force: true }); });
@@ -1201,7 +1205,7 @@ test('#7617: a list that is no longer what the pool builds stops the cut before 
   assert.equal(r.touched, false, 'the version was bumped before the refusal');
 });
 
-test('#7617: a pool that does not build says so, not that the list is stale, before anything is bumped', (t) => {
+test('#7617: a pool that does not build says so, not that the list is stale, before anything is bumped', { skip: SKIP_MAC_RELEASE_CUT }, (t) => {
   const { dir, home, site } = git_sandbox('0.6.02', { whatsNewPoolExtra:
     // Loads (so prod-check, which reads the pool too, passes), but the window cannot show it, so build exits 3.
     { icon: 'chat', title: 'An item with no line', line: '', rank: 1, since: '0.6.02', status: 'pending' } });
@@ -1217,7 +1221,7 @@ test('#7617: a pool that does not build says so, not that the list is stale, bef
 /* The positive control for "also" (#4928): a file for another version that names the cut version in "also" passes
    whats-new-check, and its highlights are still what the pool builds, so the freshness check must not refuse it for its
    "version" field. It reaches 1b-ii, says the list is fresh there, and goes on. */
-test('#7617: a list shared through "also" that matches the pool goes through, and 1b-ii says it is fresh', (t) => {
+test('#7617: a list shared through "also" that matches the pool goes through, and 1b-ii says it is fresh', { skip: SKIP_MAC_RELEASE_CUT }, (t) => {
   const { dir, home, site } = git_sandbox('0.6.02', { whatsNewFor: '0.6.02', whatsNewAlso: ['0.6.03'] });
   t.after(() => { for (const d of [dir, site]) fs.rmSync(d, { recursive: true, force: true }); });
   const r = run_git(dir, '0.6.03', home, site);
@@ -1226,7 +1230,7 @@ test('#7617: a list shared through "also" that matches the pool goes through, an
   assert.match(r.said, /== 2\. the version, in one place ==/, 'a fresh "also" list did not get past the check');
 });
 
-test('#7617: the same stale list goes through with KOSMOS_CUT_NO_WHATS_NEW=1, as the opt-out skips every What\'s New check', (t) => {
+test('#7617: the same stale list goes through with KOSMOS_CUT_NO_WHATS_NEW=1, as the opt-out skips every What\'s New check', { skip: SKIP_MAC_RELEASE_CUT }, (t) => {
   const { dir, home, site } = git_sandbox('0.6.02', { whatsNewPoolExtra:
     { icon: 'chat', title: 'Merged after the list', line: 'A pool item that landed after web/whats-new.json was built.', rank: 1, since: '0.6.02', status: 'pending' } });
   t.after(() => { for (const d of [dir, site]) fs.rmSync(d, { recursive: true, force: true }); });
@@ -1238,7 +1242,7 @@ test('#7617: the same stale list goes through with KOSMOS_CUT_NO_WHATS_NEW=1, as
 /* kosmos#7349: 1b-ii still refuses on its own, for a pool that falls behind AFTER the early check (a promote deployed
    while the cut waited on the machine). A stand-in curl, first on PATH, answers the prod pointer's URL with the
    recorded prod on its first read and a newer one after; every other URL goes to the real curl. */
-test('#7349: prod moving on after the early check still stops the cut AT 1b-ii, before anything is bumped', (t) => {
+test('#7349: prod moving on after the early check still stops the cut AT 1b-ii, before anything is bumped', { skip: SKIP_MAC_RELEASE_CUT }, (t) => {
   const { dir, home, site } = git_sandbox('0.6.02');   // the pool records prod 0.6.02, and the site serves it
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-curlstub-'));
   t.after(() => { for (const d of [dir, site, bin]) fs.rmSync(d, { recursive: true, force: true }); });   // a red arm too
@@ -1268,7 +1272,7 @@ test('#7349: prod moving on after the early check still stops the cut AT 1b-ii, 
   assert.equal(r.touched, false, 'the version was bumped before the refusal');
 });
 
-test('#5713: prod that cannot be read is a NOTE, and the cut goes on; CONTROL: a pool that records prod says nothing', () => {
+test('#5713: prod that cannot be read is a NOTE, and the cut goes on; CONTROL: a pool that records prod says nothing', { skip: SKIP_MAC_RELEASE_CUT }, () => {
   const { dir, home, site } = git_sandbox('0.6.02');
   const ok = run_git(dir, '0.6.03', home, site);
   assert.match(ok.said, /== 2\. the version, in one place ==/, 'CONTROL: the in-place check did not let the cut through');

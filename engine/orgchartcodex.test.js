@@ -21,6 +21,10 @@ const c = require('./orgchartcodex');
 const keys = require('./orgchartkeys');
 const o = require('./orgchartfile');
 
+// kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const SKIP_READER_OFF = skipOnWin32('the Codex org-chart reader is off on Windows by design (engine/orgchartcodex.js WHY_WINDOWS)');
+
 const PNG = fs.readFileSync(path.join(__dirname, '..', 'test-support', 'orgchart-4559', 'chart.png'));
 const PEOPLE = { people: [
   { person: 'Avery Quill', title: 'Chief Executive', reportsTo: null, sure: true, why: null },
@@ -94,7 +98,7 @@ const combined = (why, platform = process.platform, short = null) => [o.noModelF
 /* The Claude-first sentence leads, and it does not offer ChatGPT (the person's own ChatGPT cannot be used). */
 const noChatgptAfterClaude = (why) => { const m = /^Claude reads [^]*?PDF\)\./.exec(String(why)); return !!m && !/ChatGPT/.test(m[0]); };
 
-test('pick: a ChatGPT-subscription account reads, default first; key accounts and no Codex do not', () => {
+test('pick: a ChatGPT-subscription account reads, default first; key accounts and no Codex do not', { skip: SKIP_READER_OFF }, () => {
   c.setAccounts(() => [{ dir: '/k', authMode: 'apikey', isDefault: true }, { dir: '/b', authMode: 'chatgpt', email: 'b@x.test' }, { ...SUB, isDefault: true }]);
   assert.deepEqual(c.pick(), { kind: 'codex', provider: 'openai', dir: acct, account: 'ceo@example.test' });
   c.setAccounts(() => [{ dir: '/k', authMode: 'apikey' }]);
@@ -109,7 +113,7 @@ test('pick: a ChatGPT-subscription account reads, default first; key accounts an
   c.setBin(() => fake);
 });
 
-test('order: no Claude, a ChatGPT subscription is chosen before a key account', () => {
+test('order: no Claude, a ChatGPT subscription is chosen before a key account', { skip: SKIP_READER_OFF }, () => {
   keys.setAccounts(() => [{ provider: 'openai', dir: '/k', account: 'work' }]);
   try {
     assert.equal(o.currentReader().kind, 'codex');
@@ -118,7 +122,7 @@ test('order: no Claude, a ChatGPT subscription is chosen before a key account', 
   } finally { c.setAccounts(() => [SUB]); keys.setAccounts(() => []); }
 });
 
-test('consent names OpenAI, ChatGPT and the account, on the plan, with what OpenAI does with it', () => {
+test('consent names OpenAI, ChatGPT and the account, on the plan, with what OpenAI does with it', { skip: SKIP_READER_OFF }, () => {
   const r = o.currentReader();
   const got = o.consentFor(r);
   assert.equal(got.provider, 'OpenAI (ChatGPT, ceo@example.test)');
@@ -128,12 +132,12 @@ test('consent names OpenAI, ChatGPT and the account, on the plan, with what Open
   assert.notEqual(got.reader, o.readerId({ kind: 'codex', dir: acct + '-other' }), 'another account is another reader');
 });
 
-test('a PDF is refused before the consent, in words', () => {
+test('a PDF is refused before the consent, in words', { skip: SKIP_READER_OFF }, () => {
   assert.match(o.readerProblem('chart.pdf', o.currentReader()), /^ChatGPT cannot read a PDF/);
   assert.equal(o.readerProblem('chart.png', o.currentReader()), null);
 });
 
-test('a read: every switch is on the command line, the picture goes in, the catalog is cleared, the answer is used', async () => {
+test('a read: every switch is on the command line, the picture goes in, the catalog is cleared, the answer is used', { skip: SKIP_READER_OFF }, async () => {
   answer(PEOPLE);
   const got = await o.readWithModel('chart.png', PNG, { reader: o.currentReader() });
   assert.deepEqual(got.rows.map((r) => r.person), ['Avery Quill', 'Bo Linden']);
@@ -161,7 +165,7 @@ test('a read: every switch is on the command line, the picture goes in, the cata
   await grandchildGone();
 });
 
-test('only allowlisted variables reach Codex: no key, token, base URL or NODE_OPTIONS; the proxy is kept', async () => {
+test('only allowlisted variables reach Codex: no key, token, base URL or NODE_OPTIONS; the proxy is kept', { skip: SKIP_READER_OFF }, async () => {
   const NAMES = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL', 'Openai_Api_Key', 'NODE_OPTIONS', 'ANTHROPIC_API_KEY', 'AGENT_WORKFORCE_TOKEN', 'HTTPS_PROXY'];
   const saved = Object.fromEntries(NAMES.map((k) => [k, process.env[k]]));
   for (const k of NAMES) process.env[k] = k === 'HTTPS_PROXY' ? 'http://proxy.example.test:3128' : k === 'NODE_OPTIONS' ? '--no-warnings' : 'TEST-5346';
@@ -182,7 +186,7 @@ test('reader id: another ChatGPT account signed in to the same folder is another
   assert.notEqual(o.readerId({ kind: 'codex', dir: acct, account: 'a@x.test' }), o.readerId({ kind: 'codex', dir: acct, account: 'b@x.test' }));
 });
 
-test('tripwire: any tool event refuses the answer', async () => {
+test('tripwire: any tool event refuses the answer', { skip: SKIP_READER_OFF }, async () => {
   for (const type of ['command_execution', 'file_change', 'mcp_tool_call', 'web_search', 'something_new']) {
     events({ type: 'turn.started' }, { type: 'item.started', item: { id: 'i1', type } },
       { type: 'item.completed', item: { id: 'i2', type: 'agent_message', text: JSON.stringify(PEOPLE) } });
@@ -193,7 +197,7 @@ test('tripwire: any tool event refuses the answer', async () => {
   }
 });
 
-test('no catalog in the account: refused in words, Codex never started', async () => {
+test('no catalog in the account: refused in words, Codex never started', { skip: SKIP_READER_OFF }, async () => {
   const bare = path.join(root, 'bare');
   fs.mkdirSync(bare, { recursive: true });
   fs.rmSync(record, { force: true });
@@ -203,7 +207,7 @@ test('no catalog in the account: refused in words, Codex never started', async (
   assert.equal(fs.existsSync(record), false);
 });
 
-test('a hung Codex ends at the timeout; a stopped read ends at once', async () => {
+test('a hung Codex ends at the timeout; a stopped read ends at once', { skip: SKIP_READER_OFF }, async () => {
   fs.writeFileSync(script, 'hang');
   c.setTimeoutMs(800);
   try {
@@ -221,7 +225,7 @@ test('a hung Codex ends at the timeout; a stopped read ends at once', async () =
   } finally { c.setTimeoutMs(null); }
 });
 
-test('an answer that is not JSON, and no answer at all, are refusals', async () => {
+test('an answer that is not JSON, and no answer at all, are refusals', { skip: SKIP_READER_OFF }, async () => {
   events({ type: 'item.completed', item: { id: 'i', type: 'agent_message', text: 'Here is your chart!' } }, { type: 'turn.completed' });
   assert.match((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, /not the list asked for/);
   await grandchildGone();
@@ -240,7 +244,7 @@ test('offeredTools finds tools nested in a developer message, by name or built-i
   assert.deepEqual(c.offeredTools(body), ['update_plan', 'request_user_input', 'web_search']);
 });
 
-test('a Codex that is not the version Kosmos pins is not used, and the person is told why', () => {
+test('a Codex that is not the version Kosmos pins is not used, and the person is told why', { skip: SKIP_READER_OFF }, () => {
   c.setVersion(() => '9.9.9');
   try {
     assert.equal(o.currentReader(), null);
@@ -251,7 +255,7 @@ test('a Codex that is not the version Kosmos pins is not used, and the person is
   assert.equal(o.currentReader().kind, 'codex', 'CONTROL: the pinned version reads');
 });
 
-test('an account with its own instructions file (AGENTS.md or AGENTS.override.md) is not used: Codex would send it', async () => {
+test('an account with its own instructions file (AGENTS.md or AGENTS.override.md) is not used: Codex would send it', { skip: SKIP_READER_OFF }, async () => {
   for (const f of c.INSTRUCTION_FILES) {
     fs.writeFileSync(path.join(acct, f), 'private instructions');
     try {
@@ -262,7 +266,7 @@ test('an account with its own instructions file (AGENTS.md or AGENTS.override.md
   assert.equal(o.currentReader().kind, 'codex', 'CONTROL: without the file it reads');
 });
 
-test('a file made after the consent is caught at the read: Codex is never started', async () => {
+test('a file made after the consent is caught at the read: Codex is never started', { skip: SKIP_READER_OFF }, async () => {
   const r = o.currentReader();
   fs.writeFileSync(path.join(acct, 'AGENTS.md'), 'private instructions');
   fs.rmSync(record, { force: true });
@@ -273,7 +277,7 @@ test('a file made after the consent is caught at the read: Codex is never starte
   } finally { fs.rmSync(path.join(acct, 'AGENTS.md')); }
 });
 
-test('#5346 step 2: with no reader at all, the person\'s own ChatGPT account\'s reason is told (after Claude first), and Gemini\'s in one sentence', () => {
+test('#5346 step 2: with no reader at all, the person\'s own ChatGPT account\'s reason is told (after Claude first), and Gemini\'s in one sentence', { skip: SKIP_READER_OFF }, () => {
   keys.setAccounts(() => [{ provider: 'google', dir: '/g', account: 'g' }]);
   c.setVersion(() => '9.9.9');
   try {
@@ -289,7 +293,7 @@ test('#5346 step 2: with no reader at all, the person\'s own ChatGPT account\'s 
   } finally { keys.setAccounts(() => []); c.setVersion(() => PINNED); c.setAccounts(() => [SUB]); }
 });
 
-test('a catalog with a field this Codex does not know, or written by another Codex version, is not used', async () => {
+test('a catalog with a field this Codex does not know, or written by another Codex version, is not used', { skip: SKIP_READER_OFF }, async () => {
   const write = (cache) => fs.writeFileSync(path.join(acct, 'models_cache.json'), JSON.stringify(cache));
   try {
     write({ ...CACHE, models: [...CACHE.models, { slug: 'm3', new_tool_switch: true }] });
@@ -307,7 +311,7 @@ test('a catalog with a field this Codex does not know, or written by another Cod
   } finally { write(CACHE); }
 });
 
-test('a computer with Codex settings an administrator manages is not used', async () => {
+test('a computer with Codex settings an administrator manages is not used', { skip: SKIP_READER_OFF }, async () => {
   const managed = path.join(root, 'etc-codex');
   fs.mkdirSync(managed, { recursive: true });
   c.setSystemConfigPaths(() => [managed]);
@@ -321,7 +325,7 @@ test('a computer with Codex settings an administrator manages is not used', asyn
   assert.equal(o.currentReader().kind, 'codex', 'CONTROL: without it the read is offered');
 });
 
-test('a reconnect error followed by a completed turn is still an answer; one with no completed turn is not', async () => {
+test('a reconnect error followed by a completed turn is still an answer; one with no completed turn is not', { skip: SKIP_READER_OFF }, async () => {
   events({ type: 'error', message: 'Reconnecting... 1/5' }, { type: 'item.completed', item: { id: 'i', type: 'agent_message', text: JSON.stringify(PEOPLE) } }, { type: 'turn.completed' });
   assert.equal((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).ok, true);
   events({ type: 'error', message: 'Reconnecting... 5/5' }, { type: 'item.completed', item: { id: 'i', type: 'agent_message', text: JSON.stringify(PEOPLE) } });
@@ -329,7 +333,7 @@ test('a reconnect error followed by a completed turn is still an answer; one wit
   await grandchildGone();
 });
 
-test('a PDF with ChatGPT and a key account goes to the key; with no key, ChatGPT is the reader and says it cannot', () => {
+test('a PDF with ChatGPT and a key account goes to the key; with no key, ChatGPT is the reader and says it cannot', { skip: SKIP_READER_OFF }, () => {
   keys.setAccounts(() => [{ provider: 'openai', dir: '/k', account: 'work' }]);
   try {
     assert.equal(o.currentReader('chart.pdf').kind, 'key');
@@ -351,10 +355,11 @@ test('Windows: ChatGPT is not used to read org charts, and the person is told wh
     assert.deepEqual(await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null), { ok: false, because: c.WHY_WINDOWS });
     assert.equal(fs.existsSync(record), false);
   } finally { Object.defineProperty(process, 'platform', real); }
-  assert.equal(o.currentReader().kind, 'codex', 'CONTROL: on this platform it reads');
+  // kosmos#8378: the control needs a host where the reader is on; the faked-Windows half above runs everywhere.
+  if (!SKIP_READER_OFF) assert.equal(o.currentReader().kind, 'codex', 'CONTROL: on this platform it reads');
 });
 
-test('a Codex upgraded after the consent is caught at the read: Codex is never started', async () => {
+test('a Codex upgraded after the consent is caught at the read: Codex is never started', { skip: SKIP_READER_OFF }, async () => {
   const r = o.currentReader();
   c.setVersion(() => '9.9.9');
   fs.rmSync(record, { force: true });
@@ -366,7 +371,7 @@ test('a Codex upgraded after the consent is caught at the read: Codex is never s
   } finally { c.setVersion(() => PINNED); }
 });
 
-test('a read stopped before it starts never starts Codex', async () => {
+test('a read stopped before it starts never starts Codex', { skip: SKIP_READER_OFF }, async () => {
   const ctl = new AbortController();
   ctl.abort();
   fs.rmSync(record, { force: true });
@@ -374,7 +379,7 @@ test('a read stopped before it starts never starts Codex', async () => {
   assert.equal(fs.existsSync(record), false);
 });
 
-test('tripwire: an item with no readable type is refused too', async () => {
+test('tripwire: an item with no readable type is refused too', { skip: SKIP_READER_OFF }, async () => {
   events({ type: 'item.started', item: { id: 'x' } }, { type: 'item.completed', item: { id: 'i', type: 'agent_message', text: JSON.stringify(PEOPLE) } }, { type: 'turn.completed' });
   assert.match((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, /tried to use a tool/);
   await grandchildGone();
@@ -385,14 +390,14 @@ test('offeredTools fails closed: a tool of a kind never seen before, in any tool
   assert.deepEqual(c.offeredTools(body).sort(), ['tool_search', 'unknown', 'update_plan', 'web_fetch'].sort());
 });
 
-test('only PNG and JPEG are read: a GIF or WebP is refused before the consent, in words', () => {
+test('only PNG and JPEG are read: a GIF or WebP is refused before the consent, in words', { skip: SKIP_READER_OFF }, () => {
   const r = o.currentReader('chart.png');
   assert.match(o.readerProblem('chart.gif', r), /^ChatGPT cannot read this kind of picture/);
   assert.match(o.readerProblem('chart.webp', r), /^ChatGPT cannot read this kind of picture/);
   assert.equal(o.readerProblem('chart.jpg', r), null);
 });
 
-test('a read removes a read folder left by a board that died over 15 minutes ago, and keeps a recent one', async () => {
+test('a read removes a read folder left by a board that died over 15 minutes ago, and keeps a recent one', { skip: SKIP_READER_OFF }, async () => {
   const old = fs.mkdtempSync(path.join(os.tmpdir(), c.TMP_PREFIX));
   const fresh = fs.mkdtempSync(path.join(os.tmpdir(), c.TMP_PREFIX));
   const past = (Date.now() - 16 * 60 * 1000) / 1000;
@@ -406,7 +411,7 @@ test('a read removes a read folder left by a board that died over 15 minutes ago
   await grandchildGone();
 });
 
-test('tripwire: an event of an unknown kind (a tool call outside an item, say) is refused', async () => {
+test('tripwire: an event of an unknown kind (a tool call outside an item, say) is refused', { skip: SKIP_READER_OFF }, async () => {
   events({ type: 'turn.started' }, { type: 'function_call', name: 'exec_command' }, { type: 'item.completed', item: { id: 'i', type: 'agent_message', text: JSON.stringify(PEOPLE) } }, { type: 'turn.completed' });
   assert.match((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, /tried to use a tool/);
   await grandchildGone();
@@ -435,7 +440,7 @@ test('the exact Codex command line is pinned', () => {
     '-c', 'model_catalog_json="/C"', '--output-schema', '/S', '-i', '/I', '--', 'P']);
 });
 
-test('Codex exiting before any turn with its own reason: a missing sign-in is named as one', async () => {
+test('Codex exiting before any turn with its own reason: a missing sign-in is named as one', { skip: SKIP_READER_OFF }, async () => {
   fs.writeFileSync(script, 'stderr:Error: no Codex credentials were found. Run codex login to sign in.\n');
   assert.match((await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null)).because, /sign-in on this computer has ended/);
   await grandchildGone();
@@ -493,7 +498,8 @@ test('#5346 step 2 review 5: Windows with no Codex says Windows, not "install Co
     Object.defineProperty(process, 'platform', { value: 'win32' });
     assert.equal(c.pickWithWhy().offWhy, c.WHY_WINDOWS);
     Object.defineProperty(process, 'platform', real);
-    assert.equal(c.pickWithWhy().offWhy, c.WHY_NO_CODEX, 'control: off Windows, no Codex is the reason');
+    // kosmos#8378: the off-Windows control needs a host where the reader is on; the faked-Windows half runs everywhere.
+    if (!SKIP_READER_OFF) assert.equal(c.pickWithWhy().offWhy, c.WHY_NO_CODEX, 'control: off Windows, no Codex is the reason');
   } finally { Object.defineProperty(process, 'platform', real); c.setBin(() => fake); }
   assert.ok(noChatgptAfterClaude(o.noModelAfter({ kind: 'codex', dir: acct })), o.noModelAfter({ kind: 'codex', dir: acct }));
   assert.ok(o.noModelAfter({ kind: 'codex', dir: acct }).includes(c.WHY_NO_CODEX.slice(0, -tail.length)), 'the reason itself is said');
@@ -529,7 +535,7 @@ test('#5346 step 2 review 6: every refusal ends with ANY_PROVIDER, which current
   for (const k of whys) assert.ok(c[k].endsWith(' ' + c.ANY_PROVIDER), k + ' does not end with ANY_PROVIDER, so the composed reason would say it twice');
 });
 
-test('#5346 step 2 review 8: after a Claude read could not run, a refused ChatGPT here is said, not offered', () => {
+test('#5346 step 2 review 8: after a Claude read could not run, a refused ChatGPT here is said, not offered', { skip: SKIP_READER_OFF }, () => {
   c.setVersion(() => '9.9.9');
   try {
     const after = o.noModelAfter({ kind: 'claude' });

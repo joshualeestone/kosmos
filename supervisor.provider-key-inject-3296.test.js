@@ -16,6 +16,10 @@ const os = require('node:os');
 const nodePath = require('node:path');
 const { spawnSync } = require('node:child_process');
 
+// kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
+const { skipOnWin32 } = require('./test-support/skip-on-win32');
+const SKIP_BIN_BASH = skipOnWin32('it runs the supervisor (bin/agent-supervisor.sh) through /bin/bash by an absolute POSIX path, which Windows cannot run');
+
 const SUP = nodePath.join(__dirname, 'bin', 'agent-supervisor.sh');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-sup-keyinject-3296-'));
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -65,7 +69,7 @@ function runSupervisor({ runner, model, envHome, envVar }) {
   return { code: r.status, stdout: r.stdout, stderr: r.stderr, rec: `${secrets}\n${argv}` };
 }
 
-test('gemini: a per-account key file is injected as GEMINI_API_KEY into the pane', () => {
+test('gemini: a per-account key file is injected as GEMINI_API_KEY into the pane', { skip: SKIP_BIN_BASH }, () => {
   const home = nodePath.join(SANDBOX, '.gemini-acct');
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(nodePath.join(home, '.kosmos-gemini-apikey'), 'AIza-account-secret-1234', { mode: 0o600 });
@@ -77,7 +81,7 @@ test('gemini: a per-account key file is injected as GEMINI_API_KEY into the pane
   assert.ok(!out.stdout.includes('AIza-account-secret-1234') && !out.stderr.includes('AIza-account-secret-1234'), 'the key never appears in the supervisor stdout/stderr');
 });
 
-test('gemini: NO key file -> no per-account GEMINI_API_KEY injection (falls back to the global door)', () => {
+test('gemini: NO key file -> no per-account GEMINI_API_KEY injection (falls back to the global door)', { skip: SKIP_BIN_BASH }, () => {
   const home = nodePath.join(SANDBOX, '.gemini-nokey');
   fs.mkdirSync(home, { recursive: true }); // account home exists, but no key file
   const out = runSupervisor({ runner: 'gemini', model: 'gemini-2.5-flash', envHome: home, envVar: 'GEMINI_CLI_HOME' });
@@ -85,7 +89,7 @@ test('gemini: NO key file -> no per-account GEMINI_API_KEY injection (falls back
   assert.ok(!/-e GEMINI_API_KEY=/.test(out.rec), 'no per-account key injected when the file is absent');
 });
 
-test('grok: a per-account key file is injected as XAI_API_KEY into the pane', () => {
+test('grok: a per-account key file is injected as XAI_API_KEY into the pane', { skip: SKIP_BIN_BASH }, () => {
   const home = nodePath.join(SANDBOX, '.grok-acct');
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(nodePath.join(home, '.kosmos-grok-apikey'), 'xai-account-secret-5678', { mode: 0o600 });
@@ -95,7 +99,7 @@ test('grok: a per-account key file is injected as XAI_API_KEY into the pane', ()
   assert.ok(!out.stdout.includes('xai-account-secret-5678') && !out.stderr.includes('xai-account-secret-5678'), 'the key never appears in the supervisor stdout/stderr');
 });
 
-test('grok: NO key file -> no per-account XAI_API_KEY injection', () => {
+test('grok: NO key file -> no per-account XAI_API_KEY injection', { skip: SKIP_BIN_BASH }, () => {
   const home = nodePath.join(SANDBOX, '.grok-nokey');
   fs.mkdirSync(home, { recursive: true });
   const out = runSupervisor({ runner: 'grok', model: 'grok-4.6', envHome: home, envVar: 'GROK_HOME' });
@@ -103,7 +107,7 @@ test('grok: NO key file -> no per-account XAI_API_KEY injection', () => {
   assert.ok(!/-e XAI_API_KEY=/.test(out.rec), 'no per-account key injected when the file is absent');
 });
 
-test('a default-account gemini agent (no GEMINI_CLI_HOME) injects no per-account key', () => {
+test('a default-account gemini agent (no GEMINI_CLI_HOME) injects no per-account key', { skip: SKIP_BIN_BASH }, () => {
   const out = runSupervisor({ runner: 'gemini', model: 'gemini-2.5-flash', envHome: null, envVar: 'GEMINI_CLI_HOME' });
   assert.ok(out.rec.includes('new-session'), 'the default gemini arm launched');
   assert.ok(!/-e GEMINI_API_KEY=/.test(out.rec), 'a default-account agent injects no per-account key (uses the global door)');
@@ -148,14 +152,14 @@ function runSupervisorWithDoor({ runner, model, doorVar, doorValue, keyBasename 
   return out;
 }
 
-test('gemini: with BOTH a global-door key and a per-account key, the PER-ACCOUNT value wins in the pane', () => {
+test('gemini: with BOTH a global-door key and a per-account key, the PER-ACCOUNT value wins in the pane', { skip: SKIP_BIN_BASH }, () => {
   const rec = runSupervisorWithDoor({ runner: 'gemini', model: 'gemini-2.5-flash', doorVar: 'GEMINI_API_KEY', doorValue: 'globaldoorvalue', keyBasename: '.kosmos-gemini-apikey' });
   const all = [...rec.matchAll(/GEMINI_API_KEY=(\S+)/g)].map((m) => m[1]);
   assert.ok(all.includes('globaldoorvalue') && all.includes('peraccountvalue'), 'both the door value and the per-account value are passed');
   assert.equal(all[all.length - 1], 'peraccountvalue', 'the per-account key is the LAST -e, so tmux resolves it as the winner');
 });
 
-test('grok: with BOTH a global-door key and a per-account key, the PER-ACCOUNT value wins', () => {
+test('grok: with BOTH a global-door key and a per-account key, the PER-ACCOUNT value wins', { skip: SKIP_BIN_BASH }, () => {
   const rec = runSupervisorWithDoor({ runner: 'grok', model: 'grok-4.6', doorVar: 'XAI_API_KEY', doorValue: 'globaldoorvalue', keyBasename: '.kosmos-grok-apikey' });
   const all = [...rec.matchAll(/XAI_API_KEY=(\S+)/g)].map((m) => m[1]);
   assert.ok(all.includes('globaldoorvalue') && all.includes('peraccountvalue'), 'both values are passed');
@@ -238,7 +242,7 @@ function runGrokWithAccount({ door, keyFile, authJson, authRaw, keyIsDir, defaul
   return withStderr ? { rec: out, stderr: r.stderr || '' } : out;
 }
 
-test('grok SUBSCRIPTION account: the door XAI_API_KEY is dropped and grok runs under env -u XAI_API_KEY', () => {
+test('grok SUBSCRIPTION account: the door XAI_API_KEY is dropped and grok runs under env -u XAI_API_KEY', { skip: SKIP_BIN_BASH }, () => {
   const rec = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true });
   assert.ok(rec.includes('new-session'), 'the grok arm launched');
   assert.ok(!/XAI_API_KEY=/.test(rec), 'no XAI_API_KEY value of any kind reaches the pane');
@@ -249,27 +253,27 @@ test('grok SUBSCRIPTION account: the door XAI_API_KEY is dropped and grok runs u
   argv.forEach((a, i) => { if (a === '-e') assert.match(argv[i + 1] || '', /^[A-Z_][A-Z0-9_]*=/, 'every -e still carries a NAME=value after the filter'); });
 });
 
-test('grok CONTROL: a key-file account with an auth.json too keeps its key and gets no env -u', () => {
+test('grok CONTROL: a key-file account with an auth.json too keeps its key and gets no env -u', { skip: SKIP_BIN_BASH }, () => {
   const rec = runGrokWithAccount({ door: 'globaldoorvalue', keyFile: 'peraccountvalue', authJson: true });
   const all = [...rec.matchAll(/XAI_API_KEY=(\S+)/g)].map((m) => m[1]);
   assert.equal(all[all.length - 1], 'peraccountvalue', 'the key file wins, as identityOf decides');
   assert.ok(!/env -u XAI_API_KEY/.test(rec), 'a key-file account is not stripped');
 });
 
-test('grok: an EMPTY key file with an auth.json is a subscription account (the same rule identityOf uses)', () => {
+test('grok: an EMPTY key file with an auth.json is a subscription account (the same rule identityOf uses)', { skip: SKIP_BIN_BASH }, () => {
   const rec = runGrokWithAccount({ door: 'globaldoorvalue', keyFile: '', authJson: true });
   assert.ok(!/XAI_API_KEY=/.test(rec), 'an empty key file does not make it an api-key account');
   assert.match(rec, /env -u XAI_API_KEY/, 'it runs under env -u like any subscription account');
 });
 
-test('grok DEFAULT account (~/.grok) with a sign-in: the door key is dropped too, so it runs on the subscription the board lists', () => {
+test('grok DEFAULT account (~/.grok) with a sign-in: the door key is dropped too, so it runs on the subscription the board lists', { skip: SKIP_BIN_BASH }, () => {
   const rec = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, defaultHome: true });
   assert.ok(rec.includes('new-session'), 'the default grok arm launched');
   assert.ok(!/XAI_API_KEY=/.test(rec), 'no XAI_API_KEY reaches a default agent whose ~/.grok holds a sign-in');
   assert.match(rec, /\/usr\/bin\/env -u XAI_API_KEY/);
 });
 
-test('grok DEFAULT CONTROL: a default ~/.grok with NO sign-in keeps the door key', () => {
+test('grok DEFAULT CONTROL: a default ~/.grok with NO sign-in keeps the door key', { skip: SKIP_BIN_BASH }, () => {
   const rec = runGrokWithAccount({ door: 'globaldoorvalue', defaultHome: true });
   assert.match(rec, /-e XAI_API_KEY=globaldoorvalue/, 'the door key still reaches a default agent with no sign-in');
   assert.ok(!/env -u XAI_API_KEY/.test(rec));
@@ -280,7 +284,7 @@ test('grok DEFAULT CONTROL: a default ~/.grok with NO sign-in keeps the door key
 const kept = (rec) => /-e XAI_API_KEY=globaldoorvalue/.test(rec) && !/env -u XAI_API_KEY/.test(rec);
 const stripped = (rec) => !/XAI_API_KEY=/.test(rec) && /env -u XAI_API_KEY/.test(rec);
 
-test('grok: an auth.json that is not ONE auth.x.ai entry is not a subscription, so the door key stays', () => {
+test('grok: an auth.json that is not ONE auth.x.ai entry is not a subscription, so the door key stays', { skip: SKIP_BIN_BASH }, () => {
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: '{}' })), 'an empty {} keeps the key');
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': {}, 'https://auth.x.ai::b': {} }) })), 'two entries keep the key');
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://other.example::a': {} }) })), 'another issuer keeps the key');
@@ -297,16 +301,16 @@ test('grok: an auth.json that is not ONE auth.x.ai entry is not a subscription, 
   assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e', refresh_token: 'r' } }) })));
 });
 
-test('grok: a WHITESPACE-only key file beside a sign-in is a subscription (identityOf trims it to empty)', () => {
+test('grok: a WHITESPACE-only key file beside a sign-in is a subscription (identityOf trims it to empty)', { skip: SKIP_BIN_BASH }, () => {
   assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', keyFile: '  \n', authJson: true })));
 });
 
-test('grok: an UNREADABLE key file beside a sign-in describes nothing, so nothing is stripped', () => {
+test('grok: an UNREADABLE key file beside a sign-in describes nothing, so nothing is stripped', { skip: SKIP_BIN_BASH }, () => {
   assert.ok(kept(runGrokWithAccount({ door: 'globaldoorvalue', keyIsDir: true, authJson: true })));
 });
 
 
-test('grok: with NO engine to ask, a sign-in fails closed and says the door was refused', () => {
+test('grok: with NO engine to ask, a sign-in fails closed and says the door was refused', { skip: SKIP_BIN_BASH }, () => {
   const r = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, noEngine: true, withStderr: true });
   assert.ok(!/XAI_API_KEY=/.test(r.rec), 'the unverified door key is not handed to the agent');
   assert.match(r.stderr, /auth\.json is there but this supervisor cannot reach the engine or node/, 'and the supervisor log says why');
@@ -317,7 +321,7 @@ test('grok: with NO engine to ask, a sign-in fails closed and says the door was 
   assert.doesNotMatch(c.stderr, /cannot reach the engine/);
 });
 
-test('grok DEFAULT agent: the dir the supervisor judged is exported as GROK_HOME, so grok reads that dir', () => {
+test('grok DEFAULT agent: the dir the supervisor judged is exported as GROK_HOME, so grok reads that dir', { skip: SKIP_BIN_BASH }, () => {
   const rec = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, defaultHome: true });
   assert.match(rec, /-e GROK_HOME=\S+\/\.grok(\s|$)/, 'the default home is exported into the pane');
   const per = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true });
@@ -326,7 +330,7 @@ test('grok DEFAULT agent: the dir the supervisor judged is exported as GROK_HOME
   assert.match(homes[0], /\/acct$/, 'and it is the account dir');
 });
 
-test('grok: the supervisor classifies by identityOf itself, so odd shapes agree with the board', () => {
+test('grok: the supervisor classifies by identityOf itself, so odd shapes agree with the board', { skip: SKIP_BIN_BASH }, () => {
   // The issuer string repeated INSIDE the entry is still ONE top-level entry: a subscription.
   assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: JSON.stringify({ 'https://auth.x.ai::a': { email: 'e', refresh_token: 'r', note: '"https://auth.x.ai::b' } }) })));
   // One top-level entry whose value is not an object is not an account (identityOf null): kept.
@@ -341,7 +345,7 @@ test('grok: the supervisor classifies by identityOf itself, so odd shapes agree 
    the sign-in's state, so the row, the create gate and the runtime describe the same credential. A
    lapsed or uncertain sign-in fails visibly (the row says so) instead of quietly running on the
    machine's door key, which for a NAMED account would also bill somebody else. */
-test('grok: a LAPSED or UNKNOWN named sign-in still never inherits the door key (it runs on its own sign-in)', () => {
+test('grok: a LAPSED or UNKNOWN named sign-in still never inherits the door key (it runs on its own sign-in)', { skip: SKIP_BIN_BASH }, () => {
   const lapsed = JSON.stringify({ 'https://auth.x.ai::a': { email: 'e', expires_at: '2000-01-01T00:00:00.000000Z' } });
   const unknown = JSON.stringify({ 'https://auth.x.ai::a': { email: 'e' } });
   assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: lapsed })), 'a lapsed named sign-in does not fall back to the door key');
@@ -349,7 +353,7 @@ test('grok: a LAPSED or UNKNOWN named sign-in still never inherits the door key 
   assert.ok(stripped(runGrokWithAccount({ door: 'globaldoorvalue', authRaw: lapsed, defaultHome: true })), 'nor does a lapsed default one (create refuses it, the row says expired)');
 });
 
-test('grok: no launch carries a --leader-socket (this PR does not change how grok picks its leader)', () => {
+test('grok: no launch carries a --leader-socket (this PR does not change how grok picks its leader)', { skip: SKIP_BIN_BASH }, () => {
   for (const opts of [{ authJson: true }, { keyFile: 'peraccountvalue', authJson: true }, { authJson: true, defaultHome: true }, {}]) {
     const rec = runGrokWithAccount({ door: 'globaldoorvalue', ...opts });
     assert.ok(rec.includes('new-session'), 'CONTROL: it launched');
@@ -357,7 +361,7 @@ test('grok: no launch carries a --leader-socket (this PR does not change how gro
   }
 });
 
-test('grok: an engine that THROWS while classifying keeps an allowlisted key and SAYS so', () => {
+test('grok: an engine that THROWS while classifying keeps an allowlisted key and SAYS so', { skip: SKIP_BIN_BASH }, () => {
   const r = runGrokWithAccount({ door: 'globaldoorvalue', authJson: true, brokenEngine: true, withStderr: true });
   assert.ok(kept(r.rec), 'the allowlisted key is kept when the account kind cannot be read');
   assert.match(r.stderr, /could not read what kind of account \S+ is \(broken on purpose\), so this agent keeps any XAI_API_KEY/);

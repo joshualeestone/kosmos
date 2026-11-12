@@ -34,6 +34,10 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const zlib = require('node:zlib');
 
+// kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
+const { skipOnWin32 } = require('./test-support/skip-on-win32');
+const SKIP_SETUP_SH = skipOnWin32('it runs functions cut from install/setup.sh, the Mac and Linux installer, through sh -c, and a script that long passed on the Windows command line reaches Git Bash cut short; Windows installs Kosmos with its own installer and never runs setup.sh');
+
 /* curl only began aborting an ALREADY-RUNNING transfer at 8.4.0; before that
    --max-filesize decides from an announced length and refuses to start. That
    changes whether curl reports a content-type alongside exit 63, which one arm
@@ -266,18 +270,18 @@ test('#1662: the extraction actually found the shipped function', () => {
   assert.ok(FN, 'reachable() could not be extracted from install/setup.sh, so this file measured nothing');
 });
 
-test('#1662: a download that CANNOT EXIST is refused, even though the host 206s its error page', async () => {
+test('#1662: a download that CANNOT EXIST is refused, even though the host 206s its error page', { skip: SKIP_SETUP_SH }, async () => {
   assert.equal(await reachable(`${base}/zzz-cannot-exist.tar.gz`), 'NO',
     'reachable() accepted a name that cannot exist: the 404 page impersonated a download, '
     + 'and the installer\'s "could not reach the download" message is dead code again');
 });
 
-test('#1662: a real gzip download is still found (the check did not become useless)', async () => {
+test('#1662: a real gzip download is still found (the check did not become useless)', { skip: SKIP_SETUP_SH }, async () => {
   assert.equal(await reachable(`${base}/real.tar.gz`), 'YES',
     'reachable() refused a genuine tarball, which would block every install');
 });
 
-test('#1662: an HTML body served with a genuine 200 is not a download either', async () => {
+test('#1662: an HTML body served with a genuine 200 is not a download either', { skip: SKIP_SETUP_SH }, async () => {
   /* 🛑 THE ARM THAT DID NOT TEST WHAT IT SAID. This used to request
      `/index.html`, which the fixture served as a 404, so it was a duplicate of
      the cannot-exist case and the captive-portal shape was never covered
@@ -288,7 +292,7 @@ test('#1662: an HTML body served with a genuine 200 is not a download either', a
     'a 200 carrying an HTML body passed as a download: status alone was trusted');
 });
 
-test('#1662: a host that REFUSES HEAD is still reachable, via the range-GET fallback', async () => {
+test('#1662: a host that REFUSES HEAD is still reachable, via the range-GET fallback', { skip: SKIP_SETUP_SH }, async () => {
   /* 🛑 THE ONLY ARM THAT EXERCISES THE FALLBACK, and without it the fallback
      had NO must-pass coverage at all. Measured by mutation: deleting the
      range-GET arm from install/setup.sh entirely left every other test in this
@@ -315,7 +319,7 @@ test('#1662: a host that REFUSES HEAD is still reachable, via the range-GET fall
  * install outright behind "Check your internet connection".
  */
 
-test('#1662: a file:// URL is reachable, because the install gate drives the release path over it', async () => {
+test('#1662: a file:// URL is reachable, because the install gate drives the release path over it', { skip: SKIP_SETUP_SH }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1662-file-'));
   try {
     const f = path.join(dir, 'real.tar.gz');
@@ -334,7 +338,7 @@ test('#1662: a file:// URL is reachable, because the install gate drives the rel
    file://, and the refusal paths in that gate are exactly what this branch
    makes live for the first time, so the NO direction is the one that matters
    there. Measured: curl -fsIL on a missing file:// path returns rc 37. */
-test('#1662: a MISSING file:// path is refused, so the file:// arm has a failing case', async () => {
+test('#1662: a MISSING file:// path is refused, so the file:// arm has a failing case', { skip: SKIP_SETUP_SH }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1662-file-none-'));
   try {
     const missing = path.join(dir, 'not-here.tar.gz');
@@ -350,14 +354,14 @@ test('#1662: a MISSING file:// path is refused, so the file:// arm has a failing
  * it (the guard harness stubs reachable). These arms run the REAL predicate and
  * read the REAL number, so the sentence-picking above is connected to something
  * that actually produces the value it switches on. */
-test('#1662: the REAL reachable() returns 2 when the server answered but sent no download', async () => {
+test('#1662: the REAL reachable() returns 2 when the server answered but sent no download', { skip: SKIP_SETUP_SH }, async () => {
   assert.equal(await reachableStatus(`${base}/html200`), '2',
     'an origin that answers 200 with HTML must yield status 2. If this is 1, every guard prints '
     + '"Check your internet connection" for a server that answered perfectly well, and the '
     + 'status-2 sentence is dead code that only the stubbed guard arms can reach.');
 });
 
-test('#1662: the REAL reachable() returns 2 for a hard 404, not just for a 2xx error page', async () => {
+test('#1662: the REAL reachable() returns 2 for a hard 404, not just for a 2xx error page', { skip: SKIP_SETUP_SH }, async () => {
   /* The site this installer ships against answers its own 404 with a 206 and an
      HTML body, so rc is 0 there and status 2 was reached by luck of that
      origin's shape. S3, R2 and GitHub Releases return a HARD 404, where -f
@@ -369,7 +373,7 @@ test('#1662: the REAL reachable() returns 2 for a hard 404, not just for a 2xx e
     + 'If this is 1 the user is told to check a connection that is working.');
 });
 
-test('#1662: an answer seen by HEAD survives a range GET that never completes', async () => {
+test('#1662: an answer seen by HEAD survives a range GET that never completes', { skip: SKIP_SETUP_SH }, async () => {
   /* The two probes each produced a status and the second overwrote the first.
      So a definite 404 from HEAD, followed by a dropped range connection, left
      code 000 and non-zero rc: status 1, and the user was told to check a
@@ -381,7 +385,7 @@ test('#1662: an answer seen by HEAD survives a range GET that never completes', 
     + 'the network sentence about a reachable server.');
 });
 
-test('#1662: a missing file:// path is status 3, its own local-path case', async () => {
+test('#1662: a missing file:// path is status 3, its own local-path case', { skip: SKIP_SETUP_SH }, async () => {
   /* It was status 2 for one iteration, and status 2's copy offers a still-
      publishing release and an intercepting network. Both are false for a path
      on the reader's own disk, and tools/test-install.sh drives the entire
@@ -394,7 +398,7 @@ test('#1662: a missing file:// path is status 3, its own local-path case', async
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('#1662: the status-3 sentence names the PATH and claims no server, release or network', async () => {
+test('#1662: the status-3 sentence names the PATH and claims no server, release or network', { skip: SKIP_SETUP_SH }, async () => {
   for (let i = 0; i < GUARDS.length; i += 1) {
     const out = await runGuard(3, i);
     assert.match(out, /is not there/, `guard ${i}: must say the download is not there. Got: ${out}`);
@@ -410,7 +414,7 @@ test('#1662: the status-3 sentence names the PATH and claims no server, release 
   }
 });
 
-test('#1662: a 405 HEAD plus a dropped GET stays status 1, because a method refusal is not an answer', async () => {
+test('#1662: a 405 HEAD plus a dropped GET stays status 1, because a method refusal is not an answer', { skip: SKIP_SETUP_SH }, async () => {
   assert.equal(await reachableStatus(`${base}/head405-rangedrops.tar.gz`), '1',
     'a 405 means "I do not do HEAD", not "the artifact is missing". If this is 2 the caller drops '
     + '"could not reach" and "it is safe to re-run" and tells the user to check the address, for '
@@ -418,14 +422,14 @@ test('#1662: a 405 HEAD plus a dropped GET stays status 1, because a method refu
     + 'an exotic shape.');
 });
 
-test('#1662: a 405 HEAD followed by a WORKING range GET is still status 0', async () => {
+test('#1662: a 405 HEAD followed by a WORKING range GET is still status 0', { skip: SKIP_SETUP_SH }, async () => {
   /* CONTROL for the arm above: excluding 405 from the answered rule must not
      break the ordinary refuses-HEAD origin, which most of this fixture uses. */
   assert.equal(await reachableStatus(`${base}/head405.tar.gz`), '0',
     'an origin that refuses HEAD but serves the range GET must still be a clean YES');
 });
 
-test('#1662: the REAL reachable() returns 1 when nothing answered at all', async () => {
+test('#1662: the REAL reachable() returns 1 when nothing answered at all', { skip: SKIP_SETUP_SH }, async () => {
   /* Port 1 on loopback: nothing listens, so the request never completes and
      there is no http_code to read. This is the arm that keeps the 4xx rule
      above from swallowing the genuine no-connection case. */
@@ -434,13 +438,13 @@ test('#1662: the REAL reachable() returns 1 when nothing answered at all', async
     + 'and every network failure is blamed on the release.');
 });
 
-test('#1662: the REAL reachable() returns 0 for a genuine download, so 0/1/2 are all pinned', async () => {
+test('#1662: the REAL reachable() returns 0 for a genuine download, so 0/1/2 are all pinned', { skip: SKIP_SETUP_SH }, async () => {
   assert.equal(await reachableStatus(`${base}/real.tar.gz`), '0',
     'CONTROL: a real gzip must be status 0. Without this the three arms above are consistent '
     + 'with a predicate that never says yes.');
 });
 
-test('#1662: a REDIRECT to the artifact is followed, which is how S3, R2 and GitHub Releases serve', async () => {
+test('#1662: a REDIRECT to the artifact is followed, which is how S3, R2 and GitHub Releases serve', { skip: SKIP_SETUP_SH }, async () => {
   assert.equal(await reachable(`${base}/redirect.tar.gz`), 'YES',
     'a 302 to a real gzip must be YES. Without -L curl reports the REDIRECT response type, which '
     + 'this fixture serves as text/html, so the predicate would refuse a perfectly good artifact '
@@ -450,7 +454,7 @@ test('#1662: a REDIRECT to the artifact is followed, which is how S3, R2 and Git
     + 'download, not an "answered but unusable" case');
 });
 
-test('#1662: content-type matching is case-insensitive, per RFC 9110 section 8.3', async () => {
+test('#1662: content-type matching is case-insensitive, per RFC 9110 section 8.3', { skip: SKIP_SETUP_SH }, async () => {
   /* 🛑 THE ARM MUST BE A CAPITALISED **TEXTUAL** TYPE BEING REFUSED. An earlier
      version asserted `Application/GZIP` -> YES, which is decoration: unknown
      types are accepted anyway, so that arm passed with the lowercasing
@@ -463,7 +467,7 @@ test('#1662: content-type matching is case-insensitive, per RFC 9110 section 8.3
     'a genuine tarball was refused because its header was capitalised');
 });
 
-test('#1662: a host that cannot be reached at all is refused, and NOT via the type rule', async () => {
+test('#1662: a host that cannot be reached at all is refused, and NOT via the type rule', { skip: SKIP_SETUP_SH }, async () => {
   /* 🛑 THE CURL EXIT STATUS IS A SEPARATE RULE AND IT WAS UNCOVERED. Measured:
      deleting `[ "$1" = 0 ] || return 1` left all 8 tests green, because every
      other failing arm in this fixture also carries text/html, so the type rule
@@ -477,7 +481,7 @@ test('#1662: a host that cannot be reached at all is refused, and NOT via the ty
     + 'installer would proceed to a download that cannot happen');
 });
 
-test('#1662: text/plain is ACCEPTED, because it is nginx default_type for an unmapped extension', async () => {
+test('#1662: text/plain is ACCEPTED, because it is nginx default_type for an unmapped extension', { skip: SKIP_SETUP_SH }, async () => {
   /* The refusal is `text/html`, not `text/*`, on purpose. A mirror that has
      not mapped .gz serves a genuine tarball as text/plain, and refusing it
      would stop that install with the status-1 connection sentence -- the
@@ -492,21 +496,21 @@ test('#1662: text/plain is ACCEPTED, because it is nginx default_type for an unm
    A structured-syntax-suffix type is textual by construction and is never a
    tarball, so refusing it is the same call as refusing +json; leaving one in and
    the other out was an inconsistency, not a decision. */
-test('#1662: a +xml suffix type is refused, matching the +json arm', async () => {
+test('#1662: a +xml suffix type is refused, matching the +json arm', { skip: SKIP_SETUP_SH }, async () => {
   assert.equal(await reachable(`${base}/real.tar.gz?ct=application%2Frss%2Bxml`), 'NO',
     'application/rss+xml is textual and must be refused, exactly as application/*+json is');
   assert.equal(await reachable(`${base}/real.tar.gz?ct=application%2Fgzip`), 'YES',
     'CONTROL: the same fixture with a real gzip type must still be YES, or this arm is refusing everything');
 });
 
-test('#1662: a download with NO content-type header at all is accepted', async () => {
+test('#1662: a download with NO content-type header at all is accepted', { skip: SKIP_SETUP_SH }, async () => {
   /* Refusing here would be a false NO, which blocks an install. The status
      check already rejects a connection that failed. */
   const r = await reachable(`${base}/real.tar.gz?ct=none`);
   assert.equal(r, 'YES', 'a real download with no content-type header was refused');
 });
 
-test('#1662: reachable() does not abort the shell under setup.sh\'s options when HEAD fails', async () => {
+test('#1662: reachable() does not abort the shell under setup.sh\'s options when HEAD fails', { skip: SKIP_SETUP_SH }, async () => {
   /* 🛑 THE ARM THE NO-OPTIONS HARNESS COULD NOT HAVE. The shipped file runs
      under `set -eu` (plus pipefail under bash), where a bare `_r_ct=$(curl …)` is an
      unprotected simple command: a failing HEAD probe kills the shell before
@@ -523,7 +527,7 @@ test('#1662: reachable() does not abort the shell under setup.sh\'s options when
     + `instead of falling through. Got: ${JSON.stringify(stdout)}`);
 });
 
-test('#1662: EVERY refused media type has an arm, not just text/html', async () => {
+test('#1662: EVERY refused media type has an arm, not just text/html', { skip: SKIP_SETUP_SH }, async () => {
   /* 🛑 FIVE OF THE SIX REFUSE-ARMS HAD NO TEST. Measured: deleting
      application/xhtml, application/json, application/problem+json,
      application/xml and text/xml from the case statement left all 11 other
@@ -552,7 +556,7 @@ test('#1662: EVERY refused media type has an arm, not just text/html', async () 
   }
 });
 
-test('#1662: a textual HEAD does not end it, the ranged GET gets a second opinion', async () => {
+test('#1662: a textual HEAD does not end it, the ranged GET gets a second opinion', { skip: SKIP_SETUP_SH }, async () => {
   /* 🛑 THE ARM THE FIXTURE COULD NOT PREVIOUSLY EXPRESS. The range-GET arm now
      runs even when HEAD SUCCEEDED with a textual type, where the pre-#1662
      code reached it only after a HEAD failure. That behaviour is deliberate
@@ -705,7 +709,7 @@ test('#1662: the two guard blocks are byte-identical, so user-facing copy cannot
     + 'different sentences for one failure. Either fix both, or extract a helper and update this arm.');
 });
 
-test('#1662: EVERY guard makes the caller SAY SO and stop on a NO', async () => {
+test('#1662: EVERY guard makes the caller SAY SO and stop on a NO', { skip: SKIP_SETUP_SH }, async () => {
   for (let i = 0; i < GUARDS.length; i += 1) {
   const out = await runGuard(1, i);
   assert.match(out, /could not reach the download at https:\/\/example\.invalid/,
@@ -725,7 +729,7 @@ test('#1662: EVERY guard makes the caller SAY SO and stop on a NO', async () => 
  * unreachable; this card is what makes it live, which is why the fix belongs
  * here rather than in a follow-up. Each arm asserts the OTHER sentence is
  * ABSENT, so an edit that collapses them back into one message reddens. */
-test('#1662: a CONNECTION failure and a SERVED-ERROR failure get different sentences', async () => {
+test('#1662: a CONNECTION failure and a SERVED-ERROR failure get different sentences', { skip: SKIP_SETUP_SH }, async () => {
   for (let i = 0; i < GUARDS.length; i += 1) {
     const cannotConnect = await runGuard(1, i);
     assert.match(cannotConnect, /Check your internet connection/,
@@ -793,7 +797,7 @@ test('#1662: a CONNECTION failure and a SERVED-ERROR failure get different sente
   }
 });
 
-test('#1662: EVERY guard falls through on a YES, so none is a wall', async () => {
+test('#1662: EVERY guard falls through on a YES, so none is a wall', { skip: SKIP_SETUP_SH }, async () => {
   for (let i = 0; i < GUARDS.length; i += 1) {
   const out = await runGuard(0, i);
   assert.match(out, /FELL-THROUGH/, `a reachable download was blocked by its own guard. Got: ${out}`);
@@ -802,7 +806,7 @@ test('#1662: EVERY guard falls through on a YES, so none is a wall', async () =>
   }
 });
 
-test('#1662: --max-filesize must not refuse a REAL download from a Range-ignoring origin', async () => {
+test('#1662: --max-filesize must not refuse a REAL download from a Range-ignoring origin', { skip: SKIP_SETUP_SH }, async () => {
   /* 🛑 THIS ARM EXISTS BECAUSE I SHIPPED THE REGRESSION IT CATCHES. The cap
      was added to bound a residual, and curl exits 63 when it trips. The first
      version let that non-zero reach the predicate, so a genuine download from
@@ -816,7 +820,7 @@ test('#1662: --max-filesize must not refuse a REAL download from a Range-ignorin
     + 'curl exit 63 (max-filesize) is being read as a failure instead of as proof of a large body');
 });
 
-test('#1662: but a LARGE textual body is still refused, so 63 is not a blanket yes', { skip: CAP_SKIP }, async () => {
+test('#1662: but a LARGE textual body is still refused, so 63 is not a blanket yes', { skip: SKIP_SETUP_SH || CAP_SKIP }, async () => {
   /* The pair to the arm above. Mapping 63 to success must hand the decision to
      the TYPE rule, not short-circuit it: curl still reports the content-type on
      63 (measured for both gzip and html). If this ever goes green-for-NO the
@@ -826,7 +830,7 @@ test('#1662: but a LARGE textual body is still refused, so 63 is not a blanket y
     + 'yes rather than as a successful fetch whose type still has to pass');
 });
 
-test('#1662: --max-filesize actually truncates the transfer, it is not decoration', async () => {
+test('#1662: --max-filesize actually truncates the transfer, it is not decoration', { skip: SKIP_SETUP_SH }, async () => {
   /* 🛑 THE CAP ITSELF HAD NO FAILING ARM. Measured: removing
      `--max-filesize 1048576` left all other tests green, because both big-body
      arms answer identically capped or uncapped. Only the COMPENSATING fix (exit
@@ -857,7 +861,7 @@ test('#1662: --max-filesize actually truncates the transfer, it is not decoratio
    happens when there is none. It deliberately asserts the VERDICT strictly and
    only RECORDS the byte count, because the byte count is the part that is
    allowed to differ across curl versions (the floor OS, 13.5, ships 8.1.x). */
-test('#1662: a length-less (chunked) origin still yields the right VERDICT, whatever the cap does', async () => {
+test('#1662: a length-less (chunked) origin still yields the right VERDICT, whatever the cap does', { skip: SKIP_SETUP_SH }, async () => {
   BYTES_SENT['/nolen.tar.gz'] = 0;
   assert.equal(await reachable(`${base}/nolen.tar.gz`), 'YES',
     'a genuine gzip served without content-length must still be reachable. If this is NO, the cap '
@@ -944,13 +948,13 @@ test('#1662: the versioned-artifact probe was extracted from the installer', () 
     + 'so the arms below measured nothing');
 });
 
-test('#1662: a reachable versioned artifact IS selected by name', async () => {
+test('#1662: a reachable versioned artifact IS selected by name', { skip: SKIP_SETUP_SH }, async () => {
   const out = await runProbe(0);
   assert.match(out, /kosmos-9\.9\.9-arm64\.tar\.gz$/,
     `the versioned name was not chosen even though the probe said yes. Got: ${out}`);
 });
 
-test('#1662: an UNreachable versioned artifact falls back to the unversioned name', async () => {
+test('#1662: an UNreachable versioned artifact falls back to the unversioned name', { skip: SKIP_SETUP_SH }, async () => {
   /* This is the branch the fix makes reachable for the first time: before
      #1662 the probe could never return false, so this `else` was dead. */
   const out = await runProbe(1);
@@ -967,7 +971,7 @@ test('#1662: an UNreachable versioned artifact falls back to the unversioned nam
  * the whole reason the comment can say a false NO here does not inherit a stale
  * cache. That claim had no assertion until now: runProbe already wired the knob
  * and no caller passed it, so the argument rested on a branch nothing exercised. */
-test('#1662: on a network base a false NO falls to the CACHE-BUSTED name, not the bare one', async () => {
+test('#1662: on a network base a false NO falls to the CACHE-BUSTED name, not the bare one', { skip: SKIP_SETUP_SH }, async () => {
   const out = await runProbe(1, { bust: 'yes' });
   assert.match(out, /kosmos-arm64\.tar\.gz\?v=9\.9\.9$/,
     'a false NO on an http/https base must select the cache-busted unversioned url. If this is the '
@@ -980,7 +984,7 @@ test('#1662: on a network base a false NO falls to the CACHE-BUSTED name, not th
    is the claim the status-2 change rests on ("no control flow moves anywhere"),
    and it was asserted nowhere: runProbe had only ever been called with 0 and 1.
    By this file's own standard a component with no exercised case is unasserted. */
-test('#1662: status 2 selects the same fallback as status 1, so the new status moves no control flow', async () => {
+test('#1662: status 2 selects the same fallback as status 1, so the new status moves no control flow', { skip: SKIP_SETUP_SH }, async () => {
   const two = await runProbe(2, { bust: 'yes' });
   const one = await runProbe(1, { bust: 'yes' });
   assert.equal(two, one,
@@ -990,7 +994,7 @@ test('#1662: status 2 selects the same fallback as status 1, so the new status m
   assert.match(two, /kosmos-arm64\.tar\.gz\?v=9\.9\.9$/, `and it must still be the cache-busted name. Got: ${two}`);
 });
 
-test('#1662: with no TARGET_VERSION the probe is skipped and the bust value is still present', async () => {
+test('#1662: with no TARGET_VERSION the probe is skipped and the bust value is still present', { skip: SKIP_SETUP_SH }, async () => {
   /* TARGET_VERSION='' short-circuits the `[ -n ... ]` test, so reachable() is
      never called at all. The url must still be cache-busted, via the ${...:-$$}
      fallback, or an unversioned run would serve whatever a CDN cached. */
@@ -1007,7 +1011,7 @@ test('#1662: with no TARGET_VERSION the probe is skipped and the bust value is s
  * this file's standard is that a component with no failing case is unasserted.
  */
 
-test('#1662: a host that answers HEAD is resolved WITHOUT a ranged GET', async () => {
+test('#1662: a host that answers HEAD is resolved WITHOUT a ranged GET', { skip: SKIP_SETUP_SH }, async () => {
   /* The HEAD probe is the fast path. Deleting it entirely left every arm green,
      because a ranged GET reaches the same verdict -- at the cost of pulling up
      to the 1MB cap on every probe. This asserts HOW it was resolved. */
@@ -1020,7 +1024,7 @@ test('#1662: a host that answers HEAD is resolved WITHOUT a ranged GET', async (
     + 'probe now pulls a body it does not need');
 });
 
-test('#1662: the fallback GET asks for ONE BYTE, not the whole artifact', async () => {
+test('#1662: the fallback GET asks for ONE BYTE, not the whole artifact', { skip: SKIP_SETUP_SH }, async () => {
   /* `-r 0-0` is what keeps the fallback cheap. Removing it left every arm
      green because the verdict is unchanged; the cost is pulling up to the cap
      from every HEAD-refusing origin. Asserted on the wire, via the Range
@@ -1034,7 +1038,7 @@ test('#1662: the fallback GET asks for ONE BYTE, not the whole artifact', async 
     + 'origin that refuses HEAD');
 });
 
-test('#1662: an error STATUS is refused even when the type looks like a download', async () => {
+test('#1662: an error STATUS is refused even when the type looks like a download', { skip: SKIP_SETUP_SH }, async () => {
   /* curl's `-f` is what makes a 4xx a failure. Its contribution is invisible
      against every other fixture here, because they all carry text/html and the
      type rule refuses them anyway. A 404 carrying application/gzip separates
