@@ -73,6 +73,8 @@ test('kosmos#8410: with a warm cache the roster answers at once, and the fresh r
     assert.equal(syncReads, 1, 'CONTROL: the first (cold) read is the one synchronous read');
     clock.t += 5000;   // stale, not expired: served at once, refreshed in the background
 
+    // Review 4: a synchronous read creeping back onto this path is caught by `syncReads` and `bgStarted` below (the
+    // synchronous reader here is fast); the timing proves the slow read's time is not spent inside the request.
     // Review 1: time the REQUEST, not the window after it. The request must come back well before the slow read could,
     // with that read started and still running: then the read's time is spent off the board's thread.
     const t0 = Date.now();

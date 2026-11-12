@@ -633,6 +633,27 @@ function liveNames(opts) {
 }
 
 /**
+ * kosmos#8410 review 4: clear `name`'s state file when the process it names is gone. Called by the board right after
+ * it ends an agent's task (win32job.end / endSteps): `schtasks /End` kills a supervisor before its own clear-on-exit
+ * runs, so the file outlived every Stop, and once Windows handed its pid to another process, liveNames read the
+ * stopped agent as "could not check". Only a file whose process is gone is cleared, and only through clearState's
+ * claim-then-check (it removes the file only if it still names that pid), so a newer supervisor's file is never
+ * touched. A process still alive keeps its file: that is true. Never throws; returns whether it cleared one.
+ */
+function clearIfGone(name, opts) {
+  const o = opts || {};
+  const isAlive = typeof o.isAlive === 'function' ? o.isAlive : require('./win32orphan').pidAlive;
+  try {
+    const id = liveIdentity(name);
+    if (!id) return false;
+    let alive = true;
+    try { alive = isAlive(id.pid) !== false; } catch { alive = true; }   // a doubt keeps the file
+    if (alive) return false;
+    return clearState(name, id.pid) === true;
+  } catch { return false; }
+}
+
+/**
  * The supervisor's side: keep `name`'s state file in step with its agent.
  *
  * Writes only on a TRANSITION, so a turn of a hundred events costs two writes, plus (kosmos#7368) one when its queue
@@ -846,4 +867,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { STEP_CLOCK_MS, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
+module.exports = { STEP_CLOCK_MS, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, clearIfGone, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };

@@ -18,12 +18,21 @@ Found while writing the test: `create.runningJobs()` had no Windows arm. Windows
   process's leftover file, a file from before boot, unreadable and non-state files, no state folder, the real pid check
   (this process and an exited child), and launchctl never called on win32 (while still called on darwin).
 
+## Item 2b, review 4: an ordinary Stop leaves no state file behind
+`schtasks /End` kills the supervisor before its own clear-on-exit runs, so every Stop left the file, and once Windows
+reused its pid the stopped agent read "could not check" (before this branch it read a correct "Not running"). Fixed in
+board code: win32job.end and endSteps, after an /End that went through, clear the file if the process it names is gone
+(win32streamstate.clearIfGone, through clearState's claim-then-check, so only a file naming that pid is removed). A
+process still alive keeps its file. Tests: `engine/win32job.end-clears-8410.test.js`, both forms, with controls (alive,
+failed /End, another agent's file untouched).
+
 ## Not covered, and why (review 1)
 For a Claude agent the state file names the CHILD's pid, not the supervisor's, and is cleared when the child exits.
 So a supervisor that is up BETWEEN children (restarting after a crash, or waiting on blockedBy) still reads "Not
 running", exactly as before this change: no regression, but not the Mac's wider answer either. Closing it needs the
 supervisor to record its own pid: kosmos#8415.
-Review 2, also left to #8415: a pid reused within one boot (a task stopped by killing its tree leaves the file), and
+Review 2, also left to #8415: a pid reused within one boot when the file outlived its process some other way than the
+board's own stop (a crash of the supervisor, a task ended outside Kosmos), and
 Fast Startup (uptime counts from the last FULL boot, so the boot rule does not see a hibernated shutdown). Both err
 toward "could not check", the side #668 asks for. Telling the agent's own process from a stranger needs more than a
 pid, which the supervisor's own presence record can carry. Not done here, because it changes the Windows supervisor that runs on
