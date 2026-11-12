@@ -29,7 +29,7 @@ workers folder, a renamed workers folder plus one create, a recorded folder on a
   login (only on a look that answered "not registered").
 - It still refuses while the name is waiting to start, and while the whole workers folder is missing or behind a dead
   link (the way-out sentence names the task to delete in Task Scheduler).
-- Tests: new engine/delete-leftover.win32-recoverable-task-8475.test.js (8); the 8471 file's tests updated to the new
+- Tests: new engine/delete-leftover.win32-recoverable-task-8475.test.js (10); the 8471 file's tests updated to the new
   rule (test 7 now pins "Windows lists the task, marked; macOS and Linux do not"); the 7820 pin updated; a Windows-only
   server.test.js test for startsAtLogin; docs/browser-checks/render-settings-leftover-7825.js asserts the row.
 
@@ -45,7 +45,7 @@ workers folder, a renamed workers folder plus one create, a recorded folder on a
   but its settings cannot be deleted from the screen until the disk returns).
 
 ## Measured on the Windows box
-New file 8/8 (8/8 fail with main's source; 5/8 with the first commit's). 8471 file 7/0, 7820 file 34/0/1, delete-leftover.test 70/0/10, server
+New file 10/10 (10/10 fail with main's source; 5/8 with the first commit's). 8471 file 7/0, 7820 file 34/0/1, delete-leftover.test 70/0/10, server
 "removed list" 3 pass; each changed test fails on main's source. Both browser-check gates exit 0. Policy tests pass.
 
 ## Review log
@@ -56,3 +56,10 @@ New file 8/8 (8/8 fail with main's source; 5/8 with the first commit's). 8471 fi
   the main account and the last model (Qwen/vendor: the model only). Nits: Restore after a task-only delete says to use
   Start at login; stale comments; per-plan button words ("Keep its startup job"). (4) carded #8477: the act can differ
   from the confirmed act (del re-plans), pre-existing on main. Both browser-check gates exit 0.
+- Round 2 (no blocker; 1 warning, 2 nits), all fixed. (1) The "nothing stored -> full delete" fallback reached a
+  NON-removed healthy agent whose stored key collided with another folder (pear.8475 beside pear8475): listed, then one
+  click revoked its tokens and retired its account. Now only a name on the removed list gets that fallback; every other
+  name gets the task-only delete (an unreadable removed list reads as not removed). New test with the collision;
+  negative control fails on the round-1 source. (2) The task-only hint no longer promises to free the name, and the
+  agent page's button says "Remove its startup job" over a task-only plan (browser check arm added; both gates exit 0).
+  (3) Restore's sentence says "Once its folder is back" while the folder is still missing.

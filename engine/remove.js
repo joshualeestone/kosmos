@@ -2296,11 +2296,16 @@ function restoreInner(name, platform) {
     }
     if (taskGone) {
       // The account and model clause is delete-leftover's, so the two sentences about this way back cannot disagree.
+      let folderThere = false;
+      try { folderThere = fs.statSync(create.workerDir(clean)).isDirectory(); } catch { folderThere = false; }
       let starts = '.';
       try { starts = require('./delete-leftover').startsAgainWords(clean); } catch { starts = '.'; }
       return {
         outcome: OUTCOME.PARTIAL,
-        because: `${shown} is back on the board, but its startup job is no longer set up, so it will not start on its own. Use Start at login when Kosmos offers it${starts}`,
+        /* review 2: the offer needs the folder (register.survey's missing list), so with it still missing the sentence
+           says to put it back first rather than promise an offer that never comes. */
+        because: `${shown} is back on the board, but its startup job is no longer set up, so it will not start on its own. `
+          + `${folderThere ? 'Use' : 'Once its folder is back, use'} Start at login when Kosmos offers it${starts}`,
         steps,
       };
     }

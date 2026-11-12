@@ -596,14 +596,18 @@ function plan(name, opts) {
        there is no settings-only row to come back to, and the agent cannot be brought back by Start at login either (the
        survey needs a profile). Removing the task alone would leave a removed agent's name on the removed list for good
        (create refuses a removed name, and the next click finds nothing to delete). So that case is the full delete it
-       was on main, below: the task, its tokens, its community account and the removal record, and the name is free. */
+       was on main, below: the task, its tokens, its community account and the removal record, and the name is free.
+       review 2: ONLY for a name on the removed list. namedRecords also answers "none" when another folder or a running
+       session maps to the same stored key (pear.8475 beside pear8475), and a listed, healthy agent whose folder was only
+       moved must not lose its tokens, standing and community account to that. A look at the removed list that fails
+       reads as not removed: the task-only delete, which loses nothing for good. */
     let stored;
     try { stored = namedRecords(clean, null); } catch {
       return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
     }
-    if (stored.records.length) {
-      let removedNow = false;
-      try { removedNow = remove.isRemoved(clean); } catch { removedNow = false; }
+    let removedNow = false;
+    try { removedNow = remove.isRemoved(clean) === true; } catch { removedNow = false; }
+    if (stored.records.length || !removedNow) {
       const words = taskOnlyWords(clean, shown, removedNow, platform, stored.records);
       return {
         ok: true,
@@ -621,7 +625,8 @@ function plan(name, opts) {
         loses: ['Its startup job, so nothing tries to start it again'],
         verb: 'Remove its startup job',
         keep: 'Keep its startup job',   // the dialog's cancel button: "Keep the files" names files this act never touches
-        hint: `Something on this computer still starts ${shown} when you log in, and the name stays taken until it is gone.`,
+        // review 2: no promise about the name: a removed agent's removal record still holds it once the task is gone.
+        hint: `Something on this computer still starts ${shown} when you log in.`,
       };
     }
   }

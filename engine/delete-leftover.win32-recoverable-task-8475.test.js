@@ -377,3 +377,45 @@ test('kosmos#8475 review: Restore after its startup job alone was removed says t
   assert.ok(!removedNow().includes(name), 'Restore left it on the removed list');
   assert.ok(register.survey({ platform: 'win32' }).missing.includes(name), 'Start at login is not offered for it');
 });
+
+test('kosmos#8475 review 2: Restore while the folder is still away says to put it back first', () => {
+  /* register.survey offers Start at login only for an agent whose folder is there, so with it still missing the sentence
+     must not promise an offer that never comes. */
+  const name = agent('restore8475b');
+  const sr = require('./selfreport').fileFor(name);
+  fs.mkdirSync(nodePath.dirname(sr), { recursive: true });
+  fs.writeFileSync(sr, '');
+  assert.notEqual(remove.remove(name, { platform: 'win32' }).outcome, remove.OUTCOME.REFUSED);
+  const away = nodePath.join(SANDBOX, 'restore8475b-away');
+  fs.renameSync(create.workerDir(name), away);
+  try {
+    assert.equal(win.del(name).outcome, leftover.OUTCOME.DELETED);
+    const back = remove.restore(name, { platform: 'win32' });
+    assert.equal(back.outcome, remove.OUTCOME.PARTIAL, JSON.stringify(back));
+    assert.match(back.because, /so it will not start on its own\. Once its folder is back, use Start at login when Kosmos offers it; it starts on your main account/);
+    assert.ok(!register.survey({ platform: 'win32' }).missing.includes(name), 'CONTROL: with its folder away Start at login is offered after all, so the words above guard nothing');
+  } finally { fs.rmSync(away, { recursive: true, force: true }); }
+});
+
+test('kosmos#8475 review 2: a listed, NOT removed agent whose stored name another folder shares keeps everything but its task', (t) => {
+  /* namedRecords answers "nothing stored" when another folder maps to the same stored key (pear.8475 beside pear8475).
+     The full-delete fallback is for removed names only; this healthy agent, its folder only moved, gets the task-only
+     delete and keeps its tokens, standing and community account. */
+  const name = agent('pear8475', { folder: false });
+  made.push('pear.8475');
+  fs.mkdirSync(nodePath.join(WORKERS, 'pear.8475'), { recursive: true });
+  assert.equal(listed(name) && listed(name).startsAtLogin, true, 'fixture: the name is not listed');
+  const p = win.plan(name);
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.taskOnly, true, 'a healthy agent sharing its stored name got the full delete: ' + p.reassurance);
+  assert.equal(p.hint, 'Something on this computer still starts pear8475 when you log in.');
+  const seen = watchIrreversible(t);
+  assert.equal(win.del(name).outcome, leftover.OUTCOME.DELETED);
+  assert.deepEqual(seen, [], 'a step that cannot be undone ran: ' + seen.join(', '));
+  assert.equal(sendertoken.holdsTokens(name), true, 'its sender tokens were revoked');
+  assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings went');
+  // CONTROL: the same name once removed (and nothing of its own stored) still gets the one-click full delete.
+  tasks.add(win32job.taskName(name));
+  markRemoved(name);
+  assert.ok(!win.plan(name).taskOnly, 'CONTROL: a removed name sharing its stored key no longer gets the full delete');
+});

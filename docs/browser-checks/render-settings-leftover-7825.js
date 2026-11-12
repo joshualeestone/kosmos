@@ -47,6 +47,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     if (typeof paintRemoved !== 'function') return { error: 'paintRemoved is not a function' };
     let body = null;
     let planAsked = null;
+    let pagePlan = null;
     const realFetch = window.fetch;
     window.fetch = (u, opts) => {
       const url = String(u);
@@ -54,6 +55,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
       if (url.indexOf('/leftover') !== -1 && opts && opts.method === 'DELETE') {
         return Promise.resolve({ ok: true, json: async () => ({ outcome: 'deleted', said: 'Stray\'s settings are in the Trash. The name is free.' }) });
       }
+      if (url.indexOf('/leftover') !== -1 && pagePlan) return Promise.resolve({ ok: true, json: async () => pagePlan });   // kosmos#8475 arm 5
       if (url.indexOf('/leftover') !== -1) {
         planAsked = url;
         return Promise.resolve({ ok: true, json: async () => ({ ok: false, because: 'stray-7825 is waiting to start on this computer, so its settings are not left over.' }) });
@@ -141,6 +143,18 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     body = { agents: [], leftovers: [] };
     await paintRemoved();
     out.none = snap();
+    // 5. kosmos#8475: the agent page's delete block over a task-only plan names the startup job; over a files plan, files
+    const pageButton = async (plan) => {
+      pagePlan = plan;
+      CURRENT = { sessionName: plan.name };
+      await loadLeftover(plan.name);
+      const b = document.getElementById('d-delete-start');
+      return { text: b ? b.textContent : null, hint: (document.getElementById('d-delete-hint') || {}).textContent || '' };
+    };
+    out.pageTask = await pageButton({ ok: true, name: 'task-8475', shown: 'Tasked', taskOnly: true, hint: 'Something on this computer still starts Tasked when you log in.', verb: 'Remove its startup job' });
+    out.pageFiles = await pageButton({ ok: true, name: 'files-8475', shown: 'Filed', hint: 'Filed\'s folder is still on this computer.', verb: 'Move 3 files to the Recycle Bin' });
+    pagePlan = null;
+    CURRENT = null;
     return out;
   });
 
@@ -175,6 +189,8 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   const plain = r.task.rows.find((x) => x.who === 'Stray') || {};
   check(tasked.when === 'Its startup job is still set up, but Kosmos cannot find its folder' && tasked.del === 'task-8475' && tasked.restore === false, 'kosmos#8475: a task left with no folder says its startup job is still set up and has the delete door', JSON.stringify(tasked));
   check(tasked.delText === 'Remove its startup job…', 'kosmos#8475: its button says it removes the startup job, not "what is left"', tasked.delText);
+  check(r.pageTask.text === 'Remove its startup job…' && r.pageTask.hint === 'Something on this computer still starts Tasked when you log in.', 'kosmos#8475: the agent page names the startup job over a task-only plan', JSON.stringify(r.pageTask));
+  check(r.pageFiles.text === 'Delete its files…', 'kosmos#8475: and its files again over a plan that moves files', JSON.stringify(r.pageFiles));
   check(r.keepTask === 'Keep its startup job' && r.keepPlain === 'Keep the files', 'kosmos#8475: the cancel button takes a task-only plan\'s words, and the usual ones come back after', JSON.stringify({ task: r.keepTask, plain: r.keepPlain }));
   check(plain.when === 'Only its settings are left', 'kosmos#8475: beside it, a settings-only row still says only its settings', JSON.stringify(plain));
 

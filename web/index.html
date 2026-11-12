@@ -51922,6 +51922,8 @@ async function loadLeftover(sessionName) {
   if (!plan || !plan.ok) { box.hidden = true; if (!dialogElsewhere) DEL_PLAN = null; return; }
   if (!dialogElsewhere) DEL_PLAN = plan;
   document.getElementById('d-delete-hint').textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(plan.hint || '');
+  // kosmos#8475: a task-only plan touches no files, so the page's button names the startup job instead.
+  if (start) start.textContent = plan.taskOnly ? 'Remove its startup job…' : 'Delete its files…';
   box.hidden = false;
 }
 function openDeleteModal(plan) {
