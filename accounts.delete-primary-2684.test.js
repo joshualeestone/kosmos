@@ -11,6 +11,7 @@
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert');
+const NO_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -138,7 +139,7 @@ test('CONTROL: a SECONDARY account is still deleted by directory removal, not id
   assert.ok(primary.oauthAccount, 'primary identity untouched');
 });
 
-test('#2684: clearing the identity PRESERVES the .claude.json file mode (no 600 -> umask widening)', () => {
+test('#2684: clearing the identity PRESERVES the .claude.json file mode (no 600 -> umask widening)', { skip: NO_POSIX_MODES }, () => {
   // The atomic temp+rename would adopt the umask on the temp file; clearDefaultIdentity
   // stats the original mode and chmods the temp back. A mode-600 .claude.json (it can hold
   // a token) must stay 600, not widen to 644. This pins that guard.

@@ -7,6 +7,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
@@ -49,7 +50,7 @@ test('write REPLACES the pending set, so a resolved stall clears', () => {
   assert.deepEqual(nudge.read().nudges.map((n) => n.session), ['b']);
 });
 
-test('the file is mode 0600 (local, never leaves the Mac)', () => {
+test('the file is mode 0600 (local, never leaves the Mac)', { skip: NO_POSIX_MODES }, () => {
   fresh();
   nudge.write([{ session: 'a', to: 'stopped' }]);
   assert.equal(fs.statSync(nudge.FILE).mode & 0o777, 0o600);

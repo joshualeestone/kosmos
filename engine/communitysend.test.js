@@ -9,6 +9,7 @@
 require('../test-support/tmpscope'); // #4273: this file's temp dirs go with the process
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -319,7 +320,7 @@ test('7. the key file is mode 600, and the key is in no instruction file or envi
   agentPost('hal', { topic: 't', body: 'b' });
   await cs.sweep();
   const key = [...be.st.agents.values()][0].key;
-  assert.equal(fs.statSync(cs._paths.keysFile()).mode & 0o777, 0o600);
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(cs._paths.keysFile()).mode & 0o777, 0o600);
   assert.ok(fs.readFileSync(cs._paths.keysFile(), 'utf8').includes(key));
   assert.ok(!JSON.stringify(process.env).includes(key));
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
@@ -839,7 +840,7 @@ test('#5431: a save of the bytes already on disk writes nothing (each flush cost
   assert.notEqual(fs.readFileSync(cs._paths.sentFile(), 'utf8'), before, 'control: a new send changed sent.json');
 });
 
-test('#5431: an unchanged save still puts keys.json back to owner-only (a restored copy at 0644)', { skip: process.platform === 'win32' && 'no POSIX modes' }, async () => {
+test('#5431: an unchanged save still puts keys.json back to owner-only (a restored copy at 0644)', { skip: NO_POSIX_MODES }, async () => {
   fresh();
   await on();
   agentPost('mod', { topic: 'm', body: 'n' });

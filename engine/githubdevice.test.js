@@ -13,6 +13,7 @@ process.env.AGENT_WORKFORCE_GH_BIN = path.join(SANDBOX, 'no-such-gh');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const gd = require('./githubdevice');
 
 /**
@@ -147,7 +148,7 @@ test('the whole flow against the stub: code shown, pending then slow_down then t
   assert.equal(st.connected, true, JSON.stringify(st));
   assert.equal(st.login, 'joshualeestone');
   assert.equal(st.held, true);
-  assert.equal((fs.statSync(gd.FILE).mode & 0o777), 0o600, 'the held token is not mode 600');
+  if (!NO_POSIX_MODES) assert.equal((fs.statSync(gd.FILE).mode & 0o777), 0o600, 'the held token is not mode 600');
   const kept = fs.readFileSync(gd.FILE, 'utf8').trim();
   assert.equal(kept, 'tok-live');
   assert.ok(!JSON.stringify(st).includes('tok-live'), 'state answered the token');
@@ -233,8 +234,10 @@ test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place
     fs.mkdirSync(path.dirname(gd.FILE), { recursive: true });
     fs.writeFileSync(gd.FILE, 'OLD-TOKEN\n');
     fs.chmodSync(gd.FILE, 0o644);
-    assert.equal(fs.statSync(gd.FILE).mode & 0o777, 0o644,
-    'the loose plant did not take, so this arm would pass without the fix');
+    if (!NO_POSIX_MODES) {
+      assert.equal(fs.statSync(gd.FILE).mode & 0o777, 0o644,
+      'the loose plant did not take, so this arm would pass without the fix');
+    }
     const inodeBefore = fs.statSync(gd.FILE).ino;
 
     answers = [{ access_token: 'tok-1787', token_type: 'bearer', scope: 'repo' }];
@@ -255,7 +258,7 @@ test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place
     assert.notEqual(fs.statSync(gd.FILE).ino, inodeBefore,
     'the credential was written IN PLACE into the pre-existing loose file: same inode '
     + 'means no rename, so the access_token bytes were on disk at 0644 before the chmod');
-    assert.equal(fs.statSync(gd.FILE).mode & 0o777, 0o600, 'the credential was left loose');
+    if (!NO_POSIX_MODES) assert.equal(fs.statSync(gd.FILE).mode & 0o777, 0o600, 'the credential was left loose');
   } finally {
     /* Restore on EVERY path. A failing assertion above would otherwise leak this env
        var AND a stored token into any test added after this one: cloudflare unlinks in

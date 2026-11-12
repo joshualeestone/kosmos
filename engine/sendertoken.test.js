@@ -17,6 +17,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fleet = require('../test-support/fleet');
 const sendertoken = require('./sendertoken');
+/* kosmos#8378: the mode arms read POSIX file modes, which Windows does not keep (every file there reads 0666).
+   Arms that are only about the mode are skipped there; arms that also check a flow guard just their mode lines. */
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 test.after(() => {
   fleet.restore();
@@ -477,7 +480,7 @@ test('a stale token whose agent is not on the roster reads exactly like one we n
   } finally { board.restore(); }
 });
 
-test('the token is kept owner-only, because it is the agent\'s ability to speak as itself', () => {
+test('the token is kept owner-only, because it is the agent\'s ability to speak as itself', { skip: NO_POSIX_MODES }, () => {
   sendertoken.mint('perms-check');
   const file = path.join(sendertoken.DIR, 'perms-check.json');
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
@@ -495,7 +498,7 @@ test('the token is kept owner-only, because it is the agent\'s ability to speak 
    the dir chmod reddens one arm. THERE IS NO CHMOD ON THE TARGET any more, and the
    dir chmod reddens TWO. Restate from the matrix, not from memory. */
 
-test('#1761: a token file that is ALREADY loose is tightened on the next mint', () => {
+test('#1761: a token file that is ALREADY loose is tightened on the next mint', { skip: NO_POSIX_MODES }, () => {
   sendertoken.mint('loose-file');
   const file = path.join(sendertoken.DIR, 'loose-file.json');
   fs.chmodSync(file, 0o644);
@@ -512,8 +515,10 @@ test('#1761: the secret never occupies the loose file, because the write is temp
   const file = path.join(sendertoken.DIR, 'no-window.json');
   fs.chmodSync(file, 0o644);
   const before = fs.statSync(file).ino;
-  assert.equal(fs.statSync(file).mode & 0o777, 0o644,
-    'the loose mode was not planted, so this arm cannot fail for the right reason');
+  if (!NO_POSIX_MODES) {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o644,
+      'the loose mode was not planted, so this arm cannot fail for the right reason');
+  }
 
   sendertoken.mint('no-window');
 
@@ -525,7 +530,7 @@ test('#1761: the secret never occupies the loose file, because the write is temp
      end at 0600. */
   assert.notEqual(fs.statSync(file).ino, before,
     'the token was written in place, so the secret sat in the pre-existing loose file until the chmod');
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   /* 🛑 `endsWith('.tmp')`, NOT `includes('.tmp-')`. The old temp name was
      `<file>.tmp-<pid>`; the current one is `<file>.kosmos-<pid>-<start>-<seq>.tmp`,
      which contains `.tmp` and NEVER `.tmp-`. The old filter matched nothing, so this
@@ -616,8 +621,10 @@ test('#1761: the FALLBACK tightens a pre-existing loose file, not just the renam
   sendertoken.mint('fb-loose');
   const file = path.join(sendertoken.DIR, 'fb-loose.json');
   fs.chmodSync(file, 0o644);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o644,
-    'the loose mode was not planted, so this arm cannot fail for the right reason');
+  if (!NO_POSIX_MODES) {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o644,
+      'the loose mode was not planted, so this arm cannot fail for the right reason');
+  }
 
   const realRename = fs.renameSync;
   fs.renameSync = () => { const e = new Error('forced'); e.code = 'EXDEV'; throw e; };
@@ -625,8 +632,10 @@ test('#1761: the FALLBACK tightens a pre-existing loose file, not just the renam
   try { res = sendertoken.mint('fb-loose'); } finally { fs.renameSync = realRename; }
 
   assert.equal(res.ok, true, 'the forced fallback failed to mint at all');
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600,
-    'the FALLBACK left a pre-existing token world-readable');
+  if (!NO_POSIX_MODES) {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600,
+      'the FALLBACK left a pre-existing token world-readable');
+  }
   assert.deepEqual(fs.readdirSync(sendertoken.DIR).filter((f) => f.endsWith('.tmp')), [],
     'the fallback left a temp behind');
 });
@@ -660,8 +669,10 @@ test('#1761: the directory is already tight WHEN the token is written, and the t
     sendertoken.mint('observe');
   } finally { fs.openSync = realOpen; }
 
-  assert.equal(seen.dirMode, 0o700,
-    'the token was written while the directory was still world-readable: the hoist is undone');
+  if (!NO_POSIX_MODES) {
+    assert.equal(seen.dirMode, 0o700,
+      'the token was written while the directory was still world-readable: the hoist is undone');
+  }
   const temps = seen.names.filter((n) => n.endsWith('.tmp'));
   assert.equal(temps.length, 2, 'expected one temp per mint');
   assert.notEqual(temps[0], temps[1],
@@ -712,8 +723,10 @@ test('#1761: a restrictive umask cannot leave the token unreadable by its owner'
   try {
     sendertoken.mint('umask-check');
     const file = path.join(sendertoken.DIR, 'umask-check.json');
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600,
-      'a restrictive umask left the token at a mode the agent cannot read');
+    if (!NO_POSIX_MODES) {
+      assert.equal(fs.statSync(file).mode & 0o777, 0o600,
+        'a restrictive umask left the token at a mode the agent cannot read');
+    }
     assert.ok(JSON.parse(fs.readFileSync(file, 'utf8')).tokens.length >= 1,
       'the token could not be read back');
   } finally { process.umask(old); }
@@ -747,8 +760,10 @@ test('#1761: the FALLBACK truncates and creates tight, so a shrinking list canno
     'the fallback did not truncate: trailing bytes from the larger previous content survived');
   assert.doesNotThrow(() => JSON.parse(fs.readFileSync(file, 'utf8')),
     'the fallback left unparseable JSON, which loses EVERY token, not just the removed one');
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600,
-    'the fallback created the token at a loose mode');
+  if (!NO_POSIX_MODES) {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600,
+      'the fallback created the token at a loose mode');
+  }
 });
 
 /* #1787: the refusal arms that were here now live in `engine/securewrite.test.js`,
@@ -757,7 +772,7 @@ test('#1761: the FALLBACK truncates and creates tight, so a shrinking list canno
    drift: the copy there is also stronger, because it guards the CALL from
    `writeSecret` as well as the function body, which this one never did. */
 
-test('#1761: a token DIRECTORY that is already loose is tightened too', () => {
+test('#1761: a token DIRECTORY that is already loose is tightened too', { skip: NO_POSIX_MODES }, () => {
   sendertoken.mint('loose-dir');
   fs.chmodSync(sendertoken.DIR, 0o755);
   assert.equal(fs.statSync(sendertoken.DIR).mode & 0o777, 0o755,
@@ -989,8 +1004,10 @@ test('#1761: a chmod failure on the temp costs ZERO retries, because it is not f
   fs.mkdirSync(sendertoken.DIR, { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, JSON.stringify({ tokens: [] }));
   fs.chmodSync(file, 0o644);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o644,
-    'the loose plant did not take, so this arm would pass without the fix');
+  if (!NO_POSIX_MODES) {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o644,
+      'the loose plant did not take, so this arm would pass without the fix');
+  }
 
   /* 🛑 COUNT THE TEMPS, DO NOT ASSERT THE MODE. An earlier version of this arm asserted
      the file ended at 0600, and it PASSED with the fix reverted, because the retry loop
@@ -1019,8 +1036,10 @@ test('#1761: a chmod failure on the temp costs ZERO retries, because it is not f
   assert.equal(temps, 1,
     `a chmod failure on the temp abandoned attempt ${temps > 1 ? '1 and forced a retry' : 'the path'}: `
     + 'the chmod is best effort like the other two, so it must not cost an attempt');
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600,
-    'the pre-existing loose file was left loose');
+  if (!NO_POSIX_MODES) {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600,
+      'the pre-existing loose file was left loose');
+  }
 });
 /* 🛑 THE RETRY IS WHAT KEEPS AN EEXIST OFF THE DESTRUCTIVE PATH, AND IT WAS UNGUARDED.
    Disabling the loop entirely left the suite fully green, which is this branch's third
@@ -1068,7 +1087,7 @@ test('#1761: a planted temp is retried on a fresh name, not dropped to the fallb
    ⚠️ A two-line swap renders as a ONE-LINE git diff and reads like a comment change, so
    confirm the region with `sed -n '/fd = fs.openSync/,/} finally/p'` rather than trusting
    the diff shape. */
-test('#1761: the FALLBACK tightens BEFORE the bytes land, observed from inside the write', () => {
+test('#1761: the FALLBACK tightens BEFORE the bytes land, observed from inside the write', { skip: NO_POSIX_MODES }, () => {
   const file = path.join(sendertoken.DIR, 'fb-order.json');
   fs.mkdirSync(sendertoken.DIR, { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, JSON.stringify({ tokens: [] }));

@@ -10,6 +10,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
@@ -65,7 +66,7 @@ test('storeKey/identityOf: the key file lives in the account dir; identity is th
   clean();
   const { dir } = ma.dirForLabel('work');
   ma.storeKey(dir, 'AIzaSyExample-key-tail1234');
-  assert.equal(fs.statSync(ma.keyFile(dir)).mode & 0o777, 0o600);
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(ma.keyFile(dir)).mode & 0o777, 0o600);
   assert.equal(ma.keyFile(dir), nodePath.join(dir, '.kosmos-gemini-apikey'), 'the key file is inside the account dir (== GEMINI_CLI_HOME)');
   assert.deepEqual(ma.identityOf(dir), { authMode: 'apikey', email: null, keyTail: '1234' });
 });

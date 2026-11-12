@@ -5,6 +5,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
@@ -51,7 +52,7 @@ test('endpointProblem accepts the tested default and refuses what cannot work, i
 test('storeEndpoint writes a mode-600 file, normalized, and readEndpoint reads it back', () => {
   const dir = account({ ...GOOD, key: 'sk-secret-9876' });
   const st = fs.statSync(qwen.endpointFile(dir));
-  assert.equal(st.mode & 0o777, 0o600);
+  if (!NO_POSIX_MODES) assert.equal(st.mode & 0o777, 0o600);
   const got = qwen.readEndpoint(dir);
   assert.equal(got.kind, 'ok');
   assert.equal(got.endpoint.baseUrl, 'http://localhost:11434/v1', 'the trailing slash is dropped');

@@ -4,6 +4,7 @@ require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, remo
  *   node --test engine/undo-5153.test.js */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -207,8 +208,10 @@ test('copies are private (0600 files, 0700 folders); the sweep drops old ones; t
   fs.writeFileSync(f, 'K');
   assert.equal(undo.keep(f, { cwd: ku, now: ms('10:00') }).kept, true);
   const root = path.join(store.ROOT, 'undo');
-  assert.equal(fs.statSync(path.join(root, 'index.jsonl')).mode & 0o777, 0o600);
-  assert.equal(fs.statSync(path.join(root, 'blobs')).mode & 0o777, 0o700);
+  if (!NO_POSIX_MODES) {
+    assert.equal(fs.statSync(path.join(root, 'index.jsonl')).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(path.join(root, 'blobs')).mode & 0o777, 0o700);
+  }
   const before = fs.readFileSync(path.join(root, 'index.jsonl'), 'utf8').split('\n').filter(Boolean).length;
   undo.sweep(ms('10:00') + (undo.KEEP_DAYS + 1) * 86400000);
   assert.equal(fs.readFileSync(path.join(root, 'index.jsonl'), 'utf8').split('\n').filter(Boolean).length, 0, 'old copies kept past ' + undo.KEEP_DAYS + ' days (' + before + ' before)');

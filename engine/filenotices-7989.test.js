@@ -5,6 +5,7 @@ require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, remo
  *   node --test engine/filenotices-7989.test.js */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -33,7 +34,7 @@ test('a queued notice is taken once, oldest first, and the queue is then empty',
 
 test('the file is 0600 and only the owner named reads it', () => {
   fn.queue('nova', 'for nova', { now: T0 });
-  assert.equal(fs.statSync(fn.fileFor('nova')).mode & 0o777, 0o600);
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(fn.fileFor('nova')).mode & 0o777, 0o600);
   assert.deepEqual(fn.take('leo', { now: T0 }).notices, [], 'leo has nothing of nova\'s');
   assert.equal(fn.take('nova', { now: T0 }).notices.length, 1);
 });

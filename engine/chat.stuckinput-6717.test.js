@@ -23,6 +23,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 const chat = require('./chat');
 const drafts = require('./unsentdrafts');
@@ -436,8 +437,10 @@ test('kosmos#6717: a draft is drawn in the conversation at its time as Kosmos\'s
   assert.equal(chat.withDraftRows(rows, drafts.list('al')), rows);
   // Kept privately, and one agent's drafts are not another's.
   drafts.add('al', 'x');
-  assert.equal(fs.statSync(drafts.fileFor('al')).mode & 0o777, 0o600);
-  assert.equal(fs.statSync(path.dirname(drafts.fileFor('al'))).mode & 0o777, 0o700, 'the folder too');
+  if (!NO_POSIX_MODES) {
+    assert.equal(fs.statSync(drafts.fileFor('al')).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(path.dirname(drafts.fileFor('al'))).mode & 0o777, 0o700, 'the folder too');
+  }
   assert.deepEqual(drafts.list('Al'), []);
 });
 

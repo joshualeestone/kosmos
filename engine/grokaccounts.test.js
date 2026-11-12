@@ -9,6 +9,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
@@ -78,8 +79,10 @@ test('storeKey writes mode 0600 without a trailing newline; readKey/identityOf r
   clean();
   const { dir } = ga.dirForLabel('work-key');
   ga.storeKey(dir, '  xai-secret-abcd1234  ');
-  const mode = fs.statSync(ga.keyFile(dir)).mode & 0o777;
-  assert.equal(mode, 0o600, 'the key file must be owner-only (0600)');
+  if (!NO_POSIX_MODES) {
+    const mode = fs.statSync(ga.keyFile(dir)).mode & 0o777;
+    assert.equal(mode, 0o600, 'the key file must be owner-only (0600)');
+  }
   assert.equal(fs.readFileSync(ga.keyFile(dir), 'utf8'), 'xai-secret-abcd1234', 'stored trimmed, no trailing newline');
   assert.deepEqual(ga.identityOf(dir), { authMode: 'apikey', email: null, keyTail: '1234' }, 'identity is the last four, never the key');
 });

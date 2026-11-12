@@ -24,6 +24,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 const chat = require('./chat');
 const store = require('./store');
@@ -131,7 +132,7 @@ test('kosmos#6436: the remembered line survives a board restart (kept on disk, p
   assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
   const file = path.join(store.ROOT, 'unsent-lines.json');
   assert.ok(fs.existsSync(file), 'the line is on disk');
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'only this user can read it');
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'only this user can read it');
   chat.restartUnsentForTests();
   const t = arm([box(MSG), EMPTY, EMPTY, box('after the restart'), EMPTY]);
   const v = chat.deliver('al', 'after the restart', roster);

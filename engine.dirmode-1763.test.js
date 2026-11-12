@@ -27,6 +27,7 @@ const path = require('node:path');
 const http = require('node:http');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 
 // One sandbox for all three modules, set BEFORE any require (each reads its data
 // dir from the env at require time). githubdevice needs a HOME and an absent gh
@@ -52,7 +53,7 @@ function plantLoose(dir) {
     'plant precondition: the dir is loose (0755) before the token flow runs -- without this the arm proves nothing');
 }
 
-test('kosmos#1763: cloudflare tightens a pre-existing loose token dir on connect', async () => {
+test('kosmos#1763: cloudflare tightens a pre-existing loose token dir on connect', { skip: NO_POSIX_MODES }, async () => {
   plantLoose(cloudflare.DIR);
   cloudflare.setFetcher(async () => ({ ok: true, status: 200, body: { success: true, result: { id: 'abc123abc123abc123abc123abc123ab', status: 'active' } } }));
   const s = await cloudflare.connect('cf_test_token_abcdefghijklmnopqrstuvwxyz');
@@ -61,7 +62,7 @@ test('kosmos#1763: cloudflare tightens a pre-existing loose token dir on connect
     'connect must tighten a pre-existing loose token dir to 0700 (reds without the chmod(DIR) fix)');
 });
 
-test('kosmos#1763: a token door tightens a pre-existing loose dir on connect', async () => {
+test('kosmos#1763: a token door tightens a pre-existing loose dir on connect', { skip: NO_POSIX_MODES }, async () => {
   plantLoose(tokendoor.DIR);
   // A real door from the registry; they all share tokendoor.DIR + write path.
   const door = tokendoors.byName('Discord');
@@ -95,7 +96,7 @@ test.before(async () => {
 test.after(() => stub.close());
 const settle = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
-test('kosmos#1763: githubdevice tightens a pre-existing loose token dir when the device flow completes', async () => {
+test('kosmos#1763: githubdevice tightens a pre-existing loose token dir when the device flow completes', { skip: NO_POSIX_MODES }, async () => {
   process.env.KOSMOS_GITHUB_CLIENT_ID = 'Iv1.testclient';
   plantLoose(gd.DIR);
   answers = [{ access_token: 'tok-live', token_type: 'bearer', scope: 'repo' }];

@@ -19,6 +19,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -89,7 +90,7 @@ test('#2509 backfill: a legacy-only token is written to the authoritative curren
   const primary = path.join(p.kosmos, 'board.token');
   assert.ok(fs.existsSync(primary), 'the legacy-only token was not backfilled to the authoritative current leaf');
   assert.equal(fs.readFileSync(primary, 'utf8').trim(), 'legacyonly0007', 'the backfilled current-leaf token does not match');
-  assert.equal(fs.statSync(primary).mode & 0o777, 0o600, 'the backfilled token is not mode 0600');
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(primary).mode & 0o777, 0o600, 'the backfilled token is not mode 0600');
 });
 
 test('#2511 primary wins, no write-back: with both leaves set, readToken prefers the current leaf and ensureToken leaves the stale legacy copy UNTOUCHED', () => {
