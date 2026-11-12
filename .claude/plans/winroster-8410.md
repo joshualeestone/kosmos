@@ -4,8 +4,9 @@
 On Windows the roster is `claude agents --json`, read through win32roster's shared cached reader. status.paneRosterAsync
 calls a pane source synchronously, so the board keeps turning because the cache serves a stale answer at once and reads
 again in the background. `engine/win32roster.board-turns-8410.test.js` pins that through the real status.js, with the
-background read a real child process that takes 300 ms. The control: a cold cache reads synchronously and the board
-does not turn at all. A regression that drops the stale path fails at once and never hangs (measured with that mutant).
+background read a real child process that takes SLOW_MS (2000 ms): the request itself is timed and must return within
+half of that, with the read started and still running. The control: a cold cache holds the request for the whole
+synchronous read, and the same timing sees that. A regression that drops the stale path fails at once and never hangs.
 
 ## Item 2, #668: an agent whose process is up with no visible session is could-not-check (a fix, not only a test)
 Found while writing the test: `create.runningJobs()` had no Windows arm. Windows fell into the Mac arm, ran
@@ -30,6 +31,9 @@ people's machines, and I have no Windows machine to watch it on.
 
 ## Rejected
 schtasks `/Query` "Status: Running": the text is localized and fires on the conhost wrapper before the supervisor is up.
+
+## Also found, not in this change
+kosmos#8417: `disabledJobs()` has the same launchctl-on-Windows shape, so a switched-off Windows agent never shows as switched off (review 3).
 
 ## Weakest premise
 That a live agent process the roster cannot see is the case worth fixing first, ahead of #8415's window. And that the
