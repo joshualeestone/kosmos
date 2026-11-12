@@ -10,7 +10,7 @@ import XCTest
 final class A11yScrollUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
-    private struct Report { let pins: Int; let atEnd: Bool; let moved: Int; let window: Bool; let dragged: Bool; let short: Int; let label: String }
+    private struct Report { let pins: Int; let atEnd: Bool; let moved: Int; let window: Bool; let dragged: Bool; let short: Int; let graced: Bool; let label: String }
 
     private func scrollUp(mode: String, fixOff: Bool = false, windowByClock: Bool = false, noStallGrace: Bool = false) throws -> Report {
         guard UIKitListArm.on else { throw XCTSkip("the lazy list has no pin to the end (UIKit list only)") }
@@ -39,7 +39,7 @@ final class A11yScrollUITests: XCTestCase {
               let window = after("window"), let dragged = after("dragged"), let short = after("short").flatMap(Int.init) else {
             throw NSError(domain: "A11yScrollUITests", code: 1, userInfo: [NSLocalizedDescriptionKey: "unreadable report: \(label)"])
         }
-        return Report(pins: pins, atEnd: words[at + 2] == "true", moved: moved, window: window == "true", dragged: dragged == "true", short: short, label: label)
+        return Report(pins: pins, atEnd: words[at + 2] == "true", moved: moved, window: window == "true", dragged: dragged == "true", short: short, graced: after("graced") == "true", label: label)
     }
 
     // The controls: before this slice the list pinned itself back during such a scroll. If a control reads 0 pins, the check
@@ -90,6 +90,18 @@ final class A11yScrollUITests: XCTestCase {
         XCTAssertFalse(r.atEnd, "the reader is still counted at the newest after scrolling up: \(r.label)")
     }
 
+    // kosmos#8442 review 3: the stall grace on its own. With the window read by the clock (the first fix off), the moves
+    // after the stall are not the person's and the lapse check comes 0.3 s late; only the grace (one more quiet period, as
+    // it ran late) keeps the window for the moves after it. The report says the grace fired, so this cannot pass on the
+    // first fix; the control below (both off) is undone. Pins are not asserted: one can land before the late check runs.
+    func testTheStallGraceAloneKeepsAStalledScroll() throws {
+        let r = try scrollUp(mode: "stalled", windowByClock: true)
+        XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened: \(r.label)")
+        XCTAssertTrue(r.graced, "the lapse check did not give the stall grace: \(r.label)")
+        XCTAssertGreaterThan(r.moved, 300, "the stalled scroll was stopped short: \(r.label)")
+        XCTAssertFalse(r.atEnd, "the reader is still counted at the newest after scrolling up: \(r.label)")
+    }
+
     // The control: the list as before kosmos#8442, the window read by the clock alone and no stall grace (either one alone
     // keeps this scroll: measured on a simulator, the grace alone gave pins 1, moved 373). The stall closes the window, and
     // the scroll is undone (measured: pins 13, moved 0, as CI run 42906709675's pins 8, moved 0).
@@ -101,8 +113,8 @@ final class A11yScrollUITests: XCTestCase {
     }
 
     // kosmos#8442 review 2: an animated scroll (as VoiceOver's) with the main thread held 0.6 s a moment into it. Its later
-    // frames are driven by the display, so they may run after the overdue lapse check; the check, seeing it ran late, waits
-    // one more quiet period for them (once a window), so the scroll is not undone.
+    // frames are driven by the display, so they may run after the overdue lapse check. Measured on a simulator the scroll's
+    // reported end decided it (kept with or without the stall grace); this pins that it is kept, whichever way it goes.
     func testAnAnimatedScrollWithAStallIsNotPutBack() throws {
         let r = try scrollUp(mode: "stalledAnimated")
         XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened: \(r.label)")
