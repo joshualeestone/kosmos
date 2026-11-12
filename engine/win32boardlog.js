@@ -75,7 +75,25 @@ function writeAll(fd, bytes) {
 function tee(stream, fd, lineState, now) {
   const { stampText, stampBytes } = require('./logstamp');
   const write = stream.write.bind(stream);
+  /* #8373 follow-up (Homer, 0.8.03 in-place update on Windows): the console stream a task-started board inherits can be
+     a pipe whose reader is gone. Its EPIPE then arrives as an 'error' event no one listens for, which node turns into an
+     uncaught exception, and the board died 74 s after start. This board's output already goes to the file, so the
+     console is the copy that may be lost: once it fails, writes go to the file only. */
+  let dead = false;
+  const giveUp = (err) => {
+    if (dead) return;
+    dead = true;
+    const code = (err && err.code) || 'an error';
+    try {
+      const text = (lineState.atLineStart ? '' : '\n') + now().toISOString() + ' the console copy stopped (' + code
+        + '); this file keeps every line\n';
+      writeAll(fd, Buffer.from(text, 'utf8'));
+      lineState.atLineStart = true;
+    } catch { /* as below */ }
+  };
+  if (typeof stream.on === 'function') { try { stream.on('error', giveUp); } catch { /* a stream with no events */ } }
   stream.write = function (chunk, encoding, callback) {
+    const cb = typeof encoding === 'function' ? encoding : callback;
     try {
       const enc = typeof encoding === 'string' ? encoding : undefined;
       if (typeof chunk === 'string' && (!enc || LINE_TEXT_ENCODINGS.test(enc))) {
@@ -90,7 +108,11 @@ function tee(stream, fd, lineState, now) {
         writeAll(fd, Buffer.from(chunk, enc));   // a hex or base64 write is not text: copied as it is, like the stamp does
       }
     } catch { /* a full disk or a closed file must not stop the board */ }
-    return write(chunk, encoding, callback);
+    if (!dead) {
+      try { return write(chunk, encoding, callback); } catch (err) { giveUp(err); }
+    }
+    if (typeof cb === 'function') process.nextTick(cb);
+    return true;
   };
 }
 

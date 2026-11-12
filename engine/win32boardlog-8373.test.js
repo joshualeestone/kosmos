@@ -139,3 +139,60 @@ test('#8373 server.js routes before the ring and the stamp, and its diagnostics 
   assert.ok(diag > ring, 'the diagnostics route does not ask which file was routed');
   assert.match(src.slice(diag, diag + 600), /readBoardLog\(logPath, logFds,/, 'the diagnostics read does not use the routed descriptors');
 });
+
+/* #8373 follow-up (Homer, 0.8.03): a dead console must not stop a routed board. */
+const { EventEmitter } = require('node:events');
+function deadConsole(mode) {
+  const e = new EventEmitter();
+  e.got = [];
+  e.write = function (chunk, encoding, cb) {
+    if (mode === 'throws') { const err = new Error('write EPIPE'); err.code = 'EPIPE'; throw err; }
+    e.got.push(String(chunk));
+    if (mode === 'emits') { const err = new Error('write EPIPE'); err.code = 'EPIPE'; process.nextTick(() => e.emit('error', err)); }
+    const done = typeof encoding === 'function' ? encoding : cb;
+    if (typeof done === 'function') process.nextTick(done);
+    return true;
+  };
+  return e;
+}
+
+test('#8373 a console that emits EPIPE does not become an uncaught error, and the file keeps every line', async (t) => {
+  const file = path.join(scratch(), 'board.log');
+  boardlog.resetForTest();
+  const out = deadConsole('emits');
+  const r = boardlog.route(out, fakeStream(), { platform: 'win32', path: file, isFile: () => false, taskStarted: () => true, now, handlers: () => 0, onCrash: () => {} });
+  t.after(() => { if (r) fs.closeSync(r.fd); boardlog.resetForTest(); });
+  assert.ok(out.listenerCount('error') > 0, 'the console stream has an error listener');
+  out.write('first\n');
+  await new Promise((res) => setImmediate(res));   // the EPIPE arrives as an event, as node delivers it
+  let called = 0;
+  out.write('second\n', () => { called++; });
+  await new Promise((res) => setImmediate(res));
+  assert.deepStrictEqual(out.got, ['first\n'], 'after the console failed, nothing more is sent to it');
+  assert.strictEqual(called, 1, 'the callback still runs');
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), `${T} first\n${T} the console copy stopped (EPIPE); this file keeps every line\n${T} second\n`);
+});
+
+test('#8373 a console whose write throws does not throw out of the board', async (t) => {
+  const file = path.join(scratch(), 'board.log');
+  boardlog.resetForTest();
+  const out = deadConsole('throws');
+  const r = boardlog.route(out, fakeStream(), { platform: 'win32', path: file, isFile: () => false, taskStarted: () => true, now, handlers: () => 0, onCrash: () => {} });
+  t.after(() => { if (r) fs.closeSync(r.fd); boardlog.resetForTest(); });
+  let called = 0;
+  assert.doesNotThrow(() => out.write('kept\n', 'utf8', () => { called++; }));
+  await new Promise((res) => setImmediate(res));
+  assert.strictEqual(called, 1);
+  assert.match(fs.readFileSync(file, 'utf8'), /kept\n[\s\S]*the console copy stopped \(EPIPE\)/);
+});
+
+test('#8373 control: a healthy console still gets every write', (t) => {
+  const file = path.join(scratch(), 'board.log');
+  boardlog.resetForTest();
+  const out = deadConsole('ok');
+  const r = boardlog.route(out, fakeStream(), { platform: 'win32', path: file, isFile: () => false, taskStarted: () => true, now, handlers: () => 0, onCrash: () => {} });
+  t.after(() => { if (r) fs.closeSync(r.fd); boardlog.resetForTest(); });
+  out.write('a\n'); out.write('b\n');
+  assert.deepStrictEqual(out.got, ['a\n', 'b\n']);
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /console copy stopped/);
+});
