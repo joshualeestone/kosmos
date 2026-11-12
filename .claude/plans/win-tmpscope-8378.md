@@ -38,6 +38,14 @@ as PowerShell or schtasks inherit it). The whole Windows suite (node tools/windo
   communitysend-5431 sandbox note, and the HOST_BRANCH_EXCLUDED reason for test-support.tmpscope.test.js (it now names
   the new Windows test as where the win32 branch is covered).
 
+## Review round 3
+- The held-folder test now proves its grandchild ran: it writes a started marker outside the child's scope, and the test
+  asserts it, so a grandchild that never started cannot pass the test vacuously. Still fails against a single rmSync.
+- Wording: the HOST_BRANCH_EXCLUDED reason names the win32-only branch of tmpscope.js (first draft used an apostrophe
+  inside the single-quoted string and broke tools/windows-tests.js; the #1777 audit caught it before commit).
+- Follow-up, not this PR: test-support.tmpscope.test.js fails 17 of 23 on Windows (most arms are POSIX/TMPDIR-shaped),
+  more than its exclusion reason says.
+
 ## Done when
 - The new test passes on the Windows box and fails against the previous tmpscope.
 - windows-tests.js green on the box; policy tests green; Mac/Linux CI green.

@@ -15,8 +15,7 @@
  * the ones written after it.
  *
  * HOW: `os.tmpdir()` reads TMPDIR on every call (TEMP and TMP on Windows, which
- * are set too there), so pointing TMPDIR at a
- * per-process directory makes every later mkdtemp in this process land inside
+ * are set too there), so pointing TMPDIR at a per-process directory makes every later mkdtemp in this process land inside
  * it, and so does every child process this one spawns (they inherit the env).
  * One `exit` handler removes the whole directory.
  *

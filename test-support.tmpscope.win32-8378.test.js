@@ -29,17 +29,22 @@ test('on Windows, requiring tmpscope moves os.tmpdir() into its own kts- folder,
 
 test('on Windows the sweep outlasts a child that holds a fixture as its working folder for a moment after exit', { skip: !WIN && 'about how Windows holds a folder a process is using' }, async () => {
   const fs = require('node:fs');
+  const os = require('node:os');
+  // Outside the child's scope (in this file's own): the grandchild writes it as it starts, so a pass proves it ran (and so held
+  // its working folder from its creation) rather than never starting.
+  const started = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'started-')), 'started');
   // The test process spawns a detached grandchild whose working folder is a fixture in the scope; the grandchild lives
   // about 150 ms (plus its start) past the test process's exit, so a single rmSync at exit meets the hold (EBUSY/EPERM) and leaves it.
   const code = `require(${JSON.stringify(SCOPE)}); const os = require('os'); const fs = require('fs'); const path = require('path');
 const d = fs.mkdtempSync(path.join(os.tmpdir(), 'held-'));
-const c = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 150)'], { cwd: d, detached: true, stdio: 'ignore' });
+const c = require('child_process').spawn(process.execPath, ['-e', 'require("fs").writeFileSync(process.env.STARTED_8378, "1"); setTimeout(() => {}, 150)'], { cwd: d, detached: true, stdio: 'ignore', env: { ...process.env, STARTED_8378: ${JSON.stringify(started)} } });
 c.unref(); process.stdout.write(JSON.stringify({ tmp: os.tmpdir() }));`;
   const r = child(code, {});
   assert.match(path.basename(r.tmp), /^kts-/);
   // The sweep runs inside the child's exit, so its result is fixed before execFileSync returns; this wait only lets the
   // grandchild end before this test does.
   await new Promise((res) => setTimeout(res, 1000));
+  assert.ok(fs.existsSync(started), 'the grandchild never ran, so nothing held the folder and this test proved nothing');
   assert.equal(fs.existsSync(r.tmp), false, 'the scope folder was left behind by a held working folder: ' + r.tmp);
 });
 
