@@ -38,7 +38,7 @@
  *
  * 🛑 A SEATBELT, NOT A SANDBOX, as the Mac guard says of itself: it reads literal text. A name computed at run time,
  * a script that builds the command, Start-Process taskkill with -ArgumentList, an encoded command, a command inside
- * a quoted argument of another program (os.system("..."), node -e "..."), an assignment whose value continues past a $( ) (FOO=$(x)y cmd), an argument-array spawn (subprocess.run(
+ * a quoted argument of another program (os.system("..."), node -e "..."), an argument-array spawn (subprocess.run(
  * ["taskkill", ...]), spawn("taskkill", [...])), backtick command substitution, WMI and CIM
  * (Get-WmiObject ... | Remove-WmiObject, Invoke-CimMethod -MethodName Terminate), the blocks of Invoke-Command,
  * Start-Job and . { }, a bash \' outside quotes, a Where-Object whose test is not a name (CPU -gt 0 selects nearly
@@ -155,12 +155,13 @@ function tokens(text, literalAt) {
   if (sc.openQuote >= 0 && lit.size < 32) { const next = new Set(lit); next.add(sc.openQuote); return tokens(text, next); }
   const out = [];
   let cur = ''; let has = false; let quotedSpace = false; let q = ''; let wasQuoted = false;
+  let curStart = -1; let lastBlockEnd = -2;   // a word that starts right after a block's close is glued to it (${PATH}:x)
   const subs = [];   // $( ... ) found inside the word being built, pushed as blocks after it
   const push = () => {
-    if (has) out.push({ w: cur, quoted: quotedSpace, wasQuoted });
+    if (has) out.push({ w: cur, quoted: quotedSpace, wasQuoted, afterBlock: curStart === lastBlockEnd + 1 });
     for (const b of subs) out.push({ block: b, paren: true, glued: false, subst: true });
     subs.length = 0;
-    cur = ''; has = false; quotedSpace = false; wasQuoted = false;
+    cur = ''; has = false; quotedSpace = false; wasQuoted = false; curStart = -1;
   };
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -179,7 +180,7 @@ function tokens(text, literalAt) {
       continue;
     }
     if (sc.comments.has(i)) { push(); i = sc.comments.get(i) - 1; continue; }
-    if ((c === '"' || c === "'") && !lit.has(i)) { q = c; has = true; wasQuoted = true; continue; }
+    if ((c === '"' || c === "'") && !lit.has(i)) { if (!has) curStart = i; q = c; has = true; wasQuoted = true; continue; }
     if (c === '`' && (text[i + 1] === '\n' || (text[i + 1] === '\r' && text[i + 2] === '\n'))) { i += text[i + 1] === '\r' ? 2 : 1; push(); continue; }
     if ((c === '(' || c === '{') && sc.match.has(i)) {
       const close = sc.match.get(i);
@@ -187,8 +188,9 @@ function tokens(text, literalAt) {
       const glued = i > 0 && !/[\s;&|({$<]/.test(text[i - 1]);
       const subst = c === '(' && (text[i - 1] === '$' || text[i - 1] === '<');
       push();
-      out.push({ block: text.slice(i + 1, close), paren: c === '(', glued, subst });
+      out.push({ block: text.slice(i + 1, close), paren: c === '(', glued, subst, dollar: text[i - 1] === '$' });
       i = close;
+      lastBlockEnd = close;
       continue;
     }
     if (c === ')' || c === '}') { push(); out.push({ op: ';' }); continue; }
@@ -201,6 +203,7 @@ function tokens(text, literalAt) {
       continue;
     }
     if (/\s/.test(c)) { push(); continue; }
+    if (!has) curStart = i;
     cur += c;
     has = true;
   }
@@ -327,7 +330,11 @@ function commandReason(cmd, pipe, at, depth) {
     // kosmos#8406 (Homer, 0.8.04): NAME=value before a command sets its environment and runs it, as in Git Bash's
     // MSYS_NO_PATHCONV=1 taskkill /F /IM node.exe. Any number of them.
     const assigns = () => {   // NAME=value words; a value built by $( ) arrives as the word plus a substitution block
-      while (wd(i) !== undefined && ASSIGN.test(wd(i))) { i++; while (cmd[i] && cmd[i].block !== undefined && cmd[i].subst) i++; }
+      while (wd(i) !== undefined && ASSIGN.test(wd(i))) {
+        i++;
+        // the value goes on while it is a $( ) or ${ } block, or a word glued right after one (PATH=${PATH}:x)
+        while (cmd[i] && ((cmd[i].block !== undefined && (cmd[i].subst || cmd[i].dollar)) || (cmd[i].w !== undefined && cmd[i].afterBlock && i > 0 && cmd[i - 1].block !== undefined))) i++;
+      }
     };
     assigns();
     // env [options] [NAME=value ...] command: its options (-u NAME, -C DIR, -P PATH and -a NAME take a value, as a
@@ -370,12 +377,13 @@ function commandReason(cmd, pipe, at, depth) {
         while (i < cmd.length && cmd[i].w !== undefined && /^\/{1,2}[a-z]/i.test(cmd[i].w)) i++;
       }
       if (was === 'xargs') while (i < cmd.length && cmd[i].w !== undefined && /^-/.test(cmd[i].w)) i++;
+      if (was === 'command' && /^-[pP]*[vV]/.test(wd(i) || '')) return '';   // command -v NAME looks a name up, it runs nothing
       if (/^(time|command|exec|stdbuf|setsid)$/.test(was)) {   // their options come before the command; exec -a takes a NAME
         while (wd(i) !== undefined && /^-/.test(wd(i))) {
           const o = wd(i); i++;
           if (o === '--') break;
           // exec -a NAME (also in a cluster, -ca NAME), time -f FMT / -o FILE, stdbuf -o MODE / -i / -e
-          if ((was === 'exec' && /^-[a-z]*a$/.test(o)) || (was === 'time' && /^-[fo]$/.test(o)) || (was === 'stdbuf' && /^-[ioe]$/.test(o))) i++;
+          if ((was === 'exec' && /^-[a-z]*a$/.test(o)) || (was === 'time' && /^-[fo]$/.test(o)) || (was === 'stdbuf' && /^(-[ioe]|--(input|output|error))$/.test(o))) i++;
         }
       }
       if (was === 'sudo') {   // sudo -E, -u USER, -g GROUP, -C N, -h HOST, -p PROMPT, -D DIR, -R DIR, -T T

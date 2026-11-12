@@ -185,6 +185,11 @@ const REFUSED = [
   'nice --adjustment 5 taskkill //F //IM node.exe',
   'sudo -U me taskkill //F //IM node.exe',
   'exec -ca x taskkill //F //IM node.exe',
+  'X=${Y} taskkill //F //IM node.exe',
+  'PATH=${PATH}:/c/x taskkill //F //IM node.exe',
+  'FOO=$(date)x taskkill //F //IM node.exe',
+  'stdbuf --output 0 taskkill //F //IM node.exe',
+  'exec -l logoff',
 ];
 const ALLOWED = [
   'taskkill /PID 4242',          // the card's control: one exact process id
@@ -271,6 +276,10 @@ const ALLOWED = [
   'timeout /t 5 /nobreak',
   'FOO=$(date) echo shutdown /s',
   'sudo -u me git status',
+  'command -v logoff',
+  'command -V taskkill',
+  'command -pv logoff',
+  'PATH=${PATH}:/c/x git status',
 ];
 
 test('#8406: every listed Windows form of "stop everything" is refused, in any case', () => {
