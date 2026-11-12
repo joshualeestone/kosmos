@@ -254,8 +254,9 @@ test('#7820 a failed delete reads "remove its startup job", never "move" it', ()
   });
   const done = win.del('rb7820l');
   assert.notEqual(done.outcome, leftover.OUTCOME.DELETED);
-  assert.match(String(done.because), /we could not remove its startup job/, 'the fixture did not make the task removal fail');
-  assert.doesNotMatch(String(done.because), /could not move its startup job/);
+  // kosmos#8471: the task that would not go now keeps the folder too, said in the sentence a Linux unit uses.
+  assert.match(String(done.because), /Task Scheduler would not remove rb7820l's startup job/, 'the fixture did not make the task removal fail');
+  assert.doesNotMatch(String(done.because), /move its startup job/);
 });
 
 /* Both scripts parse as PowerShell. Runs wherever pwsh is installed (the fleet's Macs have it); on Windows the board

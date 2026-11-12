@@ -567,6 +567,28 @@ function plan(name, opts) {
     if (st.because) return { ok: false, because: st.because };
     damagedSettings = st.damaged;
   }
+  /* kosmos#8471: a Windows task with no folder (reached from a removed agent's row) deletes its settings for good, so it
+     gets the checks settings alone get (a name waiting to start, a recorded folder behind a link that leads nowhere, a
+     damaged settings file) and stricter ones: when the folder Kosmos keeps its agents in leads nowhere or is not there
+     (an unplugged disk or share), every agent looks like this, and Kosmos refuses rather than delete their settings.
+     (Settings alone go to the Recycle Bin, which can be undone, so they are not refused in that state.) NOT covered, as
+     on main: a recorded folder OUTSIDE the workers folder on a drive that is not connected reads as gone, not
+     unreachable, so its settings can still be deleted for good (kosmos#8475). */
+  if (!folder && job && job.task) {
+    const st = strandedRefusal(clean, shown);
+    if (st.because) return { ok: false, because: st.because };
+    damagedSettings = st.damaged;
+    /* The way out, if the folder is gone for good: the task, named as Task Scheduler shows it, which a person can delete;
+       the row then holds settings alone, whose delete works. */
+    const wayOut = ` If that folder is gone for good, open Task Scheduler, delete ${String(job.label).split('\\').pop()} in the ${String(job.label).split('\\')[0]} folder of the Task Scheduler Library, then try again here.`;
+    const wAt = resolveRecordedFolder(create.WORKERS_DIR);
+    if (wAt.because === 'dangling') return { ok: false, because: `the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
+    if (wAt.because) return { ok: false, because: `we could not check the folder Kosmos keeps its agents in, so we have not offered to delete ${shown}'s settings or startup job. Try again in a moment.` };
+    /* review 5: a workers folder that is not there at all (its drive not connected, or the folder renamed or moved) makes
+       every agent with a task look like this too, and resolveRecordedFolder reads a missing drive as "the rest is gone".
+       A task still registered while the whole workers folder is missing is never one agent's leftover, so refuse. */
+    if (!workersFolderThere()) return { ok: false, because: `the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
+  }
   const recordsOnly = Boolean(recs);
 
   /* One mode for the whole act, so the sentence is one sentence: to the
@@ -640,7 +662,16 @@ function plan(name, opts) {
   /* #7819: a sentence promising the Trash, or "nothing you can lose", is false once settings or a picture go for good. */
   if (recordsLost && (toTrash || jobOnlyTask)) {
     const w = recordsWords(recs.records);
-    reassurance = `${toTrash ? `Its files go to ${bin}, where you can get them back until you empty it${job && (job.unit || job.task) ? ', and its startup job is removed' : ''}, but ` : ''}${toTrash ? w.words : w.cap} cannot go to ${bin}, so ${w.plural ? 'they are' : 'it is'} deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
+    const tail = `${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
+    reassurance = !toTrash && jobIsTask
+      /* kosmos#8471: a Windows task with no folder moves nothing, so its settings go for good by design (#7820: the
+         outcome then never stands over a record promised the Recycle Bin). Said as the fact it is: "the Recycle Bin
+         cannot take them" was a reason that was not true. (A Linux unit-only leftover says the same false reason; left
+         as it is here.) */
+      /* One "and" per sentence: the settings (and picture, which recordsWords joins with its own "and") and what else
+         does not come back are sentences of their own here. */
+      ? `Its startup job is removed. ${w.cap} ${w.plural ? 'are' : 'is'} deleted for good${community ? '. Its community account does not come back' : waiting ? '. Anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
+      : `${toTrash ? `Its files go to ${bin}, where you can get them back until you empty it${job && (job.unit || job.task) ? ', and its startup job is removed' : ''}, but ` : ''}${toTrash ? w.words : w.cap} cannot go to ${bin}, so ${w.plural ? 'they are' : 'it is'} deleted for good${tail}`;
   }
   // kosmos#7825: only stored records are left, so every sentence is about them; there are no files or job to name.
   const rw = recordsOnly ? recordsWords(recs.records) : null;
@@ -654,6 +685,9 @@ function plan(name, opts) {
     ? (recordsTrash ? `Move ${rw.words} to ${bin}` : `Delete ${rw.words} for good`)
     : folder
     ? (toTrash ? `Move ${filesWords(folder)} to ${bin}` : `Delete ${filesWords(folder)} for good`)
+    /* kosmos#8471: a Windows task with no folder also deletes its settings for good, so the button says so, as the
+       sentence above it does (Linux unit-only leftovers unchanged). */
+    : jobIsTask && recordsLost ? `Remove its startup job and delete ${recordsWords(recs.records).words}`
     : jobIsService ? 'Remove its startup job'
       : (toTrash ? `Move the auto-start file to ${bin}` : 'Delete the auto-start file for good');
   const hint = recordsOnly
@@ -734,6 +768,14 @@ function resolveRecordedFolder(dir) {
    a world start's (that is checked by the record), every reader already treats it as empty, so whatever it recorded is
    lost to its agent anyway, and refusing left it under the name for good. The plan says it could not be checked.
    { because } to refuse, else { damaged }. */
+/* kosmos#8471: whether the folder Kosmos keeps its agents in is there as a folder. A workers folder that is missing or a
+   link that leads nowhere makes every stopped agent with a task read as "no folder", and those agents are not leftovers.
+   A look that fails reads as not there (refuse, never offer). Not a test of a folder MOVED elsewhere: nothing here can
+   tell a deleted agent folder from a moved one (review 9), which is why this change lists no task with no folder. */
+function workersFolderThere() {
+  try { return fs.statSync(create.WORKERS_DIR).isDirectory(); } catch { return false; }
+}
+
 function strandedRefusal(name, shown) {
   const store = require('./store');
   const couldNot = `we could not read what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.`;
@@ -990,7 +1032,11 @@ function* delSteps(name, opts) {
   /* review 32: kept whether or not there is a Trash: the folder is what shows the leftover on the board, and moving it
      while the unit still holds the name would leave nothing to look at. */
   // review 40: with or without a folder; a unit systemd still holds keeps every record, as review 35 decided.
-  if (p.job && p.job.unit && stuck.includes('its startup job')) {   // review 33: Linux units only; Windows unchanged
+  /* kosmos#8471: a Windows Scheduled Task too (review 33 kept this to Linux units). With the task still registered and
+     the folder in the Recycle Bin, the settings kept and the removal forgotten, nothing on the board showed the agent,
+     so its delete could never be tried again from the screen. Kept whole instead, the agent stays where it was seen. */
+  const taskStuck = Boolean(p.job && (p.job.unit || p.job.task) && stuck.includes('its startup job'));
+  if (taskStuck) {
     if (p.folder) {
       stuck.push('its folder');
       steps.push({ step: 'its folder', ok: false, because: 'kept, because its startup job could not be removed' });
@@ -1000,7 +1046,14 @@ function* delSteps(name, opts) {
     return {
       outcome: OUTCOME.REFUSED,
       // review 37: the community standing reset (#5000) has already run and cannot be undone, so the sentence says so.
-      because: `systemd would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again once this computer's user services are reachable. Its standing in the community was reset, so if it comes back it starts at the beginning.`,
+      because: (p.job.task
+        // kosmos#8471: the same sentence in Windows words; Task Scheduler is where a person would look for the task.
+        /* kosmos#8471: a refusal can last (a task another account registered says "Access is denied" every time), so
+           the sentence also names the task, the thing a person can delete in Task Scheduler themselves, by the folder
+           and name Task Scheduler shows (Kosmos, then agent-<name>), not as one path. */
+        ? `Task Scheduler would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again in a moment, and if it keeps failing, open Task Scheduler, find ${String(p.job.label).split('\\').pop()} in the ${String(p.job.label).split('\\')[0]} folder of the Task Scheduler Library, delete it, then try again here.`
+        : `systemd would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again once this computer's user services are reachable.`)
+        + ' Its standing in the community was reset, so if it comes back it starts at the beginning.',
       steps,
     };
   } else if (p.folder) yield* move(p.folder.path, 'its folder');
