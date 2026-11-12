@@ -14,9 +14,10 @@
  * call site at a time; this fixes every call site in the file at once, including
  * the ones written after it.
  *
- * HOW: `os.tmpdir()` reads TMPDIR on every call, so pointing TMPDIR at a
- * per-process directory makes every later mkdtemp in this process land inside
- * it, and so does every child process this one spawns (they inherit the env).
+ * HOW: `os.tmpdir()` reads TMPDIR on every call (TEMP and TMP on Windows), so
+ * pointing TMPDIR (and TEMP and TMP on Windows) at a per-process directory makes
+ * every later mkdtemp in this process land inside it, and so does every child
+ * process this one spawns (they inherit the env).
  * One `exit` handler removes the whole directory.
  *
  * ⚠️ WHAT IT DOES NOT COVER:
@@ -27,6 +28,9 @@
  *    called os.tmpdir()). That is why it goes first.
  *  - A process this file started that makes the directory again AFTER this one has ended
  *    (#6362): the sweep has already run, so the leak guard can only list what it holds.
+ *  - On Windows, a process that still holds something in the folder (its working
+ *    folder, an open file) longer than the sweep's brief retry: the folder is left,
+ *    with its owner line marked, as for a sweep that failed part way (#6362).
  *  - A hard kill (SIGKILL) cannot be caught; one directory is left, named `kts-`,
  *    instead of one per fixture. SIGINT, SIGTERM and SIGHUP are swept when nothing
  *    else in the file listens for them (otherwise the file's handler decides, and
@@ -43,6 +47,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { removeAtEnd } = require('./remove-at-end');
+const { removeTree } = require('./remove-tree');   // kosmos#8378: the Windows sweep; loaded now, not at exit
 
 let scoped = null;
 
@@ -52,6 +57,10 @@ function activate() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kts-'));
     scoped = dir;
     process.env.TMPDIR = dir;
+    /* kosmos#8378: on Windows `os.tmpdir()` reads TEMP, then TMP, and ignores TMPDIR (measured: TMPDIR alone left it on
+       the real temp folder), so without these the scope did nothing there and test fixtures piled up in %TEMP%
+       (23,333 entries on the Windows box). Set for this process and every child it spawns. */
+    if (process.platform === 'win32') { process.env.TEMP = dir; process.env.TMP = dir; }
     /* #6061: name the test file that owns this directory. A kill this module cannot catch leaves the directory
        behind, and the suite's leak guard (tools/lib/test-leak-guard.sh) reads this file to say which test was
        killed; without it a `kts-` leak names only a random suffix, from any of some two hundred files. */
@@ -80,7 +89,15 @@ function activate() {
        sweep waits for the exit: sweeping first would leave it running with its TMPDIR
        gone (measured: a later mkdtemp failed ENOENT and the file exited 0). */
     removeAtEnd(() => {
-      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* checked below */ }
+      /* kosmos#8378: on Windows the scope now holds every fixture (TEMP/TMP point at it), and Windows will not remove a
+         folder a process still holds (its working folder, an open file) for a moment after a child exits. So there the
+         sweep retries briefly, as test-support/remove-tree.js does for #5010 and #5074 (4 tries, about 1.5 s at most:
+         this runs at every test process's exit). */
+      if (process.platform === 'win32') {
+        try { removeTree(dir, { tries: 4, quiet: true }); } catch { /* checked below */ }
+      } else {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* checked below */ }
+      }
       /* #6362: still here means the sweep failed part way (a process this file started was still
          writing into it, or something in it could not be removed), and it may already have taken
          .kts-owner (that depends on the order it met the entries). Put the owner back, marked,

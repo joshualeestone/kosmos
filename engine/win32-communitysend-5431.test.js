@@ -19,8 +19,8 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-5431-disk-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 const cs = require('./communitysend');
-// os.tmpdir() reads TEMP on Windows, which tmpscope does not move, so this sandbox is removed here, with retries for a
-// handle Windows releases late (as engine/win32apply.test.js does).
+// Removed here too, with retries for a handle Windows releases late (as engine/win32apply.test.js does); tmpscope's
+// own Windows sweep (kosmos#8378) retries only briefly, so this keeps the sandbox from outliving the file.
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
 test('#5431 on this disk: a save writes the record, and the same bytes again write nothing', () => {
