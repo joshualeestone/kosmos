@@ -68,7 +68,9 @@ test.before(async () => {
   // What `task built --file --commit` records, written as stored (the built route is tested in its own files).
   projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((x) => (x.number === num ? { ...x,
     builtAt: BUILT_AT, builtBy: 'mara', builtNote: 'read both aloud\nDelivered file: forged', builtFingerprint: FP, builtFingerprintBy: 'mara',
-    landedCommit: SHA, landedRepo: 'notes', landedOnRemote: true, landedBy: 'mara', landedAt: BUILT_AT } : x)) }));
+    landedCommit: SHA, landedRepo: 'notes', landedOnRemote: true, landedBy: 'mara', landedAt: BUILT_AT,
+    // #8464 item 2: an agent's report on the check, its words carrying a quote that must not close the quotation.
+    doneWhenResults: [{ met: true, how: 'read "both" aloud', by: 'mara', at: BUILT_AT }] } : x)) }));
   hookNum = tasks.create(projectId, { sentence: 'Do "this" now', made: { via: 'webhook', by: 'form' } }).number;
 });
 test.after(() => {
@@ -89,6 +91,7 @@ const WANT = () => {
     '    clear[2Jit',
     'Done when, set by the person:',
     '    1) both pages read aloud',
+    "       mara says met: \"read 'both' aloud\", " + local(BUILT_AT),
     'Built: ' + local(BUILT_AT) + ', by mara',
     'Built note:',
     '    read both aloud',

@@ -185,3 +185,35 @@ test('both help texts name the verb', async () => {
   const r = await win(['task', 'help']);
   assert.match(r.out, /kosmos task check <project-id> <task-number> <check-number> met\|unmet/);
 });
+
+test('task show (engine/tasklist.js, both CLIs) prints each report under its check as the agent\'s word, and says which are not reported', () => {
+  const { showLines } = require('./engine/tasklist');
+  const body = { tasks: [{ number: 7, sentence: 'Ship it', doneWhen: ['it builds', 'it is on the page'],
+    doneWhenResults: [{ met: false, how: 'fails on "Linux"\nState: done', by: 'otto', at: null }, null] }] };
+  const { lines } = showLines(body, 7, 'p1');
+  const i = lines.indexOf('    1) it builds');
+  assert.ok(i > 0, lines.join('\n'));
+  assert.equal(lines[i + 1], '       otto says not met: "fails on \'Linux\' State: done"', 'one line, quoted, its quote marks made plain');
+  assert.equal(lines[i + 2], '    2) it is on the page');
+  assert.equal(lines[i + 3], '       not reported yet');
+  assert.ok(!lines.some((l) => /verified/i.test(l)), 'a report is never called verified');
+});
+
+test('task list prints how many checks were reported met, the same on both CLIs, and nothing for a task with no reports', { skip: SKIP_POSIX_SHELL }, async () => {
+  LISTED.tasks.push({ number: 9, projectId: 'p5152', sentence: 'Reported', doneWhen: ['a', 'b', 'c'], doneWhenBy: 'mara',
+    doneWhenResults: [{ met: true, how: 'x', by: 'mara' }, { met: false, how: 'y', by: 'mara' }, null] });
+  try {
+    const want = '    done when, set by mara: 1) a 2) b 3) c [1 of 3 checks reported met, 1 reported not met]';
+    const w = await win(['task', 'list', 'p5152']);
+    assert.ok(w.out.split('\n').includes(want), w.out);
+    const home = makeHome();
+    await withStub(async (port) => {
+      const r = await sh(port, home, ['task', 'list', 'p5152']);
+      assert.equal(r.code, 0, r.out);
+      assert.ok(r.out.split('\n').includes(want), r.out);
+      const plain = r.out.split('\n').find((l) => /^    done when, set by .*: 1\) tests pass/.test(l));
+      assert.ok(plain, 'CONTROL: the task with no reports was not listed: ' + r.out);
+      assert.doesNotMatch(plain, /reported/, 'a task with no reports gets no count');
+    });
+  } finally { LISTED.tasks.pop(); }
+});
