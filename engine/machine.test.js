@@ -8,6 +8,7 @@
  */
 
 const test = require('node:test');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378: the macOS-only arms
 const assert = require('node:assert');
 const machine = require('./machine');
 /* win32-board-copy: this file is the Mac contract (pmset, /Applications, open -R), so it
@@ -81,8 +82,15 @@ const LAPTOP_ALWAYS_AWAKE = LAPTOP_SLEEPS_ON_BATTERY.replace(' sleep            
  * path. It does not stand in for a binary, and the moment the probe started
  * asking whether it could be RUN, three tests were pinning a machine where
  * Claude is a text file.
+ *
+ * kosmos#8378: node itself (process.execPath), a real executable on every platform; /bin/sh is not a path on Windows.
+ * Written with forward slashes (a no-op off Windows), which Windows opens just the same: several arms here state the
+ * darwin platform, whose path check refuses a backslash as a character no Mac path carries (create.unusablePath).
+ * Every installedCheck call here states platform 'darwin' too: installedCheck takes the host's platform, not
+ * machine.setPlatform above, and on a Windows host it requires no tmux. On a Mac that is the host's value, and on Linux
+ * installedCheck answers exactly as for darwin (only win32 takes another arm).
  */
-const REAL_BIN = '/bin/sh';
+const REAL_BIN = process.execPath.replace(/\\/g, '/');
 
 const okRunner = () => ({ ok: true, stdout: '' });
 const deadRunner = () => ({ ok: false, because: 'command not found' });
@@ -254,7 +262,7 @@ test('a binary we cannot LOOK at is unknown, not "not installed"', () => {
     // ⚠️ tmuxBin, not claudeBin (#979): Claude Code no longer drives this
     // row's verdict, so pointing the unreadable path at it would assert
     // `unknown` on a check that now correctly answers `ok`.
-    const got = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: hidden });
+    const got = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: hidden });
     assert.equal(got.state, 'unknown',
       'a path we could not read was reported as a definite "not installed"');
     assert.match(got.detail, /could not see it|did not work/);
@@ -289,10 +297,10 @@ test('the installed check asks the same question creation asks', () => {
 });
 
 test('a missing REQUIRED thing says what a PERSON can do, and still records where we looked', () => {
-  const good = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
+  const good = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
   assert.equal(good.state, 'ok');
 
-  const bad = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux' });
+  const bad = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux' });
   assert.equal(bad.state, 'attention');
 
   /* ⭐ THIS ASSERTION USED TO REQUIRE THE OPPOSITE, and moved with #1019 rather
@@ -341,7 +349,7 @@ test('⭐ #979: a Mac with no Claude Code is OK, and its absence is still REPORT
      ⚠️ AND THE FACT IS NOT DELETED WITH THE REQUIREMENT. The Connect step has
      to know whether pressing Connect will download anything, so presence is
      published on `present` and simply stops deciding the verdict. */
-  const got = machine.installedCheck({ claudeBin: '/definitely/not/here/claude', tmuxBin: REAL_BIN });
+  const got = machine.installedCheck({ platform: 'darwin', claudeBin: '/definitely/not/here/claude', tmuxBin: REAL_BIN });
   assert.equal(got.state, 'ok', 'a GPT-only Mac is told it is missing something it does not need');
   assert.doesNotMatch(got.title + ' ' + got.detail, /Claude/,
     'the row still names Claude Code to somebody who may never want it');
@@ -349,7 +357,7 @@ test('⭐ #979: a Mac with no Claude Code is OK, and its absence is still REPORT
   assert.equal(got.present.tmux, true);
 
   // CONTROL: present is a real reading, not a constant. Same call, real path.
-  const has = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
+  const has = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
   assert.equal(has.present.claude, true,
     'present answers false for everything, so the assertion above proves nothing');
 });
@@ -361,9 +369,10 @@ test('#979: an unrunnable Claude Code reads absent in `present`, and still does 
   const np = require('node:path');
   const dir = fs2.mkdtempSync(np.join(require('node:os').tmpdir(), 'mach979-'));
   try {
-    const asDir = np.join(dir, 'claude');
+    // kosmos#8378: forward slashes, as REAL_BIN, so the darwin path check does not refuse a Windows temp path on sight.
+    const asDir = np.join(dir, 'claude').replace(/\\/g, '/');
     fs2.mkdirSync(asDir);
-    const got = machine.installedCheck({ claudeBin: asDir, tmuxBin: REAL_BIN });
+    const got = machine.installedCheck({ platform: 'darwin', claudeBin: asDir, tmuxBin: REAL_BIN });
     assert.equal(got.state, 'ok', 'an unrunnable Claude Code blocked a machine that does not need it');
     assert.equal(got.present.claude, false, 'a directory named claude read as present');
   } finally {
@@ -400,11 +409,11 @@ test('something at the path is not the same as something we could run', () => {
        `present` assertions in the #979 tests above. The original point is
        untouched and still driven, twice: a thing that EXISTS but cannot RUN
        is not installed. */
-    let got = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: asDirTmux });
+    let got = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: asDirTmux });
     assert.equal(got.state, 'attention', 'a directory named tmux was reported as installed');
     assert.match(got.detail, /tmux/);
 
-    got = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: notExec });
+    got = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: notExec });
     assert.equal(got.state, 'attention', 'a tmux with no execute bit was reported as installed');
     assert.match(got.detail, /tmux/);
   } finally {
@@ -445,7 +454,7 @@ test('an unreadable REQUIRED probe is unknown, not a definite "not installed"', 
        reports as UNKNOWN rather than as a definite "not installed" -- plus the
        new half, that an informational part still answers even when the
        required probe could not be read. */
-    const got = machine.installedCheck({ claudeBin: '/definitely/not/here/claude', tmuxBin: blocked });
+    const got = machine.installedCheck({ platform: 'darwin', claudeBin: '/definitely/not/here/claude', tmuxBin: blocked });
     assert.equal(got.state, 'unknown',
       'an unreadable required probe was reported as a definite "not installed"');
     assert.match(got.detail, /could not check|did not work/,
@@ -484,7 +493,7 @@ test('the install check refuses the same paths creation refuses', () => {
   assert.equal(create.unusablePath(nasty), true,
     'the fixture is no longer a path creation would refuse');
 
-  const got = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: nasty });
+  const got = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: nasty });
   assert.equal(got.state, 'attention',
     'a path creation will refuse was reported as installed and ready');
   /* Moved with #1019: the headline names the consequence, not the component.
@@ -498,7 +507,7 @@ test('the install check refuses the same paths creation refuses', () => {
    Starting themselves
 --------------------------------------------------------------------------- */
 
-test('launchctl answering is a pass, and launchctl NOT answering is unknown', () => {
+test('launchctl answering is a pass, and launchctl NOT answering is unknown', { skip: skipOnWin32('it drives the macOS launchd checks, which ask launchctl about the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   const alive = machine.restartCheck(okRunner);
   assert.equal(alive.state, 'ok');
   /**
@@ -538,7 +547,7 @@ test('launchctl answering is a pass, and launchctl NOT answering is unknown', ()
   assert.match(dead.detail, /could not look/);
 });
 
-test('the restart check asks launchctl about THIS login session', () => {
+test('the restart check asks launchctl about THIS login session', { skip: skipOnWin32('it drives the macOS launchd checks, which ask launchctl about the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   // gui/<uid>, not the system domain: an agent's job is registered per-login, so
   // asking about anything else would answer a question nobody has.
   let asked = null;
@@ -581,7 +590,7 @@ const ENABLED_BLOCK = `disabled services = {
 \t"com.kosmos.agent.somebody" => enabled
 }`;
 
-test('#2397: a missing board login job on an INSTALLED machine is attention, not silence', () => {
+test('#2397: a missing board login job on an INSTALLED machine is attention, not silence', { skip: skipOnWin32('it drives the macOS launchd checks, which ask launchctl about the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   withLaunchDir(false, () => {
     const got = machine.boardAutostartCheck(okRunner, { platform: 'darwin', installedRoot: '/opt/kosmos' });
     assert.equal(got.state, machine.STATE.ATTENTION,
@@ -591,7 +600,7 @@ test('#2397: a missing board login job on an INSTALLED machine is attention, not
   });
 });
 
-test('#2397: no board login job when running FROM SOURCE is benign, not a false alarm', () => {
+test('#2397: no board login job when running FROM SOURCE is benign, not a false alarm', { skip: skipOnWin32('it drives the macOS launchd checks, which ask launchctl about the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   withLaunchDir(false, () => {
     const got = machine.boardAutostartCheck(okRunner, { platform: 'darwin', installedRoot: null });
     assert.equal(got.state, machine.STATE.OK, 'a from-source checkout must not be told its login job is missing');
@@ -599,7 +608,7 @@ test('#2397: no board login job when running FROM SOURCE is benign, not a false 
   });
 });
 
-test('#2397: a present-but-turned-off login item is surfaced plainly, never fought', () => {
+test('#2397: a present-but-turned-off login item is surfaced plainly, never fought', { skip: skipOnWin32('it drives the macOS launchd checks, which ask launchctl about the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   withLaunchDir(true, () => {
     // The disable override is exactly what the System Settings Login Items
     // toggle writes; it, not "loaded right now", is what stops a reboot start.
@@ -617,7 +626,7 @@ test('#2397: a present-but-turned-off login item is surfaced plainly, never foug
   });
 });
 
-test('#2397: the OLDER macOS disable token (=> true) is also read as turned off, not a false OK', () => {
+test('#2397: the OLDER macOS disable token (=> true) is also read as turned off, not a false OK', { skip: skipOnWin32('it drives the macOS launchd checks, which ask launchctl about the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   // Older `launchctl print-disabled` emitted `=> true`/`=> false` (true == disabled)
   // instead of `=> disabled`/`=> enabled`. Matching only `disabled` would let a
   // genuinely disabled board fall through to OK -- the cannot-see-zero direction.
@@ -657,7 +666,7 @@ test('#2397: an UNREADABLE launch dir is unknown (could-not-look), not a false "
   }
 });
 
-test('#2397: a present, enabled board login job is a pass', () => {
+test('#2397: a present, enabled board login job is a pass', { skip: skipOnWin32('it drives the macOS launchd checks, which ask launchctl about the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   withLaunchDir(true, () => {
     const enabledRunner = (cmd, args) => {
       if (cmd === '/bin/launchctl' && args[0] === 'print-disabled') return { ok: true, stdout: ENABLED_BLOCK };
@@ -669,7 +678,7 @@ test('#2397: a present, enabled board login job is a pass', () => {
   });
 });
 
-test('#2397: a present job whose disable-state we could not read still passes (presence is the signal)', () => {
+test('#2397: a present job whose disable-state we could not read still passes (presence is the signal)', { skip: skipOnWin32('it drives the macOS launchd checks, which ask launchctl about the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   // RunAtLoad brings a present plist back at the next login unless a standing
   // disable override says otherwise. If we could not read that override, the
   // file's presence is the reboot-bearing fact -- do not manufacture an alarm.
@@ -679,7 +688,7 @@ test('#2397: a present job whose disable-state we could not read still passes (p
   });
 });
 
-test('#2397: not currently loaded is NOT "turned off" -- only a disable override is', () => {
+test('#2397: not currently loaded is NOT "turned off" -- only a disable override is', { skip: skipOnWin32('it drives the macOS launchd checks, which ask launchctl about the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   // A present plist with no disable override (started by hand this session, or
   // run from source beside a plist) still RunAtLoads next login. print-disabled
   // simply does not list it -> enabled by default -> must read OK, not attention.
@@ -693,7 +702,7 @@ test('#2397: not currently loaded is NOT "turned off" -- only a disable override
   });
 });
 
-test('#2397: the check never mutates launchd -- it only ever reads print-disabled', () => {
+test('#2397: the check never mutates launchd -- it only ever reads print-disabled', { skip: skipOnWin32('it drives the macOS launchd checks, which ask launchctl about the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   withLaunchDir(true, () => {
     const calls = [];
     const spy = (cmd, args) => { calls.push([cmd, ...(args || [])]); return { ok: true, stdout: ENABLED_BLOCK }; };
@@ -753,7 +762,7 @@ test('#570: win32 DOES get an autostart row, and check() renders it (the silence
    The whole screen
 --------------------------------------------------------------------------- */
 
-test('five checks come back, and the two kinds of not-ok are counted apart', () => {
+test('five checks come back, and the two kinds of not-ok are counted apart', { skip: skipOnWin32('it drives the macOS launchd checks, which ask launchctl about the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   // app-location gets DETERMINISTIC dirs: without appDirs this test would
   // read this machine's real /Applications and pass or fail by whether the
   // machine running the suite happens to have Kosmos installed.
@@ -937,7 +946,7 @@ test('a path we refuse on sight is not described as a path we looked at', () => 
   const create = require('./create');
   assert.equal(create.unusablePath(quoted), true, 'the fixture is no longer a refused path');
 
-  const got = machine.installedCheck({ claudeBin: REAL_BIN, tmuxBin: quoted });
+  const got = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: quoted });
   assert.equal(got.state, 'attention');
   assert.ok(!/We looked for/.test(got.detail),
     'claimed to have looked at a path it refused on sight');
@@ -982,7 +991,7 @@ test('a refused path is SAID rather than dropped, and an unchosen provider is no
      not need two parts: a refused path is SAID rather than silently dropped,
      and the informational part is not named at somebody who never chose it. */
   const quoted = `/opt/home${String.fromCharCode(39)}brew/bin/tmux`;
-  const got = machine.installedCheck({ claudeBin: '/definitely/not/here/claude', tmuxBin: quoted });
+  const got = machine.installedCheck({ platform: 'darwin', claudeBin: '/definitely/not/here/claude', tmuxBin: quoted });
   assert.equal(got.state, 'attention');
   assert.match(got.detail, /home.brew\/bin\/tmux/,
     'the refused path went unmentioned, which is how it went unfixed');
@@ -992,7 +1001,7 @@ test('a refused path is SAID rather than dropped, and an unchosen provider is no
     'and the fact is still reported, it just no longer accuses');
 });
 
-test('the app-location check looks in both folders and answers all four states', () => {
+test('the app-location check looks in both folders and answers all four states', { skip: skipOnWin32('it seals a folder with a POSIX mode (chmod 000) to check the could-not-look answer, which Windows does not keep') }, () => {
   const os = require('node:os');
   const path = require('node:path');
   const fs = require('node:fs');
@@ -1252,7 +1261,7 @@ test('the sleep row carries the settings flag from the same probe', () => {
   }
 });
 
-test('revealApp opens Finder at the icon it re-derives, and refuses honestly when there is none', () => {
+test('revealApp opens Finder at the icon it re-derives, and refuses honestly when there is none', { skip: skipOnWin32('it seals a folder with a POSIX mode (chmod 000) to check the could-not-look answer, which Windows does not keep') }, () => {
   const os = require('node:os');
   const fs = require('node:fs');
   const nodePath = require('node:path');
@@ -1301,7 +1310,7 @@ test('revealApp opens Finder at the icon it re-derives, and refuses honestly whe
   }
 });
 
-test('labelTruthCheck: a registered Kosmos label pointing anywhere but its real file goes red, and unregistered is not a hijack', () => {
+test('labelTruthCheck: a registered Kosmos label pointing anywhere but its real file goes red, and unregistered is not a hijack', { skip: skipOnWin32('it drives the macOS launchd checks, which ask launchctl about the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   const os = require('node:os');
   const fs = require('node:fs');
   const nodePath = require('node:path');
@@ -1603,7 +1612,7 @@ test('#8374 Windows draws no launchd rows: no restart or labels row, and no "whi
   assert.match(macLabels.detail, /which user/, 'control: darwin labels row with no uid says the uid line');
 });
 
-test('#2304 an empty or unknown platform falls back to the real platform', () => {
+test('#2304 an empty or unknown platform falls back to the real platform', { skip: skipOnWin32('it asks what an empty platform falls back to, which is the host: on a Windows host that is the Windows arm, which requires no tmux') }, () => {
   // `(opts && opts.platform) || process.platform`: an empty string is falsy and
   // falls back, so this box (darwin) still requires tmux -- absent tmux is
   // attention, never a silent win32-shaped pass.

@@ -67,6 +67,12 @@ function board({ mangle = false } = {}) {
   const bad = 'anna_0.0_2.1.237_0___ the line that could not be read';
   const bin = nodePath.join(sb, 'bin');
   fs.mkdirSync(bin, { recursive: true });
+  /* kosmos#8378: on Windows the pane lines reach the board through the pane source the Windows board itself uses
+     (status.setPaneSource, set in the child below), because a #!/bin/sh tmux cannot run there by its shebang; the same
+     text reaches the same parser. The stub tmux is still written, since the sandbox guard requires
+     AGENT_WORKFORCE_TMUX_BIN (#1651), and on macOS and Linux it prints the lines, as before. */
+  const onWin32 = process.platform === 'win32';
+  const paneText = [good].concat(mangle ? [bad] : []).map((l) => l + '\n').join('');
   fs.writeFileSync(nodePath.join(bin, 'tmux'),
     `#!/bin/sh\nprintf '%s\\n' "${good}"${mangle ? ` "${bad}"` : ''}\n`,
     { mode: 0o755 });
@@ -75,6 +81,7 @@ function board({ mangle = false } = {}) {
     const http = require('node:http');
     const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
     const srv = app.server || app;
+    ${onWin32 ? `require(${JSON.stringify(nodePath.join(REPO, 'engine', 'status.js'))}).setPaneSource(() => ${JSON.stringify(paneText)});` : ''}
     srv.listen(0, '127.0.0.1', () => {
       const port = srv.address().port;
       http.get({ host: '127.0.0.1', port, path: '/api/status' }, (res) => {
@@ -88,7 +95,7 @@ function board({ mangle = false } = {}) {
     encoding: 'utf8',
     env: {
       ...process.env,
-      PATH: `${bin}:${process.env.PATH}`,
+      PATH: `${bin}${nodePath.delimiter}${process.env.PATH}`,   // kosmos#8378: the platform's separator (';' on Windows)
       AGENT_WORKFORCE_DRY_RUN: '1',
       /* kosmos#1651: DRY_RUN stops tmux WRITES; the roster is a READ and only
          TMUX_BIN redirects one, so the whole-sandbox guard now requires it. */

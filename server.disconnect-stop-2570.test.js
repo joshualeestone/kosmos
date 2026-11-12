@@ -32,6 +32,7 @@
  */
 
 const os = require('node:os');
+const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378: the tmux stop and the bash sign-in mocks
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const fs = require('node:fs');
 const nodePath = require('node:path');
@@ -71,6 +72,11 @@ const { start, server } = require('./server');
 const { eventually } = require('./test-support/eventually');
 const removal = require('./engine/remove');
 const create = require('./engine/create');
+
+/* kosmos#8378: on Windows the roster is the PANES file handed to the board through the pane source the Windows board
+   itself uses (status.setPaneSource), because the fake tmux that reads it elsewhere is a shebang script, which Windows
+   cannot run. The same lines reach the same parser. macOS and Linux still read it through the fake tmux, as before. */
+if (process.platform === 'win32') require('./engine/status').setPaneSource(() => fs.readFileSync(PANES, 'utf8'));
 
 const REMOVED_JSON = nodePath.join(SANDBOX, 'data', store.APP, 'removed.json');
 
@@ -198,7 +204,7 @@ test('#2570 CONTROL: with no stopAgents the route still REFUSES and names the ag
 
 /* ── the feature ─────────────────────────────────────────────────────────── */
 
-test('#2570: with stopAgents the agent is really stopped and the account IS disconnected', async () => {
+test('#2570: with stopAgents the agent is really stopped and the account IS disconnected', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
   installRunner();
   const dir = claudeAccount('busy2');
   agentOn('spade', dir, 'claude');
@@ -225,7 +231,7 @@ test('#2570: with stopAgents the agent is really stopped and the account IS disc
 
 /* 🔑 THE SENTENCE IS PART OF THE FEATURE, AND THE RECORD IS WHAT MAKES IT TRUE.
    A stop the person cannot undo is a different product from one they can. */
-test('#2570: the stopped agent is on the removed list, which is what the answer promises', async () => {
+test('#2570: the stopped agent is on the removed list, which is what the answer promises', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
   installRunner();
   const dir = claudeAccount('busy3');
   agentOn('archer', dir, 'claude');
@@ -793,7 +799,7 @@ test('#2570 CONTROL: a caller that sends no stopNames is not held to a consent s
 
 /* #2264 put DELETE behind the same route. It is strictly more dangerous than a
    disconnect, so assert the pairing rather than assuming the shared code path. */
-test('#2570: the DELETE door honours stopAgents, and does NOT promise a restore', async () => {
+test('#2570: the DELETE door honours stopAgents, and does NOT promise a restore', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
   installRunner();
   const dir = claudeAccount('doomed');
   agentOn('maigret', dir, 'claude');
@@ -815,7 +821,7 @@ test('#2570: the DELETE door honours stopAgents, and does NOT promise a restore'
   assert.match(String(r.json.because), /needs a different one before it can start again/);
 });
 
-test('#2570: the OpenAI route stops its own agents the same way', async () => {
+test('#2570: the OpenAI route stops its own agents the same way', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
   installRunner();
   const dir = codexAccount('busy');
   agentOn('poirot', dir, 'codex');
@@ -888,7 +894,7 @@ test('#2570 CONTROL: the OpenAI route with no flag still refuses and names the a
 /* #5994 end to end through this route: an account whose own "Sign in again" was left unfinished. Without stopAgents the
    request is refused and cancels nothing; with stopAgents the agent is stopped, the account is deleted, and the abandoned
    sign-in is cancelled rather than refusing the delete after the agent was already stopped. */
-test('#5994: disconnect-and-stop on an account with its own unfinished Sign in again stops, deletes and cancels', async () => {
+test('#5994: disconnect-and-stop on an account with its own unfinished Sign in again stops, deletes and cancels', { skip: skipOnWin32('it runs a #!/bin/bash sign-in mock directly by its shebang line, which Windows cannot do') }, async () => {
   installRunner();
   const openai = require('./engine/openaiaccounts');
   const slotsBefore = new Set(fs.readdirSync(HOME).filter((n) => /^\.codex-work/.test(n)));
@@ -934,7 +940,7 @@ test('#5994: disconnect-and-stop on an account with its own unfinished Sign in a
 /* #6000 end to end through the Grok route (the #5994 shape; this route has no stopAgents): an account whose own "Sign
    in again" was left unfinished. With an agent on the account the request is refused and cancels nothing; once the agent
    is gone the delete goes ahead and the abandoned sign-in is cancelled instead of refusing the delete. */
-test('#6000: the Grok route deletes an account with its own unfinished Sign in again and cancels it; refused with an agent on it', async () => {
+test('#6000: the Grok route deletes an account with its own unfinished Sign in again and cancels it; refused with an agent on it', { skip: skipOnWin32('it runs a #!/bin/bash sign-in mock directly by its shebang line, which Windows cannot do') }, async () => {
   installRunner();   // a clean pane list and runner, as every arm here (one undiagnosable agent anywhere fails closed)
   const grok = require('./engine/grokaccounts');
   const slotsBefore = new Set(fs.readdirSync(HOME).filter((n) => /^\.grok-work/.test(n)));

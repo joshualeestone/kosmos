@@ -6,6 +6,7 @@
  */
 const test = require('node:test');
 const jobfix = require('../test-support/jobfixture');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378: the macOS-arm Qwen tests
 const fleet = require('../test-support/fleet');
 // A codex agent's pane as Codex draws it when idle (the shape cli.project-show-4581 uses).
 const codexCard = (name, opts = {}) => fleet.agent(name, { runner: 'codex', command: 'node', screen: '\u203a Ask Codex to do anything', ...opts });
@@ -32,7 +33,8 @@ test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); }
 
 const CODEX_BIN = nodePath.join(BIN, 'codex');
 const TMUX_BIN = nodePath.join(BIN, 'tmux');
-for (const b of [CODEX_BIN, TMUX_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+// kosmos#8378: a stub this platform counts as runnable (on Windows a .cmd beside it; test-support/runnerstub.js).
+for (const b of [CODEX_BIN, TMUX_BIN]) require('../test-support/runnerstub').writeRunnerStub(BIN, nodePath.basename(b));
 // The sandbox codex is THE codex: Repair (and anything else that asks runners for codex) must not depend on whether
 // this machine has one. CI does not; this Mac does, which is how the Repair test passed here and failed there.
 process.env.AGENT_WORKFORCE_CODEX_BIN = CODEX_BIN;
@@ -173,7 +175,7 @@ test('#5977 r3: Windows refuses a Qwen agent everywhere (its codex launch has no
   assert.match(made.because, /Qwen agent on Windows/);
 });
 
-test('#5977 r3: moving a Qwen agent to an account whose model the policy forbids is refused; the codex trust entry goes into the new home', () => {
+test('#5977 r3: moving a Qwen agent to an account whose model the policy forbids is refused; the codex trust entry goes into the new home', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
   const orgpolicy = require('./orgpolicy');
   const okDir = nodePath.join(HOME, qwen.DIR_PREFIX + 'r3ok');
   qwen.storeEndpoint(okDir, EP);
@@ -248,7 +250,7 @@ test('#5977 r3: the live check never follows a redirect', async () => {
 
 /* ---- review 4 --------------------------------------------------------------------------------------------- */
 
-test('#5977 r4: agentProvider reads a job once per tick, and a switch is seen at once', () => {
+test('#5977 r4: agentProvider reads a job once per tick, and a switch is seen at once', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
   const name = codexAgent('r4-memo', QWEN_HOME, 'alibaba');
   const fsReads = [];
   const orig = fs.readFileSync;
@@ -287,7 +289,7 @@ test('#5977 r4: the account list asks a dead endpoint briefly and remembers it f
 
 /* ---- review 5 --------------------------------------------------------------------------------------------- */
 
-test('#5977 r5: a Qwen switch and an account move record the account; a switch away clears it', () => {
+test('#5977 r5: a Qwen switch and an account move record the account; a switch away clears it', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
   const a = nodePath.join(HOME, qwen.DIR_PREFIX + 'r5a'); qwen.storeEndpoint(a, EP);
   const b = nodePath.join(HOME, qwen.DIR_PREFIX + 'r5b'); qwen.storeEndpoint(b, EP);
   const name = codexAgent('r5-rec', null, 'anthropic');
@@ -359,7 +361,7 @@ test('#5977 r6: codexJobProvider says null with no job, so a caller can fall bac
   assert.equal(create.agentProvider('r6-nobody', 'codex'), 'openai', 'CONTROL: the floor callers rely on');
 });
 
-test('#5977 r6: an account move that cannot record the new account moves nothing', () => {
+test('#5977 r6: an account move that cannot record the new account moves nothing', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
   const a = nodePath.join(HOME, qwen.DIR_PREFIX + 'r6a'); qwen.storeEndpoint(a, EP);
   const b = nodePath.join(HOME, qwen.DIR_PREFIX + 'r6b'); qwen.storeEndpoint(b, EP);
   const name = codexAgent('r6-mover', a, 'alibaba');
@@ -377,7 +379,7 @@ test('#5977 r6: an account move that cannot record the new account moves nothing
 
 /* ---- review 7 --------------------------------------------------------------------------------------------- */
 
-test('#5977 r7: a switch to Qwen that cannot record it changes nothing; a recorded one carries its account', () => {
+test('#5977 r7: a switch to Qwen that cannot record it changes nothing; a recorded one carries its account', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
   const a = nodePath.join(HOME, qwen.DIR_PREFIX + 'r7a'); qwen.storeEndpoint(a, EP);
   const name = codexAgent('r7-sw', null, 'anthropic');
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), '# brief\n');
@@ -420,7 +422,7 @@ test('#5977 r7: the supervisor takes the key only from a launch-key that succeed
 });
 
 /* Last in the file: setRunner(null) leaves dry-run on, which the earlier switch tests must not inherit. */
-test('#5977 r5: Repair rebuilds a Qwen agent on its recorded Qwen account, and refuses rather than make it OpenAI', () => {
+test('#5977 r5: Repair rebuilds a Qwen agent on its recorded Qwen account, and refuses rather than make it OpenAI', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
   const register = require('./register');
   // installJob would bootstrap with the real launchctl; stubbed, as create.installjob-gemini-grok-3296 does.
   create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false);

@@ -9,6 +9,7 @@
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378: the macOS-arm compatible-endpoint tests
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
@@ -137,7 +138,7 @@ test('switch OFF (the default): a switch to DeepSeek is refused and changes noth
   assert.equal(store.readProfile(name).provider, 'anthropic');
 });
 
-test('switch ON: claude -> DeepSeek runs on the named account, records it for Repair; DeepSeek -> DeepSeek is refused', () => {
+test('switch ON: claude -> DeepSeek runs on the named account, records it for Repair; DeepSeek -> DeepSeek is refused', { skip: skipOnWin32('Kosmos refuses DeepSeek, GLM and Qwen agents on Windows (checked in this file), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
   const name = born('c7206-on', null, 'anthropic');
   const sw = withSwitch(true, () => create.setProvider(name, 'deepseek', { ...BINS, accountDir: DS_HOME, pickedByPerson: true, platform: 'darwin' }));
   assert.equal(sw.outcome, 'created', sw.because);
@@ -169,14 +170,14 @@ test('switch ON: a switch to DeepSeek needs a known, usable account; never Windo
   assert.equal(fs.readFileSync(jobfix.jobPath(name), 'utf8'), before, 'a refusal changed the job');
 });
 
-test('a DeepSeek agent\'s model is its account\'s: a model change is refused', () => {
+test('a DeepSeek agent\'s model is its account\'s: a model change is refused', { skip: skipOnWin32('Kosmos refuses DeepSeek, GLM and Qwen agents on Windows (checked in this file), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
   const name = born('c7206-model', DS_HOME, 'deepseek');
   const r = create.setModel(name, 'claude-opus-5', { ...BINS, platform: 'darwin' });
   assert.equal(r.outcome, 'refused');
   assert.match(r.because, /is on DeepSeek, which runs the model its DeepSeek account names/);
 });
 
-test('Repair rebuilds a lost DeepSeek job on its recorded account, and refuses one whose account it does not know', () => {
+test('Repair rebuilds a lost DeepSeek job on its recorded account, and refuses one whose account it does not know', { skip: skipOnWin32('Kosmos refuses DeepSeek, GLM and Qwen agents on Windows (checked in this file), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
   const register = require('./register');
   create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false);
   require('../test-support/compat-switch').set(true);
@@ -222,7 +223,7 @@ test('1b review 1: with the switch OFF, Repair does not rebuild a DeepSeek agent
   } finally { create.setRunner(null); }
 });
 
-test('1b review 1: an account move keeps the provider: DeepSeek between DeepSeek accounts only, never Claude onto one', () => {
+test('1b review 1: an account move keeps the provider: DeepSeek between DeepSeek accounts only, never Claude onto one', { skip: skipOnWin32('Kosmos refuses DeepSeek, GLM and Qwen agents on Windows (checked in this file), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
   const DS2 = nodePath.join(HOME, '.kosmos-deepseek-two');
   compat.storeAccount(DS2, { vendor: 'deepseek', model: 'deepseek-reasoner', key: 'sk-deepseek-second-0123456789' });
   const ds = born('c7206-move-ds', DS_HOME, 'deepseek');
@@ -281,7 +282,7 @@ test('the setup guide masks a DeepSeek account\'s key by value', () => {
   assert.ok(held.includes('sk-deepseek-0123456789abcdef'), 'the DeepSeek key is not among the known secrets');
 });
 
-test('1b review 2: a switch onto Qwen still writes its codex trust entry; a switch onto DeepSeek writes no codex config', (t) => {
+test('1b review 2: a switch onto Qwen still writes its codex trust entry; a switch onto DeepSeek writes no codex config', { skip: skipOnWin32('Kosmos refuses DeepSeek, GLM and Qwen agents on Windows (checked in this file), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, (t) => {
   // The Qwen account block runs only out of dry-run (earlier tests' setRunner(null) turns dry-run back on).
   create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false);
   t.after(() => create.setRunner(null));
@@ -304,7 +305,7 @@ test('1b review 2: a switch onto Qwen still writes its codex trust entry; a swit
   assert.equal(fs.existsSync(nodePath.join(DS3, 'config.toml')), false, 'a codex config was written into a DeepSeek (Claude Code) folder');
 });
 
-test('#7206 2a review 5: under DeepSeek\'s switch, a switch to GLM is refused in GLM\'s name and changes nothing; GLM\'s own switch is the control', (t) => {
+test('#7206 2a review 5: under DeepSeek\'s switch, a switch to GLM is refused in GLM\'s name and changes nothing; GLM\'s own switch is the control', { skip: skipOnWin32('Kosmos refuses DeepSeek, GLM and Qwen agents on Windows (checked in this file), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, (t) => {
   /* Out of dry-run, as the file's other late tests: earlier tests' setRunner(null) turns it back on, and in dry-run the
      account step is skipped, so the control would prove nothing (review 7 found it). */
   create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false);

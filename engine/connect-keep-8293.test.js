@@ -12,6 +12,7 @@ const SB = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-connect8293
 const HOME = path.join(SB, 'home');
 process.env.HOME = HOME;
 process.env.AGENT_WORKFORCE_HOME = HOME;   // a release cut sets this, and engine/accounts.js prefers it to HOME
+process.env.USERPROFILE = HOME;   // kosmos#8378: os.homedir() reads USERPROFILE on Windows, where HOME is not asked
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SB, 'workers');
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SB, 'launch');
@@ -176,8 +177,10 @@ test('the job that gets written carries the account and the model', () => {
   ranOn(ACCT_B);
   create.installJob = realInstall;
   /* Out of dry run so the plist is really written, into this sandbox; the injected runner takes every launchctl call. */
-  const bin = path.join(SB, 'fake-claude');
-  fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  /* kosmos#8378: a stub this platform counts as runnable, and on Windows a stand-in Task Scheduler for the job
+     (test-support/runnerstub.js, test-support/jobfixture.js). */
+  const bin = require('../test-support/runnerstub').writeRunnerStub(SB, 'fake-claude');
+  require('../test-support/jobfixture').useJobStore();
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;
   create.setRunner(() => ({ ok: true, stdout: '' }));
   create.setDryRun(false);

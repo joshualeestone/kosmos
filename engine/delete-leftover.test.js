@@ -6,6 +6,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378: the POSIX-mode arms
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
@@ -29,7 +30,9 @@ const fleet = require('../test-support/fleet');
 const sendertoken = require('./sendertoken');
 const store = require('./store');
 
-const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
+/* kosmos#8378: node itself stands in for both programs, a file every platform can run (/bin/echo is not a path on
+   Windows, so runners.isRunnable refused it there and every create answered that Claude Code was missing). */
+const BINS = { claudeBin: process.execPath, tmuxBin: process.execPath };
 const calls = [];
 leftover.setRunner((file, args) => { calls.push([file, args]); return { ok: true, stdout: '' }; });
 remove.setRunner(() => ({ ok: true, stdout: '' }));
@@ -58,6 +61,7 @@ function quiet() { status.setPaneSource(() => ''); }
 function createAgain(name) {
   create.setRunner(() => ({ ok: true, stdout: '' }));
   create.setDryRun(false);
+  require('../test-support/jobfixture').useJobStore();   // kosmos#8378: on Windows the job goes to a stand-in Task Scheduler
   quiet();
   const r = create.createAgent({ ...BINS, name, role: 'pm' });
   create.setRunner(null);
@@ -251,7 +255,7 @@ test('#4994: a community account that cannot be retired makes the delete PARTIAL
   assert.ok(!/name is free/.test(done.said || ''), 'it promised the name was free while the old account still answers to it');
 });
 
-test('#4994: a delete that left the folder behind does not retire the community account (it cannot be undone)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false }, () => {
+test('#4994: a delete that left the folder behind does not retire the community account (it cannot be undone)', { skip: skipOnWin32('it fails a read or a move with a POSIX file or folder mode (chmod), which Windows does not keep') || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a write with' : false) }, () => {
   const cs = require('./communitysend');
   leftoverAgent('halfgone');
   /* A Trash nothing can be moved into: the folder stays, a real failure rather than a stub. */
@@ -764,7 +768,7 @@ test('#7819: without a Trash the settings are deleted for good, and the plan say
   assert.ok(!trashHas('gone7819.json'), 'the for-good path put the settings in a Trash');
 });
 
-test('#7819: a job that will not go keeps the settings (the agent can still start)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
+test('#7819: a job that will not go keeps the settings (the agent can still start)', { skip: skipOnWin32('it fails a read or a move with a POSIX file or folder mode (chmod), which Windows does not keep') || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false) }, () => {
   const name = leftoverAgent('job7819');
   store.writeProfile(name, { displayName: 'Job', provider: 'openai' });
   const dir = nodePath.dirname(create.plistPath(name));
@@ -787,7 +791,7 @@ test('#7819: a profile another agent shares (same stored name, other case) is ke
   assert.ok(r.steps.some((s) => s.step === 'its settings and picture' && /kept: Miles7819 uses the same stored name/.test(s.because || '')), JSON.stringify(r.steps));
 });
 
-test('#7819: settings that will not move after the files went: PARTIAL, and it says a new agent would start with them', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
+test('#7819: settings that will not move after the files went: PARTIAL, and it says a new agent would start with them', { skip: skipOnWin32('it fails a read or a move with a POSIX file or folder mode (chmod), which Windows does not keep') || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false) }, () => {
   const name = leftoverAgent('stuck7819');
   store.writeProfile(name, { displayName: 'Stuck' });
   const dir = nodePath.dirname(store.profilePath(name));
@@ -882,7 +886,7 @@ test('#7819: with nothing stored, a shared stored name says nothing about settin
 });
 
 
-test('#7819: a pictures folder that cannot be read refuses the plan, never promises a clean name', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads a folder whatever its mode' : false }, () => {
+test('#7819: a pictures folder that cannot be read refuses the plan, never promises a clean name', { skip: skipOnWin32('it fails a read or a move with a POSIX file or folder mode (chmod), which Windows does not keep') || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads a folder whatever its mode' : false) }, () => {
   const name = leftoverAgent('blind7819');
   fs.mkdirSync(store.AVATARS, { recursive: true });
   fs.writeFileSync(nodePath.join(store.AVATARS, 'blind7819.png'), 'png');
@@ -895,7 +899,7 @@ test('#7819: a pictures folder that cannot be read refuses the plan, never promi
   assert.ok(mac.plan(name).loses.some((l) => /^Its picture: to the Trash/.test(l)));
 });
 
-test('#7819: a workers folder that cannot be read refuses the plan (it could hide a folder sharing the stored name)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads a folder whatever its mode' : false }, () => {
+test('#7819: a workers folder that cannot be read refuses the plan (it could hide a folder sharing the stored name)', { skip: skipOnWin32('it fails a read or a move with a POSIX file or folder mode (chmod), which Windows does not keep') || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads a folder whatever its mode' : false) }, () => {
   const name = 'wblind7819';
   fs.mkdirSync(nodePath.dirname(create.plistPath(name)), { recursive: true });
   fs.writeFileSync(create.plistPath(name), '<plist/>');   // the job keeps it a leftover while the folder cannot be seen
@@ -990,7 +994,7 @@ test('kosmos#7825: a profile marked held with no world start waiting is stranded
   fs.rmSync(store.profilePath(name), { force: true });
 });
 
-test('kosmos#7825: a profile that cannot be read refuses, never reads as "no recorded folder" (review 1)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads a file whatever its mode' : false }, () => {
+test('kosmos#7825: a profile that cannot be read refuses, never reads as "no recorded folder" (review 1)', { skip: skipOnWin32('it fails a read or a move with a POSIX file or folder mode (chmod), which Windows does not keep') || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads a file whatever its mode' : false) }, () => {
   const name = strandedProfile('noread7825', { dir: nodePath.join(SANDBOX, 'unplugged-disk', 'noread7825') });
   const file = store.profilePath(name);
   fs.chmodSync(file, 0o000);
@@ -1083,7 +1087,7 @@ test('kosmos#7825: a records-only delete revokes its tokens and retires its comm
   assert.equal(sendertoken.resolveName(minted.token).ok, false, 'the stranded name\'s token still resolves');
 });
 
-test('kosmos#7825: records-only settings that will not move: REFUSED, community account NOT retired, and a retry is offered (review 1)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
+test('kosmos#7825: records-only settings that will not move: REFUSED, community account NOT retired, and a retry is offered (review 1)', { skip: skipOnWin32('it fails a read or a move with a POSIX file or folder mode (chmod), which Windows does not keep') || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false) }, () => {
   const name = strandedProfile('stuckonly7825');
   const dir = nodePath.dirname(store.profilePath(name));
   fs.chmodSync(dir, 0o555);
@@ -1105,7 +1109,7 @@ test('kosmos#7825: a records-only leftover is offered on Linux too', () => {
   fs.rmSync(store.profilePath(name), { force: true });
 });
 
-test('kosmos#7825: settings stuck after the folder went keep the removed-list row, so the retry is reachable, and it clears it (review 2)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
+test('kosmos#7825: settings stuck after the folder went keep the removed-list row, so the retry is reachable, and it clears it (review 2)', { skip: skipOnWin32('it fails a read or a move with a POSIX file or folder mode (chmod), which Windows does not keep') || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false) }, () => {
   quiet();
   const name = leftoverAgent('retry7825', { job: false });
   store.writeProfile(name, { displayName: 'Retry' });
@@ -1140,7 +1144,7 @@ test('kosmos#7825: on a case-blind disk a folder recorded in the workers folder 
   fs.rmSync(store.profilePath(name), { force: true });
 });
 
-test('kosmos#7825: a folder or auto-start file that will not go still drops the removed-list record, so the card shows again (review 3)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
+test('kosmos#7825: a folder or auto-start file that will not go still drops the removed-list record, so the card shows again (review 3)', { skip: skipOnWin32('it fails a read or a move with a POSIX file or folder mode (chmod), which Windows does not keep') || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false) }, () => {
   quiet();
   for (const [name, lockDir] of [['fstuck7825', () => process.env.AGENT_WORKFORCE_WORKERS], ['jstuck7825', () => nodePath.dirname(create.plistPath('jstuck7825'))]]) {
     leftoverAgent(name);
@@ -1227,7 +1231,7 @@ test('kosmos#7825: a recorded folder inside the workers folder behind a link is 
   }
 });
 
-test('kosmos#7825: a look below the workers folder that fails refuses, never reads as a gone folder (review 6)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads a folder whatever its mode' : false }, () => {
+test('kosmos#7825: a look below the workers folder that fails refuses, never reads as a gone folder (review 6)', { skip: skipOnWin32('it fails a read or a move with a POSIX file or folder mode (chmod), which Windows does not keep') || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads a folder whatever its mode' : false) }, () => {
   const W = process.env.AGENT_WORKFORCE_WORKERS;
   const locked = nodePath.join(W, 'locked7825');
   fs.mkdirSync(locked, { recursive: true });

@@ -432,7 +432,10 @@ test('#5774 route 5 review 9: a plugin installed inside a cache folder is covere
 test('#5774 route 5 review 10: a job file that exists but cannot be read is named; a relative config home in a job is named', () => {
   const sib = 'sib-badjob';
   fs.mkdirSync(path.join(SANDBOX, 'workers', sib), { recursive: true });
-  const jp = jobfix.jobPath(sib);
+  /* kosmos#8378: the guard here reads the macOS arm (DEPS.platform), whose job is the plist. On a Windows host the
+     fixture's job is a Scheduled Task (test-support/jobfixture.js), which that arm never reads, so the folder goes where
+     the plist would be; on macOS and Linux this is the fixture's path, as before. */
+  const jp = process.platform === 'win32' ? create.plistPath(sib) : jobfix.jobPath(sib);
   fs.rmSync(jp, { recursive: true, force: true });
   fs.mkdirSync(jp, { recursive: true });   // a folder where the job file should be: it cannot be read as a job
   try {
