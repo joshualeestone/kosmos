@@ -588,7 +588,7 @@ function autoRecordFile() { const r = installedRoot(); return r && path.isAbsolu
 /* Versions compared as the update check compares them (newer()), not as strings: 0.8.4 and 0.8.04 are one version. */
 function sameVersion(a, b) { return typeof a === 'string' && typeof b === 'string' && !newer(a, b) && !newer(b, a); }
 function noteAutoStart() {
-  /* Review 1: Mac and Linux only. On win32 the launch is asynchronous (begin() can still refuse: OneDrive, Program
+  /* Review 1: Mac only (Linux cannot self-install yet: autoInstallWouldStart refuses it, #7935). On win32 the launch is asynchronous (begin() can still refuse: OneDrive, Program
      Files, a failed download), nothing reports its end here, and it keeps no install.log, so the line would claim a
      stop that may not happen and name a file that does not exist. The Windows half is specified on kosmos#8421. */
   if (updatePlatform() === 'win32') return;
@@ -610,18 +610,32 @@ function noteAutoUpdateAtBoot() {
   if (!file) return null;
   let rec;
   try { rec = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
-  try { fs.unlinkSync(file); } catch { /* read once anyway */ }
-  if (!rec || typeof rec !== 'object' || typeof rec.to !== 'string') return null;
+  if (!rec || typeof rec !== 'object' || typeof rec.to !== 'string') { try { fs.unlinkSync(file); } catch { /* gone */ } return null; }
   const channel = typeof rec.channel === 'string' ? rec.channel : 'its';
-  const line = sameVersion(rec.to, RUNNING)
-    ? `Kosmos started again on ${RUNNING} after its automatic update from ${rec.from || 'the version before'} (${channel} channel).`
-    : `Kosmos's automatic update to ${rec.to} (${channel} channel) did not finish; this board is running ${RUNNING}. The installer's own record is in ${installLog() || 'install.log'}.`;
+  /* Review 3: a board that restarts (a crash, a person's restart) while the installer is still downloading is not the
+     end of the attempt. The #1728 marker holds the attempt's start stamp until it ends, and install.status gets the
+     same stamp when it does; still running, the record is kept so the board the installer starts can report it. */
+  let marker = '';
+  try { marker = fs.readFileSync(installStartedFile(), 'utf8').trim(); } catch { /* none */ }
+  const st = readStatusRaw();
+  const stillRunning = Boolean(rec.startedAt) && marker === String(rec.startedAt) && !(st && String(st.startedAt) === String(rec.startedAt));
+  if (stillRunning && !sameVersion(rec.to, RUNNING)) {
+    const line = `Kosmos started on ${RUNNING} while its automatic update to ${rec.to} (${channel} channel) is still installing; the installer stops this board again when it is ready.`;
+    autoLog(line);
+    return line;
+  }
+  try { fs.unlinkSync(file); } catch { /* read once anyway */ }
+  let line;
+  if (sameVersion(rec.to, RUNNING)) line = `Kosmos started again on ${RUNNING} after its automatic update from ${rec.from || 'the version before'} (${channel} channel).`;
+  else if (newer(RUNNING, rec.to)) line = `Kosmos started on ${RUNNING}, newer than the ${rec.to} its last automatic update was installing (${channel} channel); an install since then replaced it.`;
+  else line = `Kosmos's automatic update to ${rec.to} (${channel} channel) did not finish; this board is running ${RUNNING}. The installer's own record is in ${installLog() || 'install.log'}.`;
   autoLog(line);
   return line;
 }
 /* kosmos#8421: an automatic installer that ended while this board was still alive did not restart it (a refusal before
    the installer stopped the board): say so, and remove the record, so the next boot does not report it again. */
 function noteAutoEndedAlive() {
+  if (updatePlatform() === 'win32') return;   // review 3: as noteAutoStart; the Windows half is specified on the card
   const file = autoRecordFile();
   let rec = null;
   if (file) { try { rec = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* none */ } try { fs.unlinkSync(file); } catch { /* none */ } }
