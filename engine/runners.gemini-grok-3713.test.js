@@ -36,7 +36,7 @@ test.after(() => { removeTree(SANDBOX); });
    pipeline (tar.exe, grok.exe inside the tree, gemini.cmd, the verified marker) is runners.win32-gemini-grok.test.js.
    The tests whose claim is not about the POSIX pipeline run on Windows through the Windows one (WIN arms below). */
 const WIN = process.platform === 'win32';
-const POSIX_PIPELINE = 'it drives install() with the macOS or Linux pipeline, whose tar is the absolute POSIX path /usr/bin/tar (runners.tarBin), whose stable path is a symlink or a #!/bin/sh launcher, and whose fixture programs run by their shebang line; the Windows pipeline (tar.exe, grok.exe in the tree, gemini.cmd, the verified marker) is runners.win32-gemini-grok.test.js';
+const POSIX_PIPELINE = 'it drives install() with the macOS or Linux pipeline, whose stable path is a symlink or a #!/bin/sh launcher and whose installed program is proved by running it by its shebang line, which Windows cannot do; the Windows pipeline (tar.exe, grok.exe in the tree, gemini.cmd, the verified marker) is runners.win32-gemini-grok.test.js';
 /* kosmos#8378: on Windows the install runs as win32, for this CPU (the Windows Grok build is per CPU). */
 const asHost = (o) => (WIN ? { ...o, platform: 'win32', arch: process.arch } : o);
 

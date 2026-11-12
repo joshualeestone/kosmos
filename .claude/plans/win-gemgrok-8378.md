@@ -37,3 +37,8 @@ pass.
   skipped on Windows with its mechanism. Box: 4 / 0 / 9. Nits not changed: a nodeBin that names a missing node would
   install and read absent on Windows (no production caller passes nodeBin); the Windows arm copies node.exe (about
   80 MB) into the sandbox.
+- Round 2 (no blockers, warnings or conventions; 2 nits). Fixed one anyway, because a skip reason must be true: the
+  shared POSIX_PIPELINE reason named /usr/bin/tar, which is not what stops these tests on a Windows host (the fixture is
+  built with tar.exe there, and tarBin('linux') answers a bare tar); it now names the symlink or #!/bin/sh stable path and
+  the shebang prove. Not changed: the Windows gone-node arm copies node.exe, which a scanner could hold past the cleanup
+  retries (a loud red, never a false green).
