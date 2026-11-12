@@ -113,3 +113,8 @@ with review 5's source 94d67af328: 12, 15). 8471 file 7/0, 7820 file 34/0/1, del
   sentence. Not changed, so no code moves after the final round: the outcome after a removed agent's typed "cannot
   reach" delete reads "...connect it, use Restore ..." (true, a little run-on); a comment at ~1414 says the recorded
   folder is never looked at, while task rows look at it via create.workerDir, as the survey already does.
+- After round 8, CI on PR #8480 failed one test on both runners (macOS and Windows): test 3 compared the recycled
+  settings path to store.profilePath as exact strings, and a runner's temp folder has another spelling (macOS
+  /var vs /private/var; the Windows runner's 8.3 TEMP). Reproduced on the box with an 8.3 TEMP (14/15), fixed in the TEST
+  only by comparing real paths (15/15). No product code changed. Repo rule (no commits onto an open PR): #8480 closed,
+  this branch (win-recoverable-8475b) opened in its place.

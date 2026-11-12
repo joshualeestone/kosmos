@@ -238,7 +238,11 @@ test('kosmos#8475: afterwards the name is a settings-only row, whose delete goes
   assert.equal(p.records.trash, true, 'the settings were not offered to the Recycle Bin');
   const done = win.del(name);
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
-  assert.ok(recycled.some((x) => x === store.profilePath(name)), 'the settings did not go to the Recycle Bin: ' + JSON.stringify(recycled));
+  /* The same file by its real path: a runner's temp folder has another spelling (macOS /var is /private/var, the GitHub
+     Windows runner's TEMP an 8.3 short name), so the two strings differ while naming one file. The folder still exists
+     after the move, so it is resolved; the file name is compared as written. */
+  const real = (p) => nodePath.join(fs.realpathSync.native(nodePath.dirname(p)), nodePath.basename(p));
+  assert.ok(recycled.some((x) => real(x) === real(store.profilePath(name))), 'the settings did not go to the Recycle Bin: ' + JSON.stringify(recycled));
   assert.equal(listed(name), null, 'the name is still listed once everything went');
 });
 
