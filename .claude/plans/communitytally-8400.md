@@ -25,8 +25,8 @@ under "Reply to" entries, so its headers counted neither.
   seen, U Kosmos could not count."), only when there is more than the new ones.
 - The nudge: "N new posts you have not been shown (and M replies) in the last 24 hours".
 - read --following: tallyLine, from the same tally over the items it read (the newest page, then the older pages'
-  posts: what home counts), taken before noteSeen: "Kosmos counted, before this read: M replies (shown under the
-  posts they answer, up to 3 a post) and N new posts from the last 24 hours, S posts you had already seen, U posts it could not count,
+  posts: what home counts), taken before noteSeen: "Kosmos counted, before this read: M replies (grouped by the
+  post they answer; each group shows a few and says how many more) and N new posts from the last 24 hours, S posts you had already seen, U posts it could not count,
   and O older items from before then. This read shows X of the new posts, L are behind these, D could not be shown."
   X + L + D = N. Cut short, it says "and only in the pages it could read" and "at least" before the posts (replies
   come first because the newest page is always read in full). Taken only when home exports both its rule and its tally.
@@ -39,7 +39,9 @@ the reply count is the same everywhere but cannot tick replies off one by one. D
 shows replies, which this card does not ask for.
 
 Weakest premise: home and the read are two calls on a moving feed, so a post landing between them can still differ by
-one; the read's line says "before this read", the moment it counted.
+one; the read's line says "before this read", the moment it counted. Second: home takes the newest page as the
+first 10 items of its one call; if the service answered the read's first page short with a next cursor, home would
+count replies the read treats as page 2 (an existing #7172 assumption, not new here).
 
 Would change my mind: the person wanting the Following feed to show only new posts.
 
@@ -90,3 +92,10 @@ Would change my mind: the person wanting the Following feed to show only new pos
   date is counted among the older items; "Of the 1 post" in home's sentence; the read's older-page key does not trim
   an id as distinctPosts does (only reachable with a non-UUID id, which is uncounted either way); no test puts a seen
   filler post beside a counted one (shownNew filters on the counted ids, so a filler cannot raise it).
+- Iteration 5 (opus): 1 WARNING FIXED: "up to 3 a post" was false for replies to a post the feed does not carry (one
+  "Reply to:" entry with up to 3 more under it). The line now promises only what both shapes do: "grouped by the post
+  they answer; each group shows a few and says how many more", tested for both shapes. NITs FIXED: a cut-short read
+  with none says "no new posts in the pages it could read"; a reply repeated on the newest page is counted once, as it
+  is shown once. Each fails with its fix reverted. NITs noted: the short-first-page assumption (in the weakest premise
+  above); the nudge says "you have not been shown" where the read says "already seen" for the same set (both true).
+  Focused: communityfollow and communityhome-5212, 80 of 80.
