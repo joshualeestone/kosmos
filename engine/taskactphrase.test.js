@@ -33,6 +33,7 @@ const EVENTS = [
   { kind: 'done-when-set', person: true, doneWhen: 'it builds' }, { kind: 'done-when-set', by: 'mara-discord' }, { kind: 'done-when-set' },
   { kind: 'done-when-set', person: true, changedCheck: 2, was: 'old words', doneWhen: '1) a 2) b' }, { kind: 'done-when-set', by: 'mara-discord', changedCheck: 1, doneWhen: '1) a' },   // #7990
   { kind: 'done-when-cleared', person: true }, { kind: 'done-when-cleared', by: 'leo-discord' }, { kind: 'done-when-cleared' },
+  { kind: 'check-reported', by: 'mara-discord', check: 2, met: true, how: 'node --test, 40 of 40' }, { kind: 'check-reported', check: 1, met: false },   // #8464
   { kind: 'hold-set', via: 'agent' }, { kind: 'hold-set' },
   // kosmos#7184: #7180's held-for words, which the page did not know (the parity held only because no fixture had them).
   { kind: 'hold-set', until: 'task #5' }, { kind: 'hold-set', via: 'agent', until: '2026-11-02T15:00:00.000Z' }, { kind: 'hold-set', untilCleared: true },
