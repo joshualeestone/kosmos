@@ -593,6 +593,34 @@ function liveIdentity(name) {
  * `onProblem` gets a sentence for the task log whenever a state could not be
  * recorded.
  */
+/**
+ * kosmos#8410: the agents whose supervisor is up, by the signal the supervisor itself writes: each state file in this
+ * Kosmos's win32-state folder that names a live pid (liveIdentity, then pidAlive). The Windows answer to "which agent
+ * jobs hold a live process" (create.runningJobs, #668), which on a Mac launchctl's PID column gives. Not schtasks
+ * "Status: Running": that text is localized and fires on the conhost wrapper before the supervisor is up (see
+ * win32job.runningSteps, which reads the same signal after a start). A crashed supervisor's leftover file names a dead
+ * pid and is left out. The file is named by the agent's store key, which for a valid agent name is the name itself.
+ * Fail-soft to an empty set: "we could not look" must never dress a stopped agent as running unseen.
+ */
+function liveNames(opts) {
+  const o = opts || {};
+  const isAlive = typeof o.isAlive === 'function' ? o.isAlive : require('./win32orphan').pidAlive;
+  const names = new Set();
+  let files;
+  try { files = fs.readdirSync(stateDir()); } catch { return names; }
+  for (const f of files) {
+    if (!f.endsWith('.json')) continue;
+    const name = f.slice(0, -'.json'.length);
+    let id;
+    try { id = liveIdentity(name); } catch { id = null; }
+    if (!id) continue;
+    let alive = false;
+    try { alive = isAlive(id.pid) === true; } catch { alive = false; }
+    if (alive) names.add(name);
+  }
+  return names;
+}
+
 function publisher(name, opts) {
   const o = opts || {};
   const write = o.write || ((rec) => writeState(name, rec));
@@ -798,4 +826,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { STEP_CLOCK_MS, BUSY, IDLE, STREAM_IDLE, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
+module.exports = { STEP_CLOCK_MS, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };

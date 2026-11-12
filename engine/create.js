@@ -4365,7 +4365,13 @@ function disabledJobs(platform) {
    fleet's Mac, tab-separated). One probe for the whole fleet, same shape as
    disabledJobs above; fail-soft to an empty set, because "we could not look"
    must never dress a stopped agent in "running unseen". */
-function runningJobs(platform) {
+function runningJobs(platform, opts) {
+  /* kosmos#8410: Windows has no launchctl. It fell into the Mac arm below, whose call fails there, so every Windows
+     agent read as a confident "Not running" even with its supervisor up (the #668 inversion). The supervisor's own
+     state file says whether it is up (win32streamstate.liveNames). `opts.isAlive` is a test seam for the pid check. */
+  if (probePlatform(platform) === 'win32') {
+    try { return require('./win32streamstate').liveNames(opts); } catch { return new Set(); }
+  }
   if (probePlatform(platform) === 'linux') {
     // #5445 (display parity): the agent units systemd has active; fail-soft to an empty set, as below.
     const lj = require('./linuxjob');
