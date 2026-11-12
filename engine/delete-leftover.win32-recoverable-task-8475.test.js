@@ -481,7 +481,10 @@ test('kosmos#8475 review 4: a recorded folder out of sight (no disk, gone, dead 
         assert.equal(p.taskOnly, true, `${name}: not the task-only delete`);
         assert.equal(p.typeToConfirm, name, `${name}: no typing asked although its folder may only be out of sight`);
         // review 5: connect it BEFORE removing anything, said once.
-        assert.ok(p.reassurance.startsWith(`Its folder is recorded at ${dir}, which Kosmos cannot reach right now. If that is a disk or shared folder that is not connected, connect it before removing anything; remove its startup job only if you are sure it is gone. Only its startup job is removed`), `${name}: ${p.reassurance}`);
+        assert.ok(p.reassurance.startsWith(`Its folder is recorded at ${dir}, which Kosmos cannot reach right now. If that is a disk or shared folder that is not connected, connect it before removing anything; remove its startup job only if you are sure its folder is gone. Only its startup job is removed`), `${name}: ${p.reassurance}`);
+        // review 6: after that lead the way back speaks only of a moved folder; a disk is never "put back".
+        assert.ok(p.reassurance.includes(`If its folder was only moved, put it back at ${dir}, `), `${name}: ${p.reassurance}`);
+        assert.doesNotMatch(p.reassurance, /or is on a disk that is not connected, put it back/, `${name}: the way back tells the person to put back a disk`);
         assert.doesNotMatch(p.reassurance, /connect that disk again/, `${name}: the way back repeats the lead`);
         const untyped = win.del(name);
         assert.equal(untyped.outcome, leftover.OUTCOME.REFUSED, `${name}: removed with no name typed`);
@@ -546,4 +549,22 @@ test('kosmos#8475 review 5: a name with NO profile (a picture alone, or nothing)
   // CONTROL: the same shape WITH a profile still gets the task-only delete.
   const withProfile = agent('prof8475', { folder: false });
   assert.equal(win.plan(withProfile).taskOnly, true, 'CONTROL: a name with a profile no longer gets the task-only delete');
+});
+
+test('kosmos#8475 review 6: an agent folder that is a junction leading nowhere is not listed (its click would always refuse)', { skip: process.platform !== 'win32' ? 'a junction is a Windows fixture' : false }, () => {
+  /* The survey's fs.existsSync answers false for a dead junction, so the list read "no folder"; plan() looks with lstat,
+     sees the link and refuses. The list now uses plan()'s test. */
+  const name = agent('junction8475', { folder: false });
+  const target = nodePath.join(SANDBOX, 'junction8475-target');
+  fs.mkdirSync(target, { recursive: true });
+  fs.symlinkSync(target, create.workerDir(name), 'junction');
+  fs.rmSync(target, { recursive: true, force: true });   // the junction now leads nowhere
+  try {
+    assert.equal(fs.existsSync(create.workerDir(name)), false, 'fixture: the junction is not dead');
+    assert.equal(win.plan(name).ok, false, 'fixture: plan() offered a delete over a link');
+    assert.equal(listed(name), null, 'a row was listed whose click always refuses');
+  } finally { fs.rmSync(create.workerDir(name), { force: true }); }
+  // CONTROL: with nothing at the folder path, the same name is listed and its click is offered.
+  assert.ok(listed(name) && listed(name).startsAtLogin, 'CONTROL: a truly absent folder is not listed');
+  assert.equal(win.plan(name).ok, true, 'CONTROL: its click is not offered');
 });

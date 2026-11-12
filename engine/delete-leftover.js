@@ -864,7 +864,7 @@ function outOfSightWords(name, shown) {
   if (!st || !st.because) return null;
   let where = null;
   try { where = create.recordedDirSpelling(name); } catch { where = null; }
-  const sure = 'remove its startup job only if you are sure it is gone.';
+  const sure = 'remove its startup job only if you are sure its folder is gone.';   // review 6: the folder, not the agent
   if (!where) return { lead: 'unchecked', words: `Kosmos could not check where its folder is right now, so ${sure}` };
   /* review 5: strandedRefusal's own distinction. Something at the path (a file, or a link, which Kosmos never follows
      for an agent's folder) is not a disk to connect; nothing there may be one. A real folder never reaches here
@@ -874,13 +874,13 @@ function outOfSightWords(name, shown) {
   /* review 5: connect BEFORE removing anything; said once, here, so the way back after it does not repeat it beside
      "Remove" and read as if the agent restarts after the removal. */
   return there
-    ? { lead: 'occupied', words: `Its folder is recorded at ${where}, but what is there now is not a folder Kosmos can use; remove its startup job only if you are sure its folder is gone.` }
+    ? { lead: 'occupied', words: `Its folder is recorded at ${where}, but what is there now is not a folder Kosmos can use; ${sure}` }
     : { lead: 'unreachable', words: `Its folder is recorded at ${where}, which Kosmos cannot reach right now. If that is a disk or shared folder that is not connected, connect it before removing anything; ${sure}` };
 }
 
-/* `lead`: what outOfSightWords said first, if anything ('unreachable' or 'occupied'). After 'unreachable' the disk was
-   already named, so "(or connect that disk again)" is not repeated (review 5); after 'occupied' there is no disk to
-   connect, and the folder goes back in place of what is there now. */
+/* `lead`: what outOfSightWords said first, if anything ('unreachable', 'occupied' or 'unchecked'). After 'unreachable'
+   the disk was already named, so the way back speaks only of a moved folder (review 5, review 6: a disk is connected,
+   never "put back"); after 'occupied' there is no disk to connect, and the folder goes back in place of what is there. */
 function taskOnlyBackWords(name, removed, lead = null) {
   let where = null;
   try { where = create.recordedDirSpelling(name); } catch { where = null; }
@@ -888,7 +888,9 @@ function taskOnlyBackWords(name, removed, lead = null) {
   // review 4: a disk that is not connected is connected again, not "put back".
   return (lead === 'occupied'
     ? `If its folder was only moved, put it back at ${where} in place of what is there now`
-    : `If its folder was only moved, or is on a disk that is not connected, put it back at ${where}${lead === 'unreachable' ? '' : ' (or connect that disk again)'}`)
+    : lead === 'unreachable'
+      ? `If its folder was only moved, put it back at ${where}`
+      : `If its folder was only moved, or is on a disk that is not connected, put it back at ${where} (or connect that disk again)`)
     + (removed ? ', use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it' : ', then use Start at login when Kosmos offers it')
     + startsAgainWords(name);
 }
@@ -1255,7 +1257,7 @@ function* delSteps(name, opts) {
   } else if (p.folder) yield* move(p.folder.path, 'its folder');
   /* The removed-list record, if any, is what keeps a name hidden on the
      board; with the files gone it has nothing to point at. Forgotten after the records below, and only once they went
-     (kosmos#7825): the removed list's row is how a person reaches "Delete its files" again, so settings that would not
+     (kosmos#7825): the removed list's row is how a person reaches "Delete what is left" again, so settings that would not
      move keep it. */
   const forgetRemoval = () => { try { remove.forget(p.name); } catch { /* the record is inert without files */ } };
   /* #1131. NOT best-effort, unlike `forgetRemoval` above: a removal record with no
@@ -1420,7 +1422,13 @@ function settingsLeftovers(opts) {
      but its task. Left out while the workers folder itself is missing or leads nowhere: then every agent reads like
      this, and plan() refuses those clicks. macOS and Linux are unchanged. */
   const winTasks = platform === 'win32' && workersFolderThere();
-  const taskLeft = (a) => winTasks && a.job === true;
+  /* review 6: plan()'s own folder test (lstat), not the survey's fs.existsSync, which answers false for a junction that
+     leads nowhere. plan() sees that junction and refuses, so a row listed from existsSync would be one whose click always
+     refuses. Anything at the agent's folder path leaves the name out; a look that fails other than "not there" too. */
+  const nothingAtFolder = (name) => {
+    try { fs.lstatSync(create.workerDir(name)); return false; } catch (e) { return Boolean(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')); }
+  };
+  const taskLeft = (a) => winTasks && a.job === true && nothingAtFolder(a.name);
   const names = s.agents
     .filter((a) => a.profile === true && a.folder === false && !a.removed && !waiting.has(keyOf(a.name)) && !running.has(fold(a.name))
       && (taskLeft(a) || (a.job === false && !outside(a.name))))
