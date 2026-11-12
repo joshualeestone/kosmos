@@ -65,3 +65,7 @@ this PR's run of either half near 75 min, which would call for moving a class ac
   refusal's own words, as exit 2 is also an unknown argument's. Confirmed: no class can drop out (the filter runs before
   the count checks), the print exit comes before any Mac-only step, artifact names are unique per half, no required
   check is renamed, and the node test does not run on the Windows job.
+- Iteration 2 (sonnet): no new finding at WARNING or above; converged. Its one WARNING (is the old job name a required
+  check?) was already measured above: the ruleset on main requires only test, windows and scope. NITs FIXED: the
+  script comment says its per-class times are from before #8443 and 1/2 is the longer half; the workflow test also
+  asserts fail-fast off and the per-half artifact name (shown failing with fail-fast removed).
