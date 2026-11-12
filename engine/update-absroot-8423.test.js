@@ -29,20 +29,24 @@ const walk = (d) => fs.readdirSync(d).flatMap((n) => { const q = path.join(d, n)
 test('kosmos#8423: a person\'s install under a root that is not absolute writes nothing in the working directory', () => {
   const box = fs.mkdtempSync(path.join(os.tmpdir(), 'absroot-cwd-'));
   const cwd = process.cwd();
-  const children = setUp('C:\\Users\\someone\\Kosmos');
+  let children = [];
   try {
+    children = setUp('C:\\Users\\someone\\Kosmos');
     process.chdir(box);
     update.beginInstall({});
     assert.equal(children.length, 1, 'CONTROL: the install did not launch, so this shows nothing');
     assert.deepEqual(walk(box), [], 'a file was written relative to the working directory');
-    assert.equal(update.installStartedFile ? update.installStartedFile() : null, null);
+    assert.equal(update.installStartedFile(), null);
+    assert.equal(update.installStatusFile(), null, 'the status file would be written under a relative root');
   } finally { process.chdir(cwd); clear(); fs.rmSync(box, { recursive: true, force: true }); }
 });
 
 test('kosmos#8423 CONTROL: under an absolute root the marker is still written where it belongs', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'absroot-root-'));
-  const children = setUp(root);
+  let children = [];
   try {
+    children = setUp(root);
+    assert.equal(update.installStatusFile(), path.join(root, 'logs', 'install.status'));
     update.beginInstall({});
     assert.equal(children.length, 1);
     assert.ok(fs.existsSync(path.join(root, 'logs', 'install.started')), 'the in-flight marker was not written under an absolute root');

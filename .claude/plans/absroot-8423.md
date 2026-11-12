@@ -15,4 +15,8 @@ engine/update.js writes logs/install.started (#1728) and logs/install.status onl
 engine/update-absroot-8423.test.js:
 - From a throwaway working directory, a person's install (beginInstall({})) under C:\Users\someone\Kosmos writes nothing there. Control: the install launched. Red on updatelog-8421 ("a file was written relative to the working directory").
 - Control: under an absolute root the marker is still written.
-All 16 update*.test.js files and engine.reachable pass (155 pass, 0 fail, 5 skipped).
+All 15 engine/update*.test.js files and engine.reachable pass (155 pass, 0 fail, 5 skipped).
+- Only the files Kosmos writes are guarded; installLog() is shown to the person, never written from Node, so it keeps the root as given.
+
+## Review ledger
+- R1 opus: 0 B, 1 W (installStatusFile's guard untested, not exported), NITs (installLog unguarded, autoRecordFile duplicate check, setUp outside try, file count). Fixed; installLog kept by design and said so.
