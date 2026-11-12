@@ -48,3 +48,16 @@ matches the Mac, whose launchctl pid is the supervisor's, and a supervisor-less 
 - Comments: the five state-file limits are lifted only when the pipe is up or the pipe and pid are both gone; the
   "nobody else can hold the name" claim is replaced by what actually protects it (random name, record in the account's
   folder, prefix check).
+
+## Review 3 (applied)
+- BLOCKER fixed: the tests' made-up pipe names now carry the real `kosmos-sup-` prefix (FAKE()), so the reader's
+  Windows prefix rule cannot drop them on the Windows runner. Checked under a simulated win32 platform: prefixed names
+  accepted, bare and foreign names ignored. New Windows-only test: a record naming a foreign pipe is ignored.
+- The retry now happens only when the record's pid is alive (the busy-pipe case). A dead pid with a missing pipe is
+  decided on one look with no pause, so a crashed run's leftover record costs one look per poll, not a 5 ms block.
+- start() keeps an older record whose pipe still exists (a supervisor that is still up during a restart overlap) and
+  removes only one whose pipe is gone.
+- Stated limit of the stand-in: off Windows a unix socket left by a crash still exists on disk, so "the pipe vanishes
+  when its holder dies" is not modelled there; the dead-supervisor cases are covered through the pipeExists seam, and
+  only the Windows runner checks the real vanishing.
+- Not done (decided): leftover records of removed or renamed agents are not reaped; each costs one look per poll.
