@@ -21,11 +21,21 @@ process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 // the bare SANDBOX. Derive the SAME root the code does rather than hardcoding the
 // leaf name, so this follows any future rename.
 const DATA_ROOT = require('./store').ROOT;
-const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel');
+// kosmos#8378: a .js name, so remote.js runs it through node (engine/tunnelcommand.js); Windows cannot run a script by
+// its shebang line.
+const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel.js');
 const RECORD = nodePath.join(SANDBOX, 'fake-record.jsonl');
 // kosmos#5422: the id the fake tunnel answers for its default key (the fingerprint of the bytes 'fake key').
 const FAKE_KEYED = 'k1.' + require('node:crypto').createHash('sha256').update('fake key').digest('base64url').slice(0, 32);
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_BIN;
+/* A browser opener that exits 0, as /usr/bin/true did. kosmos#8378: this node with an empty script, so it also runs on
+   Windows, which has no /usr/bin/true. */
+const OPENS = [process.execPath, '-e', ''];
+// kosmos#8378: the arms that cannot run on Windows, each with why (test-support/skip-on-win32.js).
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const NO_POSIX_MODES = skipOnWin32('it checks POSIX file modes, which Windows does not keep');
+const NO_READONLY_FOLDER = skipOnWin32('it makes saves fail with a read-only POSIX folder mode (chmod 0o500), which Windows does not keep');
+const NO_CASE_PAIRS = skipOnWin32('it sends two environment names that differ only in case (ALL_PROXY and all_proxy), which cannot both exist in a Windows environment');
 
 /* The fake speaks the binary's contract: setup start/complete exit codes
    and sentences, and run writes the status file. Its behavior bends
@@ -2111,7 +2121,7 @@ test('kosmos#5422: Forget waits for a device key being made, so no key outlives 
   assert.equal(fs.existsSync(keyFile), false, 'a key made during the Forget survived it');
 });
 
-test('kosmos#5422: the key\'s folder is owner-only from the first ask (the tunnel would make it with default permissions)', async () => {
+test('kosmos#5422: the key\'s folder is owner-only from the first ask (the tunnel would make it with default permissions)', { skip: NO_POSIX_MODES }, async () => {
   const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
   fs.rmSync(dir, { recursive: true, force: true });
   process.env.FAKE_TUNNEL_MODE = 'devkey';
@@ -2287,7 +2297,7 @@ test('kosmos#5422: an invalid id in use is replaced by the kept opaque id at onc
   assert.equal(remote.read().device_id, 'old-opaque-id', 'the self-grant kept an invalid id');
 });
 
-test('kosmos#5422: when remote.json cannot be saved, the self-grant still goes to the key id this computer now uses', async () => {
+test('kosmos#5422: when remote.json cannot be saved, the self-grant still goes to the key id this computer now uses', { skip: NO_READONLY_FOLDER }, async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   const dataDir = nodePath.dirname(remote.FILE);
   fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
@@ -2309,7 +2319,7 @@ test('kosmos#5422: when remote.json cannot be saved, the self-grant still goes t
   }
 });
 
-test('kosmos#5422: ids a failed save kept only in memory reach the file with the next write, and survive a Forget', async () => {
+test('kosmos#5422: ids a failed save kept only in memory reach the file with the next write, and survive a Forget', { skip: NO_READONLY_FOLDER }, async () => {
   const dataDir = nodePath.dirname(remote.FILE);
   fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
   fs.mkdirSync(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), { recursive: true });
@@ -2324,7 +2334,9 @@ test('kosmos#5422: ids a failed save kept only in memory reach the file with the
   assert.ok(remote.ownDeviceIds().includes(FAKE_KEYED), 'a Forget dropped an own id the file never had');
 });
 
-test('kosmos#5422: with saves failing, a second key keeps the first key id among this computer\'s own', async () => {
+// kosmos#8378: skipped on Windows like its siblings: the read-only folder that makes the saves fail is a POSIX mode, so
+// there the saves succeed and this would pass without its premise.
+test('kosmos#5422: with saves failing, a second key keeps the first key id among this computer\'s own', { skip: NO_READONLY_FOLDER }, async () => {
   const dataDir = nodePath.dirname(remote.FILE);
   const keyFile = nodePath.join(process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote'), 'signin-device.key');
   fs.writeFileSync(remote.FILE, JSON.stringify({ device_id: 'old-opaque-id' }));
@@ -4577,7 +4589,7 @@ test('kosmos#5628 slice 2b-ui reviews 1 and 2: opened only when the opener exits
   assert.equal((await remote.companyOpen()).ok, false, 'opened with no setup');
   assert.equal((await remote.companyStart('ann@acme.test')).ok, true);
   // A real spawn of a command that exits 0, then one that exits 1, then one that does not exist.
-  openerWithDisplay(['/usr/bin/true']);
+  openerWithDisplay(OPENS);
   assert.deepEqual(await remote.companyOpen(), { ok: true, because: null });
   assert.match((await remote.companyOpen()).because, /just opened/, 'a second open a moment later opened another tab');
   // Review 4: a NEW setup's page opens at once (the limit is per setup).
@@ -4682,7 +4694,7 @@ async function vouchSignedIn(name) {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   // kosmos#5889: a display is named through the seam, so a Linux machine with none still starts the opener here.
   remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) });
-  remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
+  remote.setCompanyOpenCommandForTests(OPENS);
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');
   const reg = await remote.signinRegister(name);
@@ -5247,7 +5259,7 @@ test('#5786 (b): a second sign-in while a refused Not me waits on its allow does
 
 /* kosmos#5889 (review 4): at full scope, every key the list allows arrives with its own value, and nothing else the
    source carries does. A key dropped from the list, or a filter that lets the rest through, fails here. */
-test('kosmos#5889: every allowed key reaches the opener with its value, and nothing else from the source does', async (t) => {
+test('kosmos#5889: every allowed key reaches the opener with its value, and nothing else from the source does', { skip: NO_CASE_PAIRS }, async (t) => {
   const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
   const childenv = require('./childenv');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'opener-5889-'));

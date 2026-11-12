@@ -52,6 +52,14 @@ test('#6391 retirePc: exit 0 means told, and the connector is asked with retire 
   assert.ok(Number.isFinite(calls[0].opts.timeout) && calls[0].opts.timeout > 0, 'a positive timeout must be set');
 });
 
+test('kosmos#8378 retirePc: a .js connector stand-in is started through this node (engine/tunnelcommand.js)', () => {
+  const calls = [];
+  const spawnSync = (bin, args) => { calls.push({ bin, args }); return { status: 0, error: null, signal: null }; };
+  uninstaller.retirePc({ remoteDir: 'D:/data/remote', coordinator: 'https://coord.example', tunnelBin: 'C:/t/fake-tunnel.js', existsSync: () => true, spawnSync });
+  assert.equal(calls[0].bin, process.execPath, 'a .js stand-in was not started through node');
+  assert.deepEqual(calls[0].args, ['C:/t/fake-tunnel.js', 'retire', '--coordinator', 'https://coord.example', '--state-dir', 'D:/data/remote']);
+});
+
 // The told:false condition ORs r.error / r.signal / r.status!==0, so each branch is isolated
 // here: a fixture that set all three at once could pass even if the code checked only one.
 test('#6391 retirePc: a spawn error alone (r.error, no signal, no status) is NOT told', () => {

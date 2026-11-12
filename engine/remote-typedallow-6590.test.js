@@ -38,6 +38,9 @@ function fakeSpawn(bin, args) {
   }));
   return child;
 }
+/* A browser opener that exits 0, as /usr/bin/true did. kosmos#8378: this node with an empty script, so it also runs on
+   Windows, which has no /usr/bin/true. */
+const OPENS = [process.execPath, '-e', ''];
 const KNOCK = 'AbCdEfGhIjKlMnOpQrStUv';   // 22 base64url characters, the tunnel's KnockId shape
 const DASHED = '-bCdEfGhIjKlMnOpQrStUv';
 
@@ -267,7 +270,7 @@ function armVouch() {
   fs.writeFileSync(path.join(STATE, 'address'), 'josh1023.kosmosplus.com');
   fs.writeFileSync(path.join(STATE, 'pending.json'), JSON.stringify({ devices: [], signins: [{ device_id: 'dev-web', first_seen: Math.floor(Date.now() / 1000) }] }));
   remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) });
-  remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
+  remote.setCompanyOpenCommandForTests(OPENS);
   stdins.length = 0;
   return remote.startVouchForTests();
 }
@@ -286,7 +289,7 @@ test('c3: under the marker the browser opens on this computer\'s own address, an
   setup({ marker: false });
   fs.writeFileSync(path.join(STATE, 'pending.json'), JSON.stringify({ devices: [], signins: [{ device_id: 'dev-web', first_seen: Math.floor(Date.now() / 1000) }] }));
   remote.setCompanyOpenSourceForTests({ platform: process.platform, env: Object.assign({}, process.env, { DISPLAY: ':0' }) });
-  remote.setCompanyOpenCommandForTests(['/usr/bin/true']);
+  remote.setCompanyOpenCommandForTests(OPENS);
   const S2 = remote.startVouchForTests();
   const b2 = remote.vouchUntilForTests();
   await new Promise((r) => setTimeout(r, 20));

@@ -17,7 +17,9 @@ const nodePath = require('node:path');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-tlspin-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const DATA_ROOT = require('./store').ROOT;
-const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel');
+// kosmos#8378: a .js name, so remote.js runs it through node (engine/tunnelcommand.js); Windows cannot run a script by
+// its shebang line.
+const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel.js');
 const RECORD = nodePath.join(SANDBOX, 'fake-record.jsonl');
 const MODE = nodePath.join(SANDBOX, 'fake-mode');
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_BIN;

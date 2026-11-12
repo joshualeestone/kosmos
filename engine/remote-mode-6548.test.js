@@ -16,7 +16,9 @@ process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const STATE = nodePath.join(SANDBOX, 'not-enrolled');
 fs.mkdirSync(STATE, { recursive: true });
 process.env.AGENT_WORKFORCE_TUNNEL_STATE = STATE;   // not enrolled, so the switch starts no tunnel
-const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel');
+// kosmos#8378: a .js name, so remote.js runs it through node (engine/tunnelcommand.js); Windows cannot run a script by
+// its shebang line.
+const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel.js');
 fs.writeFileSync(FAKE_BIN, "#!/usr/bin/env node\nprocess.stdout.write('{}\\n');\n", { mode: 0o755 });
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_BIN;
 

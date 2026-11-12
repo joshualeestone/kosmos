@@ -38,8 +38,10 @@ const GUIDE = 'guidebot';
 const restore = [];
 function stub(obj, key, value) { const was = obj[key]; obj[key] = value; restore.push(() => { obj[key] = was; }); }
 
-const bin = path.join(SANDBOX, 'tunnel.sh');
-fs.writeFileSync(bin, `#!/bin/bash\ncat >/dev/null; printf '{"status":200,"body":{"reply":"Add credits at OpenAI, then try again.","remaining":29}}'\n`, { mode: 0o755 });
+// kosmos#8378: a node script named .js, which the board runs through node (Windows cannot run a script by its shebang
+// line). It was a bash script that read stdin to its end and printed this answer, as this does.
+const bin = path.join(SANDBOX, 'tunnel.js');
+fs.writeFileSync(bin, `'use strict';\nprocess.stdin.resume();\nprocess.stdin.on('end', () => process.stdout.write('{"status":200,"body":{"reply":"Add credits at OpenAI, then try again.","remaining":29}}'));\n`, { mode: 0o755 });
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = bin;
 
 let base;

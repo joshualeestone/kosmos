@@ -31,8 +31,17 @@ const STATE = path.join(SANDBOX, 'remote');
 process.env.AGENT_WORKFORCE_TUNNEL_STATE = STATE;
 process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coord.example.test';
 const TUNNEL_LOG = path.join(SANDBOX, 'tunnel.log');
-const FAKE_TUNNEL = path.join(SANDBOX, 'fake-kosmos-tunnel');
-fs.writeFileSync(FAKE_TUNNEL, `#!/bin/bash\ncat >/dev/null; echo ran >> "${TUNNEL_LOG}"; printf '{"token":"knt1_gatetoken01234"}\\n'\n`, { mode: 0o755 });
+/* kosmos#8378: a node script named .js, which the board runs through node (Windows cannot run a script by its shebang
+   line). It was a bash script; this one does the same: reads stdin to its end, notes that it ran, prints a token. On
+   Windows the bash one could never run, so the "never ran" check below could not fail there. */
+const FAKE_TUNNEL = path.join(SANDBOX, 'fake-kosmos-tunnel.js');
+fs.writeFileSync(FAKE_TUNNEL, `'use strict';
+process.stdin.resume();
+process.stdin.on('end', () => {
+  require('node:fs').appendFileSync(${JSON.stringify(TUNNEL_LOG)}, 'ran\\n');
+  process.stdout.write('{"token":"knt1_gatetoken01234"}\\n');
+});
+`, { mode: 0o755 });
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL;
 
 const { start, server, boardAuthState } = require('./server');
