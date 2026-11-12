@@ -7,8 +7,8 @@
  * cached reader (makeCachedRun), wired into status.setPaneSource. status.paneRosterAsync calls a pane source
  * synchronously, so what keeps the board turning there is the cache: a stale answer is served at once and the fresh
  * read runs in the BACKGROUND, off the board's thread. These pin that through the real status.js, with the background
- * read a real child process that takes its time, and a control proving the measure can see a held thread: a cold cache
- * reads synchronously and the board does not turn at all (as the cache's own comment says it does).
+ * read a real child process that takes its time: the request itself is timed (it returns before the read could), and a
+ * control times a cold cache's synchronous read the same way, so the measure can see a held request.
  *
  *   node -r ./tools/no-schtasks-preload.cjs --test engine/win32roster.board-turns-8410.test.js
  */
@@ -54,16 +54,17 @@ function withSource(cached, fn) {
   return Promise.resolve().then(fn).finally(() => status.setPaneSource(null));
 }
 
-test('kosmos#8410: with a warm cache the roster answers at once and the board keeps turning while the fresh read runs', async () => {
+test('kosmos#8410: with a warm cache the roster answers at once, and the fresh read runs after it, off the board\'s thread', async () => {
   const clock = { t: 1000 };
   let syncReads = 0;
-  let bgDone = null;
   let bgStarted = false;
+  let bgFinishedAt = null;
+  let bgDone = null;
   const bgFinished = new Promise((resolve) => { bgDone = resolve; });
   const read = slowChildRead([BUSY]);
   const cached = win32roster.makeCachedRun({
     run: () => { syncReads += 1; return [IDLE]; },
-    runAsync: (cb) => { bgStarted = true; read((value) => { cb(value); bgDone(); }); },
+    runAsync: (cb) => { bgStarted = true; read((value) => { cb(value); bgFinishedAt = Date.now(); bgDone(); }); },
     now: () => clock.t, freshMs: 2000, staleMs: 30000,
   });
   await withSource(cached, async () => {
@@ -72,36 +73,33 @@ test('kosmos#8410: with a warm cache the roster answers at once and the board ke
     assert.equal(syncReads, 1, 'CONTROL: the first (cold) read is the one synchronous read');
     clock.t += 5000;   // stale, not expired: served at once, refreshed in the background
 
-    let turns = 0;
-    const iv = setInterval(() => { turns += 1; }, 5);
+    // Review 1: time the REQUEST, not the window after it. The request must come back well before the slow read could,
+    // with that read started and still running: then the read's time is spent off the board's thread.
+    const t0 = Date.now();
     const stale = await status.paneRosterAsync();
-    // A cache that read synchronously here would never start the background read: fail, never hang (a regression
-    // that removes the stale path must read red, so the wait below is bounded too).
+    const took = Date.now() - t0;
+    const returnedAt = Date.now();
+    assert.deepEqual(stale.map((p) => p.sessionName), ['raph-9a'], 'the stale roster is served while the fresh read runs');
+    assert.ok(took < SLOW_MS / 2, `the roster request took ${took} ms, as long as the read it should not wait for`);
     assert.equal(bgStarted, true, 'no background read was started: the stale roster was not refreshed off the thread');
+    assert.equal(bgFinishedAt, null, 'the background read had already finished when the request returned');
+    assert.equal(syncReads, 1, 'no synchronous read on the request path');
+    // Fail, never hang, if the background read never answers.
     let bound = null;
     const timedOut = await Promise.race([bgFinished.then(() => false), new Promise((r) => { bound = setTimeout(() => r(true), 5000); })]);
     clearTimeout(bound);
     assert.equal(timedOut, false, 'the background read never answered');
-    clearInterval(iv);
-
-    assert.deepEqual(stale.map((p) => p.sessionName), ['raph-9a'], 'the stale roster is served while the fresh read runs');
-    assert.equal(syncReads, 1, 'no synchronous read on the request path');
-    assert.ok(turns > 10, `the board's thread barely turned while the roster was read (${turns} turns in about ${SLOW_MS} ms)`);
-    const fresh = cached();
-    assert.equal(fresh[0].status, 'busy', 'the background answer is what the next ask gets');
+    assert.ok(bgFinishedAt - returnedAt >= SLOW_MS / 2, 'CONTROL: the background read did not take its time, so this measures nothing');
+    assert.equal(cached()[0].status, 'busy', 'the background answer is what the next ask gets');
   });
 });
 
-test('kosmos#8410 control: a cold cache reads synchronously and holds the board, so the measure above can see a held thread', async () => {
+test('kosmos#8410 control: a cold cache reads synchronously, and the same timing sees the request held', async () => {
   const cached = win32roster.makeCachedRun({ run: slowSyncRead([IDLE]), runAsync: () => {}, now: () => 1000 });
   await withSource(cached, async () => {
-    let turns = 0;
-    const iv = setInterval(() => { turns += 1; }, 5);
-    const started = Date.now();
-    status.paneRoster();
-    const held = Date.now() - started;
-    clearInterval(iv);
-    assert.ok(held >= SLOW_MS - 50, `CONTROL: the slow read did not take its time (${held} ms), so this measures nothing`);
-    assert.equal(turns, 0, 'a timer fired during a synchronous read: the control measures nothing');
+    const t0 = Date.now();
+    await status.paneRosterAsync();
+    const took = Date.now() - t0;
+    assert.ok(took >= SLOW_MS - 50, `CONTROL: a synchronous slow read returned in ${took} ms, so the timing above could not see one`);
   });
 });

@@ -4367,8 +4367,9 @@ function disabledJobs(platform) {
    must never dress a stopped agent in "running unseen". */
 function runningJobs(platform, opts) {
   /* kosmos#8410: Windows has no launchctl. It fell into the Mac arm below, whose call fails there, so every Windows
-     agent read as a confident "Not running" even with its supervisor up (the #668 inversion). The supervisor's own
-     state file says whether it is up (win32streamstate.liveNames). `opts.isAlive` is a test seam for the pid check. */
+     agent read as a confident "Not running" even with its process up (the #668 inversion). The state file its
+     supervisor keeps names that process (win32streamstate.liveNames, which says what it does not cover). `opts` holds
+     its test seams. */
   if (probePlatform(platform) === 'win32') {
     try { return require('./win32streamstate').liveNames(opts); } catch { return new Set(); }
   }

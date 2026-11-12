@@ -585,32 +585,38 @@ function liveIdentity(name) {
 }
 
 /**
- * The supervisor's side: keep `name`'s state file in step with its agent.
+ * kosmos#8410: the agents whose own process is up, by the record the supervisor keeps of it: each state file in this
+ * Kosmos's win32-state folder that names a live pid (liveIdentity, then pidAlive). This is the Windows answer to
+ * "which agent jobs hold a live process" (create.runningJobs, #668): an agent whose process is alive while the board's
+ * roster cannot see it reads "could not check", never "Not running".
  *
- * Writes only on a TRANSITION, so a turn of a hundred events costs two writes, plus (kosmos#7368) one when its queue
- * changes, one when its step changes while something is queued, and at most one per STEP_CLOCK_MS for its activity clock.
- * `write`, `clear`, `setTimer` and `onProblem` are injectable for tests;
- * `onProblem` gets a sentence for the task log whenever a state could not be
- * recorded.
- */
-/**
- * kosmos#8410: the agents whose supervisor is up, by the signal the supervisor itself writes: each state file in this
- * Kosmos's win32-state folder that names a live pid (liveIdentity, then pidAlive). The Windows answer to "which agent
- * jobs hold a live process" (create.runningJobs, #668), which on a Mac launchctl's PID column gives. Not schtasks
- * "Status: Running": that text is localized and fires on the conhost wrapper before the supervisor is up (see
- * win32job.runningSteps, which reads the same signal after a start). A crashed supervisor's leftover file names a dead
- * pid and is left out. The file is named by the agent's store key, which for a valid agent name is the name itself.
- * Fail-soft to an empty set: "we could not look" must never dress a stopped agent as running unseen.
+ * ⚠️ WHAT IT NAMES IS THE AGENT'S PROCESS, NOT THE SUPERVISOR. For a Claude agent the supervisor records its child
+ * (win32supervisor: stream.started(child.pid)) and clears the file when the child exits; a codex supervisor records its
+ * own pid. So while a Claude supervisor is up BETWEEN children (restarting after a crash, or waiting on blockedBy) this
+ * leaves the agent out and it reads "Not running", as it did before #8410. A Mac's launchctl PID is the supervisor's,
+ * which is wider. Closing that window needs the supervisor to record its own pid (kosmos#8415).
+ *
+ * Not schtasks "Status: Running": that text is localized and fires on the conhost wrapper before the supervisor is up
+ * (see win32job.runningSteps, which reads this same signal after a start). A file older than this boot is left out:
+ * a reboot, a power cut or a killed process tree leaves the file behind, and Windows reuses pids quickly, so its pid
+ * could name somebody else's process now. `opts.bootMs` and `opts.isAlive` are test seams. The file is named by the
+ * agent's store key, which for a valid agent name is the name itself. Fail-soft to an empty set: "we could not look"
+ * must never dress a stopped agent as running unseen.
  */
 function liveNames(opts) {
   const o = opts || {};
   const isAlive = typeof o.isAlive === 'function' ? o.isAlive : require('./win32orphan').pidAlive;
+  let bootMs = Number.isFinite(o.bootMs) ? o.bootMs : null;
+  if (bootMs === null) { try { bootMs = Date.now() - require('node:os').uptime() * 1000; } catch { bootMs = 0; } }
   const names = new Set();
   let files;
   try { files = fs.readdirSync(stateDir()); } catch { return names; }
   for (const f of files) {
     if (!f.endsWith('.json')) continue;
     const name = f.slice(0, -'.json'.length);
+    let mtime = 0;
+    try { mtime = fs.statSync(path.join(stateDir(), f)).mtimeMs; } catch { continue; }
+    if (mtime < bootMs) continue;   // written before this boot: its pid may be somebody else's now
     let id;
     try { id = liveIdentity(name); } catch { id = null; }
     if (!id) continue;
@@ -621,6 +627,15 @@ function liveNames(opts) {
   return names;
 }
 
+/**
+ * The supervisor's side: keep `name`'s state file in step with its agent.
+ *
+ * Writes only on a TRANSITION, so a turn of a hundred events costs two writes, plus (kosmos#7368) one when its queue
+ * changes, one when its step changes while something is queued, and at most one per STEP_CLOCK_MS for its activity clock.
+ * `write`, `clear`, `setTimer` and `onProblem` are injectable for tests;
+ * `onProblem` gets a sentence for the task log whenever a state could not be
+ * recorded.
+ */
 function publisher(name, opts) {
   const o = opts || {};
   const write = o.write || ((rec) => writeState(name, rec));

@@ -68,7 +68,8 @@ test('kosmos#8410: a supervisor that died leaves its file naming a dead pid, and
 test('kosmos#8410: a state file this version cannot read, or not a state file, is not running; a missing folder is an empty answer', () => {
   clear();
   supervisorFile('oldv', 4242, { v: ss.STATE_FILE_VERSION + 1 });
-  fs.writeFileSync(nodePath.join(DIR(), 'notes.txt'), '{"v":1,"pid":4242,"sessionId":"x"}');
+  // Review 1: a file whose name, cut as if it ended in .json, would key to a real agent ('good.saved' -> 'good.').
+  fs.writeFileSync(nodePath.join(DIR(), 'good.saved'), '{"v":1,"pid":4242,"sessionId":"x"}');
   fs.writeFileSync(nodePath.join(DIR(), 'broken.json'), '{ not json');
   supervisorFile('good', 4242);
   const running = create.runningJobs('win32', { isAlive: () => true });
@@ -88,4 +89,28 @@ test('kosmos#8410: the Windows arm never runs launchctl (it does not exist on Wi
     create.runningJobs('darwin');
     assert.ok(calls.some((f) => /launchctl$/.test(f)), 'CONTROL: the Mac arm asks launchctl through the same runner');
   } finally { create.setRunner(null); }
+});
+
+test('kosmos#8410 review 1: a state file written before this boot is not believed (its pid may be somebody else\'s now)', () => {
+  clear();
+  supervisorFile('ghost', 4242);
+  supervisorFile('fresh', 4242);
+  const before = (Date.now() - 3600e3) / 1000;
+  fs.utimesSync(nodePath.join(DIR(), 'ghost.json'), before, before);
+  const bootMs = Date.now() - 60e3;   // booted a minute ago: ghost's file is an hour old
+  const running = create.runningJobs('win32', { isAlive: () => true, bootMs });
+  assert.equal(running.has('ghost'), false, 'a file from before this boot read as running');
+  assert.ok(running.has('fresh'), 'CONTROL: a file written since boot still counts');
+  assert.ok(create.runningJobs('win32', { isAlive: () => true, bootMs: 0 }).has('ghost'), 'CONTROL: with no boot rule the old file would count');
+});
+
+test('kosmos#8410 review 1: the real pid check, without a stand-in: this process is alive, an exited child is not', () => {
+  clear();
+  const { spawnSync } = require('node:child_process');
+  const gone = spawnSync(process.execPath, ['-e', '0']).pid;
+  supervisorFile('me', process.pid);
+  supervisorFile('gone', gone);
+  const running = create.runningJobs('win32');
+  assert.ok(running.has('me'), 'this process read as not alive');
+  assert.equal(running.has('gone'), false, 'an exited child read as alive');
 });
