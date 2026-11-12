@@ -78,3 +78,8 @@ matches the Mac, whose launchctl pid is the supervisor's, and a supervisor-less 
 - clearPresence reads first and never claims a record naming another pid; a failed hard-link put-back falls back to a rename.
 - The record write's one retry runs 50 ms later on a timer, not a blocking pause in the supervisor.
 - A record's pid must be positive. The two older tests that call main() inject a no-op presence (no real pipe on the Windows runner).
+
+## Review 7 (applied)
+- A pipe that is up counts only while the record's pid is alive (pipe names can be listed on Windows, so a stranger
+  could take a dead supervisor's old name); the comment says so instead of calling the name secret.
+- A failed removal of an older record is reported (clearPresence returns false, it does not throw), at start and on a failed open.

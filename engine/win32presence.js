@@ -7,8 +7,8 @@
  * The supervisor listens on a named pipe with a random name for as long as it runs, and writes `<key>.presence` in
  * win32-state naming that pipe. The PIPE is the proof of life, not the pid: Windows removes a pipe when the process
  * that holds it dies (a crash, a killed task tree, a Fast Startup shutdown). Its name is random and is written only in
- * its record, in this account's data folder, and the reader accepts only a `kosmos-sup-` pipe; that is what keeps a
- * stranger from answering for it (Windows itself protects only the first instance's creator). Measured on Windows (kosmos#8415, Homer, node 24.19): fs.existsSync on the pipe path reads a live pipe
+ * its record, in this account's data folder. Pipe names can be listed on Windows, so the name is not secret: what keeps a
+ * stranger from answering for a dead supervisor is that a live pipe counts only while the record's pid is alive too. Measured on Windows (kosmos#8415, Homer, node 24.19): fs.existsSync on the pipe path reads a live pipe
  * true in about 0.1 ms, and false after close, for a name never created, and after taskkill /F of its holder.
  *
  * `opts.pipePath` and `opts.pipeExists` are test seams: off Windows a unix socket path stands in for the pipe.
@@ -100,15 +100,19 @@ function start(name, opts) {
   } catch { olderUp = false; }
   if (!olderUp) {
     /* By its pid when it can be read (claim, then decide, as everywhere here); an unreadable file is no one's record. */
-    try { if (older) clearPresence(name, older.pid); else fs.rmSync(presencePath(name), { force: true }); }
-    catch (e) { onProblem('we could not remove an older presence record (' + ((e && e.code) || 'unknown') + ')'); }
+    let gone = true;
+    try { if (older) gone = clearPresence(name, older.pid); else fs.rmSync(presencePath(name), { force: true }); }
+    catch (e) { gone = false; }
+    if (!gone) onProblem('we could not remove an older presence record');
   }
   /* A look at the pipe on Windows (fs.existsSync) may open a client connection (not measured), so a board poll could
      arrive here. It is dropped at once, and a connection that errors on the way out must not become an uncaught exception. */
   const server = net.createServer((socket) => { socket.on('error', () => {}); socket.destroy(); });
   /* A pipe that failed to open before listening also removes an older supervisor's record kept above: when that one
      exits, its record would otherwise say this live agent is dead, and no record of ours replaces it. */
-  const dropOlder = () => { if (!wrote && !stopped && older) clearPresence(name, older.pid); };
+  const dropOlder = () => {
+    if (!wrote && !stopped && older && !clearPresence(name, older.pid) && readPresence(name)) onProblem('we could not remove an older presence record');
+  };
   const save = typeof o.save === 'function' ? o.save : (at, text) => store.saveFlushed(at, text);   // a test seam
   server.on('error', (e) => { dropOlder(); onProblem('we could not open its presence pipe (' + ((e && e.code) || 'unknown') + ')'); });
   try {
@@ -162,9 +166,11 @@ function presenceByName(opts) {
     if (!rec) continue;
     let up = false;
     try { up = pipeExists(rec.pipe) === true; } catch { up = false; }
-    if (up) { out.set(name, true); continue; }
     let pidAlive = true;
     try { pidAlive = isAlive(rec.pid) === true; } catch { pidAlive = true; }   // could not tell: decide nothing
+    /* A pipe up counts only with its supervisor's pid alive: pipe names can be listed on Windows, so once a supervisor
+       has died another process could take its old name; a live pipe with a dead pid is that stranger's, not ours. */
+    if (up && pidAlive) { out.set(name, true); continue; }
     if (!pidAlive) { out.set(name, false); continue; }   // a dead process holds no pipe: one look is enough, no pause
     /* Its pid is alive, so the look may have met a busy pipe: one more look after a short pause. Still gone: this
        record decides nothing (the pid may be someone else's now), and the state file answers. */

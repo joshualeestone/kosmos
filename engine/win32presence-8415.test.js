@@ -187,8 +187,11 @@ test('kosmos#8415: a pipe that is up decides even when the state file names a de
   reset();
   stateFile('up', 9999);   // the last child's pid, now dead
   presenceFile('up', { v: presence.PRESENCE_VERSION, pid: 4242, pipe: FAKE('live-pipe') });
-  const running = ss.liveNames({ isAlive: () => false, pipeExists: (p) => p === FAKE('live-pipe') });
+  const running = ss.liveNames({ isAlive: (pid) => pid === 4242, pipeExists: (p) => p === FAKE('live-pipe') });
   assert.ok(running.has('up'));
+  // review 7: the same live pipe with its supervisor's pid dead is a stranger holding an old name: not running.
+  assert.equal(ss.liveNames({ isAlive: () => false, pipeExists: (p) => p === FAKE('live-pipe') }).has('up'), false,
+    'a pipe up with its supervisor\'s pid dead read as running (a stranger can take a dead supervisor\'s pipe name)');
 });
 
 test('kosmos#8415: a record this version cannot read is ignored, and its agent falls back to the state-file rule', () => {
