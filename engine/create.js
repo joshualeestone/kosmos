@@ -121,7 +121,7 @@ const MODELS = [
   // #1356: Fable 5.1 (Josh, 2026-09-01), id pinned from the tool's own model
   // list (claude-fable-5-1). #2140: it led the menu until #8461 added 5.2.
   { key: 'fable51', provider: 'anthropic', label: 'Claude Fable 5.1', arg: 'claude-fable-5-1',
-    why: 'The previous Fable. Strong on code, and it reports progress as it works through a long task.' },
+    why: 'The Fable before 5.2. Strong on code, and it reports progress as it works through a long task.' },
   { key: 'fable', provider: 'anthropic', label: 'Claude Fable 5', arg: 'claude-fable-5',
     why: 'The previous Fable. Very capable, and the most expensive to run. For work where being right matters more than being quick.' },
   // #3459 (Josh, 2026-09-23): add Opus 5.5, the newest Opus. Id claude-opus-5-5

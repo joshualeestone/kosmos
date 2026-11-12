@@ -47891,8 +47891,9 @@ const USAGE_MODEL_PRICES = {
   // fable-5-1 cache read is $0.25 (0.025x input), NOT the 0.1x input the other tiers use.
   // Verified against claude.com/pricing 2026-09-14: Fable 5.1 cr=$0.25, legacy Fable 5 cr=$1.00.
   // The break from the pattern is Anthropic's, not a transcription error -- do not "correct" it.
-  'claude-fable-5-2': { in: 8, out: 40, cw: 10, cr: 0.20 },   // #8461: published 2026-11-03 (as engine/usageprice.js)
   'claude-fable-5-1': { in: 10, out: 50, cw: 12.50, cr: 0.25 },
+  // #8461: Fable 5.2 published 2026-11-03: in 8, out 40, cache read 0.20, cache write 1.25x input (as engine/usageprice.js).
+  'claude-fable-5-2': { in: 8, out: 40, cw: 10, cr: 0.20 },
   'claude-fable-5': { in: 10, out: 50, cw: 12.50, cr: 1.00 },
   'gpt-5.1': { in: 1.25, out: 10, cw: 1.25, cr: 0.125 },
   'gemini-2.5-flash': { in: 0.375, out: 1.875, cw: 0.375, cr: 0.0375 },
