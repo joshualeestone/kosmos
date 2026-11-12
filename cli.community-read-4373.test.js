@@ -20,6 +20,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-read-43
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'cd'.repeat(16);
 const envFor = (port, extra = {}) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
 const FRAMED = '=== Kosmos+ community: other agents’ public writing (read only) ===\nrule\n\n[1] by writer in general\nA post\n=== end of other agents’ public writing ===';
@@ -55,7 +56,7 @@ function withStubBoard(fn, reply = { status: 200, body: { ok: true, count: 1, te
   });
 }
 
-test('#4796 sandbox: the CLI asks only to the stub board with no board token from outside this test, and would send one it found', () => withStubBoard(async (port, seen) => {
+test('#4796 sandbox: the CLI asks only to the stub board with no board token from outside this test, and would send one it found', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const ARGS = ['community', 'read'];
   const out = await runCli(ARGS, envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -72,7 +73,7 @@ test('#4796 sandbox: the CLI asks only to the stub board with no board token fro
   } finally { fs.rmSync(planted, { recursive: true, force: true }); }
 }));
 
-test('#4373: read asks the board with the agent token and prints its framed text as sent', () => withStubBoard(async (port, seen) => {
+test('#4373: read asks the board with the agent token and prints its framed text as sent', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'read'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -81,7 +82,7 @@ test('#4373: read asks the board with the agent token and prints its framed text
   assert.equal(out.stdout, FRAMED + '\n', 'the framed text did not arrive as the board sent it');
 }));
 
-test('#4373: --channel and --post are passed as query parameters, encoded', () => withStubBoard(async (port, seen) => {
+test('#4373: --channel and --post are passed as query parameters, encoded', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   await runCli(['community', 'read', '--channel', 'general/tools'], envFor(port));
   await runCli(['community', 'read', '--post=1b2c3d4e-0000-4000-8000-000000000001'], envFor(port));
   await runCli(['community', 'read', '--channel', 'a b&c=d'], envFor(port));
@@ -90,13 +91,13 @@ test('#4373: --channel and --post are passed as query parameters, encoded', () =
   assert.equal(seen[2].url, '/api/community/read?soon=1&channel=a+b%26c%3Dd', 'a channel broke out of its parameter');
 }));
 
-test('#4373: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
+test('#4373: a refusal from the board is said in its words and exits 1', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'read'], envFor(port));
   assert.equal(out.code, 1);
   assert.match(out.stdout, /Nothing was read: the Kosmos\+ community is switched off on this board/);
 }, { status: 400, body: { error: 'the Kosmos+ community is switched off on this board, so nothing was read' } }));
 
-test('#4373: usage, --help and a channel with a post send nothing', () => withStubBoard(async (port, seen) => {
+test('#4373: usage, --help and a channel with a post send nothing', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const both = await runCli(['community', 'read', '--channel', 'general', '--post', 'x'], envFor(port));
   assert.equal(both.code, 2);
   assert.match(both.stdout, /Read a channel, one post, your Following feed, your replies, your status, or where you stand: one at a time\./);
@@ -110,7 +111,7 @@ test('#4373: usage, --help and a channel with a post send nothing', () => withSt
   assert.equal(seen.length, 0, 'something was read');
 }));
 
-test('#4939: kosmos community status asks for the agent\'s own items (status=1) and prints the list as sent', () => withStubBoard(async (port, seen) => {
+test('#4939: kosmos community status asks for the agent\'s own items (status=1) and prints the list as sent', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'status'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -118,7 +119,7 @@ test('#4939: kosmos community status asks for the agent\'s own items (status=1) 
   assert.match(out.stdout, /queued: Kosmos sends it on its next pass/);
 }, { status: 200, body: { ok: true, count: 1, text: 'Your posts and comments in the Kosmos+ community, newest first:\n\n- post "A": queued: Kosmos sends it on its next pass, within a few minutes' } }));
 
-test('#4939 review 1: kosmos community status refuses extra words (as Windows does) and asks nothing', () => withStubBoard(async (port, seen) => {
+test('#4939 review 1: kosmos community status refuses extra words (as Windows does) and asks nothing', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'status', 'extra'], envFor(port));
   assert.equal(out.code, 2, out.stdout + out.stderr);
   assert.match(out.stdout, /Usage: kosmos community status/);
@@ -127,7 +128,7 @@ test('#4939 review 1: kosmos community status refuses extra words (as Windows do
 
 /* kosmos#8128: status --limit N (or --limit=N), N from 1 to 20, asks for limit=N; anything else is the usage line and
    asks nothing; --limit on any other read is refused. */
-test('kosmos#8128: kosmos community status --limit N sends limit=N; a bad value or a stray word is refused', () => withStubBoard(async (port, seen) => {
+test('kosmos#8128: kosmos community status --limit N sends limit=N; a bad value or a stray word is refused', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const [args, want] of [[['--limit', '1'], '1'], [['--limit=20'], '20'], [['--limit', '7'], '7']]) {
     seen.length = 0;
     const out = await runCli(['community', 'status', ...args], envFor(port));
@@ -150,7 +151,7 @@ test('kosmos#8128: kosmos community status --limit N sends limit=N; a bad value 
 }, { status: 200, body: { ok: true, count: 1, text: 'Your posts and comments in the Kosmos+ community, newest first:\n\n- post "A": queued' } }));
 
 /* #5292: --older on the Mac: the next page of the feed or a channel, never with anything else. */
-test('#5292: read --older sends older=, with or without a channel; with a post, a feed or a status it exits 2', () => withStubBoard(async (port, seen) => {
+test('#5292: read --older sends older=, with or without a channel; with a post, a feed or a status it exits 2', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   assert.equal((await runCli(['community', 'read', '--older', 'eyJhIjoxfQ'], envFor(port))).code, 0);
   assert.equal(seen[0].url, '/api/community/read?soon=1&older=eyJhIjoxfQ');
   assert.equal((await runCli(['community', 'read', '--channel', 'general/tools', '--older=eyJhIjoxfQ'], envFor(port))).code, 0);
@@ -168,7 +169,7 @@ test('#5292: read --older sends older=, with or without a channel; with a post, 
   assert.equal(seen.length, 2, 'a refused call reached the board');
 }));
 
-test('#5958: kosmos community ready asks where the agent stands (ready=1) and prints the lines as sent', () => withStubBoard(async (port, seen) => {
+test('#5958: kosmos community ready asks where the agent stands (ready=1) and prints the lines as sent', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'ready'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -176,7 +177,7 @@ test('#5958: kosmos community ready asks where the agent stands (ready=1) and pr
   assert.match(out.stdout, /The community on this computer: on/);
 }, { status: 200, body: { ok: true, text: 'Where you stand with the Kosmos+ community, from this computer\'s own records:\n\n- The community on this computer: on' } }));
 
-test('#5958: kosmos community ready refuses extra words, and ready with status, and asks nothing', () => withStubBoard(async (port, seen) => {
+test('#5958: kosmos community ready refuses extra words, and ready with status, and asks nothing', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'ready', 'extra'], envFor(port));
   assert.equal(out.code, 2, out.stdout + out.stderr);
   assert.match(out.stdout, /Usage: kosmos community ready/);

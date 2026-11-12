@@ -36,6 +36,7 @@ const { start, server } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -212,7 +213,7 @@ function mac(args, port = server.address().port) {
   });
 }
 
-test('Mac: task list prints open first, then built, on hold, done; --state keeps one; a bad state is refused', async () => {
+test('Mac: task list prints open first, then built, on hold, done; --state keeps one; a bad state is refused', { skip: SKIP_POSIX_SHELL }, async () => {
   const all = await mac(['task', 'list', projectId]);
   assert.equal(all.code, 0, all.out);
   assert.deepEqual(lineOrder(all.out), WANT, all.out);
@@ -237,7 +238,7 @@ test('Mac: task list prints open first, then built, on hold, done; --state keeps
   } finally { old.close(); }
 });
 
-test('#5864 Mac: a built task in a paused project prints [built] [project paused]', async () => {
+test('#5864 Mac: a built task in a paused project prints [built] [project paused]', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await mac(['task', 'list', parkedId]);
   assert.equal(r.code, 0, r.out);
   parkedMarks(r.out);

@@ -16,6 +16,7 @@ const os = require('node:os');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 /* #4796: a fresh data root, so the live board's token never travels to this test's stub board. */
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-project-pause-'));
 test.after(() => fs.rmSync(DATA, { recursive: true, force: true }));
@@ -51,7 +52,7 @@ async function withBoard(answer, fn) {
   try { return await fn(env, hits); } finally { await new Promise((r) => server.close(r)); }
 }
 
-test('#4771 Mac CLI: project pause PUTs {paused:true} with the agent\'s token, and says who resumes it', () =>
+test('#4771 Mac CLI: project pause PUTs {paused:true} with the agent\'s token, and says who resumes it', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => [200, { project: { id: 'p1', paused: true } }], async (env, hits) => {
     const r = await runCli(['project', 'pause', 'p1'], env);
     assert.equal(r.code, 0, r.stdout + r.stderr);
@@ -64,14 +65,14 @@ test('#4771 Mac CLI: project pause PUTs {paused:true} with the agent\'s token, a
     assert.equal(hits[0].agentToken, AGENT);
   }));
 
-test('#4771 Mac CLI: a refusal says the board\'s reason and exits 1', () =>
+test('#4771 Mac CLI: a refusal says the board\'s reason and exits 1', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => [404, { error: 'there is no project by that name' }], async (env) => {
     const r = await runCli(['project', 'pause', 'nosuch'], env);
     assert.equal(r.code, 1, r.stdout + r.stderr);
     assert.match(r.stdout + r.stderr, /could not pause that project: there is no project by that name/);
   }));
 
-test('#4771 Mac CLI: no id, two ids, a bad id and resume are refused before any request; there is no resume verb', () =>
+test('#4771 Mac CLI: no id, two ids, a bad id and resume are refused before any request; there is no resume verb', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => [200, { project: { id: 'p1', paused: true } }], async (env, hits) => {
     for (const [args, code] of [[['project', 'pause'], 2], [['project', 'pause', 'a', 'b'], 2], [['project', 'pause', 'bad id!'], 1],
       [['project', 'pause', '..'], 1], [['project', 'resume', 'p1'], 2], [['project', 'unpause', 'p1'], 2]]) {

@@ -36,6 +36,7 @@ const taskchat = require('./engine/taskchat');
 const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -137,7 +138,7 @@ test('kosmos#7514: the Tasks screen\'s bulk close takes no subtasks', async () =
 });
 
 for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) {
-  test(`kosmos#7514: the ${name} command offers --with-built, and says what it closed`, async () => {
+  test(`kosmos#7514: the ${name} command offers --with-built, and says what it closed`, { skip: name === 'Mac' && SKIP_POSIX_SHELL }, async () => {
     const a = round(name + 'Hint');
     const plain = await run(['task', 'close', projectId, String(a.top)]);
     assert.equal(plain.code, 0, plain.text);
@@ -167,7 +168,7 @@ for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) 
 }
 
 for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) {
-  test(`kosmos#7514: the ${name} command takes --with-built anywhere after the numbers, and refuses it with --replaced-by either way round`, async () => {
+  test(`kosmos#7514: the ${name} command takes --with-built anywhere after the numbers, and refuses it with --replaced-by either way round`, { skip: name === 'Mac' && SKIP_POSIX_SHELL }, async () => {
     const a = round(name + 'Mid');
     const b = round(name + 'Mid2');
     const mid = await run(['task', 'close', projectId, String(a.top), '--with-built', '0' + String(b.top)]);
@@ -215,7 +216,7 @@ async function viaPort(label, port, argv) {
 }
 
 for (const label of ['Windows', 'Mac']) {
-  test(`kosmos#7514: on a board older than --with-built the ${label} command says so, and nothing closed`, async () => {
+  test(`kosmos#7514: on a board older than --with-built the ${label} command says so, and nothing closed`, { skip: label === 'Mac' && SKIP_POSIX_SHELL }, async () => {
     const a = round(label + 'Old');
     const b = round(label + 'Old2');
     const proxy = await olderBoard();
@@ -230,7 +231,7 @@ for (const label of ['Windows', 'Mac']) {
   });
 
   /* Round 6: a board between #6923 and its round-8 notes refused an unknown key in its first words, and nothing closed. */
-  test(`kosmos#7514: on a board from #6923's first days the ${label} command says it is older, and nothing closed`, async () => {
+  test(`kosmos#7514: on a board from #6923's first days the ${label} command says it is older, and nothing closed`, { skip: label === 'Mac' && SKIP_POSIX_SHELL }, async () => {
     const a = round(label + 'Mid');
     const b = round(label + 'Mid2');
     const proxy = await olderBoard('we could not read that request, so the task was not closed');
@@ -246,7 +247,7 @@ for (const label of ['Windows', 'Mac']) {
 
   /* Round 6: a board older than #6923 never read the body, so it closed the parent as done and took nothing. */
   for (const many of [false, true]) {
-    test(`kosmos#7514: on a board that ignores the body the ${label} command says the subtasks were not closed (${many ? 'several' : 'one'})`, async () => {
+    test(`kosmos#7514: on a board that ignores the body the ${label} command says the subtasks were not closed (${many ? 'several' : 'one'})`, { skip: label === 'Mac' && SKIP_POSIX_SHELL }, async () => {
       const a = round(label + 'Ign' + many);
       const b = round(label + 'Ign2' + many);
       const proxy = await olderBoard(null);
@@ -261,14 +262,14 @@ for (const label of ['Windows', 'Mac']) {
     });
   }
 
-  test(`kosmos#7514: CONTROL: on a current board the ${label} command says nothing about an older board when none were built`, async () => {
+  test(`kosmos#7514: CONTROL: on a current board the ${label} command says nothing about an older board when none were built`, { skip: label === 'Mac' && SKIP_POSIX_SHELL }, async () => {
     const top = tasks.create(projectId, { sentence: label + ' lone' });
     const r = await (label === 'Mac' ? mac : win)(['task', 'close', projectId, String(top.number), '--with-built']);
     assert.equal(r.code, 0, r.text);
     assert.doesNotMatch(r.text, /older/, r.text);
   });
 
-  test(`kosmos#7514: the ${label} command says why Kosmos stopped closing the subtasks part way`, async () => {
+  test(`kosmos#7514: the ${label} command says why Kosmos stopped closing the subtasks part way`, { skip: label === 'Mac' && SKIP_POSIX_SHELL }, async () => {
     const top = tasks.create(projectId, { sentence: label + ' partial' });
     const k1 = tasks.create(projectId, { sentence: label + ' p1', parent: top.number, who: 'mara' });
     const k2 = tasks.create(projectId, { sentence: label + ' p2', parent: top.number, who: 'mara' });
@@ -285,7 +286,7 @@ for (const label of ['Windows', 'Mac']) {
     assert.notEqual(r.code, 0, 'a close that left built subtasks it was asked to take read as success');
   });
 
-  test(`kosmos#7514 round 7: closing several, the ${label} command does not answer 0 when the subtasks stopped part way`, async () => {
+  test(`kosmos#7514 round 7: closing several, the ${label} command does not answer 0 when the subtasks stopped part way`, { skip: label === 'Mac' && SKIP_POSIX_SHELL }, async () => {
     const top = tasks.create(projectId, { sentence: label + ' partial many' });
     const k1 = tasks.create(projectId, { sentence: label + ' pm1', parent: top.number, who: 'mara' });
     const k2 = tasks.create(projectId, { sentence: label + ' pm2', parent: top.number, who: 'mara' });
@@ -302,7 +303,7 @@ for (const label of ['Windows', 'Mac']) {
     assert.equal(isDone(other.number), true, 'premise: the other task closed');
   });
 
-  test(`kosmos#7514 round 7: CONTROL: today's own "could not read that request" is not called an older board by the ${label} command`, async () => {
+  test(`kosmos#7514 round 7: CONTROL: today's own "could not read that request" is not called an older board by the ${label} command`, { skip: label === 'Mac' && SKIP_POSIX_SHELL }, async () => {
     const a = round(label + 'Today');
     const proxy = await olderBoard('we could not read that request');
     try {
@@ -340,7 +341,7 @@ test('kosmos#7514: an agent on the parent and on a closed subtask is told once',
 });
 
 for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) {
-  test(`kosmos#7514: the ${name} command does not hint at a subtask the same command closes`, async () => {
+  test(`kosmos#7514: the ${name} command does not hint at a subtask the same command closes`, { skip: name === 'Mac' && SKIP_POSIX_SHELL }, async () => {
     const r = round(name + 'Same');
     const res = await run(['task', 'close', projectId, String(r.top), String(r.kid)]);
     assert.equal(res.code, 0, res.text);
@@ -352,7 +353,7 @@ for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) 
 /* kosmos#8301: --not-run says it was closed without ever being run, on both commands. */
 const unrunOf = (n) => projects.readAll().find((p) => p.id === projectId).tasks.find((t) => t.number === n).closedUnrun;
 for (const [name, run] of BOTH) {
-  test(`kosmos#8301 ${name}: --not-run marks it, a plain close does not, and the two options that say otherwise are refused`, async () => {
+  test(`kosmos#8301 ${name}: --not-run marks it, a plain close does not, and the two options that say otherwise are refused`, { skip: name === 'Mac' && SKIP_POSIX_SHELL }, async () => {
     const r = round('Unrun ' + name);
     const marked = await run(['task', 'close', projectId, String(r.open), '--not-run']);
     assert.equal(marked.code, 0, JSON.stringify(marked));

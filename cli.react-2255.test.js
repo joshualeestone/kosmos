@@ -28,6 +28,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-react-2255-'));
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'boardtok-2255';
 const THUMB = '\u{1F44D}';
 
@@ -92,7 +93,7 @@ async function react(port, seen, args, extraEnv) {
   return out;
 }
 
-test('#2255: kosmos react POSTs {project,of,emoji,from_pane} and presents the board token when the board wrote one', () =>
+test('#2255: kosmos react POSTs {project,of,emoji,from_pane} and presents the board token when the board wrote one', { skip: SKIP_POSIX_SHELL }, () =>
   withStub(() => ({ ok: true, op: 'add', emoji: THUMB, of: 'm3' }), async (port, seen) => {
     const { home, root } = makeHome();
     try {
@@ -109,7 +110,7 @@ test('#2255: kosmos react POSTs {project,of,emoji,from_pane} and presents the bo
     }
   }));
 
-test('#2255: kosmos react sends NO board-token header without a token (non-enforcing board)', () =>
+test('#2255: kosmos react sends NO board-token header without a token (non-enforcing board)', { skip: SKIP_POSIX_SHELL }, () =>
   withStub(() => ({ ok: true, op: 'add', emoji: THUMB, of: 'm3' }), async (port, seen) => {
     const { home } = makeHome();  // no board.token written
     try {
@@ -121,7 +122,7 @@ test('#2255: kosmos react sends NO board-token header without a token (non-enfor
     }
   }));
 
-test('#2255: kosmos react reports the toggle-off, and a room-state refusal, in plain words', () =>
+test('#2255: kosmos react reports the toggle-off, and a room-state refusal, in plain words', { skip: SKIP_POSIX_SHELL }, () =>
   withStub(() => ({ ok: true, op: 'remove', emoji: THUMB, of: 'm3' }), async (port, seen) => {
     const { home } = makeHome();
     try {
@@ -133,7 +134,7 @@ test('#2255: kosmos react reports the toggle-off, and a room-state refusal, in p
     }
   }));
 
-test('#2255: kosmos react surfaces a refusal (ok:false) as a non-zero exit with the reason', () =>
+test('#2255: kosmos react surfaces a refusal (ok:false) as a non-zero exit with the reason', { skip: SKIP_POSIX_SHELL }, () =>
   withStub(() => ({ ok: false, because: 'you are not on that project, so this room is not yours to react in' }), async (port, seen) => {
     const { home } = makeHome();
     try {
@@ -145,7 +146,7 @@ test('#2255: kosmos react surfaces a refusal (ok:false) as a non-zero exit with 
     }
   }));
 
-test('#2255: a curl failure on the POST is REPORTED, not a silent abort (set -e regression guard)', () => {
+test('#2255: a curl failure on the POST is REPORTED, not a silent abort (set -e regression guard)', { skip: SKIP_POSIX_SHELL }, () => {
   // The shebang is /bin/bash (3.2 under `set -euo pipefail`), where a bare
   // `body=$(...); rc=$?` ABORTS at the assignment when curl fails -- printing
   // nothing and exiting with curl's raw code -- so the "could not reach" arm
@@ -172,7 +173,7 @@ test('#2255: a curl failure on the POST is REPORTED, not a silent abort (set -e 
   });
 });
 
-test('#2255: kosmos react with a missing argument explains itself and does not call the route', () =>
+test('#2255: kosmos react with a missing argument explains itself and does not call the route', { skip: SKIP_POSIX_SHELL }, () =>
   withStub(() => ({ ok: true, op: 'add', emoji: THUMB, of: 'm3' }), async (port, seen) => {
     const { home } = makeHome();
     try {

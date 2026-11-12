@@ -19,6 +19,7 @@ const DATA4796 = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-reclaim-4679-
 test.after(() => { try { fs.rmSync(DATA4796, { recursive: true, force: true }); } catch {} });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 async function freePort() {
   const s = net.createServer();
@@ -47,7 +48,7 @@ function runCli(args, env) {
   });
 }
 
-test('#4679: a start under KOSMOS_RECLAIM_BUSY=1 refuses and does not kill another install board', async () => {
+test('#4679: a start under KOSMOS_RECLAIM_BUSY=1 refuses and does not kill another install board', { skip: SKIP_POSIX_SHELL }, async () => {
   const port = await freePort();
   const homeThis = makeHome('kosmos-this-4679-');
   const homeOther = makeHome('kosmos-other-4679-');

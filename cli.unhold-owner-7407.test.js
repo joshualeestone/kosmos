@@ -39,6 +39,7 @@ const fleet = require('./test-support/fleet');
 const cli = require('./tools/windows/kosmos-cli');
 const assigner = require('./engine/assigner');
 const assignerSetting = require('./engine/assigner-setting');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -82,6 +83,9 @@ function mac(args, agentToken = '', port = server.address().port) {
   });
 }
 const BOTH = [['Windows', win], ['Mac', mac]];
+/* kosmos#8378: on Windows the Mac CLI (install/kosmos) runs by its shebang line, which Windows cannot do, so the
+   tests that loop over both commands drive only the Windows CLI there. Everywhere else CLIS is BOTH. */
+const CLIS = BOTH.filter(([label]) => !(label === 'Mac' && SKIP_POSIX_SHELL));
 
 const make = (label, who, made) => tasks.create(projectId, { sentence: 'Unhold ' + label, ...(who ? { who } : {}), ...(made ? { made } : {}) }).number;
 const holdThenUnhold = async (run, n) => {
@@ -92,7 +96,7 @@ const holdThenUnhold = async (run, n) => {
 };
 
 test('#7407: a task taken off hold keeps whoever was on it, and both commands say so', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = make('kept ' + label, 'otto');
     const r = await holdThenUnhold(run, n);
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -104,7 +108,7 @@ test('#7407: a task taken off hold keeps whoever was on it, and both commands sa
 });
 
 test('#7407: a task nobody is on says the next idle agent will get it, and how to choose', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = make('nobody ' + label);
     const r = await holdThenUnhold(run, n);
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -118,7 +122,7 @@ test('#7407: a task nobody is on says the next idle agent will get it, and how t
 });
 
 test('#7407: with the Assigner off, or a task it never hands out, the answer does not promise a hand-out', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const w = make('webhook ' + label, null, { via: 'webhook', by: 'hook' });
     const rw = await holdThenUnhold(run, w);
     assert.match(rw.text, /Nobody is on it, and Kosmos does not hand this one out on its own\. To choose who, assign it now\./, label + ': ' + rw.text);
@@ -295,7 +299,7 @@ test('#7407 review 3: a subset, archived, a sole holder, and the nobody-can-take
   // The nobody-can-take-it words (an apostrophe in them) arrive whole through both commands.
   projects.mutate(projectId, (p) => ({ ...p, swarmOff: ['mara', 'otto'] }));
   try {
-    for (const [label, run] of BOTH) {
+    for (const [label, run] of CLIS) {
       const n = make('none ' + label);
       const r = await holdThenUnhold(run, n);
       assert.equal(r.code, 0, label + ': ' + r.text);

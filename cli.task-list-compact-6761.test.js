@@ -38,6 +38,7 @@ const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const tasklist = require('./engine/tasklist');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let projectId;
 const N = {};
@@ -133,7 +134,7 @@ function mac(args, port = server.address().port, home = MAC_HOME) {
     });
   });
 }
-test('Mac: --open, --blocked and --built print the same lines as Windows, from the real board', async () => {
+test('Mac: --open, --blocked and --built print the same lines as Windows, from the real board', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const f of ['open', 'blocked', 'built']) {
     const r = await mac(['task', 'list', projectId, '--' + f]);
     assert.equal(r.code, 0, r.out);
@@ -145,7 +146,7 @@ test('Mac: --open, --blocked and --built print the same lines as Windows, from t
   const long = await mac(['task', 'list', projectId]);
   assert.match(long.out, /^\[\d+\] \[on hold\] Task held/m, 'CONTROL: the long list is unchanged');
 });
-test('Mac: an install without the module says so (and lists nothing as if it were the group)', async () => {
+test('Mac: an install without the module says so (and lists nothing as if it were the group)', { skip: SKIP_POSIX_SHELL }, async () => {
   const bare = path.join(SANDBOX, 'kosmos-home-old');
   fs.mkdirSync(path.join(bare, 'runtime', 'bin'), { recursive: true });
   fs.symlinkSync(process.execPath, path.join(bare, 'runtime', 'bin', 'node'));
@@ -174,11 +175,15 @@ test('both: an older board\'s whole list is refused under a compact flag; a shor
     assert.equal(w.code, 1);
     assert.match(w.err, /older than --open/);
     assert.equal(w.out.length, 0, 'an older board\'s rows were printed as the group');
-    const m = await mac(['task', 'list', 'p1', '--open'], port);
-    assert.equal(m.code, 1, m.out);
-    assert.match(m.out, /older than --open/);
-    assert.doesNotMatch(m.out, /Task (open1|done)/);
+    // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+    if (!SKIP_POSIX_SHELL) {
+      const m = await mac(['task', 'list', 'p1', '--open'], port);
+      assert.equal(m.code, 1, m.out);
+      assert.match(m.out, /older than --open/);
+      assert.doesNotMatch(m.out, /Task (open1|done)/);
+    }
   } finally { old.close(); }
+  if (SKIP_POSIX_SHELL) return;   // kosmos#8378: the rest reads only the Mac CLI
   const short = await stubBoard({ tasks: [{ number: 1, sentence: 'a' }], count: 4, listState: 'built' });
   try {
     const m = await mac(['task', 'list', 'p1', '--built'], short.address().port);
@@ -192,14 +197,18 @@ test('iteration 1: both CLIs give the same words for an answer that is not a tas
   try {
     const port = junk.address().port;
     const w = await win(['task', 'list', 'p1', '--open'], `http://127.0.0.1:${port}`);
-    const m = await mac(['task', 'list', 'p1', '--open'], port);
     assert.notEqual(w.code, 0);
-    assert.notEqual(m.code, 0, m.out);
     const said = 'Kosmos sent no task list, so there is nothing to show.';
     assert.equal(w.err, said);
     assert.deepEqual(w.out, [], 'Windows printed a refusal as a list');
-    assert.equal(m.out.trim(), said, 'the two CLIs said different things');
+    // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+    if (!SKIP_POSIX_SHELL) {
+      const m = await mac(['task', 'list', 'p1', '--open'], port);
+      assert.notEqual(m.code, 0, m.out);
+      assert.equal(m.out.trim(), said, 'the two CLIs said different things');
+    }
   } finally { junk.close(); }
+  if (SKIP_POSIX_SHELL) return;   // kosmos#8378: the rest reads only the Mac CLI
   const empty = await mac(['task', 'list', projectId, '--open', '']);
   assert.equal(empty.code, 2, empty.out);
   assert.match(empty.out, /--open takes nothing after it/);

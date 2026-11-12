@@ -49,6 +49,7 @@ async function withBoard(answer, fn) {
 
 const win = require('./tools/windows/kosmos-cli');
 const realHook = require('./engine/kosmos-report-hook');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 async function runWin(argv, answer) {
   const calls = []; const out = []; const err = [];
   const code = await win.main(argv, {
@@ -61,7 +62,7 @@ async function runWin(argv, answer) {
 }
 const OK = { task: { number: 3, repeat: { every: 'minutes', n: 30 } }, words: 'every 30 minutes' };
 
-test('#6893 Mac CLI: 30m and 2h go to the board as the frequency, which makes the minutes rule', () =>
+test('#6893 Mac CLI: 30m and 2h go to the board as the frequency, which makes the minutes rule', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => [200, OK], async (env, hits) => {
     for (const [word, n] of [['30m', 30], ['45min', 45], ['2h', 120]]) {
       const r = await runCli(['task', 'repeat', 'p1', '3', word], env);
@@ -77,7 +78,7 @@ test('#6893 Mac CLI: 30m and 2h go to the board as the frequency, which makes th
     assert.equal(JSON.parse(hits[hits.length - 1].body).every, 'hourly');
   }));
 
-test('#6893 Mac CLI: a minutes rule refuses --at and --on before asking the board; a wrong word names the new form', () =>
+test('#6893 Mac CLI: a minutes rule refuses --at and --on before asking the board; a wrong word names the new form', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => [200, OK], async (env, hits) => {
     for (const args of [['30m', '--at', '09:00'], ['--at', '09:00', '30m'], ['30m', '--on', 'mon'], ['30min', '--at', '09:00'], ['2Hours', '--on', 'tue']]) {
       const r = await runCli(['task', 'repeat', 'p1', '3', ...args], env);

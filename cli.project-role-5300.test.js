@@ -15,6 +15,7 @@ const os = require('node:os');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 /* #4796: a fresh data root, so the live board's token never travels to this test's stub board. */
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-project-role-'));
 test.after(() => fs.rmSync(DATA, { recursive: true, force: true }));
@@ -50,7 +51,7 @@ async function withBoard(answer, fn) {
   try { return await fn(env, hits); } finally { await new Promise((r) => server.close(r)); }
 }
 
-test('#5300 Mac CLI: project role POSTs the words with the agent\'s token and the pane, and says where it shows', () =>
+test('#5300 Mac CLI: project role POSTs the words with the agent\'s token and the pane, and says where it shows', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => [200, { ok: true, role: 'Researcher "lead"' }], async (env, hits) => {
     const r = await runCli(['project', 'role', 'p1', 'Researcher "lead"\\ x'], env);
     assert.equal(r.code, 0, r.stdout + r.stderr);
@@ -62,7 +63,7 @@ test('#5300 Mac CLI: project role POSTs the words with the agent\'s token and th
     assert.equal(hits[0].agentToken, AGENT);
   }));
 
-test('#5300 Mac CLI: an empty role clears it; a refusal says the board\'s reason and exits 1', () =>
+test('#5300 Mac CLI: an empty role clears it; a refusal says the board\'s reason and exits 1', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard((req) => (req.url.includes('nosuch') ? [404, { error: 'there is no project by that name' }] : [200, { ok: true, role: null }]), async (env, hits) => {
     const r = await runCli(['project', 'role', 'p1', ''], env);
     assert.equal(r.code, 0, r.stdout + r.stderr);
@@ -73,7 +74,7 @@ test('#5300 Mac CLI: an empty role clears it; a refusal says the board\'s reason
     assert.match(no.stdout + no.stderr, /did not set that role: there is no project by that name/);
   }));
 
-test('#5300 Mac CLI: no role, three words unquoted, a bad id and an option are refused before any request', () =>
+test('#5300 Mac CLI: no role, three words unquoted, a bad id and an option are refused before any request', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => [200, { ok: true, role: 'x' }], async (env, hits) => {
     for (const [args, code] of [[['project', 'role', 'p1'], 2], [['project', 'role', 'p1', 'a', 'b'], 2], [['project', 'role', 'bad id!', 'x'], 1],
       [['project', 'role', '..', 'x'], 1], [['project', 'role', 'p1', '--clear'], 2]]) {
@@ -85,7 +86,7 @@ test('#5300 Mac CLI: no role, three words unquoted, a bad id and an option are r
     assert.match(opt.stdout + opt.stderr, /--clear is not an option of kosmos project role, so nothing was done\.\s*Usage: kosmos project role <project-id> "<what you do here>"/, opt.stdout + opt.stderr);
   }));
 
-test('#7429 Mac CLI: a role the board reads as review only says what that does; without the flag it says nothing more (control)', () =>
+test('#7429 Mac CLI: a role the board reads as review only says what that does; without the flag it says nothing more (control)', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => [200, { ok: true, role: 'QA only', reviewOnly: true }], async (env) => {
     const r = await runCli(['project', 'role', 'p1', 'QA only'], env);
     assert.equal(r.code, 0, r.stdout + r.stderr);

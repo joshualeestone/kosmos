@@ -27,6 +27,7 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const projects = require('./engine/projects');
 const fleet = require('./test-support/fleet');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const FLEET = fleet.install([fleet.agent('mark', { state: 'idle' }), fleet.agent('sam', { state: 'idle', runner: 'codex', command: 'node', screen: '\u203a Ask Codex to do anything' })]);
 const RAW = { id: 'ff', name: 'Five Families', folder: '/p/ff', agents: ['mark', 'sam'], tasks: [{ number: 1, sentence: 'rank', state: 'open' }] };
 const DESCRIBED = projects.describe(RAW, FLEET.agents, [RAW]);
@@ -70,14 +71,14 @@ function withStub(fn) {
   });
 }
 
-test('#4581 kosmos project list: GET /api/projects/overview with the agent\'s own token, printed by the shared renderer', () => withStub(async (env, seen) => {
+test('#4581 kosmos project list: GET /api/projects/overview with the agent\'s own token, printed by the shared renderer', { skip: SKIP_POSIX_SHELL }, () => withStub(async (env, seen) => {
   const out = await runCli(['project', 'list'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.deepEqual(seen, [{ method: 'GET', url: '/api/projects/overview', agent: TOKEN }]);
   assert.equal(out.stdout, v.renderList(LIST).join('\n') + '\n');
 }));
 
-test('#4581 kosmos project show <id>: GET /api/project/<id>/overview, printed by the shared renderer', () => withStub(async (env, seen) => {
+test('#4581 kosmos project show <id>: GET /api/project/<id>/overview, printed by the shared renderer', { skip: SKIP_POSIX_SHELL }, () => withStub(async (env, seen) => {
   const out = await runCli(['project', 'show', 'ff'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.deepEqual(seen.map((s) => s.url), ['/api/project/ff/overview']);
@@ -86,7 +87,7 @@ test('#4581 kosmos project show <id>: GET /api/project/<id>/overview, printed by
   assert.match(out.stdout, /Goal \(as written in BRIEF\.md\): "Ask each family"/);
 }));
 
-test('#4581 show: a garbled id is refused before any request; an unknown one is the board\'s own sentence', () => withStub(async (env, seen) => {
+test('#4581 show: a garbled id is refused before any request; an unknown one is the board\'s own sentence', { skip: SKIP_POSIX_SHELL }, () => withStub(async (env, seen) => {
   const garbled = await runCli(['project', 'show', 'ff!!!'], env);
   assert.equal(garbled.code, 1);
   assert.match(garbled.stdout, /there is no project by that name/);
@@ -102,7 +103,7 @@ test('#4581 show: a garbled id is refused before any request; an unknown one is 
   assert.match(unknown.stdout, /Kosmos refused that: there is no project by that name\./);
 }));
 
-test('#4581 usage: list takes nothing, show takes exactly one id; the help names all three', () => withStub(async (env, seen) => {
+test('#4581 usage: list takes nothing, show takes exactly one id; the help names all three', { skip: SKIP_POSIX_SHELL }, () => withStub(async (env, seen) => {
   for (const args of [['project', 'list', 'extra'], ['project', 'show'], ['project', 'show', 'a', 'b']]) {
     const out = await runCli(args, env);
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout);
@@ -112,7 +113,7 @@ test('#4581 usage: list takes nothing, show takes exactly one id; the help names
   assert.equal(seen.length, 0);
 }));
 
-test('#4581 with Kosmos not running, a read says it cannot read, not that it cannot create', async () => {
+test('#4581 with Kosmos not running, a read says it cannot read, not that it cannot create', { skip: SKIP_POSIX_SHELL }, async () => {
   const out = await runCli(['project', 'list'], { ...process.env, KOSMOS_PORT: '1', AGENT_WORKFORCE_DATA: DATA });
   assert.equal(out.code, 1);
   assert.match(out.stdout, /its projects cannot be read/);
@@ -127,14 +128,14 @@ test('#4581 the usage lines match between install/kosmos and the Windows CLI', (
   }
 });
 
-test('#4581 round 1: an answer that is not JSON is not a success (exit 1), never printed as if it were', () => withStub(async (env) => {
+test('#4581 round 1: an answer that is not JSON is not a success (exit 1), never printed as if it were', { skip: SKIP_POSIX_SHELL }, () => withStub(async (env) => {
   const out = await runCli(['project', 'show', 'html'], env);
   assert.equal(out.code, 1, out.stdout);
   assert.match(out.stdout, /could not read/);
   assert.doesNotMatch(out.stdout, /Bad gateway/);
 }));
 
-test('#4581 round 3: valid JSON of the wrong shape is unreadable too (exit 1), never an empty answer', () => withStub(async (env) => {
+test('#4581 round 3: valid JSON of the wrong shape is unreadable too (exit 1), never an empty answer', { skip: SKIP_POSIX_SHELL }, () => withStub(async (env) => {
   const out = await runCli(['project', 'show', 'shape'], env);
   assert.equal(out.code, 1, out.stdout);
   assert.match(out.stdout, /could not read/);

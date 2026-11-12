@@ -20,6 +20,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-msg-stdin-2909-')
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 /* #3628: the multi-MB cases escape megabytes through sed, which took 10 s at load 60 on
    agent1. Since #3628 a harness timeout FAILS the test (it used to read as exit 0), so
@@ -70,7 +71,7 @@ function withStubBoard(fn, reply, stallMs) {
 const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
 const RICH = 'Run `echo PWNED` then check $HOME and "quotes" \\ backslash\n\n- one\n- two';
 
-test('#2909: kosmos msg --stdin delivers backticks, $, quotes and newlines as written', () => withStubBoard(async (port, seen) => {
+test('#2909: kosmos msg --stdin delivers backticks, $, quotes and newlines as written', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['msg', '--stdin', 'mara'], envFor(port), RICH + '\n');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -78,13 +79,13 @@ test('#2909: kosmos msg --stdin delivers backticks, $, quotes and newlines as wr
   assert.equal(seen[0].text, RICH);
 }));
 
-test('#2909 CONTROL: without --stdin, msg still takes its words from the args and never reads stdin', () => withStubBoard(async (port, seen) => {
+test('#2909 CONTROL: without --stdin, msg still takes its words from the args and never reads stdin', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['msg', 'mara', 'plain', 'words'], envFor(port), 'this must not be read');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].text, 'plain words');
 }));
 
-test('#2909: msg --stdin refusals send nothing (args too, trailing flag, empty pipe, no agent)', () => withStubBoard(async (port, seen) => {
+test('#2909: msg --stdin refusals send nothing (args too, trailing flag, empty pipe, no agent)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const mixed = await runCli(['msg', '--stdin', 'mara', 'also'], envFor(port), 'x');
   assert.equal(mixed.code, 2);
   assert.match(mixed.stdout, /stdin OR as arguments/);
@@ -100,7 +101,7 @@ test('#2909: msg --stdin refusals send nothing (args too, trailing flag, empty p
   assert.equal(seen.length, 0);
 }));
 
-test('#2909: a declined piped msg is kept in a private file, not lost', () => withStubBoard(async (port) => {
+test('#2909: a declined piped msg is kept in a private file, not lost', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['msg', '--stdin', 'mara'], envFor(port), 'MSG-BODY-2909');
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.match(out.stdout, /Not delivered: mara is not running/);
@@ -112,7 +113,7 @@ test('#2909: a declined piped msg is kept in a private file, not lost', () => wi
   } finally { fs.rmSync(saved[1], { force: true }); }
 }, '{"delivery":{"state":"could_not","because":"mara is not running."}}'));
 
-test('#2909: with Kosmos not running, a piped msg is read and kept, not lost', async () => {
+test('#2909: with Kosmos not running, a piped msg is read and kept, not lost', { skip: SKIP_POSIX_SHELL }, async () => {
   const out = await runCli(['msg', '--stdin', 'mara'], { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: '1', TMUX_PANE: '%42' }, 'DOWN-BODY');
   assert.equal(out.code, 1, out.stdout + out.stderr);
   const saved = out.stdout.match(/saved at (\S+)/);
@@ -120,7 +121,7 @@ test('#2909: with Kosmos not running, a piped msg is read and kept, not lost', a
   try { assert.equal(fs.readFileSync(saved[1], 'utf8'), 'DOWN-BODY'); } finally { fs.rmSync(saved[1], { force: true }); }
 });
 
-test('#2909: a piped msg with bytes that are not UTF-8 is sent, not aborted', () => withStubBoard(async (port, seen) => {
+test('#2909: a piped msg with bytes that are not UTF-8 is sent, not aborted', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   // Pinned to a UTF-8 locale: that is where BSD sed/tr abort on a stray byte, so this test can fail.
   const out = await runCli(['msg', '--stdin', 'mara'], { ...envFor(port), LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' }, Buffer.from([0x63, 0x61, 0x66, 0xe9]));
   assert.equal(out.code, 0, 'a Latin-1 byte must not kill the msg escaper: ' + out.stdout + out.stderr);
@@ -128,7 +129,7 @@ test('#2909: a piped msg with bytes that are not UTF-8 is sent, not aborted', ()
   assert.equal(seen[0].text, 'caf�');
 }));
 
-test('#2909: a 2 MB piped msg body reaches the board (curl on stdin, not argv)', () => withStubBoard(async (port, seen) => {
+test('#2909: a 2 MB piped msg body reaches the board (curl on stdin, not argv)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const big = 'x'.repeat(2 * 1024 * 1024);
   const out = await runCli(['msg', '--stdin', 'mara'], envFor(port), big, BIG_INPUT_TIMEOUT_MS);
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -141,7 +142,7 @@ test('#2909: the msg usage line is the same sentence in install/kosmos and the W
   assert.equal(bash[1].replace(/\\\$/g, '$'), require('./tools/windows/kosmos-cli').USAGE.msg);
 });
 
-test('#2909: a msg that times out is a "maybe": exit 3, do not re-send, and no copy is saved', () => withStubBoard(async (port, seen) => {
+test('#2909: a msg that times out is a "maybe": exit 3, do not re-send, and no copy is saved', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['msg', '--stdin', 'mara'], envFor(port), 'SLOW-BODY', 45000);
   assert.equal(out.code, 3, out.stdout + out.stderr);
   assert.match(out.stdout, /may have been delivered/);
@@ -152,7 +153,7 @@ test('#2909: a msg that times out is a "maybe": exit 3, do not re-send, and no c
   assert.equal(seen.length, 2, 'the board received it, and was asked exactly once more');
 }, null, 17000));
 
-test('#2909: a piped msg the board refuses, or one too large to send, is kept', () => withStubBoard(async (port) => {
+test('#2909: a piped msg the board refuses, or one too large to send, is kept', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const refused = await runCli(['msg', '--stdin', 'mara'], envFor(port), 'REFUSED-BODY');
   assert.equal(refused.code, 1, refused.stdout + refused.stderr);
   assert.match(refused.stdout, /refused that request: no such agent/);
@@ -167,7 +168,7 @@ test('#2909: a piped msg the board refuses, or one too large to send, is kept', 
   fs.rmSync(big[1], { force: true });
 }, '{"error":"no such agent"}'));
 
-test('#2909: a wrong-world piped msg the outbox cannot keep is saved to a file', () => withStubBoard(async (port) => {
+test('#2909: a wrong-world piped msg the outbox cannot keep is saved to a file', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const env = { ...envFor(port), KOSMOS_HOME: '/nonexistent-kosmos-home-2909' };
   const out = await runCli(['msg', '--stdin', 'mara'], env, 'WW-MSG');
   assert.equal(out.code, 1, 'KOSMOS_HOME points nowhere, so the outbox cannot keep it: ' + out.stdout);
@@ -176,7 +177,7 @@ test('#2909: a wrong-world piped msg the outbox cannot keep is saved to a file',
   try { assert.equal(fs.readFileSync(saved[1], 'utf8'), 'WW-MSG'); } finally { fs.rmSync(saved[1], { force: true }); }
 }, '{"wrongWorld":true,"world":"other"}'));
 
-test('#2909: msg keeps its existing tab/CR flattening (#1927), so only backticks and $ are promised verbatim', () => withStubBoard(async (port, seen) => {
+test('#2909: msg keeps its existing tab/CR flattening (#1927), so only backticks and $ are promised verbatim', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['msg', '--stdin', 'mara'], envFor(port), 'a\tb `c` $d\r\ne\r\n');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].text, 'a b `c` $d \ne');
@@ -185,7 +186,7 @@ test('#2909: msg keeps its existing tab/CR flattening (#1927), so only backticks
 /* #7886 item 3: a direct message's envelope ends "to answer, if it needs one, run: kosmos msg --in-reply-to <id> <sender>"
    (engine/messages.test.js pins that exact text for m1 from leo); this runs the same command, typed out here, not
    taken from an emitted envelope. */
-test('#7886: msg --in-reply-to <id> sends in_reply_to, before or after --stdin', () => withStubBoard(async (port, seen) => {
+test('#7886: msg --in-reply-to <id> sends in_reply_to, before or after --stdin', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const plain = await runCli(['msg', '--in-reply-to', 'm1', 'leo', 'on', 'it'], envFor(port));
   assert.equal(plain.code, 0, plain.stdout + plain.stderr);
   assert.deepEqual([seen[0].to, seen[0].text, seen[0].in_reply_to], ['leo', 'on it', 'm1']);
@@ -197,7 +198,7 @@ test('#7886: msg --in-reply-to <id> sends in_reply_to, before or after --stdin',
   assert.deepEqual([seen[2].text, seen[2].in_reply_to], ['piped too', 'm3']);
 }));
 
-test('#7886 CONTROL: without --in-reply-to no in_reply_to is sent; a missing id refuses and sends nothing', () => withStubBoard(async (port, seen) => {
+test('#7886 CONTROL: without --in-reply-to no in_reply_to is sent; a missing id refuses and sends nothing', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const none = await runCli(['msg', 'leo', 'hello'], envFor(port));
   assert.equal(none.code, 0, none.stdout + none.stderr);
   assert.equal('in_reply_to' in seen[0], false);
@@ -214,7 +215,7 @@ test('#7886 CONTROL: without --in-reply-to no in_reply_to is sent; a missing id 
 }));
 
 /* #7893: kosmos msg --no-reply sends reply_expected:false, in any order with the other leading flags. */
-test('#7893: msg --no-reply sends reply_expected:false; without it the field is absent', () => withStubBoard(async (port, seen) => {
+test('#7893: msg --no-reply sends reply_expected:false; without it the field is absent', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const fyi = await runCli(['msg', '--no-reply', 'leo', 'deployed'], envFor(port));
   assert.equal(fyi.code, 0, fyi.stdout + fyi.stderr);
   assert.deepEqual([seen[0].to, seen[0].text, seen[0].reply_expected], ['leo', 'deployed', false]);
@@ -227,7 +228,7 @@ test('#7893: msg --no-reply sends reply_expected:false; without it the field is 
 }));
 
 /* #7893 round 3: --no-reply or --in-reply-to typed after the agent is told to come first, never called unknown. */
-test('#7893: a leading flag typed after the agent is told where it goes, and nothing is sent', () => withStubBoard(async (port, seen) => {
+test('#7893: a leading flag typed after the agent is told where it goes, and nothing is sent', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const args of [['msg', 'leo', 'deployed', '--no-reply'], ['msg', 'leo', '--in-reply-to', 'm4', 'ok'], ['msg', 'leo', '--in-reply-to=m4', 'ok']]) {
     const r = await runCli(args, envFor(port));
     assert.equal(r.code, 2, args.join(' '));

@@ -28,6 +28,8 @@ const { execFile, spawn } = require('node:child_process');
 const { eventually, scaleBudget } = require('./test-support/eventually');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
+const SKIP_POSIX_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 const SCRATCH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-scratch-'));
 test.after(() => fs.rmSync(SCRATCH_HOME, { recursive: true, force: true }));
 const PAGE = '<title>Kosmos</title>Agent Workforce';
@@ -165,7 +167,7 @@ function baseEnv(port, extra = {}) {
 }
 const START_ADVICE = /Start it with|kosmos start|kosmos restart/;
 
-test('#4466 slow board: `kosmos status` waits, says busy on stderr, and reports RUNNING', () => withBoard('slow', async (port) => {
+test('#4466 slow board: `kosmos status` waits, says busy on stderr, and reports RUNNING', { skip: SKIP_POSIX_SHELL }, () => withBoard('slow', async (port) => {
   const out = await runCli(['status'], baseEnv(port, { KOSMOS_BUSY_WAIT: '30' }));   // headroom on a loaded box
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /Kosmos is running at/);
@@ -176,7 +178,7 @@ test('#4466 slow board: `kosmos status` waits, says busy on stderr, and reports 
 /* #6682: ONE slow answer on the full 20 s budget. The first health answer takes 2.5 s (past the 2 s first probe) and
    the retry is answered at once, so the board was only slow for a moment: `status` says RUNNING without the busy line.
    CONTROL: the 'slow' status test above, where every answer takes 5 s and two probes miss, does say busy. */
-test('#6682 one slow answer that the retry catches does not say busy (full budget)', () => withBoard('reporthang', async (port) => {
+test('#6682 one slow answer that the retry catches does not say busy (full budget)', { skip: SKIP_POSIX_SHELL }, () => withBoard('reporthang', async (port) => {
   const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '20' });
   const out = await runCli(['status'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -185,7 +187,7 @@ test('#6682 one slow answer that the retry catches does not say busy (full budge
   assert.doesNotMatch(out.stderr, /busy, retrying/, 'one slow answer that the retry caught said busy');
 }, 2500));
 
-test('#4466 one probe keeps to ONE budget: an older board whose 404 is slow does not give the page a second one', () => withBoard('oldslow', async (port, firstFile) => {
+test('#4466 one probe keeps to ONE budget: an older board whose 404 is slow does not give the page a second one', { skip: SKIP_POSIX_BASH }, () => withBoard('oldslow', async (port, firstFile) => {
   // Health 404s after 5 s, the page never answers, the probe's budget is 6 s. The page gets what is left
   // (about 1 s), so the probe ends near 6 s and says busy; with a fresh 6 s for the page it took ~11 s.
   const t0 = Date.now();
@@ -212,7 +214,7 @@ test('#4466 one probe keeps to ONE budget: an older board whose 404 is slow does
   assert.ok(ended - t0 < 20000, `the probe as a whole ran away (took ${ended - t0} ms)`);
 }, 5000));
 
-test('#4466 an --auto report (the hook) gives up on a busy board inside the hook\'s 15 s timeout, saying busy', () => withBoard('hang', async (port) => {
+test('#4466 an --auto report (the hook) gives up on a busy board inside the hook\'s 15 s timeout, saying busy', { skip: SKIP_POSIX_SHELL }, () => withBoard('hang', async (port) => {
   const env = baseEnv(port, { TMUX_PANE: '%42' });
   delete env.KOSMOS_BUSY_WAIT;   // the hook sets none: the default is what is under test
   const out = await runCli(['report', 'started', '--auto'], env);
@@ -227,7 +229,7 @@ test('#4466 an --auto report (the hook) gives up on a busy board inside the hook
   assert.ok(person.ms >= 15000, `a report that is not --auto waits the full budget (took ${person.ms} ms)`);
 }));
 
-test('#4466 an --auto report stays inside the hook timeout END TO END: a slow health answer, then a POST that never answers', () => withBoard('reporthang', async (port, firstFile) => {
+test('#4466 an --auto report stays inside the hook timeout END TO END: a slow health answer, then a POST that never answers', { skip: SKIP_POSIX_SHELL }, () => withBoard('reporthang', async (port, firstFile) => {
   // The first health probe (2 s) misses a 2.5 s answer and the retry gets one at once; then /api/report
   // never answers. The POST gets what is left of 12 s, so the command ends near 12 s; with its own 15 s
   // it took ~17 (red).
@@ -249,7 +251,7 @@ test('#4466 an --auto report stays inside the hook timeout END TO END: a slow he
   assert.doesNotMatch(out.stderr, /busy, retrying/, '#6682: the --auto report said the busy line');
 }, 2500));
 
-test('#4466 `kosmos msg` whose reply is CUT (not timed out) says busy and "may still have happened", not "is it running?"', () => withBoard('msgcut', async (port) => {
+test('#4466 `kosmos msg` whose reply is CUT (not timed out) says busy and "may still have happened", not "is it running?"', { skip: SKIP_POSIX_SHELL }, () => withBoard('msgcut', async (port) => {
   // The health check passes; the send's connection is then dropped (curl 52/56). The timeout case keeps its
   // own exit 3 "maybe delivered" sentence; this is every other failure of the send.
   const out = await runCli(['msg', 'mara', 'plain', 'words'], baseEnv(port, { TMUX_PANE: '%42' }));
@@ -258,14 +260,14 @@ test('#4466 `kosmos msg` whose reply is CUT (not timed out) says busy and "may s
   assert.doesNotMatch(out.stdout, /Is it running|kosmos start/);
 }));
 
-test('#4466 a READ that times out after the health check says busy, not "is it running?", and suggests waiting', () => withBoard('roomhang', async (port) => {
+test('#4466 a READ that times out after the health check says busy, not "is it running?", and suggests waiting', { skip: SKIP_POSIX_SHELL }, () => withBoard('roomhang', async (port) => {
   const out = await runCli(['room', 'proj'], baseEnv(port, { TMUX_PANE: '%42' }));
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.match(out.stdout, /did not answer in time, so we could not read that room\. Wait a minute and try again; it does not need a restart\./);
   assert.doesNotMatch(out.stdout, /Is it running|may still have happened/);
 }));
 
-test('#4466 a listener our own lsof cannot see is ANOTHER account\'s: stranger, not busy (CONTROL: no lsof at all stays busy)', () => withBoard('hang', async (port) => {
+test('#4466 a listener our own lsof cannot see is ANOTHER account\'s: stranger, not busy (CONTROL: no lsof at all stays busy)', { skip: SKIP_POSIX_BASH }, () => withBoard('hang', async (port) => {
   // lsof RAN and named no listener, though something took the connection: on this Mac non-root lsof
   // does not see other users' listeners, so this is the shape of another account holding our port.
   const blind = await bash(`source "${CLI}"; port_listener_owner() { return 1; }; _health_probe 2; echo "state=$HEALTH_STATE"`, baseEnv(port));
@@ -274,7 +276,7 @@ test('#4466 a listener our own lsof cannot see is ANOTHER account\'s: stranger, 
   assert.match(nolsof.stdout, /state=busy/, nolsof.stdout + nolsof.stderr);
 }));
 
-test('#4466 `kosmos msg --stdin` whose reply is CUT keeps the copy but does not say "was not sent" (it may have arrived)', () => withBoard('msgcut', async (port) => {
+test('#4466 `kosmos msg --stdin` whose reply is CUT keeps the copy but does not say "was not sent" (it may have arrived)', { skip: SKIP_POSIX_SHELL }, () => withBoard('msgcut', async (port) => {
   // The kept copy goes to $TMPDIR: point it inside SCRATCH_HOME so the #4273 leak guard sees nothing left behind.
   const tmp = fs.mkdtempSync(path.join(SCRATCH_HOME, 'tmp-'));
   const out = await runCli(['msg', '--stdin', 'mara'], baseEnv(port, { TMUX_PANE: '%42', TMPDIR: tmp }), 40000, 'a piped message');
@@ -287,14 +289,14 @@ test('#4466 `kosmos msg --stdin` whose reply is CUT keeps the copy but does not 
   assert.doesNotMatch(out.stdout, /was not sent/);
 }));
 
-test('#4466 slow board: `kosmos post` waits and the post SUCCEEDS', () => withBoard('slow', async (port) => {
+test('#4466 slow board: `kosmos post` waits and the post SUCCEEDS', { skip: SKIP_POSIX_SHELL }, () => withBoard('slow', async (port) => {
   const out = await runCli(['post', 'proj', 'a message worth posting'], baseEnv(port, { TMUX_PANE: '%42', KOSMOS_BUSY_WAIT: '30' }));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.doesNotMatch(out.stdout, /not running/);
   assert.match(out.stderr, /busy, retrying/);
 }));
 
-test('#4466 CONTROL: the OLD healthy() (a 2 s full-page GET) calls the same slow board NOT running', () => withBoard('slow', async (port) => {
+test('#4466 CONTROL: the OLD healthy() (a 2 s full-page GET) calls the same slow board NOT running', { skip: SKIP_POSIX_BASH }, () => withBoard('slow', async (port) => {
   // Verbatim from origin/main before this change (install/kosmos healthy()).
   const old = `URL="http://127.0.0.1:${port}"
 healthy() {
@@ -310,7 +312,7 @@ if healthy; then echo running; else echo "not running"; fi`;
   assert.equal(out.stdout.trim(), 'not running', 'the control must be able to show the bug, or the slow arms prove nothing');
 }));
 
-test('#4466 stopped board: "not running" with the start advice, AT ONCE (no busy wait)', async () => {
+test('#4466 stopped board: "not running" with the start advice, AT ONCE (no busy wait)', { skip: SKIP_POSIX_SHELL }, async () => {
   const port = await closedPort();
   const status = await runCli(['status'], baseEnv(port));
   assert.equal(status.code, 1);
@@ -324,7 +326,7 @@ test('#4466 stopped board: "not running" with the start advice, AT ONCE (no busy
   assert.match(post.stdout, /Kosmos is not running, so nothing can be posted\. Start it with: kosmos start/);
 });
 
-test('#4466 a board that never answers: busy, and NO start or restart advice anywhere', () => withBoard('hang', async (port) => {
+test('#4466 a board that never answers: busy, and NO start or restart advice anywhere', { skip: SKIP_POSIX_SHELL }, () => withBoard('hang', async (port) => {
   const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '3' });
   // An AGENT is never told to start or restart a busy board: that advice is the blackout.
   const status = await runCli(['status'], { ...env, KOSMOS_AGENT_SESSION: 'grok-agent' });
@@ -343,7 +345,7 @@ test('#4466 a board that never answers: busy, and NO start or restart advice any
   assert.doesNotMatch(post.stdout + post.stderr, START_ADVICE);
 }));
 
-test('#4466 the verbs that arrived after it (connections, connect, community read) say busy, not start, too', () => withBoard('hang', async (port) => {
+test('#4466 the verbs that arrived after it (connections, connect, community read) say busy, not start, too', { skip: SKIP_POSIX_SHELL }, () => withBoard('hang', async (port) => {
   // They came in from main with their own "Start it with: kosmos start" line; each goes through say_not_up now.
   const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' });
   for (const [args, input] of [[['connections']], [['connect', 'brave-search'], 'tok'], [['community', 'read']], [['community', 'comment', '0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f'], 'agreed']]) {
@@ -354,19 +356,19 @@ test('#4466 the verbs that arrived after it (connections, connect, community rea
   }
 }));
 
-test('#4466 a stranger on the port is still not taken for Kosmos', () => withBoard('stranger', async (port) => {
+test('#4466 a stranger on the port is still not taken for Kosmos', { skip: SKIP_POSIX_SHELL }, () => withBoard('stranger', async (port) => {
   const out = await runCli(['status'], baseEnv(port));
   assert.equal(out.code, 1);
   assert.match(out.stdout, /another app is using port/);
 }));
 
-test('#4466 an OLDER board with no /api/health still reads as running (the page fallback)', () => withBoard('404', async (port) => {
+test('#4466 an OLDER board with no /api/health still reads as running (the page fallback)', { skip: SKIP_POSIX_SHELL }, () => withBoard('404', async (port) => {
   const out = await runCli(['status'], baseEnv(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /Kosmos is running at/);
 }));
 
-test('#4466 part 6: an AGENT may not stop or restart a board that answers; start says it is running', () => withBoard('ok', async (port) => {
+test('#4466 part 6: an AGENT may not stop or restart a board that answers; start says it is running', { skip: SKIP_POSIX_SHELL }, () => withBoard('ok', async (port) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   try {
     const env = baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' });
@@ -383,7 +385,7 @@ test('#4466 part 6: an AGENT may not stop or restart a board that answers; start
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }));
 
-test('#4466 part 6: 8 agents restarting a DOWN board AT THE SAME MOMENT: exactly one goes ahead (the claim)', async () => {
+test('#4466 part 6: 8 agents restarting a DOWN board AT THE SAME MOMENT: exactly one goes ahead (the claim)', { skip: SKIP_POSIX_BASH }, async () => {
   // The start-time check alone lets all of them through: each reads the same (absent) start time before
   // any writes one. Each restart would then kill the board the previous one started.
   const port = await closedPort();
@@ -400,7 +402,7 @@ wait`, baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' }))
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 a failed reclaim of an untracked holder sends a person to the process, not to `kosmos stop` (which leaves it alone)', async () => {
+test('#4466 a failed reclaim of an untracked holder sends a person to the process, not to `kosmos stop` (which leaves it alone)', { skip: SKIP_POSIX_BASH }, async () => {
   const port = await closedPort();
   const person = await bash(`source "${CLI}"; echo "[$(_stop_advice 4242)]"; echo "[$(_stop_advice)]"`, baseEnv(port));
   const [withPid, plain] = person.stdout.trim().split('\n');
@@ -412,7 +414,7 @@ test('#4466 a failed reclaim of an untracked holder sends a person to the proces
   assert.doesNotMatch(agent.stdout, /kill/);
 });
 
-test('#4466 a proxy in the environment does not hide the board: loopback requests skip it (a sandbox that is proxy-only)', () => withBoard('ok', async (port) => {
+test('#4466 a proxy in the environment does not hide the board: loopback requests skip it (a sandbox that is proxy-only)', { skip: SKIP_POSIX_SHELL }, () => withBoard('ok', async (port) => {
   // A proxy that answers EVERYTHING with an empty 200, the way a sandbox's proxy answered GET / for a real agent.
   const hits = [];
   const proxy = require('node:http').createServer((req, res) => { hits.push(req.url); res.writeHead(200); res.end(''); });
@@ -451,7 +453,7 @@ function forwardingProxy(hits) {
 async function listen(server) { await new Promise((r) => server.listen(0, '127.0.0.1', r)); return server.address().port; }
 const proxyEnv = (p, extra = {}) => ({ http_proxy: p, all_proxy: p, ALL_PROXY: p, ...extra });
 
-test('#4933 blocked direct loopback with a forwarding proxy: the board is reached through the proxy, the exported exemption untouched', () => withBoard('ok', async (port) => {
+test('#4933 blocked direct loopback with a forwarding proxy: the board is reached through the proxy, the exported exemption untouched', { skip: SKIP_POSIX_SHELL }, () => withBoard('ok', async (port) => {
   const hits = [];
   const proxy = forwardingProxy(hits);
   const p = 'http://127.0.0.1:' + await listen(proxy);
@@ -474,7 +476,7 @@ test('#4933 blocked direct loopback with a forwarding proxy: the board is reache
 /* #5636 F4 (0.7.27 model feedback, the Meta seat: "community reads time out from a sandboxed shell"; the ask was to
    route them through this detection). They already are: every community verb calls the board through kosmos_curl. This
    pins it for the two reads, so a read verb that ever calls curl on its own is caught in a proxy-only sandbox. */
-test('#5636 F4: community read and read --replies take the proxy route when direct loopback is blocked', () => withBoard('ok', async (port) => {
+test('#5636 F4: community read and read --replies take the proxy route when direct loopback is blocked', { skip: SKIP_POSIX_SHELL }, () => withBoard('ok', async (port) => {
   const hits = [];
   const proxy = forwardingProxy(hits);
   const p = 'http://127.0.0.1:' + await listen(proxy);
@@ -490,7 +492,7 @@ test('#5636 F4: community read and read --replies take the proxy route when dire
   } finally { await new Promise((r) => proxy.close(r)); }
 }));
 
-test('#4933 a failed probe with a proxy that is not this board stays direct: the tokens never go to that proxy', () => withBoard('ok', async (port) => {
+test('#4933 a failed probe with a proxy that is not this board stays direct: the tokens never go to that proxy', { skip: SKIP_POSIX_SHELL }, () => withBoard('ok', async (port) => {
   const hits = [];
   const proxy = require('node:http').createServer((req, res) => { hits.push(req.url + ' ' + Object.keys(req.headers).filter((h) => /token/.test(h)).join(',')); res.writeHead(502); res.end('bad gateway'); });
   const p = 'http://127.0.0.1:' + await listen(proxy);
@@ -506,7 +508,7 @@ test('#4933 a failed probe with a proxy that is not this board stays direct: the
   } finally { await new Promise((r) => proxy.close(r)); }
 }));
 
-test('#4933 a busy board (connects, then waits) is direct loopback, never the proxy', () => withBoard('ok', async (port) => {
+test('#4933 a busy board (connects, then waits) is direct loopback, never the proxy', { skip: SKIP_POSIX_SHELL }, () => withBoard('ok', async (port) => {
   const hits = [];
   const proxy = forwardingProxy(hits);
   const p = 'http://127.0.0.1:' + await listen(proxy);
@@ -520,7 +522,7 @@ test('#4933 a busy board (connects, then waits) is direct loopback, never the pr
   } finally { await new Promise((r) => proxy.close(r)); stall.close(); }
 }));
 
-test('#4933 refused directly while the proxy forwards to the board (a network namespace): the proxy', () => withBoard('ok', async (port) => {
+test('#4933 refused directly while the proxy forwards to the board (a network namespace): the proxy', { skip: SKIP_POSIX_SHELL }, () => withBoard('ok', async (port) => {
   const hits = [];
   const proxy = forwardingProxy(hits);
   const p = 'http://127.0.0.1:' + await listen(proxy);
@@ -545,7 +547,7 @@ test('#4933 review 3: a proxy route remembered for a board that is then stopped 
   } finally { await new Promise((r2) => proxy.close(r2)); }
 });
 
-test('#4933 a stopped board with a proxy set: refused, the proxy is not a board, so direct: "not running", never "another app"', async () => {
+test('#4933 a stopped board with a proxy set: refused, the proxy is not a board, so direct: "not running", never "another app"', { skip: SKIP_POSIX_SHELL }, async () => {
   const hits = [];
   const proxy = require('node:http').createServer((req, res) => { hits.push(req.url); res.writeHead(200); res.end(''); });
   const p = 'http://127.0.0.1:' + await listen(proxy);
@@ -559,7 +561,7 @@ test('#4933 a stopped board with a proxy set: refused, the proxy is not a board,
   } finally { await new Promise((r) => proxy.close(r)); }
 });
 
-test('#4466 start and status: a listener that IS the recorded board is running, never "another app" and never reclaimed', async () => {
+test('#4466 start and status: a listener that IS the recorded board is running, never "another app" and never reclaimed', { skip: SKIP_POSIX_BASH }, async () => {
   const port = await closedPort();
   // healthy() could not read it (a proxy in the way); board.pid names 4242 and 4242 holds the port.
   const stubs = (listener) => `source "${CLI}"; healthy() { HEALTH_STATE=stranger; return 1; }; port_taken_by_stranger() { HEALTH_STATE=stranger; return 0; }; running_pid() { echo 4242; }; port_listener_owner() { echo "${listener} $(/usr/bin/id -u) 1 1"; }; port_has_listener() { return 0; }; kill() { echo "KILLED $*"; }`;
@@ -588,7 +590,7 @@ test('#4466 start and status: a listener that IS the recorded board is running, 
   assert.match(other.stdout, /another app is using port/, other.stdout + other.stderr);
 });
 
-test('#4580 a msg or post whose reply is CUT is asked once more, and the board\'s receipt says it arrived (not "failed")', () => withBoard('cutonce', async (port, firstFile) => {
+test('#4580 a msg or post whose reply is CUT is asked once more, and the board\'s receipt says it arrived (not "failed")', { skip: SKIP_POSIX_SHELL }, () => withBoard('cutonce', async (port, firstFile) => {
   const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' });
   const msg = await runCli(['msg', 'mara', 'the lease is signed'], env);
   assert.equal(msg.code, 0, msg.stdout + msg.stderr);
@@ -597,7 +599,7 @@ test('#4580 a msg or post whose reply is CUT is asked once more, and the board\'
   assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'exactly one retry');
 }));
 
-test('#4934: a post whose reply is CUT and whose retry the loop guard refuses never says "nothing was sent" (the first may be in the room)', async () => {
+test('#4934: a post whose reply is CUT and whose retry the loop guard refuses never says "nothing was sent" (the first may be in the room)', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard('cutheld', async (port, firstFile) => {
     const out = await runCli(['post', 'proj', 'draft is in the folder'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
     assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 2, 'CONTROL: the retry was asked');
@@ -620,7 +622,7 @@ test('#4934: a post whose reply is CUT and whose retry the loop guard refuses ne
   });
 });
 
-test('#4580 a post whose reply is CUT is asked once more too; a board that keeps cutting gets ONE retry, not a loop', async () => {
+test('#4580 a post whose reply is CUT is asked once more too; a board that keeps cutting gets ONE retry, not a loop', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard('cutonce', async (port, firstFile) => {
     const out = await runCli(['post', 'proj', 'draft is in the folder'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
     assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -639,7 +641,7 @@ test('#4580 a post whose reply is CUT is asked once more too; a board that keeps
   }
 });
 
-test('#4580 the retry carries the agent\'s own token, as the first send did (#4491: the board tells agent from person by it)', () => withBoard('cutonce', async (port, firstFile) => {
+test('#4580 the retry carries the agent\'s own token, as the first send did (#4491: the board tells agent from person by it)', { skip: SKIP_POSIX_SHELL }, () => withBoard('cutonce', async (port, firstFile) => {
   const tok = 'ab'.repeat(16);
   const out = await runCli(['msg', 'mara', 'signed'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: tok }));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -647,7 +649,7 @@ test('#4580 the retry carries the agent\'s own token, as the first send did (#44
   assert.deepEqual(sent, [tok, tok], 'the retry went out without the agent token: ' + JSON.stringify(sent));
 }));
 
-test('#4580 cut, then refused (the board restarted): still "may have happened", never "not sent" (msg and post)', async () => {
+test('#4580 cut, then refused (the board restarted): still "may have happened", never "not sent" (msg and post)', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const args of [['msg', 'mara', 'signed'], ['post', 'proj', 'signed']]) {
     await withBoard('cutthendie', async (port) => {
       const out = await runCli(args, baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }));
@@ -659,7 +661,7 @@ test('#4580 cut, then refused (the board restarted): still "may have happened", 
   }
 });
 
-test('#4580 a post that TIMES OUT is not asked again (the board is still delivering it; the board folds a re-post anyway)', () => withBoard('posthang', async (port, firstFile) => {
+test('#4580 a post that TIMES OUT is not asked again (the board is still delivering it; the board folds a re-post anyway)', { skip: SKIP_POSIX_SHELL }, () => withBoard('posthang', async (port, firstFile) => {
   const out = await runCli(['post', 'proj', 'long fan-out'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42', KOSMOS_POST_TIMEOUT_S: '2' }));
   assert.equal(out.code, 3, out.stdout + out.stderr);
   assert.match(out.stdout, /still delivering that post .*Do not re-post/);
@@ -667,7 +669,7 @@ test('#4580 a post that TIMES OUT is not asked again (the board is still deliver
   assert.equal(fs.readFileSync(firstFile + '.sends', 'utf8').length, 1, 'a timed-out post was sent again');
 }));
 
-test('#4466 a start whose board comes back BUSY reports it running (slow), not "did not come up"', async () => {
+test('#4466 a start whose board comes back BUSY reports it running (slow), not "did not come up"', { skip: SKIP_POSIX_BASH }, async () => {
   const port = await closedPort();
   const stub = (state, pid) => `source "${CLI}"; sleep() { :; }; healthy() { HEALTH_STATE=${state}; return 1; }; if _await_board_up ${pid}; then echo UP; else echo NOTUP; fi`;
   const sup = await bash(stub('busy', ''), baseEnv(port));                       // launchd-supervised: no pid
@@ -683,7 +685,7 @@ test('#4466 a start whose board comes back BUSY reports it running (slow), not "
   assert.doesNotMatch(down.stdout, /running at/);
 });
 
-test('#4466 board-run strips the agent markers from the board it execs, like the nohup launch', async () => {
+test('#4466 board-run strips the agent markers from the board it execs, like the nohup launch', { skip: SKIP_POSIX_BASH }, async () => {
   // Run for real on a closed port: a stub "node" records the environment the board would have been given.
   const port = await closedPort();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
@@ -702,7 +704,7 @@ test('#4466 board-run strips the agent markers from the board it execs, like the
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 a busy reading that comes back FAST is not retried in a tight loop (the board is already overloaded)', (t) => withBoard('fastcut', async (port, firstFile) => {
+test('#4466 a busy reading that comes back FAST is not retried in a tight loop (the board is already overloaded)', { skip: SKIP_POSIX_SHELL }, (t) => withBoard('fastcut', async (port, firstFile) => {
   const wait = 8;
   const t0 = Date.now();
   const out = await runCli(['status'], baseEnv(port, { KOSMOS_BUSY_WAIT: String(wait) }));
@@ -728,7 +730,7 @@ test('#4466 a busy reading that comes back FAST is not retried in a tight loop (
   }
 }));
 
-test('#4466 an agent may not start a board the person stopped ON PURPOSE (board.stopped); a person still can', async () => {
+test('#4466 an agent may not start a board the person stopped ON PURPOSE (board.stopped); a person still can', { skip: SKIP_POSIX_BASH }, async () => {
   const port = await closedPort();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   try {
@@ -745,14 +747,14 @@ test('#4466 an agent may not start a board the person stopped ON PURPOSE (board.
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 an EMPTY answer to agent roles is not "is it running?" (the board did answer)', () => withBoard('emptyroles', async (port) => {
+test('#4466 an EMPTY answer to agent roles is not "is it running?" (the board did answer)', { skip: SKIP_POSIX_SHELL }, () => withBoard('emptyroles', async (port) => {
   const out = await runCli(['agent', 'roles'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' }), 40000, '');
   assert.notEqual(out.code, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /gave an empty answer when asked for the roles/, out.stdout + out.stderr);
   assert.doesNotMatch(out.stdout + out.stderr, /Is it running|Start it with/);
 }));
 
-test('#4466 `kosmos status` on a stranger answers from the reading it has, not a second probe that could read busy', async () => {
+test('#4466 `kosmos status` on a stranger answers from the reading it has, not a second probe that could read busy', { skip: SKIP_POSIX_BASH }, async () => {
   const port = await closedPort();
   // healthy() reads stranger; any LATER probe would read busy (the transient between two readings).
   const stub = `source "${CLI}"; healthy() { HEALTH_STATE=stranger; return 1; }; _health_probe() { HEALTH_STATE=busy; }; cmd_status`;
@@ -762,7 +764,7 @@ test('#4466 `kosmos status` on a stranger answers from the reading it has, not a
   assert.doesNotMatch(out.stdout + out.stderr, /Start it with/);   // the stranger sentence names 'kosmos start' only to say it will refuse
 });
 
-test('#4466 the verbs that arrived after it say busy, not "is it running", when the request itself is cut AFTER the health check', () => withBoard('datacut', async (port) => {
+test('#4466 the verbs that arrived after it say busy, not "is it running", when the request itself is cut AFTER the health check', { skip: SKIP_POSIX_SHELL }, () => withBoard('datacut', async (port) => {
   const env = baseEnv(port, { KOSMOS_BUSY_WAIT: '3', TMUX_PANE: '%42' });
   for (const args of [['connections'], ['community', 'read'], ['agent', 'role-draft']]) {
     const out = await runCli(args, env, 40000, '');
@@ -772,7 +774,7 @@ test('#4466 the verbs that arrived after it say busy, not "is it running", when 
   }
 }));
 
-test('#4466 part 6: 8 simultaneous agent restarts over a STALE claim (every outage after the first): exactly one goes ahead', async () => {
+test('#4466 part 6: 8 simultaneous agent restarts over a STALE claim (every outage after the first): exactly one goes ahead', { skip: SKIP_POSIX_BASH }, async () => {
   // The claim file outlives each start, so a later outage finds an old claim, not none: the replace
   // path is the common one and must be as atomic as the first create.
   const port = await closedPort();
@@ -793,7 +795,7 @@ wait`, baseEnv(port, { KOSMOS_HOME: home, KOSMOS_AGENT_SESSION: 'grok-agent' }))
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 part 6: a claim lock left by a killed agent is cleared once it is old, and does not wedge restarts', async () => {
+test('#4466 part 6: a claim lock left by a killed agent is cleared once it is old, and does not wedge restarts', { skip: SKIP_POSIX_BASH }, async () => {
   const port = await closedPort();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   try {
@@ -817,7 +819,7 @@ test('#4466 part 6: a claim lock left by a killed agent is cleared once it is ol
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 part 6: 10 rapid agent restarts of a DOWN board go ahead at most ONCE; a person is unaffected', async () => {
+test('#4466 part 6: 10 rapid agent restarts of a DOWN board go ahead at most ONCE; a person is unaffected', { skip: SKIP_POSIX_BASH }, async () => {
   const port = await closedPort();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   try {
@@ -841,7 +843,7 @@ echo "${who} went=$went"`;
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 part 6: the agent token alone also marks an agent (a pane launched without the new variable)', async () => {
+test('#4466 part 6: the agent token alone also marks an agent (a pane launched without the new variable)', { skip: SKIP_POSIX_BASH }, async () => {
   const port = await closedPort();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   try {
@@ -852,7 +854,7 @@ test('#4466 part 6: the agent token alone also marks an agent (a pane launched w
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 part 6: a pane whose session carries the @kosmos_agent claim is an agent even with no variables', async () => {
+test('#4466 part 6: a pane whose session carries the @kosmos_agent claim is an agent even with no variables', { skip: SKIP_POSIX_BASH }, async () => {
   const port = await closedPort();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   try {
@@ -871,7 +873,7 @@ test('#4466 part 6: a pane whose session carries the @kosmos_agent claim is an a
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 a SILENT listener that is not Kosmos (takes the connection, never answers) is a stranger, not busy', async () => {
+test('#4466 a SILENT listener that is not Kosmos (takes the connection, never answers) is a stranger, not busy', { skip: SKIP_POSIX_SHELL }, async () => {
   // In this test's own process, so lsof names a node that is not a Kosmos server.
   const sockets = [];
   const silent = net.createServer((sock) => { sockets.push(sock); });
@@ -887,7 +889,7 @@ test('#4466 a SILENT listener that is not Kosmos (takes the connection, never an
   }
 });
 
-test('#4466 part 6: an agent stop on a board that does not answer writes NO stop marker (the watchdog stays on)', async () => {
+test('#4466 part 6: an agent stop on a board that does not answer writes NO stop marker (the watchdog stays on)', { skip: SKIP_POSIX_SHELL }, async () => {
   const port = await closedPort();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   try {
@@ -901,7 +903,7 @@ test('#4466 part 6: an agent stop on a board that does not answer writes NO stop
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 a person stopping a BUSY board this command did not start leaves it alone and writes no marker', () => withBoard('hang', async (port) => {
+test('#4466 a person stopping a BUSY board this command did not start leaves it alone and writes no marker', { skip: SKIP_POSIX_SHELL }, () => withBoard('hang', async (port) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   try {
     const out = await runCli(['stop'], baseEnv(port, { KOSMOS_HOME: home }));
@@ -912,7 +914,7 @@ test('#4466 a person stopping a BUSY board this command did not start leaves it 
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }));
 
-test('#4466 a person RESTART of a busy board nothing tracks RECLAIMS it (the way out with auto-restart off); an agent\'s is refused', async () => {
+test('#4466 a person RESTART of a busy board nothing tracks RECLAIMS it (the way out with auto-restart off); an agent\'s is refused', { skip: SKIP_POSIX_SHELL }, async () => {
   // Our own silent board, no pidfile, and no watchdog to reclaim it (AGENT_WORKFORCE_LAUNCH: unsupervised).
   // A person's `kosmos restart` is the recovery: the start after the stop takes the #3079 reclaim.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
@@ -934,7 +936,7 @@ test('#4466 a person RESTART of a busy board nothing tracks RECLAIMS it (the way
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 the watchdog reclaim: only KOSMOS_RECLAIM_BUSY=1 lets `kosmos start` free a port our own silent board holds', async () => {
+test('#4466 the watchdog reclaim: only KOSMOS_RECLAIM_BUSY=1 lets `kosmos start` free a port our own silent board holds', { skip: SKIP_POSIX_SHELL }, async () => {
   // The stub is a same-user "kosmos...server.js" that never answers: to the CLI, our own busy board.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   const server = path.join(home, 'app', 'server.js');
@@ -953,7 +955,7 @@ test('#4466 the watchdog reclaim: only KOSMOS_RECLAIM_BUSY=1 lets `kosmos start`
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 part 6: `kosmos open` from an agent on a down board goes through the same restart cooldown', async () => {
+test('#4466 part 6: `kosmos open` from an agent on a down board goes through the same restart cooldown', { skip: SKIP_POSIX_SHELL }, async () => {
   const port = await closedPort();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   try {
@@ -964,7 +966,7 @@ test('#4466 part 6: `kosmos open` from an agent on a down board goes through the
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 part 6: an agent RESTART that recovers a down board clears the stop marker (the watchdog is not left off)', async () => {
+test('#4466 part 6: an agent RESTART that recovers a down board clears the stop marker (the watchdog is not left off)', { skip: SKIP_POSIX_SHELL }, async () => {
   const port = await closedPort();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-home-'));
   try {
@@ -979,7 +981,7 @@ test('#4466 part 6: an agent RESTART that recovers a down board clears the stop 
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('#4466 an OLDER board of ours answering its page with a 5xx under load is busy, not a stranger', () => withBoard('page500', async (port) => {
+test('#4466 an OLDER board of ours answering its page with a 5xx under load is busy, not a stranger', { skip: SKIP_POSIX_SHELL }, () => withBoard('page500', async (port) => {
   const out = await runCli(['status'], baseEnv(port, { KOSMOS_BUSY_WAIT: '3' }));
   assert.equal(out.code, 4, out.stdout + out.stderr);
   assert.match(out.stdout, /running at .* but is busy/);

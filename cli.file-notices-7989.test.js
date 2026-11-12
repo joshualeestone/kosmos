@@ -19,6 +19,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-fn-7989-'));
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'cd'.repeat(16);
 const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%7', KOSMOS_AGENT_TOKEN: TOKEN });
 const HOOKJSON = JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'Kosmos file-owner notice' } });
@@ -62,7 +63,7 @@ function withStubBoard(fn, reply) {
   });
 }
 
-test('bare: a POST with the agent token and the pane, as=text, and the board\'s words printed', () => withStubBoard(async (port, seen) => {
+test('bare: a POST with the agent token and the pane, as=text, and the board\'s words printed', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['file-notices'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -72,7 +73,7 @@ test('bare: a POST with the agent token and the pane, as=text, and the board\'s 
   assert.equal(out.stdout, 'No file notices are waiting for you.\n');
 }, { status: 200, text: 'No file notices are waiting for you.\n' }));
 
-test('--hook prints only the JSON on a 200, exits 0, and keeps the ids it was handed in --ack-file', () => withStubBoard(async (port, seen) => {
+test('--hook prints only the JSON on a 200, exits 0, and keeps the ids it was handed in --ack-file', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const f = ackPath();
   const out = await runCli(['file-notices', '--hook', '--ack-file', f], envFor(port));
   assert.equal(out.code, 0);
@@ -84,7 +85,7 @@ test('--hook prints only the JSON on a 200, exits 0, and keeps the ids it was ha
   assert.match(seen[1].url, /&ack=aaaaaaaaaaaa,bbbbbbbbbbbb$/, 'the next call sends them back');
 }, { status: 200, text: HOOKBODY }));
 
-test('--hook: a count-only answer (no ids) prints the JSON and leaves an empty ack line', () => withStubBoard(async (port) => {
+test('--hook: a count-only answer (no ids) prints the JSON and leaves an empty ack line', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const f = ackPath();
   fs.writeFileSync(f, IDS + '\n');
   const out = await runCli(['file-notices', '--hook', '--ack-file', f], envFor(port));
@@ -92,7 +93,7 @@ test('--hook: a count-only answer (no ids) prints the JSON and leaves an empty a
   assert.equal(fs.readFileSync(f, 'utf8'), '\n');
 }, { status: 200, text: 'ack:\n' + HOOKJSON }));
 
-test('--ack-file: emptied on an empty 200, left alone on a refusal or bad answer, and ignored when it holds other characters', async () => {
+test('--ack-file: emptied on an empty 200, left alone on a refusal or bad answer, and ignored when it holds other characters', { skip: SKIP_POSIX_SHELL }, async () => {
   const f = ackPath();
   fs.writeFileSync(f, IDS + '\n');
   await withStubBoard(async (port) => {
@@ -120,7 +121,7 @@ test('--ack-file: emptied on an empty 200, left alone on a refusal or bad answer
   }, { status: 200, text: '' });
 });
 
-test('--hook says nothing and exits 0 on a refusal, other words, or a board that does not answer in time', async () => {
+test('--hook says nothing and exits 0 on a refusal, other words, or a board that does not answer in time', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStubBoard(async (port) => {
     const out = await runCli(['file-notices', '--hook'], envFor(port));
     assert.deepEqual([out.code, out.stdout], [0, '']);
@@ -136,14 +137,14 @@ test('--hook says nothing and exits 0 on a refusal, other words, or a board that
   }, { hang: true });
 });
 
-test('--hook with an agent token sends only the agent token, so no board token is read on every turn', () => withStubBoard(async (port, seen) => {
+test('--hook with an agent token sends only the agent token, so no board token is read on every turn', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['file-notices', '--hook'], envFor(port));
   assert.equal(out.code, 0);
   assert.equal(seen[0].headers['x-kosmos-agent-token'], TOKEN);
   assert.equal(seen[0].headers['x-kosmos-board-token'], undefined);
 }, { status: 200, text: '' }));
 
-test('--help prints the usage and never asks the board, so it cannot take (clear) the notices', () => withStubBoard(async (port, seen) => {
+test('--help prints the usage and never asks the board, so it cannot take (clear) the notices', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const args of [['file-notices', '--help'], ['file-notices', '-h']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 0, args.join(' '));
@@ -152,14 +153,14 @@ test('--help prints the usage and never asks the board, so it cannot take (clear
   assert.equal(seen.length, 0);
 }, { status: 200, text: '' }));
 
-test('--hook against a port with nothing listening says nothing, exits 0, and stays inside its cap', async () => {
+test('--hook against a port with nothing listening says nothing, exits 0, and stays inside its cap', { skip: SKIP_POSIX_SHELL }, async () => {
   const closed = await new Promise((resolve) => { const s = http.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
   const out = await runCli(['file-notices', '--hook'], envFor(closed));
   assert.deepEqual([out.code, out.stdout], [0, '']);
   assert.ok(out.ms < 3000, 'a refused board must not hold the turn past the cap and its retries: ' + out.ms + ' ms');
 });
 
-test('an unknown argument is a usage error before the board is asked', () => withStubBoard(async (port, seen) => {
+test('an unknown argument is a usage error before the board is asked', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['file-notices', '--all'], envFor(port));
   assert.equal(out.code, 2);
   assert.equal(seen.length, 0);

@@ -21,6 +21,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-post-inreplyto-32
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 function runCli(args, env) {
   return new Promise((resolve, reject) => {
@@ -58,7 +59,7 @@ function withStubBoard(fn) {
   });
 }
 
-test('#3224: kosmos post --in-reply-to <id> puts in_reply_to on the /api/post body', () => withStubBoard(async (port, seen) => {
+test('#3224: kosmos post --in-reply-to <id> puts in_reply_to on the /api/post body', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--in-reply-to', 'm12', 'beta', 'the answer'], env);
   assert.equal(out.code, 0, 'the post should succeed: ' + out.stdout + out.stderr);
@@ -68,7 +69,7 @@ test('#3224: kosmos post --in-reply-to <id> puts in_reply_to on the /api/post bo
   assert.equal(seen[0].text, 'the answer', 'the flag and its value must be consumed, not swept into the text');
 }));
 
-test('#3224: the --in-reply-to=<id> equals form is accepted too', () => withStubBoard(async (port, seen) => {
+test('#3224: the --in-reply-to=<id> equals form is accepted too', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--in-reply-to=m7', 'beta', 'hi'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -76,7 +77,7 @@ test('#3224: the --in-reply-to=<id> equals form is accepted too', () => withStub
   assert.equal(seen[0].project, 'beta');
 }));
 
-test('#3224 CONTROL: without --in-reply-to the body omits in_reply_to entirely', () => withStubBoard(async (port, seen) => {
+test('#3224 CONTROL: without --in-reply-to the body omits in_reply_to entirely', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'beta', 'a plain post'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -84,7 +85,7 @@ test('#3224 CONTROL: without --in-reply-to the body omits in_reply_to entirely',
     'a post that is not a bound reply must omit in_reply_to, not send an empty one');
 }));
 
-test('#3224: --in-reply-to combines with --no-reply in EITHER order (both are leading flags)', () => withStubBoard(async (port, seen) => {
+test('#3224: --in-reply-to combines with --no-reply in EITHER order (both are leading flags)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   // --no-reply first
   const a = await runCli(['post', '--no-reply', '--in-reply-to', 'm3', 'beta', 'ack'], env);
@@ -102,7 +103,7 @@ test('#3224: --in-reply-to combines with --no-reply in EITHER order (both are le
   assert.equal(seen[1].text, 'ack2');
 }));
 
-test('#3224: --in-reply-to= (empty value) is REFUSED, not silently dropped (no unbound post)', () => withStubBoard(async (port, seen) => {
+test('#3224: --in-reply-to= (empty value) is REFUSED, not silently dropped (no unbound post)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--in-reply-to=', 'beta', 'answer'], env);
   assert.equal(out.code, 2, 'an empty --in-reply-to= must error, not silently post an unbound reply');
@@ -110,7 +111,7 @@ test('#3224: --in-reply-to= (empty value) is REFUSED, not silently dropped (no u
   assert.match(out.stdout + out.stderr, /in-reply-to needs a message id/, 'the error must say what is missing');
 }));
 
-test('#3224: --in-reply-to "" (empty SPACE value) is REFUSED too -- the space form must not silently post unbound (parity with the = form and the Windows CLI)', () => withStubBoard(async (port, seen) => {
+test('#3224: --in-reply-to "" (empty SPACE value) is REFUSED too -- the space form must not silently post unbound (parity with the = form and the Windows CLI)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--in-reply-to', '', 'beta', 'answer'], env);
   assert.equal(out.code, 2, 'an empty --in-reply-to "" must error, not silently post an unbound reply with the misroute guard disabled');
@@ -118,7 +119,7 @@ test('#3224: --in-reply-to "" (empty SPACE value) is REFUSED too -- the space fo
   assert.match(out.stdout + out.stderr, /in-reply-to needs a message id/, 'the error must say what is missing');
 }));
 
-test('#3224: --in-reply-to followed by another FLAG (id missing) is REFUSED, not swallowed -- `--in-reply-to --no-reply` must not eat --no-reply as the citation', () => withStubBoard(async (port, seen) => {
+test('#3224: --in-reply-to followed by another FLAG (id missing) is REFUSED, not swallowed -- `--in-reply-to --no-reply` must not eat --no-reply as the citation', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--in-reply-to', '--no-reply', 'beta', 'answer'], env);
   assert.equal(out.code, 2, 'a flag-shaped citation means the id was omitted: error, do NOT swallow --no-reply as the id (which would drop --no-reply and post a bogus binding)');
@@ -126,7 +127,7 @@ test('#3224: --in-reply-to followed by another FLAG (id missing) is REFUSED, not
   assert.match(out.stdout + out.stderr, /in-reply-to needs a message id/, 'the error must say what is missing');
 }));
 
-test('#3224: --in-reply-to is LEADING-only; mid-args it is message text (documented tradeoff)', () => withStubBoard(async (port, seen) => {
+test('#3224: --in-reply-to is LEADING-only; mid-args it is message text (documented tradeoff)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'beta', 'please --in-reply-to that thread'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -135,7 +136,7 @@ test('#3224: --in-reply-to is LEADING-only; mid-args it is message text (documen
   assert.match(seen[0].text, /--in-reply-to/, 'the token stays in the message text when not leading');
 }));
 
-test('#3224 ENVELOPE ROUND-TRIP: the emitted answer-command order (flag BEFORE project) binds; the trailing order does NOT -- the seam that a flag-after-project envelope would silently post unbound', () => withStubBoard(async (port, seen) => {
+test('#3224 ENVELOPE ROUND-TRIP: the emitted answer-command order (flag BEFORE project) binds; the trailing order does NOT -- the seam that a flag-after-project envelope would silently post unbound', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   // The order the room-arrival / nudge envelope emits: `kosmos post --in-reply-to <id> <project> <text>`.
   const bound = await runCli(['post', '--in-reply-to', 'm5', 'beta', 'the answer'], env);
@@ -150,7 +151,7 @@ test('#3224 ENVELOPE ROUND-TRIP: the emitted answer-command order (flag BEFORE p
   assert.equal(seen.length, 1, 'a flag AFTER the project must NOT bind (leading-only) and, since #4889, must not post at all');
 }));
 
-test('#4889: past a bare --, the text is sent as written and the -- itself is dropped (the bash half sees the words)', () => withStubBoard(async (port, seen) => {
+test('#4889: past a bare --, the text is sent as written and the -- itself is dropped (the bash half sees the words)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'beta', '--', '--in-reply-to', 'is', 'just', 'words'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);

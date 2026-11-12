@@ -55,6 +55,7 @@ function withStubBoard(fn, reply = { status: 200, text: TEXT }) {
 }
 const win = require('./tools/windows/kosmos-cli');
 const realHook = require('./engine/kosmos-report-hook');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const hookStub = { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () => 'BOARD7155', agentToken: realHook.agentToken };
 async function runWin(argv) {
   const calls = []; const err = [];
@@ -78,34 +79,45 @@ test('#7155: inbox --unanswered and --since ride to the board, the same on the M
     seen.length = 0;
     const limit = args.includes('--limit') ? '3' : '';
     const want = '/api/inbox?as=text&limit=' + limit + '&from_pane=%257' + extra;
-    const out = await runCli(['inbox', ...args], envFor(port));
-    assert.equal(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
-    assert.equal(seen.length, 1);
-    assert.equal(seen[0].url, want, 'Mac: ' + args.join(' '));
+    // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+    if (!SKIP_POSIX_SHELL) {
+      const out = await runCli(['inbox', ...args], envFor(port));
+      assert.equal(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].url, want, 'Mac: ' + args.join(' '));
+    }
     const w = await runWin(['inbox', ...args]);
     assert.equal(w.code, 0, w.err);
     assert.equal(w.calls[0], want.replace('%257', ''), 'Windows: ' + args.join(' '));
   }
   // Control: no flag, no addition, so the old query is unchanged.
-  seen.length = 0;
-  await runCli(['inbox'], envFor(port));
-  assert.equal(seen[0].url, '/api/inbox?as=text&limit=&from_pane=%257');
+  if (!SKIP_POSIX_SHELL) {
+    seen.length = 0;
+    await runCli(['inbox'], envFor(port));
+    assert.equal(seen[0].url, '/api/inbox?as=text&limit=&from_pane=%257');
+  }
 }));
 
 test('#7155: a --since with no value or with characters no time holds is refused before any request', () => withStubBoard(async (port, seen) => {
   for (const args of [['--since'], ['--since='], ['--since', '$(id)'], ['--since', '05:22&x=1'], ['--since', '--unanswered']]) {
-    const out = await runCli(['inbox', ...args], envFor(port));
-    assert.equal(out.code, 2, 'Mac ' + args.join(' ') + ': ' + out.stdout + out.stderr);
+    // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+    if (!SKIP_POSIX_SHELL) {
+      const out = await runCli(['inbox', ...args], envFor(port));
+      assert.equal(out.code, 2, 'Mac ' + args.join(' ') + ': ' + out.stdout + out.stderr);
+    }
     const w = await runWin(['inbox', ...args]);
     assert.equal(w.code, 2, 'Windows ' + args.join(' '));
     assert.equal(w.calls.length, 0, 'Windows sent ' + args.join(' '));
   }
-  assert.equal(seen.length, 0, 'the Mac CLI sent a bad --since');
+  if (!SKIP_POSIX_SHELL) assert.equal(seen.length, 0, 'the Mac CLI sent a bad --since');   // kosmos#8378: only the Mac CLI fills `seen`
 }));
 
 test('#7155: --help names the new flags on both CLIs', async () => {
-  const out = await runCli(['inbox', '--help'], envFor(1));
-  assert.match(out.stdout, /\[--unanswered\] \[--since <time>\]/);
+  // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+  if (!SKIP_POSIX_SHELL) {
+    const out = await runCli(['inbox', '--help'], envFor(1));
+    assert.match(out.stdout, /\[--unanswered\] \[--since <time>\]/);
+  }
   const err = [];
   await win.main(['inbox', '--help'], { env: {}, hook: hookStub, out: (s) => err.push(s), err: (s) => err.push(s), fetch: async () => { throw new Error('no request'); } });
   assert.match(err.join('\n'), /\[--unanswered\] \[--since <time>\]/);

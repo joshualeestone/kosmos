@@ -38,6 +38,7 @@ const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const tasklist = require('./engine/tasklist');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let A;
 let B;
@@ -154,7 +155,7 @@ function mac(args, port = server.address().port, home = MAC_HOME) {
     });
   });
 }
-test('Mac: the same forms print the same lines as Windows, from the real board', async () => {
+test('Mac: the same forms print the same lines as Windows, from the real board', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const [args, want] of [[['--all'], WANT.open], [['--all', '--blocked'], WANT.blocked], [['--all', '--built'], WANT.built]]) {
     const r = await mac(['task', 'list', ...args]);
     assert.equal(r.code, 0, r.out);
@@ -186,12 +187,15 @@ test('both: the same malformed forms are refused with the same words, before the
   ];
   for (const [args, re] of cases) {
     const w = await win(['task', 'list', ...args], 'http://127.0.0.1:9');   // nothing listens: a refusal must come first
-    const m = await mac(['task', 'list', ...args], 9);
     assert.equal(w.code, 2, args.join(' ') + ': ' + w.err);
-    assert.equal(m.code, 2, args.join(' ') + ': ' + m.out);
     assert.match(w.err, re, args.join(' '));
-    assert.match(m.out, re, args.join(' '));
-    assert.equal(w.err.trim(), m.out.trim(), 'the two CLIs said different things for ' + args.join(' '));
+    // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+    if (!SKIP_POSIX_SHELL) {
+      const m = await mac(['task', 'list', ...args], 9);
+      assert.equal(m.code, 2, args.join(' ') + ': ' + m.out);
+      assert.match(m.out, re, args.join(' '));
+      assert.equal(w.err.trim(), m.out.trim(), 'the two CLIs said different things for ' + args.join(' '));
+    }
   }
 });
 
@@ -213,13 +217,16 @@ test('both: an older board that ignored all=1 or quietDays is refused, and nothi
     const port = old.address().port;
     for (const [args, re] of [[['--all'], /older than --all/], [['p1', '--stale'], /older than --stale/]]) {
       const w = await win(['task', 'list', ...args], `http://127.0.0.1:${port}`);
-      const m = await mac(['task', 'list', ...args], port);
       assert.equal(w.code, 1, w.err);
-      assert.equal(m.code, 1, m.out);
       assert.match(w.err, re);
-      assert.match(m.out, re);
       assert.deepEqual(w.out, [], 'Windows printed an older board\'s list');
-      assert.doesNotMatch(m.out, /Task from one project/);
+      // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+      if (!SKIP_POSIX_SHELL) {
+        const m = await mac(['task', 'list', ...args], port);
+        assert.equal(m.code, 1, m.out);
+        assert.match(m.out, re);
+        assert.doesNotMatch(m.out, /Task from one project/);
+      }
     }
   } finally { old.close(); }
 });
@@ -229,19 +236,22 @@ test('review 1 (warning 4): an older board\'s "say which project" to an agent\'s
   try {
     const port = old.address().port;
     const w = await win(['task', 'list', '--all'], `http://127.0.0.1:${port}`);
-    const m = await mac(['task', 'list', '--all'], port);
     const said = 'This board is older than --all, so it did not list what was asked. Update Kosmos.';
     assert.equal(w.code, 1, w.err);
-    assert.equal(m.code, 1, m.out);
     assert.equal(w.err, said);
-    assert.equal(m.out.trim(), said);
+    // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+    if (!SKIP_POSIX_SHELL) {
+      const m = await mac(['task', 'list', '--all'], port);
+      assert.equal(m.code, 1, m.out);
+      assert.equal(m.out.trim(), said);
+    }
     /* CONTROL: any other refusal is still said as the board said it. */
     const w2 = await win(['task', 'list', 'p1', '--stale'], `http://127.0.0.1:${port}`);
     assert.match(w2.err, /^Kosmos refused that: say which project/, 'a one-project refusal was rewritten as an older board');
   } finally { old.close(); }
 });
 
-test('review 1 (nit 1): a Mac install whose engine predates --all says to update, not to drop a flag', async () => {
+test('review 1 (nit 1): a Mac install whose engine predates --all says to update, not to drop a flag', { skip: SKIP_POSIX_SHELL }, async () => {
   const oldHome = path.join(SANDBOX, 'kosmos-home-oldmodule');
   fs.mkdirSync(path.join(oldHome, 'runtime', 'bin'), { recursive: true });
   fs.symlinkSync(process.execPath, path.join(oldHome, 'runtime', 'bin', 'node'));

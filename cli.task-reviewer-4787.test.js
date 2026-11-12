@@ -52,6 +52,7 @@ async function withBoard(answer, fn) {
 
 const win = require('./tools/windows/kosmos-cli');
 const realHook = require('./engine/kosmos-report-hook');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 async function runWin(argv, answer) {
   const calls = []; const out = []; const err = [];
   const code = await win.main(argv, {
@@ -64,7 +65,7 @@ async function runWin(argv, answer) {
 }
 const OK = { task: { number: 3, repeat: { every: 'day', at: '09:00' } }, words: 'every day at 9am' };
 
-test('#4787 slice 3 Mac CLI: --reviewer alone sends only the reviewer, never an empty frequency, and says who is told', () =>
+test('#4787 slice 3 Mac CLI: --reviewer alone sends only the reviewer, never an empty frequency, and says who is told', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => [200, OK], async (env, hits) => {
     let r = await runCli(['task', 'repeat', 'p1', '3', '--reviewer', 'ada'], env);
     assert.equal(r.code, 0, r.stdout + r.stderr);
@@ -83,7 +84,7 @@ test('#4787 slice 3 Mac CLI: --reviewer alone sends only the reviewer, never an 
     assert.match(r.stdout, /now repeats every day at 9am/);
   }));
 
-test('#4787 slice 3 Mac CLI: --reviewer with no value is refused before the board', () =>
+test('#4787 slice 3 Mac CLI: --reviewer with no value is refused before the board', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => [200, OK], async (env, hits) => {
     const r = await runCli(['task', 'repeat', 'p1', '3', '--reviewer'], env);
     assert.equal(r.code, 2, r.stdout + r.stderr);
@@ -109,21 +110,27 @@ test('#4787 slice 3 Windows: the same words, the same request', async () => {
 });
 
 test('#4787 slice 3 review 1: a rule and a reviewer together say both (Mac and Windows)', async () => {
-  await withBoard(() => [200, OK], async (env) => {
-    const r = await runCli(['task', 'repeat', 'p1', '3', 'daily', '--at', '09:00', '--reviewer', 'ada'], env);
-    assert.match(r.stdout, /now repeats every day at 9am\. ada will be told when it misses a run\./);
-  });
+  // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+  if (!SKIP_POSIX_SHELL) {
+    await withBoard(() => [200, OK], async (env) => {
+      const r = await runCli(['task', 'repeat', 'p1', '3', 'daily', '--at', '09:00', '--reviewer', 'ada'], env);
+      assert.match(r.stdout, /now repeats every day at 9am\. ada will be told when it misses a run\./);
+    });
+  }
   const w = await runWin(['task', 'repeat', 'p1', '3', 'daily', '--at', '09:00', '--reviewer', 'ada'], () => ({ body: JSON.stringify(OK) }));
   assert.match(w.out, /now repeats every day at 9am\. ada will be told when it misses a run\./);
 });
 
 test('#4787 slice 3 review 2: --at or --on with no frequency is refused before the board, never dropped (Mac and Windows)', async () => {
-  await withBoard(() => [200, OK], async (env, hits) => {
-    const r = await runCli(['task', 'repeat', 'p1', '3', '--reviewer', 'ada', '--at', '10:00'], env);
-    assert.equal(r.code, 2, r.stdout + r.stderr);
-    assert.match(r.stdout + r.stderr, /--at and --on go with how often/);
-    assert.equal(hits.length, 0);
-  });
+  // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+  if (!SKIP_POSIX_SHELL) {
+    await withBoard(() => [200, OK], async (env, hits) => {
+      const r = await runCli(['task', 'repeat', 'p1', '3', '--reviewer', 'ada', '--at', '10:00'], env);
+      assert.equal(r.code, 2, r.stdout + r.stderr);
+      assert.match(r.stdout + r.stderr, /--at and --on go with how often/);
+      assert.equal(hits.length, 0);
+    });
+  }
   const w = await runWin(['task', 'repeat', 'p1', '3', '--reviewer', 'ada', '--on', 'mon'], () => ({ body: '{}' }));
   assert.equal(w.code, 2);
   assert.match(w.err, /--at and --on go with how often/);

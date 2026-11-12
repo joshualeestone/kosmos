@@ -29,6 +29,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 // A fake tmux: a tiny shell script that, for `list-sessions`, prints `msg` (to the
 // stream the real tmux uses -- errors go to stderr, which the CLI folds in via 2>&1)
@@ -52,7 +53,7 @@ function runAgents(tmuxBin) {
   });
 }
 
-test('#2321: no tmux server -> "None", not a silent abort (set -e guard)', async () => {
+test('#2321: no tmux server -> "None", not a silent abort (set -e guard)', { skip: SKIP_POSIX_SHELL }, async () => {
   const { dir, bin } = fakeTmux('no server running on /private/tmp/tmux-501/default', 1, 'err');
   try {
     const out = await runAgents(bin);
@@ -65,7 +66,7 @@ test('#2321: no tmux server -> "None", not a silent abort (set -e guard)', async
   }
 });
 
-test('#2321: a tmux that cannot READ the server -> "Could not see", not None and not silent', async () => {
+test('#2321: a tmux that cannot READ the server -> "Could not see", not None and not silent', { skip: SKIP_POSIX_SHELL }, async () => {
   const { dir, bin } = fakeTmux('server exited unexpectedly', 1, 'err');
   try {
     const out = await runAgents(bin);
@@ -77,7 +78,7 @@ test('#2321: a tmux that cannot READ the server -> "Could not see", not None and
   }
 });
 
-test('#2321 CONTROL: a server that lists sessions is printed and exits 0 (the fix does not break success)', async () => {
+test('#2321 CONTROL: a server that lists sessions is printed and exits 0 (the fix does not break success)', { skip: SKIP_POSIX_SHELL }, async () => {
   const { dir, bin } = fakeTmux('worker-1: 1 windows (created ...)', 0, 'out');
   try {
     const out = await runAgents(bin);

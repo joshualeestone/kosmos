@@ -19,6 +19,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-inbox-4784-'));
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'ab'.repeat(16);
 const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%7', KOSMOS_AGENT_TOKEN: TOKEN });
 const TEXT = '2026-09-30 21:00:20Z the person: Please check the invoice\n2026-09-30 21:00:30Z you: On it.\n';
@@ -54,7 +55,7 @@ function withStubBoard(fn, reply = { status: 200, text: TEXT }) {
   });
 }
 
-test('#4784: inbox asks with the agent token and the pane, and prints the board\'s text as sent', () => withStubBoard(async (port, seen) => {
+test('#4784: inbox asks with the agent token and the pane, and prints the board\'s text as sent', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['inbox', '--limit', '5'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -63,19 +64,19 @@ test('#4784: inbox asks with the agent token and the pane, and prints the board\
   assert.equal(out.stdout, TEXT);
 }));
 
-test('#4784: a limit that is not a whole number is refused before any request', () => withStubBoard(async (port, seen) => {
+test('#4784: a limit that is not a whole number is refused before any request', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['inbox', '--limit', 'ten'], envFor(port));
   assert.equal(out.code, 2, out.stdout + out.stderr);
   assert.equal(seen.length, 0, 'a request was sent with a bad limit');
 }));
 
-test('#4784: a refusal from the board exits non-zero with the board\'s words', () => withStubBoard(async (port) => {
+test('#4784: a refusal from the board exits non-zero with the board\'s words', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['inbox'], envFor(port));
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.match(out.stdout, /own agent token/);
 }, { status: 403, text: 'this board only shows an agent its messages with its own agent token; run `kosmos inbox` as that agent\n' }));
 
-test('#4784 review 1: --help prints the usage and reads nothing', () => withStubBoard(async (port, seen) => {
+test('#4784 review 1: --help prints the usage and reads nothing', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const flag of ['--help', '-h']) {
     const out = await runCli(['inbox', flag], envFor(port));
     assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -84,13 +85,13 @@ test('#4784 review 1: --help prints the usage and reads nothing', () => withStub
   assert.equal(seen.length, 0, '--help read the person\'s messages');
 }));
 
-test('#4784 review 1: --limit 0 is refused before any request', () => withStubBoard(async (port, seen) => {
+test('#4784 review 1: --limit 0 is refused before any request', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['inbox', '--limit=0'], envFor(port));
   assert.equal(out.code, 2, out.stdout + out.stderr);
   assert.equal(seen.length, 0);
 }));
 
-test('#4784 review 2: --limit 51 and a --limit with no value are refused before any request', () => withStubBoard(async (port, seen) => {
+test('#4784 review 2: --limit 51 and a --limit with no value are refused before any request', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const args of [['inbox', '--limit', '51'], ['inbox', '--limit']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);

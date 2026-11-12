@@ -38,6 +38,7 @@ const { start, server } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -154,7 +155,7 @@ function mac(args) {
   });
 }
 
-test('Mac `task add ... --parent <n>` makes a subtask, a leading-zero number included', async () => {
+test('Mac `task add ... --parent <n>` makes a subtask, a leading-zero number included', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await mac(['task', 'add', projectId, 'Book the room', 'some', '--parent', '00' + top, 'detail']);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, new RegExp('under task ' + top + '\\.'), 'the leading zeros should be gone, as on Windows');
@@ -164,7 +165,7 @@ test('Mac `task add ... --parent <n>` makes a subtask, a leading-zero number inc
   assert.equal(made.detail, 'some detail');
 });
 
-test('Mac `task add` refuses a bad --parent before the board, and a refused parent exits 1', async () => {
+test('Mac `task add` refuses a bad --parent before the board, and a refused parent exits 1', { skip: SKIP_POSIX_SHELL }, async () => {
   assert.equal((await mac(['task', 'add', projectId, 'x', '--parent'])).code, 2);
   assert.equal((await mac(['task', 'add', projectId, 'x', '--parent', 'two'])).code, 2);
   assert.equal((await mac(['task', 'add', projectId, '--parent', '3'])).code, 2);
@@ -175,7 +176,7 @@ test('Mac `task add` refuses a bad --parent before the board, and a refused pare
   assert.match(r.out, /no task 999/);
 });
 
-test('Mac `task add` without --parent still makes a top-level task (control)', async () => {
+test('Mac `task add` without --parent still makes a top-level task (control)', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await mac(['task', 'add', projectId, 'Loose one', 'plain', 'detail']);
   assert.equal(r.code, 0, r.out);
   const made = (await rows()).find((t) => t.sentence === 'Loose one');
@@ -183,7 +184,7 @@ test('Mac `task add` without --parent still makes a top-level task (control)', a
   assert.equal(made.detail, 'plain detail');
 });
 
-test('Mac `task list` shows the parent and the subtask count', async () => {
+test('Mac `task list` shows the parent and the subtask count', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await mac(['task', 'list', projectId]);
   assert.equal(r.code, 0, r.out);
   assert.doesNotMatch(r.out, /^\{"tasks"/, 'the list fell back to raw JSON, so the rendering was never run');
@@ -200,7 +201,8 @@ test('kosmos#8301: Mac and Windows `task list` say built and dropped, and mark t
   tasks.setBuilt(pid, built, { by: 'rex' });
   tasks.close(pid, done);
   tasks.close(pid, never, { notRun: true });
-  for (const [name, run] of [['Mac', mac], ['Windows', win]]) {
+  // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+  for (const [name, run] of [['Mac', mac], ['Windows', win]].filter(([n]) => !(n === 'Mac' && SKIP_POSIX_SHELL))) {
     const r = await run(['task', 'list', pid, '--all']);
     assert.equal(r.code, 0, name + ': ' + r.out);
     assert.match(r.out, /\[1\/4 subtasks done, 1 built, 1 dropped\]/, name + ': ' + r.out);
@@ -213,12 +215,14 @@ test('kosmos#8140: Mac and Windows `task list` say how many subtasks are on hold
   const pid = projects.create({ name: 'Held ' + Math.random().toString(36).slice(2) }).id;
   const parent = tasks.create(pid, { sentence: 'Launch' }).number;
   const kids = ['Copy', 'Art'].map((s) => tasks.create(pid, { sentence: s, parent }).number);
-  for (const [name, run] of [['Mac', mac], ['Windows', win]]) {
+  // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+  const CLIS = [['Mac', mac], ['Windows', win]].filter(([n]) => !(n === 'Mac' && SKIP_POSIX_SHELL));
+  for (const [name, run] of CLIS) {
     const before = await run(['task', 'list', pid]);
     assert.match(before.out, /\[0\/2 subtasks done\]/, name + ' CONTROL: nothing held, nothing said');
   }
   tasks.setOnHold(pid, kids[1], true, { viaScreen: true });
-  for (const [name, run] of [['Mac', mac], ['Windows', win]]) {
+  for (const [name, run] of CLIS) {
     const r = await run(['task', 'list', pid]);
     assert.equal(r.code, 0, name + ': ' + r.out);
     assert.match(r.out, /\[0\/2 subtasks done, 1 on hold\]/, name + ': ' + r.out);

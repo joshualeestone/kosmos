@@ -19,6 +19,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-claim-6946-'));
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'boardtok-6946';
 const THUMB = '\u{1F44D}';
 
@@ -84,7 +85,7 @@ async function claim(port, seen, args, extraEnv) {
 }
 
 
-test('#6946: kosmos claim sends claim, never an emoji, with its own pane and the board token', () =>
+test('#6946: kosmos claim sends claim, never an emoji, with its own pane and the board token', { skip: SKIP_POSIX_SHELL }, () =>
   withStub(() => ({ ok: true, op: 'add', emoji: '\u{1F64B}', of: 'm3' }), async (port, seen) => {
     const { home, root } = makeHome();
     try {
@@ -100,7 +101,7 @@ test('#6946: kosmos claim sends claim, never an emoji, with its own pane and the
     }
   }));
 
-test('#6946: --release sends release, in either position', () =>
+test('#6946: --release sends release, in either position', { skip: SKIP_POSIX_SHELL }, () =>
   withStub(() => ({ ok: true, op: 'remove', emoji: '\u{1F64B}', of: 'm3' }), async (port, seen) => {
     for (const args of [['p', 'm3', '--release'], ['--release', 'p', 'm3']]) {
       const out = await claim(port, seen, args);
@@ -110,14 +111,14 @@ test('#6946: --release sends release, in either position', () =>
     }
   }));
 
-test('#6946: a claim already yours says so and exits 0', () =>
+test('#6946: a claim already yours says so and exits 0', { skip: SKIP_POSIX_SHELL }, () =>
   withStub(() => ({ ok: true, op: 'already', emoji: '\u{1F64B}', of: 'm3' }), async (port, seen) => {
     const out = await claim(port, seen, ['p', 'm3']);
     assert.match(out.stdout, /That post is already yours\./);
     assert.equal(out.code, 0);
   }));
 
-test('#6946: a post somebody else holds is refused with their name and exit 1', async () => {
+test('#6946: a post somebody else holds is refused with their name and exit 1', { skip: SKIP_POSIX_SHELL }, async () => {
   const because = 'ann claimed that post 3 minutes ago, so do not post that you are taking it: read the room, and ask ann if you can help';
   await withStub(() => ({ ok: false, claimedBy: 'ann', claimedAt: '2026-10-22T23:00:00.000Z', because }), async (port, seen) => {
     const out = await claim(port, seen, ['p', 'm3']);
@@ -126,7 +127,7 @@ test('#6946: a post somebody else holds is refused with their name and exit 1', 
   });
 });
 
-test('#6946: no post id prints the usage, exits 2, and sends nothing', () =>
+test('#6946: no post id prints the usage, exits 2, and sends nothing', { skip: SKIP_POSIX_SHELL }, () =>
   withStub(() => ({ ok: true, op: 'add' }), async (port, seen) => {
     const out = await claim(port, seen, ['p']);
     assert.equal(out.code, 2);
@@ -134,7 +135,7 @@ test('#6946: no post id prints the usage, exits 2, and sends nothing', () =>
     assert.equal(seen.length, 0);
   }));
 
-test('#6946: a release with nothing held exits 0, and a refused release says it was not given back', async () => {
+test('#6946: a release with nothing held exits 0, and a refused release says it was not given back', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStub(() => ({ ok: true, op: 'none', emoji: '\u{1F64B}', of: 'm3' }), async (port, seen) => {
     const out = await claim(port, seen, ['p', 'm3', '--release']);
     assert.equal(out.code, 0, 'a retried release that already landed must not read as a failure');
@@ -153,7 +154,7 @@ test('#6946: a release with nothing held exits 0, and a refused release says it 
   });
 });
 
-test('#6952: kosmos react with a raised hand says it made a claim; control: another emoji says reacted', async () => {
+test('#6952: kosmos react with a raised hand says it made a claim; control: another emoji says reacted', { skip: SKIP_POSIX_SHELL }, async () => {
   const env = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
   await withStub(() => ({ ok: true, op: 'add', emoji: '\u{1F64B}', of: 'm530' }), async (port) => {
     const out = await runCli(['react', 'proj-1', '530', '\u{1F64B}'], env(port));

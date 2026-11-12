@@ -33,6 +33,7 @@ process.on('exit', () => {
 });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const HEALTH = '<title>Kosmos</title>Agent Workforce';
 
 function runCli(args, env) {
@@ -88,7 +89,7 @@ function withBoard(fn) {
 const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_HOME: KHOME, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
 const roomReads = (hits) => hits.filter((h) => h.method === 'GET' && /\/room\?/.test(h.url)).map((h) => h.url);
 
-test('#4891 N8: -n, --limit and --limit= reach the board as &n=, either side of the project id', () =>
+test('#4891 N8: -n, --limit and --limit= reach the board as &n=, either side of the project id', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port, hits) => {
     for (const args of [['room', 'proj', '-n', '5'], ['room', '-n', '5', 'proj'], ['room', 'proj', '--limit', '5'], ['room', 'proj', '--limit=5']]) {
       hits.length = 0;
@@ -110,7 +111,7 @@ test('#4891 N8: -n, --limit and --limit= reach the board as &n=, either side of 
     assert.deepEqual(roomReads(hits), ['/api/project/proj/room?as=text']);
   }));
 
-test('#4891 N8: a value that is not a whole number from 1 to 200 is refused before any request', () =>
+test('#4891 N8: a value that is not a whole number from 1 to 200 is refused before any request', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port, hits) => {
     for (const args of [['room', 'proj', '-n', '0'], ['room', 'proj', '-n', '201'], ['room', 'proj', '-n', 'abc'], ['room', 'proj', '-n', '05'],
       ['room', 'proj', '-n', '99999999999999999999999'], ['room', 'proj', '-n'], ['room', 'proj', '--limit='], ['room', 'a', 'b']]) {
@@ -128,7 +129,7 @@ test('#4891 N8: a value that is not a whole number from 1 to 200 is refused befo
     }
   }));
 
-test('#4891 N6: the CLI says the board\'s 404 and exits 1 (wiring only: the CLI already did; server.gaps-4891 proves the change)', () =>
+test('#4891 N6: the CLI says the board\'s 404 and exits 1 (wiring only: the CLI already did; server.gaps-4891 proves the change)', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port) => {
     const missing = await runCli(['task', 'list', 'nosuch'], envFor(port));
     assert.equal(missing.code, 1, missing.stdout + missing.stderr);
@@ -140,7 +141,7 @@ test('#4891 N6: the CLI says the board\'s 404 and exits 1 (wiring only: the CLI 
     assert.match(empty.stdout, /No tasks for this project yet/);
   }));
 
-test('#4891 N4: `kosmos report clear` records working, with the note when one is given', () =>
+test('#4891 N4: `kosmos report clear` records working, with the note when one is given', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port, hits) => {
     const out = await runCli(['report', 'clear', 'answered, back to it'], envFor(port));
     assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -158,7 +159,7 @@ test('#4891 N4: `kosmos report clear` records working, with the note when one is
     assert.equal(JSON.parse(idle[0].body).clear, false, '#7756: only a clear says it');
   }));
 
-test('#4891 review 2/3: `report clear --auto` is refused by name before any request; --auto in a note needs a -- (kosmos#4889)', () =>
+test('#4891 review 2/3: `report clear --auto` is refused by name before any request; --auto in a note needs a -- (kosmos#4889)', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port, hits) => {
     for (const args of [['report', 'clear', '--auto'], ['report', 'clear', '--on', 'x', '--auto', 'back']]) {
       hits.length = 0;
@@ -189,7 +190,7 @@ test('#4891 review 2/3: `report clear --auto` is refused by name before any requ
     assert.match(body.text, /dropped --auto/);
   }));
 
-test('#4891 N9: agents --help is its own usage; report --help names show and clear; neither sends anything', () =>
+test('#4891 N9: agents --help is its own usage; report --help names show and clear; neither sends anything', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port, hits) => {
     const agents = await runCli(['agents', '--help'], envFor(port));
     assert.equal(agents.code, 0, agents.stderr);
@@ -205,7 +206,7 @@ test('#4891 N9: agents --help is its own usage; report --help names show and cle
     assert.match(start.stdout, /Kosmos commands:/);
   }));
 
-test('#4926: --unanswered reaches the board as &unanswered=1, either side of the project id and beside -n', () =>
+test('#4926: --unanswered reaches the board as &unanswered=1, either side of the project id and beside -n', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port, hits) => {
     for (const [args, want] of [
       [['room', 'proj', '--unanswered'], '/api/project/proj/room?as=text&unanswered=1'],
@@ -219,7 +220,7 @@ test('#4926: --unanswered reaches the board as &unanswered=1, either side of the
     }
   }));
 
-test('#4926: --unanswered on a board that ignored it says the answer is the whole room; on one that applied it, nothing extra', () =>
+test('#4926: --unanswered on a board that ignored it says the answer is the whole room; on one that applied it, nothing extra', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port) => {
     const WARN = /does not know --unanswered yet/;
     const old = await runCli(['room', 'proj', '--unanswered'], envFor(port));
@@ -234,7 +235,7 @@ test('#4926: --unanswered on a board that ignored it says the answer is the whol
     assert.doesNotMatch(plain.stdout + plain.stderr, WARN);
   }));
 
-test('kosmos#7969: a long filtered answer is not called a board that does not know --unanswered (no SIGPIPE in the check)', () =>
+test('kosmos#7969: a long filtered answer is not called a board that does not know --unanswered (no SIGPIPE in the check)', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port) => {
     const out = await runCli(['room', 'bigboard', '--unanswered'], envFor(port));
     assert.equal(out.code, 0, out.stderr);
@@ -243,7 +244,7 @@ test('kosmos#7969: a long filtered answer is not called a board that does not kn
     assert.doesNotMatch(out.stderr, /does not know --unanswered yet/, 'a long answer from a board that applied the flag was called an older one');
   }));
 
-test('kosmos#7969: --all goes to the board with --unanswered, either side of the project id; alone it is refused', () =>
+test('kosmos#7969: --all goes to the board with --unanswered, either side of the project id; alone it is refused', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port, hits) => {
     for (const [args, want] of [
       [['room', 'proj', '--unanswered', '--all'], '/api/project/proj/room?as=text&unanswered=1&all=1'],

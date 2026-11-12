@@ -29,6 +29,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-post-setE-2321-')
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 function runCli(args, env) {
   return new Promise((resolve, reject) => {
@@ -39,7 +40,7 @@ function runCli(args, env) {
   });
 }
 
-test('#2321: a curl failure on the post is REPORTED, not a silent abort (set -e guard)', () => {
+test('#2321: a curl failure on the post is REPORTED, not a silent abort (set -e guard)', { skip: SKIP_POSIX_SHELL }, () => {
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url.startsWith('/api/post')) { req.socket.destroy(); return; }
     res.writeHead(200, { 'content-type': 'text/html' });

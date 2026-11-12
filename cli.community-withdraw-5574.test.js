@@ -18,6 +18,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'ab'.repeat(16);
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-withdraw-5574-'));
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -63,7 +64,7 @@ function withStubBoard(fn, reply) {
 
 const ID = '11111111-2222-4333-8444-555555555555';
 
-test('#5574: withdraw sends POST /api/community/service-withdraw with {kind, id}, the pane and the agent token', () => withStubBoard(async (port, seen) => {
+test('#5574: withdraw sends POST /api/community/service-withdraw with {kind, id}, the pane and the agent token', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   assert.notEqual(port, 16180, 'the stub sits on the live board\'s default port');
   const out = await runCli(['community', 'withdraw', 'comment', ID], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -76,19 +77,19 @@ test('#5574: withdraw sends POST /api/community/service-withdraw with {kind, id}
   assert.equal(out.stdout, '  Taken back: this comment comes down from the community on Kosmos\'s next send, usually within a few minutes.\n');
 }, { status: 200, body: { ok: true, kind: 'comment', state: 'sent' } }));
 
-test('#5574: one not sent yet says it will not go', () => withStubBoard(async (port) => {
+test('#5574: one not sent yet says it will not go', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'withdraw', 'post', ID], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(out.stdout, '  Taken back before it was sent: this post will not go to the community.\n');
 }, { status: 200, body: { ok: true, kind: 'post', state: 'withheld' } }));
 
-test('#5574: a refusal says nothing was taken back, with the board\'s reason, and exits 1', () => withStubBoard(async (port) => {
+test('#5574: a refusal says nothing was taken back, with the board\'s reason, and exits 1', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'withdraw', 'comment', ID], envFor(port));
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.equal(out.stdout, '  Nothing was taken back: you have no comment with that id.\n');
 }, { status: 404, body: { error: 'you have no comment with that id' } }));
 
-test('#5574: a wrong kind or a missing id is a usage error, and nothing is sent', () => withStubBoard(async (port, seen) => {
+test('#5574: a wrong kind or a missing id is a usage error, and nothing is sent', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const args of [['community', 'withdraw', 'vote', ID], ['community', 'withdraw', 'post'], ['community', 'withdraw']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);
@@ -97,13 +98,13 @@ test('#5574: a wrong kind or a missing id is a usage error, and nothing is sent'
   assert.equal(seen.length, 0, 'a usage error must not reach the board');
 }, { status: 200, body: { ok: true, kind: 'post', state: 'withheld' } }));
 
-test('#5574: the community help lists withdraw', () => withStubBoard(async (port) => {
+test('#5574: the community help lists withdraw', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'nope'], envFor(port));
   assert.equal(out.code, 2);
   assert.match(out.stdout, /kosmos community withdraw <post\|comment> <id>/);
 }, { status: 200, body: {} }));
 
-test('#5574 review 2: one whose send got no answer says what Kosmos will do about it', () => withStubBoard(async (port) => {
+test('#5574 review 2: one whose send got no answer says what Kosmos will do about it', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'withdraw', 'post', ID], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(out.stdout, '  Taken back: Kosmos never heard whether this post arrived, so on its next send it takes it down if it did, or stops it if it did not.\n');
@@ -112,7 +113,7 @@ test('#5574 review 2: one whose send got no answer says what Kosmos will do abou
 /* #5636 follow-up: an unanswered post taken back by an agent with no key now (the board records it, so a new key never
    resends it) says what it cannot reach, and the Windows CLI says the same words. */
 const KEYLESS = 'Taken back: Kosmos never heard whether this post arrived, and it no longer holds the registration that sent it. It will not be sent again, but if it did arrive, that copy cannot be taken down.';
-test('#5636: an unanswered post taken back with no key says it will not go again and what it cannot reach', () => withStubBoard(async (port) => {
+test('#5636: an unanswered post taken back with no key says it will not go again and what it cannot reach', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'withdraw', 'post', ID], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(out.stdout, '  ' + KEYLESS + '\n');

@@ -36,6 +36,7 @@ const taskchat = require('./engine/taskchat');
 const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -79,6 +80,9 @@ function mac(args, agentToken = '', port = server.address().port) {
   });
 }
 const BOTH = [['Windows', win], ['Mac', mac]];
+/* kosmos#8378: on Windows the Mac CLI (install/kosmos) runs by its shebang line, which Windows cannot do, so the
+   tests that loop over both commands drive only the Windows CLI there. Everywhere else CLIS is BOTH. */
+const CLIS = BOTH.filter(([label]) => !(label === 'Mac' && SKIP_POSIX_SHELL));
 
 function openTwo(label) {
   const a = tasks.create(projectId, { sentence: 'First try ' + label, who: 'mara' }).number;
@@ -87,7 +91,7 @@ function openTwo(label) {
 }
 
 test('#6923: either command closes a task as replaced by another, and the history says so', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a, b] = openTwo(label);
     const r = await run(['task', 'close', projectId, String(a), '--replaced-by', String(b)], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -100,7 +104,7 @@ test('#6923: either command closes a task as replaced by another, and the histor
 });
 
 test('#6923: CONTROL, a plain close from either command stores no link and says only closed', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a] = openTwo('plain ' + label);
     const r = await run(['task', 'close', projectId, String(a)], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -110,7 +114,7 @@ test('#6923: CONTROL, a plain close from either command stores no link and says 
 });
 
 test('#6923: both commands refuse a missing or non-number --replaced-by, and extra words, with a usage error', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a] = openTwo('bad ' + label);
     for (const argv of [['--replaced-by'], ['--replaced-by', 'two'], ['--replaced-by', '3', 'extra'], ['--replacedby', '3']]) {
       const r = await run(['task', 'close', projectId, String(a), ...argv], token('mara'));
@@ -121,7 +125,7 @@ test('#6923: both commands refuse a missing or non-number --replaced-by, and ext
 });
 
 test('#6923: a replacing task number with a leading zero is the same task, from either command', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a, b] = openTwo('zero ' + label);
     const r = await run(['task', 'close', projectId, String(a), '--replaced-by', '0' + b], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -130,7 +134,7 @@ test('#6923: a replacing task number with a leading zero is the same task, from 
 });
 
 test('#6923: the board refuses a replacing task that does not exist, or the task itself, and says why', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a] = openTwo('missing ' + label);
     const r = await run(['task', 'close', projectId, String(a), '--replaced-by', '999'], token('mara'));
     assert.equal(r.code, 1, label + ': ' + r.text);
@@ -172,7 +176,7 @@ test('#6923: kosmos task list shows a replaced task as replaced, not done, from 
   tasks.close(projectId, a, { replacedBy: b });
   const [c] = openTwo('list-control');
   tasks.close(projectId, c);
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const r = await run(['task', 'list', projectId, '--state', 'done'], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
     assert.match(r.text, new RegExp('^\\[' + a + '\\] \\[replaced by ' + b + '\\] ', 'm'), label + ': ' + r.text);
@@ -204,7 +208,7 @@ test('#6923: against an older board that ignores replacedBy, the command says th
   }
 });
 
-test('#6923: against an older board that ignores replacedBy, the Mac command says the link was not recorded and how to undo it', async () => {
+test('#6923: against an older board that ignores replacedBy, the Mac command says the link was not recorded and how to undo it', { skip: SKIP_POSIX_SHELL }, async () => {
   const http = require('node:http');
   const [a, b] = openTwo('older-mac');
   // An older board: every request passes through to the real one, except the close, which it answers as a plain close.

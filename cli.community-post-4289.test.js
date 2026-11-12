@@ -19,6 +19,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-post-42
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 function runCli(args, env, input) {
   return new Promise((resolve, reject) => {
@@ -61,7 +62,7 @@ const TOKEN = 'ab'.repeat(16);
 const envFor = (port, extra = {}) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
 const RICH = 'We moved invoicing to Tuesdays. `echo PWNED` $HOME "quotes" \\ backslash\n\n- one\n- two';
 
-test('#4796 sandbox: the CLI posts only to the stub board with no board token from outside this test, and would send one it found', () => withStubBoard(async (port, seen) => {
+test('#4796 sandbox: the CLI posts only to the stub board with no board token from outside this test, and would send one it found', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const ARGS = ['community', 'post', 'hello'];
   const out = await runCli(ARGS, envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -78,7 +79,7 @@ test('#4796 sandbox: the CLI posts only to the stub board with no board token fr
   } finally { fs.rmSync(planted, { recursive: true, force: true }); }
 }));
 
-test('#4289: a post carries the words as written, the topic, the pane and the agent token, and says it is held', () => withStubBoard(async (port, seen) => {
+test('#4289: a post carries the words as written, the topic, the pane and the agent token, and says it is held', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'post', '--topic', 'Weekly ops', RICH], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -94,7 +95,7 @@ test('#4289: a post carries the words as written, the topic, the pane and the ag
   assert.match(out.stdout, /held for your person to look at before it goes public/);
 }));
 
-test('#4289: a piped post and --topic= work, and a published answer says so', () => withStubBoard(async (port, seen) => {
+test('#4289: a piped post and --topic= work, and a published answer says so', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'post', '--topic=Hi'], envFor(port), RICH + '\n');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].body.body, RICH, 'the piped words did not arrive as written (the shell drops only the trailing newline)');
@@ -103,25 +104,25 @@ test('#4289: a piped post and --topic= work, and a published answer says so', ()
 }, { status: 200, body: { ok: true, status: 'published', id: 'p2' } }));
 
 /* #4939 review 1: "sends it shortly" only when it will. The board says sends/later, as for a comment. */
-test('#4939: a published post the board will not send, or sends after today\'s cap, says so', () => withStubBoard(async (port) => {
+test('#4939: a published post the board will not send, or sends after today\'s cap, says so', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const off = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(off.code, 0, off.stdout + off.stderr);
   assert.match(off.stdout, /Posted on this board, but Kosmos is not sending to the community right now\. Do not post it again before you see where it stands with: kosmos community status/);
   assert.doesNotMatch(off.stdout, /sends it shortly/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'p3', sends: false, later: false } }));
 /* #5435: the board says why it is not going, and the CLI prints the board's words rather than "the switch is off". */
-test('#5435: a published post the board will not send prints the board\'s reason, on one line', () => withStubBoard(async (port) => {
+test('#5435: a published post the board will not send prints the board\'s reason, on one line', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /Posted on this board, but Kosmos cannot read its community send records just now, so it is not sending\. Do not post it again$/m, 'not trimmed: ' + JSON.stringify(out.stdout));
   assert.doesNotMatch(out.stdout, /not sending to the community right now/, 'the switch\'s words, for a record');
 }, { status: 200, body: { ok: true, status: 'published', id: 'p5', sends: false, later: false, notSending: 'Posted on this board, but Kosmos cannot read its community send records just now,\nso it is not sending. Do not post it again\n' } }));
-test('#4939: a published post that cannot go yet says it goes when it can', () => withStubBoard(async (port) => {
+test('#4939: a published post that cannot go yet says it goes when it can', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const later = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(later.code, 0, later.stdout + later.stderr);
   assert.match(later.stdout, /It cannot go to the community yet \(this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try\), so Kosmos sends it when it can/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'p4', sends: true, later: true } }));
-test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a post without it sends no such field', () => withStubBoard(async (port, seen) => {
+test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a post without it sends no such field', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const a = await runCli(['community', 'post', '--kosmos-bug', '--topic', 'Board shows idle', 'what I did, what happened'], envFor(port));
   assert.equal(a.code, 0, a.stdout + a.stderr);
   assert.equal(seen[0].body.kosmos_bug, true, 'the flag did not reach the board: ' + JSON.stringify(seen[0].body));
@@ -135,7 +136,7 @@ test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a pos
   assert.ok(!('kosmos_bug' in seen[2].body), 'an ordinary post carried kosmos_bug');
 }, { status: 200, body: { ok: true, status: 'published', id: 'p9' } }));
 
-test('#7541: --public sends public: true, before or after --topic; a post without it sends no such field', () => withStubBoard(async (port, seen) => {
+test('#7541: --public sends public: true, before or after --topic; a post without it sends no such field', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const a = await runCli(['community', 'post', '--public', '--topic', 'Build notes', 'what I built today'], envFor(port));
   assert.equal(a.code, 0, a.stdout + a.stderr);
   assert.equal(seen[0].body.public, true, 'the flag did not reach the board: ' + JSON.stringify(seen[0].body));
@@ -148,20 +149,20 @@ test('#7541: --public sends public: true, before or after --topic; a post withou
   assert.ok(!('public' in seen[2].body), 'an ordinary post carried public');
 }, { status: 200, body: { ok: true, status: 'published', id: 'p9' } }));
 
-test('#7541 review 1: a post the board stored for the company\'s own community is said to go there, not public', () => withStubBoard(async (port) => {
+test('#7541 review 1: a post the board stored for the company\'s own community is said to go there, not public', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const a = await runCli(['community', 'post', 'notes from today'], envFor(port));
   assert.equal(a.code, 0, a.stdout + a.stderr);
   assert.match(a.stdout + a.stderr, /Queued for your company's own community/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'p9', sends: true, later: false, space: 'company' } }));
 
-test('#7541 review 1: a held company post says it goes to the company\'s own community, never public', () => withStubBoard(async (port) => {
+test('#7541 review 1: a held company post says it goes to the company\'s own community, never public', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const a = await runCli(['community', 'post', 'notes from today'], envFor(port));
   assert.equal(a.code, 0, a.stdout + a.stderr);
   assert.match(a.stdout + a.stderr, /before it goes to your company's own community/);
   assert.doesNotMatch(a.stdout + a.stderr, /goes public/);
 }, { status: 200, body: { ok: true, status: 'held', id: 'p9', space: 'company' } }));
 
-test('#5171: --channel <c> and --channel=<c> send that channel, in any order with --topic; no flag sends no channel; a bare --channel sends nothing', () => withStubBoard(async (port, seen) => {
+test('#5171: --channel <c> and --channel=<c> send that channel, in any order with --topic; no flag sends no channel; a bare --channel sends nothing', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const a = await runCli(['community', 'post', '--channel', 'engineering', '--topic', 'Build notes', 'what I built today'], envFor(port));
   assert.equal(a.code, 0, a.stdout + a.stderr);
   assert.equal(seen[0].body.channel, 'engineering', 'the channel did not reach the board: ' + JSON.stringify(seen[0].body));
@@ -181,13 +182,13 @@ test('#5171: --channel <c> and --channel=<c> send that channel, in any order wit
   assert.equal(seen.length, before, 'a refused command reached the board');
 }, { status: 200, body: { ok: true, status: 'published', id: 'p10' } }));
 
-test('#4289: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
+test('#4289: a refusal from the board is said in its words and exits 1', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'post', 'hello'], envFor(port));
   assert.equal(out.code, 1);
   assert.match(out.stdout, /That was not posted: posting to the community feed requires an agent token/);
 }, { status: 403, body: { error: 'posting to the community feed requires an agent token' } }));
 
-test('#4289: usage and empty posts send nothing', () => withStubBoard(async (port, seen) => {
+test('#4289: usage and empty posts send nothing', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const bare = await runCli(['community'], envFor(port));
   assert.equal(bare.code, 2);
   assert.match(bare.stdout, /Usage: kosmos community post/);
@@ -203,7 +204,7 @@ test('#4289: usage and empty posts send nothing', () => withStubBoard(async (por
   assert.equal(seen.length, 0, 'something was posted');
 }));
 
-test('#4289: a topic of only spaces is no topic, and a topic is trimmed', () => withStubBoard(async (port, seen) => {
+test('#4289: a topic of only spaces is no topic, and a topic is trimmed', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const blank = await runCli(['community', 'post', '--topic', '   ', 'hello'], envFor(port));
   assert.equal(blank.code, 0, blank.stdout);
   assert.ok(!('topic' in seen[0].body), 'a blank topic was sent as ' + JSON.stringify(seen[0].body.topic));
@@ -212,7 +213,7 @@ test('#4289: a topic of only spaces is no topic, and a topic is trimmed', () => 
   assert.equal(seen[1].body.topic, 'Weekly ops');
 }));
 
-test('#4289: a malformed agent token is not sent', () => withStubBoard(async (port, seen) => {
+test('#4289: a malformed agent token is not sent', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'post', 'hi'], envFor(port, { KOSMOS_AGENT_TOKEN: 'not-hex; rm -rf' }));
   assert.equal(out.code, 0, out.stdout);
   assert.equal(seen[0].headers['x-kosmos-agent-token'], undefined);

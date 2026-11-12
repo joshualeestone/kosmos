@@ -77,21 +77,22 @@ function withStubBoard(fn, reply) {
 }
 
 const { withoutAgentIdentity } = require('./test-support/agent-env');   // kosmos#6740: never run the CLI as the agent running the test
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const envFor = (port) => ({ ...withoutAgentIdentity(process.env), AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
 
-test('#5187: kosmos msg tells the sender when a message is queued with a busy agent', () => withStubBoard(async (port) => {
+test('#5187: kosmos msg tells the sender when a message is queued with a busy agent', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['msg', 'johnnycage', 'hello there'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /Queued with johnnycage \(they are mid-task, so they will not read this until it finishes\)\./);
 }, '{"delivery":{"state":"placed","queued":true}}'));
 
-test('#5187: kosmos msg reports duplicate queued delivery honestly', () => withStubBoard(async (port) => {
+test('#5187: kosmos msg reports duplicate queued delivery honestly', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['msg', 'johnnycage', 'hello again'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /Queued with johnnycage \(it had arrived the first time; it was not sent twice\)\./);
 }, '{"delivery":{"state":"placed","queued":true,"duplicate":true}}'));
 
-test('#5187: kosmos msg reports standard Placed when not queued', () => withStubBoard(async (port) => {
+test('#5187: kosmos msg reports standard Placed when not queued', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['msg', 'johnnycage', 'hello calm'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /Placed with johnnycage\./);

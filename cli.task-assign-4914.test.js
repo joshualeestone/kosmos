@@ -37,6 +37,7 @@ const tasks = require('./engine/tasks');
 const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -79,10 +80,13 @@ function mac(args, agentToken = '') {
   });
 }
 const BOTH = [['Windows', win], ['Mac', mac]];
+/* kosmos#8378: on Windows the Mac CLI (install/kosmos) runs by its shebang line, which Windows cannot do, so the
+   tests that loop over both commands drive only the Windows CLI there. Everywhere else CLIS is BOTH. */
+const CLIS = BOTH.filter(([label]) => !(label === 'Mac' && SKIP_POSIX_SHELL));
 
 test('both CLIs move a task to another agent, to me, and to nobody, and say who has it now', async () => {
   const mara = sendertoken.mint('mara').token;
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = fresh(label + ': brief', 'mara');
     const to = await run(['task', 'assign', projectId, '00' + n, 'otto'], mara);   // leading zeros are said back without them
     assert.equal(to.code, 0, label + ': ' + to.text);
@@ -101,7 +105,7 @@ test('both CLIs move a task to another agent, to me, and to nobody, and say who 
 
 test('both CLIs: a task with several parts comes back as the board\'s list; --part moves the one named', async () => {
   const mara = sendertoken.mint('mara').token;
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = fresh(label + ': launch', 'mara');
     tasks.addPart(projectId, n, { sentence: 'Write the "post" \\ today', who: 'otto' });
     const r = await run(['task', 'assign', projectId, String(n), 'otto'], mara);
@@ -117,7 +121,7 @@ test('both CLIs: a task with several parts comes back as the board\'s list; --pa
 
 test('both CLIs refuse bad forms before the board (exit 2), and pass the board\'s refusals on (exit 1)', async () => {
   const mara = sendertoken.mint('mara').token;
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = fresh(label + ': stays', 'mara');
     for (const bad of [[], ['x'], [String(n)], ['two', 'otto'], [String(n), '--part'], [String(n), 'otto', '--part', 'b'],
       [String(n), 'otto', '--part=2'], [String(n), '--part', '1'], [String(n), 'otto', 'mara'], [String(n), '   '], [String(n), '\u0001'], [String(n), '-x']]) {
@@ -135,7 +139,7 @@ test('both CLIs refuse bad forms before the board (exit 2), and pass the board\'
 });
 
 test('both CLIs list assign in their help', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const r = await run(['task', 'help']);
     assert.match(r.text, /kosmos task <list\|add\|assign\|close/, label + ': ' + r.text);
     assert.match(r.text, /kosmos task assign <project-id> <task-number> <agent\|me\|nobody>/, label);

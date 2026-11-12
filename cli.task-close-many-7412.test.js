@@ -36,6 +36,7 @@ const taskchat = require('./engine/taskchat');
 const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -79,12 +80,15 @@ function mac(args, agentToken = '', port = server.address().port) {
   });
 }
 const BOTH = [['Windows', win], ['Mac', mac]];
+/* kosmos#8378: on Windows the Mac CLI (install/kosmos) runs by its shebang line, which Windows cannot do, so the
+   tests that loop over both commands drive only the Windows CLI there. Everywhere else CLIS is BOTH. */
+const CLIS = BOTH.filter(([label]) => !(label === 'Mac' && SKIP_POSIX_SHELL));
 
 const open = (label, k = 3) => Array.from({ length: k }, (_, i) => tasks.create(projectId, { sentence: 'Close many ' + label + ' ' + i, who: 'mara' }).number);
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 test('#7412: either command closes several tasks at once and names them in one line', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const ns = open(label);
     const r = await run(['task', 'close', projectId, ...ns.map(String)], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -96,7 +100,7 @@ test('#7412: either command closes several tasks at once and names them in one l
 
 /* kosmos#8301: --not-run on several numbers marks each of them. */
 test('kosmos#8301: several numbers with --not-run are each recorded as never run', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const ns = open(label);
     const r = await run(['task', 'close', projectId, ...ns.map(String), '--not-run'], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -106,7 +110,7 @@ test('kosmos#8301: several numbers with --not-run are each recorded as never run
 });
 
 test('#7412: CONTROL, one number still closes one task with the one-task sentence', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a, b] = open('one ' + label, 2);
     const r = await run(['task', 'close', projectId, String(a)], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -117,7 +121,7 @@ test('#7412: CONTROL, one number still closes one task with the one-task sentenc
 });
 
 test('#7412: one the board refuses does not stop the others; the command says which and exits 1', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a, b] = open('refused ' + label, 2);
     const r = await run(['task', 'close', projectId, String(a), '9999', String(b)], token('mara'));
     assert.equal(r.code, 1, label + ': ' + r.text);
@@ -128,7 +132,7 @@ test('#7412: one the board refuses does not stop the others; the command says wh
 });
 
 test('#7412: when the FIRST number is refused, the rest are still closed', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a] = open('first ' + label, 1);
     const r = await run(['task', 'close', projectId, '9998', String(a)], token('mara'));
     assert.equal(r.code, 1, label + ': ' + r.text);
@@ -139,7 +143,7 @@ test('#7412: when the FIRST number is refused, the rest are still closed', async
 });
 
 test('#7412: a number given twice is closed once and named once', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a, b] = open('twice ' + label, 2);
     const r = await run(['task', 'close', projectId, String(a), String(b), String(a)], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -152,7 +156,7 @@ test('#7412: a number given twice is closed once and named once', async () => {
 });
 
 test('#7412: a word that is not a number, an option, or --replaced-by with several numbers is refused before anything closes', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     for (const extra of [['shipped'], ['--note', 'x'], ['--replaced-by', '5'], ['']]) {
       const [a, b] = open('bad ' + label + ' ' + extra.join(' '), 2);
       const argv = [String(a), String(b), ...extra];
@@ -166,7 +170,7 @@ test('#7412: a word that is not a number, an option, or --replaced-by with sever
 });
 
 test('#7412: CONTROL, --replaced-by with one number still closes it as replaced', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a, b] = open('replaced ' + label, 2);
     const r = await run(['task', 'close', projectId, String(a), '--replaced-by', String(b)], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -175,7 +179,7 @@ test('#7412: CONTROL, --replaced-by with one number still closes it as replaced'
 });
 
 test('#7412: both usages say close takes several numbers', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const r = await run(['task', 'close', projectId], token('mara'));
     assert.equal(r.code, 2, label);
     assert.match(r.text, /<task-number> \[<task-number> \.\.\.\]/, label + ': ' + r.text);
@@ -184,7 +188,7 @@ test('#7412: both usages say close takes several numbers', async () => {
 
 test('#7412: both commands refuse an option-shaped word after the numbers with the same words', async () => {
   const texts = {};
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a, b] = open('same ' + label, 2);
     for (const w of ['--foo', '--5', '--']) {
       const r = await run(['task', 'close', projectId, String(a), String(b), w], token('mara'));
@@ -194,13 +198,14 @@ test('#7412: both commands refuse an option-shaped word after the numbers with t
     }
     assert.equal(isDone(a), false, label); assert.equal(isDone(b), false, label);
   }
-  for (const w of Object.keys(texts)) assert.equal(texts[w].Mac, texts[w].Windows, w + ': the two commands disagree');
+  // kosmos#8378: the Mac CLI did not run on Windows, so there is no Mac text to compare there.
+  if (!SKIP_POSIX_SHELL) for (const w of Object.keys(texts)) assert.equal(texts[w].Mac, texts[w].Windows, w + ': the two commands disagree');
 });
 
 test('#7412: a close Kosmos does not answer stops the run: the ones before are said, the rest are not tried', async () => {
   const http = require('node:http');
   const lostTexts = {};
-  for (const [label] of BOTH) for (const firstLost of [false, true]) {
+  for (const [label] of CLIS) for (const firstLost of [false, true]) {
     const [a0, b0, c] = open('lost ' + label + ' ' + firstLost);
     // firstLost: the very first number is the one not answered.
     const [a, b] = firstLost ? [null, a0] : [a0, b0];
@@ -236,7 +241,8 @@ test('#7412: a close Kosmos does not answer stops the run: the ones before are s
     }
   }
   // Review 5: the two commands say an unanswered close in the same words (not "is it running?" on one of them).
-  for (const k of Object.keys(lostTexts)) assert.equal(lostTexts[k].Windows, lostTexts[k].Mac, 'firstLost=' + k + ': the two commands disagree');
+  // kosmos#8378: the Mac CLI did not run on Windows, so there is no Mac text to compare there.
+  if (!SKIP_POSIX_SHELL) for (const k of Object.keys(lostTexts)) assert.equal(lostTexts[k].Windows, lostTexts[k].Mac, 'firstLost=' + k + ': the two commands disagree');
 });
 
 /* Runs either command against a stand-in board at `pbase`. */
@@ -250,7 +256,7 @@ async function runVia(label, port, argv, agentToken, winFetch) {
 
 test('#7412 review 4: a close whose connection is refused sent nothing, so it is named as not tried, never as maybe closed', async () => {
   const http = require('node:http');
-  for (const [label] of BOTH) {
+  for (const [label] of CLIS) {
     const [a, b, c] = open('refusedconn ' + label);
     // A board that answers task a's close, then stops listening: the next connection is refused (curl 7, ECONNREFUSED).
     const proxy = http.createServer((req, res) => {
@@ -278,7 +284,7 @@ test('#7412 review 4: a close whose connection is refused sent nothing, so it is
 });
 
 test('#7412 review 4: an agent not on the project is told once, and the rest are not sent', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a, b, c] = open('notmine ' + label);
     const r = await run(['task', 'close', projectId, String(a), String(b), String(c)], token('kai'));
     assert.equal(r.code, 1, label + ': ' + r.text);
@@ -292,7 +298,7 @@ test('#7412 review 4: an agent not on the project is told once, and the rest are
 test('#7412 review 4: both commands keep to the board limit for closing several at once, refused before anything is sent', async () => {
   const MAX = Number(/const BULK_CLOSE_MAX = (\d+);/.exec(fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8'))[1]);
   assert.ok(MAX > 1, 'read the board limit');
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const [a] = open('cap ' + label, 1);
     const over = await run(['task', 'close', projectId, ...Array(MAX + 1).fill(String(a))], token('mara'));
     assert.equal(over.code, 2, label + ': ' + over.text);
@@ -306,7 +312,7 @@ test('#7412 review 4: both commands keep to the board limit for closing several 
 });
 
 test('#7412 review 5: a project that does not exist is said once, and the rest are not sent', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const r = await run(['task', 'close', 'no-such-project-7412', '1', '2', '3'], token('mara'));
     assert.equal(r.code, 1, label + ': ' + r.text);
     assert.equal((r.text.match(/Could not close task/g) || []).length, 1, label + ': one refusal line: ' + r.text);
@@ -320,7 +326,7 @@ test('#7412 review 6: a redirect and a timeout read the same on both commands, a
   const same = (t) => t.split('\n').map((l) => l.trim()).filter(Boolean).join('\n').replace(/[0-9]+/g, 'N');
   for (const mode of ['redirect', 'timeout']) {
     const texts = {};
-    for (const [label] of BOTH) {
+    for (const [label] of CLIS) {
       const [a, b, c] = open(mode + ' ' + label);
       const held = [];
       const isB = (u) => new RegExp('/task/' + b + '/close$').test(u);
@@ -359,13 +365,14 @@ test('#7412 review 6: a redirect and a timeout read the same on both commands, a
         proxy.close();
       }
     }
-    assert.equal(texts.Windows, texts.Mac, mode + ': the two commands disagree');
+    // kosmos#8378: the Mac CLI did not run on Windows, so there is no Mac text to compare there.
+    if (!SKIP_POSIX_SHELL) assert.equal(texts.Windows, texts.Mac, mode + ': the two commands disagree');
   }
 });
 
 test('#7412 review 8: a board that cannot check (503) is said once and stops the run, on both commands; an unreadable answer is not said as refused', async () => {
   const http = require('node:http');
-  for (const [label] of BOTH) for (const mode of ['503', 'unreadable']) {
+  for (const [label] of CLIS) for (const mode of ['503', 'unreadable']) {
     const [a, b, c] = open(mode + ' ' + label);
     const isB = (u) => new RegExp('/task/' + b + '/close$').test(u);
     const proxy = http.createServer((req, res) => {

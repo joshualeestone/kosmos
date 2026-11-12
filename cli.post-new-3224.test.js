@@ -23,6 +23,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-post-new-3224-'))
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 function runCli(args, env) {
   return new Promise((resolve, reject) => {
@@ -63,7 +64,7 @@ function withStubBoard(answer, fn) {
 const PLACED = { delivery: { state: 'placed' } };
 const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
 
-test('#3224: kosmos post --new puts new_post:true on the body and consumes the flag', () => withStubBoard(PLACED, async (port, seen) => {
+test('#3224: kosmos post --new puts new_post:true on the body and consumes the flag', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(PLACED, async (port, seen) => {
   const out = await runCli(['post', '--new', 'alpha', 'a new post'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].new_post, true);
@@ -71,13 +72,13 @@ test('#3224: kosmos post --new puts new_post:true on the body and consumes the f
   assert.equal(seen[0].text, 'a new post');
 }));
 
-test('#3224 CONTROL: without --new the body omits new_post', () => withStubBoard(PLACED, async (port, seen) => {
+test('#3224 CONTROL: without --new the body omits new_post', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(PLACED, async (port, seen) => {
   const out = await runCli(['post', 'alpha', 'a plain post'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(Object.prototype.hasOwnProperty.call(seen[0], 'new_post'), false);
 }));
 
-test('#3224: --new combines with --no-reply in either order; non-leading --new is message text', () => withStubBoard(PLACED, async (port, seen) => {
+test('#3224: --new combines with --no-reply in either order; non-leading --new is message text', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(PLACED, async (port, seen) => {
   await runCli(['post', '--no-reply', '--new', 'alpha', 'ack'], envFor(port));
   await runCli(['post', '--new', '--no-reply', 'alpha', 'ack2'], envFor(port));
   await runCli(['post', 'alpha', 'try --new stuff'], envFor(port));
@@ -87,7 +88,7 @@ test('#3224: --new combines with --no-reply in either order; non-leading --new i
   assert.match(seen[2].text, /--new/);
 }));
 
-test('#3224: a held post (which_room) prints the whole question with both commands, exits 1, and hands the text back', () => {
+test('#3224: a held post (which_room) prints the whole question with both commands, exits 1, and hands the text back', { skip: SKIP_POSIX_SHELL }, () => {
   const because = 'you have an unanswered question from the person in Beta (m45), and this post is for Alpha. '
     + 'If it answers that question, post it there: kosmos post --in-reply-to m45 beta <your text>. '
     + 'If it is a new post for Alpha, send it again with --new: kosmos post --new alpha <your text>';
@@ -101,7 +102,7 @@ test('#3224: a held post (which_room) prints the whole question with both comman
   });
 });
 
-test('#3224: --new with --in-reply-to is refused before anything is sent, in either order', () => withStubBoard(PLACED, async (port, seen) => {
+test('#3224: --new with --in-reply-to is refused before anything is sent, in either order', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(PLACED, async (port, seen) => {
   for (const args of [['post', '--new', '--in-reply-to', 'm5', 'alpha', 'x'], ['post', '--in-reply-to', 'm5', '--new', 'alpha', 'x']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, out.stdout + out.stderr);
