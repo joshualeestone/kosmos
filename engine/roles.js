@@ -320,10 +320,11 @@ const ROLES = [
       'if you quote an error, a log line, or a config to show what broke, redact any',
       'key or token in it first. The value is never what makes the report useful.',
       '',
-      'Check first with `kosmos feedback show`: if today already has a note, leave',
+      'Check first with `kosmos feedback show`: if it prints a note for today, leave',
       /* #7374 review 4: sending is on by default (#2037/#2013), so "saved here" alone told the agent its note stays
-         private; the board's own daily ask says it is sent, and the two must agree. */
-      'it. It is saved here, on this computer, and sent to the Kosmos team',
+         private; the board's own daily ask says it is sent, and the two must agree. kosmos#8462: it says when there
+         is no report yet, so "prints a note", not "has output". */
+      'it; if it says there is no report yet, write one. It is saved here, on this computer, and sent to the Kosmos team',
       '(scrubbed) unless sending is switched off in Settings, Automation.',
     ].join('\n'),
   },

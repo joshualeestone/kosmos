@@ -25,3 +25,4 @@ Every stderr write in both CLIs (`>&2`, `console.error`, `process.stderr.write`,
 
 ## Review ledger
 - R1 opus: 0 B, 1 W (feedback list's note: the same PowerShell red, and agents read it), 1 C (two comments said stderr), NITs (the sweep description; an empty list printed nothing). Fixed.
+- R2 sonnet: 0 B, 3 W (the Windows empty-list and note paths untested; the agent instructions read 'has a note', which a sentence on stdout could blur), 1 C (feedback.js comment said stderr), NITs. Fixed: Windows tests for both, feedbacknudge.js and roles.js now say 'if it prints a note for today, leave it; if it says there is no report yet, write one'.

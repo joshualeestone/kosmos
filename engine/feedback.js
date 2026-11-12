@@ -456,8 +456,8 @@ function daysOf(from) {
     return raw != null && sections(stripFrontmatter(raw)).some((x) => x.key.toLowerCase() === key && x.text.trim());
   });
 }
-/** kosmos#8340: what `feedback list` prints after the dates (on stderr, so the dates stay a plain list): whose reports
- *  they are, and which hold the asking agent's own. null when there are none. */
+/** kosmos#8340: what `feedback list` prints after the dates (kosmos#8462: on stdout, after a blank line, so a reader
+ *  taking the dates stops there): whose reports they are, and which hold the asking agent's own. null when there are none. */
 function listNote(from, days = list()) {
   if (!days.length) return null;
   const mine = daysOf(from).filter((d) => days.includes(d));   // only days the printed list has (review 1)
