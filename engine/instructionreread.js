@@ -720,8 +720,10 @@ async function passOnce(o) {
            agent (UNCONFIRMED), or a PLACED one whose text is not known, drops them: what the agent read is unknown, so
            the next notice names them whatever their words. */
         const placed = v && o.DELIVERY && v.state === o.DELIVERY.PLACED;
-        if (placed && toldText !== null && typeof o.markRead === 'function') { try { o.markRead(session, on, toldText); } catch { /* dropped below */ } }
-        else if (typeof o.forgetMarks === 'function') { try { o.forgetMarks(session, on); } catch { /* the next notice names them again */ } }
+        let marked = false;
+        if (placed && toldText !== null && typeof o.markRead === 'function') { try { marked = o.markRead(session, on, toldText) === true; } catch { marked = false; } }
+        // A mark that could not be saved is dropped too, never left old.
+        if (!marked && typeof o.forgetMarks === 'function') { try { o.forgetMarks(session, on); } catch { /* the next notice names them again */ } }
         /* kosmos#7149: the agent reads the file now, so this is what it last read (the next diff starts here). kosmos#8416:
            not when a section was owed again while this pass ran (its n moved): the text read above may already
            hold that change, which the line did not name, and trueSections would then call it unchanged next time. The

@@ -414,6 +414,11 @@ test('kosmos#8416: a block rewritten after a line landed, and owed later, is sti
   await ir.passOnce(q.o);
   assert.equal(moved.length, 1, 'an unconfirmed line moved marks');
   assert.deepEqual(dropped, [['ida', ['reports']]], 'an unconfirmed line kept the old marks');
+  // A PLACED line whose marks could not be saved drops them, never leaving the old ones.
+  const failed = [];
+  const f = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => v1, markRead: () => false, forgetMarks: (s2, secs) => { failed.push([s2, secs]); } } });
+  await ir.passOnce(f.o);
+  assert.deepEqual(failed, [['ida', ['reports']]], 'a mark that failed to save was left old');
   // CONTROL: a line that did not land moves and drops nothing (the debt stays owed).
   const r = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => v1, markRead: () => { moved.push('y'); return true; },
     forgetMarks: () => { dropped.push('z'); }, deliver: async () => ({ state: D.COULD_NOT }) } });
