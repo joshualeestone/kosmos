@@ -28,6 +28,7 @@ extension Board {
         // kosmos#7788: an agent held it for the person (onHold and onHoldForPerson), with its reason (onHoldBecause).
         var holdForYou = false
         var holdBecause: String? = nil
+        var holdSuggest: String? = nil   // kosmos#8405: onHoldSuggest (#8395), trimmed, nil when empty
         var createdAt: String? = nil
         var whoFinished: [String] = []   // kosmos#8137: tasks.whoIsLeft, on a task with several agents
         var whoLeft: [String] = []
@@ -108,6 +109,7 @@ extension Board {
             t.waitingSince = str(row, "waitingSince")
             t.holdForYou = (row["onHold"] as? Bool) == true && (row["onHoldForPerson"] as? Bool) == true
             t.holdBecause = str(row, "onHoldBecause")
+            t.holdSuggest = (row["onHoldSuggest"] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
             t.createdAt = str(row, "createdAt")
             (t.whoFinished, t.whoLeft) = Tasks.whoIsLeft(row)
             t.builtAt = str(row, "builtAt")
@@ -486,9 +488,16 @@ enum Tasks {
         return xs.filter { seen.insert($0).inserted }
     }
 
-    // kosmos#7788: tskRow's forYouLine, in the board's words.
+    // kosmos#7788: tskRow's forYouLine, in the board's words; kosmos#8405: then the agent's suggested answer, as the
+    // board's tskHoldSuggestWords says it (only on a hold for you, which is the only place this line is shown).
     static func forYouLine(_ t: Board.TaskRow) -> String {
-        (t.holdBecause.map { "On hold until you answer: " + $0 + "." } ?? "On hold until you answer.") + " Open it and take it off hold once you have."
+        (t.holdBecause.map { "On hold until you answer: " + $0 + "." } ?? "On hold until you answer.")
+            + (t.holdForYou ? holdSuggestWords(t.holdSuggest) : "")
+            + " Open it and take it off hold once you have."
+    }
+    static func holdSuggestWords(_ s: String?) -> String {
+        guard let s = s, !s.isEmpty else { return "" }
+        return " Suggested: " + s + (s.hasSuffix(".") || s.hasSuffix("!") || s.hasSuffix("?") ? "" : ".")
     }
 
     // tskRow's waitLine and whoLine: "Cleo: Waiting for your answer for 24 seconds." for a question; "Just started
