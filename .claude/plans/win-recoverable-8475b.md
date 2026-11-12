@@ -1,4 +1,4 @@
-# win-recoverable-8475: a Windows startup task left with no folder can be seen and removed, recoverably (kosmos#8475)
+# win-recoverable-8475b: a Windows startup task left with no folder can be seen and removed, recoverably (kosmos#8475)
 
 **Posture:** production
 

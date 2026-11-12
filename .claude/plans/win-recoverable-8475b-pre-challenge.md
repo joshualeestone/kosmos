@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: win-recoverable-8475b
-diff_hash: 071b2af2411f1df593ecebbd0ff16c96c8fff8be4cc5150e6af3795e706d8fbc
+diff_hash: 659333c6067e8a44e1be715103470854bec5ea1d7be9951647d990feb7b92411
 validation: local only, substituted (npm is not on this box, so validation_log_run_or_skip fails before running anything): on the Windows box, on 1ece6157a5, engine/delete-leftover.win32-recoverable-task-8475 15/15 (14 of 15 fail with origin's source; test 11 pins main's refusal by design), each test alone and in order, with and without the preload (stdin closed); engine/delete-leftover.win32-leftover-task-8471 7/7 (5 of 7 fail on main); delete-leftover.win32-recyclebin-7820 34/0/1; delete-leftover.test 70/0/10; remove.test 129/0; server.test.js "removed list" 3 pass 2 skipped; windows-tests-1777 24, fixture-discipline 20, no-name-refs-3071 4, engine.reachable 8, win32-separator-guard 4, windows-coupling-audit-1732 8, all 0 failed; both browser-check gates exit 0 (run after each web or browser-check change); reviewers compared every Windows task-with-no-folder case with origin's source in scratch sandboxes (a stand-in Task Scheduler; a refused-schtasks log stayed empty); the full suite and the Windows job on the PR's CI
 subdir_audit: passed (no CLAUDE.md in the diff)
 timestamp: 2026-11-12T22:45:12Z
