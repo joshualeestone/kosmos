@@ -38,7 +38,7 @@
  *
  * 🛑 A SEATBELT, NOT A SANDBOX, as the Mac guard says of itself: it reads literal text. A name computed at run time,
  * a script that builds the command, Start-Process taskkill with -ArgumentList, an encoded command, a command inside
- * a quoted argument of another program (os.system("..."), node -e "..."), an argument-array spawn (subprocess.run(
+ * a quoted argument of another program (os.system("..."), node -e "..."), an assignment whose value is a literal { } block (X={a} cmd: kept narrow so object literals in code are not read), an argument-array spawn (subprocess.run(
  * ["taskkill", ...]), spawn("taskkill", [...])), backtick command substitution, WMI and CIM
  * (Get-WmiObject ... | Remove-WmiObject, Invoke-CimMethod -MethodName Terminate), the blocks of Invoke-Command,
  * Start-Job and . { }, a bash \' outside quotes, a Where-Object whose test is not a name (CPU -gt 0 selects nearly
@@ -377,7 +377,9 @@ function commandReason(cmd, pipe, at, depth) {
         while (i < cmd.length && cmd[i].w !== undefined && /^\/{1,2}[a-z]/i.test(cmd[i].w)) i++;
       }
       if (was === 'xargs') while (i < cmd.length && cmd[i].w !== undefined && /^-/.test(cmd[i].w)) i++;
-      if (was === 'command' && /^-[pP]*[vV]/.test(wd(i) || '')) return '';   // command -v NAME looks a name up, it runs nothing
+      if (was === 'command') {   // command -v / -V NAME (also -p -v) looks a name up, it runs nothing
+        for (let k = i; wd(k) !== undefined && /^-/.test(wd(k)); k++) if (/[vV]/.test(wd(k))) return '';
+      }
       if (/^(time|command|exec|stdbuf|setsid)$/.test(was)) {   // their options come before the command; exec -a takes a NAME
         while (wd(i) !== undefined && /^-/.test(wd(i))) {
           const o = wd(i); i++;
@@ -390,9 +392,12 @@ function commandReason(cmd, pipe, at, depth) {
         while (wd(i) !== undefined && /^-/.test(wd(i))) {
           const o = wd(i);
           if (o === '--') { i++; break; }
-          // -u USER, a cluster ending in a letter that takes a value (-Eu USER), or a long option given as two words
-          const takes = /^-[A-Za-z]*[ugChpDRrtTU]$/.test(o) || /^--(user|group|close-from|host|prompt|chdir|chroot|role|type|command-timeout|other-user)$/.test(o);
-          i += takes ? 2 : 1;
+          if (/^--/.test(o)) { i += /^--(user|group|close-from|host|prompt|chdir|chroot|role|type|command-timeout|other-user)$/.test(o) ? 2 : 1; continue; }
+          // A short cluster, letter by letter: the first letter that takes a value takes the rest of the word (-uroot), or
+          // the next word when it is the last letter (-Eu USER).
+          let next = 1;
+          for (let k = 1; k < o.length; k++) if ('ugChpDRrtTU'.includes(o[k])) { if (k === o.length - 1) next = 2; break; }
+          i += next;
         }
       }
       if (was === 'nice') { if (/^(-n|--adjustment)$/.test(wd(i) || '')) i += 2; else if (/^(-n?\d+|--adjustment=.*|-\d+)$/.test(wd(i) || '')) i += 1; if (wd(i) === '--') i++; }
