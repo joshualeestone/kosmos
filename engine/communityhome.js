@@ -155,7 +155,16 @@ function tallyFollowing(items, done, now, firstPage = communityread.MAX_ITEMS) {
   const list = distinctPosts(all);
   // Replies from the newest page as read, before any post is dropped as a repeat (iteration 3: dropping one first
   // moved the page's edge by one item, so a reply just past it was counted).
-  const head = all.slice(0, firstPage);
+  // A reply repeated on that page is one reply, as the read lists it once (groupByPost; iteration 5).
+  const replyIds = new Set();
+  const head = all.slice(0, firstPage).filter((it) => {
+    if (!it || it.kind !== 'reply' || it.id == null) return true;
+    const k = String(it.id).trim().toLowerCase();
+    if (!k) return true;
+    if (replyIds.has(k)) return false;
+    replyIds.add(k);
+    return true;
+  });
   const day = (it) => Date.parse(it && it.created_at) > now - DAY_MS;
   const isPost = (it) => Boolean(it && it.kind === 'post');
   const recent = list.filter((it) => isPost(it) && day(it));
