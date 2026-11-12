@@ -30,6 +30,7 @@ function board() {
   const said = [];
   const children = [];
   update.resetCache();
+  update.setPlatform('darwin');   // review 2: pinned, as update.test.js does, so a Windows dev box runs the Mac arms
   update.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0' }) }));
   update.setInstalledRoot(() => root);
   update.setAutoPref(() => ({ on: true, ok: true }));
@@ -38,7 +39,7 @@ function board() {
   return { root, said, children, record: path.join(root, 'logs', 'install.auto') };
 }
 function clear() {
-  update.setFetcher(null); update.setInstalledRoot(null); update.setAutoPref(null); update.setInstallRunner(null); update.setAutoLog(null); update.resetCache();
+  update.setFetcher(null); update.setInstalledRoot(null); update.setAutoPref(null); update.setInstallRunner(null); update.setAutoLog(null); update.setPlatform(null); update.resetCache();
 }
 
 test('kosmos#8421: an automatic update says, before it stops the board, what it installs and from which channel', async () => {
@@ -141,10 +142,11 @@ test('kosmos#8421 review 1: a root that is not absolute writes no record anywher
 test('kosmos#8421 review 1: the version is compared as the update check compares it, not as a string', () => {
   const b = board();
   try {
-    const unpadded = RUNNING.split('.').map(Number).join('.');
-    assert.notEqual(unpadded, RUNNING, 'control: this package version has no zero-padded part, so the arm proves nothing');
+    // Review 2: padding ADDED to the running version, so the arm holds whatever the version is (0.8.03 -> 00.8.03).
+    const padded = '0' + RUNNING;
+    assert.notEqual(padded, RUNNING);
     fs.mkdirSync(path.dirname(b.record), { recursive: true });
-    fs.writeFileSync(b.record, JSON.stringify({ from: '0.0.1', to: unpadded, channel: 'prod' }));
+    fs.writeFileSync(b.record, JSON.stringify({ from: '0.0.1', to: padded, channel: 'prod' }));
     assert.match(update.noteAutoUpdateAtBoot(), /^Kosmos started again on /);
   } finally { clear(); }
 });
