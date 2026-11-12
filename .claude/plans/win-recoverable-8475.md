@@ -24,8 +24,8 @@ true on every platform. The dialog it opens then names the exact act.
   folder and out of sight, gone or behind a dead link (where main refused): then the name is typed and the plan first
   says the folder is recorded at that path and cannot be reached, and to connect it if it is a disk or share (or, for a
   file or link at that path, that what is there is not a folder Kosmos can use). Typing is also asked in the
-  "unchecked" case: the profile or the recorded folder could not be read, so Kosmos says it could not check where the
-  folder is. Damaged settings (a profile that does not read as settings) now get the untyped task-only delete with the
+  "unchecked" case, where the profile could not be read and Kosmos says it could not check where the folder is (a
+  recorded folder whose own look fails gets the "cannot reach" words; a link left there, the "not a folder" words). Damaged settings (a profile that does not read as settings) now get the untyped task-only delete with the
   settings kept; main deleted them for good after a typed name. Afterwards a name whose recorded folder is in the workers folder (or
   records none) is a settings-only row whose delete can go to the Recycle Bin; a name recording a folder outside the
   workers folder shows no settings-only row (its folder may only be out of sight), so its settings stay until that
@@ -108,3 +108,8 @@ with review 5's source 94d67af328: 12, 15). 8471 file 7/0, 7820 file 34/0/1, del
 - Round 7 (no blocker; 1 warning, 1 nit), both wording: with no lead sentence the way back no longer mentions a disk
   that cannot be involved there (the disk clause stays only in the outcome after a "cannot reach" plan); "delete what is
   left again" now names the row and button to use.
+- Round 8 (the cap; no blocker, no warning; 3 nits). Every case compared with main: the same, gentler, or (the review-4
+  trade) the task alone after typing where main refused; no listed row refuses. Fixed: this plan's "could not check"
+  sentence. Not changed, so no code moves after the final round: the outcome after a removed agent's typed "cannot
+  reach" delete reads "...connect it, use Restore ..." (true, a little run-on); a comment at ~1414 says the recorded
+  folder is never looked at, while task rows look at it via create.workerDir, as the survey already does.
