@@ -34,9 +34,7 @@
  *     carry from the same XML so one cached read yields both.
  * This is NEVER the uncached `taskEnabled` + raw `taskSpec` (two spawns of identical
  * XML per agent per poll -- the round-1 regression this shape avoids). The enabled
- * gate is win32-correct (an XML setting, not the darwin-only create.disabledJobs,
- * which throws on Windows and read as "nothing disabled") and FRESH (disable/enable
- * bust the cache, so an operator switching a task off is seen next poll).
+ * gate is the task's own XML setting, and disable/enable bust the cache.
  *
  * 🔑 THE NO-SPAWN GUARANTEE IS THE PROCESS-LIFETIME CACHE, not same-row warming.
  * `diagnose` runs BEFORE accountOf/runnerOfCard on the offline row, so on a cold
@@ -111,8 +109,7 @@ function diagnose(name, opts) {
   // Only an ENABLED task is one the operator means to be running; a switched-off one
   // is intentionally off, not stuck. Fail closed if the flag could not be read
   // (undefined) -- never cry "waiting at a trust prompt" about a task we cannot
-  // confirm is even on. (win32-correct: this is the task's own XML setting, not the
-  // darwin-only create.disabledJobs, which is inert on Windows.)
+  // confirm is even on. (This is the task's own XML setting.)
   if (read.enabled !== true) return null;
   const cwd = read.spec.cwd;
   const configDir = read.spec.configDir || null;

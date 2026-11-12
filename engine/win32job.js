@@ -897,7 +897,7 @@ function folderRows() {
  * Returns `{ known: true, names }`, or `{ known: false }` when the folder could not be listed. A task whose switch
  * could not be read is left out of `names`, and is asked again SWITCH_RETRY_MS later or when its Status word changes.
  * At most SWITCH_READS_PER_CALL definitions are read per call, because each is a synchronous schtasks spawn on the
- * board's poll; a task not read yet is left out until a later call reaches it. The clock is `setRunningClock`'s seam.
+ * board's poll; a task not read yet, or not read again since its word moved, is left out until a later call reaches it. The clock is `setRunningClock`'s seam.
  */
 const SWITCH_SEEN = new Map();   // task name -> { status, enabled, retryAt } (enabled undefined: the switch could not be read)
 const SWITCH_READS_PER_CALL = 4;

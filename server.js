@@ -8276,8 +8276,7 @@ const server = http.createServer(async (req, res) => {
               /* #3013: the trust-wait diagnosis for THIS agent, if any. This row is
                  already NOT live (it has no pane); diagnose makes the rest of the
                  per-agent decision itself -- registered, ENABLED (from the task's own
-                 XML, win32-correct and fresh; NOT the darwin-only create.disabledJobs
-                 that is inert on Windows), folder untrusted, a started-but-
+                 XML), folder untrusted, a started-but-
                  unregistered .key. It reads only win32job's process-lifetime #2717
                  cache, so no schtasks spawn is added to the poll. win32-only
                  (trustCard is null elsewhere). */

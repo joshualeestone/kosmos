@@ -110,6 +110,12 @@ test('#8417 a folder that could not be listed is could-not-look, never "none swi
   assert.deepEqual([...create.disabledJobs('win32')], [], 'the board poll fails soft to an empty set');
 });
 
+test('#8417 a Task Scheduler read that throws is could-not-look, not a crash of the board poll', () => {
+  job.setRunner(() => { throw new Error('schtasks exploded'); });
+  assert.deepEqual(create.disabledJobsResult(undefined, 'win32'), { ok: false });
+  assert.deepEqual([...create.disabledJobs('win32')], []);
+});
+
 test('#8417 an empty Kosmos folder is a real "none switched off"', () => {
   scheduler({});
   const r = create.disabledJobsResult(undefined, 'win32');
