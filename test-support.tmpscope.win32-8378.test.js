@@ -4,6 +4,7 @@
  * os.tmpdir(), which reads TEMP and TMP there, not TMPDIR. Before this, the scope did nothing on Windows and test
  * fixtures piled up in the real %TEMP%. Run in child processes so this file's own temp folder is not the one tested.
  */
+require('./test-support/tmpscope');   // this file's own scope, so a child's kts- folder left by a failing run stays inside it
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
@@ -29,14 +30,16 @@ test('on Windows, requiring tmpscope moves os.tmpdir() into its own kts- folder,
 test('on Windows the sweep outlasts a child that holds a fixture as its working folder for a moment after exit', { skip: !WIN && 'about how Windows holds a folder a process is using' }, async () => {
   const fs = require('node:fs');
   // The test process spawns a detached grandchild whose working folder is a fixture in the scope; the grandchild lives
-  // about 400 ms past the test process's exit, so a single rmSync at exit meets the hold (EBUSY/EPERM) and leaves it.
+  // about 150 ms (plus its start) past the test process's exit, so a single rmSync at exit meets the hold (EBUSY/EPERM) and leaves it.
   const code = `require(${JSON.stringify(SCOPE)}); const os = require('os'); const fs = require('fs'); const path = require('path');
 const d = fs.mkdtempSync(path.join(os.tmpdir(), 'held-'));
-const c = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 400)'], { cwd: d, detached: true, stdio: 'ignore' });
+const c = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 150)'], { cwd: d, detached: true, stdio: 'ignore' });
 c.unref(); process.stdout.write(JSON.stringify({ tmp: os.tmpdir() }));`;
   const r = child(code, {});
   assert.match(path.basename(r.tmp), /^kts-/);
-  await new Promise((res) => setTimeout(res, 2500));
+  // The sweep runs inside the child's exit, so its result is fixed before execFileSync returns; this wait only lets the
+  // grandchild end before this test does.
+  await new Promise((res) => setTimeout(res, 1000));
   assert.equal(fs.existsSync(r.tmp), false, 'the scope folder was left behind by a held working folder: ' + r.tmp);
 });
 

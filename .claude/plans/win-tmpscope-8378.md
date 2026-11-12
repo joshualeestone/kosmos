@@ -31,6 +31,13 @@ as PowerShell or schtasks inherit it). The whole Windows suite (node tools/windo
 - Follow-up, not this PR: tools/run-tests.sh sets only TMPDIR for its per-run temp root, so `npm test` on Windows does
   not put the kts- folders under that root and its leak guard cannot see them.
 
+## Review round 2
+- The held-folder test's grandchild lives 150 ms (was 400), so the test still fails against a single rmSync (3 of 3)
+  but cannot outlast the retry budget under load. The test file requires tmpscope itself, so a failing run's kts- folder
+  stays inside its own scope. remove-tree is required at module load, not at exit. Two stale comments fixed: the
+  communitysend-5431 sandbox note, and the HOST_BRANCH_EXCLUDED reason for test-support.tmpscope.test.js (it now names
+  the new Windows test as where the win32 branch is covered).
+
 ## Done when
 - The new test passes on the Windows box and fails against the previous tmpscope.
 - windows-tests.js green on the box; policy tests green; Mac/Linux CI green.

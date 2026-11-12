@@ -47,6 +47,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { removeAtEnd } = require('./remove-at-end');
+const { removeTree } = require('./remove-tree');   // kosmos#8378: the Windows sweep; loaded now, not at exit
 
 let scoped = null;
 
@@ -93,7 +94,7 @@ function activate() {
          sweep retries briefly, as test-support/remove-tree.js does for #5010 and #5074 (4 tries, about 1.5 s at most:
          this runs at every test process's exit). */
       if (process.platform === 'win32') {
-        try { require('./remove-tree').removeTree(dir, { tries: 4, quiet: true }); } catch { /* checked below */ }
+        try { removeTree(dir, { tries: 4, quiet: true }); } catch { /* checked below */ }
       } else {
         try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* checked below */ }
       }
