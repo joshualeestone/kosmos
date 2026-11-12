@@ -26,14 +26,32 @@ delete process.env.AGENT_WORKFORCE_GEMINI_BIN;
 delete process.env.AGENT_WORKFORCE_GROK_BIN;
 delete process.env.AGENT_WORKFORCE_CODEX_BIN;   // #5419: this file installs Codex on Linux too
 const runners = require('./runners');
-test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+const { removeTree } = require('../test-support/remove-tree');   // kosmos#8378: a virus scanner may briefly hold a freshly run exe on Windows
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+test.after(() => { removeTree(SANDBOX); });
+
+/* kosmos#8378: most tests here drive install() with platform 'darwin' or 'linux', the POSIX pipeline: tarBin names
+   /usr/bin/tar (an absolute POSIX path), the stable path is a relative symlink or a #!/bin/sh launcher, and the fixture
+   programs are run by their shebang line. None of that exists on a Windows host, so those tests skip there; the Windows
+   pipeline (tar.exe, grok.exe inside the tree, gemini.cmd, the verified marker) is runners.win32-gemini-grok.test.js.
+   The tests whose claim is not about the POSIX pipeline run on Windows through the Windows one (WIN arms below). */
+const WIN = process.platform === 'win32';
+const POSIX_PIPELINE = 'it drives install() with the macOS or Linux pipeline: the macOS arm unpacks with /usr/bin/tar (runners.tarBin), an absolute POSIX path Windows does not have, and both arms make a symlink or a #!/bin/sh launcher the stable path and prove the installed program by running it by its shebang line, which Windows cannot do; the Windows pipeline (tar.exe, grok.exe in the tree, gemini.cmd, the verified marker) is runners.win32-gemini-grok.test.js';
+const POSIX_CODEX = 'it drives install() with the Linux pipeline, which makes a symlink the stable path and proves the installed codex by running it by its shebang line, which Windows cannot do; the Windows Codex pipeline (tar.exe, codex.exe in the tree, the verified marker) is runners.win32-codex.test.js';
+/* kosmos#8378: on Windows the install runs as win32, for this CPU (the Windows Grok build is per CPU). */
+const asHost = (o) => (WIN ? { ...o, platform: 'win32', arch: process.arch } : o);
 
 const LEGACY_GEMINI = nodePath.join(SANDBOX, 'legacy', 'gemini');
 const LEGACY_GROK = nodePath.join(SANDBOX, 'legacy', 'grok');
-const MANAGED_GEMINI = nodePath.join(SANDBOX, 'runners', 'gemini', 'gemini');
-const MANAGED_GROK = nodePath.join(SANDBOX, 'runners', 'grok', 'grok');
+/* kosmos#8378: on Windows the managed paths are gemini.cmd beside the tree and grok.exe inside it, asked of the
+   module (runners.managedBin) rather than spelled the Mac way. Mac and Linux unchanged. */
+const MANAGED_GEMINI = WIN ? runners.managedBin(runners.manifestFor('gemini', 'win32'), 'win32', 'gemini') : nodePath.join(SANDBOX, 'runners', 'gemini', 'gemini');
+const MANAGED_GROK = WIN ? runners.managedBin(runners.manifestFor('grok', 'win32'), 'win32', 'grok') : nodePath.join(SANDBOX, 'runners', 'grok', 'grok');
+/* kosmos#8378: the archive member Grok's compressed binary is, for the build this host installs (bin/grok.exe.br on Windows). */
+const GROK_BR = 'package/' + runners.manifestFor('grok', WIN ? 'win32' : 'darwin', WIN ? process.arch : 'arm64').brotliFrom;
 
-/* A real .tgz in the npm layout, built with the same /usr/bin/tar install() unpacks with. */
+/* A real .tgz in the npm layout, built with the same tar install() unpacks with (kosmos#8378: on Windows that is
+   System32 tar.exe, runners.tarBin('win32'), not /usr/bin/tar). */
 function tarball(files) {
   const dir = fs.mkdtempSync(nodePath.join(SANDBOX, 'fix-'));
   for (const [rel, bytes, mode] of files) {
@@ -43,7 +61,7 @@ function tarball(files) {
     if (mode) fs.chmodSync(abs, mode);
   }
   const tgz = nodePath.join(dir, 'fixture.tgz');
-  execFileSync('/usr/bin/tar', ['-czf', tgz, '-C', dir, 'package']);
+  execFileSync(WIN ? runners.tarBin('win32') : '/usr/bin/tar', ['-czf', tgz, '-C', dir, 'package']);
   const integrity = 'sha512-' + crypto.createHash('sha512').update(fs.readFileSync(tgz)).digest('base64');
   return { tgz, integrity };
 }
@@ -55,10 +73,12 @@ const downloadFrom = (src) => (url, file, job) => {
   return Promise.resolve();
 };
 const clean = () => {
-  for (const p of ['gemini', 'grok']) fs.rmSync(nodePath.join(SANDBOX, 'runners', p), { recursive: true, force: true });
+  // kosmos#8378: removeTree retries on Windows, where a just-proved exe can be held a moment; the folder holds the verified marker too.
+  for (const p of ['gemini', 'grok']) removeTree(nodePath.join(SANDBOX, 'runners', p));
 };
 
-test('#3713: Grok installs from its compressed binary, expanded after the checksum, and runs from the managed path', async () => {
+// kosmos#8378: the macOS Grok install (grok-native, its exec bit, the symlink); on Windows see 'win32: Grok unpacks with tar.exe' in runners.win32-gemini-grok.test.js.
+test('#3713: Grok installs from its compressed binary, expanded after the checksum, and runs from the managed path', { skip: skipOnWin32(POSIX_PIPELINE) }, async () => {
   clean();
   const program = '#!/bin/sh\necho "grok 1.0.41 $1"\n';
   const { tgz, integrity } = tarball([['package/bin/grok.br', zlib.brotliCompressSync(Buffer.from(program))],
@@ -81,7 +101,7 @@ test('#3713: Grok installs from its compressed binary, expanded after the checks
   clean();
 });
 
-test('#5419: on Linux, Grok installs the same way: expanded after the checksum, made executable, found afterwards', async () => {
+test('#5419: on Linux, Grok installs the same way: expanded after the checksum, made executable, found afterwards', { skip: skipOnWin32(POSIX_PIPELINE) }, async () => {
   // The Linux path through install() is the Mac's POSIX one; this drives it end to end with platform 'linux'.
   clean();
   const program = '#!/bin/sh\necho "grok 1.0.41 $1"\n';
@@ -105,7 +125,7 @@ test('#5419: on Linux, Grok installs the same way: expanded after the checksum, 
 });
 
 for (const [arch, triple] of [['x64', 'x86_64-unknown-linux-musl'], ['arm64', 'aarch64-unknown-linux-musl']]) {
-  test(`#5419: on Linux ${arch}, Codex installs its ${arch} musl build, runs from the managed path, and is found afterwards`, async () => {
+  test(`#5419: on Linux ${arch}, Codex installs its ${arch} musl build, runs from the managed path, and is found afterwards`, { skip: skipOnWin32(POSIX_CODEX) }, async () => {
     fs.rmSync(nodePath.join(SANDBOX, 'runners', 'openai'), { recursive: true, force: true });
     const program = '#!/bin/sh\necho "codex-cli 0.149.1 $1"\n';
     const { tgz, integrity } = tarball([[`package/vendor/${triple}/bin/codex`, program, 0o755],
@@ -128,7 +148,7 @@ for (const [arch, triple] of [['x64', 'x86_64-unknown-linux-musl'], ['arm64', 'a
   });
 }
 
-test('#5419: on Linux, Gemini installs as the POSIX launcher running its bundle with the board\'s node', async () => {
+test('#5419: on Linux, Gemini installs as the POSIX launcher running its bundle with the board\'s node', { skip: skipOnWin32(POSIX_PIPELINE) }, async () => {
   clean();
   const bundle = "console.log('gemini ' + process.argv.slice(2).join(' '));\n";
   const { tgz, integrity } = tarball([['package/bundle/gemini.js', bundle],
@@ -147,11 +167,13 @@ test('#5419: on Linux, Gemini installs as the POSIX launcher running its bundle 
 
 test('#3713: a Grok download whose compressed binary will not expand is refused, and nothing is installed', async () => {
   clean();
-  const { tgz, integrity } = tarball([['package/bin/grok.br', Buffer.from('this is not brotli at all')]]);
-  const job = runners.install('grok', {
+  /* kosmos#8378: the refusal is not about the POSIX pipeline, so on Windows it runs through the Windows one
+     (bin/grok.exe.br, tar.exe); asHost leaves the Mac install exactly as it was. */
+  const { tgz, integrity } = tarball([[GROK_BR, Buffer.from('this is not brotli at all')]]);
+  const job = runners.install('grok', asHost({
     platform: 'darwin', arch: 'arm64', legacyBin: LEGACY_GROK, download: downloadFrom(tgz), integrity,
     prove: () => { throw new Error('prove must never run when the binary did not expand'); },
-  });
+  }));
   await job.settled;
   assert.equal(job.phase, 'failed');
   assert.ok(job.because && !/undefined|\bat \w+ \(/.test(job.because), 'a plain sentence: ' + job.because);
@@ -162,7 +184,8 @@ test('#3713: a Grok download whose compressed binary will not expand is refused,
   clean();
 });
 
-test('#3713: Gemini installs as a launcher that runs its bundle with the board\'s node, and it really runs', async () => {
+// kosmos#8378: on Windows the launcher is gemini.cmd, installed and run through cmd in runners.win32-gemini-grok.test.js.
+test('#3713: Gemini installs as a launcher that runs its bundle with the board\'s node, and it really runs', { skip: skipOnWin32(POSIX_PIPELINE) }, async () => {
   clean();
   const bundle = "console.log('gemini ' + process.argv.slice(2).join(' '));\n";
   const { tgz, integrity } = tarball([['package/bundle/gemini.js', bundle],
@@ -188,7 +211,7 @@ test('#3713: Gemini installs as a launcher that runs its bundle with the board\'
   clean();
 });
 
-test('#3713: the Gemini launcher survives a node path with a space and a quote in it', async () => {
+test('#3713: the Gemini launcher survives a node path with a space and a quote in it', { skip: skipOnWin32('its subject is the #!/bin/sh launcher\'s single-quote escaping (nodeLauncher), run by its shebang line, reached through a symlinked node (a symlink needs Developer Mode or admin on Windows); on Windows Kosmos never runs gemini.cmd, it runs node on the bundle with an argument list and no shell (runners.spawnTarget), so no path is re-parsed') }, async () => {
   clean();
   const odd = nodePath.join(SANDBOX, "node dir's", 'node');
   fs.mkdirSync(nodePath.dirname(odd), { recursive: true });
@@ -203,7 +226,7 @@ test('#3713: the Gemini launcher survives a node path with a space and a quote i
   clean();
 });
 
-test('#3713: a Gemini launcher whose node cannot start is failed at the prove step, never left installed', async () => {
+test('#3713: a Gemini launcher whose node cannot start is failed at the prove step, never left installed', { skip: skipOnWin32('it installs with the macOS pipeline (install() unpacks with /usr/bin/tar) and proves the #!/bin/sh launcher by its shebang line; on Windows the prove runs node on the bundle directly and, by design, falls back to the board\'s own node when the recorded one is gone (runners.spawnTarget), so a missing recorded node does not fail it there; a Windows bundle that does not run is runners.win32-gemini-grok.test.js') }, async () => {
   clean();
   const { tgz, integrity } = tarball([['package/bundle/gemini.js', "console.log('x');\n"]]);
   const job = runners.install('gemini', {
@@ -245,8 +268,34 @@ test('#3713: the pins: one Gemini tarball for every Mac, a Grok build per CPU, a
   assert.equal(st.grok.pinnedVersion, '1.0.41');
 });
 
-test('#3713: a launcher whose recorded node is gone reads missing, and Kosmos\'s own runtime node beside the runners folder revives it', async () => {
+test('#3713: a launcher whose recorded node is gone reads missing, and Connect reinstalls it', async () => {
   clean();
+  if (WIN) {
+    /* kosmos#8378: this holds on Windows too: gemini.cmd names the node it was installed with (launcherHasNode reads
+       it), so a launcher whose node is gone must read missing and Connect must reinstall it. The node is a copy of this
+       node.exe, not a symlink (one needs Developer Mode or admin there). Reviving it through Kosmos's runtime beside the
+       runners folder is the next test, which has no Windows counterpart. */
+    const cellar = nodePath.join(SANDBOX, 'Cellar', 'node', '26.8.1');
+    fs.mkdirSync(cellar, { recursive: true });
+    const moving = nodePath.join(cellar, 'node.exe');
+    fs.copyFileSync(process.execPath, moving);
+    const { tgz, integrity } = tarball([['package/bundle/gemini.js', "console.log('ran ' + process.argv[2]);\n"]]);
+    const job = runners.install('gemini', asHost({ legacyBin: LEGACY_GEMINI, download: downloadFrom(tgz), integrity, nodeBin: moving }));
+    await job.settled;
+    assert.equal(job.phase, 'installed', job.because || '');
+    assert.equal(job.proved, 'ran --version');
+    assert.equal(runners.resolveBin('gemini', { legacyBin: LEGACY_GEMINI }).present, true);
+    removeTree(nodePath.join(SANDBOX, 'Cellar'));
+    assert.equal(runners.resolveBin('gemini', { legacyBin: LEGACY_GEMINI }).present, false, 'a launcher with no node is not present');
+    let fetched = false;
+    const again = runners.install('gemini', asHost({ legacyBin: LEGACY_GEMINI, integrity, nodeBin: process.execPath,
+      download: (u, f, j) => { fetched = true; return downloadFrom(tgz)(u, f, j); } }));
+    await again.settled;
+    assert.ok(fetched && again.phase === 'installed', 'Connect can reinstall it: ' + (again.because || again.phase));
+    assert.equal(runners.resolveBin('gemini', { legacyBin: LEGACY_GEMINI }).present, true, 'and it reads present again');
+    clean();
+    return;
+  }
   // A node that can move, as a Homebrew upgrade moves a versioned Cellar folder (review pass 1).
   const cellar = nodePath.join(SANDBOX, 'Cellar', 'node', '26.8.1', 'bin');
   fs.mkdirSync(cellar, { recursive: true });
@@ -266,6 +315,16 @@ test('#3713: a launcher whose recorded node is gone reads missing, and Kosmos\'s
     download: (u, f, j) => { fetched = true; return downloadFrom(tgz)(u, f, j); } });
   await again.settled;
   assert.ok(fetched && again.phase === 'installed', 'Connect can reinstall it: ' + (again.because || again.phase));
+  clean();
+});
+
+/* kosmos#8378: split from the test above, so a Windows run never reports this claim green without checking it. */
+test('#3713: Kosmos\'s own runtime node beside the runners folder revives a launcher whose recorded node is gone', { skip: skipOnWin32('the Windows runners folder is not under KOSMOS_HOME, so winNodeLauncher has no relative runtime rung for this to find (runners.js); it also links node with a symlink, which an ordinary Windows account may not make') }, async () => {
+  clean();
+  const { tgz, integrity } = tarball([['package/bundle/gemini.js', "console.log('ran ' + process.argv[2]);\n"]]);
+  const job = runners.install('gemini', { platform: 'darwin', legacyBin: LEGACY_GEMINI, download: downloadFrom(tgz), integrity, nodeBin: process.execPath });
+  await job.settled;
+  assert.equal(job.phase, 'installed', job.because || '');
   // Kosmos's own runtime (KOSMOS_HOME/runtime/bin/node, beside runners/) is used first, whatever was recorded.
   const runtime = nodePath.join(SANDBOX, 'runtime', 'bin');
   fs.mkdirSync(runtime, { recursive: true });
@@ -282,19 +341,26 @@ test('#3713: a launcher whose recorded node is gone reads missing, and Kosmos\'s
 
 test('#3713: a tool still proving its own install reads as installing, though its path already exists', async () => {
   clean();
-  const { tgz, integrity } = tarball([['package/bin/grok.br', zlib.brotliCompressSync(Buffer.from('#!/bin/sh\necho grok\n'))]]);
+  /* kosmos#8378: installing() is the same on every platform, so on Windows this runs through the Windows pipeline
+     (bin/grok.exe.br, tar.exe); asHost leaves the Mac install exactly as it was. */
+  const { tgz, integrity } = tarball([[GROK_BR, zlib.brotliCompressSync(Buffer.from('#!/bin/sh\necho grok\n'))]]);
   let release;
   const held = new Promise((r) => { release = r; });
   let seen = null;
-  const job = runners.install('grok', {
+  const job = runners.install('grok', asHost({
     platform: 'darwin', arch: 'arm64', legacyBin: LEGACY_GROK, download: downloadFrom(tgz), integrity,
     prove: (bin, done) => {
       seen = { present: runners.resolveBin('grok', { legacyBin: LEGACY_GROK }).present, installing: runners.installing('grok') };
+      // kosmos#8378: on Windows the path's existence is asked directly, since present also needs the verified marker there.
+      if (WIN) seen.exists = fs.existsSync(MANAGED_GROK);
       held.then(() => done(null, 'grok 1.0.41'));
     },
-  });
+  }));
   while (!seen) await new Promise((r) => setTimeout(r, 10));
-  assert.deepEqual(seen, { present: true, installing: true }, 'the path exists while it is being proved, and it is still installing');
+  /* kosmos#8378: on Windows grok.exe is at the managed path mid-prove but reads absent, because the verified marker
+     is written only after the prove (resolveBin); still installing either way. Mac unchanged. */
+  if (WIN) assert.deepEqual(seen, { present: false, installing: true, exists: true }, 'the path exists while it is being proved, and it is still installing');
+  else assert.deepEqual(seen, { present: true, installing: true }, 'the path exists while it is being proved, and it is still installing');
   release();
   await job.settled;
   assert.equal(runners.installing('grok'), false, 'and is not once installed');

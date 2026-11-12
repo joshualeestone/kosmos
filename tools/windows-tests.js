@@ -116,7 +116,11 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   'connect-keep-8293.test.js', 'create.compat-7206.test.js',
   // kosmos#8378: runner resolution and the codex install through the real Windows pipeline (tar.exe, codex.exe in the
   // tree, the verified marker); its chmod-folder and ~/.local/bin/agy arms skip with their reasons.
-  'runners.test.js'];
+  'runners.test.js',
+  // kosmos#8378: the Grok expand refusal, the installing-while-proving read and the gone-node Gemini launcher, through
+  // the real Windows pipeline (tar.exe, grok.exe.br, gemini.cmd, the verified marker); its macOS and Linux pipeline
+  // arms skip with their reasons.
+  'runners.gemini-grok-3713.test.js'];
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
