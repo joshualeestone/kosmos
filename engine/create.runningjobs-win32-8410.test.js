@@ -35,9 +35,10 @@ function agentProcessFile(name, pid, extra) {
     JSON.stringify({ v: ss.STATE_FILE_VERSION, state: 'idle', sessionId: `s-${name}`, pid, at: new Date().toISOString(), ...extra }));
 }
 function clear() { fs.rmSync(DIR(), { recursive: true, force: true }); }
-/* The board's offline row for an agent it cannot see, as server.js builds it (#668): running false, and
-   jobRunningUnseen when its job holds a live process. */
-const rowFor = (name, running) => ({ sessionName: name, running: false, jobRunningUnseen: running.has(name) });
+/* The two offline-row fields cardlabel.labelOf reads for an agent the board cannot see, as server.js sets them (#668):
+   running false, and jobRunningUnseen when its job holds a live process. Only those fields, not a card: the label is
+   all this asserts, and a whole card comes from test-support/fleet (fixture-discipline). */
+const rowFor = (name, running) => ({ running: false, jobRunningUnseen: running.has(name) });
 
 test('kosmos#8410: a Windows agent whose process is up is running, and its unseen row reads could-not-check, not Not running', () => {
   clear();
