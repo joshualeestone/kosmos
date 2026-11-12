@@ -136,6 +136,31 @@ test('kosmos#8415 review 4: a pipe that fails to open during a restart overlap a
   } finally { h.stop(); }
 });
 
+test('kosmos#8415 review 5: a record write that fails twice during an overlap drops the older record (no stale "dead")', async () => {
+  reset();
+  stateFile('wf', 4242);
+  presenceFile('wf', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('olderwf') });
+  const problems = [];
+  let tries = 0;
+  const h = presence.start('wf', { pipePath: pipePath(), pipeExists: (p) => p === FAKE('olderwf'), isAlive: () => true,
+    save: () => { tries += 1; throw Object.assign(new Error('busy'), { code: 'EPERM' }); }, onProblem: (w) => problems.push(w) });
+  try {
+    assert.ok(await waitFor(() => problems.length > 0), 'a failed write was not said');
+    assert.equal(tries, 2, 'the write was not retried once');
+    assert.equal(presence.readPresence('wf'), null, 'the older record survived a failed write and will read this live agent dead');
+    assert.ok(ss.liveNames({ isAlive: (pid) => pid === 4242, pipeExists: () => false }).has('wf'));
+  } finally { h.stop(); }
+});
+
+test('kosmos#8415 review 5: a successful start replaces an older record that is still up with its own', async () => {
+  reset();
+  presenceFile('rep', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('olderrep') });
+  const h = presence.start('rep', { pipePath: pipePath(), pipeExists: (p) => p === FAKE('olderrep') || fs.existsSync(p), isAlive: () => true });
+  try {
+    assert.ok(await waitFor(() => presence.readPresence('rep') && presence.readPresence('rep').pid === process.pid), 'the new record never replaced the older one');
+  } finally { h.stop(); }
+});
+
 test('kosmos#8415 review 3: on Windows a record that names a pipe that is not ours is ignored', { skip: process.platform !== 'win32' && 'the prefix rule applies only on Windows' }, () => {
   reset();
   stateFile('foreign', 9999);

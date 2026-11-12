@@ -10,7 +10,8 @@ while a Claude supervisor is up between children (restarting after a crash, or w
   name (`\\.\pipe\kosmos-sup-<16 hex>`), drops every connection at once, `unref`s the server, and once it is listening
   writes `<key>.presence` in win32-state: `{v, pid, pipe}`. `handle.stop` removes the file (only if it still names
   this process) and closes the pipe.
-- `liveNames`: a name whose presence record names a pipe that exists is live (a look that misses is retried once). A
+- `liveNames`: a name whose presence record names a pipe that exists is live (a miss is retried once, only when the
+  record's pid is alive). A
   record whose pipe is gone AND whose pid is dead is NOT live, whatever its state file says (the supervisor is dead,
   so a pid in the state file is stale or someone else's). A record whose pipe looks gone while its pid is alive
   decides nothing (a look can miss a busy pipe), and neither does a missing record: then #8410's state-file rule answers.
@@ -18,7 +19,8 @@ while a Claude supervisor is up between children (restarting after a crash, or w
   Not running when the new pipe fails to open (review 1); it keeps one whose pipe is up (a restart overlap, review 3),
   and removes that one too if its own pipe then fails to open (review 4).
 - Proof of life is the pipe, not the pid: Windows removes a pipe when its process dies (crash, killed tree, Fast
-  Startup's logoff), and while it lives nobody else can hold the random name it made. Measured on Windows by Homer (on the
+  Startup's logoff); a random name, kept only in the account's own folder and checked by its whole shape, is what keeps
+  a stranger from answering for it. Measured on Windows by Homer (on the
   card): existsSync reads a live pipe true in about 0.1 ms, false after close, never-created, and after taskkill /F.
 
 ## Rejected
@@ -65,4 +67,10 @@ matches the Mac, whose launchctl pid is the supervisor's, and a supervisor-less 
 - Stated limit of the stand-in: off Windows a unix socket left by a crash still exists on disk, so "the pipe vanishes
   when its holder dies" is not modelled there; the dead-supervisor cases are covered through the pipeExists seam, and
   only the Windows runner checks the real vanishing.
-- Not done (decided): leftover records of removed or renamed agents are not reaped; each costs one look per poll.
+- Not done (decided): leftover records of removed or renamed agents are not reaped. Each costs one look per poll while
+  its pid is dead, and two looks plus a 5 ms pause per poll if that pid is reused by a live process.
+## Review 5 (applied)
+- A record write that fails (after one retry) during an overlap drops the older record; tested with a failing save.
+- start() deletes an older record by its pid (clearPresence), never by name, except an unreadable file; the cleanup
+  is skipped once stopped; a successful start is tested to replace an older record that is still up.
+- On Windows a record's pipe must match the whole shape `\\.\pipe\kosmos-sup-<hex>`, not just the prefix.
