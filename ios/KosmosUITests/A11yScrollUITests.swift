@@ -22,9 +22,8 @@ final class A11yScrollUITests: XCTestCase {
         app.launch()
         UIKitListArm.assertDrawn(app)
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
+        XCTAssertTrue(newest.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
         let marker = app.descendants(matching: .any).matching(identifier: "sample-a11y-scroll").firstMatch
-        // kosmos#8221: the newest row, or the scroll's own report, which says whether it started there (asserted below).
-        XCTAssertTrue(UIKitListArm.openedAtNewest(newest, orReported: marker), "CONTROL: the long chat did not open at its newest message")
         XCTAssertTrue(marker.waitForExistence(timeout: 20), "CONTROL: the scroll never reported")
         // "sample a11y scroll pins <n>, at end <bool>, moved <n>, window <bool>, dragged <bool>, short <n>, from the end <bool>"
         let label = marker.label
