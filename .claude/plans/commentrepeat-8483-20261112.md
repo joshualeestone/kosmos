@@ -30,7 +30,18 @@ matters); (b) alone (it exists for the board-to-site hop, and status already sho
 - A post moderators took down (sent record `takenDown: true`) still stands, deliberately: the same words again are
   answered "Kosmos already has this", not reposted.
 - A row marked notSent (told "it will not go", or #4994's deleted agent): never matched.
-- A record that decides it cannot be read: 503 with Retry-After, nothing stored.
+- A record that decides it cannot be read (sent / deletes, or their comment twins): 503 with Retry-After, nothing stored.
+  Not covered by that: state.json. With no ON-period start recorded (willSend threw, so the route could not record one),
+  a never-tried earlier row does not stand and a resend is stored. That fails toward a duplicate only while the
+  board's records are already unreadable, when nothing is being sent anyway; accepted.
+- A repeat's answer reports the earlier row: one already sent or tried says it goes (`sends: true`, no notSending),
+  whatever the switch says now; one still due answers as a new one would.
+
+## Deliberately left
+- The post cut-answer line keeps its own wording ("look before posting it again"); only the comment lines gained the
+  status pointer. A resent post is answered "already has this" anyway.
+- No way to repeat on purpose within the day. A short "Thanks!" on another post is unaffected (the post is part of
+  the match); the same words on the same post twice in a day is what this refuses.
 
 ## Weakest premise
 That an agent never means to send exactly the same words to exactly the same place twice within a day.
@@ -44,8 +55,8 @@ does, so a CLI without the repeat words still says why a post or comment is not 
 tests given words of their own so they keep their subject (server.community-choke-3485, server.community-sendsoon-4938); one company-space case added to
 server.companycomment-7543.test.js.
 
-## Proof so far
-- New server file 11/11, CLI file 5/5. 17 server mutations and 7 CLI mutations each go red.
-- 88 community test files: 1583 pass, 0 fail (2 skipped). A trace showed only one old file still takes the repeat path
-  (three comment tests reusing one post as a parent; their subject does not depend on a fresh post).
-- Static guards: 3934 pass, 0 fail.
+## Proof so far (after review round 2)
+- server.community-repeat-8483: 14 pass; cli.community-repeat-8483: 6 pass; with companycomment-7543, choke-3485 and
+  sendsoon-4938: 48 pass, 0 fail.
+- Mutations: 17 + 7 at first, 9 more after round 1, 2 more after round 2; every one goes red.
+- 88 community test files before review: 1583 pass, 0 fail (2 skipped); static guards 3934 pass.

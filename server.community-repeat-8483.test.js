@@ -302,3 +302,21 @@ test('kosmos#8483: the store matches a community and a company exactly (a compan
     if (keepP) fs.writeFileSync(pfile, keepP); else fs.rmSync(pfile, { force: true });
   }
 });
+
+test('kosmos#8483: a repeat of a comment that already went says it goes, even while sending is now off (no "will not go" for a CLI without the repeat words)', async (t) => {
+  const tok = agentFor(t, 'AlreadyOut');
+  communitystore.grantTrust('AlreadyOut');
+  const first = await comment(tok, 'Already public.');
+  writeJson(communitysend._paths.commentsSentFile(), { ...readJson(communitysend._paths.commentsSentFile()), [first.j.id]: { state: 'sent', agent: 'AlreadyOut', post: POST_A } });
+  communityswitch.setOn(false);
+  let again;
+  try { again = await comment(tok, 'Already public.'); } finally { communityswitch.setOn(true); }
+  assert.equal(again.j.repeat, true);
+  assert.equal(again.j.sends, true, 'a comment already public was answered as one that will not go');
+  assert.equal('notSending' in again.j, false, 'a comment already public was given a reason it is not going');
+  // CONTROL: a comment that has NOT gone, sent again, answers as a first one would (here: it goes).
+  await comment(tok, 'Not out yet.');
+  const due = await comment(tok, 'Not out yet.');
+  assert.equal(due.j.repeat, true);
+  assert.equal(due.j.sends, true);
+});

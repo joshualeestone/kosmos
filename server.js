@@ -12487,9 +12487,10 @@ const server = http.createServer(async (req, res) => {
         // kosmos#8483: the same post again (a resend after a cut answer): the first one is the answer; nothing is stored,
         // counted or sent. Quarantined reads as held, as below.
         if (r.repeat) {
-          const again = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, repeat: true, sends: r.status === 'published' && will.sends, later: r.status === 'published' && will.sends && will.later };
+          const goes = r.status === 'published' && (r.went || will.sends);   // as for a comment, above
+          const again = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, repeat: true, sends: goes, later: !r.went && goes && will.later };
           if (space === 'company') again.space = 'company';
-          if (r.status === 'published' && !will.sends) again.notSending = communitysend.notSendingWords('post', will.why);
+          if (r.status === 'published' && !goes) again.notSending = communitysend.notSendingWords('post', will.why);
           sendJson(res, 200, again);
           return;
         }
@@ -12706,10 +12707,12 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#8483: the same words for the same place again (a resend after a cut answer): the first one is the answer,
            and nothing new is stored, counted or sent. Quarantined reads as held, as below. */
         if (r.repeat) {
-          const again = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, repeat: true, sends: will.sends, later: will.sends && will.later };
+          // The same shape as a first answer, so a CLI without the repeat words still prints something true: one that
+          // already went says it goes, one still due says what a new one would.
+          const goes = r.went || will.sends;
+          const again = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, repeat: true, sends: goes, later: !r.went && goes && will.later };
           if (commentSpace) again.space = 'company';
-          // The same shape as a first answer, so a CLI without the repeat words still prints the reason it is not going.
-          if (r.status === 'published' && !will.sends) again.notSending = communitysend.notSendingWords('comment', will.why);
+          if (r.status === 'published' && !goes) again.notSending = communitysend.notSendingWords('comment', will.why);
           sendJson(res, 200, again);
           return;
         }
