@@ -476,12 +476,19 @@ function isProtectedRule(rule, rules, platform = 'win32') {
 }
 /* #8437: a place that is a gap like any start-up file when it cannot be covered (the guard is written and says it is not
    whole, as on Linux): an instruction file's import, the start-up config, a command script, a shell's start files, a
-   plugin folder, a launch folder. Anything NOT listed here is treated as protected, so a new kind of rule added later
+   plugin folder, a launch folder. Review round 2: only the rule written FOR one of these places counts (its path
+   exactly, or the place and `/**`), never another rule that merely sits under a broad incidental folder, so where a
+   rule came from decides, not where it lands. Anything else is treated as protected, so a new kind of rule added later
    errs toward refusing the guard, never toward a quiet gap. */
 function isIncidentalRule(rule, rules, platform = 'win32') {
-  return ruleUnderAny(rule, [...(rules.importFiles || []), ...(rules.importStableDirs || []), ...(rules.configStartFiles || []),
+  const m = /^(?:Read|Edit)\((\/\/.+)\)$/.exec(String(rule));
+  if (!m) return false;
+  const low = (x) => (platform === 'win32' ? String(x).toLowerCase() : String(x));
+  const inner = low(m[1]);
+  return [...(rules.importFiles || []), ...(rules.importStableDirs || []), ...(rules.configStartFiles || []),
     ...(rules.commandScripts || []), ...(rules.shellStartFiles || []), ...(rules.shellStartDirs || []), ...(rules.pluginDirs || []),
-    ...(rules.launchDirs || []), ...(rules.launchFiles || [])], platform);
+    ...(rules.launchDirs || []), ...(rules.launchFiles || [])].filter(Boolean)
+    .some((p) => { const pre = low(ruleAbs(p, platform)); return inner === pre || inner === pre + '/**'; });
 }
 /* #5664 step A: on Windows, Claude Code resolves junctions and 8.3 names on the path a tool touches, and a rule on a
    link's OWN path covers nothing (measured, 2.1.319). So for every Read or Edit rule whose literal part (before its first
@@ -3561,7 +3568,7 @@ module.exports = {
   withNativeTwins,
   withRealTwins,   // #5664 step A
   isProtectedRule,   // #8437
-  isIncidentalRule,
+  isIncidentalRule,   // #8437
   realOrLeafStrict,
   ruleUnwritable,
   migrateKept,

@@ -165,6 +165,18 @@ test('#8437 every protected field classifies as protected; only known incidental
   assert.equal(setup.isIncidentalRule('Edit(//c/K/Kosmos/undo/**)', rules), false, 'CONTROL: a protected place is not incidental');
 });
 
+test('#8437 only the rule written FOR an incidental place is incidental, never one that merely sits under it', () => {
+  const rules = { pluginDirs: ['C:\\K'], tokenPaths: ['C:\\K\\Kosmos\\board.token'], importFiles: ['C:\\Users\\x\\notes.md'] };
+  assert.equal(setup.isIncidentalRule('Edit(//c/K/**)', rules), true, 'the plugin folder\'s own rule');
+  assert.equal(setup.isIncidentalRule('Edit(//c/K/other/settings.json)', rules), false, 'a rule under a broad incidental folder is not incidental');
+  assert.equal(setup.isIncidentalRule('Edit(//c/Users/X/NOTES.md)', rules), true, 'case-blind on Windows');
+  assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/notes.md.bak)', rules), false, 'no suffix arm for incidental places');
+  // A protected place nested inside an incidental one is protected (the protected question is asked first, and the
+  // incidental one does not reach beneath the place).
+  assert.equal(setup.isProtectedRule('Read(//c/K/Kosmos/board.token)', rules), true);
+  assert.equal(setup.isIncidentalRule('Read(//c/K/Kosmos/board.token)', rules), false);
+});
+
 test('launchPathDirs on Windows names the PATH part as not covered, so the guard cannot read as whole', () => {
   const w = setup.launchPathDirs(agentDir('lp'), { ...PIN, platform: 'win32' });
   assert.deepEqual(w.unsafe, ['on Windows Kosmos does not cover the folders on this PATH yet']);

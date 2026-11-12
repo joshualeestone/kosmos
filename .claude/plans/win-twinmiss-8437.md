@@ -31,6 +31,12 @@ guard is still written. Raised in #8438's review round 8 and carded.
   scripts, shell start files, plugins, launch folders). A new kind of rule therefore errs toward refusing. Tests pin
   every protected field, the incidental ones, and that a rule of neither kind is not incidental.
 
+## Review round 2
+- isIncidentalRule went by where a rule's path lands, so any rule under a broad incidental folder (a plugin or
+  shell folder) would have been downgraded. Now only the rule written FOR an incidental place counts (its path exactly,
+  or the place and `/**`); nothing beneath it, and no `.` suffix arm. Test: a rule under a broad incidental folder is not
+  incidental, and a protected place nested in one stays protected.
+
 ## Decided, not missed
 - Launch-folder misses are classed incidental and worded as a start-up file (on Windows launchPathDirs returns no
   folders, so none occurs today).
