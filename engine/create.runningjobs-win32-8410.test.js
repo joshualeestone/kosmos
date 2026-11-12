@@ -123,3 +123,18 @@ test('kosmos#8410 review 1: the real pid check, without a stand-in: this process
   assert.ok(running.has('me'), 'this process read as not alive');
   assert.equal(running.has('gone'), false, 'an exited child read as alive');
 });
+
+test('kosmos#8410 review 7: the boot line comes from this machine\'s real uptime when no seam is given', () => {
+  clear();
+  agentProcessFile('beforeboot', 4242);
+  agentProcessFile('sinceboot', 4242);
+  const osBoot = Date.now() - os.uptime() * 1000;
+  const t = (osBoot - 120e3) / 1000;   // two minutes before this machine booted
+  fs.utimesSync(nodePath.join(DIR(), 'beforeboot.json'), t, t);
+  // Just after the real boot, so a boot line drawn too late (a lost "* 1000", say) leaves this one out and fails.
+  const s = (osBoot + Math.min(60e3, os.uptime() * 500)) / 1000;
+  fs.utimesSync(nodePath.join(DIR(), 'sinceboot.json'), s, s);
+  const running = create.runningJobs('win32', { isAlive: () => true });
+  assert.equal(running.has('beforeboot'), false, 'a file from before the real boot read as running: the default boot line is wrong');
+  assert.ok(running.has('sinceboot'), 'a file written just after the real boot was left out: the default boot line is too late');
+});
