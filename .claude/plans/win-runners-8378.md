@@ -55,3 +55,8 @@ Before 17 pass / 16 fail; after 31 / 0 / 2 skip. The other runners files are unc
   LINKED") skips on Windows: the link step is the macOS and Linux install (install() refuses claude on Windows) and it
   makes a symlink, which a Windows account without admin rights or Developer Mode may not. The chmod test's reason now
   says the subject is Mac-only too. Box: 30 / 0 / 3 skip.
+- Round 4 (no blockers, 1 warning, 3 nits). Fixed: the two link-step skip reasons said "the macOS and Linux install";
+  it is the macOS install only (platform.js RUNNER_DOWNLOADS is darwin; in production install() refuses claude on Linux
+  and Windows), and this file pins install() to darwin. The chmod reason also names the EPERM case (an ordinary account
+  refuses every symlink, which would pass that test for the wrong reason). Nits: the removeTree comment names the virus
+  scanner; the Windows "is executable" line says it holds by construction.

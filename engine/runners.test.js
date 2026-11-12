@@ -7,7 +7,7 @@ const nodePath = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { writeRunnerStub } = require('../test-support/runnerstub');
-const { removeTree } = require('../test-support/remove-tree');   // kosmos#8378: Windows may briefly hold a freshly written .exe
+const { removeTree } = require('../test-support/remove-tree');   // kosmos#8378: a virus scanner may briefly hold a freshly unpacked codex.exe on Windows
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
 
 /* Sandbox EVERY root this module writes or reads before requiring it: the
@@ -221,7 +221,7 @@ test('#979: the happy path walks downloading, verifying, unpacking, proving, ins
   assert.ok(fs.existsSync(MANAGED), 'the binary lands at the managed path');
   /* kosmos#8378: Windows has no exec bit (node reports a file as 0o666 there); what makes it runnable is the
      extension, which is what isRunnable asks on that host. */
-  if (WIN) assert.ok(runners.isRunnable(MANAGED), 'and is executable');
+  if (WIN) assert.ok(runners.isRunnable(MANAGED), 'and is executable');   // kosmos#8378: on Windows true by construction (a .exe runs by its extension); kept as the same claim
   else assert.ok((fs.statSync(MANAGED).mode & 0o111) !== 0, 'and is executable');
   // The byte counts a progress bar reads were reported.
   assert.ok(job.receivedBytes > 0);
@@ -650,7 +650,7 @@ test('#979: the refusal path reaches no NETWORK -- connect.download is never cal
   });
 });
 
-test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed prove takes the link down', { skip: skipOnWin32('the claude link step is the macOS and Linux install (install() refuses claude on Windows, where Claude Code installs through connect.download), and it makes a symlink, which a Windows account without admin rights or Developer Mode may not') }, async () => {
+test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed prove takes the link down', { skip: skipOnWin32('the claude link step is the macOS install (this file pins install() to darwin; in production install() refuses claude on Linux and Windows, where Claude Code installs through connect.download), and it makes a symlink, which a Windows account without admin rights or Developer Mode may not') }, async () => {
   const elsewhere = nodePath.join(SANDBOX, 'elsewhere', 'claude');
   put(elsewhere, '#!/bin/sh\necho claude 8.8\n');
   await withClaudeHome(async () => {
@@ -718,8 +718,8 @@ test('#979: the link step REFUSES a canonical path it does not own, by name, ins
 
 /* kosmos#8378: the folder is made unwritable with chmod 0o500, and on Windows chmod sets only the read-only
    attribute, which Windows ignores on a folder, so the link is still made there. The claude link step itself is the
-   Mac install (install() refuses claude on Windows, where Claude Code installs through connect.download). */
-test('#979: a link we cannot WRITE is refused in words too, not as a raw errno', { skip: skipOnWin32('the claude link step is the macOS and Linux install (install() refuses claude on Windows), and it makes a folder unwritable with chmod 0o500, while on Windows chmod sets only the read-only attribute, which Windows ignores on a folder, so the link it expects to fail is made') }, async () => {
+   macOS install (install() refuses claude on Linux and Windows, where Claude Code installs through connect.download). */
+test('#979: a link we cannot WRITE is refused in words too, not as a raw errno', { skip: skipOnWin32('the claude link step is the macOS install (this file pins install() to darwin; in production install() refuses claude on Linux and Windows), and it makes a folder unwritable with chmod 0o500, while on Windows chmod sets only the read-only attribute, which Windows ignores on a folder, so the link it expects to fail is made where a symlink can be made at all (an ordinary account without Developer Mode refuses every symlink, which would pass the test for the wrong reason)') }, async () => {
   const elsewhere = nodePath.join(SANDBOX, 'elsewhere', 'claude');
   put(elsewhere);
   await withClaudeHome(async () => {
