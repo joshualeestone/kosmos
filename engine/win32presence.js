@@ -6,8 +6,8 @@
  *
  * The supervisor listens on a named pipe with a random name for as long as it runs, and writes `<key>.presence` in
  * win32-state naming that pipe. The PIPE is the proof of life, not the pid: Windows removes a pipe when the process
- * that holds it dies (a crash, a killed task tree, a Fast Startup shutdown), and no other process can hold a name this
- * one made up. Measured on Windows (kosmos#8415, Homer, node 24.19): fs.existsSync on the pipe path reads a live pipe
+ * that holds it dies (a crash, a killed task tree, a Fast Startup shutdown), and while it lives no other process can
+ * hold the name it made up (after it dies, the name is only in its record, which sits in this account's data folder). Measured on Windows (kosmos#8415, Homer, node 24.19): fs.existsSync on the pipe path reads a live pipe
  * true in about 0.1 ms, and false after close, for a name never created, and after taskkill /F of its holder.
  *
  * `opts.pipePath` and `opts.pipeExists` are test seams: off Windows a unix socket path stands in for the pipe.
@@ -32,6 +32,7 @@ function readPresence(name) {
   try { rec = JSON.parse(fs.readFileSync(presencePath(name), 'utf8')); } catch { return null; }
   if (!rec || typeof rec !== 'object' || rec.v !== PRESENCE_VERSION) return null;
   if (!Number.isInteger(rec.pid) || typeof rec.pipe !== 'string' || !rec.pipe) return null;
+  if (process.platform === 'win32' && !rec.pipe.startsWith(PIPE_PREFIX)) return null;   // only a pipe of ours is proof
   return { pid: rec.pid, pipe: rec.pipe };
 }
 
@@ -47,7 +48,10 @@ function clearPresence(name, ownerPid) {
     try { fs.rmSync(claim, { force: true }); } catch { /* a private leftover; harmless */ }
     return true;
   }
-  try { if (!fs.existsSync(at)) fs.renameSync(claim, at); else fs.rmSync(claim, { force: true }); } catch { /* best effort */ }
+  /* Not ours: put it back, unless a newer record landed meanwhile (a hard link never replaces a name), as clearState. */
+  try { fs.linkSync(claim, at); }
+  catch (e) { if (!(e && e.code === 'EEXIST')) return false; }   // the put-back failed: the claim is kept, not deleted
+  try { fs.rmSync(claim, { force: true }); } catch { /* a private leftover; harmless */ }
   return false;
 }
 
@@ -66,6 +70,11 @@ function start(name, opts) {
   const pipe = typeof o.pipePath === 'string' && o.pipePath ? o.pipePath : randomPipe();
   let wrote = false;
   let stopped = false;
+  /* A record left by an earlier run (a crash) names a pipe that is gone, and would say this agent is dead. It is
+     removed before this run's pipe opens, so if that open or the write below fails, no record answers for this agent
+     and the board falls back to its state file. During a restart overlap this also removes the old supervisor's
+     record, which is about to be replaced anyway. */
+  try { fs.rmSync(presencePath(name), { force: true }); } catch (e) { onProblem('we could not remove an older presence record (' + ((e && e.code) || 'unknown') + ')'); }
   const server = net.createServer((socket) => { socket.destroy(); });   // a look at the pipe never holds it
   server.on('error', (e) => { onProblem('we could not open its presence pipe (' + ((e && e.code) || 'unknown') + ')'); });
   try {
@@ -96,12 +105,14 @@ function start(name, opts) {
 
 /**
  * The reader's side: for every presence record in win32-state, whether its supervisor is up. Returns a Map of
- * name -> true (its pipe exists) or false (its pipe is gone, so that supervisor is dead). A name with no record is
- * absent from the map. Fail-soft to an empty map.
+ * name -> true (its pipe exists: up) or false (its pipe is gone AND its pid is not alive: dead). A record whose pipe
+ * looks gone while its pid is alive decides nothing (a look can miss a busy pipe, or the pid is someone else's now), so
+ * that name is left out and its state file answers, as does a name with no record. Fail-soft to an empty map.
  */
 function presenceByName(opts) {
   const o = opts || {};
   const pipeExists = typeof o.pipeExists === 'function' ? o.pipeExists : (p) => fs.existsSync(p);
+  const isAlive = typeof o.isAlive === 'function' ? o.isAlive : require('./win32orphan').pidAlive;
   const out = new Map();
   let files;
   try { files = fs.readdirSync(stateDir()); } catch { return out; }
@@ -111,8 +122,11 @@ function presenceByName(opts) {
     const rec = readPresence(name);
     if (!rec) continue;
     let up = false;
-    try { up = pipeExists(rec.pipe) === true; } catch { up = false; }
-    out.set(name, up);
+    try { up = pipeExists(rec.pipe) === true || pipeExists(rec.pipe) === true; } catch { up = false; }   // one retry: a look can meet a busy pipe
+    if (up) { out.set(name, true); continue; }
+    let pidAlive = true;
+    try { pidAlive = isAlive(rec.pid) === true; } catch { pidAlive = true; }   // could not tell: decide nothing
+    if (!pidAlive) out.set(name, false);
   }
   return out;
 }

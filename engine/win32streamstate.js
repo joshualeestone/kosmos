@@ -592,8 +592,8 @@ function liveIdentity(name) {
  *
  * 🔑 THE SUPERVISOR'S PRESENCE RECORD COMES FIRST (kosmos#8415, engine/win32presence.js). A supervisor writes one
  * at start naming a pipe it holds; a pipe that exists means that supervisor is up, so its agent is live even BETWEEN
- * Claude children (restarting after a crash, or waiting on blockedBy), and a pipe that is gone means it is dead,
- * whatever its state file says. Only an agent with no presence record (a supervisor from before #8415) is judged by
+ * Claude children (restarting after a crash, or waiting on blockedBy), and a pipe that is gone while its pid is dead
+ * means it is dead, whatever its state file says (a pipe that looks gone while its pid is alive decides nothing). Only an agent with no presence record (a supervisor from before #8415) is judged by
  * its state file, as below. A Mac's launchctl PID is the supervisor's too.
  *
  * The state file: for a Claude agent the supervisor records its child (win32supervisor: stream.started(child.pid)) and
@@ -624,9 +624,10 @@ function liveNames(opts) {
   if (bootMs === null) { try { bootMs = Date.now() - require('node:os').uptime() * 1000; } catch { bootMs = 0; } }
   const names = new Set();
   /* kosmos#8415: a supervisor's presence record decides for its agent. Its pipe up: live, between children too. Its
-     pipe gone: that supervisor is dead, so a pid in the state file is stale or someone else's. */
+     pipe gone and its pid dead: that supervisor is dead, so a pid in the state file is stale or someone else's. A pipe
+     that looks gone while its pid is alive decides nothing, and the state file below answers. */
   let presence;
-  try { presence = require('./win32presence').presenceByName({ pipeExists: o.pipeExists }); } catch { presence = new Map(); }
+  try { presence = require('./win32presence').presenceByName({ pipeExists: o.pipeExists, isAlive }); } catch { presence = new Map(); }
   for (const [name, up] of presence) if (up) names.add(name);
   let files;
   try { files = fs.readdirSync(stateDir()); } catch { return names; }
