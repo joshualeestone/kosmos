@@ -267,14 +267,13 @@ test('#3713: the pins: one Gemini tarball for every Mac, a Grok build per CPU, a
   assert.equal(st.grok.pinnedVersion, '1.0.41');
 });
 
-test('#3713: a launcher whose recorded node is gone reads missing, and Kosmos\'s own runtime node beside the runners folder revives it', async () => {
+test('#3713: a launcher whose recorded node is gone reads missing, and Connect reinstalls it', async () => {
   clean();
   if (WIN) {
-    /* kosmos#8378: the first half holds on Windows too: gemini.cmd names the node it was installed with
-       (launcherHasNode reads it), so a launcher whose node is gone must read missing and Connect must reinstall it.
-       The node is a copy of this node.exe, not a symlink (one needs Developer Mode or admin there). The second half,
-       Kosmos's runtime beside the runners folder, has no Windows counterpart: the Windows runners folder is not
-       under KOSMOS_HOME, so the .cmd launcher has no relative runtime rung (see winNodeLauncher in runners.js). */
+    /* kosmos#8378: this holds on Windows too: gemini.cmd names the node it was installed with (launcherHasNode reads
+       it), so a launcher whose node is gone must read missing and Connect must reinstall it. The node is a copy of this
+       node.exe, not a symlink (one needs Developer Mode or admin there). Reviving it through Kosmos's runtime beside the
+       runners folder is the next test, which has no Windows counterpart. */
     const cellar = nodePath.join(SANDBOX, 'Cellar', 'node', '26.8.1');
     fs.mkdirSync(cellar, { recursive: true });
     const moving = nodePath.join(cellar, 'node.exe');
@@ -315,6 +314,16 @@ test('#3713: a launcher whose recorded node is gone reads missing, and Kosmos\'s
     download: (u, f, j) => { fetched = true; return downloadFrom(tgz)(u, f, j); } });
   await again.settled;
   assert.ok(fetched && again.phase === 'installed', 'Connect can reinstall it: ' + (again.because || again.phase));
+  clean();
+});
+
+/* kosmos#8378: split from the test above, so a Windows run never reports this claim green without checking it. */
+test('#3713: Kosmos\'s own runtime node beside the runners folder revives a launcher whose recorded node is gone', { skip: skipOnWin32('the Windows runners folder is not under KOSMOS_HOME, so winNodeLauncher has no relative runtime rung for this to find (runners.js); it also links node with a symlink, which an ordinary Windows account may not make') }, async () => {
+  clean();
+  const { tgz, integrity } = tarball([['package/bundle/gemini.js', "console.log('ran ' + process.argv[2]);\n"]]);
+  const job = runners.install('gemini', { platform: 'darwin', legacyBin: LEGACY_GEMINI, download: downloadFrom(tgz), integrity, nodeBin: process.execPath });
+  await job.settled;
+  assert.equal(job.phase, 'installed', job.because || '');
   // Kosmos's own runtime (KOSMOS_HOME/runtime/bin/node, beside runners/) is used first, whatever was recorded.
   const runtime = nodePath.join(SANDBOX, 'runtime', 'bin');
   fs.mkdirSync(runtime, { recursive: true });
