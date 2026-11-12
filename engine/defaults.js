@@ -507,10 +507,16 @@ const BLOCK = [
   'name one project in place of `--all`). `kosmos task list --mine` is the same list',
   'kept to the tasks you hold, in every project you are on.',
   '',
-  '**When it is done, mark it built and say how each check went,** in a short note',
-  '(it holds 1000 characters, room to say what is covered, how it was checked and what is not):',
+  '**When it is done, report each check, then mark it built.** Say per check whether',
+  'it is met and, in one line, how you checked it (the task page shows it as your word):',
   '',
-  '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
+  '`kosmos task check <project-id> <task-number> 1 met "<how you checked it>"`',
+  '`kosmos task check <project-id> <task-number> 2 unmet "<what is still wrong>"`',
+  '',
+  'Then mark it built with a short note (it holds 1000 characters, room to say what is',
+  'covered and what is not). Once every check is reported the note is optional:',
+  '',
+  '`kosmos task built <project-id> <task-number> "<what you finished>"`',
   '',
   'If the work is a file, add `--file <path>`: the next agents are sent its fingerprint',
   'to check their copy with `kosmos fingerprint <file>`. For a PDF it leaves out the',
@@ -1286,8 +1292,13 @@ function block() {
  *     WEAKEST PREMISE, NAMED: that an agent who hits the error searches its instructions for its words; the even case
  *     no longer needs that, since kosmos.ps1 names the here-string itself.
  *  48 kosmos#8352: the built note holds 1000 characters, and says what room that is for. No new heading.
+ *  49. #8464 item 2: the tasks section has agents report each done-when check with `kosmos task check` (met or unmet,
+ *     and how), then mark the task built; the "1 met. 2 not met" note it asked for before is gone, since the reports
+ *     are now their own field the page lists. No new heading, so as in 32 an agent's EDITED copy is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that an agent reads this paragraph rather than only the built refusal; that refusal and
+ *     the nudge name `kosmos task check` too.
  */
-const DOCTRINE_VERSION = 48;
+const DOCTRINE_VERSION = 49;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

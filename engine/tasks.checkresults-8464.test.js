@@ -82,6 +82,7 @@ test('refusals: bad number, no such check, no checks, closed, unnamed, bad how',
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'a\nb', { by: 'a' }))[0], 400, 'one line');
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x'.repeat(201), { by: 'a' }))[0], 400);
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x'.repeat(200), { by: 'a' }))[0], 200, 'the limit itself is allowed (control)');
+  assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, '<how you checked it>', { by: 'a' }))[0], 400, 'an unfilled placeholder is no report');
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x', { by: null }))[0], 403);
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x', { by: '  ' }))[0], 403);
   const bare = tasks.create(id, { sentence: 'No checks' }).number;

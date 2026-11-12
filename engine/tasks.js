@@ -1121,7 +1121,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   if (repeating) return { ok: false, because: 'that task repeats, so it is never built and waiting: record each run with kosmos task ran instead' };
   if (unsaid) {
     return { ok: false, needsNote: true, because: 'this task has ' + (unsaid === 1 ? 'a done-when check' : unsaid + ' done-when checks')
-      + ', so mark it built with a note saying how ' + (unsaid === 1 ? 'it' : 'each') + ' went (kosmos task built ' + projectId + ' ' + n + (unsaid === 1 ? " '1 met.'" : " '1 met. 2 not met: <why>'") + ')' };   // review 3: in brackets, so a full stop after it is not copied into the command   // review 1: single quotes, which the Mac command's error reader keeps
+      + ', so report ' + (unsaid === 1 ? 'it' : 'each one') + ' first (kosmos task check ' + projectId + ' ' + n + " 1 met '<how you checked it>'"
+      + '), or mark it built with a note saying how ' + (unsaid === 1 ? 'it' : 'each') + ' went (kosmos task built ' + projectId + ' ' + n + (unsaid === 1 ? " '1 met.'" : " '1 met. 2 not met: <why>'") + ')' };   // #8464 item 2   // review 3: in brackets, so a full stop after it is not copied into the command   // review 1: single quotes, which the Mac command's error reader keeps
   }
   if (personMark) return { ok: false, person: true, because: 'the person marked this task built, so only the person can change that mark' };
   if (same) return { ok: true, task: changed, changed: false };
@@ -1705,6 +1706,8 @@ function setCheckResult(projectId, n, check, met, how, { by = null } = {}) {
   const who = doneWhenSetter(typeof by === 'string' ? by.trim() : null);
   if (!who) throw fail('a check report needs the agent that makes it, and this caller could not be named', 403);
   const said = how.trim();
+  /* As setBuilt (kosmos#8067): a command copied from the rules or a nudge with its placeholder unfilled is no report. */
+  if (/^<[^<>]*>$/.test(said)) throw fail('that is still the placeholder, so nothing was reported. Say in your own words how you checked it');
   let changed = null;
   let didChange = false;
   try {
