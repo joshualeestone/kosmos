@@ -4987,6 +4987,31 @@ test('kosmos#7825 PR 2: the removed list carries names with only settings left, 
   }
 });
 
+test('kosmos#8475: on Windows the removed list marks a task still registered with no folder, so its row says its startup job is still set up', { skip: process.platform !== 'win32' ? 'a task left with no folder is listed on Windows only (kosmos#8475); macOS and Linux list settings alone, pinned by the test above' : false }, async () => {
+  /* The row's words come from startsAtLogin, which the route maps field by field: a mapping that dropped it would make
+     the row say "Only its settings are left" over a task that is still registered, and only this test would notice. */
+  const status = require('./engine/status');
+  const name = 'task-left-8475';
+  store.writeProfile(name, { displayName: 'Lefty', provider: 'openai' });
+  fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, STUB_BIN, STUB_BIN, null, null, 'claude'));   // a registered task, no folder
+  const workers = require('./engine/create').WORKERS_DIR;
+  const madeWorkers = !fs.existsSync(workers);
+  fs.mkdirSync(workers, { recursive: true });   // the workers folder is there (with it missing, nothing is listed)
+  status.setPaneSource(() => '');
+  try {
+    await req('/api/agent/no-such-8475/leftover', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: '{}' });   // forgets the remembered list
+    const body = JSON.parse((await req('/api/removed')).body);
+    assert.ok(Array.isArray(body.leftovers), 'the removed list carries no leftovers field: ' + JSON.stringify(body).slice(0, 200));
+    const row = body.leftovers.find((x) => x.name === name);
+    assert.deepEqual(row, { name, shownAs: 'Lefty', startsAtLogin: true }, 'the row lost the field its words depend on: ' + JSON.stringify(row));
+  } finally {
+    status.setPaneSource(null);
+    fs.rmSync(jobfix.jobPath(name), { force: true });
+    fs.rmSync(store.profilePath(name), { force: true });
+    if (madeWorkers) fs.rmSync(workers, { recursive: true, force: true });
+  }
+});
+
 /**
  * Every `var(--x)` with no fallback names a property `:root` actually defines.
  *

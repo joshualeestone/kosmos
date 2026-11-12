@@ -7,8 +7,9 @@
  * 1. A delete whose startup job Task Scheduler would not remove keeps the folder and every record, as a Linux unit does
  *    (review 33), so the agent stays where a person can see it and the delete can be tried again.
  * 2. A removed agent's task left with no folder: its delete is guarded (refused while the folder Kosmos keeps its agents
- *    in leads nowhere or is not there) and says truthfully that the settings go for good. Nothing lists such a task
- *    anywhere (review 9: a deleted folder cannot be told from a moved one; the safe listing is kosmos#8475).
+ *    in leads nowhere or is not there). Since kosmos#8475 it removes the task alone and keeps the settings, and Windows
+ *    lists such a task (a deleted folder cannot be told from a moved one, so the delete is what was made safe); the
+ *    rest of kosmos#8475 is in delete-leftover.win32-recoverable-task-8475.test.js.
  *
  * Driven from any platform: the win32 arm is injected, and Task Scheduler is a stand-in behind win32job's own runner
  * seam (a set of registered task names), so nothing here creates, changes or deletes a real Scheduled Task. Sandboxed
@@ -165,7 +166,8 @@ test('kosmos#8471 part 1: with no folder, a task that would not go keeps the set
   const done = win.del(name);
   assert.equal(done.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(done));
   // kosmos#8471 review 1: a refusal that lasts (another account's task) names the task a person can delete themselves.
-  assert.match(done.because, /^Task Scheduler would not remove nofold8471's startup job\. The name stays taken; try again in a moment, and if it keeps failing, open Task Scheduler, find agent-nofold8471 in the Kosmos folder of the Task Scheduler Library, delete it, then try again here\./);
+  // kosmos#8475: a task with no folder is removed alone and the standing reset is not run, so nothing at all changed.
+  assert.match(done.because, /^Task Scheduler would not remove nofold8471's startup job\. Nothing was changed; try again in a moment, and if it keeps failing, open Task Scheduler, find agent-nofold8471 in the Kosmos folder of the Task Scheduler Library, delete it, then try again here\.$/);
   assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings went');
   assert.ok(removedNow().includes(name), 'the removal was forgotten');
 });
@@ -179,35 +181,43 @@ test('kosmos#8471 part 1 CONTROL: a task that goes still sends the folder to the
   assert.equal(tasks.size, 0);
 });
 
-test('kosmos#8471: the task of a removed agent left with no folder: its delete removes the task and the settings, and says so', () => {
+test('kosmos#8471, kosmos#8475: the task of a removed agent left with no folder: its delete removes the task alone; the settings follow from the same row', () => {
   const lone = agent('task8471', { folder: false });
-  markRemoved(lone);   // reached from its removed row (kosmos#8471 lists no task with no folder: review 9)
+  markRemoved(lone);   // reached from its removed row
 
-  // The click: the plan offers to remove the task and the settings, and the delete does both.
+  /* kosmos#8475: the click removes the task and nothing else (it deleted the settings for good until #8475; a recorded
+     folder on a disk that is not connected read as gone, so a healthy agent could lose them). Nothing is typed. */
   const p = win.plan(lone);
   assert.equal(p.ok, true, p.because);
   assert.equal(p.folder, null);
-  assert.ok(p.job && p.job.task, 'the plan did not see the task');
-  // kosmos#8471 review 2: the button names everything the click does, the settings included.
-  assert.equal(p.verb, 'Remove its startup job and delete its settings');
-  /* kosmos#8471 review 1: with no folder the settings go for good (by #7820's design) and the name is typed, but the
-     sentence gave a reason that was not true ("the Recycle Bin cannot take them"). It now says the fact. */
-  assert.equal(p.records.trash, false, 'CONTROL: #7820 keeps a task-only delete off the Recycle Bin');
-  assert.equal(p.typeToConfirm, lone, 'settings deleted for good, yet no typing was asked');
-  assert.match(p.reassurance, /^Its startup job is removed\. Its settings are deleted for good\. After this, the name task8471 is free for a new agent\.$/);
-  assert.doesNotMatch(p.reassurance, /cannot go to the Recycle Bin|Nothing you can lose/);
+  assert.ok(p.job && p.job.task && p.taskOnly, 'the plan did not see the task alone');
+  assert.equal(p.verb, 'Remove its startup job');
+  assert.equal(p.typeToConfirm, null, 'a delete that loses nothing for good asked for typing');
+  // kosmos#8475 review: the way back first (with the account and model it starts on), then what stays.
+  assert.match(p.reassurance, /^Only its startup job is removed, so nothing starts task8471 when you log in\. If its folder was only moved, put it back at .*task8471, use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it; it starts on your main account and the model it last ran, so choose its account and model again if it used others\. Its settings stay on this computer; to delete them too, use Delete what is left on its row in the removed agents list\.$/);
+  assert.doesNotMatch(p.reassurance, /deleted for good|name .* is free/);
   const done = win.del(lone);
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
   assert.ok(!tasks.has(win32job.taskName(lone)), 'the task is still registered');
-  assert.equal(fs.existsSync(store.profilePath(lone)), false, 'its settings stayed');
-  assert.equal(done.said, 'Nothing starts task8471 any more. The name is free.');
-  assert.ok(!removedNow().includes(lone), 'its removed row stayed after its delete');
+  assert.equal(fs.existsSync(store.profilePath(lone)), true, 'its settings went with the task');
+  assert.ok(removedNow().includes(lone), 'its removed row went, so nothing on screen reaches its settings');
+  assert.doesNotMatch(done.said, /name is free/);
+
+  // The same row, again: now settings alone, which go to the Recycle Bin, and then the name is free.
+  const again = win.plan(lone);
+  assert.equal(again.ok, true, again.because);
+  assert.ok(!again.job && !again.folder && again.records.files.length >= 1, 'the second delete is not settings alone: ' + JSON.stringify(again));
+  assert.equal(again.records.trash, true, 'the settings were not offered to the Recycle Bin');
+  const gone = win.del(lone);
+  assert.equal(gone.outcome, leftover.OUTCOME.DELETED, JSON.stringify(gone));
+  assert.equal(fs.existsSync(store.profilePath(lone)), false, 'its settings stayed after the second delete');
+  assert.ok(!removedNow().includes(lone), 'its removed row stayed after everything went');
 });
 
 test('kosmos#8471 review 4: a task left with no folder because the workers folder is behind a dead link is refused, never deleted', () => {
   /* An unplugged disk or share behind a junction: every agent's folder then reads as gone while its task is registered,
-     so every agent looks like a task left with no folder. The delete would remove each task and its settings for good;
-     it must refuse instead. (Stricter than settings alone, which go to the Recycle Bin and so are not refused here.) */
+     so every agent looks like a task left with no folder. The delete would remove every agent's task (its settings for
+     good, before kosmos#8475), leaving a whole fleet to set up again; it must refuse instead. */
   const name = agent('dangle8471', { folder: false });
   const before = process.env.AGENT_WORKFORCE_WORKERS;
   const target = nodePath.join(SANDBOX, 'unplugged-disk');
@@ -219,7 +229,7 @@ test('kosmos#8471 review 4: a task left with no folder because the workers folde
   try {
     const p = win.plan(name);
     assert.equal(p.ok, false, 'a delete was offered while the workers folder leads nowhere: ' + JSON.stringify(p));
-    assert.match(p.because, /^the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, .* so Kosmos will not delete dangle8471's settings\. If that folder is gone for good, open Task Scheduler, delete agent-dangle8471 in the Kosmos folder of the Task Scheduler Library, then try again here\.$/);
+    assert.match(p.because, /^the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, .* so Kosmos will not remove dangle8471's startup job\. If that folder is gone for good, open Task Scheduler, delete agent-dangle8471 in the Kosmos folder of the Task Scheduler Library, then try again here\.$/);
     const done = win.del(name);
     assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'the delete went ahead');
     assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings were deleted');
@@ -241,7 +251,7 @@ test('kosmos#8471 review 5: a task left with no folder because the workers folde
   try {
     const p = win.plan(name);
     assert.equal(p.ok, false, 'a delete was offered while the workers folder is not there: ' + JSON.stringify(p));
-    assert.match(p.because, /^the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete absent8471's settings\. If that folder is gone for good, open Task Scheduler, delete agent-absent8471 in the Kosmos folder of the Task Scheduler Library, then try again here\.$/);
+    assert.match(p.because, /^the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not remove absent8471's startup job\. If that folder is gone for good, open Task Scheduler, delete agent-absent8471 in the Kosmos folder of the Task Scheduler Library, then try again here\.$/);
     const done = win.del(name);
     assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'the delete went ahead');
     assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings were deleted');
@@ -252,16 +262,19 @@ test('kosmos#8471 review 5: a task left with no folder because the workers folde
   assert.equal(win.plan(name).ok, true, 'the control did not offer the delete, so the refusal above proves nothing');
 });
 
-test('kosmos#8471 review 9: no platform lists a task left with no folder (a folder moved elsewhere reads the same)', () => {
-  /* Listing it offered a delete that loses settings for good, and nothing can tell a deleted agent folder from one
-     renamed or moved elsewhere (review 9 reproduced a whole fleet offered after a rename and one create). Only a job
-     KNOWN to be absent is listed, on every platform; the one that could not be looked at never is. */
+test('kosmos#8475 (was #8471 review 9): only Windows lists a task left with no folder, marked, because its delete removes the task alone', () => {
+  /* #8471 listed none: its delete lost settings for good, and nothing can tell a deleted agent folder from one renamed or
+     moved elsewhere. kosmos#8475 made that delete remove the task alone, so Windows lists a task KNOWN to be registered
+     (startsAtLogin), never one that could not be looked at (null). macOS and Linux are unchanged. */
   const given = { ok: true, agents: [
     { name: 'task8471b', shownAs: 'Task', profile: true, folder: false, job: true, removed: false },
     { name: 'none8471', shownAs: 'None', profile: true, folder: false, job: false, removed: false },
     { name: 'unk8471', shownAs: 'Unk', profile: true, folder: false, job: null, removed: false },
   ] };
-  for (const platform of ['darwin', 'linux', 'win32']) {
+  for (const platform of ['darwin', 'linux']) {
     assert.deepEqual(leftover.settingsLeftovers({ platform, survey: given }).names, [{ name: 'none8471', shownAs: 'None' }], platform);
   }
+  const winNames = leftover.settingsLeftovers({ platform: 'win32', survey: given }).names;
+  assert.deepEqual([...winNames].sort((a, b) => a.name.localeCompare(b.name)),
+    [{ name: 'none8471', shownAs: 'None' }, { name: 'task8471b', shownAs: 'Task', startsAtLogin: true }], 'win32');
 });

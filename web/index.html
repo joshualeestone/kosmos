@@ -51932,6 +51932,8 @@ async function loadLeftover(sessionName) {
   if (!plan || !plan.ok) { box.hidden = true; if (!dialogElsewhere) DEL_PLAN = null; return; }
   if (!dialogElsewhere) DEL_PLAN = plan;
   document.getElementById('d-delete-hint').textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(plan.hint || '');
+  // kosmos#8475: a task-only plan touches no files, so the page's button names the startup job instead.
+  if (start) start.textContent = plan.taskOnly ? 'Remove its startup job…' : 'Delete its files…';
   box.hidden = false;
 }
 function openDeleteModal(plan) {
@@ -51948,6 +51950,8 @@ function openDeleteModal(plan) {
   const inp = document.getElementById('del-typed');
   const go = document.getElementById('del-go');
   go.textContent = plan.verb;
+  // kosmos#8475: the cancel button's words come with the plan when the act touches no files (a startup job alone).
+  document.getElementById('del-keep').textContent = plan.keep || 'Keep the files';
   inp.value = '';
   if (plan.typeToConfirm) {
     row.hidden = false;
@@ -53140,9 +53144,10 @@ async function paintRemoved() {
         + ' data-shown-as="' + esc(a.shownAs || a.name) + '">Restore</button>')
     /* #514: the way through for a removed agent whose name is still taken.
        The plan is fetched on the click, so a row never promises a delete
-       the engine would refuse. */
+       the engine would refuse. kosmos#8475: and the row cannot know which act that is (its files, its settings alone, or
+       only its startup job when its folder is not found), so the label is the neutral one the dialog then makes exact. */
     + '<button class="btn danger-btn" type="button" data-delete-leftover="' + esc(a.name) + '"'
-    + ' data-shown-as="' + esc(a.shownAs || a.name) + '">Delete its files…</button></div>'
+    + ' data-shown-as="' + esc(a.shownAs || a.name) + '">Delete what is left…</button></div>'
     + '</div>').join('')
     /* the hint rides INSIDE the list so it shows exactly when the rows do;
        it restates what makes the light Remove confirmation honest */
@@ -53152,10 +53157,13 @@ async function paintRemoved() {
        painted as a sentence under the list. */
     + left.map((x) => '<div class="removed-row">'
       + '<div><span class="who">' + esc(x.shownAs || x.name) + '</span>'
-      + '<span class="when">Only its settings are left</span></div>'
+      /* kosmos#8475: a Windows task still registered with no folder. Its delete removes the task alone, so the row says
+         only what is true: the job is set up and the folder is not found (it may have been moved, not deleted). */
+      + '<span class="when">' + (x.startsAtLogin ? 'Its startup job is still set up, but Kosmos cannot find its folder' : 'Only its settings are left') + '</span></div>'
+      // kosmos#8475: its click removes the startup job alone (the settings stay), so the button says that.
       + '<div class="acts"><button class="btn danger-btn" type="button" data-delete-leftover="' + esc(x.name) + '"'
-      + ' aria-label="Delete what is left of ' + esc(x.shownAs || x.name) + '"'
-      + ' data-shown-as="' + esc(x.shownAs || x.name) + '">Delete what is left…</button></div>'
+      + ' aria-label="' + (x.startsAtLogin ? 'Remove the startup job of ' : 'Delete what is left of ') + esc(x.shownAs || x.name) + '"'
+      + ' data-shown-as="' + esc(x.shownAs || x.name) + '">' + (x.startsAtLogin ? 'Remove its startup job…' : 'Delete what is left…') + '</button></div>'
       + '</div>').join('')
     + (leftStale ? '<p class="removed-hint">Kosmos has not been able to check for leftover settings in a while, so these may be out of date.</p>' : '');
 

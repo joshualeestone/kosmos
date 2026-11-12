@@ -10,7 +10,8 @@
  *
  * Arms: a first load whose leftovers read fails says so in the shared line (not on another screen), and a good read
  * takes it down; leftovers alone show the section with no Restore and no folder hint; mixed with a removed row the count is
- * both and the hint stays with the removed rows; the field absent (the board could not read it)
+ * both and the hint stays with the removed rows; a Windows task still registered with no folder says its startup job is
+ * still set up and its folder is not found, never only its settings (kosmos#8475); the field absent (the board could not read it)
  * keeps the rows last drawn; nothing removed and nothing left over hides the section (NEGATIVE); the door fetches the
  * plan and paints a refusal under the list.
  *
@@ -46,6 +47,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     if (typeof paintRemoved !== 'function') return { error: 'paintRemoved is not a function' };
     let body = null;
     let planAsked = null;
+    let pagePlan = null;
     const realFetch = window.fetch;
     window.fetch = (u, opts) => {
       const url = String(u);
@@ -53,6 +55,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
       if (url.indexOf('/leftover') !== -1 && opts && opts.method === 'DELETE') {
         return Promise.resolve({ ok: true, json: async () => ({ outcome: 'deleted', said: 'Stray\'s settings are in the Trash. The name is free.' }) });
       }
+      if (url.indexOf('/leftover') !== -1 && pagePlan) return Promise.resolve({ ok: true, json: async () => pagePlan });   // kosmos#8475 arm 5
       if (url.indexOf('/leftover') !== -1) {
         planAsked = url;
         return Promise.resolve({ ok: true, json: async () => ({ ok: false, because: 'stray-7825 is waiting to start on this computer, so its settings are not left over.' }) });
@@ -107,6 +110,17 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
       leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }] };
     await paintRemoved();
     out.mixed = snap();
+    // 2b. kosmos#8475: a Windows task still registered with no folder, beside a settings-only row
+    body = { agents: [], leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }, { name: 'task-8475', shownAs: 'Tasked', startsAtLogin: true }] };
+    await paintRemoved();
+    out.task = snap();
+    // 2c. kosmos#8475: a task-only plan brings its own cancel words; the next plan without them gets the usual ones back
+    openDeleteModal({ ok: true, name: 'task-8475', shown: 'Tasked', question: 'Remove Tasked\'s startup job?', reassurance: '', loses: [], verb: 'Remove its startup job', keep: 'Keep its startup job', typeToConfirm: null });
+    out.keepTask = document.getElementById('del-keep').textContent;
+    closeDeleteModal();
+    openDeleteModal({ ok: true, name: 'stray-7825', shown: 'Stray', question: 'Delete what is left of Stray?', reassurance: '', loses: [], verb: 'Move its settings to the Trash', typeToConfirm: null });
+    out.keepPlain = document.getElementById('del-keep').textContent;
+    closeDeleteModal();
     // 3. a failed leftovers read (field absent) keeps the rows last drawn
     body = { agents: [{ name: 'gone-7825', shownAs: 'Gone', removedAt: '2026-11-02T00:00:00Z', stopped: true, accountFolderGone: false }] };
     await paintRemoved();
@@ -129,6 +143,18 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     body = { agents: [], leftovers: [] };
     await paintRemoved();
     out.none = snap();
+    // 5. kosmos#8475: the agent page's delete block over a task-only plan names the startup job; over a files plan, files
+    const pageButton = async (plan) => {
+      pagePlan = plan;
+      CURRENT = { sessionName: plan.name };
+      await loadLeftover(plan.name);
+      const b = document.getElementById('d-delete-start');
+      return { text: b ? b.textContent : null, hint: (document.getElementById('d-delete-hint') || {}).textContent || '' };
+    };
+    out.pageTask = await pageButton({ ok: true, name: 'task-8475', shown: 'Tasked', taskOnly: true, hint: 'Something on this computer still starts Tasked when you log in.', verb: 'Remove its startup job' });
+    out.pageFiles = await pageButton({ ok: true, name: 'files-8475', shown: 'Filed', hint: 'Filed\'s folder is still on this computer.', verb: 'Move 3 files to the Recycle Bin' });
+    pagePlan = null;
+    CURRENT = null;
     return out;
   });
 
@@ -157,7 +183,18 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   const gone = m.rows.find((x) => x.who === 'Gone') || {};
   const stray = m.rows.find((x) => x.who === 'Stray') || {};
   check(gone.restore === true && stray.restore === false, 'mixed: Restore on the removed row only', JSON.stringify(m.rows));
+  // kosmos#8475: a removed row's click can be its files, its settings or only its startup job, so its label claims none.
+  check(gone.delText === 'Delete what is left…' && gone.del === 'gone-7825', 'kosmos#8475: a removed row\'s delete button does not promise files', JSON.stringify(gone));
   check(m.hint === true && m.hintAfterRemoved === 1, 'mixed: the folder hint stays with the removed rows, before the leftovers', String(m.hintAfterRemoved));
+
+  const tasked = r.task.rows.find((x) => x.who === 'Tasked') || {};
+  const plain = r.task.rows.find((x) => x.who === 'Stray') || {};
+  check(tasked.when === 'Its startup job is still set up, but Kosmos cannot find its folder' && tasked.del === 'task-8475' && tasked.restore === false, 'kosmos#8475: a task left with no folder says its startup job is still set up and has the delete door', JSON.stringify(tasked));
+  check(tasked.delText === 'Remove its startup job…', 'kosmos#8475: its button says it removes the startup job, not "what is left"', tasked.delText);
+  check(r.pageTask.text === 'Remove its startup job…' && r.pageTask.hint === 'Something on this computer still starts Tasked when you log in.', 'kosmos#8475: the agent page names the startup job over a task-only plan', JSON.stringify(r.pageTask));
+  check(r.pageFiles.text === 'Delete its files…', 'kosmos#8475: and its files again over a plan that moves files', JSON.stringify(r.pageFiles));
+  check(r.keepTask === 'Keep its startup job' && r.keepPlain === 'Keep the files', 'kosmos#8475: the cancel button takes a task-only plan\'s words, and the usual ones come back after', JSON.stringify({ task: r.keepTask, plain: r.keepPlain }));
+  check(plain.when === 'Only its settings are left', 'kosmos#8475: beside it, a settings-only row still says only its settings', JSON.stringify(plain));
 
   check(r.failed.rows.some((x) => x.who === 'Stray') && r.failed.rows.some((x) => x.who === 'Gone'), 'a failed leftovers read keeps the leftover rows last drawn', JSON.stringify(r.failed.rows));
   check(r.failed.stale === false, 'a fresh failed read keeps the rows without a stale line');

@@ -87,7 +87,7 @@ const AGENTS = [
        deliberately carries no `data-restore` (that absence is what stops the
        click), so selecting on it would make the blocked row invisible to this
        check and every assertion about it vacuous.
-       ⚠️ SCOPED TO THE RESTORE CONTROLS EXPLICITLY. The "Delete its files..."
+       ⚠️ SCOPED TO THE RESTORE CONTROLS EXPLICITLY. The "Delete what is left..." (once "Delete its files...")
        button in the same row carries the SAME `data-shown-as`, so a bare
        `.acts button` search picked whichever renders first and this check was
        silently depending on Restore preceding Delete in the markup. It does
@@ -322,7 +322,7 @@ const AGENTS = [
         + 'control tells the person it cannot be used');
     }
     if (r.deleteFiredExplain) {
-      problems.push('pressing "Delete its files" announced the Restore-unavailable explanation, so '
+      problems.push('pressing "Delete what is left" announced the Restore-unavailable explanation, so '
         + 'the explain listener selects more than the control it was written for');
     }
     if (r.liveRegion !== 'assertive') {
