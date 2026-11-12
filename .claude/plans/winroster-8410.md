@@ -21,7 +21,11 @@ Found while writing the test: `create.runningJobs()` had no Windows arm. Windows
 For a Claude agent the state file names the CHILD's pid, not the supervisor's, and is cleared when the child exits.
 So a supervisor that is up BETWEEN children (restarting after a crash, or waiting on blockedBy) still reads "Not
 running", exactly as before this change: no regression, but not the Mac's wider answer either. Closing it needs the
-supervisor to record its own pid: kosmos#8415. Not done here, because it changes the Windows supervisor that runs on
+supervisor to record its own pid: kosmos#8415.
+Review 2, also left to #8415: a pid reused within one boot (a task stopped by killing its tree leaves the file), and
+Fast Startup (uptime counts from the last FULL boot, so the boot rule does not see a hibernated shutdown). Both err
+toward "could not check", the side #668 asks for. Telling the agent's own process from a stranger needs more than a
+pid, which the supervisor's own presence record can carry. Not done here, because it changes the Windows supervisor that runs on
 people's machines, and I have no Windows machine to watch it on.
 
 ## Rejected

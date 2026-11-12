@@ -30,7 +30,7 @@ const win32roster = require('./win32roster');
 const IDLE = { pid: 100, cwd: 'w', kind: 'interactive', startedAt: 1, sessionId: 'aaaa-1111', name: 'raph-9a', status: 'idle' };
 const BUSY = { ...IDLE, status: 'busy' };
 const RECORD = { read: () => ({ 'aaaa-1111': { name: 'raph-9a', runner: '' } }) };
-const SLOW_MS = 300;
+const SLOW_MS = 800;   // review 2: room for a slow Windows runner's process spawn inside the request's budget (SLOW_MS / 2)
 
 /* A background read that really takes SLOW_MS: a node child that answers after a timer, so the wait is off this
    process's thread exactly as the real `claude agents --json` child is. */
