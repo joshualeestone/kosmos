@@ -36,7 +36,7 @@ function readPresence(name) {
   let rec;
   try { rec = JSON.parse(fs.readFileSync(presencePath(name), 'utf8')); } catch { return null; }
   if (!rec || typeof rec !== 'object' || rec.v !== PRESENCE_VERSION) return null;
-  if (!Number.isInteger(rec.pid) || typeof rec.pipe !== 'string' || !rec.pipe) return null;
+  if (!Number.isInteger(rec.pid) || rec.pid <= 0 || typeof rec.pipe !== 'string' || !rec.pipe) return null;
   if (process.platform === 'win32' && !PIPE_SHAPE.test(rec.pipe)) return null;   // only a pipe of ours (whole name) is proof
   return { pid: rec.pid, pipe: rec.pipe };
 }
@@ -47,6 +47,9 @@ function readPresence(name) {
    exited its pipe and pid are gone, so the reader judges it dead, which is true. */
 function clearPresence(name, ownerPid) {
   const at = presencePath(name);
+  /* Read first: a record that already names someone else is never claimed, so a failed put-back cannot lose it. */
+  const seen = readPresence(name);
+  if (seen && seen.pid !== ownerPid) return false;
   const claim = at + '.' + process.pid + '.clear';
   try { fs.renameSync(at, claim); } catch (e) { return Boolean(e && e.code === 'ENOENT'); }
   let rec = null;
@@ -57,7 +60,12 @@ function clearPresence(name, ownerPid) {
   }
   /* Not ours: put it back, unless a newer record landed meanwhile (a hard link never replaces a name), as clearState. */
   try { fs.linkSync(claim, at); }
-  catch (e) { if (!(e && e.code === 'EEXIST')) return false; }   // the put-back failed: the claim is kept, not deleted
+  catch (e) {
+    if (!(e && e.code === 'EEXIST')) {
+      try { if (!fs.existsSync(at)) { fs.renameSync(claim, at); return false; } } catch { /* the claim is kept, not deleted */ }
+      return false;
+    }
+  }
   try { fs.rmSync(claim, { force: true }); } catch { /* a private leftover; harmless */ }
   return false;
 }
@@ -107,10 +115,16 @@ function start(name, opts) {
     server.listen(pipe, () => {
       if (stopped) return;
       const text = JSON.stringify({ v: PRESENCE_VERSION, pid: process.pid, pipe });
-      for (let attempt = 0; attempt < 2 && !wrote; attempt++) {   // one retry: a rename over a file the board is reading can fail
+      /* One retry, 50 ms later on a timer (never blocking this process's loop): a rename over a file the board is reading can fail. */
+      const tryWrite = (attempt) => {
+        if (stopped || wrote) return;
         try { fs.mkdirSync(stateDir(), { recursive: true }); save(presencePath(name), text); wrote = true; }
-        catch (e) { if (attempt === 1) { dropOlder(); onProblem('we could not record its presence (' + ((e && e.code) || 'unknown') + ')'); } else pause(RETRY_PAUSE_MS * 10); }
-      }
+        catch (e) {
+          if (attempt === 0) { const t = setTimeout(() => tryWrite(1), RETRY_PAUSE_MS * 10); if (t.unref) t.unref(); return; }
+          dropOlder(); onProblem('we could not record its presence (' + ((e && e.code) || 'unknown') + ')');
+        }
+      };
+      tryWrite(0);
     });
     if (typeof server.unref === 'function') server.unref();
   } catch (e) {

@@ -292,6 +292,7 @@ test('#6570 main(), the one production wiring: a Claude agent stream records int
   const handle = sup.main(['usage-main', cwd, '-', named, 'claude'], {
     watchHost: () => ({ stop() {} }), exitLater: () => {}, hostAlive: () => true,
     agentBrowser: () => 'browser-config.json', agentPermission: () => 'perm.json',
+    presence: () => ({ stop() {} }),   // kosmos#8415: no real presence pipe from this test
   });
   try {
     assert.equal(spawned.length, 1, 'main() started its agent');

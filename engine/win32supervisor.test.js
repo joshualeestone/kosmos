@@ -1087,6 +1087,7 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
     hostAlive: () => { hostChecks += 1; return true; },
     agentBrowser: () => 'browser-config.json',
     agentPermission: () => 'perm.json',   // #5406
+    presence: () => ({ stop() {} }),   // kosmos#8415: no real presence pipe from this test
   });
   /* 🛑 CLEANUP RUNS HOWEVER THE ASSERTIONS GO. main() opens the agent's pipe
      server, and a failed assertion that skipped handle.stop() left it listening,
