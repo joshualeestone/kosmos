@@ -6701,6 +6701,8 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    and refuses an agent that is not on the project. */
 /* #5152 slice 1: `kosmos task done-when` (POST .../task/<n>/done-when) joins on the same terms: its handler names the
    caller (processCaller) and refuses an agent that is not on the project (notOnProjectRefusal). */
+/* #8464 item 2: `kosmos task check` (POST .../task/<n>/check) joins on done-when's terms: its handler names the caller
+   (processCaller), refuses an agent that is not on the project (notOnProjectRefusal), and refuses an unnamed caller. */
 /* #4475 step 3: removing an agent (DELETE .../removal) joins, for the agents the caller created and no others: the
    handler identifies the caller from the token (agentTokenOnlyCaller) and refuses any other target, and refuses
    `?force`. Planning a removal (GET), restore, and every other agent route stay behind the board token. */
@@ -6709,7 +6711,7 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
 /* #6994: `kosmos records` joins: the read (GET .../records) answers the same for every caller, as .../overview does;
    the writes (POST .../records, .../records/remove, .../records/label) name the caller (processCaller) and refuse an
    agent that is not on the project (notOnProjectRefusal). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^GET \/api\/project\/[^/]+\/records$/, /^POST \/api\/project\/[^/]+\/records(?:\/(?:remove|label))?$/, /^GET \/api\/project\/[^/]+\/task\/\d+\/activity$/, /^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|told|done-when)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^GET \/api\/project\/[^/]+\/records$/, /^POST \/api\/project\/[^/]+\/records(?:\/(?:remove|label))?$/, /^GET \/api\/project\/[^/]+\/task\/\d+\/activity$/, /^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|told|done-when|check)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -26195,6 +26197,34 @@ const server = http.createServer(async (req, res) => {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
           { error: msg || 'we could not change that task' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #8464 item 2: an agent reports how one done-when check went. Body { check: <number>, met: true|false, how: "<one
+     line>" }. Named as done-when names its caller, and only an agent on the project; the screen has no such report (the
+     person changes the checks themselves), and an unnamed caller is refused by tasks.setCheckResult (403). */
+  const taskCheck = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/check$/);
+  if (taskCheck && req.method === 'POST') {
+    const id = decodeSegment(taskCheck[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const viaScreen = isViaScreen(req, body);
+      if (viaScreen) { sendJson(res, 403, { error: 'a check report is an agent\'s; on the page, change the checks themselves' }); return; }
+      const who = processCaller(req, body, safeRoster(), false, 'the check was not reported');
+      const refusal = who.refusal || notOnProjectRefusal(who, id, 'report on its tasks', 'the check was not reported', 'report a check');
+      if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
+      try {
+        const out = tasks.setCheckResult(id, taskCheck[2], body.check, body.met, body.how, { by: who.card ? who.card.sessionName : null });
+        sendJson(res, 200, { task: out.task, changed: out.changed });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
+          { error: msg || 'we could not report that check' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
