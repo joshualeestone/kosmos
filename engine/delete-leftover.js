@@ -567,27 +567,54 @@ function plan(name, opts) {
     if (st.because) return { ok: false, because: st.because };
     damagedSettings = st.damaged;
   }
-  /* kosmos#8471: a Windows task with no folder (reached from a removed agent's row) deletes its settings for good, so it
-     gets the checks settings alone get (a name waiting to start, a recorded folder behind a link that leads nowhere, a
-     damaged settings file) and stricter ones: when the folder Kosmos keeps its agents in leads nowhere or is not there
-     (an unplugged disk or share), every agent looks like this, and Kosmos refuses rather than delete their settings.
-     (Settings alone go to the Recycle Bin, which can be undone, so they are not refused in that state.) NOT covered, as
-     on main: a recorded folder OUTSIDE the workers folder on a drive that is not connected reads as gone, not
-     unreachable, so its settings can still be deleted for good (kosmos#8475). */
+  /* kosmos#8475: a Windows task with no folder is removed ALONE. Nothing can tell an agent folder that was deleted from
+     one moved elsewhere or on a disk that is not connected (#8471, nine review rounds), so the delete is made fully
+     recoverable instead of the guess sharper: only the Scheduled Task goes. Its settings and picture stay (they then show
+     as their own settings-only row, whose delete can go to the Recycle Bin), and so do its community account, standing,
+     sender tokens, history and any removal record. If the folder comes back, register.survey lists the agent in
+     `missing` (folder, profile, no job) and Start at login (register.repair, create.installJob) registers the task again.
+     So the recorded-folder checks settings alone need (strandedRefusal) are not asked here: nothing they protect is
+     touched. Only a name waiting to start is refused, as the list leaves it out. */
   if (!folder && job && job.task) {
-    const st = strandedRefusal(clean, shown);
-    if (st.because) return { ok: false, because: st.because };
-    damagedSettings = st.damaged;
-    /* The way out, if the folder is gone for good: the task, named as Task Scheduler shows it, which a person can delete;
-       the row then holds settings alone, whose delete works. */
+    let pending = null;
+    try { pending = require('./worldstarts').pendingNames(); } catch { pending = null; }
+    if (pending === null) return { ok: false, because: `we could not check whether ${shown} is waiting to start, so we have not offered to delete anything. Try again in a moment.` };
+    const store = require('./store');
+    const keyOf = (n) => { try { return store.safeKey(n); } catch { return null; } };
+    const key = keyOf(clean);
+    if (pending.some((n) => n === clean || (key && keyOf(n) === key))) return { ok: false, because: `${shown} is waiting to start on this computer, so its startup job is not left over.` };
+    /* The way out, if the folder is gone for good: the task, named as Task Scheduler shows it, which a person can delete.
+       Kept from #8471: while the whole workers folder is missing or behind a dead link, every agent with a task reads
+       like this, and removing them all would leave a whole fleet to set up again by hand once the disk is back. */
     const wayOut = ` If that folder is gone for good, open Task Scheduler, delete ${String(job.label).split('\\').pop()} in the ${String(job.label).split('\\')[0]} folder of the Task Scheduler Library, then try again here.`;
     const wAt = resolveRecordedFolder(create.WORKERS_DIR);
-    if (wAt.because === 'dangling') return { ok: false, because: `the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
-    if (wAt.because) return { ok: false, because: `we could not check the folder Kosmos keeps its agents in, so we have not offered to delete ${shown}'s settings or startup job. Try again in a moment.` };
-    /* review 5: a workers folder that is not there at all (its drive not connected, or the folder renamed or moved) makes
-       every agent with a task look like this too, and resolveRecordedFolder reads a missing drive as "the rest is gone".
-       A task still registered while the whole workers folder is missing is never one agent's leftover, so refuse. */
-    if (!workersFolderThere()) return { ok: false, because: `the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
+    if (wAt.because === 'dangling') return { ok: false, because: `the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected, so Kosmos will not remove ${shown}'s startup job.${wayOut}` };
+    if (wAt.because) return { ok: false, because: `we could not check the folder Kosmos keeps its agents in, so we have not offered to remove ${shown}'s startup job. Try again in a moment.` };
+    if (!workersFolderThere()) return { ok: false, because: `the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not remove ${shown}'s startup job.${wayOut}` };
+    let kept = [];
+    try { kept = namedRecords(clean, null).records; } catch { kept = []; }   // only to name what stays; nothing is moved
+    const kw = kept.length ? recordsWords(kept) : null;
+    let removedNow = false;
+    try { removedNow = remove.isRemoved(clean); } catch { removedNow = false; }
+    const back = taskOnlyBackWords(clean, removedNow);
+    return {
+      ok: true,
+      name: clean,
+      shown,
+      taskOnly: true,
+      toTrash: false,
+      typeToConfirm: null,   // nothing is lost for good: the task can be set up again
+      folder: null,
+      records: { files: [], trash: false, kept: null, keptWords: null },
+      job: { path: null, label: job.label, task: true },
+      question: `Remove ${shown}'s startup job?`,
+      reassurance: `Only its startup job is removed, so nothing starts ${shown} when you log in.`
+        + (kw ? ` ${kw.cap} stay${kw.plural ? '' : 's'} on this computer; to delete ${kw.plural ? 'them' : 'it'} too, delete what is left of ${shown} again afterwards.` : '')
+        + ` ${back}`,
+      loses: ['Its startup job, so nothing tries to start it again'],
+      verb: 'Remove its startup job',
+      hint: `Something on this computer still starts ${shown} when you log in, and the name stays taken until it is gone.`,
+    };
   }
   const recordsOnly = Boolean(recs);
 
@@ -771,9 +798,25 @@ function resolveRecordedFolder(dir) {
 /* kosmos#8471: whether the folder Kosmos keeps its agents in is there as a folder. A workers folder that is missing or a
    link that leads nowhere makes every stopped agent with a task read as "no folder", and those agents are not leftovers.
    A look that fails reads as not there (refuse, never offer). Not a test of a folder MOVED elsewhere: nothing here can
-   tell a deleted agent folder from a moved one (review 9), which is why this change lists no task with no folder. */
+   tell a deleted agent folder from a moved one (review 9), which is why a task with no folder is removed alone and
+   its settings kept (kosmos#8475). */
 function workersFolderThere() {
   try { return fs.statSync(create.WORKERS_DIR).isDirectory(); } catch { return false; }
+}
+
+/* kosmos#8475: how to get the agent back after its startup job alone was removed, if its folder was only moved. With the
+   folder back where Kosmos looks (create.workerDir: the recorded folder, or the one in the workers folder), the survey
+   lists it as an agent with no job and the board offers Start at login, which registers the task again (register.repair).
+   A removed agent is restored first: Restore takes it off the removed list (its own enable finds no task), and only
+   then does the board offer Start at login. The folder named is the one the profile records, as written (workerDir
+   answers the workers folder for a recorded folder it cannot see, which is the wrong place to send a person); else
+   the one in the workers folder. */
+function taskOnlyBackWords(name, removed) {
+  let where = null;
+  try { where = create.recordedDirSpelling(name); } catch { where = null; }
+  if (!where) where = create.workerDir(name);
+  return `If its folder was only moved, or is on a disk that is not connected, put it back at ${where}`
+    + (removed ? ', use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it.' : ', then use Start at login when Kosmos offers it.');
 }
 
 function strandedRefusal(name, shown) {
@@ -933,6 +976,36 @@ function* delSteps(name, opts) {
     ? { ...(opts.platform ? { platform: opts.platform } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}) } : undefined);
   if (!p.ok) return { outcome: OUTCOME.REFUSED, because: p.because };
   const platform = (opts && opts.platform) || process.platform;
+  /* kosmos#8475: a Windows task with no folder: the Scheduled Task and nothing else. Before the community standing reset
+     below, which cannot be undone, and with no token revoke, no history cleared, no settings moved, no removal forgotten
+     and no community account retired: if the folder was only moved, the agent comes back whole. Nothing is typed. */
+  if (p.taskOnly) {
+    let out;
+    try { out = require('./win32job').remove(p.name); }
+    catch (err) { out = { ok: false, because: String((err && err.message) || err) }; }
+    if (!(out && out.ok)) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `Task Scheduler would not remove ${p.shown}'s startup job. Nothing was changed; try again in a moment, and if it keeps failing, open Task Scheduler, find ${String(p.job.label).split('\\').pop()} in the ${String(p.job.label).split('\\')[0]} folder of the Task Scheduler Library, delete it, then try again here.`,
+        steps: [{ step: 'its startup job', ok: false, because: (out && out.because) || 'no reason given' }],
+      };
+    }
+    let removedNow = false;
+    try { removedNow = remove.isRemoved(p.name); } catch { removedNow = false; }
+    let kept = [];
+    try { kept = namedRecords(p.name, null).records; } catch { kept = []; }
+    const kw = kept.length ? recordsWords(kept) : null;
+    return {
+      outcome: OUTCOME.DELETED,
+      taskOnly: true,
+      toTrash: false,
+      shown: p.shown,
+      said: `${p.shown}'s startup job is removed, so nothing starts it when you log in.`
+        + (kw ? ` ${kw.cap} stay${kw.plural ? '' : 's'} on this computer; to delete ${kw.plural ? 'them' : 'it'} too, delete what is left of ${p.shown} again.` : '')
+        + ` ${taskOnlyBackWords(p.name, removedNow)}`,
+      steps: [{ step: 'its startup job', ok: true }],
+    };
+  }
   if (p.typeToConfirm && String((opts && opts.typed) || '').trim() !== p.typeToConfirm) {
     /* kosmos#7820: the plan travels with this refusal. On Windows the Recycle Bin answer can change between the plan
        the person read and this one (a minute-old drive answer, a probe that now times out), and a dialog that showed
@@ -1197,7 +1270,7 @@ function* delSteps(name, opts) {
    recording a folder outside the workers folder (read from the profile, never looked at, so a share that is gone
    cannot block the poll; such a folder may only be out of sight). `opts.survey` is a survey the caller already took
    (the board's 5 s poll takes one), so the list does not read every job twice.
-   { ok, names: [{ name, shownAs }] }; ok false lists none. */
+   { ok, names: [{ name, shownAs, startsAtLogin? }] }; ok false lists none. startsAtLogin: kosmos#8475, below. */
 function settingsLeftovers(opts) {
   const s = (opts && opts.survey) || require('./register').survey(opts);
   if (!s || !s.ok) return { ok: false, names: [] };
@@ -1222,10 +1295,20 @@ function settingsLeftovers(opts) {
   const store = require('./store');
   const keyOf = (n) => { try { return store.safeKey(n); } catch { return null; } };
   const waiting = new Set(pending.map(keyOf).filter(Boolean));
+  /* kosmos#8475: on Windows, a Scheduled Task KNOWN to be still registered (job === true, never the null of a failed
+     look) with no folder is listed too, marked startsAtLogin so its row does not say "only its settings". No other
+     screen shows it (the Windows roster lists only live sessions; the restart notice needs a folder), so without this
+     row only Task Scheduler could remove it. Safe although a moved folder reads the same as a deleted one (#8471): its
+     delete removes the task alone (plan's taskOnly), so a wrong guess costs one Start at login. Not filtered by the
+     recorded-folder rule (outside) either, for the same reason: a folder on a disk that is not connected loses nothing
+     but its task. Left out while the workers folder itself is missing or leads nowhere: then every agent reads like
+     this, and plan() refuses those clicks. macOS and Linux are unchanged. */
+  const winTasks = platform === 'win32' && workersFolderThere();
+  const taskLeft = (a) => winTasks && a.job === true;
   const names = s.agents
-    .filter((a) => a.profile === true && a.folder === false && a.job === false && !a.removed && !waiting.has(keyOf(a.name))
-      && !running.has(fold(a.name)) && !outside(a.name))
-    .map((a) => ({ name: a.name, shownAs: a.shownAs || a.name }));
+    .filter((a) => a.profile === true && a.folder === false && !a.removed && !waiting.has(keyOf(a.name)) && !running.has(fold(a.name))
+      && (taskLeft(a) || (a.job === false && !outside(a.name))))
+    .map((a) => ({ name: a.name, shownAs: a.shownAs || a.name, ...(taskLeft(a) ? { startsAtLogin: true } : {}) }));
   return { ok: true, names };
 }
 

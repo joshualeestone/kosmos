@@ -10,7 +10,8 @@
  *
  * Arms: a first load whose leftovers read fails says so in the shared line (not on another screen), and a good read
  * takes it down; leftovers alone show the section with no Restore and no folder hint; mixed with a removed row the count is
- * both and the hint stays with the removed rows; the field absent (the board could not read it)
+ * both and the hint stays with the removed rows; a Windows task still registered with no folder says its startup job is
+ * still set up and its folder is not found, never only its settings (kosmos#8475); the field absent (the board could not read it)
  * keeps the rows last drawn; nothing removed and nothing left over hides the section (NEGATIVE); the door fetches the
  * plan and paints a refusal under the list.
  *
@@ -107,6 +108,10 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
       leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }] };
     await paintRemoved();
     out.mixed = snap();
+    // 2b. kosmos#8475: a Windows task still registered with no folder, beside a settings-only row
+    body = { agents: [], leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }, { name: 'task-8475', shownAs: 'Tasked', startsAtLogin: true }] };
+    await paintRemoved();
+    out.task = snap();
     // 3. a failed leftovers read (field absent) keeps the rows last drawn
     body = { agents: [{ name: 'gone-7825', shownAs: 'Gone', removedAt: '2026-11-02T00:00:00Z', stopped: true, accountFolderGone: false }] };
     await paintRemoved();
@@ -158,6 +163,11 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   const stray = m.rows.find((x) => x.who === 'Stray') || {};
   check(gone.restore === true && stray.restore === false, 'mixed: Restore on the removed row only', JSON.stringify(m.rows));
   check(m.hint === true && m.hintAfterRemoved === 1, 'mixed: the folder hint stays with the removed rows, before the leftovers', String(m.hintAfterRemoved));
+
+  const tasked = r.task.rows.find((x) => x.who === 'Tasked') || {};
+  const plain = r.task.rows.find((x) => x.who === 'Stray') || {};
+  check(tasked.when === 'Its startup job is still set up, but Kosmos cannot find its folder' && tasked.del === 'task-8475' && tasked.restore === false, 'kosmos#8475: a task left with no folder says its startup job is still set up and has the delete door', JSON.stringify(tasked));
+  check(plain.when === 'Only its settings are left', 'kosmos#8475: beside it, a settings-only row still says only its settings', JSON.stringify(plain));
 
   check(r.failed.rows.some((x) => x.who === 'Stray') && r.failed.rows.some((x) => x.who === 'Gone'), 'a failed leftovers read keeps the leftover rows last drawn', JSON.stringify(r.failed.rows));
   check(r.failed.stale === false, 'a fresh failed read keeps the rows without a stale line');

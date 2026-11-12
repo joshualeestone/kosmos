@@ -53142,7 +53142,9 @@ async function paintRemoved() {
        painted as a sentence under the list. */
     + left.map((x) => '<div class="removed-row">'
       + '<div><span class="who">' + esc(x.shownAs || x.name) + '</span>'
-      + '<span class="when">Only its settings are left</span></div>'
+      /* kosmos#8475: a Windows task still registered with no folder. Its delete removes the task alone, so the row says
+         only what is true: the job is set up and the folder is not found (it may have been moved, not deleted). */
+      + '<span class="when">' + (x.startsAtLogin ? 'Its startup job is still set up, but Kosmos cannot find its folder' : 'Only its settings are left') + '</span></div>'
       + '<div class="acts"><button class="btn danger-btn" type="button" data-delete-leftover="' + esc(x.name) + '"'
       + ' aria-label="Delete what is left of ' + esc(x.shownAs || x.name) + '"'
       + ' data-shown-as="' + esc(x.shownAs || x.name) + '">Delete what is left…</button></div>'
