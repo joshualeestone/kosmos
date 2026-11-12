@@ -255,7 +255,9 @@ test('feedback write saves today\'s report in THIS Kosmos\'s store; show reads i
   const show = feedbackCli(['feedback', 'show']);
   assert.equal(show.code, 0, show.err);
   assert.equal(show.out, 'The task verbs were missing.');
-  assert.equal(feedbackCli(['feedback', 'list']).out, day);
+  const listed = feedbackCli(['feedback', 'list']);   // kosmos#8462: the dates, then the note, all on stdout
+  assert.equal(listed.out.split('\n\n')[0], day);
+  assert.equal(listed.err, '');
   const none = feedbackCli(['feedback', 'show', '1999-01-01']);   // kosmos#8260: no report yet is an answer
   assert.equal(none.code, 0, none.err);
   assert.equal(none.out, 'No product-feedback report for 1999-01-01 yet.', 'kosmos#8462: the answer is on stdout');

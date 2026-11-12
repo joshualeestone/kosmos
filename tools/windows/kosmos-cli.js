@@ -2869,8 +2869,9 @@ async function feedbackShow(ctx, args) {
   const date = args[0] || fb.today();
   if (!fb.isDateKey(date)) { ctx.err('that date must be a real day, as YYYY-MM-DD'); return 2; }
   const body = fb.readBody(date);
-  // kosmos#8260: no report yet is an answer, not a failure: nothing on stdout, the sentence on stderr, exit 0, as install/kosmos.
-  if (body == null) { ctx.out(fb.noReportWords(date)); return 0; }   // kosmos#8462: an answer, so stdout: PowerShell shows a native command's stderr as a red error record
+  // kosmos#8260, kosmos#8462: no report yet is an answer, not a failure: the sentence on stdout, exit 0, as install/kosmos
+  // (PowerShell shows the stderr of a native command as a red error record).
+  if (body == null) { ctx.out(fb.noReportWords(date)); return 0; }
   ctx.out(String(body).replace(/\n$/, ''));
   return 0;
 }
@@ -2889,11 +2890,13 @@ async function feedbackDay(ctx, args) {
 async function feedbackList(ctx) {
   const fb = ctx.engine('feedback');
   const days = fb.list();
+  // kosmos#8462, as install/kosmos: every answer on stdout (PowerShell shows stderr as a red error record): the dates,
+  // then a blank line and the kosmos#8340 note on whose reports these are; no day at all is said in a sentence.
+  if (!days.length) { ctx.out(fb.noReportsWords()); return 0; }
   for (const date of days) ctx.out(date);
-  // kosmos#8340, as install/kosmos: whose reports these are, and which hold this agent's own, on stderr.
   let note = null;
   try { note = fb.listNote(fb.writer(ctx.env), days); } catch { note = null; }
-  if (note) ctx.err(note);
+  if (note) ctx.out('\n' + note);
   return 0;
 }
 

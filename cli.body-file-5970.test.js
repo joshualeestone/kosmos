@@ -242,5 +242,5 @@ test('#5970: feedback write --body-file saves the file as the report; a refusal 
   assert.equal(r.code, 2, r.both);
   assert.match(r.both, /not both/);
   const l = await runBash(['feedback', 'list'], fbEnv(h2));
-  assert.equal(l.both.trim(), '', 'a refused write still created a report');
+  assert.doesNotMatch(l.both, /^\d{4}-\d{2}-\d{2}$/m, 'a refused write still created a report');   // kosmos#8462: an empty list now says so
 });

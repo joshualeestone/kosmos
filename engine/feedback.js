@@ -243,6 +243,8 @@ function frontmatterDate(raw) {
 
 /** kosmos#8260: what both CLIs say for a day with no report. */
 function noReportWords(date) { return 'No product-feedback report for ' + date + ' yet.'; }
+/* kosmos#8462: kosmos feedback list's answer when no day has a report (both CLIs, on stdout). */
+function noReportsWords() { return 'No product-feedback reports on this computer yet.'; }
 
 /** Just the body (frontmatter stripped), or null when there is no report. */
 function readBody(date) {
@@ -463,4 +465,4 @@ function listNote(from, days = list()) {
   if (!mine.length) return whose + ' None of them holds one of yours yet, so `kosmos feedback write --unchanged` has nothing to point back to: write a full report first.';
   return whose + ' ' + (mine.length === 1 ? '1 of them holds yours: ' + mine[0] : mine.length + ' of them hold yours, the newest ' + mine[0]) + '.';
 }
-module.exports = { daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
+module.exports = { noReportsWords, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };

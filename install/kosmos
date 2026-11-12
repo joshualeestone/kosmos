@@ -5902,9 +5902,9 @@ cmd_feedback() {
         const d = process.env.KOSMOS_FEEDBACK_DATE || fb.today();
         if (!fb.isDateKey(d)) { console.error("that date must be a real day, as YYYY-MM-DD"); process.exit(2); }
         const b = fb.readBody(d);
-        /* kosmos#8260: no report yet is an answer, not a failure: nothing on stdout (so a caller reading it gets no
-           report), the sentence on stderr, exit 0. Agents are told to check with this before writing. */
-        if (b == null) { console.log(fb.noReportWords(d)); process.exit(0); }   // kosmos#8462: an answer, so stdout (PowerShell shows the stderr of a native command as a red error)
+        /* kosmos#8260, kosmos#8462: no report yet is an answer, not a failure: the sentence on stdout, exit 0 (PowerShell
+           shows the stderr of a native command as a red error record). Agents are told to check with this before writing. */
+        if (b == null) { console.log(fb.noReportWords(d)); process.exit(0); }
         process.stdout.write(b);
       ' "$KOSMOS_HOME/app"
       exit $?
@@ -5926,11 +5926,14 @@ cmd_feedback() {
       "$NODE" -e '
         const fb = require(process.argv[1] + "/engine/feedback");
         const days = fb.list();
+        /* kosmos#8462: every answer on stdout (PowerShell shows the stderr of a native command as a red error record).
+           The dates first, one a line; then a blank line and the kosmos#8340 note on whose reports these are, so a
+           reader taking the dates stops at the blank line. No day at all is said in a sentence. */
+        if (!days.length) { process.stdout.write(fb.noReportsWords() + "\n"); process.exit(0); }
         for (const d of days) process.stdout.write(d + "\n");
-        /* kosmos#8340: whose reports these are, and which hold the ones this agent wrote, on stderr (the dates stay a plain list). */
         let note = null;
         try { note = fb.listNote(fb.writer(process.env), days); } catch { note = null; }
-        if (note) process.stderr.write(note + "\n");
+        if (note) process.stdout.write("\n" + note + "\n");
       ' "$KOSMOS_HOME/app"
       exit $?
       ;;
