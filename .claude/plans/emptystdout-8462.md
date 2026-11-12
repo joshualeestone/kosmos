@@ -10,6 +10,7 @@ Card: kosmos#8462 (from the 11-12 daily feedback, a Windows seat; given to Mona 
 - This reverses part of #8260, which put the sentence on stderr so "stdout carried nothing a caller would read as a report". Measured: nothing in the repo parses this command's stdout. Its callers are agents, told by engine/feedbacknudge.js and engine/roles.js to "check with kosmos feedback show", and they read the sentence.
 - Rejected: a distinct non-zero exit code (a shell and PowerShell read non-zero as failure, which #8260 fixed). Rejected: only the Windows CLI (the two CLIs would disagree).
 - Weakest premise: no script outside this repo uses "empty stdout" to mean "no report". If one does, it now reads the sentence as the report.
+- Same premise for `feedback list`: a script outside the repo reading it line by line now meets a blank line, the note and, with no reports, a sentence (`... | while read d; do kosmos feedback show "$d"; done` would show today's report for the blank line and be refused for the note). Nothing in the repo reads it.
 
 ## The card's sibling check
 Every stderr write in both CLIs (`>&2`, `console.error`, `process.stderr.write`, `ctx.err`) was read, not only the ones near an exit 0:
@@ -26,3 +27,4 @@ Every stderr write in both CLIs (`>&2`, `console.error`, `process.stderr.write`,
 ## Review ledger
 - R1 opus: 0 B, 1 W (feedback list's note: the same PowerShell red, and agents read it), 1 C (two comments said stderr), NITs (the sweep description; an empty list printed nothing). Fixed.
 - R2 sonnet: 0 B, 3 W (the Windows empty-list and note paths untested; the agent instructions read 'has a note', which a sentence on stdout could blur), 1 C (feedback.js comment said stderr), NITs. Fixed: Windows tests for both, feedbacknudge.js and roles.js now say 'if it prints a note for today, leave it; if it says there is no report yet, write one'.
+- R3 opus: 0 B/W/C. Converged. NITs left: a long role line, two weaker refused-write checks (the empty-list sentence is pinned elsewhere), a self-referential expected value, the list help line not describing its output, exit right after a short write (unchanged shape).
