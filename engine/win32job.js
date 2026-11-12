@@ -125,7 +125,7 @@ function setRunner(fn) {
   runFn = typeof fn === 'function' ? fn : null;
   TASK_SPEC_CACHE.clear();
   PRESENCE_MEMO.clear();
-  LAST_STATUS.clear();   // kosmos#8417: a stubbed task's Status word must not outlive the stub either
+  SWITCH_SEEN.clear();   // kosmos#8417: a stubbed task's switch must not outlive the stub either
   livenessFn = null; nowFn = null;
 }
 
@@ -862,9 +862,7 @@ function list() {
 }
 
 /* The rows `list` reads, one per agent task of THIS Kosmos: its name and the third CSV column, the task's Status word
-   ("Ready", "Running", "Disabled"). kosmos#8417: `switchedOffNames` below reads the status too, and both read this one
-   query, so they cannot parse the same row two ways. ⚠️ The status word is LOCALIZED, so nothing may read its MEANING;
-   `switchedOffNames` only compares it with the word the same task had last time. */
+   ("Ready", "Running", "Disabled"), localized. kosmos#8417: `switchedOffNames` reads the rows through this same parse. */
 function folderRows() {
   const r = run(['/Query', '/TN', TASK_FOLDER, '/FO', 'CSV', '/NH']);
   if (!r.ok) {
@@ -891,18 +889,14 @@ function folderRows() {
  * arm of `create.disabledJobsResult`, which had none: Windows fell into the launchctl arm, the call failed, and a
  * switched-off agent read as a plain stopped one.
  *
- * 🔑 THE ANSWER IS THE TASK'S OWN `<Settings><Enabled>` (via `cachedTaskSpec`, the #2717 cache), the locale-safe read
- * `taskEnabled` explains. 🔑 AND IT STAYS FRESH WITHOUT A SPAWN PER AGENT PER POLL: the board asks every five seconds,
- * so this costs the ONE folder query `list` already makes. A task switched off by hand in Task Scheduler busts no cache
- * (only Kosmos's own disable/enable do), but its Status word changes, so a task whose word differs from the one it had
- * last time (or that this process has not seen before) has its remembered definition forgotten and read again. The
- * word is compared, never interpreted, so a non-English Windows works the same.
+ * The answer is the task's own `<Settings><Enabled>`, read by `taskEnabled` (the locale-safe read). The board polls
+ * every five seconds, so the switch is remembered per task beside the Status word it was read under, and read again
+ * only when that word changes or the task is new to this process. The word is compared, never interpreted.
  *
- * Returns `{ known: true, names }` or `{ known: false }` when the folder could not be listed (could-not-look, never
- * "none switched off"). One agent whose definition could not be read is left out of `names`: this feeds a sentence,
- * and an unread task is not said to be off.
+ * Returns `{ known: true, names }`, or `{ known: false }` when the folder could not be listed. A task whose switch
+ * could not be read is left out of `names`, and is asked again when its Status word next changes.
  */
-const LAST_STATUS = new Map();   // task name -> the Status word the previous call saw
+const SWITCH_SEEN = new Map();   // task name -> { status, enabled } (enabled undefined: the switch could not be read)
 function switchedOffNames() {
   const rows = folderRows();
   if (!rows.known) return { known: false };
@@ -910,14 +904,17 @@ function switchedOffNames() {
   const seen = new Map();
   for (const row of rows.rows) {
     const tn = taskName(row.name);
-    if (LAST_STATUS.get(tn) !== row.status) forgetTaskSpec(row.name);
-    seen.set(tn, row.status);
-    const read = cachedTaskSpec(row.name);
-    if (read && read.known && read.registered && read.enabled === false) names.add(row.name);
+    let kept = SWITCH_SEEN.get(tn);
+    if (!kept || kept.status !== row.status) {
+      let en;
+      try { en = taskEnabled(row.name); } catch { en = null; }
+      kept = { status: row.status, enabled: (en && en.known && en.registered) ? en.enabled : undefined };
+    }
+    seen.set(tn, kept);
+    if (kept.enabled === false) names.add(row.name);
   }
-  // Rebuilt each call, so a removed task's word does not linger.
-  LAST_STATUS.clear();
-  for (const [tn, status] of seen) LAST_STATUS.set(tn, status);
+  SWITCH_SEEN.clear();
+  for (const [tn, kept] of seen) SWITCH_SEEN.set(tn, kept);
   return { known: true, names };
 }
 

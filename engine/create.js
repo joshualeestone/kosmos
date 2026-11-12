@@ -4315,11 +4315,11 @@ function disabledJobsResult(runner, platform) {   // #5445: platform injectable,
   // launchctl in a suite, never the operator's real one). Absent, it is the
   // module `run` -- every existing caller (disabledJobs) is unchanged.
   const r = (typeof runner === 'function') ? runner : run;
-  if (probePlatform(platform) === 'linux') return linuxDisabledJobsResult(r);
-  /* kosmos#8417: Windows has no launchctl, so it fell into the arm below, the call failed and a switched-off agent read
-     as a plain stopped one. Its Scheduled Task's own switch, read through win32job's seam (the injected `runner` is a
-     launchctl one, and no win32 caller passes one). */
-  if (probePlatform(platform) === 'win32') {
+  const plat = probePlatform(platform);
+  if (plat === 'linux') return linuxDisabledJobsResult(r);
+  /* kosmos#8417: Windows has no launchctl. Its Scheduled Task's own switch, read through win32job's seam; the injected
+     `runner` is a launchctl one and is not asked. */
+  if (plat === 'win32') {
     let res;
     try { res = require('./win32job').switchedOffNames(); } catch { return { ok: false }; }
     return res && res.known ? { ok: true, jobs: res.names } : { ok: false };

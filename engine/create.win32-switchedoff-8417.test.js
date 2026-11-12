@@ -69,7 +69,9 @@ function scheduler(tasks, opts) {
       if (o.xmlFails && o.xmlFails.has(tn)) return { ok: false, out: 'ERROR: Access is denied.' };
       const t = tasks[tn];
       if (!t) return NO_SUCH;
-      const xml = job.taskXml({ ...t.spec, enabled: !t.off }, XML_ENV);
+      let xml = job.taskXml({ ...t.spec, enabled: !t.off }, XML_ENV);
+      // `noArgs`: a definition whose argument line cannot be read (the spec half fails), its switch still readable.
+      if (t.noArgs) xml = xml.replace(/<Arguments>[\s\S]*?<\/Arguments>/, '');
       // `unreadable`: a switch that is neither true nor false, so the definition says nothing about it.
       return { ok: true, out: t.unreadable
         ? xml.replace(/<Settings>([\s\S]*?)<\/Settings>/, (m, inner) => '<Settings>' + inner.replace(/<Enabled>(?:true|false)<\/Enabled>/, '') + '<Enabled>maybe</Enabled></Settings>')
@@ -92,11 +94,14 @@ test('#8417 a switched-off task is in the set, a switched-on one is not, and lau
     'Kosmos\\agent-ava': { spec: taskFor('ava'), off: true },
     'Kosmos\\agent-bo': { spec: taskFor('bo') },
   });
-  const r = create.disabledJobsResult(undefined, 'win32');
+  let askedLaunchctl = 0;
+  const launchctl = () => { askedLaunchctl += 1; throw new Error('launchctl asked on Windows'); };
+  const r = create.disabledJobsResult(launchctl, 'win32');
   assert.equal(r.ok, true);
   assert.deepEqual([...r.jobs], ['ava']);
+  assert.equal(askedLaunchctl, 0, 'the launchctl runner is never asked on Windows');
   assert.deepEqual([...create.disabledJobs('win32')], ['ava'], 'the board poll reads the same set');
-  assert.ok(calls.every((a) => !String(a[0]).includes('launchctl')), 'no launchctl on Windows');
+  assert.ok(calls.some((a) => a[0] === '/Query' && a.includes('CSV')), 'CONTROL: the arm did ask Task Scheduler');
 });
 
 test('#8417 a folder that could not be listed is could-not-look, never "none switched off"', () => {
@@ -159,6 +164,34 @@ test('#8417 a definition whose switch could not be read is not said to be off', 
   scheduler({ 'Kosmos\\agent-ava': { spec: taskFor('ava'), off: true, unreadable: true } });
   assert.equal(job.cachedTaskSpec('ava').enabled, undefined, 'CONTROL: the fixture really is unreadable');
   assert.equal(create.disabledJobsResult(undefined, 'win32').jobs.size, 0);
+});
+
+test('#8417 the switch is read even when the argument line is not, and a failed read is not asked again every poll', () => {
+  const tasks = { 'Kosmos\\agent-ava': { spec: taskFor('ava'), off: true, noArgs: true } };
+  scheduler(tasks);
+  assert.equal(job.cachedTaskSpec('ava').known, false, 'CONTROL: the definition really cannot be read as a spec');
+  assert.deepEqual([...create.disabledJobsResult(undefined, 'win32').jobs], ['ava'], 'its switch still says off');
+
+  scheduler({ 'Kosmos\\agent-bo': { spec: taskFor('bo'), off: true } }, { xmlFails: new Set(['Kosmos\\agent-bo']) });
+  const again = scheduler({ 'Kosmos\\agent-bo': { spec: taskFor('bo'), off: true } }, { xmlFails: new Set(['Kosmos\\agent-bo']) });
+  create.disabledJobsResult(undefined, 'win32');
+  assert.equal(xmlReads(again).length, 1, 'first sight asks once');
+  again.length = 0;
+  create.disabledJobsResult(undefined, 'win32');
+  assert.deepEqual(xmlReads(again), [], 'an unchanged Status word is not asked again, even after a failed read');
+});
+
+test('#8417 a task that left the folder and came back is read again', () => {
+  const tasks = { 'Kosmos\\agent-ava': { spec: taskFor('ava') } };
+  const calls = scheduler(tasks);
+  create.disabledJobsResult(undefined, 'win32');
+  delete tasks['Kosmos\\agent-ava'];
+  tasks['Kosmos\\agent-bo'] = { spec: taskFor('bo') };
+  create.disabledJobsResult(undefined, 'win32');
+  tasks['Kosmos\\agent-ava'] = { spec: taskFor('ava'), off: true, status: 'Ready' };   // same word as before it left
+  calls.length = 0;
+  assert.deepEqual([...create.disabledJobsResult(undefined, 'win32').jobs], ['ava'], 'its new switch is read, not the remembered one');
+  assert.deepEqual(xmlReads(calls), ['Kosmos\\agent-ava']);
 });
 
 test('#8417 another Kosmos\'s task in the same folder is not this board\'s', () => {
