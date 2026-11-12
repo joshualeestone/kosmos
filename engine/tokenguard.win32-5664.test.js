@@ -131,6 +131,19 @@ test('what the agent\'s page is told: a board start on Windows records the guard
   assert.equal(setup.readGuardState({ dataRoot: store.ROOT }).pagecheck2.ok, false);
 });
 
+test('a line recorded before step A (the old refusal, a bare reason) is replaced at the next board start, not kept for good', { skip: NEEDS_WINDOWS }, () => {
+  const dir = agentDir('legacy');
+  const stateDir = path.join(store.ROOT, setup.GUARD_STATE_DIR);
+  fs.mkdirSync(stateDir, { recursive: true });
+  const old = 'on Windows this guard has not been shown to hold yet, so Kosmos does not claim it';
+  fs.writeFileSync(path.join(stateDir, 'legacy.json'), JSON.stringify({ ok: false, because: old, at: '2026-11-01T00:00:00.000Z' }));
+  setup.guardTokenOnlyFolder(dir, 'legacy', { ...DEPS, boardStart: true });
+  const line = setup.readGuardState({ dataRoot: store.ROOT }).legacy;
+  assert.equal(line.ok, false);
+  assert.doesNotMatch(line.because, /not been shown to hold/, 'the old refusal was kept as a launch part: ' + line.because);
+  assert.match(line.because, WIN_PATH);
+});
+
 test('a data folder reached through a junction is denied on its REAL path, not only on the junction', { skip: NEEDS_WINDOWS }, () => {
   const realBase = path.join(SANDBOX, 'realdata');
   fs.mkdirSync(path.join(realBase, 'Kosmos'), { recursive: true });

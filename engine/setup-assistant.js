@@ -430,11 +430,6 @@ function legacyWinEquivalent(rule) {
   if (!m) return null;
   return `Read(${ruleAbs(m[1], 'win32')}${m[2]})`;
 }
-/* #4752: on Windows every absolute rule is ALSO written in the older native spelling, beside the //c/ form Claude
-   Code's docs say it matches: these are deny rules, the new form is not measured on Windows here, and an extra deny
-   costs nothing (a new install then has the same belt-and-braces an older one keeps through migrateKept). The twin
-   is exactly what the writer before this change wrote, so migrateKept and finalDeny already treat it as the old form
-   of its rule. Pure, with the platform passed in. */
 /* #5664 step A: on Windows, Claude Code resolves junctions and 8.3 names on the path a tool touches, and a rule on a
    link's OWN path covers nothing (measured, 2.1.319). So for every Read or Edit rule whose literal part (before its first
    `*`) reaches a different real path, the same rule on the real path is added beside it. A real path the rules cannot
@@ -461,6 +456,9 @@ function withRealTwins(rules, platform = process.platform, real = realOrLeaf, to
     const rest = inner.slice(cut);
     const native = rulePath(literal.slice(2), 'win32');
     if (!native) continue;
+    // A share (\\host\...) is never resolved: that is a network lookup that can send this person's Windows credentials
+    // to the host it names (as readingsHoldGuide says). Its rule stays as written; shares are not measured (the card).
+    if (/^[\\/]{2}/.test(native)) continue;
     let to = cache.get(native);
     if (to === undefined) { try { to = String(real(native)); } catch { to = null; } cache.set(native, to); }
     if (to === null) { unsafe.push(`${native} (where it leads could not be worked out)`); continue; }
@@ -475,6 +473,11 @@ function withRealTwins(rules, platform = process.platform, real = realOrLeaf, to
   }
   return { rules: out, unsafe: [...new Set(unsafe)] };
 }
+/* #4752: on Windows every absolute rule is ALSO written in the older native spelling, beside the //c/ form Claude
+   Code's docs say it matches: these are deny rules, the new form is not measured on Windows here, and an extra deny
+   costs nothing (a new install then has the same belt-and-braces an older one keeps through migrateKept). The twin
+   is exactly what the writer before this change wrote, so migrateKept and finalDeny already treat it as the old form
+   of its rule. Pure, with the platform passed in. */
 function withNativeTwins(rules, platform = process.platform) {
   if (platform !== 'win32') return rules;
   const out = [];
@@ -2641,8 +2644,13 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
        any other such reason is kept whole as the launch part. */
     const bare = old && old.ok === false && !oldHasParts && old.because ? String(old.because) : null;
     const barePath = bare !== null && bare.startsWith(LAUNCH_PATH_REASON) ? bare.replace(/; the rest of the guard is in place$/, '') : null;
-    const pathReason = typeof prev.pathReason === 'string' ? prev.pathReason : barePath;
-    const launchReason = typeof prev.launchReason === 'string' ? prev.launchReason : (barePath === null ? bare : null);
+    /* #5664 step A: no Windows launch records a line (only the Mac and Linux supervisor runs the launch refresh), so on
+       Windows nothing kept is a launch's measurement and a board start is the authority on every part. Without this a
+       line from before step A (the old "not been shown to hold" refusal, a bare `because`) was kept as the launch part
+       at every board start, for good. */
+    const noLaunches = (deps.platform || process.platform) === 'win32';
+    const pathReason = noLaunches ? null : (typeof prev.pathReason === 'string' ? prev.pathReason : barePath);
+    const launchReason = noLaunches ? null : (typeof prev.launchReason === 'string' ? prev.launchReason : (barePath === null ? bare : null));
     // Review 21: a board start that reaches the same reason the launch recorded (another runner, Windows) adds nothing.
     const measured = r && !r.ok ? (hasParts ? r.otherReason || null : String(r.because || '') || null) : null;
     const nowOther = measured !== null && measured === launchReason ? null : measured;
