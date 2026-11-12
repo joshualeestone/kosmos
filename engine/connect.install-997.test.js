@@ -46,15 +46,20 @@ connect.setMuslLibsCheckForTests(() => false);   // #5419: nor the host's musl l
 const store = require('./store');
 
 function serveRelease(t, { version, binary, checksum }, opts = {}) {
+  /* kosmos#8378: download() asks for `claude.exe` on win32 (the vendor publishes the
+     Windows build under that name), and `claude` everywhere else. Serving only
+     `/claude` 404'd every win32 download, so even the CONTROL installs failed there.
+     The served name follows the host exactly as production does. */
+  const binUrl = `/${version}/${connect.platformKey()}/${process.platform === 'win32' ? 'claude.exe' : 'claude'}`;
   const paths = {
     '/latest': () => version,
     [`/${version}/manifest.json`]: () => JSON.stringify({
       platforms: { [connect.platformKey()]: { checksum } },
     }),
-    [`/${version}/${connect.platformKey()}/claude`]: () => binary,
+    [binUrl]: () => binary,
   };
   const server = http.createServer((req, res) => {
-    if (opts.dieMidStream && req.url === `/${version}/${connect.platformKey()}/claude`) {
+    if (opts.dieMidStream && req.url === binUrl) {
       // Promise a megabyte, deliver 64KB, then kill the socket. This is the only
       // way to leave a `.part` on disk for the catch-block sweep to act on: a
       // 404 never creates one, and a checksum refusal unlinks its own.
@@ -112,7 +117,13 @@ async function withRelease(t, over = {}, opts = {}) {
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE =
     await serveRelease(t, { version: '9.9.5', binary, checksum },
       { dieMidStream: opts.dieMidStream });
-  const binPath = nodePath.join(SANDBOX, `claude-bin-${crypto.randomBytes(4).toString('hex')}`);
+  /* kosmos#8378: on win32 runnability is the EXTENSION, not the exec bit
+     (runners.runnableExactly asks hasExecutableExt), so an extensionless stub never
+     reads as runnable there and every SUCCESS arm turned into the no-runnable-binary
+     failure. The vendor installer places `claude.exe` on Windows, so the stub does too.
+     The bytes are never executed (the runner is injected); only presence is asked. */
+  const binPath = nodePath.join(SANDBOX,
+    `claude-bin-${crypto.randomBytes(4).toString('hex')}${process.platform === 'win32' ? '.exe' : ''}`);
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = binPath;
   // setRunner BEFORE setDryRun: the module refuses to leave dry-run with no
   // injected runner, which is a guard worth keeping and worth ordering around.
