@@ -20,6 +20,9 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  setLinuxTimeoutForTests: 'test seam (kosmos#8384): engine/machine.js\'s time limit on its Linux reads (systemctl, loginctl, gsettings), which engine/machine.linux-8384.test.js shortens and resets to reach the hung-read path in milliseconds. Production keeps the default limit.',
+  __linuxRunForTests: 'test seam (kosmos#8384): engine/machine.js\'s one Linux command runner, so engine/machine.linux-8384.test.js can run it with a stand-in command and check its time limit and exit-code handling. Production reaches it through the Linux restart and sleep rows.',
+  __clearLinuxReadingsForTests: 'test seam (kosmos#8384): forgets engine/machine.js\'s kept Linux readings, so each case in engine/machine.linux-8384.test.js reads afresh. Production keeps them for their short lifetime.',
   setManagedSourcesForTest: 'test seam (#7742): engine/orgchartfile.js reads where Claude Code keeps managed settings from this, as those places need root, so engine/orgchartfile.test.js points it at a temp folder.',
   switchOff: '#7404 personalswitch-7404 (Baron): engine/personalbackup.js, turning a personal backup off; the personal backup screen calls it, pending the screens slice (behind KOSMOS_PERSONAL_BACKUP, off). If #7404 is abandoned it goes with it.',
   setUpPersonalKey: '#7404 step 3, end to end (Baron): engine/personalbackupkey.js, the personal backup setup screen calls it, pending that slice (board piece 3, behind KOSMOS_PERSONAL_BACKUP, off). If #7404 is abandoned it goes with it.',

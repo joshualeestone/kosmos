@@ -728,14 +728,15 @@ test('#2397 / #570: a platform with nothing true to say has the row omitted (nul
      a real substrate to read (the board's Scheduled Task, engine/win32board.js)
      and therefore a real row; the omission is for platforms where we still have
      nothing true to say. Its own rows are pinned in
-     engine/machine.win32-autostart-570.test.js. */
-  assert.equal(machine.boardAutostartCheck(okRunner, { platform: 'linux' }), null);
+     engine/machine.win32-autostart-570.test.js. kosmos#8384 gave Linux one too (its systemd unit and linger,
+     engine/machine.linux-8384.test.js), so the platform with nothing to say is now one Kosmos does not run on. */
+  assert.equal(machine.boardAutostartCheck(okRunner, { platform: 'freebsd' }), null);
   // And check() must filter a null row rather than render an empty one.
   const os2 = require('node:os');
   const p2 = require('node:path');
   const fs2 = require('node:fs');
   const empty = fs2.mkdtempSync(p2.join(os2.tmpdir(), 'kosmos-win-'));
-  const got2 = machine.check({ claudeBin: REAL_BIN, tmuxBin: REAL_BIN, runner: okRunner, appDirs: [empty, empty], platform: 'linux' });   // kosmos#8375: no pmset on Linux
+  const got2 = machine.check({ claudeBin: REAL_BIN, tmuxBin: REAL_BIN, runner: okRunner, appDirs: [empty, empty], platform: 'freebsd' });   // kosmos#8375/#8384: no pmset there
   fs2.rmSync(empty, { recursive: true, force: true });
   assert.ok(got2.checks.every((c) => c && c.key && c.state), 'a null row leaked into checks');
   assert.ok(!got2.checks.some((c) => c.key === 'autostart'), 'the autostart row rendered on a platform we cannot read');
@@ -1679,15 +1680,19 @@ test('kosmos#8375 Linux draws no launchd or sleep rows and asks no macOS tool', 
   const asked = [];
   const runner = (cmd, args) => { asked.push(cmd); return { ok: false, stdout: '', stderr: 'not found', code: 127 }; };
   const opts = { claudeBin: REAL_BIN, tmuxBin: REAL_BIN, appDirs: [empty, empty], runner };
-  let linux, mac;
+  let linux, mac, linuxAsked;
   try {
-    linux = machine.check({ ...opts, platform: 'linux' });
+    /* kosmos#8384: Linux now has its own restart row (here a from-source board, which says so) and a sleep row only
+       when a Linux setting was read; every Linux tool fails here, so there is none. */
+    linux = machine.check({ ...opts, platform: 'linux', linuxBoard: { unitFile: false, unitState: null, linger: undefined, installed: null } });
+    linuxAsked = asked.slice();
     // Control, same runner: on darwin the sleep and both launchd rows are drawn and pmset is asked.
     mac = machine.check({ ...opts, platform: 'darwin', installedRoot: null, disabled: { ok: true, jobs: [] } });
   } finally { fs2.rmSync(empty, { recursive: true, force: true }); }
-  assert.deepEqual(linux.checks.map((c) => c.key), ['installed'], 'linux keys');
+  assert.deepEqual(linux.checks.map((c) => c.key), ['installed', 'autostart'], 'linux keys');
   assert.equal(linux.unknown, 0, 'nothing Linux cannot read is counted as could-not-check');
   const macKeys = mac.checks.map((c) => c.key);
   assert.ok(['sleep', 'restart', 'labels'].every((k) => macKeys.includes(k)), 'control, darwin keys: ' + macKeys.join(','));
   assert.equal(asked.filter((c) => c === '/usr/bin/pmset').length, 1, 'only darwin asked pmset, not Linux');
+  assert.deepEqual(linuxAsked.filter((c) => /pmset|launchctl/.test(c)), [], 'Linux asked no macOS tool');
 });

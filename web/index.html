@@ -28371,7 +28371,9 @@ function machineRows(report) {
         + ' style="margin-top:10px;font-size:.875rem;padding:calc(.45em - 1px) calc(1em - 1px);">Open sleep settings</button>'
       : '')
     /* win32-board-copy (W-22): a command line is for an administrator, so it sits behind
-       a disclosure. Only the Windows autostart row carries admin (engine/machine.js). */
+       a disclosure. The Windows autostart row carries admin, and on Linux the autostart row's fixable arms
+       (linger off, switched off, masked) and the sleep row when logind's settings put it to sleep (kosmos#8384);
+       see engine/machine.js. */
     + (c.admin
       ? '<details class="fr-hatch"><summary>' + windowsCopy('adminDetailsSummary') + '</summary>'
         + '<p class="dhint" style="margin:6px 0 0;"><code>' + esc(c.admin) + '</code></p></details>'
