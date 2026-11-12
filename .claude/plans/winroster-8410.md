@@ -21,7 +21,7 @@ Found while writing the test: `create.runningJobs()` had no Windows arm. Windows
 ## Retracted (review 5): "an ordinary Stop leaves the state file behind"
 Review 4 said `schtasks /End` kills the supervisor before it clears its file, and I added a clear after /End. That was
 wrong for every current task: tasks run node under a headless conhost, /End kills only that host, and the supervisor's
-host watch (win32orphan, measured about 2 s) stops the agent and clears the file itself (win32supervisor handle.stop ->
+host watch (win32orphan polls its parent every 1 s, PARENT_POLL_MS; its header records node exiting about 2 s after /End) stops the agent and clears the file itself (win32supervisor handle.stop ->
 stream.stopped). The clear ran while the child was still alive, so it almost never did anything; it was removed rather
 than kept as code that only looks like it helps. Lesson for me: I took a reviewer's mechanism on trust without reading
 the module that describes /End.
@@ -34,7 +34,10 @@ supervisor to record its own pid: kosmos#8415.
 Review 2, also left to #8415: a pid reused within one boot when the file outlived its process (the supervisor itself
 crashed or was killed, so its own clear never ran), and
 Fast Startup (uptime counts from the last FULL boot, so the boot rule does not see a hibernated shutdown). Both err
-toward "could not check", the side #668 asks for. Telling the agent's own process from a stranger needs more than a
+toward "could not check" for a stopped agent, the side #668 asks for.
+Review 6: two cases leave a LIVE agent reading "Not running", as every Windows agent did before this branch: two failed
+state writes in a row (win32streamstate's flush clears the file rather than leave an older state), and a wall-clock
+step after boot. Both are for #8415's presence record, which would not depend on the state file. Telling the agent's own process from a stranger needs more than a
 pid, which the supervisor's own presence record can carry. Not done here, because it changes the Windows supervisor that runs on
 people's machines, and I have no Windows machine to watch it on.
 

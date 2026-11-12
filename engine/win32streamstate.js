@@ -600,11 +600,13 @@ function liveIdentity(name) {
  * (see win32job.runningSteps, which reads this same signal after a start). A file older than this boot is left out:
  * a reboot, a power cut or a killed process tree leaves the file behind, and Windows reuses pids quickly, so its pid
  * could name somebody else's process now.
- * ⚠️ LIMITS, BOTH ERRING TOWARD "COULD NOT CHECK", NEVER TOWARD A FALSE "NOT RUNNING" (review 2): a pid reused WITHIN
- * this boot (a task stopped by killing its tree leaves the file), and a Fast Startup shutdown, which hibernates the
+ * ⚠️ LIMITS. Two err toward "could not check" for a STOPPED agent: a pid reused within this boot after the file
+ * outlived its process (the supervisor itself crashed or was killed), and a Fast Startup shutdown, which hibernates the
  * kernel so uptime still counts from the last full boot. Telling the agent's own process from a stranger needs more
- * than a pid (kosmos#8415). A wall-clock step after boot can move the boot line later and leave out a live agent,
- * which reads "Not running" as before #8410. `opts.bootMs` and `opts.isAlive` are test seams. The file is named by the
+ * than a pid (kosmos#8415). Three leave a LIVE agent reading "Not running", as every Windows agent did before #8410:
+ * the between-children window above; two failed state writes in a row, after which the publisher clears the file
+ * rather than leave an older state on disk (flush below); and a wall-clock step after boot, which moves the boot line
+ * later. `opts.bootMs` and `opts.isAlive` are test seams. The file is named by the
  * agent's store key, which for a valid agent name is the name itself. Fail-soft to an empty set: "we could not look"
  * must never dress a stopped agent as running unseen.
  */
