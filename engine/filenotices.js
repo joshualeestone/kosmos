@@ -74,13 +74,12 @@ function fingerprint(file, expectDir = null) {
     /* Review 4: the folder is checked HERE, after the read and before the name is compared, so a link would have to be
        gone for this check and back for the lstat below, which one flip cannot do. */
     if (expectDir !== null && realDir(file) !== expectDir) return null;
-    /* Review 3: the name must still be the file that was opened. A folder swapped to a link for the moment of the open
-       and back again passes the folder checks; its outside file cannot have the inside name's device and inode (a file
-       with more than one link is refused above). */
+    /* Review 3: the name must still be the file that was opened, so a folder swapped to a link for just the moment of the
+       open and back again is caught. (The link count is checked at the open only; a hard link made after it, or a link
+       kept in place through this check, is part of the plan's stated residual.) */
     const now = fs.lstatSync(file);
     if (now.dev !== st.dev || now.ino !== st.ino) return null;
-    /* Review 5: "too large" only AFTER those checks, and with the file's identity, so not even a size is said about a
-       file that is not the one the notice is about. */
+    /* Review 5: "too large" only AFTER those checks, so not even a size is said about a file that failed them. */
     const id = { existed: true, dev: st.dev, ino: st.ino };
     if (st.size > SCALE_MAX_BYTES || got > SCALE_MAX_BYTES) return { ...id, tooLarge: true };
     const text = buf.subarray(0, got).toString('utf8');
@@ -97,11 +96,9 @@ function scaleOf(before, after) {
   if (!before || !after || !Array.isArray(before.lines)) return null;
   if (before.existed && !after.existed) return { gone: true };
   if (!before.existed && !after.existed) return { notMade: true };
-  /* Review 4: a file that existed at the notice must be the same file (device and inode) at the hand-over; an outside
-     file cannot share the inside one's inode, since a file with more than one link is never measured. An edit that
-     writes a new file and renames it over the old one is "replaced", and not counted. Checked before "too large" (review
-     5), so neither is said about another file. */
-  if (before.existed && after.existed && (before.dev !== after.dev || before.ino !== after.ino)) return { replaced: true };
+  /* Review 6: NO identity pin across the two reads. Claude Code's own Edit and Write save by writing a new file and
+     renaming it over the old one (measured: a new inode after each), so a pin made the common edit uncountable. Each
+     read is checked on its own instead (the folder, and the name against the file opened); see the plan's residual. */
   if (after.tooLarge) return { tooLarge: true };
   if (!Array.isArray(after.lines)) return null;
   const left = new Map();
@@ -120,7 +117,6 @@ function scaleWords(s) {
   if (!s) return '';
   if (s.gone) return ' So far: the file is gone.';
   if (s.notMade) return ' So far: the file has not been made yet.';
-  if (s.replaced) return ' So far: the file was replaced by a new one (written and renamed over it), so Kosmos did not count the change.';
   if (s.tooLarge) return ' So far: the file is now too large for Kosmos to count the change (over '
     + Math.round(SCALE_MAX_BYTES / 1024) + ' KB or ' + SCALE_MAX_LINES + ' lines).';
   if (s.created && !s.added) return ' So far: the file was made, empty.';
