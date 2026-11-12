@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: slowscroll-8442
-diff_hash: c9e97f27396d638e595fca60243c97cd07d9e78cbc23dd12da7b7a595371c19e
+diff_hash: d5a6cb2629cb8aaca167de1274cd34fece0bb05393bce6bfe730e59267705bdb
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-12T11:27:28Z
@@ -23,6 +23,13 @@ Built stacked on uiflake-8221 (PR #8443, the two touch the same function) and mo
 tests that read ios/ pass 91 of 91. On a simulator (iPhone 17e, iOS 27.0, the UIKit list, each test once, no retries):
 A11yFocusUITests 14 of 14 and A11yScrollUITests 12 of 12. The stalled scroll: both fixes on, pins 0, moved 387; the
 grace alone, graced true, moved 373; both off (the control), pins 14, moved 0, as CI run 42906709675's pins 8, moved 0.
+
+After the PR's first CI run: its "uikit list (sample board)" job failed on ui-sample.sh's class count alone (A11yScrollUITests
+ran 12 of an expected 7; 0 tests failed), so the count is now 12. That one shell line and its comment are the only
+change since the validated hash c9e97f27396d; bash -n passes and the tests that read ui-sample (2 of 2) pass, so the full
+validation carries forward for everything else. On that CI run the stalled checks reproduced the simulator's: both off,
+put back (pins 3, moved -47); the grace alone, graced true, moved 418; and the animated stalled scroll with the grace on
+reported graced true, the first time the grace was seen firing for an animated scroll.
 
 ### Per-Iteration Breakdown
 
