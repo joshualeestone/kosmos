@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: suppresence-8415
-diff_hash: a3512cbda8926c3050172f8cb8bdfa5a9a1e6a0a11a7f8ea9b49390f175252bc
+diff_hash: 06ea92d766cd82ad7abe58ab99e2e849a6ceb0c1190476348f7788cd04f18c04
 validation: passed (detached-validate.sh on 02528277a1, tree still: node 28607 tests, 28145 pass, 0 fail, 462 skipped; test:shell 4 shards all green; build no-op; "validation PASSED for stack=typescript hash=a3512cbda892", ended 21:06:21 CST)
 subdir_audit: passed
 timestamp: 2026-11-12T03:06:45Z
@@ -67,6 +67,9 @@ converged: false
 - [WARNING] the host-gone window (pipe up for about a second after the loop stops) was unstated --> FIXED (stated in the plan)
 - [NIT] fold liveNames' long comment --> DEFERRED (cap)
 - [NIT] a shared helper for start's older-record check and the reader's --> DEFERRED (cap; both use the same order today)
+
+### After the loop (disclosed)
+- PR #8426's first Windows run failed two tests in engine/win32presence-8415.test.js: a look at a pipe takes its free instance and the server reopens one only on its next loop turn, so a second look in the same tick, with reader and supervisor in ONE process, saw the pipe busy. The 200-look test, which yields between looks, passed in that run. Fix (test-only): one loop turn between looks. The full suite above ran on 02528277a1, before this test change; the change was not challenge-reviewed.
 
 ### Stated gaps
 - Real pipe behaviour (vanishing on death, a look opening a pipe instance, the connection error listener) is only exercised on CI's Windows runner; off Windows a unix socket stands in.
