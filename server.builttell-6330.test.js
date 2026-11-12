@@ -35,6 +35,7 @@ const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const fleet = require('./test-support/fleet');
 const sendertoken = require('./engine/sendertoken');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -575,7 +576,7 @@ function mac(args, extra = {}) {
   });
 }
 
-test('Mac `kosmos task built` prints who was told of the mark', async () => {
+test('Mac `kosmos task built` prints who was told of the mark', { skip: SKIP_POSIX_SHELL }, async () => {
   const n = tasks.create(projectId, { sentence: 'Write the release notes', who: 'mona' }).number;
   tasks.addPart(projectId, n, { sentence: 'Proofread them', who: 'zed' });
   const m = sendertoken.mint('mona');

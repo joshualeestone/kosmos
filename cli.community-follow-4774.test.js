@@ -17,6 +17,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'ef'.repeat(16);
 /* The CLI reads the board token from the data root. A fresh one here, so the live board's token never travels to a
    test stub (asserted below). */
@@ -62,7 +63,7 @@ function withStubBoard(fn, reply = { status: 200, body: { ok: true, text: 'You n
   });
 }
 
-test('#4774 sandbox: the CLI asks only the stub board, and no live board token reaches it', () => withStubBoard(async (port, seen) => {
+test('#4774 sandbox: the CLI asks only the stub board, and no live board token reaches it', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   assert.notEqual(port, 16180, 'the stub sits on the live board\'s default port');
   const out = await runCli(['community', 'follow', 'quill'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -71,7 +72,7 @@ test('#4774 sandbox: the CLI asks only the stub board, and no live board token r
   assert.equal(seen[0].headers['x-kosmos-board-token'], undefined, 'a board token from outside this test\'s data root was sent');
 }));
 
-test('#4774: follow sends POST /api/community/follow with {name}, the pane and the agent token, and prints the board\'s words', () => withStubBoard(async (port, seen) => {
+test('#4774: follow sends POST /api/community/follow with {name}, the pane and the agent token, and prints the board\'s words', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'follow', '  quill '], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -82,7 +83,7 @@ test('#4774: follow sends POST /api/community/follow with {name}, the pane and t
   assert.equal(out.stdout, '  You now follow quill.\n', 'the board\'s words did not arrive as sent');
 }));
 
-test('#4774: unfollow sends {name, unfollow: true}', () => withStubBoard(async (port, seen) => {
+test('#4774: unfollow sends {name, unfollow: true}', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'unfollow', 'Echo Two'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].url, '/api/community/follow');
@@ -90,19 +91,19 @@ test('#4774: unfollow sends {name, unfollow: true}', () => withStubBoard(async (
   assert.match(out.stdout, /You no longer follow Echo Two\./);
 }, { status: 200, body: { ok: true, text: 'You no longer follow Echo Two.' } }));
 
-test('#4774: a 400 from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
+test('#4774: a 400 from the board is said in its words and exits 1', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'follow', 'nobody'], envFor(port));
   assert.equal(out.code, 1);
   assert.equal(out.stdout, '  Nobody was followed: there is no agent named nobody in the community.\n');
 }, { status: 400, body: { error: 'there is no agent named nobody in the community' } }));
 
-test('#4774: a 502 from the board exits 1 with its words, on unfollow too', () => withStubBoard(async (port) => {
+test('#4774: a 502 from the board exits 1 with its words, on unfollow too', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'unfollow', 'quill'], envFor(port));
   assert.equal(out.code, 1);
   assert.equal(out.stdout, '  Nobody was unfollowed: the community could not be reached.\n');
 }, { status: 502, body: { error: 'the community could not be reached' } }));
 
-test('#4774 review 1: a 200 whose answer is not ok with words is not a follow, and exits 1', async () => {
+test('#4774 review 1: a 200 whose answer is not ok with words is not a follow, and exits 1', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const body of [{ ok: false, error: 'odd' }, { ok: true }, 'not json']) {
     await withStubBoard(async (port) => {
       const out = await runCli(['community', 'follow', 'quill'], envFor(port));
@@ -112,13 +113,13 @@ test('#4774 review 1: a 200 whose answer is not ok with words is not a follow, a
   }
 });
 
-test('#4774 review 1: every word after the verb is the name, joined by one space', () => withStubBoard(async (port, seen) => {
+test('#4774 review 1: every word after the verb is the name, joined by one space', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'follow', 'Echo', 'Two'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.deepEqual(seen[0].body, { name: 'Echo Two', from_pane: '%42' });
 }));
 
-test('#4774: no name exits 2 without asking the board', () => withStubBoard(async (port, seen) => {
+test('#4774: no name exits 2 without asking the board', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const args of [['community', 'follow'], ['community', 'unfollow'], ['community', 'follow', '   '], ['community', 'unfollow', ' ', '  ']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout);
@@ -127,7 +128,7 @@ test('#4774: no name exits 2 without asking the board', () => withStubBoard(asyn
   assert.equal(seen.length, 0, 'a refused call reached the board');
 }));
 
-test('#4774: read --following sends following=1 and prints the framed text', () => withStubBoard(async (port, seen) => {
+test('#4774: read --following sends following=1 and prints the framed text', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'read', '--following'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -137,7 +138,7 @@ test('#4774: read --following sends following=1 and prints the framed text', () 
   assert.equal(out.stdout, '=== framed ===\n');
 }, { status: 200, body: { ok: true, count: 0, text: '=== framed ===' } }));
 
-test('#4774: --following with --channel or --post exits 2 without asking the board', () => withStubBoard(async (port, seen) => {
+test('#4774: --following with --channel or --post exits 2 without asking the board', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const args of [['community', 'read', '--following', '--channel', 'general'], ['community', 'read', '--post', 'x', '--following']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout);
@@ -147,7 +148,7 @@ test('#4774: --following with --channel or --post exits 2 without asking the boa
 }));
 
 /* #4833 slice 2: --replies is the replies to the reader's own posts. */
-test('#4833: read --replies sends replies=1 with the agent token, and refuses to combine', () => withStubBoard(async (port, seen) => {
+test('#4833: read --replies sends replies=1 with the agent token, and refuses to combine', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'read', '--replies'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].url, '/api/community/read?soon=1&replies=1');

@@ -37,6 +37,7 @@ const tasks = require('./engine/tasks');
 const taskchat = require('./engine/taskchat');
 const cli = require('./tools/windows/kosmos-cli');
 const fleet = require('./test-support/fleet');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -139,7 +140,7 @@ function mac(args, port = server.address().port) {
   });
 }
 
-test('#5874 Mac: task activity prints the same lines as Windows', async () => {
+test('#5874 Mac: task activity prints the same lines as Windows', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await mac(['task', 'activity', projectId, String(num)]);
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(WORDS(r.out), WANT, r.out);
@@ -173,10 +174,11 @@ test('#6947: both commands say whether the person has viewed the task, and wheth
   const said = Date.parse(taskchat.read(projectId, t.number).filter((e) => e.kind === 'said').pop().at);
   taskseen.markSeen(projectId, t.number, new Date(said + 60000));
   assert.match(await lastLine(win), /^The person viewed this task at \d{4}-\d{2}-\d{2} \d{2}:\d{2}, after the latest message\.$/);
-  assert.equal(await lastLine(mac), await lastLine(win), 'the two commands said it differently');
+  // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+  if (!SKIP_POSIX_SHELL) assert.equal(await lastLine(mac), await lastLine(win), 'the two commands said it differently');
   taskseen.markSeen(projectId, t.number, new Date(said - 60000));
   assert.match(await lastLine(win), /, before the latest message\.$/);
-  assert.match(await lastLine(mac), /, before the latest message\.$/);
+  if (!SKIP_POSIX_SHELL) assert.match(await lastLine(mac), /, before the latest message\.$/);
 });
 
 test('#6947: against an older board that sends no seenByPerson field, neither command prints a viewed line', async () => {
@@ -200,10 +202,13 @@ test('#6947: against an older board that sends no seenByPerson field, neither co
     assert.equal(w.code, 0, w.err);
     assert.doesNotMatch(w.out, /The person (has not viewed|viewed this task at)/, 'Windows claimed a view state an older board did not give');
     assert.deepEqual(WORDS(w.out), WANT, 'CONTROL: the conversation itself still printed');
-    const m = await mac(['task', 'activity', projectId, String(num)], old.address().port);
-    assert.equal(m.code, 0, m.out);
-    assert.doesNotMatch(m.out, /The person (has not viewed|viewed this task at)/, 'Mac claimed a view state an older board did not give');
-    assert.deepEqual(WORDS(m.out), WANT, 'CONTROL: the conversation itself still printed (Mac)');
+    // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+    if (!SKIP_POSIX_SHELL) {
+      const m = await mac(['task', 'activity', projectId, String(num)], old.address().port);
+      assert.equal(m.code, 0, m.out);
+      assert.doesNotMatch(m.out, /The person (has not viewed|viewed this task at)/, 'Mac claimed a view state an older board did not give');
+      assert.deepEqual(WORDS(m.out), WANT, 'CONTROL: the conversation itself still printed (Mac)');
+    }
   } finally {
     old.close();
   }

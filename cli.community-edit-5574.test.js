@@ -19,6 +19,7 @@ const { execFile } = require('node:child_process');
 const { scaleBudget } = require('./test-support/eventually');   // #5727 Group C: scale the CLI kill budget by host load (floor 1 so CI is byte-identical)
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'ab'.repeat(16);
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-edit-5574-'));
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -74,7 +75,7 @@ function runCliIn(args, env, input) {
   });
 }
 
-test('#5574: edit sends POST /api/community/service-edit with {kind, id, body}, the pane and the agent token', () => withStubBoard(async (port, seen) => {
+test('#5574: edit sends POST /api/community/service-edit with {kind, id, body}, the pane and the agent token', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'edit', 'comment', ID, 'The', 'fixed', 'words.'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1, 'control: the stub did not see the request');
@@ -84,26 +85,26 @@ test('#5574: edit sends POST /api/community/service-edit with {kind, id, body}, 
   assert.equal(out.stdout, '  Changed on the community.\n');
 }, { status: 200, body: { ok: true, kind: 'comment', state: 'changed' } }));
 
-test('#5574: the new words can come on stdin, and a post can take --topic', () => withStubBoard(async (port, seen) => {
+test('#5574: the new words can come on stdin, and a post can take --topic', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCliIn(['community', 'edit', 'post', ID, '--topic', 'A better title'], envFor(port), 'Piped body.\n');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.deepEqual(seen[0].body, { kind: 'post', id: ID, body: 'Piped body.', topic: 'A better title', from_pane: '%42' });
   assert.equal(out.stdout, '  Changed before it was sent: the new words are what will go to the community.\n');
 }, { status: 200, body: { ok: true, kind: 'post', state: 'queued' } }));
 
-test('#5574: not confirmed (202) exits 3 and says so; a refusal exits 1 with the board\'s reason', () => withStubBoard(async (port) => {
+test('#5574: not confirmed (202) exits 3 and says so; a refusal exits 1 with the board\'s reason', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'edit', 'comment', ID, 'x'], envFor(port));
   assert.equal(out.code, 3, out.stdout + out.stderr);
   assert.equal(out.stdout, '  Not confirmed: The community did not answer, so the edit may or may not have been made; read it before editing again.\n');
 }, { status: 202, body: { maybe: true, error: 'The community did not answer, so the edit may or may not have been made; read it before editing again' } }));
 
-test('#5574: a refusal says nothing was changed', () => withStubBoard(async (port) => {
+test('#5574: a refusal says nothing was changed', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'edit', 'comment', ID, 'x'], envFor(port));
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.match(out.stdout, /^  Nothing was changed: Too late: it is more than 15 minutes/);
 }, { status: 400, body: { error: 'Too late: it is more than 15 minutes since this comment was sent, so it can no longer be edited (take it back and send it again if it matters)' } }));
 
-test('#5574: usage errors send nothing (bad kind, no id, --topic on a comment, no words)', () => withStubBoard(async (port, seen) => {
+test('#5574: usage errors send nothing (bad kind, no id, --topic on a comment, no words)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const args of [['community', 'edit', 'vote', ID, 'x'], ['community', 'edit', 'post'], ['community', 'edit', 'comment', ID, '--topic', 'T', 'x'], ['community', 'edit', 'comment', ID], ['community', 'edit', 'post', ID, '--topic', '   ', 'x']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);
@@ -111,7 +112,7 @@ test('#5574: usage errors send nothing (bad kind, no id, --topic on a comment, n
   assert.equal(seen.length, 0, 'a usage error must not reach the board');
 }, { status: 200, body: { ok: true, kind: 'post', state: 'changed' } }));
 
-test('#5574 review 2: a kept title is said', () => withStubBoard(async (port) => {
+test('#5574 review 2: a kept title is said', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'edit', 'post', ID, 'New', 'body.'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(out.stdout, '  Changed on the community. The title is unchanged; give --topic to change it.\n');

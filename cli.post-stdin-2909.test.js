@@ -21,6 +21,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-post-stdin-2909-'
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 /* #3628: the multi-MB cases escape megabytes through sed, which took 10 s at load 60 on
    agent1. Since #3628 a harness timeout FAILS the test (it used to read as exit 0), so
@@ -77,7 +78,7 @@ function withStubBoard(fn, reply) {
 
 const RICH = 'Run `echo PWNED` then check $HOME and "quotes" \\ backslash\n\n- one\n- two';
 
-test('#2909: kosmos post --stdin delivers backticks, $, quotes, backslashes and newlines verbatim', () => withStubBoard(async (port, seen) => {
+test('#2909: kosmos post --stdin delivers backticks, $, quotes, backslashes and newlines verbatim', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, RICH + '\n');
   assert.equal(out.code, 0, 'the post should succeed: ' + out.stdout + out.stderr);
@@ -87,7 +88,7 @@ test('#2909: kosmos post --stdin delivers backticks, $, quotes, backslashes and 
   assert.equal(Object.prototype.hasOwnProperty.call(seen[0], 'reply_expected'), false, '--stdin alone must not imply --no-reply');
 }));
 
-test('#2909 CONTROL: the same text as a double-quoted arg is mangled by the shell (the hazard --stdin exists for)', () => withStubBoard(async (port, seen) => {
+test('#2909 CONTROL: the same text as a double-quoted arg is mangled by the shell (the hazard --stdin exists for)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', HOME: '/home/control' };
   const out = await runShell(`"${CLI}" post proj "Run \`echo PWNED\` then check $HOME"`, env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -96,7 +97,7 @@ test('#2909 CONTROL: the same text as a double-quoted arg is mangled by the shel
     'the shell ran the backticks and expanded $HOME before Kosmos saw the text; if this ever arrives verbatim, the premise of --stdin changed');
 }));
 
-test('#2909: --stdin and --no-reply are leading flags in either order', () => withStubBoard(async (port, seen) => {
+test('#2909: --stdin and --no-reply are leading flags in either order', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const a = await runCli(['post', '--no-reply', '--stdin', 'proj'], env, 'ack one');
   const b = await runCli(['post', '--stdin', '--no-reply', 'proj'], env, 'ack two');
@@ -105,7 +106,7 @@ test('#2909: --stdin and --no-reply are leading flags in either order', () => wi
   assert.deepEqual(seen.map((s) => [s.project, s.text, s.reply_expected]), [['proj', 'ack one', false], ['proj', 'ack two', false]]);
 }));
 
-test('#2909: --stdin with text args, or with nothing piped in, is refused and posts nothing', () => withStubBoard(async (port, seen) => {
+test('#2909: --stdin with text args, or with nothing piped in, is refused and posts nothing', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const mixed = await runCli(['post', '--stdin', 'proj', 'also', 'args'], env, 'piped');
   assert.equal(mixed.code, 2, 'stdin AND args is ambiguous');
@@ -122,14 +123,14 @@ test('#2909: --stdin with text args, or with nothing piped in, is refused and po
   assert.equal(seen.length, 0, 'no refusal may reach the board');
 }));
 
-test('#2909: a CRLF pipe loses only its trailing line endings; inner CRs and tabs are kept, as on Windows', () => withStubBoard(async (port, seen) => {
+test('#2909: a CRLF pipe loses only its trailing line endings; inner CRs and tabs are kept, as on Windows', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, 'line one\r\n\tindented\r\n\r\n');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].text, 'line one\r\n\tindented', 'tab and inner CR survive; the trailing CR/LF run is removed');
 }));
 
-test('#2909: control characters (ESC colors) and a leading BOM are dropped, so the body stays valid JSON', () => withStubBoard(async (port, seen) => {
+test('#2909: control characters (ESC colors) and a leading BOM are dropped, so the body stays valid JSON', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, '\ufeff\u001b[31mred\u001b[0m done\u0007');
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -138,7 +139,7 @@ test('#2909: control characters (ESC colors) and a leading BOM are dropped, so t
   assert.equal(seen[0].text, '[31mred[0m done', 'ESC and BEL removed, BOM removed, printable text kept');
 }));
 
-test('#2909: a 2 MB piped body is sent to the board without hitting the argv limit (the stub has no text cap; the real room refuses long text with its own reason)', () => withStubBoard(async (port, seen) => {
+test('#2909: a 2 MB piped body is sent to the board without hitting the argv limit (the stub has no text cap; the real room refuses long text with its own reason)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const big = 'x'.repeat(2 * 1024 * 1024);
   const out = await runCli(['post', '--stdin', 'proj'], env, big, BIG_INPUT_TIMEOUT_MS);
@@ -147,7 +148,7 @@ test('#2909: a 2 MB piped body is sent to the board without hitting the argv lim
   assert.equal(seen[0].text.length, big.length);
 }));
 
-test('#2909: bytes that are not UTF-8 are posted (decoded by the board), not an abort', () => withStubBoard(async (port, seen) => {
+test('#2909: bytes that are not UTF-8 are posted (decoded by the board), not an abort', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
   assert.equal(out.code, 0, 'a Latin-1 byte must not kill the command: ' + out.stdout + out.stderr);
@@ -156,7 +157,7 @@ test('#2909: bytes that are not UTF-8 are posted (decoded by the board), not an 
   assert.equal(seen[0].text, 'caf\ufffd', 'the stray byte arrives as a replacement character, as on Windows');
 }));
 
-test('#2909: control-only input and a body over the board limit are refused and post nothing', () => withStubBoard(async (port, seen) => {
+test('#2909: control-only input and a body over the board limit are refused and post nothing', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const ctl = await runCli(['post', '--stdin', 'proj'], env, '\u001b\u0007\n');
   assert.equal(ctl.code, 2, 'nothing left after dropping control characters is nothing piped in');
@@ -173,7 +174,7 @@ test('#2909: control-only input and a body over the board limit are refused and 
   assert.equal(seen.length, 0);
 }));
 
-test('#2909: a long trailing run of CRLF lines is trimmed quickly (linear, not a per-character loop)', () => withStubBoard(async (port, seen) => {
+test('#2909: a long trailing run of CRLF lines is trimmed quickly (linear, not a per-character loop)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const t0 = Date.now();
   const out = await runCli(['post', '--stdin', 'proj'], env, 'c'.repeat(100) + '\r\n'.repeat(30000));
@@ -182,7 +183,7 @@ test('#2909: a long trailing run of CRLF lines is trimmed quickly (linear, not a
   assert.ok(Date.now() - t0 < 15000, 'a quadratic trim takes over a minute on this input');
 }));
 
-test('#2909: argument-mode posts also drop control characters now (same escaper), and keep tabs', () => withStubBoard(async (port, seen) => {
+test('#2909: argument-mode posts also drop control characters now (same escaper), and keep tabs', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', 'a\u001bb\tc'], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -246,7 +247,7 @@ test('#2909: --stdin at a terminal is refused at once instead of waiting on a si
   });
 })));
 
-test('#2909: with Kosmos not running, a piped message is read and kept in a file, not lost', async () => {
+test('#2909: with Kosmos not running, a piped message is read and kept in a file, not lost', { skip: SKIP_POSIX_SHELL }, async () => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: '1', TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, 'LIVE-PIPE-BODY');
   assert.equal(out.code, 1, out.stdout + out.stderr);
@@ -265,7 +266,7 @@ test('#2909: the post usage line is the same sentence in install/kosmos and the 
   assert.equal(bash[1].replace(/\\\$/g, '$'), require('./tools/windows/kosmos-cli').USAGE.post);
 });
 
-test('#2909: --stdin combines with --in-reply-to (#3224), in either order', () => withStubBoard(async (port, seen) => {
+test('#2909: --stdin combines with --in-reply-to (#3224), in either order', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const a = await runCli(['post', '--in-reply-to', 'm9', '--stdin', 'proj'], env, 'the `answer`\n');
   const b = await runCli(['post', '--stdin', '--in-reply-to=m10', 'proj'], env, 'another $one');
@@ -274,7 +275,7 @@ test('#2909: --stdin combines with --in-reply-to (#3224), in either order', () =
   assert.deepEqual(seen.map((s) => [s.project, s.text, s.in_reply_to]), [['proj', 'the `answer`', 'm9'], ['proj', 'another $one', 'm10']]);
 }));
 
-test('#2909: a --stdin after the project is refused instead of posting the word and dropping the pipe', () => withStubBoard(async (port, seen) => {
+test('#2909: a --stdin after the project is refused instead of posting the word and dropping the pipe', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', '--stdin'], env, 'the real message');
   assert.equal(out.code, 2, out.stdout + out.stderr);
@@ -282,7 +283,7 @@ test('#2909: a --stdin after the project is refused instead of posting the word 
   assert.equal(seen.length, 0);
 }));
 
-test('#2909: a post the board declines keeps a piped message in a file instead of dumping it', () => withStubBoard(async (port, seen) => {
+test('#2909: a post the board declines keeps a piped message in a file instead of dumping it', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, 'PIPED-BODY-2909');
   assert.equal(out.code, 1, out.stdout + out.stderr);
@@ -297,7 +298,7 @@ test('#2909: a post the board declines keeps a piped message in a file instead o
   assert.match(arg.stdout, /here it is to keep/, 'CONTROL: argument mode still echoes the text (#2710)');
 }, '{"delivery":{"state":"could_not","because":"there is no project by that name."}}'));
 
-test('#2909: a wrong-world post whose outbox keep fails still keeps the piped message', () => withStubBoard(async (port) => {
+test('#2909: a wrong-world post whose outbox keep fails still keeps the piped message', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_HOME: '/nonexistent-kosmos-home-2909' };
   const out = await runCli(['post', '--stdin', 'proj'], env, 'WRONG-WORLD-BODY');
   const saved = out.stdout.match(/saved at (\S+)/);
@@ -308,7 +309,7 @@ test('#2909: a wrong-world post whose outbox keep fails still keeps the piped me
   fs.rmSync(saved[1]);
 }, '{"wrongWorld":true,"world":"other"}'));
 
-test('#2909: a raw pipe over the board limit is refused at the read, not held whole or truncated', () => withStubBoard(async (port, seen) => {
+test('#2909: a raw pipe over the board limit is refused at the read, not held whole or truncated', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--stdin', 'proj'], env, 'z'.repeat(6 * 1024 * 1024 + 10), BIG_INPUT_TIMEOUT_MS);
   assert.equal(out.code, 2, out.stdout + out.stderr);
@@ -328,7 +329,7 @@ test('#2909: the dropped control-character range is one fact in both bash copies
   assert.ok(win.includes('/[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]/g'), 'the Windows CLI drops the same range (plus NUL, which bash $() drops on its own)');
 });
 
-test('#2909: an argument made only of control characters is refused, not posted empty', () => withStubBoard(async (port, seen) => {
+test('#2909: an argument made only of control characters is refused, not posted empty', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', '\u001b\u0007'], env);
   assert.equal(out.code, 2, out.stdout + out.stderr);
@@ -336,7 +337,7 @@ test('#2909: an argument made only of control characters is refused, not posted 
   assert.equal(seen.length, 0);
 }));
 
-test('#2909: a piped message with many embedded newlines is escaped quickly', () => withStubBoard(async (port, seen) => {
+test('#2909: a piped message with many embedded newlines is escaped quickly', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const body = 'line\n'.repeat(300000) + 'end';
   const t0 = Date.now();
@@ -346,7 +347,7 @@ test('#2909: a piped message with many embedded newlines is escaped quickly', ()
   assert.ok(Date.now() - t0 < 15000, 'the newline join is linear on 300k lines');
 }));
 
-test('#2909: without --stdin, piped input is ignored and the args are the message (unchanged behavior)', () => withStubBoard(async (port, seen) => {
+test('#2909: without --stdin, piped input is ignored and the args are the message (unchanged behavior)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', 'plain', 'words'], env, 'this must not be read');
   assert.equal(out.code, 0, out.stdout + out.stderr);

@@ -12,6 +12,7 @@ const os = require('node:os');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 // A sandboxed KOSMOS_HOME whose runtime/bin/node is this node, as cli.agent-create-3734.test.js does: the list's
 // formatter runs on the CLI's own runtime, and without one the CLI prints the raw answer.
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-hold-')));
@@ -65,7 +66,7 @@ async function withBoard(answer, fn) {
   try { return await fn(env, b.writes); } finally { await new Promise((r) => b.server.close(r)); }
 }
 
-test('#4771 Mac CLI: task hold / unhold POST {onHold} to the task\'s hold route and say what happened', async () => {
+test('#4771 Mac CLI: task hold / unhold POST {onHold} to the task\'s hold route and say what happened', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), ...(w.body.onHold ? { onHold: true } : {}) } }], async (env, writes) => {
     const on = await runCli(['task', 'hold', 'p1', '3'], env);
     assert.equal(on.code, 0, on.stdout + on.stderr);
@@ -77,7 +78,7 @@ test('#4771 Mac CLI: task hold / unhold POST {onHold} to the task\'s hold route 
   });
 });
 
-test('#4771 Mac CLI: a refused unhold says the board\'s reason and exits non-zero; a non-number is sent nowhere', async () => {
+test('#4771 Mac CLI: a refused unhold says the board\'s reason and exits non-zero; a non-number is sent nowhere', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard(() => [403, { error: 'the person put this task on hold, so only they can take it off, on the screen' }], async (env, writes) => {
     const r = await runCli(['task', 'unhold', 'p1', '3'], env);
     assert.notEqual(r.code, 0, 'a refusal exited 0');
@@ -88,7 +89,7 @@ test('#4771 Mac CLI: a refused unhold says the board\'s reason and exits non-zer
   });
 });
 
-test('#4771 Mac CLI: task list marks held work "[on hold]"; a plain task is the control', async () => {
+test('#4771 Mac CLI: task list marks held work "[on hold]"; a plain task is the control', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard(() => [500, {}], async (env) => {
     const r = await runCli(['task', 'list', 'p1'], env);
     assert.equal(r.code, 0, r.stdout + r.stderr);
@@ -100,7 +101,7 @@ test('#4771 Mac CLI: task list marks held work "[on hold]"; a plain task is the 
   });
 });
 
-test('#7749 Mac CLI: task hold --because sends the reason in either order; none means no write', async () => {
+test('#7749 Mac CLI: task hold --because sends the reason in either order; none means no write', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true } }], async (env, writes) => {
     const a = await runCli(['task', 'hold', 'p1', '3', '--because', 'waits on "legal"'], env);
     assert.equal(a.code, 0, a.stdout + a.stderr);
@@ -112,7 +113,7 @@ test('#7749 Mac CLI: task hold --because sends the reason in either order; none 
   });
 });
 
-test('#7788 Mac CLI: task hold --for-you sends forPerson anywhere after the number, and says so; never on unhold', async () => {
+test('#7788 Mac CLI: task hold --for-you sends forPerson anywhere after the number, and says so; never on unhold', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body && w.body.forPerson ? { onHoldForPerson: true } : {}) } }], async (env, writes) => {
     const a = await runCli(['task', 'hold', 'p1', '3', '--for-you', '--because', 'needs your yes'], env);
     assert.equal(a.code, 0, a.stdout + a.stderr);
@@ -127,7 +128,7 @@ test('#7788 Mac CLI: task hold --for-you sends forPerson anywhere after the numb
   });
 });
 
-test('#7180 Mac CLI: task hold --until-task / --until send the condition and say what it waits for; bad values are sent nowhere', async () => {
+test('#7180 Mac CLI: task hold --until-task / --until send the condition and say what it waits for; bad values are sent nowhere', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true } }], async (env, writes) => {
     const t = await runCli(['task', 'hold', 'p1', '3', '--until-task', '5'], env);
     assert.equal(t.code, 0, t.stdout + t.stderr);
@@ -145,7 +146,7 @@ test('#7180 Mac CLI: task hold --until-task / --until send the condition and say
   });
 });
 
-test('#7180 Mac CLI: task list says what a hold waits for', async () => {
+test('#7180 Mac CLI: task list says what a hold waits for', { skip: SKIP_POSIX_SHELL }, async () => {
   const b = board(() => [200, {}]);
   b.server.removeAllListeners('request');
   b.server.on('request', (req, res) => {
@@ -171,7 +172,7 @@ test('#7180 Mac CLI: task list says what a hold waits for', async () => {
   } finally { await new Promise((r) => b.server.close(r)); }
 });
 
-test('#7180 Mac CLI: each wrong hold shape gets its own message; the time said back is the board\'s stored one', async () => {
+test('#7180 Mac CLI: each wrong hold shape gets its own message; the time said back is the board\'s stored one', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body.until && w.body.until.at ? { onHoldUntil: { at: '2026-11-02T00:00:00.000Z' } } : {}) } }], async (env, writes) => {
     const noValue = await runCli(['task', 'hold', 'p1', '3', '--until-task'], env);
     assert.equal(noValue.code, 2);
@@ -192,7 +193,7 @@ test('#7180 Mac CLI: each wrong hold shape gets its own message; the time said b
   });
 });
 
-test('#7788 Mac CLI: a board that ignores --for-you (older) holds it, says it is not on the list, and exits 1', async () => {
+test('#7788 Mac CLI: a board that ignores --for-you (older) holds it, says it is not on the list, and exits 1', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true } }], async (env) => {
     const a = await runCli(['task', 'hold', 'p1', '3', '--for-you'], env);
     assert.equal(a.code, 1, a.stdout + a.stderr);
@@ -202,7 +203,7 @@ test('#7788 Mac CLI: a board that ignores --for-you (older) holds it, says it is
   });
 });
 
-test('#8395 Mac CLI: --suggest sends the suggested answer with --for-you, anywhere after the number, and says it was kept', async () => {
+test('#8395 Mac CLI: --suggest sends the suggested answer with --for-you, anywhere after the number, and says it was kept', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body && w.body.forPerson ? { onHoldForPerson: true } : {}),
     ...(w.body && typeof w.body.suggest === 'string' ? { onHoldSuggest: w.body.suggest } : {}) } }], async (env, writes) => {
     const a = await runCli(['task', 'hold', 'p1', '3', '--suggest', 'the lower one', '--for-you', '--because', 'which price'], env);
@@ -221,7 +222,7 @@ test('#8395 Mac CLI: --suggest sends the suggested answer with --for-you, anywhe
   });
 });
 
-test('#8395 Mac CLI: --suggest without --for-you, or with no words, is refused and sent nowhere', async () => {
+test('#8395 Mac CLI: --suggest without --for-you, or with no words, is refused and sent nowhere', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard(() => [200, { task: { number: 3, onHold: true } }], async (env, writes) => {
     const a = await runCli(['task', 'hold', 'p1', '3', '--suggest', 'yes'], env);
     assert.equal(a.code, 2, a.stdout + a.stderr);
@@ -235,7 +236,7 @@ test('#8395 Mac CLI: --suggest without --for-you, or with no words, is refused a
   });
 });
 
-test('#8395 Mac CLI: a board that ignores --suggest (older) holds it, says it was not kept, and exits 1', async () => {
+test('#8395 Mac CLI: a board that ignores --suggest (older) holds it, says it was not kept, and exits 1', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard(() => [200, { task: { number: 3, onHold: true, onHoldForPerson: true } }], async (env) => {
     const a = await runCli(['task', 'hold', 'p1', '3', '--for-you', '--suggest', 'yes'], env);
     assert.equal(a.code, 1, a.stdout + a.stderr);
@@ -244,7 +245,7 @@ test('#8395 Mac CLI: a board that ignores --suggest (older) holds it, says it wa
   });
 });
 
-test('#7788 review 2 Mac CLI: --for-you as the value of --because is the reason, not the switch', async () => {
+test('#7788 review 2 Mac CLI: --for-you as the value of --because is the reason, not the switch', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body && w.body.forPerson ? { onHoldForPerson: true } : {}) } }], async (env, writes) => {
     const a = await runCli(['task', 'hold', 'p1', '3', '--because', '--for-you'], env);
     assert.equal(a.code, 0, a.stdout + a.stderr);
@@ -255,7 +256,7 @@ test('#7788 review 2 Mac CLI: --for-you as the value of --because is the reason,
   });
 });
 
-test('#7797 Mac CLI: --not-for-you sends forPerson false, keeps the hold, and says it left the list; both switches refused', async () => {
+test('#7797 Mac CLI: --not-for-you sends forPerson false, keeps the hold, and says it left the list; both switches refused', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body && w.body.forPerson === true ? { onHoldForPerson: true } : {}) }, ...(w.body && w.body.forPerson === false ? { forPersonCleared: true } : {}) }], async (env, writes) => {
     const a = await runCli(['task', 'hold', 'p1', '3', '--not-for-you'], env);
     assert.equal(a.code, 0, a.stdout + a.stderr);
@@ -281,7 +282,7 @@ test('#7797 Mac CLI: --not-for-you sends forPerson false, keeps the hold, and sa
   });
 });
 
-test('#7797 review 1 Mac CLI: --not-for-you says the task stays on hold, never that it put it on hold; a refusal is said and exits 1', async () => {
+test('#7797 review 1 Mac CLI: --not-for-you says the task stays on hold, never that it put it on hold; a refusal is said and exits 1', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true }, forPersonCleared: true }], async (env) => {
     const a = await runCli(['task', 'hold', 'p1', '3', '--not-for-you'], env);
     assert.equal(a.code, 0, a.stdout + a.stderr);

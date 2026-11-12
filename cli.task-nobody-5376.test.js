@@ -35,6 +35,7 @@ const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const projects = require('./engine/projects');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -121,7 +122,7 @@ function mac(args, port = server.address().port) {
   });
 }
 
-test('Mac: no --who, the real board says nobody, and the line names the real number and how to choose', async () => {
+test('Mac: no --who, the real board says nobody, and the line names the real number and how to choose', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await mac(['task', 'add', projectId, 'Mac: nobody yet']);
   assert.equal(r.code, 0, r.out);
   const n = await numberOf('Mac: nobody yet');
@@ -134,7 +135,7 @@ test('Mac: no --who, the real board says nobody, and the line names the real num
   assert.doesNotMatch(owned.out, /Nobody has it/, 'CONTROL: a named owner gets no nobody line');
 });
 
-test('Mac: never says nobody for an unreadable name or an answer without a who; <task-number> with no number', async () => {
+test('Mac: never says nobody for an unreadable name or an answer without a who; <task-number> with no number', { skip: SKIP_POSIX_SHELL }, async () => {
   // A name with a backslash is not said (#4887), so _for is empty: that must not read as nobody.
   for (const body of ['{"task":{"number":5,"who":"a\\\\b"}}', '{"task":{"number":5}}']) {
     const srv = await fakeBoard(body);

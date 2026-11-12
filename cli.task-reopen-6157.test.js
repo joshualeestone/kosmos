@@ -39,6 +39,7 @@ const taskactphrase = require('./engine/taskactphrase');
 const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -91,6 +92,9 @@ function mac(args, agentToken = '') {
   });
 }
 const BOTH = [['Windows', win], ['Mac', mac]];
+/* kosmos#8378: on Windows the Mac CLI (install/kosmos) runs by its shebang line, which Windows cannot do, so the
+   tests that loop over both commands drive only the Windows CLI there. Everywhere else CLIS is BOTH. */
+const CLIS = BOTH.filter(([label]) => !(label === 'Mac' && SKIP_POSIX_SHELL));
 
 async function post(n, body, headers = {}) {
   const res = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/reopen`, {
@@ -101,7 +105,7 @@ async function post(n, body, headers = {}) {
 }
 
 test('#6157: an agent puts a done task back from either command; it keeps its number and history, and says who and why', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = doneTask('Ship the ' + label + ' build');
     const before = taskchat.read(projectId, n).length;
     const r = await run(['task', 'reopen', projectId, String(n), 'it', 'came', 'back'], token('mara'));
@@ -122,7 +126,7 @@ test('#6157: an agent puts a done task back from either command; it keeps its nu
 });
 
 test('#6157: with no reason, the line still names who put it back', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = doneTask('Plain ' + label);
     const r = await run(['task', 'reopen', projectId, String(n)], token('otto'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -137,7 +141,7 @@ test('#6157 review 1: a reason with quotes, backslashes, a newline, a tab and no
      read as a reopen with NO reason, while the CLI still says it worked. Newline and tab become spaces (as built's note). */
   const hard = 'she said "not done" \\ path C:\\x\nnext\tline, café ✓';
   const want = 'she said "not done" \\ path C:\\x next line, café ✓';
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = doneTask('Hard words ' + label);
     const r = await run(['task', 'reopen', projectId, String(n), hard], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -167,7 +171,7 @@ test('#6157 review 1: assigning a done task says how to put it back; a closed pa
 });
 
 test('#6157: bad forms stop before the board; -- lets a reason start with a dash', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = doneTask('Forms ' + label);
     for (const argv of [['task', 'reopen'], ['task', 'reopen', projectId], ['task', 'reopen', projectId, 'x7'], ['task', 'reopen', projectId, String(n), '--force']]) {
       const r = await run(argv, token('mara'));
@@ -181,7 +185,7 @@ test('#6157: bad forms stop before the board; -- lets a reason start with a dash
 });
 
 test('#6157: an agent that is not on the project cannot put its tasks back', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = doneTask('Not yours ' + label);
     const r = await run(['task', 'reopen', projectId, String(n), 'mine now'], token('kai'));
     assert.equal(r.code, 1, label + ': ' + r.text);

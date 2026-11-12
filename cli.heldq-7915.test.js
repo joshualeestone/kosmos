@@ -20,6 +20,7 @@ const realHook = require('./engine/kosmos-report-hook');
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-heldq-7915-'));
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const HEALTH = '<title>Kosmos</title>Agent Workforce';
 
 function runCli(args, env) {
@@ -52,7 +53,7 @@ function withBoard(fn) {
 const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
 const reportBodies = (hits) => hits.filter((h) => h.method === 'POST' && h.url.startsWith('/api/report')).map((h) => JSON.parse(h.body));
 
-test('#7915 Mac: --held sends held:true on a needs_you; without it held:false; elsewhere refused before any request', () =>
+test('#7915 Mac: --held sends held:true on a needs_you; without it held:false; elsewhere refused before any request', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port, hits) => {
     const held = await runCli(['report', 'needs_you', '--held', 'Which logo?'], envFor(port));
     assert.equal(held.code, 0, held.out);
@@ -82,7 +83,7 @@ test('#7915 Mac: --held sends held:true on a needs_you; without it held:false; e
     assert.equal(hits.length, 0, '--held --auto reached the board');
   }));
 
-test('#7915 Mac: the report usage names --held', async () => {
+test('#7915 Mac: the report usage names --held', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await runCli(['report'], { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: '9' });
   assert.match(r.out, /\[--held\]/);
   assert.match(r.out, /--held \(needs_you only\)/);

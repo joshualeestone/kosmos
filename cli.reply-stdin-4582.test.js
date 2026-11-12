@@ -18,6 +18,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const DATA = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-reply-stdin-')));
 test.after(() => fs.rmSync(DATA, { recursive: true, force: true }));
 
@@ -72,7 +73,7 @@ const envFor = (port) => ({ ...process.env, KOSMOS_PORT: String(port), TMUX_PANE
 const RICH = 'Run `echo PWNED` then check $HOME and "quotes" \\ backslash\n\n- one\n- two';
 const savedPath = (out) => { const m = out.match(/saved at (\S+)/); return m && m[1]; };
 
-test('#4582: kosmos reply --stdin keeps backticks, $, quotes and newlines as written', () => withStubBoard(async (port, seen) => {
+test('#4582: kosmos reply --stdin keeps backticks, $, quotes and newlines as written', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['reply', '--stdin'], envFor(port), RICH + '\n');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /Sent\. It is in their conversation with you/);
@@ -81,13 +82,13 @@ test('#4582: kosmos reply --stdin keeps backticks, $, quotes and newlines as wri
   assert.equal(seen[0].from_pane, '%42');
 }));
 
-test('#4582 CONTROL: without --stdin, reply takes its words from the args and never reads stdin', () => withStubBoard(async (port, seen) => {
+test('#4582 CONTROL: without --stdin, reply takes its words from the args and never reads stdin', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['reply', 'plain', 'words'], envFor(port), null, 8000);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].text, 'plain words');
 }));
 
-test('#4582: reply --stdin refusals send nothing (args too, trailing flag, empty pipe, no words)', () => withStubBoard(async (port, seen) => {
+test('#4582: reply --stdin refusals send nothing (args too, trailing flag, empty pipe, no words)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const mixed = await runCli(['reply', '--stdin', 'also'], envFor(port), 'x');
   assert.equal(mixed.code, 2);
   assert.match(mixed.stdout, /stdin OR as arguments/);
@@ -103,7 +104,7 @@ test('#4582: reply --stdin refusals send nothing (args too, trailing flag, empty
   assert.equal(seen.length, 0);
 }));
 
-test('#4582: a piped reply the board refuses (over 2000 characters) is kept in a private file', () => withStubBoard(async (port, seen) => {
+test('#4582: a piped reply the board refuses (over 2000 characters) is kept in a private file', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const long = 'L'.repeat(2500);
   const out = await runCli(['reply', '--stdin'], envFor(port), long);
   assert.equal(out.code, 1, out.stdout + out.stderr);
@@ -117,7 +118,7 @@ test('#4582: a piped reply the board refuses (over 2000 characters) is kept in a
   } finally { fs.rmSync(saved, { force: true }); }
 }, '{"error":"a reply is at most 2000 characters"}'));
 
-test('#4582: a piped reply that was not kept is saved, not lost', () => withStubBoard(async (port) => {
+test('#4582: a piped reply that was not kept is saved, not lost', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['reply', '--stdin'], envFor(port), 'NOT-KEPT-BODY');
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.match(out.stdout, /That was not kept: no conversation/);
@@ -126,7 +127,7 @@ test('#4582: a piped reply that was not kept is saved, not lost', () => withStub
   try { assert.equal(fs.readFileSync(saved, 'utf8'), 'NOT-KEPT-BODY'); } finally { fs.rmSync(saved, { force: true }); }
 }, '{"kept":false,"because":"no conversation"}'));
 
-test('#4582: with Kosmos not running, a piped reply is read and kept, not lost', async () => {
+test('#4582: with Kosmos not running, a piped reply is read and kept, not lost', { skip: SKIP_POSIX_SHELL }, async () => {
   const out = await runCli(['reply', '--stdin'], { ...process.env, KOSMOS_PORT: '1', TMUX_PANE: '%42', AGENT_WORKFORCE_DATA: DATA }, 'DOWN-BODY');
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.match(out.stdout, /Kosmos is not running/);
@@ -135,7 +136,7 @@ test('#4582: with Kosmos not running, a piped reply is read and kept, not lost',
   try { assert.equal(fs.readFileSync(saved, 'utf8'), 'DOWN-BODY'); } finally { fs.rmSync(saved, { force: true }); }
 });
 
-test('#4582: a reply that times out is a "maybe": exit 3, do not re-send, and no copy is saved', () => withStubBoard(async (port, seen) => {
+test('#4582: a reply that times out is a "maybe": exit 3, do not re-send, and no copy is saved', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['reply', '--stdin'], envFor(port), 'SLOW-BODY', 45000);
   assert.equal(out.code, 3, out.stdout + out.stderr);
   assert.match(out.stdout, /may have been kept/);
@@ -143,7 +144,7 @@ test('#4582: a reply that times out is a "maybe": exit 3, do not re-send, and no
   assert.equal(seen.length, 1, 'the board did receive it');
 }, null, 17000));
 
-test('#4582: a piped reply with bytes that are not UTF-8 is sent, not aborted', () => withStubBoard(async (port, seen) => {
+test('#4582: a piped reply with bytes that are not UTF-8 is sent, not aborted', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   // Pinned to a UTF-8 locale: that is where BSD sed/tr abort on a stray byte, so this test can fail.
   const out = await runCli(['reply', '--stdin'], { ...envFor(port), LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8' }, Buffer.from([0x63, 0x61, 0x66, 0xe9]));
   assert.equal(out.code, 0, 'a Latin-1 byte must not kill the reply escaper: ' + out.stdout + out.stderr);
@@ -151,14 +152,14 @@ test('#4582: a piped reply with bytes that are not UTF-8 is sent, not aborted', 
   assert.equal(seen[0].text, 'caf�');
 }));
 
-test('#4582: a 2 MB piped reply reaches the board (curl on stdin, not argv), which then judges it', () => withStubBoard(async (port, seen) => {
+test('#4582: a 2 MB piped reply reaches the board (curl on stdin, not argv), which then judges it', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const big = 'x'.repeat(2 * 1024 * 1024);
   const out = await runCli(['reply', '--stdin'], envFor(port), big, BIG_INPUT_TIMEOUT_MS);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].text.length, big.length);
 }));
 
-test('#4582: a wrong-world piped reply the outbox cannot keep is saved to a file', () => withStubBoard(async (port) => {
+test('#4582: a wrong-world piped reply the outbox cannot keep is saved to a file', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const env = { ...envFor(port), KOSMOS_HOME: '/nonexistent-kosmos-home-4582' };
   const out = await runCli(['reply', '--stdin'], env, 'WW-REPLY');
   assert.equal(out.code, 1, 'KOSMOS_HOME points nowhere, so the outbox cannot keep it: ' + out.stdout);

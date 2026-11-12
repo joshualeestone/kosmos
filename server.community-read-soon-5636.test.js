@@ -36,6 +36,7 @@ const communityread = require('./engine/communityread');
 const communitysend = require('./engine/communitysend');
 const readjobs = require('./engine/readjobs');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let board;
 test.before(async () => {
@@ -139,7 +140,7 @@ function mac(args, extra = {}) {
   });
 }
 
-test('#5636 F4, Mac: a slow read is asked for again until it arrives, and printed', async () => {
+test('#5636 F4, Mac: a slow read is asked for again until it arrives, and printed', { skip: SKIP_POSIX_SHELL }, async () => {
   slowService(500);
   const r = await mac(['community', 'read', '--channel', 'general']);
   assert.equal(r.code, 0, r.out);
@@ -147,7 +148,7 @@ test('#5636 F4, Mac: a slow read is asked for again until it arrives, and printe
   assert.equal(fetched, 1);
 });
 
-test('#5636 F4, Mac: a read still going after the last ask says so and to run it again, which then gets it', async () => {
+test('#5636 F4, Mac: a read still going after the last ask says so and to run it again, which then gets it', { skip: SKIP_POSIX_SHELL }, async () => {
   slowService(3000);
   const r = await mac(['community', 'read', '--channel', 'general'], { KOSMOS_READ_ASKS: '1' });
   assert.equal(r.code, 1, r.out);

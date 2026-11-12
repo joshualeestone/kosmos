@@ -37,6 +37,7 @@ const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 const chat = require('./engine/chat');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -80,6 +81,9 @@ function mac(args, agentToken = '', port = server.address().port) {
   });
 }
 const BOTH = [['Windows', win], ['Mac', mac]];
+/* kosmos#8378: on Windows the Mac CLI (install/kosmos) runs by its shebang line, which Windows cannot do, so the
+   tests that loop over both commands drive only the Windows CLI there. Everywhere else CLIS is BOTH. */
+const CLIS = BOTH.filter(([label]) => !(label === 'Mac' && SKIP_POSIX_SHELL));
 
 const said = (n) => taskchat.read(projectId, n).filter((x) => x.kind === 'said');
 const make = (label, who) => tasks.create(projectId, { sentence: 'Message to ' + label, ...(who ? { who } : {}) }).number;
@@ -91,7 +95,7 @@ const REACHED_OTTO = /(\bTold [^.]*\botto\b|Not told: otto \(we could not check 
 const post = (n, body, as = 'mara') => fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', ...(as ? { 'x-kosmos-agent-token': token(as) } : {}) }, body: JSON.stringify(body) });
 
 test('#7408: on a task nobody holds, either command says nobody was told and how to name someone', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = make('nobody ' + label);
     const r = await run(['task', 'message', projectId, String(n), 'a ruling'], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -102,7 +106,7 @@ test('#7408: on a task nobody holds, either command says nobody was told and how
 });
 
 test('#7408: --to tells a named agent on a task nobody holds, from either command', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = make('to ' + label);
     const r = await run(['task', 'message', projectId, String(n), '--to', 'otto', 'the', 'ruling'], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -115,7 +119,7 @@ test('#7408: --to tells a named agent on a task nobody holds, from either comman
 });
 
 test('#7408: --to an agent already assigned tells it once; the sender is never told', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = make('dup ' + label, 'otto');
     const r = await run(['task', 'message', projectId, String(n), '--to', 'otto', '--to', 'mara', 'once'], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -126,7 +130,7 @@ test('#7408: --to an agent already assigned tells it once; the sender is never t
 });
 
 test('#7408: --to an agent not on the project is refused and nothing is recorded', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = make('off ' + label);
     const r = await run(['task', 'message', projectId, String(n), '--to', 'kai', 'hello'], token('mara'));
     assert.equal(r.code, 1, label + ': ' + r.text);
@@ -136,7 +140,7 @@ test('#7408: --to an agent not on the project is refused and nothing is recorded
 });
 
 test('#7408: a malformed --to is refused before anything is sent; past -- it is words', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = make('bad ' + label);
     for (const argv of [['--to'], ['--to', '--', 'x'], ['--to=otto', 'x'], ['--to', 'ot"to', 'x'], ['--to', 'otto']]) {
       const r = await run(['task', 'message', projectId, String(n), ...argv], token('mara'));
@@ -170,7 +174,7 @@ test('#7408: the route refuses a to that is not a list of 1 to 10 names, before 
 });
 
 test('#7408: CONTROL, a message with no --to on an assigned task still tells the assignee only', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = make('ctl ' + label, 'otto');
     const r = await run(['task', 'message', projectId, String(n), 'plain'], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -196,7 +200,7 @@ test('#7408 review 1: the route delivers to a --to name once, also when it is as
 });
 
 test('#7408 review 1: a sender that names only itself on a task nobody holds hears that nobody is assigned', async () => {
-  for (const [label, run] of BOTH) {
+  for (const [label, run] of CLIS) {
     const n = make('self ' + label);
     const r = await run(['task', 'message', projectId, String(n), '--to', 'mara', 'me'], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
@@ -221,10 +225,11 @@ test('#7408 review 1: against an older board that ignores to, both commands say 
   try {
     const n = make('older');
     const argv = ['task', 'message', projectId, String(n), '--to', 'otto', 'ruling'];
-    const m = await mac(argv, token('mara'), old.address().port);
+    // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+    const m = SKIP_POSIX_SHELL ? null : await mac(argv, token('mara'), old.address().port);
     const out = []; const err = [];
     await cli.main(argv, { env: {}, url: obase, hook: { resolveUrl: () => obase, readBoardToken: () => null, agentToken: () => token('mara') }, out: (s) => out.push(s), err: (s) => err.push(s) });
-    for (const [label, text] of [['Mac', m.text], ['Windows', out.concat(err).join('\n')]]) {
+    for (const [label, text] of [...(m ? [['Mac', m.text]] : []), ['Windows', out.concat(err).join('\n')]]) {
       assert.match(text, /This Kosmos does not know --to yet, so the agents you named were told only if they are assigned to the task\./, label + ': ' + text);
       assert.doesNotMatch(text, /name it: --to/, label + ': never tells them to do what they did: ' + text);
     }

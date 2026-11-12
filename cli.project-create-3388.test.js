@@ -34,6 +34,7 @@ process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true 
 const run = promisify(execFile);
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 // reply: what POST /api/projects returns (status + JSON). Captured requests land
 // in `seen` as {url, method, body}.
@@ -81,7 +82,7 @@ async function cli(port, args) {
 
 const OK = { status: 200, json: '{"project":{"id":"my-project"},"told":[],"id":"my-project","agentsUnreadable":false}' };
 
-test('project create POSTs name + folder to /api/projects and reports the id', async () => {
+test('project create POSTs name + folder to /api/projects and reports the id', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStub(OK, async (port, seen) => {
     const { stdout, code } = await cli(port, ['project', 'create', 'My Project', '/tmp/mp', 'a demo']);
     assert.equal(seen.length, 1, 'the CLI did not POST to /api/projects');
@@ -96,7 +97,7 @@ test('project create POSTs name + folder to /api/projects and reports the id', a
   });
 });
 
-test('project create omits description when not given', async () => {
+test('project create omits description when not given', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStub(OK, async (port, seen) => {
     await cli(port, ['project', 'create', 'Nodesc', '/tmp/nd']);
     assert.equal(seen.length, 1);
@@ -105,7 +106,7 @@ test('project create omits description when not given', async () => {
   });
 });
 
-test('project create surfaces the board error and exits non-zero (the load-bearing control)', async () => {
+test('project create surfaces the board error and exits non-zero (the load-bearing control)', { skip: SKIP_POSIX_SHELL }, async () => {
   const ERR = { status: 429, json: '{"error":"agents have made 12 projects in the last hour, so Kosmos is pausing agent-made projects"}' };
   await withStub(ERR, async (port, seen) => {
     const { stdout, code } = await cli(port, ['project', 'create', 'Rate', '/tmp/r']);
@@ -116,7 +117,7 @@ test('project create surfaces the board error and exits non-zero (the load-beari
   });
 });
 
-test('project create with missing args prints usage, exits 2, and sends nothing', async () => {
+test('project create with missing args prints usage, exits 2, and sends nothing', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStub(OK, async (port, seen) => {
     const noArgs = await cli(port, ['project', 'create']);
     assert.equal(noArgs.code, 2, 'missing both args should exit 2');
@@ -127,7 +128,7 @@ test('project create with missing args prints usage, exits 2, and sends nothing'
   });
 });
 
-test('project (no subcommand) and an unknown subcommand print usage and exit 2', async () => {
+test('project (no subcommand) and an unknown subcommand print usage and exit 2', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStub(OK, async (port, seen) => {
     const bare = await cli(port, ['project']);
     assert.equal(bare.code, 2);

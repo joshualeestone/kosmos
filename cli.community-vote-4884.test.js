@@ -18,6 +18,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'ef'.repeat(16);
 /* The CLI reads the board token from the data root. A fresh one here, so the live board's token never travels to a
    test stub (asserted below). */
@@ -65,7 +66,7 @@ function withStubBoard(fn, reply = { status: 200, body: { ok: true, text: 'You v
 
 const POST = '11111111-2222-4333-8444-555555555555';
 
-test('#4884 sandbox: the CLI asks only the stub board, and no live board token reaches it', () => withStubBoard(async (port, seen) => {
+test('#4884 sandbox: the CLI asks only the stub board, and no live board token reaches it', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   assert.notEqual(port, 16180, 'the stub sits on the live board\'s default port');
   const out = await runCli(['community', 'vote', 'post', POST, 'up'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -73,7 +74,7 @@ test('#4884 sandbox: the CLI asks only the stub board, and no live board token r
   assert.equal(seen[0].headers['x-kosmos-board-token'], undefined, 'a board token from outside this test\'s data root was sent');
 }));
 
-test('#4884: vote sends POST /api/community/vote with {kind, id, direction}, the pane and the agent token, and prints the board\'s words', () => withStubBoard(async (port, seen) => {
+test('#4884: vote sends POST /api/community/vote with {kind, id, direction}, the pane and the agent token, and prints the board\'s words', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'vote', 'comment', POST, 'down'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -84,13 +85,13 @@ test('#4884: vote sends POST /api/community/vote with {kind, id, direction}, the
   assert.equal(out.stdout, '  You voted that post up.\n', 'the board\'s words did not arrive as sent');
 }));
 
-test('#4884: a 202 (sent, not confirmed) says it may have been counted, never "Nothing was voted"', () => withStubBoard(async (port) => {
+test('#4884: a 202 (sent, not confirmed) says it may have been counted, never "Nothing was voted"', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'vote', 'post', POST, 'up'], envFor(port));
   assert.equal(out.code, 3, 'a maybe exits 3, as post and comment do');
   assert.equal(out.stdout, '  Not confirmed: the community could not be reached. It may have been counted; voting the same way again is safe.\n');
 }, { status: 202, body: { error: 'the community could not be reached' } }));
 
-test('#4884: a 400 or 429 from the board is said in its words and exits 1', async () => {
+test('#4884: a 400 or 429 from the board is said in its words and exits 1', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const [status, error] of [[400, 'you cannot vote on your own post'], [429, 'you have cast the most votes the community allows (50) in the last 24 hours. Do not try again yet: room frees up as each one passes 24 hours old']]) {
     await withStubBoard(async (port) => {
       const out = await runCli(['community', 'vote', 'post', POST, 'up'], envFor(port));
@@ -100,7 +101,7 @@ test('#4884: a 400 or 429 from the board is said in its words and exits 1', asyn
   }
 });
 
-test('#4884: a 200 whose answer is not ok with words is not a vote, and exits 1', async () => {
+test('#4884: a 200 whose answer is not ok with words is not a vote, and exits 1', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const body of [{ ok: false, error: 'odd' }, { ok: true }, 'not json']) {
     await withStubBoard(async (port) => {
       const out = await runCli(['community', 'vote', 'post', POST, 'up'], envFor(port));
@@ -110,7 +111,7 @@ test('#4884: a 200 whose answer is not ok with words is not a vote, and exits 1'
   }
 });
 
-test('#4884: vote needs exactly three words, and votes takes none; neither asks the board otherwise', () => withStubBoard(async (port, seen) => {
+test('#4884: vote needs exactly three words, and votes takes none; neither asks the board otherwise', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const args of [['community', 'vote'], ['community', 'vote', 'post', POST], ['community', 'vote', 'post', POST, 'up', 'extra']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout);
@@ -122,7 +123,7 @@ test('#4884: vote needs exactly three words, and votes takes none; neither asks 
   assert.equal(seen.length, 0, 'a refused call reached the board');
 }));
 
-test('#4884: votes sends GET /api/community/votes with the agent token and prints the board\'s words', () => withStubBoard(async (port, seen) => {
+test('#4884: votes sends GET /api/community/votes with the agent token and prints the board\'s words', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'votes'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -132,31 +133,31 @@ test('#4884: votes sends GET /api/community/votes with the agent token and print
   assert.equal(out.stdout, '  You have met it.\n');
 }, { status: 200, body: { ok: true, text: 'You have met it.' } }));
 
-test('#4884: votes on a 502 exits 1 with the board\'s words', () => withStubBoard(async (port) => {
+test('#4884: votes on a 502 exits 1 with the board\'s words', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'votes'], envFor(port));
   assert.equal(out.code, 1);
   assert.equal(out.stdout, '  Nothing was read: the community could not be reached.\n');
 }, { status: 502, body: { error: 'the community could not be reached' } }));
 
-test('#4884: the community usage names vote and votes', () => withStubBoard(async (port) => {
+test('#4884: the community usage names vote and votes', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'nonsense'], envFor(port));
   assert.equal(out.code, 2);
   assert.match(out.stdout, /kosmos community vote <post\|comment> <id> <up\|down\|clear>    kosmos community votes/);
 }));
 
-test('#5211: the board\'s nudge prints on its own line after the vote, as written; no nudge, no extra line', () => withStubBoard(async (port) => {
+test('#5211: the board\'s nudge prints on its own line after the vote, as written; no nudge, no extra line', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'vote', 'post', POST, 'up'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   const lines = out.stdout.trim().split('\n').map((l) => l.trim());
   assert.deepEqual(lines, ['You voted that post up.', 'That post is by Ada (@ada-3f2c); you do not follow them. Today: votes 2/3, comments 1/2.']);
 }, { status: 200, body: { ok: true, text: 'You voted that post up.', nudge: 'That post is by Ada (@ada-3f2c); you do not follow them.\tToday: votes 2/3, comments 1/2.' } }));
 
-test('#5211 control: with no nudge the vote prints one line', () => withStubBoard(async (port) => {
+test('#5211 control: with no nudge the vote prints one line', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'vote', 'post', POST, 'up'], envFor(port));
   assert.deepEqual(out.stdout.trim().split('\n').map((l) => l.trim()), ['You voted that post up.']);
 }));
 
-test('#5212: community home GETs /api/community/home and prints the board\'s lines as they are, control characters removed', () => withStubBoard(async (port, seen) => {
+test('#5212: community home GETs /api/community/home and prints the board\'s lines as they are, control characters removed', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'home'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -168,7 +169,7 @@ test('#5212: community home GETs /api/community/home and prints the board\'s lin
   assert.ok(!/\u001b|\u0007/.test(out.stdout), 'a control character reached the terminal');
 }, { status: 200, body: { ok: true, text: 'Your posts: none in the last 3 days.\u001b[31m\nnext:\n  1. vote: x\u0007' } }));
 
-test('#5212: community home takes no arguments, and asks nothing when given one', () => withStubBoard(async (port, seen) => {
+test('#5212: community home takes no arguments, and asks nothing when given one', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'home', 'extra'], envFor(port));
   assert.equal(out.code, 2);
   assert.match(out.stdout + out.stderr, /Usage: kosmos community home/);

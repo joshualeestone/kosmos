@@ -26,6 +26,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-room-reopen-2710-
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const HEALTH = '<title>Kosmos</title>Agent Workforce';
 const VALVE_BECAUSE = 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.';
 
@@ -63,7 +64,7 @@ function withBoard(routes, fn) {
   });
 }
 
-test('#2710: a valve-refused post ends in ONE period and hands the agent its text back', () => {
+test('#2710: a valve-refused post ends in ONE period and hands the agent its text back', { skip: SKIP_POSIX_SHELL }, () => {
   const routes = { 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', because: VALVE_BECAUSE } } } };
   return withBoard(routes, async (port) => {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
@@ -79,7 +80,7 @@ test('#2710: a valve-refused post ends in ONE period and hands the agent its tex
 
 /* #4934: the loop guard's refusal says nothing was kept and not to send it another way (agents sent it by direct
    message too, then posted it again once the room opened, so people got it twice). */
-test('#4934: a loop-guard refusal (code room_held) says nothing was kept, not to send it another way, and hands the text back', () => {
+test('#4934: a loop-guard refusal (code room_held) says nothing was kept, not to send it another way, and hands the text back', { skip: SKIP_POSIX_SHELL }, () => {
   const routes = { 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE } } } };
   return withBoard(routes, async (port) => {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
@@ -93,7 +94,7 @@ test('#4934: a loop-guard refusal (code room_held) says nothing was kept, not to
   });
 });
 
-test('#6920 / #6925: a room_held refusal offers the one closing summary only when the board says it will take it', async () => {
+test('#6920 / #6925: a room_held refusal offers the one closing summary only when the board says it will take it', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const [extra, offered] of [[{ closingEligible: true }, true], [{ closingUsed: true }, false], [{}, false], ['spaced', true]]) {   // #6925: {} is an older board
     // 'spaced': the board's JSON with a space after the colon, which the CLI's match must still read
     const body = extra === 'spaced'
@@ -120,7 +121,7 @@ test('#6920 / #6925: a room_held refusal offers the one closing summary only whe
 
 /* #6420: the board says when the held room's limit lifts (clearsInMinutes); the CLI passes it on in place of
    "about an hour". The test above, with no such field (an older board), is the CONTROL that the old words stay. */
-test('#6420: a held room\'s refusal says when the limit lifts', () => {
+test('#6420: a held room\'s refusal says when the limit lifts', { skip: SKIP_POSIX_SHELL }, () => {
   const routes = { 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE, clearsAt: '2026-10-17T19:12:00.000Z', clearsInMinutes: 17 } } } };
   return withBoard(routes, async (port) => {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
@@ -131,7 +132,7 @@ test('#6420: a held room\'s refusal says when the limit lifts', () => {
   });
 });
 
-test('#6420: a clearsInMinutes that is not a whole number of minutes, 1 or more, keeps the old words', async () => {
+test('#6420: a clearsInMinutes that is not a whole number of minutes, 1 or more, keeps the old words', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const bad of ['0', '"17"', '017', '2.5', 'null', '60', '75']) {   // sixty or more: about an hour
     const routes = { 'POST /api/post': { code: 200, body: '{"delivery":{"state":"could_not","code":"room_held","because":"held","clearsInMinutes":' + bad + '}}' } };
     await withBoard(routes, async (port) => {
@@ -142,7 +143,7 @@ test('#6420: a clearsInMinutes that is not a whole number of minutes, 1 or more,
   }
 });
 
-test('#6420: one minute reads as a minute', () => {
+test('#6420: one minute reads as a minute', { skip: SKIP_POSIX_SHELL }, () => {
   const routes = { 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE, clearsInMinutes: 1 } } } };
   return withBoard(routes, async (port) => {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
@@ -153,7 +154,7 @@ test('#6420: one minute reads as a minute', () => {
 
 /* #6608: an agreement-only reply to a post that named one owner. The board sends `owner`; the CLI names them rather than
    saying the reply "only agreed with what was already said", which is untrue there. CONTROL: no owner, the old words. */
-test('#6608: an owner-named refusal (ack_only with owner) names the owner; without one the old words stay', async () => {
+test('#6608: an owner-named refusal (ack_only with owner) names the owner; without one the old words stay', { skip: SKIP_POSIX_SHELL }, async () => {
   const at = (owner) => ({ 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', code: 'ack_only', because: 'x', ...(owner ? { owner } : {}) } } } });
   await withBoard(at('Mara'), async (port) => {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
@@ -176,7 +177,7 @@ test('#6608: an owner-named refusal (ack_only with owner) names the owner; witho
   });
 });
 
-test('#2710: `kosmos room reopen <project>` clears a held room and says so', () => {
+test('#2710: `kosmos room reopen <project>` clears a held room and says so', { skip: SKIP_POSIX_SHELL }, () => {
   const routes = { 'POST /api/project/henderson/room/reopen': { code: 200, body: { ok: true, at: '2026-09-10T20:00:00.000Z' } } };
   return withBoard(routes, async (port) => {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
@@ -186,7 +187,7 @@ test('#2710: `kosmos room reopen <project>` clears a held room and says so', () 
   });
 });
 
-test('#2710: `kosmos room reopen` with no project prints usage and exits 2', () => {
+test('#2710: `kosmos room reopen` with no project prints usage and exits 2', { skip: SKIP_POSIX_SHELL }, () => {
   return withBoard({}, async (port) => {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
     const out = await runCli(['room', 'reopen'], env);
@@ -195,7 +196,7 @@ test('#2710: `kosmos room reopen` with no project prints usage and exits 2', () 
   });
 });
 
-test('#2710: reopen of an unknown project reports it and exits non-zero', () => {
+test('#2710: reopen of an unknown project reports it and exits non-zero', { skip: SKIP_POSIX_SHELL }, () => {
   const routes = { 'POST /api/project/nope/room/reopen': { code: 404, body: { ok: false, because: 'there is no project by that name' } } };
   return withBoard(routes, async (port) => {
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
@@ -207,7 +208,7 @@ test('#2710: reopen of an unknown project reports it and exits non-zero', () => 
 
 /* #6925: a post that went through a held room as this member's one summary says so, placed or unconfirmed; an ordinary
    post does not. One body is written with a space after the colon, the shape the CLI's match must still read. */
-test('#6925: the one-summary line on a landed closing post (compact and spaced JSON), not on an ordinary post', async () => {
+test('#6925: the one-summary line on a landed closing post (compact and spaced JSON), not on an ordinary post', { skip: SKIP_POSIX_SHELL }, async () => {
   const LINE = /This went through as your one summary while the room is held; anything more is not posted until the hold lifts\./;
   const cases = [
     ['{"delivery":{"state":"placed","closing":true}}', true],

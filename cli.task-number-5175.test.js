@@ -35,6 +35,7 @@ const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const projects = require('./engine/projects');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let base;
 let projectId;
@@ -115,7 +116,7 @@ function mac(args, port = server.address().port) {
   });
 }
 
-test('Mac `task add` says the number the board stored, and it counts up', async () => {
+test('Mac `task add` says the number the board stored, and it counts up', { skip: SKIP_POSIX_SHELL }, async () => {
   const a = await mac(['task', 'add', projectId, 'Mac: first']);
   assert.equal(a.code, 0, a.out);
   const na = await numberOf('Mac: first');
@@ -127,7 +128,7 @@ test('Mac `task add` says the number the board stored, and it counts up', async 
   assert.match(b.out, new RegExp(`Task ${nb} added to ${projectId}, for mara\\. See it with`));
 });
 
-test('Mac `task add` keeps the sentence without a number when the answer has none it can use', async () => {
+test('Mac `task add` keeps the sentence without a number when the answer has none it can use', { skip: SKIP_POSIX_SHELL }, async () => {
   // A number hidden in the sentence, a string, a zero, a fraction, an exponent: none is a whole task number.
   for (const body of ['{"task":{"sentence":"number\\":9"}}', '{"task":{"number":"7"}}', '{"task":{"number":0}}', '{"task":{"number":1.5}}', '{"task":{"number":12e3}}']) {
     const srv = await fakeBoard(body);
@@ -143,9 +144,12 @@ test('Mac `task add` keeps the sentence without a number when the answer has non
 test('both commands say the number when it is the task\'s last key too (the "}" ending)', async () => {
   const srv = await fakeBoard('{"task":{"number":12}}');
   try {
-    const m = await mac(['task', 'add', 'p1', 'x'], srv.address().port);
-    assert.equal(m.code, 0, m.out);
-    assert.match(m.out, /Task 12 added to p1\. See it with/);
+    // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+    if (!SKIP_POSIX_SHELL) {
+      const m = await mac(['task', 'add', 'p1', 'x'], srv.address().port);
+      assert.equal(m.code, 0, m.out);
+      assert.match(m.out, /Task 12 added to p1\. See it with/);
+    }
     const w = await win(['task', 'add', 'p1', 'x'], `http://127.0.0.1:${srv.address().port}`);
     assert.equal(w.code, 0, w.err);
     assert.match(w.out, /^Task 12 added to p1\. See it with/);

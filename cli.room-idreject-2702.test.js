@@ -28,6 +28,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-room-idreject-270
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const HEALTH = '<title>Kosmos</title>Agent Workforce';
 const BAD = 'qakosmos663!!!';
 const GOOD = 'qakosmos663';
@@ -70,7 +71,7 @@ function withBoard(fn) {
 
 const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' });
 
-test('#2702: `kosmos room <bad-id>` is REJECTED, not stripped to a real project', () =>
+test('#2702: `kosmos room <bad-id>` is REJECTED, not stripped to a real project', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port, hits) => {
     const out = await runCli(['room', BAD], envFor(port));
     assert.notEqual(out.code, 0, 'a garbled id must exit non-zero, not open a real room');
@@ -79,7 +80,7 @@ test('#2702: `kosmos room <bad-id>` is REJECTED, not stripped to a real project'
     assert.equal(hits.length, 0, 'the bad id must be rejected client-side and never reach the board');
   }));
 
-test('#2702: `kosmos room reopen <bad-id>` is REJECTED', () =>
+test('#2702: `kosmos room reopen <bad-id>` is REJECTED', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port, hits) => {
     const out = await runCli(['room', 'reopen', BAD], envFor(port));
     assert.notEqual(out.code, 0, 'reopen of a garbled id must exit non-zero');
@@ -87,7 +88,7 @@ test('#2702: `kosmos room reopen <bad-id>` is REJECTED', () =>
     assert.equal(hits.length, 0, 'reopen must not reach the board with a stripped id');
   }));
 
-test('#3035: `kosmos task list <bad-id>` is REJECTED (not read as an empty project)', () =>
+test('#3035: `kosmos task list <bad-id>` is REJECTED (not read as an empty project)', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port, hits) => {
     const out = await runCli(['task', 'list', BAD], envFor(port));
     assert.notEqual(out.code, 0, 'task list of a garbled id must exit non-zero');
@@ -95,7 +96,7 @@ test('#3035: `kosmos task list <bad-id>` is REJECTED (not read as an empty proje
     assert.equal(hits.length, 0, 'task must not reach the board with a stripped id');
   }));
 
-test('CONTROL: a VALID id passes the reject and reaches the board (no over-rejection)', () =>
+test('CONTROL: a VALID id passes the reject and reaches the board (no over-rejection)', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(async (port, hits) => {
     const out = await runCli(['room', GOOD], envFor(port));
     assert.equal(out.code, 0, 'a valid id must NOT be rejected');

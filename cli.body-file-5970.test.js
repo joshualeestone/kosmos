@@ -20,6 +20,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'ab'.repeat(16);
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-bodyfile-5970-'));
 const FILES = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-bodyfile-5970-files-'));
@@ -75,7 +76,7 @@ function withStubBoard(fn, reply = { status: 200, body: { ok: true, status: 'pub
 
 const WRITTEN = "Line one, with $HOME, `ticks` and it's an apostrophe.\nLine two: café.";
 
-test('#5970: community comment --body-file sends the file as written, before or after the post id, in both spellings', () => withStubBoard(async (port, seen) => {
+test('#5970: community comment --body-file sends the file as written, before or after the post id, in both spellings', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const p = file(WRITTEN + '\n');
   const a = await runCli(['community', 'comment', '--body-file', p, 'post-1'], envFor(port));
   assert.equal(a.code, 0, a.stdout + a.stderr);
@@ -92,13 +93,13 @@ test('#5970: community comment --body-file sends the file as written, before or 
   assert.equal(seen[2].body.serviceParentId, 'c-9');
 }));
 
-test('#5970: the file wins over stdin, which is not read', () => withStubBoard(async (port, seen) => {
+test('#5970: the file wins over stdin, which is not read', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'comment', 'post-1', '--body-file', file('From the file.')], envFor(port), 'From the pipe.');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].body.body, 'From the file.');
 }));
 
-test('#5970: a file is decoded by its byte order mark (UTF-8, UTF-16 LE, UTF-16 BE), and CRLF arrives as LF', () => withStubBoard(async (port, seen) => {
+test('#5970: a file is decoded by its byte order mark (UTF-8, UTF-16 LE, UTF-16 BE), and CRLF arrives as LF', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const crlf = WRITTEN.replace(/\n/g, '\r\n') + '\r\n';
   const le = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(crlf, 'utf16le')]);
   const be = Buffer.from(le); be.swap16(); be[0] = 0xfe; be[1] = 0xff;
@@ -110,7 +111,7 @@ test('#5970: a file is decoded by its byte order mark (UTF-8, UTF-16 LE, UTF-16 
   }
 }));
 
-test('#5970: community post, edit and endorse take --body-file too', () => withStubBoard(async (port, seen) => {
+test('#5970: community post, edit and endorse take --body-file too', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const p = file(WRITTEN);
   const post = await runCli(['community', 'post', '--channel', 'engineering', '--topic', 'A title', '--body-file', p], envFor(port));
   assert.equal(post.code, 0, post.stdout + post.stderr);
@@ -134,14 +135,14 @@ test('#5970: community post, edit and endorse take --body-file too', () => withS
   assert.deepEqual([seen[3].body.name, seen[3].body.stars, seen[3].body.text], ['Theo Nguyen', 5, WRITTEN]);
 }));
 
-test('#5970: a file at the cap is sent whole', () => withStubBoard(async (port, seen) => {
+test('#5970: a file at the cap is sent whole', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const text = 'x'.repeat(102400);
   const out = await runCli(['community', 'post', '--body-file', file(text)], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].body.body.length, text.length, 'the post did not arrive whole');
 }));
 
-test('#5970: past --, "--body-file" is words, not the flag', () => withStubBoard(async (port, seen) => {
+test('#5970: past --, "--body-file" is words, not the flag', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'comment', 'post-1', '--', '--body-file', 'is', 'a', 'flag'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].body.body, '--body-file is a flag');
@@ -154,7 +155,7 @@ test('#5970: past --, "--body-file" is words, not the flag', () => withStubBoard
   assert.equal(seen[1].body.text, '--body-file is neat', 'endorse sent the -- as review text, or took the flag');
 }));
 
-test('#5970: every refusal exits 2, names the problem, and sends nothing', () => withStubBoard(async (port, seen) => {
+test('#5970: every refusal exits 2, names the problem, and sends nothing', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const good = file('Fine words.');
   const big = path.join(FILES, 'big.txt');
   fs.writeFileSync(big, '');

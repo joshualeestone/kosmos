@@ -19,6 +19,7 @@ const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-pr
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 const fw = require('./engine/filewriters');
 const { renderWho } = require('./engine/filewhoview');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 test.after(() => { fs.rmSync(DATA, { recursive: true, force: true }); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 /* A real answer: a record, then the edit landing. */
@@ -86,7 +87,7 @@ test('kosmos#7989 slice 2: CONTROL, the answer names the last agent seen and the
   assert.equal(ANSWER.lastChange, 'seen');
 });
 
-test('kosmos#7989 slice 2: kosmos project who <absolute path> GETs the route with the path encoded and prints renderWho', () => withStub(async (env, seen) => {
+test('kosmos#7989 slice 2: kosmos project who <absolute path> GETs the route with the path encoded and prints renderWho', { skip: SKIP_POSIX_SHELL }, () => withStub(async (env, seen) => {
   const out = await runCli(['project', 'who', FILE], env);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1, 'not exactly one board call: ' + JSON.stringify(seen));
@@ -97,13 +98,13 @@ test('kosmos#7989 slice 2: kosmos project who <absolute path> GETs the route wit
   assert.equal(out.stdout, renderWho(ANSWER).join('\n') + '\n');
 }));
 
-test('kosmos#7989 slice 2: a relative path is read from where the command runs', () => withStub(async (env, seen) => {
+test('kosmos#7989 slice 2: a relative path is read from where the command runs', { skip: SKIP_POSIX_SHELL }, () => withStub(async (env, seen) => {
   const out = await runCli(['project', 'who', path.join('my notes', 'plan & next.md')], env, FOLDER);
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(path.resolve(new URL(seen[0].url, 'http://x').searchParams.get('path')), FILE);
 }));
 
-test('kosmos#7989 slice 2: outside every project exits 1 with the renderer\'s words; an unreadable answer exits 1', () => withStub(async (env) => {
+test('kosmos#7989 slice 2: outside every project exits 1 with the renderer\'s words; an unreadable answer exits 1', { skip: SKIP_POSIX_SHELL }, () => withStub(async (env) => {
   const out = await runCli(['project', 'who', '/etc/hosts'], env);
   assert.equal(out.code, 1);
   assert.equal(out.stdout, renderWho({ ok: false, because: 'outside' }).join('\n') + '\n');
@@ -129,7 +130,7 @@ test('kosmos#7989 slice 2: outside every project exits 1 with the renderer\'s wo
   assert.match(refused.stdout, /could not read who changes that file: that request came from another website/);
 }));
 
-test('kosmos#7989 slice 2: no file, two files, or an option is a usage error, before the board is asked', () => withStub(async (env, seen) => {
+test('kosmos#7989 slice 2: no file, two files, or an option is a usage error, before the board is asked', { skip: SKIP_POSIX_SHELL }, () => withStub(async (env, seen) => {
   for (const args of [['project', 'who'], ['project', 'who', 'a', 'b'], ['project', 'who', '--json'], ['project', 'who', '-x']]) {
     const out = await runCli(args, env);
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);

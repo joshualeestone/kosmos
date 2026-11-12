@@ -39,6 +39,7 @@ const tasks = require('./engine/tasks');
 const tasklist = require('./engine/tasklist');
 const sendertoken = require('./engine/sendertoken');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 let A; let B; let C; let D;
 const N = {};
@@ -169,19 +170,22 @@ function mac(args, who) {
   });
 }
 test('Mac: the same forms print the same lines as Windows; without an agent token it refuses before asking', async () => {
-  for (const args of [['--mine'], ['--all', '--mine']]) {
-    const r = await mac(['task', 'list', ...args], 'otto');
-    assert.equal(r.code, 0, r.out);
-    assert.deepEqual(r.out.trimEnd().split('\n'), [A + '  #' + N['a-otto'] + '  open  otto  Task a-otto', C + '  #' + N['c-otto'] + '  open  otto  Task c-otto', '2 open tasks of yours across 2 projects.'], args.join(' '));
+  // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+  if (!SKIP_POSIX_SHELL) {
+    for (const args of [['--mine'], ['--all', '--mine']]) {
+      const r = await mac(['task', 'list', ...args], 'otto');
+      assert.equal(r.code, 0, r.out);
+      assert.deepEqual(r.out.trimEnd().split('\n'), [A + '  #' + N['a-otto'] + '  open  otto  Task a-otto', C + '  #' + N['c-otto'] + '  open  otto  Task c-otto', '2 open tasks of yours across 2 projects.'], args.join(' '));
+    }
+    const stale = await mac(['task', 'list', '--mine', '--stale', '3'], 'mara');
+    assert.equal(stale.code, 0, stale.out);
+    assert.deepEqual(stale.out.trimEnd().split('\n'), ['No open task of yours has been quiet for 3 days or more.']);
+    const none = await mac(['task', 'list', '--mine'], null);
+    assert.equal(none.code, 2, none.out);
+    assert.match(none.out, /needs an agent's token/);
+    const help = await mac(['task', 'help'], null);
+    assert.match(help.out, /kosmos task list --mine/, 'the help names --mine');
   }
-  const stale = await mac(['task', 'list', '--mine', '--stale', '3'], 'mara');
-  assert.equal(stale.code, 0, stale.out);
-  assert.deepEqual(stale.out.trimEnd().split('\n'), ['No open task of yours has been quiet for 3 days or more.']);
-  const none = await mac(['task', 'list', '--mine'], null);
-  assert.equal(none.code, 2, none.out);
-  assert.match(none.out, /needs an agent's token/);
-  const help = await mac(['task', 'help'], null);
-  assert.match(help.out, /kosmos task list --mine/, 'the help names --mine');
   const winHelp = await win(['task', 'help'], null);
   assert.match(winHelp.out.join('\n') + winHelp.err, /kosmos task list --mine/, 'the Windows help names --mine too');
 });

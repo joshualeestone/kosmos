@@ -20,6 +20,8 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-comment
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
+const SKIP_POSIX_BASH = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos through /bin/bash by an absolute POSIX path, which Windows cannot run');   // kosmos#8378
 const TOKEN = 'cd'.repeat(16);
 const POST = '1b2c3d4e-0000-4000-8000-000000000001';
 const envFor = (port, extra = {}) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN, ...extra });
@@ -60,7 +62,7 @@ function withStubBoard(fn, reply = { status: 200, body: { ok: true, status: 'hel
   });
 }
 
-test('#4373 B: comment sends the post id and the text as written, with the agent token, and a held answer says held for the person', () => withStubBoard(async (port, seen) => {
+test('#4373 B: comment sends the post id and the text as written, with the agent token, and a held answer says held for the person', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const text = 'Tuesdays "work" for us $HOME `too`';
   const out = await runCli(['community', 'comment', POST, text], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -76,58 +78,58 @@ test('#4373 B: comment sends the post id and the text as written, with the agent
   assert.doesNotMatch(out.stdout, /until your person releases/);
 }));
 
-test('#4373 B: a comment piped in on stdin arrives too', () => withStubBoard(async (port, seen) => {
+test('#4373 B: a comment piped in on stdin arrives too', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'comment', POST], envFor(port), 'line one\nline two\n');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].body.body, 'line one\nline two');
 }));
 
-test('#4373 B: a published comment says it goes on the next pass', () => withStubBoard(async (port) => {
+test('#4373 B: a published comment says it goes on the next pass', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
   assert.match(out.stdout, /^ *Comment queued: Kosmos sends it to the community shortly\. Check whether it has gone out with: kosmos community status$/m);   // #4939
   assert.doesNotMatch(out.stdout, /held|until your person releases/, 'a published comment was described as held');
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true } }));
 
-test('#4373 B review 3: published while Community is off, it says it will not go', () => withStubBoard(async (port) => {
+test('#4373 B review 3: published while Community is off, it says it will not go', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
   assert.match(out.stdout, /not sending to the community right now, so it will not go/);
   assert.doesNotMatch(out.stdout, /sends it to the community shortly/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: false } }));
-test('#5435: a published comment that will not go prints the board\'s reason, on one line', () => withStubBoard(async (port) => {
+test('#5435: a published comment that will not go prints the board\'s reason, on one line', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
   assert.match(out.stdout, /Commented, but the community has refused this agent, so it will not go\./);
   assert.doesNotMatch(out.stdout, /not sending to the community right now/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'c2', sends: false, notSending: 'Commented, but the community has refused\nthis agent, so it will not go.' } }));
 
-test('#4373 B: a refusal from the board is said in its words and exits 1', () => withStubBoard(async (port) => {
+test('#4373 B: a refusal from the board is said in its words and exits 1', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'x'], envFor(port));
   assert.equal(out.code, 1);
   assert.match(out.stdout, /That comment was not sent: a community comment can be at most 2000 characters/);
 }, { status: 400, body: { error: 'a community comment can be at most 2000 characters' } }));
 
-test('#4373 B review (merge): a 500 may come after the board stored it, so it is a maybe (exit 3), not "not sent"', () => withStubBoard(async (port) => {
+test('#4373 B review (merge): a 500 may come after the board stored it, so it is a maybe (exit 3), not "not sent"', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'x'], envFor(port));
   assert.equal(out.code, 3, out.stdout + out.stderr);
   assert.match(out.stdout, /may have been taken, so do not send it again/);
   assert.doesNotMatch(out.stdout, /That comment was not sent/);
 }, { status: 500, body: { error: 'we could not submit that comment' } }));
 
-test('#4373 B review (merge): a 200 whose status cannot be read is a maybe too', () => withStubBoard(async (port) => {
+test('#4373 B review (merge): a 200 whose status cannot be read is a maybe too', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'x'], envFor(port));
   assert.equal(out.code, 3, out.stdout + out.stderr);
   assert.match(out.stdout, /may have been taken/);
 }, { status: 200, body: { ok: true } }));
 
-test('#4373 B review (merge): CONTROL: a 503 comes before the store, so it is still "not sent" (exit 1)', () => withStubBoard(async (port) => {
+test('#4373 B review (merge): CONTROL: a 503 comes before the store, so it is still "not sent" (exit 1)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'x'], envFor(port));
   assert.equal(out.code, 1, out.stdout + out.stderr);
   assert.match(out.stdout, /That comment was not sent/);
 }, { status: 503, body: { error: 'we could not check which agents are running' } }));
 
-test('#4373 B: no post id, no text, and --help send nothing; the usage names the verb', () => withStubBoard(async (port, seen) => {
+test('#4373 B: no post id, no text, and --help send nothing; the usage names the verb', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const none = await runCli(['community', 'comment'], envFor(port));
   assert.equal(none.code, 2);
   assert.match(none.stdout, /Usage: kosmos community comment <post-id>/);
@@ -141,7 +143,7 @@ test('#4373 B: no post id, no text, and --help send nothing; the usage names the
   assert.equal(seen.length, 0, 'something was sent');
 }));
 
-test('#4373 B review 4: a connection dropped after the board read the comment is a maybe (exit 3), not "could not reach"', () => withStubBoard(async (port, seen) => {
+test('#4373 B review 4: a connection dropped after the board read the comment is a maybe (exit 3), not "could not reach"', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(seen.length, 1, 'control: the board did read the comment');
   assert.equal(out.code, 3, out.stdout + out.stderr);
@@ -149,14 +151,14 @@ test('#4373 B review 4: a connection dropped after the board read the comment is
   assert.doesNotMatch(out.stdout, /could not reach/);
 }, { hangup: true }));
 
-test('#4373 B review 5: past the daily cap it says the comment goes when it can, not on the next pass', () => withStubBoard(async (port) => {
+test('#4373 B review 5: past the daily cap it says the comment goes when it can, not on the next pass', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
   assert.match(out.stdout, /Commented\. It cannot go to the community yet \(this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try\), so Kosmos sends it when it can\. Check whether it has gone out with: kosmos community status/);
   assert.doesNotMatch(out.stdout, /sends it to the community shortly/);
 }, { status: 200, body: { ok: true, status: 'published', id: 'c1', sends: true, later: true } }));
 
-test('#4373 B red-team: the heredoc form the block shows keeps a backtick and $ from running on this computer', () => withStubBoard(async (port, seen) => {
+test('#4373 B red-team: the heredoc form the block shows keeps a backtick and $ from running on this computer', { skip: SKIP_POSIX_BASH }, () => withStubBoard(async (port, seen) => {
   const fs = require('node:fs');
   const os = require('node:os');
   const marker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-heredoc-')), 'ran');
@@ -177,7 +179,7 @@ test('#4373 B red-team: the heredoc form the block shows keeps a backtick and $ 
   fs.rmSync(path.dirname(marker), { recursive: true, force: true });
 }));
 
-test('#4373 B fourth red-team: a body with a line that is only EOF arrives whole and runs nothing under KOSMOS_END (control: EOF ends it early and runs the rest)', () => withStubBoard(async (port, seen) => {
+test('#4373 B fourth red-team: a body with a line that is only EOF arrives whole and runs nothing under KOSMOS_END (control: EOF ends it early and runs the rest)', { skip: SKIP_POSIX_BASH }, () => withStubBoard(async (port, seen) => {
   const fs = require('node:fs');
   const os = require('node:os');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-heredoc-end-'));
@@ -199,7 +201,7 @@ test('#4373 B fourth red-team: a body with a line that is only EOF arrives whole
 
 // #4833 slice 3: --reply-to answers one comment (the id read --post shows after "comment"), before or after the post id.
 const PARENT = '2c3d4e5f-0000-4000-8000-000000000002';
-test('#4833: --reply-to after the post id sends serviceParentId, and the text is everything after it', () => withStubBoard(async (port, seen) => {
+test('#4833: --reply-to after the post id sends serviceParentId, and the text is everything after it', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   /* kosmos#4889: a second --reply-to inside the text was sent as text; now it is refused, and `--` sends it as text. */
   const out = await runCli(['community', 'comment', POST, '--reply-to', PARENT, 'Agreed', '--', '--reply-to', 'x'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -212,7 +214,7 @@ test('#4833: --reply-to after the post id sends serviceParentId, and the text is
   assert.equal(seen.length, 1, 'a second --reply-to in the text must not send (kosmos#4889)');
 }));
 
-test('#4833: --reply-to before the post id works the same, and a piped reply arrives too', () => withStubBoard(async (port, seen) => {
+test('#4833: --reply-to before the post id works the same, and a piped reply arrives too', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'comment', '--reply-to', PARENT, POST], envFor(port), 'piped reply\n');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].body.servicePostId, POST);
@@ -220,13 +222,13 @@ test('#4833: --reply-to before the post id works the same, and a piped reply arr
   assert.equal(seen[0].body.body.trim(), 'piped reply');
 }));
 
-test('#4833 CONTROL: without --reply-to no serviceParentId is sent', () => withStubBoard(async (port, seen) => {
+test('#4833 CONTROL: without --reply-to no serviceParentId is sent', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'comment', POST, 'top level'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.ok(!('serviceParentId' in seen[0].body), JSON.stringify(seen[0].body));
 }));
 
-test('#4833: --reply-to with no comment id is a usage error and nothing is sent', () => withStubBoard(async (port, seen) => {
+test('#4833: --reply-to with no comment id is a usage error and nothing is sent', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const args of [['community', 'comment', POST, '--reply-to'], ['community', 'comment', '--reply-to']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);
@@ -235,7 +237,7 @@ test('#4833: --reply-to with no comment id is a usage error and nothing is sent'
   assert.equal(seen.length, 0);
 }));
 
-test('#4833: an empty post id (an unset variable) is a usage error, never skipped to make the text the post id', () => withStubBoard(async (port, seen) => {
+test('#4833: an empty post id (an unset variable) is a usage error, never skipped to make the text the post id', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const args of [['community', 'comment', '', POST], ['community', 'comment', '', 'hello'], ['community', 'comment', '--reply-to', PARENT, '', POST]]) {
     const out = await runCli(args, envFor(port), 'should not be read\n');
     assert.equal(out.code, 2, JSON.stringify(args) + ': ' + out.stdout + out.stderr);
@@ -244,7 +246,7 @@ test('#4833: an empty post id (an unset variable) is a usage error, never skippe
   assert.equal(seen.length, 0);
 }));
 
-test('#5211: the board\'s nudge prints after a published comment and after a held one; no nudge, no extra line', async () => {
+test('#5211: the board\'s nudge prints after a published comment and after a held one; no nudge, no extra line', { skip: SKIP_POSIX_SHELL }, async () => {
   const nudge = 'That post is by Ada; you follow them. Today: comments 1/2, follows 0/1.';
   await withStubBoard(async (port) => {
     const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
@@ -267,7 +269,7 @@ test('#5211: the board\'s nudge prints after a published comment and after a hel
    The same line as the Windows verb (tools.windows-kosmos-cli-community-comment-4373.test.js). */
 const CID = '7e0c1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b';
 const ID_LINE = 'Its id is ' + CID + '. Fix it with: kosmos community edit comment ' + CID + ' <new words>   or take it back with: kosmos community withdraw comment ' + CID;
-test('#4941: a queued comment prints its id, after the queued line and before the nudge', () => withStubBoard(async (port) => {
+test('#4941: a queued comment prints its id, after the queued line and before the nudge', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   const lines = out.stdout.trim().split('\n').map((l) => l.trim());
@@ -275,13 +277,13 @@ test('#4941: a queued comment prints its id, after the queued line and before th
   assert.equal(lines[1], ID_LINE);
   assert.equal(lines[2], 'That post is by Ada.');
 }, { status: 200, body: { ok: true, status: 'published', id: CID, sends: true, nudge: 'That post is by Ada.' } }));
-test('#4941: a comment that goes later prints its id too', () => withStubBoard(async (port) => {
+test('#4941: a comment that goes later prints its id too', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'comment', POST, 'hi'], envFor(port));
   assert.equal(out.code, 0);
   assert.match(out.stdout, /sends it when it can/);
   assert.ok(out.stdout.split('\n').map((l) => l.trim()).includes(ID_LINE), out.stdout);
 }, { status: 200, body: { ok: true, status: 'published', id: CID, sends: true, later: true } }));
-test('#4941: a comment that will not go, a held one, and a non-UUID id print no id', async () => {
+test('#4941: a comment that will not go, a held one, and a non-UUID id print no id', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const body of [{ ok: true, status: 'published', id: CID, sends: false },
     { ok: true, status: 'published', id: CID, sends: false, notSending: 'Commented, but it will not go.' },
     { ok: true, status: 'held', id: CID },

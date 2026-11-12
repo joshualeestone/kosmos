@@ -22,6 +22,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-post-noreply-2908
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 function runCli(args, env) {
   return new Promise((resolve, reject) => {
@@ -60,7 +61,7 @@ function withStubBoard(fn) {
   });
 }
 
-test('#2908: kosmos post --no-reply sends reply_expected:false on the /api/post body', () => withStubBoard(async (port, seen) => {
+test('#2908: kosmos post --no-reply sends reply_expected:false on the /api/post body', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', '--no-reply', 'proj', 'thanks, got it'], env);
   assert.equal(out.code, 0, 'the post should succeed: ' + out.stdout + out.stderr);
@@ -70,7 +71,7 @@ test('#2908: kosmos post --no-reply sends reply_expected:false on the /api/post 
   assert.equal(seen[0].project, 'proj', 'the project must be the arg after --no-reply');
 }));
 
-test('#2908 CONTROL: kosmos post WITHOUT --no-reply sends NO reply_expected field (omitted = current behavior)', () => withStubBoard(async (port, seen) => {
+test('#2908 CONTROL: kosmos post WITHOUT --no-reply sends NO reply_expected field (omitted = current behavior)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   const out = await runCli(['post', 'proj', 'a plain message'], env);
   assert.equal(out.code, 0, 'the post should succeed: ' + out.stdout + out.stderr);
@@ -79,7 +80,7 @@ test('#2908 CONTROL: kosmos post WITHOUT --no-reply sends NO reply_expected fiel
     'an ordinary post must omit reply_expected entirely, not send true/false');
 }));
 
-test('#2908: --no-reply is a LEADING flag; mid-args it is message text (documented tradeoff, matches --file)', () => withStubBoard(async (port, seen) => {
+test('#2908: --no-reply is a LEADING flag; mid-args it is message text (documented tradeoff, matches --file)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
   // Here --no-reply is NOT the first token, so it is part of the message, and no field is sent.
   const out = await runCli(['post', 'proj', 'please --no-reply on that'], env);

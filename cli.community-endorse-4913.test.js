@@ -17,6 +17,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'ef'.repeat(16);
 /* The CLI reads the board token from the data root. A fresh one here, so the live board's token never travels to a
    test stub (asserted below). */
@@ -62,7 +63,7 @@ function withStubBoard(fn, reply = { status: 200, body: { ok: true, text: 'You e
   });
 }
 
-test('#4913 sandbox: the CLI asks only the stub board, and no live board token reaches it', () => withStubBoard(async (port, seen) => {
+test('#4913 sandbox: the CLI asks only the stub board, and no live board token reaches it', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   assert.notEqual(port, 16180, 'the stub sits on the live board\'s default port');
   const out = await runCli(['community', 'endorse', 'Theo Nguyen', '5', 'Careful work.'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -70,7 +71,7 @@ test('#4913 sandbox: the CLI asks only the stub board, and no live board token r
   assert.equal(seen[0].headers['x-kosmos-board-token'], undefined, 'a board token from outside this test\'s data root was sent');
 }));
 
-test('#4913: endorse sends POST /api/community/endorse with {name, stars, text}, the pane and the agent token, and prints the board\'s words', () => withStubBoard(async (port, seen) => {
+test('#4913: endorse sends POST /api/community/endorse with {name, stars, text}, the pane and the agent token, and prints the board\'s words', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'endorse', 'Theo Nguyen', '4', 'Careful', 'and', "it's quick."], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen.length, 1);
@@ -81,7 +82,7 @@ test('#4913: endorse sends POST /api/community/endorse with {name, stars, text},
   assert.equal(out.stdout, '  You endorsed Theo Nguyen with 5 stars.\n', 'the board\'s words did not arrive as sent');
 }));
 
-test('#4913: with no review words, the review is read from stdin (the heredoc the instructions teach)', () => withStubBoard(async (port, seen) => {
+test('#4913: with no review words, the review is read from stdin (the heredoc the instructions teach)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'endorse', 'Theo Nguyen', '5'], envFor(port), 'Line one, with $HOME and `ticks`.\nLine two.\n');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].body.text, 'Line one, with $HOME and `ticks`.\nLine two.', 'the piped review did not arrive as written');
@@ -91,20 +92,20 @@ test('#4913: with no review words, the review is read from stdin (the heredoc th
   assert.equal(seen.length, 1, 'a blank review reached the board');
 }));
 
-test('#4913: unendorse sends {name, takeBack: true} and no stars or review', () => withStubBoard(async (port, seen) => {
+test('#4913: unendorse sends {name, takeBack: true} and no stars or review', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['community', 'unendorse', 'Theo Nguyen'], envFor(port));
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.deepEqual(seen[0].body, { name: 'Theo Nguyen', takeBack: true, from_pane: '%42' });
   assert.equal(out.stdout, '  You took back your endorsement of Theo Nguyen.\n');
 }, { status: 200, body: { ok: true, text: 'You took back your endorsement of Theo Nguyen.' } }));
 
-test('#4913: a 202 (sent, not confirmed) says it may have happened and exits 3', () => withStubBoard(async (port) => {
+test('#4913: a 202 (sent, not confirmed) says it may have happened and exits 3', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'endorse', 'Theo Nguyen', '5', 'Careful work.'], envFor(port));
   assert.equal(out.code, 3, 'a maybe exits 3, as a vote does');
   assert.equal(out.stdout, '  Not confirmed: the community could not be reached. It may have happened; running it again is safe.\n');
 }, { status: 202, body: { error: 'the community could not be reached' } }));
 
-test('#4913: a 400, 429 or 502 from the board, or a 200 with no words, is said and exits 1', async () => {
+test('#4913: a 400, 429 or 502 from the board, or a 200 with no words, is said and exits 1', { skip: SKIP_POSIX_SHELL }, async () => {
   for (const [status, body] of [[400, { error: 'you cannot endorse yourself' }], [429, { error: 'over the cap' }], [502, { error: 'the community could not be reached' }], [200, { ok: true }], [200, 'not json']]) {
     await withStubBoard(async (port) => {
       const out = await runCli(['community', 'endorse', 'Theo Nguyen', '5', 'Careful work.'], envFor(port));
@@ -115,7 +116,7 @@ test('#4913: a 400, 429 or 502 from the board, or a 200 with no words, is said a
   }
 });
 
-test('#4913: wrong words are refused here and never ask the board', () => withStubBoard(async (port, seen) => {
+test('#4913: wrong words are refused here and never ask the board', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   for (const args of [['community', 'endorse'], ['community', 'endorse', 'Theo Nguyen'], ['community', 'endorse', '', '5', 'x'], ['community', 'endorse', 'Theo Nguyen', '6', 'x'], ['community', 'endorse', 'Theo Nguyen', 'five', 'x'], ['community', 'endorse', 'Theo Nguyen', '4.5', 'x']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join('|') + ': ' + out.stdout);
@@ -129,7 +130,7 @@ test('#4913: wrong words are refused here and never ask the board', () => withSt
   assert.equal(seen.length, 0, 'a refused call reached the board');
 }));
 
-test('#4913: the community usage names endorse and unendorse', () => withStubBoard(async (port) => {
+test('#4913: the community usage names endorse and unendorse', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'nonsense'], envFor(port));
   assert.equal(out.code, 2);
   assert.match(out.stdout, /kosmos community endorse <agent-name\|@handle> <1-5> <review>   \(or pipe the review in\)    kosmos community unendorse <agent-name\|@handle>/);   // kosmos#7660

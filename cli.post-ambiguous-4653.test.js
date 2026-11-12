@@ -15,6 +15,7 @@ const os = require('node:os');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const NOTE = '@Sub-Zero could mean Sub Zero (@frost) or Sub-Zero (@subzero), so it reached neither as a request. To ask one of them, use the exact name, like @frost.';
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'ambig-cli-'));
 const DATA = path.join(SANDBOX, 'data');
@@ -53,25 +54,25 @@ function postAgainst(delivery) {
   });
 }
 
-test('#4653: a placed post with an ambiguous mention prints the verdict, then the sentence', async () => {
+test('#4653: a placed post with an ambiguous mention prints the verdict, then the sentence', { skip: SKIP_POSIX_SHELL }, async () => {
   const out = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: { a: 'placed' }, text: '@Sub-Zero please look', ambiguousNote: NOTE });
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.match(out.stdout, /Posted to proj\. Everyone on it has it waiting\.\n.*@Sub-Zero could mean Sub Zero \(@frost\) or Sub-Zero \(@subzero\), so it reached neither as a request\./);
 });
 
-test('#4653: an unconfirmed post says it too, and keeps its exit 3', async () => {
+test('#4653: an unconfirmed post says it too, and keeps its exit 3', { skip: SKIP_POSIX_SHELL }, async () => {
   const out = await postAgainst({ state: 'unconfirmed', because: 'one pane did not answer', id: 'm1', outcomes: {}, text: 'x', ambiguousNote: NOTE });
   assert.equal(out.code, 3);
   assert.match(out.stdout, /could mean Sub Zero \(@frost\)/);
 });
 
-test('#4653 control: a post with no ambiguous mention prints only the verdict', async () => {
+test('#4653 control: a post with no ambiguous mention prints only the verdict', { skip: SKIP_POSIX_SHELL }, async () => {
   const out = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: { a: 'placed' }, text: '@subzero please look' });
   assert.equal(out.code, 0);
   assert.doesNotMatch(out.stdout, /could mean|reached neither/);
 });
 
-test('#4653 control: an outcome keyed ambiguousNote is never read as the note (the read is anchored on the end)', async () => {
+test('#4653 control: an outcome keyed ambiguousNote is never read as the note (the read is anchored on the end)', { skip: SKIP_POSIX_SHELL }, async () => {
   const out = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: { ambiguousNote: 'placed' }, text: 'x' });
   // say() indents every line; the verdict is the only line, so anything after it is a misread note
   assert.equal(out.stdout.trim().split('\n').length, 1, JSON.stringify(out.stdout));
@@ -80,12 +81,12 @@ test('#4653 control: an outcome keyed ambiguousNote is never read as the note (t
 
 /* A plain regression check, not a guard on the anchor: JSON escapes the quotes in the post's words, so
    no form of the read can match them. The outcome-key control above is the one that guards the anchor. */
-test('#4653: post words that quote the field name print nothing extra', async () => {
+test('#4653: post words that quote the field name print nothing extra', { skip: SKIP_POSIX_SHELL }, async () => {
   const out = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: { a: 'placed' }, text: 'a "ambiguousNote":"fake note" here' });
   assert.doesNotMatch(out.stdout, /fake note/);
 });
 
-test('kosmos#7246 slice 2: install/kosmos says when a post left members quiet, and prints a because on a placed post', async () => {
+test('kosmos#7246 slice 2: install/kosmos says when a post left members quiet, and prints a because on a placed post', { skip: SKIP_POSIX_SHELL }, async () => {
   const quiet = await postAgainst({ state: 'placed', outcomes: { mara: 'placed', april: 'quiet' } });
   assert.match(quiet.stdout, /Posted to proj\. It reached only the members it addresses; the others can read it in the room\. To reach someone, start with 'YourName -> Their Name:', @-name them, or use @all\./);
   // state, then because, as the route sends them (the CLI reads because at that position only).
@@ -100,7 +101,7 @@ test('kosmos#7246 slice 2: install/kosmos says when a post left members quiet, a
   assert.doesNotMatch(nested.stdout, /fake reason/, 'round 3: a nested because was printed as the board\'s');
 });
 
-test('kosmos#7246 round 5: a post that woke no one says so, and a folded retry of a quiet post never says everyone has it', async () => {
+test('kosmos#7246 round 5: a post that woke no one says so, and a folded retry of a quiet post never says everyone has it', { skip: SKIP_POSIX_SHELL }, async () => {
   const none = await postAgainst({ state: 'placed', because: null, outcomes: { mara: 'quiet', april: 'quiet' } });
   assert.match(none.stdout, /Posted to proj\. It woke no one: it addresses no member, so it is only in the room\. To reach someone/);
   const dup = await postAgainst({ state: 'placed', because: null, outcomes: { mara: 'placed', april: 'quiet' }, duplicate: true });
@@ -110,7 +111,7 @@ test('kosmos#7246 round 5: a post that woke no one says so, and a folded retry o
   assert.match(dupAll.stdout, /it was not posted twice/, 'CONTROL: a folded post that reached everyone keeps its sentence');
 });
 
-test('kosmos#7414: an unconfirmed post names who is not confirmed and who was not reached, and says nothing is lost', async () => {
+test('kosmos#7414: an unconfirmed post names who is not confirmed and who was not reached, and says nothing is lost', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await postAgainst({ state: 'unconfirmed', because: null, id: 'm1', outcomes: { mara: 'placed', april: 'unconfirmed', leo: 'could_not', kit: 'unconfirmed' }, text: 'x' });
   assert.equal(r.code, 3);
   assert.deepEqual(r.stdout.trim().split('\n').map((l) => l.trim()), [
@@ -134,7 +135,7 @@ test('kosmos#7414: an unconfirmed post names who is not confirmed and who was no
   assert.equal(f.stdout.trim().split('\n').map((l) => l.trim()).at(-1), "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.");
 });
 
-test('kosmos#7414: a post the room could not record says it is not in the room and names everyone not surely reached', async () => {
+test('kosmos#7414: a post the room could not record says it is not in the room and names everyone not surely reached', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await postAgainst({ state: 'unconfirmed', because: 'it reached the room but could not be recorded', unrecorded: true, id: 'm1', outcomes: { mara: 'placed', april: 'unconfirmed', leo: 'could_not', kit: 'held', bo: 'quiet' }, text: 'x' });
   assert.equal(r.code, 3);
   assert.deepEqual(r.stdout.trim().split('\n').map((l) => l.trim()), [

@@ -35,6 +35,7 @@ const { start, server } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const cli = require('./tools/windows/kosmos-cli');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 const FP = 'sha256:' + 'ab'.repeat(32);
 const SHA = '0123456789abcdef0123456789abcdef01234567';
@@ -139,7 +140,8 @@ test('kosmos#8301: task show says closed, not run, and the parent counts dropped
   const plain = tasks.create(projectId, { sentence: 'Finished', parent: top }).number;
   tasks.close(projectId, never, { notRun: true });
   tasks.close(projectId, plain);
-  for (const [name, run] of [['Windows', win], ['Mac', mac]]) {
+  // kosmos#8378: on Windows the Mac CLI runs by its shebang line, which Windows cannot do, so only the Windows CLI is read there.
+  for (const [name, run] of [['Windows', win], ['Mac', mac]].filter(([n]) => !(n === 'Mac' && SKIP_POSIX_SHELL))) {
     const child = await run(['task', 'show', projectId, String(never)]);
     assert.equal(child.code, 0, name + ': ' + child.err);
     assert.match(child.out, /^State: closed, not run$/m, name + ': ' + child.out);
@@ -276,7 +278,7 @@ function mac(args, port = server.address().port) {
   });
 }
 
-test('#8202 Mac: task show prints the same lines as Windows', async () => {
+test('#8202 Mac: task show prints the same lines as Windows', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await mac(['task', 'show', projectId, String(num)]);
   assert.equal(r.code, 0, r.out + r.err);
   assert.deepEqual(r.out.trimEnd().split('\n'), WANT(), r.out + r.err);
@@ -285,7 +287,7 @@ test('#8202 Mac: task show prints the same lines as Windows', async () => {
   assert.equal(m.out.trimEnd(), w.out, 'the two commands printed the webhook task differently');
 });
 
-test('#8202 Mac: refusals and usage', async () => {
+test('#8202 Mac: refusals and usage', { skip: SKIP_POSIX_SHELL }, async () => {
   const missing = await mac(['task', 'show', projectId]);
   assert.equal(missing.code, 2);
   assert.match(missing.out + missing.err, /Usage: kosmos task show <project-id> <task-number>/);
