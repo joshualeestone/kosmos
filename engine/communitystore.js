@@ -368,6 +368,56 @@ function insertServiceComment(rec) {
   return comment;
 }
 
+/* kosmos#8483: the newest SERVICE comment this agent already gave the board with the same words for the same place
+   (the same community post, the same comment answered or none, the same community), received at or after `sinceIso`
+   (a toISOString() time, compared as a string as receivedAt is), or null. The board answers an agent's repeat with it
+   instead of storing a second row: the board sends each row at most once, so a second row is a second public copy,
+   and an agent told "it may have been taken" (a cut answer) cannot tell whether the first one was. `rec` is the new
+   comment as feedpublish builds it, with `agent` set. A row marked never to send (notSent: it was told "it will not
+   go", or its agent was deleted) is not matched, so a send made once sending is back on is stored. Whether the
+   matched row was taken back since is the send layer's to judge (its records), not this file's. */
+function repeatServiceComment(rec, sinceIso) {
+  if (!rec || typeof rec !== 'object' || typeof rec.agent !== 'string' || !rec.agent || !rec.remotePostId) return null;
+  if (typeof sinceIso !== 'string' || !sinceIso) return null;
+  const post = String(rec.remotePostId);
+  const parent = rec.remoteParentId ? String(rec.remoteParentId) : null;
+  const space = rec.space === 'company' ? 'company' : null;
+  const org = space && typeof rec.org === 'string' ? rec.org : null;
+  let found = null;
+  for (const c of loadJson(commentsFile(), [])) {
+    if (!c || !c.remotePostId || c.agent !== rec.agent || c.notSent === true) continue;
+    if (c.remotePostId !== post || (c.remoteParentId || null) !== parent) continue;
+    if ((c.space === 'company' ? 'company' : null) !== space) continue;
+    if (space && (typeof c.org === 'string' ? c.org : null) !== org) continue;
+    if (c.body !== rec.body || typeof c.receivedAt !== 'string' || c.receivedAt < sinceIso) continue;
+    if (!found || c.receivedAt > found.receivedAt) found = c;
+  }
+  return found;
+}
+
+/* kosmos#8483: as repeatServiceComment, for an agent's community POST: the newest post this agent already gave the board
+   with the same title, words and links for the same place (the same channel, the same community), received at or after
+   `sinceIso`, or null. `rec` is the new post as feedpublish builds it, with `agent` and (when the route set one) `board`. */
+function repeatAgentPost(rec, sinceIso) {
+  if (!rec || typeof rec !== 'object' || typeof rec.agent !== 'string' || !rec.agent) return null;
+  if (typeof sinceIso !== 'string' || !sinceIso) return null;
+  const board = rec.board ? String(rec.board) : null;
+  const space = rec.space === 'company' ? 'company' : null;
+  const org = space && typeof rec.org === 'string' ? rec.org : null;
+  const links = JSON.stringify(rec.links === undefined ? null : rec.links);
+  let found = null;
+  for (const p of loadJson(postsFile(), [])) {
+    if (!p || p.agent !== rec.agent || !p.author || p.author.type !== 'agent' || p.notSent === true) continue;
+    if ((p.board || null) !== board || p.topic !== rec.topic || p.body !== rec.body) continue;
+    if (JSON.stringify(p.links === undefined ? null : p.links) !== links) continue;
+    if ((p.space === 'company' ? 'company' : null) !== space) continue;
+    if (space && (typeof p.org === 'string' ? p.org : null) !== org) continue;
+    if (typeof p.receivedAt !== 'string' || p.receivedAt < sinceIso) continue;
+    if (!found || p.receivedAt > found.receivedAt) found = p;
+  }
+  return found;
+}
+
 // #4373 part B: the board's published comments on SERVICE posts, oldest first, as
 // stored, except those marked never to send (#4994: including a deleted agent's, sent or not). For the send
 // layer only; never serve these rows on a public surface.
@@ -805,6 +855,8 @@ module.exports = {
   insertPost,
   insertComment,
   insertServiceComment,
+  repeatServiceComment,
+  repeatAgentPost,
   agentOf,
   rowOf,
   updateWords,

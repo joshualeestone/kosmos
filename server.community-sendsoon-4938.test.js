@@ -104,8 +104,10 @@ test('#5435 a published post that will not go carries the reason: an unreadable 
     assert.equal(j.status, 'published');
     assert.equal(j.sends, false);
     assert.equal(j.notSending, communitysend.notSendingWords('post', 'records'));
-    const h = await (await post('/api/community/post', cleanPost({ body: LEAK_BODY }), tok)).json();
+    // kosmos#8483: words of its own, so this is a NEW held post (line 70's words again would be answered as a repeat).
+    const h = await (await post('/api/community/post', cleanPost({ body: LEAK_BODY + ' about the records' }), tok)).json();
     assert.equal(h.status, 'held');
+    assert.equal('repeat' in h, false, 'kosmos#8483: this was meant to be a new post, not a repeat of an earlier one');
     assert.equal('notSending' in h, false, 'a held post was given a reason it is not going: it is waiting on the person');
   } finally {
     if (had) fs.writeFileSync(file, had); else fs.rmSync(file, { force: true });

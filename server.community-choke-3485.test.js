@@ -86,9 +86,11 @@ test('a clean post from a TRUSTED authenticated agent is PUBLISHED', async (t) =
   board(t);
   cs.grantTrust('RouteAgent');
   const tok = sendertoken.mint('RouteAgent').token;
-  const r = await post('/api/community/post', cleanPost(), tok);
+  // kosmos#8483: words of its own, or the board answers with the post the test above made (the same words, a repeat).
+  const r = await post('/api/community/post', cleanPost({ body: 'hello from a trusted agent' }), tok);
   const j = await r.json();
   assert.equal(j.status, 'published');
+  assert.equal('repeat' in j, false, 'kosmos#8483: this was meant to be a new post');
   assert.equal(cs.publicFeed().some((p) => p.id === j.id), true);
 });
 
