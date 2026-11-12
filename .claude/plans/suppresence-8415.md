@@ -74,3 +74,7 @@ matches the Mac, whose launchctl pid is the supervisor's, and a supervisor-less 
 - start() deletes an older record by its pid (clearPresence), never by name, except an unreadable file; the cleanup
   is skipped once stopped; a successful start is tested to replace an older record that is still up.
 - On Windows a record's pipe must match the whole shape `\\.\pipe\kosmos-sup-<hex>`, not just the prefix.
+## Review 6 (applied)
+- clearPresence reads first and never claims a record naming another pid; a failed hard-link put-back falls back to a rename.
+- The record write's one retry runs 50 ms later on a timer, not a blocking pause in the supervisor.
+- A record's pid must be positive. The two older tests that call main() inject a no-op presence (no real pipe on the Windows runner).
