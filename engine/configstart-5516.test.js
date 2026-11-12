@@ -1,5 +1,5 @@
 'use strict';
-require('../test-support/tmpscope');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273)
+require('../test-support/tmpscope-outside-home');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273), made outside the home on Windows so the guard's ancestor walk never reads the real ~/.claude (kosmos#8378)
 
 /*
  * #5516 part 2: the token-only guard denies what Claude Code's own config names to start outside the sandbox at the
@@ -23,6 +23,9 @@ fs.mkdirSync(process.env.AGENT_WORKFORCE_HOME, { recursive: true });
 
 const setup = require('./setup-assistant');
 const store = require('./store');
+/* kosmos#8378: the tests below whose subject is absent on Windows skip there, each saying why. */
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const POSIX_GUARD = skipOnWin32('it runs the macOS or Linux guard (platform darwin or linux, through its seam) over folders made on this host, and those guards write their rules and the macOS Seatbelt sandbox for POSIX paths, never a Windows drive path; the Windows guard is tested in engine/tokenguard.win32-5664.test.js');
 
 // store.ROOT is AGENT_WORKFORCE_DATA + '/Kosmos'; that is where board.token and the token-only list live,
 // and what guardTokenOnlyFolder defaults dataRoot to in production (called with no deps).
@@ -65,7 +68,7 @@ function ancestorsAbove(dir) { const out = []; for (let d = path.dirname(path.re
 fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
 fs.mkdirSync(path.join(HOME, '.claude-acct'), { recursive: true });
 
-test('#5516 part 2: both layers deny each config home .claude.json, the agent .mcp.json and each plugins folder', () => {
+test('#5516 part 2: both layers deny each config home .claude.json, the agent .mcp.json and each plugins folder', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-cfg');
   const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg', DEPS);
   assert.equal(g.ok, true, JSON.stringify(g));
@@ -148,7 +151,7 @@ test('#5516 part 2: both layers deny each config home .claude.json, the agent .m
   }
 });
 
-test('#5516 part 2 (review 1): off darwin the file-tool rules are written all the same, with no sandbox block', () => {
+test('#5516 part 2 (review 1): off darwin the file-tool rules are written all the same, with no sandbox block', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-cfg-linux');
   const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-linux', { ...DEPS, platform: 'linux' });
   assert.equal(g.ok, true, JSON.stringify(g));
@@ -159,7 +162,7 @@ test('#5516 part 2 (review 1): off darwin the file-tool rules are written all th
   }
 });
 
-test('#5516 part 2 (review 2): with many account homes the guard stays whole (inside the sandbox size ceiling)', (t) => {
+test('#5516 part 2 (review 2): with many account homes the guard stays whole (inside the sandbox size ceiling)', { skip: POSIX_GUARD }, (t) => {
   /* A short, link-free root shaped like a real install (a home, ~/work/workers/<agent>): the size counts every folder
      above the agent, so under the test temp folder (deep, and a link on macOS, so every level counts twice) the count
      depends on the machine (Mortals' passed the ceiling by 0.7%). Measured in this layout: 61 homes stay under it.
@@ -179,7 +182,7 @@ test('#5516 part 2 (review 2): with many account homes the guard stays whole (in
   assert.ok(readSettings(dir).permissions.deny.includes(`Edit(${ruleAbs(path.join(home, '.claude-acct11', '.config.json'))})`), 'CONTROL: the new homes were seen');
 });
 
-test('#5516 part 2 (reviews 16 and 17): a folder deep enough to pass the size ceiling through its ancestors still gets a whole guard, with the warning', () => {
+test('#5516 part 2 (reviews 16 and 17): a folder deep enough to pass the size ceiling through its ancestors still gets a whole guard, with the warning', { skip: POSIX_GUARD }, () => {
   // Review 17: the depth that passes the ceiling depends on how deep the temp folder is and whether it is reached
   // through a link (each ancestor is then denied by both spellings), so levels are added until the warning fires, with
   // a bound, rather than a fixed count. The first level is the control: no warning there.
@@ -205,7 +208,7 @@ test('#5516 part 2 (review 17): the fix advice is given only where renaming is t
   assert.ok(!/renaming that folder/.test(g.because), 'a failed lookup was told to rename a folder: ' + g.because);
 });
 
-test('#5516 part 2 (review 3): a config home code folder that is a link has its target denied in both layers', () => {
+test('#5516 part 2 (review 3): a config home code folder that is a link has its target denied in both layers', { skip: POSIX_GUARD }, () => {
   const home = path.join(path.dirname(HOME), 'home-link');
   const target = path.join(path.dirname(HOME), 'shared-skills');
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
@@ -221,7 +224,7 @@ test('#5516 part 2 (review 3): a config home code folder that is a link has its 
   assert.ok(s.sandbox.filesystem.denyWrite.includes(real), 'the link target is open to the shell');
 });
 
-test('#5516 part 2 (review 5): a link to a path the rule syntax cannot carry is named, and the guard is not whole', () => {
+test('#5516 part 2 (review 5): a link to a path the rule syntax cannot carry is named, and the guard is not whole', { skip: POSIX_GUARD }, () => {
   const home = path.join(path.dirname(HOME), 'home-oddlink');
   const target = path.join(path.dirname(HOME), 'Drive (Personal)', 'skills');
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
@@ -238,7 +241,7 @@ test('#5516 part 2 (review 5): a link to a path the rule syntax cannot carry is 
   assert.ok(s.sandbox.filesystem.denyWrite.includes(fs.realpathSync.native(target)), 'the uncarriable target is missing from the sandbox layer too');
 });
 
-test('#5516 part 2 (review 6): a config home that is a link has its absent members named by their real path', () => {
+test('#5516 part 2 (review 6): a config home that is a link has its absent members named by their real path', { skip: POSIX_GUARD }, () => {
   const base = path.join(path.dirname(HOME), 'home-linked');
   const real = path.join(path.dirname(HOME), 'real-account-home');
   fs.mkdirSync(path.join(base, '.claude'), { recursive: true });
@@ -256,7 +259,7 @@ test('#5516 part 2 (review 6): a config home that is a link has its absent membe
   }
 });
 
-test('#5516 part 2 (reviews 8 and 9): sibling agents are denied their members; memory only where no own folder matches', () => {
+test('#5516 part 2 (reviews 8 and 9): sibling agents are denied their members; memory only where no own folder matches', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-cfg-sib');
   const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-sib', DEPS);
   assert.equal(g.ok, true, JSON.stringify(g));
@@ -279,7 +282,7 @@ test('#5516 part 2 (reviews 8 and 9): sibling agents are denied their members; m
   }
 });
 
-test('#5516 part 2 (review 9): the agent own config home outside ~/.claude* is covered (as creation passes it)', () => {
+test('#5516 part 2 (review 9): the agent own config home outside ~/.claude* is covered (as creation passes it)', { skip: POSIX_GUARD }, () => {
   // The launch and board-start path reads it from the job, as accountSettingsFile does; that read is not exercised here.
   const own = path.join(SANDBOX, 'elsewhere', 'cfg-home');
   fs.mkdirSync(own, { recursive: true });
@@ -308,7 +311,7 @@ test('#5516 part 2 (review 8): a folder above the agent that the rules cannot ca
   assert.match(String(g.because), /cannot carry/, 'the refusal does not say why: ' + g.because);
 });
 
-test('#5516 part 2 (review 11): a connected agent outside the agents\' folder is not denied its neighbours (they are not agents)', () => {
+test('#5516 part 2 (review 11): a connected agent outside the agents\' folder is not denied its neighbours (they are not agents)', { skip: POSIX_GUARD }, () => {
   const dir = path.join(SANDBOX, 'repos', 'myrepo');
   fs.mkdirSync(dir, { recursive: true });
   const g = setup.guardTokenOnlyFolder(dir, 'pilot-cfg-repo', DEPS);
@@ -454,7 +457,7 @@ test('#5516 part 2 (review 19): a launch reason with neither part is kept throug
   fs.unlinkSync(link);
 });
 
-test('#5516 part 2 (review 21): a config member linked to something absent has its target denied in both layers', () => {
+test('#5516 part 2 (review 21): a config member linked to something absent has its target denied in both layers', { skip: POSIX_GUARD }, () => {
   const home = path.join(path.dirname(HOME), 'home-dangle');
   const base = fs.realpathSync.native(path.dirname(HOME));
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
@@ -489,7 +492,7 @@ test('#5516 part 2 (review 21): a board start that reaches the same reason the l
   assert.ok(!line.otherReason, 'the launch reason was copied into the board part: ' + JSON.stringify(line));
 });
 
-test('#5516 part 2 (review 22): a PATH line from before the parts were kept is read as the PATH part; rules are written once', () => {
+test('#5516 part 2 (review 22): a PATH line from before the parts were kept is read as the PATH part; rules are written once', { skip: POSIX_GUARD }, () => {
   const name = 'pilot-cfg-r22';
   const dir = agentDir(name);
   const home5 = path.join(SANDBOX, 'home-r22');

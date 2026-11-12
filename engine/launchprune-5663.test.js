@@ -1,5 +1,5 @@
 'use strict';
-require('../test-support/tmpscope');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273)
+require('../test-support/tmpscope-outside-home');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273), made outside the home on Windows so the guard's ancestor walk never reads the real ~/.claude (kosmos#8378)
 delete process.env.KOSMOS_GUARD_PANE_PATH;   // a board start: no pane PATH unless a test passes one
 
 /*
@@ -23,6 +23,9 @@ fs.mkdirSync(process.env.AGENT_WORKFORCE_HOME, { recursive: true });
 
 const setup = require('./setup-assistant');
 const store = require('./store');
+/* kosmos#8378: the tests below whose subject is absent on Windows skip there, each saying why. */
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const POSIX_GUARD = skipOnWin32('it runs the macOS or Linux guard (platform darwin or linux, through its seam) over folders made on this host, and those guards write their rules and the macOS Seatbelt sandbox for POSIX paths, never a Windows drive path; the Windows guard is tested in engine/tokenguard.win32-5664.test.js');
 
 fs.mkdirSync(store.ROOT, { recursive: true });
 function realOr(p) { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } }
@@ -34,7 +37,7 @@ function binDir(name) { const d = path.join(SANDBOX, 'bins', name); fs.mkdirSync
 const BASE = { platform: 'darwin', dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [] };
 const dirRule = (d) => `Edit(${ruleAbs(realOr(d))}/**)`;
 
-test('#5663: an upgrade replaces the old versioned folder in both layers; the person\'s own rules and the rest of the guard stay', () => {
+test('#5663: an upgrade replaces the old versioned folder in both layers; the person\'s own rules and the rest of the guard stay', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('lp-upgrade');
   const v1 = binDir('tool/1.0/bin');
   const v2 = binDir('tool/2.0/bin');
@@ -64,7 +67,7 @@ test('#5663: an upgrade replaces the old versioned folder in both layers; the pe
   for (const r of tokenRules) assert.ok(s2.permissions.deny.includes(r), 'a rule of the rest of the guard was pruned: ' + r);
 });
 
-test('#5663: with no record (a guard written before this change), nothing is pruned; from the next refresh on, it is', () => {
+test('#5663: with no record (a guard written before this change), nothing is pruned; from the next refresh on, it is', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('lp-norecord');
   const v1 = binDir('old/1.0/bin');
   const v2 = binDir('old/2.0/bin');
@@ -82,7 +85,7 @@ test('#5663: with no record (a guard written before this change), nothing is pru
   assert.ok(!s.permissions.deny.includes(dirRule(v2)) && s.permissions.deny.includes(dirRule(v3)));
 });
 
-test('#5663: the record cannot be rewritten by the agent: it is denied to the file tools, and the sandbox denies its folder', () => {
+test('#5663: the record cannot be rewritten by the agent: it is denied to the file tools, and the sandbox denies its folder', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('lp-record');
   setup.guardTokenOnlyFolder(dir, 'lp-record', { ...BASE, atLaunch: true, panePath: binDir('rec/bin') });
   const rec = path.join(dir, '.claude', 'kosmos-launch-rules.json');
@@ -119,7 +122,7 @@ test('#5663: a sandbox layer past the measured ceiling is a warning (the guard i
   assert.deepEqual(setup.guardTokenOnlyFolder(agentDir('lp-ceiling-ok'), 'lp-ceiling-ok', { ...BASE, atLaunch: true, panePath: many.slice(0, 5).join(path.delimiter) }), { ok: true });
 });
 
-test('#5663 reviews 1 and 2: only an agent launch prunes; the board\'s own start (no launch inputs) keeps what a launch wrote, even once it is gone', () => {
+test('#5663 reviews 1 and 2: only an agent launch prunes; the board\'s own start (no launch inputs) keeps what a launch wrote, even once it is gone', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('lp-callers');
   const v = binDir('callers/1.0/bin');
   const other = binDir('callers/other/bin');
@@ -164,7 +167,7 @@ test('#5663 review 2: the ceiling is a macOS check, and its reason is said besid
   assert.match(both.because, /could not cover/); assert.match(both.warning, /denied path entries/);
 });
 
-test('#5663: a launch path not current but still on disk is kept; once it is gone it is pruned, even in a folder that stays', () => {
+test('#5663: a launch path not current but still on disk is kept; once it is gone it is pruned, even in a folder that stays', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('lp-keep');
   const a = binDir('keep/a/bin');
   const b = binDir('keep/b/bin');
@@ -179,7 +182,7 @@ test('#5663: a launch path not current but still on disk is kept; once it is gon
   assert.ok(!readSettings(dir).permissions.deny.includes(rb), 'a gone folder in a folder that stays was kept');
 });
 
-test('#5663 review 3: a version FILE removed from a versions folder that stays (one file per version) is pruned', () => {
+test('#5663 review 3: a version FILE removed from a versions folder that stays (one file per version) is pruned', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('lp-verfile');
   const store = binDir('verstore/versions');
   for (const v of ['1.0', '2.0']) fs.writeFileSync(path.join(store, v), '#!/bin/sh\n', { mode: 0o755 });
@@ -198,7 +201,7 @@ test('#5663 review 3: a version FILE removed from a versions folder that stays (
   assert.ok(s.permissions.deny.includes(`Edit(${ruleAbs(path.join(realOr(store), '2.0'))})`), 'the new version file is not named');
 });
 
-test('#5663: a corrupt or wrong-shaped record prunes nothing, even a gone path', () => {
+test('#5663: a corrupt or wrong-shaped record prunes nothing, even a gone path', { skip: POSIX_GUARD }, () => {
   for (const bad of ['{not json', '[]', '{"deny":"x","denyWrite":7}']) {
     const name = 'lp-corrupt-' + bad.length;
     const dir = agentDir(name);
@@ -220,7 +223,7 @@ test('#5663: a corrupt or wrong-shaped record prunes nothing, even a gone path',
   }
 });
 
-test('#5663: the ceiling counts the Edit and Read deny paths too, by distinct prefix and by raw length, and turns at exactly each limit', () => {
+test('#5663: the ceiling counts the Edit and Read deny paths too, by distinct prefix and by raw length, and turns at exactly each limit', { skip: POSIX_GUARD }, () => {
   // Counting: both sandbox lists and the Edit/Read rule targets, each path once; a path adds what it does not share with
   // the one sorted before it.
   // Per clause (review 5): write = denyWrite + Edit targets, read = denyRead + Read targets; a path in both is paid twice.
@@ -255,7 +258,7 @@ test('#5663: the ceiling counts the Edit and Read deny paths too, by distinct pr
   assert.ok(Number(/\((\d+) distinct/.exec(overRaw.warning)[1]) < P, 'CONTROL: the raw arm turned it, not the prefix arm');
 });
 
-test('#5663 review 5: a real launch passes its PATH in KOSMOS_GUARD_PANE_PATH (as the supervisor does), and that is what lets it prune', () => {
+test('#5663 review 5: a real launch passes its PATH in KOSMOS_GUARD_PANE_PATH (as the supervisor does), and that is what lets it prune', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('lp-env');
   const v1 = binDir('envtool/1.0/bin');
   const v2 = binDir('envtool/2.0/bin');
@@ -290,7 +293,7 @@ test('#5663 review 7: a launch never prunes what only a board start wrote (an ab
   for (const x of beforeW) assert.ok(s2.sandbox.filesystem.denyWrite.includes(x), 'a launch pruned a board-start sandbox entry: ' + x);
 });
 
-test('#5663 review 8: a launch whose PATH is empty (no absolute entry) is not a launch\'s inputs, so it prunes nothing', () => {
+test('#5663 review 8: a launch whose PATH is empty (no absolute entry) is not a launch\'s inputs, so it prunes nothing', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('lp-emptypane');
   const v = binDir('emptypane/1.0/bin');
   setup.guardTokenOnlyFolder(dir, 'lp-emptypane', { ...BASE, atLaunch: true, panePath: v });
@@ -307,7 +310,7 @@ test('#5663 review 8: a launch whose PATH is empty (no absolute entry) is not a 
   assert.ok(!readSettings(dir).permissions.deny.includes(rv), 'CONTROL: a launch with a real PATH did not prune');
 });
 
-test('#5663 review 9: a folder a launch denied while it was absent is never recorded, so a later launch without it on the PATH keeps it', () => {
+test('#5663 review 9: a folder a launch denied while it was absent is never recorded, so a later launch without it on the PATH keeps it', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('lp-absent');
   const v = binDir('absentlaunch/tool/bin');
   const x = path.join(SANDBOX, 'bins', 'absentlaunch', 'not-installed-yet', 'bin');   // e.g. a tool folder before install
@@ -326,7 +329,7 @@ test('#5663 review 9: a folder a launch denied while it was absent is never reco
   for (const p of beforeW) assert.ok(s2.sandbox.filesystem.denyWrite.includes(p), 'a launch pruned a sandbox entry denied while absent: ' + p);
 });
 
-test('#5663 review 11: the size counts the person\'s ~/ rule spelling against home; an unreadable record is left as it is and prunes nothing; one copy per unparseable content', () => {
+test('#5663 review 11: the size counts the person\'s ~/ rule spelling against home; an unreadable record is left as it is and prunes nothing; one copy per unparseable content', { skip: POSIX_GUARD }, () => {
   assert.deepEqual(setup.sandboxDenySize({}, ['Read(~/x/**)', 'Edit(~/y)'], '/h'), { paths: 2, raw: 8, prefixes: 8 });
   assert.deepEqual(setup.sandboxDenySize({}, ['Read(./rel)', 'Bash(x)'], '/h'), { paths: 0, raw: 0, prefixes: 0 }, 'CONTROL: other spellings are not guessed at');
   // A record that exists and cannot be read (mode 000): nothing pruned, not replaced. As root mode 000 still reads, so
@@ -359,7 +362,7 @@ test('#5663 review 11: the size counts the person\'s ~/ rule spelling against ho
   assert.equal(copies.length, 1, 'copied again: ' + copies.join(' '));
 });
 
-test('#5663 review 12: a launch that prunes says so in the log (counts only), and one that prunes nothing says nothing', () => {
+test('#5663 review 12: a launch that prunes says so in the log (counts only), and one that prunes nothing says nothing', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('lp-log');
   const v1 = binDir('logtool/1.0/bin');
   const v2 = binDir('logtool/2.0/bin');
@@ -379,7 +382,7 @@ test('#5663 review 12: a launch that prunes says so in the log (counts only), an
   assert.match(lines[0], /lp-log: pruned [1-9]\d* file-tool and [1-9]\d* sandbox launch rule/);
 });
 
-test('#5663 review 13: a path whose state cannot be read (EACCES on its parent) is neither recorded nor pruned', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads through mode 000' : false }, () => {
+test('#5663 review 13: a path whose state cannot be read (EACCES on its parent) is neither recorded nor pruned', { skip: POSIX_GUARD || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads through mode 000' : false) }, () => {
   const dir = agentDir('lp-eacces');
   const parent = binDir('eacces/locked');
   const c = binDir('eacces/locked/bin');
@@ -401,7 +404,7 @@ test('#5663 review 13: a path whose state cannot be read (EACCES on its parent) 
   } finally { fs.chmodSync(parent, 0o755); }
 });
 
-test('#5663 review 14: a board start that inherits KOSMOS_GUARD_PANE_PATH (no atLaunch) neither records nor prunes', () => {
+test('#5663 review 14: a board start that inherits KOSMOS_GUARD_PANE_PATH (no atLaunch) neither records nor prunes', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('lp-inherit');
   const v1 = binDir('inherit/1.0/bin');
   const v2 = binDir('inherit/2.0/bin');
@@ -419,7 +422,7 @@ test('#5663 review 14: a board start that inherits KOSMOS_GUARD_PANE_PATH (no at
   assert.ok(!readSettings(dir).permissions.deny.includes(r1), 'CONTROL: a launch did not prune');
 });
 
-test('#5663 review 14: end to end, the supervisor\'s refreshTokenOnlyGuards({ only }) with the env PATH prunes; the board\'s own refresh does not', () => {
+test('#5663 review 14: end to end, the supervisor\'s refreshTokenOnlyGuards({ only }) with the env PATH prunes; the board\'s own refresh does not', { skip: POSIX_GUARD }, () => {
   const sendertoken = require('./sendertoken');
   fs.writeFileSync(sendertoken.tokenOnlyFile(), JSON.stringify({ agents: ['lp-e2e'] }) + '\n');
   const dir = agentDir('lp-e2e');
