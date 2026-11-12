@@ -990,7 +990,11 @@ function* delSteps(name, opts) {
   /* review 32: kept whether or not there is a Trash: the folder is what shows the leftover on the board, and moving it
      while the unit still holds the name would leave nothing to look at. */
   // review 40: with or without a folder; a unit systemd still holds keeps every record, as review 35 decided.
-  if (p.job && p.job.unit && stuck.includes('its startup job')) {   // review 33: Linux units only; Windows unchanged
+  /* kosmos#8471: a Windows Scheduled Task too (review 33 kept this to Linux units). With the task still registered and
+     the folder in the Recycle Bin, the settings kept and the removal forgotten, nothing on the board showed the agent,
+     so its delete could never be tried again from the screen. Kept whole instead, the agent stays where it was seen. */
+  const taskStuck = Boolean(p.job && (p.job.unit || p.job.task) && stuck.includes('its startup job'));
+  if (taskStuck) {
     if (p.folder) {
       stuck.push('its folder');
       steps.push({ step: 'its folder', ok: false, because: 'kept, because its startup job could not be removed' });
@@ -1000,7 +1004,11 @@ function* delSteps(name, opts) {
     return {
       outcome: OUTCOME.REFUSED,
       // review 37: the community standing reset (#5000) has already run and cannot be undone, so the sentence says so.
-      because: `systemd would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again once this computer's user services are reachable. Its standing in the community was reset, so if it comes back it starts at the beginning.`,
+      because: (p.job.task
+        // kosmos#8471: the same sentence in Windows words; Task Scheduler is where a person would look for the task.
+        ? `Task Scheduler would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again in a moment.`
+        : `systemd would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again once this computer's user services are reachable.`)
+        + ' Its standing in the community was reset, so if it comes back it starts at the beginning.',
       steps,
     };
   } else if (p.folder) yield* move(p.folder.path, 'its folder');
@@ -1144,7 +1152,7 @@ function* delSteps(name, opts) {
    recording a folder outside the workers folder (read from the profile, never looked at, so a share that is gone
    cannot block the poll; such a folder may only be out of sight). `opts.survey` is a survey the caller already took
    (the board's 5 s poll takes one), so the list does not read every job twice.
-   { ok, names: [{ name, shownAs }] }; ok false lists none. */
+   { ok, names: [{ name, shownAs, startsAtLogin? }] }; ok false lists none. startsAtLogin: kosmos#8471, below. */
 function settingsLeftovers(opts) {
   const s = (opts && opts.survey) || require('./register').survey(opts);
   if (!s || !s.ok) return { ok: false, names: [] };
@@ -1169,10 +1177,15 @@ function settingsLeftovers(opts) {
   const store = require('./store');
   const keyOf = (n) => { try { return store.safeKey(n); } catch { return null; } };
   const waiting = new Set(pending.map(keyOf).filter(Boolean));
+  /* kosmos#8471: on Windows, a task still registered (job === true, never the null of a failed look) with no folder is
+     listed too. No other screen shows it (the Windows roster lists only live sessions, and the restart notice needs a
+     folder), so without this row nobody could delete it. plan() and del() already handle a task with no folder.
+     `startsAtLogin` lets the row say so rather than "only its settings". macOS and Linux are unchanged. */
+  const taskLeft = (a) => platform === 'win32' && a.job === true;
   const names = s.agents
-    .filter((a) => a.profile === true && a.folder === false && a.job === false && !a.removed && !waiting.has(keyOf(a.name))
+    .filter((a) => a.profile === true && a.folder === false && (a.job === false || taskLeft(a)) && !a.removed && !waiting.has(keyOf(a.name))
       && !running.has(fold(a.name)) && !outside(a.name))
-    .map((a) => ({ name: a.name, shownAs: a.shownAs || a.name }));
+    .map((a) => ({ name: a.name, shownAs: a.shownAs || a.name, ...(taskLeft(a) ? { startsAtLogin: true } : {}) }));
   return { ok: true, names };
 }
 

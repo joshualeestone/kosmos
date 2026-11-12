@@ -53142,7 +53142,8 @@ async function paintRemoved() {
        painted as a sentence under the list. */
     + left.map((x) => '<div class="removed-row">'
       + '<div><span class="who">' + esc(x.shownAs || x.name) + '</span>'
-      + '<span class="when">Only its settings are left</span></div>'
+      /* kosmos#8471: a Windows task left with no folder still starts the agent at login, so the row says so. */
+      + '<span class="when">' + (x.startsAtLogin ? 'Its settings and its startup job are left' : 'Only its settings are left') + '</span></div>'
       + '<div class="acts"><button class="btn danger-btn" type="button" data-delete-leftover="' + esc(x.name) + '"'
       + ' aria-label="Delete what is left of ' + esc(x.shownAs || x.name) + '"'
       + ' data-shown-as="' + esc(x.shownAs || x.name) + '">Delete what is left…</button></div>'

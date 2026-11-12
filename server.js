@@ -18498,7 +18498,8 @@ const server = http.createServer(async (req, res) => {
     }
     const lr = SETTINGS_LEFTOVERS.r;
     sendJson(res, 200, {
-      ...(lr.ok ? { leftovers: lr.names.map((x) => ({ name: x.name, shownAs: x.shownAs || x.name })) } : {}),
+      // kosmos#8471: startsAtLogin marks a Windows task left with no folder, so the row does not say "only its settings".
+      ...(lr.ok ? { leftovers: lr.names.map((x) => ({ name: x.name, shownAs: x.shownAs || x.name, ...(x.startsAtLogin ? { startsAtLogin: true } : {}) })) } : {}),
       agents: agents.map((a) => ({
         name: a.name,
         shownAs: a.shownAs || a.name,
