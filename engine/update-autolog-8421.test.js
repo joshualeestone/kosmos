@@ -92,10 +92,6 @@ test('kosmos#8421: an automatic installer that ends while the board is still up 
 test('kosmos#8421: CONTROLS: an install the person starts, and a paused update, say nothing of the kind', async () => {
   let b = board();
   try {
-    await update.refresh();   // auto on: one launch; now as the person pressing Install on a fresh board
-  } finally { clear(); }
-  b = board();
-  try {
     update.setAutoPref(() => ({ on: false, ok: true }));
     await update.refresh();
     assert.equal(b.children.length, 0, 'control: automatic updates are off, so the look started nothing');
@@ -113,4 +109,55 @@ test('kosmos#8421: CONTROLS: an install the person starts, and a paused update, 
     assert.equal(b.children.length, 0, 'control: paused, nothing launched');
     assert.deepEqual(b.said, []);
   } finally { paused = false; clear(); }
+});
+
+test('kosmos#8421 review 1: an automatic installer that could not even be spawned says so and leaves no record', async () => {
+  const b = board();
+  try {
+    await update.refresh();
+    b.children[0].emit('error', new Error('EMFILE'));
+    assert.match(b.said[1], /^Kosmos's automatic update to 99\.0\.0 did not finish and the board did not stop; it stays on /);
+    assert.equal(fs.existsSync(b.record), false);
+  } finally { clear(); }
+});
+
+test('kosmos#8421 review 1: a root that is not absolute writes no record anywhere (it once landed in the cwd)', async () => {
+  const b = board();
+  const box = fs.mkdtempSync(path.join(os.tmpdir(), 'autolog-cwd-'));
+  const cwd = process.cwd();
+  try {
+    process.chdir(box);
+    update.setInstalledRoot(() => 'C:\\Users\\someone\\Kosmos');
+    await update.refresh();
+    assert.equal(b.children.length, 1, 'control: the install still launched');
+    assert.equal(b.said.length, 1, 'control: the line is still said');
+    // Only this card's record is checked: the #1728 in-flight marker (install.started) is written under any root by
+    // every install, a person's included, and is not this change's to fix (filed separately).
+    const walk = (d) => fs.readdirSync(d).flatMap((n) => { const q = path.join(d, n); return fs.statSync(q).isDirectory() ? walk(q) : [q]; });
+    assert.deepEqual(walk(box).filter((f) => f.endsWith('install.auto')), [], 'the record was written relative to the working directory');
+  } finally { process.chdir(cwd); clear(); }
+});
+
+test('kosmos#8421 review 1: the version is compared as the update check compares it, not as a string', () => {
+  const b = board();
+  try {
+    const unpadded = RUNNING.split('.').map(Number).join('.');
+    assert.notEqual(unpadded, RUNNING, 'control: this package version has no zero-padded part, so the arm proves nothing');
+    fs.mkdirSync(path.dirname(b.record), { recursive: true });
+    fs.writeFileSync(b.record, JSON.stringify({ from: '0.0.1', to: unpadded, channel: 'prod' }));
+    assert.match(update.noteAutoUpdateAtBoot(), /^Kosmos started again on /);
+  } finally { clear(); }
+});
+
+test('kosmos#8421 review 1: on Windows the automatic update writes no line and no record (that half is specified on the card)', async () => {
+  const b = board();
+  try {
+    update.setPlatform('win32', 'x64');
+    update.setWindowsBundleRoot(() => b.root);
+    update.setFetcher(async () => ({ ok: true, json: async () => ({ version: '99.0.0', sha256: 'ab'.repeat(32), artifact: 'kosmos-win-x64.zip', versioned: 'kosmos-99.0.0-win-x64.zip', arch: 'x64' }) }));
+    await update.refresh();
+    assert.equal(b.children.length, 1, 'control: the automatic install still launched on win32 (through the runner seam)');
+    assert.deepEqual(b.said, [], 'a Windows automatic update was logged as if it stops the board');
+    assert.equal(fs.existsSync(b.record), false);
+  } finally { update.setPlatform(null); update.setWindowsBundleRoot(null); clear(); }
 });

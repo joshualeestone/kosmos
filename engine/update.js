@@ -582,8 +582,16 @@ function maybeAutoInstall() {
    Best-effort throughout: a log line or a record that cannot be written must never stop or fail an update. */
 let autoLog = (line) => { try { process.stdout.write(line + '\n'); } catch { /* a closed stdout */ } };
 function setAutoLog(f) { autoLog = typeof f === 'function' ? f : (line) => { try { process.stdout.write(line + '\n'); } catch { /* a closed stdout */ } }; }
-function autoRecordFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.auto') : null; }
+/* Review 1: only under an ABSOLUTE root. A root a test names in another OS's form (C:\\Users\\...) is relative on a Mac,
+   and the record then landed in whatever folder ran the test, which a release checkout refuses as dirty. */
+function autoRecordFile() { const r = installedRoot(); return r && path.isAbsolute(r) ? path.join(r, 'logs', 'install.auto') : null; }
+/* Versions compared as the update check compares them (newer()), not as strings: 0.8.4 and 0.8.04 are one version. */
+function sameVersion(a, b) { return typeof a === 'string' && typeof b === 'string' && !newer(a, b) && !newer(b, a); }
 function noteAutoStart() {
+  /* Review 1: Mac and Linux only. On win32 the launch is asynchronous (begin() can still refuse: OneDrive, Program
+     Files, a failed download), nothing reports its end here, and it keeps no install.log, so the line would claim a
+     stop that may not happen and name a file that does not exist. The Windows half is specified on kosmos#8421. */
+  if (updatePlatform() === 'win32') return;
   const to = cache && cache.latest && cache.latest.version ? String(cache.latest.version) : 'a newer version';
   const channel = installPointer();
   const file = autoRecordFile();
@@ -605,7 +613,7 @@ function noteAutoUpdateAtBoot() {
   try { fs.unlinkSync(file); } catch { /* read once anyway */ }
   if (!rec || typeof rec !== 'object' || typeof rec.to !== 'string') return null;
   const channel = typeof rec.channel === 'string' ? rec.channel : 'its';
-  const line = rec.to === RUNNING
+  const line = sameVersion(rec.to, RUNNING)
     ? `Kosmos started again on ${RUNNING} after its automatic update from ${rec.from || 'the version before'} (${channel} channel).`
     : `Kosmos's automatic update to ${rec.to} (${channel} channel) did not finish; this board is running ${RUNNING}. The installer's own record is in ${installLog() || 'install.log'}.`;
   autoLog(line);
@@ -1077,6 +1085,7 @@ function wireChild(child, opts) {
        present, is watching, and gets an immediate attempt every time. */
     if (opts && opts.auto) autoFailedAt = Date.now();
     process.stderr.write(`Kosmos update could not start: ${String((err && err.message) || err)}\n`);
+    if (opts && opts.auto && mine) noteAutoEndedAlive();   // kosmos#8421 review 1: a spawn that failed emits error, not exit
   });
   // ⚠️ And the PIPELINE failing after a clean spawn (release host 404, a
   // dropped download, the installer's checksum refusal): the child exits
@@ -1124,7 +1133,7 @@ function wireChild(child, opts) {
        needs a signal the status file was expected-but-unwritten, a separate change. */
     const status = readStatusRaw();
     const realCode = (status && status.startedAt === (owner && owner.startedAt)) ? status.code : code;
-    if (opts && opts.auto) noteAutoEndedAlive();   // kosmos#8421: this board is alive, so the update did not restart it
+    if (opts && opts.auto && owner === lastAttempt) noteAutoEndedAlive();   // kosmos#8421: this board is alive, so the update did not restart it
     if (realCode !== 0) {
       installStarted = false;
       noteAttemptEnd(owner, realCode, 'the installer stopped before it could restart the board');
