@@ -1000,7 +1000,10 @@ function* delSteps(name, opts) {
   /* kosmos#8471: a Windows Scheduled Task too (review 33 kept this to Linux units). With the task still registered and
      the folder in the Recycle Bin, the settings kept and the removal forgotten, nothing on the board showed the agent,
      so its delete could never be tried again from the screen. Kept whole instead, the agent stays where it was seen. */
-  const taskStuck = Boolean(p.job && (p.job.unit || p.job.task) && stuck.includes('its startup job'));
+  /* kosmos#8474: and a Mac's plist that could not go to the Trash, for the same reason: the folder went, the settings
+     were kept, the removal was forgotten, and a job file with no folder was left that no row showed. */
+  const plistStuck = Boolean(p.job && !p.job.unit && !p.job.task && stuck.includes('its auto-start file'));
+  const taskStuck = Boolean(p.job && (p.job.unit || p.job.task) && stuck.includes('its startup job')) || plistStuck;
   if (taskStuck) {
     if (p.folder) {
       stuck.push('its folder');
@@ -1011,7 +1014,10 @@ function* delSteps(name, opts) {
     return {
       outcome: OUTCOME.REFUSED,
       // review 37: the community standing reset (#5000) has already run and cannot be undone, so the sentence says so.
-      because: (p.job.task
+      because: (plistStuck
+        // kosmos#8474: in a Mac's words, naming the file, which a person can move to the Trash themselves.
+        ? `${p.shown}'s auto-start file could not be moved to the Trash${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again in a moment, and if it keeps failing, move ${p.job.path} to the Trash yourself.`
+        : p.job.task
         // kosmos#8471: the same sentence in Windows words; Task Scheduler is where a person would look for the task.
         /* kosmos#8471: a refusal can last (a task another account registered says "Access is denied" every time), so
            the sentence also names the task, the thing a person can delete in Task Scheduler themselves. */
@@ -1189,8 +1195,12 @@ function settingsLeftovers(opts) {
   /* kosmos#8471: on Windows, a task still registered (job === true, never the null of a failed look) with no folder is
      listed too. No other screen shows it (the Windows roster lists only live sessions, and the restart notice needs a
      folder), so without this row nobody could delete it. plan() and del() already handle a task with no folder.
-     `startsAtLogin` lets the row say so rather than "only its settings". macOS and Linux are unchanged. */
-  const taskLeft = (a) => platform === 'win32' && a.job === true;
+     `startsAtLogin` lets the row say so rather than "only its settings". kosmos#8474: macOS too (plistLeft); Linux is
+     unchanged. */
+  /* kosmos#8474: on a Mac, the agent's own plist still on disk (its path, never only job === true, which a login job
+     covering the agent also gives and which plan() would not offer to delete). */
+  const plistLeft = (a) => { try { return fs.existsSync(create.plistPath(a.name)); } catch { return false; } };
+  const taskLeft = (a) => a.job === true && (platform === 'win32' || (platform === 'darwin' && plistLeft(a)));
   const names = s.agents
     .filter((a) => a.profile === true && a.folder === false && (a.job === false || taskLeft(a)) && !a.removed && !waiting.has(keyOf(a.name))
       && !running.has(fold(a.name)) && !outside(a.name))
