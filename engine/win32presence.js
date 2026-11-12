@@ -22,6 +22,7 @@ const store = require('./store');
 const PRESENCE_VERSION = 1;
 const PRESENCE_EXT = '.presence';
 const PIPE_PREFIX = '\\\\.\\pipe\\kosmos-sup-';
+const PIPE_SHAPE = /^\\\\\.\\pipe\\kosmos-sup-[a-z0-9]+$/i;   // the whole name, so no `..` can steer the look elsewhere
 const RETRY_PAUSE_MS = 5;   // only after a look that missed: a short wait before the second look
 /* A synchronous pause (liveNames is read synchronously by the board's poll). */
 function pause(ms) { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* no pause */ } }
@@ -36,7 +37,7 @@ function readPresence(name) {
   try { rec = JSON.parse(fs.readFileSync(presencePath(name), 'utf8')); } catch { return null; }
   if (!rec || typeof rec !== 'object' || rec.v !== PRESENCE_VERSION) return null;
   if (!Number.isInteger(rec.pid) || typeof rec.pipe !== 'string' || !rec.pipe) return null;
-  if (process.platform === 'win32' && !rec.pipe.startsWith(PIPE_PREFIX)) return null;   // only a pipe of ours is proof
+  if (process.platform === 'win32' && !PIPE_SHAPE.test(rec.pipe)) return null;   // only a pipe of ours (whole name) is proof
   return { pid: rec.pid, pipe: rec.pipe };
 }
 
@@ -90,24 +91,25 @@ function start(name, opts) {
       || (isAlive(older.pid) === true && (pause(RETRY_PAUSE_MS), pipeExists(older.pipe) === true)));   // the reader's own retry
   } catch { olderUp = false; }
   if (!olderUp) {
-    try { fs.rmSync(presencePath(name), { force: true }); } catch (e) { onProblem('we could not remove an older presence record (' + ((e && e.code) || 'unknown') + ')'); }
+    /* By its pid when it can be read (claim, then decide, as everywhere here); an unreadable file is no one's record. */
+    try { if (older) clearPresence(name, older.pid); else fs.rmSync(presencePath(name), { force: true }); }
+    catch (e) { onProblem('we could not remove an older presence record (' + ((e && e.code) || 'unknown') + ')'); }
   }
-  /* A look at the pipe on Windows (fs.existsSync) opens a client connection, so every board poll arrives here. It is
-     dropped at once, and a connection that errors on the way out (a reset) must not become an uncaught exception. */
+  /* A look at the pipe on Windows (fs.existsSync) may open a client connection (not measured), so a board poll could
+     arrive here. It is dropped at once, and a connection that errors on the way out must not become an uncaught exception. */
   const server = net.createServer((socket) => { socket.on('error', () => {}); socket.destroy(); });
   /* A pipe that failed to open before listening also removes an older supervisor's record kept above: when that one
      exits, its record would otherwise say this live agent is dead, and no record of ours replaces it. */
-  const dropOlder = () => { if (!wrote && older) clearPresence(name, older.pid); };
+  const dropOlder = () => { if (!wrote && !stopped && older) clearPresence(name, older.pid); };
+  const save = typeof o.save === 'function' ? o.save : (at, text) => store.saveFlushed(at, text);   // a test seam
   server.on('error', (e) => { dropOlder(); onProblem('we could not open its presence pipe (' + ((e && e.code) || 'unknown') + ')'); });
   try {
     server.listen(pipe, () => {
       if (stopped) return;
-      try {
-        fs.mkdirSync(stateDir(), { recursive: true });
-        store.saveFlushed(presencePath(name), JSON.stringify({ v: PRESENCE_VERSION, pid: process.pid, pipe }));
-        wrote = true;
-      } catch (e) {
-        onProblem('we could not record its presence (' + ((e && e.code) || 'unknown') + ')');
+      const text = JSON.stringify({ v: PRESENCE_VERSION, pid: process.pid, pipe });
+      for (let attempt = 0; attempt < 2 && !wrote; attempt++) {   // one retry: a rename over a file the board is reading can fail
+        try { fs.mkdirSync(stateDir(), { recursive: true }); save(presencePath(name), text); wrote = true; }
+        catch (e) { if (attempt === 1) { dropOlder(); onProblem('we could not record its presence (' + ((e && e.code) || 'unknown') + ')'); } else pause(RETRY_PAUSE_MS * 10); }
       }
     });
     if (typeof server.unref === 'function') server.unref();
