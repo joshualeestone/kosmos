@@ -45,7 +45,8 @@ Windows-arm test "#5664 step A", which now passes whole); tokenguard.win32-5664 
   print unrelated warnings).
 - Round 3: WARNING, the helper compared real paths only, but the guard walks both the written and the real chain: the
   temp folder now counts as inside the home if either spelling is, and both chains of the system folder are checked for
-  instruction files (test with a junction-shaped seam, fails on the previous helper). Two test NITs: a control that could
+  instruction files (the junction-shaped seam test covers the temp-folder-in-home check and fails on the previous
+  helper; the real-path chain of the system folder itself has no test of its own, review round 5). Two test NITs: a control that could
   not fail now uses a non-instruction file where the helper looks; an early return on a host with temp outside the home
   is an honest skip.
 
