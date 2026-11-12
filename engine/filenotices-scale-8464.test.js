@@ -270,3 +270,49 @@ test('kosmos#8464 review 4: an edit that writes a new file and renames it over t
   fs.appendFileSync(g, 'line 5\n');
   assert.match(fn.contextText(handed(w2)), /So far: 1 line added/);
 });
+
+/* Review 5: the fingerprint's own name check (device and inode of the name against the open file), alone. */
+test('kosmos#8464 review 5: the fingerprint refuses a name that is not the file it opened', () => {
+  const inside = fileWith('a\nb\n'); const outside = fileWith('x\ny\nz\n');
+  const realOpen = fs.openSync;
+  fs.openSync = (p, ...rest) => realOpen(p === inside ? outside : p, ...rest);
+  let got;
+  try { got = fn.fingerprint(inside, path.dirname(inside)); } finally { fs.openSync = realOpen; }
+  assert.equal(got, null, 'a swapped-in file was fingerprinted');
+  assert.ok(fn.fingerprint(inside, path.dirname(inside)), 'CONTROL: the real file is fingerprinted');
+});
+
+/* Review 5: the folder check made after the read, alone: the folder resolves where it should before the read and
+   somewhere else after it. */
+test('kosmos#8464 review 5: a folder that resolves elsewhere after the read is not measured', () => {
+  const f = fileWith('a\nb\n'); const dir = path.dirname(f);
+  const realReal = fs.realpathSync.native;
+  let calls = 0;
+  fs.realpathSync.native = (p, ...rest) => { calls += 1; return '/somewhere/else'; };   // the one check, after the read
+  let got;
+  try { got = fn.fingerprint(f, dir); } finally { fs.realpathSync.native = realReal; }
+  assert.equal(got, null, 'a folder that moved during the read was measured');
+  assert.ok(calls >= 1, 'CONTROL: the folder was checked');
+  assert.ok(fn.fingerprint(f, dir), 'CONTROL: an unmoved folder is measured');
+});
+
+test('kosmos#8464 review 5: files exactly at the bounds are still measured; one past either is too large', () => {
+  const atLines = fileWith(lines(fn.SCALE_MAX_LINES));
+  const fpL = fn.fingerprint(atLines);
+  assert.ok(fpL && Array.isArray(fpL.lines) && fpL.lines.length === fn.SCALE_MAX_LINES, 'a file of exactly the line bound was not measured');
+  assert.equal(fn.fingerprint(fileWith(lines(fn.SCALE_MAX_LINES + 1))).tooLarge, true);
+  const atBytes = fileWith('q'.repeat(fn.SCALE_MAX_BYTES));
+  assert.ok(Array.isArray(fn.fingerprint(atBytes).lines), 'a file of exactly the byte bound was not measured');
+  assert.equal(fn.fingerprint(fileWith('q'.repeat(fn.SCALE_MAX_BYTES + 1))).tooLarge, true);
+});
+
+test('kosmos#8464 review 5: lines are counted as multisets: a duplicate changed is one added and one removed, a move is no line change', () => {
+  const dup = fileWith('a\na\nb\n'); const a = owner();
+  fn.queue(a, 'x', { file: dup });
+  fs.writeFileSync(dup, 'a\nb\nb\n');
+  assert.match(fn.contextText(handed(a)), /So far: 1 line added and 1 line removed, of 3 before\./);
+  const mv = fileWith('a\nb\nc\n'); const b = owner();
+  fn.queue(b, 'x', { file: mv });
+  fs.writeFileSync(mv, 'c\na\nb\n');
+  assert.match(fn.contextText(handed(b)), /So far: the file changed, but no lines were added or removed \(lines moved/);
+});
