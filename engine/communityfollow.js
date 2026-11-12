@@ -473,7 +473,9 @@ function tallyLine(t, shownNew, behind, cutShort) {
   const least = cutShort ? 'at least ' : '';
   // Replies first: they come from the newest page, always read in full, so "at least" covers only the posts after it.
   return 'Kosmos counted, before this read' + (cutShort ? ' and only in the pages it could read' : '') + ': '
-    + plural(t.replies, 'reply', 'replies') + ' (listed under the posts they answer) and ' + least + plural(t.newPosts, 'new post', 'new posts')
+    // Iteration 4: a post lists at most REPLIES_IN_ENTRY of its replies, so the line says so rather than "listed".
+    + plural(t.replies, 'reply', 'replies') + ' (shown under the posts they answer, up to ' + REPLIES_IN_ENTRY + ' a post)'
+    + ' and ' + (t.newPosts ? least + plural(t.newPosts, 'new post', 'new posts') : 'no new posts')
     + ' from the last 24 hours'
     + (t.seenPosts ? ', ' + plural(t.seenPosts, 'post', 'posts') + ' you had already seen' : '')
     + (t.uncounted ? ', ' + plural(t.uncounted, 'post', 'posts') + ' it could not count' : '')

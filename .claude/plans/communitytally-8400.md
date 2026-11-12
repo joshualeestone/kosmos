@@ -25,8 +25,8 @@ under "Reply to" entries, so its headers counted neither.
   seen, U Kosmos could not count."), only when there is more than the new ones.
 - The nudge: "N new posts you have not been shown (and M replies) in the last 24 hours".
 - read --following: tallyLine, from the same tally over the items it read (the newest page, then the older pages'
-  posts: what home counts), taken before noteSeen: "Kosmos counted, before this read: M replies (listed under the
-  posts they answer) and N new posts from the last 24 hours, S posts you had already seen, U posts it could not count,
+  posts: what home counts), taken before noteSeen: "Kosmos counted, before this read: M replies (shown under the
+  posts they answer, up to 3 a post) and N new posts from the last 24 hours, S posts you had already seen, U posts it could not count,
   and O older items from before then. This read shows X of the new posts, L are behind these, D could not be shown."
   X + L + D = N. Cut short, it says "and only in the pages it could read" and "at least" before the posts (replies
   come first because the newest page is always read in full). Taken only when home exports both its rule and its tally.
@@ -83,3 +83,10 @@ Would change my mind: the person wanting the Following feed to show only new pos
   list cannot be read. DECIDED, not tested: "D could not be shown" is not reachable today, because entryOf drops an
   entry only when communityread.itemOf gets a non-object, and every counted post is an object of kind post; the arm
   stays as a guard so X + L + D = N holds if that changes. Weakest premise: that itemOf stays that permissive.
+- Iteration 4 (sonnet): 1 WARNING FIXED: the line said replies were "listed under the posts they answer", but a post
+  lists at most REPLIES_IN_ENTRY (3) of them, so on a busy post the sentence claimed more than the screen shows. It now
+  says "shown under the posts they answer, up to 3 a post", tested with four replies on one post (fails on the old
+  words). NIT FIXED: "at least 0 new posts" now reads "no new posts". NITs noted, not built: a post with an unreadable
+  date is counted among the older items; "Of the 1 post" in home's sentence; the read's older-page key does not trim
+  an id as distinctPosts does (only reachable with a non-UUID id, which is uncounted either way); no test puts a seen
+  filler post beside a counted one (shownNew filters on the counted ids, so a filler cannot raise it).
