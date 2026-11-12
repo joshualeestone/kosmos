@@ -30,7 +30,9 @@ macOS and Linux are unchanged.
   time is not a design. Rejected: a seventh patch. What would make a listing safe: a delete through it that is fully
   recoverable (remove the task only, keep the settings for their own Recycle Bin row, no community account retired).
 - macOS: #8474 was closed as not planned (the Mac board already shows a stopped agent with a plist and no folder).
-- The weakest part: an existing invisible leftover (made before this change) still has no Delete on the screen; only
+- The weakest part: a removed agent whose recorded folder is outside the workers folder on a drive that is not
+  connected still reads as gone, so its task-only delete is offered and its settings go for good (as on main; review
+  10; on #8475). Also, an existing invisible leftover (made before this change) still has no Delete on the screen; only
   Task Scheduler removes it. This change stops new ones; the follow-up card owns the rest. #8466's nameHeld half waits.
 
 ## Measured on the Windows box
@@ -53,3 +55,9 @@ delete-leftover.test 70/0/10, the 7820 file 34/0/1, policy tests pass.
 - Round 9: that premise was false (the next create makes an agent folder in it at once); the reviewer deleted a whole
   fleet's settings in a sandbox. This showed my understanding of the listing was wrong, so I stopped that line: the
   listing, its server field, its screen row and its tests are reverted to main, and the flawed "empty" check removed.
+- Round 10 (on the narrowed diff; no blocker; 1 warning, 2 conventions, 2 nits). Nothing in the diff is more
+  destructive than main. The warning (a recorded folder on an unconnected drive outside the workers folder reads as
+  gone, so its settings can go for good) is the same on main: named in the code comment and above, carded on #8475.
+  Conventions fixed after round 10, COMMENT-ONLY (no code changed): the test header no longer describes the reverted
+  listing; a leftover clause ("reachable since #8471") dropped; the plan() comment no longer claims coverage it lacks.
+  Loop stopped here by the fleet's 8-round rule (no blocker open): converged: false.

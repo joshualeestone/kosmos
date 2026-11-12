@@ -569,10 +569,11 @@ function plan(name, opts) {
   }
   /* kosmos#8471: a Windows task with no folder (reached from a removed agent's row) deletes its settings for good, so it
      gets the checks settings alone get (a name waiting to start, a recorded folder behind a link that leads nowhere, a
-     damaged settings file) and stricter ones: its folder may be missing only because the folder Kosmos keeps its agents
-     in leads nowhere or is not there (an unplugged disk or share); then every agent looks like this, and Kosmos refuses
-     rather than delete their settings. (Settings alone go to the Recycle Bin, which can be undone, so they are not refused
-     in that state.) */
+     damaged settings file) and stricter ones: when the folder Kosmos keeps its agents in leads nowhere or is not there
+     (an unplugged disk or share), every agent looks like this, and Kosmos refuses rather than delete their settings.
+     (Settings alone go to the Recycle Bin, which can be undone, so they are not refused in that state.) NOT covered, as
+     on main: a recorded folder OUTSIDE the workers folder on a drive that is not connected reads as gone, not
+     unreachable, so its settings can still be deleted for good (kosmos#8475). */
   if (!folder && job && job.task) {
     const st = strandedRefusal(clean, shown);
     if (st.because) return { ok: false, because: st.because };
@@ -665,8 +666,8 @@ function plan(name, opts) {
     reassurance = !toTrash && jobIsTask
       /* kosmos#8471: a Windows task with no folder moves nothing, so its settings go for good by design (#7820: the
          outcome then never stands over a record promised the Recycle Bin). Said as the fact it is: "the Recycle Bin
-         cannot take them" was a reason that was not true, and this row is reachable on Windows since #8471. (A Linux
-         unit-only leftover says the same false reason; left as it is here.) */
+         cannot take them" was a reason that was not true. (A Linux unit-only leftover says the same false reason; left
+         as it is here.) */
       /* One "and" per sentence: the settings (and picture, which recordsWords joins with its own "and") and what else
          does not come back are sentences of their own here. */
       ? `Its startup job is removed. ${w.cap} ${w.plural ? 'are' : 'is'} deleted for good${community ? '. Its community account does not come back' : waiting ? '. Anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`

@@ -6,8 +6,9 @@
  *
  * 1. A delete whose startup job Task Scheduler would not remove keeps the folder and every record, as a Linux unit does
  *    (review 33), so the agent stays where a person can see it and the delete can be tried again.
- * 2. settingsLeftovers lists a name whose profile is there, whose folder is gone and whose task is still registered, so
- *    the removed list draws a Delete for it, and that delete removes the task and the settings end to end.
+ * 2. A removed agent's task left with no folder: its delete is guarded (refused while the folder Kosmos keeps its agents
+ *    in leads nowhere or is not there) and says truthfully that the settings go for good. Nothing lists such a task
+ *    anywhere (review 9: a deleted folder cannot be told from a moved one; the safe listing is kosmos#8475).
  *
  * Driven from any platform: the win32 arm is injected, and Task Scheduler is a stand-in behind win32job's own runner
  * seam (a set of registered task names), so nothing here creates, changes or deletes a real Scheduled Task. Sandboxed
