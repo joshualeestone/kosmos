@@ -67,15 +67,17 @@
 //      asymmetry is worth knowing before adding a test that writes.
 require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const os = require('node:os');
+const { skipOnWin32 } = require('./test-support/skip-on-win32');   // kosmos#8378: the tmux stop and launchd arms
 const jobfix = require('./test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 /* #5500: the job reads and runner answers a test checks, as THIS platform has them: the plist and launchctl on a Mac
    (each exactly the read or filter it replaced), the systemd unit and systemctl on Linux. create is required lazily:
    it resolves its roots at load, after the sandbox below is set. */
 const linuxHost = () => process.platform === 'linux';
-/* The model the job starts on: plannedModelArg reads the plist; on Linux readJob reads the same slot out of the unit. */
+/* The model the job starts on: plannedModelArg reads the plist; on Linux readJob reads the same slot out of the unit,
+   and on Windows out of the Scheduled Task (kosmos#8378: test-support/jobfixture's stand-in there). */
 const plannedModel = (name) => {
   const create = require('./engine/create');
-  return linuxHost() ? ((create.readJob(name) || {}).model || null) : create.plannedModelArg(name);
+  return process.platform !== 'darwin' ? ((create.readJob(name) || {}).model || null) : create.plannedModelArg(name);
 };
 /* A command that STARTS the job (launchd's bootstrap, systemd's start), and one that re-enables it. */
 const startsJob = (file, a) => Array.isArray(a) && (a[0] === 'bootstrap' || (/systemctl$/.test(String(file)) && a[1] === 'start'));
@@ -156,6 +158,7 @@ process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(nodePath.join(os.tmpdir(),
 // home into a test. Directories only, nothing written -- but a listing is
 // still a read of somebody's disk that no test here means to make.
 process.env.HOME = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-home-'));
+process.env.USERPROFILE = process.env.HOME;   // kosmos#8378: os.homedir() reads USERPROFILE on Windows, where HOME is not asked
 // #2145: a signed-in DEFAULT Claude account beside the sandbox HOME. The create
 // route now refuses a Claude create on a machine with NO Claude account at all
 // (accountConnectable, the sibling of #1903's dead-account gate). The HOME above
@@ -163,7 +166,9 @@ process.env.HOME = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-home-'));
 // that means to SUCCEED (record shape, project attachment) must name the account
 // a real such machine would have. The liveness probe runs the fake claude bin
 // (AGENT_WORKFORCE_CLAUDE_BIN=/bin/echo below) -> not a dead sign-in -> the create
-// proceeds. accounts.js reads the default account's record at <HOME>/.claude.json.
+// proceeds. (kosmos#8378: on Windows the stub is node, which refuses the probe's flags, so
+// the probe answers unknown, not connected; that is not a dead sign-in either, and the
+// create still proceeds, down that branch.) accounts.js reads the default account's record at <HOME>/.claude.json.
 // #2724: seal the ENGINE's home seam as well as the OS home. `accounts.js` reads
 // `AGENT_WORKFORCE_HOME || os.homedir()`, so with only `$HOME` sealed an ambient
 // `AGENT_WORKFORCE_HOME` sends the account lookup somewhere other than the
@@ -185,7 +190,13 @@ process.env.AGENT_WORKFORCE_RELEASE_BASE = 'http://127.0.0.1:9/dist';
 // And the two programs an agent is made of, so a route test does not depend on
 // whether the machine running the suite happens to have Claude installed where
 // this one does.
-process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
+/* kosmos#8378: on Windows node itself stands in for it (/bin/echo is not a path there, so runners.isRunnable refused
+   it and every create answered that Claude Code was missing). Off Windows it stays /bin/echo, exactly as before. */
+const STUB_BIN = process.platform === 'win32' ? process.execPath : '/bin/echo';
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = STUB_BIN;
+/* kosmos#8378: a stored file's path in the pane line, written the POSIX way for a shape check (C:\a\b -> /a/b). The
+   exact path is still checked against the stored file beside each use; off Windows this returns the text unchanged. */
+const posixPaths = (text) => (process.platform === 'win32' ? String(text).replace(/[A-Za-z]:\\/g, '/').replace(/\\/g, '/') : text);
 /* ⚠️ A FAKE TMUX, NOT /bin/echo (#332). echo stubbed the writes and printed
    its arguments to the reads, which the parser refused, so every read fell
    through to the real tmux on the PATH and these tests measured the
@@ -208,6 +219,18 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 // call ordering, and the next removal test somebody adds outside that block
 // would execute the real thing. `setRunner(null)` re-arms dry-run.
 require('./engine/remove').setRunner(null);
+/* kosmos#8378: on Windows the board's roster never comes from tmux (server.js hands status.setPaneSource the Windows
+   roster when it boots), and the fake tmux above is a shebang script, which Windows cannot run. So on Windows "no pane
+   source" is what the fake tmux answers here with no fixture set: an empty fleet, through the seam the Windows board
+   uses. A test that sets its own source, or a null-answering one, is unchanged. */
+if (process.platform === 'win32') {
+  const paneStatus = require('./engine/status');
+  const setPaneSource = paneStatus.setPaneSource;
+  paneStatus.setPaneSource = (fn) => setPaneSource(typeof fn === 'function' ? fn : () => '');
+  paneStatus.setPaneSource(null);
+}
+// kosmos#8378: the agents' jobs, from the first test on: on Windows a stand-in Task Scheduler in this sandbox.
+jobfix.useJobStore();
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -3178,7 +3201,7 @@ test('a write another website could send is refused, whatever route it names', a
   }
 });
 
-test('the create route answers a real creation with the record the screen is built on', async () => {
+test('the create route answers a real creation with the record the screen is built on', { skip: skipOnWin32('it checks the job was loaded through launchctl (or systemctl on Linux), the runner this test stubs, and the launchd step it records; a Windows create registers a Scheduled Task instead; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   // ⚠️ The route test beside this one is named "makes an agent" and never makes
   // one — both its cases assert 400. So the 200 answer, which is the ENTIRE
   // contract the creation screen consumes (`outcome`, the ordered `steps` list
@@ -4653,7 +4676,7 @@ test('the open-sleep-settings route: guard-inherited, honest 409, and the engine
   }
 });
 
-test('the removal routes ask, remove, and put back, over the wire', async () => {
+test('the removal routes ask, remove, and put back, over the wire', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   // ⚠️ The engine was well covered and the surface a browser talks to was not.
   // These routes are how the fleet is managed, and the restore route is what
   // makes the removal safe to offer.
@@ -5004,7 +5027,7 @@ test('kosmos#7825 PR 2: the removed list carries names with only settings left, 
  * This one builds a REAL plist naming a REAL account dir, deletes the dir, and
  * asserts the route ships `true`.
  */
-test('#2615 the removed list reports a gone account folder as gone', async () => {
+test('#2615 the removed list reports a gone account folder as gone', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   const removal = require('./engine/remove');
   const create = require('./engine/create');
   const status = require('./engine/status');
@@ -5051,7 +5074,7 @@ test('#2615 the removed list reports a gone account folder as gone', async () =>
   }
 });
 
-test('the removed list gives the browser only what it draws', async () => {
+test('the removed list gives the browser only what it draws', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   /**
    * ⚠️ Pins an ALLOWLIST, which is the only shape that can catch the regression
    * that matters. The stored record carries the launchd label, the absolute
@@ -5533,7 +5556,7 @@ test('no style rule depends on a custom property that is never defined', () => {
 });
 
 
-test('an agent whose card shows a different name than its session still leaves the board', async () => {
+test('an agent whose card shows a different name than its session still leaves the board', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   // #5432: the legacy com.<session>.discord.plist below is a macOS fixture; on Linux nothing reads it, so there the
   // test measures the name-versus-session removal with no legacy job.
   /**
@@ -5676,7 +5699,7 @@ test('a half-removed agent is on the removed list AND still on the board', async
 });
 
 
-test('a job that is disabled but will not unload is recorded, not reported as untouched', async () => {
+test('a job that is disabled but will not unload is recorded, not reported as untouched', { skip: skipOnWin32('it makes launchctl bootout fail, through the runner this test stubs, to check the removal a job that will not unload records; a Windows job is a Scheduled Task, whose same state (disabled, but /End fails) the stand-in Task Scheduler cannot make here; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   /**
    * ⚠️ THE WORST STATE THIS MODULE CAN REACH, and it used to be invisible.
    *
@@ -5788,7 +5811,9 @@ test('the machine route always answers, with renderable checks and never an erro
   assert.ok(installed, 'the installed row vanished from the machine route');
   assert.ok(installed.present && typeof installed.present === 'object',
     'the installed row must carry a present map for the Connect step to read');
-  for (const k of ['tmux', 'claude', 'codex']) {
+  /* kosmos#8378: a Windows board needs no tmux and does not probe it (#2304: present.tmux is undefined there, pinned
+     in engine/machine.test.js), so there the map answers for the two runners. */
+  for (const k of process.platform === 'win32' ? ['claude', 'codex'] : ['tmux', 'claude', 'codex']) {
     assert.ok(k in installed.present, `present must answer for ${k}`);
     assert.ok(installed.present[k] === true || installed.present[k] === false || installed.present[k] === null,
       `present.${k} must be true, false, or null for could-not-look, got ${installed.present[k]}`);
@@ -10649,7 +10674,7 @@ test('the footer answers only a question that was asked, and never sits on news'
     'a failure stayed silent until it was asked for');
 });
 
-test('the model route writes the choice AND restarts, because either alone is a lie', async () => {
+test('the model route writes the choice AND restarts, because either alone is a lie', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   /**
    * 🛑 TWO WRITES AND THE SECOND IS NOT OPTIONAL. `setModel` rewrites the
    * startup file; the restart is what makes launchd read it. Ship the first
@@ -10670,7 +10695,7 @@ test('the model route writes the choice AND restarts, because either alone is a 
   create.setRunner((f, a) => systemd(f, a) || { ok: true, stdout: '' });
   create.setDryRun(false);
   statusEngine.setPaneSource(() => '');
-  const made = create.createAgent({ claudeBin: '/bin/echo', tmuxBin: '/bin/echo', name, role: 'pm', model: 'opus' });
+  const made = create.createAgent({ claudeBin: STUB_BIN, tmuxBin: STUB_BIN, name, role: 'pm', model: 'opus' });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
   create.setRunner(null);
 
@@ -10722,7 +10747,7 @@ test('the model route writes the choice AND restarts, because either alone is a 
   }
 });
 
-test('#2019: the restart route threads an optional cause, and a bodyless POST stays backward-compatible', async () => {
+test('#2019: the restart route threads an optional cause, and a bodyless POST stays backward-compatible', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   /* The route was rewritten from a synchronous handler to an async readBody so
      the stale-instructions notice can send {cause:'instructions'} and the board
      can name WHY the agent went quiet. A bodyless POST (a plain Restart click)
@@ -10740,7 +10765,7 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
   create.setRunner((f, a) => systemd(f, a) || { ok: true, stdout: '' });
   create.setDryRun(false);
   statusEngine.setPaneSource(() => '');
-  const made = create.createAgent({ claudeBin: '/bin/echo', tmuxBin: '/bin/echo', name, role: 'pm' });
+  const made = create.createAgent({ claudeBin: STUB_BIN, tmuxBin: STUB_BIN, name, role: 'pm' });
   assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
   create.setRunner(null);
 
@@ -11355,7 +11380,7 @@ test('attachments: a file is uploaded to an agent, rides the message, reaches th
 
   // The pane was told where the file is, in the bracketed line.
   const wire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('here is the lease')) || '';
-  assert.match(wire, /here is the lease \[attached file: \/.+\/lease notes\.txt \(text\/plain, \d+ bytes?\)\]$/, wire);
+  assert.match(posixPaths(wire), /here is the lease \[attached file: \/.+\/lease notes\.txt \(text\/plain, \d+ bytes?\)\]$/, wire);
   const rec = attachmentsEngine.read(attachment.id);
   assert.ok(wire.includes(rec.file), 'the path in the wire is not the stored file');
 
@@ -11470,7 +11495,7 @@ test('attachments: a room post carries a project attachment to every member and 
   });
   assert.equal(post.status, 200, post.body);
   const wire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('read the brief')) || '';
-  assert.match(wire, /read the brief \[attached file: \/.+\/brief\.txt \(text\/plain, \d+ bytes?\)\]$/, wire);
+  assert.match(posixPaths(wire), /read the brief \[attached file: \/.+\/brief\.txt \(text\/plain, \d+ bytes?\)\]$/, wire);
   const rows = JSON.parse((await req('/api/project/' + pr.id + '/room')).body).rows;
   const row = rows.find((r) => r.kind === 'post' && r.text === 'read the brief');
   assert.ok(row && row.attachment, 'the room row carries no attachment: ' + JSON.stringify(row));
@@ -11685,7 +11710,7 @@ test('attachments: a message carries several files, in order, with every path in
   assert.equal(row.attachments[0].id, a.id); assert.equal(row.attachments[1].id, b.id);
   assert.equal(row.attachment.id, a.id, 'the first file is not also `attachment`, which the card drawn against one file reads');
   const wire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('both of these')) || '';
-  assert.match(wire, /both of these \[attached file: \/.+\/one\.txt \(text\/plain, \d+ bytes?\)\] \[attached file: \/.+\/two\.txt \(text\/plain, \d+ bytes?\)\]$/, wire);
+  assert.match(posixPaths(wire), /both of these \[attached file: \/.+\/one\.txt \(text\/plain, \d+ bytes?\)\] \[attached file: \/.+\/two\.txt \(text\/plain, \d+ bytes?\)\]$/, wire);
   // A bad id anywhere in the list refuses the whole send; nothing is recorded.
   const bad = await req('/api/agent/' + name + '/thread', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -11716,7 +11741,7 @@ test('attachments: a message carries several files, in order, with every path in
   assert.ok(roomRow && roomRow.attachments && roomRow.attachments.length === 2, 'the room row does not carry both: ' + JSON.stringify(roomRow));
   assert.equal(roomRow.attachment.id, pa.id);
   const roomWire = pastedMessages(typed).find((x) => typeof x === 'string' && x.includes('plan.txt, budget.txt')) || '';
-  assert.match(roomWire, /\[attached file: \/.+\/plan\.txt \(text\/plain, \d+ bytes?\)\] \[attached file: \/.+\/budget\.txt \(text\/plain, \d+ bytes?\)\]$/, roomWire);
+  assert.match(posixPaths(roomWire), /\[attached file: \/.+\/plan\.txt \(text\/plain, \d+ bytes?\)\] \[attached file: \/.+\/budget\.txt \(text\/plain, \d+ bytes?\)\]$/, roomWire);
 });
 
 test('putting a running agent on a project types one line into its pane, once, and only when membership moves (#141/#143/#304/#305)', async () => {
@@ -13540,7 +13565,7 @@ test('#1304: each field takes the best source that has it, and neither hard-null
        agent got depended on whether its pane happened to be readable. */
     const accForDefault = require('./engine/accounts');
     const defDir = require('node:path').join(accForDefault.HOME_FOR_TEST, '.claude');
-    fs.writeFileSync(fixtureJob,
+    fs.writeFileSync(jobfix.jobPath('acctworker'),   // kosmos#8378: the path again, so a remembered job read is forgotten
       jobfix.jobFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', null, defDir), 'utf8');
     const viaRecord = whoamiFor(card, [], { ok: false, because: 'no pane' });
     const viaLive = whoamiFor(card, [], { ok: true, account: null, model: null, configDir: defDir });
@@ -13649,7 +13674,7 @@ test('#1304: each field takes the best source that has it, and neither hard-null
        null rather than an unidentifiable-directory object - the transcript
        stays, so this is the null-account-with-known-model shape and not simply
        an empty agent. Restored immediately after. */
-    fs.rmSync(fixtureJob, { force: true });
+    fs.rmSync(jobfix.jobPath('acctworker'), { force: true });   // kosmos#8378: the path again, so a remembered job read is forgotten
     const noAcctKnownModel = whoamiFor(card, [], { ok: false, because: 'no pane' });
     assert.equal(noAcctKnownModel.account, null, 'the fixture no longer produces a null account');
     assert.ok(noAcctKnownModel.model && noAcctKnownModel.model.name,
@@ -13673,7 +13698,7 @@ test('#1304: each field takes the best source that has it, and neither hard-null
        the unknown form reads "We cannot tell which account this agent runs on",
        so the old assertion was structurally incapable of detecting the thing its
        own message named. */
-    fs.writeFileSync(fixtureJob,
+    fs.writeFileSync(jobfix.jobPath('acctworker'),   // kosmos#8378: the path again, so a remembered job read is forgotten
       jobfix.jobFor('acctworker', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-opus-5',
         '/Users/agent1/.claude-account-x'), 'utf8');
     const knownAcct = whoamiFor(card, recorded, { ok: false, because: 'no pane' });
@@ -13698,7 +13723,8 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     assert.ok(!unknownDir.account.dir || !sentenceForWhoami(unknownDir.account, unknownDir.model).includes(unknownDir.account.dir), 'the folder is in the sentence');
 
   } finally {
-    if (fixtureJob) { try { fs.rmSync(fixtureJob, { force: true }); } catch { /* nothing to undo */ } }
+    // kosmos#8378: the path asked for again, so win32job forgets the job it read (test-support/jobfixture.js).
+    if (fixtureJob) { try { fs.rmSync(jobfix.jobPath('acctworker'), { force: true }); } catch { /* nothing to undo */ } }
     /* ⚠️ AND THE SEEDED TRANSCRIPT, which I left behind. `seedTranscript` writes a
        registry entry and a transcript for this agent name, and the ROUTE test
        below then silently read them: its stub returns `model: null`, so its
@@ -14744,7 +14770,8 @@ test('#1304: a throwing live reader falls back to the record and fabricates noth
       assert.equal(out2.source.account, 'record');
       assert.equal(out2.account && out2.account.email, 'sentinel@example.com',
         'the account list was fetched and discarded, so the record path received an empty list');
-    } finally { try { fs.rmSync(jobPath, { force: true }); } catch { /* nothing to undo */ } }
+    // kosmos#8378: the path asked for again, so win32job forgets the job it read (test-support/jobfixture.js).
+    } finally { try { fs.rmSync(jobfix.jobPath('acctworker'), { force: true }); } catch { /* nothing to undo */ } }
     /* The honest account clause is present rather than a fabricated confident
        one. #1899 made the identity clause (name + source) LEAD the sentence, so
        this is no longer at position 0 -- but the anchor here was only ever a

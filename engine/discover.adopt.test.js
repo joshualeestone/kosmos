@@ -8,6 +8,7 @@
 const test = require('node:test');
 /* #5432: on a Linux host an agent's job is a systemd user unit. These tests read the job with create.readJob, which
    reads either, so they run on Linux too. */
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378: the arms that need launchd or tmux
 const jobfix = require('../test-support/jobfixture');   // #5432: the agent's job as this platform writes it (plist / systemd unit)
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -53,10 +54,8 @@ process.env.AGENT_WORKFORCE_GROK_BIN = path.join(SANDBOX, 'bin', 'grok');
 for (const d of ['workers', 'LaunchAgents', 'home/.codex', 'support', 'bin']) {
   fs.mkdirSync(path.join(SANDBOX, d), { recursive: true });
 }
-for (const b of ['claude', 'codex', 'gemini', 'grok']) {
-  fs.writeFileSync(path.join(SANDBOX, 'bin', b), '#!/bin/sh\nexit 0\n');
-  fs.chmodSync(path.join(SANDBOX, 'bin', b), 0o755);
-}
+// kosmos#8378: a stub this platform counts as runnable (on Windows a .cmd beside it; test-support/runnerstub.js).
+for (const b of ['claude', 'codex', 'gemini', 'grok']) require('../test-support/runnerstub').writeRunnerStub(path.join(SANDBOX, 'bin'), b);
 
 const discover = require('./discover');
 const create = require('./create');
@@ -345,8 +344,7 @@ test('#3568: with the flag on, a provider:antigravity hint adopts an AGENTS.md f
   const was = process.env.AGENT_WORKFORCE_ANTIGRAVITY;
   const wasBin = process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN;
   const agyBin = path.join(SANDBOX, 'bin-agy', 'agy');
-  fs.mkdirSync(path.dirname(agyBin), { recursive: true });
-  fs.writeFileSync(agyBin, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  require('../test-support/runnerstub').writeRunnerStub(path.dirname(agyBin), 'agy');   // kosmos#8378: runnable here
   process.env.AGENT_WORKFORCE_ANTIGRAVITY = '1';
   process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = agyBin;
   try {
@@ -403,7 +401,7 @@ test('#3519 CONTROL: a non-claude provider hint on a CLAUDE.md folder is ignored
     'a claude adoption must record NO provider, even with a non-claude hint');
 });
 
-test('#1159: an adopted Codex agent gets the same first-run setup as a created one', () => {
+test('#1159: an adopted Codex agent gets the same first-run setup as a created one', { skip: skipOnWin32('it checks the answers to the trust and update prompts a Codex pane in tmux stops at; on Windows Codex runs headless turns under the supervisor, which show neither prompt') }, () => {
   /* 🛑 Otherwise it meets a trust prompt and an update prompt that nothing will
      answer, and the board reads both panes as `unknown` (#1315). */
   const dir = agentFolder('scoutsetup', 'AGENTS.md', '# You are Scout Setup\n');
@@ -566,7 +564,7 @@ test('#1159 CONTROL: adopting a Claude agent does NOT stamp a provider', () => {
  */
 const projectsMod = require('./projects');
 
-test('#1349: an imported agent gets the project block, BEFORE it is started', () => {
+test('#1349: an imported agent gets the project block, BEFORE it is started', { skip: skipOnWin32('it watches the start through create.setRunner, the launchctl runner seam, which a Windows start never calls: Windows starts the agent through Task Scheduler; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, () => {
   /* 🔑 THE ORDERING IS PROVEN, NOT ASSERTED. The injected runner is what
      `installJob` calls to start the agent, so reading the instructions file from
      INSIDE it captures their state at the moment of start. If the block is
@@ -654,7 +652,7 @@ test('#1349: an instructions file already at the ceiling is left alone', () => {
  * MEASURED ASYMMETRY: `create.js` composes both before an agent is born;
  * `discover.js` mentioned `defaults` ZERO times.
  */
-test('#1363: an imported agent is born with the rules and the connector words', () => {
+test('#1363: an imported agent is born with the rules and the connector words', { skip: skipOnWin32('it watches the start through create.setRunner, the launchctl runner seam, which a Windows start never calls: Windows starts the agent through Task Scheduler; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, () => {
   const dir = agentFolder('rulesimp', 'AGENTS.md', '# You are Rules Imp\n');
   let atStart = null;
   create.setRunner(() => {

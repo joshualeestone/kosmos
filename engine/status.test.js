@@ -3984,6 +3984,9 @@ test('an agent Kosmos launched but that has never spoken says so, and one we did
     // --- ours, launched, nothing written yet: Ava ---------------------------
     mk('avafresh');
     fs.mkdirSync(agentsDir, { recursive: true });
+    /* kosmos#8378: on Windows jobPath installs the fixture's stand-in Task Scheduler, which from here on replaces the
+       win32job runner this file installed near its top (before the fixture was required, so the fixture cannot see it
+       to refuse); the stand-in answers "registered" for the task file this writes, as that runner did for the plist. */
     fs.writeFileSync(require('../test-support/jobfixture').jobPath('avafresh'), '<plist/>', 'utf8');   // #5432: the job file where this platform keeps it
     const ava = show('avafresh');
     assert.ok(ava, 'the fixture did not produce a card at all');

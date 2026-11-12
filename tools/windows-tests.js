@@ -108,7 +108,12 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   'computerprint-5532.test.js',   // #5532: the computer print's real-registry arm reads this runner's registry
   'orgenroll-5531.test.js',   // #6113: its owner-only checks skip and its unreadable-id arm swaps the file for a folder on Windows
   'cert-watch.test.js',   // kosmos#6602: its owner-only mode check skips on Windows; the rest (the reader, the switch file) runs there
-  'sheetpreview.test.js'];   // kosmos#8122: the spreadsheet preview's link refusal must hold on Windows, which has no O_NOFOLLOW (only the FIFO arm skips)
+  'sheetpreview.test.js',   // kosmos#8122: the spreadsheet preview's link refusal must hold on Windows, which has no O_NOFOLLOW (only the FIFO arm skips)
+  // kosmos#8378: shared Windows fixtures (a stand-in Task Scheduler in test-support/jobfixture.js, runner stubs Windows
+  // counts as runnable in test-support/runnerstub.js, USERPROFILE beside HOME). Each arm about launchd, tmux, POSIX
+  // modes or the macOS LaunchAgents survey skips with its reason; the rest runs here.
+  'discover.adopt.test.js', 'qwen-review2-5977.test.js', 'machine.test.js', 'register.test.js', 'delete-leftover.test.js',
+  'connect-keep-8293.test.js', 'create.compat-7206.test.js'];
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
@@ -117,7 +122,10 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
   'engine.reachable.test.js',   // #5548: its caller keys are posix so a module is not its own caller; measured red here before
   'tools.command-words-7262.test.js',   // #7262: the shared reader; since #7318 its tool-guard arms run here too
   'tools.run-tests-chunks-7257.test.js',   // #7257: npm test's node --test in chunks under Windows' command-line cap
-  'cli.project-remove-member-7405.test.js'];   // kosmos#8378: the Windows CLI's remove-member arms run here; its Mac CLI arms skip by skipOnWin32
+  'cli.project-remove-member-7405.test.js',   // kosmos#8378: the Windows CLI's remove-member arms run here; its Mac CLI arms skip by skipOnWin32
+  // kosmos#8378: the board's roster through the pane source the Windows board uses, and its jobs in a stand-in Task
+  // Scheduler; the tmux-stop, launchd and bash sign-in mock arms skip with their reasons.
+  'server.test.js', 'server.disconnect-stop-2570.test.js', 'web.not-running.test.js'];
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {

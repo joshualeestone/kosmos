@@ -16,6 +16,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // kosmos#8378: the macOS-only arms
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -90,9 +91,8 @@ function reset() {
   for (const d of ['liveness', 'selfreports']) fs.rmSync(path.join(store.ROOT, d), { recursive: true, force: true });
   fs.rmSync(path.join(store.ROOT, 'restart-notices-hidden.json'), { force: true });
   fs.mkdirSync(path.join(SB, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(SB, 'bin', 'claude'), '#!/bin/sh\n', { mode: 0o755 });
-  fs.writeFileSync(path.join(SB, 'bin', 'tmux'), '#!/bin/sh\n', { mode: 0o755 });
-  fs.writeFileSync(path.join(SB, 'bin', 'codex'), '#!/bin/sh\n', { mode: 0o755 }); // #1794
+  // kosmos#8378: stubs this platform counts as runnable (on Windows a .cmd beside each; test-support/runnerstub.js).
+  for (const b of ['claude', 'tmux', 'codex']) require('../test-support/runnerstub').writeRunnerStub(path.join(SB, 'bin'), b);   // codex: #1794
 }
 
 test('an agent with a folder and no job is the thing being looked for', () => {
@@ -163,7 +163,7 @@ test('a name that is not a name is not turned into a path', () => {
   assert.deepEqual(mac.survey().agents.map((a) => a.name), []);
 });
 
-test('the repair writes the job, enables the label, and bootstraps it', () => {
+test('the repair writes the job, enables the label, and bootstraps it', { skip: skipOnWin32('it drives the macOS arm (platform darwin) and checks its launchctl calls, which name the login session by POSIX uid (process.getuid), which Windows does not have') }, () => {
   reset();
   agent('brigitte');
   const out = mac.repair();
@@ -244,7 +244,7 @@ test('no job is written when Claude is not on this computer', () => {
      binary that is not there fails every thirty seconds forever. */
   reset();
   agent('dan');
-  fs.rmSync(path.join(SB, 'bin', 'claude'));
+  require('../test-support/runnerstub').removeRunnerStub(path.join(SB, 'bin'), 'claude');   // kosmos#8378: the .cmd beside it too
   const r = create.installJob('dan', { platform: 'darwin' });
   assert.equal(r.ok, false);
   assert.match(r.because, /could not find Claude/);
@@ -377,7 +377,7 @@ test('#500: a directory born long after every line for its name is a later tenan
   assert.ok(!names.includes('old-name'), 'a directory born after its only line was shown as that line\'s remains');
 });
 
-test('#500: an unreadable root reports the sweep failed rather than a confident absence', () => {
+test('#500: an unreadable root reports the sweep failed rather than a confident absence', { skip: skipOnWin32('it makes a file or folder unreadable with a POSIX mode (chmod 000), which Windows does not keep') }, () => {
   reset();
   agent('solo');
   fs.chmodSync(path.join(SB, 'workers'), 0o000);
@@ -597,7 +597,7 @@ test('#6310: a login job we cannot read makes unknown only the agent it names; t
   assert.equal(fs.existsSync(create.plistPath('unkx')), false, 'Repair wrote a job for an agent whose login job is unknown');
 });
 
-test('#6310: a scheduled job that starts at login in the folder covers it, as do a run-once launcher, a Program key and a $HOME spelling', () => {
+test('#6310: a scheduled job that starts at login in the folder covers it, as do a run-once launcher, a Program key and a $HOME spelling', { skip: skipOnWin32('it drives the macOS LaunchAgents survey (platform darwin), which matches folders by their POSIX spelling under $HOME with / separators; Windows has no LaunchAgents, and its survey reads Task Scheduler') }, () => {
   reset();
   for (const n of ['tickx', 'oncex', 'progx', 'homex']) agent(n);
   const bin = path.join(SB, 'scripts');
@@ -637,7 +637,7 @@ test('#6310: a kept-alive job whose start script names the folder covers the age
   assert.deepEqual(mac.survey().missing, ['leo', 'periodx']);
 });
 
-test('#6310: a login job that cannot be read at all makes every agent without its own plist unknown, and none is repaired', (t) => {
+test('#6310: a login job that cannot be read at all makes every agent without its own plist unknown, and none is repaired', { skip: skipOnWin32('it makes a file or folder unreadable with a POSIX mode (chmod 000), which Windows does not keep') }, (t) => {
   if (process.getuid && process.getuid() === 0) return t.skip('root reads a mode-000 file');
   reset();
   agent('ownz', { job: true });
@@ -687,7 +687,7 @@ test('#6310: a binary plist is read through plutil', (t) => {
   assert.deepEqual(mac.survey().missing, []);
 });
 
-test('#6310: a start script that cannot be read leaves "no job" unproven; a nested Disabled and a closing full stop do not mislead', (t) => {
+test('#6310: a start script that cannot be read leaves "no job" unproven; a nested Disabled and a closing full stop do not mislead', { skip: skipOnWin32('it makes a file or folder unreadable with a POSIX mode (chmod 000), which Windows does not keep') }, (t) => {
   if (process.getuid && process.getuid() === 0) return t.skip('root reads a mode-000 file');
   reset();
   agent('nestx');
@@ -711,7 +711,7 @@ test('#6310: a start script that cannot be read leaves "no job" unproven; a nest
   } finally { fs.chmodSync(locked, 0o644); }
 });
 
-test('#6310: what counts as a launcher: an unreadable script after Program counts; a huge bundle and an unreadable log do not doubt everyone', (t) => {
+test('#6310: what counts as a launcher: an unreadable script after Program counts; a huge bundle and an unreadable log do not doubt everyone', { skip: skipOnWin32('it makes a file or folder unreadable with a POSIX mode (chmod 000), which Windows does not keep') }, (t) => {
   if (process.getuid && process.getuid() === 0) return t.skip('root reads a mode-000 file');
   reset();
   agent('plainq');   // CONTROL: no job anywhere; stays counted unless something genuinely leaves it unproven
@@ -752,7 +752,7 @@ test('#6310: a folder written in another case still matches, and a remembered an
   assert.deepEqual(mac.survey().missing, [], 'the remembered answer did not follow the changed script, or case was not ignored');
 });
 
-test('#6310: a file that becomes a launcher is seen at once; an impossible character reference does not doubt everyone', () => {
+test('#6310: a file that becomes a launcher is seen at once; an impossible character reference does not doubt everyone', { skip: skipOnWin32('a file becomes a launcher by its POSIX execute bit (chmod 0o755), which Windows does not keep') }, () => {
   reset();
   agent('modex');
   agent('plainr');   // CONTROL for the second half
@@ -769,7 +769,7 @@ test('#6310: a file that becomes a launcher is seen at once; an impossible chara
   assert.ok(mac.survey().missing.includes('plainr'), 'an impossible character reference made every agent unknown');
 });
 
-test('#6310: a data file in a folder the survey cannot open does not doubt everyone; a script name there does', (t) => {
+test('#6310: a data file in a folder the survey cannot open does not doubt everyone; a script name there does', { skip: skipOnWin32('it makes a file or folder unreadable with a POSIX mode (chmod 000), which Windows does not keep') }, (t) => {
   if (process.getuid && process.getuid() === 0) return t.skip('root opens a mode-000 folder');
   reset();
   agent('plains');   // CONTROL
@@ -787,7 +787,7 @@ test('#6310: a data file in a folder the survey cannot open does not doubt every
   } finally { fs.chmodSync(closed, 0o755); }
 });
 
-test('#6310: a WorkingDirectory inside the agent folder covers it; a sibling folder does not', () => {
+test('#6310: a WorkingDirectory inside the agent folder covers it; a sibling folder does not', { skip: skipOnWin32('it drives the macOS LaunchAgents survey (platform darwin), which matches folders by their POSIX spelling under $HOME with / separators; Windows has no LaunchAgents, and its survey reads Task Scheduler') }, () => {
   reset();
   agent('subx');
   agent('sibx');
@@ -798,7 +798,7 @@ test('#6310: a WorkingDirectory inside the agent folder covers it; a sibling fol
   assert.deepEqual(mac.survey().missing, ['sibx']);
 });
 
-test('#6310: a quoted "$HOME" spelling matches; a launcher in a privacy-guarded folder is never read and leaves agents unknown', () => {
+test('#6310: a quoted "$HOME" spelling matches; a launcher in a privacy-guarded folder is never read and leaves agents unknown', { skip: skipOnWin32('it drives the macOS LaunchAgents survey (platform darwin), which matches folders by their POSIX spelling under $HOME with / separators; Windows has no LaunchAgents, and its survey reads Task Scheduler') }, () => {
   reset();
   agent('quotx');
   agent('plaint');   // CONTROL
@@ -833,7 +833,7 @@ test('#6310: an oversized plist doubts only an agent it names', () => {
   assert.equal(s.agents.find((x) => x.name === 'bigx').job, null);
 });
 
-test('#6310: an unreadable launcher is tried again a minute later', (t) => {
+test('#6310: an unreadable launcher is tried again a minute later', { skip: skipOnWin32('it makes a file or folder unreadable with a POSIX mode (chmod 000), which Windows does not keep') }, (t) => {
   if (process.getuid && process.getuid() === 0) return t.skip('root reads a mode-000 file');
   reset();
   agent('plainu');
@@ -872,7 +872,7 @@ test('#6310: one survey converts at most four binary plists; the fifth is read o
   } finally { t.mock.timers.reset(); }
 });
 
-test('#6310: a WorkingDirectory created after the first survey covers the agent at once', () => {
+test('#6310: a WorkingDirectory created after the first survey covers the agent at once', { skip: skipOnWin32('it drives the macOS LaunchAgents survey (platform darwin), which matches folders by their POSIX spelling under $HOME with / separators; Windows has no LaunchAgents, and its survey reads Task Scheduler') }, () => {
   reset();
   agent('latex');
   const run = path.join(create.workerDir('latex'), 'run');
@@ -882,7 +882,7 @@ test('#6310: a WorkingDirectory created after the first survey covers the agent 
   assert.deepEqual(mac.survey().missing, [], 'a remembered answer missed the folder appearing');
 });
 
-test('#6310: a launcher or WorkingDirectory in a privacy-guarded folder is never looked at, not even with stat', () => {
+test('#6310: a launcher or WorkingDirectory in a privacy-guarded folder is never looked at, not even with stat', { skip: skipOnWin32('it checks that the macOS LaunchAgents survey never reads a folder macOS guards with a privacy prompt (Documents), which Windows does not guard') }, () => {
   reset();
   agent('plainv');
   const docs = path.join(create.homeDir(), 'Documents');
@@ -901,7 +901,7 @@ test('#6310: a launcher or WorkingDirectory in a privacy-guarded folder is never
   assert.deepEqual(touched, [], 'the survey touched a guarded path: ' + touched.join(', '));
 });
 
-test('#6310: a launcher that is a link into a guarded folder is not read; nor is a guarded folder in another case', () => {
+test('#6310: a launcher that is a link into a guarded folder is not read; nor is a guarded folder in another case', { skip: skipOnWin32('it checks that the macOS LaunchAgents survey never reads a folder macOS guards with a privacy prompt (Documents), which Windows does not guard') }, () => {
   const raw = (args) => '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n\t<key>KeepAlive</key>\n\t<true/>\n\t<key>ProgramArguments</key>\n\t<array>\n' + args.map((a) => '\t\t<string>' + a + '</string>\n').join('') + '\t</array>\n</dict>\n</plist>\n';
   // 1. A link into Documents whose target is a perfectly readable script: guarded, so not read, so others are unknown.
   //    Without the guard the target would be read, found harmless, and the control would read as missing.
