@@ -17,11 +17,12 @@ agent's first turn.
   file is the file the board reads) and moves from HOST_BRANCH_EXCLUDED to ALSO in tools/windows-tests.js.
 
 ## Decided, not missed
-- On Windows a stop and a start (/Change /DISABLE, /ENABLE) rewrite the task file too (measured for #8454), so they also
-  drop the reading until the next turn, and the card shows the job's planned model, the one the next launch runs.
-- The weakest part: that planned model is wrong while a session runs another one: a saved model change whose restart
-  failed (macOS has the same case), or a world switch that disabled and re-enabled a task it could not stop. Both are
-  failure paths. Documented in the code comment.
+- When the reading is dropped, the card shows the job's planned model. The weakest part: that is wrong only when a
+  session is still running a model other than the job's while its reading is dropped: a model change whose restart
+  failed (macOS has the same case), or a model changed inside the Codex session. On Windows the task file also moves
+  when a world switch or a removal switches the task off but cannot stop it (/Change rewrites the file, measured for
+  #8454), which drops the reading of a session still running. A successful stop leaves no pane to read, and a start runs
+  the job's model, so neither shows a wrong name. Documented in the code comment.
 - A stat per Codex pane whose rollout names a model, as on macOS: about 6 microseconds, no schtasks call.
 
 ## Measured on the Windows box
@@ -41,3 +42,8 @@ tests pass.
 - Round 2 (no blocker, 2 warnings). The comment and this plan said the change could only drop a reading, "never a wrong
   one"; false on the failure paths above. FIXED: both say when the planned model is wrong. This plan described the
   reverted half; rewritten to match the diff.
+- Round 3 (no blocker, 1 warning, 1 nit). The comment joined two conditions: the card is wrong only when a reading is
+  dropped while a session still runs a model other than the job's. FIXED in the comment and above: it names both causes
+  of the mismatch (a failed restart after a model change, a model changed inside the session) and the Windows ways a
+  running session's reading is dropped (a world switch or a removal that switched the task off but could not stop it).
+  The nit (a stop or a start does not drop anything that matters) is folded into the same rewrite.

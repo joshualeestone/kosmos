@@ -6913,10 +6913,11 @@ function readCodexSession(agentName) {
    a wrong name.
    kosmos#8466: on Windows the job's file is the one Task Scheduler keeps the task in (win32job.taskFilePath, kosmos#8454);
    this used to return early there, so after a model change a Windows card named the OLD model until the first turn.
-   That file also moves on a stop and a start (/Change /DISABLE, /ENABLE, measured), so on Windows a stop or a start
-   drops the model too until the next turn: the card then shows the job's planned model, which is the one the next
-   launch runs. That is wrong only while a session runs a model other than the job's: a saved model change whose
-   restart failed (as on macOS), or a world switch that disabled and re-enabled a task it could not stop. */
+   When the reading is dropped the card shows the job's planned model. That is wrong only when a session is still
+   running a model other than the job's while its reading is dropped: a model change whose restart failed (as on
+   macOS), or a model changed inside the Codex session. On Windows the task file also moves when a world switch or a
+   removal switches the task off but cannot stop it (/Change /DISABLE and /ENABLE rewrite the file, measured), which
+   drops the reading of a session still running. */
 function withoutModelFromBeforeJob(sess, agentName) {
   if (!sess || !sess.found || !sess.model || !sess.file) return sess;
   try {
