@@ -28,6 +28,15 @@ function takenDefault(slug) {
   return held.folder || held.job;
 }
 
+/* kosmos#8466: on Windows a name held only by a leftover Scheduled Task (no folder) is not "an agent on your board", and
+   the generic sentence gave no way to free it. Such a seat gets create's own words for that name (create.win32HeldTaskWords:
+   the row that removes the task, or the task to delete in Task Scheduler), so the two screens agree. null otherwise. */
+function heldWordsDefault(slug, raw) {
+  if (process.platform !== 'win32') return null;
+  const held = create.nameHeld(slug, 'win32');
+  return (held.job && !held.folder) ? create.win32HeldTaskWords(slug, raw) : null;
+}
+
 /* Whether that machine name belongs to an agent the person removed (remove keeps its folder). Loaded
    when asked: remove.js itself loads create.js. */
 function removedDefault(slug) {
@@ -188,6 +197,9 @@ function specs(req, cat, deps) {
   const taken = (deps && typeof deps.taken === 'function') ? deps.taken : takenDefault;
   // A caller that hands in its own checks (a test) gets no read of this computer's removed list.
   const removed = deps ? (typeof deps.removed === 'function' ? deps.removed : () => false) : removedDefault;
+  // kosmos#8466: the words for a seat a leftover Windows task holds; replaced with the taken check, as removed is.
+  const heldWords = (deps && typeof deps.heldWords === 'function') ? deps.heldWords
+    : (deps && typeof deps.taken === 'function') ? () => null : heldWordsDefault;
   const gone = notHeld(c);
   if (gone) return { ok: false, because: gone, unavailable: true };
   const key = req && req.team;
@@ -220,7 +232,11 @@ function specs(req, cat, deps) {
     if (req && req.checkTaken === true && removed(slug)) {
       return { ok: false, because: raw + REMOVED_WORDS + 'give the ' + m.title + ' another name' };
     }
-    if (req && req.checkTaken === true && taken(slug)) takenSeats.push({ raw, title: m.title });
+    if (req && req.checkTaken === true && taken(slug)) {
+      const words = heldWords(slug, raw);
+      if (words) return { ok: false, because: 'the ' + m.title + '\'s name: ' + words };
+      takenSeats.push({ raw, title: m.title });
+    }
     names[m.slot] = raw;
   }
   // Every taken name in one answer: making the same team again takes all of its suggested names.

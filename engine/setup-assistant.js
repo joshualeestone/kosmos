@@ -3196,9 +3196,21 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
       return { seeded: false, reason: 'create threw: ' + String((err && err.message) || err) };
     }
     /* Only a TAKEN name moves on to the fallback; any other refusal (no runner) would
-       refuse the fallback the same way. The sentence is create.js's own. */
-    const taken = out && out.outcome !== create.OUTCOME.CREATED && /already an agent called/.test(String(out.because || ''));
-    if (!taken) break;
+       refuse the fallback the same way.
+       kosmos#8466: read from create's own marker for a refusal about the name (field 'name', #2606), not from one
+       sentence. Matching "already an agent called" missed every other way a name is held: on Windows a leftover
+       Scheduled Task with no folder ("something called Josh is still set to start ..."), and on every platform a
+       leftover folder or job, or a name already running. The guide then stayed unmade, silently, on every later try.
+       The old sentence still counts, for a caller whose refusal carries no field.
+       NOT a name on the removed list: the person took that guide off the board, and making another one under the
+       second name would undo what they chose (as before this change, nothing is made then). */
+    const refusedName = out && out.outcome !== create.OUTCOME.CREATED
+      && (out.field === 'name' || /already an agent called/.test(String(out.because || '')));
+    let removedName = false;
+    if (refusedName) {
+      try { removedName = require('./remove').isRemoved(create.slugFor(candidate)) === true; } catch { removedName = true; }
+    }
+    if (!refusedName || removedName) break;
   }
 
   if (!out || out.outcome !== create.OUTCOME.CREATED) {

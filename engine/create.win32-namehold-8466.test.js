@@ -90,9 +90,21 @@ function createNow(name) {
 /* The way out where no screen shows the task: delete-leftover.js's words for it, with this name's task. */
 const schedulerWords = (name) => `something called ${name} is still set to start on this computer, though Kosmos cannot find a folder for it. Pick another name. If that agent is gone for good, you can free this one: open Task Scheduler, delete agent-${name} in the Kosmos folder of the Task Scheduler Library, then try again here.`;
 
+/* Where the row is shown: the toggle's label exactly as web/index.html draws it (without its count), and the row's
+   button, ellipsis included. ONLY_LEFT with nobody removed, BOTH with a removed agent on the list. */
+const ONLY_LEFT = '"Show what is left of past agents"';
+const BOTH = '"Show removed agents and what is left of others"';
+const rowWords = (name, toggle) => `something called ${name} is still set to start on this computer, though Kosmos cannot find a folder for it. Pick another name, or free this one: at the bottom of the Agents tab, press ${toggle}, then press "Remove its startup job…" beside ${name}. Its settings stay on this computer.`;
+const REMOVED = nodePath.join(store.ROOT, 'removed.json');
+function markRemoved(name) {
+  fs.mkdirSync(nodePath.dirname(REMOVED), { recursive: true });
+  fs.writeFileSync(REMOVED, JSON.stringify([{ name, shownAs: name, removedAt: new Date().toISOString(), stopped: true }]));
+}
+
 test.beforeEach(() => {
   status.setPaneSource(() => '');
   fs.rmSync(worldstarts.RECORD_FILE, { force: true });
+  fs.rmSync(REMOVED, { force: true });
 });
 test.afterEach(() => {
   status.setPaneSource(null);
@@ -142,8 +154,13 @@ test('kosmos#8466: create refuses a listed leftover task with the row to use, an
   const refused = createNow(name);
   assert.equal(refused.outcome, create.OUTCOME.REFUSED, 'a name whose task is still registered was made again over it');
   assert.equal(refused.field, 'name');
-  assert.equal(refused.because, `something called ${name} is still set to start on this computer, though Kosmos cannot find a folder for it. Pick another name, or free this one: at the bottom of the Agents tab, open the list of what is left of past agents and press "Remove its startup job" beside ${name}. Its settings stay on this computer.`);
+  assert.equal(refused.because, rowWords(name, ONLY_LEFT));
   assert.equal(fs.readFileSync(win32job.taskFilePath(name), 'utf8'), before, 'the refused create changed the leftover task');
+  // With a removed agent on the list the toggle reads otherwise, and the sentence quotes that label.
+  made.push('gone8466');
+  markRemoved('gone8466');
+  assert.equal(createNow(name).because, rowWords(name, BOTH));
+  fs.rmSync(REMOVED, { force: true });
 
   // The row's own delete: the task alone, the settings kept, as its words say.
   const p = leftover.plan(name, { platform: 'win32' });
@@ -186,7 +203,7 @@ test('kosmos#8466: where no row shows the task, the sentence names it in Task Sc
     assert.equal(createNow(away).because, schedulerWords(away));
   } finally { fs.rmSync(WORKERS, { recursive: true, force: true }); fs.renameSync(kept, WORKERS); }
   // CONTROL: with the workers folder back, the row is there and the sentence says so.
-  assert.match(createNow(away).because, /Remove its startup job/);
+  assert.equal(createNow(away).because, rowWords(away, ONLY_LEFT));
 });
 
 test('kosmos#8466: a link that leads nowhere at the agent\'s folder is named, since deleting the task alone would not free the name', onlyWin, () => {
@@ -230,7 +247,48 @@ test('kosmos#8466: the team step counts a seat whose name a leftover task holds 
   const ask = () => teamseed.specs({ team: 'duo', names: { lead: 'free8466', helper: name }, checkTaken: true }, cat, { removed: () => false });
   const r = ask();
   assert.equal(r.ok, false, 'the seat was free though a leftover task holds its name');
-  assert.match(r.because, new RegExp(`^there is already an agent called ${name} on this computer; give the Helper another name`));
+  assert.equal(r.because, "the Helper's name: " + rowWords(name, ONLY_LEFT), "the seat was not given create's words for a leftover task");
+  // CONTROL: a seat held by an agent with its folder too is still said the generic way (it is an agent on the board).
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  assert.match(ask().because, new RegExp(`^there is already an agent called ${name} on this computer; give the Helper another name`));
+  fs.rmSync(create.workerDir(name), { recursive: true, force: true });
   fs.rmSync(jobfixture.jobPath(name), { force: true });
   assert.equal(ask().ok, true, 'CONTROL: the seat stays taken with the task removed, so the refusal above proves nothing');
+});
+
+/* kosmos#8466 review: the setup guide moved to its second name only on create's "already an agent called" sentence. A
+   leftover Windows task under the first name gets another sentence, so no guide was ever made, silently. */
+test('kosmos#8466: a leftover task under the setup guide\'s first name makes the guide take its second name', onlyWin, () => {
+  const setupAssistant = require('./setup-assistant');
+  const first = create.slugFor(setupAssistant.GUIDE_NAME);
+  const second = create.slugFor(setupAssistant.GUIDE_FALLBACK_NAME);
+  leftoverTask(first);
+  made.push(second);
+  const tried = [];
+  const seed = () => {
+    create.setRunner(() => ({ ok: true, stdout: '' }));
+    create.setDryRun(false);
+    jobfixture.useJobStore();
+    try {
+      return setupAssistant.seedSetupAssistant({
+        createAgent: (o) => { tried.push(o.name); return create.createAgent({ ...BINS, ...o }); },
+        hasConnectedAccount: () => true,
+        avatarDir: nodePath.join(SANDBOX, 'avatars'),
+      });
+    } finally { create.setDryRun(true); create.setRunner(null); }
+  };
+  const r = seed();
+  assert.deepEqual(tried, [setupAssistant.GUIDE_NAME, setupAssistant.GUIDE_FALLBACK_NAME], 'the guide did not move on to its second name');
+  assert.equal(r.seeded, true, r.reason || '');
+  assert.equal(r.name, second);
+  assert.ok(taskThere(first), 'the leftover task under the first name was overwritten');
+
+  // CONTROL: the first name on the removed list (the person took that guide off the board) still stops at the first try.
+  fs.rmSync(create.workerDir(second), { recursive: true, force: true });
+  fs.rmSync(jobfixture.jobPath(second), { force: true });
+  markRemoved(first);
+  tried.length = 0;
+  const again = seed();
+  assert.equal(again.seeded, false);
+  assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a removed guide was made again under its second name');
 });

@@ -7375,9 +7375,10 @@ function nameHeld(name, platform) {
    the task alone). So the sentence points at that row only when the row is there for this name (settingsLeftovers is
    the one derivation of it), and otherwise at the task itself in Task Scheduler, the way out delete-leftover.js gives
    where no screen route exists: no profile behind the task, the workers folder missing, a name waiting to start, or a
-   look that failed. A link that leads nowhere at the agent's folder path is named first (see below). A RUNNING agent is told apart: deleting its task would not stop it,
-   and a second agent of the same name would then be made beside it. No full stop at the end: create's caller adds none,
-   so each sentence ends with its own. */
+   look that failed. A link that leads nowhere at the agent's folder path is named first (see below). A RUNNING agent is
+   told apart: deleting its task would not stop it, and a second agent of the same name would then be made beside it.
+   Each sentence ends with its own full stop, as create's other refusals do: the caller adds none. The screen's words are
+   quoted exactly as web/index.html draws them (the toggle at the bottom of the Agents tab and the row's button). */
 function win32HeldTaskWords(name, shown) {
   const lead = `something called ${shown} is still set to start on this computer, though Kosmos cannot find a folder for it.`;
   const fold = (n) => String(n).toLowerCase();   // Windows names are case-blind, as settingsLeftovers folds them
@@ -7387,7 +7388,15 @@ function win32HeldTaskWords(name, shown) {
     listed = Boolean(r && r.ok && r.names.some((x) => x.startsAtLogin && fold(x.name) === fold(name)));
   } catch { listed = false; }
   if (listed) {
-    return `${lead} Pick another name, or free this one: at the bottom of the Agents tab, open the list of what is left of past agents and press "Remove its startup job" beside ${shown}. Its settings stay on this computer.`;
+    /* The toggle's label as web/index.html draws it: "Show what is left of past agents" with no removed agents, "Show
+       removed agents and what is left of others" with some (both followed by a count). The removed agents are the list
+       /api/removed sends (remove.removedAgents); when it cannot be read, both labels are named. */
+    let toggle;
+    try {
+      toggle = require('./remove').removedAgents().length > 0
+        ? '"Show removed agents and what is left of others"' : '"Show what is left of past agents"';
+    } catch { toggle = '"Show what is left of past agents" (or "Show removed agents and what is left of others")'; }
+    return `${lead} Pick another name, or free this one: at the bottom of the Agents tab, press ${toggle}, then press "Remove its startup job…" beside ${shown}. Its settings stay on this computer.`;
   }
   let running = false;
   try { running = status.paneRoster().some((c) => fold(c.sessionName) === fold(name)); } catch { running = false; }
@@ -7418,6 +7427,7 @@ module.exports = {
   DEFAULT_BOARD_PORT,
   linuxRun,   // #4918 review 10: worldstarts' Linux arm runs through create's seam too
   nameHeld,
+  win32HeldTaskWords,   // kosmos#8466: the team step says the same for a seat a leftover Windows task holds
   MODELS,
   /* #4479: the name the person sees, for machine.js's login-job row (one derivation with the board's). */
   spokenName,
