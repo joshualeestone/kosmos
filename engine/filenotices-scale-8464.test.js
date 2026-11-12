@@ -37,7 +37,7 @@ test('kosmos#8464 a change after the notice is counted at the hand-over: lines a
   fs.writeFileSync(f, now.join('\n').replace(/\n$/, '') + '\nmore 1\nmore 2\nmore 3\n');
   const got = handed(who);
   assert.deepStrictEqual(got.notices[0].scale, { added: 4, removed: 1, before: 10, created: false, same: false });
-  assert.match(fn.contextText(got), /So far: 4 lines added and 1 line removed, of 10 before\./);
+  assert.match(fn.contextText(got), /So far, by anyone \(you included\), the file has 4 lines added and 1 line removed, of 10 before\./);
   assert.equal('fp' in got.notices[0], false, 'the fingerprint left the module');
 });
 
@@ -52,7 +52,7 @@ test('kosmos#8464 an unchanged file, a deleted one and a new one each say so', (
   const fresh = fileWith(null); const c = owner();
   fn.queue(c, 'x', { file: fresh });
   fs.writeFileSync(fresh, lines(2));
-  assert.match(fn.contextText(handed(c)), /So far: 2 lines added and 0 lines removed \(it was new\)\./);
+  assert.match(fn.contextText(handed(c)), /So far, by anyone \(you included\), the file has 2 lines added and 0 lines removed \(it was new\)\./);
 });
 
 test('kosmos#8464 no scale is said for a link, a file over the bounds, or a notice made without a file', () => {
@@ -78,14 +78,14 @@ test('kosmos#8464 a file that becomes a link after the notice gets no scale (not
   fn.queue(who, 'x', { file: f });
   const secret = fileWith(lines(40, 'secret'));
   fs.rmSync(f); fs.symlinkSync(secret, f);
-  assert.doesNotMatch(fn.contextText(handed(who)), /So far: \d+ line/, 'a link swapped in was measured');
+  assert.doesNotMatch(fn.contextText(handed(who)), /the file has \d+ line/, 'a link swapped in was measured');
 });
 
 test('kosmos#8464 take (kosmos file-notices by hand) carries the scale too', () => {
   const f = fileWith(lines(4)); const who = owner();
   fn.queue(who, 'x', { file: f });
   fs.appendFileSync(f, 'one more\n');
-  assert.match(fn.contextText(fn.take(who)), /So far: 1 line added and 0 lines removed, of 4 before\./);
+  assert.match(fn.contextText(fn.take(who)), /So far, by anyone \(you included\), the file has 1 line added and 0 lines removed, of 4 before\./);
 });
 
 test('kosmos#8464 end to end: another agent about to change an owned file queues the owner a notice that measures the change', () => {
@@ -102,7 +102,7 @@ test('kosmos#8464 end to end: another agent about to change an owned file queues
   fs.writeFileSync(f + '.tmp', lines(6).replace('line 6\n', '') + 'new a\nnew b\n'); fs.renameSync(f + '.tmp', f);   // mona's edit lands, saved as Claude Code saves
   const text = fn.contextText(fn.handOver('kitty'));
   assert.match(text, /mona was about to change "plan\.md"/, 'CONTROL: the owner was queued the notice');
-  assert.match(text, /So far: 2 lines added and 1 line removed, of 6 before\./);
+  assert.match(text, /So far, by anyone \(you included\), the file has 2 lines added and 1 line removed, of 6 before\./);
 });
 
 /* Review 2, the blocker: path.resolve drops '..' before the kernel follows a link, so P/l/../x.md (l a link to outside)
@@ -125,7 +125,7 @@ test('kosmos#8464 review 2: a path through a link and ".." is measured as the in
   fs.appendFileSync(path.join(real, 'outside' + seq, 'x.md'), 'o4\no5\n');   // the outside file changes
   const text = fn.contextText(fn.handOver(own));
   assert.match(text, /about to change/, 'CONTROL: the notice was queued');
-  assert.doesNotMatch(text, /So far: 2 lines added/, 'the outside file was measured');
+  assert.doesNotMatch(text, /So far, by anyone \(you included\), the file has 2 lines added/, 'the outside file was measured');
   assert.match(text, /So far: Kosmos found no difference/, 'the in-project file it names was measured (unchanged)');
 });
 
@@ -145,7 +145,7 @@ test('kosmos#8464 review 1: a folder replaced by a link to outside after the not
   fs.writeFileSync(path.join(keep, 'id'), 'a\nb\n');
   const w2 = owner(); fn.queue(w2, 'x', { file: path.join(keep, 'id') });
   fs.appendFileSync(path.join(keep, 'id'), 'c\n');
-  assert.match(fn.contextText(handed(w2)), /So far: 1 line added/, 'CONTROL: an unmoved folder is measured');
+  assert.match(fn.contextText(handed(w2)), /So far, by anyone \(you included\), the file has 1 line added/, 'CONTROL: an unmoved folder is measured');
 });
 
 test('kosmos#8464 review 2: a path through a link is not measured by queue (the caller passes the resolved path)', () => {
@@ -189,7 +189,7 @@ test('kosmos#8464 review 1: a FIFO swapped in for the file neither hangs the boa
   assert.equal(child.signal, null, 'the hand-over hung on a FIFO and was killed');
   assert.equal(child.status, 0, child.stderr);
   assert.match(child.stdout, /file-owner notice/, 'CONTROL: the notice itself was handed over');
-  assert.doesNotMatch(child.stdout, /So far: \d+ line/, 'a FIFO was measured');
+  assert.doesNotMatch(child.stdout, /the file has \d+ line/, 'a FIFO was measured');
 });
 
 test('kosmos#8464 review 1: a newline-only change, an empty new file and a change of line endings say what happened', () => {
@@ -225,7 +225,7 @@ test('kosmos#8464 review 3: a link flipped while the write is being noted does n
   fs.appendFileSync(path.join(outside, 'x.md'), 'o4\no5\n');   // the outside file changes
   const text = fn.contextText(fn.handOver(own));
   assert.match(text, /about to change/, 'CONTROL: the notice was queued');
-  assert.doesNotMatch(text, /So far: 2 lines added/, 'the outside file was measured');
+  assert.doesNotMatch(text, /So far, by anyone \(you included\), the file has 2 lines added/, 'the outside file was measured');
 });
 
 /* Review 3: a folder swapped to a link for the moment of the open and back passes both folder checks. Simulated by an
@@ -238,7 +238,7 @@ test('kosmos#8464 review 3: a file opened through a swap that is undone before t
   fs.openSync = (p, ...rest) => realOpen(p === f ? outsideFile : p, ...rest);
   let text;
   try { text = fn.contextText(handed(who)); } finally { fs.openSync = realOpen; }
-  assert.doesNotMatch(text, /So far: \d+ line/, 'a swapped-in file was measured');
+  assert.doesNotMatch(text, /the file has \d+ line/, 'a swapped-in file was measured');
   // CONTROL: the same notice handed over again, with the real open, is measured.
   assert.match(fn.contextText(handed(who)), /So far: Kosmos found no difference/, 'CONTROL: the real file is measured');
 });
@@ -249,12 +249,12 @@ test('kosmos#8464 review 6: an edit that writes a new file and renames it over t
   const f = fileWith(lines(4)); const who = owner();
   fn.queue(who, 'x', { file: f });
   fs.writeFileSync(f + '.tmp', lines(6)); fs.renameSync(f + '.tmp', f);
-  assert.match(fn.contextText(handed(who)), /So far: 2 lines added and 0 lines removed, of 4 before\./);
+  assert.match(fn.contextText(handed(who)), /So far, by anyone \(you included\), the file has 2 lines added and 0 lines removed, of 4 before\./);
   // CONTROL: an edit in place keeps the file, and is counted.
   const g = fileWith(lines(4)); const w2 = owner();
   fn.queue(w2, 'x', { file: g });
   fs.appendFileSync(g, 'line 5\n');
-  assert.match(fn.contextText(handed(w2)), /So far: 1 line added/);
+  assert.match(fn.contextText(handed(w2)), /So far, by anyone \(you included\), the file has 1 line added/);
 });
 
 /* Review 5: the fingerprint's own name check (device and inode of the name against the open file), alone. */
@@ -296,7 +296,7 @@ test('kosmos#8464 review 5: lines are counted as multisets: a duplicate changed 
   const dup = fileWith('a\na\nb\n'); const a = owner();
   fn.queue(a, 'x', { file: dup });
   fs.writeFileSync(dup, 'a\nb\nb\n');
-  assert.match(fn.contextText(handed(a)), /So far: 1 line added and 1 line removed, of 3 before\./);
+  assert.match(fn.contextText(handed(a)), /So far, by anyone \(you included\), the file has 1 line added and 1 line removed, of 3 before\./);
   const mv = fileWith('a\nb\nc\n'); const b = owner();
   fn.queue(b, 'x', { file: mv });
   fs.writeFileSync(mv, 'c\na\nb\n');

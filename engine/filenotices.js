@@ -64,7 +64,8 @@ function fingerprint(file, expectDir = null) {
     /* Review 2: O_NOFOLLOW does not stop a hard link, and one in the project can name a file outside it. */
     if (!st.isFile() || st.nlink > 1) return null;
     /* At most SCALE_MAX_BYTES + 1 bytes are read, whatever the size says (a file can grow while it is read). */
-    const buf = Buffer.alloc(SCALE_MAX_BYTES + 1);
+    const big = st.size > SCALE_MAX_BYTES;   // review 7: nothing read, but the checks below still run before "too large"
+    const buf = Buffer.alloc(big ? 0 : SCALE_MAX_BYTES + 1);
     let got = 0;
     while (got < buf.length) {
       const n = fs.readSync(fd, buf, got, buf.length - got, got);
@@ -81,7 +82,7 @@ function fingerprint(file, expectDir = null) {
     if (now.dev !== st.dev || now.ino !== st.ino) return null;
     /* Review 5: "too large" only AFTER those checks, so not even a size is said about a file that failed them. */
     const id = { existed: true, dev: st.dev, ino: st.ino };
-    if (st.size > SCALE_MAX_BYTES || got > SCALE_MAX_BYTES) return { ...id, tooLarge: true };
+    if (big || got > SCALE_MAX_BYTES) return { ...id, tooLarge: true };
     const text = buf.subarray(0, got).toString('utf8');
     const lines = text.split('\n');
     if (lines.length && lines[lines.length - 1] === '') lines.pop();
@@ -125,7 +126,8 @@ function scaleWords(s) {
       : ' So far: the file changed, but no lines were added or removed (lines moved, line endings or the last newline).';
   }
   const n = (k, w) => k + ' line' + (k === 1 ? '' : 's') + ' ' + w;
-  return ' So far: ' + n(s.added, 'added') + ' and ' + n(s.removed, 'removed') + (s.created ? ' (it was new)' : ', of ' + s.before + ' before') + '.';
+  /* Review 7: the count is every change since the notice, the owner's own included, so it says so. */
+  return ' So far, by anyone (you included), the file has ' + n(s.added, 'added') + ' and ' + n(s.removed, 'removed') + (s.created ? ' (it was new)' : ', of ' + s.before + ' before') + '.';
 }
 
 /* The notices as handed over: each with its scale worked out now from the fingerprint kept with it, and without the

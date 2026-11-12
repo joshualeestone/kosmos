@@ -13,7 +13,7 @@ later (engine/filenotices.js, through Kosmos's Claude Code hook), by when the ed
   file is opened ONCE without following a final link and without blocking, and every check (a plain file, the size) and
   a bounded read are made on that open file, so a FIFO or device swapped in cannot hang the board.
 - At hand-over (handOver, and take for `kosmos file-notices`), the file is fingerprinted again and compared as
-  multisets of lines: "So far: N lines added and M removed, of X before", "(it was new)", "the file was made, empty",
+  multisets of lines: "So far, by anyone (you included), the file has N lines added and M removed, of X before" (review 7: it counts every change since the notice, the owner's own included), "(it was new)", "the file was made, empty",
   "the file changed, but no lines were added or removed (lines moved, line endings or the last newline)", "the file is gone", or,
   when nothing differs, "Kosmos found no difference in the file since this notice (it may have changed just before)",
   hedged because the edit can land before the first fingerprint. Nothing is said when either side cannot be measured
