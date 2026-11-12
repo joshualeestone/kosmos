@@ -111,7 +111,10 @@ function start(name, opts) {
   /* A pipe that failed to open before listening also removes an older supervisor's record kept above: when that one
      exits, its record would otherwise say this live agent is dead, and no record of ours replaces it. */
   const dropOlder = () => {
-    if (!wrote && !stopped && older && !clearPresence(name, older.pid) && readPresence(name)) onProblem('we could not remove an older presence record');
+    if (!wrote && !stopped && older && !clearPresence(name, older.pid)) {
+      const now = readPresence(name);
+      if (now && now.pid === older.pid) onProblem('we could not remove an older presence record');   // a newer one is not a problem
+    }
   };
   const save = typeof o.save === 'function' ? o.save : (at, text) => store.saveFlushed(at, text);   // a test seam
   server.on('error', (e) => { dropOlder(); onProblem('we could not open its presence pipe (' + ((e && e.code) || 'unknown') + ')'); });

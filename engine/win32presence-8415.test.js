@@ -75,7 +75,7 @@ test('kosmos#8415: a record whose pipe and pid are gone is a dead supervisor, ev
   // CONTROL: the same state file with no presence record keeps #8410's rule (a supervisor from before this change).
   fs.rmSync(path.join(DIR(), 'ghost' + presence.PRESENCE_EXT));
   assert.equal(ss.liveNames({ isAlive: alive, pipeExists: () => false }).has('ghost'), true,
-    'CONTROL: with no presence record the state-file rule no longer answers');
+    'CONTROL: with no presence record, the state-file rule should answer (live pid) and did not');
 });
 
 test('kosmos#8415 review 1: a pipe that looks gone while the record\'s pid is alive decides nothing (the control is the arm that can fail)', () => {
@@ -110,7 +110,7 @@ test('kosmos#8415 review 3: a missing pipe whose pid is dead is decided on one l
   assert.ok(Date.now() - t0 < 1000);
 });
 
-test('kosmos#8415 review 3: a start keeps an older record whose pipe is still up (restart overlap), and drops one whose pipe is gone', () => {
+test('kosmos#8415 review 3: a start keeps an older record whose pipe is still up (restart overlap), and drops one whose pipe is gone', { skip: process.platform === 'win32' && 'forces a failed open with a socket path; that this fails on Windows is not measured' }, () => {
   reset();
   presenceFile('overlap', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('olderup') });
   const bad = path.join(SANDBOX, 'no-such-dir', 'y.sock');
@@ -123,7 +123,7 @@ test('kosmos#8415 review 3: a start keeps an older record whose pipe is still up
   assert.equal(presence.readPresence('overlap'), null, 'CONTROL: a record whose pipe is gone survived a start');
 });
 
-test('kosmos#8415 review 4: a pipe that fails to open during a restart overlap also drops the older record, so the agent is not read dead when the older one exits', async () => {
+test('kosmos#8415 review 4: a pipe that fails to open during a restart overlap also drops the older record, so the agent is not read dead when the older one exits', { skip: process.platform === 'win32' && 'forces a failed open with a socket path; that this fails on Windows is not measured' }, async () => {
   reset();
   stateFile('ov2', 4242);
   presenceFile('ov2', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('older2') });
@@ -169,7 +169,7 @@ test('kosmos#8415 review 3: on Windows a record that names a pipe that is not ou
   assert.equal(ss.liveNames({ isAlive: () => false, pipeExists: () => true }).has('foreign'), false, 'a foreign pipe answered for the agent');
 });
 
-test('kosmos#8415 review 1: a leftover record from a crashed run is removed at start, so a pipe that then fails to open leaves the state file to answer', async () => {
+test('kosmos#8415 review 1: a leftover record from a crashed run is removed at start, so a pipe that then fails to open leaves the state file to answer', { skip: process.platform === 'win32' && 'forces a failed open with a socket path; that this fails on Windows is not measured' }, async () => {
   reset();
   stateFile('crashed', 4242);
   presenceFile('crashed', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('old-dead-pipe') });
