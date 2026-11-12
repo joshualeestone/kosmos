@@ -14,9 +14,10 @@
  * call site at a time; this fixes every call site in the file at once, including
  * the ones written after it.
  *
- * HOW: `os.tmpdir()` reads TMPDIR on every call (TEMP and TMP on Windows, which
- * are set too there), so pointing TMPDIR at a per-process directory makes every later mkdtemp in this process land inside
- * it, and so does every child process this one spawns (they inherit the env).
+ * HOW: `os.tmpdir()` reads TMPDIR on every call (TEMP and TMP on Windows), so
+ * pointing TMPDIR (and TEMP and TMP on Windows) at a per-process directory makes
+ * every later mkdtemp in this process land inside it, and so does every child
+ * process this one spawns (they inherit the env).
  * One `exit` handler removes the whole directory.
  *
  * ⚠️ WHAT IT DOES NOT COVER:

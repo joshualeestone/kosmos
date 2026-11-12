@@ -34,7 +34,7 @@ test('on Windows the sweep outlasts a child that holds a fixture as its working 
   // its working folder from its creation) rather than never starting.
   const started = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'started-')), 'started');
   // The test process spawns a detached grandchild whose working folder is a fixture in the scope; the grandchild lives
-  // about 150 ms (plus its start) past the test process's exit, so a single rmSync at exit meets the hold (EBUSY/EPERM) and leaves it.
+  // about 150 ms (plus its start; about 200 ms measured, against a retry budget of about 1.5 s) past the test process's exit, so a single rmSync at exit meets the hold (EBUSY/EPERM) and leaves it.
   const code = `require(${JSON.stringify(SCOPE)}); const os = require('os'); const fs = require('fs'); const path = require('path');
 const d = fs.mkdtempSync(path.join(os.tmpdir(), 'held-'));
 const c = require('child_process').spawn(process.execPath, ['-e', 'require("fs").writeFileSync(process.env.STARTED_8378, "1"); setTimeout(() => {}, 150)'], { cwd: d, detached: true, stdio: 'ignore', env: { ...process.env, STARTED_8378: ${JSON.stringify(started)} } });
