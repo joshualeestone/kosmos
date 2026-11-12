@@ -205,9 +205,10 @@ test('kosmos#8475: its delete removes the Scheduled Task and nothing else, and a
   /* kosmos#8475 review: the way back first, saying it starts on the main account and the model it last ran (both lived
      only in the task); then what stays, and how to delete it, since this one's settings would be offered. */
   assert.equal(p.typeToConfirm, null, 'a folder in the workers folder asked for typing (review 4 is for folders out of sight only)');
-  const back = `If its folder was only moved, or is on a disk that is not connected, put it back at ${create.workerDir(name)} (or connect that disk again), then use Start at login when Kosmos offers it; `
+  // review 7: untyped, the disk clause can never be true, so it is not said.
+  const back = `If its folder was only moved, put it back at ${create.workerDir(name)}, then use Start at login when Kosmos offers it; `
     + 'it starts on your main account and the model it last ran, so choose its account and model again if it used others.';
-  const stay = 'Its settings and picture stay on this computer; to delete them too, delete what is left of only8475 again.';
+  const stay = 'Its settings and picture stay on this computer; to delete them too, use Delete what is left on its row in the removed agents list.';
   assert.equal(p.reassurance, `Only its startup job is removed, so nothing starts only8475 when you log in. ${back} ${stay}`);
 
   const seen = watchIrreversible(t);
@@ -491,6 +492,8 @@ test('kosmos#8475 review 4: a recorded folder out of sight (no disk, gone, dead 
         assert.ok(tasks.has(win32job.taskName(name)), `${name}: the task went with no name typed`);
         const typed = win.del(name, name);
         assert.equal(typed.outcome, leftover.OUTCOME.DELETED, `${name}: ${JSON.stringify(typed)}`);
+        // review 7: the outcome has no lead sentence, so here (and only here) the way back names the disk.
+        assert.ok(typed.said.includes(`If its folder was only moved, put it back at ${dir}, or if it is on a disk or shared folder that is not connected, connect it, `), `${name}: ${typed.said}`);
         assert.ok(!tasks.has(win32job.taskName(name)), `${name}: the task is still registered`);
         assert.equal(fs.existsSync(store.profilePath(name)), true, `${name}: its settings went`);
         fs.rmSync(REMOVED, { force: true });

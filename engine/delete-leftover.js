@@ -878,19 +878,20 @@ function outOfSightWords(name, shown) {
     : { lead: 'unreachable', words: `Its folder is recorded at ${where}, which Kosmos cannot reach right now. If that is a disk or shared folder that is not connected, connect it before removing anything; ${sure}` };
 }
 
-/* `lead`: what outOfSightWords said first, if anything ('unreachable', 'occupied' or 'unchecked'). After 'unreachable'
-   the disk was already named, so the way back speaks only of a moved folder (review 5, review 6: a disk is connected,
-   never "put back"); after 'occupied' there is no disk to connect, and the folder goes back in place of what is there. */
+/* `lead`: which way back is true. 'occupied' (a file or link at the recorded path): the folder goes back in place of
+   what is there. 'disk': the outcome of a delete whose plan led with "cannot reach" (the outcome has no lead sentence,
+   so the disk is named here). Anything else, a plain moved folder. review 7: with no lead the disk clause is never
+   true: an untyped task-only plan has nothing at the agent's path inside a workers folder that is there, and any
+   recorded folder out of sight gets the 'unreachable' lead and typing instead. A disk is connected, never "put back". */
 function taskOnlyBackWords(name, removed, lead = null) {
   let where = null;
   try { where = create.recordedDirSpelling(name); } catch { where = null; }
   if (!where) where = create.workerDir(name);
-  // review 4: a disk that is not connected is connected again, not "put back".
   return (lead === 'occupied'
     ? `If its folder was only moved, put it back at ${where} in place of what is there now`
-    : lead === 'unreachable'
-      ? `If its folder was only moved, put it back at ${where}`
-      : `If its folder was only moved, or is on a disk that is not connected, put it back at ${where} (or connect that disk again)`)
+    : lead === 'disk'
+      ? `If its folder was only moved, put it back at ${where}, or if it is on a disk or shared folder that is not connected, connect it`
+      : `If its folder was only moved, put it back at ${where}`)
     + (removed ? ', use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it' : ', then use Start at login when Kosmos offers it')
     + startsAgainWords(name);
 }
@@ -932,7 +933,8 @@ function taskOnlyWords(name, shown, removed, platform, records, lead = null) {
   let offered = false;
   try { offered = !recordedOutsideWorkers(name, platform) && !strandedRefusal(name, shown).because; } catch { offered = false; }
   const stay = `${kw.cap} stay${kw.plural ? '' : 's'} on this computer`
-    + (offered ? `; to delete ${kw.plural ? 'them' : 'it'} too, delete what is left of ${shown} again.` : '.');
+    // review 7: name the button the person will press (the click that got here said "Remove its startup job").
+    + (offered ? `; to delete ${kw.plural ? 'them' : 'it'} too, use Delete what is left on its row in the removed agents list.` : '.');
   return { back, stay };
 }
 
@@ -1117,11 +1119,15 @@ function* delSteps(name, opts) {
     try { removedNow = remove.isRemoved(p.name) === true; } catch { removedNow = false; }   // as plan() reads it
     let stored = null;
     try { stored = namedRecords(p.name, null).records; } catch { stored = null; }   // null: not named, never guessed
-    /* review 5: the outcome has no lead sentence, so the disk is named in the way back as usual; only a path holding
-       something that is not a folder changes it ("in place of what is there now"). */
-    let occupied = null;
-    try { const o = outOfSightWords(p.name, p.shown); occupied = o && o.lead === 'occupied' ? 'occupied' : null; } catch { occupied = null; }
-    const words = taskOnlyWords(p.name, p.shown, removedNow, platform, stored, occupied);
+    /* review 5, review 7: the outcome has no lead sentence, so where the plan led with "cannot reach" the way back names
+       the disk ('disk'); a path holding something that is not a folder is "in place of what is there now"; otherwise a
+       plain moved folder. */
+    let backLead = null;
+    try {
+      const o = outOfSightWords(p.name, p.shown);
+      backLead = o && o.lead === 'occupied' ? 'occupied' : o && o.lead === 'unreachable' ? 'disk' : null;
+    } catch { backLead = null; }
+    const words = taskOnlyWords(p.name, p.shown, removedNow, platform, stored, backLead);
     return {
       outcome: OUTCOME.DELETED,
       taskOnly: true,

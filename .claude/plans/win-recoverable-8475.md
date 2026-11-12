@@ -102,3 +102,9 @@ with review 5's source 94d67af328: 12, 15). 8471 file 7/0, 7820 file 34/0/1, del
   healthy moved agent, so it gets main's full delete with main's checks (test 14). (2) A FILE at the recorded path says
   so plainly (test 13). (3) The out-of-sight lead says to connect the disk BEFORE removing anything, said once.
   (4) The plan notes the removed row's label changed on every platform.
+- Round 6 (no blocker; 1 warning, 3 nits), all fixed: the list uses plan()'s lstat folder test, so a dead junction at
+  the agent's folder is no longer a listed row that always refuses (test 15); way-back words; stale "Delete its files"
+  comments; plan accuracy (typing in the could-not-check case; damaged settings now kept).
+- Round 7 (no blocker; 1 warning, 1 nit), both wording: with no lead sentence the way back no longer mentions a disk
+  that cannot be involved there (the disk clause stays only in the outcome after a "cannot reach" plan); "delete what is
+  left again" now names the row and button to use.
