@@ -6043,7 +6043,7 @@ cmd_task() {
   local _tmine=""   # kosmos#7992: `task list --mine` / `task list --all --mine`: only the tasks this agent holds
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|hold|unhold|repeat|ran|told>"
+      say "Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|check|hold|unhold|repeat|ran|told>"
       say "  kosmos task list <project-id> [--state open|built|held|done]  list this project's tasks, open first"
       say "  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each"
       say "  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first"
@@ -6069,6 +6069,7 @@ cmd_task() {
       say "      --file <path>                                            send the delivered file's fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark; another agent's mark keeps them, your own mark without --file drops them"
       say "      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes"
       say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it, or --check <number> \"<wording>\" to change one"
+      say "  kosmos task check <project-id> <task-number> <check-number> met|unmet \"<how you checked it>\"  report how one done-when check went"
       say "      --clear                                                  take its checks off"
       say "  kosmos task hold <project-id> <task-number> [--because \"<why>\"]  put it on hold (Kosmos stops nudging anyone about it or handing it out)"
       say "      [--until-task <n> | --until <date or time>]                 ...and say what it waits for; Kosmos tells its owner once it has happened"
@@ -6193,6 +6194,16 @@ cmd_task() {
         [ "$_dn" -le 3 ] || { say "A task holds up to 3 done-when checks. Quote each check, so its words stay together."; exit 2; }
       fi
       fi ;;
+    check)
+      # #8464 item 2: <project> <task-number> <check-number> met|unmet "<how>", exactly five, checked before the board.
+      local _kusage="Usage: kosmos task check <project-id> <task-number> <check-number> met|unmet \"<how you checked it>\""
+      [ "$#" = 5 ] || { say "$_kusage"; exit 2; }
+      [ -n "${1:-}" ] || { say "$_kusage"; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      # One digit, and no arithmetic, as done-when --check: a task holds up to 3.
+      case "${3:-}" in [1-9]) ;; *) say "The check number must be the one kosmos task list shows, like 1 or 2."; exit 2 ;; esac
+      case "${4:-}" in met|unmet) ;; *) say "Say met or unmet for the check. $_kusage"; exit 2 ;; esac
+      [ -n "$(printf '%s' "${5:-}" | tr -d '[:space:]\001-\037\177')" ] || { say "Say in a few words how you checked it. $_kusage"; exit 2; } ;;
     close)
       local _cusage="Usage: kosmos task close <project-id> <task-number> [<task-number> ...] [--with-built | --not-run | --replaced-by <task-number>]   (the numbers are shown by kosmos task list; --not-run says it was closed without ever being run; --with-built also closes each one's built subtasks; --replaced-by takes one task)"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_cusage"; exit 2; }
@@ -6393,7 +6404,7 @@ cmd_task() {
         esac
       fi ;;
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | assign | close | reopen | message | activity | show | files | built | done-when | hold | unhold | repeat | ran | told"
+      say "Unknown: kosmos task $sub. Try: list | add | assign | close | reopen | message | activity | show | files | built | done-when | check | hold | unhold | repeat | ran | told"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -7018,6 +7029,31 @@ cmd_task() {
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not change that task: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when changing that task."; exit 1 ;;
+      esac
+      ;;
+    check)
+      # #8464 item 2: how one done-when check went, in the agent's own words. The agent token names who reported it (the
+      # pane is the fallback, as for done-when); the board refuses a caller it cannot name.
+      local project num _kn _kmet=true _khow
+      project="${1:-}"; num="${2:-}"; _kn="${3:-}"; [ "${4:-}" = met ] || _kmet=false
+      _khow="\"$(_task_check_json "${5:-}")\""
+      local esc_pane; esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      local _tok=""
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+      local rc=0 body
+      body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/check" \
+        -H 'content-type: application/json' \
+        --data "{\"check\":$_kn,\"met\":$_kmet,\"how\":$_khow,\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say_unreached "report that check" "$rc" write; exit 1; }
+      case "$body" in
+        '{"task":'*)
+          local _kword="met"; [ "$_kmet" = true ] || _kword="not met"
+          case "$body" in *'"changed":false'*) say "Check $_kn on task $num was already reported $_kword, in those words." ;;
+            *) say "Reported check $_kn on task $num on ${project:-the project} as $_kword. It reads as your word, not a verification. See them with: kosmos task show ${project:-<project-id>} $num" ;; esac ;;
+        '{"error":'*)
+          local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos could not report that check: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when reporting that check."; exit 1 ;;
       esac
       ;;
     repeat|ran|told)
