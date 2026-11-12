@@ -287,7 +287,9 @@ test('kosmos#8475: a recorded folder on a disk that is not connected loses only 
     const p = win.plan(name);
     assert.equal(p.ok, true, `${name}: ${p.because}`);
     assert.equal(p.taskOnly, true);
-    assert.match(p.reassurance, new RegExp('put it back at ' + dir.replace(/\\/g, '\\\\') + ' \\(or connect that disk again\\)' + (removed ? ', use Restore' : ', then use Start at login')));
+    // review 5: the lead already says to connect the disk, so the way back does not repeat it.
+    assert.match(p.reassurance, new RegExp('put it back at ' + dir.replace(/\\/g, '\\\\') + (removed ? ', use Restore' : ', then use Start at login')));
+    assert.equal((p.reassurance.match(/connect it|connect that disk/g) || []).length, 1, `${name}: connecting the disk is said more than once: ${p.reassurance}`);
     assert.equal(p.typeToConfirm, name, `${name}: review 4: a folder out of sight asks for the name`);
     /* kosmos#8475 review: its settings are not offered on their own afterwards (below), so no sentence may send the
        person to delete them "again"; it says only that they stay. */
@@ -478,7 +480,9 @@ test('kosmos#8475 review 4: a recorded folder out of sight (no disk, gone, dead 
         assert.equal(p.ok, true, `${name}: ${p.because}`);
         assert.equal(p.taskOnly, true, `${name}: not the task-only delete`);
         assert.equal(p.typeToConfirm, name, `${name}: no typing asked although its folder may only be out of sight`);
-        assert.ok(p.reassurance.startsWith(`Its folder is recorded at ${dir}, which Kosmos cannot reach right now; if that is a disk or shared folder that is not connected, connect it and Kosmos can start the agent again, so remove its startup job only if you are sure it is gone. Only its startup job is removed`), `${name}: ${p.reassurance}`);
+        // review 5: connect it BEFORE removing anything, said once.
+        assert.ok(p.reassurance.startsWith(`Its folder is recorded at ${dir}, which Kosmos cannot reach right now. If that is a disk or shared folder that is not connected, connect it before removing anything; remove its startup job only if you are sure it is gone. Only its startup job is removed`), `${name}: ${p.reassurance}`);
+        assert.doesNotMatch(p.reassurance, /connect that disk again/, `${name}: the way back repeats the lead`);
         const untyped = win.del(name);
         assert.equal(untyped.outcome, leftover.OUTCOME.REFUSED, `${name}: removed with no name typed`);
         assert.ok(tasks.has(win32job.taskName(name)), `${name}: the task went with no name typed`);
@@ -496,4 +500,50 @@ test('kosmos#8475 review 4: a recorded folder out of sight (no disk, gone, dead 
   assert.equal(q.ok, true, q.because);
   assert.equal(q.typeToConfirm, null, 'CONTROL: a folder in the workers folder asked for typing');
   assert.ok(q.reassurance.startsWith('Only its startup job is removed'), 'CONTROL: ' + q.reassurance);
+});
+
+test('kosmos#8475 review 5: a FILE where the folder is recorded is said plainly, not as a disk to connect', () => {
+  const file = nodePath.join(SANDBOX, 'file8475.txt');
+  fs.writeFileSync(file, 'not a folder\n');
+  const name = agent('file8475', { folder: false, profile: { dir: file } });
+  const p = win.plan(name);
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.typeToConfirm, name, 'main refused here, so the name is typed');
+  assert.ok(p.reassurance.startsWith(`Its folder is recorded at ${file}, but what is there now is not a folder Kosmos can use; remove its startup job only if you are sure its folder is gone. Only its startup job is removed`), p.reassurance);
+  assert.match(p.reassurance, new RegExp('If its folder was only moved, put it back at ' + file.replace(/\\/g, '\\\\').replace(/\./g, '\\.') + ' in place of what is there now'));
+  assert.doesNotMatch(p.reassurance, /cannot reach|not connected|connect/, 'a file at the path was described as a disk to connect');
+  const done = win.del(name, name);
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+  assert.match(done.said, /put it back at .* in place of what is there now/);
+  fs.rmSync(file, { force: true });
+});
+
+test('kosmos#8475 review 5: a name with NO profile (a picture alone, or nothing) gets main\'s full delete, never the task-only words', () => {
+  /* With no profile neither Start at login nor a settings-only row can come (both need a profile), so it is never a
+     healthy moved agent: main's full delete, typed when a picture goes for good, and the name is free. */
+  const pic = 'pic8475';
+  made.push(pic);
+  fs.mkdirSync(store.AVATARS, { recursive: true });
+  fs.writeFileSync(nodePath.join(store.AVATARS, `${store.safeKey(pic)}.png`), 'png');
+  tasks.add(win32job.taskName(pic));
+  sendertoken.mint(pic);
+  const bare = 'none8475';
+  made.push(bare);
+  tasks.add(win32job.taskName(bare));
+  for (const [name, typed] of [[pic, pic], [bare, null]]) {
+    const p = win.plan(name);
+    assert.equal(p.ok, true, `${name}: ${p.because}`);
+    assert.ok(!p.taskOnly, `${name}: a name with no profile got the task-only plan: ${p.reassurance}`);
+    assert.doesNotMatch(p.reassurance, /Start at login|delete what is left/, `${name}: promises a way back that cannot come`);
+    assert.equal(p.typeToConfirm, typed, `${name}: typing differs from main`);
+    const done = win.del(name, typed);
+    assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+    assert.ok(!tasks.has(win32job.taskName(name)), `${name}: its task is still registered`);
+    assert.match(done.said, /The name is free\./);
+  }
+  assert.equal(fs.existsSync(picture(pic)), false, 'the picture stayed');
+  assert.equal(sendertoken.holdsTokens(pic), false, 'the name is free while its sender tokens still work');
+  // CONTROL: the same shape WITH a profile still gets the task-only delete.
+  const withProfile = agent('prof8475', { folder: false });
+  assert.equal(win.plan(withProfile).taskOnly, true, 'CONTROL: a name with a profile no longer gets the task-only delete');
 });

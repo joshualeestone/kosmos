@@ -603,19 +603,29 @@ function plan(name, opts) {
        review 2: ONLY for a name on the removed list. namedRecords also answers "none" when another folder or a running
        session maps to the same stored key (pear.8475 beside pear8475), and a listed, healthy agent whose folder was only
        moved must not lose its tokens, standing and community account to that. A look at the removed list that fails
-       reads as not removed: the task-only delete, which loses nothing for good. */
+       reads as not removed: the task-only delete, which loses nothing for good.
+       review 5: and only for a name WITH a profile. With none (a picture alone, or nothing) it is never a healthy moved
+       agent: the survey and the settings-only list both need a profile, so neither Start at login nor a second delete
+       could come, and the task-only words would promise both. Such a name gets main's full delete (typed when a picture
+       goes for good), after main's checks below. A look at the profile that fails refuses. */
     let stored;
     try { stored = namedRecords(clean, null); } catch {
       return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
     }
+    let hasProfile = true;
+    try { fs.statSync(require('./store').profilePath(clean)); } catch (e) {
+      if (e && e.code === 'ENOENT') hasProfile = false;
+      else return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
+    }
     let removedNow = false;
     try { removedNow = remove.isRemoved(clean) === true; } catch { removedNow = false; }
-    if (stored.records.length || !removedNow) {
-      const words = taskOnlyWords(clean, shown, removedNow, platform, stored.records);
+    if (hasProfile && (stored.records.length || !removedNow)) {
       /* review 4 (friction, not refusal): where main refused through strandedRefusal, the agent may be healthy with its
          folder only out of sight, and after its task goes it comes back only on the main account and the model it last
          ran, and only if it has run here. So the name is typed and the reason comes first. */
-      const unsure = outOfSightWords(clean, shown);
+      const out = outOfSightWords(clean, shown);
+      const unsure = out ? out.words : null;
+      const words = taskOnlyWords(clean, shown, removedNow, platform, stored.records, out ? out.lead : null);
       return {
         ok: true,
         name: clean,
@@ -846,7 +856,8 @@ function workersFolderThere() {
    it. The sentence says so rather than promising the agent back unchanged. */
 /* kosmos#8475 review 4: the sentence a task-only plan leads with, and the reason it asks for the name, when the settings
    checks (strandedRefusal) would have refused: its recorded folder is out of sight, gone or behind a dead link, or could
-   not be checked. Null when they would not (no typing then). A name waiting to start never reaches here. */
+   not be checked. Null when they would not (no typing then); else { lead, words }, lead 'unreachable', 'occupied' (a
+   file or link at the path) or 'unchecked'. A name waiting to start never reaches here. */
 function outOfSightWords(name, shown) {
   let st;
   try { st = strandedRefusal(name, shown); } catch { st = { because: 'unreadable' }; }
@@ -854,17 +865,30 @@ function outOfSightWords(name, shown) {
   let where = null;
   try { where = create.recordedDirSpelling(name); } catch { where = null; }
   const sure = 'remove its startup job only if you are sure it is gone.';
-  return where
-    ? `Its folder is recorded at ${where}, which Kosmos cannot reach right now; if that is a disk or shared folder that is not connected, connect it and Kosmos can start the agent again, so ${sure}`
-    : `Kosmos could not check where its folder is right now, so ${sure}`;
+  if (!where) return { lead: 'unchecked', words: `Kosmos could not check where its folder is right now, so ${sure}` };
+  /* review 5: strandedRefusal's own distinction. Something at the path (a file, or a link, which Kosmos never follows
+     for an agent's folder) is not a disk to connect; nothing there may be one. A real folder never reaches here
+     (plan()'s folder rule sees it first). */
+  let there = false;
+  try { fs.lstatSync(where); there = true; } catch { there = false; }
+  /* review 5: connect BEFORE removing anything; said once, here, so the way back after it does not repeat it beside
+     "Remove" and read as if the agent restarts after the removal. */
+  return there
+    ? { lead: 'occupied', words: `Its folder is recorded at ${where}, but what is there now is not a folder Kosmos can use; remove its startup job only if you are sure its folder is gone.` }
+    : { lead: 'unreachable', words: `Its folder is recorded at ${where}, which Kosmos cannot reach right now. If that is a disk or shared folder that is not connected, connect it before removing anything; ${sure}` };
 }
 
-function taskOnlyBackWords(name, removed) {
+/* `lead`: what outOfSightWords said first, if anything ('unreachable' or 'occupied'). After 'unreachable' the disk was
+   already named, so "(or connect that disk again)" is not repeated (review 5); after 'occupied' there is no disk to
+   connect, and the folder goes back in place of what is there now. */
+function taskOnlyBackWords(name, removed, lead = null) {
   let where = null;
   try { where = create.recordedDirSpelling(name); } catch { where = null; }
   if (!where) where = create.workerDir(name);
   // review 4: a disk that is not connected is connected again, not "put back".
-  return `If its folder was only moved, or is on a disk that is not connected, put it back at ${where} (or connect that disk again)`
+  return (lead === 'occupied'
+    ? `If its folder was only moved, put it back at ${where} in place of what is there now`
+    : `If its folder was only moved, or is on a disk that is not connected, put it back at ${where}${lead === 'unreachable' ? '' : ' (or connect that disk again)'}`)
     + (removed ? ', use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it' : ', then use Start at login when Kosmos offers it')
     + startsAgainWords(name);
 }
@@ -899,8 +923,8 @@ function recordedOutsideWorkers(name, platform) {
    stays stored, and (review) the way to delete it ONLY when that delete would be offered: the settings-only list's rule
    (recordedOutsideWorkers) and the settings-only plan's own refusals (strandedRefusal). `records` is namedRecords' list,
    or null when it could not be read (then nothing is said about it rather than a guess). */
-function taskOnlyWords(name, shown, removed, platform, records) {
-  const back = taskOnlyBackWords(name, removed);
+function taskOnlyWords(name, shown, removed, platform, records, lead = null) {
+  const back = taskOnlyBackWords(name, removed, lead);
   if (!records || !records.length) return { back, stay: '' };
   const kw = recordsWords(records);
   let offered = false;
@@ -1091,7 +1115,11 @@ function* delSteps(name, opts) {
     try { removedNow = remove.isRemoved(p.name) === true; } catch { removedNow = false; }   // as plan() reads it
     let stored = null;
     try { stored = namedRecords(p.name, null).records; } catch { stored = null; }   // null: not named, never guessed
-    const words = taskOnlyWords(p.name, p.shown, removedNow, platform, stored);
+    /* review 5: the outcome has no lead sentence, so the disk is named in the way back as usual; only a path holding
+       something that is not a folder changes it ("in place of what is there now"). */
+    let occupied = null;
+    try { const o = outOfSightWords(p.name, p.shown); occupied = o && o.lead === 'occupied' ? 'occupied' : null; } catch { occupied = null; }
+    const words = taskOnlyWords(p.name, p.shown, removedNow, platform, stored, occupied);
     return {
       outcome: OUTCOME.DELETED,
       taskOnly: true,

@@ -9,7 +9,11 @@ lost the settings for good, and nothing can tell an agent folder that was DELETE
 nine review rounds kept finding healthy agents that read as "no folder" (a dead junction, an unplugged drive, a missing
 workers folder, a renamed workers folder plus one create, a recorded folder on an unconnected drive).
 
-## Change (Windows only; macOS and Linux unchanged)
+## Change (Windows only; macOS and Linux unchanged, except one label)
+
+On every platform, a removed agent's row button now says "Delete what is left…" instead of "Delete its files…" (review
+3): the row cannot know whether its click removes files, settings alone or only a startup job, and the neutral label is
+true on every platform. The dialog it opens then names the exact act.
 - engine/delete-leftover.js settingsLeftovers: on win32 it also lists a name with a profile, no folder and a task known
   to be registered (job === true; a failed look lists nothing), not removed, not running, not waiting to start, while
   the workers folder is there; marked startsAtLogin. server.js /api/removed passes it; web/index.html's row says "Its
@@ -33,19 +37,20 @@ workers folder, a renamed workers folder plus one create, a recorded folder on a
   login (only on a look that answered "not registered").
 - It still refuses while the name is waiting to start, and while the whole workers folder is missing or behind a dead
   link (the way-out sentence names the task to delete in Task Scheduler).
-- Tests: new engine/delete-leftover.win32-recoverable-task-8475.test.js (12); the 8471 file's tests updated to the new
+- Tests: new engine/delete-leftover.win32-recoverable-task-8475.test.js (14); the 8471 file's tests updated to the new
   rule (test 7 now pins "Windows lists the task, marked; macOS and Linux do not"); the 7820 pin updated; a Windows-only
   server.test.js test for startsAtLogin; docs/browser-checks/render-settings-leftover-7825.js asserts the row.
 
 ## Decided, not missed
-- A Windows task with no folder gets the taskOnly delete whenever anything of its own is stored (settings or picture),
-  or whenever it is not on the removed list, including from a removed agent's row, which used to delete the settings
-  for good after a typed name: plan() knows the name, not the row clicked, and an action taken on an inference that a
-  move can fake must be recoverable. Such a removed agent's leftover now takes two clicks (the task, then the settings).
-  The one exception: a REMOVED name with nothing of its own stored (none, or only settings another agent's name shares)
-  gets main's full delete in one click (task, tokens, community account, removal record; the name is free), after the
-  same checks main ran (strandedRefusal and the workers-folder refusals); otherwise its name would stay on the removed
-  list for good. Would change my mind: a need for a one-step delete where settings exist.
+- A Windows task with no folder and a profile gets the taskOnly delete whenever anything of its own is stored
+  (settings or picture), or whenever it is not on the removed list, including from a removed agent's row, which used
+  to delete the settings for good after a typed name: plan() knows the name, not the row clicked, and an action taken
+  on an inference that a move can fake must be recoverable. Such a removed agent's leftover now takes two clicks (the
+  task, then the settings). Two exceptions get main's full delete (task, tokens, community account, removal record; the
+  name is free; typed when a picture goes for good), after the same checks main ran (strandedRefusal and the
+  workers-folder refusals): a REMOVED name with nothing of its own stored (none, or only settings another agent's name
+  shares), whose name would otherwise stay on the removed list for good; and (review 5) a name with NO profile, which
+  is never a healthy moved agent (neither Start at login nor a settings-only row can come without one). Would change my mind: a need for a one-step delete where settings exist.
 - The weakest part: the way back appears only for an agent that has run on this computer (register.survey's hasRun;
   a removed agent keeps only its self-report history, so one that never wrote a report is not offered Start at login);
   the account and model it ran on are lost with the task (saving the account in the profile is carded as #8478);
@@ -53,8 +58,8 @@ workers folder, a renamed workers folder plus one create, a recorded folder on a
   but its settings cannot be deleted from the screen until the disk returns).
 
 ## Measured on the Windows box
-New file 12/12 (11/12 fail with main's source: test 11 pins main's refusal, so it passes there by design; 3/12 fail
-with review 3's source e36998ddd8: 2, 5, 12). 8471 file 7/0, 7820 file 34/0/1, delete-leftover.test 70/0/10, server
+New file 14/14 (13/14 fail with main's source: test 11 pins main's refusal, so it passes there by design; 4/14 fail
+with review 4's source d957e1ebcf: 5, 12, 13, 14). 8471 file 7/0, 7820 file 34/0/1, delete-leftover.test 70/0/10, server
 "removed list" 3 pass; each changed test fails on main's source. Both browser-check gates exit 0. Policy tests pass.
 
 ## Review log
@@ -84,3 +89,8 @@ with review 3's source e36998ddd8: 2, 5, 12). 8471 file 7/0, 7820 file 34/0/1, d
   connecting the disk brings the agent back. Rejected: removing it silently; saving the account now (#8478). Test 12
   covers the six cases and the untyped control. Nits: the plan's counts, the refusal comment, "(or connect that disk
   again)", and del reads isRemoved === true as plan() does.
+- Round 5 (compared with main; no blocker; 1 warning, 3 nits), all fixed. (1) A name with NO profile (a picture or
+  nothing) got the task-only delete with a way back and a "delete again" that can never come; such a name is never a
+  healthy moved agent, so it gets main's full delete with main's checks (test 14). (2) A FILE at the recorded path says
+  so plainly (test 13). (3) The out-of-sight lead says to connect the disk BEFORE removing anything, said once.
+  (4) The plan notes the removed row's label changed on every platform.
