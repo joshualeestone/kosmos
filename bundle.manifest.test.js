@@ -36,7 +36,7 @@ test('#776: the release carries the manifest beside the versioned tarball and CO
   assert.match(RELEASE, /_site_paths="[^"]*dist\/kosmos-\$V-arm64\.manifest\.json[^"]*"/, 'the manifest is copied but not in the committed site paths: it would be a working-tree side effect, the #649 shape');
 });
 
-test('#776: verify-manifest.sh is executable', { skip: require('./test-support/skip-on-win32').skipOnWin32('it reads the POSIX executable bit, which Windows does not keep') }, () => {   // kosmos#8378
+test('#776: verify-manifest.sh is executable', { skip: require('./test-support/skip-on-win32').skipOnWin32('it reads the POSIX executable bit of tools/verify-manifest.sh, which Windows does not keep') }, () => {   // kosmos#8378
   assert.ok(fs.statSync(path.join(__dirname, 'tools', 'verify-manifest.sh')).mode & 0o111, 'not executable');
 });
 

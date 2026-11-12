@@ -13,12 +13,13 @@ Re-measured on origin/main 2b3c0c397d on the Windows box (node 24.19.0, TAP), ev
 - `engine/create.tmux-linux-4917` tests 1-2: `linuxTmuxBin('linux', ...)` returns null. It asks
   `runners.isRunnable`, which on a Windows host judges by PATHEXT, so the extensionless fake `tmux` never counts.
   The function only does work when platform is linux; on Windows the code is never reached.
-- `engine/connect-oldjob-8294` test 11: `foreignStarter` returns null at the "$HOME/agents/homey" arm. The folder
-  spelling is built from a Windows path with backslashes and the fixture script spells it with POSIX slashes;
-  launchd login jobs exist only on the Mac.
-- `tools.sbom-o05` tests 47, 54, 55: `readTmuxBundle` runs `/usr/bin/tar` by absolute path (Windows cannot), and
-  test 47's fixture file name holds a newline, which a Windows file name cannot. The SBOM is built only for the
-  Mac release.
+- `engine/connect-oldjob-8294` test 11: `foreignStarter` returns null at the "$HOME/agents/homey" arm.
+  `folderSpellings` (engine/register.js) adds the "$HOME/..." spelling only for a folder under HOME + '/', a POSIX
+  separator, so a Windows path never gets it. The test is split: the home-spelling arm is its own test, skipped on
+  Windows; the linked-folder, tmux -c and runner's-own-program arms keep running everywhere.
+- `tools.sbom-o05` tests 47, 54, 55: `readTmuxBundle` runs `/usr/bin/tar` by absolute path, which Windows cannot run;
+  that alone stops all three, so it is the reason given. (Test 47's fixture also names a file with a newline, which
+  a Windows file name cannot hold either.) The SBOM is built only for the Mac release.
 - `bundle.manifest` test 4: `mode & 0o111` on tools/verify-manifest.sh; Windows keeps no executable bit.
 
 ## Change
@@ -33,6 +34,6 @@ None of these is a Windows bug: each subject does not exist on Windows. A failin
 not a skip (helper doc).
 
 ## Done when
-- The four files run 0 failed on the Windows box; skipped counts 2, 1, 3 (+3 pre-existing), 1.
+- The four files run 0 failed on the Windows box; skipped counts 2, 1, 3 (+3 pre-existing), 1 (oldjob now 14 tests: 13 pass, 1 skipped).
 - engine/windows-tests-1777, engine.reachable, win32-separator-guard, fixture-discipline, no-name-refs green.
 - Mac/Linux CI green (the skips read false there; none of the four is in the Windows CI selection).
