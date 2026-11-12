@@ -21,7 +21,10 @@ Card: kosmos#8416 (from the 11-11 daily feedback; given to Mona Lisa by Splinter
 - Rejected for (1): shortening the request under one piece (256 bytes). It would drop the four questions and the privacy rules agents follow from it, and only this one message would be fixed, not every long automatic line.
 - Rejected for (1): detecting a split and saying so. Kosmos cannot see how the composer grouped the pieces.
 - Weakest premise for (1): word-boundary pieces fix the mid-word read, not the split itself; a busy composer can still show a later piece as pasted text. It now reads as whole words.
-- Residual for (2): the marks file has no lock; two writers at once can lose a mark, which only makes that section named again (the safe direction).
+- Residual for (2), accepted: the marks file has one writer process (the board), and every write is synchronous and atomic (store.saveFlushed), so writes do not interleave.
+- Residual for (2), accepted: a session start's marks are taken when its 'started' report reaches the board, a few seconds after the agent read its file. A block rewritten in that gap is marked as read. The debt it owed already ended as 'restarted' on main, so the new loss is only a later rewrite back to the same words. Narrowing it needs the file as the agent read it, which nothing records.
+- Marks move only on a PLACED line (review 3): an UNCONFIRMED one may never have been typed.
+- A damaged block (one marker with no pair) and a heading written twice with no markers cannot be told, so they are named.
 - Weakest premise for (2): a section's change is judged by its own text, so a change elsewhere in the file (outside any owed section) is not named. That is the point, and #7149's changes file still lists every change.
 - Not built: the card's two smaller ideas (whose built mark, a machine-move checklist). Left on the card.
 
@@ -32,4 +35,5 @@ Card: kosmos#8416 (from the 11-11 daily feedback; given to Mona Lisa by Splinter
 
 ## Review ledger
 - R1 opus: 2 W (a heading inside a policy or About-you block ended the section early; a copy moved past a section owed mid-pass), 1 C, NITs. Fixed: block markers; owed-again guard; unchanged logged.
+- R3 opus: 4 W (marks moved on an UNCONFIRMED line; session-start timing; a test that passed with the code wrong; a newline not a boundary), NITs. Fixed, the timing accepted and stated above.
 - R2 sonnet: 2 W (the copy as oracle still let a block rewritten after a landed line go unnamed; a removed section dropped silently), NITs. Fixed: per-section marks that move only when told; the removal rule documented and tested.

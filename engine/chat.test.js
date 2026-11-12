@@ -3445,6 +3445,9 @@ test('kosmos#8416: the daily feedback request is pasted in pieces that end on a 
   // No space within the last 64 bytes (a long word): the cut stays at the budget, on a character boundary.
   assert.deepEqual(chat.chunkUtf8('a b' + 'c'.repeat(600), 256).map((c) => Buffer.byteLength(c, 'utf8')), [256, 256, 91]);
   const wide = 'x '.repeat(10) + '🌮'.repeat(100);
+  // Review 3: a newline is a word boundary too.
+  const lined = chat.chunkUtf8('a'.repeat(200) + '\n' + 'b'.repeat(100), 256);
+  assert.deepEqual(lined.map((c) => c.length), [201, 100]);
   assert.equal(chat.chunkUtf8(wide, 256).join(''), wide);
   // A space right at the cut is already a boundary, so the piece keeps its full budget.
   assert.deepEqual(chat.chunkUtf8('a'.repeat(256) + ' b', 256), ['a'.repeat(256), ' b']);

@@ -401,9 +401,8 @@ function prepareChanges(session) {
 
 /* kosmos#8416: a notice named six sections to re-read when none had changed and one was not in the agent's file. A
    section is owed when Kosmos rewrites its block, and a rewrite can leave the words as they were (a board-start sweep
-   writes every block), so at delivery each owed section is checked against the file: it is named only when its heading
-   is in the file now and, when Kosmos holds a copy of what the agent last read (#7149), its text differs from that copy.
-   With no copy, a section in the file is named, as before. */
+   writes every block), so at delivery each owed section is checked against the file (trueSections, below): it is named
+   only when it is in the file now and its fingerprint differs from the mark of what the agent was last told about it. */
 function headingsOf(section) {
   if (section === 'rules') {
     try { return require('./defaults').sections().map((x) => String(x.heading).replace(/^#{1,6}\s+/, '').trim()).filter(Boolean); } catch { return null; }
@@ -470,10 +469,27 @@ function printOf(text, sec) {
   try { block = blockOf(text, sec); } catch { return 'unknown'; }
   if (block && block.ambiguous) return 'unknown';
   if (block) return hash(block.found);
+  // Review 3: one of its markers with no pair is a damaged block, not a missing one.
+  const pairs = markersOf(sec) || [];
+  if (pairs.some(([a, b]) => String(text).includes(a) || String(text).includes(b))) return 'unknown';
   const titles = headingsOf(sec);
   if (!titles) return 'unknown';
+  // Review 3: a heading written twice (the person's own and Kosmos's, with no markers) cannot tell which is which.
+  if (titles.some((t) => headingCount(text, t) > 1)) return 'unknown';
   const bodies = titles.map((t) => sectionBody(text, t));
   return bodies.every((b) => b === null) ? null : hash(titles.map((t, k) => t + '\n' + (bodies[k] === null ? '' : bodies[k])).join('\n'));
+}
+/* Pure: how many times a heading titled `title` appears outside fenced code. */
+function headingCount(text, title) {
+  let n = 0;
+  let fence = null;
+  for (const line of String(text == null ? '' : text).replace(/\r\n?/g, '\n').split('\n')) {
+    const f = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (f && fence === null) fence = f[1];
+    else if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !f[2].trim()) fence = null;
+    else if (fence === null) { const h = /^(#{1,6}) +(.*?) *#* *$/.exec(line); if (h && h[2] === title) n += 1; }
+  }
+  return n;
 }
 /* Pure: the owed sections worth naming, given the file now and the fingerprints of what the agent was last told (marks:
    { section: print }, or null when Kosmos holds none for it). Review 2: the marks move only for a section the agent was
@@ -680,7 +696,8 @@ async function passOnce(o) {
         if (off.length) keep[session] = { at: debt.at, last: debt.last, n: 1, sections: off };
         if (typeof o.recordSent === 'function') { try { o.recordSent(session, sentAt); } catch { /* only the turn's label is lost */ } }
         // kosmos#8416: only the sections this line named move their marks.
-        if (toldText !== null && typeof o.markRead === 'function') { try { o.markRead(session, on, toldText); } catch { /* the next notice names them again */ } }
+        // Review 3: only a line known to be typed (PLACED); an unconfirmed one may never have reached the agent.
+        if (toldText !== null && v && o.DELIVERY && v.state === o.DELIVERY.PLACED && typeof o.markRead === 'function') { try { o.markRead(session, on, toldText); } catch { /* the next notice names them again */ } }
         /* kosmos#7149: the agent reads the file now, so this is what it last read (the next diff starts here). kosmos#8416
            review 1: not when a section was owed again while this pass ran (its n moved): the text read above may already
            hold that change, which the line did not name, and trueSections would then call it unchanged next time. The
@@ -706,4 +723,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { trueSections, trueSectionsFor, sectionBody, markRead, readMarks, printOf, changedLines, prepareChanges, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { trueSections, trueSectionsFor, sectionBody, markRead, readMarks, forgetMarks, printOf, changedLines, prepareChanges, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };

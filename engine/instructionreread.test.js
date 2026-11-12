@@ -399,13 +399,35 @@ test('kosmos#8416 review 2: a block rewritten after a line landed, and owed late
   let marks = marksOf(v1, ['community', 'reports']);
   for (const x of ['reports']) marks[x] = ir.printOf(v2, x);   // what markRead does for the sections the line named
   assert.deepEqual(ir.trueSections(['community'], v2, marks), ['community'], 'the community change went unnamed');
-  // The pass moves only the named sections' marks, from the text read before the line.
+  // The pass moves only the named sections' marks (one of two owed is dropped), from the text read BEFORE the line.
+  let current = v1;
   const moved = [];
-  const p = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => v1, markRead: (s2, secs, text) => { moved.push([s2, secs, text]); return true; } } });
+  const p = passArgs({ owed: { ida: debt(['reports', 'community']) }, o: { trueSections: () => ['reports'], readText: () => current,
+    markRead: (s2, secs, text) => { moved.push([s2, secs, text]); return true; },
+    deliver: async () => { current = v2; return { state: D.PLACED }; } } });
   await ir.passOnce(p.o);
-  assert.deepEqual(moved, [['ida', ['reports'], v1]], 'marks moved for a section the line did not name, or from the wrong text');
-  // CONTROL: a line that did not land moves no mark.
-  const q = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => v1, markRead: () => { moved.push('x'); return true; }, deliver: async () => ({ state: D.COULD_NOT }) } });
-  await ir.passOnce(q.o);
-  assert.equal(moved.length, 1);
+  assert.deepEqual(moved, [['ida', ['reports'], v1]], 'marks moved for a section the line did not name, or from text read after it');
+  // Review 3: an unconfirmed line (it may never have been typed) and one that did not land move no mark.
+  for (const state of [D.UNCONFIRMED, D.COULD_NOT]) {
+    const q = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => v1, markRead: () => { moved.push(state); return true; }, deliver: async () => ({ state }) } });
+    await ir.passOnce(q.o);
+  }
+  assert.equal(moved.length, 1, 'a line not known to be typed moved marks: ' + JSON.stringify(moved));
+});
+
+test('kosmos#8416 review 3: a damaged block, or a heading written twice with no markers, cannot be told, so it is named', () => {
+  const P = require('./projects');
+  const damaged = ['## Your projects', 'one', P.BLOCK_START, '## Your projects', 'two', ''].join('\n');   // a start with no end
+  assert.equal(ir.printOf(damaged, 'projects'), 'unknown');
+  const twice = ['## Who you report to', 'mine', '', '## Who you report to', 'Splinter.', ''].join('\n');
+  assert.equal(ir.printOf(twice, 'reports'), 'unknown');
+  assert.deepEqual(ir.trueSections(['projects', 'reports'], damaged + twice, { projects: 'x', reports: 'y' }), ['projects', 'reports']);
+  assert.notEqual(ir.printOf('## Who you report to\nSplinter.\n', 'reports'), 'unknown', 'CONTROL: one heading is told');
+});
+
+test('kosmos#8416 review 3: a debt ended as unchanged leaves no changes file behind', async () => {
+  const dropped = [];
+  const p = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => [], dropChanges: (s2) => dropped.push(s2) } });
+  await ir.passOnce(p.o);
+  assert.deepEqual(dropped, ['ida']);
 });

@@ -458,6 +458,8 @@ test('kosmos#8416 review 1: a section owed again while the pass ran keeps the co
 
 test('kosmos#8416: the board pass is handed trueSections (read as source)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /trueSections: \(session, sections\) => ir\.trueSectionsFor\(session, sections\),\s*markRead: \(session, sections, text\) => ir\.markRead\(session, sections, text\),/);
+  assert.match(src, /trueSections: \(session, sections\) => ir\.trueSectionsFor\(session, sections\),/);
+  assert.match(src, /markRead: \(session, sections, text\) => ir\.markRead\(session, sections, text\),/);
+  assert.match(src, /readText: \(session\) => \{ const g = require\('\.\/engine\/instructions'\)\.read\(session\);/);
   assert.match(src, /\['sent', 'restarted', 'gone', 'expired', 'unchanged'\]\.includes\(d\.act\)/, 'a debt ended as unchanged leaves no log line');
 });

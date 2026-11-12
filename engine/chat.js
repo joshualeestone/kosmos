@@ -829,8 +829,10 @@ function chunkUtf8(str, maxBytes) {
        messages, one starting mid-word. So a chunk ends just after a space when one is within its last WORD_BACKOFF
        bytes: the pieces reassemble exactly as before, and a split shows whole words on each side. A space is one byte
        and never a continuation byte, so the cut stays on a character boundary. */
-    if (end < buf.length && buf[end] !== 0x20) {   // a cut right before a space is already between words
-      for (let k = end - 1; k > i && k >= end - WORD_BACKOFF; k -= 1) if (buf[k] === 0x20) { end = k + 1; break; }
+    // Review 3: a newline or tab is as much a word boundary as a space.
+    const gap = (b) => b === 0x20 || b === 0x0a || b === 0x09;
+    if (end < buf.length && !gap(buf[end])) {   // a cut right before one is already between words
+      for (let k = end - 1; k > i && k >= end - WORD_BACKOFF; k -= 1) if (gap(buf[k])) { end = k + 1; break; }
     }
     chunks.push(buf.slice(i, end).toString('utf8'));
     i = end;
