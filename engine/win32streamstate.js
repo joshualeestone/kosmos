@@ -599,7 +599,12 @@ function liveIdentity(name) {
  * Not schtasks "Status: Running": that text is localized and fires on the conhost wrapper before the supervisor is up
  * (see win32job.runningSteps, which reads this same signal after a start). A file older than this boot is left out:
  * a reboot, a power cut or a killed process tree leaves the file behind, and Windows reuses pids quickly, so its pid
- * could name somebody else's process now. `opts.bootMs` and `opts.isAlive` are test seams. The file is named by the
+ * could name somebody else's process now.
+ * ⚠️ LIMITS, BOTH ERRING TOWARD "COULD NOT CHECK", NEVER TOWARD A FALSE "NOT RUNNING" (review 2): a pid reused WITHIN
+ * this boot (a task stopped by killing its tree leaves the file), and a Fast Startup shutdown, which hibernates the
+ * kernel so uptime still counts from the last full boot. Telling the agent's own process from a stranger needs more
+ * than a pid (kosmos#8415). A wall-clock step after boot can move the boot line later and leave out a live agent,
+ * which reads "Not running" as before #8410. `opts.bootMs` and `opts.isAlive` are test seams. The file is named by the
  * agent's store key, which for a valid agent name is the name itself. Fail-soft to an empty set: "we could not look"
  * must never dress a stopped agent as running unseen.
  */
