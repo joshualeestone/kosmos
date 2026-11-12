@@ -175,7 +175,11 @@ test('kosmos#8421 review 3: a board that restarts while the automatic installer 
     fs.mkdirSync(path.dirname(b.record), { recursive: true });
     fs.writeFileSync(b.record, JSON.stringify({ from: RUNNING, to: '99.0.0', channel: 'staging', startedAt: at }));
     fs.writeFileSync(path.join(b.root, 'logs', 'install.started'), at + '\n');   // the #1728 marker: the attempt has not ended
+    // Review 5: and a LIVE installer holds its pause name (this test's own pid stands in for the installer's).
+    const pause = path.join(b.root, 'board.stopped.by-install.' + process.pid + '.tok');
+    fs.writeFileSync(pause, '');
     assert.match(update.noteAutoUpdateAtBoot(), /^Kosmos started on .* while its automatic update to 99\.0\.0 \(staging channel\) is still installing;/);
+    // The pause name is left in place below: a name whose pid was reused looks live, and the status must still win.
     assert.equal(fs.existsSync(b.record), true, 'the record was removed while the installer still runs, so the board it starts would say nothing');
     // The attempt then ends (install.status carries its stamp) and the board comes back on the old version: now it says so.
     fs.writeFileSync(path.join(b.root, 'logs', 'install.status'), '1 ' + at + '\n');
@@ -202,6 +206,7 @@ test('kosmos#8421 review 4: a successful update boots with the marker still on d
     fs.mkdirSync(path.dirname(b.record), { recursive: true });
     fs.writeFileSync(b.record, JSON.stringify({ from: '0.0.1', to: RUNNING, channel: 'prod', startedAt: at }));
     fs.writeFileSync(path.join(b.root, 'logs', 'install.started'), at + '\n');   // the shell tail has not run yet
+    fs.writeFileSync(path.join(b.root, 'board.stopped.by-install.' + process.pid + '.tok'), '');   // and a name that looks live
     assert.match(update.noteAutoUpdateAtBoot(), new RegExp(`^Kosmos started again on ${RUNNING.replace(/\./g, '\\.')} after its automatic update`));
     assert.equal(fs.existsSync(b.record), false);
   } finally { clear(); }
@@ -217,6 +222,8 @@ test('kosmos#8421 review 4: an installer killed long ago (old marker, no status)
     fs.writeFileSync(marker, at + '\n');
     const old = (Date.now() - 2 * 3600 * 1000) / 1000;
     fs.utimesSync(marker, old, old);
+    // A pause name that looks live (a reused pid stands in as this test's own): the marker's age must still decide.
+    fs.writeFileSync(path.join(b.root, 'board.stopped.by-install.' + process.pid + '.tok'), '');
     assert.match(update.noteAutoUpdateAtBoot(), /^Kosmos's automatic update to 99\.0\.0 \(prod channel\) did not finish;/);
     assert.equal(fs.existsSync(b.record), false, 'an interrupted attempt kept its record');
   } finally { clear(); }
@@ -229,6 +236,32 @@ test('kosmos#8421 review 4: a newer board with the marker still on disk says it 
     fs.mkdirSync(path.dirname(b.record), { recursive: true });
     fs.writeFileSync(b.record, JSON.stringify({ from: '0.0.1', to: '0.0.2', channel: 'prod', startedAt: at }));
     fs.writeFileSync(path.join(b.root, 'logs', 'install.started'), at + '\n');
+    fs.writeFileSync(path.join(b.root, 'board.stopped.by-install.' + process.pid + '.tok'), '');
     assert.match(update.noteAutoUpdateAtBoot(), /newer than the 0\.0\.2/);
+  } finally { clear(); }
+});
+
+test('kosmos#8421 review 5: the common failure order (old board put back, marker fresh, no status yet, no pause) says did not finish', () => {
+  const b = board();
+  try {
+    const at = new Date().toISOString();
+    fs.mkdirSync(path.dirname(b.record), { recursive: true });
+    fs.writeFileSync(b.record, JSON.stringify({ from: RUNNING, to: '99.0.0', channel: 'prod', startedAt: at }));
+    fs.writeFileSync(path.join(b.root, 'logs', 'install.started'), at + '\n');   // seconds old; the shell tail has not run
+    assert.match(update.noteAutoUpdateAtBoot(), /^Kosmos's automatic update to 99\.0\.0 \(prod channel\) did not finish;/);
+    assert.equal(fs.existsSync(b.record), false, 'a failed update kept its record, so its true line never comes');
+  } finally { clear(); }
+});
+
+test('kosmos#8421 review 5: a pause name whose installer has ended is not a running install', () => {
+  const b = board();
+  try {
+    const at = new Date().toISOString();
+    const gone = require('node:child_process').spawnSync(process.execPath, ['-e', '0']).pid;
+    fs.mkdirSync(path.dirname(b.record), { recursive: true });
+    fs.writeFileSync(b.record, JSON.stringify({ from: RUNNING, to: '99.0.0', channel: 'prod', startedAt: at }));
+    fs.writeFileSync(path.join(b.root, 'logs', 'install.started'), at + '\n');
+    fs.writeFileSync(path.join(b.root, 'board.stopped.by-install.' + gone + '.tok'), '');
+    assert.match(update.noteAutoUpdateAtBoot(), /did not finish;/);
   } finally { clear(); }
 });

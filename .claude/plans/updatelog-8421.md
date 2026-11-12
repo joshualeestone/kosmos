@@ -25,15 +25,21 @@ their test timings before install.log named it.
 - Review 4: "still installing" is bounded by the marker's age (30 min): an installer killed mid-run leaves the same
   marker with no status, and unbounded every later boot would say it. A board on the target (marker not yet removed)
   or newer than it never says "still installing".
+- Review 5 (BLOCKER): a FAILED update puts the old board back before install.status is written, so a fresh marker
+  with no status is the common failure. "Still installing" now also needs a live installer's pause name
+  (board.stopped.by-install.<pid>.<token>, #6651; removed by that trap before the put-back). A minute of mtime skew
+  is allowed. Accepted residual: a board that crashes BEFORE the installer pauses it hears "did not finish", and the
+  board the installer later starts says nothing.
 - setAutoLog is a test seam, excused in engine.reachable.test.js beside setInstallRunner and setAutoPref.
 
 ## Tests
-engine/update-autolog-8421.test.js (14): the real look launches the automatic install and the line plus the record
+engine/update-autolog-8421.test.js (16): the real look launches the automatic install and the line plus the record
 appear; a boot on the target version says it started again, once (a second boot says nothing); after a real start, a
 boot on the old version says it did not finish (both lines in the log); an installer ending while the board is up
 says so and leaves no record; controls: a person's install and a paused update log nothing; a spawn error; a relative root writes no record;
 the version compare; win32 writes nothing; still installing keeps the record; newer than the target; a success with the marker on disk;
-an old marker; a newer board with the marker. 15 mutation arms red (no
+an old marker; a newer board with the marker; the real failure order; a dead
+installer's pause name. 18 mutation arms red (no
 before line; no alive line; always "did not finish"; record kept; a person's install logged). Related sweep: 30 files
 that name engine/update, 770 of 795 pass and 0 fail after the seam excuse.
 

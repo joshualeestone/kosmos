@@ -604,6 +604,19 @@ function noteAutoStart() {
   }
   autoLog(`Kosmos is updating itself to ${to} from the ${channel} channel (an automatic update, from ${RUNNING}). The board stops while it installs and starts again on the new version; the installer's own record is in ${installLog() || 'install.log'}.`);
 }
+/* kosmos#8421 review 5: does a live installer hold its pause on this install? The name setup.sh writes while it has
+   this board paused (#6651); its pid alive (EPERM is alive too, another user's) means the install is still running. */
+function liveInstallerPause() {
+  const root = installedRoot();
+  if (!root || !path.isAbsolute(root)) return false;
+  let names = [];
+  try { names = fs.readdirSync(root); } catch { return false; }
+  return names.some((n) => {
+    const m = /^board\.stopped\.by-install\.(\d+)\./.exec(n);
+    if (!m) return false;
+    try { process.kill(Number(m[1]), 0); return true; } catch (e) { return Boolean(e && e.code === 'EPERM'); }
+  });
+}
 /** kosmos#8421: once, at boot (server.js, after the update-check line): if the last board started an automatic
     update, say whether this board is the version it was installing, and remove the record. */
 function noteAutoUpdateAtBoot() {
@@ -622,8 +635,15 @@ function noteAutoUpdateAtBoot() {
   let markerAge = Infinity;
   try { marker = fs.readFileSync(installStartedFile(), 'utf8').trim(); markerAge = Date.now() - fs.statSync(installStartedFile()).mtimeMs; } catch { /* none */ }
   const st = readStatusRaw();
-  const stillRunning = Boolean(rec.startedAt) && marker === String(rec.startedAt) && markerAge < AUTO_STILL_RUNNING_MS
-    && !(st && String(st.startedAt) === String(rec.startedAt));
+  /* Review 5: an age just below 0 is a file written this instant (mtime granularity), so a minute of skew is allowed;
+     a clock set back further reads as old. */
+  /* Review 5 BLOCKER: a FAILED update puts the old board back (setup.sh's EXIT trap) BEFORE the shell tail writes
+     install.status and removes the marker, so a fresh marker with no status is the common failure, not a running
+     install. Only a live installer holding its pause name (board.stopped.by-install.<pid>.<token>, removed by that
+     same trap before the put-back) makes it still installing. Accepted residual: a board that crashes BEFORE the
+     installer pauses it hears "did not finish", and the board the installer later starts says nothing. */
+  const stillRunning = Boolean(rec.startedAt) && marker === String(rec.startedAt) && markerAge > -60000 && markerAge < AUTO_STILL_RUNNING_MS
+    && !(st && String(st.startedAt) === String(rec.startedAt)) && liveInstallerPause();
   if (stillRunning && !sameVersion(rec.to, RUNNING) && !newer(RUNNING, rec.to)) {
     const line = `Kosmos started on ${RUNNING} while its automatic update to ${rec.to} (${channel} channel) is still installing; the installer stops this board again when it is ready.`;
     autoLog(line);
