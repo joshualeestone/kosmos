@@ -590,25 +590,30 @@ function liveIdentity(name) {
  * "which agent jobs hold a live process" (create.runningJobs, #668): an agent whose process is alive while the board's
  * roster cannot see it reads "could not check", never "Not running".
  *
- * ⚠️ WHAT IT NAMES IS THE AGENT'S PROCESS, NOT THE SUPERVISOR. For a Claude agent the supervisor records its child
- * (win32supervisor: stream.started(child.pid)) and clears the file when the child exits; a per-turn supervisor (codex, gemini, grok,
- * antigravity) records its own pid. So while a Claude supervisor is up BETWEEN children (restarting after a crash, or waiting on blockedBy) this
- * leaves the agent out and it reads "Not running", as it did before #8410. A Mac's launchctl PID is the supervisor's,
- * which is wider. Closing that window needs the supervisor to record its own pid (kosmos#8415).
+ * 🔑 THE SUPERVISOR'S PRESENCE RECORD COMES FIRST (kosmos#8415, engine/win32presence.js). A supervisor writes one
+ * at start naming a pipe it holds; a pipe that exists means that supervisor is up, so its agent is live even BETWEEN
+ * Claude children (restarting after a crash, or waiting on blockedBy), and a pipe that is gone means it is dead,
+ * whatever its state file says. Only an agent with no presence record (a supervisor from before #8415) is judged by
+ * its state file, as below. A Mac's launchctl PID is the supervisor's too.
+ *
+ * The state file: for a Claude agent the supervisor records its child (win32supervisor: stream.started(child.pid)) and
+ * clears it when the child exits; a per-turn supervisor (codex, gemini, grok, antigravity) records its own pid.
  *
  * Not schtasks "Status: Running": that text is localized and fires on the conhost wrapper before the supervisor is up
  * (see win32job.runningSteps, which reads this same signal after a start). A file older than this boot is left out:
  * a reboot, a power cut or a killed process tree leaves the file behind, and Windows reuses pids quickly, so its pid
  * could name somebody else's process now.
- * ⚠️ LIMITS. Two err toward "could not check" for a STOPPED agent: a pid reused within this boot after the file
- * outlived its process (the supervisor crashed or was killed, or its clear failed), and a Fast Startup shutdown, which hibernates the
- * kernel so uptime still counts from the last full boot. Telling the agent's own process from a stranger needs more
- * than a pid (kosmos#8415). Three leave a LIVE agent reading "Not running", as every Windows agent did before #8410:
- * the between-children window above; two failed state writes in a row, after which the publisher clears the file
+ * ⚠️ LIMITS, for an agent with NO presence record only (the state-file rule). Two err toward "could not check" for a
+ * STOPPED agent: a pid reused within this boot after the file outlived its process, and a Fast Startup shutdown,
+ * which hibernates the kernel so uptime still counts from the last full boot. Three leave a LIVE agent reading "Not
+ * running": the between-children window; two failed state writes in a row, after which the publisher clears the file
  * rather than leave an older state on disk (flush below); and a wall-clock step after boot, which moves the boot line
- * later. Each board poll reads every agent's file, seen or not; on Windows a read at the moment the supervisor renames
- * its file in can make that write fail, which (twice in a row) is the clear above. The added risk is one short read
- * per agent per poll against the publisher's 250 ms retry. `opts.bootMs` and `opts.isAlive` are test seams. The file is named by the
+ * later. A presence record (kosmos#8415) decides without the pid, the state file or the clock, so none of these five
+ * applies to it. Its own limit: a supervisor that died while its Claude child lives on reads not running (the Mac
+ * reads its supervisor's pid the same way). Each board poll reads every agent's file, seen or not; on Windows a read
+ * at the moment the supervisor renames its file in can make that write fail, which (twice in a row) is the clear
+ * above. The added risk is one short read per agent per poll against the publisher's 250 ms retry. `opts.bootMs`,
+ * `opts.isAlive` and `opts.pipeExists` are test seams. The file is named by the
  * agent's store key, which for a valid agent name is the name itself. Fail-soft to an empty set: "we could not look"
  * must never dress a stopped agent as running unseen.
  */
@@ -618,11 +623,17 @@ function liveNames(opts) {
   let bootMs = Number.isFinite(o.bootMs) ? o.bootMs : null;
   if (bootMs === null) { try { bootMs = Date.now() - require('node:os').uptime() * 1000; } catch { bootMs = 0; } }
   const names = new Set();
+  /* kosmos#8415: a supervisor's presence record decides for its agent. Its pipe up: live, between children too. Its
+     pipe gone: that supervisor is dead, so a pid in the state file is stale or someone else's. */
+  let presence;
+  try { presence = require('./win32presence').presenceByName({ pipeExists: o.pipeExists }); } catch { presence = new Map(); }
+  for (const [name, up] of presence) if (up) names.add(name);
   let files;
   try { files = fs.readdirSync(stateDir()); } catch { return names; }
   for (const f of files) {
     if (!f.endsWith('.json')) continue;
     const name = f.slice(0, -'.json'.length);
+    if (presence.has(name)) continue;   // its supervisor's own record has already answered
     let mtime = 0;
     try { mtime = fs.statSync(path.join(stateDir(), f)).mtimeMs; } catch { continue; }
     if (mtime < bootMs) continue;   // written before this boot: its pid may be somebody else's now

@@ -342,6 +342,11 @@ function main(argv, deps) {
     say(new Date().toISOString() + ' ' + spec.name
       + ' channel-refused -- ' + channel.because);
   }
+  /* kosmos#8415: this supervisor's own presence (a pipe it holds, named in win32-state), so the board can see the
+     agent is up while a Claude child is between runs. A pipe that cannot open is said here and changes nothing else. */
+  const presence = (d.presence || require('./win32presence').start)(spec.name, {
+    onProblem: (why) => say(new Date().toISOString() + ' ' + spec.name + ' presence-unrecorded -- ' + why),
+  });
 
   /* ⚠️ STOPPING HAS TO CLOSE THE CHANNEL TOO, and hanging that off `stop` rather
      than off the signal handlers is what makes it true for every caller. A pipe
@@ -371,6 +376,7 @@ function main(argv, deps) {
   handle.stop = function stop() {
     supervisionStop();
     if (channel.ok) channel.close();
+    if (presence && typeof presence.stop === 'function') presence.stop();
     if (hostWatch && typeof hostWatch.stop === 'function') hostWatch.stop();
   };
   process.on('SIGINT', handle.stop);
