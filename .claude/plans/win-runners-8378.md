@@ -2,7 +2,7 @@
 
 **Posture:** production
 
-Built on win-fixtures-8378 (PR #8460) for test-support/runnerstub.js; rebased on main once that merges.
+Built on win-fixtures-8378 (PR #8460) for test-support/runnerstub.js; rebased on main (141a6be1ae) after #8460 merged.
 
 ## Problem
 engine/runners.test.js fails 16 of 33 tests on Windows. Every cause is in the test; engine/runners.js takes its Windows
@@ -60,3 +60,4 @@ Before 17 pass / 16 fail; after 31 / 0 / 2 skip. The other runners files are unc
   and Windows), and this file pins install() to darwin. The chmod reason also names the EPERM case (an ordinary account
   refuses every symlink, which would pass that test for the wrong reason). Nits: the removeTree comment names the virus
   scanner; the Windows "is executable" line says it holds by construction.
+- Round 5: no BLOCKER, WARNING or CONVENTION; nits only (see the proof). Converged. Then rebased on main (141a6be1ae).
