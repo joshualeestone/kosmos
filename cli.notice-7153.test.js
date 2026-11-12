@@ -30,6 +30,7 @@ fs.writeFileSync(path.join(ROOT, 'board.token'), TOKEN, { mode: 0o600 });
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const HEALTH = '<title>Kosmos</title>Agent Workforce';
 
 function runCli(args, env, input) {
@@ -87,7 +88,7 @@ function jobEnv(port) {
   return env;
 }
 
-test('a job writes a notice: the text and source go to the room\'s notice route, with the board token in a header', () =>
+test('a job writes a notice: the text and source go to the room\'s notice route, with the board token in a header', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard({ code: 200, body: { ok: true, project: 'fleetjosh' } }, async (port, seen) => {
     const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], jobEnv(port), 'Splinter is unreachable.\nCheck "the fleet".\n');
     assert.equal(out.code, 0, 'the notice failed: ' + out.stdout + out.stderr);
@@ -100,7 +101,7 @@ test('a job writes a notice: the text and source go to the room\'s notice route,
       'the board did not receive the text and source as written');
   }));
 
-test('a refusal is said, with the board\'s reason, and exits non-zero; a missing project says so', async () => {
+test('a refusal is said, with the board\'s reason, and exits non-zero; a missing project says so', { skip: SKIP_POSIX_SHELL }, async () => {
   await withBoard({ code: 400, body: { error: 'a notice needs words, at most 4000 characters' } }, async (port) => {
     const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], jobEnv(port), 'hello');
     assert.equal(out.code, 2, 'a notice the board refused exited ' + out.code + ', not 2 (a job retrying on 1 would resend it forever)');
@@ -130,7 +131,7 @@ test('a refusal is said, with the board\'s reason, and exits non-zero; a missing
 
 const clean = (out) => { for (const m of (out.stdout + out.stderr).matchAll(/saved at (\S+)/g)) fs.rmSync(m[1], { force: true }); };
 
-test('usage and setup mistakes are refused before anything is sent; a wrong source or project keeps the piped text', () =>
+test('usage and setup mistakes are refused before anything is sent; a wrong source or project keeps the piped text', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard({ code: 200, body: { ok: true } }, async (port, seen) => {
     for (const [args, input, said, code, kept] of [
       [['notice', '--stdin', 'fleetjosh'], 'hello', /Usage: kosmos notice/, 2, false],
@@ -158,7 +159,7 @@ function fakeTmux(claim) {
   return f;
 }
 
-test('an agent session is told to use kosmos post, and its text is kept; a job in a plain tmux pane is not refused', () =>
+test('an agent session is told to use kosmos post, and its text is kept; a job in a plain tmux pane is not refused', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard({ code: 200, body: { ok: true } }, async (port, seen) => {
     for (const extra of [{ KOSMOS_AGENT_TOKEN: 'a'.repeat(64) }, { KOSMOS_AGENT_SESSION: 'mara' }, { TMUX_PANE: '%7', AGENT_WORKFORCE_TMUX_BIN: fakeTmux('mara') }]) {
       const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], { ...jobEnv(port), ...extra }, 'hello');
@@ -174,7 +175,7 @@ test('an agent session is told to use kosmos post, and its text is kept; a job i
     assert.equal(seen.length, 1);
   }));
 
-test('a cut answer may have been written: it says so, keeps the text as "may", and exits 3 so a job does not retry it', async () => {
+test('a cut answer may have been written: it says so, keeps the text as "may", and exits 3 so a job does not retry it', { skip: SKIP_POSIX_SHELL }, async () => {
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && /\/notice$/.test(req.url)) { req.on('data', () => {}); req.on('end', () => req.socket.destroy()); return; }
     res.writeHead(200, { 'content-type': 'text/html' }); res.end(HEALTH);
@@ -188,7 +189,7 @@ test('a cut answer may have been written: it says so, keeps the text as "may", a
   } finally { server.close(); }
 });
 
-test('a board that is down: the notice is kept in a private file and its path said (an alarm may have no other copy)', async () => {
+test('a board that is down: the notice is kept in a private file and its path said (an alarm may have no other copy)', { skip: SKIP_POSIX_SHELL }, async () => {
   // A port nothing listens on: taken, then let go.
   const port = await new Promise((resolve) => { const srv = http.createServer(); srv.listen(0, '127.0.0.1', () => { const p = srv.address().port; srv.close(() => resolve(p)); }); });
   const out = await runCli(['notice', '--from', 'builder alarm', '--stdin', 'fleetjosh'], jobEnv(port), 'Splinter is unreachable.');

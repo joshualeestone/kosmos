@@ -30,6 +30,7 @@ const TOK = 'board-tok-1765';
 fs.writeFileSync(path.join(ROOT, 'board.token'), TOK + '\n', { mode: 0o600 });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 // The installed layout: runtime/bin/node and app/engine, as setup.sh lays them out.
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-home-1765-'));
@@ -102,7 +103,7 @@ function cli(port, args, extraEnv = {}, killMs = 20000) {
 
 const tokenSent = (seen) => seen.some((r) => r.headers['x-kosmos-board-token'] === TOK);
 
-test('#1765: each call asks with a fresh nonce (so an answer recorded for one call cannot serve another)', () => withStub({ prove: true }, async (port, seen) => {
+test('#1765: each call asks with a fresh nonce (so an answer recorded for one call cannot serve another)', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port, seen) => {
   await cli(port, ['accounts'], { KOSMOS_HOME: HOME });
   await cli(port, ['accounts'], { KOSMOS_HOME: HOME });
   const nonces = seen.filter((q) => q.url.startsWith(boardproof.PROOF_PATH + '?')).map((q) => new URL(q.url, 'http://x').searchParams.get('n'));
@@ -111,7 +112,7 @@ test('#1765: each call asks with a fresh nonce (so an answer recorded for one ca
   assert.notEqual(nonces[0], nonces[1], 'two calls sent the same nonce');
 }));
 
-test('#1765: installed CLI sends the token to a listener that proves it holds it', () => withStub({ prove: true }, async (port, seen) => {
+test('#1765: installed CLI sends the token to a listener that proves it holds it', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port, seen) => {
   const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME });
   assert.equal(r.code, 0, r.out);
   assert.ok(seen.some((q) => q.url.startsWith(boardproof.PROOF_PATH + '?')), 'the CLI never asked for a proof');
@@ -119,7 +120,7 @@ test('#1765: installed CLI sends the token to a listener that proves it holds it
   assert.ok(tokenSent(seen), 'the token did not reach the proven board');
 }));
 
-test('#1765: installed CLI sends NOTHING with the token to a squatter, and says so', () => withStub({ prove: false }, async (port, seen) => {
+test('#1765: installed CLI sends NOTHING with the token to a squatter, and says so', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: false }, async (port, seen) => {
   const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME });
   assert.notEqual(r.code, 0, 'a refused send must not exit 0');
   // The fixed parts of the 98 words (say_unreached), so a clause added between them does not break this arm.
@@ -127,14 +128,14 @@ test('#1765: installed CLI sends NOTHING with the token to a squatter, and says 
   assert.equal(tokenSent(seen), false, 'the token reached the squatter');
 }));
 
-test('#1765: a squatter answering the proof with a 404 page gets nothing either', () => withStub({ proofAnswer: 'notfound' }, async (port, seen) => {
+test('#1765: a squatter answering the proof with a 404 page gets nothing either', { skip: SKIP_POSIX_SHELL }, () => withStub({ proofAnswer: 'notfound' }, async (port, seen) => {
   const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME });
   assert.notEqual(r.code, 0);
   assert.match(r.out, /could not show it is your Kosmos/);
   assert.equal(tokenSent(seen), false, 'the token reached the squatter');
 }));
 
-test('#1765: a listener that never answers the proof gets nothing, and the words say nothing was sent', { timeout: 40000 }, () => withStub({ proofAnswer: 'silent' }, async (port, seen) => {
+test('#1765: a listener that never answers the proof gets nothing, and the words say nothing was sent', { skip: SKIP_POSIX_SHELL, timeout: 40000 }, () => withStub({ proofAnswer: 'silent' }, async (port, seen) => {
   const t0 = Date.now();
   const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME }, 35000);   // room past the 15 s wait on a busy machine
   // accounts passes -m 60, so the proof's half is capped at KOSMOS_PROOF_MAX_S (15 s): it gives up near 15 s, not 30.
@@ -147,7 +148,7 @@ test('#1765: a listener that never answers the proof gets nothing, and the words
   assert.equal(tokenSent(seen), false, 'the token reached the stalled listener');
 }));
 
-test('#1765: with nothing listening the words are not a refused proof (the CLI stops at its health check)', async () => {
+test('#1765: with nothing listening the words are not a refused proof (the CLI stops at its health check)', { skip: SKIP_POSIX_SHELL }, async () => {
   const port = await new Promise((resolve) => { const sv = http.createServer(); sv.listen(0, '127.0.0.1', () => { const p = sv.address().port; sv.close(() => resolve(p)); }); });
   const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME });
   assert.notEqual(r.code, 0);
@@ -155,7 +156,7 @@ test('#1765: with nothing listening the words are not a refused proof (the CLI s
   assert.doesNotMatch(r.out, /could not show it is your Kosmos|did not finish answering/, 'a down board is not a refused proof');
 });
 
-test('#1765: community comment counts a refused proof as NOT sent (exit 1, never the "may have been taken" exit 3)', () => withStub({ prove: false }, async (port, seen) => {
+test('#1765: community comment counts a refused proof as NOT sent (exit 1, never the "may have been taken" exit 3)', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: false }, async (port, seen) => {
   const AGENT = 'c'.repeat(64);
   const r = await cli(port, ['community', 'comment', '1b2c3d4e-0000-4000-8000-000000000001', 'hi'],
     { KOSMOS_HOME: HOME, TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: AGENT });
@@ -169,7 +170,7 @@ test('#1765: community comment counts a refused proof as NOT sent (exit 1, never
 
 /* whoami reads its board token through agent_board_token, which KOSMOS_AGENT_TOKEN_ONLY=1 blanks, so the agent token
    is the only token on the call and the one proved (community comment reads board_token directly, so it would not be). */
-test('#1765: a token-only agent (no board token) proves its agent token, and a squatter still gets nothing', () => withStub({ prove: false }, async (port, seen) => {
+test('#1765: a token-only agent (no board token) proves its agent token, and a squatter still gets nothing', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: false }, async (port, seen) => {
   const AGENT = 'd'.repeat(64);
   const r = await cli(port, ['whoami'],
     { KOSMOS_HOME: HOME, TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_AGENT_TOKEN_ONLY: '1' });
@@ -191,7 +192,7 @@ test('#1765: the CLI\'s answer cap and nonce size are the module\'s own numbers'
   assert.match(src, new RegExp('^KOSMOS_PROOF_NONCE_BYTES=' + boardproof.NONCE_BYTES + '\\b', 'm'));
 });
 
-test('#1765: kosmos open never opens a browser at a listener that failed the proof (the browser would send the board cookie)', () => withStub({ prove: false }, async (port) => {
+test('#1765: kosmos open never opens a browser at a listener that failed the proof (the browser would send the board cookie)', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: false }, async (port) => {
   const opened = path.join(DATA, 'opened-1765');
   const fake = path.join(DATA, 'fake-open-1765.sh');
   fs.writeFileSync(fake, '#!/bin/sh\necho "$1" >> ' + JSON.stringify(opened) + '\n', { mode: 0o755 });
@@ -201,7 +202,7 @@ test('#1765: kosmos open never opens a browser at a listener that failed the pro
   assert.equal(fs.existsSync(opened), false, 'a browser was opened at the unproven listener');
 }));
 
-test('#1765 CONTROL: kosmos open does open the browser at a board that proves itself', () => withStub({ prove: true }, async (port) => {
+test('#1765 CONTROL: kosmos open does open the browser at a board that proves itself', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port) => {
   const opened = path.join(DATA, 'opened-1765-ok');
   const fake = path.join(DATA, 'fake-open-1765-ok.sh');
   fs.writeFileSync(fake, '#!/bin/sh\necho "$1" >> ' + JSON.stringify(opened) + '\n', { mode: 0o755 });
@@ -209,7 +210,7 @@ test('#1765 CONTROL: kosmos open does open the browser at a board that proves it
   assert.equal(fs.existsSync(opened), true, 'the control did not open, so the arm above proves nothing');
 }));
 
-test('#1765: an interrupt while connect\'s board proof stalls stops at once, sends no token, and leaves nothing behind', { timeout: 20000 }, () => withStub({ proofAnswer: 'silent' }, async (port, seen) => {
+test('#1765: an interrupt while connect\'s board proof stalls stops at once, sends no token, and leaves nothing behind', { skip: SKIP_POSIX_SHELL, timeout: 20000 }, () => withStub({ proofAnswer: 'silent' }, async (port, seen) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-1765-int-'));
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), KOSMOS_HOME: HOME, TMPDIR: tmp };
   for (const v of ['KOSMOS_AGENT_TOKEN', 'KOSMOS_AGENT_TOKEN_ONLY', 'KOSMOS_AGENT_SESSION', 'KOSMOS_WORLD', 'KOSMOS_PROOF_DEBUG', 'TMUX', 'TMUX_PANE', 'http_proxy', 'https_proxy', 'all_proxy', 'ALL_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY']) delete env[v];
@@ -236,7 +237,7 @@ test('#1765: an interrupt while connect\'s board proof stalls stops at once, sen
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }));
 
-test('#1765: with the stop file present (KOSMOS_CURL_STOP), nothing is sent, not even the proof request', () => withStub({ prove: true }, async (port, seen) => {
+test('#1765: with the stop file present (KOSMOS_CURL_STOP), nothing is sent, not even the proof request', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: true }, async (port, seen) => {
   const stop = path.join(DATA, 'stop-1765');
   fs.writeFileSync(stop, '');
   try {
@@ -252,13 +253,13 @@ test('#1765: with the stop file present (KOSMOS_CURL_STOP), nothing is sent, not
   assert.ok(tokenSent(seen), 'the control did not send, so the arm above proves nothing');
 }));
 
-test('#1765 CONTROL: from the checkout, community comment DOES send the agent token to the same squatter', () => withStub({ prove: false }, async (port, seen) => {
+test('#1765 CONTROL: from the checkout, community comment DOES send the agent token to the same squatter', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: false }, async (port, seen) => {
   const AGENT = 'c'.repeat(64);
   await cli(port, ['community', 'comment', '1b2c3d4e-0000-4000-8000-000000000001', 'hi'], { TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: AGENT });
   assert.ok(seen.some((q) => q.headers['x-kosmos-agent-token'] === AGENT), 'the control did not see the agent token arrive, so the arm above proves nothing about it');
 }));
 
-test('#1765 CONTROL: from the checkout (no runtime) the same squatter DOES receive the token, so the arm above can see it', () => withStub({ prove: false }, async (port, seen) => {
+test('#1765 CONTROL: from the checkout (no runtime) the same squatter DOES receive the token, so the arm above can see it', { skip: SKIP_POSIX_SHELL }, () => withStub({ prove: false }, async (port, seen) => {
   await cli(port, ['accounts']);
   assert.equal(tokenSent(seen), true, 'the control did not see the token arrive, so the squatter arm proves nothing');
 }));
@@ -284,7 +285,7 @@ function connectWith(port, dataDir, home = HOME) {
   });
 }
 
-test('kosmos#6464: with no board token, the installed CLI refuses to send a service key, and the listener gets nothing', { timeout: 30000 }, () => withStub({ prove: false }, async (port, seen) => {
+test('kosmos#6464: with no board token, the installed CLI refuses to send a service key, and the listener gets nothing', { skip: SKIP_POSIX_SHELL, timeout: 30000 }, () => withStub({ prove: false }, async (port, seen) => {
   const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6464-notoken-'));
   try {
     const r = await connectWith(port, empty);
@@ -295,14 +296,14 @@ test('kosmos#6464: with no board token, the installed CLI refuses to send a serv
   } finally { fs.rmSync(empty, { recursive: true, force: true }); }
 }));
 
-test('kosmos#6464 CONTROL: with the board token, a board that proves itself receives the key', { timeout: 30000 }, () => withStub({ prove: true }, async (port, seen) => {
+test('kosmos#6464 CONTROL: with the board token, a board that proves itself receives the key', { skip: SKIP_POSIX_SHELL, timeout: 30000 }, () => withStub({ prove: true }, async (port, seen) => {
   await connectWith(port, DATA);
   assert.ok(seen.some((q) => q.method === 'POST' && /\/token$/.test(new URL(q.url, 'http://x').pathname)), 'the key never reached a board that proved itself: ' + JSON.stringify(seen.map((q) => q.method + ' ' + q.url)));
 }));
 
 /* Review of #6464: an INSTALLED layout (app/server.js present) whose runtime is gone cannot run the board, so whatever
    answers is not Kosmos; the key must not go, though kosmos_board_proven would send unproven there (#1765). */
-test('kosmos#6464: a damaged install (no runtime) refuses to send a service key, though the board token is readable', { timeout: 30000 }, () => withStub({ prove: false }, async (port, seen) => {
+test('kosmos#6464: a damaged install (no runtime) refuses to send a service key, though the board token is readable', { skip: SKIP_POSIX_SHELL, timeout: 30000 }, () => withStub({ prove: false }, async (port, seen) => {
   const broken = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6464-noruntime-'));
   try {
     fs.mkdirSync(path.join(broken, 'app'), { recursive: true });

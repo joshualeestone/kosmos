@@ -13,6 +13,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 function makeHome() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-4540-cli-'));
@@ -65,14 +66,14 @@ async function message(answer) {
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
-test('the board\'s summary is printed after the message is recorded', async () => {
+test('the board\'s summary is printed after the message is recorded', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await message({ ok: true, delivered: [], summary: 'Told mara. Not told: zed is not on this project any more, so it was not told.' });
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /Message recorded on task 3 of p4540\. Told mara\. Not told: zed is not on this project any more, so it was not told\./);
   assert.doesNotMatch(r.out, /were notified/);
 });
 
-test('an older board with no summary gets only the first sentence, never a claim that anyone was told', async () => {
+test('an older board with no summary gets only the first sentence, never a claim that anyone was told', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await message({ ok: true, delivered: [] });
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /Message recorded on task 3 of p4540\.\s*$/);

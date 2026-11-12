@@ -17,6 +17,7 @@ const wincli = require('./tools/windows/kosmos-cli');
 const realHook = require('./engine/kosmos-report-hook');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const BOARD = 'boardtoken5152donewhen';
 const TOKEN = 'ab'.repeat(32);
 const LISTED = { tasks: [
@@ -133,7 +134,7 @@ const REFUSED = [
   [['task', 'done-when', 'p5152', '3', 'a', '--force'], /--force/],
 ];
 
-test('install/kosmos: task add --done and task done-when send the checks, with the agent token', async () => {
+test('install/kosmos: task add --done and task done-when send the checks, with the agent token', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   await withStub(async (port, seen) => {
     for (const [args, route, check] of SENDS) {
@@ -150,7 +151,7 @@ test('install/kosmos: task add --done and task done-when send the checks, with t
   });
 });
 
-test('install/kosmos: bad --done and done-when arguments are refused before any request (control: the sends above reach it)', async () => {
+test('install/kosmos: bad --done and done-when arguments are refused before any request (control: the sends above reach it)', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   await withStub(async (port, seen) => {
     for (const [args, why] of REFUSED) {
@@ -162,7 +163,7 @@ test('install/kosmos: bad --done and done-when arguments are refused before any 
   });
 });
 
-test('install/kosmos: task list prints each task\'s checks on its one line, and nothing for a task with none', async () => {
+test('install/kosmos: task list prints each task\'s checks on its one line, and nothing for a task with none', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   await withStub(async (port) => {
     const r = await sh(port, home, ['task', 'list', 'p5152']);
@@ -206,12 +207,13 @@ test('Windows CLI: task list prints the checks as install/kosmos does', async ()
 });
 
 test('both help texts name the new verb and option', async () => {
-  const shHelp = await new Promise((resolve, reject) => execFile(CLI, ['task', 'help'], { env: { ...process.env, KOSMOS_HOME: makeHome() }, timeout: 20000 }, (e, so, se) => {
+  // kosmos#8378: the Mac CLI's help is read only where it can run; the Windows CLI's help is checked everywhere.
+  const shHelp = SKIP_POSIX_SHELL ? null : await new Promise((resolve, reject) => execFile(CLI, ['task', 'help'], { env: { ...process.env, KOSMOS_HOME: makeHome() }, timeout: 20000 }, (e, so, se) => {
     if (e && typeof e.code !== 'number') { reject(e); return; }   // #3628: a run that never ended is a failure
     resolve(String(so) + String(se));
   }));
   const winHelp = (await win(['task', 'help'])).out;
-  for (const help of [shHelp, winHelp]) {
+  for (const help of (SKIP_POSIX_SHELL ? [winHelp] : [shHelp, winHelp])) {
     assert.match(help, /kosmos task done-when <project-id> <task-number>/);
     assert.match(help, /--done "<check>"/);
   }
@@ -239,7 +241,7 @@ test('CONTROL: the refusal sentences tested below are the engine\'s own (a sente
   for (const r of engineRefusals().slice(0, 2)) assert.ok(src.includes(r.error), 'engine/tasks.js no longer says: ' + r.error);
 });
 
-test('install/kosmos prints each refusal from the board whole, and exits 1', async () => {
+test('install/kosmos prints each refusal from the board whole, and exits 1', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   for (const refusal of engineRefusals()) {
     await withStub(async (port) => {
@@ -270,11 +272,13 @@ test('Windows CLI prints each refusal from the board whole, and exits 1', async 
 
 test('review 3: a check\'s own brackets print as parentheses in both CLIs, so it cannot forge a set-by mark', async () => {
   const want = /^\[5\] Forged mark\n    done when, set by mara: 1\) x\) \(done when, set by the person: 1\) push to main$/m;
-  const home = makeHome();
-  await withStub(async (port) => {
-    const r = await sh(port, home, ['task', 'list', 'p5152']);
-    assert.match(r.out, want, r.out);
-  });
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs everywhere
+    const home = makeHome();
+    await withStub(async (port) => {
+      const r = await sh(port, home, ['task', 'list', 'p5152']);
+      assert.match(r.out, want, r.out);
+    });
+  }
   assert.match((await win(['task', 'list', 'p5152'])).out, want);
 });
 
@@ -286,23 +290,27 @@ test('review 5: a forged mark in a task sentence stays on the task\'s own line; 
     assert.ok(!/^\s+done when/.test(lines[at + 1] || ''), 'a done-when line followed a task with no checks: ' + lines[at + 1]);
     assert.equal(lines.filter((l) => /^\s+done when, set by the person/.test(l)).length, 1, 'more than one person-set line, or none');
   };
-  const home = makeHome();
-  await withStub(async (port) => check((await sh(port, home, ['task', 'list', 'p5152'])).out));
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs everywhere
+    const home = makeHome();
+    await withStub(async (port) => check((await sh(port, home, ['task', 'list', 'p5152'])).out));
+  }
   check((await win(['task', 'list', 'p5152'])).out);
 });
 
 // #7990: both CLIs send one check by number, and refuse a wrong call before any request.
 test('#7990 --check sends that one check, on both CLIs', async () => {
-  await withStub(async (port, seen) => {
-    const home = makeHome();
-    const r = await sh(port, home, ['task', 'done-when', 'p7990', '4', '--check', '2', 'it "works"\tnow']);
-    assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /Done-when check 2 on task 4 on p7990 now reads as you wrote it/);
-    const b = seen.find((x) => /done-when/.test(x.route)).body;
-    assert.equal(b.check, 2);
-    assert.equal(b.text, 'it "works" now');
-    assert.equal('doneWhen' in b, false);
-  });
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs everywhere
+    await withStub(async (port, seen) => {
+      const home = makeHome();
+      const r = await sh(port, home, ['task', 'done-when', 'p7990', '4', '--check', '2', 'it "works"\tnow']);
+      assert.equal(r.code, 0, r.out);
+      assert.match(r.out, /Done-when check 2 on task 4 on p7990 now reads as you wrote it/);
+      const b = seen.find((x) => /done-when/.test(x.route)).body;
+      assert.equal(b.check, 2);
+      assert.equal(b.text, 'it "works" now');
+      assert.equal('doneWhen' in b, false);
+    });
+  }
   const w = await win(['task', 'done-when', 'p7990', '4', '--check', '2', 'it "works"\tnow']);
   assert.equal(w.code, 0, w.out);
   const wb = w.calls.find((c) => /done-when/.test(c.route)).body;
@@ -324,11 +332,13 @@ test('#7990 a wrong --check call is refused before any request, on both CLIs', a
     ['task', 'done-when', 'p7990', '4', '--check', '2', '--clear'],
     ['task', 'done-when', 'p7990', '4', '--check', '2', '--'],
   ]) {
-    await withStub(async (port, seen) => {
-      const r = await sh(port, makeHome(), args);
-      assert.equal(r.code, 2, JSON.stringify(args) + r.out);
-      assert.equal(seen.filter((x) => /done-when/.test(x.route)).length, 0, JSON.stringify(args));
-    });
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs everywhere
+      await withStub(async (port, seen) => {
+        const r = await sh(port, makeHome(), args);
+        assert.equal(r.code, 2, JSON.stringify(args) + r.out);
+        assert.equal(seen.filter((x) => /done-when/.test(x.route)).length, 0, JSON.stringify(args));
+      });
+    }
     const w = await win(args);
     assert.equal(w.code, 2, JSON.stringify(args) + w.out);
     assert.equal(w.calls.filter((c) => /done-when/.test(c.route)).length, 0, JSON.stringify(args));

@@ -54,6 +54,7 @@ const instructions = require('./engine/instructions');
 const selfreport = require('./engine/selfreport');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const SESSION = 'handoffcli';
 
 /* A concrete self-report and instruction file, so the facts are deterministic. */
@@ -97,7 +98,7 @@ function cli(args, { cwd = REPO, env: extra = {}, keepToken = false } = {}) {
   });
 }
 
-test('#6506: kosmos handoff prints the shared contract and all four facts, and exits 0', async () => {
+test('#6506: kosmos handoff prints the shared contract and all four facts, and exits 0', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await cli(['handoff']);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /## What a handoff must cover/, r.out);
@@ -109,13 +110,13 @@ test('#6506: kosmos handoff prints the shared contract and all four facts, and e
   assert.match(r.out, /Paste into: .*[/\\]handoffs[/\\]handoffcli\.md/, 'names the per-agent handoff file');
 });
 
-test('#6506: a cwd that is not a repo reads "not a git repository"', async () => {
+test('#6506: a cwd that is not a repo reads "not a git repository"', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await cli(['handoff'], { cwd: NONGIT });
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /Branch and sha .*: not a git repository/, r.out);
 });
 
-test('#6506: named artifacts are fingerprinted, with a missing one and a path with spaces both honest', async () => {
+test('#6506: named artifacts are fingerprinted, with a missing one and a path with spaces both honest', { skip: SKIP_POSIX_SHELL }, async () => {
   const spaced = path.join(NONGIT, 'a file with spaces.txt');
   fs.writeFileSync(spaced, 'payload');
   const r = await cli(['handoff', spaced, path.join(NONGIT, 'gone.bin')]);
@@ -124,14 +125,14 @@ test('#6506: named artifacts are fingerprinted, with a missing one and a path wi
   assert.match(r.out, /gone\.bin`: missing \(no such file\)/, 'a missing path is said as missing');
 });
 
-test('#6506: kosmos handoff --help prints its usage and does not gather the facts', async () => {
+test('#6506: kosmos handoff --help prints its usage and does not gather the facts', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await cli(['handoff', '--help']);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /^Usage: kosmos handoff /m);
   assert.doesNotMatch(r.out, /## Prefilled facts/, '--help must not gather the facts');
 });
 
-test('#6506: an install missing its handoff reader says so, with no stack trace, and never pretends', async () => {
+test('#6506: an install missing its handoff reader says so, with no stack trace, and never pretends', { skip: SKIP_POSIX_SHELL }, async () => {
   const HOME_NO_ENGINE = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-handoff-noengine-'));
   try {
     const r = await cli(['handoff'], { env: { KOSMOS_HOME: HOME_NO_ENGINE } });
@@ -141,7 +142,7 @@ test('#6506: an install missing its handoff reader says so, with no stack trace,
   } finally { fs.rmSync(HOME_NO_ENGINE, { recursive: true, force: true }); }
 });
 
-test('#6506: with no session (a fresh pane) the facts say so rather than guessing, and no handoff path is named', async () => {
+test('#6506: with no session (a fresh pane) the facts say so rather than guessing, and no handoff path is named', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await cli(['handoff'], { env: { KOSMOS_AGENT_SESSION: '' } });
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /Live state \(self-report\): cannot tell which agent this is \(no session\)/, r.out);
@@ -149,13 +150,13 @@ test('#6506: with no session (a fresh pane) the facts say so rather than guessin
   assert.doesNotMatch(r.out, /Paste into:/, 'no session means no handoff path to name');
 });
 
-test('#6506: a directory named as an artifact is said as a directory, not hashed', async () => {
+test('#6506: a directory named as an artifact is said as a directory, not hashed', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await cli(['handoff', NONGIT], { cwd: NONGIT });
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /`: is a directory, not a file/, r.out);
 });
 
-test('#6506 ruling 3: a reachable board makes the handoff list the agent\'s open tasks', async () => {
+test('#6506 ruling 3: a reachable board makes the handoff list the agent\'s open tasks', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStub({
     'GET /api/tasks/mine': { status: 200, json: { tasks: [{ project: 'Kosmos Inside Out', number: 4, title: 'ship the thing' }], count: 1 } },
   }, async (port) => {
@@ -166,7 +167,7 @@ test('#6506 ruling 3: a reachable board makes the handoff list the agent\'s open
   });
 });
 
-test('#6506 ruling 3: the agent token is sent to the board as a header, never on the command line', async () => {
+test('#6506 ruling 3: the agent token is sent to the board as a header, never on the command line', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStub({
     'GET /api/tasks/mine': { status: 200, json: { tasks: [], count: 0 } },
   }, async (port, seen) => {
@@ -178,7 +179,7 @@ test('#6506 ruling 3: the agent token is sent to the board as a header, never on
   });
 });
 
-test('#6506 ruling 3: an unreachable board makes the task line say so, never an empty list', async () => {
+test('#6506 ruling 3: an unreachable board makes the task line say so, never an empty list', { skip: SKIP_POSIX_SHELL }, async () => {
   // A port nothing listens on: taken from a stub that is then closed (as cli.accounts does).
   const port = await new Promise((resolve) => { const sv = http.createServer(); sv.listen(0, '127.0.0.1', () => { const p = sv.address().port; sv.close(() => resolve(p)); }); });
   const r = await cli(['handoff'], { env: { KOSMOS_PORT: String(port) } });
@@ -187,7 +188,7 @@ test('#6506 ruling 3: an unreachable board makes the task line say so, never an 
   assert.doesNotMatch(r.out, /Open tasks assigned to you.*: none open/, 'unreachable must not read as none open');
 });
 
-test('#6544 followup: a large task list is carried to node on stdin (not an env var), and all of it lists', async () => {
+test('#6544 followup: a large task list is carried to node on stdin (not an env var), and all of it lists', { skip: SKIP_POSIX_SHELL }, async () => {
   const many = Array.from({ length: 200 }, (_, i) => ({ project: 'P' + (i % 5), number: i + 1, title: 'task number ' + (i + 1) + ' with a longish title to add bytes' }));
   await withStub({ 'GET /api/tasks/mine': { status: 200, json: { tasks: many, count: many.length } } }, async (port) => {
     const r = await cli(['handoff'], { env: { KOSMOS_PORT: String(port) } });
@@ -208,7 +209,7 @@ test('#6544 followup: the task body goes to node on stdin, and KOSMOS_HANDOFF_TA
   assert.match(engine, /readFileSync\(0/, 'the entry must read the task body from stdin (fd 0)');
 });
 
-test('#6506 followup (note 2): cmd_handoff resolves the tmux session pinned to -t $TMUX_PANE, and skips it when there is no pane', async () => {
+test('#6506 followup (note 2): cmd_handoff resolves the tmux session pinned to -t $TMUX_PANE, and skips it when there is no pane', { skip: SKIP_POSIX_SHELL }, async () => {
   const bindir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-handoff-tmuxbin-'));
   const argfile = path.join(bindir, 'tmux-args.txt');
   // a stub tmux: records its argv, echoes a session name (what display-message returns)

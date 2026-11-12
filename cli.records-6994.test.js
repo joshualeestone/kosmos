@@ -16,6 +16,7 @@ const wincli = require('./tools/windows/kosmos-cli');
 const realHook = require('./engine/kosmos-report-hook');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const BOARD = 'boardtoken6994records';
 const TOKEN = 'cd'.repeat(32);
 const LIST_TEXT = 'Accounts on Acme pipeline: 2, 1 stale (evidence more than 30 days old)\n  Acme | active | confirmed 2026-10-23 (today) by mara | -\n  Globex | lead | confirmed 2026-09-01 (52 days ago, stale) by ana | notes/globex.md';
@@ -119,11 +120,13 @@ const REFUSED = [
 ];
 
 test('#6994: `kosmos records <project>` prints the board\'s rendering, the same on both commands', () => withStub(async (port, seen) => {
-  const home = makeHome();
-  const mac = await sh(port, home, ['records', 'p6994']);
-  assert.equal(mac.code, 0, mac.out);
-  assert.equal(mac.out, LIST_TEXT + '\n', 'exactly the board\'s list, with no blank line after it');
-  assert.deepEqual(seen.map((s) => [s.method, s.route, s.query]), [['GET', '/api/project/p6994/records', 'as=text']]);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const home = makeHome();
+    const mac = await sh(port, home, ['records', 'p6994']);
+    assert.equal(mac.code, 0, mac.out);
+    assert.equal(mac.out, LIST_TEXT + '\n', 'exactly the board\'s list, with no blank line after it');
+    assert.deepEqual(seen.map((s) => [s.method, s.route, s.query]), [['GET', '/api/project/p6994/records', 'as=text']]);
+  }
   const w = await win(['records', 'p6994']);
   assert.equal(w.code, 0, w.out);
   assert.equal(w.out, LIST_TEXT + '\n');
@@ -132,12 +135,14 @@ test('#6994: `kosmos records <project>` prints the board\'s rendering, the same 
 
 for (const [argv, method, route, body, said] of SENDS) {
   test('#6994: ' + argv.slice(0, 2).join(' ') + ' sends the same request on both commands: ' + JSON.stringify(argv.slice(2)), () => withStub(async (port, seen) => {
-    const mac = await sh(port, makeHome(), argv);
-    assert.equal(mac.code, 0, mac.out);
-    assert.match(mac.out, said);
-    assert.equal(seen.length, 1, JSON.stringify(seen));
-    assert.deepEqual([seen[0].method, seen[0].route, seen[0].body], [method, route, body]);
-    assert.equal(seen[0].agent, TOKEN, 'the agent\'s own token went with it');
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+      const mac = await sh(port, makeHome(), argv);
+      assert.equal(mac.code, 0, mac.out);
+      assert.match(mac.out, said);
+      assert.equal(seen.length, 1, JSON.stringify(seen));
+      assert.deepEqual([seen[0].method, seen[0].route, seen[0].body], [method, route, body]);
+      assert.equal(seen[0].agent, TOKEN, 'the agent\'s own token went with it');
+    }
     const w = await win(argv);
     assert.equal(w.code, 0, w.out);
     assert.match(w.out, said);
@@ -147,10 +152,12 @@ for (const [argv, method, route, body, said] of SENDS) {
 
 for (const [argv, said] of REFUSED) {
   test('#6994: refused before any request on both commands: ' + JSON.stringify(argv), () => withStub(async (port, seen) => {
-    const mac = await sh(port, makeHome(), argv);
-    assert.equal(mac.code, 2, mac.out);
-    assert.match(mac.out, said);
-    assert.deepEqual(seen, [], 'the Mac command sent a request it should have refused');
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+      const mac = await sh(port, makeHome(), argv);
+      assert.equal(mac.code, 2, mac.out);
+      assert.match(mac.out, said);
+      assert.deepEqual(seen, [], 'the Mac command sent a request it should have refused');
+    }
     const w = await win(argv);
     assert.equal(w.code, 2, w.out);
     assert.match(w.out, said);
@@ -159,20 +166,26 @@ for (const [argv, said] of REFUSED) {
 }
 
 test('#6994: an unknown project is said in plain words on both commands', () => withStub(async (port) => {
-  const mac = await sh(port, makeHome(), ['records', 'missing']);
-  assert.equal(mac.code, 1, mac.out);
-  assert.match(mac.out, /There is no project called missing\. kosmos project list shows them\./);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const mac = await sh(port, makeHome(), ['records', 'missing']);
+    assert.equal(mac.code, 1, mac.out);
+    assert.match(mac.out, /There is no project called missing\. kosmos project list shows them\./);
+  }
   const w = await win(['records', 'missing']);
   assert.equal(w.code, 1, w.out);
   assert.match(w.out, /There is no project called missing\. kosmos project list shows them\./);
-  const set = await sh(port, makeHome(), ['records', 'set', 'missing', 'Acme']);
-  assert.match(set.out, /Not changed: there is no project by that name\./);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: a Mac command step
+    const set = await sh(port, makeHome(), ['records', 'set', 'missing', 'Acme']);
+    assert.match(set.out, /Not changed: there is no project by that name\./);
+  }
 }));
 
 test('#6994: a refusal that quotes a name arrives whole, quotes and backslash included, on both commands', () => withStub(async (port) => {
-  const mac = await sh(port, makeHome(), ['records', 'remove', 'p6994', 'Quoted']);
-  assert.equal(mac.code, 1, mac.out);
-  assert.match(mac.out, /Not changed: there is no record called "Quoted" \\ here\./);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const mac = await sh(port, makeHome(), ['records', 'remove', 'p6994', 'Quoted']);
+    assert.equal(mac.code, 1, mac.out);
+    assert.match(mac.out, /Not changed: there is no record called "Quoted" \\ here\./);
+  }
   const w = await win(['records', 'remove', 'p6994', 'Quoted']);
   assert.equal(w.code, 1, w.out);
   assert.match(w.out, /Not changed: there is no record called "Quoted" \\ here\./);
@@ -180,23 +193,27 @@ test('#6994: a refusal that quotes a name arrives whole, quotes and backslash in
 
 test('#6994: a project id that cannot be one is refused before any request, in the 404\'s words, on both commands', () => withStub(async (port, seen) => {
   for (const argv of [['records', 'p/../x'], ['records', 'set', 'a b', 'Acme']]) {
-    const mac = await sh(port, makeHome(), argv);
-    assert.equal(mac.code, 1, mac.out);
-    assert.match(mac.out, /There is no project called .*\. kosmos project list shows them\./);
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+      const mac = await sh(port, makeHome(), argv);
+      assert.equal(mac.code, 1, mac.out);
+      assert.match(mac.out, /There is no project called .*\. kosmos project list shows them\./);
+    }
     const w = await win(argv);
     assert.equal(w.code, 1, w.out);
     assert.match(w.out, /There is no project called .*\. kosmos project list shows them\./);
     assert.deepEqual(w.calls.filter((c) => c.route.startsWith('/api/project/')), []);
   }
-  assert.deepEqual(seen, [], 'the Mac command sent a request for an id it should have refused');
+  if (!SKIP_POSIX_SHELL) assert.deepEqual(seen, [], 'the Mac command sent a request for an id it should have refused');   // kosmos#8378: only the Mac command fills seen
 }));
 
 test('#6994: a board from before records says so in plain words, on the list and on a write, on both commands', () => withStub(async (port) => {
   for (const argv of [['records', 'older'], ['records', 'set', 'older', 'Acme']]) {
-    const mac = await sh(port, makeHome(), argv);
-    assert.equal(mac.code, 1, mac.out);
-    assert.match(mac.out, /[Tt]his Kosmos does not keep records yet[.;] [Uu]pdate Kosmos to use kosmos records\./);
-    assert.doesNotMatch(mac.out, /no project called/);
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+      const mac = await sh(port, makeHome(), argv);
+      assert.equal(mac.code, 1, mac.out);
+      assert.match(mac.out, /[Tt]his Kosmos does not keep records yet[.;] [Uu]pdate Kosmos to use kosmos records\./);
+      assert.doesNotMatch(mac.out, /no project called/);
+    }
     const w = await win(argv);
     assert.equal(w.code, 1, w.out);
     assert.match(w.out, /[Tt]his Kosmos does not keep records yet[.;] [Uu]pdate Kosmos to use kosmos records\./);
@@ -204,8 +221,10 @@ test('#6994: a board from before records says so in plain words, on the list and
 }));
 
 test('#6994: remove names the row as the board stored it, on both commands', () => withStub(async (port) => {
-  const mac = await sh(port, makeHome(), ['records', 'remove', 'p6994', 'acme-lower']);
-  assert.match(mac.out, /Removed Acme from the records of p6994\./);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const mac = await sh(port, makeHome(), ['records', 'remove', 'p6994', 'acme-lower']);
+    assert.match(mac.out, /Removed Acme from the records of p6994\./);
+  }
   const w = await win(['records', 'remove', 'p6994', 'acme-lower']);
   assert.match(w.out, /Removed Acme from the records of p6994\./);
 }));

@@ -15,6 +15,7 @@ const wincli = require('./tools/windows/kosmos-cli');
 const realHook = require('./engine/kosmos-report-hook');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'ab'.repeat(32);
 const homes = [];
 test.after(() => { for (const h of homes) fs.rmSync(h, { recursive: true, force: true }); });
@@ -79,7 +80,7 @@ async function win(argv) {
   return { code, calls, out: out.join('\n') + err.join('\n') };
 }
 
-test('install/kosmos: task ran --unchanged sends unchanged:true with the note, and says it found nothing new', async () => {
+test('install/kosmos: task ran --unchanged sends unchanged:true with the note, and says it found nothing new', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   await withStub(async (port, seen) => {
     const r = await sh(port, home, ['task', 'ran', 'p1', '3', '--unchanged', 'all clear']);
@@ -109,22 +110,26 @@ test('Windows CLI: the same', async () => {
 });
 
 test('review 1/2: when the BOARD counted a run unchanged (the same note, no flag), both CLIs say it repeated its note, never that it found nothing new', async () => {
-  const home = makeHome();
-  await withStub(async (port) => {
-    const r = await sh(port, home, ['task', 'ran', 'p1', '3', 'same as before']);
-    assert.match(r.out, /It repeats the note before it/, r.out);
-    assert.doesNotMatch(r.out, /found nothing new/);
-  });
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs everywhere
+    const home = makeHome();
+    await withStub(async (port) => {
+      const r = await sh(port, home, ['task', 'ran', 'p1', '3', 'same as before']);
+      assert.match(r.out, /It repeats the note before it/, r.out);
+      assert.doesNotMatch(r.out, /found nothing new/);
+    });
+  }
   const w = (await win(['task', 'ran', 'p1', '3', 'same as before'])).out;
   assert.match(w, /It repeats the note before it/);
   assert.doesNotMatch(w, /found nothing new/);
 });
 
 test('review 3: a duplicate run is said as a duplicate first, even when the board also calls it unchanged (both CLIs)', async () => {
-  const home = makeHome();
-  await withStub(async (port) => {
-    const r = await sh(port, home, ['task', 'ran', 'p1', '3', 'again']);
-    assert.match(r.out, /already recorded, so it was not recorded twice/, r.out);
-  });
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs everywhere
+    const home = makeHome();
+    await withStub(async (port) => {
+      const r = await sh(port, home, ['task', 'ran', 'p1', '3', 'again']);
+      assert.match(r.out, /already recorded, so it was not recorded twice/, r.out);
+    });
+  }
   assert.match((await win(['task', 'ran', 'p1', '3', 'again'])).out, /already recorded, so it was not recorded twice/);
 });
