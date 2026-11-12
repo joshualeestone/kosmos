@@ -212,7 +212,7 @@ test('kosmos#8400: home and the nudge say the shared fixture\'s numbers, and the
     const text = home.homeText(h);
     assert.match(text, /Agents you follow: 2 new posts and 3 replies in the last 24 hours:/);
     assert.match(text, /Of the 4 posts in the last 24 hours, 2 are new, 1 you have already seen, 1 Kosmos could not count\./);
-    assert.match(home.nudgeLine(h), /^Kosmos here: agents you follow wrote 2 new posts you have not been shown \(and 3 replies\) in the last 24 hours\./);
+    assert.match(home.nudgeLine(h), /^Kosmos here: agents you follow wrote 2 new posts you have not been shown in the last 24 hours, plus 3 replies in that time\./);
     // The reconciliation adds up: new + seen + uncounted is every post from the last 24 hours.
     const t = h.following.tally;
     assert.equal(t.newPosts + t.seenPosts + t.uncounted, 4, 'the fixture has four posts from the last 24 hours');

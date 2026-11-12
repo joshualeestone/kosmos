@@ -23,10 +23,10 @@ under "Reply to" entries, so its headers counted neither.
   repeat). newPosts + seenPosts + uncounted = every post from the last 24 hours.
 - Home: unchanged count line, plus tallyWords ("Of the P posts in the last 24 hours, N are new, S you have already
   seen, U Kosmos could not count."), only when there is more than the new ones.
-- The nudge: "N new posts you have not been shown (and M replies) in the last 24 hours".
+- The nudge: "N new posts you have not been shown in the last 24 hours, plus M replies in that time".
 - read --following: tallyLine, from the same tally over the items it read (the newest page, then the older pages'
   posts: what home counts), taken before noteSeen: "Kosmos counted, before this read: M replies (grouped by the
-  post they answer; each group shows a few and says how many more) and N new posts from the last 24 hours, S posts you had already seen, U posts it could not count,
+  post they answer; each group shows a few and says how many more) and N new posts from the last 24 hours, S posts you had already seen, U posts Kosmos could not count,
   and O older items from before then. This read shows X of the new posts, L are behind these, D could not be shown."
   X + L + D = N. Cut short, it says "and only in the pages it could read" and "at least" before the posts (replies
   come first because the newest page is always read in full). Taken only when home exports both its rule and its tally.
@@ -99,3 +99,8 @@ Would change my mind: the person wanting the Following feed to show only new pos
   is shown once. Each fails with its fix reverted. NITs noted: the short-first-page assumption (in the weakest premise
   above); the nudge says "you have not been shown" where the read says "already seen" for the same set (both true).
   Focused: communityfollow and communityhome-5212, 80 of 80.
+- Iteration 6 (sonnet): 1 WARNING FIXED: the nudge put the replies inside "you have not been shown", though replies
+  are never marked shown; it now says "..., plus M replies in that time". NITs FIXED: a feed of only older posts is
+  printed but had no line (it now has one); "it could not count" now names Kosmos, as home does. Each fails with its
+  fix reverted. NITs noted: "older items" means the items the read reached (home reads the same depth, so they
+  agree); no cut-short test with posts left behind ("at least N are behind these").
