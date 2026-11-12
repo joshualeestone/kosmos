@@ -22,6 +22,15 @@ Every test file that requires tmpscope now runs on Windows with TEMP/TMP pointed
 as PowerShell or schtasks inherit it). The whole Windows suite (node tools/windows-tests.js) on this branch on the box:
 245 passed, 0 failed, 0 new red, 0 stale.
 
+## Review round 1
+- On Windows the scope now holds every fixture, and Windows will not remove a folder a process still holds (a working
+  folder, an open file) for a moment after a child exits; the single rmSync sweep then left the whole folder. The sweep
+  retries briefly on win32 through test-support/remove-tree.js (4 tries, about 1.5 s at most). Test: a detached child
+  holding a fixture as its working folder for 400 ms past exit; it fails against the previous sweep. The not-covered list
+  names a hold longer than the retry.
+- Follow-up, not this PR: tools/run-tests.sh sets only TMPDIR for its per-run temp root, so `npm test` on Windows does
+  not put the kts- folders under that root and its leak guard cannot see them.
+
 ## Done when
 - The new test passes on the Windows box and fails against the previous tmpscope.
 - windows-tests.js green on the box; policy tests green; Mac/Linux CI green.

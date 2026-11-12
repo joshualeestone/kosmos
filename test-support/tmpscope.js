@@ -28,6 +28,9 @@
  *    called os.tmpdir()). That is why it goes first.
  *  - A process this file started that makes the directory again AFTER this one has ended
  *    (#6362): the sweep has already run, so the leak guard can only list what it holds.
+ *  - On Windows, a process that still holds something in the folder (its working
+ *    folder, an open file) longer than the sweep's brief retry: the folder is left,
+ *    with its owner line marked, as for a sweep that failed part way (#6362).
  *  - A hard kill (SIGKILL) cannot be caught; one directory is left, named `kts-`,
  *    instead of one per fixture. SIGINT, SIGTERM and SIGHUP are swept when nothing
  *    else in the file listens for them (otherwise the file's handler decides, and
@@ -85,7 +88,15 @@ function activate() {
        sweep waits for the exit: sweeping first would leave it running with its TMPDIR
        gone (measured: a later mkdtemp failed ENOENT and the file exited 0). */
     removeAtEnd(() => {
-      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* checked below */ }
+      /* kosmos#8378: on Windows the scope now holds every fixture (TEMP/TMP point at it), and Windows will not remove a
+         folder a process still holds (its working folder, an open file) for a moment after a child exits. So there the
+         sweep retries briefly, as test-support/remove-tree.js does for #5010 and #5074 (4 tries, about 1.5 s at most:
+         this runs at every test process's exit). */
+      if (process.platform === 'win32') {
+        try { require('./remove-tree').removeTree(dir, { tries: 4, quiet: true }); } catch { /* checked below */ }
+      } else {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* checked below */ }
+      }
       /* #6362: still here means the sweep failed part way (a process this file started was still
          writing into it, or something in it could not be removed), and it may already have taken
          .kts-owner (that depends on the order it met the entries). Put the owner back, marked,
