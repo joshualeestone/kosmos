@@ -194,3 +194,41 @@ test('kosmos#8421 review 3: a board newer than the update it was installing does
     assert.doesNotMatch(line, /did not finish/);
   } finally { clear(); }
 });
+
+test('kosmos#8421 review 4: a successful update boots with the marker still on disk and still says it started again', () => {
+  const b = board();
+  try {
+    const at = '2026-11-11T20:00:00.000Z';
+    fs.mkdirSync(path.dirname(b.record), { recursive: true });
+    fs.writeFileSync(b.record, JSON.stringify({ from: '0.0.1', to: RUNNING, channel: 'prod', startedAt: at }));
+    fs.writeFileSync(path.join(b.root, 'logs', 'install.started'), at + '\n');   // the shell tail has not run yet
+    assert.match(update.noteAutoUpdateAtBoot(), new RegExp(`^Kosmos started again on ${RUNNING.replace(/\./g, '\\.')} after its automatic update`));
+    assert.equal(fs.existsSync(b.record), false);
+  } finally { clear(); }
+});
+
+test('kosmos#8421 review 4: an installer killed long ago (old marker, no status) is not "still installing" forever', () => {
+  const b = board();
+  try {
+    const at = '2026-11-11T20:00:00.000Z';
+    fs.mkdirSync(path.dirname(b.record), { recursive: true });
+    fs.writeFileSync(b.record, JSON.stringify({ from: RUNNING, to: '99.0.0', channel: 'prod', startedAt: at }));
+    const marker = path.join(b.root, 'logs', 'install.started');
+    fs.writeFileSync(marker, at + '\n');
+    const old = (Date.now() - 2 * 3600 * 1000) / 1000;
+    fs.utimesSync(marker, old, old);
+    assert.match(update.noteAutoUpdateAtBoot(), /^Kosmos's automatic update to 99\.0\.0 \(prod channel\) did not finish;/);
+    assert.equal(fs.existsSync(b.record), false, 'an interrupted attempt kept its record');
+  } finally { clear(); }
+});
+
+test('kosmos#8421 review 4: a newer board with the marker still on disk says it is newer, not still installing', () => {
+  const b = board();
+  try {
+    const at = '2026-11-11T20:00:00.000Z';
+    fs.mkdirSync(path.dirname(b.record), { recursive: true });
+    fs.writeFileSync(b.record, JSON.stringify({ from: '0.0.1', to: '0.0.2', channel: 'prod', startedAt: at }));
+    fs.writeFileSync(path.join(b.root, 'logs', 'install.started'), at + '\n');
+    assert.match(update.noteAutoUpdateAtBoot(), /newer than the 0\.0\.2/);
+  } finally { clear(); }
+});
