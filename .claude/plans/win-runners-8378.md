@@ -49,3 +49,9 @@ Before 17 pass / 16 fail; after 31 / 0 / 2 skip. The other runners files are unc
   (on Windows the tree reads absent mid-prove, so a broken join would have fetched from npm); the Windows prove-failure
   arm also checks the verified marker is absent and the runner reads absent (the marker, not the tree's removal, is the
   real guard there); cleanup uses test-support/remove-tree.js, which retries while Windows holds a fresh .exe.
+- Round 3 (no blockers, 2 warnings, 1 nit). Fixed: the Windows prove-failure arm now puts a codex.exe back at the managed
+  path before asking, so only the verified-marker check can keep it absent (negative control: with that check disabled
+  in runners.js the test goes red with this arm's message; restored). The claude link test ("a claude found elsewhere is
+  LINKED") skips on Windows: the link step is the macOS and Linux install (install() refuses claude on Windows) and it
+  makes a symlink, which a Windows account without admin rights or Developer Mode may not. The chmod test's reason now
+  says the subject is Mac-only too. Box: 30 / 0 / 3 skip.

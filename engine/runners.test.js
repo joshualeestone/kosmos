@@ -263,9 +263,15 @@ test('#979: a runner that does not run is failed at the prove step, never report
     'a failed prove must take the symlink (on Windows, the tree) down, or a broken runner reads as present');
   if (WIN) {
     /* kosmos#8378: on Windows what keeps a failed runner absent is its verified marker (runners.js writes it only after
-       the prove), not the tree's removal alone; so the marker must be missing, and the runner must read absent. */
+       the prove), not the tree's removal alone. So the marker must be missing, and a codex.exe left at the managed path
+       (one a virus scanner kept from being deleted, say) must still read absent: with the tree gone, only the marker
+       check can answer that. */
     assert.equal(fs.existsSync(runners.verifiedMarker('win32', 'openai')), false, 'a failed prove left a verified marker');
-    assert.equal(runners.resolveBin('openai', { legacyBin: LEGACY }).present, false, 'a failed runner reads present');
+    put(MANAGED);
+    try {
+      assert.equal(runners.resolveBin('openai', { legacyBin: LEGACY }).present, false,
+        'a codex.exe with no verified marker read present, so a failed runner could too');
+    } finally { fs.rmSync(MANAGED, { force: true }); }
   }
 });
 
@@ -644,7 +650,7 @@ test('#979: the refusal path reaches no NETWORK -- connect.download is never cal
   });
 });
 
-test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed prove takes the link down', async () => {
+test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed prove takes the link down', { skip: skipOnWin32('the claude link step is the macOS and Linux install (install() refuses claude on Windows, where Claude Code installs through connect.download), and it makes a symlink, which a Windows account without admin rights or Developer Mode may not') }, async () => {
   const elsewhere = nodePath.join(SANDBOX, 'elsewhere', 'claude');
   put(elsewhere, '#!/bin/sh\necho claude 8.8\n');
   await withClaudeHome(async () => {
@@ -713,7 +719,7 @@ test('#979: the link step REFUSES a canonical path it does not own, by name, ins
 /* kosmos#8378: the folder is made unwritable with chmod 0o500, and on Windows chmod sets only the read-only
    attribute, which Windows ignores on a folder, so the link is still made there. The claude link step itself is the
    Mac install (install() refuses claude on Windows, where Claude Code installs through connect.download). */
-test('#979: a link we cannot WRITE is refused in words too, not as a raw errno', { skip: skipOnWin32('it makes a folder unwritable with chmod 0o500, and on Windows chmod sets only the read-only attribute, which Windows ignores on a folder, so the link it expects to fail is made') }, async () => {
+test('#979: a link we cannot WRITE is refused in words too, not as a raw errno', { skip: skipOnWin32('the claude link step is the macOS and Linux install (install() refuses claude on Windows), and it makes a folder unwritable with chmod 0o500, while on Windows chmod sets only the read-only attribute, which Windows ignores on a folder, so the link it expects to fail is made') }, async () => {
   const elsewhere = nodePath.join(SANDBOX, 'elsewhere', 'claude');
   put(elsewhere);
   await withClaudeHome(async () => {
