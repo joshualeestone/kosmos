@@ -14,7 +14,8 @@
  * call site at a time; this fixes every call site in the file at once, including
  * the ones written after it.
  *
- * HOW: `os.tmpdir()` reads TMPDIR on every call, so pointing TMPDIR at a
+ * HOW: `os.tmpdir()` reads TMPDIR on every call (TEMP and TMP on Windows, which
+ * are set too there), so pointing TMPDIR at a
  * per-process directory makes every later mkdtemp in this process land inside
  * it, and so does every child process this one spawns (they inherit the env).
  * One `exit` handler removes the whole directory.
@@ -52,6 +53,10 @@ function activate() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kts-'));
     scoped = dir;
     process.env.TMPDIR = dir;
+    /* kosmos#8378: on Windows `os.tmpdir()` reads TEMP, then TMP, and ignores TMPDIR (measured: TMPDIR alone left it on
+       the real temp folder), so without these the scope did nothing there and test fixtures piled up in %TEMP%
+       (23,333 entries on the Windows box). Set for this process and every child it spawns. */
+    if (process.platform === 'win32') { process.env.TEMP = dir; process.env.TMP = dir; }
     /* #6061: name the test file that owns this directory. A kill this module cannot catch leaves the directory
        behind, and the suite's leak guard (tools/lib/test-leak-guard.sh) reads this file to say which test was
        killed; without it a `kts-` leak names only a random suffix, from any of some two hundred files. */
