@@ -51,6 +51,16 @@ match nothing; `( ) { } !` are literal, `[ ]` is a character class.
   `realOrLeafStrict` throws on a link that leads nowhere instead of keeping it by its own name (which read as already
   real and got no twin).
 
+- Review round 4: a rule on a network share (or a drive that resolves to one, a mapped drive) is never resolved and
+  never claimed: named, and a token rule there refuses (shares were not measured to hold). The twins run only on a
+  Windows HOST (they resolve real paths on this host's filesystem; a test passing platform 'win32' on a Mac has POSIX
+  paths, which read back as shares). realOrLeafStrict climbs past only a path that is not there (ENOENT/ENOTDIR);
+  one it cannot even look at throws. agentevents' comments now say why Windows is still not read (never whole).
+- Decided: a token gap refuses with NOTHING written, as a dropped token rule always has (`tokenRuleDropped`), though
+  writing the rest would deny more. Rejected because a partly written guard on the token is exactly the state the page
+  could misread; the refusal is the existing policy. Weakest point: the agent then has no file-tool denies at all until
+  the link is fixed.
+
 ## What it means for a person
 - An existing token-only Claude agent on Windows gets its guard written at the next refresh: the board token gets Read
   and Edit denies for its file tools (today it gets none). Its page still says protection is not complete, now with the

@@ -517,7 +517,7 @@ test('#5516 review 11: the launchd jobs folder is covered (not scanned), and tmu
   assert.ok(!r2.dirs.includes(realOr(path.join(home, 'Library', 'LaunchAgents'))));
 });
 
-test('#5516 review 12: a file to deny that is a link is denied where it leads too; Windows is left as it was', () => {
+test('#5516 review 12: a file to deny that is a link is denied where it leads too; on Windows the PATH part is named as not covered (#5664)', () => {
   const dots = binDir('dotfiles');
   fs.writeFileSync(path.join(dots, 'tmux.conf'), '');
   const home = binDir('home-lp12');

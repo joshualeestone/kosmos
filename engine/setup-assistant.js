@@ -430,14 +430,6 @@ function legacyWinEquivalent(rule) {
   if (!m) return null;
   return `Read(${ruleAbs(m[1], 'win32')}${m[2]})`;
 }
-/* #5664 step A: on Windows, Claude Code resolves junctions and 8.3 names on the path a tool touches, and a rule on a
-   link's OWN path covers nothing (measured, 2.1.319). So for every Read or Edit rule whose literal part (before its first
-   `*`) reaches a different real path, the same rule on the real path is added beside it. A real path the rules cannot
-   carry, or that is too wide (`tooWide`: a drive root, or a folder holding the home or the agent's own folder, which a
-   deny there would take from the agent's work), is returned in `unsafe` (the guard is then not whole), never written;
-   so is one that cannot be resolved. `real` is realOrLeaf, passed in for tests. Only the part before the first `*` is
-   resolved: a link under a glob segment (a world folder reached through a junction, made later) gets no twin.
-   Pure apart from `real`; Windows only (elsewhere the rules are returned as they are). */
 /* realOrLeaf, but a link on the way that leads nowhere (a dangling junction, a target the board cannot open) throws
    instead of being kept by its own name: kept, it would read as already real and get no twin, so a later target there
    would go undenied. A path that simply does not exist yet still resolves through its nearest existing parent. */
@@ -448,7 +440,9 @@ function realOrLeafStrict(p) {
   for (;;) {
     try { return path.join(fs.realpathSync.native(dir), ...tail); } catch { /* absent, or a link that leads nowhere */ }
     let there = false;
-    try { fs.lstatSync(dir); there = true; } catch { there = false; }
+    // Only a path that is NOT there is climbed past; one that is there but cannot be resolved, or cannot even be looked
+    // at (EACCES, EPERM), throws, so the caller names it rather than keeping it by its own spelling.
+    try { fs.lstatSync(dir); there = true; } catch (e) { there = !(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')); }
     if (there) throw new Error(`${dir} is there but where it leads could not be worked out`);
     const parent = path.dirname(dir);
     if (parent === dir) return abs;
@@ -456,6 +450,14 @@ function realOrLeafStrict(p) {
     dir = parent;
   }
 }
+/* #5664 step A: on Windows, Claude Code resolves junctions and 8.3 names on the path a tool touches, and a rule on a
+   link's OWN path covers nothing (measured, 2.1.319). So for every Read or Edit rule whose literal part (before its first
+   `*`) reaches a different real path, the same rule on the real path is added beside it. A real path the rules cannot
+   carry, or that is too wide (`tooWide`: a drive root, or a folder holding the home or the agent's own folder, which a
+   deny there would take from the agent's work), is returned in `unsafe` (the guard is then not whole), never written;
+   so is one that cannot be resolved. `real` is realOrLeafStrict, passed in for tests. Only the part before the first `*` is
+   resolved: a link under a glob segment (a world folder reached through a junction, made later) gets no twin.
+   Pure apart from `real`; Windows only (elsewhere the rules are returned as they are). */
 function withRealTwins(rules, platform = process.platform, real = realOrLeafStrict, tooWide = (p) => path.win32.parse(p).root === p) {
   if (platform !== 'win32') return { rules, unsafe: [], tokenUnsafe: [] };
   const out = [];
@@ -475,14 +477,16 @@ function withRealTwins(rules, platform = process.platform, real = realOrLeafStri
     const rest = inner.slice(cut);
     const native = rulePath(literal.slice(2), 'win32');
     if (!native) continue;
-    // A share (\\host\...) is never resolved: that is a network lookup that can send this person's Windows credentials
-    // to the host it names (as readingsHoldGuide says). Its rule stays as written; shares are not measured (the card).
-    if (/^[\\/]{2}/.test(native)) continue;
-    let to = cache.get(native);
-    if (to === undefined) { try { to = String(real(native)); } catch { to = null; } cache.set(native, to); }
     const isToken = r.includes(require('./boardauth').TOKEN_FILE);
     const miss = (why) => { unsafe.push(why); if (isToken) tokenUnsafe.push(why); };
+    /* A share (\\host\...) is never resolved: that is a network lookup that can send this person's Windows credentials
+       to the host it names (as readingsHoldGuide says). Nor is a rule on one claimed: shares (and a mapped drive, which
+       resolves to one) were not measured to hold (the card), so it is named, and a token rule there refuses. */
+    if (/^[\\/]{2}/.test(native)) { miss(`${native} (a network share, which Kosmos has not shown the rules to hold on)`); continue; }
+    let to = cache.get(native);
+    if (to === undefined) { try { to = String(real(native)); } catch { to = null; } cache.set(native, to); }
     if (to === null) { miss(`${native} (where it leads could not be worked out)`); continue; }
+    if (/^[\\/]{2}/.test(to)) { miss(`${native} (it leads to the network share ${to}, which Kosmos has not shown the rules to hold on)`); continue; }
     const twin = ruleAbs(to, 'win32');
     if (twin.toLowerCase() === literal.toLowerCase()) continue;   // Claude Code matches case-blind on Windows (measured)
     // Only a rule as wide as its literal part (the path itself, or all under it) can be too wide; a narrower suffix
@@ -2768,7 +2772,9 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     /* #5664 step A: on Windows each rule is also written on the real path it reaches (junctions, 8.3 names), since a
        rule on a link's own path covers nothing there; one whose real path the rules cannot carry makes it not whole. */
     let realTwins = { rules: rules.deny, unsafe: [], tokenUnsafe: [] };
-    if (plat === 'win32') {
+    // The twins resolve real paths on THIS host's filesystem, which means something only on a Windows host (a test that
+    // passes platform 'win32' elsewhere has POSIX paths, which would read back as shares).
+    if (plat === 'win32' && process.platform === 'win32') {
       const homeReal = realOrLeaf(deps.home || kosmosHome()).toLowerCase();
       const dirReal = realOrLeaf(dir).toLowerCase();
       const holdsW = (a, b) => b === a || b.startsWith(a.endsWith('\\') ? a : a + '\\');   // case-blind, as Windows paths are

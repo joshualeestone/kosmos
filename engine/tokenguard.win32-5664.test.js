@@ -99,6 +99,20 @@ test('withRealTwins: a gap on a board-token rule is flagged as the token\'s own 
   assert.equal(o.tokenUnsafe.length, 0, 'CONTROL: a gap elsewhere is not the token\'s');
 });
 
+test('withRealTwins: a rule on a network share, or a drive that resolves to one, is named (never resolved, never claimed)', () => {
+  let asked = 0;
+  const real = (p) => { asked++; return /^Z:/i.test(p) ? p.replace(/^Z:/i, '\\\\srv\\data') : p; };
+  const share = setup.withRealTwins(['Read(//srv/data/Kosmos/board.token)'], 'win32', real);
+  assert.equal(asked, 0, 'a share path was resolved (a network lookup that can send the person\'s credentials)');
+  assert.equal(share.tokenUnsafe.length, 1, 'a token rule on a share was claimed');
+  const mapped = setup.withRealTwins(['Edit(//z/Kosmos/undo/**)'], 'win32', real);
+  assert.equal(mapped.unsafe.length, 1);
+  assert.match(mapped.unsafe[0], /network share/);
+  assert.equal(mapped.rules.length, 1, 'a twin on the share was written');
+  // CONTROL: a local drive rule is untouched.
+  assert.deepEqual(setup.withRealTwins(['Edit(//c/Kosmos/undo/**)'], 'win32', real).unsafe, []);
+});
+
 test('launchPathDirs on Windows names the PATH part as not covered, so the guard cannot read as whole', () => {
   const w = setup.launchPathDirs(agentDir('lp'), { ...PIN, platform: 'win32' });
   assert.deepEqual(w.unsafe, ['on Windows Kosmos does not cover the folders on this PATH yet']);
