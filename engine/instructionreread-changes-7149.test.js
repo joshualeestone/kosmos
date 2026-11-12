@@ -407,3 +407,53 @@ test('review 15: making a new agent that reuses a name forgets the old copy (cre
   const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
   assert.match(src, /require\('\.\/instructionreread'\)\.forget\(name\)/);
 });
+
+/* ---- kosmos#8416 review 1 ---- */
+const P = require('./projects');
+const policyFile = (rule) => ['# You are Ada', '', P.POLICY_START, "## Your company's AI policy", 'Use only approved tools.', '', '## Data handling', rule, P.POLICY_END, '',
+  '## Who you report to', 'Splinter.', ''].join('\n');
+
+test('kosmos#8416 review 1: a heading inside a block (a company policy\'s own ## line) does not end it, so a change below it is named', () => {
+  const before = policyFile('Keep customer data in the office.');
+  const after = policyFile('Never upload customer data.');
+  assert.deepEqual(ir.trueSections(['policy'], after, before), ['policy'], 'a policy change under its own heading went unnamed');
+  assert.deepEqual(ir.trueSections(['policy'], before, before), [], 'CONTROL: the same policy is not named');
+  // A person's own heading of the same name, outside the block, never stands in for it.
+  const mine = (rule) => ['## Your projects', 'my own notes', '', P.BLOCK_START, '## Your projects', rule, P.BLOCK_END, ''].join('\n');
+  assert.deepEqual(ir.trueSections(['projects'], mine('task 2'), mine('task 1')), ['projects'], 'the person\'s own heading hid the block');
+});
+
+test('kosmos#8416: trueSectionsFor reads the agent\'s file and the copy it last read', () => {
+  agentFile('tia', AFTER);
+  assert.equal(ir.remember('tia', AFTER), true);
+  assert.deepEqual(ir.trueSectionsFor('tia', ['community', 'reports']), [], 'an unchanged file still named sections');
+  assert.equal(ir.remember('tia', BEFORE), true);
+  assert.deepEqual(ir.trueSectionsFor('tia', ['community', 'reports']), ['community'], 'the changed section was not named');
+  assert.equal(ir.trueSectionsFor('nobody-8416', ['community']), null, 'CONTROL: no file reads as cannot tell');
+});
+
+test('kosmos#8416 review 1: a section owed again while the pass ran keeps the copy from moving past it', async () => {
+  let file = { ida: { at: T, last: T, n: 1, sections: ['community'] } };
+  const remembered = [];
+  const o = {
+    roster: () => CARDS, isIdle: () => true, seenIdle: new Set(['ida']), now: T + 1000, history: () => [], allowed: () => true, DELIVERY: D,
+    read: () => file, write: (x) => { file = x; return true; },
+    // During the send, another write owes ida a new section (its n moves on).
+    deliver: async () => { file = ir.owe(file, 'ida', 'projects', T + 2000); return { state: D.PLACED }; },
+    prepareChanges: () => ({ text: 'the file now', path: null }), remember: (s, t) => { remembered.push([s, t]); return true; },
+  };
+  await ir.passOnce(o);
+  assert.deepEqual(remembered, [], 'the copy moved past a section the line did not name');
+  assert.ok(file.ida && file.ida.sections.includes('projects'), 'the newly owed section was lost');
+  // CONTROL: with nothing owed meanwhile, the copy moves on as before.
+  file = { ida: { at: T, last: T, n: 1, sections: ['community'] } };
+  o.deliver = async () => ({ state: D.PLACED });
+  await ir.passOnce(o);
+  assert.deepEqual(remembered, [['ida', 'the file now']]);
+});
+
+test('kosmos#8416: the board pass is handed trueSections (read as source)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /trueSections: \(session, sections\) => ir\.trueSectionsFor\(session, sections\),/);
+  assert.match(src, /\['sent', 'restarted', 'gone', 'expired', 'unchanged'\]\.includes\(d\.act\)/, 'a debt ended as unchanged leaves no log line');
+});

@@ -1689,7 +1689,7 @@ async function instructionRereadPass() {
       // kosmos#8416: never name a section that is not in the file, or one whose text is as the agent last read it.
       trueSections: (session, sections) => ir.trueSectionsFor(session, sections),
     });
-    for (const d of done) if (['sent', 'restarted', 'gone', 'expired'].includes(d.act)) process.stdout.write(`instruction-reread: ${d.session} ${d.act}${d.state ? ' (' + d.state + ')' : ''}\n`);
+    for (const d of done) if (['sent', 'restarted', 'gone', 'expired', 'unchanged'].includes(d.act)) process.stdout.write(`instruction-reread: ${d.session} ${d.act}${d.state ? ' (' + d.state + ')' : ''}\n`);
   } catch { /* the next pass tries again */ } finally { instructionRereadRunning = false; }
 }
 /* A consented working-rules refresh owes the running agent a re-read. A pass sends it once the agent has been idle at

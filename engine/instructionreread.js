@@ -433,9 +433,46 @@ function sectionBody(text, title) {
   }
   return out === null ? null : out.join('\n');
 }
+/* Review 1: each section's own block markers (engine/projects.js), so a heading the person or company wrote inside a
+   block (an AI policy's "## Data handling", an About-you answer) never ends it early, and a heading of the same name
+   elsewhere in the file never stands in for it. */
+function markersOf(section) {
+  const p = require('./projects');
+  const pairs = {
+    projects: [[p.BLOCK_START, p.BLOCK_END]], you: [[p.YOU_START, p.YOU_END]], reports: [[p.REPORTS_START, p.REPORTS_END]],
+    connections: [[p.CONNECTIONS_START, p.CONNECTIONS_END]], dmfiles: [[p.DMFILES_START, p.DMFILES_END], [p.DMFILES_TOP_START, p.DMFILES_TOP_END]],
+    policy: [[p.POLICY_START, p.POLICY_END]], rules: [[p.DOCTRINE_START, p.DOCTRINE_END]], community: [[p.COMMUNITY_START, p.COMMUNITY_END]],
+    language: [[p.LANGUAGE_START, p.LANGUAGE_END]],
+  }[section];
+  return Array.isArray(pairs) && pairs.every((x) => typeof x[0] === 'string' && x[0] && typeof x[1] === 'string' && x[1]) ? pairs : null;
+}
+/* The section's block text in `text`: { found: text } when its markers pair, { ambiguous: true } when they cannot be
+   paired safely (projects.findBlock refuses), or null when the file has none of them. */
+function blockOf(text, section) {
+  const pairs = markersOf(section);
+  if (!pairs) return null;
+  const find = require('./projects').findBlock;
+  const parts = [];
+  for (const [a, b] of pairs) {
+    const got = find(String(text == null ? '' : text), a, b);
+    if (got && got.ambiguous) return { ambiguous: true };
+    if (got) parts.push(String(text).slice(got.start, got.end));
+  }
+  return parts.length ? { found: parts.join('\n') } : null;
+}
 /* Pure: the owed sections worth naming, given the file now and the copy the agent last read (null: no copy). */
 function trueSections(sections, now, before) {
   return (Array.isArray(sections) ? sections : []).filter((sec) => {
+    let block = null;
+    try { block = blockOf(now, sec); } catch { return true; }   // cannot tell: named, as before
+    if (block && block.ambiguous) return true;
+    if (block) {
+      if (typeof before !== 'string') return true;
+      let was = null;
+      try { was = blockOf(before, sec); } catch { return true; }
+      return !(was && was.found === block.found);
+    }
+    // No markers for it in the file: the person wrote it by hand, or it is gone. Found by its heading, as before.
     const titles = headingsOf(sec);
     if (!titles) return true;   // no heading to look for: named, as before
     const nowBodies = titles.map((t) => sectionBody(now, t));
@@ -599,8 +636,13 @@ async function passOnce(o) {
         end(session, 'sent');
         if (off.length) keep[session] = { at: debt.at, last: debt.last, n: 1, sections: off };
         if (typeof o.recordSent === 'function') { try { o.recordSent(session, sentAt); } catch { /* only the turn's label is lost */ } }
-        // kosmos#7149: the agent reads the file now, so this is what it last read (the next diff starts here).
-        if (prepared && typeof prepared.text === 'string' && typeof o.remember === 'function') { try { o.remember(session, prepared.text); } catch { /* the next diff is wider */ } }
+        /* kosmos#7149: the agent reads the file now, so this is what it last read (the next diff starts here). kosmos#8416
+           review 1: not when a section was owed again while this pass ran (its n moved): the text read above may already
+           hold that change, which the line did not name, and trueSections would then call it unchanged next time. The
+           next diff is then wider, never narrower. */
+        let owedAgain = true;
+        try { const latest = typeof o.read === 'function' ? read() : readOwedStrict(); owedAgain = !latest || !!(latest[session] && latest[session].n !== debt.n); } catch { owedAgain = true; }
+        if (!owedAgain && prepared && typeof prepared.text === 'string' && typeof o.remember === 'function') { try { o.remember(session, prepared.text); } catch { /* the next diff is wider */ } }
       }
     }
     if (o.seenMissing instanceof Set) {

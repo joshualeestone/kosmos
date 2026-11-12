@@ -791,8 +791,11 @@ function pasteToEnterMs(byteLen) {
 
 /**
  * Split a string into UTF-8-safe chunks of at most `maxBytes` bytes each, never
- * cutting a multibyte character. Ported from claude-msg's perl splitter. We cut
- * at the byte budget but back off while the NEXT chunk would start on a UTF-8
+ * cutting a multibyte character, and (kosmos#8416) ending a chunk just after a
+ * space when one is within its last WORD_BACKOFF bytes, so a split never cuts a
+ * word. The character rule was ported from claude-msg's perl splitter; the space
+ * rule is Kosmos's own, so the two splitters now differ. We cut at the byte
+ * budget (or that space) but back off while the NEXT chunk would start on a UTF-8
  * continuation byte (10xxxxxx, i.e. 0x80–0xBF). This is defensive: the chunks
  * are pasted back-to-back with nothing between them, so a split codepoint would
  * in fact reassemble — but keeping cuts on character boundaries matches
@@ -826,7 +829,7 @@ function chunkUtf8(str, maxBytes) {
        messages, one starting mid-word. So a chunk ends just after a space when one is within its last WORD_BACKOFF
        bytes: the pieces reassemble exactly as before, and a split shows whole words on each side. A space is one byte
        and never a continuation byte, so the cut stays on a character boundary. */
-    if (end < buf.length) {
+    if (end < buf.length && buf[end] !== 0x20) {   // a cut right before a space is already between words
       for (let k = end - 1; k > i && k >= end - WORD_BACKOFF; k -= 1) if (buf[k] === 0x20) { end = k + 1; break; }
     }
     chunks.push(buf.slice(i, end).toString('utf8'));
