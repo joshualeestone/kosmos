@@ -1,11 +1,11 @@
 ---
 pre_challenge: true
 method: challenge-loop
-branch: win-recoverable-8475
-diff_hash: f2edeb6c86073d0a30a6cd00c03d503ac41817d0c940195a3d3dc88f8e919973
+branch: win-recoverable-8475b
+diff_hash: 071b2af2411f1df593ecebbd0ff16c96c8fff8be4cc5150e6af3795e706d8fbc
 validation: local only, substituted (npm is not on this box, so validation_log_run_or_skip fails before running anything): on the Windows box, on 1ece6157a5, engine/delete-leftover.win32-recoverable-task-8475 15/15 (14 of 15 fail with origin's source; test 11 pins main's refusal by design), each test alone and in order, with and without the preload (stdin closed); engine/delete-leftover.win32-leftover-task-8471 7/7 (5 of 7 fail on main); delete-leftover.win32-recyclebin-7820 34/0/1; delete-leftover.test 70/0/10; remove.test 129/0; server.test.js "removed list" 3 pass 2 skipped; windows-tests-1777 24, fixture-discipline 20, no-name-refs-3071 4, engine.reachable 8, win32-separator-guard 4, windows-coupling-audit-1732 8, all 0 failed; both browser-check gates exit 0 (run after each web or browser-check change); reviewers compared every Windows task-with-no-folder case with origin's source in scratch sandboxes (a stand-in Task Scheduler; a refused-schtasks log stayed empty); the full suite and the Windows job on the PR's CI
 subdir_audit: passed (no CLAUDE.md in the diff)
-timestamp: 2026-11-12T22:14:38Z
+timestamp: 2026-11-12T22:45:12Z
 iterations: 8
 converged: true
 ---
@@ -76,3 +76,11 @@ decided each trade-off and recorded it in the plan. Rounds 4 to 8 each compared 
 - #8477 (del re-plans), #8478 (a Windows agent's account and model live only in its task), both pre-existing.
 - #8466's nameHeld half can follow now that a held name has a recoverable screen route.
 - The first run on GitHub's Windows runner is on the PR's CI.
+
+## After convergence (CI)
+
+PR #8480's CI failed one test on both runners: test 3 compared the recycled settings path to store.profilePath as exact
+strings, and a runner's temp folder has another spelling (macOS /var is /private/var; the GitHub Windows runner's TEMP an
+8.3 short name). Reproduced on the box with an 8.3 TEMP (14/15) and fixed in the TEST only, by comparing real paths
+(15/15 with the 8.3 TEMP and normally). No product code changed after round 8. Opened as this branch because the repo
+does not take commits onto an open PR (#8480 closed in its favour).
