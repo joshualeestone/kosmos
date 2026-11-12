@@ -105,7 +105,7 @@ const USAGE = {
   room: 'Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too), and an agent\'s ask you posted after, not citing an older post, is named on its own line instead; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin, its line breaks kept (agents reading the room see it on one line), at most 4000 characters; <source> names the job, such as "builder alarm")',
   task: [
-    'Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|hold|unhold|repeat|ran|told>',
+    'Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|check|hold|unhold|repeat|ran|told>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each',
     '  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first',
@@ -131,6 +131,7 @@ const USAGE = {
     '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark; another agent\'s mark keeps them, your own mark without --file drops them',
     '      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it, or --check <number> "<wording>" to change one',
+    '  kosmos task check <project-id> <task-number> <check-number> met|unmet "<how you checked it>"  report how one done-when check went',
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
     '      [--until-task <n> | --until <date or time>]                 ...and say what it waits for; Kosmos tells its owner once it has happened',
@@ -2063,6 +2064,34 @@ async function taskDoneWhen(ctx, args) {
   return 1;
 }
 
+/* #8464 item 2, as install/kosmos cmd_task check: how one done-when check went, in the agent's own words. The agent
+   token names who reported it; the board refuses a caller it cannot name. */
+const CHECK_USAGE = 'Usage: kosmos task check <project-id> <task-number> <check-number> met|unmet "<how you checked it>"';
+async function taskCheck(ctx, args) {
+  if (args.length !== 5 || !args[0]) { ctx.err(CHECK_USAGE); return 2; }
+  const [project, num, which, verdict] = args;
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  if (!/^[1-9]$/.test(which)) { ctx.err('The check number must be the one kosmos task list shows, like 1 or 2.'); return 2; }
+  if (verdict !== 'met' && verdict !== 'unmet') { ctx.err('Say met or unmet for the check. ' + CHECK_USAGE); return 2; }
+  const how = String(args[4]).replace(/[\t\r\n]/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '');
+  if (!how.trim()) { ctx.err('Say in a few words how you checked it. ' + CHECK_USAGE); return 2; }
+  const met = verdict === 'met';
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/check', { check: Number(which), met, how, from_pane: '' });
+  if (!r.reached) {
+    return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
+      : ctx.unreachable('report that check');
+  }
+  if (r.json && r.json.task) {
+    const word = met ? 'met' : 'not met';
+    ctx.out(r.json.changed === false ? 'Check ' + which + ' on task ' + num + ' was already reported ' + word + ', in those words.'
+      : 'Reported check ' + which + ' on task ' + num + ' on ' + project + ' as ' + word + '. It reads as your word, not a verification. See them with: kosmos task show ' + project + ' ' + num);
+    return 0;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not report that check: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when reporting that check.');
+  return 1;
+}
+
 /* kosmos#4787, as install/kosmos cmd_task repeat / ran: a repeating task's rule, and a run of its job. The agent token
    names who ran it (no pane on Windows); the board checks the rule whole and refuses a caller it cannot name. */
 const REPEAT_USAGE = 'Usage: kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m|2h> [--at HH:MM[,HH:MM...]] [--on mon] [--reviewer <agent|none>]   (or --clear)';
@@ -3693,7 +3722,7 @@ const SUBCOMMAND_HANDLERS = {
   },
   room: { reopen: roomReopen },
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
-  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
+  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, check: taskCheck, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, test: projectTest, role: projectRole, 'remove-member': projectRemoveMember },
   agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, restart: agentRestart, remove: agentRemove },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },
