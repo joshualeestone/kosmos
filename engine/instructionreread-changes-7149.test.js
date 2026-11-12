@@ -460,6 +460,8 @@ test('kosmos#8416: the board pass is handed trueSections (read as source)', () =
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /trueSections: \(session, sections\) => ir\.trueSectionsFor\(session, sections\),/);
   assert.match(src, /markRead: \(session, sections, text\) => ir\.markRead\(session, sections, text\),/);
+  assert.match(src, /forgetMarks: \(session, sections\) => ir\.forgetMarks\(session, sections\),/);
+  assert.match(src, /else if \(body\.state === 'started'\) \{ try \{ require\('\.\/engine\/instructionreread'\)\.forgetMarks\(who\);/, 'an unrecorded start keeps the old marks');
   assert.match(src, /readText: \(session\) => \{ const g = require\('\.\/engine\/instructions'\)\.read\(session\);/);
   assert.match(src, /\['sent', 'restarted', 'gone', 'expired', 'unchanged'\]\.includes\(d\.act\)/, 'a debt ended as unchanged leaves no log line');
 });
@@ -484,4 +486,28 @@ test('kosmos#8416: a section gone from the file loses its mark, so it is named w
   agentFile('rho', BEFORE);
   assert.deepEqual(ir.trueSectionsFor('rho', ['community']), ['community'], 'a section that came back was not named');
   ir.forget('rho');
+});
+
+test('kosmos#8416: a change the agent may have read, then undone, is named (unknown is no mark)', () => {
+  // T0 read at the start. A line about T1 lands unconfirmed: passOnce drops the mark. The block goes back to T0.
+  agentFile('kay', BEFORE);
+  assert.equal(ir.rememberRead('kay'), true);
+  ir.forgetMarks('kay', ['community']);
+  assert.deepEqual(ir.trueSectionsFor('kay', ['community', 'reports']), ['community'], 'the undone change went unnamed');
+  ir.forget('kay');
+});
+
+test('kosmos#8416: a session start that cannot read the file drops the old marks', () => {
+  agentFile('lee', BEFORE);
+  assert.equal(ir.rememberRead('lee'), true);
+  assert.ok(ir.readMarks().lee && ir.readMarks().lee.community, 'CONTROL: the start marked it');
+  fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'lee'), { recursive: true, force: true });
+  assert.equal(ir.rememberRead('lee'), false);
+  assert.equal(ir.readMarks().lee, undefined, 'the previous session\'s marks survived a start that read nothing');
+});
+
+test('kosmos#8416: a damaged second marker pair (dmfiles) cannot be told, so it is named', () => {
+  const P3 = require('./projects');
+  const file = [P3.DMFILES_START, '## Where to save files you make for the person', 'x', P3.DMFILES_END, P3.DMFILES_TOP_START, 'top, no end', ''].join('\n');
+  assert.equal(ir.printOf(file, 'dmfiles'), 'unknown');
 });

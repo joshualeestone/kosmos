@@ -21,12 +21,13 @@ Card: kosmos#8416 (from the 11-11 daily feedback; given to Mona Lisa by Splinter
 - Rejected for (1): shortening the request under one piece (256 bytes). It would drop the four questions and the privacy rules agents follow from it, and only this one message would be fixed, not every long automatic line.
 - Rejected for (1): detecting a split and saying so. Kosmos cannot see how the composer grouped the pieces.
 - Weakest premise for (1): word-boundary pieces fix the mid-word read, not the split itself; a busy composer can still show a later piece as pasted text. It now reads as whole words.
-- Residual for (2), accepted: marks are a read-modify-write with no lock. Two processes writing at once can lose one, and a lost mark only names a section again (an older or missing mark differs from the file), never hides one.
+- Residual for (2), accepted: marks are a read-modify-write with no lock. Writes are synchronous in the board process; a writer in another process at the same moment could put back an older mark, and if a section later returned to that older text it would go unnamed. Rare (two processes writing within one read and write), and stated, not built around.
+- Unknown is no mark: a line that may or may not have reached the agent (UNCONFIRMED), a session start that was not recorded, or one whose marks could not be saved, drops the marks rather than keeping old ones. An old mark can equal the file again after a change is undone.
 - Residual for (2), accepted: a session start's marks are taken when its 'started' report reaches the board, a few seconds after the agent read its file. A block rewritten in that gap, and any later rewrite back to those same words, stays unnamed until it changes again. On main that gap's debt already ended as 'restarted'. Narrowing it needs the file as the agent read it, which nothing records.
-- A section gone from the file loses its mark (trueSectionsFor), so a block removed and restored with the same words is named when it returns.
+- A section a pass finds gone while it is owed loses its mark (trueSectionsFor), so it is named if it comes back. (A removal Kosmos makes is never owed, and then the agent still holds that text, so not naming it is right.)
 - Every section Kosmos can owe has its own marker pair (tested), so a renamed heading cannot make a Kosmos block read as missing.
-- Marks move only on a PLACED line (review 3): an UNCONFIRMED one may never have been typed.
-- A damaged block (one marker with no pair) and a heading written twice with no markers cannot be told, so they are named.
+- Marks move only on a PLACED line; an UNCONFIRMED one drops them (above).
+- A damaged block (any pair with a lone marker, dmfiles' second pair included) and a heading written twice with no markers cannot be told, so they are named.
 - Weakest premise for (2): a section's change is judged by its own text, so a change elsewhere in the file (outside any owed section) is not named. That is the point, and #7149's changes file still lists every change.
 - Not built: the card's two smaller ideas (whose built mark, a machine-move checklist). Left on the card.
 
@@ -37,6 +38,7 @@ Card: kosmos#8416 (from the 11-11 daily feedback; given to Mona Lisa by Splinter
 
 ## Review ledger
 - R1 opus: 2 W (a heading inside a policy or About-you block ended the section early; a copy moved past a section owed mid-pass), 1 C, NITs. Fixed: block markers; owed-again guard; unchanged logged.
+- R5 opus: 1 B (keeping an old mark after an UNCONFIRMED line hid a change later undone; measured), 2 W (an unrecorded or failed start kept old marks; the lost-write residual misstated), NITs. Fixed: unknown is no mark everywhere; residual restated; dmfiles damage.
 - R4 sonnet: 3 W (the session-start residual understated; a removed-then-restored section unnamed; the one-writer claim), 1 C (review labels in comments), NITs. Fixed, residuals restated.
 - R3 opus: 4 W (marks moved on an UNCONFIRMED line; session-start timing; a test that passed with the code wrong; a newline not a boundary), NITs. Fixed, the timing accepted and stated above.
 - R2 sonnet: 2 W (the copy as oracle still let a block rewritten after a landed line go unnamed; a removed section dropped silently), NITs. Fixed: per-section marks that move only when told; the removal rule documented and tested.

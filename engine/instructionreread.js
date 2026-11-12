@@ -244,12 +244,13 @@ function dropChanges(session) {
 function rememberRead(session) {
   // Review 4: a copy that cannot be renewed here is dropped, so the next notice is as before rather than diffed
   // against something older than what the agent just read.
-  const dropCopy = () => { const p = seenFile(session); if (p) { try { fs.unlinkSync(p); } catch { /* none kept */ } } return false; };
+  const dropCopy = () => { const p = seenFile(session); if (p) { try { fs.unlinkSync(p); } catch { /* none kept */ } } forgetMarks(session); return false; };
   try {
     dropChanges(session);
     const got = require('./instructions').read(session);
     if (!(got && got.exists === true && typeof got.text === 'string')) return dropCopy();
-    markRead(session, Object.keys(SECTIONS), got.text);   // kosmos#8416: it read every section just now
+    // kosmos#8416: it read every section just now; marks that could not be saved are dropped, never left old.
+    if (!markRead(session, Object.keys(SECTIONS), got.text)) forgetMarks(session);
     return remember(session, got.text) || dropCopy();
   } catch { return dropCopy(); }
 }
@@ -454,10 +455,13 @@ function blockOf(text, section) {
   if (!pairs) return null;
   const find = require('./projects').findBlock;
   const parts = [];
+  const t = String(text == null ? '' : text);
   for (const [a, b] of pairs) {
-    const got = find(String(text == null ? '' : text), a, b);
+    const got = find(t, a, b);
     if (got && got.ambiguous) return { ambiguous: true };
-    if (got) parts.push(String(text).slice(got.start, got.end));
+    if (got) parts.push(t.slice(got.start, got.end));
+    // A pair with a lone marker is a damaged part of the block (dmfiles has two pairs): it cannot be told.
+    else if (t.includes(a) || t.includes(b)) return { ambiguous: true };
   }
   return parts.length ? { found: parts.join('\n') } : null;
 }
@@ -531,8 +535,16 @@ function markRead(session, sections, text) {
     return writeMarks(all);
   } catch { return false; }
 }
-function forgetMarks(session) {
-  try { const all = readMarks(); if (all[session]) { delete all[session]; writeMarks(all); } } catch { /* none kept */ }
+/* Drop the marks of `sections` (every section when none are given). Not knowing what the agent read is no mark, never
+   an old one: an old mark can equal the file again later (a change undone), and that change would go unnamed. */
+function forgetMarks(session, sections) {
+  try {
+    const all = readMarks();
+    if (!all[session]) return;
+    if (Array.isArray(sections)) { const cur = { ...all[session] }; for (const sec of sections) delete cur[sec]; all[session] = cur; }
+    else delete all[session];
+    writeMarks(all);
+  } catch { /* none kept */ }
 }
 /* The default for passOnce's trueSections: null (name them all, as before) when the file cannot be read. */
 function trueSectionsFor(session, sections) {
@@ -596,7 +608,8 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
  *   stoodDown(s)              replynudge.stoodDown over the projects (optional): true holds the debt
  *   sectionOn(section)        false holds that section (the line names only the others; it stays owed)
  *   trueSections(s, sections) kosmos#8416: the sections still worth naming (trueSectionsFor); none ends the debt with no line
- *   markRead(s, sections, text) / readText(s)   kosmos#8416: a landed line moves the named sections' marks (markRead)
+ *   markRead(s, sections, text) / readText(s) / forgetMarks(s, sections)   kosmos#8416: a PLACED line moves the named
+ *                             sections' marks; an unconfirmed one drops them
  *   read()/write(owed)        the debt file (readOwed / writeOwed by default)
  * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'stood-down' | 'section-off' | 'missing' | 'restarted' | 'gone' | 'expired' | 'unchanged'.
  */
@@ -703,8 +716,12 @@ async function passOnce(o) {
         if (off.length) keep[session] = { at: debt.at, last: debt.last, n: 1, sections: off };
         if (typeof o.recordSent === 'function') { try { o.recordSent(session, sentAt); } catch { /* only the turn's label is lost */ } }
         // kosmos#8416: only the sections this line named move their marks.
-        // Only a line known to be typed (PLACED): an unconfirmed one may never have reached the agent.
-        if (toldText !== null && v && o.DELIVERY && v.state === o.DELIVERY.PLACED && typeof o.markRead === 'function') { try { o.markRead(session, on, toldText); } catch { /* the next notice names them again */ } }
+        /* A line known to be typed (PLACED) moves the named sections' marks. One that may or may not have reached the
+           agent (UNCONFIRMED), or a PLACED one whose text is not known, drops them: what the agent read is unknown, so
+           the next notice names them whatever their words. */
+        const placed = v && o.DELIVERY && v.state === o.DELIVERY.PLACED;
+        if (placed && toldText !== null && typeof o.markRead === 'function') { try { o.markRead(session, on, toldText); } catch { /* dropped below */ } }
+        else if (typeof o.forgetMarks === 'function') { try { o.forgetMarks(session, on); } catch { /* the next notice names them again */ } }
         /* kosmos#7149: the agent reads the file now, so this is what it last read (the next diff starts here). kosmos#8416:
            not when a section was owed again while this pass ran (its n moved): the text read above may already
            hold that change, which the line did not name, and trueSections would then call it unchanged next time. The

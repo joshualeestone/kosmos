@@ -407,12 +407,19 @@ test('kosmos#8416: a block rewritten after a line landed, and owed later, is sti
     deliver: async () => { current = v2; return { state: D.PLACED }; } } });
   await ir.passOnce(p.o);
   assert.deepEqual(moved, [['ida', ['reports'], v1]], 'marks moved for a section the line did not name, or from text read after it');
-  // An unconfirmed line (it may never have been typed) and one that did not land move no mark.
-  for (const state of [D.UNCONFIRMED, D.COULD_NOT]) {
-    const q = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => v1, markRead: () => { moved.push(state); return true; }, deliver: async () => ({ state }) } });
-    await ir.passOnce(q.o);
-  }
-  assert.equal(moved.length, 1, 'a line not known to be typed moved marks: ' + JSON.stringify(moved));
+  // An unconfirmed line (the agent may or may not have read it) drops the named sections' marks: unknown is no mark.
+  const dropped = [];
+  const q = passArgs({ owed: { ida: debt(['reports', 'community']) }, o: { trueSections: () => ['reports'], readText: () => v1, markRead: () => { moved.push('x'); return true; },
+    forgetMarks: (s2, secs) => { dropped.push([s2, secs]); }, deliver: async () => ({ state: D.UNCONFIRMED }) } });
+  await ir.passOnce(q.o);
+  assert.equal(moved.length, 1, 'an unconfirmed line moved marks');
+  assert.deepEqual(dropped, [['ida', ['reports']]], 'an unconfirmed line kept the old marks');
+  // CONTROL: a line that did not land moves and drops nothing (the debt stays owed).
+  const r = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => v1, markRead: () => { moved.push('y'); return true; },
+    forgetMarks: () => { dropped.push('z'); }, deliver: async () => ({ state: D.COULD_NOT }) } });
+  await ir.passOnce(r.o);
+  assert.equal(moved.length, 1);
+  assert.equal(dropped.length, 1);
 });
 
 test('kosmos#8416: a damaged block, or a heading written twice with no markers, cannot be told, so it is named', () => {
