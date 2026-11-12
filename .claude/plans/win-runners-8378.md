@@ -37,3 +37,11 @@ On macOS and Linux every value and assertion is as before.
 ## Measured on the Windows box
 Before 17 pass / 16 fail; after 31 / 0 / 2 skip. The other runners files are unchanged (linux-5419 7/7, pathext-win32-570
 6/6, win-runnable-2270 2/2, win32-codex 15/15, win32-gemini-grok 11/11). Policy tests pass.
+
+## Review log
+- Round 1 (no blockers, 2 warnings, 3 nits). Fixed: the "already-present answer" test (the one that reached npm on main)
+  now passes a download that throws, so a future regression fails the test instead of fetching from the network; the #133
+  directory arm makes its folder at claude.exe on Windows, so it tests the folder refusal and not just the missing
+  extension. Nits fixed: the tarball comment names runners.tarBin, two assertion messages say "the tree" on Windows, an
+  apostrophe. Noted, not changed: the claude link tests (pinned to darwin) make symlinks, which a non-admin Windows
+  laptop without Developer Mode refuses; GitHub's runner is admin.

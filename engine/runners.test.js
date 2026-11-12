@@ -53,7 +53,7 @@ const put = (p, body) => {
 
 /* kosmos#8378: a runner Kosmos installed and proved. On the Mac that is the file at the managed path; on Windows
    resolveBin also asks for the verified marker install() writes once --version passed (a codex.exe that is merely
-   there may be one that failed its prove), so the stand-in writes it too, in install()s own stamp format. */
+   there may be one that failed its prove), so the stand-in writes it too, in install()'s own stamp format. */
 function putManaged(provider, at, body) {
   put(at, body);
   if (WIN) {
@@ -74,7 +74,7 @@ const installCodex = (o) => runners.install('openai', WIN ? { platform: 'win32',
 const CODEX_MEMBER = WIN ? 'package/' + runners.manifestFor('openai').binInPackage : 'package/vendor/aarch64-apple-darwin/bin/codex';
 
 /* A real .tgz fixture with the npm layout (package/bin/<name>), built with
-   the same /usr/bin/tar the module unpacks with, so the unpack step is
+   the tar the module unpacks with (runners.tarBin), so the unpack step is
    exercised against genuine tar output rather than a synthetic stream. */
 function fixtureTarball(binRel, body) {
   const dir = fs.mkdtempSync(nodePath.join(SANDBOX, 'fix-'));
@@ -259,7 +259,7 @@ test('#979: a runner that does not run is failed at the prove step, never report
   assert.equal(job.phase, 'failed');
   assert.match(job.because, /did not run/);
   assert.equal(fs.existsSync(MANAGED), false,
-    'a failed prove must take the symlink down, or a broken runner reads as present');
+    'a failed prove must take the symlink (on Windows, the tree) down, or a broken runner reads as present');
 });
 
 test('#979: a download failure fails the job with the reason, not a hang or a lie', async () => {
@@ -418,7 +418,7 @@ test('#979: a Confirm during the proving window joins the live job, never a synt
   // fails crisply instead of spinning to the runner timeout.
   while (first.phase !== 'proving' && first.phase !== 'failed') { await new Promise((r) => setTimeout(r, 5)); }
   assert.equal(first.phase, 'proving', first.because || '');
-  assert.ok(fs.existsSync(MANAGED), 'the window is real: the symlink is up while prove is pending');
+  assert.ok(fs.existsSync(MANAGED), 'the window is real: the symlink (on Windows, the tree) is up while prove is pending');
   // And status() does not call it present in that window: both screens poll `present`
   // to move on to the key step, and --version may still fail.
   assert.equal(runners.status().openai.present, false, 'a runner mid-prove must not read present');
@@ -465,7 +465,9 @@ test('#979: the already-present answer claims no version, nothing was downloaded
   const handPlaced = WIN ? LEGACY : MANAGED;
   put(handPlaced);
   try {
-    const job = installCodex({ legacyBin: LEGACY });
+    /* kosmos#8378: a present runner must never download. On a Windows host this test once reached the real npm
+       registry (the hand-placed binary read absent), so a download here fails the test instead of fetching. */
+    const job = installCodex({ legacyBin: LEGACY, download: () => { throw new Error('a present runner must not download'); } });
     assert.equal(job.phase, 'installed');
     /* ⚠️ THE GUARD IS "NO CLAIM", NOT "NO KEY", and those had been conflated.
        The real hazard is asserting the PINNED version for a hand-placed binary
@@ -770,10 +772,13 @@ test('#979: present means RUNNABLE, a directory or stripped file at a runner pat
   delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
   try {
-    fs.mkdirSync(CANONICAL, { recursive: true }); // a DIRECTORY at the runner path
+    /* A DIRECTORY at the runner path. kosmos#8378: on Windows at the path Windows would launch (claude.exe): a folder
+       named plain `claude` would read absent there for its missing extension alone, testing nothing about folders. */
+    const asDir = CANONICAL + EXE;
+    fs.mkdirSync(asDir, { recursive: true });
     let r = runners.resolveBin('claude');
     assert.equal(r.present, false, 'a directory must not read as a runnable runner');
-    fs.rmSync(CANONICAL, { recursive: true, force: true });
+    fs.rmSync(asDir, { recursive: true, force: true });
     if (WIN) {
       /* kosmos#8378: Windows has no exec bit to strip (chmod sets only the read-only attribute); a file there runs
          by its extension. So the stripped file is the canonical one with no runnable extension, and the positive
