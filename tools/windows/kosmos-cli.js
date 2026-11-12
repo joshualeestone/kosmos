@@ -184,7 +184,7 @@ const USAGE = {
   feedback: [
     'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
     '       kosmos feedback write --unchanged [text]  (nothing new since your last report; any text is added to it)',
-    '       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence on stderr, nothing on stdout, exit 0)',
+    '       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)',
     '       kosmos feedback list',
     '       kosmos feedback day                (your own day on this computer, for writing the report)',
     '       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)',
@@ -2870,7 +2870,7 @@ async function feedbackShow(ctx, args) {
   if (!fb.isDateKey(date)) { ctx.err('that date must be a real day, as YYYY-MM-DD'); return 2; }
   const body = fb.readBody(date);
   // kosmos#8260: no report yet is an answer, not a failure: nothing on stdout, the sentence on stderr, exit 0, as install/kosmos.
-  if (body == null) { ctx.err(fb.noReportWords(date)); return 0; }
+  if (body == null) { ctx.out(fb.noReportWords(date)); return 0; }   // kosmos#8462: an answer, so stdout: PowerShell shows a native command's stderr as a red error record
   ctx.out(String(body).replace(/\n$/, ''));
   return 0;
 }

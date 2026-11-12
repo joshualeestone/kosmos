@@ -790,8 +790,8 @@ test('feedback verbs call the engine and send nothing to the board', async () =>
   assert.equal((await go(['feedback', 'show'])).out, 'today\'s note');
   const none = await go(['feedback', 'show', '2026-01-01']);   // kosmos#8260: no report yet is an answer, exit 0
   assert.equal(none.code, 0);
-  assert.equal(none.out, '');
-  assert.equal(none.err, 'words from the engine for 2026-01-01');
+  assert.equal(none.out, 'words from the engine for 2026-01-01');   // kosmos#8462: an answer, so stdout
+  assert.equal(none.err, '');
   assert.equal((await go(['feedback', 'show', 'junk'])).code, 2);
   // kosmos#8353: an impossible date is a bad date (exit 2, the CLI's own words), never "no report yet".
   const bad = await go(['feedback', 'show', '2026-13-45']);

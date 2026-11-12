@@ -258,8 +258,8 @@ test('feedback write saves today\'s report in THIS Kosmos\'s store; show reads i
   assert.equal(feedbackCli(['feedback', 'list']).out, day);
   const none = feedbackCli(['feedback', 'show', '1999-01-01']);   // kosmos#8260: no report yet is an answer
   assert.equal(none.code, 0, none.err);
-  assert.equal(none.out, '');
-  assert.match(none.err, /No product-feedback report for 1999-01-01 yet\./);
+  assert.equal(none.out, 'No product-feedback report for 1999-01-01 yet.', 'kosmos#8462: the answer is on stdout');
+  assert.equal(none.err, '', 'kosmos#8462: nothing on stderr, which PowerShell shows as a red error record');
   fs.mkdirSync(path.join(feedbackCli.root, 'Kosmos', 'feedback', '1999-01-02.md'), { recursive: true });
   const unreadable = feedbackCli(['feedback', 'show', '1999-01-02']);   // kosmos#8260: a report that cannot be read is not "none yet"
   assert.notEqual(unreadable.code, 0, unreadable.err);
