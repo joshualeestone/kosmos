@@ -89,7 +89,8 @@ function tee(stream, fd, lineState, now, name) {
      uncaught exception, and the board died 74 s after start. This board's output already goes to the file, so the
      console is the copy that may be lost. Any error event on the stream, not only a dead pipe, is recorded as its console
      copy stopping (kosmos#8424: recorded, not ended; writes still go to node's own write, below).
-     The file copy is taken first, so a write node then rejects for a bad argument is still in the file. */
+     The file copy is taken first, so a Buffer write node then rejects for a bad argument is still in the file; a string
+     with an encoding node does not know is not copied at all (its Buffer.from throws first, kosmos#8424). */
   let dead = false;
   const giveUp = (err) => {
     if (dead) return;
@@ -125,7 +126,9 @@ function tee(stream, fd, lineState, now, name) {
        failed write with autoDestroy off), this returns true: node's false there would ask a caller to wait for a
        'drain' that never comes. A stream that is still writable answers as node does (kosmos#8424), so real
        backpressure is not hidden. node's own state decides, not the error event, which arrives a tick after the
-       destroy. Defensive: a pipe's EPIPE arrives as that event, not as a throw; only an I/O failure is caught here. */
+       destroy. (On node's own streams destroyed implies not writable; the destroyed test is kept for a stand-in that
+       reports only that.) Defensive: a pipe's EPIPE arrives as that event, not as a throw; only an I/O failure is
+       caught here. */
     try {
       const ok = write(chunk, encoding, callback);
       return stream.destroyed === true || stream.writable === false ? true : ok;

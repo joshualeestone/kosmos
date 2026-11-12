@@ -16,6 +16,7 @@ Tests: engine/win32boardlog-8373.test.js gains the string case and a stream that
 (autoDestroy off) reporting node's false; the existing drain test now asserts the stream was destroyed. Mutant: the old
 `dead ? true : ok` fails the new backpressure test.
 
-Weakest premise: that every real console stream node gives the board is destroyed on error (autoDestroy defaults to
-true for net sockets and pipes, and the fs.WriteStream the board may hold), so the EPIPE case keeps its forced true.
-The existing tests and the real-pipe test (win32boardlog-epipe-realpipe) pass, which is consistent with that.
+Weakest premise: that a stream still writable after an 'error' event (one emitted from outside node, not a failed
+write) has real backpressure worth reporting rather than a dead end. The new test covers that case; every stream node
+itself failed is either destroyed or not writable, and gets true. Known limit, unchanged: a write that returned false
+while the stream was healthy, then a destroy, leaves a caller that awaits 'drain' waiting (nothing on the board does).
