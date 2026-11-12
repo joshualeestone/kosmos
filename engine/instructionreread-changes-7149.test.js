@@ -511,3 +511,24 @@ test('kosmos#8416: a damaged second marker pair (dmfiles) cannot be told, so it 
   const file = [P3.DMFILES_START, '## Where to save files you make for the person', 'x', P3.DMFILES_END, P3.DMFILES_TOP_START, 'top, no end', ''].join('\n');
   assert.equal(ir.printOf(file, 'dmfiles'), 'unknown');
 });
+
+test('kosmos#8416: a marks file that cannot be read is deleted by forgetMarks, so no old mark survives', () => {
+  agentFile('mae', BEFORE);
+  assert.equal(ir.rememberRead('mae'), true);
+  const f = path.join(require('./store').ROOT, 'instruction-reread-marks.json');
+  fs.writeFileSync(f, '{not json');
+  ir.forgetMarks('mae', ['community']);
+  assert.equal(fs.existsSync(f), false, 'an unreadable marks file was left in place');
+  assert.deepEqual(ir.trueSectionsFor('mae', ['community']), ['community'], 'CONTROL: with no marks it is named');
+  ir.forget('mae');
+});
+
+test('kosmos#8416: a file with no Kosmos block and none of its sections (empty or half-written) cannot be told', () => {
+  agentFile('ned2', '');
+  assert.equal(ir.trueSectionsFor('ned2', ['community', 'reports']), null);
+  agentFile('ned2', '# You are Ned\n');
+  assert.equal(ir.trueSectionsFor('ned2', ['community']), null);
+  agentFile('ned2', require('./projects').BLOCK_START + '\nx\n' + require('./projects').BLOCK_END + '\n');
+  assert.deepEqual(ir.trueSectionsFor('ned2', ['community']), [], 'CONTROL: a file with Kosmos blocks but not this one does not have it');
+  ir.forget('ned2');
+});

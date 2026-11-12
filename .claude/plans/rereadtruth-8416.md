@@ -17,14 +17,16 @@ Card: kosmos#8416 (from the 11-11 daily feedback; given to Mona Lisa by Splinter
   - A section no longer in the file is not named: a removed block owes nothing, as oweEach already decides.
   - passOnce takes trueSections, markRead and readText injected, and ends a debt with nothing real as 'unchanged' (logged by server.js).
   - The #7149 copy still makes the changes file, and does not move when a section was owed again during the pass.
-- (1) chunkUtf8 ends a piece just after a space when one is within its last 64 bytes (WORD_BACKOFF), or keeps the cut when the next byte is already a space. The pieces rejoin exactly as before. A space is one byte, so the character-boundary rule holds.
+- (1) chunkUtf8 ends a piece just after a space, newline or tab when one is within its last 64 bytes (WORD_BACKOFF), or keeps the cut when the next byte is already one. The pieces rejoin exactly as before. A space is one byte, so the character-boundary rule holds.
 - Rejected for (1): shortening the request under one piece (256 bytes). It would drop the four questions and the privacy rules agents follow from it, and only this one message would be fixed, not every long automatic line.
 - Rejected for (1): detecting a split and saying so. Kosmos cannot see how the composer grouped the pieces.
 - Weakest premise for (1): word-boundary pieces fix the mid-word read, not the split itself; a busy composer can still show a later piece as pasted text. It now reads as whole words.
 - Residual for (2), accepted: marks are a read-modify-write with no lock. Writes are synchronous in the board process; a writer in another process at the same moment could put back an older mark, and if a section later returned to that older text it would go unnamed. Rare (two processes writing within one read and write), and stated, not built around.
-- Residual for (2), accepted: a disk that refuses every write fails markRead and forgetMarks alike, so old marks can stay. The board is then failing far more widely (the debt file is written the same way).
+- forgetMarks that cannot read or write the marks file deletes the whole file (every mark goes: more notices, never a hidden change). Residual, accepted: a disk that refuses that delete too keeps old marks; the board is then failing far more widely.
 - A 'restarted' ending relies on the same recorded 'started' report that runs rememberRead (startedSince reads those rows), so the two agree.
 - Sections held by sectionOn, or dropped as not real, keep their marks; only the named ones move or drop.
+- A session start recorded while a line is being sent marked every section from a newer file, so the line's own marks are not written over them.
+- A file with no Kosmos block and none of the sections Kosmos writes (empty or half-written) cannot be told: every owed section is named.
 - Unknown is no mark: a line that may or may not have reached the agent (UNCONFIRMED), a session start that was not recorded, a start or a PLACED line whose marks could not be saved, drops the marks rather than keeping old ones. An old mark can equal the file again after a change is undone.
 - Residual for (2), accepted: a session start's marks are taken when its 'started' report reaches the board, a few seconds after the agent read its file. A block rewritten in that gap, and any later rewrite back to those same words, stays unnamed until it changes again. On main that gap's debt already ended as 'restarted'. Narrowing it needs the file as the agent read it, which nothing records.
 - A section a pass finds gone while it is owed loses its mark (trueSectionsFor), so it is named if it comes back. (A removal Kosmos makes is never owed, and then the agent still holds that text, so not naming it is right.)
@@ -41,6 +43,7 @@ Card: kosmos#8416 (from the 11-11 daily feedback; given to Mona Lisa by Splinter
 
 ## Review ledger
 - R1 opus: 2 W (a heading inside a policy or About-you block ended the section early; a copy moved past a section owed mid-pass), 1 C, NITs. Fixed: block markers; owed-again guard; unchanged logged.
+- R7 opus: 2 W (a session start during delivery overwritten by older marks, reproduced; one failed forgetMarks kept old marks), 1 C (the guard's reason), NITs. Fixed.
 - R6 sonnet: 1 W (a PLACED line whose markRead failed kept old marks), NITs. Fixed; residuals added.
 - R5 opus: 1 B (keeping an old mark after an UNCONFIRMED line hid a change later undone; measured), 2 W (an unrecorded or failed start kept old marks; the lost-write residual misstated), NITs. Fixed: unknown is no mark everywhere; residual restated; dmfiles damage.
 - R4 sonnet: 3 W (the session-start residual understated; a removed-then-restored section unnamed; the one-writer claim), 1 C (review labels in comments), NITs. Fixed, residuals restated.

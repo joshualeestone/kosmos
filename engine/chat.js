@@ -792,7 +792,7 @@ function pasteToEnterMs(byteLen) {
 /**
  * Split a string into UTF-8-safe chunks of at most `maxBytes` bytes each, never
  * cutting a multibyte character, and (kosmos#8416) ending a chunk just after a
- * space when one is within its last WORD_BACKOFF bytes, so a split never cuts a
+ * space, newline or tab when one is within its last WORD_BACKOFF bytes, so a split never cuts a
  * word. The character rule was ported from claude-msg's perl splitter; the space
  * rule is Kosmos's own, so the two splitters now differ. We cut at the byte
  * budget (or that space) but back off while the NEXT chunk would start on a UTF-8

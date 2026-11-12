@@ -450,3 +450,18 @@ test('kosmos#8416: a held section among the real ones stays owed, and only the r
   assert.equal(p.sent[0][1], ir.lineFor(['reports']));
   assert.deepEqual(p.file().ida && p.file().ida.sections, ['community'], 'the held real section was not kept owed, or the unreal one was');
 });
+
+test('kosmos#8416: a session start recorded while the line was sent keeps its own marks', async () => {
+  const touched = [];
+  let started = null;
+  const p = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => 'old text',
+    history: () => (started ? [{ state: 'started', at: started }] : []),
+    deliver: async () => { started = Date.now() + 1; return { state: D.PLACED }; },   // the agent restarts mid-send
+    markRead: () => { touched.push('mark'); return true; }, forgetMarks: () => { touched.push('forget'); } } });
+  await ir.passOnce(p.o);
+  assert.deepEqual(touched, [], 'the line\'s older text was written over the restart\'s marks');
+  // CONTROL: with no restart, the line marks as usual.
+  const q = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => 'old text', markRead: () => { touched.push('mark'); return true; } } });
+  await ir.passOnce(q.o);
+  assert.deepEqual(touched, ['mark']);
+});
