@@ -46,15 +46,20 @@ connect.setMuslLibsCheckForTests(() => false);   // #5419: nor the host's musl l
 const store = require('./store');
 
 function serveRelease(t, { version, binary, checksum }, opts = {}) {
+  /* kosmos#8378: download() asks for `claude.exe` on win32 (the vendor publishes the
+     Windows build under that name), and `claude` everywhere else. Serving only
+     `/claude` 404'd every win32 download, so even the CONTROL installs failed there.
+     The served name follows the host exactly as production does. */
+  const binUrl = `/${version}/${connect.platformKey()}/${process.platform === 'win32' ? 'claude.exe' : 'claude'}`;
   const paths = {
     '/latest': () => version,
     [`/${version}/manifest.json`]: () => JSON.stringify({
       platforms: { [connect.platformKey()]: { checksum } },
     }),
-    [`/${version}/${connect.platformKey()}/claude`]: () => binary,
+    [binUrl]: () => binary,
   };
   const server = http.createServer((req, res) => {
-    if (opts.dieMidStream && req.url === `/${version}/${connect.platformKey()}/claude`) {
+    if (opts.dieMidStream && req.url === binUrl) {
       // Promise a megabyte, deliver 64KB, then kill the socket. This is the only
       // way to leave a `.part` on disk for the catch-block sweep to act on: a
       // 404 never creates one, and a checksum refusal unlinks its own.
@@ -104,6 +109,14 @@ function cancelWhenDownloadCompletes() {
   return st;
 }
 
+/* kosmos#8378: where the stub installer leaves the binary for the path in AGENT_WORKFORCE_CLAUDE_BIN. On Windows a
+   file runs by its extension (runners.runnableExactly asks hasExecutableExt), and the vendor installer leaves
+   `claude.exe` behind the extensionless path the board looks up (MANIFEST.claude.binName is 'claude'), which it finds
+   through runners.pathextCandidates. So the override stays extensionless, as production's path is, and the stub
+   writes `.exe` beside it: the success arms go through the same PATHEXT lookup production does. Off Windows this is the
+   path itself. The bytes are never run (the runner is injected); only presence is asked. */
+const installedAt = (p) => (process.platform === 'win32' ? `${p}.exe` : p);
+
 async function withRelease(t, over = {}, opts = {}) {
   const binary = crypto.randomBytes(opts.bytes || 32 * 1024);
   const checksum = opts.badChecksum
@@ -123,8 +136,8 @@ async function withRelease(t, over = {}, opts = {}) {
   // control asserting `ok === true` cannot pass. Found by that control failing.
   connect.setRunner(opts.runner || ((file, args) => {
     if (args && args[0] === 'install') {
-      fs.writeFileSync(binPath, '#!/bin/sh\nexit 0\n');
-      fs.chmodSync(binPath, 0o755);
+      fs.writeFileSync(installedAt(binPath), '#!/bin/sh\nexit 0\n');
+      fs.chmodSync(installedAt(binPath), 0o755);
     }
     return { ok: true, stdout: '' };
   }));
@@ -363,8 +376,8 @@ test('onPhase announces INSTALLING BEFORE the installer runs, not after', async 
   const res = await withRelease(t, { onPhase: (p) => log.push(`phase:${p}`) }, {
     runner: (file, args) => {
       if (args && args[0] === 'install') log.push('run:install');
-      fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_BIN, '#!/bin/sh\nexit 0\n');
-      fs.chmodSync(process.env.AGENT_WORKFORCE_CLAUDE_BIN, 0o755);
+      fs.writeFileSync(installedAt(process.env.AGENT_WORKFORCE_CLAUDE_BIN), '#!/bin/sh\nexit 0\n');
+      fs.chmodSync(installedAt(process.env.AGENT_WORKFORCE_CLAUDE_BIN), 0o755);
       return { ok: true, stdout: '' };
     },
   });

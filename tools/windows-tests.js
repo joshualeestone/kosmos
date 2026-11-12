@@ -59,6 +59,7 @@ const cp = require('node:child_process');
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
 const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream lifecycle (rename/remove after close)
   'tunnelcommand-8378.test.js',   // #8378: a .js connector stand-in really starts through node on Windows
+  'connect.install-997.test.js',   // kosmos#8378: the Claude install contract on Windows (claude.exe download, .exe runnability)
   // kosmos#8378: the token-only guard's test files. Their sandbox is made outside the home (test-support/tmpscope-outside-home.js),
   // so the arms that hold on Windows run there (#5664 step A among them); each arm about the macOS or Linux guard, POSIX
   // startup files, POSIX path lines, the PATH scan Windows does not build yet or /bin/bash skips with its reason.
