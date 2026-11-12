@@ -161,6 +161,21 @@ test('on Windows the guard says its shell is not sandboxed on every run, so it n
   assert.match(g.because, /its shell is not sandboxed, so it is kept from the token in its file tools only/);
 });
 
+test('on Windows a launch hand-off folder the rules cannot carry is NAMED, not folded into the PATH sentence', () => {
+  // An app folder named "Kosmos (1)": its launch-secrets Read rule cannot be written, and Windows has no sandbox behind it.
+  const appRoot = path.join(SANDBOX, 'Kosmos (1)');
+  fs.mkdirSync(appRoot, { recursive: true });
+  const dir = agentDir('handoff');
+  const g = setup.guardTokenOnlyFolder(dir, 'handoff', { ...DEPS, platform: 'win32', appRoot });
+  assert.equal(g.ok, false);
+  assert.match(g.because, /a folder the guard protects could not be covered \(.*launch-secrets/, 'the hand-off folder went unnamed: ' + g.because);
+  // CONTROL: a plain app folder adds no such part.
+  const plainApp = path.join(SANDBOX, 'KosmosApp');
+  fs.mkdirSync(plainApp, { recursive: true });
+  const g2 = setup.guardTokenOnlyFolder(agentDir('handoff2'), 'handoff2', { ...DEPS, platform: 'win32', appRoot: plainApp });
+  assert.doesNotMatch(g2.because, /a folder the guard protects could not be covered/);
+});
+
 test('what the agent\'s page is told: a board start on Windows records the guard as NOT whole', { skip: NEEDS_WINDOWS }, () => {
   /* A board start keeps only a LAUNCH's PATH part (review 13), and no Windows launch records one, so a PATH part sent
      as pathReason was dropped here and the line read whole (the page then showed the protection as complete). */

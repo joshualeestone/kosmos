@@ -920,7 +920,7 @@ function launchPathDirs(agentDir, deps = {}) {
      refused. Windows coverage is measured and built in the Windows lane (#5516 later part).
      #5664 step A: the rest of the guard is now written on Windows, so this part is NAMED as not covered (the guard then
      says it is not whole) rather than returning nothing, which would read as covered. */
-  if ((deps.platform || process.platform) === 'win32') return { dirs: [], aliases: [], files: [], linkNames: [], unsafe: ['on Windows Kosmos does not cover the folders on this PATH yet'] };
+  if ((deps.platform || process.platform) === 'win32') return { dirs: [], aliases: [], files: [], linkNames: [], unsafe: [WIN_LAUNCH_SENTENCE] };
   const pane = deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH;
   const ownPath = deps.ownPath !== undefined ? deps.ownPath : process.env.PATH;
   const max = deps.linkScanMax || LINK_SCAN_MAX;
@@ -2511,6 +2511,8 @@ const LAUNCH_PATH_REASON = 'the PATH this agent starts with has an entry Kosmos 
 const WIN_SHELL_REASON = 'on Windows its shell is not sandboxed, so it is kept from the token in its file tools only';
 // #5664: the Windows wording of the PATH part (nothing on that PATH was looked at, so it names no entry).
 const WIN_PATH_REASON = 'on Windows Kosmos does not yet cover the programs this agent starts from';
+// #5664: launchPathDirs' own marker on Windows (the page says WIN_PATH_REASON instead; this tells it apart from other entries).
+const WIN_LAUNCH_SENTENCE = 'on Windows Kosmos does not cover the folders on this PATH yet';
 function guardStateDir(deps = {}) { return path.join(deps.dataRoot || store.ROOT, GUARD_STATE_DIR); }
 function guardStateFileFor(agentName, deps) { return path.join(guardStateDir(deps), encodeURIComponent(agentName) + '.json'); }
 // The one test of a usable line (review 8), for the board's read and for the board start's replace alike.
@@ -2902,7 +2904,12 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
        (its PowerShell or Bash can still read the token). Said on every Windows run, so a Windows guard never reads whole
        while that is so: step B (the PATH part) cannot turn the page "complete" by covering the PATH alone. */
     const winShell = plat === 'win32' ? WIN_SHELL_REASON : null;
-    const otherReason = plat === 'win32' ? [winPath ? WIN_PATH_REASON : null, configPart, winShell].filter(Boolean).join('; and ') : configPart;
+    /* Review round 8: launchUnsafe also carries folders the launch rules could not cover that are NOT the PATH (a launch
+       hand-off folder whose path holds a pattern character, such as an app folder "Kosmos (1)"). On Windows there is
+       no sandbox layer behind them, so each is named, never folded into the generic PATH sentence. */
+    const winLaunchOther = plat === 'win32' ? (rules.launchUnsafe || []).filter((e) => e !== WIN_LAUNCH_SENTENCE) : [];
+    const winLaunchPart = winLaunchOther.length ? 'a folder the guard protects could not be covered (' + winLaunchOther.join(', ') + ')' : null;
+    const otherReason = plat === 'win32' ? [winPath ? WIN_PATH_REASON : null, winLaunchPart, configPart, winShell].filter(Boolean).join('; and ') : configPart;
     /* Review 11: whether the PATH is the ONLY reason, said as a flag, so a board start never reads a joined message's
        first words and misses a config reason behind it (guardTokenOnlyFolder). */
     /* Review 13: each part also on its own (pathReason, otherReason, null when absent), so a board start can replace
