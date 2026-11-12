@@ -397,6 +397,62 @@ function prepareChanges(session) {
   } catch { return null; }
 }
 
+/* kosmos#8416: a notice named six sections to re-read when none had changed and one was not in the agent's file. A
+   section is owed when Kosmos rewrites its block, and a rewrite can leave the words as they were (a board-start sweep
+   writes every block), so at delivery each owed section is checked against the file: it is named only when its heading
+   is in the file now and, when Kosmos holds a copy of what the agent last read (#7149), its text differs from that copy.
+   With no copy, a section in the file is named, as before. */
+function headingsOf(section) {
+  if (section === 'rules') {
+    try { return require('./defaults').sections().map((x) => String(x.heading).replace(/^#{1,6}\s+/, '').trim()).filter(Boolean); } catch { return null; }
+  }
+  if (!Object.prototype.hasOwnProperty.call(SECTIONS, section)) return null;
+  const words = section === 'policy' ? policySection() : SECTIONS[section];
+  const titles = [...String(words).matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  return titles.length ? titles : null;
+}
+/* Pure: the text under the heading titled `title` (from its heading line to the next heading of its level or higher,
+   outside fenced code), or null when the text has no such heading. */
+function sectionBody(text, title) {
+  const lines = String(text == null ? '' : text).replace(/\r\n?/g, '\n').split('\n');
+  let fence = null;
+  let level = 0;
+  let out = null;
+  for (const line of lines) {
+    const f = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (f && fence === null) fence = f[1];
+    else if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !f[2].trim()) fence = null;
+    else if (fence === null) {
+      const h = /^(#{1,6}) +(.*?) *#* *$/.exec(line);
+      if (h) {
+        if (out !== null && h[1].length <= level) return out.join('\n');
+        if (out === null && h[2] === title) { level = h[1].length; out = []; continue; }
+      }
+    }
+    if (out !== null) out.push(line);
+  }
+  return out === null ? null : out.join('\n');
+}
+/* Pure: the owed sections worth naming, given the file now and the copy the agent last read (null: no copy). */
+function trueSections(sections, now, before) {
+  return (Array.isArray(sections) ? sections : []).filter((sec) => {
+    const titles = headingsOf(sec);
+    if (!titles) return true;   // no heading to look for: named, as before
+    const nowBodies = titles.map((t) => sectionBody(now, t));
+    if (nowBodies.every((b) => b === null)) return false;   // not in the file at all
+    if (typeof before !== 'string') return true;
+    return titles.some((t, k) => nowBodies[k] !== sectionBody(before, t));
+  });
+}
+/* The default for passOnce's trueSections: null (name them all, as before) when the file cannot be read. */
+function trueSectionsFor(session, sections) {
+  try {
+    const got = require('./instructions').read(session);
+    if (!got || got.exists !== true || typeof got.text !== 'string') return null;
+    return trueSections(sections, got.text, readSeen(session));
+  } catch { return null; }
+}
+
 /* The one line for an agent's debt, naming every section it owes. */
 function lineFor(sections, { communityStopped = false, changesAt = null } = {}) {
   const named = (Array.isArray(sections) ? sections : []).filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
@@ -441,8 +497,9 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
  *   recordSent(s, ms)         recordSent below (optional)   seenMissing  a Set like seenIdle, for agents missing from the roster
  *   stoodDown(s)              replynudge.stoodDown over the projects (optional): true holds the debt
  *   sectionOn(section)        false holds that section (the line names only the others; it stays owed)
+ *   trueSections(s, sections) kosmos#8416: the sections still worth naming (trueSectionsFor); none ends the debt with no line
  *   read()/write(owed)        the debt file (readOwed / writeOwed by default)
- * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'stood-down' | 'section-off' | 'missing' | 'restarted' | 'gone' | 'expired'.
+ * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'stood-down' | 'section-off' | 'missing' | 'restarted' | 'gone' | 'expired' | 'unchanged'.
  */
 async function passOnce(o) {
   const out = [];
@@ -491,9 +548,18 @@ async function passOnce(o) {
       let down = false;
       if (typeof o.stoodDown === 'function') { try { down = o.stoodDown(session) === true; } catch { down = false; } }
       if (down) { out.push({ session, act: 'stood-down' }); continue; }
-      const on = typeof o.sectionOn === 'function' ? debt.sections.filter((sec) => { try { return o.sectionOn(sec) === true; } catch { return false; } }) : debt.sections;
+      /* kosmos#8416: only the sections that are in the file and changed are named; none left ends the debt without a line
+         (the agent's copy is unchanged, so the next notice still diffs against what it read). */
+      let real = debt.sections;
+      if (typeof o.trueSections === 'function') {
+        let got = null;
+        try { got = o.trueSections(session, debt.sections); } catch { got = null; }
+        if (Array.isArray(got)) real = debt.sections.filter((sec) => got.includes(sec));
+      }
+      if (!real.length) { end(session, 'unchanged'); continue; }
+      const on = typeof o.sectionOn === 'function' ? real.filter((sec) => { try { return o.sectionOn(sec) === true; } catch { return false; } }) : real;
       if (!on.length) { out.push({ session, act: 'section-off' }); continue; }
-      const off = debt.sections.filter((sec) => !on.includes(sec));   // stay owed after a line for the others lands
+      const off = real.filter((sec) => !on.includes(sec));   // stay owed after a line for the others lands
       if (!idleNow.has(session) || !seen.has(session)) { out.push({ session, act: 'not-idle' }); continue; }
       let ok = false;
       try { ok = o.allowed() === true; } catch { ok = false; }
@@ -553,4 +619,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { changedLines, prepareChanges, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { trueSections, trueSectionsFor, sectionBody, changedLines, prepareChanges, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };

@@ -773,6 +773,7 @@ function storedProblem(raw) {
 // Max BYTES per paste-buffer chunk. See point 1 above; matches claude-msg's
 // default and stays under its measured 782B clean ceiling.
 const PASTE_CHUNK_BYTES = 256;
+const WORD_BACKOFF = 64;   // kosmos#8416: how far back a chunk looks for a space to end on (chunkUtf8)
 
 // Size-adaptive paste→Enter delay (point 2 above), ported from claude-msg:
 //   delay = min(BASE + PER_KB * kB, MAX)
@@ -821,6 +822,13 @@ function chunkUtf8(str, maxBytes) {
     // at the 256B default — the widest UTF-8 codepoint is 4 bytes). Make
     // progress rather than loop forever.
     if (end === i) end = Math.min(i + max, buf.length);
+    /* kosmos#8416: a cut inside a word read, in a composer that showed the second piece as separate pasted text, as two
+       messages, one starting mid-word. So a chunk ends just after a space when one is within its last WORD_BACKOFF
+       bytes: the pieces reassemble exactly as before, and a split shows whole words on each side. A space is one byte
+       and never a continuation byte, so the cut stays on a character boundary. */
+    if (end < buf.length) {
+      for (let k = end - 1; k > i && k >= end - WORD_BACKOFF; k -= 1) if (buf[k] === 0x20) { end = k + 1; break; }
+    }
     chunks.push(buf.slice(i, end).toString('utf8'));
     i = end;
   }

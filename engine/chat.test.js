@@ -3431,3 +3431,14 @@ test('#4934: acknowledgementOnly lets a post with new facts escape, by a word ou
     assert.equal(chat.acknowledgementOnly(s), false, 'should be content (escape): ' + JSON.stringify(s));
   }
 });
+
+test('kosmos#8416: the daily feedback request is pasted in pieces that end on a space, so a split never cuts a word', () => {
+  const text = require('./feedbacknudge').nudgeText();
+  const chunks = chat.chunkUtf8(text, 256);
+  assert.ok(chunks.length > 1, 'CONTROL: the request fits one chunk, so this test shows nothing');
+  assert.equal(chunks.join(''), text, 'every byte survives, in order');
+  for (const c of chunks.slice(0, -1)) assert.ok(c.endsWith(' '), 'a piece ends mid-word: ' + JSON.stringify(c.slice(-30)));
+  for (const c of chunks) assert.ok(Buffer.byteLength(c, 'utf8') <= 256, 'a piece exceeds the budget');
+  // CONTROL: text with no space near the cut still splits at the byte budget.
+  assert.deepEqual(chat.chunkUtf8('x'.repeat(600), 256).map((c) => c.length), [256, 256, 88]);
+});

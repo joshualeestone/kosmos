@@ -348,3 +348,42 @@ test('review 20: the missing-once mark is not kept for a debt that ended, nor ac
   const later = passArgs({ owed: { zed: debt() }, o: { seenMissing } });
   assert.deepEqual((await ir.passOnce(later.o)).map((x) => x.act), ['missing'], 'a new debt ended as gone after one absence');
 });
+
+/* ---- kosmos#8416: never name a section that is not in the file, or one that did not change ---- */
+const FILE_8416 = ['# You are Ada', '', '## The Kosmos+ community', 'Post at least once a day.', '', '## Who you report to', 'Splinter.',
+  '', '```', '## Your projects', '```', ''].join('\n');   // "Your projects" only inside a code fence: not a section
+
+test('kosmos#8416: trueSections drops a section the file does not have, and one whose text is as the agent last read it', () => {
+  // No copy of what the agent read: a section in the file is named; one not in it (or only inside a code fence) is not.
+  assert.deepEqual(ir.trueSections(['community', 'reports', 'projects', 'language'], FILE_8416, null), ['community', 'reports']);
+  // With the copy: an unchanged section is dropped, a changed one is kept.
+  const changed = FILE_8416.replace('Post at least once a day.', 'Post at least once a week.');
+  assert.deepEqual(ir.trueSections(['community', 'reports'], changed, FILE_8416), ['community'], 'an unchanged section was named');
+  assert.deepEqual(ir.trueSections(['community', 'reports'], FILE_8416, FILE_8416), [], 'CONTROL: nothing changed, nothing named');
+  // A section with no heading to look for is named as before.
+  assert.deepEqual(ir.trueSections(['bogus'], FILE_8416, FILE_8416), ['bogus']);
+});
+
+test('kosmos#8416: a section runs to the next heading of its level or higher, so a change in its subsection counts', () => {
+  const before = ['## How you work, whatever the job', 'intro', '### When you have been wrong', 'old', '## Who you report to', 'Splinter.'].join('\n');
+  const after = before.replace('old', 'new');
+  assert.notEqual(ir.sectionBody(after, 'How you work, whatever the job'), ir.sectionBody(before, 'How you work, whatever the job'));
+  assert.equal(ir.sectionBody(after, 'Who you report to'), ir.sectionBody(before, 'Who you report to'), 'CONTROL: the next section is its own');
+  assert.equal(ir.sectionBody(after, 'Not here'), null);
+});
+
+test('kosmos#8416: passOnce sends no notice when no owed section is real, and names only the real ones otherwise', async () => {
+  const none = passArgs({ owed: { ida: debt(['community', 'reports', 'projects']) }, o: { trueSections: () => [] } });
+  const r = await ir.passOnce(none.o);
+  assert.deepEqual(none.sent, [], 'a notice was sent naming sections that had not changed');
+  assert.deepEqual(r.map((x) => [x.session, x.act]), [['ida', 'unchanged']]);
+  assert.deepEqual(none.file(), {}, 'the debt was kept with nothing real in it');
+  const some = passArgs({ owed: { ida: debt(['community', 'reports', 'projects']) }, o: { trueSections: () => ['reports'] } });
+  await ir.passOnce(some.o);
+  assert.equal(some.sent.length, 1);
+  assert.equal(some.sent[0][1], ir.lineFor(['reports']), 'the notice named sections that had not changed');
+  // CONTROL: a reader that cannot tell (null) names every owed section, as before.
+  const unknown = passArgs({ owed: { ida: debt(['community', 'reports']) }, o: { trueSections: () => null } });
+  await ir.passOnce(unknown.o);
+  assert.equal(unknown.sent[0][1], ir.lineFor(['community', 'reports']));
+});
