@@ -6915,7 +6915,8 @@ function readCodexSession(agentName) {
    this used to return early there, so after a model change a Windows card named the OLD model until the first turn.
    That file also moves on a stop and a start (/Change /DISABLE, /ENABLE, measured), so on Windows a stop or a start
    drops the model too until the next turn: the card then shows the job's planned model, which is the one the next
-   launch runs, so it is a missing reading, never a wrong one. */
+   launch runs. That is wrong only while a session runs a model other than the job's: a saved model change whose
+   restart failed (as on macOS), or a world switch that disabled and re-enabled a task it could not stop. */
 function withoutModelFromBeforeJob(sess, agentName) {
   if (!sess || !sess.found || !sess.model || !sess.file) return sess;
   try {
