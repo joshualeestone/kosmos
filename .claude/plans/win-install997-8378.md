@@ -26,3 +26,9 @@ On macOS and Linux the URL and the stub are exactly as before.
 ## Measured on the Windows box
 Before 4 pass / 16 fail; after 20 / 0. windows-tests-1777 24/24. Policy tests (fixture-discipline, no-name-refs-3071,
 engine.reachable, win32-separator-guard, windows-coupling-audit-1732) pass.
+
+## Review log
+- Round 1 (no blocker, 1 warning). The stub path in AGENT_WORKFORCE_CLAUDE_BIN carried `.exe`, so the board's PATHEXT
+  lookup (runners.pathextCandidates), the one production uses to find `claude.exe` behind the extensionless
+  `~/.local/bin/claude`, never ran. Fixed: the override stays extensionless and the stub installer writes `.exe` beside
+  it (installedAt), so the success arms pass only through that lookup. 20/0 on the box.

@@ -109,6 +109,14 @@ function cancelWhenDownloadCompletes() {
   return st;
 }
 
+/* kosmos#8378: where the stub installer leaves the binary for the path in AGENT_WORKFORCE_CLAUDE_BIN. On Windows a
+   file runs by its extension (runners.runnableExactly asks hasExecutableExt), and the vendor installer leaves
+   `claude.exe` behind the extensionless path the board looks up (MANIFEST.claude.binName is 'claude'), which it finds
+   through runners.pathextCandidates. So the override stays extensionless, as production's path is, and the stub
+   writes `.exe` beside it: the success arms go through the same PATHEXT lookup production does. Off Windows this is the
+   path itself. The bytes are never run (the runner is injected); only presence is asked. */
+const installedAt = (p) => (process.platform === 'win32' ? `${p}.exe` : p);
+
 async function withRelease(t, over = {}, opts = {}) {
   const binary = crypto.randomBytes(opts.bytes || 32 * 1024);
   const checksum = opts.badChecksum
@@ -117,13 +125,7 @@ async function withRelease(t, over = {}, opts = {}) {
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE =
     await serveRelease(t, { version: '9.9.5', binary, checksum },
       { dieMidStream: opts.dieMidStream });
-  /* kosmos#8378: on win32 runnability is the EXTENSION, not the exec bit
-     (runners.runnableExactly asks hasExecutableExt), so an extensionless stub never
-     reads as runnable there and every SUCCESS arm turned into the no-runnable-binary
-     failure. The vendor installer places `claude.exe` on Windows, so the stub does too.
-     The bytes are never executed (the runner is injected); only presence is asked. */
-  const binPath = nodePath.join(SANDBOX,
-    `claude-bin-${crypto.randomBytes(4).toString('hex')}${process.platform === 'win32' ? '.exe' : ''}`);
+  const binPath = nodePath.join(SANDBOX, `claude-bin-${crypto.randomBytes(4).toString('hex')}`);
   process.env.AGENT_WORKFORCE_CLAUDE_BIN = binPath;
   // setRunner BEFORE setDryRun: the module refuses to leave dry-run with no
   // injected runner, which is a guard worth keeping and worth ordering around.
@@ -134,8 +136,8 @@ async function withRelease(t, over = {}, opts = {}) {
   // control asserting `ok === true` cannot pass. Found by that control failing.
   connect.setRunner(opts.runner || ((file, args) => {
     if (args && args[0] === 'install') {
-      fs.writeFileSync(binPath, '#!/bin/sh\nexit 0\n');
-      fs.chmodSync(binPath, 0o755);
+      fs.writeFileSync(installedAt(binPath), '#!/bin/sh\nexit 0\n');
+      fs.chmodSync(installedAt(binPath), 0o755);
     }
     return { ok: true, stdout: '' };
   }));
@@ -374,8 +376,8 @@ test('onPhase announces INSTALLING BEFORE the installer runs, not after', async 
   const res = await withRelease(t, { onPhase: (p) => log.push(`phase:${p}`) }, {
     runner: (file, args) => {
       if (args && args[0] === 'install') log.push('run:install');
-      fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_BIN, '#!/bin/sh\nexit 0\n');
-      fs.chmodSync(process.env.AGENT_WORKFORCE_CLAUDE_BIN, 0o755);
+      fs.writeFileSync(installedAt(process.env.AGENT_WORKFORCE_CLAUDE_BIN), '#!/bin/sh\nexit 0\n');
+      fs.chmodSync(installedAt(process.env.AGENT_WORKFORCE_CLAUDE_BIN), 0o755);
       return { ok: true, stdout: '' };
     },
   });
