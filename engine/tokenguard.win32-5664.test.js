@@ -145,12 +145,20 @@ test('on Windows the guard is written in the //c/ form, with no sandbox block, a
   assert.match(g.because, WIN_PATH);
   // On Windows the PATH part travels as the run's own part (otherReason), never as a launch's pathReason.
   assert.equal(g.pathReason, null);
-  assert.equal(g.otherReason, 'the PATH this agent starts with has an entry Kosmos could not cover (on Windows Kosmos does not cover the folders on this PATH yet)', 'a reason other than the PATH, or the PATH part missing');
+  assert.equal(g.otherReason, 'the PATH this agent starts with has an entry Kosmos could not cover (on Windows Kosmos does not cover the folders on this PATH yet); and on Windows its shell is not sandboxed, so it is kept from the token in its file tools only', 'a reason other than the PATH and the shell, or one of them missing');
   const d = deny(dir);
   assert.ok(d.includes(ruleFor('Read', path.join(fs.realpathSync.native(store.ROOT), 'board.token'))), 'no board.token Read rule in the //c/ form');
   assert.equal(d.filter((r) => /^\w+\(\/\/[A-Za-z]:/.test(r)).length, 0, 'a rule in the native C:\\ form, measured to match nothing');
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'));
   assert.equal(s.sandbox, undefined);
+});
+
+test('on Windows the guard says its shell is not sandboxed on every run, so it never reads whole while that is so (condition 1)', () => {
+  // Any host: platform injected. Even with no PATH part (as if step B covered it), the shell part keeps it not whole.
+  const dir = agentDir('shellsays');
+  const g = setup.guardTokenOnlyFolder(dir, 'shellsays', { ...DEPS, platform: 'win32' });
+  assert.equal(g.ok, false);
+  assert.match(g.because, /its shell is not sandboxed, so it is kept from the token in its file tools only/);
 });
 
 test('what the agent\'s page is told: a board start on Windows records the guard as NOT whole', { skip: NEEDS_WINDOWS }, () => {

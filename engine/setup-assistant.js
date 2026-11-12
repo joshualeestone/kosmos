@@ -450,14 +450,6 @@ function realOrLeafStrict(p) {
     dir = parent;
   }
 }
-/* #5664 step A: on Windows, Claude Code resolves junctions and 8.3 names on the path a tool touches, and a rule on a
-   link's OWN path covers nothing (measured, 2.1.319). So for every Read or Edit rule whose literal part (before its first
-   `*`) reaches a different real path, the same rule on the real path is added beside it. A real path the rules cannot
-   carry, or that is too wide (`tooWide`: a drive root, or a folder holding the home or the agent's own folder, which a
-   deny there would take from the agent's work), is returned in `unsafe` (the guard is then not whole), never written;
-   so is one that cannot be resolved. `real` is realOrLeafStrict, passed in for tests. Only the part before the first `*` is
-   resolved: a link under a glob segment (a world folder reached through a junction, made later) gets no twin.
-   Pure apart from `real`; Windows only (elsewhere the rules are returned as they are). */
 /* The names directly in `dir` that are links (a junction reads as a symbolic link to lstat on Windows); none when it
    cannot be listed. For withRealTwins' glob check; passed in for tests. */
 function linksIn(dir) {
@@ -465,6 +457,15 @@ function linksIn(dir) {
   try { names = fs.readdirSync(dir); } catch { return []; }
   return names.filter((n) => { try { return fs.lstatSync(path.join(dir, n)).isSymbolicLink(); } catch { return false; } });
 }
+/* #5664 step A: on Windows, Claude Code resolves junctions and 8.3 names on the path a tool touches, and a rule on a
+   link's OWN path covers nothing (measured, 2.1.319). So for every Read or Edit rule whose literal part (before its first
+   `*`) reaches a different real path, the same rule on the real path is added beside it. A real path the rules cannot
+   carry, or that is too wide (`tooWide`: a drive root, or a folder holding the home or the agent's own folder, which a
+   deny there would take from the agent's work), is returned in `unsafe` (the guard is then not whole), never written;
+   so is one that cannot be resolved. `real` is realOrLeafStrict, passed in for tests. Only the part before the first `*` is
+   resolved: a link under a glob segment (a world folder reached through a junction, made later) gets no twin.
+   Pure apart from `real` and `links` (a folder listing; both passed in for tests); Windows only (elsewhere the rules are
+   returned as they are). */
 function withRealTwins(rules, platform = process.platform, real = realOrLeafStrict, tooWide = (p) => path.win32.parse(p).root === p, links = linksIn) {
   if (platform !== 'win32') return { rules, unsafe: [], tokenUnsafe: [] };
   const out = [];
@@ -2505,6 +2506,8 @@ const GUARD_STATE_DIR = 'token-only-guard';
 /* The not-whole reason that depends on the PATH the run measured (a launch's pane PATH, or the board's own). Named once,
    where it is said and where a board start tells it apart (review 9). */
 const LAUNCH_PATH_REASON = 'the PATH this agent starts with has an entry Kosmos could not cover';
+// #5664: on Windows Claude Code has no sandbox, so the guard's rules bind its file tools only.
+const WIN_SHELL_REASON = 'on Windows its shell is not sandboxed, so it is kept from the token in its file tools only';
 function guardStateDir(deps = {}) { return path.join(deps.dataRoot || store.ROOT, GUARD_STATE_DIR); }
 function guardStateFileFor(agentName, deps) { return path.join(guardStateDir(deps), encodeURIComponent(agentName) + '.json'); }
 // The one test of a usable line (review 8), for the board's read and for the board start's replace alike.
@@ -2888,7 +2891,11 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
        So on Windows it travels as the board start's own part, which every run measures and records. */
     const winPath = plat === 'win32' && pathPart !== null;
     const pathReason = winPath ? null : pathPart;
-    const otherReason = winPath ? [pathPart, configPart].filter(Boolean).join('; and ') : configPart;
+    /* #5664 condition 1: on Windows the page says what the guard is, file-tool rules only, with the shell not sandboxed
+       (its PowerShell or Bash can still read the token). Said on every Windows run, so a Windows guard never reads whole
+       while that is so: step B (the PATH part) cannot turn the page "complete" by covering the PATH alone. */
+    const winShell = plat === 'win32' ? WIN_SHELL_REASON : null;
+    const otherReason = plat === 'win32' ? [winPath ? pathPart : null, configPart, winShell].filter(Boolean).join('; and ') : configPart;
     /* Review 11: whether the PATH is the ONLY reason, said as a flag, so a board start never reads a joined message's
        first words and misses a config reason behind it (guardTokenOnlyFolder). */
     /* Review 13: each part also on its own (pathReason, otherReason, null when absent), so a board start can replace

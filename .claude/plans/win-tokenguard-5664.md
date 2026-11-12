@@ -78,11 +78,12 @@ match nothing; `( ) { } !` are literal, `[ ]` is a character class.
   making the guard not whole on Windows when step B covers PATH. Would change my mind: step B needing it.
 - `engine/agentevents.js` still treats Windows as never guarded (it reads nothing there): fail-closed, still correct.
 - Native twins are not added to the guard's rules (they never were; withNativeTwins is the guide's).
-- The page does not name the unsandboxed shell (the agent's PowerShell or Bash can still read the token); that is what
-  Linux says too (condition 1: no stronger claim, and no different wording). For step B this matters more: once the
-  PATH part is covered, the Windows page would read "complete" while the shell can read the token, as on Linux. A
-  CONDITION on step B (raised on the card): step B may not make a Windows guard read whole until the page says the
-  shell is not covered, or the shell is.
+- The shell (review round 6, reversing my earlier reading): condition 1 asks the Windows wording to SAY "file tools
+  only, the shell is not sandboxed". Rounds 1 to 5 deferred it as "what Linux says"; that misread the condition. So on
+  Windows every run now names it as a not-whole part ("on Windows its shell is not sandboxed, so it is kept from the
+  token in its file tools only"), and a Windows guard never reads whole while that is so. That also enforces, in code,
+  the condition on step B: covering the PATH alone cannot turn the page "complete". The Linux page is unchanged (out
+  of this card's scope; raised on the card).
 - Twins are read back next time as the person's own rules (`had`), so a twin left after a junction is repointed stays:
   an extra deny, never a lost one.
 
@@ -90,6 +91,12 @@ match nothing; `( ) { } !` are literal, `[ ]` is a character class.
 - The PATH part (step B, #5516 later part): System32 past the scan cap, app execution aliases (the card).
 - Shares, mapped drives, non-NTFS volumes, other Claude Code versions (not measured).
 - Whether `[` can be escaped in a rule.
+- Links reached through a pattern: only token rules check the folders a `*` matches, one level, for links that exist
+  now. A non-token pattern rule (the sibling and import globs, workers/<any>/CLAUDE.md) whose `*` matches a junction,
+  and a world whose nested Kosmos folder (not the world folder) is a junction, are not seen. Existing worlds also get
+  concrete token rules, which are twinned, so this is a residual for folders made later or by hand.
+- A share whose host is one letter (`\\s\share`, written //s/share) reads back as drive S:; if S: does not exist it is
+  treated as a local path, as is a mapped drive disconnected at guard time.
 
 ## Done when
 - On the Windows box: engine/tokenguard.win32-5664 all pass (19 tests); the guard written for a real folder in a sandbox (probe in
