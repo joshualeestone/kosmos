@@ -31,6 +31,16 @@ remote-refusal-5744 0/9 -> 9/0; remote.tlspin-6589 1/11 -> 12/0; remote-typedall
 -> 40/0; and the smaller files to 0 failed. server.test.js: 53 -> 47 failing, the six tunnel tests fixed and no new
 failure by name (compared against origin/main f7968cb7a4). Untouched tunnel-using files unchanged.
 
+## Review round 1
+- The remote.test.js HOST_BRANCH_EXCLUDED entry said four skipped arms; it is five (three read-only folder). Fixed.
+- The Windows CI job did not run the seam test: engine/tunnelcommand-8378.test.js is now in ALSO, with an arm that really
+  starts a tiny .js through tunnelCommand and reads its arguments back (so the seam's purpose is proved on the Windows
+  runner, not only on this box).
+- tunnelcommand.js header names the two .js-only behaviours (a missing .js exits 1 from node rather than ENOENT; a
+  script whose shebang names another runtime runs under this node).
+- win32uninstall.retire-6391.test.js: retirePc with a .js stand-in starts through node (the call site was untested).
+- Not taken: narrowing the #5889 skip to drop only the lowercase proxy twins (a NIT; the sibling no-token test runs).
+
 ## Watch
 - Two #3827 arms in remote.test.js (a failed rename leaves the old certificate beside the new id) failed once in a run
   that shared the machine with server.test.js, and passed in every solo run. They never ran on Windows before; a timing
@@ -40,4 +50,4 @@ failure by name (compared against origin/main f7968cb7a4). Untouched tunnel-usin
 
 ## Done when
 - Every changed file 0 failed on the box (server.test.js: no new failure, six fixed); policy tests green; Mac/Linux CI
-  green; the Windows CI job runs the new seam test.
+  green; the Windows CI job runs the new seam test (ALSO).

@@ -4,6 +4,7 @@
  * stand-in (a path ending in .js or .cjs, any case) runs as this node with the script first; any other path, a real
  * connector binary included, is started exactly as given. Runs on every host.
  */
+require('../test-support/tmpscope');   // this file's temp dirs, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
@@ -31,5 +32,21 @@ test('kosmos#8378: a real connector (no extension, or .exe) is started as given:
     const got = tunnelCommand(bin, ARGS);
     assert.strictEqual(got.file, bin, bin);
     assert.strictEqual(got.args, ARGS, `${bin}: the arguments must be the very array given, not a copy`);
+  }
+});
+
+test('kosmos#8378: a .js stand-in really starts through tunnelCommand and receives its arguments (on Windows too)', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const { execFileSync } = require('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tunnelcmd-8378-'));
+  try {
+    const script = path.join(dir, 'fake-kosmos-tunnel.js');
+    fs.writeFileSync(script, '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));\n');
+    const cmd = tunnelCommand(script, ['capabilities', '--state-dir', 'a b']);
+    const out = execFileSync(cmd.file, cmd.args, { encoding: 'utf8', windowsHide: true });
+    assert.deepStrictEqual(JSON.parse(out), ['capabilities', '--state-dir', 'a b']);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

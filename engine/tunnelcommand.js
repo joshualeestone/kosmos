@@ -12,6 +12,10 @@
  * Windows), and the environment variable already decides which program is run; this only says how a script there is
  * started.
  *
+ * Two behaviours follow, both only for a .js path (which only a test sets): a missing .js file starts node, which exits 1
+ * ("Cannot find module"), where spawning a missing binary gave ENOENT; and a script whose shebang names another runtime
+ * (bun, deno) runs under this node instead.
+ *
  * Kept in its own file, with no other requires, so engine/win32uninstall.js can use it without loading engine/remote.js.
  */
 
