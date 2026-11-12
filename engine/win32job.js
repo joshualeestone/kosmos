@@ -125,7 +125,7 @@ function setRunner(fn) {
   runFn = typeof fn === 'function' ? fn : null;
   TASK_SPEC_CACHE.clear();
   PRESENCE_MEMO.clear();
-  livenessFn = null; nowFn = null; endAliveFn = null;
+  livenessFn = null; nowFn = null;
 }
 
 /* Whether a schtasks call made now would either go to an injected runner or is
@@ -551,18 +551,8 @@ function endedOk(r) {
  * window between the two cannot bring it back).
  */
 function end(name, worldId) {
-  return clearedAfterEnd(name, endedOk(run(['/End', '/TN', taskName(name, worldId)])));
+  return endedOk(run(['/End', '/TN', taskName(name, worldId)]));
 }
-/* kosmos#8410 review 4: /End kills the supervisor before its own clear-on-exit runs, so the state file it kept would
-   outlive the stop and, once its pid was reused, read the stopped agent as "could not check". After an /End that went
-   through, the file is cleared if the process it names is gone (win32streamstate.clearIfGone). Best effort: the stop
-   is what was asked, and a file left behind never turns it into a failure. */
-function clearedAfterEnd(name, result) {
-  if (result && result.ok) { try { require('./win32streamstate').clearIfGone(name, { isAlive: endAliveFn || undefined }); } catch { /* the stop stands */ } }
-  return result;
-}
-let endAliveFn = null;   // test seam for the pid check after /End, cleared with the runner
-function setEndAlive(fn) { endAliveFn = typeof fn === 'function' ? fn : null; }
 /* #6183: `end` as an async step. Yields the schtasks /End to engine/remove.js's run()/runAsync (off the board's
    thread under the async driver) and reads the SAME endedOk parse via the result-shape normalizer. It clears
    PRESENCE_MEMO up front exactly as run() does on a mutating call (the step bypasses run(), so presence() would
@@ -570,7 +560,7 @@ function setEndAlive(fn) { endAliveFn = typeof fn === 'function' ? fn : null; }
 function* endSteps(name, worldId) {
   PRESENCE_MEMO.clear();
   const r = yield { exec: ['schtasks.exe', ['/End', '/TN', taskName(name, worldId)], { timeout: SCHTASKS_TIMEOUT_MS }] };
-  return clearedAfterEnd(name, endedOk(win32StepResult(r)));
+  return endedOk(win32StepResult(r));
 }
 
 /* The parse `start` reads from a schtasks /Run result, shared by the sync `start` and the async `startSteps`. */
@@ -1126,5 +1116,5 @@ module.exports = {
   install, installSteps, disable, enable, end, start, endSteps, startSteps, runningSteps, win32StepResult, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
   cachedTaskSpec, taskEnabled, taskEnabledFromQuery, taskEnabledSteps, csvFields, commandsAreReal, REFUSED_IN_TEST,
   schtasksMayRunInThisProcess,
-  setRunner, setAnchorer, setLiveness, setEndAlive, setRunningClock, setPresenceTtl, PRESENCE_TTL_MS,
+  setRunner, setAnchorer, setLiveness, setRunningClock, setPresenceTtl, PRESENCE_TTL_MS,
 };
