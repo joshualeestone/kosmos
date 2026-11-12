@@ -629,6 +629,13 @@ function plan(name, opts) {
         hint: `Something on this computer still starts ${shown} when you log in.`,
       };
     }
+    /* review 3: the full delete for a removed name gets the checks main gave every Windows task with no folder
+       (kosmos#8471): a recorded folder behind a dead link or on a disk that is not connected, a name waiting to start, a
+       damaged settings file. Its tokens, standing and community account do not come back, so an agent whose folder may
+       only be out of sight is refused, never offered. (The workers-folder refusals above have already run.) */
+    const st = strandedRefusal(clean, shown);
+    if (st.because) return { ok: false, because: st.because };
+    damagedSettings = st.damaged;
   }
   const recordsOnly = Boolean(recs);
 

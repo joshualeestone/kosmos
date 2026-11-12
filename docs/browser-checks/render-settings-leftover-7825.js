@@ -183,6 +183,8 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   const gone = m.rows.find((x) => x.who === 'Gone') || {};
   const stray = m.rows.find((x) => x.who === 'Stray') || {};
   check(gone.restore === true && stray.restore === false, 'mixed: Restore on the removed row only', JSON.stringify(m.rows));
+  // kosmos#8475: a removed row's click can be its files, its settings or only its startup job, so its label claims none.
+  check(gone.delText === 'Delete what is left…' && gone.del === 'gone-7825', 'kosmos#8475: a removed row\'s delete button does not promise files', JSON.stringify(gone));
   check(m.hint === true && m.hintAfterRemoved === 1, 'mixed: the folder hint stays with the removed rows, before the leftovers', String(m.hintAfterRemoved));
 
   const tasked = r.task.rows.find((x) => x.who === 'Tasked') || {};

@@ -16,8 +16,10 @@ workers folder, a renamed workers folder plus one create, a recorded folder on a
   startup job is still set up, but Kosmos cannot find its folder" (true whether the folder was deleted or moved).
 - plan() and del() for a Windows task with no folder: a taskOnly delete that removes ONLY the Scheduled Task. It keeps
   the settings and picture, revokes no tokens, clears no history, retires no community account, resets no standing,
-  records no removal, and asks for no typing. Afterwards the name is a settings-only row whose delete goes to the
-  Recycle Bin. The sentences say exactly that, and how to get the agent back if its folder was only moved (put it back
+  records no removal, and asks for no typing. Afterwards a name whose recorded folder is in the workers folder (or
+  records none) is a settings-only row whose delete can go to the Recycle Bin; a name recording a folder outside the
+  workers folder shows no settings-only row (its folder may only be out of sight), so its settings stay until that
+  folder is back, and the sentences then say only that they stay. The sentences say exactly that, and how to get the agent back if its folder was only moved (put it back
   at the recorded path, Restore it first if removed, then Start at login when Kosmos offers it: register.survey's
   missing list and register.repair, which re-registers the task). Not as it was: a Claude or Codex agent's account
   folder and set model lived only in the task, so it starts on the main account and the model it last ran, and the
@@ -34,10 +36,14 @@ workers folder, a renamed workers folder plus one create, a recorded folder on a
   server.test.js test for startsAtLogin; docs/browser-checks/render-settings-leftover-7825.js asserts the row.
 
 ## Decided, not missed
-- Every Windows task-with-no-folder delete is now taskOnly, including the one reached from a removed agent's row, which
-  used to delete the settings for good after a typed name: plan() knows the name, not the row clicked, and an action
-  taken on an inference that a move can fake must be recoverable. A removed agent's leftover now takes two clicks (the
-  task, then the settings, to the Recycle Bin). Would change my mind: a need for a one-step delete there.
+- A Windows task with no folder gets the taskOnly delete whenever anything of its own is stored (settings or picture),
+  or whenever it is not on the removed list, including from a removed agent's row, which used to delete the settings
+  for good after a typed name: plan() knows the name, not the row clicked, and an action taken on an inference that a
+  move can fake must be recoverable. Such a removed agent's leftover now takes two clicks (the task, then the settings).
+  The one exception: a REMOVED name with nothing of its own stored (none, or only settings another agent's name shares)
+  gets main's full delete in one click (task, tokens, community account, removal record; the name is free), after the
+  same checks main ran (strandedRefusal and the workers-folder refusals); otherwise its name would stay on the removed
+  list for good. Would change my mind: a need for a one-step delete where settings exist.
 - The weakest part: the way back appears only for an agent that has run on this computer (register.survey's hasRun;
   a removed agent keeps only its self-report history, so one that never wrote a report is not offered Start at login);
   the account and model it ran on are lost with the task (saving the account in the profile is carded as #8478);
@@ -63,3 +69,8 @@ New file 10/10 (10/10 fail with main's source; 5/8 with the first commit's). 847
   negative control fails on the round-1 source. (2) The task-only hint no longer promises to free the name, and the
   agent page's button says "Remove its startup job" over a task-only plan (browser check arm added; both gates exit 0).
   (3) Restore's sentence says "Once its folder is back" while the folder is still missing.
+- Round 3 (no blocker; 1 warning, 2 nits), all fixed. (1) REGRESSION vs main: the round-2 full-delete fallback skipped
+  strandedRefusal, so a removed name with a shared stored key and a folder recorded on an unconnected drive was deleted
+  for good where main refused. It now runs strandedRefusal (and keeps damagedSettings) first, as main did; test 11
+  builds that case (negative control fails on the round-2 source). (2) A removed agent's own row button says "Delete
+  what is left..." (it cannot know the act until the plan is fetched). (3) The plan's two inexact sentences corrected.

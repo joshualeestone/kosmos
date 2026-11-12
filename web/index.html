@@ -53134,9 +53134,10 @@ async function paintRemoved() {
         + ' data-shown-as="' + esc(a.shownAs || a.name) + '">Restore</button>')
     /* #514: the way through for a removed agent whose name is still taken.
        The plan is fetched on the click, so a row never promises a delete
-       the engine would refuse. */
+       the engine would refuse. kosmos#8475: and the row cannot know which act that is (its files, its settings alone, or
+       only its startup job when its folder is not found), so the label is the neutral one the dialog then makes exact. */
     + '<button class="btn danger-btn" type="button" data-delete-leftover="' + esc(a.name) + '"'
-    + ' data-shown-as="' + esc(a.shownAs || a.name) + '">Delete its files…</button></div>'
+    + ' data-shown-as="' + esc(a.shownAs || a.name) + '">Delete what is left…</button></div>'
     + '</div>').join('')
     /* the hint rides INSIDE the list so it shows exactly when the rows do;
        it restates what makes the light Remove confirmation honest */

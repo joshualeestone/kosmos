@@ -419,3 +419,33 @@ test('kosmos#8475 review 2: a listed, NOT removed agent whose stored name anothe
   markRemoved(name);
   assert.ok(!win.plan(name).taskOnly, 'CONTROL: a removed name sharing its stored key no longer gets the full delete');
 });
+
+test('kosmos#8475 review 3: the full delete of a removed name keeps main checks: a recorded folder out of sight refuses', { skip: process.platform !== 'win32' ? 'a drive letter that is not connected is a Windows path' : false }, () => {
+  /* Removed plum8475, a plum.8475 folder beside it (so nothing of its own reads as stored), and its profile recording a
+     folder on a drive that is not connected. The full delete cannot be undone (tokens, standing, community account), so
+     it is refused as main refused it, never offered with "Nothing you can lose". */
+  const free = 'QRSTUVWXYZ'.split('').reverse().find((l) => !fs.existsSync(`${l}:\\`));
+  assert.ok(free, 'no free drive letter on this computer for the fixture');
+  const name = 'plum8475';
+  made.push(name, 'plum.8475');
+  store.writeProfile(name, { displayName: name, dir: `${free}:\\plum8475` });
+  fs.mkdirSync(nodePath.join(WORKERS, 'plum.8475'), { recursive: true });
+  tasks.add(win32job.taskName(name));
+  sendertoken.mint(name);
+  markRemoved(name);
+  const p = win.plan(name);
+  assert.equal(p.ok, false, 'the full delete was offered for an agent whose folder may only be on a disk that is not connected: ' + JSON.stringify(p));
+  assert.match(p.because, /^plum8475's folder is not there now and is not where Kosmos keeps agents\. It may be on a disk or a shared folder that is not connected/);
+  const done = win.del(name);
+  assert.equal(done.outcome, leftover.OUTCOME.REFUSED);
+  assert.ok(tasks.has(win32job.taskName(name)) && sendertoken.holdsTokens(name) && removedNow().includes(name), 'something went although the delete was refused');
+  // The workers-folder refusals run in this arm too.
+  store.writeProfile(name, { dir: null });
+  const kept = WORKERS + '-away3';
+  fs.renameSync(WORKERS, kept);
+  try { assert.equal(win.plan(name).ok, false, 'offered while the whole workers folder is missing'); } finally { fs.renameSync(kept, WORKERS); }
+  // CONTROL: with no recorded folder and the workers folder there, the same removed name gets the one-click full delete.
+  const ctl = win.plan(name);
+  assert.equal(ctl.ok, true, 'CONTROL: ' + ctl.because);
+  assert.ok(!ctl.taskOnly, 'CONTROL: the removed name with nothing of its own stored no longer gets the full delete');
+});
