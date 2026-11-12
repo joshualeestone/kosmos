@@ -45,3 +45,7 @@ Before 17 pass / 16 fail; after 31 / 0 / 2 skip. The other runners files are unc
   extension. Nits fixed: the tarball comment names runners.tarBin, two assertion messages say "the tree" on Windows, an
   apostrophe. Noted, not changed: the claude link tests (pinned to darwin) make symlinks, which a non-admin Windows
   laptop without Developer Mode refuses; GitHub's runner is admin.
+- Round 2 (no blockers, 1 warning, 2 nits). Fixed: the mid-prove join's second install passes a download that throws
+  (on Windows the tree reads absent mid-prove, so a broken join would have fetched from npm); the Windows prove-failure
+  arm also checks the verified marker is absent and the runner reads absent (the marker, not the tree's removal, is the
+  real guard there); cleanup uses test-support/remove-tree.js, which retries while Windows holds a fresh .exe.

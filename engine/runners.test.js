@@ -7,6 +7,7 @@ const nodePath = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { writeRunnerStub } = require('../test-support/runnerstub');
+const { removeTree } = require('../test-support/remove-tree');   // kosmos#8378: Windows may briefly hold a freshly written .exe
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
 
 /* Sandbox EVERY root this module writes or reads before requiring it: the
@@ -34,7 +35,7 @@ const realInstall = runners.install;
 // The CPU too: the darwin openai pin is arm64, so on an x64 runner an unpinned test would stop at the arch guard.
 runners.install = (provider, o) => realInstall(provider, { platform: 'darwin', arch: 'arm64', ...(o || {}) });
 
-test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+test.after(() => { removeTree(SANDBOX); });
 
 /* kosmos#8378: on Windows a file runs by its extension (PATHEXT), not by an exec bit, so a runner stand-in there
    carries one (codex.exe, the name the Windows build has). The Mac and Linux names are unchanged (EXE is empty). */
@@ -260,6 +261,12 @@ test('#979: a runner that does not run is failed at the prove step, never report
   assert.match(job.because, /did not run/);
   assert.equal(fs.existsSync(MANAGED), false,
     'a failed prove must take the symlink (on Windows, the tree) down, or a broken runner reads as present');
+  if (WIN) {
+    /* kosmos#8378: on Windows what keeps a failed runner absent is its verified marker (runners.js writes it only after
+       the prove), not the tree's removal alone; so the marker must be missing, and the runner must read absent. */
+    assert.equal(fs.existsSync(runners.verifiedMarker('win32', 'openai')), false, 'a failed prove left a verified marker');
+    assert.equal(runners.resolveBin('openai', { legacyBin: LEGACY }).present, false, 'a failed runner reads present');
+  }
 });
 
 test('#979: a download failure fails the job with the reason, not a hang or a lie', async () => {
@@ -422,7 +429,9 @@ test('#979: a Confirm during the proving window joins the live job, never a synt
   // And status() does not call it present in that window: both screens poll `present`
   // to move on to the key step, and --version may still fail.
   assert.equal(runners.status().openai.present, false, 'a runner mid-prove must not read present');
-  const second = installCodex({ legacyBin: LEGACY });
+  /* kosmos#8378: on Windows the tree reads absent mid-prove (its verified marker is not written yet), so a broken join
+     would start a real download; this one fails instead. */
+  const second = installCodex({ legacyBin: LEGACY, download: () => { throw new Error('a mid-prove join must not download'); } });
   assert.equal(second, first, 'mid-prove presence must not mint a synthetic installed');
   releaseProve();
   await first.settled;
