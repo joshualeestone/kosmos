@@ -407,3 +407,128 @@ test('review 15: making a new agent that reuses a name forgets the old copy (cre
   const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
   assert.match(src, /require\('\.\/instructionreread'\)\.forget\(name\)/);
 });
+
+/* ---- kosmos#8416 review 1 ---- */
+const P = require('./projects');
+const policyFile = (rule) => ['# You are Ada', '', P.POLICY_START, "## Your company's AI policy", 'Use only approved tools.', '', '## Data handling', rule, P.POLICY_END, '',
+  '## Who you report to', 'Splinter.', ''].join('\n');
+
+test('kosmos#8416: a heading inside a block (a company policy\'s own ## line) does not end it, so a change below it is named', () => {
+  const before = policyFile('Keep customer data in the office.');
+  const after = policyFile('Never upload customer data.');
+  const m = { policy: ir.printOf(before, 'policy') };
+  assert.deepEqual(ir.trueSections(['policy'], after, m), ['policy'], 'a policy change under its own heading went unnamed');
+  assert.deepEqual(ir.trueSections(['policy'], before, m), [], 'CONTROL: the same policy is not named');
+  // A person's own heading of the same name, outside the block, never stands in for it.
+  const mine = (rule) => ['## Your projects', 'my own notes', '', P.BLOCK_START, '## Your projects', rule, P.BLOCK_END, ''].join('\n');
+  assert.deepEqual(ir.trueSections(['projects'], mine('task 2'), { projects: ir.printOf(mine('task 1'), 'projects') }), ['projects'], 'the person\'s own heading hid the block');
+});
+
+test('kosmos#8416: trueSectionsFor reads the agent\'s file and the marks of what it was told; a session start marks it all', () => {
+  agentFile('tia', AFTER);
+  assert.deepEqual(ir.trueSectionsFor('tia', ['community', 'reports']), ['community', 'reports'], 'CONTROL: never marked, both are named');
+  assert.equal(ir.rememberRead('tia'), true);
+  assert.deepEqual(ir.trueSectionsFor('tia', ['community', 'reports']), [], 'an unchanged file still named sections');
+  assert.equal(ir.markRead('tia', ['community'], BEFORE), true);
+  assert.deepEqual(ir.trueSectionsFor('tia', ['community', 'reports']), ['community'], 'the changed section was not named');
+  ir.forget('tia');
+  assert.equal(ir.readMarks().tia, undefined, 'forget left the marks');
+  assert.equal(ir.trueSectionsFor('nobody-8416', ['community']), null, 'CONTROL: no file reads as cannot tell');
+});
+
+test('kosmos#8416: a section owed again while the pass ran keeps the copy from moving past it', async () => {
+  let file = { ida: { at: T, last: T, n: 1, sections: ['community'] } };
+  const remembered = [];
+  const o = {
+    roster: () => CARDS, isIdle: () => true, seenIdle: new Set(['ida']), now: T + 1000, history: () => [], allowed: () => true, DELIVERY: D,
+    read: () => file, write: (x) => { file = x; return true; },
+    // During the send, another write owes ida a new section (its n moves on).
+    deliver: async () => { file = ir.owe(file, 'ida', 'projects', T + 2000); return { state: D.PLACED }; },
+    prepareChanges: () => ({ text: 'the file now', path: null }), remember: (s, t) => { remembered.push([s, t]); return true; },
+  };
+  await ir.passOnce(o);
+  assert.deepEqual(remembered, [], 'the copy moved past a section the line did not name');
+  assert.ok(file.ida && file.ida.sections.includes('projects'), 'the newly owed section was lost');
+  // CONTROL: with nothing owed meanwhile, the copy moves on as before.
+  file = { ida: { at: T, last: T, n: 1, sections: ['community'] } };
+  o.deliver = async () => ({ state: D.PLACED });
+  await ir.passOnce(o);
+  assert.deepEqual(remembered, [['ida', 'the file now']]);
+});
+
+test('kosmos#8416: the board pass is handed trueSections (read as source)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /trueSections: \(session, sections\) => ir\.trueSectionsFor\(session, sections\),/);
+  assert.match(src, /markRead: \(session, sections, text\) => ir\.markRead\(session, sections, text\),/);
+  assert.match(src, /forgetMarks: \(session, sections\) => ir\.forgetMarks\(session, sections\),/);
+  assert.match(src, /else if \(body\.state === 'started'\) \{ try \{ require\('\.\/engine\/instructionreread'\)\.forgetMarks\(who\);/, 'an unrecorded start keeps the old marks');
+  assert.match(src, /readText: \(session\) => \{ const g = require\('\.\/engine\/instructions'\)\.read\(session\);/);
+  assert.match(src, /\['sent', 'restarted', 'gone', 'expired', 'unchanged'\]\.includes\(d\.act\)/, 'a debt ended as unchanged leaves no log line');
+});
+
+test('kosmos#8416: every section Kosmos can owe has its own block markers, so none can read as missing for a renamed heading', () => {
+  const P2 = require('./projects');
+  const names = { projects: 'BLOCK', you: 'YOU', reports: 'REPORTS', connections: 'CONNECTIONS', dmfiles: 'DMFILES', policy: 'POLICY', rules: 'DOCTRINE', community: 'COMMUNITY', language: 'LANGUAGE' };
+  for (const sec of Object.keys(ir.SECTIONS)) {
+    assert.ok(names[sec], 'a section with no marker pair named here: ' + sec);
+    const file = P2[names[sec] + '_START'] + '\nx\n' + P2[names[sec] + '_END'] + '\n';
+    const p = ir.printOf(file, sec);
+    assert.ok(typeof p === 'string' && p !== 'unknown', sec + ' is not found by its markers');
+  }
+});
+
+test('kosmos#8416: a section gone from the file loses its mark, so it is named when it comes back with the same words', () => {
+  agentFile('rho', BEFORE);
+  assert.equal(ir.rememberRead('rho'), true);
+  assert.deepEqual(ir.trueSectionsFor('rho', ['community']), [], 'CONTROL: unchanged');
+  agentFile('rho', BEFORE.replace(/## The Kosmos\+ community\n[^#]*/, ''));
+  assert.deepEqual(ir.trueSectionsFor('rho', ['community']), [], 'a section not in the file was named');
+  agentFile('rho', BEFORE);
+  assert.deepEqual(ir.trueSectionsFor('rho', ['community']), ['community'], 'a section that came back was not named');
+  ir.forget('rho');
+});
+
+test('kosmos#8416: a change the agent may have read, then undone, is named (unknown is no mark)', () => {
+  // T0 read at the start. A line about T1 lands unconfirmed: passOnce drops the mark. The block goes back to T0.
+  agentFile('kay', BEFORE);
+  assert.equal(ir.rememberRead('kay'), true);
+  ir.forgetMarks('kay', ['community']);
+  assert.deepEqual(ir.trueSectionsFor('kay', ['community', 'reports']), ['community'], 'the undone change went unnamed');
+  ir.forget('kay');
+});
+
+test('kosmos#8416: a session start that cannot read the file drops the old marks', () => {
+  agentFile('lee', BEFORE);
+  assert.equal(ir.rememberRead('lee'), true);
+  assert.ok(ir.readMarks().lee && ir.readMarks().lee.community, 'CONTROL: the start marked it');
+  fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'lee'), { recursive: true, force: true });
+  assert.equal(ir.rememberRead('lee'), false);
+  assert.equal(ir.readMarks().lee, undefined, 'the previous session\'s marks survived a start that read nothing');
+});
+
+test('kosmos#8416: a damaged second marker pair (dmfiles) cannot be told, so it is named', () => {
+  const P3 = require('./projects');
+  const file = [P3.DMFILES_START, '## Where to save files you make for the person', 'x', P3.DMFILES_END, P3.DMFILES_TOP_START, 'top, no end', ''].join('\n');
+  assert.equal(ir.printOf(file, 'dmfiles'), 'unknown');
+});
+
+test('kosmos#8416: a marks file that cannot be read is deleted by forgetMarks, so no old mark survives', () => {
+  agentFile('mae', BEFORE);
+  assert.equal(ir.rememberRead('mae'), true);
+  const f = path.join(require('./store').ROOT, 'instruction-reread-marks.json');
+  fs.writeFileSync(f, '{not json');
+  ir.forgetMarks('mae', ['community']);
+  assert.equal(fs.existsSync(f), false, 'an unreadable marks file was left in place');
+  assert.deepEqual(ir.trueSectionsFor('mae', ['community']), ['community'], 'CONTROL: with no marks it is named');
+  ir.forget('mae');
+});
+
+test('kosmos#8416: a file with no Kosmos block and none of its sections (empty or half-written) cannot be told', () => {
+  agentFile('ned2', '');
+  assert.equal(ir.trueSectionsFor('ned2', ['community', 'reports']), null);
+  agentFile('ned2', '# You are Ned\n');
+  assert.equal(ir.trueSectionsFor('ned2', ['community']), null);
+  agentFile('ned2', require('./projects').BLOCK_START + '\nx\n' + require('./projects').BLOCK_END + '\n');
+  assert.deepEqual(ir.trueSectionsFor('ned2', ['community']), [], 'CONTROL: a file with Kosmos blocks but not this one does not have it');
+  ir.forget('ned2');
+});

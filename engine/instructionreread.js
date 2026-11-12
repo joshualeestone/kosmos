@@ -244,17 +244,20 @@ function dropChanges(session) {
 function rememberRead(session) {
   // Review 4: a copy that cannot be renewed here is dropped, so the next notice is as before rather than diffed
   // against something older than what the agent just read.
-  const dropCopy = () => { const p = seenFile(session); if (p) { try { fs.unlinkSync(p); } catch { /* none kept */ } } return false; };
+  const dropCopy = () => { const p = seenFile(session); if (p) { try { fs.unlinkSync(p); } catch { /* none kept */ } } forgetMarks(session); return false; };
   try {
     dropChanges(session);
     const got = require('./instructions').read(session);
     if (!(got && got.exists === true && typeof got.text === 'string')) return dropCopy();
+    // kosmos#8416: it read every section just now; marks that could not be saved are dropped, never left old.
+    if (!markRead(session, Object.keys(SECTIONS), got.text)) forgetMarks(session);
     return remember(session, got.text) || dropCopy();
   } catch { return dropCopy(); }
 }
 /* The agent's files are deleted (engine/delete-leftover.js): its copy and changes file go with them (review 2). */
 function forget(session) {
   dropChanges(session);
+  forgetMarks(session);
   const p = seenFile(session);
   if (p) { try { fs.unlinkSync(p); } catch { /* none kept */ } }
 }
@@ -397,6 +400,176 @@ function prepareChanges(session) {
   } catch { return null; }
 }
 
+/* kosmos#8416: a notice named six sections to re-read when none had changed and one was not in the agent's file. A
+   section is owed when Kosmos rewrites its block, and a rewrite can leave the words as they were (a board-start sweep
+   writes every block), so at delivery each owed section is checked against the file (trueSections, below): it is named
+   only when it is in the file now and its fingerprint differs from the mark of what the agent was last told about it. */
+function headingsOf(section) {
+  if (section === 'rules') {
+    try { return require('./defaults').sections().map((x) => String(x.heading).replace(/^#{1,6}\s+/, '').trim()).filter(Boolean); } catch { return null; }
+  }
+  if (!Object.prototype.hasOwnProperty.call(SECTIONS, section)) return null;
+  const words = section === 'policy' ? policySection() : SECTIONS[section];
+  const titles = [...String(words).matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  return titles.length ? titles : null;
+}
+/* Pure: the text under the heading titled `title` (from its heading line to the next heading of its level or higher,
+   outside fenced code), or null when the text has no such heading. */
+function sectionBody(text, title) {
+  const lines = String(text == null ? '' : text).replace(/\r\n?/g, '\n').split('\n');
+  let fence = null;
+  let level = 0;
+  let out = null;
+  for (const line of lines) {
+    const f = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (f && fence === null) fence = f[1];
+    else if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !f[2].trim()) fence = null;
+    else if (fence === null) {
+      const h = /^(#{1,6}) +(.*?) *#* *$/.exec(line);
+      if (h) {
+        if (out !== null && h[1].length <= level) return out.join('\n');
+        if (out === null && h[2] === title) { level = h[1].length; out = []; continue; }
+      }
+    }
+    if (out !== null) out.push(line);
+  }
+  return out === null ? null : out.join('\n');
+}
+/* Each section's own block markers (engine/projects.js), so a heading the person or company wrote inside a
+   block (an AI policy's "## Data handling", an About-you answer) never ends it early, and a heading of the same name
+   elsewhere in the file never stands in for it. */
+function markersOf(section) {
+  const p = require('./projects');
+  const pairs = {
+    projects: [[p.BLOCK_START, p.BLOCK_END]], you: [[p.YOU_START, p.YOU_END]], reports: [[p.REPORTS_START, p.REPORTS_END]],
+    connections: [[p.CONNECTIONS_START, p.CONNECTIONS_END]], dmfiles: [[p.DMFILES_START, p.DMFILES_END], [p.DMFILES_TOP_START, p.DMFILES_TOP_END]],
+    policy: [[p.POLICY_START, p.POLICY_END]], rules: [[p.DOCTRINE_START, p.DOCTRINE_END]], community: [[p.COMMUNITY_START, p.COMMUNITY_END]],
+    language: [[p.LANGUAGE_START, p.LANGUAGE_END]],
+  }[section];
+  return Array.isArray(pairs) && pairs.every((x) => typeof x[0] === 'string' && x[0] && typeof x[1] === 'string' && x[1]) ? pairs : null;
+}
+/* The section's block text in `text`: { found: text } when its markers pair, { ambiguous: true } when they cannot be
+   paired safely (projects.findBlock refuses), or null when the file has none of them. */
+function blockOf(text, section) {
+  const pairs = markersOf(section);
+  if (!pairs) return null;
+  const find = require('./projects').findBlock;
+  const parts = [];
+  const t = String(text == null ? '' : text);
+  for (const [a, b] of pairs) {
+    const got = find(t, a, b);
+    if (got && got.ambiguous) return { ambiguous: true };
+    if (got) parts.push(t.slice(got.start, got.end));
+    // A pair with a lone marker is a damaged part of the block (dmfiles has two pairs): it cannot be told.
+    else if (t.includes(a) || t.includes(b)) return { ambiguous: true };
+  }
+  return parts.length ? { found: parts.join('\n') } : null;
+}
+/* A section's fingerprint in `text` (pure but for the heading names, read from defaults and the policy kind): a hash of its block (or, with no markers for it, of the text under its
+   heading), null when the file does not have it, or 'unknown' when it cannot be told (markers that do not pair). */
+function printOf(text, sec) {
+  const hash = (t) => require('node:crypto').createHash('sha256').update(String(t).replace(/\r\n?/g, '\n')).digest('hex').slice(0, 16);
+  let block = null;
+  try { block = blockOf(text, sec); } catch { return 'unknown'; }
+  if (block && block.ambiguous) return 'unknown';
+  if (block) return hash(block.found);
+  // A backstop (blockOf already answers ambiguous for a lone marker): one of its markers with no pair is a damaged
+  // block, not a missing one.
+  const pairs = markersOf(sec) || [];
+  if (pairs.some(([a, b]) => String(text).includes(a) || String(text).includes(b))) return 'unknown';
+  const titles = headingsOf(sec);
+  if (!titles) return 'unknown';
+  // A heading written twice (the person's own and Kosmos's, with no markers) cannot tell which is which.
+  if (titles.some((t) => headingCount(text, t) > 1)) return 'unknown';
+  const bodies = titles.map((t) => sectionBody(text, t));
+  return bodies.every((b) => b === null) ? null : hash(titles.map((t, k) => t + '\n' + (bodies[k] === null ? '' : bodies[k])).join('\n'));
+}
+/* Pure: how many times a heading titled `title` appears outside fenced code. */
+function headingCount(text, title) {
+  let n = 0;
+  let fence = null;
+  for (const line of String(text == null ? '' : text).replace(/\r\n?/g, '\n').split('\n')) {
+    const f = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (f && fence === null) fence = f[1];
+    else if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !f[2].trim()) fence = null;
+    else if (fence === null) { const h = /^(#{1,6}) +(.*?) *#* *$/.exec(line); if (h && h[2] === title) n += 1; }
+  }
+  return n;
+}
+/* The owed sections worth naming (pure but for printOf's heading names), given the file now and the fingerprints of what the agent was last told (marks:
+   { section: print }, or null when Kosmos holds none for it). The marks move only for a section the agent was
+   told about (or read whole at a session start), so a block rewritten after a line landed, and owed later, still differs
+   from its mark. A section not in the file now is not named: a block Kosmos removed owes nothing (oweEach's rule, there
+   is no section left to read; the agent drops it at its next start). */
+function trueSections(sections, now, marks) {
+  return (Array.isArray(sections) ? sections : []).filter((sec) => {
+    const p = printOf(now, sec);
+    if (p === 'unknown') return true;   // cannot tell: named, as before
+    if (p === null) return false;       // not in the file
+    if (!marks || typeof marks !== 'object' || typeof marks[sec] !== 'string') return true;   // never marked: named
+    return marks[sec] !== p;
+  });
+}
+function marksFile() { return path.join(require('./store').ROOT, 'instruction-reread-marks.json'); }
+function readMarks() {
+  try {
+    const d = JSON.parse(fs.readFileSync(marksFile(), 'utf8'));
+    return d && typeof d === 'object' && !Array.isArray(d) ? d : {};
+  } catch { return {}; }
+}
+function writeMarks(all) {
+  try { require('./store').saveFlushed(marksFile(), JSON.stringify(all) + '\n'); return true; } catch { return false; }
+}
+/* The agent was just told about `sections` (or read its whole file): their marks become their prints in `text`. A
+   section not in the text loses its mark. Never throws. */
+function markRead(session, sections, text) {
+  try {
+    if (!session || typeof text !== 'string') return false;
+    const all = readMarks();
+    const cur = all[session] && typeof all[session] === 'object' ? { ...all[session] } : {};
+    for (const sec of Array.isArray(sections) ? sections : []) {
+      if (!Object.prototype.hasOwnProperty.call(SECTIONS, sec)) continue;
+      const p = printOf(text, sec);
+      if (typeof p === 'string' && p !== 'unknown') cur[sec] = p; else delete cur[sec];
+    }
+    all[session] = cur;
+    return writeMarks(all);
+  } catch { return false; }
+}
+/* Drop the marks of `sections` (every section when none are given). Not knowing what the agent read is no mark, never
+   an old one: an old mark can equal the file again later (a change undone), and that change would go unnamed. */
+function forgetMarks(session, sections) {
+  // When the file cannot be read or written, every mark goes (the whole file): more notices, never a hidden change.
+  const dropAll = () => { try { fs.unlinkSync(marksFile()); } catch { /* none there, or the disk refuses everything */ } };
+  try {
+    let all;
+    try { all = JSON.parse(fs.readFileSync(marksFile(), 'utf8')); } catch (e) { if (e && e.code === 'ENOENT') return; dropAll(); return; }
+    if (!all || typeof all !== 'object' || Array.isArray(all)) { dropAll(); return; }
+    if (!all[session]) return;
+    if (Array.isArray(sections)) { const cur = { ...all[session] }; for (const sec of sections) delete cur[sec]; all[session] = cur; }
+    else delete all[session];
+    if (!writeMarks(all)) dropAll();
+  } catch { dropAll(); }
+}
+/* The default for passOnce's trueSections: null (name them all, as before) when the file cannot be read. */
+function trueSectionsFor(session, sections) {
+  try {
+    const got = require('./instructions').read(session);
+    if (!got || got.exists !== true || typeof got.text !== 'string') return null;
+    // A file with no Kosmos block and none of the sections Kosmos writes is empty or half-written: it cannot be told.
+    if (!got.text.includes('<!-- kosmos:') && Object.keys(SECTIONS).every((sec) => printOf(got.text, sec) === null)) return null;
+    const all = readMarks();
+    const marks = all[session] || null;
+    const out = trueSections(sections, got.text, marks);
+    /* A section gone from the file loses its mark, so if it comes back with the same words it is named then. */
+    if (marks) {
+      const gone = (Array.isArray(sections) ? sections : []).filter((sec) => typeof marks[sec] === 'string' && printOf(got.text, sec) === null);
+      if (gone.length) { const cur = { ...marks }; for (const sec of gone) delete cur[sec]; all[session] = cur; writeMarks(all); }
+    }
+    return out;
+  } catch { return null; }
+}
+
 /* The one line for an agent's debt, naming every section it owes. */
 function lineFor(sections, { communityStopped = false, changesAt = null } = {}) {
   const named = (Array.isArray(sections) ? sections : []).filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
@@ -441,8 +614,11 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
  *   recordSent(s, ms)         recordSent below (optional)   seenMissing  a Set like seenIdle, for agents missing from the roster
  *   stoodDown(s)              replynudge.stoodDown over the projects (optional): true holds the debt
  *   sectionOn(section)        false holds that section (the line names only the others; it stays owed)
+ *   trueSections(s, sections) kosmos#8416: the sections still worth naming (trueSectionsFor); none ends the debt with no line
+ *   markRead(s, sections, text) / readText(s) / forgetMarks(s, sections)   kosmos#8416: a PLACED line moves the named
+ *                             sections' marks; an unconfirmed one drops them
  *   read()/write(owed)        the debt file (readOwed / writeOwed by default)
- * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'stood-down' | 'section-off' | 'missing' | 'restarted' | 'gone' | 'expired'.
+ * Returns [{ session, act }] for the log: 'sent' | 'kept' | 'not-idle' | 'stood-down' | 'section-off' | 'missing' | 'restarted' | 'gone' | 'expired' | 'unchanged'.
  */
 async function passOnce(o) {
   const out = [];
@@ -491,9 +667,18 @@ async function passOnce(o) {
       let down = false;
       if (typeof o.stoodDown === 'function') { try { down = o.stoodDown(session) === true; } catch { down = false; } }
       if (down) { out.push({ session, act: 'stood-down' }); continue; }
-      const on = typeof o.sectionOn === 'function' ? debt.sections.filter((sec) => { try { return o.sectionOn(sec) === true; } catch { return false; } }) : debt.sections;
+      /* kosmos#8416: only the sections that are in the file and changed are named; none left ends the debt without a line
+         (the agent's copy is unchanged, so the next notice still diffs against what it read). */
+      let real = debt.sections;
+      if (typeof o.trueSections === 'function') {
+        let got = null;
+        try { got = o.trueSections(session, debt.sections); } catch { got = null; }
+        if (Array.isArray(got)) real = debt.sections.filter((sec) => got.includes(sec));
+      }
+      if (!real.length) { end(session, 'unchanged'); continue; }
+      const on = typeof o.sectionOn === 'function' ? real.filter((sec) => { try { return o.sectionOn(sec) === true; } catch { return false; } }) : real;
       if (!on.length) { out.push({ session, act: 'section-off' }); continue; }
-      const off = debt.sections.filter((sec) => !on.includes(sec));   // stay owed after a line for the others lands
+      const off = real.filter((sec) => !on.includes(sec));   // stay owed after a line for the others lands
       if (!idleNow.has(session) || !seen.has(session)) { out.push({ session, act: 'not-idle' }); continue; }
       let ok = false;
       try { ok = o.allowed() === true; } catch { ok = false; }
@@ -514,6 +699,11 @@ async function passOnce(o) {
       // Review 3: a line that names no changes file leaves none behind (a held section, or prepareChanges not reached).
       if (!(prepared && prepared.path) && typeof o.dropChanges === 'function') { try { o.dropChanges(session); } catch { /* the next start removes it */ } }
       const line = lineFor(on, { communityStopped: stoppedNow, changesAt: prepared && prepared.path });
+      /* kosmos#8416: the text the line is about, read before it is typed, so a block rewritten while it is sent keeps
+         its old mark and is named when it is owed. */
+      let toldText = prepared && typeof prepared.text === 'string' ? prepared.text : null;
+      const toldAt = Date.now();   // a session start after this marked everything from a newer file
+      if (toldText === null && typeof o.readText === 'function') { try { const t = o.readText(session); toldText = typeof t === 'string' ? t : null; } catch { toldText = null; } }
       tried += 1;
       const sentAt = Date.now();   // before the send: the agent's own report of the turn can land before deliver returns
       let v = null;
@@ -533,8 +723,26 @@ async function passOnce(o) {
         end(session, 'sent');
         if (off.length) keep[session] = { at: debt.at, last: debt.last, n: 1, sections: off };
         if (typeof o.recordSent === 'function') { try { o.recordSent(session, sentAt); } catch { /* only the turn's label is lost */ } }
-        // kosmos#7149: the agent reads the file now, so this is what it last read (the next diff starts here).
-        if (prepared && typeof prepared.text === 'string' && typeof o.remember === 'function') { try { o.remember(session, prepared.text); } catch { /* the next diff is wider */ } }
+        // kosmos#8416: only the sections this line named move their marks.
+        /* A line known to be typed (PLACED) moves the named sections' marks. One that may or may not have reached the
+           agent (UNCONFIRMED), or a PLACED one whose text is not known, drops them: what the agent read is unknown, so
+           the next notice names them whatever their words. */
+        const placed = v && o.DELIVERY && v.state === o.DELIVERY.PLACED;
+        let marked = false;
+        // A session start recorded while the line was sent marked every section from a newer file: leave those marks.
+        let restartedSince = false;
+        try { restartedSince = startedSince(o.history(session), toldAt) === true; } catch { restartedSince = false; }
+        if (restartedSince) marked = true;
+        else if (placed && toldText !== null && typeof o.markRead === 'function') { try { marked = o.markRead(session, on, toldText) === true; } catch { marked = false; } }
+        // A mark that could not be saved is dropped too, never left old.
+        if (!marked && typeof o.forgetMarks === 'function') { try { o.forgetMarks(session, on); } catch { /* the next notice names them again */ } }
+        /* kosmos#7149: the agent reads the file now, so this is what it last read (the next diff starts here). kosmos#8416:
+           not when a section was owed again while this pass ran (its n moved): the text read above may already
+           hold that change, which the line did not name, and the next changes file would then leave it out. The
+           next diff is then wider, never narrower. */
+        let owedAgain = true;
+        try { const latest = typeof o.read === 'function' ? read() : readOwedStrict(); owedAgain = !latest || !!(latest[session] && latest[session].n !== debt.n); } catch { owedAgain = true; }
+        if (!owedAgain && prepared && typeof prepared.text === 'string' && typeof o.remember === 'function') { try { o.remember(session, prepared.text); } catch { /* the next diff is wider */ } }
       }
     }
     if (o.seenMissing instanceof Set) {
@@ -553,4 +761,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { changedLines, prepareChanges, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { trueSections, trueSectionsFor, sectionBody, markRead, readMarks, forgetMarks, printOf, changedLines, prepareChanges, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };

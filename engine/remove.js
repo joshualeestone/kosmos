@@ -1100,6 +1100,7 @@ function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
   try { require('./ownbounds').forget(clean); } catch { /* #5154 slice B: and its own-bound give-up episodes */ }
   try { require('./liveness').forget(clean); } catch { /* #5957 slice 3: and its last report */ }
   try { require('./instructionadds').forget(clean); } catch { /* #5293 review 1: and its waiting addition and Undo record */ }
+  try { require('./instructionreread').forgetMarks(clean); } catch { /* kosmos#8416: and the marks of what it was told */ }
   try { revoked = sendertoken.revoke(clean); } catch (e) { revoked = { ok: false, because: (e && e.message) || 'threw' }; }
   if (!revoked || revoked.ok !== true) {
     console.error('#2323: removed ' + clean + ' but could NOT revoke its sender token'

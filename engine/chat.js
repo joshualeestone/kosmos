@@ -773,6 +773,7 @@ function storedProblem(raw) {
 // Max BYTES per paste-buffer chunk. See point 1 above; matches claude-msg's
 // default and stays under its measured 782B clean ceiling.
 const PASTE_CHUNK_BYTES = 256;
+const WORD_BACKOFF = 64;   // kosmos#8416: how far back a chunk looks for a space to end on (chunkUtf8)
 
 // Size-adaptive paste→Enter delay (point 2 above), ported from claude-msg:
 //   delay = min(BASE + PER_KB * kB, MAX)
@@ -790,8 +791,11 @@ function pasteToEnterMs(byteLen) {
 
 /**
  * Split a string into UTF-8-safe chunks of at most `maxBytes` bytes each, never
- * cutting a multibyte character. Ported from claude-msg's perl splitter. We cut
- * at the byte budget but back off while the NEXT chunk would start on a UTF-8
+ * cutting a multibyte character, and (kosmos#8416) ending a chunk just after a
+ * space, newline or tab when one is within its last WORD_BACKOFF bytes, so a split never cuts a
+ * word. The character rule was ported from claude-msg's perl splitter; the space
+ * rule is Kosmos's own, so the two splitters now differ. We cut at the byte
+ * budget (or that space) but back off while the NEXT chunk would start on a UTF-8
  * continuation byte (10xxxxxx, i.e. 0x80–0xBF). This is defensive: the chunks
  * are pasted back-to-back with nothing between them, so a split codepoint would
  * in fact reassemble — but keeping cuts on character boundaries matches
@@ -821,6 +825,16 @@ function chunkUtf8(str, maxBytes) {
     // at the 256B default — the widest UTF-8 codepoint is 4 bytes). Make
     // progress rather than loop forever.
     if (end === i) end = Math.min(i + max, buf.length);
+    /* kosmos#8416: a cut inside a word read, in a composer that showed the second piece as separate pasted text, as two
+       messages, one starting mid-word. So a chunk ends just after a space when one is within its last WORD_BACKOFF
+       bytes: the pieces reassemble exactly as before, and a split shows whole words on each side. A space is one byte
+       and never a continuation byte, so the cut stays on a character boundary. */
+    // A newline or tab is as much a word boundary as a space. Defence in depth: cleanMessage collapses whitespace, so
+    // today's automatic lines carry neither.
+    const gap = (b) => b === 0x20 || b === 0x0a || b === 0x09;
+    if (end < buf.length && !gap(buf[end])) {   // a cut right before one is already between words
+      for (let k = end - 1; k > i && k >= end - WORD_BACKOFF; k -= 1) if (gap(buf[k])) { end = k + 1; break; }
+    }
     chunks.push(buf.slice(i, end).toString('utf8'));
     i = end;
   }

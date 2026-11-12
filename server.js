@@ -1686,8 +1686,13 @@ async function instructionRereadPass() {
       prepareChanges: (session) => ir.prepareChanges(session),
       remember: (session, text) => ir.remember(session, text),
       dropChanges: (session) => ir.dropChanges(session),
+      // kosmos#8416: never name a section that is not in the file, or one whose text is as the agent last read it.
+      trueSections: (session, sections) => ir.trueSectionsFor(session, sections),
+      markRead: (session, sections, text) => ir.markRead(session, sections, text),
+      forgetMarks: (session, sections) => ir.forgetMarks(session, sections),
+      readText: (session) => { const g = require('./engine/instructions').read(session); return g && g.exists === true ? g.text : null; },
     });
-    for (const d of done) if (['sent', 'restarted', 'gone', 'expired'].includes(d.act)) process.stdout.write(`instruction-reread: ${d.session} ${d.act}${d.state ? ' (' + d.state + ')' : ''}\n`);
+    for (const d of done) if (['sent', 'restarted', 'gone', 'expired', 'unchanged'].includes(d.act)) process.stdout.write(`instruction-reread: ${d.session} ${d.act}${d.state ? ' (' + d.state + ')' : ''}\n`);
   } catch { /* the next pass tries again */ } finally { instructionRereadRunning = false; }
 }
 /* A consented working-rules refresh owes the running agent a re-read. A pass sends it once the agent has been idle at
@@ -19473,6 +19478,8 @@ const server = http.createServer(async (req, res) => {
            re-read notice diffs against is taken here. Never fails the report. */
         // Review 7: only a RECORDED start, the same row startedSince ends a debt on, so the copy never runs ahead of it.
         if (body.state === 'started' && kept && kept.recorded === true) { try { require('./engine/instructionreread').rememberRead(who); } catch { /* the next notice is as before */ } }
+        // kosmos#8416: a start that was not recorded still read the whole file, so its old marks no longer say what it read.
+        else if (body.state === 'started') { try { require('./engine/instructionreread').forgetMarks(who); } catch { /* the next notice names more */ } }
         /* #2146 WORK-ACTIVITY MARKER (Renet Tilley). A separate, WORK-SPECIFIC
            signal, distinct from the liveness beat below. It records that the
            agent was ACTIVELY WORKING at a moment, so #2146's activeWhileWaiting
