@@ -7,21 +7,27 @@ again in the background. `engine/win32roster.board-turns-8410.test.js` pins that
 background read a real child process that takes 300 ms. The control: a cold cache reads synchronously and the board
 does not turn at all. A regression that drops the stale path fails at once and never hangs (measured with that mutant).
 
-## Item 2, #668: a running supervisor with no visible session is could-not-check (a fix, not only a test)
+## Item 2, #668: an agent whose process is up with no visible session is could-not-check (a fix, not only a test)
 Found while writing the test: `create.runningJobs()` had no Windows arm. Windows fell into the Mac arm, ran
 /bin/launchctl, the call failed and the answer was empty, so every such agent read a confident "Not running".
-- `win32streamstate.liveNames()` returns the agents whose supervisor's own state file names a live pid
-  (liveIdentity, then pidAlive): the same signal win32job.runningSteps reads after a start.
+- `win32streamstate.liveNames()` returns the agents whose state file names a live pid (liveIdentity, then pidAlive),
+  leaving out a file written before this boot (a reboot leaves files, and Windows reuses pids).
 - `create.runningJobs()` uses it on win32 and never runs launchctl there. Mac and Linux are unchanged.
-- `engine/create.runningjobs-win32-8410.test.js`: a running supervisor reads as running, and its row as could-not-check.
-  Controls: a parked task (no state file), a dead supervisor's leftover file, unreadable files, no state folder, and
-  launchctl never called on win32 (while still called on darwin).
+- Tests: running reads as running, and its row as could-not-check. Controls: a parked task (no state file), a dead
+  process's leftover file, a file from before boot, unreadable and non-state files, no state folder, the real pid check
+  (this process and an exited child), and launchctl never called on win32 (while still called on darwin).
+
+## Not covered, and why (review 1)
+For a Claude agent the state file names the CHILD's pid, not the supervisor's, and is cleared when the child exits.
+So a supervisor that is up BETWEEN children (restarting after a crash, or waiting on blockedBy) still reads "Not
+running", exactly as before this change: no regression, but not the Mac's wider answer either. Closing it needs the
+supervisor to record its own pid: kosmos#8415. Not done here, because it changes the Windows supervisor that runs on
+people's machines, and I have no Windows machine to watch it on.
 
 ## Rejected
 schtasks `/Query` "Status: Running": the text is localized and fires on the conhost wrapper before the supervisor is up.
 
 ## Weakest premise
-That "the supervisor is up" is Windows' meaning of "the job is running". On a Mac, launchctl's PID column is the same
-kind of fact (the job's own process, not Claude's). Also: the state file is named by the agent's store key, which for
-a valid agent name (create's NAME_RE) is the name itself. That is reasoned from the code, not measured on a real
-Windows board.
+That a live agent process the roster cannot see is the case worth fixing first, ahead of #8415's window. And that the
+state file is named by the agent's store key, which for a valid agent name (create's NAME_RE) is the name itself.
+Reasoned from the code, not measured on a real Windows board.
