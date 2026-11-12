@@ -224,7 +224,7 @@ test('kosmos#8471 part 2: the removed list lists a task left with settings and n
 test('kosmos#8471 review 4: a task left with no folder because the workers folder is behind a dead link is refused, never deleted', () => {
   /* An unplugged disk or share behind a junction: every agent's folder then reads as gone while its task is registered,
      so every agent looks like a task left with no folder. The delete would remove each task and its settings for good;
-     it must refuse instead, as settings alone in that state already are. */
+     it must refuse instead. (Stricter than settings alone, which go to the Recycle Bin and so are not refused here.) */
   const name = agent('dangle8471', { folder: false });
   const before = process.env.AGENT_WORKFORCE_WORKERS;
   const target = nodePath.join(SANDBOX, 'unplugged-disk');
@@ -246,6 +246,26 @@ test('kosmos#8471 review 4: a task left with no folder because the workers folde
     fs.rmSync(link, { force: true });
   }
   // CONTROL: with the workers folder back, the same row is offered.
+  assert.equal(win.plan(name).ok, true, 'the control did not offer the delete, so the refusal above proves nothing');
+});
+
+test('kosmos#8471 review 5: a task left with no folder because the workers folder is not there at all is refused, never deleted', () => {
+  /* A workers folder on a drive that is not connected, or renamed or moved: every agent's folder reads as gone while its
+     task is registered, and a missing drive reads as "the rest of the path is gone", not as a dead link. */
+  const name = agent('absent8471', { folder: false });
+  const before = process.env.AGENT_WORKFORCE_WORKERS;
+  process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'not-connected', 'workers');   // nothing at this path
+  try {
+    const p = win.plan(name);
+    assert.equal(p.ok, false, 'a delete was offered while the workers folder is not there: ' + JSON.stringify(p));
+    assert.match(p.because, /^the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete absent8471's settings\. If that folder is gone for good, open Task Scheduler and delete agent-absent8471 in the Kosmos folder of the Task Scheduler Library\.$/);
+    const done = win.del(name);
+    assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'the delete went ahead');
+    assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings were deleted');
+    assert.ok(tasks.has(win32job.taskName(name)), 'its task was removed');
+  } finally {
+    process.env.AGENT_WORKFORCE_WORKERS = before;
+  }
   assert.equal(win.plan(name).ok, true, 'the control did not offer the delete, so the refusal above proves nothing');
 });
 

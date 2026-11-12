@@ -568,10 +568,11 @@ function plan(name, opts) {
     damagedSettings = st.damaged;
   }
   /* kosmos#8471 review 4: a Windows task with no folder (a row the removed list offers since #8471) deletes its settings
-     for good, so it gets the same checks as settings alone (a name waiting to start, a recorded folder behind a link that
-     leads nowhere, a damaged settings file). Its folder may also be missing only because the folder Kosmos keeps its
-     agents in is behind a link that leads nowhere (an unplugged disk or share); then every agent looks like this, and
-     Kosmos refuses rather than delete their settings. */
+     for good, so it gets the checks settings alone get (a name waiting to start, a recorded folder behind a link that
+     leads nowhere, a damaged settings file) and stricter ones: its folder may be missing only because the folder Kosmos
+     keeps its agents in leads nowhere or is not there (an unplugged disk or share); then every agent looks like this,
+     and Kosmos refuses rather than delete their settings. (Settings alone go to the Recycle Bin, which can be undone, so
+     they are not refused in that state.) */
   if (!folder && job && job.task) {
     const st = strandedRefusal(clean, shown);
     if (st.because) return { ok: false, because: st.because };
@@ -579,6 +580,13 @@ function plan(name, opts) {
     const wAt = resolveRecordedFolder(create.WORKERS_DIR);
     if (wAt.because === 'dangling') return { ok: false, because: `the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected, so Kosmos will not delete ${shown}'s settings.` };
     if (wAt.because) return { ok: false, because: `we could not check where ${shown}'s folder was, so we have not offered to delete anything. Try again in a moment.` };
+    /* review 5: a workers folder that is not there at all (its drive not connected, or the folder renamed or moved) makes
+       every agent with a task look like this too, and resolveRecordedFolder reads a missing drive as "the rest is gone".
+       A task still registered while the whole workers folder is absent is never one agent's leftover, so refuse. */
+    let workersThere = false;
+    try { workersThere = fs.statSync(create.WORKERS_DIR).isDirectory(); } catch { workersThere = false; }
+    // The way out, if the folder is gone for good: the task, named as Task Scheduler shows it, which a person can delete.
+    if (!workersThere) return { ok: false, because: `the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete ${shown}'s settings. If that folder is gone for good, open Task Scheduler and delete ${String(job.label).split('\\').pop()} in the ${String(job.label).split('\\')[0]} folder of the Task Scheduler Library.` };
   }
   const recordsOnly = Boolean(recs);
 

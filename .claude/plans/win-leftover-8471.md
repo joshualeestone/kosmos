@@ -19,7 +19,7 @@ This also blocks #8466's second half (create.js nameHeld on win32), which would 
 - server.js /api/removed passes startsAtLogin; web/index.html's row says "Its settings and its startup job are left"
   for it (not "Only its settings are left", which would be false); docs/browser-checks/render-settings-leftover-7825.js
   checks that row. Both browser-check gates pass locally.
-- Tests: new engine/delete-leftover.win32-leftover-task-8471.test.js (6), selected for Windows CI by its name; the
+- Tests: new engine/delete-leftover.win32-leftover-task-8471.test.js (7), selected for Windows CI by its name; the
   7820 test now pins the refusal sentence (it pinned the partial-delete one).
 macOS and Linux are unchanged.
 
@@ -30,8 +30,8 @@ macOS and Linux are unchanged.
 - The weakest part: the removed list may still SHOW such a row while the workers folder is behind a dead link (it is polled, and that look can block on a share that is gone); the click is what is guarded (plan() refuses, review 4). Also startsAtLogin is set for a switched-off task too (the row's words stay true).
 
 ## Measured on the Windows box
-New file 5/5; negative controls: with origin's delete-leftover.js tests 1, 2, 4 and 5 fail (part 1 alone: 1 and 2; part 2
-alone: 4 and 5), test 3 (the control) passes both ways. The 46 files that load delete-leftover or remove: 1437/116/25
+New file 7/7; negative controls: with origin's delete-leftover.js every test but 3 (the control) fails (part 1 alone: 1
+and 2; part 2 alone: 4; review 4 alone: 5; review 5 alone: 6). The 46 files that load delete-leftover or remove: 1437/116/25
 before, 1442/116/25 after (the 116 are the same failures on this box both ways). Policy tests pass.
 
 ## Review log
@@ -66,3 +66,10 @@ before, 1442/116/25 after (the 116 are the same failures on this box both ways).
   workers folder itself leads nowhere. New test with a real dangling junction; negative control: without the check it
   fails. This also closes round 3's race. (2) The settingsLeftovers header now says Windows also lists a registered
   task. Nits: the plan's 7820 line fixed; the pre-existing hint and done sentences, now reachable, stay true.
+- Round 5 (no blocker; 1 warning, 1 convention, 1 nit). (1) FIXED the warning: a workers folder that is not there at
+  all (its drive not connected, or renamed or moved) still made every agent with a task deletable, its settings lost
+  for good (the reviewer reproduced it); resolveRecordedFolder reads a missing drive as "the rest is gone". plan() now
+  refuses a task-only delete while the workers folder is not a folder, and names the task to delete in Task Scheduler
+  if that folder is gone for good (the way out). New test; negative control: without the check it fails. (2) Comments
+  no longer say "the same checks as settings alone": the task-only checks are stricter (settings alone go to the
+  Recycle Bin, which can be undone). (3) The Measured numbers updated (7 tests).
