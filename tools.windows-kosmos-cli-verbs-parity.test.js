@@ -132,7 +132,7 @@ async function runWindows(argv) {
   const out = [];
   const err = [];
   const stubEngine = {
-    feedback: { write: () => ({ ok: true }), today: () => '2026-09-12', isDateKey: () => true, readBody: () => 'body', list: () => [], reportsForTriage: () => ({ ok: true, reports: [], notes: [] }) },
+    feedback: { write: () => ({ ok: true }), today: () => '2026-09-12', isDateKey: () => true, readBody: () => 'body', list: () => [], noReportsWords: () => 'none yet', reportsForTriage: () => ({ ok: true, reports: [], notes: [] }) },
     'feedback-triage': { digestFor: () => 'digest' },
     feedbackpull: { pull: async () => ({ ok: false, because: 'stub' }) },
   };

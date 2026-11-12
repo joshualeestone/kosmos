@@ -70,7 +70,7 @@ test('feedback write with an empty/whitespace body is refused (exit 2), nothing 
   assert.equal(w.code, 2);
   assert.match(w.both, /needs a body/);
   const l = await run(['feedback', 'list'], h);
-  assert.equal(l.out.trim(), '', 'a refused write still created a report');
+  assert.doesNotMatch(l.out, /^\d{4}-\d{2}-\d{2}$/m, 'a refused write still created a report');
 });
 
 test('feedback list shows the days that have a report', async () => {
@@ -81,16 +81,19 @@ test('feedback list shows the days that have a report', async () => {
   assert.match(l.out, /^\d{4}-\d{2}-\d{2}$/m);
 });
 
-test('kosmos#8340: feedback list keeps stdout a plain list of dates and says on stderr whose reports they are', async () => {
+test('kosmos#8340, kosmos#8462: feedback list prints the dates, then a blank line and whose reports they are, all on stdout', async () => {
   const h = makeHome();
   const empty = await run(['feedback', 'list'], h);
   assert.equal(empty.code, 0);
-  assert.equal(empty.both.trim(), '', 'no reports: no note either');
+  assert.equal(empty.out.trim(), 'No product-feedback reports on this computer yet.', 'no reports: the answer is a sentence on stdout');
+  assert.equal(empty.err, '', 'kosmos#8462: nothing on stderr, which PowerShell shows as a red error record');
   await run(['feedback', 'write', 'todays note'], h);
   const l = await run(['feedback', 'list'], h);
   assert.equal(l.code, 0, l.both);
-  for (const line of l.out.trim().split('\n')) assert.match(line, /^\d{4}-\d{2}-\d{2}$/, 'stdout carried more than dates');
-  assert.match(l.err, /These are the days with a report on this computer, from every agent here\. 1 of them holds yours: \d{4}-\d{2}-\d{2}\./);
+  assert.equal(l.err, '', 'kosmos#8462: the note went to stderr');
+  const [dates, note] = l.out.trim().split('\n\n');
+  for (const line of dates.split('\n')) assert.match(line, /^\d{4}-\d{2}-\d{2}$/, 'the dates before the blank line are not only dates');
+  assert.match(note || '', /^These are the days with a report on this computer, from every agent here\. 1 of them holds yours: \d{4}-\d{2}-\d{2}\.$/);
 });
 
 test('kosmos#8353: feedback show with an impossible date is refused (exit 2), not answered with "no report yet"', async () => {
@@ -102,7 +105,7 @@ test('kosmos#8353: feedback show with an impossible date is refused (exit 2), no
   assert.doesNotMatch(s.both, /No product-feedback report/, 'an impossible date was read as a day with no report');
   const ok = await run(['feedback', 'show', '2024-02-29'], h);   // CONTROL: a real (leap) day with no report is still exit 0
   assert.equal(ok.code, 0, ok.both);
-  assert.match(ok.err, /No product-feedback report for 2024-02-29 yet/);
+  assert.match(ok.out, /No product-feedback report for 2024-02-29 yet/);
 });
 
 test('feedback show with a malformed date is refused (exit 2)', async () => {
@@ -112,12 +115,14 @@ test('feedback show with a malformed date is refused (exit 2)', async () => {
   assert.match(s.both, /YYYY-MM-DD/);
 });
 
-test('kosmos#8260: feedback show for a day with no report is an answer: exit 0, nothing on stdout, the sentence on stderr', async () => {
+test('kosmos#8260, kosmos#8462: feedback show for a day with no report is an answer: exit 0, the sentence on stdout, nothing on stderr', async () => {
   const h = makeHome();
   const s = await run(['feedback', 'show', '2020-01-01'], h);
   assert.equal(s.code, 0, s.both);
-  assert.equal(s.out, '', 'stdout carried something a caller would read as a report');
-  assert.match(s.err, /^No product-feedback report for 2020-01-01 yet\.$/m);
+  // kosmos#8462: on stdout, as an answer. PowerShell turns a native command's stderr into a red error record, so an
+  // ordinary "none yet" read as a failure there.
+  assert.equal(s.out.trim(), 'No product-feedback report for 2020-01-01 yet.', s.both);
+  assert.equal(s.err, '', 'the answer went to stderr, which PowerShell shows as an error');
 });
 
 test('kosmos#8260: a report that exists but cannot be read is a failure, never "no report yet"', async () => {

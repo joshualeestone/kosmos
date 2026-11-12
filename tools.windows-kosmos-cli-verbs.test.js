@@ -217,6 +217,16 @@ function feedbackCli(args, input) {
   return { code: r.status, out: String(r.stdout).replace(/\r?\n$/, ''), err: String(r.stderr).replace(/\r?\n$/, ''), root };
 }
 
+test('kosmos#8462: feedback list with no report at all says so on stdout, exit 0, nothing on stderr', () => {
+  const root = fs.mkdtempSync(path.join(SANDBOX, 'feedback-empty-'));
+  const env = Object.assign({}, process.env, { AGENT_WORKFORCE_DATA: root, AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback' });
+  delete env.KOSMOS_WORLD;
+  const r = cp.spawnSync(process.execPath, [CLI_FILE, 'feedback', 'list'], { env, input: '', encoding: 'utf8', timeout: 60000 });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(String(r.stdout).trim(), require('./engine/feedback').noReportsWords());
+  assert.equal(String(r.stderr), '', 'PowerShell would show this as a red error record');
+});
+
 test('#5294 feedback write SENDS the report now to the collector (a loopback stub) and says so', async () => {
   const http = require('node:http');
   const posts = [];
@@ -255,11 +265,16 @@ test('feedback write saves today\'s report in THIS Kosmos\'s store; show reads i
   const show = feedbackCli(['feedback', 'show']);
   assert.equal(show.code, 0, show.err);
   assert.equal(show.out, 'The task verbs were missing.');
-  assert.equal(feedbackCli(['feedback', 'list']).out, day);
+  const listed = feedbackCli(['feedback', 'list']);   // kosmos#8462: the dates, a blank line, then the note, all on stdout
+  const parts = listed.out.split('\n\n');
+  assert.equal(parts[0], day, 'the dates before the blank line');
+  assert.equal(parts.length, 2, 'no blank line and note after the dates: ' + JSON.stringify(listed.out));
+  assert.match(parts[1], /^These are the days with a report on this computer, from every agent here\./);
+  assert.equal(listed.err, '');
   const none = feedbackCli(['feedback', 'show', '1999-01-01']);   // kosmos#8260: no report yet is an answer
   assert.equal(none.code, 0, none.err);
-  assert.equal(none.out, '');
-  assert.match(none.err, /No product-feedback report for 1999-01-01 yet\./);
+  assert.equal(none.out, 'No product-feedback report for 1999-01-01 yet.', 'kosmos#8462: the answer is on stdout');
+  assert.equal(none.err, '', 'kosmos#8462: nothing on stderr, which PowerShell shows as a red error record');
   fs.mkdirSync(path.join(feedbackCli.root, 'Kosmos', 'feedback', '1999-01-02.md'), { recursive: true });
   const unreadable = feedbackCli(['feedback', 'show', '1999-01-02']);   // kosmos#8260: a report that cannot be read is not "none yet"
   assert.notEqual(unreadable.code, 0, unreadable.err);
