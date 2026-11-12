@@ -82,6 +82,7 @@ test('refusals: bad number, no such check, no checks, closed, unnamed, bad how',
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'a\nb', { by: 'a' }))[0], 400, 'one line');
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x'.repeat(201), { by: 'a' }))[0], 400);
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x'.repeat(200), { by: 'a' }))[0], 200, 'the limit itself is allowed (control)');
+  assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'y'.repeat(200) + '  ', { by: 'a' }))[0], 200, 'the limit is on the stored, trimmed words');
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, '<how you checked it>', { by: 'a' }))[0], 400, 'an unfilled placeholder is no report');
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x', { by: null }))[0], 403);
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x', { by: '  ' }))[0], 403);
@@ -129,6 +130,12 @@ test('built without a note: refused until EVERY check is reported, then allowed'
   tasks.setCheckResult(id, n, 1, true, 'a', { by: 'x' });
   assert.equal(tasks.setBuilt(id, n, { by: 'x' }).needsNote, true, 'one of two reported is not enough');
   tasks.setCheckResult(id, n, 2, false, 'b fails on Linux', { by: 'x' });
-  const out = tasks.setBuilt(id, n, { by: 'x' });
-  assert.equal(out.ok, true, 'every check reported (even unmet) says how each went');
+  const unmet = tasks.setBuilt(id, n, { by: 'x' });
+  assert.equal(unmet.needsNote, true, 'a check reported NOT met still needs the note, to say what is left');
+  assert.match(unmet.because, /reported not met, so mark it built with a note saying what is left/);
+  assert.equal(tasks.setBuilt(id, n, { by: 'x', note: 'b is left: Linux' }).ok, true, 'control: with a note it is marked');
+  tasks.clearBuilt(id, n, { by: 'x' });
+  tasks.setCheckResult(id, n, 1, true, 'a', { by: 'x' });
+  tasks.setCheckResult(id, n, 2, true, 'b passes on Linux now', { by: 'x' });
+  assert.equal(tasks.setBuilt(id, n, { by: 'x' }).ok, true, 'every check reported met: no note needed');
 });

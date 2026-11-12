@@ -117,10 +117,10 @@ function doneWhenWords(list) {
 /* #8464 item 2: how each check went, as the agent reports it (`kosmos task check <p> <n> <i> met|unmet "<how>"`).
    doneWhenResults is index-aligned with doneWhen: entry i is null (not reported) or { met, how, by, at }. A separate
    field, so doneWhen stays a list of strings and none of its readers change. It is an agent's REPORT, never a
-   verification: every reader says "agent says met". Nothing parses the built note (#5705). The results go when what
+   verification: every reader says the agent "says" or "reported" it, never that it is met. Nothing parses the built note (#5705). The results go when what
    they describe goes: a changed check drops its own result, a new list drops them all, and taking the built mark off,
    new work and a reopen drop them with the landed commit (LANDED_FIELDS). Closing keeps them, as it keeps the commit. */
-const CHECK_HOW_MAX = 200;
+const CHECK_HOW_MAX = DONE_CHECK_MAX;   // checked by doneWhenProblem, whose limit this is
 /** The results as stored, aligned with `t.doneWhen`: a list of the same length, or null when there are no checks. */
 function checkResultsOf(t) {
   const checks = t && Array.isArray(t.doneWhen) && t.doneWhen.length ? t.doneWhen : null;
@@ -1011,6 +1011,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   let personMark = false;
   let repeating = false;
   let unsaid = 0;
+  let unmetSaid = false;   // #8464: every check reported, some not met
   let replacedNow = null;
   try {
     projects.mutate(projectId, (p) => {
@@ -1023,9 +1024,10 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
          (#5152) says what finished means, so an agent's mark on it must say how the checks went; the rules already ask
          for that note, and now a bare mark is refused. The person's mark from the screen never is. After the
          person-mark refusal (review 1), so an agent hears the real answer first. */
-      /* #8464 item 2: unless every check has been reported with kosmos task check, which says how each went. */
+      /* #8464 item 2: unless every check has been reported MET with kosmos task check. A check reported not met still
+         needs the note, to say what is left (review 1: an all-unmet task went built with nothing said). */
       const counts = checkCounts(t);
-      if (!isPerson && !saidSomething && counts && counts.reported < counts.total) { unsaid = counts.total; throw NO_WRITE; }
+      if (!isPerson && !saidSomething && counts && counts.met < counts.total) { unsaid = counts.total; unmetSaid = counts.reported === counts.total; throw NO_WRITE; }
       /* The same mark again (same marker, same note, same fingerprint) changes no field and records nothing (review round 3: a looping
          agent re-marking wrote a history line each time), and writes nothing (review round 15). */
       /* #6330 slice 2: the fingerprint describes the deliverable, so another agent's mark without one (the checker's,
@@ -1119,6 +1121,9 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   }
   if (closed) return { ok: false, closed: true, because: 'that task is closed already, so it is not waiting on anything' };
   if (repeating) return { ok: false, because: 'that task repeats, so it is never built and waiting: record each run with kosmos task ran instead' };
+  if (unsaid && unmetSaid) {
+    return { ok: false, needsNote: true, because: 'a done-when check on this task is reported not met, so mark it built with a note saying what is left (kosmos task built ' + projectId + ' ' + n + " '<what is left>')" };
+  }
   if (unsaid) {
     return { ok: false, needsNote: true, because: 'this task has ' + (unsaid === 1 ? 'a done-when check' : unsaid + ' done-when checks')
       + ', so report ' + (unsaid === 1 ? 'it' : 'each one') + ' first (kosmos task check ' + projectId + ' ' + n + " 1 met '<how you checked it>'"
@@ -1702,7 +1707,7 @@ function setCheckResult(projectId, n, check, met, how, { by = null } = {}) {
   if (typeof check !== 'number' || !Number.isInteger(check) || check < 1) throw fail('the check number has to be 1 or more, as kosmos task list shows them');
   if (typeof met !== 'boolean') throw fail('say whether the check is met or unmet');
   if (typeof how !== 'string' || !how.trim()) throw fail('say in one line how you checked it');
-  if (doneWhenProblem([how])) throw fail(`how you checked it has to be one line of plain text, ${CHECK_HOW_MAX} characters or fewer`);
+  if (doneWhenProblem([how.trim()])) throw fail(`how you checked it has to be one line of plain text, ${CHECK_HOW_MAX} characters or fewer`);
   const who = doneWhenSetter(typeof by === 'string' ? by.trim() : null);
   if (!who) throw fail('a check report needs the agent that makes it, and this caller could not be named', 403);
   const said = how.trim();
