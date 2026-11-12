@@ -18,6 +18,12 @@ later (engine/filenotices.js, through Kosmos's Claude Code hook), by when the ed
   when nothing differs, "Kosmos found no difference in the file since this notice (it may have changed just before)",
   hedged because the edit can land before the first fingerprint. Nothing is said when either side cannot be measured
   or for a notice made before this change. The fingerprint never leaves the module.
+- Review 2, security: filewriters passes the RESOLVED path (the one projectOf placed inside the project), never the raw
+  one: path.resolve drops '..' before the kernel follows a link, so P/l/../x.md (l a link to outside) would otherwise be
+  read outside. queue measures only a path whose folder is already its own real path, by that real folder and name, and
+  checks the folder again after the read; the hand-over does the same. A file with more than one hard link is not
+  measured (a hard link is not a link to O_NOFOLLOW and can name a file outside). A file that grows past the bounds says
+  "now too large for Kosmos to count"; one never made says so.
 - filewriters passes the path through (noteWrite -> ownerNotice -> queue). The room note is unchanged.
 
 ## Rejected

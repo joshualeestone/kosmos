@@ -105,23 +105,74 @@ test('kosmos#8464 end to end: another agent about to change an owned file queues
   assert.match(text, /So far: 2 lines added and 1 line removed, of 6 before\./);
 });
 
-/* Review 1: an agent controls the project folder. A folder on the path turned into a link to somewhere else after the
-   notice gets no scale, so nothing outside is read (the reviewer's probe read an outside file through exactly this). */
-test('kosmos#8464 review 1: a folder on the path repointed after the notice gets no scale, and nothing outside is read', () => {
+/* Review 2, the blocker: path.resolve drops '..' before the kernel follows a link, so P/l/../x.md (l a link to outside)
+   is placed inside the project but would be read outside. The notice must measure the in-project file it names. */
+test('kosmos#8464 review 2: a path through a link and ".." is measured as the in-project file, never the outside one', () => {
+  const id = 'dots' + (++seq);
+  const folder = path.join(real, 'projects', id); fs.mkdirSync(folder, { recursive: true });
+  const own = 'dotown' + seq;   // its own owner: notices not acknowledged stay queued, so a shared name would mix tests
+  projects.writeAll([...projects.readAll(), { id, name: 'Dots', folder, agents: ['mona', own], createdAt: '2026-01-01T00:00:00.000Z' }]);
+  const roots = [{ id, folder }];
+  const deep = path.join(real, 'outside' + seq, 'deep'); fs.mkdirSync(deep, { recursive: true });
+  fs.writeFileSync(path.join(real, 'outside' + seq, 'x.md'), 'o1\no2\no3\n');
+  fs.symlinkSync(deep, path.join(folder, 'l'));
+  fs.writeFileSync(path.join(folder, 'x.md'), 'i1\n');
+  const raw = folder + '/l/../x.md';   // NOT path.join, which would drop the '..' and never test the escape
+  assert.ok(raw.includes('/../'), 'CONTROL: the path really goes through the link and up');
+  const t0 = Date.parse('2026-11-12T11:00:00Z');
+  assert.equal(fw.noteWrite(raw, own, { now: t0, projects: roots }), true);
+  assert.equal(fw.noteWrite(raw, 'mona', { now: t0 + 60e3, projects: roots }), true);
+  fs.appendFileSync(path.join(real, 'outside' + seq, 'x.md'), 'o4\no5\n');   // the outside file changes
+  const text = fn.contextText(fn.handOver(own));
+  assert.match(text, /about to change/, 'CONTROL: the notice was queued');
+  assert.doesNotMatch(text, /So far: 2 lines added/, 'the outside file was measured');
+  assert.match(text, /So far: Kosmos found no difference/, 'the in-project file it names was measured (unchanged)');
+});
+
+/* Review 1 and 2: an agent controls the project folder. The notice keeps the real path of the file's folder; a folder
+   replaced by a link to somewhere else afterwards gets no scale, so nothing outside is read. */
+test('kosmos#8464 review 1: a folder replaced by a link to outside after the notice gets no scale, and nothing outside is read', () => {
   const inside = path.join(real, 'in' + (++seq)); fs.mkdirSync(inside);
   const outside = path.join(real, 'out' + seq); fs.mkdirSync(outside);
   fs.writeFileSync(path.join(inside, 'id'), 'guess1\nguess2\nguess3\n');
   fs.writeFileSync(path.join(outside, 'id'), 'secretline\nguess2\n');
-  const dl = path.join(real, 'dl' + seq); fs.symlinkSync(inside, dl);
   const who = owner();
-  fn.queue(who, 'x', { file: path.join(dl, 'id') });
-  fs.rmSync(dl); fs.symlinkSync(outside, dl);
-  assert.doesNotMatch(fn.contextText(handed(who)), /So far/, 'the outside file was measured through a repointed folder');
-  // CONTROL: the same path, folder not repointed, is measured.
-  const dl2 = path.join(real, 'dlb' + seq); fs.symlinkSync(inside, dl2);
-  const w2 = owner(); fn.queue(w2, 'x', { file: path.join(dl2, 'id') });
-  fs.appendFileSync(path.join(inside, 'id'), 'guess4\n');
+  fn.queue(who, 'x', { file: path.join(inside, 'id') });
+  fs.renameSync(inside, inside + '.moved'); fs.symlinkSync(outside, inside);
+  assert.doesNotMatch(fn.contextText(handed(who)), /So far/, 'the outside file was measured through a replaced folder');
+  // CONTROL: the same kind of path, its folder left alone, is measured.
+  const keep = path.join(real, 'keep' + seq); fs.mkdirSync(keep);
+  fs.writeFileSync(path.join(keep, 'id'), 'a\nb\n');
+  const w2 = owner(); fn.queue(w2, 'x', { file: path.join(keep, 'id') });
+  fs.appendFileSync(path.join(keep, 'id'), 'c\n');
   assert.match(fn.contextText(handed(w2)), /So far: 1 line added/, 'CONTROL: an unmoved folder is measured');
+});
+
+test('kosmos#8464 review 2: a path through a link is not measured by queue (the caller passes the resolved path)', () => {
+  const inside = path.join(real, 'li' + (++seq)); fs.mkdirSync(inside);
+  fs.writeFileSync(path.join(inside, 'f'), 'a\n');
+  const ln = path.join(real, 'lk' + seq); fs.symlinkSync(inside, ln);
+  const who = owner(); fn.queue(who, 'x', { file: path.join(ln, 'f') });
+  fs.appendFileSync(path.join(inside, 'f'), 'b\n');
+  assert.doesNotMatch(fn.contextText(handed(who)), /So far/, 'a path whose folder is a link was measured');
+});
+
+test('kosmos#8464 review 2: a hard link (which may name a file outside the project) is not measured', () => {
+  const outsideFile = fileWith('secret1\nsecret2\n');
+  const hard = path.join(real, 'hard' + (++seq) + '.md'); fs.linkSync(outsideFile, hard);
+  const who = owner(); fn.queue(who, 'x', { file: hard });
+  fs.appendFileSync(hard, 'more\n');
+  assert.doesNotMatch(fn.contextText(handed(who)), /So far/, 'a hard link was measured');
+});
+
+test('kosmos#8464 review 2: a file that grows past the bounds says so; one never made says it was not made', () => {
+  const grow = fileWith(lines(3)); const a = owner();
+  fn.queue(a, 'x', { file: grow });
+  fs.writeFileSync(grow, 'z'.repeat(fn.SCALE_MAX_BYTES + 10));
+  assert.match(fn.contextText(handed(a)), /So far: the file is now too large for Kosmos to count the change/);
+  const never = fileWith(null); const b = owner();
+  fn.queue(b, 'x', { file: never });
+  assert.match(fn.contextText(handed(b)), /So far: the file has not been made yet\./);
 });
 
 test('kosmos#8464 review 1: a FIFO swapped in for the file neither hangs the board nor gets a scale', () => {

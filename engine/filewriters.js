@@ -140,7 +140,9 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
       // The project's members are read only when a notice is due; an owner no longer on it takes no slot and gets no note.
       if (!(Number.isFinite(last) && now - last >= 0 && now - last < NOTICE_EVERY_MS) && onProject(at.projectId, first, now)) {
         if (Object.keys(book).length < NOTICE_ROOM_MAX) {
-          notice = { projectId: at.projectId, name: at.name, owner: first, writer: who, file };   // kosmos#8464: the path, for the scale
+          /* kosmos#8464: the RESOLVED path (the one projectOf placed inside the project), never the raw one: the raw path
+             can reach outside through a link and '..' (path.resolve drops '..' before the kernel follows a link). */
+          notice = { projectId: at.projectId, name: at.name, owner: first, writer: who, file: resolved(file) };
           book[pair] = entry.at;
         } else if (!held) {
           notice = { projectId: at.projectId, heldBack: true };
