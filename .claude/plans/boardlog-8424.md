@@ -18,8 +18,8 @@
 Tests (engine/win32boardlog-8373.test.js): the string case; a console that failed and then reads writable again (a plain
 stand-in, as node repairs stdout) returns true past the high-water mark; an outside 'error' also forces true (the
 price); a failed write with autoDestroy off returns true; a stand-in reporting only destroyed returns true, and a live
-one gets its own answer. Mutants: removing the `dead` arm fails two; removing the writable arm fails one; removing the
-destroyed arm fails one.
+one gets its own answer. Mutants: removing the `dead` arm fails two; removing the writable arm fails one (a same-tick test added in review 8,
+before the error event sets `dead`); removing the destroyed arm fails one.
 
 The real-pipe test (win32boardlog-epipe-realpipe) records each write's return with the stream's state at that moment and
 asserts the last ten are true. Measured on a Mac (node 26) by review 7: without the tee, node's own write returns false
