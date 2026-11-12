@@ -32,25 +32,50 @@ const SESSION_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const ID_RE = /^[0-9a-f]{12}$/;
 
 /* kosmos#8464: the scale of the change, for the owner's own copy. A notice is made BEFORE the edit (the PreToolUse
-   hook), so the file is fingerprinted then (one short hash per line) and again when the notice is handed over, by which
-   time the edit has landed. A file over these bounds, a link, or an unreadable one gets no scale (and nothing is said). */
-const SCALE_MAX_BYTES = 256 * 1024;
-const SCALE_MAX_LINES = 5000;
+   hook), so the file is fingerprinted then (one short hash per line, and one for the whole file) and again when the
+   notice is handed over, by which time the edit has landed. Bounded so the queue file stays small (at most
+   MAX_PENDING fingerprints of SCALE_MAX_LINES short hashes each, about 22 KB apiece). */
+const SCALE_MAX_BYTES = 128 * 1024;
+const SCALE_MAX_LINES = 2000;
+const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
+const NONBLOCK = fs.constants.O_NONBLOCK || 0;
+const NOCTTY = fs.constants.O_NOCTTY || 0;
+const short = (s) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 8);
 
-/* The file's lines as short hashes, { existed, lines }, or null when it cannot be measured. A file that is not there
-   reads as existing:false with no lines (a write that creates it). Never throws. */
+/* The real path of the folder holding `file`, or null. An agent controls the project folder, so the hand-over checks
+   that the folder still resolves to where it did when the notice was made: a folder turned into a link to somewhere
+   else afterwards gets no scale, and nothing outside is read (review 1). */
+function realDir(file) {
+  try { return fs.realpathSync.native(path.dirname(file)); } catch { return null; }
+}
+
+/* The file's lines as short hashes, { existed, lines, whole }, or null when it cannot be measured. ONE open that does
+   not follow a final link and does not block (a FIFO or device swapped in cannot hang the board), then every check and
+   the read on that open file, at most SCALE_MAX_BYTES + 1 bytes (review 1: no gap between the check and the read). A
+   file that is not there reads as existed:false with no lines (a write that creates it). A trailing \r is dropped from
+   each line, so a change of line endings alone does not read as a rewrite. Never throws. */
 function fingerprint(file) {
+  let fd = null;
   try {
     if (typeof file !== 'string' || !path.isAbsolute(file)) return null;
-    let st;
-    try { st = fs.lstatSync(file); } catch (e) { return e && e.code === 'ENOENT' ? { existed: false, lines: [] } : null; }
-    if (st.isSymbolicLink() || !st.isFile() || st.size > SCALE_MAX_BYTES) return null;
-    const text = fs.readFileSync(file, 'utf8');
+    try { fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK | NOCTTY); }
+    catch (e) { return e && e.code === 'ENOENT' ? { existed: false, lines: [], whole: '' } : null; }
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > SCALE_MAX_BYTES) return null;
+    const buf = Buffer.alloc(SCALE_MAX_BYTES + 1);
+    let got = 0;
+    for (;;) {
+      const n = fs.readSync(fd, buf, got, buf.length - got, got);
+      if (n <= 0) break;
+      got += n;
+      if (got > SCALE_MAX_BYTES) return null;
+    }
+    const text = buf.subarray(0, got).toString('utf8');
     const lines = text.split('\n');
     if (lines.length && lines[lines.length - 1] === '') lines.pop();
     if (lines.length > SCALE_MAX_LINES) return null;
-    return { existed: true, lines: lines.map((l) => crypto.createHash('sha1').update(l).digest('hex').slice(0, 8)) };
-  } catch { return null; }
+    return { existed: true, lines: lines.map((l) => short(l.replace(/\r$/, ''))), whole: short(text) };
+  } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
 /* Lines added and removed between two fingerprints, counted as multisets (a moved line is no change; a changed line is
@@ -64,24 +89,31 @@ function scaleOf(before, after) {
   for (const h of after.lines) { const c = left.get(h) || 0; if (c > 0) left.set(h, c - 1); else added += 1; }
   let removed = 0;
   for (const c of left.values()) removed += c;
-  return { added, removed, before: before.lines.length, created: !before.existed };
+  return { added, removed, before: before.lines.length, created: !before.existed && after.existed,
+    same: before.existed === after.existed && before.whole === after.whole };
 }
 
-/* The sentence a notice's scale adds, or '' (no scale). "So far": counted when the notice is handed over. */
+/* The sentence a notice's scale adds, or '' (no scale). "So far": counted when the notice is handed over. The no-change
+   wording says what was measured, not that nothing happened: the edit can land before the first fingerprint (review 1). */
 function scaleWords(s) {
   if (!s) return '';
   if (s.gone) return ' So far: the file is gone.';
-  if (!s.added && !s.removed) return ' So far: the file is unchanged since this notice.';
+  if (s.created && !s.added) return ' So far: the file was made, empty.';
+  if (!s.added && !s.removed) {
+    return s.same ? ' So far: Kosmos found no difference in the file since this notice (it may have changed just before).'
+      : ' So far: the file changed, but no lines were added or removed (line endings or the last newline).';
+  }
   const n = (k, w) => k + ' line' + (k === 1 ? '' : 's') + ' ' + w;
   return ' So far: ' + n(s.added, 'added') + ' and ' + n(s.removed, 'removed') + (s.created ? ' (it was new)' : ', of ' + s.before + ' before') + '.';
 }
 
 /* The notices as handed over: each with its scale worked out now from the fingerprint kept with it, and without the
-   fingerprint itself (which never leaves this module). */
+   fingerprint itself (which never leaves this module). No scale when the file's folder no longer resolves where it did. */
 function withScale(notices) {
   return notices.map((n) => {
     const { fp, ...rest } = n;
-    const scale = fp && typeof fp.file === 'string' ? scaleOf(fp.before, fingerprint(fp.file)) : null;
+    let scale = null;
+    if (fp && typeof fp.file === 'string' && typeof fp.dir === 'string' && realDir(fp.file) === fp.dir) scale = scaleOf(fp.before, fingerprint(fp.file));
     return scale ? { ...rest, scale } : rest;
   });
 }
@@ -116,7 +148,8 @@ function queue(owner, text, { now = Date.now(), file = null } = {}) {
     const fresh = rec.notices.filter((n) => now - Date.parse(n.at) >= 0 && now - Date.parse(n.at) < KEEP_MS);
     const entry = { id: crypto.randomBytes(6).toString('hex'), at: new Date(now).toISOString(), text };
     const before = file ? fingerprint(file) : null;
-    if (before) entry.fp = { file, before };
+    const where = before ? realDir(file) : null;
+    if (before && where) entry.fp = { file, dir: where, before };
     fresh.push(entry);
     const over = Math.max(0, fresh.length - MAX_PENDING);
     write(owner, { notices: fresh.slice(over), dropped: rec.dropped + over, handedDropped: rec.handedDropped });

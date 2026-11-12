@@ -4,12 +4,20 @@ The file-owner notice (#7989) is made from the PreToolUse hook, BEFORE the edit.
 later (engine/filenotices.js, through Kosmos's Claude Code hook), by when the edit has landed.
 
 ## Change
-- filenotices.queue takes the file's absolute path; it keeps a fingerprint made then (one 8-hex sha1 per line), only
-  for a plain file under 256 KB and 5,000 lines, refusing a link. A missing file is "did not exist" (a create).
+- filenotices.queue takes the file's absolute path and keeps a fingerprint made then: one 8-hex sha1 per line (a
+  trailing \r dropped, so line endings alone are not a rewrite) and one of the whole file, only for a plain file under
+  128 KB and 2,000 lines (about 22 KB per fingerprint, at most MAX_PENDING = 10 per owner). It also keeps the real path
+  of the file's folder.
+- Review 1, security: an agent controls the project folder. (1) At hand-over the folder must still resolve to the same
+  real path, or no scale is given: a folder repointed to somewhere outside afterwards is never read through. (2) The
+  file is opened ONCE without following a final link and without blocking, and every check (a plain file, the size) and
+  a bounded read are made on that open file, so a FIFO or device swapped in cannot hang the board.
 - At hand-over (handOver, and take for `kosmos file-notices`), the file is fingerprinted again and compared as
-  multisets of lines. The notice gains "So far: N lines added and M removed, of X before", "(it was new)", "the file is
-  unchanged since this notice" or "the file is gone". Nothing is said when either side cannot be measured, or for a
-  notice made before this change. The fingerprint never leaves the module (stripped from what is handed over).
+  multisets of lines: "So far: N lines added and M removed, of X before", "(it was new)", "the file was made, empty",
+  "the file changed, but no lines were added or removed (line endings or the last newline)", "the file is gone", or,
+  when nothing differs, "Kosmos found no difference in the file since this notice (it may have changed just before)",
+  hedged because the edit can land before the first fingerprint. Nothing is said when either side cannot be measured
+  or for a notice made before this change. The fingerprint never leaves the module.
 - filewriters passes the path through (noteWrite -> ownerNotice -> queue). The room note is unchanged.
 
 ## Rejected

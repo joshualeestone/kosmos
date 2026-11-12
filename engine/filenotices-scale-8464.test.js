@@ -36,7 +36,7 @@ test('kosmos#8464 a change after the notice is counted at the hand-over: lines a
   now[2] = 'line 3, changed';
   fs.writeFileSync(f, now.join('\n').replace(/\n$/, '') + '\nmore 1\nmore 2\nmore 3\n');
   const got = handed(who);
-  assert.deepStrictEqual(got.notices[0].scale, { added: 4, removed: 1, before: 10, created: false });
+  assert.deepStrictEqual(got.notices[0].scale, { added: 4, removed: 1, before: 10, created: false, same: false });
   assert.match(fn.contextText(got), /So far: 4 lines added and 1 line removed, of 10 before\./);
   assert.equal('fp' in got.notices[0], false, 'the fingerprint left the module');
 });
@@ -44,7 +44,7 @@ test('kosmos#8464 a change after the notice is counted at the hand-over: lines a
 test('kosmos#8464 an unchanged file, a deleted one and a new one each say so', () => {
   const same = fileWith(lines(5)); const a = owner();
   fn.queue(a, 'x', { file: same });
-  assert.match(fn.contextText(handed(a)), /So far: the file is unchanged since this notice\./);
+  assert.match(fn.contextText(handed(a)), /So far: Kosmos found no difference in the file since this notice \(it may have changed just before\)\./);
   const gone = fileWith(lines(5)); const b = owner();
   fn.queue(b, 'x', { file: gone });
   fs.rmSync(gone);
@@ -103,4 +103,55 @@ test('kosmos#8464 end to end: another agent about to change an owned file queues
   const text = fn.contextText(fn.handOver('kitty'));
   assert.match(text, /mona was about to change "plan\.md"/, 'CONTROL: the owner was queued the notice');
   assert.match(text, /So far: 2 lines added and 1 line removed, of 6 before\./);
+});
+
+/* Review 1: an agent controls the project folder. A folder on the path turned into a link to somewhere else after the
+   notice gets no scale, so nothing outside is read (the reviewer's probe read an outside file through exactly this). */
+test('kosmos#8464 review 1: a folder on the path repointed after the notice gets no scale, and nothing outside is read', () => {
+  const inside = path.join(real, 'in' + (++seq)); fs.mkdirSync(inside);
+  const outside = path.join(real, 'out' + seq); fs.mkdirSync(outside);
+  fs.writeFileSync(path.join(inside, 'id'), 'guess1\nguess2\nguess3\n');
+  fs.writeFileSync(path.join(outside, 'id'), 'secretline\nguess2\n');
+  const dl = path.join(real, 'dl' + seq); fs.symlinkSync(inside, dl);
+  const who = owner();
+  fn.queue(who, 'x', { file: path.join(dl, 'id') });
+  fs.rmSync(dl); fs.symlinkSync(outside, dl);
+  assert.doesNotMatch(fn.contextText(handed(who)), /So far/, 'the outside file was measured through a repointed folder');
+  // CONTROL: the same path, folder not repointed, is measured.
+  const dl2 = path.join(real, 'dlb' + seq); fs.symlinkSync(inside, dl2);
+  const w2 = owner(); fn.queue(w2, 'x', { file: path.join(dl2, 'id') });
+  fs.appendFileSync(path.join(inside, 'id'), 'guess4\n');
+  assert.match(fn.contextText(handed(w2)), /So far: 1 line added/, 'CONTROL: an unmoved folder is measured');
+});
+
+test('kosmos#8464 review 1: a FIFO swapped in for the file neither hangs the board nor gets a scale', () => {
+  const f = fileWith(lines(3)); const who = owner();
+  fn.queue(who, 'x', { file: f });
+  fs.rmSync(f);
+  require('node:child_process').execFileSync('mkfifo', [f]);
+  /* In a child with a hard limit and SIGKILL: a blocking open of a FIFO cannot be interrupted from inside node (no
+     signal handler runs while the thread is stuck), so a regression must fail here, not hang the suite. */
+  const child = require('node:child_process').spawnSync(process.execPath, ['-e',
+    "const fn = require(" + JSON.stringify(require.resolve('./filenotices')) + "); process.stdout.write(fn.contextText(fn.handOver(" + JSON.stringify(who) + ")));"],
+    { env: process.env, encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL' });
+  fs.rmSync(f, { force: true });
+  assert.equal(child.signal, null, 'the hand-over hung on a FIFO and was killed');
+  assert.equal(child.status, 0, child.stderr);
+  assert.match(child.stdout, /file-owner notice/, 'CONTROL: the notice itself was handed over');
+  assert.doesNotMatch(child.stdout, /So far: \d+ line/, 'a FIFO was measured');
+});
+
+test('kosmos#8464 review 1: a newline-only change, an empty new file and a change of line endings say what happened', () => {
+  const nl = fileWith('a\nb'); const a = owner();
+  fn.queue(a, 'x', { file: nl });
+  fs.writeFileSync(nl, 'a\nb\n');
+  assert.match(fn.contextText(handed(a)), /So far: the file changed, but no lines were added or removed/);
+  const empty = fileWith(null); const b = owner();
+  fn.queue(b, 'x', { file: empty });
+  fs.writeFileSync(empty, '');
+  assert.match(fn.contextText(handed(b)), /So far: the file was made, empty\./);
+  const crlf = fileWith('one\ntwo\n'); const c = owner();
+  fn.queue(c, 'x', { file: crlf });
+  fs.writeFileSync(crlf, 'one\r\ntwo\r\n');
+  assert.match(fn.contextText(handed(c)), /So far: the file changed, but no lines were added or removed/, 'line endings read as a rewrite');
 });
