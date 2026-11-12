@@ -105,8 +105,9 @@ function start(name, opts) {
     catch (e) { gone = false; }
     if (!gone) onProblem('we could not remove an older presence record');
   }
-  /* A look at the pipe on Windows (fs.existsSync) may open a client connection (not measured), so a board poll could
-     arrive here. It is dropped at once, and a connection that errors on the way out must not become an uncaught exception. */
+  /* A look at the pipe on Windows (fs.existsSync) opens a client connection and takes the pipe's free instance until
+     this loop opens the next one (measured on the Windows runner, PR #8426), so every board poll arrives here. It is
+     dropped at once, and a connection that errors on the way out must not become an uncaught exception. */
   const server = net.createServer((socket) => { socket.on('error', () => {}); socket.destroy(); });
   /* A pipe that failed to open before listening also removes an older supervisor's record kept above: when that one
      exits, its record would otherwise say this live agent is dead, and no record of ours replaces it. */
