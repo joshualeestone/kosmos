@@ -34,6 +34,8 @@ later (engine/filenotices.js, through Kosmos's Claude Code hook), by when the ed
   it), so Kosmos did not count the change". An outside file reached through every path check cannot share the inside
   file's inode (multi-link files are refused). The folder is also checked inside the fingerprint, after the read and
   before the name comparison. Cost: an edit by write-and-rename gets no count, only that sentence.
+- Review 5: "too large" is said only after the folder and identity checks, and carries the file's identity, so not even
+  a size is said about another file; the read is bounded by the buffer, not by the size fstat gave.
 - filewriters passes the path through (noteWrite -> ownerNotice -> queue). The room note is unchanged.
 
 ## Rejected
@@ -46,6 +48,8 @@ What remains after four security rounds, stated rather than chased: a file that 
 has no identity to pin, so a precisely timed double flip at the hand-over could count an outside file's lines for it;
 and the "before" fingerprint at queue time is path-checked but has no earlier identity to compare with. In both, only
 line COUNTS could reach the owner agent, about a file that agent (running as the same user) could read itself. The rule
-kept is that the board never reads outside the project; node has no openat, so a path is the only handle. Also: the
+kept is that the board never COUNTS or REPORTS a file outside the project; it may OPEN one in a race window node
+cannot close (no openat, so a path is the only handle). A dead network mount can block a synchronous realpath or open
+on the board's thread here, as noteWrite's own realpath already could. Also: the
 "before" fingerprint is taken on setImmediate after the hook's answer, so the edit can land first; the no-change
 wording is hedged for that.
