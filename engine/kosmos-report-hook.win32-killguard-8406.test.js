@@ -151,6 +151,16 @@ const REFUSED = [
   'sudo X=1 taskkill //F //IM node.exe',
   'X=1 sudo taskkill //F //IM node.exe',
   'cmd //c "set X=1 && taskkill /F /IM node.exe"',
+  'env -S"taskkill //F //IM node.exe"',
+  'env -iS "taskkill //F //IM node.exe"',
+  "env -S 'taskkill //F' //IM node.exe",
+  'winpty taskkill //F //IM node.exe',
+  'timeout 5 taskkill //F //IM node.exe',
+  'nice -n 5 taskkill //F //IM node.exe',
+  'sudo -E taskkill //F //IM node.exe',
+  'sudo -u me taskkill //F //IM node.exe',
+  'X+=1 taskkill //F //IM node.exe',
+  'X[0]=1 taskkill //F //IM node.exe',
 ];
 const ALLOWED = [
   'taskkill /PID 4242',          // the card's control: one exact process id
@@ -231,10 +241,17 @@ const ALLOWED = [
   'X=1',
   'env',
   'MSYS_NO_PATHCONV=1 git status',
+  'env -S "echo hi"',
+  'timeout /t 5',
+  'winpty node app.js',
 ];
 
 test('#8406: every listed Windows form of "stop everything" is refused, in any case', () => {
   for (const c of REFUSED) assert.ok(guard.reason(c), 'refused: ' + c);
+  // cmd and PowerShell read their commands in any case (bash, sh and env do not, so they are not upper-cased here).
+  for (const c of ['TASKKILL /F /IM NODE.EXE', 'TaskKill /f /im Claude.EXE', 'STOP-PROCESS -NAME NODE', 'Get-PROCESS | STOP-PROCESS',
+    'LOGOFF', 'SHUTDOWN /S /T 0', 'WMIC PROCESS WHERE NAME="NODE.EXE" DELETE', 'TSKILL NODE', 'RESTART-COMPUTER',
+    'MSYS_NO_PATHCONV=1 TASKKILL /F /IM NODE.EXE']) assert.ok(guard.reason(c), 'refused in capitals: ' + c);
 });
 
 test('#8406: one exact process id, other names and ordinary commands pass (control)', () => {
