@@ -15,9 +15,11 @@ import XCTest
 final class EarlierDeleteShiftUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
-    // 8 s, as EarlierDroppedUITests: the delete comes 2 s before the second page is due, and the drag back into the first page
-    // with XCTest's wait for the app to be idle took longer than 4 s (measured: the setup check ran after the drop at 6).
-    private static let delay: Double = 8
+    // 16 s, as EarlierDroppedUITests: the delete comes 2 s before the second page is due, and the drag back into the first page
+    // with XCTest's wait for the app to be idle took longer than 4 s (measured: the setup check ran after the drop at 6). 8 s
+    // was the next step and failed the same way on CI's hosted Mac, where a drag takes 3 to 4.5 s and the test stamps the ask
+    // a drag or two late (kosmos#8221, run 42940677400 in EarlierDroppedUITests).
+    private static let delay: Double = 16
     private static let moved = "Checking the venue list, item 40."
 
     private static func launch(control: Bool) -> XCUIApplication {
