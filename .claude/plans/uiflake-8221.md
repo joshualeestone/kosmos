@@ -74,3 +74,9 @@ Weakest premise: that the hosted runner's 3 to 4.5 s per drag is the worst case;
   without a scroll event would have passed the setup check the old row check caught. The report now carries a position
   fact (newest shown, ChatList.newestOnScreen) and the check requires it. NITs FIXED in this plan: "nothing is checked
   less" removed; "every wait" narrowed. Noted: EarlierDoubleAsk has about 6.5 s of tolerance and is left.
+- Iteration 2 (sonnet): no new finding at WARNING or above; converged. NITs noted: the "focus too few rows" report has
+  no "newest shown" field, so that run fails with the setup message instead of the too-few-rows one (it fails either
+  way); a newest row wholly under the box would read false here where XCUITest counts it (the conservative direction).
+  Job time, measured on main's last runs of "uikit list (sample board)": green 46.4, 51.8 and 59.0 min; red 55.9 to
+  70.9 min with retries. The 16 s delay adds about three 8 s steps to each of the six tests, about 2 to 3 min,
+  under the job's 80 min limit; the retries it removes are worth more.
