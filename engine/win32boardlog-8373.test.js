@@ -253,7 +253,7 @@ test('#8373 once the console has failed, a write returns true, so no caller wait
   routeConsole(t, out);
   out.write('first\n');
   await tick();
-  assert.strictEqual(out.destroyed, true, 'CONTROL: node destroyed the failed stream, the case the forced true is for');
+  assert.strictEqual(out.destroyed, true, 'CONTROL: this stand-in was destroyed by its failed write (the board\'s real stdout is not; see the real-pipe test)');
   assert.strictEqual(out.write('later\n'), true);
 });
 
@@ -284,7 +284,7 @@ test('kosmos#8424 a failed write with autoDestroy off is not writable, and retur
   assert.strictEqual(out.write('later, more than four bytes\n'), true, 'a dead stream asked its caller to wait for a drain');
 });
 
-/* kosmos#8424 review 5: the destroyed half of the rule, for a stand-in that reports destroyed but not writable (node's own
+/* kosmos#8424 review 5: the destroyed half of the rule, for a stand-in that reports destroyed but still writable (node's own
    streams are never both destroyed and writable, so only a stand-in reaches it). */
 test('kosmos#8424 a stand-in that reports only destroyed returns true', (t) => {
   const out = { destroyed: true, writable: true, write() { return false; }, on() {} };

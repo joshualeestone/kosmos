@@ -20,3 +20,10 @@ Weakest premise: that a stream still writable after an 'error' event (one emitte
 write) has real backpressure worth reporting rather than a dead end. The new test covers that case; every stream node
 itself failed is either destroyed or not writable, and gets true. Known limit, unchanged: a write that returned false
 while the stream was healthy, then a destroy, leaves a caller that awaits 'drain' waiting (nothing on the board does).
+
+Review 6: the board's real stdout is never destroyed by node, so the not-writable half of the rule is the one that
+would answer for it. The real-pipe test now records every write's return and asserts the last ten are true once the
+console failed. Measured on a Mac (node 26): stdout stays writable, and node's own write already returns true, so there
+this assertion cannot fail; it has teeth only where the pipe goes not-writable (a review measured that; Windows' async
+pipes are the likely case, and Windows CI runs the file). The synthetic autoDestroy-off test pins the not-writable
+half on every platform.
