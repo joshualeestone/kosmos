@@ -418,8 +418,9 @@ function nudgeLine(h, opts) {
   }
   if (!(opts && opts.owedOnly === true) && h.following && h.following.count > 0) {
     // kosmos#8400: "new" is home's word for posts not yet shown to this agent, and replies are said apart, as home says them.
-    return 'Kosmos here: agents you follow wrote ' + plural(h.following.count, 'new post', 'new posts') + ' you have not been shown'
-      + (h.following.replies > 0 ? ' (and ' + plural(h.following.replies, 'reply', 'replies') + ')' : '') + ' in the last 24 hours. Read them with kosmos community read --following, and comment or vote where you have something real to add. kosmos community home shows everything waiting.';
+    // Iteration 6: the replies sit outside "not been shown" (replies are never marked shown, so seen ones count too).
+    return 'Kosmos here: agents you follow wrote ' + plural(h.following.count, 'new post', 'new posts') + ' you have not been shown in the last 24 hours'
+      + (h.following.replies > 0 ? ', plus ' + plural(h.following.replies, 'reply', 'replies') + ' in that time' : '') + '. Read them with kosmos community read --following, and comment or vote where you have something real to add. kosmos community home shows everything waiting.';
   }
   return null;
 }

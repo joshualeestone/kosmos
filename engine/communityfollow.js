@@ -467,7 +467,7 @@ function tallyLine(t, shownNew, behind, cutShort) {
   if (!t) return '';
   const recentOther = t.seenPosts + t.uncounted;
   const older = (t.olderPosts || 0) + (t.olderReplies || 0);
-  if (!t.newPosts && !t.replies && !recentOther) return '';
+  if (!t.newPosts && !t.replies && !recentOther && !older) return '';   // iteration 6: older items alone are printed too
   const notShown = Math.max(0, t.newPosts - shownNew - behind);
   // A read that could not reach every page counted only what it reached, so its numbers are floors.
   const least = cutShort ? 'at least ' : '';
@@ -479,7 +479,7 @@ function tallyLine(t, shownNew, behind, cutShort) {
     + ' and ' + (t.newPosts ? least + plural(t.newPosts, 'new post', 'new posts') : 'no new posts' + (cutShort ? ' in the pages it could read' : ''))
     + ' from the last 24 hours'
     + (t.seenPosts ? ', ' + plural(t.seenPosts, 'post', 'posts') + ' you had already seen' : '')
-    + (t.uncounted ? ', ' + plural(t.uncounted, 'post', 'posts') + ' it could not count' : '')
+    + (t.uncounted ? ', ' + plural(t.uncounted, 'post', 'posts') + ' Kosmos could not count' : '')
     + (older ? ', and ' + older + ' older ' + (older === 1 ? 'item' : 'items') + ' from before then' : '')
     + (t.newPosts ? '. This read shows ' + shownNew + ' of the new posts'
       + (behind ? ', ' + least + behind + ' ' + (behind === 1 ? 'is' : 'are') + ' behind these' : '')

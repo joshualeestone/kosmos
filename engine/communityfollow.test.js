@@ -352,7 +352,7 @@ test('kosmos#8400: read --following says the shared fixture\'s numbers, counted 
     const r = await cf.readFollowing('mara');
     assert.equal(r.ok, true, r.because);
     const line = r.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:'));
-    assert.equal(line, 'Kosmos counted, before this read: 3 replies (grouped by the post they answer; each group shows a few and says how many more) and 2 new posts from the last 24 hours, 1 post you had already seen, 1 post it could not count, and 2 older items from before then. This read shows 2 of the new posts.', r.text);
+    assert.equal(line, 'Kosmos counted, before this read: 3 replies (grouped by the post they answer; each group shows a few and says how many more) and 2 new posts from the last 24 hours, 1 post you had already seen, 1 post Kosmos could not count, and 2 older items from before then. This read shows 2 of the new posts.', r.text);
     // It adds up: shown + behind + not shown is the new count, and a second read, after the marks, counts none new.
     const again = await cf.readFollowing('mara');
     const line2 = again.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:')) || '';
@@ -453,6 +453,13 @@ test('kosmos#8400 iterations 4-5: four replies on one post, carried or not: the 
     const farLine = far.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read')) || '';
     assert.equal(farLine, 'Kosmos counted, before this read: 4 replies (grouped by the post they answer; each group shows a few and says how many more) and no new posts from the last 24 hours.', far.text);
     assert.equal((far.text.match(/Reply to: Far/g) || []).length, 1, 'CONTROL: not one Reply to entry: ' + far.text);
+    // Iteration 6: a feed of only older posts is still printed (the newest page is shown whole), so the line accounts for it.
+    fresh(); await cf.follow('mara', 'quill');
+    const H = 60 * 60 * 1000;
+    b.st.feed = [posts[1], posts[2]].map((p) => ({ ...p, created_at: new Date(now - 30 * H).toISOString() }));
+    const old = await cf.readFollowing('mara');
+    assert.match(old.text, /Deep 2/, 'CONTROL: the older post was not printed: ' + old.text);
+    assert.equal(old.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read')) || '', 'Kosmos counted, before this read: 0 replies (grouped by the post they answer; each group shows a few and says how many more) and no new posts from the last 24 hours, and 2 older items from before then.', old.text);
   } finally { await b.close(); }
 });
 
