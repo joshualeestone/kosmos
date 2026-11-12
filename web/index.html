@@ -6768,6 +6768,12 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tmeta:last-of-type { border-bottom: 0; }
 .tmeta > span { color: var(--label-2); }
 .tmeta > b { font-weight: 600; text-align: right; min-width: 0; }
+/* #8464 item 2: the checks are sentences, so their row stacks and reads left to right. */
+#tk-donewhen-row { flex-direction: column; align-items: stretch; gap: 4px; }
+#tk-donewhen-row > b { text-align: left; font-weight: 400; }
+.tk-donewhen { margin: 0; padding-left: 1.25em; overflow-wrap: anywhere; }
+.tk-donewhen li + li { margin-top: 6px; }
+.tk-donewhen .why { color: var(--label-2); font-size: .75rem; margin-top: 2px; }
 /* #768: the due-date input sits in a tmeta row like the read-only values, but is
    editable. Inherit the font, keep it right-aligned and unobtrusive; the native
    date control carries its own picker + a clear affordance. */
@@ -18189,6 +18195,8 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tmeta"><span>State</span><b id="tk-state"></b></div>
         <!-- kosmos#8137: on a task with several agents, who has finished and who has not. Hidden otherwise. -->
         <div class="tmeta" id="tk-wholeft-row" hidden><span>Who</span><b id="tk-wholeft"></b></div>
+        <!-- #8464 item 2: what finished means for this task, and what its agents say about each check. Hidden when it has none. -->
+        <div class="tmeta" id="tk-donewhen-row" hidden><span>Done when</span><b><ol id="tk-donewhen" class="tk-donewhen"></ol></b></div>
         <!-- #3861 part 2: the task this one is part of, a way up. Hidden when it stands alone. -->
         <div class="tmeta" id="tk-partof-row" hidden><span>Part of</span><b><button class="linkish" type="button" id="tk-partof"></button></b></div>
         <!-- #768: the task's DUE DATE (Josh's #768: "on the right we could have
@@ -71796,6 +71804,21 @@ async function pjReload() {
 /* #6895: `holds` is true when the name is shown as holding OPEN work on this task. Then a holder who is not one of the
    project's agents (removed after the task was given to them) is named with " (not on this project)", as the reviewer
    choice names one with " (left the project)". No automatic fix: the screen only says so. */
+/* #8464 item 2: the reports on a task's checks, aligned with them ({ met, how, by } or null each), and their counts.
+   As engine/tasks.js checkResultsOf reads them: an entry that is not a report reads as none. */
+function tkCheckResults(t) {
+  const checks = t && Array.isArray(t.doneWhen) && t.doneWhen.length ? t.doneWhen : null;
+  if (!checks) return null;
+  const stored = Array.isArray(t.doneWhenResults) ? t.doneWhenResults : [];
+  return checks.map((_, i) => {
+    const r = stored[i];
+    return r && typeof r === 'object' && typeof r.met === 'boolean' && typeof r.how === 'string' ? { met: r.met, how: r.how, by: typeof r.by === 'string' ? r.by : null } : null;
+  });
+}
+function tkCheckCount(t) {
+  const r = tkCheckResults(t);
+  return r ? { total: r.length, reported: r.filter(Boolean).length, met: r.filter((x) => x && x.met).length } : null;
+}
 function tkMemberName(p, sessionName, holds) {
   const m = (p.agents || []).find((a) => a && a.sessionName === sessionName);
   const name = (m && m.name) || (typeof tskAgentName === 'function' ? tskAgentName(sessionName) : sessionName);   // #4421: a former member by its current card, as pjNameOf
@@ -72504,6 +72527,12 @@ function tskRow(t, at) {
       + (t.builtNote ? ': ' + esc(builtNoteRow) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
       + ' <button type="button" class="tsk-unbuild' + (t.builtNote ? ' tsk-unbuild-own' : '') + '" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Undo marking task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain)) + ' built">Undo</button></div>';
+  /* #8464 item 2: how many of the task's checks its agents have reported met (kosmos task check). Their word, not a
+     verification, so it says "reported". Only once something is reported, and not on a closed row. */
+  const checkCount = t.state === 'closed' ? null : tkCheckCount(t);
+  const checksLine = !checkCount || !checkCount.reported ? ''
+    : '<div class="why tsk-checks">' + checkCount.met + ' of ' + checkCount.total + (checkCount.total === 1 ? ' check' : ' checks') + ' reported met'
+      + (checkCount.reported > checkCount.met ? ', ' + (checkCount.reported - checkCount.met) + ' reported not met' : '') + '</div>';
   const whoLeft = t.state === 'closed' || typeof tkWhoLeftWords !== 'function' ? '' : tkWhoLeftWords(t, tskAgentName);   // kosmos#8137; typeof: tests lift this function alone
   const whoLeftLine = whoLeft ? '<div class="why">' + esc(whoLeft) + '</div>' : '';
   /* #7508 (Mona Lisa's words): the commit a code fix was saved as, from the agent's built mark, on open and closed rows
@@ -72553,7 +72582,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + waitLine + whoLine + forYouLine + repeatLine + whoLeftLine + landedLine + builtLine + replacedLine + '</div>'   /* kosmos#8158: the commit line first, so Undo cannot read as undoing it */
+    + '</div>' + cannot + waitLine + whoLine + forYouLine + repeatLine + whoLeftLine + checksLine + landedLine + builtLine + replacedLine + '</div>'   /* kosmos#8158: the commit line first, so Undo cannot read as undoing it */
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */
@@ -73216,6 +73245,28 @@ function paintTaskPage() {
     const row = document.getElementById('tk-wholeft-row');
     const el = document.getElementById('tk-wholeft');
     if (row && el) { el.textContent = words; row.hidden = !words; } }
+  /* #8464 item 2: the checks, each with what an agent says about it, written as text (an agent's words never reach
+     innerHTML). Rebuilt only when it changed, so the five-second poll does not redraw it under the person. */
+  { const row = document.getElementById('tk-donewhen-row');
+    const list = document.getElementById('tk-donewhen');
+    const results = tkCheckResults(t);
+    if (row && list) {
+      const items = (results || []).map((r, i) => ({ check: String(t.doneWhen[i]),
+        says: !r ? 'Not reported yet' : (r.by ? tkMemberName(p, r.by) : 'An agent') + ' says ' + (r.met ? 'met' : 'not met') + ': ' + r.how }));
+      const sig = JSON.stringify(items);
+      if (list.tkPainted !== sig) {
+        list.replaceChildren(...items.map((it) => {
+          const li = document.createElement('li');
+          const says = document.createElement('div');
+          says.className = 'why';
+          says.textContent = it.says;
+          li.append(document.createTextNode(it.check), says);
+          return li;
+        }));
+        list.tkPainted = sig;
+      }
+      row.hidden = !items.length;
+    } }
   const stateEl = document.getElementById('tk-state');
   if (!replacedLink && !replaces.length) { stateEl.textContent = stateWord + builtWords; stateEl.tkPainted = null; }   // plain words when there is no link
   else {
