@@ -140,7 +140,7 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
       // The project's members are read only when a notice is due; an owner no longer on it takes no slot and gets no note.
       if (!(Number.isFinite(last) && now - last >= 0 && now - last < NOTICE_EVERY_MS) && onProject(at.projectId, first, now)) {
         if (Object.keys(book).length < NOTICE_ROOM_MAX) {
-          notice = { projectId: at.projectId, name: at.name, owner: first, writer: who };
+          notice = { projectId: at.projectId, name: at.name, owner: first, writer: who, file };   // kosmos#8464: the path, for the scale
           book[pair] = entry.at;
         } else if (!held) {
           notice = { projectId: at.projectId, heldBack: true };
@@ -218,7 +218,7 @@ function ownerNotice(n) {
      roomNoticeText, which adds when that happens. Not the held-back note: that one names no owner. Separate from the room note,
      so either failing leaves the other. */
   if (!n.heldBack) {
-    try { require('./filenotices').queue(n.owner, ownerNoticeText(n)); } catch { /* the write stands */ }
+    try { require('./filenotices').queue(n.owner, ownerNoticeText(n), { file: n.file || null }); } catch { /* the write stands */ }
   }
 }
 
