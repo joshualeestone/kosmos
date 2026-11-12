@@ -40,8 +40,12 @@ and the lapse check is harmless when read as the person's. It could only happen 
 scroll's last move (the lapse check's 0.05 s margin plus however late its timer fires, so it grows with load), and it
 would leave the reader where the list moved them rather than pinning. The same sequence was already possible inside the
 0.3 s window itself, so this widens an existing exposure rather than adding one. A new message landing in the gap is
-the list's own write (apply), so it does not read the reader off the end: the lapse pins them, about 50 ms late (review
-1, read from the code). Would change my mind:
+the list's own write (apply), so it does not read the reader off the end: laidOut leaves the list alone while the window
+is open and the lapse check pins them when it closes it (review 1, read from the code). How late, from the code (review
+3): with the last move at t0, the window closes at t0 + 0.35 + L1 without the grace, and at t0 + 0.35 + L1 + 0.35 + L2
+with it, L1 and L2 being how late each check ran (the grace needs L1 over 0.1 s). The grace's test is "ran more than
+0.1 s late", not "the main thread stalled": any main-thread work over about 65 ms when the check is due trips it, so
+it will fire in ordinary use on a busy phone, holding the window about 0.35 s longer, once a window. Would change my mind:
 a check where a new message arrives in that gap and the reader at the newest is not followed.
 
 ## Change
@@ -81,3 +85,13 @@ a check where a new message arrives in that gap and the reader at the newest is 
 - Simulator (iPhone 17e, iOS 27.0, UIKit list, once each): A11yFocusUITests 14 of 14 and A11yScrollUITests 10 of 10 on
   6b614aed54 (only the old control failed, as the grace alone kept its scroll); then A11yScrollUITests 11 of 11 on the
   corrected control: stalled pins 0, moved 387; control (both off) pins 12, moved 0.
+- Iteration 3 (opus): no BLOCKER; the lapse logic confirmed correct (due computed with its deadline on every path; once
+  a window holds). 2 WARNINGs FIXED: no check showed the grace ever ran (the stalled check's moves beat the late check, and
+  the animated one was kept by its reported end), so the report now says "graced" and testTheStallGraceAloneKeepsAStalledScroll
+  runs with the window read by the clock, where only the grace can keep the scroll, and asserts it fired; and this plan's
+  "about 50 ms" is replaced by the bound above. The animated check's comment now says what was measured. NITs: the animated
+  stall assumes the window opened before 0.08 s (the report says only that it opened); personScrollStallLate is release
+  code, as it must be.
+- Simulator after iteration 3 (iPhone 17e, iOS 27.0, UIKit list, once each): A11yScrollUITests 12 of 12. Stalled, both
+  fixes: pins 0, moved 387, graced false. The grace alone (window by the clock): graced true, pins 1, moved 373. Both off:
+  pins 14, moved 0. The animated stalled scroll: pins 0, moved 408, graced false, with and without the grace.
