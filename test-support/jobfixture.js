@@ -32,9 +32,11 @@ const win32 = () => process.platform === 'win32';
 
 /* kosmos#8378: the stand-in Task Scheduler for a Windows host. Its tasks are the `agent-*.xml` files in one sandbox
    folder, named by the task's name under the Kosmos folder; it answers the schtasks calls engine/win32job.js makes
-   (/Query /XML, /Query /FO LIST, the two /FO CSV lists, /Create, /Delete, /Change, /Run, /End) from those files. */
+   through its own runner (setRunner: /Query /XML, /Query /FO LIST, the two /FO CSV lists, /Create, /Delete, /Change,
+   /Run, /End) from those files. NOT the step forms (installSteps, startSteps, endSteps, taskEnabledSteps): those hand
+   `schtasks.exe` to engine/remove.js's runner, which a test stubs on its own, so a put-back or restore through them
+   registers nothing here, whatever that stub answers. */
 const NOT_FOUND = 'ERROR: The system cannot find the file specified.';
-let schedulerDir = null;
 
 function win32TaskDir() {
   if (!process.env.AGENT_WORKFORCE_LAUNCH) {
@@ -129,12 +131,26 @@ function stubAnswer(dir) {
     if (verb === '/Change') {
       if (!exists()) return { ok: false, out: NOT_FOUND };
       const on = a.includes('/ENABLE');
-      const text = fs.readFileSync(file, 'utf8').replace(/(<Settings>[\s\S]*?<Enabled>)\s*(true|false|1|0)\s*(<\/Enabled>)/, `$1${on ? 'true' : 'false'}$3`);
+      const before = fs.readFileSync(file, 'utf8');
+      const settings = /<Settings>([\s\S]*?)<\/Settings>/.exec(before);
+      /* Task Scheduler keeps a <Settings> with the switch in every task it stores, so the switch is written whether or
+         not the definition had one: into its <Settings>, or into a new one (a test's placeholder definition, say). */
+      const flag = `<Enabled>${on ? 'true' : 'false'}</Enabled>`;
+      let text;
+      if (!settings) text = `${before}<Settings>${flag}</Settings>`;
+      else {
+        const inner = /<Enabled>[\s\S]*?<\/Enabled>/.test(settings[1])
+          ? settings[1].replace(/<Enabled>[\s\S]*?<\/Enabled>/, flag)
+          : `${settings[1]}${flag}`;
+        text = before.replace(settings[0], `<Settings>${inner}</Settings>`);
+      }
       fs.writeFileSync(file, text, 'utf8');
       return { ok: true, out: `SUCCESS: The parameters of scheduled task "${tn}" have been changed.` };
     }
     if (verb === '/Run') {
       if (!exists()) return { ok: false, out: NOT_FOUND };
+      // A switched-off task does not start: Task Scheduler refuses /Run on it, so a test never reads a start that was not.
+      if (switchedOff(fs.readFileSync(file, 'utf8'))) return { ok: false, out: 'ERROR: The task is disabled.' };
       /* A started task runs the agent's supervisor, whose first act is the ownership row win32create.awaitSession
          waits for (win32create.prepareSession). The stand-in writes that row, under the name and runner on the task's
          line, into the sandboxed store, as engine/create.test.js's own Windows runner does. */
@@ -149,17 +165,15 @@ function stubAnswer(dir) {
   };
 }
 
-/* Installs the stand-in (once per sandbox folder) and forgets what win32job remembered of any task: a test that writes
+/* Installs the stand-in (on every call) and forgets what win32job remembered of any task: a test that writes
    or deletes a task file asks for its path first, and win32job keeps a read task until its own install or remove
    (the #2717 cache), which a file written behind its back is not. setRunner is the call that clears that memory. */
 function useWin32Scheduler() {
   const dir = win32TaskDir();
   const win32job = require('../engine/win32job');
-  if (schedulerDir !== dir) {
-    schedulerDir = dir;
-    // Registering a task copies node beside the task first (win32anchor); here that is a path, never a copy.
-    win32job.setAnchorer(() => ({ ok: true, node: process.execPath, boot: path.join(dir, 'supervisor-boot.js') }));
-  }
+  /* Registering a task copies node beside the task first (win32anchor); here that is a path, never a copy. Installed on
+     every call, as the runner is, so a test that put the real anchorer back (setAnchorer(null)) never copies node. */
+  win32job.setAnchorer(() => ({ ok: true, node: process.execPath, boot: path.join(dir, 'supervisor-boot.js') }));
   win32job.setRunner(stubScheduler(dir));
   return dir;
 }

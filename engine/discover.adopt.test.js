@@ -564,7 +564,7 @@ test('#1159 CONTROL: adopting a Claude agent does NOT stamp a provider', () => {
  */
 const projectsMod = require('./projects');
 
-test('#1349: an imported agent gets the project block, BEFORE it is started', { skip: skipOnWin32('it watches the start through create.setRunner, the launchctl runner seam, which a Windows start never calls: Windows starts the agent through Task Scheduler') }, () => {
+test('#1349: an imported agent gets the project block, BEFORE it is started', { skip: skipOnWin32('it watches the start through create.setRunner, the launchctl runner seam, which a Windows start never calls: Windows starts the agent through Task Scheduler; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, () => {
   /* 🔑 THE ORDERING IS PROVEN, NOT ASSERTED. The injected runner is what
      `installJob` calls to start the agent, so reading the instructions file from
      INSIDE it captures their state at the moment of start. If the block is
@@ -652,7 +652,7 @@ test('#1349: an instructions file already at the ceiling is left alone', () => {
  * MEASURED ASYMMETRY: `create.js` composes both before an agent is born;
  * `discover.js` mentioned `defaults` ZERO times.
  */
-test('#1363: an imported agent is born with the rules and the connector words', { skip: skipOnWin32('it watches the start through create.setRunner, the launchctl runner seam, which a Windows start never calls: Windows starts the agent through Task Scheduler') }, () => {
+test('#1363: an imported agent is born with the rules and the connector words', { skip: skipOnWin32('it watches the start through create.setRunner, the launchctl runner seam, which a Windows start never calls: Windows starts the agent through Task Scheduler; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, () => {
   const dir = agentFolder('rulesimp', 'AGENTS.md', '# You are Rules Imp\n');
   let atStart = null;
   create.setRunner(() => {

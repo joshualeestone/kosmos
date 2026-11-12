@@ -5025,7 +5025,7 @@ test('kosmos#7825 PR 2: the removed list carries names with only settings left, 
  * This one builds a REAL plist naming a REAL account dir, deletes the dir, and
  * asserts the route ships `true`.
  */
-test('#2615 the removed list reports a gone account folder as gone', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
+test('#2615 the removed list reports a gone account folder as gone', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   const removal = require('./engine/remove');
   const create = require('./engine/create');
   const status = require('./engine/status');
@@ -13721,7 +13721,8 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     assert.ok(!unknownDir.account.dir || !sentenceForWhoami(unknownDir.account, unknownDir.model).includes(unknownDir.account.dir), 'the folder is in the sentence');
 
   } finally {
-    if (fixtureJob) { try { fs.rmSync(fixtureJob, { force: true }); } catch { /* nothing to undo */ } }
+    // kosmos#8378: the path asked for again, so win32job forgets the job it read (test-support/jobfixture.js).
+    if (fixtureJob) { try { fs.rmSync(jobfix.jobPath('acctworker'), { force: true }); } catch { /* nothing to undo */ } }
     /* ⚠️ AND THE SEEDED TRANSCRIPT, which I left behind. `seedTranscript` writes a
        registry entry and a transcript for this agent name, and the ROUTE test
        below then silently read them: its stub returns `model: null`, so its
@@ -14767,7 +14768,8 @@ test('#1304: a throwing live reader falls back to the record and fabricates noth
       assert.equal(out2.source.account, 'record');
       assert.equal(out2.account && out2.account.email, 'sentinel@example.com',
         'the account list was fetched and discarded, so the record path received an empty list');
-    } finally { try { fs.rmSync(jobPath, { force: true }); } catch { /* nothing to undo */ } }
+    // kosmos#8378: the path asked for again, so win32job forgets the job it read (test-support/jobfixture.js).
+    } finally { try { fs.rmSync(jobfix.jobPath('acctworker'), { force: true }); } catch { /* nothing to undo */ } }
     /* The honest account clause is present rather than a fabricated confident
        one. #1899 made the identity clause (name + source) LEAD the sentence, so
        this is no longer at position 0 -- but the anchor here was only ever a

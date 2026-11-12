@@ -54,3 +54,12 @@ discover.adopt 24 -> 0 (4 skip), qwen-review2-5977 17 -> 0 (6 skip), machine 25 
 delete-leftover 16 -> 0 (10 skip), connect-keep-8293 20 -> 0. create.compat-7206 is 9 -> 0 (6 skip).
 33 other files improve as a side effect (the status.*-ring/observed files, server.whoami-*, server.*-badge-*, and others),
 and 11 files keep some Windows failures for other causes, left to later triage steps.
+
+## Review log
+- Round 1 (no blockers, 5 warnings, 3 nits). Fixed: two server.test.js cleanups now ask for the job path again (the
+  fixture's own rule); the stand-in's anchorer is installed on every call; /Run refuses a switched-off task; /Change
+  writes the switch even into a definition without one (Task Scheduler always keeps it); the header says the step forms
+  (installSteps and the rest, through engine/remove.js's runner) are NOT served. Three skips whose subject does exist on
+  Windows (#2615 removed list, adopt #1349 and #1363) name their follow-up card, kosmos#8456. Left as nits: jobFor on
+  Windows puts the current world on the task line (nothing reads it yet), and machine.test.js #2304 could assert the
+  Windows fallback instead of skipping.
