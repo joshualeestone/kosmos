@@ -36,7 +36,7 @@ const zlib = require('node:zlib');
 
 // kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
 const { skipOnWin32 } = require('./test-support/skip-on-win32');
-const SKIP_SETUP_SH = skipOnWin32('it runs functions cut from install/setup.sh, the Mac and Linux installer, through sh -c; Windows installs Kosmos with its own installer and never runs setup.sh');
+const SKIP_SETUP_SH = skipOnWin32('it runs functions cut from install/setup.sh, the Mac and Linux installer, through sh -c, and a script that long passed on the Windows command line reaches Git Bash cut short; Windows installs Kosmos with its own installer and never runs setup.sh');
 
 /* curl only began aborting an ALREADY-RUNNING transfer at 8.4.0; before that
    --max-filesize decides from an announced length and refuses to start. That

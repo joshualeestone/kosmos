@@ -42,7 +42,7 @@ const { spawnSync } = require('node:child_process');
 
 // kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
 const { skipOnWin32 } = require('./test-support/skip-on-win32');
-const SKIP_MAC_RELEASE_CUT = skipOnWin32('it runs the Mac release cut (tools/release.sh), which only runs on a Mac');
+const SKIP_MAC_RELEASE_CUT = skipOnWin32('it runs the Mac release cut (tools/release.sh), which hands POSIX paths from Git Bash to native node, so node reads them as other Windows paths; the release cut only runs on a Mac');
 
 /* #3647: step 1c also checks the Developer ID Installer identity (`security
    find-identity -v`) and the notary key (`secrets-map.sh path`). The sandbox has
