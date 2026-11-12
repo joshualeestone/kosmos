@@ -1,5 +1,5 @@
 'use strict';
-require('../test-support/tmpscope');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273)
+require('../test-support/tmpscope-outside-home');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273), made outside the home on Windows so the guard's ancestor walk never reads the real ~/.claude (kosmos#8378)
 
 /*
  * #5774 part 1: the token-only guard denies the scripts that Claude Code's start-time commands run outside the sandbox
@@ -21,6 +21,10 @@ fs.mkdirSync(process.env.AGENT_WORKFORCE_HOME, { recursive: true });
 
 const setup = require('./setup-assistant');
 const store = require('./store');
+/* kosmos#8378: the tests below whose subject is absent on Windows skip there, each saying why. */
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const POSIX_GUARD = skipOnWin32('it runs the macOS or Linux guard (platform darwin or linux, through its seam) over folders made on this host, and those guards write their rules and the macOS Seatbelt sandbox for POSIX paths, never a Windows drive path; the Windows guard is tested in engine/tokenguard.win32-5664.test.js');
+const POSIX_LINES = skipOnWin32('it reads shell lines whose folders are absolute POSIX paths (/A, /H, /opt), which do not exist on Windows, where the splitter resolves them against the current drive (its Windows path rules are kosmos#8451)');
 const sc = require('./startcommands');
 
 fs.mkdirSync(store.ROOT, { recursive: true });
@@ -60,7 +64,7 @@ function sandboxDenies(dw, p) { const r = realOrLeaf(p); return dw.some((d) => r
 fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
 fs.mkdirSync(path.join(HOME, '.claude-acct'), { recursive: true });
 
-test('#5774: every start-time command tier has its script denied in both layers, wherever the script sits', () => {
+test('#5774: every start-time command tier has its script denied in both layers, wherever the script sits', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-cmds');
   const S = (n) => path.join(SANDBOX, 'scripts', n);
   for (const n of ['hook.sh', 'status.sh', 'key.sh', 'server.js', 'mine.js', 'above.js', 'managed.sh', 'managedd.sh', 'mmcp.js', 'remote.sh', 'local.sh', 'plugin-out.sh', 'inline.py']) touch(S(n));
@@ -105,7 +109,7 @@ test('#5774: every start-time command tier has its script denied in both layers,
   }
 });
 
-test('#5774: controls: what a command writes, another folder\'s servers, a URL and the agent\'s own files stay open', () => {
+test('#5774: controls: what a command writes, another folder\'s servers, a URL and the agent\'s own files stay open', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-ctl');
   const other = path.join(SANDBOX, 'elsewhere');
   touch(path.join(SANDBOX, 'scripts', 'other.js'));
@@ -131,7 +135,7 @@ test('#5774: controls: what a command writes, another folder\'s servers, a URL a
   }
 });
 
-test('#5774: a script path built when the command runs cannot be read, so the guard says it is not whole and names it', () => {
+test('#5774: a script path built when the command runs cannot be read, so the guard says it is not whole and names it', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-dyn');
   writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'bash "$(dirname "$0")/later.sh"' }] }] } });
   try {
@@ -149,7 +153,7 @@ test('#5774: a script path built when the command runs cannot be read, so the gu
   } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
 });
 
-test('#5774: a linked script has its target denied too; an uncarriable path is named where it runs, or when it exists', () => {
+test('#5774: a linked script has its target denied too; an uncarriable path is named where it runs, or when it exists', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-link');
   const real = path.join(SANDBOX, 'real-scripts', 'target.sh');
   touch(real);
@@ -181,7 +185,7 @@ test('#5774: a linked script has its target denied too; an uncarriable path is n
   } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
 });
 
-test('#5774: the command splitter: quotes, variables, substitutions, redirections and the program word', () => {
+test('#5774: the command splitter: quotes, variables, substitutions, redirections and the program word', { skip: POSIX_LINES }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.deepEqual(paths('bash ~/.x/s.sh').paths, ['/H/.x/s.sh']);
@@ -209,7 +213,7 @@ test('#5774: the command splitter: quotes, variables, substitutions, redirection
   assert.deepEqual(cmds[1], { program: '/My Dir/srv', args: [], server: true }, 'review 2: a server is started directly, so its command is one word even with no args');
 });
 
-test('#5774 review 1: a folder a command names is never denied (cd into the agent folder, a search of the home or the root)', () => {
+test('#5774 review 1: a folder a command names is never denied (cd into the agent folder, a search of the home or the root)', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-cd');
   fs.writeFileSync(path.join(dir, 'notes.md'), 'mine\n');
   fs.mkdirSync(path.join(HOME, 'work'), { recursive: true });
@@ -230,7 +234,7 @@ test('#5774 review 1: a folder a command names is never denied (cd into the agen
   } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
 });
 
-test('#5774 review 1: an interpreter\'s script is denied even before it exists; an inline assignment\'s file is read', () => {
+test('#5774 review 1: an interpreter\'s script is denied even before it exists; an inline assignment\'s file is read', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-slot');
   writeJson(path.join(HOME, '.claude', 'settings.json'), { hooks: { Stop: [{ hooks: [{ type: 'command', command: `cd "$CLAUDE_PROJECT_DIR" && bash check.sh; BASH_ENV=${path.join(SANDBOX, 'benv.sh')} bash -c true` }] }] } });
   try {
@@ -244,7 +248,7 @@ test('#5774 review 1: an interpreter\'s script is denied even before it exists; 
   } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
 });
 
-test('#5774 review 1: a script named by a variable is read from the settings env when every tier agrees, and is a gap when not', () => {
+test('#5774 review 1: a script named by a variable is read from the settings env when every tier agrees, and is a gap when not', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-env');
   const hook = path.join(SANDBOX, 'scripts', 'env-hook.sh');
   touch(hook);
@@ -267,7 +271,7 @@ test('#5774 review 1: a script named by a variable is read from the settings env
   }
 });
 
-test('#5774 review 1: a plugin\'s manifest can point at its own hook file; its data folder is a known place', () => {
+test('#5774 review 1: a plugin\'s manifest can point at its own hook file; its data folder is a known place', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-plug');
   const plug = path.join(SANDBOX, 'my-plugins', 'p2');
   const out = path.join(SANDBOX, 'scripts', 'from-manifest.sh');
@@ -307,7 +311,7 @@ test('#5774 review 1: a scan that throws leaves the rest of the guard written an
   } finally { sc.startCommandScripts = real; }
 });
 
-test('#5774 review 2: the agent\'s own files a command only reads or writes stay its own', () => {
+test('#5774 review 2: the agent\'s own files a command only reads or writes stay its own', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-data');
   for (const f of ['package.json', path.join('log', 'hook.log')]) { fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), '{}\n'); }
   touch(path.join(dir, 'tools', 'run.sh'));
@@ -324,7 +328,7 @@ test('#5774 review 2: the agent\'s own files a command only reads or writes stay
   } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
 });
 
-test('#5774 review 2: a server command with a space is one program; a script pattern and an unreadable config are named', () => {
+test('#5774 review 2: a server command with a space is one program; a script pattern and an unreadable config are named', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-srv');
   const srv = path.join(SANDBOX, 'My Servers', 'srv');
   touch(srv);
@@ -370,7 +374,7 @@ test('#5774 review 2: a plugin whose folder is the agent folder, or not a full p
   } finally { fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true }); }
 });
 
-test('#5774 review 3: the test command is not a pattern; script flags; managed preferences; a plugin folder that resolves to the agent folder or is a config home', () => {
+test('#5774 review 3: the test command is not a pattern; script flags; managed preferences; a plugin folder that resolves to the agent folder or is a config home', { skip: POSIX_GUARD }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.deepEqual(paths('[ -f "$CLAUDE_PROJECT_DIR/x" ] && bash run.sh'), { paths: ['/A/run.sh'], runPaths: ['/A/run.sh'], codePaths: ['/A/run.sh'], unsafe: [] });
@@ -416,7 +420,7 @@ test('#5774 review 3: the test command is not a pattern; script flags; managed p
   }
 });
 
-test('#5774 review 4: cd moves where a relative script is read; find -exec, env -S, runner flags, flag values and package names', () => {
+test('#5774 review 4: cd moves where a relative script is read; find -exec, env -S, runner flags, flag values and package names', { skip: POSIX_LINES }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.ok(paths('cd /opt/hooks && bash x.sh').runPaths.includes('/opt/hooks/x.sh'), 'the script read from where cd went');
@@ -455,7 +459,7 @@ test('#5774 review 4: an empty config file holds nothing; a plugin inside the ag
   }
 });
 
-test('#5774 review 5: a quoted value before the program, an interpreter\'s value flags, -ce, ${VAR:-x}, PWD and a joined line', () => {
+test('#5774 review 5: a quoted value before the program, an interpreter\'s value flags, -ce, ${VAR:-x}, PWD and a joined line', { skip: POSIX_LINES }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.deepEqual(paths('FOO="bar" bash scripts/h.sh').runPaths, ['/A/scripts/h.sh'], 'NAME="value" is an assignment; bash is the program');
@@ -469,7 +473,7 @@ test('#5774 review 5: a quoted value before the program, an interpreter\'s value
   assert.deepEqual(paths('ba\\\nsh x.sh').runPaths, ['/A/x.sh'], 'a line continuation joins the word');
 });
 
-test('#5774 review 5: a hook with a quoted assignment in front has its script denied; a suffixed global config is read', () => {
+test('#5774 review 5: a hook with a quoted assignment in front has its script denied; a suffixed global config is read', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-r5');
   touch(path.join(dir, 'hook.py'));
   const srv = path.join(SANDBOX, 'scripts', 'staging-srv.js');
@@ -488,7 +492,7 @@ test('#5774 review 5: a hook with a quoted assignment in front has its script de
   }
 });
 
-test('#5774 review 6: comments, here-documents, an unclosed quote, PATH=, unlisted wrappers and code the agent folder supplies', () => {
+test('#5774 review 6: comments, here-documents, an unclosed quote, PATH=, unlisted wrappers and code the agent folder supplies', { skip: POSIX_LINES }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.deepEqual(paths("# don't run twice\nbash /h/x.sh").runPaths, ['/h/x.sh'], 'an apostrophe in a comment opens no quote');
@@ -507,7 +511,7 @@ test('#5774 review 6: comments, here-documents, an unclosed quote, PATH=, unlist
   assert.deepEqual(paths('echo $PATH').paths, []);
 });
 
-test('#5774 review 6: a commented multi-line hook still has its script denied; npm in the agent folder says not whole', () => {
+test('#5774 review 6: a commented multi-line hook still has its script denied; npm in the agent folder says not whole', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-r6');
   const hook = path.join(SANDBOX, 'scripts', 'r6.sh');
   touch(hook);
@@ -523,7 +527,7 @@ test('#5774 review 6: a commented multi-line hook still has its script denied; n
   } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
 });
 
-test('#5774 review 7: a runner\'s change-folder flag, a folder run as code, patterns with a script extension, a runner after an unknown cd', () => {
+test('#5774 review 7: a runner\'s change-folder flag, a folder run as code, patterns with a script extension, a runner after an unknown cd', { skip: POSIX_LINES }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.ok(paths('uv --directory /ABS/weather run weather.py').runPaths.includes('/ABS/weather/weather.py'), 'the MCP quickstart shape');
@@ -556,7 +560,7 @@ test('#5774 review 7: a folder an interpreter runs is named, never denied whole'
   } finally { fs.rmSync(path.join(HOME, '.claude.json'), { force: true }); }
 });
 
-test('#5774 review 8: ~ in an assignment, package-script runners, jq filters, and nesting too deep to read', () => {
+test('#5774 review 8: ~ in an assignment, package-script runners, jq filters, and nesting too deep to read', { skip: POSIX_LINES }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.deepEqual(paths('PATH=~/bin:$PATH myhook').runPaths, ['/H/bin/myhook'], '~ after = is the home');
@@ -570,7 +574,7 @@ test('#5774 review 8: ~ in an assignment, package-script runners, jq filters, an
   assert.match(String(paths('bash -c "bash -c \\"bash -c \\\\\\"bash -c /x.sh\\\\\\"\\""').unsafe), /nested too deep/);
 });
 
-test('#5774 review 9: processWrapper and helper paths, $\'...\' quoting, perl -pe, login variables, an unlistable drop-in folder', () => {
+test('#5774 review 9: processWrapper and helper paths, $\'...\' quoting, perl -pe, login variables, an unlistable drop-in folder', { skip: POSIX_GUARD }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.deepEqual(sc.commandsIn({ processWrapper: '/opt/launch', policyHelper: { path: '/opt/ph' } }), [{ line: '/opt/launch' }, { program: '/opt/ph', args: [], exec: true }]);
@@ -603,7 +607,7 @@ test('#5774 review 9: processWrapper and helper paths, $\'...\' quoting, perl -p
   }
 });
 
-test('#5774 review 10: input to a program that only reads it, a here-string given to a shell, a message that ends like a script', () => {
+test('#5774 review 10: input to a program that only reads it, a here-string given to a shell, a message that ends like a script', { skip: POSIX_LINES }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PWD: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.deepEqual(paths('jq .name < package.json').paths, [], 'jq reads it: the agent keeps its state file');
@@ -637,7 +641,7 @@ test('#5774 review 10: a config file caught mid-write is read once more before i
   }
 });
 
-test('#5774 review 11: a hook runs in the session\'s current folder, so a relative script is named unless the line anchors it', () => {
+test('#5774 review 11: a hook runs in the session\'s current folder, so a relative script is named unless the line anchors it', { skip: POSIX_GUARD }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
   const line = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v, 0, null, false);
   for (const c of ['bash scripts/check.sh', '.claude/hooks/fmt.sh', 'python3 hook.py', 'cd sub && ./x.sh', 'bash -c "./a.sh"', 'bash "$PWD/x.sh"']) assert.ok(line(c).unsafe.length > 0, c);
@@ -673,7 +677,7 @@ test('#5774 review 11: a hook runs in the session\'s current folder, so a relati
   }
 });
 
-test('#5774 review 12: an unknown argument after the script is not a gap; the agent\'s own settings.local.json hooks are read', () => {
+test('#5774 review 12: an unknown argument after the script is not a gap; the agent\'s own settings.local.json hooks are read', { skip: POSIX_GUARD }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   for (const c of ['node ~/x.js "$FOO"', 'python3 ~/hooks/x.py "$CLAUDE_ENV_FILE"', 'bash ~/x.sh $1', 'sh ~/h.sh "$@"']) assert.deepEqual(paths(c).unsafe, [], c);
@@ -688,7 +692,7 @@ test('#5774 review 12: an unknown argument after the script is not a gap; the ag
   assert.ok(editDeniedBy(readSettings(dir).permissions.deny, hook).length > 0, 'so their script is denied');
 });
 
-test('#5774 review 13: an exec-form hook runs in the session folder with only Claude Code\'s own variables; value flags that load code', () => {
+test('#5774 review 13: an exec-form hook runs in the session folder with only Claude Code\'s own variables; value flags that load code', { skip: POSIX_GUARD }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
   const line = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v, 0, null, false);
   assert.deepEqual(line('node --env-file ~/.env ~/x.js').runPaths, ['/H/.env', '/H/x.js'], 'an env file is code the program loads');
@@ -711,7 +715,7 @@ test('#5774 review 13: an exec-form hook runs in the session folder with only Cl
   } finally { fs.rmSync(path.join(HOME, '.claude', 'settings.json'), { force: true }); }
 });
 
-test('#5774 review 14: a plugin\'s monitors (default file and manifest path) and a trap\'s command line', () => {
+test('#5774 review 14: a plugin\'s monitors (default file and manifest path) and a trap\'s command line', { skip: POSIX_GUARD }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.deepEqual(paths("trap '~/h/clean.sh' EXIT; true").runPaths, ['/H/h/clean.sh'], 'a trap runs its command later');
@@ -734,7 +738,7 @@ test('#5774 review 14: a plugin\'s monitors (default file and manifest path) and
   } finally { fs.rmSync(path.join(HOME, '.claude', 'plugins', 'installed_plugins.json'), { force: true }); }
 });
 
-test('#5774 review 15: a folder runner is named wherever it runs; a folder as the program; plugin server files; project entries', () => {
+test('#5774 review 15: a folder runner is named wherever it runs; a folder as the program; plugin server files; project entries', { skip: POSIX_GUARD }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   for (const c of ['cd ~/work/notes && git add -A', 'cd /opt/proj && make hook']) assert.equal(paths(c).unsafe.length, 1, c);
@@ -764,7 +768,7 @@ test('#5774 review 15: a folder runner is named wherever it runs; a folder as th
   }
 });
 
-test('#5774 review 15: a folder runner inside a folder the guard denies whole (a plugin\'s own) is covered; elsewhere it is named', () => {
+test('#5774 review 15: a folder runner inside a folder the guard denies whole (a plugin\'s own) is covered; elsewhere it is named', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-r15b');
   const plug = path.join(SANDBOX, 'my-plugins', 'p15b');
   writeJson(path.join(plug, '.mcp.json'), { mcpServers: { d: { command: 'bun', args: ['run', '--cwd', '${CLAUDE_PLUGIN_ROOT}', '--silent', 'start'] } } });
@@ -789,7 +793,7 @@ test('#5774 review 15: a folder runner inside a folder the guard denies whole (a
   }
 });
 
-test('#5774 review 16: .command scripts, awk and sed program text, runner specifiers, sealed system paths, a config too deep', () => {
+test('#5774 review 16: .command scripts, awk and sed program text, runner specifiers, sealed system paths, a config too deep', { skip: POSIX_LINES }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.deepEqual(paths('open ./x.command').runPaths, ['/A/x.command'], 'a .command path is a script, even in the agent folder');
@@ -804,7 +808,7 @@ test('#5774 review 16: .command scripts, awk and sed program text, runner specif
   assert.ok(sc.commandsIn(deep).some((c) => c.tooDeep), 'a config nested past the limit is marked, so the scan names it');
 });
 
-test('#5774 review 17: a program from a package folder, inline python or node in the agent folder, formatters and linters', () => {
+test('#5774 review 17: a program from a package folder, inline python or node in the agent folder, formatters and linters', { skip: POSIX_LINES }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   for (const c of ['"$CLAUDE_PROJECT_DIR"/node_modules/.bin/prettier --write x', '"$CLAUDE_PROJECT_DIR"/.venv/bin/python ~/hooks/x.py', 'python3 -c "import foo"', 'node -e "require(\'./x\')"', 'eslint .', 'cd /opt/p && prettier --write .', 'swift build']) {
@@ -829,7 +833,7 @@ test('#5774 review 18: 2>&1 after an interpreter, inline python and node narrowe
   assert.equal(paths('node -e "require(\'x\')"').unsafe.length, 1);
 });
 
-test('#5774 review 19: an assignment value is not a command; -eo pipefail; package-folder wording', () => {
+test('#5774 review 19: an assignment value is not a command; -eo pipefail; package-folder wording', { skip: POSIX_LINES }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
   const line = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v, 0, null, false);
   assert.deepEqual(line('TZ=America/Chicago date +%H:%M'), { paths: [], runPaths: [], codePaths: [], unsafe: [] }, 'a time zone is no script');
@@ -841,7 +845,7 @@ test('#5774 review 19: an assignment value is not a command; -eo pipefail; packa
   assert.match(String(line('node /opt/homebrew/lib/node_modules/srv/dist/index.js').unsafe), /package folder/, 'a package folder anywhere is named, in its own words');
 });
 
-test('#5774 review 21: plugin source commands and producer folders, marketplaces, python on stdin, uv tool run, flag values, jq //', () => {
+test('#5774 review 21: plugin source commands and producer folders, marketplaces, python on stdin, uv tool run, flag values, jq //', { skip: POSIX_GUARD }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
   const paths = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v);
   assert.equal(paths("python3 - <<'EOF'\nimport json\nEOF").unsafe.length, 1, 'python reading a here-document imports from where it runs');
@@ -876,7 +880,7 @@ test('#5774 review 21: plugin source commands and producer folders, marketplaces
   }
 });
 
-test('#5774 review 23: a cd that does not last (subshell, background, popd, conditional) anchors nothing; PATH= reaches bash -c', () => {
+test('#5774 review 23: a cd that does not last (subshell, background, popd, conditional) anchors nothing; PATH= reaches bash -c', { skip: POSIX_LINES }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
   const line = (c) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v, 0, null, false);
   for (const c of ['(cd /opt && true); ./x.sh', 'cd /opt & bash scripts/y.sh', 'pushd /opt; popd; bash scripts/x.sh', 'case "$x" in a) cd /opt;; esac; ./z.sh', '[ -d /opt ] && cd /opt; ./x.sh']) {
@@ -888,7 +892,7 @@ test('#5774 review 23: a cd that does not last (subshell, background, popd, cond
   assert.deepEqual(line('bash -s -- arg < "$CLAUDE_PROJECT_DIR/bin/hook"').unsafe, [], 'bash -s: arg is an argument, the script is the input');
 });
 
-test('#5774 review 25: a nested line starts where its command runs; a cd anchors only before &&; a pipeline cd moves nothing', () => {
+test('#5774 review 25: a nested line starts where its command runs; a cd anchors only before &&; a pipeline cd moves nothing', { skip: POSIX_LINES }, () => {
   const v = { HOME: '/H', CLAUDE_PROJECT_DIR: '/A', PATH: '\u0000PATH' };
   const line = (c, anchored = false) => sc.pathsOfWords(sc.shellWords(c, v), '/A', v, 0, null, anchored);
   // A folder Kosmos cannot follow reaches bash -c, anchored or not.
@@ -910,7 +914,7 @@ test('#5774 review 25: a nested line starts where its command runs; a cd anchors
   assert.match(String(line('cd /opt && cd /plug | make').unsafe), /make run in \/opt /, 'a pipeline stage\'s cd moved the next stage');
 });
 
-test('#5774 review 27: a script linked INTO a folder denied whole, from outside it, has its real target denied', () => {
+test('#5774 review 27: a script linked INTO a folder denied whole, from outside it, has its real target denied', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-dotlink');
   const real = path.join(SANDBOX, 'dotfiles', 'hook.sh');
   touch(real);

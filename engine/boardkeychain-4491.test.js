@@ -1,5 +1,5 @@
 'use strict';
-require('../test-support/tmpscope');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273)
+require('../test-support/tmpscope-outside-home');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273), made outside the home on Windows so the guard's ancestor walk never reads the real ~/.claude (kosmos#8378)
 
 /*
  * #4491: guardTokenOnlyFolder writes a token-only agent's <folder>/.claude/settings.json so a sandboxed
@@ -24,6 +24,10 @@ fs.mkdirSync(process.env.AGENT_WORKFORCE_HOME, { recursive: true });
 
 const setup = require('./setup-assistant');
 const store = require('./store');
+/* kosmos#8378: the tests below whose subject is absent on Windows skip there, each saying why. */
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const POSIX_GUARD = skipOnWin32('it runs the macOS or Linux guard (platform darwin or linux, through its seam) over folders made on this host, and those guards write their rules and the macOS Seatbelt sandbox for POSIX paths, never a Windows drive path; the Windows guard is tested in engine/tokenguard.win32-5664.test.js');
+const MAC_SUPERVISOR = skipOnWin32('it runs the launch snippet of bin/agent-supervisor.sh, the Mac and Linux supervisor (Windows starts agents through engine/win32supervisor.js), with the macOS guard over folders made on this host');
 const sendertoken = require('./sendertoken');
 const TOKEN_FILE = require('./boardauth').TOKEN_FILE;
 
@@ -56,7 +60,7 @@ function realOrLeaf(p) {
   }
 }
 
-test('writes the board.token Read deny and the settings Edit denies (own + shared ~/.claude)', () => {
+test('writes the board.token Read deny and the settings Edit denies (own + shared ~/.claude)', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-a');
   const r = setup.guardTokenOnlyFolder(dir, 'pilot-a', DEPS);
   assert.deepEqual(r, { ok: true });
@@ -100,7 +104,7 @@ test('on darwin the sandbox block is enabled, cannot be self-disabled, keeps loo
   assert.ok(!sb.filesystem.denyWrite.includes(realOrLeaf(homeClaude)), 'the whole ~/.claude was denyWritten (would break Claude Code runtime state): W4');
 });
 
-test('covers board.token in a legacy root and the default-world base (concrete), not just the current store', () => {
+test('covers board.token in a legacy root and the default-world base (concrete), not just the current store', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-roots');
   const legacy = path.join(SANDBOX, 'legacy-support', 'Kosmos');
   const worldBase = path.join(SANDBOX, 'world-base');
@@ -110,7 +114,7 @@ test('covers board.token in a legacy root and the default-world base (concrete),
   assert.ok(deny.includes(`Read(${ruleAbs(path.join(worldBase, TOKEN_FILE))})`), 'the default-world base board.token is not denied');
 });
 
-test('covers the ~/.claude-* account config variants with an Edit glob (CLAUDE_CONFIG_DIR)', () => {
+test('covers the ~/.claude-* account config variants with an Edit glob (CLAUDE_CONFIG_DIR)', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-account');
   setup.guardTokenOnlyFolder(dir, 'pilot-account', DEPS);
   const deny = readSettings(dir).permissions.deny;
@@ -133,7 +137,7 @@ test('preserves pre-existing sandbox.filesystem entries on merge, drops Unix-soc
   assert.ok(sb.filesystem.denyRead.includes(realOrLeaf(tokenAbs())), 'the token denyRead was not added alongside');
 });
 
-test('off darwin, no sandbox block is written (it is Seatbelt-specific)', () => {
+test('off darwin, no sandbox block is written (it is Seatbelt-specific)', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-linux');
   setup.guardTokenOnlyFolder(dir, 'pilot-linux', { ...DEPS, platform: 'linux' });
   const s = readSettings(dir);
@@ -141,7 +145,7 @@ test('off darwin, no sandbox block is written (it is Seatbelt-specific)', () => 
   assert.ok(s.permissions.deny.includes(`Read(${ruleAbs(tokenAbs())})`), 'the permission denies still apply off darwin');
 });
 
-test('merges with a persons own existing rules and is idempotent', () => {
+test('merges with a persons own existing rules and is idempotent', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-merge');
   const file = path.join(dir, '.claude', 'settings.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -164,7 +168,7 @@ test('returns {ok:false} on a bad folder and never throws', () => {
   assert.deepEqual(setup.guardTokenOnlyFolder('/some/dir', '', DEPS), { ok: false, because: 'no folder' });
 });
 
-test('managedSettingsPresent is false off darwin, and refreshTokenOnlyGuards warns when the belt is absent', () => {
+test('managedSettingsPresent is false off darwin, and refreshTokenOnlyGuards warns when the belt is absent', { skip: POSIX_GUARD }, () => {
   assert.equal(setup.managedSettingsPresent('linux'), false);
   // #4491: either managed file counts (the base file or the drop-in), and only the ones given.
   const present = path.join(os.tmpdir(), 'managed-present-' + process.pid + '.json');
@@ -235,7 +239,7 @@ test('sendertoken.tokenOnlyList is the reader membership and the refresh use (un
   assert.deepEqual(sendertoken.tokenOnlyList(), [], 'an absent list reads as empty');
 });
 
-test('an EXISTING ~/.claude-<x> account home gets concrete denies in both layers (not only the glob)', () => {
+test('an EXISTING ~/.claude-<x> account home gets concrete denies in both layers (not only the glob)', { skip: POSIX_GUARD }, () => {
   const home = path.join(SANDBOX, 'acct-home');
   const acct = path.join(home, '.claude-acctx');
   fs.mkdirSync(acct, { recursive: true });   // an existing CLAUDE_CONFIG_DIR account home
@@ -260,7 +264,7 @@ test('legacy and default-world board.token are in the sandbox denyRead too, not 
   assert.ok(dr.includes(realOrLeaf(path.join(worldBase, TOKEN_FILE))), 'the default-world board.token is not in sandbox denyRead');
 });
 
-test('#4475: every agent\'s sender-token folder is Read-denied (current, legacy and default-world roots) and in the sandbox denyRead', () => {
+test('#4475: every agent\'s sender-token folder is Read-denied (current, legacy and default-world roots) and in the sandbox denyRead', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-tokens');
   const legacy = path.join(SANDBOX, 'tok-legacy', 'Kosmos');
   const worldBase = path.join(SANDBOX, 'tok-world');
@@ -276,7 +280,7 @@ test('#4475: every agent\'s sender-token folder is Read-denied (current, legacy 
   assert.ok(path.dirname(sendertoken.tokenOnlyFile()) === store.ROOT, 'CONTROL: the token-only list moved into a denied folder');
 });
 
-test('#4475: the records the board trusts, and the sender-token folder, are write-denied (permission and sandbox)', () => {
+test('#4475: the records the board trusts, and the sender-token folder, are write-denied (permission and sandbox)', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-trusted');
   const legacy = path.join(SANDBOX, 'tr-legacy', 'Kosmos');
   setup.guardTokenOnlyFolder(dir, 'pilot-trusted', { ...DEPS, legacyRoots: [legacy] });
@@ -307,7 +311,7 @@ test('#4475: the records the board trusts, and the sender-token folder, are writ
   assert.equal(sendertoken.tokenOnlyFile(), path.join(store.ROOT, 'agent-token-only.json'));
 });
 
-test('#4475: the supervisor\'s launch hand-off folders are Read-denied (beside the data root, and in the app folder)', () => {
+test('#4475: the supervisor\'s launch hand-off folders are Read-denied (beside the data root, and in the app folder)', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-launch');
   const app = path.join(SANDBOX, 'app');
   setup.guardTokenOnlyFolder(dir, 'pilot-launch', { ...DEPS, appRoot: app });
@@ -321,7 +325,7 @@ test('#4475: the supervisor\'s launch hand-off folders are Read-denied (beside t
   }
 });
 
-test('#4475: an app folder with a pattern character ("Kosmos (1)") never stops the whole guard; its hand-off stays sandbox-denied', () => {
+test('#4475: an app folder with a pattern character ("Kosmos (1)") never stops the whole guard; its hand-off stays sandbox-denied', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-paren');
   const app = path.join(SANDBOX, 'Kosmos (1)');
   const r = setup.guardTokenOnlyFolder(dir, 'pilot-paren', { ...DEPS, appRoot: app });
@@ -354,7 +358,7 @@ test('realOrLeaf: resolves an existing leaf (incl a symlink), a symlinked parent
 
 /* ---- #4491 review (self-review, BLOCKERs 1 and 2, WARNINGs 1 and 4) ---- */
 
-test('BLOCKER 1: every board.token path, its temp copy and the token-only list are denied WRITES too, in both layers', () => {
+test('BLOCKER 1: every board.token path, its temp copy and the token-only list are denied WRITES too, in both layers', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-write');
   assert.equal(setup.guardTokenOnlyFolder(dir, 'pilot-write', DEPS).ok, true);
   const st = readSettings(dir);
@@ -367,7 +371,7 @@ test('BLOCKER 1: every board.token path, its temp copy and the token-only list a
   assert.ok(dw.includes(fs.realpathSync(path.dirname(list)) + path.sep + path.basename(list)), 'a shell can still edit the token-only list');
 });
 
-test('BLOCKER 2: every named world store is covered (read and write), not only the current one', () => {
+test('BLOCKER 2: every named world store is covered (read and write), not only the current one', { skip: POSIX_GUARD }, () => {
   const base = path.join(SANDBOX, 'worldsbase');
   const w1 = path.join(SANDBOX, 'worlds', 'w1', 'Kosmos'); const w2 = path.join(SANDBOX, 'worlds', 'w2', 'Kosmos');
   for (const d of [base, w1, w2]) fs.mkdirSync(d, { recursive: true });
@@ -427,7 +431,7 @@ test('WARNING 4: creation names the runner to the guard and still refuses when i
   assert.match(SERVER, /setupAssistant\.refreshTokenOnlyGuards\(\)/, 'the board start no longer refreshes the guards');
 });
 
-test('re-review (independent): the worlds registry is write-denied, and a world added LATER is covered by a glob (both verbs)', () => {
+test('re-review (independent): the worlds registry is write-denied, and a world added LATER is covered by a glob (both verbs)', { skip: POSIX_GUARD }, () => {
   const base = path.join(SANDBOX, 'worldsbase-later');
   fs.mkdirSync(base, { recursive: true });
   const real = require('./worlds');
@@ -445,7 +449,7 @@ test('re-review (independent): the worlds registry is write-denied, and a world 
   }
 });
 
-test('#4491 post-rebase review: the undo copy store is read- and write-denied in both layers', () => {
+test('#4491 post-rebase review: the undo copy store is read- and write-denied in both layers', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-undo');
   setup.guardTokenOnlyFolder(dir, 'pilot-undo', DEPS);
   const s = readSettings(dir);
@@ -528,7 +532,7 @@ test('#4491 review 15: the pattern-character check reads a Windows path\'s backs
   assert.equal(setup.ruleHasPatternChar('Read(//Users/a/undo/**)', '/'), false, 'CONTROL: the guard\'s own trailing glob');
 });
 
-test('#4491 review 15: other agents\' sender tokens and undo\'s switch are denied to a token-only agent in both layers', () => {
+test('#4491 review 15: other agents\' sender tokens and undo\'s switch are denied to a token-only agent in both layers', { skip: POSIX_GUARD }, () => {
   const dir = agentDir('pilot-st');
   setup.guardTokenOnlyFolder(dir, 'pilot-st', DEPS);
   const s = readSettings(dir);
@@ -636,7 +640,7 @@ test('#4491 review 22: refreshTokenOnlyGuards({ only }) guards just that listed 
   assert.equal(fs.existsSync(path.join(b, '.claude', 'settings.json')), true, 'CONTROL: the named agent was not guarded');
 });
 
-test('#4491 review 22: the supervisor guards a listed agent at launch (its own snippet, run as written)', () => {
+test('#4491 review 22: the supervisor guards a listed agent at launch (its own snippet, run as written)', { skip: MAC_SUPERVISOR }, () => {
   const sup = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
   const at = sup.indexOf('#4491 review 22: write (or confirm) its guard now');
   assert.ok(at > 0, 'the launch-time guard is gone from the supervisor');
@@ -714,7 +718,7 @@ test('#4491 review 24: permissions.additionalDirectories is removed from both ag
   assert.ok(errs.join('').includes('permissions.additionalDirectories'), 'not said for the person\'s own settings: ' + errs.join(''));
 });
 
-test('#4491 review 24: a hidden world\'s token is denied too (hiding does not revoke it)', () => {
+test('#4491 review 24: a hidden world\'s token is denied too (hiding does not revoke it)', { skip: POSIX_GUARD }, () => {
   const base = path.join(SANDBOX, 'worldsbase24');
   const shown = path.join(SANDBOX, 'w24', 'shown', 'Kosmos'); const hidden = path.join(SANDBOX, 'w24', 'hidden', 'Kosmos');
   for (const d of [base, shown, hidden]) fs.mkdirSync(d, { recursive: true });

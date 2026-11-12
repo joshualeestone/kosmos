@@ -59,6 +59,11 @@ const cp = require('node:child_process');
 // be selected here or excluded in HOST_BRANCH_EXCLUDED, or the Mac-side test goes red (#1777).
 const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream lifecycle (rename/remove after close)
   'tunnelcommand-8378.test.js',   // #8378: a .js connector stand-in really starts through node on Windows
+  // kosmos#8378: the token-only guard's test files. Their sandbox is made outside the home (test-support/tmpscope-outside-home.js),
+  // so the arms that hold on Windows run there (#5664 step A among them); each arm about the macOS or Linux guard, POSIX
+  // startup files, POSIX path lines, the PATH scan Windows does not build yet or /bin/bash skips with its reason.
+  'hookscripts-5774.test.js', 'startupfiles-5774.test.js', 'startplugins-5774.test.js', 'launchpath-5516.test.js',
+  'configstart-5516.test.js', 'launchprune-5663.test.js', 'boardkeychain-4491.test.js',
   'feedbackday-7875.test.js',   // #7875: kosmos feedback day, run through the Windows CLI's own handler
   'agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
   'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',

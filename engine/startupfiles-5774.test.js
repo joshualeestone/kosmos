@@ -1,5 +1,5 @@
 'use strict';
-require('../test-support/tmpscope');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273)
+require('../test-support/tmpscope-outside-home');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273), made outside the home on Windows so the guard's ancestor walk never reads the real ~/.claude (kosmos#8378)
 
 /*
  * #5774 part 2: the token-only guard denies the home folder's shell startup files, in both layers, links followed
@@ -21,6 +21,9 @@ fs.mkdirSync(process.env.AGENT_WORKFORCE_HOME, { recursive: true });
 
 const setup = require('./setup-assistant');
 const store = require('./store');
+/* kosmos#8378: the tests below whose subject is absent on Windows skip there, each saying why. */
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const STARTUP_FILES = skipOnWin32('it checks how the macOS guard (platform darwin, through its seam) covers POSIX shell startup files (zsh, bash, fish and their dotfile links) in folders made on this host; Windows has no such files, and its guard is tested in engine/tokenguard.win32-5664.test.js');
 
 fs.mkdirSync(store.ROOT, { recursive: true });
 const HOME = process.env.AGENT_WORKFORCE_HOME;
@@ -67,7 +70,7 @@ const USERDIRS = [path.join(SANDBOX, 'brew', 'share', 'zsh', 'site-functions'), 
 DEPS.userShellDirs = USERDIRS;
 DEPS.homebrewPrefixes = [];   // review 12: this host's own Homebrew is not read either (tests that need one pass theirs)
 
-test('#5774 part 2: each shell startup file in the home folder is denied in both layers', () => {
+test('#5774 part 2: each shell startup file in the home folder is denied in both layers', { skip: STARTUP_FILES }, () => {
   const dir = agentDir('pilot-rc');
   const g = setup.guardTokenOnlyFolder(dir, 'pilot-rc', { ...DEPS, env: ENV0 });
   assert.equal(g.ok, true, JSON.stringify(g));
@@ -101,7 +104,7 @@ test('#5774 part 2: each shell startup file in the home folder is denied in both
   }
 });
 
-test('#5774 part 2: a linked dotfile has its target denied too (a dotfiles repo is what gets written)', () => {
+test('#5774 part 2: a linked dotfile has its target denied too (a dotfiles repo is what gets written)', { skip: STARTUP_FILES }, () => {
   const dir = agentDir('pilot-rclink');
   const real = path.join(SANDBOX, 'dotfiles', 'zshrc');
   touch(real);
@@ -120,7 +123,7 @@ test('#5774 part 2: a linked dotfile has its target denied too (a dotfiles repo 
   } finally { fs.rmSync(link, { force: true }); }
 });
 
-test('#5774 part 2: $ZDOTDIR, $BASH_ENV and $ENV are read from the environment the agent runs with', () => {
+test('#5774 part 2: $ZDOTDIR, $BASH_ENV and $ENV are read from the environment the agent runs with', { skip: STARTUP_FILES }, () => {
   const dir = agentDir('pilot-rcenv');
   const zd = path.join(SANDBOX, 'zdot');
   const benv = path.join(SANDBOX, 'benv.sh');
@@ -152,7 +155,7 @@ test('#5774 part 2: $ZDOTDIR, $BASH_ENV and $ENV are read from the environment t
   assert.equal(setup.shellStartPaths(HOME, { ZDOTDIR: HOME }, { userShellDirs: [], homebrewPrefixes: [] }).unsafe.length, 0);
 });
 
-test('#5774 part 2 review 1: ZDOTDIR set inside .zshenv (where it usually is) moves zsh to that folder, and it is denied', () => {
+test('#5774 part 2 review 1: ZDOTDIR set inside .zshenv (where it usually is) moves zsh to that folder, and it is denied', { skip: STARTUP_FILES }, () => {
   const dir = agentDir('pilot-zdot');
   const zshenv = path.join(HOME, '.zshenv');
   const cases = [['export ZDOTDIR="$HOME/dots/zsh"', path.join(HOME, 'dots', 'zsh')], ['ZDOTDIR=~/zd2', path.join(HOME, 'zd2')], ['export ZDOTDIR=${XDG_CONFIG_HOME}/zz', path.join(SANDBOX, 'xdg', 'zz')]];
@@ -186,7 +189,7 @@ test('#5774 part 2 review 1: ZDOTDIR set inside .zshenv (where it usually is) mo
   } finally { fs.rmSync(zshenv, { force: true }); }
 });
 
-test('#5774 part 2 review 1: fish and nushell follow XDG_CONFIG_HOME', () => {
+test('#5774 part 2 review 1: fish and nushell follow XDG_CONFIG_HOME', { skip: STARTUP_FILES }, () => {
   const dir = agentDir('pilot-xdg');
   const xdg = path.join(SANDBOX, 'xdg2');
   setup.guardTokenOnlyFolder(dir, 'pilot-xdg', { ...DEPS, env: { XDG_CONFIG_HOME: xdg } });
@@ -196,7 +199,7 @@ test('#5774 part 2 review 1: fish and nushell follow XDG_CONFIG_HOME', () => {
   }
 });
 
-test('#5774 part 2 review 3: XDG_CONFIG_HOME set in .zshenv is followed; ~/.config is kept when the environment names another', () => {
+test('#5774 part 2 review 3: XDG_CONFIG_HOME set in .zshenv is followed; ~/.config is kept when the environment names another', { skip: STARTUP_FILES }, () => {
   const zshenv = path.join(HOME, '.zshenv');
   fs.writeFileSync(zshenv, 'export XDG_CONFIG_HOME=$HOME/.cfg\nexport ZDOTDIR=$XDG_CONFIG_HOME/zsh\n');
   try {
@@ -213,7 +216,7 @@ test('#5774 part 2 review 3: XDG_CONFIG_HOME set in .zshenv is followed; ~/.conf
   } finally { fs.rmSync(zshenv, { force: true }); }
 });
 
-test("#5774 part 2 review 3: a ZDOTDIR's own .zshenv that moves it again is followed; an empty ZDOTDIR is the default", () => {
+test("#5774 part 2 review 3: a ZDOTDIR's own .zshenv that moves it again is followed; an empty ZDOTDIR is the default", { skip: STARTUP_FILES }, () => {
   const first = path.join(SANDBOX, 'zfirst');
   const second = path.join(SANDBOX, 'zsecond');
   fs.mkdirSync(first, { recursive: true });
@@ -231,7 +234,7 @@ test("#5774 part 2 review 3: a ZDOTDIR's own .zshenv that moves it again is foll
   assert.equal(setup.guardTokenOnlyFolder(agentDir('pilot-zempty'), 'pilot-zempty', { ...DEPS, env: { ZDOTDIR: '' } }).ok, true);
 });
 
-test('#5774 part 2 review 3: a link inside a folder denied whole (GNU Stow) has its target denied', () => {
+test('#5774 part 2 review 3: a link inside a folder denied whole (GNU Stow) has its target denied', { skip: STARTUP_FILES }, () => {
   const real = path.join(SANDBOX, 'stow', 'config.fish');
   touch(real);
   const link = path.join(HOME, '.config', 'fish', 'config.fish');
@@ -249,7 +252,7 @@ test('#5774 part 2 review 3: a link inside a folder denied whole (GNU Stow) has 
   } finally { fs.rmSync(link, { force: true }); }
 });
 
-test('#5774 part 2 review 3: user-writable startup folders outside the home (Homebrew-style) are denied where they exist', () => {
+test('#5774 part 2 review 3: user-writable startup folders outside the home (Homebrew-style) are denied where they exist', { skip: STARTUP_FILES }, () => {
   fs.mkdirSync(USERDIRS[0], { recursive: true });   // zsh site-functions exists; fish vendor_conf.d does not
   const dir = agentDir('pilot-brew');
   setup.guardTokenOnlyFolder(dir, 'pilot-brew', { ...DEPS, env: ENV0 });
@@ -289,7 +292,7 @@ test('#5774 part 2 review 4: dumps that exist are denied by name in both layers;
   assert.match(String(gr.because), /XDG_CONFIG_HOME/);
 });
 
-test('#5774 part 2 review 4: a FOLDER linked inside fish (Stow folding) has its contents denied', () => {
+test('#5774 part 2 review 4: a FOLDER linked inside fish (Stow folding) has its contents denied', { skip: STARTUP_FILES }, () => {
   const realDir = path.join(SANDBOX, 'stowdir', 'functions');
   fs.mkdirSync(realDir, { recursive: true });
   touch(path.join(realDir, 'fish_prompt.fish'));
@@ -308,7 +311,7 @@ test('#5774 part 2 review 4: a FOLDER linked inside fish (Stow folding) has its 
   } finally { fs.rmSync(link, { force: true }); }
 });
 
-test('#5774 part 2 review 5: Homebrew links into its Cellar give ONE stable Cellar rule, never versioned paths (they would pile up)', () => {
+test('#5774 part 2 review 5: Homebrew links into its Cellar give ONE stable Cellar rule, never versioned paths (they would pile up)', { skip: STARTUP_FILES }, () => {
   const pre = path.join(SANDBOX, 'hb');
   const sf = path.join(pre, 'share', 'zsh', 'site-functions');
   fs.mkdirSync(sf, { recursive: true });
@@ -338,7 +341,7 @@ test('#5774 part 2 review 5: Homebrew links into its Cellar give ONE stable Cell
   assert.deepEqual(editDeniedBy(readSettings(dir0).permissions.deny, fs.realpathSync.native(v2)), []);
 });
 
-test('#5774 part 2 review 5: a link scan cut short is named; a linked folder gets a /** rule; ${XDG_CONFIG_HOME:-...} is understood', () => {
+test('#5774 part 2 review 5: a link scan cut short is named; a linked folder gets a /** rule; ${XDG_CONFIG_HOME:-...} is understood', { skip: STARTUP_FILES }, () => {
   // More links than the scan follows: named, so not whole.
   const many = path.join(SANDBOX, 'many', 'fish');
   fs.mkdirSync(many, { recursive: true });
@@ -370,7 +373,7 @@ test('#5774 part 2 review 5: a link scan cut short is named; a linked folder get
   } finally { fs.rmSync(zshenv, { force: true }); }
 });
 
-test('#5774 part 2 review 5: the conventional zsh folder, when something sets ZDOTDIR to it, has its own .zshenv read', () => {
+test('#5774 part 2 review 5: the conventional zsh folder, when something sets ZDOTDIR to it, has its own .zshenv read', { skip: STARTUP_FILES }, () => {
   const conv = path.join(HOME, '.config', 'zsh');
   const further = path.join(SANDBOX, 'zfurther');
   fs.mkdirSync(conv, { recursive: true });
@@ -419,7 +422,7 @@ test('#5774 part 2 review 6: a link to the home or to a folder holding the agent
   } finally { fs.rmSync(zshenv, { force: true }); }
 });
 
-test('#5774 part 2 review 7: ${ZDOTDIR:-...} is understood; a busy folder with no links stays whole; home dumps are not named one by one', () => {
+test('#5774 part 2 review 7: ${ZDOTDIR:-...} is understood; a busy folder with no links stays whole; home dumps are not named one by one', { skip: STARTUP_FILES }, () => {
   const zshenv = path.join(HOME, '.zshenv');
   const envZd = path.join(SANDBOX, 'zd-env7');
   fs.writeFileSync(zshenv, 'export ZDOTDIR="${ZDOTDIR:-$HOME/.config/zsh}"\n');
@@ -449,7 +452,7 @@ test('#5774 part 2 review 7: ${ZDOTDIR:-...} is understood; a busy folder with n
   } finally { fs.rmSync(dump, { force: true }); }
 });
 
-test('#5774 part 2 review 7: a Caskroom target gives one stable Caskroom rule; only the Cellar or Caskroom hit is denied', () => {
+test('#5774 part 2 review 7: a Caskroom target gives one stable Caskroom rule; only the Cellar or Caskroom hit is denied', { skip: STARTUP_FILES }, () => {
   const pre = path.join(SANDBOX, 'hb7');
   const other = path.join(SANDBOX, 'hb7other');
   fs.mkdirSync(path.join(other, 'Cellar'), { recursive: true });
@@ -467,7 +470,7 @@ test('#5774 part 2 review 7: a Caskroom target gives one stable Caskroom rule; o
   assert.deepEqual(editDeniedBy(s.permissions.deny, path.join(fs.realpathSync.native(path.join(other, 'Cellar')), 'x')), [], "a Cellar nothing points into was denied");
 });
 
-test('#5774 part 2 review 8: dumps under the home (the conventional ~/.config/zsh) are not named; links into a Cellar spend no budget', () => {
+test('#5774 part 2 review 8: dumps under the home (the conventional ~/.config/zsh) are not named; links into a Cellar spend no budget', { skip: STARTUP_FILES }, () => {
   const conv = path.join(HOME, '.config', 'zsh');
   fs.mkdirSync(conv, { recursive: true });
   const dump = path.join(conv, '.zcompdump-myhost-5.9');
@@ -493,7 +496,7 @@ test('#5774 part 2 review 8: dumps under the home (the conventional ~/.config/zs
   assert.equal(g.ok, true, JSON.stringify(g));
 });
 
-test('#5774 part 2 review 9: braced defaults (${XDG_CONFIG_HOME:-${HOME}/.config}) are read; a read-only store target is not listed', () => {
+test('#5774 part 2 review 9: braced defaults (${XDG_CONFIG_HOME:-${HOME}/.config}) are read; a read-only store target is not listed', { skip: STARTUP_FILES }, () => {
   const zshenv = path.join(HOME, '.zshenv');
   fs.writeFileSync(zshenv, 'export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"\nexport ZDOTDIR="${XDG_CONFIG_HOME:-${HOME}/.config}/zsh"\n');
   try {
@@ -529,7 +532,7 @@ test('#5774 part 2 review 9: braced defaults (${XDG_CONFIG_HOME:-${HOME}/.config
   }
 });
 
-test('#5774 part 2 review 10: a Homebrew under any prefix gets the one stable Cellar rule', () => {
+test('#5774 part 2 review 10: a Homebrew under any prefix gets the one stable Cellar rule', { skip: STARTUP_FILES }, () => {
   const pre = path.join(SANDBOX, 'linuxbrew');
   const sf = path.join(pre, 'share', 'zsh', 'site-functions');
   fs.mkdirSync(sf, { recursive: true });
@@ -544,7 +547,7 @@ test('#5774 part 2 review 10: a Homebrew under any prefix gets the one stable Ce
   assert.ok(editDeniedBy(s.permissions.deny, fs.realpathSync.native(v)).length > 0, 'its Cellar rule covers the target');
 });
 
-test('#5774 part 2 review 11: a linked PARENT (Stow-folded ~/.config, a linked ZDOTDIR) has its real files denied; a read-only ~/.bashrc is kept', () => {
+test('#5774 part 2 review 11: a linked PARENT (Stow-folded ~/.config, a linked ZDOTDIR) has its real files denied; a read-only ~/.bashrc is kept', { skip: STARTUP_FILES }, () => {
   // ~/.config linked whole into a dotfiles repo: fish's real folder there is denied to the file tools.
   const cfgReal = path.join(SANDBOX, 'dotfiles11', 'config');
   fs.mkdirSync(path.join(cfgReal, 'fish'), { recursive: true });
@@ -587,7 +590,7 @@ test('#5774 part 2 review 11: a linked PARENT (Stow-folded ~/.config, a linked Z
   } finally { fs.chmodSync(rc, 0o644); fs.rmSync(rc, { force: true }); }
 });
 
-test('#5774 part 2 review 11: joined quoting ("$HOME"/.zsh) is read; a quoted ~ is named; a read-only linked folder gets /**', () => {
+test('#5774 part 2 review 11: joined quoting ("$HOME"/.zsh) is read; a quoted ~ is named; a read-only linked folder gets /**', { skip: STARTUP_FILES }, () => {
   const zshenv = path.join(HOME, '.zshenv');
   try {
     fs.writeFileSync(zshenv, 'export ZDOTDIR="$HOME"/.zq\n');
@@ -617,7 +620,7 @@ test('#5774 part 2 review 11: joined quoting ("$HOME"/.zsh) is read; a quoted ~ 
   } finally { fs.chmodSync(store, 0o755); fs.rmSync(link, { force: true }); }
 });
 
-test('#5774 part 2 review 12: a DANGLING link inside a startup folder has its would-be target denied', () => {
+test('#5774 part 2 review 12: a DANGLING link inside a startup folder has its would-be target denied', { skip: STARTUP_FILES }, () => {
   const fishDir = path.join(HOME, '.config', 'fish', 'conf.d');
   fs.mkdirSync(fishDir, { recursive: true });
   const target = path.join(SANDBOX, 'later-dotfiles', 'fish', 'x.fish');   // not there yet
@@ -635,7 +638,7 @@ test('#5774 part 2 review 12: a DANGLING link inside a startup folder has its wo
   } finally { fs.rmSync(link, { force: true }); }
 });
 
-test('#5774 part 2 review 13: dangling chains and relative links in linked folders resolve to the real would-be target; a 0444 file of the user is still denied; := and - defaults are read', () => {
+test('#5774 part 2 review 13: dangling chains and relative links in linked folders resolve to the real would-be target; a 0444 file of the user is still denied; := and - defaults are read', { skip: STARTUP_FILES }, () => {
   // A relative dangling link inside a linked folder (Stow): the target is read from the folder's REAL location.
   const dot = path.join(SANDBOX, 'dot13');
   fs.mkdirSync(path.join(dot, 'fish'), { recursive: true });
@@ -693,7 +696,7 @@ test('#5774 part 2 review 13: dangling chains and relative links in linked folde
   assert.ok(editDeniedBy(readSettings(d).permissions.deny, path.join(HOME, '.ssh', 'rc')).length > 0, '~/.ssh/rc');
 });
 
-test('#5774 part 2 review 14: one-line conditional forms are read; a read-only target linked INSIDE a startup folder is not listed', () => {
+test('#5774 part 2 review 14: one-line conditional forms are read; a read-only target linked INSIDE a startup folder is not listed', { skip: STARTUP_FILES }, () => {
   const zshenv = path.join(HOME, '.zshenv');
   const forms = [['[[ -z $ZDOTDIR ]] && export ZDOTDIR=$HOME/.zc1', '.zc1'], ['typeset -x ZDOTDIR=$HOME/.zc2', '.zc2'],
     ['export A=1 ZDOTDIR=$HOME/.zc3', '.zc3'], [': ${ZDOTDIR:=$HOME/.zc4}', '.zc4']];
@@ -728,7 +731,7 @@ test('#5774 part 2 review 14: one-line conditional forms are read; a read-only t
   } finally { fs.rmSync(link, { force: true }); }
 });
 
-test('#5774 part 2 review 15: ${0:A:h} is .zshenv\'s real folder; a read-only file in a read-only folder is read-only even if owned; data folders and ~/.ssh/config', () => {
+test('#5774 part 2 review 15: ${0:A:h} is .zshenv\'s real folder; a read-only file in a read-only folder is read-only even if owned; data folders and ~/.ssh/config', { skip: STARTUP_FILES }, () => {
   const repo = path.join(SANDBOX, 'repo15');
   fs.mkdirSync(repo, { recursive: true });
   fs.writeFileSync(path.join(repo, 'zshenv'), 'export ZDOTDIR=${0:A:h}\n');
@@ -765,7 +768,7 @@ test('#5774 part 2 review 15: ${0:A:h} is .zshenv\'s real folder; a read-only fi
   }
 });
 
-test('#5774 part 2 review 16: a trailing comment or a quoted mention is not an assignment; a backslash is named; ~/.bashrc.d; dangling Cellar links spend no budget', () => {
+test('#5774 part 2 review 16: a trailing comment or a quoted mention is not an assignment; a backslash is named; ~/.bashrc.d; dangling Cellar links spend no budget', { skip: STARTUP_FILES }, () => {
   const zshenv = path.join(HOME, '.zshenv');
   const run = (body, name) => {
     fs.rmSync(zshenv, { force: true });
@@ -800,7 +803,7 @@ test('#5774 part 2 review 16: a trailing comment or a quoted mention is not an a
   assert.equal(g.ok, true, JSON.stringify(g));
 });
 
-test('#5774 part 2 review 17: ${ZDOTDIR:=${HOME}/...} is read; a lone ${HOME is named; XDG folders set in any startup file; a writable store gets one rule', () => {
+test('#5774 part 2 review 17: ${ZDOTDIR:=${HOME}/...} is read; a lone ${HOME is named; XDG folders set in any startup file; a writable store gets one rule', { skip: STARTUP_FILES }, () => {
   const zshenv = path.join(HOME, '.zshenv');
   const bashrc = path.join(HOME, '.bashrc');
   const withFiles = (map, name, extra = {}) => {
@@ -859,7 +862,7 @@ test('#5774 part 2 review 17: ${ZDOTDIR:=${HOME}/...} is read; a lone ${HOME is 
   }
 });
 
-test('#5774 part 2 review 18: a link a chain passes through is denied to the file tools, whether the target is read-only or not', () => {
+test('#5774 part 2 review 18: a link a chain passes through is denied to the file tools, whether the target is read-only or not', { skip: STARTUP_FILES }, () => {
   const dots = path.join(HOME, 'dotfiles18');
   fs.mkdirSync(dots, { recursive: true });
   const dotsReal = fs.realpathSync.native(dots);
@@ -891,7 +894,7 @@ test('#5774 part 2 review 18: a link a chain passes through is denied to the fil
   } finally { for (const f of [zshrc, bashrc, fishLink, zprofile]) fs.rmSync(f, { force: true }); fs.chmodSync(roHops, 0o755); }
 });
 
-test('#5774 part 2 review 19: a target in a startup folder, or a link on the way, the rules cannot carry is NAMED and the rest is written; links inside a linked folder', () => {
+test('#5774 part 2 review 19: a target in a startup folder, or a link on the way, the rules cannot carry is NAMED and the rest is written; links inside a linked folder', { skip: STARTUP_FILES }, () => {
   const mk = (link, to) => { fs.mkdirSync(path.dirname(link), { recursive: true }); fs.rmSync(link, { force: true }); fs.symlinkSync(to, link); };
   const odd = path.join(HOME, 'dots (x19)');
   touch(path.join(odd, 'config.fish'));
@@ -935,7 +938,7 @@ test('#5774 part 2 review 19: a target in a startup folder, or a link on the way
   } finally { fs.rmSync(fnLink, { force: true }); }
 });
 
-test('#5774 part 2 review 21: a ZDOTDIR or XDG folder the rules cannot carry is named and the rest written; BASH_ENV=/dev/null is not denied; a dotfile linked into a Cellar gets the Cellar rule', () => {
+test('#5774 part 2 review 21: a ZDOTDIR or XDG folder the rules cannot carry is named and the rest written; BASH_ENV=/dev/null is not denied; a dotfile linked into a Cellar gets the Cellar rule', { skip: STARTUP_FILES }, () => {
   for (const [name, env, mark] of [
     ['pilot-zdotodd21', { ZDOTDIR: path.join(HOME, 'Dots (x21)', 'zsh') }, 'Dots (x21)'],
     ['pilot-xdgodd21', { XDG_CONFIG_HOME: path.join(SANDBOX, 'Cfg (y21)') }, 'Cfg (y21)'],
@@ -974,7 +977,7 @@ test('#5774 part 2 review 21: a ZDOTDIR or XDG folder the rules cannot carry is 
   } finally { fs.rmSync(zlogout, { force: true }); }
 });
 
-test('#5774 part 2 review 21: a hop inside a Cellar is covered by the Cellar rule, never by its versioned name and never left uncovered', () => {
+test('#5774 part 2 review 21: a hop inside a Cellar is covered by the Cellar rule, never by its versioned name and never left uncovered', { skip: STARTUP_FILES }, () => {
   const mk = (link, to) => { fs.mkdirSync(path.dirname(link), { recursive: true }); fs.rmSync(link, { force: true }); fs.symlinkSync(to, link); };
   const pre = path.join(SANDBOX, 'hb21h');
   touch(path.join(SANDBOX, 'real21b')); touch(path.join(SANDBOX, 'real21c'));
@@ -1002,7 +1005,7 @@ test('#5774 part 2 review 21: a hop inside a Cellar is covered by the Cellar rul
   } finally { fs.rmSync(bashLogout, { force: true }); fs.rmSync(fishLink, { force: true }); }
 });
 
-test('#5774 part 2 review 22: a dangling dotfile link has its target denied (the agent could create it); a Cellar-shaped folder holding the agent is named, not denied whole', () => {
+test('#5774 part 2 review 22: a dangling dotfile link has its target denied (the agent could create it); a Cellar-shaped folder holding the agent is named, not denied whole', { skip: STARTUP_FILES }, () => {
   const mk = (link, to) => { fs.mkdirSync(path.dirname(link), { recursive: true }); fs.rmSync(link, { force: true }); fs.symlinkSync(to, link); };
   const homeR = fs.realpathSync.native(HOME);
   const zshrc = path.join(HOME, '.zshrc');
@@ -1049,7 +1052,7 @@ test('#5774 part 2 review 22: a dangling dotfile link has its target denied (the
   } finally { fs.rmSync(zlogin, { force: true }); }
 });
 
-test('#5774 part 2 review 23: a linked ZDOTDIR\'s real dump is covered; the unquoted ${${(%):-%x}:A:h} is read; a # inside a word is literal', () => {
+test('#5774 part 2 review 23: a linked ZDOTDIR\'s real dump is covered; the unquoted ${${(%):-%x}:A:h} is read; a # inside a word is literal', { skip: STARTUP_FILES }, () => {
   // A home with no link above it, so a linked ZDOTDIR is the only link (the sandbox HOME sits under /var).
   const home = path.join(fs.realpathSync.native(SANDBOX), 'realhome23');
   const dots = path.join(home, 'dotfiles', 'zsh');

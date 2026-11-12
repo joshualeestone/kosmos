@@ -1,5 +1,5 @@
 'use strict';
-require('../test-support/tmpscope');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273)
+require('../test-support/tmpscope-outside-home');   // first: every mkdtemp in this file lands in a per-process dir removed on exit (#4273), made outside the home on Windows so the guard's ancestor walk never reads the real ~/.claude (kosmos#8378)
 
 /*
  * #5774 route 5: the token-only guard covers other agents' config homes outside ~/.claude* (from their job files),
@@ -24,6 +24,9 @@ fs.mkdirSync(process.env.AGENT_WORKFORCE_HOME, { recursive: true });
 
 const setup = require('./setup-assistant');
 const store = require('./store');
+/* kosmos#8378: the tests below whose subject is absent on Windows skip there, each saying why. */
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const POSIX_GUARD = skipOnWin32('it runs the macOS or Linux guard (platform darwin or linux, through its seam) over folders made on this host, and those guards write their rules and the macOS Seatbelt sandbox for POSIX paths, never a Windows drive path; the Windows guard is tested in engine/tokenguard.win32-5664.test.js');
 
 fs.mkdirSync(store.ROOT, { recursive: true });
 const HOME = process.env.AGENT_WORKFORCE_HOME;
@@ -76,7 +79,7 @@ fs.mkdirSync(DEPS.tmpDir, { recursive: true });
 const create = require('./create');
 const jobfix = require('../test-support/jobfixture');   // review 1: the platform's own job file (a plist on macOS, a unit on Linux)
 
-test('#5774 route 5: the plugin folders the three variables name are denied whole, parsed as Claude Code does, from the environment', () => {
+test('#5774 route 5: the plugin folders the three variables name are denied whole, parsed as Claude Code does, from the environment', { skip: POSIX_GUARD }, () => {
   const abs = path.join(SANDBOX, 'pd-abs');
   const env = {
     CLAUDE_CODE_PLUGIN_DIRS: ` ~/pd-home : ${abs} : relative-skipped `,
@@ -94,7 +97,7 @@ test('#5774 route 5: the plugin folders the three variables name are denied whol
   assert.ok(!editDeniedBy(s.permissions.deny, path.join(d, 'relative-skipped', 'x')).length, 'a relative CLAUDE_CODE_PLUGIN_DIRS part is skipped by Claude Code, so not denied');
 });
 
-test('#5774 route 5: every settings tier\'s value counts (two tiers that disagree are both denied); a folder too wide is named', () => {
+test('#5774 route 5: every settings tier\'s value counts (two tiers that disagree are both denied); a folder too wide is named', { skip: POSIX_GUARD }, () => {
   const a = path.join(HOME, '.claude', 'settings.json'), b = path.join(HOME, '.claude-acct', 'settings.json');
   writeJson(a, { env: { CLAUDE_CODE_PLUGIN_DIRS: path.join(SANDBOX, 'tier-a') } });
   writeJson(b, { env: { CLAUDE_CODE_PLUGIN_DIRS: path.join(SANDBOX, 'tier-b') } });
@@ -111,7 +114,7 @@ test('#5774 route 5: every settings tier\'s value counts (two tiers that disagre
   assert.ok(!editDeniedBy(readSettings(d2).permissions.deny, path.join(d2, 'work.txt')).length, 'the agent\'s own folder was denied');
 });
 
-test('#5774 route 5: another agent\'s config home outside ~/.claude*, read from its job file, is covered like any config home', () => {
+test('#5774 route 5: another agent\'s config home outside ~/.claude*, read from its job file, is covered like any config home', { skip: POSIX_GUARD }, () => {
   const other = path.join(SANDBOX, 'cfg-elsewhere');
   fs.mkdirSync(other, { recursive: true });
   const sib = 'sib-r5';
@@ -129,7 +132,7 @@ test('#5774 route 5: another agent\'s config home outside ~/.claude*, read from 
   fs.rmSync(jobfix.jobPath(sib), { force: true });   // review 3: later tests do not inherit this home
 });
 
-test('#5774 route 5 review 1: the startup files, other accounts\' homes, the runner filter, links and too-wide folders', () => {
+test('#5774 route 5 review 1: the startup files, other accounts\' homes, the runner filter, links and too-wide folders', { skip: POSIX_GUARD }, () => {
   const write = (f, body) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, body); };
   const zshenv = path.join(HOME, '.zshenv');
   // A shell export reaches the agent's Claude Code through the tmux server's environment.
@@ -194,7 +197,7 @@ test('#5774 route 5 review 1: the startup files, other accounts\' homes, the run
 });
 
 
-test('#5774 route 5 review 2: "$HOME/a:$HOME/b" is read part by part; a runner inside a plugin folder a variable names is covered by its deny', () => {
+test('#5774 route 5 review 2: "$HOME/a:$HOME/b" is read part by part; a runner inside a plugin folder a variable names is covered by its deny', { skip: POSIX_GUARD }, () => {
   const zshenv = path.join(HOME, '.zshenv');
   fs.writeFileSync(zshenv, `export CLAUDE_CODE_PLUGIN_DIRS="$HOME/pa${path.delimiter}$HOME/pb"\n`);
   try {
@@ -223,7 +226,7 @@ test('#5774 route 5 review 2: a plugin folder that is (or holds) a config home i
   assert.ok(JSON.stringify(g).includes('.claude-acct (a plugin folder a Claude Code variable names, too wide'), JSON.stringify(g));
 });
 
-test('#5774 route 5 review 3: the append idiom is read; a backtick is named; ~/.claude above the agent is that home\'s tier; the 50-home cap; the per-pass cache is used', () => {
+test('#5774 route 5 review 3: the append idiom is read; a backtick is named; ~/.claude above the agent is that home\'s tier; the 50-home cap; the per-pass cache is used', { skip: POSIX_GUARD }, () => {
   const zshrc = path.join(HOME, '.zshrc');
   const K = 'CLAUDE_CODE_PLUGIN_DIRS';
   for (const [body, want] of [[`export ${K}="$${K}${path.delimiter}$HOME/app1"\n`, 'app1'], [`export ${K}="\${${K}:+$${K}${path.delimiter}}$HOME/app2"\n`, 'app2']]) {
@@ -267,7 +270,7 @@ test('#5774 route 5 review 3: the append idiom is read; a backtick is named; ~/.
 });
 
 
-test('#5774 route 5 review 4: a quoted ~ is read; the startup files are read once per pass; the folder cap; the own home by either spelling; linked agent folders; a job home that is the home', () => {
+test('#5774 route 5 review 4: a quoted ~ is read; the startup files are read once per pass; the folder cap; the own home by either spelling; linked agent folders; a job home that is the home', { skip: POSIX_GUARD }, () => {
   const zshrc = path.join(HOME, '.zshrc');
   fs.writeFileSync(zshrc, 'export CLAUDE_CODE_PLUGIN_DIRS="~/qplug"\n');
   try {
@@ -326,7 +329,7 @@ test('#5774 route 5 review 4: a quoted ~ is read; the startup files are read onc
   } finally { for (const n of ['linked-r4', 'homejob-r4']) fs.rmSync(jobfix.jobPath(n), { force: true }); fs.rmSync(linked, { force: true }); }
 });
 
-test('#5774 route 5 review 5: Kosmos\'s data is too wide as production runs (no deps.dataRoot); the prepend idiom; covered folders spend no budget; a job home holding the agent', () => {
+test('#5774 route 5 review 5: Kosmos\'s data is too wide as production runs (no deps.dataRoot); the prepend idiom; covered folders spend no budget; a job home holding the agent', { skip: POSIX_GUARD }, () => {
   const noData = { ...DEPS };
   delete noData.dataRoot;   // as production calls it
   const g = setup.guardTokenOnlyFolder(agentDir('pilot-datawide'), 'pilot-datawide', { ...noData, env: { CLAUDE_CODE_PLUGIN_DIRS: store.ROOT } });
@@ -352,7 +355,7 @@ test('#5774 route 5 review 5: Kosmos\'s data is too wide as production runs (no 
   assert.ok(!JSON.stringify(g4).includes('would cover this agent'), JSON.stringify(g4));
 });
 
-test('#5774 route 5 review 7: the plugins inside the folders the variables name are read (a dev plugin\'s hook, a cache\'s installed plugin); a folder inside the agent\'s own is named; an own home listed first is not re-judged', () => {
+test('#5774 route 5 review 7: the plugins inside the folders the variables name are read (a dev plugin\'s hook, a cache\'s installed plugin); a folder inside the agent\'s own is named; an own home listed first is not re-judged', { skip: POSIX_GUARD }, () => {
   // A dev plugin root in CLAUDE_CODE_PLUGIN_DIRS whose hook runs a script outside the plugin folder.
   const dev = path.join(SANDBOX, 'devplug-r7');
   const outside = path.join(SANDBOX, 'tools-r7', 'start.sh');
@@ -389,7 +392,7 @@ test('#5774 route 5 review 7: the plugins inside the folders the variables name 
   assert.ok(!JSON.stringify(g3).includes('would cover this agent'), JSON.stringify(g3));
 });
 
-test('#5774 route 5 review 8: a plugin folder inside the temp folder is named (a per-run place); a job home is refused only when its code folders would cover this agent\'s folder', () => {
+test('#5774 route 5 review 8: a plugin folder inside the temp folder is named (a per-run place); a job home is refused only when its code folders would cover this agent\'s folder', { skip: POSIX_GUARD }, () => {
   const tmpPlug = path.join(DEPS.tmpDir, 'run-123', 'plug');
   const g = setup.guardTokenOnlyFolder(agentDir('pilot-tmpplug'), 'pilot-tmpplug', { ...DEPS, env: { CLAUDE_CODE_PLUGIN_DIRS: tmpPlug } });
   assert.ok(JSON.stringify(g).includes('inside the temp folder: a per-run place'), JSON.stringify(g));
@@ -407,7 +410,7 @@ test('#5774 route 5 review 8: a plugin folder inside the temp folder is named (a
   assert.ok(JSON.stringify(g2).includes('whose code folders would cover this agent'), JSON.stringify(g2));
 });
 
-test('#5774 route 5 review 9: a plugin installed inside a cache folder is covered by it (no versioned rule); a ~user value in a startup file is named', () => {
+test('#5774 route 5 review 9: a plugin installed inside a cache folder is covered by it (no versioned rule); a ~user value in a startup file is named', { skip: POSIX_GUARD }, () => {
   const cache = path.join(SANDBOX, 'pcache-r9');
   const inst = path.join(cache, 'cache', 'mkt', 'p', '1.2.3');
   fs.mkdirSync(inst, { recursive: true });
@@ -441,7 +444,7 @@ test('#5774 route 5 review 10: a job file that exists but cannot be read is name
   assert.ok(JSON.stringify(g2).includes('rel/home (a config home an agent\'s job names, not a full path'), JSON.stringify(g2));
 });
 
-test('#5774 route 5 review 11: the default-if-unset idioms ${K:-x} and ${K:=x} read as x', () => {
+test('#5774 route 5 review 11: the default-if-unset idioms ${K:-x} and ${K:=x} read as x', { skip: POSIX_GUARD }, () => {
   const zshrc = path.join(HOME, '.zshrc');
   const K = 'CLAUDE_CODE_PLUGIN_CACHE_DIR';
   for (const [form, n] of [[`\${${K}:-$HOME/dflt1}`, 'dflt1'], [`\${${K}:=$HOME/dflt2}`, 'dflt2']]) {
@@ -473,7 +476,7 @@ test('#5774 route 5 review 11: on Linux a MASKED agent unit is no job (not a fai
 });
 
 
-test('#5774 route 5 review 13: a config home that is a link to something absent has its target covered; an indented export is read (review 17); a per-run cache lists no versioned plugin', () => {
+test('#5774 route 5 review 13: a config home that is a link to something absent has its target covered; an indented export is read (review 17); a per-run cache lists no versioned plugin', { skip: POSIX_GUARD }, () => {
   // A base under the REAL sandbox path: the temp folder is itself a link on macOS, so every path there reads as linked.
   const base = path.join(fs.realpathSync.native(SANDBOX), 'r13');
   fs.mkdirSync(base, { recursive: true });
@@ -529,7 +532,7 @@ test('#5774 route 5 review 13: a config home that is a link to something absent 
   assert.ok(![...s3.permissions.deny, ...s3.sandbox.filesystem.denyWrite].some((r) => r.includes('9.9.9')), 'a versioned plugin path was listed');
 });
 
-test('#5774 route 5 review 14: a startup file that is there but cannot be read, or is past the size limit, is named', () => {
+test('#5774 route 5 review 14: a startup file that is there but cannot be read, or is past the size limit, is named', { skip: POSIX_GUARD }, () => {
   const zshrc = path.join(HOME, '.zshrc');
   try {
     fs.writeFileSync(zshrc, 'export CLAUDE_CODE_PLUGIN_DIRS=/opt/hidden-plug\n');
@@ -548,7 +551,7 @@ test('#5774 route 5 review 14: a startup file that is there but cannot be read, 
   } finally { try { fs.chmodSync(zshrc, 0o644); } catch { /* gone */ } fs.rmSync(zshrc, { force: true }); }
 });
 
-test('#5774 route 5 review 15: a plugin folder holding the projects folder is too wide; one inside a project is named; a dangling home pointing into the agent is named', () => {
+test('#5774 route 5 review 15: a plugin folder holding the projects folder is too wide; one inside a project is named; a dangling home pointing into the agent is named', { skip: POSIX_GUARD }, () => {
   const base = path.join(fs.realpathSync.native(SANDBOX), 'r15');
   const proj = path.join(base, 'Kosmos', 'Projects');
   fs.mkdirSync(path.join(proj, 'p1', 'myplug'), { recursive: true });
@@ -575,7 +578,7 @@ test('#5774 route 5 review 15: a plugin folder holding the projects folder is to
   assert.ok(JSON.stringify(g4).includes("sits inside this agent's own folder"), JSON.stringify(g4));
 });
 
-test('#5774 route 5 review 16: a plugin folder whose real place is read-only (a store path) is not listed by name; a link to one keeps a file-tool rule on the link', () => {
+test('#5774 route 5 review 16: a plugin folder whose real place is read-only (a store path) is not listed by name; a link to one keeps a file-tool rule on the link', { skip: POSIX_GUARD }, () => {
   const base = path.join(fs.realpathSync.native(SANDBOX), 'r16');
   const store = path.join(base, 'store', 'abc123-plugin');
   fs.mkdirSync(store, { recursive: true });
@@ -599,7 +602,7 @@ test('#5774 route 5 review 16: a plugin folder whose real place is read-only (a 
   assert.ok(editDeniedBy(s3.permissions.deny, path.join(store, 'x.js')).length > 0 && sandboxDenies(s3.sandbox.filesystem.denyWrite, path.join(store, 'x.js')), 'control: denied whole');
 });
 
-test('#5774 route 5 review 17: a plugin folder under a fixed temp root (/tmp) is a per-run place; the root itself is too wide', () => {
+test('#5774 route 5 review 17: a plugin folder under a fixed temp root (/tmp) is a per-run place; the root itself is too wide', { skip: POSIX_GUARD }, () => {
   const base = path.join(fs.realpathSync.native(SANDBOX), 'r17');
   const fakeTmp = path.join(base, 'tmp');
   const plug = path.join(fakeTmp, 'devplug-123');
@@ -618,7 +621,7 @@ test('#5774 route 5 review 17: a plugin folder under a fixed temp root (/tmp) is
   assert.ok(editDeniedBy(readSettings(d3).permissions.deny, path.join(plug, 'x.js')).length > 0, 'control: denied whole');
 });
 
-test('#5774 route 5 review 18: a job file that does not parse as a job is read for its config home, not named; one that cannot be read is named', () => {
+test('#5774 route 5 review 18: a job file that does not parse as a job is read for its config home, not named; one that cannot be read is named', { skip: POSIX_GUARD }, () => {
   const base = path.join(fs.realpathSync.native(SANDBOX), 'r18');
   const home = path.join(base, 'odd-home');
   fs.mkdirSync(home, { recursive: true });
@@ -644,7 +647,7 @@ test('#5774 route 5 review 18: a job file that does not parse as a job is read f
   } finally { try { fs.chmodSync(plist, 0o644); } catch { /* gone */ } fs.rmSync(plist, { force: true }); }
 });
 
-test('#5774 route 5 review 19: an assignment that never enters the environment is not read; a Cellar folder is covered by one stable rule; an odd Linux unit is read for its home', () => {
+test('#5774 route 5 review 19: an assignment that never enters the environment is not read; a Cellar folder is covered by one stable rule; an odd Linux unit is read for its home', { skip: POSIX_GUARD }, () => {
   const base = path.join(fs.realpathSync.native(SANDBOX), 'r19');
   fs.mkdirSync(base, { recursive: true });
   const zshrc = path.join(HOME, '.zshrc');
