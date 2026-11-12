@@ -137,7 +137,7 @@ test('kosmos#8471 part 1: a delete whose task Task Scheduler would not remove ke
   assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings went');
   assert.ok(removedNow().includes(name), 'the removal was forgotten, so nothing on screen reaches the agent again');
   assert.equal(sendertoken.holdsTokens(name), true, 'its sender tokens were revoked although nothing was deleted');
-  assert.match(done.because, /^Task Scheduler would not remove stuck8471's startup job, so its folder was kept too\. The name stays taken; try again in a moment, and if it keeps failing, open Task Scheduler, find agent-stuck8471 in its Kosmos folder, delete it, then try again here\./);
+  assert.match(done.because, /^Task Scheduler would not remove stuck8471's startup job, so its folder was kept too\. The name stays taken; try again in a moment, and if it keeps failing, open Task Scheduler, find agent-stuck8471 in the Kosmos folder of the Task Scheduler Library, delete it, then try again here\./);
   assert.match(done.because, /standing in the community was reset/);
   assert.doesNotMatch(done.because, /systemd|user services/, 'a Windows sentence spoke of Linux');
   const folderStep = done.steps.find((s) => s.step === 'its folder');
@@ -161,7 +161,7 @@ test('kosmos#8471 part 1: with no folder, a task that would not go keeps the set
   const done = win.del(name);
   assert.equal(done.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(done));
   // kosmos#8471 review 1: a refusal that lasts (another account's task) names the task a person can delete themselves.
-  assert.match(done.because, /^Task Scheduler would not remove nofold8471's startup job\. The name stays taken; try again in a moment, and if it keeps failing, open Task Scheduler, find agent-nofold8471 in its Kosmos folder, delete it, then try again here\./);
+  assert.match(done.because, /^Task Scheduler would not remove nofold8471's startup job\. The name stays taken; try again in a moment, and if it keeps failing, open Task Scheduler, find agent-nofold8471 in the Kosmos folder of the Task Scheduler Library, delete it, then try again here\./);
   assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings went');
   assert.ok(removedNow().includes(name), 'the removal was forgotten');
 });
@@ -211,7 +211,7 @@ test('kosmos#8471 part 2: the removed list lists a task left with settings and n
      sentence gave a reason that was not true ("the Recycle Bin cannot take them"). It now says the fact. */
   assert.equal(p.records.trash, false, 'CONTROL: #7820 keeps a task-only delete off the Recycle Bin');
   assert.equal(p.typeToConfirm, lone, 'settings deleted for good, yet no typing was asked');
-  assert.match(p.reassurance, /^Its startup job is removed, and its settings are deleted for good\. After this, the name task8471 is free for a new agent\.$/);
+  assert.match(p.reassurance, /^Its startup job is removed\. Its settings are deleted for good\. After this, the name task8471 is free for a new agent\.$/);
   assert.doesNotMatch(p.reassurance, /cannot go to the Recycle Bin|Nothing you can lose/);
   const done = win.del(lone);
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));

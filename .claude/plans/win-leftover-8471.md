@@ -26,8 +26,8 @@ macOS and Linux are unchanged.
 ## Decided, not missed
 - Not in this change: create.js nameHeld on win32 (#8466's second half). It lands after this, now that the leftover
   can be seen and deleted.
-- macOS has the same bug (a plist that will not move: the folder still trashed). Filed as #8474, not changed here.
-- The weakest part: no server test checks that startsAtLogin reaches /api/removed; only the browser check covers the row.
+- macOS: filed as #8474 and closed as not planned by its builder (the Mac board already shows a stopped agent with a plist and no folder, with its Delete), so this change is Windows only.
+- The weakest part: for a task with no folder, plan() does not run the "waiting to start in a world switch" check or note a damaged settings file (strandedRefusal runs only with no job), while the list filters such names out; a race between the 5 s poll and a click (review 3, not reproduced). Also startsAtLogin is set for a switched-off task too (the row's words stay true).
 
 ## Measured on the Windows box
 New file 5/5; negative controls: with origin's delete-leftover.js tests 1, 2, 4 and 5 fail (part 1 alone: 1 and 2; part 2
@@ -53,3 +53,9 @@ before, 1442/116/25 after (the 116 are the same failures on this box both ways).
   still registered (a removed agent's leftover task is disabled, so "still starts" was not always true); the refusal
   names the task as Task Scheduler shows it (the agent-<name> task in its Kosmos folder). Not changed: (3) the #7820
   test now pins the refusal sentence rather than verbFor's "remove its startup job" arm, which is a fallback now.
+- Round 3 (no blocker or warning; 1 convention, 4 nits). Fixed: the plan's weakest part (it still said no server test
+  covers startsAtLogin, which round 2 added) now names the real one; the task-only sentence is two sentences when a
+  picture is stored too ("Its startup job is removed. Its settings and picture are deleted for good."); the refusal
+  says "the Kosmos folder of the Task Scheduler Library", not "its Kosmos folder" (which read as the agent's). Not
+  changed: the pending-name and damaged-settings checks for a task with no folder (a narrow race, named above as the
+  weakest part); the field name startsAtLogin (internal).
