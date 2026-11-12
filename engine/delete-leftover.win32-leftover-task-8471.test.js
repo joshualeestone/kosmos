@@ -194,7 +194,7 @@ test('kosmos#8471, kosmos#8475: the task of a removed agent left with no folder:
   assert.equal(p.verb, 'Remove its startup job');
   assert.equal(p.typeToConfirm, null, 'a delete that loses nothing for good asked for typing');
   // kosmos#8475 review: the way back first (with the account and model it starts on), then what stays.
-  assert.match(p.reassurance, /^Only its startup job is removed, so nothing starts task8471 when you log in\. If its folder was only moved, or is on a disk that is not connected, put it back at .*task8471, use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it; it starts on your main account and the model it last ran, so choose its account and model again if it used others\. Its settings stay on this computer; to delete them too, delete what is left of task8471 again\.$/);
+  assert.match(p.reassurance, /^Only its startup job is removed, so nothing starts task8471 when you log in\. If its folder was only moved, or is on a disk that is not connected, put it back at .*task8471 \(or connect that disk again\), use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it; it starts on your main account and the model it last ran, so choose its account and model again if it used others\. Its settings stay on this computer; to delete them too, delete what is left of task8471 again\.$/);
   assert.doesNotMatch(p.reassurance, /deleted for good|name .* is free/);
   const done = win.del(lone);
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));

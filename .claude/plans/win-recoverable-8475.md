@@ -16,7 +16,9 @@ workers folder, a renamed workers folder plus one create, a recorded folder on a
   startup job is still set up, but Kosmos cannot find its folder" (true whether the folder was deleted or moved).
 - plan() and del() for a Windows task with no folder: a taskOnly delete that removes ONLY the Scheduled Task. It keeps
   the settings and picture, revokes no tokens, clears no history, retires no community account, resets no standing,
-  records no removal, and asks for no typing. Afterwards a name whose recorded folder is in the workers folder (or
+  records no removal, and asks for no typing, except (review 4) where its recorded folder is outside the workers
+  folder and out of sight, gone or behind a dead link (where main refused): then the name is typed and the plan first
+  says the folder is recorded at that path and cannot be reached, and to connect it if it is a disk or share. Afterwards a name whose recorded folder is in the workers folder (or
   records none) is a settings-only row whose delete can go to the Recycle Bin; a name recording a folder outside the
   workers folder shows no settings-only row (its folder may only be out of sight), so its settings stay until that
   folder is back, and the sentences then say only that they stay. The sentences say exactly that, and how to get the agent back if its folder was only moved (put it back
@@ -31,7 +33,7 @@ workers folder, a renamed workers folder plus one create, a recorded folder on a
   login (only on a look that answered "not registered").
 - It still refuses while the name is waiting to start, and while the whole workers folder is missing or behind a dead
   link (the way-out sentence names the task to delete in Task Scheduler).
-- Tests: new engine/delete-leftover.win32-recoverable-task-8475.test.js (10); the 8471 file's tests updated to the new
+- Tests: new engine/delete-leftover.win32-recoverable-task-8475.test.js (12); the 8471 file's tests updated to the new
   rule (test 7 now pins "Windows lists the task, marked; macOS and Linux do not"); the 7820 pin updated; a Windows-only
   server.test.js test for startsAtLogin; docs/browser-checks/render-settings-leftover-7825.js asserts the row.
 
@@ -51,7 +53,8 @@ workers folder, a renamed workers folder plus one create, a recorded folder on a
   but its settings cannot be deleted from the screen until the disk returns).
 
 ## Measured on the Windows box
-New file 10/10 (10/10 fail with main's source; 5/8 with the first commit's). 8471 file 7/0, 7820 file 34/0/1, delete-leftover.test 70/0/10, server
+New file 12/12 (11/12 fail with main's source: test 11 pins main's refusal, so it passes there by design; 3/12 fail
+with review 3's source e36998ddd8: 2, 5, 12). 8471 file 7/0, 7820 file 34/0/1, delete-leftover.test 70/0/10, server
 "removed list" 3 pass; each changed test fails on main's source. Both browser-check gates exit 0. Policy tests pass.
 
 ## Review log
@@ -74,3 +77,10 @@ New file 10/10 (10/10 fail with main's source; 5/8 with the first commit's). 847
   for good where main refused. It now runs strandedRefusal (and keeps damagedSettings) first, as main did; test 11
   builds that case (negative control fails on the round-2 source). (2) A removed agent's own row button says "Delete
   what is left..." (it cannot know the act until the plan is fetched). (3) The plan's two inexact sentences corrected.
+- Round 4 (compared every case with main; no blocker; 1 warning, 4 nits), all fixed. Main refused (strandedRefusal) six
+  cases this branch removes the task in: a recorded folder outside the workers folder on a drive not connected, gone, or
+  behind a dead link, each removed or not. DECIDED: keep the task-only act (refusing would bring back a row that cannot
+  act) but ask for the name to be typed, and say first that the folder is recorded where Kosmos cannot reach it and that
+  connecting the disk brings the agent back. Rejected: removing it silently; saving the account now (#8478). Test 12
+  covers the six cases and the untyped control. Nits: the plan's counts, the refusal comment, "(or connect that disk
+  again)", and del reads isRemoved === true as plan() does.

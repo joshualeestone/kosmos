@@ -204,7 +204,8 @@ test('kosmos#8475: its delete removes the Scheduled Task and nothing else, and a
   assert.equal(p.keep, 'Keep its startup job', 'the cancel button would say "Keep the files" over an act that touches none');
   /* kosmos#8475 review: the way back first, saying it starts on the main account and the model it last ran (both lived
      only in the task); then what stays, and how to delete it, since this one's settings would be offered. */
-  const back = `If its folder was only moved, or is on a disk that is not connected, put it back at ${create.workerDir(name)}, then use Start at login when Kosmos offers it; `
+  assert.equal(p.typeToConfirm, null, 'a folder in the workers folder asked for typing (review 4 is for folders out of sight only)');
+  const back = `If its folder was only moved, or is on a disk that is not connected, put it back at ${create.workerDir(name)} (or connect that disk again), then use Start at login when Kosmos offers it; `
     + 'it starts on your main account and the model it last ran, so choose its account and model again if it used others.';
   const stay = 'Its settings and picture stay on this computer; to delete them too, delete what is left of only8475 again.';
   assert.equal(p.reassurance, `Only its startup job is removed, so nothing starts only8475 when you log in. ${back} ${stay}`);
@@ -286,13 +287,14 @@ test('kosmos#8475: a recorded folder on a disk that is not connected loses only 
     const p = win.plan(name);
     assert.equal(p.ok, true, `${name}: ${p.because}`);
     assert.equal(p.taskOnly, true);
-    assert.match(p.reassurance, new RegExp('put it back at ' + dir.replace(/\\/g, '\\\\') + (removed ? ', use Restore' : ', then use Start at login')));
+    assert.match(p.reassurance, new RegExp('put it back at ' + dir.replace(/\\/g, '\\\\') + ' \\(or connect that disk again\\)' + (removed ? ', use Restore' : ', then use Start at login')));
+    assert.equal(p.typeToConfirm, name, `${name}: review 4: a folder out of sight asks for the name`);
     /* kosmos#8475 review: its settings are not offered on their own afterwards (below), so no sentence may send the
        person to delete them "again"; it says only that they stay. */
     assert.match(p.reassurance, /Its settings and picture stay on this computer\.$/, `${name}: ${p.reassurance}`);
     assert.doesNotMatch(p.reassurance, /delete what is left/, `${name}: the plan promised a delete that would be refused`);
     if (!removed) assert.equal(listed(name).startsAtLogin, true, 'the task was not listed');
-    const done = win.del(name);
+    const done = win.del(name, name);   // review 4: the name typed
     assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
     assert.doesNotMatch(done.said, /delete what is left/, `${name}: the outcome promised a delete that would be refused`);
     assert.equal(fs.existsSync(store.profilePath(name)), true, `${name} lost its settings`);
@@ -448,4 +450,50 @@ test('kosmos#8475 review 3: the full delete of a removed name keeps main checks:
   const ctl = win.plan(name);
   assert.equal(ctl.ok, true, 'CONTROL: ' + ctl.because);
   assert.ok(!ctl.taskOnly, 'CONTROL: the removed name with nothing of its own stored no longer gets the full delete');
+});
+
+test('kosmos#8475 review 4: a recorded folder out of sight (no disk, gone, dead link) asks for the name and says why first; inside the workers folder it does not', { skip: process.platform !== 'win32' ? 'a drive letter that is not connected and a junction are Windows fixtures' : false }, () => {
+  /* Where main refused through strandedRefusal, the agent may be healthy (an unplugged disk, a dropped share), and after
+     its task goes it comes back only on the main account and the model it last ran. Friction, not refusal: the task
+     still goes alone, once the name is typed. */
+  const free = 'QRSTUVWXYZ'.split('').reverse().find((l) => !fs.existsSync(`${l}:\\`));
+  assert.ok(free, 'no free drive letter on this computer for the fixture');
+  const target = nodePath.join(SANDBOX, 'share-gone-8475');
+  const link = nodePath.join(SANDBOX, 'share-link-8475');
+  fs.mkdirSync(target, { recursive: true });
+  fs.symlinkSync(target, link, 'junction');   // no admin rights or Developer Mode needed
+  fs.rmSync(target, { recursive: true, force: true });   // the share goes; the junction now leads nowhere
+  const cases = [
+    ['nodisk', `${free}:\\far8475`],
+    ['gone', nodePath.join(SANDBOX, 'not-here-8475')],
+    ['deadlink', nodePath.join(link, 'agent')],
+  ];
+  try {
+    for (const [kind, dir] of cases) {
+      for (const removed of [false, true]) {
+        const name = `${kind}${removed ? 'r' : ''}8475`;
+        agent(name, { folder: false, profile: { dir } });
+        if (removed) markRemoved(name);
+        const p = win.plan(name);
+        assert.equal(p.ok, true, `${name}: ${p.because}`);
+        assert.equal(p.taskOnly, true, `${name}: not the task-only delete`);
+        assert.equal(p.typeToConfirm, name, `${name}: no typing asked although its folder may only be out of sight`);
+        assert.ok(p.reassurance.startsWith(`Its folder is recorded at ${dir}, which Kosmos cannot reach right now; if that is a disk or shared folder that is not connected, connect it and Kosmos can start the agent again, so remove its startup job only if you are sure it is gone. Only its startup job is removed`), `${name}: ${p.reassurance}`);
+        const untyped = win.del(name);
+        assert.equal(untyped.outcome, leftover.OUTCOME.REFUSED, `${name}: removed with no name typed`);
+        assert.ok(tasks.has(win32job.taskName(name)), `${name}: the task went with no name typed`);
+        const typed = win.del(name, name);
+        assert.equal(typed.outcome, leftover.OUTCOME.DELETED, `${name}: ${JSON.stringify(typed)}`);
+        assert.ok(!tasks.has(win32job.taskName(name)), `${name}: the task is still registered`);
+        assert.equal(fs.existsSync(store.profilePath(name)), true, `${name}: its settings went`);
+        fs.rmSync(REMOVED, { force: true });
+      }
+    }
+  } finally { fs.rmSync(link, { force: true }); }
+  // CONTROL: a recorded folder INSIDE the workers folder that is not there asks for nothing (the usual moved case).
+  const inside = agent('inside8475', { folder: false, profile: { dir: nodePath.join(WORKERS, 'inside8475') } });
+  const q = win.plan(inside);
+  assert.equal(q.ok, true, q.because);
+  assert.equal(q.typeToConfirm, null, 'CONTROL: a folder in the workers folder asked for typing');
+  assert.ok(q.reassurance.startsWith('Only its startup job is removed'), 'CONTROL: ' + q.reassurance);
 });

@@ -574,8 +574,11 @@ function plan(name, opts) {
      sender tokens, history and any removal record. If the folder comes back, register.survey lists the agent in
      `missing` (folder, profile, no job) and Start at login (register.repair, create.installJob) registers the task again,
      on the main account and the model it last ran (the account folder and set model lived only in the task; see
-     taskOnlyBackWords). So the recorded-folder checks settings alone need (strandedRefusal) are not asked here: nothing they protect is
-     touched. Only a name waiting to start is refused, as the list leaves it out. */
+     taskOnlyBackWords). So the recorded-folder checks settings alone need (strandedRefusal) do not refuse here: nothing
+     they protect is touched. Refused: a name waiting to start (the list leaves it out), and any task while the workers
+     folder itself is missing, behind a dead link or cannot be checked (every agent would read like this). review 4: when
+     strandedRefusal would have refused (its recorded folder out of sight, gone or behind a dead link: perhaps an
+     unplugged disk or a dropped share), the task still goes alone, but the name is typed and the plan says why first. */
   if (!folder && job && job.task) {
     let pending = null;
     try { pending = require('./worldstarts').pendingNames(); } catch { pending = null; }
@@ -609,19 +612,23 @@ function plan(name, opts) {
     try { removedNow = remove.isRemoved(clean) === true; } catch { removedNow = false; }
     if (stored.records.length || !removedNow) {
       const words = taskOnlyWords(clean, shown, removedNow, platform, stored.records);
+      /* review 4 (friction, not refusal): where main refused through strandedRefusal, the agent may be healthy with its
+         folder only out of sight, and after its task goes it comes back only on the main account and the model it last
+         ran, and only if it has run here. So the name is typed and the reason comes first. */
+      const unsure = outOfSightWords(clean, shown);
       return {
         ok: true,
         name: clean,
         shown,
         taskOnly: true,
         toTrash: false,
-        typeToConfirm: null,   // nothing is lost for good: the task can be set up again
+        typeToConfirm: unsure ? shown : null,   // otherwise nothing is lost for good: the task can be set up again
         folder: null,
         records: { files: [], trash: false, kept: null, keptWords: null },
         job: { path: null, label: job.label, task: true },
         question: `Remove ${shown}'s startup job?`,
         // The way back first (it is why nothing else goes), then what stays and how to delete it.
-        reassurance: `Only its startup job is removed, so nothing starts ${shown} when you log in. ${words.back}${words.stay ? ' ' + words.stay : ''}`,
+        reassurance: `${unsure ? unsure + ' ' : ''}Only its startup job is removed, so nothing starts ${shown} when you log in. ${words.back}${words.stay ? ' ' + words.stay : ''}`,
         loses: ['Its startup job, so nothing tries to start it again'],
         verb: 'Remove its startup job',
         keep: 'Keep its startup job',   // the dialog's cancel button: "Keep the files" names files this act never touches
@@ -837,11 +844,27 @@ function workersFolderThere() {
    model it was set to are kept only in the Scheduled Task, so register.repair starts it on the main account and the
    model it last ran (server.js modelFor). A Qwen or other vendor agent's account is in its profile and comes back with
    it. The sentence says so rather than promising the agent back unchanged. */
+/* kosmos#8475 review 4: the sentence a task-only plan leads with, and the reason it asks for the name, when the settings
+   checks (strandedRefusal) would have refused: its recorded folder is out of sight, gone or behind a dead link, or could
+   not be checked. Null when they would not (no typing then). A name waiting to start never reaches here. */
+function outOfSightWords(name, shown) {
+  let st;
+  try { st = strandedRefusal(name, shown); } catch { st = { because: 'unreadable' }; }
+  if (!st || !st.because) return null;
+  let where = null;
+  try { where = create.recordedDirSpelling(name); } catch { where = null; }
+  const sure = 'remove its startup job only if you are sure it is gone.';
+  return where
+    ? `Its folder is recorded at ${where}, which Kosmos cannot reach right now; if that is a disk or shared folder that is not connected, connect it and Kosmos can start the agent again, so ${sure}`
+    : `Kosmos could not check where its folder is right now, so ${sure}`;
+}
+
 function taskOnlyBackWords(name, removed) {
   let where = null;
   try { where = create.recordedDirSpelling(name); } catch { where = null; }
   if (!where) where = create.workerDir(name);
-  return `If its folder was only moved, or is on a disk that is not connected, put it back at ${where}`
+  // review 4: a disk that is not connected is connected again, not "put back".
+  return `If its folder was only moved, or is on a disk that is not connected, put it back at ${where} (or connect that disk again)`
     + (removed ? ', use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it' : ', then use Start at login when Kosmos offers it')
     + startsAgainWords(name);
 }
@@ -1048,8 +1071,12 @@ function* delSteps(name, opts) {
      below, which cannot be undone, and with no token revoke, no history cleared, no settings moved, no removal forgotten
      and no community account retired: if the folder was only moved, Start at login brings the agent back with its
      settings, picture, tokens and history (on the main account and the model it last ran: see taskOnlyBackWords).
-     Nothing is typed. */
+     Nothing is typed, except where its recorded folder is out of sight (review 4): then the name, checked here before
+     anything is touched, with the plan travelling back as the general refusal below does. */
   if (p.taskOnly) {
+    if (p.typeToConfirm && String((opts && opts.typed) || '').trim() !== p.typeToConfirm) {
+      return { outcome: OUTCOME.REFUSED, because: `type ${p.typeToConfirm} to confirm; nothing was deleted`, plan: p };
+    }
     let out;
     try { out = require('./win32job').remove(p.name); }
     catch (err) { out = { ok: false, because: String((err && err.message) || err) }; }
@@ -1061,7 +1088,7 @@ function* delSteps(name, opts) {
       };
     }
     let removedNow = false;
-    try { removedNow = remove.isRemoved(p.name); } catch { removedNow = false; }
+    try { removedNow = remove.isRemoved(p.name) === true; } catch { removedNow = false; }   // as plan() reads it
     let stored = null;
     try { stored = namedRecords(p.name, null).records; } catch { stored = null; }   // null: not named, never guessed
     const words = taskOnlyWords(p.name, p.shown, removedNow, platform, stored);
