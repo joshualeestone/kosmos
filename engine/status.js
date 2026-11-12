@@ -7304,6 +7304,7 @@ const MODEL_NAMES = {
   'claude-sonnet-5-5': 'Claude Sonnet 5.5', // #4439: added to the picker; named here so a running 5.5 agent is not shown its raw id
   'claude-sonnet-5': 'Claude Sonnet 5',
   'claude-fable-5': 'Claude Fable 5',
+  'claude-fable-5-2': 'Claude Fable 5.2', // #8461: named here too, so a running 5.2 agent is not shown its raw id
   'claude-fable-5-1': 'Claude Fable 5.1', // #1356: added to the picker; name it here too so a running 5.1 agent is not shown its raw id
   'claude-opus-4-8': 'Claude Opus 4.8',
   'claude-haiku-5-5': 'Claude Haiku 5.5', // #5626: added to the picker; named here so a running 5.5 agent is not shown its raw id
