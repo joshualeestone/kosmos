@@ -175,8 +175,8 @@ function schtasksMayRunInThisProcess() {
 }
 
 function run(args) {
-  /* Anything but a read may change a task, so what `presence` remembers goes, and the folder listing (#8417) too. */
-  if (!Array.isArray(args) || args[0] !== '/Query') { PRESENCE_MEMO.clear(); FOLDER_MEMO.at = null; }
+  /* Anything but a read may change a task, so what the reads remember goes. */
+  if (!Array.isArray(args) || args[0] !== '/Query') forgetReads();
   if (runFn) return runFn(args);
   /* 🛑 A TEST PROCESS NEVER REACHES THE REAL TASK SCHEDULER, not even to read it.
      The fleet's Windows box runs the suite beside the live fleet, whose tasks
@@ -497,7 +497,7 @@ function install(spec) {
 function* installSteps(spec) {
   const plan = installPlan(spec);
   if (!plan.ok) return plan;
-  PRESENCE_MEMO.clear();
+  forgetReads();
   let r;
   try { r = win32StepResult(yield { exec: ['schtasks.exe', plan.args, { timeout: SCHTASKS_TIMEOUT_MS }] }); }
   finally { plan.cleanup(); }
@@ -563,7 +563,7 @@ function end(name, worldId) {
    PRESENCE_MEMO up front exactly as run() does on a mutating call (the step bypasses run(), so presence() would
    otherwise serve a stale answer for the memo's TTL after a step-driven stop). Mirrors end() command-for-command. */
 function* endSteps(name, worldId) {
-  PRESENCE_MEMO.clear();
+  forgetReads();
   const r = yield { exec: ['schtasks.exe', ['/End', '/TN', taskName(name, worldId)], { timeout: SCHTASKS_TIMEOUT_MS }] };
   return endedOk(win32StepResult(r));
 }
@@ -585,7 +585,7 @@ function start(name, worldId) {
 /* #6183: `start` as an async step; mirrors start() command-for-command through remove.js's runner. Clears
    PRESENCE_MEMO up front as run() does on a mutating call (the step bypasses run()). */
 function* startSteps(name, worldId) {
-  PRESENCE_MEMO.clear();
+  forgetReads();
   const r = yield { exec: ['schtasks.exe', ['/Run', '/TN', taskName(name, worldId)], { timeout: SCHTASKS_TIMEOUT_MS }] };
   return startedOk(win32StepResult(r));
 }
@@ -745,6 +745,9 @@ function presence(name, worldId) {
  */
 const PRESENCE_TTL_MS = 2000;
 const PRESENCE_MEMO = new Map();
+/* Forget what the reads remember: presence's answers and the folder listing (#8417). Every call that may change a task
+   runs this before it spawns: run() for its own calls, and the step forms, which bypass run(). */
+function forgetReads() { PRESENCE_MEMO.clear(); FOLDER_MEMO.at = null; }
 let presenceTtlOverride = null;
 function presenceTtl() {
   if (presenceTtlOverride !== null) return presenceTtlOverride;
@@ -868,12 +871,13 @@ function list() {
 
 /* The rows `list` reads, one per agent task of THIS Kosmos: its name and the third CSV column, the task's Status word
    ("Ready", "Running", "Disabled"), localized. kosmos#8417: `switchedOffNames` reads the rows through this same parse. */
-const FOLDER_MEMO = { at: null, answer: null };   // kosmos#8417: one listing per poll, kept as `presence` keeps its answers
+const FOLDER_MEMO = { at: null, world: null, answer: null };   // kosmos#8417: one listing per poll, kept as `presence` keeps its answers
 function folderRows() {
   const ttl = presenceTtl();
-  if (ttl > 0 && FOLDER_MEMO.at !== null && Date.now() - FOLDER_MEMO.at < ttl) return FOLDER_MEMO.answer;
+  const world = launchidentity.currentWorldId();
+  if (ttl > 0 && FOLDER_MEMO.at !== null && FOLDER_MEMO.world === world && Date.now() - FOLDER_MEMO.at < ttl) return FOLDER_MEMO.answer;
   const answer = folderRowsNow();
-  if (ttl > 0 && answer.known) { FOLDER_MEMO.at = Date.now(); FOLDER_MEMO.answer = answer; }
+  if (ttl > 0 && answer.known) { FOLDER_MEMO.at = Date.now(); FOLDER_MEMO.world = world; FOLDER_MEMO.answer = answer; }
   return answer;
 }
 function folderRowsNow() {

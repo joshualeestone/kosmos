@@ -259,6 +259,28 @@ test('#8417 one folder listing serves list() and the switched-off read on the sa
   } finally { job.setPresenceTtl(null); }
 });
 
+test('#8417 the step forms forget the listing too, and a listing is never served to another world', () => {
+  const calls = scheduler({ 'Kosmos\\agent-ava': { spec: taskFor('ava') }, 'Kosmos\\agent-bo+qa': { spec: taskFor('bo') } });
+  job.setPresenceTtl(2000);
+  try {
+    const csv = () => calls.filter((a) => a.includes('CSV')).length;
+    job.setAnchorer(() => ({ ok: true, node: 'C:\\Anchor\\node.exe', boot: 'C:\\Anchor\\boot.js' }));
+    job.list();
+    for (const [label, step] of [['startSteps', job.startSteps('ava')], ['endSteps', job.endSteps('ava')], ['installSteps', job.installSteps(taskFor('ava'))]]) {
+      const before = csv();
+      const first = step.next();   // runs up to its spawn
+      try {
+        assert.ok(first.value && first.value.exec, label + ' reached its spawn (CONTROL)');
+        job.list();
+        assert.equal(csv(), before + 1, label + ': a step that changes a task makes the next listing ask again');
+      } finally { step.return(); }   // installSteps' finally unlinks its definition file
+    }
+    assert.deepEqual([...job.list().names], ['ava']);
+    process.env.KOSMOS_WORLD = 'qa';
+    assert.deepEqual([...job.list().names], ['bo'], 'Kosmos "qa" asks again and gets its own task, not the default world\'s listing');
+  } finally { delete process.env.KOSMOS_WORLD; job.setPresenceTtl(null); job.setAnchorer(null); }
+});
+
 test('#8417 a task that left the folder and came back is read again', () => {
   const tasks = { 'Kosmos\\agent-ava': { spec: taskFor('ava') } };
   const calls = scheduler(tasks);
