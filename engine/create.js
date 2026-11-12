@@ -4315,7 +4315,15 @@ function disabledJobsResult(runner, platform) {   // #5445: platform injectable,
   // launchctl in a suite, never the operator's real one). Absent, it is the
   // module `run` -- every existing caller (disabledJobs) is unchanged.
   const r = (typeof runner === 'function') ? runner : run;
-  if (probePlatform(platform) === 'linux') return linuxDisabledJobsResult(r);
+  const plat = probePlatform(platform);
+  if (plat === 'linux') return linuxDisabledJobsResult(r);
+  /* kosmos#8417: Windows has no launchctl. Its Scheduled Task's own switch, read through win32job's seam; the injected
+     `runner` is a launchctl one and is not asked. */
+  if (plat === 'win32') {
+    let res;
+    try { res = require('./win32job').switchedOffNames(); } catch { return { ok: false }; }
+    return res && res.known ? { ok: true, jobs: res.names } : { ok: false };
+  }
   try {
     const out = r('/bin/launchctl', ['print-disabled', `gui/${process.getuid()}`]);
     if (out && out.ok === false) return { ok: false };
@@ -7301,6 +7309,7 @@ function selfStarts(platform, lingering) {
 }
 /* #5445: the board's offline-row sentence for an agent whose job is switched off, or null when it is not. `switchedOff`
    is disabledJobs()'s set, read for probePlatform(). On the Mac: launchd's override, switched off in System Settings.
+   On Windows (#8417): the Scheduled Task's own switch, from win32job.switchedOffNames.
    On Linux: systemd; a masked unit (a link to /dev/null, read from the disk, so it is said even when systemctl could not
    be asked) gets the unmask sentence. Linux had no switched-off set before #5445 (launchctl failed there), so the
    Mac sentence, which points at System Settings, never reached it. */
@@ -7322,6 +7331,13 @@ function switchedOffSentence(name, switchedOff, platform) {
     return `this agent is not running because its background job was switched off (or masked) in systemd, this computer's service manager. If it was switched off, systemctl --user enable --now '${u}' switches it back on and starts it; if systemd says it is masked, it has to be unmasked first`;
   }
   if (!(switchedOff && switchedOff.has(name))) return null;
+  /* kosmos#8417: on Windows the job is a Scheduled Task, so the sentence names Task Scheduler and the task, not the Mac's
+     System Settings. No full stop, as the others (the row adds its own). */
+  if (plat === 'win32') {
+    let task = 'agent-' + name;
+    try { task = require('./win32job').taskName(name).split('\\').pop(); } catch { /* the default spelling still identifies it */ }
+    return `this agent is not running because its background job was switched off in Task Scheduler. Open Task Scheduler, find ${task} in the Kosmos folder and choose Enable, and it can start again`;
+  }
   return 'this agent is not running because its background job was switched off, probably in System Settings under Login Items. Switch it back on there and it can start again';
 }
 function selfStartsSentence(platform) {

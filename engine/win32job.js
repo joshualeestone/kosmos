@@ -100,7 +100,10 @@ let runFn = null;
  * unaffected either way.
  */
 const TASK_SPEC_CACHE = new Map();
-function forgetTaskSpec(name, worldId) { TASK_SPEC_CACHE.delete(taskName(name, worldId)); }
+function forgetTaskSpec(name, worldId) {
+  TASK_SPEC_CACHE.delete(taskName(name, worldId));
+  SWITCH_SEEN.delete(taskName(name, worldId));   // kosmos#8417: switchedOffNames' remembered switch, the same rule
+}
 /* 🔑 ONE WRITER, so "which answers are cacheable" is decided in a single place.
    Every read goes through it, failures included, which keeps the `known === true`
    test LOAD-BEARING: delete it and the arm asserting "a failed read is never
@@ -125,6 +128,8 @@ function setRunner(fn) {
   runFn = typeof fn === 'function' ? fn : null;
   TASK_SPEC_CACHE.clear();
   PRESENCE_MEMO.clear();
+  FOLDER_MEMO.at = null;
+  SWITCH_SEEN.clear();   // kosmos#8417: a stubbed task's switch must not outlive the stub either
   livenessFn = null; nowFn = null;
 }
 
@@ -170,8 +175,8 @@ function schtasksMayRunInThisProcess() {
 }
 
 function run(args) {
-  /* Anything but a read may change a task, so what `presence` remembers goes. */
-  if (!Array.isArray(args) || args[0] !== '/Query') PRESENCE_MEMO.clear();
+  /* Anything but a read may change a task, so what the reads remember goes. */
+  if (!Array.isArray(args) || args[0] !== '/Query') forgetReads();
   if (runFn) return runFn(args);
   /* 🛑 A TEST PROCESS NEVER REACHES THE REAL TASK SCHEDULER, not even to read it.
      The fleet's Windows box runs the suite beside the live fleet, whose tasks
@@ -492,7 +497,7 @@ function install(spec) {
 function* installSteps(spec) {
   const plan = installPlan(spec);
   if (!plan.ok) return plan;
-  PRESENCE_MEMO.clear();
+  forgetReads();
   let r;
   try { r = win32StepResult(yield { exec: ['schtasks.exe', plan.args, { timeout: SCHTASKS_TIMEOUT_MS }] }); }
   finally { plan.cleanup(); }
@@ -558,7 +563,7 @@ function end(name, worldId) {
    PRESENCE_MEMO up front exactly as run() does on a mutating call (the step bypasses run(), so presence() would
    otherwise serve a stale answer for the memo's TTL after a step-driven stop). Mirrors end() command-for-command. */
 function* endSteps(name, worldId) {
-  PRESENCE_MEMO.clear();
+  forgetReads();
   const r = yield { exec: ['schtasks.exe', ['/End', '/TN', taskName(name, worldId)], { timeout: SCHTASKS_TIMEOUT_MS }] };
   return endedOk(win32StepResult(r));
 }
@@ -580,7 +585,7 @@ function start(name, worldId) {
 /* #6183: `start` as an async step; mirrors start() command-for-command through remove.js's runner. Clears
    PRESENCE_MEMO up front as run() does on a mutating call (the step bypasses run()). */
 function* startSteps(name, worldId) {
-  PRESENCE_MEMO.clear();
+  forgetReads();
   const r = yield { exec: ['schtasks.exe', ['/Run', '/TN', taskName(name, worldId)], { timeout: SCHTASKS_TIMEOUT_MS }] };
   return startedOk(win32StepResult(r));
 }
@@ -740,6 +745,9 @@ function presence(name, worldId) {
  */
 const PRESENCE_TTL_MS = 2000;
 const PRESENCE_MEMO = new Map();
+/* Forget what the reads remember: presence's answers and the folder listing (#8417). Every call that may change a task
+   runs this before it spawns: run() for its own calls, and the step forms, which bypass run(). */
+function forgetReads() { PRESENCE_MEMO.clear(); FOLDER_MEMO.at = null; }
 let presenceTtlOverride = null;
 function presenceTtl() {
   if (presenceTtlOverride !== null) return presenceTtlOverride;
@@ -749,6 +757,7 @@ function presenceTtl() {
 function setPresenceTtl(ms) {
   presenceTtlOverride = Number.isFinite(ms) ? ms : null;
   PRESENCE_MEMO.clear();
+  FOLDER_MEMO.at = null;
 }
 
 function presenceNow(tn) {
@@ -856,12 +865,29 @@ function kosmosFolderTasks(ask) {
 }
 
 function list() {
+  const rows = folderRows();
+  return { known: rows.known, names: new Set(rows.rows.map((row) => row.name)) };
+}
+
+/* The rows `list` reads, one per agent task of THIS Kosmos: its name and the third CSV column, the task's Status word
+   ("Ready", "Running", "Disabled"), localized. kosmos#8417: `switchedOffNames` reads the rows through this same parse. */
+const FOLDER_MEMO = { at: null, world: null, answer: null };   // kosmos#8417: one listing per poll, kept as `presence` keeps its answers
+function folderRows() {
+  const ttl = presenceTtl();
+  const world = launchidentity.currentWorldId();
+  if (ttl > 0 && FOLDER_MEMO.at !== null && FOLDER_MEMO.world === world && Date.now() - FOLDER_MEMO.at < ttl) return FOLDER_MEMO.answer;
+  const answer = folderRowsNow();
+  if (ttl > 0 && answer.known) { FOLDER_MEMO.at = Date.now(); FOLDER_MEMO.world = world; FOLDER_MEMO.answer = answer; }
+  return answer;
+}
+function folderRowsNow() {
   const r = run(['/Query', '/TN', TASK_FOLDER, '/FO', 'CSV', '/NH']);
   if (!r.ok) {
-    if (NO_SUCH_TASK.test(r.out || '')) return { known: true, names: new Set() };
-    return { known: false, names: new Set() };
+    if (NO_SUCH_TASK.test(r.out || '')) return { known: true, rows: [] };
+    return { known: false, rows: [] };
   }
-  const names = new Set();
+  const rows = [];
+  const named = new Set();
   for (const line of String(r.out || '').split('\n')) {
     const fields = csvFields(line);
     if (!fields.length) continue;
@@ -871,8 +897,55 @@ function list() {
     /* #1704: the folder holds every Kosmos's agents; a board lists only its own,
        so another world's task is neither a member of this fleet nor a "stray". */
     const name = launchidentity.nameInWorld(at.slice(TASK_PREFIX.length), launchidentity.currentWorldId());
-    if (name) names.add(name);
+    if (name && !named.has(name)) { named.add(name); rows.push({ name, status: fields.length > 2 ? fields[2] : '' }); }
   }
+  return { known: true, rows };
+}
+
+/**
+ * kosmos#8417: which of this Kosmos's agent tasks are switched off, for the board's "switched off" sentence. The win32
+ * arm of `create.disabledJobsResult`, which had none, so a switched-off agent read as a plain stopped one.
+ *
+ * The answer is the task's own `<Settings><Enabled>`, read by `taskEnabled` (the locale-safe read). The board polls
+ * every five seconds, so the switch is remembered per task beside the Status word it was read under, and read again
+ * only when that word changes or the task is new to this process. The word is compared, never interpreted.
+ *
+ * Returns `{ known: true, names }`, or `{ known: false }` when the folder could not be listed. A task whose switch
+ * could not be read is left out of `names`, and is asked again SWITCH_RETRY_MS later or when its Status word changes. A
+ * switch that was read is asked again SWITCH_RECHECK_MS later even if the word never moved.
+ * At most SWITCH_READS_PER_CALL definitions are read per call, because each is a synchronous schtasks spawn on the
+ * board's poll; a task not read yet, or not read again since its word moved, is left out until a later call reaches
+ * it. The clock is `setRunningClock`'s seam.
+ */
+const SWITCH_SEEN = new Map();   // task name -> { status, enabled, dueAt } (enabled undefined: the switch could not be read)
+const SWITCH_READS_PER_CALL = 4;
+const SWITCH_RETRY_MS = 60000;
+const SWITCH_RECHECK_MS = 600000;
+function switchedOffNames() {
+  const rows = folderRows();
+  if (!rows.known) return { known: false };
+  const now = (nowFn || Date.now)();
+  let reads = SWITCH_READS_PER_CALL;
+  const names = new Set();
+  const seen = new Map();
+  for (const row of rows.rows) {
+    const tn = taskName(row.name);
+    let kept = SWITCH_SEEN.get(tn);
+    if (kept && kept.status !== row.status) kept = null;   // the word moved: what was read under the old one is not used
+    const due = !kept || now >= kept.dueAt;
+    if (due && reads > 0) {
+      reads -= 1;
+      let en;
+      try { en = taskEnabled(row.name); } catch { en = null; }
+      const enabled = (en && en.known && en.registered) ? en.enabled : undefined;
+      kept = { status: row.status, enabled, dueAt: now + (enabled === undefined ? SWITCH_RETRY_MS : SWITCH_RECHECK_MS) };
+    }
+    if (!kept) continue;
+    seen.set(tn, kept);
+    if (kept.enabled === false) names.add(row.name);
+  }
+  SWITCH_SEEN.clear();
+  for (const [tn, kept] of seen) SWITCH_SEEN.set(tn, kept);
   return { known: true, names };
 }
 
@@ -1114,7 +1187,7 @@ function configDirFor(name) {
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
   install, installSteps, disable, enable, end, start, endSteps, startSteps, runningSteps, win32StepResult, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
-  cachedTaskSpec, taskEnabled, taskEnabledFromQuery, taskEnabledSteps, csvFields, commandsAreReal, REFUSED_IN_TEST,
+  cachedTaskSpec, switchedOffNames, taskEnabled, taskEnabledFromQuery, taskEnabledSteps, csvFields, commandsAreReal, REFUSED_IN_TEST,
   schtasksMayRunInThisProcess,
   setRunner, setAnchorer, setLiveness, setRunningClock, setPresenceTtl, PRESENCE_TTL_MS,
 };

@@ -71,8 +71,7 @@ test('#3013 no stuck .key (detector false) -> no claim, however untrusted', () =
 test('#3013 a SWITCHED-OFF task is intentionally off, not stuck -- no diagnosis', () => {
   /* The round-2 must-fix: a disabled Windows agent (untrusted folder, aged lone
      .key) must NOT read as "waiting at a trust prompt" -- the person turned it off.
-     The enabled flag rides cachedTaskSpec (win32-correct, not the darwin-only
-     create.disabledJobs). */
+     The enabled flag rides cachedTaskSpec. */
   const d = card.diagnose('offy', {
     job: jobStub(SPEC('C:\\work\\offy', 'C:\\cfg\\offy', false)),   // enabled:false
     trustCheck: () => false,

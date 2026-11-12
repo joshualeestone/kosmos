@@ -8232,8 +8232,9 @@ const server = http.createServer(async (req, res) => {
           const known = register.survey();
           if (known && known.ok) LAST_SURVEY = { at: Date.now(), s: known };   // kosmos#7825 PR 2: reused by /api/removed; a failed one never (review 3)
           if (!known.ok) return [];
-          /* One launchd probe per poll, for #310's sentence below. Empty on
-             any failure: could-not-look must never read as switched-off. */
+          /* One fleet probe per poll, for #310's sentence below (launchd, systemd, or on
+             Windows Task Scheduler, #8417). Empty on any failure: could-not-look must
+             never read as switched-off. */
           const switchedOff = create.disabledJobs();
           /* And one for #668's sentence: the jobs launchd says are RUNNING.
              An offline row whose job holds a live process is not a stopped
@@ -8276,8 +8277,7 @@ const server = http.createServer(async (req, res) => {
               /* #3013: the trust-wait diagnosis for THIS agent, if any. This row is
                  already NOT live (it has no pane); diagnose makes the rest of the
                  per-agent decision itself -- registered, ENABLED (from the task's own
-                 XML, win32-correct and fresh; NOT the darwin-only create.disabledJobs
-                 that is inert on Windows), folder untrusted, a started-but-
+                 XML), folder untrusted, a started-but-
                  unregistered .key. It reads only win32job's process-lifetime #2717
                  cache, so no schtasks spawn is added to the poll. win32-only
                  (trustCard is null elsewhere). */

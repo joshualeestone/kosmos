@@ -50,16 +50,16 @@ test('#3013 (PERF) the trust probe adds NO per-poll spawn and no second live pas
     'the offline builder runs a second claude agents --json for the trust probe');
 });
 
-test('#3013 (WIN32 ENABLED GATE) the trust probe does NOT gate on the darwin-only create.disabledJobs', () => {
-  /* 🛑 THE ROUND-2 REGRESSION GUARD. create.disabledJobs() throws on Windows
-     (process.getuid is undefined) and returns an empty Set, so gating the trust
+test('#3013 (WIN32 ENABLED GATE) the trust probe does NOT gate on create.disabledJobs', () => {
+  /* 🛑 THE ROUND-2 REGRESSION GUARD. Before #8417 create.disabledJobs() threw on Windows
+     (process.getuid is undefined) and returned an empty Set, so gating the trust
      probe on `!switchedOff.has(name)` was DEAD on win32 -- the one platform trustCard
      runs -- and a switched-off agent would render needs_trust. The enabled decision
      now lives inside diagnose (win32job's task XML), so the call site must not gate on
      switchedOff. */
   const region = offlineRegion();
   /* Scope to the trust-gate STATEMENT itself -- the offline row legitimately still
-     uses switchedOff elsewhere (the darwin-only #310 jobSwitchedOff field). */
+     uses switchedOff elsewhere (the #310 jobSwitchedOff field). */
   const gate = /const stuckBecause = [^\n]*/.exec(region);
   assert.ok(gate, 'the stuckBecause trust gate statement is gone or reshaped');
   assert.doesNotMatch(gate[0], /switchedOff/,
