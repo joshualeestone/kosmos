@@ -2,22 +2,22 @@
 pre_challenge: true
 method: challenge-loop
 branch: windisabled-8417
-diff_hash: dcfad7643b5eaa60cd73c280f2ca6348e276cfa9cf3fb3d503cbc089fad42a2c
-validation: not run locally (full suite held on Mortals by Liu Kang until Splinter confirms; 31 related files, 858 tests, 0 fail; CI runs the full suite)
+diff_hash: 1b3e0a4ac4d70e961ceda9c354a032abaa12de23edae79ce8c4a0c074e56161e
+validation: not run locally (full suite held on Mortals by Liu Kang until Splinter confirms; 33 related files, 869 tests, 0 fail; CI ran the full suite green on the pre-rebase head and runs it on this one)
 subdir_audit: not run (no subdirectory CLAUDE.md in the diff)
-timestamp: 2026-11-12T01:22:19Z
-iterations: 8
+timestamp: 2026-11-12T02:37:46Z
+iterations: 10
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
-**Converged:** Yes (iteration 8 returned no new BLOCKER, WARNING or CONVENTION after deduplication)
-**Total findings:** 14 actionable (0 BLOCKERs, 14 WARNINGs, 0 CONVENTIONs), plus NITs below
-**Fixed:** 11 | **Deferred:** 3 (with reasoning) | **Asked (awaiting user):** 0
+**Iterations:** 10
+**Converged:** Yes (iteration 10 returned no new BLOCKER, WARNING or CONVENTION after deduplication). Iterations 9 and 10 ran after rebasing onto main, which had gained #8410's win32 runningJobs arm in the same files; iteration 8 had converged on the pre-rebase base.
+**Total findings:** 16 actionable (0 BLOCKERs, 16 WARNINGs, 0 CONVENTIONs), plus NITs below
+**Fixed:** 13 | **Deferred:** 3 (with reasoning) | **Asked (awaiting user):** 0
 
-Validation note: the canonical helper runs the full suite (`bash tools/run-tests.sh`). On Mortals the local full suite is held by the PM until another lane's turn is confirmed, and the box was reserved for a release cut during the loop. Each iteration was validated instead on an explicit, non-empty list of 31 related test files (858 tests, 0 fail at the last iteration), and the full suite runs in CI on the PR.
+Validation note: the canonical helper runs the full suite (`bash tools/run-tests.sh`). On Mortals the local full suite is held by the PM until another lane's turn is confirmed, and the box was reserved for a release cut during the loop. Each iteration was validated instead on an explicit, non-empty list of 31 related test files (869 tests, 0 fail at the last iteration), and the full suite runs in CI on the PR (green on every check by name on the pre-rebase head b41b25e5e7).
 
 ### Per-Iteration Breakdown
 
@@ -81,7 +81,21 @@ Validation note: the canonical helper runs the full suite (`bash tools/run-tests
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs; 1 WARNING was a duplicate (premise, iteration 2/4)
 **Self-generated:** 0 of the above
-**Converged** — no new actionable findings.
+No new actionable findings on the pre-rebase base. Rebased onto main (50b1d7afb8, with #8410), and a stale test comment about runningJobs fixed (8104e63e5a, rebased).
+
+#### Iteration 9 (after rebase)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 3 NITs
+**Self-generated:** 0 of the above (function-level citations; see Origin note)
+- [WARNING] engine/win32job.js installSteps/endSteps/startSteps — the step forms bypass run() and cleared only presence's memo, not the folder listing --> FIXED (forgetReads, run by run() and the three step forms; test drives each step)
+- [WARNING] engine/win32job.js FOLDER_MEMO — not keyed on the world id --> FIXED (world stored with the answer; test switches KOSMOS_WORLD)
+- [NIT] plan cost wording contradicted itself (fixed); [NIT] unreachable-looking catch in create.js (deliberate, tested); [NIT] mixed cap-blink case untested
+
+#### Iteration 10
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs; 2 WARNINGs were duplicates (blink = iteration 3, premise = iteration 2)
+**Self-generated:** 0 of the above
+**Converged** — no new actionable findings. Rebased again onto f0b7e270f3 (#8411, windows-tests list) with no conflict; related tests green.
 
 ### Final Ledger
 
@@ -101,8 +115,10 @@ Validation note: the canonical helper runs the full suite (`bash tools/run-tests
 | 12 | 6 | WARNING | plan Done-when 2 | BRANCH | overstated freshness | FIXED | e8773f8cc5 |
 | 13 | 7 | WARNING | engine/win32job.js folderRows | BRANCH | second folder listing per poll | FIXED | 52dfb9a768 |
 | 14 | 7 | WARNING | server.js /api/status | BRANCH | no end-to-end test | FIXED | 52dfb9a768 |
+| 15 | 9 | WARNING | engine/win32job.js step forms | BRANCH | folder listing not forgotten by step forms | FIXED | 4a14fdb3bf |
+| 16 | 9 | WARNING | engine/win32job.js FOLDER_MEMO | BRANCH | listing not keyed on world | FIXED | 4a14fdb3bf |
 
-Origin note: every finding is recorded BRANCH. Findings cited a function or file rather than a single line, so the blame lookup had no line to resolve, which records BRANCH by rule.
+Origin note: commit refs in this table predate the rebases except 4a14fdb3bf. Every finding is recorded BRANCH. Findings cited a function or file rather than a single line, so the blame lookup had no line to resolve, which records BRANCH by rule.
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 - None.
@@ -114,7 +130,9 @@ Origin note: every finding is recorded BRANCH. Findings cited a function or file
 - "choose Enable, and it can start again": Enable starts nothing until the next trigger (iteration 3)
 - Short CSV row keeps an empty Status word (iteration 4)
 - machine.js agentAutostartCheck follow-up comment could cite #8417 (iteration 6)
-- FOLDER_MEMO is not keyed on the world id; bounded by the 2 s TTL and off under an injected runner (iteration 8)
+- FOLDER_MEMO world keying (iteration 8 NIT, fixed in iteration 9)
+- FOLDER_MEMO ages on Date.now, not the setRunningClock seam (iteration 10)
+- A mixed cap-blink case (some words moved, some not) is untested (iteration 9)
 
 ### Strengths (across all iterations)
 - Could-not-look stays distinct from none at every layer, each with a test and a control
