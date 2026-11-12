@@ -585,7 +585,7 @@ let autoLog = (line) => { try { process.stdout.write(line + '\n'); } catch { /* 
 function setAutoLog(f) { autoLog = typeof f === 'function' ? f : (line) => { try { process.stdout.write(line + '\n'); } catch { /* a closed stdout */ } }; }
 /* Review 1: only under an ABSOLUTE root. A root a test names in another OS's form (C:\\Users\\...) is relative on a Mac,
    and the record then landed in whatever folder ran the test, which a release checkout refuses as dirty. */
-function autoRecordFile() { const r = installedRoot(); return r && path.isAbsolute(r) ? path.join(r, 'logs', 'install.auto') : null; }
+function autoRecordFile() { const r = absoluteRoot(); return r ? path.join(r, 'logs', 'install.auto') : null; }
 /* Versions compared as the update check compares them (newer()), not as strings: 0.8.4 and 0.8.04 are one version. */
 function sameVersion(a, b) { return typeof a === 'string' && typeof b === 'string' && !newer(a, b) && !newer(b, a); }
 function noteAutoStart() {
@@ -828,7 +828,12 @@ function installLog() { return installedRoot() ? path.join(installedRoot(), 'log
    board after a failure, or the new board after a success) reads it.
    A successful install rewrites the file with code 0, which seeds
    nothing: success is the board coming back changed. */
-function installStatusFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.status') : null; }
+/* kosmos#8423: only under an ABSOLUTE root, as autoRecordFile above. A root in another platform's form (C:\\Users\\... on a
+   Mac, which a test sets) is relative here, so the file would land in the working directory: the repo, where a dirty
+   main stops a release cut. Every caller already treats null as no file. Only the files Kosmos WRITES are guarded:
+   installLog() is a path shown to the person, never written from here, so it keeps the root as given. */
+function absoluteRoot() { const r = installedRoot(); return r && path.isAbsolute(r) ? r : null; }
+function installStatusFile() { const r = absoluteRoot(); return r ? path.join(r, 'logs', 'install.status') : null; }
 /* 🛑 #1728: THE DURABLE IN-FLIGHT WITNESS. install.status above is written by
    the spawned shell only WHEN AN ATTEMPT FINISHES. But this installer is
    detached, unref'd and stdio-ignored, so the exact failure it cannot survive
@@ -841,7 +846,7 @@ function installStatusFile() { return installedRoot() ? path.join(installedRoot(
    attempt was interrupted before it could restart the board.
    📌 Add-only. It never touches detached/unref/stdio (that is the recall design
    left for Josh, kosmos#1728); it only makes an interruption OBSERVABLE. */
-function installStartedFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.started') : null; }
+function installStartedFile() { const r = absoluteRoot(); return r ? path.join(r, 'logs', 'install.started') : null; }
 function markInstallStarted(startedAt) {
   const file = installStartedFile();
   if (!file) return;
@@ -1591,6 +1596,7 @@ module.exports = {
   updateAbort, // #2055, #4675: the durable stopped-at-the-pause marker ({count,reason,same,port,ts} or null)
   updateRefused, // #6149 point 8: why an update refused before removing anything ({why,at,parts,paths,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
+  installStatusFile,  // kosmos#8423: for its absolute-root test
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref, setAutoDefer,
   resetCache, RUNNING, TTL, lastLook, checkNow,
