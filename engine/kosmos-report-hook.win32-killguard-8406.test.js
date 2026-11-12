@@ -190,6 +190,9 @@ const REFUSED = [
   'FOO=$(date)x taskkill //F //IM node.exe',
   'stdbuf --output 0 taskkill //F //IM node.exe',
   'exec -l logoff',
+  'sudo -uroot taskkill //F //IM node.exe',
+  'sudo -uuser taskkill //F //IM node.exe',
+  'sudo -ggroup taskkill //F //IM node.exe',
 ];
 const ALLOWED = [
   'taskkill /PID 4242',          // the card's control: one exact process id
@@ -280,6 +283,7 @@ const ALLOWED = [
   'command -V taskkill',
   'command -pv logoff',
   'PATH=${PATH}:/c/x git status',
+  'command -p -v taskkill //F //IM node.exe',
 ];
 
 test('#8406: every listed Windows form of "stop everything" is refused, in any case', () => {
