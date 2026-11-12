@@ -81,8 +81,7 @@ function resetForTests() { rootsCache = { at: 0, roots: [] }; membersCache = { a
 
 /* The project whose folder holds `file` (the deepest one, when one project's folder sits inside another's), and the
    file's name relative to it ('/'-joined), or null. */
-function projectOf(file, roots) { return projectOfResolved(resolved(file), roots); }
-/* projectOf for a path already resolved, so a caller that resolved it once does not resolve it again (kosmos#7989
+/* The project a path already resolved is in, so a caller that resolved it once does not resolve it again (kosmos#7989
    review 6: a second resolve is a second chance for a swapped link). */
 function projectOfResolved(abs, roots) {
   let best = null;
@@ -279,7 +278,7 @@ function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
     const abs = resolved(lexical);
     const at = projectOfResolved(abs, roots);
     if (!at) {
-      // Review 1: a project's own folder is in no project by projectOf (an empty name), and is not "outside" either.
+      // Review 1: a project's own folder is in no project by projectOfResolved (an empty name), and is not "outside" either.
       return roots.some((r) => r.root === abs) ? { ok: false, because: 'folder' } : { ok: false, because: 'outside' };
     }
     const shown = (s) => { try { return nameOf(s) || s; } catch { return s; } };
@@ -347,4 +346,4 @@ function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
   } catch { return { ok: false, because: 'unreadable' }; }
 }
 
-module.exports = { about, noteWrite, writerOf, annotate, projectOf, fileFor, resetForTests, ownerNoticeText, roomNoticeText /* kosmos#8235 */, HELD_BACK_TEXT, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS, NOTICE_EVERY_MS, NOTICE_ROOM_MAX };
+module.exports = { about, noteWrite, writerOf, annotate, fileFor, resetForTests, ownerNoticeText, roomNoticeText /* kosmos#8235 */, HELD_BACK_TEXT, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS, NOTICE_EVERY_MS, NOTICE_ROOM_MAX };
