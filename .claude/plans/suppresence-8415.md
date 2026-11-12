@@ -83,3 +83,12 @@ matches the Mac, whose launchctl pid is the supervisor's, and a supervisor-less 
 - A pipe that is up counts only while the record's pid is alive (pipe names can be listed on Windows, so a stranger
   could take a dead supervisor's old name); the comment says so instead of calling the name secret.
 - A failed removal of an older record is reported (clearPresence returns false, it does not throw), at start and on a failed open.
+
+## Review 8 (applied, last round under the fleet's 8-round cap; no BLOCKER open)
+- The three tests that force a failed pipe open with a socket path skip on Windows: that such a path fails there is not
+  measured. Off Windows they run.
+- dropOlder reports a failed removal only when the record still names the older pid (a newer supervisor's is not a problem).
+- Limit, stated: when the supervisor's loop stops on its own because its host is gone (not-starting), the pipe stays up
+  until the host watch calls stop and the process exits about a second later; the board can read running in that window.
+- Not done (decided, NITs): folding liveNames' long comment, and a shared helper for start's older-record check and
+  the reader's (both use the same pipe-then-pid-then-retry order today).
