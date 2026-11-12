@@ -12,7 +12,7 @@ Pool PR before the 0.8.05 staging cut. Data only. 0.8.04 was a hotfix cut with n
 | #8438 | #5664 step A: the token-only guard is written on Windows, and says what it does not cover | notesOnly 102, windows |
 | #8434 | #8423: install marker only under an absolute root | none: no change a person or agent sees |
 | #8432 | #8424: winlog-epipe follow-ups (comments, tests) | none |
-| #8431, #8436 | design-shot check, Windows test skips | none: tests |
+| #8431 (card #8430), #8436 | design-shot check, Windows test skips | none: tests |
 | #8433 | #8405: iPhone shows the suggested answer | none: ships with the iPhone app |
 
 ## Decided

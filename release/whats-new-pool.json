@@ -1757,14 +1757,15 @@
     },
     {
       "title": "Restarting agents on Windows read as running",
-      "line": "On Windows, an agent whose Claude is restarting or waiting on another task now reads as running, instead of \"Not running\".",
+      "line": "On Windows, an agent restarted on this version reads as running, not \"Not running\", while its Claude restarts or waits on a task.",
       "icon": "swarm",
       "platforms": [
         "windows"
       ],
       "rank": 10.05,
       "since": "0.8.05",
-      "status": "pending"
+      "status": "pending",
+      "restart": "agents"
     },
     {
       "title": "The board log names automatic updates",
@@ -1779,8 +1780,8 @@
       "notesOnly": true
     },
     {
-      "title": "A refused stop stays refused after a prefix",
-      "line": "On Windows, an agent's command to stop Kosmos's own processes is still refused when it starts with NAME=value, env or a launcher.",
+      "title": "Common prefixes no longer hide a stop command",
+      "line": "On Windows, an agent's command to stop Kosmos's own processes is now refused even when it starts with NAME=value, env or a launcher.",
       "icon": "shield",
       "platforms": [
         "windows"
@@ -1792,7 +1793,7 @@
     },
     {
       "title": "Token-only agents on Windows get a guard",
-      "line": "On Windows, an existing token-only agent's file tools are kept from its board token, and its page says what that does not cover.",
+      "line": "On Windows, after its next refresh, a token-only agent's file tools are kept from its board token; its page says what is not covered.",
       "icon": "shield",
       "platforms": [
         "windows"
