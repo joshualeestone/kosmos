@@ -352,7 +352,7 @@ test('kosmos#8400: read --following says the shared fixture\'s numbers, counted 
     const r = await cf.readFollowing('mara');
     assert.equal(r.ok, true, r.because);
     const line = r.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:'));
-    assert.equal(line, 'Kosmos counted, before this read: 3 replies (grouped by the post they answer; each group shows a few and says how many more) and 2 new posts from the last 24 hours, 1 post you had already seen, 1 post Kosmos could not count, and 2 older items from before then. This read shows 2 of the new posts.', r.text);
+    assert.equal(line, 'Kosmos counted, before this read: 3 replies (grouped by the post they answer; each group shows a few and says how many more) and 2 new posts from the last 24 hours, 1 post you had already seen, 1 post Kosmos cannot mark as seen, and 1 post and 1 reply from before then. This read shows 2 of the new posts, and 3 of the 3 other posts.', r.text);
     // It adds up: shown + behind + not shown is the new count, and a second read, after the marks, counts none new.
     const again = await cf.readFollowing('mara');
     const line2 = again.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:')) || '';
@@ -379,7 +379,7 @@ test('kosmos#8400: on two pages, the read says home\'s numbers and shown + behin
       b2.st.pages = fx.deepPages(now); b2.st.failPage = 1;   // the second page does not answer
       const cut = await cf.readFollowing('mara');
       const cutLine = cut.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read')) || '';
-      assert.match(cutLine, /^Kosmos counted, before this read and only in the pages it could read: 10 replies \(grouped by the post they answer; each group shows a few and says how many more\) and no new posts in the pages it could read from the last 24 hours/, cut.text);
+      assert.match(cutLine, /^Kosmos counted, before this read and only in the pages it could read: 10 replies \(grouped by the post they answer; each group shows a few and says how many more\) and no new posts from the last 24 hours\.$/, cut.text);
     } finally { await b2.close(); }
   } finally { await b.close(); }
 });
@@ -459,7 +459,19 @@ test('kosmos#8400 iterations 4-5: four replies on one post, carried or not: the 
     b.st.feed = [posts[1], posts[2]].map((p) => ({ ...p, created_at: new Date(now - 30 * H).toISOString() }));
     const old = await cf.readFollowing('mara');
     assert.match(old.text, /Deep 2/, 'CONTROL: the older post was not printed: ' + old.text);
-    assert.equal(old.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read')) || '', 'Kosmos counted, before this read: 0 replies (grouped by the post they answer; each group shows a few and says how many more) and no new posts from the last 24 hours, and 2 older items from before then.', old.text);
+    assert.equal(old.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read')) || '', 'Kosmos counted, before this read: no replies and no new posts from the last 24 hours, and 2 posts from before then. This read shows 2 of the 2 other posts.', old.text);
+    // Iteration 7: seen and older posts behind the newest page are counted on every page reached, but the read prints
+    // only POSTS_WANTED of them; the line says how many it shows.
+    fresh(); await cf.follow('mara', 'quill');
+    const seenFive = [0, 1, 2, 3, 4].map((n) => ({ ...posts[n], id: fx.uuid(600 + n), post: { ...posts[n].post, id: fx.uuid(600 + n) } }));
+    const olderTwo = [5, 6].map((n) => ({ ...posts[0], id: fx.uuid(600 + n), created_at: new Date(now - 30 * H).toISOString(), post: { ...posts[0].post, id: fx.uuid(600 + n), title: 'Old ' + n } }));
+    cf.noteSeen('mara', seenFive.map((p) => p.id));
+    b.st.feed = undefined; b.st.pages = [replies.slice(0, 10), seenFive.concat(olderTwo)];
+    try {
+      const behindRead = await cf.readFollowing('mara');
+      assert.equal(cf.POSTS_WANTED, 3, 'CONTROL: the number of posts older pages give');
+      assert.equal(behindRead.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read')) || '', 'Kosmos counted, before this read: 10 replies (grouped by the post they answer; each group shows a few and says how many more) and no new posts from the last 24 hours, 5 posts you had already seen, and 2 posts from before then. This read shows 3 of the 7 other posts.', behindRead.text);
+    } finally { b.st.pages = undefined; }
   } finally { await b.close(); }
 });
 

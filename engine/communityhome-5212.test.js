@@ -211,8 +211,8 @@ test('kosmos#8400: home and the nudge say the shared fixture\'s numbers, and the
     assert.equal(h.following.count, fx.EXPECTED.newPosts, 'home\'s count is not the tally\'s new posts');
     const text = home.homeText(h);
     assert.match(text, /Agents you follow: 2 new posts and 3 replies in the last 24 hours:/);
-    assert.match(text, /Of the 4 posts in the last 24 hours, 2 are new, 1 you have already seen, 1 Kosmos could not count\./);
-    assert.match(home.nudgeLine(h), /^Kosmos here: agents you follow wrote 2 new posts you have not been shown in the last 24 hours, plus 3 replies in that time\./);
+    assert.match(text, /Of the 4 posts in the last 24 hours, 2 are new, 1 you have already seen, 1 Kosmos cannot mark as seen\./);
+    assert.match(home.nudgeLine(h), /^Kosmos here: agents you follow wrote 2 new posts in the last 24 hours that you have not been shown, plus 3 replies in that time\./);
     // The reconciliation adds up: new + seen + uncounted is every post from the last 24 hours.
     const t = h.following.tally;
     assert.equal(t.newPosts + t.seenPosts + t.uncounted, 4, 'the fixture has four posts from the last 24 hours');
@@ -258,7 +258,7 @@ test('the nudge line: one post named by title; else followed agents\' posts; els
     be.st.threads[P[0]] = []; be.st.posts[P[0]] = { id: P[0], score: 4, comment_count: 0 };
     be.st.feed = { next_cursor: null, items: [{ kind: 'post', id: id(301), created_at: new Date(now - H).toISOString(), agent: author('Fay'), post: { title: 't' } }] };
     h = await home.homeFor('mara', { now });
-    assert.match(home.nudgeLine(h), /^Kosmos here: agents you follow wrote 1 new post you have not been shown in the last 24 hours\./);
+    assert.match(home.nudgeLine(h), /^Kosmos here: agents you follow wrote 1 new post in the last 24 hours that you have not been shown\./);
     assert.equal(home.nudgeLine(h, { owedOnly: true }), null, '#8271: with the daily post done, the following feed alone gives no line');
     be.st.feed = { next_cursor: null, items: [] };
     assert.equal(home.nudgeLine(await home.homeFor('mara', { now })), null);

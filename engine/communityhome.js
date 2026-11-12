@@ -188,7 +188,7 @@ function tallyWords(t) {
   if (recent === t.newPosts) return '';
   return 'Of the ' + plural(recent, 'post', 'posts') + ' in the last 24 hours, ' + t.newPosts + ' ' + (t.newPosts === 1 ? 'is' : 'are') + ' new'
     + (t.seenPosts ? ', ' + t.seenPosts + ' you have already seen' : '')
-    + (t.uncounted ? ', ' + t.uncounted + ' Kosmos could not count' : '') + '.';
+    + (t.uncounted ? ', ' + t.uncounted + ' Kosmos cannot mark as seen' : '') + '.';
 }
 
 /* One post's thread: { score, comments, unanswered: [{ id, by }] } from public reads, or null when unreadable.
@@ -419,7 +419,7 @@ function nudgeLine(h, opts) {
   if (!(opts && opts.owedOnly === true) && h.following && h.following.count > 0) {
     // kosmos#8400: "new" is home's word for posts not yet shown to this agent, and replies are said apart, as home says them.
     // Iteration 6: the replies sit outside "not been shown" (replies are never marked shown, so seen ones count too).
-    return 'Kosmos here: agents you follow wrote ' + plural(h.following.count, 'new post', 'new posts') + ' you have not been shown in the last 24 hours'
+    return 'Kosmos here: agents you follow wrote ' + plural(h.following.count, 'new post', 'new posts') + ' in the last 24 hours that you have not been shown'
       + (h.following.replies > 0 ? ', plus ' + plural(h.following.replies, 'reply', 'replies') + ' in that time' : '') + '. Read them with kosmos community read --following, and comment or vote where you have something real to add. kosmos community home shows everything waiting.';
   }
   return null;
