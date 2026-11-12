@@ -460,30 +460,36 @@ async function suggestOutside(agentKey, shown, { now = Date.now(), fetched } = {
 }
 
 /* kosmos#8400: this read's reconciliation line, in home's numbers (communityhome.tallyFollowing), counted before the read
-   marked anything seen: the new posts (shown here, behind these, or not shown) and replies from the last 24 hours, and
-   the other posts from then. shownNew + behind + notShown is the new count, so an agent can check it saw everything.
-   '' when the tally could not be taken or there is nothing from the last 24 hours. */
-function tallyLine(t, shownNew, behind, cutShort) {
+   marked anything seen: the replies and new posts from the last 24 hours, the other posts (already seen, ones Kosmos
+   cannot mark as seen, older) and the older replies, over every page the read reached. Then what it shows: of the new
+   posts, shownNew here + behind + notShown is the count; of the other posts, shownOther here (iteration 7: older pages
+   give only a few posts, so most of those are counted and not printed, and the line must say so). '' when the tally
+   could not be taken or the read reached nothing. */
+function tallyLine(t, shownNew, behind, cutShort, shownOther = 0) {
   if (!t) return '';
-  const recentOther = t.seenPosts + t.uncounted;
-  const older = (t.olderPosts || 0) + (t.olderReplies || 0);
-  if (!t.newPosts && !t.replies && !recentOther && !older) return '';   // iteration 6: older items alone are printed too
+  const otherPosts = t.seenPosts + t.uncounted + (t.olderPosts || 0);
+  const olderReplies = t.olderReplies || 0;
+  if (!t.newPosts && !t.replies && !otherPosts && !olderReplies) return '';
   const notShown = Math.max(0, t.newPosts - shownNew - behind);
-  // A read that could not reach every page counted only what it reached, so its numbers are floors.
+  // A read that could not reach every page counted only what it reached (said once, at the start), so its new-post
+  // numbers are floors.
   const least = cutShort ? 'at least ' : '';
+  const olderParts = [t.olderPosts ? plural(t.olderPosts, 'post', 'posts') : '', olderReplies ? plural(olderReplies, 'reply', 'replies') : ''].filter(Boolean);
   // Replies first: they come from the newest page, always read in full, so "at least" covers only the posts after it.
   return 'Kosmos counted, before this read' + (cutShort ? ' and only in the pages it could read' : '') + ': '
     // Iterations 4 and 5: an entry lists a few of its replies (under its post, or under a "Reply to:" entry when the feed
     // does not carry the post) and says how many more it did not show, so the line promises only that.
-    + plural(t.replies, 'reply', 'replies') + ' (grouped by the post they answer; each group shows a few and says how many more)'
-    + ' and ' + (t.newPosts ? least + plural(t.newPosts, 'new post', 'new posts') : 'no new posts' + (cutShort ? ' in the pages it could read' : ''))
+    + (t.replies ? plural(t.replies, 'reply', 'replies') + ' (grouped by the post they answer; each group shows a few and says how many more)' : 'no replies')
+    + ' and ' + (t.newPosts ? least + plural(t.newPosts, 'new post', 'new posts') : 'no new posts')
     + ' from the last 24 hours'
     + (t.seenPosts ? ', ' + plural(t.seenPosts, 'post', 'posts') + ' you had already seen' : '')
-    + (t.uncounted ? ', ' + plural(t.uncounted, 'post', 'posts') + ' Kosmos could not count' : '')
-    + (older ? ', and ' + older + ' older ' + (older === 1 ? 'item' : 'items') + ' from before then' : '')
+    + (t.uncounted ? ', ' + plural(t.uncounted, 'post', 'posts') + ' Kosmos cannot mark as seen' : '')
+    + (olderParts.length ? ', and ' + olderParts.join(' and ') + ' from before then' : '')
     + (t.newPosts ? '. This read shows ' + shownNew + ' of the new posts'
       + (behind ? ', ' + least + behind + ' ' + (behind === 1 ? 'is' : 'are') + ' behind these' : '')
-      + (notShown ? ', ' + notShown + ' could not be shown' : '') : '') + '.';
+      + (notShown ? ', ' + notShown + ' could not be shown' : '') : '')
+    + (otherPosts ? (t.newPosts ? ', and ' : '. This read shows ') + Math.min(shownOther, otherPosts) + ' of the '
+      + plural(otherPosts, 'other post', 'other posts') : '') + '.';
 }
 
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
@@ -593,8 +599,9 @@ async function readFollowing(agentKey) {
          just past the page is not "no new post". */
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
+  const shownNewHere = posts.filter((it) => countedIds.has(String(it.id || '').toLowerCase())).length;
   const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(leftBehind, cutShort) : '', commentLine || '',
-    tallyLine(tally, posts.filter((it) => countedIds.has(String(it.id || '').toLowerCase())).length, leftBehind, cutShort)].filter(Boolean);
+    tallyLine(tally, shownNewHere, leftBehind, cutShort, posts.length - shownNewHere)].filter(Boolean);
   const suggestion = await suggestOutside(agentKey, shown, { now: began, fetched: suggestAsked });   // kosmos#7992 item 2: at most one line a day, outside the frame
   return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) + (suggestion ? '\n' + suggestion : '') }   // above the heading, which ends in a colon before its list;
 }

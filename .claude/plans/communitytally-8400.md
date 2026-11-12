@@ -22,12 +22,13 @@ under "Reply to" entries, so its headers counted neither.
   any repeated post is dropped). Posts are counted once each (distinctPosts; a post with no usable id is never a
   repeat). newPosts + seenPosts + uncounted = every post from the last 24 hours.
 - Home: unchanged count line, plus tallyWords ("Of the P posts in the last 24 hours, N are new, S you have already
-  seen, U Kosmos could not count."), only when there is more than the new ones.
-- The nudge: "N new posts you have not been shown in the last 24 hours, plus M replies in that time".
+  seen, U Kosmos cannot mark as seen."), only when there is more than the new ones.
+- The nudge: "N new posts in the last 24 hours that you have not been shown, plus M replies in that time".
 - read --following: tallyLine, from the same tally over the items it read (the newest page, then the older pages'
   posts: what home counts), taken before noteSeen: "Kosmos counted, before this read: M replies (grouped by the
-  post they answer; each group shows a few and says how many more) and N new posts from the last 24 hours, S posts you had already seen, U posts Kosmos could not count,
-  and O older items from before then. This read shows X of the new posts, L are behind these, D could not be shown."
+  post they answer; each group shows a few and says how many more) and N new posts from the last 24 hours, S posts you had already seen, U posts Kosmos cannot mark as seen,
+  and O1 posts and O2 replies from before then. This read shows X of the new posts, L are behind these, D could not be
+  shown, and K of the P other posts." (P = seen + cannot-mark + older posts; no replies says "no replies")
   X + L + D = N. Cut short, it says "and only in the pages it could read" and "at least" before the posts (replies
   come first because the newest page is always read in full). Taken only when home exports both its rule and its tally.
 
@@ -104,3 +105,12 @@ Would change my mind: the person wanting the Following feed to show only new pos
   printed but had no line (it now has one); "it could not count" now names Kosmos, as home does. Each fails with its
   fix reverted. NITs noted: "older items" means the items the read reached (home reads the same depth, so they
   agree); no cut-short test with posts left behind ("at least N are behind these").
+- Iteration 7 (opus): 2 WARNINGs FIXED. The line counted seen and older posts on every page the read reached, but
+  older pages give only POSTS_WANTED posts, so most were counted and never printed, with nothing saying so: the line
+  now ends "and K of the P other posts" (tested with five seen and two older posts behind ten replies: "shows 3 of the
+  7 other posts"; fails with K forced to 0). "Kosmos could not count" contradicted itself (the number is a count): it is
+  now "Kosmos cannot mark as seen", in home and the read. NITs FIXED: the docblock (older items alone give a line);
+  "no replies" instead of "0 replies (grouped ...)"; the cut-short "in the pages it could read" said once, at the
+  start (iteration 5's inner copy dropped, the opening qualifies every number); older posts and older replies named
+  apart; the nudge reads "N new posts in the last 24 hours that you have not been shown". NIT noted: "at least" only
+  on the new-post numbers of a cut-short read (the opening covers the rest).
