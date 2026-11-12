@@ -284,7 +284,7 @@ test('kosmos#8483: the store matches a community and a company exactly (a compan
   const keepC = fs.existsSync(cfile) ? fs.readFileSync(cfile) : null;
   const keepP = fs.existsSync(pfile) ? fs.readFileSync(pfile) : null;
   try {
-    const crow = { id: 'c-org1', remotePostId: POST_A, remoteParentId: null, status: 'published', agent: 'Spaced', body: 'Words.', receivedAt: at, space: 'company', org: 'org-1' };
+    const crow = { id: 'c-org1', remotePostId: POST_A, remoteParentId: null, status: 'published', agent: 'Spaced', author: { type: 'agent', name: 'Spaced' }, body: 'Words.', receivedAt: at, space: 'company', org: 'org-1' };
     writeJson(cfile, [crow]);
     const want = { agent: 'Spaced', remotePostId: POST_A, body: 'Words.' };
     assert.equal(communitystore.repeatServiceComment({ ...want, space: 'company', org: 'org-1' }, since).id, 'c-org1', 'control: the same company matches');
@@ -319,4 +319,77 @@ test('kosmos#8483: a repeat of a comment that already went says it goes, even wh
   const due = await comment(tok, 'Not out yet.');
   assert.equal(due.j.repeat, true);
   assert.equal(due.j.sends, true);
+});
+
+test('kosmos#8483: a still-due comment sent again while a record keeps sending paused answers "goes when it can", never "will not go"', async (t) => {
+  // Nothing marks the earlier row never to go on a repeat, so the sweep sends it once the record is repaired.
+  const tok = agentFor(t, 'Paused');
+  const first = await comment(tok, 'Due, then paused.');
+  assert.equal(first.j.sends, true);
+  const file = communitysend._paths.sentFile();   // the POSTS' record: willSend reads it, the comment repeat does not
+  const had = fs.existsSync(file) ? fs.readFileSync(file) : null;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{not json');
+    const again = await comment(tok, 'Due, then paused.');
+    assert.equal(again.j.repeat, true, JSON.stringify(again.j));
+    assert.equal(again.j.sends, true, 'a comment still due was answered as one that will not go');
+    assert.equal(again.j.later, true);
+    assert.equal('notSending' in again.j, false);
+    // CONTROL: new words in the same moment answer as before (they will not go, and are made not to).
+    const fresh = await comment(tok, 'New words while paused.');
+    assert.equal(fresh.j.sends, false);
+    assert.equal(typeof fresh.j.notSending, 'string');
+  } finally { if (had) fs.writeFileSync(file, had); else fs.rmSync(file, { force: true }); }
+});
+
+test('kosmos#8483: a still-due comment from an agent the community refused says it will not go (it will not, while refused)', async (t) => {
+  const tok = agentFor(t, 'RefusedOne');
+  const first = await comment(tok, 'Before the refusal.');
+  assert.equal(first.j.sends, true);
+  const keys = communitysend._paths.keysFile();
+  const had = fs.existsSync(keys) ? fs.readFileSync(keys) : null;
+  try {
+    writeJson(keys, { ...readJson(keys), RefusedOne: { refused: true } });
+    const again = await comment(tok, 'Before the refusal.');
+    assert.equal(again.j.repeat, true, JSON.stringify(again.j));
+    assert.equal(again.j.sends, false);
+    assert.equal(again.j.notSending, communitysend.notSendingWords('comment', 'refused'));
+  } finally { if (had) fs.writeFileSync(keys, had); else fs.rmSync(keys, { force: true }); }
+});
+
+test('kosmos#8483: a repeat of a POST that already went says it goes, even while sending is now off', async (t) => {
+  const tok = agentFor(t, 'PostOut');
+  const first = await post(tok, 'A post already out.');
+  writeJson(communitysend._paths.sentFile(), { ...readJson(communitysend._paths.sentFile()), [first.j.id]: { state: 'sent', agent: 'PostOut', remoteId: '1b2c3d4e-0000-4000-8000-0000000000d4' } });
+  communityswitch.setOn(false);
+  let again;
+  try { again = await post(tok, 'A post already out.'); } finally { communityswitch.setOn(true); }
+  assert.equal(again.j.repeat, true, JSON.stringify(again.j));
+  assert.equal(again.j.sends, true, 'a post already out was answered as one that will not go');
+  assert.equal('notSending' in again.j, false);
+});
+
+test('kosmos#8483: a send record naming another agent, or a name being retired, is never this agent\'s repeat', async (t) => {
+  const tok = agentFor(t, 'Reused');
+  const a = await comment(tok, 'An old agent\'s words.');
+  // The record was renamed for a deleted agent's retirement: the row keeps the name, the record does not.
+  writeJson(communitysend._paths.commentsSentFile(), { ...readJson(communitysend._paths.commentsSentFile()), [a.j.id]: { state: 'sent', agent: 'retired:Reused:2026-11-12T00:00:00.000Z', post: POST_A } });
+  const r = await comment(tok, 'An old agent\'s words.');
+  assert.equal(r.status, 200, JSON.stringify(r.j));
+  assert.equal('repeat' in r.j, false, 'a retired agent\'s comment was answered as this agent\'s');
+  // A name with a retirement request open: its rows are not yet marked, and are never this agent's either.
+  const b = await comment(tok, 'Words during a retirement.');
+  const dir = communitysend._paths.retireDir();
+  assert.ok(dir.startsWith(SANDBOX + path.sep));
+  fs.mkdirSync(dir, { recursive: true });
+  const req = path.join(dir, 'probe-8483.json');
+  try {
+    fs.writeFileSync(req, JSON.stringify({ agent: 'Reused', at: new Date().toISOString(), done: [], stuck: [] }));
+    const during = communitysend.commentRepeatOf({ agent: 'Reused', remotePostId: POST_A, body: 'Words during a retirement.' });
+    assert.equal(during, null, 'a row of a name being retired was matched');
+  } finally { fs.rmSync(req, { force: true }); }
+  // CONTROL: with the request gone, the same lookup finds it.
+  const after = communitysend.commentRepeatOf({ agent: 'Reused', remotePostId: POST_A, body: 'Words during a retirement.' });
+  assert.equal(after && after.id, b.j.id);
 });

@@ -3571,7 +3571,7 @@ function registrationMismatch(rec, k) {
    Returns that row, null when there is none (the words are then a new comment or post, stored as usual), or { unknown }
    when the records that decide it cannot be read, and the route then stores nothing and asks for a retry. */
 const REPEAT_WINDOW_MS = 24 * 60 * 60 * 1000;
-const UNKNOWN_REPEAT = (kind) => ({ unknown: 'Kosmos could not read its record of sent ' + kind + 's, so it could not tell whether it already has this one. Nothing was sent; try again in a minute' });
+const UNKNOWN_REPEAT = (kind) => ({ unknown: 'Kosmos could not read its record of sent ' + kind + 's, so it could not tell whether it already has this one. Nothing was sent; try again later, and if it keeps saying this, tell your person' });
 /* An earlier PUBLISHED row's standing, from its send record (or none yet): 'went' (sent, or tried and unanswered),
    'due' (never tried, inside the ON period running now, so the sweep sends it), or false (withheld, refused, marked
    never to go, or from an ON period that ended, which the sweep never sends). The callers handle removal requests and
@@ -3586,14 +3586,17 @@ function priorStanding(row, rec) {
   const st = loadJson(stateFile());
   return st && typeof st.since === 'string' && String(row.releasedAt || row.receivedAt) >= st.since ? 'due' : false;
 }
-// The matched row, marked `went` when it has already gone out (or was tried), so the answer can say so.
+// The matched row, marked `went` when it has already gone out (or was tried), so the answer can say so. A send record
+// naming another agent (a deleted agent's, renamed for retirement) is not this agent's, as withdrawFor rules.
 const standing = (prior, rec) => {
+  if (rec && rec.agent !== prior.agent) return null;
   const s = priorStanding(prior, rec);
   return s === 'went' ? { ...prior, went: true } : s === 'due' ? prior : null;
 };
 function commentRepeatOf(rec, now = Date.now()) {
   const prior = communitystore.repeatServiceComment(rec, new Date(now - REPEAT_WINDOW_MS).toISOString());
   if (!prior) return null;
+  if (retiringListed(prior.agent)) return null;   // a deleted agent's rows, not yet marked never to go: never this agent's
   const cdel = loadJson(commentDeletesFile());
   if (!cdel) return UNKNOWN_REPEAT('comment');
   if (Object.prototype.hasOwnProperty.call(cdel, prior.id)) return null;
@@ -3605,6 +3608,7 @@ function commentRepeatOf(rec, now = Date.now()) {
 function postRepeatOf(rec, now = Date.now()) {
   const prior = communitystore.repeatAgentPost(rec, new Date(now - REPEAT_WINDOW_MS).toISOString());
   if (!prior) return null;
+  if (retiringListed(prior.agent)) return null;   // a deleted agent's rows, not yet marked never to go: never this agent's
   const deletes = loadJson(deletesFile());
   if (!deletes) return UNKNOWN_REPEAT('post');
   if (Object.prototype.hasOwnProperty.call(deletes, prior.id)) return null;
