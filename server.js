@@ -14344,8 +14344,9 @@ const server = http.createServer(async (req, res) => {
             for (const { sessionName, home } of agentsByAccountWalk('codex').entries) {
               /* Only reports written since the agent's job last changed: a move between accounts rewrites the job, and the
                  private home still holds the old account's sessions. Any other rewrite of the job (a rename, a model
-                 change) also hides them until Codex reports again: a missing meter, never a wrong one. A job whose time
-                 cannot be read is not filtered. */
+                 change) also hides them until Codex reports again: a missing meter, never a wrong one. On Windows a
+                 stop, a start and a world switch rewrite the task file too (kosmos#8454, win32job.taskFilePath), so they
+                 hide them as well. A job whose time cannot be read is not filtered. */
               let since = null; try { since = fs.statSync(jobFile(sessionName)).mtimeMs; } catch { since = null; }
               const priv = { home: runtime.forAgent(sessionName), since };
               if (!home) { onDefault.push(priv); continue; }

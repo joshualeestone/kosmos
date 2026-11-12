@@ -61,7 +61,10 @@ function taskName(agentName, worldId) {
 /* kosmos#8454: the file Task Scheduler keeps a registered task in, the Windows sibling of the macOS plist and the Linux
    unit (linuxjob.unitPath). Its time is when the job last changed: registering with /Create /F, which every rewrite of
    an agent's job does (a move between accounts included), rewrites it (measured: a re-registration 3 s later moved it
-   3 s). The registering user owns it, so a board that is not elevated can read its time. A sandboxed board
+   3 s). Switching the task off or on (/Change /DISABLE, /ENABLE: a stop, a start, a world switch, a put-back) rewrites
+   it too (measured: 3 s each), while /Run does not; so on Windows those also count as a change, and a reader that filters
+   by this time hides more than the macOS and Linux arms do, never less. The registering user owns the file, so a board
+   that is not elevated can read its time. A sandboxed board
    (AGENT_WORKFORCE_LAUNCH) keeps its tasks folder in the sandbox, as linuxjob does its units, and never stats the real
    one. */
 function taskFilePath(agentName, worldId) {

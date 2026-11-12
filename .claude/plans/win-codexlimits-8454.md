@@ -41,3 +41,14 @@ there too; since #8460 (the stand-in Task Scheduler) it failed honestly.
 server.codexlimits-6176 8/8 (was 7/1); negative control: with server.js reverted alone, "a moved agent" fails again.
 win32job.taskfile-8454 3/3. The 68 files that use the job fixture: 148 Windows failures (149 before), and the only
 difference is the codexlimits test, now passing. Policy tests pass.
+
+## Review log
+- Round 1 (no blockers, 2 warnings, 1 nit). (1) On Windows, /Change /DISABLE and /ENABLE also rewrite the task file.
+  MEASURED on a throwaway task: created 10:53:10.52, disabled 10:53:13.83, enabled 10:53:17.12, and /Run left it at
+  17.12; the task was deleted. So on Windows a stop, a start, a world switch and a put-back also hide an agent's reports
+  until Codex reports again. DECIDED: accept and document it (win32job.taskFilePath and the server.js comment). Rejected:
+  recording the time at registration in a file of Kosmos's own (one more store to keep in step). Why: it only ever
+  hides a meter, never shows a wrong one, which is the walk's existing rule; a running agent reports again within a turn.
+  What would change my mind: people finding the meter blank after a resume confusing. (2) Two more plist-path readers on
+  Windows (status.js withoutModelFromBeforeJob, create.js nameHeld): filed as #8466, kept out of this change.
+  (NIT) taskRows counts any agent-* file: no test writes another kind; unchanged.
