@@ -10,11 +10,14 @@ while a Claude supervisor is up between children (restarting after a crash, or w
   name (`\\.\pipe\kosmos-sup-<16 hex>`), drops every connection at once, `unref`s the server, and once it is listening
   writes `<key>.presence` in win32-state: `{v, pid, pipe}`. `handle.stop` removes the file (only if it still names
   this process) and closes the pipe.
-- `liveNames`: a name whose presence record names a pipe that exists is live. A name with a presence record whose pipe
-  is gone is NOT live, whatever its state file says (the supervisor is dead, so a pid in the state file is stale or
-  someone else's). A name with no presence record falls back to #8410's state-file rule (a supervisor from before this).
+- `liveNames`: a name whose presence record names a pipe that exists is live (a look that misses is retried once). A
+  record whose pipe is gone AND whose pid is dead is NOT live, whatever its state file says (the supervisor is dead,
+  so a pid in the state file is stale or someone else's). A record whose pipe looks gone while its pid is alive
+  decides nothing (a look can miss a busy pipe), and neither does a missing record: then #8410's state-file rule answers.
+- A starting supervisor removes any older record first, so a crashed run's record cannot make a live agent read Not
+  running when the new pipe fails to open (review 1).
 - Proof of life is the pipe, not the pid: Windows removes a pipe when its process dies (crash, killed tree, Fast
-  Startup's logoff), and nobody else can hold a random name this process made. Measured on Windows by Homer (on the
+  Startup's logoff), and while it lives nobody else can hold the random name it made. Measured on Windows by Homer (on the
   card): existsSync reads a live pipe true in about 0.1 ms, false after close, never-created, and after taskkill /F.
 
 ## Rejected
@@ -31,4 +34,5 @@ matches the Mac, whose launchctl pid is the supervisor's, and a supervisor-less 
 - `engine/win32presence-8415.test.js`: liveNames with a presence record (pipe present, gone, never named), the
   precedence over a state file, the fallback with no record, a malformed record; start/stop writing and removing the
   file on a real socket (a unix socket path on Mac/Linux via the `pipePath` seam, the real pipe on Windows CI).
-- Supervisor main(): writes presence once listening, removes it on stop.
+- Supervisor main(): starts presence for its agent with an onProblem sink, and its stop ends it (the wiring; the
+  write-once-listening and remove-on-stop behaviour is covered at the module level).
