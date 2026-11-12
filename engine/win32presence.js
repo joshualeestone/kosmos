@@ -41,7 +41,9 @@ function readPresence(name) {
 }
 
 /* Removes `name`'s record only if it names `ownerPid`: during a restart the new supervisor may already have written
-   its own, and the old one's stop must not erase it. Claim by rename, then decide, as clearState does. */
+   its own, and the old one's stop must not erase it. Claim by rename, then decide, as clearState does. A rename that
+   fails for another reason (the board reading the file at that moment) leaves the record; once this process has
+   exited its pipe and pid are gone, so the reader judges it dead, which is true. */
 function clearPresence(name, ownerPid) {
   const at = presencePath(name);
   const claim = at + '.' + process.pid + '.clear';
@@ -80,16 +82,23 @@ function start(name, opts) {
      and the board falls back to its state file. A record whose pipe still exists belongs to a supervisor that is still
      up (a restart overlap), and stays: it is true until this run's own record replaces it. */
   const pipeExists = typeof o.pipeExists === 'function' ? o.pipeExists : (p) => fs.existsSync(p);
+  const isAlive = typeof o.isAlive === 'function' ? o.isAlive : require('./win32orphan').pidAlive;
   const older = readPresence(name);
   let olderUp = false;
-  try { olderUp = Boolean(older) && pipeExists(older.pipe) === true; } catch { olderUp = false; }
+  try {
+    olderUp = Boolean(older) && (pipeExists(older.pipe) === true
+      || (isAlive(older.pid) === true && (pause(RETRY_PAUSE_MS), pipeExists(older.pipe) === true)));   // the reader's own retry
+  } catch { olderUp = false; }
   if (!olderUp) {
     try { fs.rmSync(presencePath(name), { force: true }); } catch (e) { onProblem('we could not remove an older presence record (' + ((e && e.code) || 'unknown') + ')'); }
   }
   /* A look at the pipe on Windows (fs.existsSync) opens a client connection, so every board poll arrives here. It is
      dropped at once, and a connection that errors on the way out (a reset) must not become an uncaught exception. */
   const server = net.createServer((socket) => { socket.on('error', () => {}); socket.destroy(); });
-  server.on('error', (e) => { onProblem('we could not open its presence pipe (' + ((e && e.code) || 'unknown') + ')'); });
+  /* A pipe that failed to open before listening also removes an older supervisor's record kept above: when that one
+     exits, its record would otherwise say this live agent is dead, and no record of ours replaces it. */
+  const dropOlder = () => { if (!wrote && older) clearPresence(name, older.pid); };
+  server.on('error', (e) => { dropOlder(); onProblem('we could not open its presence pipe (' + ((e && e.code) || 'unknown') + ')'); });
   try {
     server.listen(pipe, () => {
       if (stopped) return;
@@ -103,6 +112,7 @@ function start(name, opts) {
     });
     if (typeof server.unref === 'function') server.unref();
   } catch (e) {
+    dropOlder();
     onProblem('we could not open its presence pipe (' + ((e && e.code) || 'unknown') + ')');
   }
   return {

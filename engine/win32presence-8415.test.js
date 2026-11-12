@@ -123,6 +123,19 @@ test('kosmos#8415 review 3: a start keeps an older record whose pipe is still up
   assert.equal(presence.readPresence('overlap'), null, 'CONTROL: a record whose pipe is gone survived a start');
 });
 
+test('kosmos#8415 review 4: a pipe that fails to open during a restart overlap also drops the older record, so the agent is not read dead when the older one exits', async () => {
+  reset();
+  stateFile('ov2', 4242);
+  presenceFile('ov2', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('older2') });
+  const problems = [];
+  const h = presence.start('ov2', { pipePath: path.join(SANDBOX, 'no-such-dir', 'z.sock'), pipeExists: (p) => p === FAKE('older2'), isAlive: () => true, onProblem: (w) => problems.push(w) });
+  try {
+    assert.ok(await waitFor(() => problems.length > 0), 'the failed open was not said');
+    assert.equal(presence.readPresence('ov2'), null, 'the older supervisor\'s record survived a failed open, and will read this live agent as dead once that supervisor exits');
+    assert.ok(ss.liveNames({ isAlive: (pid) => pid === 4242, pipeExists: () => false }).has('ov2'), 'the state file no longer answers for the live agent');
+  } finally { h.stop(); }
+});
+
 test('kosmos#8415 review 3: on Windows a record that names a pipe that is not ours is ignored', { skip: process.platform !== 'win32' && 'the prefix rule applies only on Windows' }, () => {
   reset();
   stateFile('foreign', 9999);
@@ -184,7 +197,9 @@ test('kosmos#8415: a look at the pipe does not hold it: many looks in a row stay
   try {
     assert.ok(await waitFor(() => presence.readPresence('looks') !== null));
     const p = presence.readPresence('looks').pipe;
-    for (let i = 0; i < 200; i++) assert.ok(fs.existsSync(p), 'look ' + i + ' saw no pipe');
+    /* A turn of the event loop between looks, so the server can re-arm a pipe instance on Windows (where a look
+       connects); the board looks once per poll, never 200 times in a row. */
+    for (let i = 0; i < 200; i++) { assert.ok(fs.existsSync(p), 'look ' + i + ' saw no pipe'); await new Promise((r) => setImmediate(r)); }
     assert.ok(ss.liveNames().has('looks'));
   } finally { h.stop(); }
 });
