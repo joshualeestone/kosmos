@@ -27,14 +27,21 @@ xcresult of 42940677400:
 
 ## Decided
 
-- A11yScroll / A11yFocus: the chat opened at its newest message if that row shows OR the timed action already
-  reported (UIKitListArm.openedAtNewest). The report is made inside the app at the moment it acts and says whether it
-  started at the newest message ("from the end true"); both tests already assert that, so nothing is checked less.
-- EarlierDropped and EarlierDeleteShift: page delay 16 s (was 8). Every wait in them is computed from it. Tolerance
+- A11yScroll / A11yFocus: the chat opened at its newest message if that row shows, OR the timed action's report says
+  the newest row was on screen when it acted (UIKitListArm.openedAtNewest, reading "newest shown true"). The report
+  gets that field from ChatList.newestOnScreen (debug only): any of the newest row inside the visible part of the
+  list, the same fact the old check's "row exists" meant, read from where the list is. Not atEnd ("from the end"),
+  which is what the list means to do and stays true if the list opened elsewhere without a scroll event (iteration 1).
+  Not newestShown(), which needs the newest wholly above the box and is false for a tall newest message.
+- EarlierDropped and EarlierDeleteShift: page delay 16 s (was 8). The waits that hang on the page delay are computed
+  from it; the fixed ones (the 10 s wait for the re-ask, two short sleeps) hang on the 5 s read cadence and stay. Tolerance
   for the late stamp goes from about 1 s to about 9 s; each test runs about 16 s longer.
 
-Rejected: a longer timeout on the newest-row wait (it cannot help: the row is gone, not late); stamping the ask from
-the app's trace (more machinery than the measured problem needs).
+Rejected: a longer timeout on the newest-row wait (it cannot help: the row is gone, not late); raising the samples'
+6 s timer instead (launch alone took 13 to 26 s on CI, a first look 29.5 s after launch, so it would need about 40 s,
+about 12 more minutes on a job that already takes 70 of its 80); stamping the ask from the app's trace (more machinery
+than the measured problem needs). EarlierDoubleAskUITests (delay 8) has the same late stamp but no drag after it, so
+about 6.5 s of tolerance; left as it is, the next candidate if it flakes.
 
 Not in this change, stated: ComposerSendUITests' dropped and moved keystrokes ("Lne one\nLine twoi"), already marked
 FLAKY and retried by ui-sample.sh; A11yScrollUITests.testASlowScrollWithNoEndIsFollowedAndLetGo's ("8") != ("0") in run
@@ -46,13 +53,24 @@ Weakest premise: that the hosted runner's 3 to 4.5 s per drag is the worst case;
 
 ## Change
 
+- ios/Kosmos/ChatList.swift: newestOnScreen (debug only); "newest shown" in the two sample reports.
 - ios/KosmosUITests/UIKitListArm.swift: openedAtNewest.
 - ios/KosmosUITests/A11yScrollUITests.swift, A11yFocusUITests.swift: use it.
 - ios/KosmosUITests/EarlierDroppedUITests.swift, EarlierDeleteShiftUITests.swift: delay 16.
 
 ## Results
 
-- UI test files typecheck (swiftc -typecheck, iphonesimulator, with XCTest's frameworks and its Swift support);
-  control: a misspelled member in the new helper fails it.
+- The app typechecks plain and with -D DEBUG, and the UI test files typecheck (with XCTest's frameworks and its
+  Swift support). Controls: a misspelled member in the test helper fails the UI typecheck; one in newestOnScreen fails
+  the DEBUG typecheck.
+- No LogicTests runner compiles ChatList.swift (git grep over ios/LogicTests/*.sh), so they cannot change.
 - The repo tests that read ios/ (13 files): 91 of 91.
 - The proof that matters is CI's "uikit list (sample board)" job on this branch.
+
+## Challenge loop
+
+- Iteration 1 (opus): 1 WARNING FIXED: the first version accepted the timed action's report as proof the chat opened
+  at its newest, but the report's "from the end" is atEnd (what the list means to do), so a list opened elsewhere
+  without a scroll event would have passed the setup check the old row check caught. The report now carries a position
+  fact (newest shown, ChatList.newestOnScreen) and the check requires it. NITs FIXED in this plan: "nothing is checked
+  less" removed; "every wait" narrowed. Noted: EarlierDoubleAsk has about 6.5 s of tolerance and is left.
