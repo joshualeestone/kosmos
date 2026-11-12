@@ -51,6 +51,9 @@ struct ChatList: UIViewRepresentable {
     static var sampleUpDone = false   // set once KOSMOS_SAMPLE_SCROLLUP has scrolled; a list made after that does not scroll again
     // KOSMOS_SAMPLE_A11YSCROLL, _A11YFOCUS and _A11YACTIONS share it: one of them runs once a launch, as sampleUpDone.
     static var sampleA11yDone = false
+    // kosmos#8442: KOSMOS_SAMPLE_WINDOWBYCLOCK=1 reads the person's-scroll window by the clock alone, as before: the control
+    // arm of A11yScrollUITests' stalled scroll. Read once a launch.
+    static let sampleWindowByClock = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WINDOWBYCLOCK"] == "1"
     // kosmos#8221 slice 13: KOSMOS_SAMPLE_NOCELLACTIONS=1 sets the sheet's opener carried into each cell to nil (configure):
     // the control arm of A11yActionsUITests. Read once a launch.
     static let sampleNoCellActions = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOCELLACTIONS"] == "1"
@@ -192,7 +195,7 @@ struct ChatList: UIViewRepresentable {
             // kosmos#8221 (CI flake, 11-12): whether the newest message is on screen at this moment, a fact of where the list
             // is (atEnd is what the list means to do). The check reads it when its first look comes after this action.
             let wasAtEnd = atEnd, newestWasShown = newestOnScreen(), y0 = list.contentOffset.y
-            let watch: TimeInterval = mode == "stepped" ? 3.0 : 1.5
+            let watch: TimeInterval = mode == "stalled" ? 4.0 : mode == "stepped" ? 3.0 : 1.5   // kosmos#8442: a stall adds 0.6 s
             debugPins = 0
             debugWindowOpened = false
             debugPinsUntil = CACurrentMediaTime() + watch
@@ -201,10 +204,13 @@ struct ChatList: UIViewRepresentable {
             // person is scrolling (personScrolls), then the scroll itself.
             list.personScrolls?()
             switch mode {
-            case "stepped":
+            case "stepped", "stalled":
                 for i in 1...30 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05 * Double(i)) { [weak list] in
                         guard let list else { return }
+                        // kosmos#8442: "stalled" holds the main thread 0.6 s (longer than personScrollQuiet) before the second
+                        // move, as a busy phone or a slow Mac can, so the moves after it come late.
+                        if mode == "stalled", i == 2 { Thread.sleep(forTimeInterval: 0.6) }
                         list.contentOffset = CGPoint(x: 0, y: max(-list.adjustedContentInset.top, list.contentOffset.y - 15))
                     }
                 }
@@ -475,7 +481,17 @@ struct ChatList: UIViewRepresentable {
         var personAskedAt: CFTimeInterval = 0   // 0: no ask (the device's uptime is always far above personScrollAsk)
         var personUntil: CFTimeInterval = 0
         var windowCount = 0   // which window a lapse check belongs to: one from a window since closed does nothing
-        func fingerlessScrolling() -> Bool { CACurrentMediaTime() < personUntil }
+        // kosmos#8442: open until personScrollLapsed closes it, not until the clock passes personUntil. A stall of the main thread
+        // (a busy phone, a slow CI Mac) longer than personScrollQuiet delivers the scroll's next moves after that time but
+        // before the lapse check runs; read by the clock they were not the person's, so the reader 15 pt up (still "at the
+        // end", inside endSlack) was put back at the end and every later move pinned (CI run 42906709675: pins 8, moved 0).
+        // personScrollLapsed reads the clock to decide whether the moves have stopped; every other close sets personUntil to 0.
+        func fingerlessScrolling() -> Bool {
+            #if DEBUG
+            if ChatList.sampleWindowByClock { return CACurrentMediaTime() < personUntil }   // the control arm: the window as before
+            #endif
+            return personUntil > 0
+        }
         func personScrollStarted() {
             #if DEBUG
             // KOSMOS_SAMPLE_NOPERSONSCROLL=1: the list as before this slice, the control arm of A11yScrollUITests: the ask counted
@@ -507,7 +523,7 @@ struct ChatList: UIViewRepresentable {
         }
         func personScrollLapsed(_ window: Int) {
             guard window == windowCount, personUntil > 0 else { return }   // a later window's, or closed already by a reported end
-            if fingerlessScrolling() {   // still moving: look again when it would close
+            if CACurrentMediaTime() < personUntil {   // still moving: look again when it would close (by the clock, kosmos#8442)
                 let wait = personUntil - CACurrentMediaTime() + 0.05
                 DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.personScrollLapsed(window) }
                 return

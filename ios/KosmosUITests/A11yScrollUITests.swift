@@ -12,12 +12,13 @@ final class A11yScrollUITests: XCTestCase {
 
     private struct Report { let pins: Int; let atEnd: Bool; let moved: Int; let window: Bool; let dragged: Bool; let short: Int; let label: String }
 
-    private func scrollUp(mode: String, fixOff: Bool = false) throws -> Report {
+    private func scrollUp(mode: String, fixOff: Bool = false, windowByClock: Bool = false) throws -> Report {
         guard UIKitListArm.on else { throw XCTSkip("the lazy list has no pin to the end (UIKit list only)") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "1",
                                  "KOSMOS_SAMPLE_A11YSCROLL": "6", "KOSMOS_SAMPLE_A11YSCROLL_MODE": mode]
         if fixOff { app.launchEnvironment["KOSMOS_SAMPLE_NOPERSONSCROLL"] = "1" }
+        if windowByClock { app.launchEnvironment["KOSMOS_SAMPLE_WINDOWBYCLOCK"] = "1" }   // kosmos#8442: the control arm
         UIKitListArm.set(app)
         app.launch()
         UIKitListArm.assertDrawn(app)
@@ -74,6 +75,26 @@ final class A11yScrollUITests: XCTestCase {
         XCTAssertEqual(r.pins, 0, "the list put itself back at the end while the person's scroll ran: \(r.label)")
         XCTAssertGreaterThan(r.moved, 300, "the slow scroll was stopped short: \(r.label)")
         XCTAssertFalse(r.atEnd, "the reader is still counted at the newest after scrolling up: \(r.label)")
+    }
+
+    // kosmos#8442: the same slow scroll with the main thread held 0.6 s after its first move (longer than personScrollQuiet),
+    // as a busy phone or CI's hosted Mac can. The moves after the stall still count as the person's: the window stays open
+    // until its lapse check runs, which sees them moving. Before, read by the clock, the window had closed, the reader 15 pt
+    // up was still "at the end" and was put back, and every later move was pinned (CI run 42906709675: pins 8, moved 0).
+    func testASlowScrollWithAStallIsStillFollowed() throws {
+        let r = try scrollUp(mode: "stalled")
+        XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened: \(r.label)")
+        XCTAssertEqual(r.pins, 0, "the list put itself back at the end after the stall: \(r.label)")
+        XCTAssertGreaterThan(r.moved, 300, "the stalled scroll was stopped short: \(r.label)")
+        XCTAssertFalse(r.atEnd, "the reader is still counted at the newest after scrolling up: \(r.label)")
+    }
+
+    // The control: the window read by the clock alone, as before kosmos#8442. The stall closes it, and the scroll is undone.
+    func testWithTheWindowByTheClockAStalledScrollIsPutBackAtTheEnd() throws {
+        let r = try scrollUp(mode: "stalled", windowByClock: true)
+        XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened: \(r.label)")
+        XCTAssertGreaterThan(r.pins, 0, "the control was not put back at the end, so the stalled check cannot see the defect: \(r.label)")
+        XCTAssertLessThan(r.moved, 300, "the control's stalled scroll ran on: \(r.label)")
     }
 
     // A jump to the newest (a send, New messages) during such a scroll wins: the scroll is stopped and the reader stays at
