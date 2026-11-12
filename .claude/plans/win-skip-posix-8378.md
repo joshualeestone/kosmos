@@ -37,6 +37,14 @@ Re-measured on origin/main 2b3c0c397d on the Windows box (node 24.19.0, TAP), ev
   existence and content checks keep running on Windows.
 - Each file gets a HOST_BRANCH_EXCLUDED entry in tools/windows-tests.js carrying the same reason (the #1777 audit).
 
+## Windows CI selection: unchanged on purpose
+None of the four files was in the Windows CI job before this change, and none is added. Excluding them keeps that
+as it was; it removes no Windows CI coverage. #8378's bar is a green `npm test` on a Windows computer (measured on
+the box, above), the same as the first two clusters. Choosing which files the Windows CI job runs is #8378 phase 2's
+question (Splinter's split of #8368), and adding a file there needs a measured green on the GitHub Windows runner,
+not only on this box. So the arms kept runnable on Windows here (bundle.manifest's existence and content checks,
+oldjob's linked-folder, tmux -c and runner arms) run in a Windows `npm test`, not in CI, until phase 2 selects them.
+
 ## Not a fix
 None of these is a Windows bug: each subject does not exist on Windows. A failing Windows path would be a fix,
 not a skip (helper doc).

@@ -155,7 +155,7 @@ test('a linked folder, tmux -c in the arguments, and the runner\'s own program',
 // separator, and on Windows os.homedir() comes from USERPROFILE, not the HOME this file sets; so on a Windows host
 // the script's "$HOME/agents/homey" is never matched. (In production foreignStarter finds no LaunchAgents folder on
 // Windows and returns null before this matters.)
-test('a home spelling', { skip: require('../test-support/skip-on-win32').skipOnWin32('the "$HOME/..." spelling is made only for a folder under os.homedir() and a forward slash; on Windows os.homedir() comes from USERPROFILE, not HOME, and paths use backslashes') }, () => {
+test('a home spelling', { skip: require('../test-support/skip-on-win32').skipOnWin32('the "$HOME/..." spelling is made only for a folder under the home and a forward slash, and Windows paths use backslashes (os.homedir() also comes from USERPROFILE there, not HOME)') }, () => {
   const inHome = path.join(process.env.HOME, 'agents', 'homey');
   fs.mkdirSync(inHome, { recursive: true });
   plist('com.homey.a', { args: ['/bin/bash', script('homey.sh', 'cd "$HOME/agents/homey"\nclaude\n')] });
