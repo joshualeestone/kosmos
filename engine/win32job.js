@@ -100,7 +100,10 @@ let runFn = null;
  * unaffected either way.
  */
 const TASK_SPEC_CACHE = new Map();
-function forgetTaskSpec(name, worldId) { TASK_SPEC_CACHE.delete(taskName(name, worldId)); }
+function forgetTaskSpec(name, worldId) {
+  TASK_SPEC_CACHE.delete(taskName(name, worldId));
+  SWITCH_SEEN.delete(taskName(name, worldId));   // kosmos#8417: switchedOffNames' remembered switch, the same rule
+}
 /* 🔑 ONE WRITER, so "which answers are cacheable" is decided in a single place.
    Every read goes through it, failures included, which keeps the `known === true`
    test LOAD-BEARING: delete it and the arm asserting "a failed read is never

@@ -231,6 +231,21 @@ test('#8417 a task listed twice is one task: one definition read', () => {
   assert.equal(xmlReads(calls).length, 1);
 });
 
+test('#8417 Kosmos\'s own disable and enable are seen at the next poll, even with the Status word unchanged', () => {
+  const tasks = { 'Kosmos\\agent-ava': { spec: taskFor('ava'), status: 'Ready' } };
+  const calls = scheduler(tasks);
+  assert.equal(create.disabledJobsResult(undefined, 'win32').jobs.size, 0);
+  tasks['Kosmos\\agent-ava'].off = true;   // the word stays 'Ready'
+  assert.equal(create.disabledJobsResult(undefined, 'win32').jobs.size, 0, 'CONTROL: a flip nobody announced waits for the recheck');
+  assert.equal(job.disable('ava').ok, true);
+  calls.length = 0;
+  assert.deepEqual([...create.disabledJobsResult(undefined, 'win32').jobs], ['ava'], 'disable forgot the remembered switch');
+  assert.deepEqual(xmlReads(calls), ['Kosmos\\agent-ava']);
+  tasks['Kosmos\\agent-ava'].off = false;
+  assert.equal(job.enable('ava').ok, true);
+  assert.equal(create.disabledJobsResult(undefined, 'win32').jobs.size, 0, 'and enable did too');
+});
+
 test('#8417 a task that left the folder and came back is read again', () => {
   const tasks = { 'Kosmos\\agent-ava': { spec: taskFor('ava') } };
   const calls = scheduler(tasks);
