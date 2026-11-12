@@ -28,7 +28,7 @@ test('the system temp folder is chosen only on Windows, only when the temp folde
   for (const at of ['C:\\Windows\\Temp\\CLAUDE.md', 'C:\\Windows\\AGENTS.md', 'C:\\.claude']) {
     assert.equal(outsideHomeRoot({ ...base, exists: (p) => p.toLowerCase() === at.toLowerCase() }), null, at);
   }
-  assert.equal(outsideHomeRoot({ ...base, exists: (p) => p === 'C:\\Windows\\Temp\\other.md' }), W.join('C:\\Windows', 'Temp'), 'CONTROL: another file there changes nothing');
+  assert.equal(outsideHomeRoot({ ...base, exists: (p) => p === 'C:\\Windows\\CLAUDE.txt' }), W.join('C:\\Windows', 'Temp'), 'CONTROL: a file in a place it looks, but not an instruction name, changes nothing');
 });
 
 test('the temp folder and the home are compared by their real paths, so a short 8.3 TEMP inside the home is seen (the GitHub runner)', { skip: !WIN && 'its folder checks use the host path functions, which read a Windows drive path only on Windows' }, () => {
@@ -83,13 +83,13 @@ test('on Windows the scope follows what the helper decides for this host: moved 
   assert.equal(r.stderr, '', 'a move said something on stderr');
 });
 
-test('on Windows a refused move is said on stderr, with why', { skip: !WIN && 'about the Windows system temp folder' }, () => {
+test('on Windows a refused move is said on stderr, with why', { skip: !WIN && 'about the Windows system temp folder' }, (t) => {
   // The system folder named inside the home (this file's own scope is there when TEMP is), so the helper refuses it.
   const os = require('node:os');
   const fs = require('node:fs');
   const sys = fs.mkdtempSync(path.join(os.tmpdir(), 'sysroot-'));
   const r = runHelper(sys);
-  if (!r.choice.inHome) return assert.equal(r.stderr, '', 'CONTROL: nothing to move, nothing said');
+  if (!r.choice.inHome) { assert.equal(r.stderr, '', 'CONTROL: nothing to move, nothing said'); t.skip('the temp folder here is outside the home, so no move can be refused'); return; }
   assert.equal(r.moved, null, 'a system folder inside the home was used');
   assert.match(r.stderr, /the temp folder stays inside the home/);
   assert.match(r.stderr, /is inside the home too/, 'the reason was not said');
@@ -103,4 +103,14 @@ test('realOrResolved spells a path that does not exist yet by its long name, thr
   if (!long || /PROGRA~1/i.test(long)) { t.skip('8.3 names are off on C: here'); return; }
   // Review round 2: on the runner TEMP is spelled short (RUNNER~1); a folder under it not made yet must still compare long.
   assert.equal(realOrResolved('C:/PROGRA~1/no-such-8378/x').toLowerCase(), require('node:path').join(long, 'no-such-8378', 'x').toLowerCase());
+});
+
+test('review round 3: a temp folder written inside the home counts as inside even when its real path is elsewhere (a junction)', { skip: process.platform !== 'win32' && 'about Windows paths' }, () => {
+  const { outsideHomeChoice } = require('./test-support/tmpscope-outside-home');
+  // The guard walks the written chain as well as the real one, so the written spelling alone puts the home in its walk.
+  const real = (p) => (p.split(require('node:path').sep).join('/').toLowerCase().startsWith('c:/users/x/appdata/local/temp') ? 'D:/elsewhere/temp' : p);
+  const c = outsideHomeChoice({ platform: 'win32', tmp: 'C:/Users/x/AppData/Local/Temp', home: 'C:/Users/x',
+    env: { SystemRoot: 'C:/Windows' }, exists: () => false, canMake: () => true, real });
+  assert.equal(c.inHome, true, 'a temp folder written inside the home was treated as outside it');
+  assert.ok(c.root, 'nothing moved: ' + c.why);
 });

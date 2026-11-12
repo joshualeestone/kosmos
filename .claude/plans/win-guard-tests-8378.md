@@ -40,6 +40,12 @@ Windows-arm test "#5664 step A", which now passes whole); tokenguard.win32-5664 
   now resolves the deepest existing folder and adds the rest back (as the guard's realOrLeaf does); test against
   C:/PROGRA~1/no-such (fails on the previous helper). The hookscripts parser-skip reason names kosmos#8451.
 
+- Round 3: WARNING, the helper compared real paths only, but the guard walks both the written and the real chain: the
+  temp folder now counts as inside the home if either spelling is, and both chains of the system folder are checked for
+  instruction files (test with a junction-shaped seam, fails on the previous helper). Two test NITs: a control that could
+  not fail now uses a non-instruction file where the helper looks; an early return on a host with temp outside the home
+  is an honest skip.
+
 ## Decided, not missed
 - The home-leak fix moves these files' fixtures to the machine-wide %SystemRoot%\Temp on Windows (test-only). Rejected: a
   production seam to stop the guard's ancestor walk at the sandbox (a production change for a test need). Weakest point:

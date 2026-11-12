@@ -66,16 +66,23 @@ const inside = (child, parent, real) => {
 function outsideHomeChoice({ platform = process.platform, tmp = os.tmpdir(), home = os.homedir(), env = process.env,
   exists = fs.existsSync, canMake = canMakeIn, real = realOrResolved } = {}) {
   if (platform !== 'win32') return { inHome: false, root: null, why: 'not Windows' };
-  if (!home || !inside(tmp, home, real)) return { inHome: false, root: null, why: 'the temp folder is not inside the home' };
+  /* Review round 3: as the guard walks both the path as written and its real path (setup-assistant.js ancestorsOf), the
+     temp folder counts as inside the home if either spelling is. */
+  const ident = (p) => path.resolve(p);
+  const insideEither = (child, parent) => inside(child, parent, ident) || inside(child, parent, real);
+  if (!home || !insideEither(tmp, home)) return { inHome: false, root: null, why: 'the temp folder is not inside the home' };
   const no = (why) => ({ inHome: true, root: null, why });
   const sys = env.SystemRoot || env.windir;
   if (!sys) return no('neither SystemRoot nor windir is set, so the system temp folder is unknown');
   const root = path.join(sys, 'Temp');
-  if (inside(root, home, real)) return no(`the system temp folder ${root} is inside the home too`);
-  for (let d = path.resolve(root); ; d = path.dirname(d)) {
-    const found = INSTRUCTION_NAMES.find((n) => exists(path.join(d, n)));
-    if (found) return no(`${path.join(d, found)} is there, and the guard would read it as an instruction file`);
-    if (path.dirname(d) === d) break;
+  if (insideEither(root, home)) return no(`the system temp folder ${root} is inside the home too`);
+  // Both chains above it too: the written one and the real one (a link in the way leads the guard up the other).
+  for (const start of new Set([path.resolve(root), real(root)])) {
+    for (let d = start; ; d = path.dirname(d)) {
+      const found = INSTRUCTION_NAMES.find((n) => exists(path.join(d, n)));
+      if (found) return no(`${path.join(d, found)} is there, and the guard would read it as an instruction file`);
+      if (path.dirname(d) === d) break;
+    }
   }
   if (!canMake(root)) return no(`a folder cannot be made in ${root}`);
   return { inHome: true, root, why: null };
