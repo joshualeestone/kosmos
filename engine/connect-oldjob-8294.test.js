@@ -153,7 +153,7 @@ test('a linked folder, tmux -c in the arguments, and the runner\'s own program',
 
 // kosmos#8378: folderSpellings adds the "$HOME/..." spelling only for a folder under HOME + '/', a POSIX separator,
 // so on a Windows host (backslashes) the script's "$HOME/agents/homey" is never matched.
-test('a home spelling', { skip: require('../test-support/skip-on-win32').skipOnWin32('the "$HOME/..." spelling is made only for a folder under HOME and a forward slash, which a Windows path never has') }, () => {
+test('a home spelling', { skip: require('../test-support/skip-on-win32').skipOnWin32('it reads a launchd login job in ~/Library/LaunchAgents, which Windows does not have; the "$HOME/..." spelling is made only for a folder under HOME and a forward slash, which a Windows path never has') }, () => {
   const inHome = path.join(process.env.HOME, 'agents', 'homey');
   fs.mkdirSync(inHome, { recursive: true });
   plist('com.homey.a', { args: ['/bin/bash', script('homey.sh', 'cd "$HOME/agents/homey"\nclaude\n')] });
