@@ -118,6 +118,7 @@ const REFUSED = [
   [['task', 'check', 'p5152', '3', '1', 'yes', 'x'], /Say met or unmet/],
   [['task', 'check', 'p5152', '3', '1', 'Met', 'x'], /Say met or unmet/],
   [['task', 'check', 'p5152', '3', '1', 'met', '  '], /how you checked it/],
+  [['task', 'check', 'p5152', '3', '1', 'met', '--force'], /looks like an option/],
 ];
 
 test('install/kosmos: task check sends the report, with the agent token', { skip: SKIP_POSIX_SHELL }, async () => {

@@ -10,7 +10,8 @@ Shape on the card (comment 6832982923); two calls differ, recorded on the card (
   the same report again records nothing. Transcript kind `check-reported`.
 - Reports go when what they describe goes: a changed check drops its own report, a new or cleared list
   drops all, taking the built mark off / new work / a reopen drop them (with LANDED_FIELDS). Closing keeps them.
-- setBuilt: a task whose checks are ALL reported may be marked built without a note.
+- setBuilt: a task whose checks are ALL reported MET may be marked built without a note; a check reported
+  not met still needs the note, to say what is left.
 - Route `POST /api/project/<id>/task/<n>/check` on done-when's caller terms (processCaller,
   notOnProjectRefusal); the screen is refused (a report is an agent's word). Agent-token pattern list.
 - `kosmos task check <p> <n> <i> met|unmet "<how>"` in install/kosmos and the Windows CLI.

@@ -26219,7 +26219,9 @@ const server = http.createServer(async (req, res) => {
       const refusal = who.refusal || notOnProjectRefusal(who, id, 'report on its tasks', 'the check was not reported', 'report a check');
       if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
       try {
-        const out = tasks.setCheckResult(id, taskCheck[2], body.check, body.met, body.how, { by: who.card ? who.card.sessionName : null });
+        const by = who.card ? who.card.sessionName : null;
+        // #4733, as the built note: the setup guide's words are masked before they are stored.
+        const out = tasks.setCheckResult(id, taskCheck[2], body.check, body.met, typeof body.how === 'string' ? guideMasked(by, body.how) : body.how, { by });
         sendJson(res, 200, { task: out.task, changed: out.changed });
       } catch (err) {
         const msg = String((err && err.message) || '');

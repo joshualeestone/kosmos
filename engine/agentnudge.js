@@ -173,7 +173,7 @@ function nudgeText(part) {
       /* #8464 item 2: with checks, each is reported first (kosmos task check), and then the mark needs no note. */
       const where = id ? id + ' ' + part.n : '<project-id> <task-number>';
       return all + ', so when your own part of it is done, ' + (s.checks > 0 ? 'report each check (kosmos task check ' + where + ' <check-number> met|unmet \'<how you checked it>\') and ' : '')
-        + 'mark it built (kosmos task built ' + where + ').';   // a note only asked for with checks (review 3)
+        + 'mark it built (kosmos task built ' + where + ')' + (s.checks > 0 ? ', with a note saying what is left if a check is not met' : '') + '.';   // a note only asked for with checks (review 3)
     })()
     : '';
   /* kosmos#8067 (11-05 feedback): an agent told "open work" about a task it could see marked built read it as a nudge about
@@ -182,7 +182,7 @@ function nudgeText(part) {
   const markedBy = m && Array.isArray(m.by) ? plainWords(m.by.map((n) => plainWords(n, 80)).filter(Boolean).join(', '), SENTENCE_CAP) : '';
   const at = id ? id + ' ' + part.n : '<project-id> <task-number>';
   /* #8464 item 2: with checks, report each (kosmos task check), after which the mark needs no note. */
-  const command = m && m.checks > 0 ? '(kosmos task check ' + at + ' <check-number> met|unmet \'<how you checked it>\', then kosmos task built ' + at + ')'
+  const command = m && m.checks > 0 ? '(kosmos task check ' + at + ' <check-number> met|unmet \'<how you checked it>\', then kosmos task built ' + at + ', with a note saying what is left if a check is not met)'
     : '(kosmos task built ' + at + ' \'<what you finished>\')';   // a note of its own: a bare mark would leave the task saying nothing
   /* A mark with no name came from a caller Kosmos could not identify, which can be this agent, so nothing here says it was
      someone else's, and nothing promises the command ends this: from a pane Kosmos cannot name, it would not. */

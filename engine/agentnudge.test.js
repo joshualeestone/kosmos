@@ -767,7 +767,7 @@ test('#6421: a colleague who already marked the parent built is done, so this ag
     assert.ok(b && b.ok, 'fixture: the colleague\'s mark refused: ' + JSON.stringify(b));
     const mine = pass(w).calls.find((c) => c.session === w.key.parentlate);
     assert.ok(mine, 'fixture: the agent was not nudged');
-    assert.ok(mine.text.includes('(kosmos task check ' + w.pid + ' ' + n + " <check-number> met|unmet '<how you checked it>', then kosmos task built " + w.pid + ' ' + n + ').'), mine.text);   // #8464 item 2
+    assert.ok(mine.text.includes('(kosmos task check ' + w.pid + ' ' + n + " <check-number> met|unmet '<how you checked it>', then kosmos task built " + w.pid + ' ' + n + ', with a note saying what is left if a check is not met).'), mine.text);   // #8464 item 2
     assert.ok(!/still open/.test(mine.text), 'a finished colleague read as an open part: ' + mine.text);
   } finally { w.restore(); }
 });
@@ -837,7 +837,7 @@ test('#8067: a task with checks: the command carries the note setBuilt asks for,
     assert.ok(Array.isArray(t.doneWhen) && t.doneWhen.length === 1, 'fixture: the task has no checks');
     assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.checkthem, note: '1 met.' }).ok);
     const { calls } = pass(w);
-    assert.ok(calls[0].text.includes(`(kosmos task check ${w.pid} ${n} <check-number> met|unmet '<how you checked it>', then kosmos task built ${w.pid} ${n})`), calls[0].text);   // #8464 item 2
+    assert.ok(calls[0].text.includes(`(kosmos task check ${w.pid} ${n} <check-number> met|unmet '<how you checked it>', then kosmos task built ${w.pid} ${n}, with a note saying what is left if a check is not met)`), calls[0].text);   // #8464 item 2
     assert.equal(tasks.setBuilt(w.pid, n, { by: w.key.checkme }).ok, false, 'CONTROL: without the note, setBuilt refuses, so the note in the line matters');
   } finally { w.restore(); }
 });
