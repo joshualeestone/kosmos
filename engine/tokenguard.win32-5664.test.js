@@ -68,7 +68,7 @@ test('withRealTwins: a real path the rules cannot carry ([ ]) is named, never wr
 
 test('withRealTwins: off Windows the rules are returned as they are (CONTROL: the same input twins on win32)', () => {
   const real = () => 'C:\\real\\x';
-  assert.deepEqual(setup.withRealTwins(['Read(//c/link/x)'], 'darwin', real), { rules: ['Read(//c/link/x)'], unsafe: [] });
+  assert.deepEqual(setup.withRealTwins(['Read(//c/link/x)'], 'darwin', real), { rules: ['Read(//c/link/x)'], unsafe: [], tokenUnsafe: [] });
   assert.equal(setup.withRealTwins(['Read(//c/link/x)'], 'win32', real).rules.length, 2);
 });
 
@@ -88,6 +88,15 @@ test('withRealTwins: a path whose real place cannot be worked out is named (fail
   const r = setup.withRealTwins(['Read(//c/link/board.token)'], 'win32', () => { throw new Error('EACCES'); });
   assert.deepEqual(r.rules, ['Read(//c/link/board.token)']);
   assert.match(r.unsafe[0], /could not be worked out/);
+});
+
+test('withRealTwins: a gap on a board-token rule is flagged as the token\'s own (the guard refuses), one elsewhere is not', () => {
+  const real = (p) => p.replace('C:\\link', 'C:\\odd [x]');
+  const t = setup.withRealTwins(['Read(//c/link/Kosmos/board.token)'], 'win32', real);
+  assert.equal(t.tokenUnsafe.length, 1, 'a token rule gap was not flagged as the token\'s');
+  const o = setup.withRealTwins(['Edit(//c/link/.claude/settings.json)'], 'win32', real);
+  assert.equal(o.unsafe.length, 1);
+  assert.equal(o.tokenUnsafe.length, 0, 'CONTROL: a gap elsewhere is not the token\'s');
 });
 
 test('launchPathDirs on Windows names the PATH part as not covered, so the guard cannot read as whole', () => {
@@ -156,6 +165,22 @@ test('a data folder reached through a junction is denied on its REAL path, not o
   const onJunction = ruleFor('Read', path.join(junc, 'Kosmos', 'board.token'));
   assert.ok(d.includes(onReal), 'the token is not denied on its real path (a rule on the junction alone covers nothing): ' + JSON.stringify(d.filter((r) => /board\.token\)$/.test(r))));
   assert.ok(d.includes(onJunction), 'CONTROL: the junction spelling is the one the rules were built from');
+});
+
+test('a data folder behind a junction that leads nowhere is refused (the token itself would be open), nothing written', { skip: NEEDS_WINDOWS }, () => {
+  const gone = path.join(SANDBOX, 'gone-target');
+  fs.mkdirSync(gone, { recursive: true });
+  const junc = path.join(SANDBOX, 'dangling');
+  fs.symlinkSync(gone, junc, 'junction');
+  fs.rmSync(gone, { recursive: true, force: true });   // the junction stays, leading nowhere (an unmounted volume, a removed target)
+  assert.throws(() => setup.realOrLeafStrict(path.join(junc, 'Kosmos', 'board.token')), /could not be worked out/);
+  assert.equal(setup.realOrLeafStrict(path.join(SANDBOX, 'not-made-yet', 'x')), path.join(fs.realpathSync.native(SANDBOX), 'not-made-yet', 'x'), 'CONTROL: a path not made yet still resolves through its parent');
+  const dir = agentDir('dangling');
+  const g = setup.guardTokenOnlyFolder(dir, 'dangling', { ...DEPS, dataRoot: path.join(junc, 'Kosmos') });
+  assert.equal(g.ok, false);
+  assert.match(g.because, /the board token is reached through a link/);
+  assert.doesNotMatch(g.because, /the rest of the guard is in place/, 'the token gap read as a side gap');
+  assert.equal(fs.existsSync(path.join(dir, '.claude', 'settings.json')), false, 'a guard missing its token rule was written');
 });
 
 test('an agent folder given by its 8.3 short name is denied on its long real path', { skip: NEEDS_WINDOWS }, (t) => {

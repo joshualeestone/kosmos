@@ -438,11 +438,30 @@ function legacyWinEquivalent(rule) {
    so is one that cannot be resolved. `real` is realOrLeaf, passed in for tests. Only the part before the first `*` is
    resolved: a link under a glob segment (a world folder reached through a junction, made later) gets no twin.
    Pure apart from `real`; Windows only (elsewhere the rules are returned as they are). */
-function withRealTwins(rules, platform = process.platform, real = realOrLeaf, tooWide = (p) => path.win32.parse(p).root === p) {
-  if (platform !== 'win32') return { rules, unsafe: [] };
+/* realOrLeaf, but a link on the way that leads nowhere (a dangling junction, a target the board cannot open) throws
+   instead of being kept by its own name: kept, it would read as already real and get no twin, so a later target there
+   would go undenied. A path that simply does not exist yet still resolves through its nearest existing parent. */
+function realOrLeafStrict(p) {
+  const abs = path.resolve(p);
+  let dir = abs;
+  const tail = [];
+  for (;;) {
+    try { return path.join(fs.realpathSync.native(dir), ...tail); } catch { /* absent, or a link that leads nowhere */ }
+    let there = false;
+    try { fs.lstatSync(dir); there = true; } catch { there = false; }
+    if (there) throw new Error(`${dir} is there but where it leads could not be worked out`);
+    const parent = path.dirname(dir);
+    if (parent === dir) return abs;
+    tail.unshift(path.basename(dir));
+    dir = parent;
+  }
+}
+function withRealTwins(rules, platform = process.platform, real = realOrLeafStrict, tooWide = (p) => path.win32.parse(p).root === p) {
+  if (platform !== 'win32') return { rules, unsafe: [], tokenUnsafe: [] };
   const out = [];
   const seen = new Set(rules);
   const unsafe = [];
+  const tokenUnsafe = [];   // the subset that names a board-token rule: the guard's main protection, so it refuses
   const cache = new Map();
   for (const r of rules) {
     out.push(r);
@@ -461,17 +480,20 @@ function withRealTwins(rules, platform = process.platform, real = realOrLeaf, to
     if (/^[\\/]{2}/.test(native)) continue;
     let to = cache.get(native);
     if (to === undefined) { try { to = String(real(native)); } catch { to = null; } cache.set(native, to); }
-    if (to === null) { unsafe.push(`${native} (where it leads could not be worked out)`); continue; }
+    const isToken = r.includes(require('./boardauth').TOKEN_FILE);
+    const miss = (why) => { unsafe.push(why); if (isToken) tokenUnsafe.push(why); };
+    if (to === null) { miss(`${native} (where it leads could not be worked out)`); continue; }
     const twin = ruleAbs(to, 'win32');
     if (twin.toLowerCase() === literal.toLowerCase()) continue;   // Claude Code matches case-blind on Windows (measured)
     // Only a rule as wide as its literal part (the path itself, or all under it) can be too wide; a narrower suffix
-    // (`.claude-*/settings.json` under the home) keeps the twin narrow.
-    if ((rest === '' || rest === '/**') && tooWide(to)) { unsafe.push(`${native} (it leads to ${to}, too wide a place for Kosmos to deny)`); continue; }
+    // (`.claude-*/settings.json` under the home) keeps the twin narrow, even under a drive root (`//d/*/notes.md`
+    // reaches one name in each top-level folder there, the same shape the rule already had).
+    if ((rest === '' || rest === '/**') && tooWide(to)) { miss(`${native} (it leads to ${to}, too wide a place for Kosmos to deny)`); continue; }
     const rule = `${m[1]}(${twin}${rest})`;
-    if (ruleHasPatternChar(rule, '/')) { unsafe.push(`${native} (it leads to ${to}, a path the permission rules cannot carry)`); continue; }
+    if (ruleHasPatternChar(rule, '/')) { miss(`${native} (it leads to ${to}, a path the permission rules cannot carry)`); continue; }
     if (!seen.has(rule)) { seen.add(rule); out.push(rule); }
   }
-  return { rules: out, unsafe: [...new Set(unsafe)] };
+  return { rules: out, unsafe: [...new Set(unsafe)], tokenUnsafe: [...new Set(tokenUnsafe)] };
 }
 /* #4752: on Windows every absolute rule is ALSO written in the older native spelling, beside the //c/ form Claude
    Code's docs say it matches: these are deny rules, the new form is not measured on Windows here, and an extra deny
@@ -2745,10 +2767,16 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     if (stale.size || staleWrites.size) process.stderr.write(`#5663: ${agentName}: pruned ${stale.size} file-tool and ${staleWrites.size} sandbox launch rule(s) whose paths are gone\n`);
     /* #5664 step A: on Windows each rule is also written on the real path it reaches (junctions, 8.3 names), since a
        rule on a link's own path covers nothing there; one whose real path the rules cannot carry makes it not whole. */
-    const homeReal = realOrLeaf(deps.home || kosmosHome()).toLowerCase();
-    const dirReal = realOrLeaf(dir).toLowerCase();
-    const holdsW = (a, b) => b === a || b.startsWith(a.endsWith('\\') ? a : a + '\\');   // case-blind, as Windows paths are
-    const realTwins = withRealTwins(rules.deny, plat, realOrLeaf, (p) => { const q = String(p).toLowerCase(); return path.win32.parse(p).root === p || holdsW(q, homeReal) || holdsW(q, dirReal); });
+    let realTwins = { rules: rules.deny, unsafe: [], tokenUnsafe: [] };
+    if (plat === 'win32') {
+      const homeReal = realOrLeaf(deps.home || kosmosHome()).toLowerCase();
+      const dirReal = realOrLeaf(dir).toLowerCase();
+      const holdsW = (a, b) => b === a || b.startsWith(a.endsWith('\\') ? a : a + '\\');   // case-blind, as Windows paths are
+      realTwins = withRealTwins(rules.deny, plat, realOrLeafStrict, (p) => { const q = String(p).toLowerCase(); return path.win32.parse(p).root === p || holdsW(q, homeReal) || holdsW(q, dirReal); });
+    }
+    /* A board-token rule whose real place cannot be denied leaves the token itself open (a rule on a link's own path
+       covers nothing): that is the guard's main protection, so it is refused as a dropped token rule is, nothing written. */
+    if (realTwins.tokenUnsafe.length) return { ok: false, because: 'the board token is reached through a link Kosmos cannot deny where it leads (' + realTwins.tokenUnsafe.join(', ') + '), so the guard cannot be written whole' };
     if (realTwins.unsafe.length) rules.configUnsafe.push(...realTwins.unsafe);
     const deny = [...new Set([...had, ...realTwins.rules])];
     /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so
@@ -3457,6 +3485,7 @@ module.exports = {
   legacyWinEquivalent,
   withNativeTwins,
   withRealTwins,   // #5664 step A
+  realOrLeafStrict,
   ruleUnwritable,
   migrateKept,
   finalDeny,

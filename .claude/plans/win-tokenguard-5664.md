@@ -43,6 +43,14 @@ match nothing; `( ) { } !` are literal, `[ ]` is a character class.
   wide as a drive root or a folder holding the home or the agent's own folder, and one whose real place cannot be
   worked out (fails closed).
 
+- Review round 2: on Windows a board start is the authority on every part (no Windows launch records one), so a line
+  from before step A (the old refusal, a bare reason) is replaced, not kept as a launch part for good. Shares are never
+  resolved (a network lookup can send the person's Windows credentials to that host).
+- Review round 3: a board-token rule whose real place cannot be denied (too wide, uncarriable, or a junction that
+  leads nowhere) refuses the guard like a dropped token rule, nothing written, since the token itself is then open.
+  `realOrLeafStrict` throws on a link that leads nowhere instead of keeping it by its own name (which read as already
+  real and got no twin).
+
 ## What it means for a person
 - An existing token-only Claude agent on Windows gets its guard written at the next refresh: the board token gets Read
   and Edit denies for its file tools (today it gets none). Its page still says protection is not complete, now with the
@@ -58,8 +66,11 @@ match nothing; `( ) { } !` are literal, `[ ]` is a character class.
 - Native twins are not added to the guard's rules (they never were; withNativeTwins is the guide's).
 - The page does not name the unsandboxed shell (the agent's PowerShell or Bash can still read the token); that is what
   Linux says too (condition 1: no stronger claim, and no different wording). For step B this matters more: once the
-  PATH part is covered, the Windows page would read "complete" while the shell can read the token, as on Linux. To be
-  raised on the card for step B.
+  PATH part is covered, the Windows page would read "complete" while the shell can read the token, as on Linux. A
+  CONDITION on step B (raised on the card): step B may not make a Windows guard read whole until the page says the
+  shell is not covered, or the shell is.
+- Twins are read back next time as the person's own rules (`had`), so a twin left after a junction is repointed stays:
+  an extra deny, never a lost one.
 
 ## Not covered
 - The PATH part (step B, #5516 later part): System32 past the scan cap, app execution aliases (the card).
