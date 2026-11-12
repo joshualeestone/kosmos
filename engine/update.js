@@ -828,7 +828,11 @@ function installLog() { return installedRoot() ? path.join(installedRoot(), 'log
    board after a failure, or the new board after a success) reads it.
    A successful install rewrites the file with code 0, which seeds
    nothing: success is the board coming back changed. */
-function installStatusFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.status') : null; }
+/* kosmos#8423: only under an ABSOLUTE root, as autoRecordFile above. A root in another platform's form (C:\\Users\\... on a
+   Mac, which a test sets) is relative here, so the file would land in the working directory: the repo, where a dirty
+   main stops a release cut. Every caller already treats null as no file. */
+function absoluteRoot() { const r = installedRoot(); return r && path.isAbsolute(r) ? r : null; }
+function installStatusFile() { const r = absoluteRoot(); return r ? path.join(r, 'logs', 'install.status') : null; }
 /* 🛑 #1728: THE DURABLE IN-FLIGHT WITNESS. install.status above is written by
    the spawned shell only WHEN AN ATTEMPT FINISHES. But this installer is
    detached, unref'd and stdio-ignored, so the exact failure it cannot survive
@@ -841,7 +845,7 @@ function installStatusFile() { return installedRoot() ? path.join(installedRoot(
    attempt was interrupted before it could restart the board.
    📌 Add-only. It never touches detached/unref/stdio (that is the recall design
    left for Josh, kosmos#1728); it only makes an interruption OBSERVABLE. */
-function installStartedFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.started') : null; }
+function installStartedFile() { const r = absoluteRoot(); return r ? path.join(r, 'logs', 'install.started') : null; }
 function markInstallStarted(startedAt) {
   const file = installStartedFile();
   if (!file) return;
