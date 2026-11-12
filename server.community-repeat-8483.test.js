@@ -214,7 +214,7 @@ test('kosmos#8483: when the record that decides it cannot be read, nothing is st
   const file = communitysend._paths.commentsSentFile();
   const had = fs.existsSync(file) ? fs.readFileSync(file) : null;
   try {
-    writeJson(file, {});
+    fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, '{not json');
     const before = comments().length;
     const r = await comment(tok, 'Read me.');
@@ -250,4 +250,55 @@ test('kosmos#8483: a post taken back does not stand, so the same words are poste
   const again = await post(tok, 'A post I took back.');
   assert.equal('repeat' in again.j, false, 'a post taken back was answered as still standing');
   assert.equal(mine(posts(), 'PostBack', 'A post I took back.').length, 2);
+});
+
+test('kosmos#8483: a held post sent again is the held one; the post route also refuses (503, nothing stored) when its records cannot be read', async (t) => {
+  const tok = agentFor(t, 'HeldPoster');
+  const held = await post(tok, LEAK);
+  assert.equal(held.j.status, 'held');
+  const again = await post(tok, LEAK);
+  assert.equal(again.j.repeat, true);
+  assert.equal(again.j.status, 'held');
+  assert.equal(again.j.id, held.j.id);
+  const pub = await post(tok, 'A published post to read back.');
+  for (const file of [communitysend._paths.sentFile(), communitysend._paths.deletesFile()]) {
+    const had = fs.existsSync(file) ? fs.readFileSync(file) : null;
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, '{not json');
+      const before = posts().length;
+      const r = await post(tok, 'A published post to read back.');
+      assert.equal(r.status, 503, path.basename(file) + ': ' + JSON.stringify(r.j));
+      assert.match(r.j.error, /could not tell whether it already has this one/);
+      assert.equal(posts().length, before, path.basename(file) + ': a post was stored while the board could not tell');
+    } finally { if (had) fs.writeFileSync(file, had); else fs.rmSync(file, { force: true }); }
+  }
+  assert.equal((await post(tok, 'A published post to read back.')).j.id, pub.j.id, 'control: readable again, it is the repeat');
+});
+
+test('kosmos#8483: the store matches a community and a company exactly (a company post or comment is never another company\'s or the public one)', () => {
+  const since = new Date(Date.now() - 60 * 1000).toISOString();
+  const at = new Date().toISOString();
+  const cfile = communitystore._paths.commentsFile();
+  const pfile = communitystore._paths.postsFile();
+  const keepC = fs.existsSync(cfile) ? fs.readFileSync(cfile) : null;
+  const keepP = fs.existsSync(pfile) ? fs.readFileSync(pfile) : null;
+  try {
+    const crow = { id: 'c-org1', remotePostId: POST_A, remoteParentId: null, status: 'published', agent: 'Spaced', body: 'Words.', receivedAt: at, space: 'company', org: 'org-1' };
+    writeJson(cfile, [crow]);
+    const want = { agent: 'Spaced', remotePostId: POST_A, body: 'Words.' };
+    assert.equal(communitystore.repeatServiceComment({ ...want, space: 'company', org: 'org-1' }, since).id, 'c-org1', 'control: the same company matches');
+    assert.equal(communitystore.repeatServiceComment({ ...want, space: 'company', org: 'org-2' }, since), null, 'another company matched');
+    assert.equal(communitystore.repeatServiceComment(want, since), null, 'the public community matched a company comment');
+    const prow = { id: 'p-org1', status: 'published', agent: 'Spaced', author: { type: 'agent', name: 'Spaced' }, topic: 'T', body: 'Words.', board: 'engineering', receivedAt: at, space: 'company', org: 'org-1' };
+    writeJson(pfile, [prow]);
+    const pwant = { agent: 'Spaced', topic: 'T', body: 'Words.', board: 'engineering' };
+    assert.equal(communitystore.repeatAgentPost({ ...pwant, space: 'company', org: 'org-1' }, since).id, 'p-org1', 'control: the same company matches');
+    assert.equal(communitystore.repeatAgentPost({ ...pwant, space: 'company', org: 'org-2' }, since), null, 'another company matched');
+    assert.equal(communitystore.repeatAgentPost(pwant, since), null, 'the public community matched a company post');
+    assert.equal(communitystore.repeatAgentPost({ ...pwant, space: 'company', org: 'org-1', links: ['https://example.com/a'] }, since), null, 'other links matched');
+  } finally {
+    if (keepC) fs.writeFileSync(cfile, keepC); else fs.rmSync(cfile, { force: true });
+    if (keepP) fs.writeFileSync(pfile, keepP); else fs.rmSync(pfile, { force: true });
+  }
 });

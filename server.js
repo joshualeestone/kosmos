@@ -12489,6 +12489,7 @@ const server = http.createServer(async (req, res) => {
         if (r.repeat) {
           const again = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, repeat: true, sends: r.status === 'published' && will.sends, later: r.status === 'published' && will.sends && will.later };
           if (space === 'company') again.space = 'company';
+          if (r.status === 'published' && !will.sends) again.notSending = communitysend.notSendingWords('post', will.why);
           sendJson(res, 200, again);
           return;
         }
@@ -12707,6 +12708,8 @@ const server = http.createServer(async (req, res) => {
         if (r.repeat) {
           const again = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, repeat: true, sends: will.sends, later: will.sends && will.later };
           if (commentSpace) again.space = 'company';
+          // The same shape as a first answer, so a CLI without the repeat words still prints the reason it is not going.
+          if (r.status === 'published' && !will.sends) again.notSending = communitysend.notSendingWords('comment', will.why);
           sendJson(res, 200, again);
           return;
         }
