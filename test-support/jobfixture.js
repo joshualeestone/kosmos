@@ -162,7 +162,7 @@ function stubAnswer(dir) {
         const inner = /<Enabled>[\s\S]*?<\/Enabled>/.test(settings[1])
           ? settings[1].replace(/<Enabled>[\s\S]*?<\/Enabled>/, flag)
           : `${settings[1]}${flag}`;
-        text = before.replace(settings[0], `<Settings>${inner}</Settings>`);
+        text = before.replace(settings[0], () => `<Settings>${inner}</Settings>`);   // a function: no $ patterns read in it
       }
       fs.writeFileSync(file, text, 'utf8');
       return { ok: true, out: `SUCCESS: The parameters of scheduled task "${tn}" have been changed.` };

@@ -205,7 +205,7 @@ test('#2570 CONTROL: with no stopAgents the route still REFUSES and names the ag
 
 /* ── the feature ─────────────────────────────────────────────────────────── */
 
-test('#2570: with stopAgents the agent is really stopped and the account IS disconnected', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
+test('#2570: with stopAgents the agent is really stopped and the account IS disconnected', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   installRunner();
   const dir = claudeAccount('busy2');
   agentOn('spade', dir, 'claude');
@@ -232,7 +232,7 @@ test('#2570: with stopAgents the agent is really stopped and the account IS disc
 
 /* 🔑 THE SENTENCE IS PART OF THE FEATURE, AND THE RECORD IS WHAT MAKES IT TRUE.
    A stop the person cannot undo is a different product from one they can. */
-test('#2570: the stopped agent is on the removed list, which is what the answer promises', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
+test('#2570: the stopped agent is on the removed list, which is what the answer promises', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   installRunner();
   const dir = claudeAccount('busy3');
   agentOn('archer', dir, 'claude');
@@ -800,7 +800,7 @@ test('#2570 CONTROL: a caller that sends no stopNames is not held to a consent s
 
 /* #2264 put DELETE behind the same route. It is strictly more dangerous than a
    disconnect, so assert the pairing rather than assuming the shared code path. */
-test('#2570: the DELETE door honours stopAgents, and does NOT promise a restore', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
+test('#2570: the DELETE door honours stopAgents, and does NOT promise a restore', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   installRunner();
   const dir = claudeAccount('doomed');
   agentOn('maigret', dir, 'claude');
@@ -822,7 +822,7 @@ test('#2570: the DELETE door honours stopAgents, and does NOT promise a restore'
   assert.match(String(r.json.because), /needs a different one before it can start again/);
 });
 
-test('#2570: the OpenAI route stops its own agents the same way', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
+test('#2570: the OpenAI route stops its own agents the same way', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   installRunner();
   const dir = codexAccount('busy');
   agentOn('poirot', dir, 'codex');

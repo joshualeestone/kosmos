@@ -72,3 +72,10 @@ and 11 files keep some Windows failures for other causes, left to later triage s
   but not runnable, and its folder arm is real. server.disconnect-stop-2570 sets USERPROFILE beside HOME. Nits: the
   server.test.js liveness-probe comment says what node answers on Windows; a declaration moved; the header says the
   stand-in answers in UTF-8, so win32job's UTF-16 decode is not exercised here. 68-file re-run: still 149, only #8454 new.
+- Round 3 (no blockers, 1 warning, 3 nits). Fixed: ten more skips whose subject exists on Windows (the create route's
+  record, the removal and put-back routes, the removed list's fields, the model and restart routes, and the four #2570
+  disconnect-and-stop tests) now say so and name kosmos#8456, where they are listed. The /Change rewrite uses a function
+  replacement, so no $ pattern in a definition is read. Left as nits, by design and documented: machine.test.js skips
+  the whole app-location test for its one chmod arm; /Run always writes the ownership row, so no test here covers a
+  supervisor that never comes up; jobPath resets setLiveness and setRunningClock through setRunner (a test that set
+  either first would fail loudly, never pass falsely).

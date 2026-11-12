@@ -3201,7 +3201,7 @@ test('a write another website could send is refused, whatever route it names', a
   }
 });
 
-test('the create route answers a real creation with the record the screen is built on', { skip: skipOnWin32('it checks the job was loaded through launchctl (or systemctl on Linux), the runner this test stubs, and the launchd step it records; a Windows create registers a Scheduled Task instead') }, async () => {
+test('the create route answers a real creation with the record the screen is built on', { skip: skipOnWin32('it checks the job was loaded through launchctl (or systemctl on Linux), the runner this test stubs, and the launchd step it records; a Windows create registers a Scheduled Task instead; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   // ⚠️ The route test beside this one is named "makes an agent" and never makes
   // one — both its cases assert 400. So the 200 answer, which is the ENTIRE
   // contract the creation screen consumes (`outcome`, the ordered `steps` list
@@ -4676,7 +4676,7 @@ test('the open-sleep-settings route: guard-inherited, honest 409, and the engine
   }
 });
 
-test('the removal routes ask, remove, and put back, over the wire', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
+test('the removal routes ask, remove, and put back, over the wire', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   // ⚠️ The engine was well covered and the surface a browser talks to was not.
   // These routes are how the fleet is managed, and the restore route is what
   // makes the removal safe to offer.
@@ -5074,7 +5074,7 @@ test('#2615 the removed list reports a gone account folder as gone', { skip: ski
   }
 });
 
-test('the removed list gives the browser only what it draws', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
+test('the removed list gives the browser only what it draws', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   /**
    * ⚠️ Pins an ALLOWLIST, which is the only shape that can catch the regression
    * that matters. The stored record carries the launchd label, the absolute
@@ -5556,7 +5556,7 @@ test('no style rule depends on a custom property that is never defined', () => {
 });
 
 
-test('an agent whose card shows a different name than its session still leaves the board', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
+test('an agent whose card shows a different name than its session still leaves the board', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   // #5432: the legacy com.<session>.discord.plist below is a macOS fixture; on Linux nothing reads it, so there the
   // test measures the name-versus-session removal with no legacy job.
   /**
@@ -10674,7 +10674,7 @@ test('the footer answers only a question that was asked, and never sits on news'
     'a failure stayed silent until it was asked for');
 });
 
-test('the model route writes the choice AND restarts, because either alone is a lie', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
+test('the model route writes the choice AND restarts, because either alone is a lie', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   /**
    * 🛑 TWO WRITES AND THE SECOND IS NOT OPTIONAL. `setModel` rewrites the
    * startup file; the restart is what makes launchd read it. Ship the first
@@ -10747,7 +10747,7 @@ test('the model route writes the choice AND restarts, because either alone is a 
   }
 });
 
-test('#2019: the restart route threads an optional cause, and a bodyless POST stays backward-compatible', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for') }, async () => {
+test('#2019: the restart route threads an optional cause, and a bodyless POST stays backward-compatible', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   /* The route was rewritten from a synchronous handler to an async readBody so
      the stale-instructions notice can send {cause:'instructions'} and the board
      can name WHY the agent went quiet. A bodyless POST (a plain Restart click)
