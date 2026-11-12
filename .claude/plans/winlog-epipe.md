@@ -6,7 +6,7 @@ Card: #8373 (reopened). Found by Homer on 11-11: Windows 0.8.03's in-place updat
 The tee (#8373) copies each write into the log file and then passes it on to the original stdout. Under the in-place update that stdout can be a pipe whose reader has gone. The pass-on's EPIPE arrives as an 'error' event on the stream, which nothing listens for, so node raises it as an uncaught exception. The try/catch around the file copy cannot see it.
 
 ## The call
-Once a board has routed its log, each console stream gets an error listener, and a pass-on that throws an I/O error (one with a syscall or errno) is caught; a caller's bad argument still throws, before and after. After any error event or such a throw, that stream's console copy is skipped: the file keeps every line, the callback still runs, and the file says once per stream that its console copy stopped.
+Once a board has routed its log, each console stream gets an error listener, and a pass-on that throws an I/O error (one with a syscall or errno) is caught; a caller's bad argument (a null or non-text chunk, an unknown encoding) still throws, on a healthy console and a dead one. After any error event or such a throw, that stream's console copy is skipped: the file keeps every line, the callback still runs, and the file says once per stream that its console copy stopped.
 
 ## Rejected
 - Not passing writes on to the console at all on a routed board: a task-started board's console is nowhere by design, but a routed board that does have a console (rare) would lose its output there for no gain.
