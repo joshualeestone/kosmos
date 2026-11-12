@@ -435,6 +435,38 @@ function legacyWinEquivalent(rule) {
    costs nothing (a new install then has the same belt-and-braces an older one keeps through migrateKept). The twin
    is exactly what the writer before this change wrote, so migrateKept and finalDeny already treat it as the old form
    of its rule. Pure, with the platform passed in. */
+/* #5664 step A: on Windows, Claude Code resolves junctions and 8.3 names on the path a tool touches, and a rule on a
+   link's OWN path covers nothing (measured, 2.1.319). So for every Read or Edit rule whose literal part (before its first
+   `*`) reaches a different real path, the same rule on the real path is added beside it. A real path the rules cannot
+   carry is returned in `unsafe` (the guard is then not whole), never written. `real` is realOrLeaf, passed in for tests.
+   Pure apart from `real`; Windows only (elsewhere the rules are returned as they are). */
+function withRealTwins(rules, platform = process.platform, real = realOrLeaf) {
+  if (platform !== 'win32') return { rules, unsafe: [] };
+  const out = [];
+  const seen = new Set(rules);
+  const unsafe = [];
+  const cache = new Map();
+  for (const r of rules) {
+    out.push(r);
+    const m = /^(Read|Edit)\((\/\/.+)\)$/.exec(r);
+    if (!m) continue;
+    const inner = m[2];
+    const star = inner.indexOf('*');
+    const cut = star < 0 ? inner.length : inner.lastIndexOf('/', star);
+    if (cut <= 2) continue;
+    const literal = inner.slice(0, cut);
+    const rest = inner.slice(cut);
+    const native = rulePath(literal.slice(2), 'win32');
+    if (!native) continue;
+    let twin = cache.get(native);
+    if (twin === undefined) { try { twin = ruleAbs(real(native), 'win32'); } catch { twin = null; } cache.set(native, twin); }
+    if (!twin || twin.toLowerCase() === literal.toLowerCase()) continue;   // Claude Code matches case-blind on Windows (measured)
+    const rule = `${m[1]}(${twin}${rest})`;
+    if (ruleHasPatternChar(rule, '/')) { unsafe.push(`${native} (it leads to ${real(native)}, a path the permission rules cannot carry)`); continue; }
+    if (!seen.has(rule)) { seen.add(rule); out.push(rule); }
+  }
+  return { rules: out, unsafe: [...new Set(unsafe)] };
+}
 function withNativeTwins(rules, platform = process.platform) {
   if (platform !== 'win32') return rules;
   const out = [];
@@ -832,9 +864,10 @@ function supervisorConfigDirs() {
 function launchPathDirs(agentDir, deps = {}) {
   /* Review 12: not on Windows yet. A standard Windows PATH has folders whose names the rules read as patterns and a
      system folder past the scan cap, so the guard would never be whole there and every token-only agent would be
-     refused. Windows coverage is measured and built in the Windows lane (#5516 later part); until then the Windows
-     guard is what it was. */
-  if ((deps.platform || process.platform) === 'win32') return { dirs: [], aliases: [], files: [], linkNames: [], unsafe: [] };
+     refused. Windows coverage is measured and built in the Windows lane (#5516 later part).
+     #5664 step A: the rest of the guard is now written on Windows, so this part is NAMED as not covered (the guard then
+     says it is not whole) rather than returning nothing, which would read as covered. */
+  if ((deps.platform || process.platform) === 'win32') return { dirs: [], aliases: [], files: [], linkNames: [], unsafe: ['on Windows Kosmos does not cover the folders on this PATH yet'] };
   const pane = deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH;
   const ownPath = deps.ownPath !== undefined ? deps.ownPath : process.env.PATH;
   const max = deps.linkScanMax || LINK_SCAN_MAX;
@@ -2178,7 +2211,10 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      instruction file became a live wildcard denying a whole tree, in every agent's folder, never pruned; Claude Code
      only ever reads a literal file of that name. */
   const IMPORT_RULE_SYNTAX = /[*?[\]{}()!\\]/;
-  const importBad = (p, rule) => IMPORT_RULE_SYNTAX.test(p) || ruleHasPatternChar(rule);
+  /* #5664: on Windows the backslash is the path separator, which no name can hold, so it is tested in the form the rule
+     is written in (ruleAbs turns it into a slash); tested raw, every Windows path read as one the rules cannot carry. */
+  const importWin = (deps.platform || process.platform) === 'win32';
+  const importBad = (p, rule) => IMPORT_RULE_SYNTAX.test(importWin ? String(p).replace(/\\/g, '/') : p) || ruleHasPatternChar(rule);
   const importFiles = [];
   /* A target inside an agent's folder in the agents' folder (Kosmos's own instruction files say "@-mention", which
      Claude Code reads as an import of <agent>/-mention) gets ONE mid-path glob per name, as the sibling members above
@@ -2627,10 +2663,13 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     // unknown one is not assumed to be Claude.
     const runner = deps.runner;
     if (runner !== 'claude') return { ok: false, unsupported: true, because: 'only Claude agents can be kept from reading the board token so far; this agent runs on ' + (runner || 'an unknown runner') };
-    /* Review 24: on Windows Claude Code matches rules against a POSIX form of the path (//c/...), and the rules here
-       are written with the native spelling, so a deny may never match. Not measured on Windows, so the guard says it
-       cannot keep the token out there yet rather than reporting a guard that may hold nothing. */
-    if ((deps.platform || process.platform) === 'win32') return { ok: false, unsupported: true, because: 'on Windows this guard has not been shown to hold yet, so Kosmos does not claim it' };
+    /* #5664 step A (was review 24's refusal): measured on Windows with Claude Code 2.1.319, the //c/... rules ruleAbs
+       writes DO hold for its Read and Edit tools, case-blind, and through junctions and 8.3 names when the rule names the
+       real path (a rule on a link's own path covers nothing; realOrLeaf and withTarget name the real one). So Windows is
+       guarded as Linux is: permission rules for the file tools only, the shell not sandboxed (said below, as off macOS).
+       What the agent's next start runs from (its PATH) is not covered on Windows yet: launchPathDirs names it, so the
+       guard is written and says it is not whole rather than claiming it. Not measured: shares, mapped drives, non-NTFS
+       volumes, other Claude Code versions. */
     const settingsDir = path.join(dir, '.claude');
     fs.mkdirSync(settingsDir, { recursive: true });
     const file = path.join(settingsDir, 'settings.json');
@@ -2688,7 +2727,11 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string' && !stale.has(r)) : [];
     // Review 12: what a launch prunes is said (count only), so a dropped rule never goes unseen.
     if (stale.size || staleWrites.size) process.stderr.write(`#5663: ${agentName}: pruned ${stale.size} file-tool and ${staleWrites.size} sandbox launch rule(s) whose paths are gone\n`);
-    const deny = [...new Set([...had, ...rules.deny])];
+    /* #5664 step A: on Windows each rule is also written on the real path it reaches (junctions, 8.3 names), since a
+       rule on a link's own path covers nothing there; one whose real path the rules cannot carry makes it not whole. */
+    const realTwins = withRealTwins(rules.deny, plat);
+    if (realTwins.unsafe.length) rules.configUnsafe.push(...realTwins.unsafe);
+    const deny = [...new Set([...had, ...realTwins.rules])];
     /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so
        it goes too (Kosmos never writes it for an agent) and the board log says so. */
     const { additionalDirectories: _dropDirs, ...permsKept } = perms;
@@ -3387,6 +3430,7 @@ module.exports = {
   readingsHoldGuide,
   legacyWinEquivalent,
   withNativeTwins,
+  withRealTwins,   // #5664 step A
   ruleUnwritable,
   migrateKept,
   finalDeny,
