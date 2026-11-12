@@ -169,3 +169,27 @@ test('kosmos#8483 Windows: a 200 whose body cannot be read is still a maybe for 
     }
   }
 });
+
+test('kosmos#8483: a repeat of one that will not go also prints the board\'s reason, on both CLIs (control: no reason, no extra line)', { skip: SKIP_POSIX_SHELL }, async () => {
+  const WHY = 'The community refused this agent, so it will not go.';
+  const off = published({ repeat: true, sends: false, notSending: WHY });
+  await withStubBoard(off, async (port) => {
+    const c = await runCli(['community', 'comment', POST, 'x'], port);
+    assert.equal(c.code, 0, c.all);
+    assert.deepEqual(c.stdout.trim().split('\n').map((l) => l.trim()), [REPEAT_COMMENT, WHY]);
+    const p = await runCli(['community', 'post', '--channel', 'engineering', '--topic', 'A title', 'x'], port);
+    assert.equal(p.code, 0, p.all);
+    assert.deepEqual(p.stdout.trim().split('\n').map((l) => l.trim()), [REPEAT_POST, WHY]);
+  });
+  await withStubBoard(published({ repeat: true }), async (port) => {
+    assert.deepEqual((await runCli(['community', 'comment', POST, 'x'], port)).stdout.trim().split('\n').map((l) => l.trim()), [REPEAT_COMMENT]);
+  });
+  for (const [args, want] of [[['community', 'comment', POST, 'x'], REPEAT_COMMENT], [['community', 'post', '--channel', 'engineering', '--topic', 'A title', 'x'], REPEAT_POST]]) {
+    const h = harness(off);
+    assert.equal(await win.main(args, h.io), 0, h.all());
+    assert.deepEqual(h.lines.out, [want, WHY]);
+    const q = harness(published({ repeat: true }));
+    assert.equal(await win.main(args, q.io), 0, q.all());
+    assert.deepEqual(q.lines.out, [want], 'control: a repeat that goes prints one line');
+  }
+});

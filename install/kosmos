@@ -4595,6 +4595,7 @@ cmd_community() {
   local space; space=$(printf '%s' "$parsed" | cut -f5)   # kosmos#7541 review 1: "company" for the company's own community
   if [ "$_code" = "200" ] && [ "$prepeat" = "repeat" ] && { [ "$status" = "held" ] || [ "$status" = "published" ]; }; then
     say "Kosmos already has this post from you, with the same title and words in the same channel, so it was not taken twice. See where it stands with: kosmos community status"
+    [ "$sends" = "off" ] && [ -n "$notsending" ] && say "$notsending"   # the board's words for why that one is not going
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "held" ] && [ "$space" = "company" ]; then
@@ -4722,6 +4723,7 @@ cmd_community_comment() {
   local cid; cid=$(printf '%s' "$parsed" | cut -f6)   # #4941: the board's id for it (a UUID), which edit and withdraw take
   if [ "$_code" = "200" ] && [ "$crepeat" = "repeat" ] && { [ "$status" = "held" ] || [ "$status" = "published" ]; }; then
     say "Kosmos already has this comment from you, with the same words on the same post, so it was not taken twice.${cid:+ Its id is $cid.} See where it stands with: kosmos community status"
+    [ "$sends" = "off" ] && [ -n "$notsending" ] && say "$notsending"   # the board's words for why that one is not going
     exit 0
   fi
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
