@@ -9,7 +9,7 @@ import XCTest
 // the top of what remains, "Message 41 of 260", the oldest row still loaded.
 // The sample board's long chat (KOSMOS_SAMPLE_LONG, see EarlierPagesUITests) with pages of 30 (KOSMOS_SAMPLE_OLDER_PAGE), so
 // a second page is asked for, and the pages dropped while it is on its way: by that ask answered "moved"
-// (KOSMOS_SAMPLE_OLDER_MOVED=2), or by a delete 2 s before it is due (Drop). Each page is held back 8 s
+// (KOSMOS_SAMPLE_OLDER_MOVED=2), or by a delete 2 s before it is due (Drop). Each page is held back 16 s
 // (KOSMOS_SAMPLE_OLDER_DELAY), long enough to step one drag down into the first page (off its top, and with Message 41 below
 // the screen) before the drop.
 // The control (KOSMOS_SAMPLE_NODROPFIX=1) leaves the reader at the old offset, as before the slice: Message 41 is not on screen
@@ -17,7 +17,12 @@ import XCTest
 final class EarlierDroppedUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
-    private static let delay: Double = 8
+    // kosmos#8221 (CI flake, 11-12): 16 s, was 8. The ask is stamped when the test SEES "Loading", and on CI's hosted Mac a
+    // drag with its wait for idle takes 3 to 4.5 s, so the stamp can trail the real ask by a drag or two. With 8 s the drop
+    // (6 s after the real ask) came before the drag back into the first page finished, and the page asked for again after it
+    // had landed before the test looked (main run 42940677400: both, in its first try and its retry). Every wait here is
+    // measured from this delay, so they scale with it.
+    private static let delay: Double = 16
 
     // kosmos#8221 slice 16: what drops the pages. A moved answer to the second page (slice 14), or the person's newest message
     // deleted 2 s before that page is due (KOSMOS_SAMPLE_DELETE_ON_ASK, through the sheet's own delete), which takes the
