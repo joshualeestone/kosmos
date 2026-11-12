@@ -870,6 +870,7 @@ function folderRows() {
     return { known: false, rows: [] };
   }
   const rows = [];
+  const named = new Set();
   for (const line of String(r.out || '').split('\n')) {
     const fields = csvFields(line);
     if (!fields.length) continue;
@@ -879,7 +880,7 @@ function folderRows() {
     /* #1704: the folder holds every Kosmos's agents; a board lists only its own,
        so another world's task is neither a member of this fleet nor a "stray". */
     const name = launchidentity.nameInWorld(at.slice(TASK_PREFIX.length), launchidentity.currentWorldId());
-    if (name && !rows.some((row) => row.name === name)) rows.push({ name, status: fields.length > 2 ? fields[2] : '' });
+    if (name && !named.has(name)) { named.add(name); rows.push({ name, status: fields.length > 2 ? fields[2] : '' }); }
   }
   return { known: true, rows };
 }
@@ -894,22 +895,33 @@ function folderRows() {
  * only when that word changes or the task is new to this process. The word is compared, never interpreted.
  *
  * Returns `{ known: true, names }`, or `{ known: false }` when the folder could not be listed. A task whose switch
- * could not be read is left out of `names`, and is asked again when its Status word next changes.
+ * could not be read is left out of `names`, and is asked again SWITCH_RETRY_MS later or when its Status word changes.
+ * At most SWITCH_READS_PER_CALL definitions are read per call, because each is a synchronous schtasks spawn on the
+ * board's poll; a task not read yet is left out until a later call reaches it. The clock is `setRunningClock`'s seam.
  */
-const SWITCH_SEEN = new Map();   // task name -> { status, enabled } (enabled undefined: the switch could not be read)
+const SWITCH_SEEN = new Map();   // task name -> { status, enabled, retryAt } (enabled undefined: the switch could not be read)
+const SWITCH_READS_PER_CALL = 4;
+const SWITCH_RETRY_MS = 60000;
 function switchedOffNames() {
   const rows = folderRows();
   if (!rows.known) return { known: false };
+  const now = (nowFn || Date.now)();
+  let reads = SWITCH_READS_PER_CALL;
   const names = new Set();
   const seen = new Map();
   for (const row of rows.rows) {
     const tn = taskName(row.name);
     let kept = SWITCH_SEEN.get(tn);
-    if (!kept || kept.status !== row.status) {
+    if (kept && kept.status !== row.status) kept = null;   // the word moved: what was read under the old one is not used
+    const due = !kept || (kept.enabled === undefined && now >= kept.retryAt);
+    if (due && reads > 0) {
+      reads -= 1;
       let en;
       try { en = taskEnabled(row.name); } catch { en = null; }
-      kept = { status: row.status, enabled: (en && en.known && en.registered) ? en.enabled : undefined };
+      const enabled = (en && en.known && en.registered) ? en.enabled : undefined;
+      kept = { status: row.status, enabled, retryAt: enabled === undefined ? now + SWITCH_RETRY_MS : 0 };
     }
+    if (!kept) continue;
     seen.set(tn, kept);
     if (kept.enabled === false) names.add(row.name);
   }

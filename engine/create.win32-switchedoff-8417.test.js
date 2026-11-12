@@ -62,7 +62,7 @@ function scheduler(tasks, opts) {
           const t = tasks[n];
           const status = t.status || (t.off ? 'Disabled' : 'Ready');
           return `"\\${n}","N/A","${status}"`;
-        }).join('\r\n') + '\r\n',
+        }).concat(o.dupRows ? [`"\\${names[0]}","N/A","Ready"`] : []).join('\r\n') + '\r\n',
       };
     }
     if (args[0] === '/Query' && args.includes('/XML')) {
@@ -166,19 +166,60 @@ test('#8417 a definition whose switch could not be read is not said to be off', 
   assert.equal(create.disabledJobsResult(undefined, 'win32').jobs.size, 0);
 });
 
-test('#8417 the switch is read even when the argument line is not, and a failed read is not asked again every poll', () => {
+test('#8417 the switch is read even when the argument line is not, and a failed read is not asked again at once', () => {
   const tasks = { 'Kosmos\\agent-ava': { spec: taskFor('ava'), off: true, noArgs: true } };
   scheduler(tasks);
   assert.equal(job.cachedTaskSpec('ava').known, false, 'CONTROL: the definition really cannot be read as a spec');
   assert.deepEqual([...create.disabledJobsResult(undefined, 'win32').jobs], ['ava'], 'its switch still says off');
 
-  scheduler({ 'Kosmos\\agent-bo': { spec: taskFor('bo'), off: true } }, { xmlFails: new Set(['Kosmos\\agent-bo']) });
   const again = scheduler({ 'Kosmos\\agent-bo': { spec: taskFor('bo'), off: true } }, { xmlFails: new Set(['Kosmos\\agent-bo']) });
   create.disabledJobsResult(undefined, 'win32');
   assert.equal(xmlReads(again).length, 1, 'first sight asks once');
   again.length = 0;
   create.disabledJobsResult(undefined, 'win32');
-  assert.deepEqual(xmlReads(again), [], 'an unchanged Status word is not asked again, even after a failed read');
+  assert.deepEqual(xmlReads(again), [], 'a failed read is not asked again on the next poll');
+});
+
+test('#8417 a failed read is asked again a minute later, and then answers', () => {
+  let t = 1000000;
+  job.setRunner(null);
+  const opts = { xmlFails: new Set(['Kosmos\\agent-ava']) };
+  const calls = scheduler({ 'Kosmos\\agent-ava': { spec: taskFor('ava'), off: true } }, opts);
+  job.setRunningClock(() => t);
+  try {
+    assert.equal(create.disabledJobsResult(undefined, 'win32').jobs.size, 0, 'unread: not said to be off');
+    opts.xmlFails.clear();   // the next read would answer
+    t += 59999;
+    calls.length = 0;
+    assert.equal(create.disabledJobsResult(undefined, 'win32').jobs.size, 0);
+    assert.deepEqual(xmlReads(calls), [], 'not before the minute is up');
+    t += 1;
+    assert.deepEqual([...create.disabledJobsResult(undefined, 'win32').jobs], ['ava'], 'retried at the minute, it says off');
+    calls.length = 0;
+    t += 600000;
+    create.disabledJobsResult(undefined, 'win32');
+    assert.deepEqual(xmlReads(calls), [], 'a switch that WAS read is not asked again on time alone');
+  } finally { job.setRunningClock(null); }
+});
+
+test('#8417 at most four definitions are read per poll; the rest fill in on later polls', () => {
+  const tasks = {};
+  for (const n of ['a1', 'a2', 'a3', 'a4', 'a5', 'a6']) tasks['Kosmos\\agent-' + n] = { spec: taskFor(n), off: true };
+  const calls = scheduler(tasks);
+  assert.equal(create.disabledJobsResult(undefined, 'win32').jobs.size, 4, 'four read on the first poll');
+  assert.equal(xmlReads(calls).length, 4);
+  calls.length = 0;
+  assert.equal(create.disabledJobsResult(undefined, 'win32').jobs.size, 6, 'the other two on the next');
+  assert.equal(xmlReads(calls).length, 2);
+  // A word that moves past the cap drops what was read under the old word rather than reporting it.
+  for (const n of ['a1', 'a2', 'a3', 'a4', 'a5', 'a6']) { tasks['Kosmos\\agent-' + n].off = false; tasks['Kosmos\\agent-' + n].status = 'Ready'; }
+  assert.equal(create.disabledJobsResult(undefined, 'win32').jobs.size, 0, 'the four re-read say on, the two unread are not said off');
+});
+
+test('#8417 a task listed twice is one task: one definition read', () => {
+  const calls = scheduler({ 'Kosmos\\agent-ava': { spec: taskFor('ava'), off: true } }, { dupRows: true });
+  assert.deepEqual([...create.disabledJobsResult(undefined, 'win32').jobs], ['ava']);
+  assert.equal(xmlReads(calls).length, 1);
 });
 
 test('#8417 a task that left the folder and came back is read again', () => {
