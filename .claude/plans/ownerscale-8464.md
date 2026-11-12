@@ -29,6 +29,11 @@ later (engine/filenotices.js, through Kosmos's Claude Code hook), by when the ed
   name's device and inode must equal the open file's, so a folder swapped to a link for the moment of the open and back
   (which passes both folder checks) is not measured. The after-read folder checks are kept as a second line; the inode
   check is what a test pins.
+- Review 4, security: the file's identity (device and inode) is kept with the fingerprint, and at the hand-over a file
+  that existed then must be the same file now; otherwise "the file was replaced by a new one (written and renamed over
+  it), so Kosmos did not count the change". An outside file reached through every path check cannot share the inside
+  file's inode (multi-link files are refused). The folder is also checked inside the fingerprint, after the read and
+  before the name comparison. Cost: an edit by write-and-rename gets no count, only that sentence.
 - filewriters passes the path through (noteWrite -> ownerNotice -> queue). The room note is unchanged.
 
 ## Rejected
@@ -37,8 +42,10 @@ later (engine/filenotices.js, through Kosmos's Claude Code hook), by when the ed
 - A net line count: an edit replacing 50 lines with 50 others would read 0.
 
 ## Weakest premise
-That the remaining exposure is acceptable: an agent racing renames could at best make the board measure a file whose
-name and inode it controls inside the project, never one outside (the inode check). And that the line counts are worth
-this much care at all: the agents run as the same user and could read such a file themselves; the rule kept is that
-the BOARD never reads outside the project. Also: the "before" fingerprint is taken on setImmediate after the hook's
-answer, so the edit can land first; the no-change wording is hedged for that.
+What remains after four security rounds, stated rather than chased: a file that did not exist when the notice was made
+has no identity to pin, so a precisely timed double flip at the hand-over could count an outside file's lines for it;
+and the "before" fingerprint at queue time is path-checked but has no earlier identity to compare with. In both, only
+line COUNTS could reach the owner agent, about a file that agent (running as the same user) could read itself. The rule
+kept is that the board never reads outside the project; node has no openat, so a path is the only handle. Also: the
+"before" fingerprint is taken on setImmediate after the hook's answer, so the edit can land first; the no-change
+wording is hedged for that.

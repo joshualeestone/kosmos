@@ -54,7 +54,7 @@ function realDir(file) {
    the read on that open file, at most SCALE_MAX_BYTES + 1 bytes (review 1: no gap between the check and the read). A
    file that is not there reads as existed:false with no lines (a write that creates it). A trailing \r is dropped from
    each line, so a change of line endings alone does not read as a rewrite. Never throws. */
-function fingerprint(file) {
+function fingerprint(file, expectDir = null) {
   let fd = null;
   try {
     if (typeof file !== 'string' || !path.isAbsolute(file)) return null;
@@ -72,8 +72,11 @@ function fingerprint(file) {
       got += n;
       if (got > SCALE_MAX_BYTES) return { tooLarge: true };
     }
+    /* Review 4: the folder is checked HERE, after the read and before the name is compared, so a link would have to be
+       gone for this check and back for the lstat below, which one flip cannot do. */
+    if (expectDir !== null && realDir(file) !== expectDir) return null;
     /* Review 3: the name must still be the file that was opened. A folder swapped to a link for the moment of the open
-       and back again passes both folder checks; its outside file cannot have the inside name's device and inode (a file
+       and back again passes the folder checks; its outside file cannot have the inside name's device and inode (a file
        with more than one link is refused above). */
     const now = fs.lstatSync(file);
     if (now.dev !== st.dev || now.ino !== st.ino) return null;
@@ -81,7 +84,7 @@ function fingerprint(file) {
     const lines = text.split('\n');
     if (lines.length && lines[lines.length - 1] === '') lines.pop();
     if (lines.length > SCALE_MAX_LINES) return { tooLarge: true };
-    return { existed: true, lines: lines.map((l) => short(l.replace(/\r$/, ''))), whole: short(text) };
+    return { existed: true, lines: lines.map((l) => short(l.replace(/\r$/, ''))), whole: short(text), dev: st.dev, ino: st.ino };
   } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
@@ -91,6 +94,10 @@ function scaleOf(before, after) {
   if (!before || !after || !Array.isArray(before.lines)) return null;
   if (after.tooLarge) return { tooLarge: true };
   if (!Array.isArray(after.lines)) return null;
+  /* Review 4: a file that existed at the notice must be the same file (device and inode) at the hand-over; an outside
+     file cannot share the inside one's inode, since a file with more than one link is never measured. An edit that
+     writes a new file and renames it over the old one is "replaced", and not counted. */
+  if (before.existed && after.existed && (before.dev !== after.dev || before.ino !== after.ino)) return { replaced: true };
   if (before.existed && !after.existed) return { gone: true };
   if (!before.existed && !after.existed) return { notMade: true };
   const left = new Map();
@@ -109,6 +116,7 @@ function scaleWords(s) {
   if (!s) return '';
   if (s.gone) return ' So far: the file is gone.';
   if (s.notMade) return ' So far: the file has not been made yet.';
+  if (s.replaced) return ' So far: the file was replaced by a new one (written and renamed over it), so Kosmos did not count the change.';
   if (s.tooLarge) return ' So far: the file is now too large for Kosmos to count the change (over '
     + Math.round(SCALE_MAX_BYTES / 1024) + ' KB or ' + SCALE_MAX_LINES + ' lines).';
   if (s.created && !s.added) return ' So far: the file was made, empty.';
@@ -129,7 +137,7 @@ function withScale(notices) {
     /* Review 2: opened only by the pinned real folder and the file's own name (never the stored path walked again), and
        the folder checked again AFTER the read, so a link flipped between the check and the read gives no scale. */
     if (fp && typeof fp.file === 'string' && typeof fp.dir === 'string' && realDir(fp.file) === fp.dir) {
-      const now = fingerprint(path.join(fp.dir, path.basename(fp.file)));
+      const now = fingerprint(path.join(fp.dir, path.basename(fp.file)), fp.dir);
       if (realDir(fp.file) === fp.dir) scale = scaleOf(fp.before, now);
     }
     return scale ? { ...rest, scale } : rest;
@@ -169,7 +177,7 @@ function queue(owner, text, { now = Date.now(), file = null } = {}) {
        by that real folder and name, with the folder checked again after the read. A file already too large gets none. */
     const dirNow = file && typeof file === 'string' && path.isAbsolute(file) ? realDir(file) : null;
     if (dirNow && dirNow === path.dirname(file)) {
-      const before = fingerprint(path.join(dirNow, path.basename(file)));
+      const before = fingerprint(path.join(dirNow, path.basename(file)), dirNow);
       if (before && !before.tooLarge && realDir(file) === dirNow) entry.fp = { file, dir: dirNow, before };
     }
     fresh.push(entry);
