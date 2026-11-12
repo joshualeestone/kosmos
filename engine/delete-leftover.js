@@ -577,16 +577,18 @@ function plan(name, opts) {
     const st = strandedRefusal(clean, shown);
     if (st.because) return { ok: false, because: st.because };
     damagedSettings = st.damaged;
+    /* The way out, if the folder is gone for good: the task, named as Task Scheduler shows it, which a person can delete;
+       the row then holds settings alone, whose delete works. */
+    const wayOut = ` If that folder is gone for good, open Task Scheduler, delete ${String(job.label).split('\\').pop()} in the ${String(job.label).split('\\')[0]} folder of the Task Scheduler Library, then try again here.`;
     const wAt = resolveRecordedFolder(create.WORKERS_DIR);
-    if (wAt.because === 'dangling') return { ok: false, because: `the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected, so Kosmos will not delete ${shown}'s settings.` };
+    if (wAt.because === 'dangling') return { ok: false, because: `the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
     if (wAt.because) return { ok: false, because: `we could not check where ${shown}'s folder was, so we have not offered to delete anything. Try again in a moment.` };
     /* review 5: a workers folder that is not there at all (its drive not connected, or the folder renamed or moved) makes
        every agent with a task look like this too, and resolveRecordedFolder reads a missing drive as "the rest is gone".
        A task still registered while the whole workers folder is absent is never one agent's leftover, so refuse. */
     let workersThere = false;
     try { workersThere = fs.statSync(create.WORKERS_DIR).isDirectory(); } catch { workersThere = false; }
-    // The way out, if the folder is gone for good: the task, named as Task Scheduler shows it, which a person can delete.
-    if (!workersThere) return { ok: false, because: `the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete ${shown}'s settings. If that folder is gone for good, open Task Scheduler and delete ${String(job.label).split('\\').pop()} in the ${String(job.label).split('\\')[0]} folder of the Task Scheduler Library.` };
+    if (!workersThere) return { ok: false, because: `the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
   }
   const recordsOnly = Boolean(recs);
 
@@ -1217,8 +1219,14 @@ function settingsLeftovers(opts) {
   /* kosmos#8471: on Windows, a task still registered (job === true, never the null of a failed look) with no folder is
      listed too. No other screen shows it (the Windows roster lists only live sessions, and the restart notice needs a
      folder), so without this row nobody could delete it. plan() and del() already handle a task with no folder.
-     `startsAtLogin` lets the row say so rather than "only its settings". macOS and Linux are unchanged. */
-  const taskLeft = (a) => platform === 'win32' && a.job === true;
+     `startsAtLogin` lets the row say so rather than "only its settings". macOS and Linux are unchanged.
+     review 6: only while the workers folder is there as a folder. Missing or behind a link that leads nowhere (an
+     unplugged disk), every agent's folder reads as gone while its task is registered, and the list would call the whole
+     fleet leftovers; plan() refuses those clicks, and the list must not say it either. One stat per call, beside the
+     realpath this already takes of the same folder above. */
+  let workersThere = false;
+  if (platform === 'win32') { try { workersThere = fs.statSync(create.WORKERS_DIR).isDirectory(); } catch { workersThere = false; } }
+  const taskLeft = (a) => platform === 'win32' && workersThere && a.job === true;
   const names = s.agents
     .filter((a) => a.profile === true && a.folder === false && (a.job === false || taskLeft(a)) && !a.removed && !waiting.has(keyOf(a.name))
       && !running.has(fold(a.name)) && !outside(a.name))

@@ -236,7 +236,9 @@ test('kosmos#8471 review 4: a task left with no folder because the workers folde
   try {
     const p = win.plan(name);
     assert.equal(p.ok, false, 'a delete was offered while the workers folder leads nowhere: ' + JSON.stringify(p));
-    assert.match(p.because, /^the folder Kosmos keeps its agents in is behind a link that leads nowhere right now/);
+    assert.match(p.because, /^the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, .* so Kosmos will not delete dangle8471's settings\. If that folder is gone for good, open Task Scheduler, delete agent-dangle8471 in the Kosmos folder of the Task Scheduler Library, then try again here\.$/);
+    // review 6: and the list does not call it a leftover either.
+    assert.ok(!win.left().names.some((x) => x.name === name), 'listed as a leftover while the workers folder leads nowhere');
     const done = win.del(name);
     assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'the delete went ahead');
     assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings were deleted');
@@ -258,7 +260,9 @@ test('kosmos#8471 review 5: a task left with no folder because the workers folde
   try {
     const p = win.plan(name);
     assert.equal(p.ok, false, 'a delete was offered while the workers folder is not there: ' + JSON.stringify(p));
-    assert.match(p.because, /^the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete absent8471's settings\. If that folder is gone for good, open Task Scheduler and delete agent-absent8471 in the Kosmos folder of the Task Scheduler Library\.$/);
+    assert.match(p.because, /^the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete absent8471's settings\. If that folder is gone for good, open Task Scheduler, delete agent-absent8471 in the Kosmos folder of the Task Scheduler Library, then try again here\.$/);
+    // review 6: and the list does not call it a leftover either (the whole fleet would read as leftovers).
+    assert.ok(!win.left().names.some((x) => x.name === name), 'listed as a leftover while the workers folder is not there');
     const done = win.del(name);
     assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'the delete went ahead');
     assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings were deleted');

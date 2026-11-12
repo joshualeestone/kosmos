@@ -27,7 +27,7 @@ macOS and Linux are unchanged.
 - Not in this change: create.js nameHeld on win32 (#8466's second half). It lands after this, now that the leftover
   can be seen and deleted.
 - macOS: filed as #8474 and closed as not planned by its builder (the Mac board already shows a stopped agent with a plist and no folder, with its Delete), so this change is Windows only.
-- The weakest part: the removed list may still SHOW such a row while the workers folder is behind a dead link (it is polled, and that look can block on a share that is gone); the click is what is guarded (plan() refuses, review 4). Also startsAtLogin is set for a switched-off task too (the row's words stay true).
+- The weakest part: a profile that records a missing folder INSIDE the workers folder, with its task still registered, is offered (typing the name is required); that is a real leftover, but a folder that is only renamed by hand would read the same. Also startsAtLogin is set for a switched-off task too (the row's words stay true).
 
 ## Measured on the Windows box
 New file 7/7; negative controls: with origin's delete-leftover.js every test but 3 (the control) fails (part 1 alone: 1
@@ -73,3 +73,11 @@ before, 1442/116/25 after (the 116 are the same failures on this box both ways).
   if that folder is gone for good (the way out). New test; negative control: without the check it fails. (2) Comments
   no longer say "the same checks as settings alone": the task-only checks are stricter (settings alone go to the
   Recycle Bin, which can be undone). (3) The Measured numbers updated (7 tests).
+- Round 6 (no blocker; 1 warning, 3 nits). The reviewer tried every way a healthy agent's folder can read as missing
+  (dead junction or missing workers folder, a dead junction for the agent's own folder, a recorded folder on an
+  unconnected drive, an ACL-unreadable folder, a running agent, mid-move, mid-create, a world switch): plan() refuses
+  each. (1) FIXED the warning: the list itself still showed every stopped agent as "settings and startup job left"
+  while the workers folder was missing or a dead link; settingsLeftovers now lists a task only while the workers folder
+  is there as a folder (one stat per call). Negative control: without it, both workers-folder tests fail on the list
+  check. Nits fixed: both workers-folder refusals end with the same way out ("delete agent-X in the Kosmos folder of the
+  Task Scheduler Library, then try again here"); the plan's weakest part updated.
