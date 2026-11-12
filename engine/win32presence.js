@@ -77,9 +77,15 @@ function start(name, opts) {
   let stopped = false;
   /* A record left by an earlier run (a crash) names a pipe that is gone, and would say this agent is dead. It is
      removed before this run's pipe opens, so if that open or the write below fails, no record answers for this agent
-     and the board falls back to its state file. During a restart overlap this also removes the old supervisor's
-     record, which is about to be replaced anyway. */
-  try { fs.rmSync(presencePath(name), { force: true }); } catch (e) { onProblem('we could not remove an older presence record (' + ((e && e.code) || 'unknown') + ')'); }
+     and the board falls back to its state file. A record whose pipe still exists belongs to a supervisor that is still
+     up (a restart overlap), and stays: it is true until this run's own record replaces it. */
+  const pipeExists = typeof o.pipeExists === 'function' ? o.pipeExists : (p) => fs.existsSync(p);
+  const older = readPresence(name);
+  let olderUp = false;
+  try { olderUp = Boolean(older) && pipeExists(older.pipe) === true; } catch { olderUp = false; }
+  if (!olderUp) {
+    try { fs.rmSync(presencePath(name), { force: true }); } catch (e) { onProblem('we could not remove an older presence record (' + ((e && e.code) || 'unknown') + ')'); }
+  }
   /* A look at the pipe on Windows (fs.existsSync) opens a client connection, so every board poll arrives here. It is
      dropped at once, and a connection that errors on the way out (a reset) must not become an uncaught exception. */
   const server = net.createServer((socket) => { socket.on('error', () => {}); socket.destroy(); });
@@ -129,11 +135,15 @@ function presenceByName(opts) {
     const rec = readPresence(name);
     if (!rec) continue;
     let up = false;
-    try { up = pipeExists(rec.pipe) === true || (pause(RETRY_PAUSE_MS), pipeExists(rec.pipe) === true); } catch { up = false; }   // one retry, after a short pause: a look can meet a busy pipe
+    try { up = pipeExists(rec.pipe) === true; } catch { up = false; }
     if (up) { out.set(name, true); continue; }
     let pidAlive = true;
     try { pidAlive = isAlive(rec.pid) === true; } catch { pidAlive = true; }   // could not tell: decide nothing
-    if (!pidAlive) out.set(name, false);
+    if (!pidAlive) { out.set(name, false); continue; }   // a dead process holds no pipe: one look is enough, no pause
+    /* Its pid is alive, so the look may have met a busy pipe: one more look after a short pause. Still gone: this
+       record decides nothing (the pid may be someone else's now), and the state file answers. */
+    try { pause(RETRY_PAUSE_MS); up = pipeExists(rec.pipe) === true; } catch { up = false; }
+    if (up) out.set(name, true);
   }
   return out;
 }

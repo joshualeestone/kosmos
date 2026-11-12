@@ -29,6 +29,8 @@ const ss = require('./win32streamstate');
 const create = require('./create');
 
 const DIR = () => path.join(store.ROOT, 'win32-state');
+/* A made-up pipe name of the shape the reader accepts on Windows (a `kosmos-sup-` pipe); the pipeExists seam answers for it. */
+const FAKE = (tag) => presence.PIPE_PREFIX + 'test' + tag.replace(/[^a-z0-9]/gi, '');
 function reset() { fs.rmSync(DIR(), { recursive: true, force: true }); }
 let sockN = 0;
 /* A pipe path this process can listen on: the real namespace on Windows, a sandbox unix socket elsewhere. */
@@ -66,7 +68,7 @@ test('kosmos#8415: a supervisor up between children (no state file) is running, 
 test('kosmos#8415: a record whose pipe and pid are gone is a dead supervisor, even with a live pid in its state file (reuse, Fast Startup)', () => {
   reset();
   stateFile('ghost', 4242);   // the old child's pid, now somebody else's live process
-  presenceFile('ghost', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: 'gone-pipe' });
+  presenceFile('ghost', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('gone-pipe') });
   const alive = (pid) => pid === 4242;
   const running = ss.liveNames({ isAlive: alive, pipeExists: () => false });
   assert.equal(running.has('ghost'), false, 'a dead supervisor\'s agent read as running because its old pid is alive again');
@@ -76,31 +78,63 @@ test('kosmos#8415: a record whose pipe and pid are gone is a dead supervisor, ev
     'CONTROL: with no presence record the state-file rule no longer answers');
 });
 
-test('kosmos#8415 review 1: a pipe that looks gone while the record\'s pid is alive decides nothing (a busy pipe can miss a look)', () => {
+test('kosmos#8415 review 1: a pipe that looks gone while the record\'s pid is alive decides nothing (the control is the arm that can fail)', () => {
   reset();
   stateFile('busy', 4242);
-  presenceFile('busy', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: 'busy-pipe' });
+  presenceFile('busy', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('busy-pipe') });
   const running = ss.liveNames({ isAlive: () => true, pipeExists: () => false });
   assert.ok(running.has('busy'), 'one missed look at a live supervisor\'s pipe made a running agent read Not running');
   reset();
-  presenceFile('busy', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: 'busy-pipe' });
+  presenceFile('busy', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('busy-pipe') });
   assert.equal(ss.liveNames({ isAlive: () => true, pipeExists: () => false }).has('busy'), false,
     'CONTROL: with no state file to answer, an undecided record must not read running');
 });
 
 test('kosmos#8415 review 1: a look that misses once is retried', () => {
   reset();
-  presenceFile('retry', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: 'p' });
+  presenceFile('retry', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('retry') });
   let n = 0;
-  const running = ss.liveNames({ isAlive: () => false, pipeExists: () => (n++ > 0) });
+  const running = ss.liveNames({ isAlive: () => true, pipeExists: () => (n++ > 0) });
   assert.ok(running.has('retry'), 'a pipe seen on the second look read as gone');
   assert.equal(n, 2);
+});
+
+test('kosmos#8415 review 3: a missing pipe whose pid is dead is decided on one look, with no pause (a crashed run\'s record)', () => {
+  reset();
+  presenceFile('crashedrec', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('crashedrec') });
+  let n = 0;
+  const t0 = Date.now();
+  const running = ss.liveNames({ isAlive: () => false, pipeExists: () => { n += 1; return false; } });
+  assert.equal(running.has('crashedrec'), false);
+  assert.equal(n, 1, 'a dead supervisor\'s record was looked at twice (and paused) on every poll');
+  assert.ok(Date.now() - t0 < 1000);
+});
+
+test('kosmos#8415 review 3: a start keeps an older record whose pipe is still up (restart overlap), and drops one whose pipe is gone', () => {
+  reset();
+  presenceFile('overlap', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('olderup') });
+  const bad = path.join(SANDBOX, 'no-such-dir', 'y.sock');
+  let h = presence.start('overlap', { pipePath: bad, pipeExists: (p) => p === FAKE('olderup') });
+  h.stop();
+  assert.equal(presence.readPresence('overlap') && presence.readPresence('overlap').pipe, FAKE('olderup'),
+    'a start removed the record of an older supervisor that is still up');
+  h = presence.start('overlap', { pipePath: bad, pipeExists: () => false });
+  h.stop();
+  assert.equal(presence.readPresence('overlap'), null, 'CONTROL: a record whose pipe is gone survived a start');
+});
+
+test('kosmos#8415 review 3: on Windows a record that names a pipe that is not ours is ignored', { skip: process.platform !== 'win32' && 'the prefix rule applies only on Windows' }, () => {
+  reset();
+  stateFile('foreign', 9999);
+  presenceFile('foreign', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: '\\\\.\\pipe\\someone-else' });
+  assert.equal(presence.readPresence('foreign'), null);
+  assert.equal(ss.liveNames({ isAlive: () => false, pipeExists: () => true }).has('foreign'), false, 'a foreign pipe answered for the agent');
 });
 
 test('kosmos#8415 review 1: a leftover record from a crashed run is removed at start, so a pipe that then fails to open leaves the state file to answer', async () => {
   reset();
   stateFile('crashed', 4242);
-  presenceFile('crashed', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: 'old-dead-pipe' });
+  presenceFile('crashed', { v: presence.PRESENCE_VERSION, pid: 5151, pipe: FAKE('old-dead-pipe') });
   const problems = [];
   const h = presence.start('crashed', { pipePath: path.join(SANDBOX, 'no-such-dir', 'x.sock'), onProblem: (w) => problems.push(w) });
   try {
@@ -114,15 +148,15 @@ test('kosmos#8415 review 1: a leftover record from a crashed run is removed at s
 test('kosmos#8415: a pipe that is up decides even when the state file names a dead pid or none', () => {
   reset();
   stateFile('up', 9999);   // the last child's pid, now dead
-  presenceFile('up', { v: presence.PRESENCE_VERSION, pid: 4242, pipe: 'live-pipe' });
-  const running = ss.liveNames({ isAlive: () => false, pipeExists: (p) => p === 'live-pipe' });
+  presenceFile('up', { v: presence.PRESENCE_VERSION, pid: 4242, pipe: FAKE('live-pipe') });
+  const running = ss.liveNames({ isAlive: () => false, pipeExists: (p) => p === FAKE('live-pipe') });
   assert.ok(running.has('up'));
 });
 
 test('kosmos#8415: a record this version cannot read is ignored, and its agent falls back to the state-file rule', () => {
   reset();
   stateFile('odd', 4242);
-  presenceFile('odd', { v: 99, pid: 4242, pipe: 'p' });
+  presenceFile('odd', { v: 99, pid: 4242, pipe: FAKE('odd') });
   presenceFile('junk', 'not an object');
   fs.writeFileSync(path.join(DIR(), 'broken' + presence.PRESENCE_EXT), '{');
   let asked = 0;
@@ -135,10 +169,10 @@ test('kosmos#8415: a record this version cannot read is ignored, and its agent f
 
 test('kosmos#8415: a stop removes only its own record, never a newer supervisor\'s (restart overlap)', () => {
   reset();
-  presenceFile('swap', { v: presence.PRESENCE_VERSION, pid: process.pid + 1, pipe: 'newer' });
+  presenceFile('swap', { v: presence.PRESENCE_VERSION, pid: process.pid + 1, pipe: FAKE('newer') });
   assert.equal(presence.clearPresence('swap', process.pid), false, 'it reported removing a record that is not its own');
-  assert.equal(presence.readPresence('swap').pipe, 'newer', 'the newer supervisor\'s record was erased');
-  presenceFile('swap', { v: presence.PRESENCE_VERSION, pid: process.pid, pipe: 'mine' });
+  assert.equal(presence.readPresence('swap').pipe, FAKE('newer'), 'the newer supervisor\'s record was erased');
+  presenceFile('swap', { v: presence.PRESENCE_VERSION, pid: process.pid, pipe: FAKE('mine') });
   assert.equal(presence.clearPresence('swap', process.pid), true);
   assert.equal(presence.readPresence('swap'), null, 'its own record was not removed');
   assert.deepEqual(fs.readdirSync(DIR()).filter((f) => f.includes('.clear')), [], 'a claim file was left behind');
