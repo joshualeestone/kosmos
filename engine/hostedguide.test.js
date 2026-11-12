@@ -155,15 +155,27 @@ test('#3660 ask: a malformed conversation is a 400 and nothing is sent', async (
 
 /* ---- the tunnel call, through a fake tunnel binary ---------------------------- */
 
-function fakeTunnel(script) {
-  const bin = path.join(SANDBOX, 'fake-tunnel-' + Math.random().toString(36).slice(2) + '.sh');
-  fs.writeFileSync(bin, '#!/bin/bash\n' + script + '\n', { mode: 0o755 });
+/* kosmos#8378: the fake tunnel is a node script named .js, which remote.js runs through node (Windows cannot run a
+   script by its shebang line). It was a bash script; this does the same: (stdin: true) reads stdin to its end, and with
+   record writes its arguments on one line and then that stdin to the record file; prints out on stdout and err on
+   stderr; exits with code. */
+function fakeTunnel({ record = null, out = '', err = '', code = 0, stdin = true } = {}) {
+  const bin = path.join(SANDBOX, 'fake-tunnel-' + Math.random().toString(36).slice(2) + '.js');
+  fs.writeFileSync(bin, `'use strict';
+const fs = require('node:fs');
+const record = ${JSON.stringify(record)};
+const answer = (input) => {
+  if (record) fs.writeFileSync(record, process.argv.slice(2).join(' ') + '\\n' + input);
+  process.stdout.write(${JSON.stringify(out)}); process.stderr.write(${JSON.stringify(err)}); process.exitCode = ${Number(code)};
+};
+if (${stdin}) { let input = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', (c) => { input += c; }); process.stdin.on('end', () => answer(input)); } else answer('');
+`, { mode: 0o755 });
   return bin;
 }
 
-async function withTunnel(script, fn) {
+async function withTunnel(opts, fn) {
   const had = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
-  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeTunnel(script);
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeTunnel(opts);
   try { return await fn(); } finally {
     if (had === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_BIN; else process.env.AGENT_WORKFORCE_TUNNEL_BIN = had;
   }
@@ -171,7 +183,7 @@ async function withTunnel(script, fn) {
 
 test('#3660 remote.assistantChat: runs the assistant-chat verb, body on stdin, and reads {status, body}', async () => {
   const out = path.join(SANDBOX, 'argv-and-stdin.txt');
-  const r = await withTunnel(`printf '%s\\n' "$*" > '${out}'; cat >> '${out}'; printf '{"status":200,"body":{"reply":"hi","remaining":3}}'`, () => remote.assistantChat({ messages: [U('q')] }));
+  const r = await withTunnel({ record: out, out: '{"status":200,"body":{"reply":"hi","remaining":3}}' },() => remote.assistantChat({ messages: [U('q')] }));
   assert.deepEqual(r, { ok: true, status: 200, body: { reply: 'hi', remaining: 3 } });
   const seen = fs.readFileSync(out, 'utf8');
   assert.match(seen.split('\n')[0], /^assistant-chat --coordinator \S+ --state-dir \S+$/);
@@ -180,16 +192,16 @@ test('#3660 remote.assistantChat: runs the assistant-chat verb, body on stdin, a
 });
 
 test('#3660 remote.assistantChat: a refusal is still an answer; a missing verb, a failure and a bad shape are not', async () => {
-  const refused = await withTunnel(`cat >/dev/null; printf '{"status":429,"body":{"error":"limit","code":"assistant_daily"}}'`, () => remote.assistantChat({}));
+  const refused = await withTunnel({ out: '{"status":429,"body":{"error":"limit","code":"assistant_daily"}}' },() => remote.assistantChat({}));
   assert.deepEqual(refused, { ok: true, status: 429, body: { error: 'limit', code: 'assistant_daily' } });
   // The SHIPPED tunnel's exact output (measured 2026-09-24): the key line is FIRST, then usage.
-  const old = await withTunnel(`printf "error: unrecognized subcommand 'assistant-chat'\n\nUsage: kosmos-tunnel <COMMAND>\n\nFor more information, try '--help'.\n" >&2; exit 2`, () => remote.assistantChat({}));
+  const old = await withTunnel({ stdin: false, err: "error: unrecognized subcommand 'assistant-chat'\n\nUsage: kosmos-tunnel <COMMAND>\n\nFor more information, try '--help'.\n", code: 2 },() => remote.assistantChat({}));
   assert.equal(old.ok, false);
   assert.equal(old.unsupported, true);
-  const down = await withTunnel(`echo 'could not reach the coordinator' >&2; exit 1`, () => remote.assistantChat({}));
+  const down = await withTunnel({ stdin: false, err: 'could not reach the coordinator\n', code: 1 },() => remote.assistantChat({}));
   assert.equal(down.ok, false);
   assert.notEqual(down.unsupported, true);
-  const odd = await withTunnel(`cat >/dev/null; printf 'not json'`, () => remote.assistantChat({}));
+  const odd = await withTunnel({ out: 'not json' },() => remote.assistantChat({}));
   assert.equal(odd.ok, false);
   assert.match(odd.because, /shape we could not read/);
 });

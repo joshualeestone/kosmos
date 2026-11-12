@@ -39,18 +39,46 @@ process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coord.example.test/kos
 
 // A fake tunnel binary: records its argv and stdin, answers a minted token.
 const TUNNEL_LOG = path.join(SANDBOX, 'tunnel.log');
-const FAKE_TUNNEL = path.join(SANDBOX, 'fake-kosmos-tunnel');
 const MINTED = 'knt1_testtoken0123456789';
-/* The record every fake tunnel writes for a call: mints() counts "ARGV: mac-request" in it (#4136: one copy). It is
-   ONE printf, so one append: written piece by piece, two tunnels running at once interleaved their pieces
-   ("ARGV:ARGV: mac-request ...") and the count read one mint where there were two. */
-const LOG_CALL = `in=$(cat); printf 'ARGV:%s\\nSTDIN:%s\\n' "$(printf ' %s' "$@")" "$in" >> "${TUNNEL_LOG}"`;
-/* Waits (up to about 60s) for a gate file before answering, so a test can hold a mint open (#4136). */
-const WAIT_GATE = (gate) => `n=0; while [ ! -f "${gate}" ] && [ $n -lt 3000 ]; do sleep 0.02; n=$((n + 1)); done`;
-fs.writeFileSync(FAKE_TUNNEL, `#!/bin/bash
-${LOG_CALL}
-printf '{"token":"${MINTED}"}\\n'
+/* kosmos#8378: every fake tunnel here is a node script named .js, which the board runs through node
+   (engine/tunnelcommand.js); Windows cannot run a script by its shebang line. These were bash scripts; each keeps
+   what its bash version did:
+     log    the record every fake tunnel writes for a call: mints() counts "ARGV: mac-request" in it (#4136: one copy).
+            It is ONE append: written piece by piece, two tunnels running at once interleaved their pieces
+            ("ARGV:ARGV: mac-request ...") and the count read one mint where there were two. Stdin is read to its end
+            first, its trailing newlines dropped (as bash's $(cat) did).
+     gate   waits (up to about 60s) for a gate file before answering, so a test can hold a mint open (#4136).
+     out, err, code   what it prints on stdout and stderr, and its exit code.
+     hang   reads stdin, then sits for 30 seconds without answering.
+     stdin  false: exits without reading stdin (the old tunnel, which refuses the verb at once). */
+function fakeTunnel(name, { log = true, gate = null, out = '', err = '', code = 0, hang = false, stdin = true } = {}) {
+  const f = path.join(SANDBOX, name + '.js');
+  fs.writeFileSync(f, `'use strict';
+const fs = require('node:fs');
+const answer = () => {
+  ${JSON.stringify(out)} && process.stdout.write(${JSON.stringify(out)});
+  ${JSON.stringify(err)} && process.stderr.write(${JSON.stringify(err)});
+  process.exitCode = ${Number(code)};
+};
+const after = (input) => {
+  if (${hang}) { setTimeout(() => {}, 30000); return; }
+  if (${log}) fs.appendFileSync(${JSON.stringify(TUNNEL_LOG)}, 'ARGV:' + process.argv.slice(2).map((a) => ' ' + a).join('') + '\\nSTDIN:' + input.replace(/\\n+$/, '') + '\\n');
+  const gate = ${JSON.stringify(gate)};
+  if (!gate) { answer(); return; }
+  let n = 0;
+  const wait = () => { if (fs.existsSync(gate) || n >= 3000) { answer(); return; } n += 1; setTimeout(wait, 20); };
+  wait();
+};
+if (!${stdin}) { answer(); } else {
+  let input = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (c) => { input += c; });
+  process.stdin.on('end', () => after(input));
+}
 `, { mode: 0o755 });
+  return f;
+}
+const FAKE_TUNNEL = fakeTunnel('fake-kosmos-tunnel', { out: `{"token":"${MINTED}"}\n` });
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL;
 
 const { start, server, boardAuthState } = require('./server');
@@ -420,7 +448,7 @@ test('turning on always mints a fresh token, one turn-on at a time', async () =>
     if (arrived === 2) openGate();
     return realTurnOn(...args);
   };
-  process.env.AGENT_WORKFORCE_TUNNEL_BIN = tunnelScript('gated-tunnel', `${LOG_CALL}\n${WAIT_GATE(GATE)}\nprintf '{"token":"${MINTED}"}\\n'`);
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeTunnel('gated-tunnel', { gate: GATE, out: `{"token":"${MINTED}"}\n` });
   process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS = '90000';
   let answers;
   try {
@@ -447,8 +475,7 @@ test('turning on always mints a fresh token, one turn-on at a time', async () =>
 
 test('a tunnel too old for mac-request says this computer needs an update, not that Kosmos+ is down', async () => {
   enrol();
-  const old = path.join(SANDBOX, 'old-tunnel');
-  fs.writeFileSync(old, "#!/bin/bash\necho \"error: unrecognized subcommand 'mac-request'\" >&2\nexit 2\n", { mode: 0o755 });
+  const old = fakeTunnel('old-tunnel', { stdin: false, log: false, err: "error: unrecognized subcommand 'mac-request'\n", code: 2 });
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = old;
   try {
     const r = await call('PUT', '/api/phone-notify', { body: { on: true } });
@@ -458,15 +485,9 @@ test('a tunnel too old for mac-request says this computer needs an update, not t
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
 });
 
-function tunnelScript(name, body) {
-  const f = path.join(SANDBOX, name);
-  fs.writeFileSync(f, '#!/bin/bash\n' + body + '\n', { mode: 0o755 });
-  return f;
-}
-
 test('a hung tunnel times out: turning on fails in plain words, and the next turn-on is not stuck', async () => {
   enrol();
-  process.env.AGENT_WORKFORCE_TUNNEL_BIN = tunnelScript('hung-tunnel', 'cat >/dev/null; exec sleep 30');
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeTunnel('hung-tunnel', { log: false, hang: true });
   process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS = '500';
   try {
     const t0 = Date.now();
@@ -495,7 +516,7 @@ test('turning off while a turn-on is still minting ends off', async () => {
   const openGate = () => fs.writeFileSync(GATE, '');
   const fallback = setTimeout(openGate, 45000);
   phonenotify.turnOff = (...args) => { offArrived = true; openGate(); return realTurnOff(...args); };
-  process.env.AGENT_WORKFORCE_TUNNEL_BIN = tunnelScript('slow-tunnel', `${LOG_CALL}\n${WAIT_GATE(GATE)}\nprintf '{"token":"${MINTED}"}\\n'`);
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeTunnel('slow-tunnel', { gate: GATE, out: `{"token":"${MINTED}"}\n` });
   process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS = '90000';
   try {
     const onP = call('PUT', '/api/phone-notify', { body: { on: true } });
@@ -697,8 +718,7 @@ test('#6488: the default retries with a doubling wait, and waits the longest aft
   ctl.stop();
   // Connected, the mint fails: each failure doubles the wait, up to the cap, and stays there.
   enrol();
-  const failing = path.join(SANDBOX, 'fail-tunnel');
-  fs.writeFileSync(failing, '#!/bin/bash\n' + LOG_CALL + '\necho "coordinator said no" >&2; exit 1\n', { mode: 0o755 });
+  const failing = fakeTunnel('fail-tunnel', { err: 'coordinator said no\n', code: 1 });
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = failing;
   waits.length = 0; runs.length = 0;
   try {
@@ -717,8 +737,7 @@ test('#6488: the default retries with a doubling wait, and waits the longest aft
     ctl.stop();
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
   // The mint succeeds but its answer cannot be used: the longest wait (each retry replaces the token there).
-  const bad = path.join(SANDBOX, 'bad-tunnel');
-  fs.writeFileSync(bad, '#!/bin/bash\n' + LOG_CALL + '\nprintf \'{"token":"not-a-token"}\\n\'\n', { mode: 0o755 });
+  const bad = fakeTunnel('bad-tunnel', { out: '{"token":"not-a-token"}\n' });
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = bad;
   waits.length = 0; runs.length = 0;
   try {
@@ -755,7 +774,8 @@ test('#6488: an off with no token ever minted is still kept through a sub-switch
   assert.equal(mints(), 0);
 });
 
-test('#6488: an off that could not be saved is not kept for later either', async () => {
+// kosmos#8378: the save is made to fail by a read-only folder mode, which Windows does not keep, so there it would save.
+test('#6488: an off that could not be saved is not kept for later either', { skip: require('./test-support/skip-on-win32').skipOnWin32('it makes the save fail with a read-only POSIX folder mode (chmod 0o500), which Windows does not keep') }, async () => {
   enrol();
   assert.equal((await call('PUT', '/api/phone-notify', { body: { on: true } })).json.on, true);
   fs.chmodSync(STATE, 0o500);   // the state save fails
@@ -771,7 +791,7 @@ test('#6488: an off that could not be saved is not kept for later either', async
 async function withHeldDefaultMint(during) {
   const gate = path.join(SANDBOX, 'default-gate');
   fs.rmSync(gate, { force: true });
-  process.env.AGENT_WORKFORCE_TUNNEL_BIN = tunnelScript('default-gated-tunnel', `${LOG_CALL}\n${WAIT_GATE(gate)}\nprintf '{"token":"${MINTED}"}\\n'`);
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = fakeTunnel('default-gated-tunnel', { gate, out: `{"token":"${MINTED}"}\n` });
   process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS = '90000';
   try {
     const def = phonenotify.ensureDefaultOn();
@@ -942,8 +962,7 @@ test('#6488: on, then Kosmos+ switched off: nothing is sent, and Settings says s
 
 test('#6488: a failed default turn-on says why in Settings, and a turned-off computer never shows a reason', async () => {
   enrol();
-  const failing = path.join(SANDBOX, 'fail-tunnel-2');
-  fs.writeFileSync(failing, '#!/bin/bash\n' + LOG_CALL + '\necho "no" >&2; exit 1\n', { mode: 0o755 });
+  const failing = fakeTunnel('fail-tunnel-2', { err: 'no\n', code: 1 });
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = failing;
   const realWrite = process.stderr.write; process.stderr.write = () => true;
   try { assert.equal((await phonenotify.ensureDefaultOn()).ok, false); } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; process.stderr.write = realWrite; }

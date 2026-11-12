@@ -33,9 +33,11 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';   // nothing here may star
 const STATE = mk('remote');
 process.env.AGENT_WORKFORCE_TUNNEL_STATE = STATE;
 process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coord.example.test/kosmos';
-// A fake tunnel: answers the notify-token mint that turning notifications on makes.
-const FAKE_TUNNEL = path.join(SANDBOX, 'fake-kosmos-tunnel');
-fs.writeFileSync(FAKE_TUNNEL, '#!/bin/bash\ncat >/dev/null\nprintf \'{"token":"knt1_renamepush0123456789"}\\n\'\n', { mode: 0o755 });
+// A fake tunnel: answers the notify-token mint that turning notifications on makes. kosmos#8378: a node script named
+// .js, which the board runs through node (Windows cannot run a script by its shebang line); it was a bash script that
+// read stdin to its end and printed the token, as this does.
+const FAKE_TUNNEL = path.join(SANDBOX, 'fake-kosmos-tunnel.js');
+fs.writeFileSync(FAKE_TUNNEL, "'use strict';\nprocess.stdin.resume();\nprocess.stdin.on('end', () => process.stdout.write('{\"token\":\"knt1_renamepush0123456789\"}\\n'));\n", { mode: 0o755 });
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL;
 
 const store = require('./engine/store');

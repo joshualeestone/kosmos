@@ -24,8 +24,13 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fak
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 // A connector that says it strips the session headers (kosmos-relay sessioniat-6595's `capabilities` verb), so the
 // gate trusts them; the connector that does not is tested on the function below.
-const CONNECTOR = path.join(SANDBOX, 'kosmos-tunnel');
-fs.writeFileSync(CONNECTOR, '#!/bin/sh\n[ "$1" = capabilities ] && printf "session-headers\\n" && exit 0\nexit 1\n', { mode: 0o755 });
+/* kosmos#8378: every stand-in connector here is a node script named .js, which the board runs through node
+   (engine/tunnelcommand.js); Windows cannot run a script by its shebang line. These were /bin/sh scripts doing the
+   same thing. */
+const connector = (name, body) => { const f = path.join(SANDBOX, name + '.js'); fs.writeFileSync(f, "'use strict';\n" + body + '\n', { mode: 0o755 }); return f; };
+const SAYS_YES = "process.stdout.write('session-headers\\n');";
+const SAYS_UNKNOWN = 'process.exitCode = 2;';   // an older connector: the verb is unknown
+const CONNECTOR = connector('kosmos-tunnel', "if (process.argv[2] === 'capabilities') " + SAYS_YES + ' else process.exitCode = 1;');
 process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;
 
 const test = require('node:test');
@@ -303,8 +308,7 @@ test('R01: the connector is never asked while a request waits: with no answer ke
 
 test('R01: an old connector is asked again after ten minutes, one that did not answer after thirty seconds', async () => {
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
-  const old = path.join(SANDBOX, 'old-tunnel');
-  fs.writeFileSync(old, '#!/bin/sh\nexit 2\n', { mode: 0o755 });   // an older connector: the verb is unknown
+  const old = connector('old-tunnel', SAYS_UNKNOWN);   // an older connector: the verb is unknown
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = old;
     reset();
@@ -327,8 +331,7 @@ test('R01: an old connector is asked again after ten minutes, one that did not a
 
 test('R01: over HTTP, a connector that cannot vouch refuses a fresh remote session (key route, unreadable body)', async () => {
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
-  const old = path.join(SANDBOX, 'old-tunnel-http');
-  fs.writeFileSync(old, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+  const old = connector('old-tunnel-http', SAYS_UNKNOWN);
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = old;
     reset();
@@ -342,10 +345,8 @@ test('R01: over HTTP, a connector that cannot vouch refuses a fresh remote sessi
 test('R01: a late answer from an earlier ask is dropped (generations), and starting a tunnel asks anew', async () => {
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
   // The earlier connector would vouch, but slowly; the one now in place does not. Its late "yes" must not be trusted.
-  const slowYes = path.join(SANDBOX, 'slow-yes-tunnel');
-  fs.writeFileSync(slowYes, '#!/bin/sh\nsleep 0.3\nprintf "session-headers\\n"\n', { mode: 0o755 });
-  const no = path.join(SANDBOX, 'no-tunnel');
-  fs.writeFileSync(no, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+  const slowYes = connector('slow-yes-tunnel', 'setTimeout(() => { ' + SAYS_YES + ' }, 300);');
+  const no = connector('no-tunnel', SAYS_UNKNOWN);
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = slowYes;
     reset();
@@ -360,15 +361,14 @@ test('R01: a late answer from an earlier ask is dropped (generations), and start
 
 test('R01: a tunnel restart on the same binary keeps a yes; a changed binary is asked again', async () => {
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
-  const yes = path.join(SANDBOX, 'yes-tunnel');
-  fs.writeFileSync(yes, '#!/bin/sh\nprintf "session-headers\\n"\n', { mode: 0o755 });
+  const yes = connector('yes-tunnel', SAYS_YES);
   try {
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = yes;
     reset();
     await warm();
     remote.forgetConnectorCapabilities();   // a tunnel restarts on the same binary
     assert.ok(remote.connectorCapabilities().has('session-headers'), 'a restart on the same binary lost the answer');
-    fs.writeFileSync(yes, '#!/bin/sh\nexit 2\n', { mode: 0o755 });   // the binary changes (an update)
+    connector('yes-tunnel', SAYS_UNKNOWN);   // the binary changes (an update)
     const later = new Date(Date.now() + 5000); fs.utimesSync(yes, later, later);
     remote.forgetConnectorCapabilities();
     assert.equal((await warm()).size, 0, 'a changed binary kept the old yes');
@@ -423,8 +423,7 @@ test('R01b: while a tunnel runs here, only what that process lists in its status
     await warm();
     assert.equal(remote.connectorCapabilities().size, 0, 'with no tunnel running, the binary alone vouched');
     // The running process cannot widen the binary's answer: it only narrows.
-    const no = path.join(SANDBOX, 'no-tunnel-6616');
-    fs.writeFileSync(no, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+    const no = connector('no-tunnel-6616', SAYS_UNKNOWN);
     const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = no;
     try {

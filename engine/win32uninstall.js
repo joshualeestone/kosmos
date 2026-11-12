@@ -678,7 +678,10 @@ function retirePc(o) {
     // stdio 'ignore' (the Mac script discards the connector's output too, setup.sh >/dev/null):
     // we read only the exit status, and capturing would risk an ENOBUFS error on a chatty connector
     // overflowing the default 1 MB buffer, which would read as a false "could not be told".
-    r = run(tunnelBin, ['retire', '--coordinator', o.coordinator, '--state-dir', o.remoteDir],
+    // kosmos#8378: started as remote.js starts the connector (engine/tunnelcommand.js): a .js stand-in runs through
+    // node, since Windows cannot run a script by its shebang line; a real connector binary is run as given.
+    const cmd = require('./tunnelcommand').tunnelCommand(tunnelBin, ['retire', '--coordinator', o.coordinator, '--state-dir', o.remoteDir]);
+    r = run(cmd.file, cmd.args,
       { timeout: o.timeoutMs || RETIRE_TIMEOUT_MS, windowsHide: true, stdio: 'ignore' });
   } catch { return { told: false }; }   // spawn itself threw
   // Timed out (r.error ETIMEDOUT + r.signal), killed, or a non-zero exit: all "could not be told".

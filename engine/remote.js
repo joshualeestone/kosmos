@@ -70,6 +70,11 @@ const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, execFile, execFileSync } = require('node:child_process');
+/* kosmos#8378: every start of the connector goes through tunnelCommand(BIN(), args). A path ending in .js or .cjs is a
+   JavaScript stand-in for the connector, which Windows cannot run by its shebang line, so it runs as this node with
+   the script first. A real connector binary never ends in .js, and AGENT_WORKFORCE_TUNNEL_BIN already decides what is
+   run, so this widens nothing; any other path is started exactly as before. */
+const { tunnelCommand } = require('./tunnelcommand');
 // Narrow test seam for setupRun's child lifecycle. The supervised tunnel uses
 // spawn directly and cannot be replaced through this seam.
 let setupSpawn = spawn;
@@ -338,7 +343,8 @@ function warmConnectorCapabilities(done = () => {}) {
   const generation = capabilitiesGeneration;
   const binary = connectorBinaryKey();
   try {
-    const child = execFile(BIN(), ['capabilities'], connectorSpawnOptions({ encoding: 'utf8', timeout: CAPABILITIES_ASK_TIMEOUT_MS }), (err, stdout) => {
+    const cmd = tunnelCommand(BIN(), ['capabilities']);
+    const child = execFile(cmd.file, cmd.args, connectorSpawnOptions({ encoding: 'utf8', timeout: CAPABILITIES_ASK_TIMEOUT_MS }), (err, stdout) => {
       // Answered = it ran to an exit code (an old connector's unknown verb is an answer); killed or unstartable is not.
       const answered = !err || (typeof err.code === 'number' && !err.killed);
       done(noteCapabilities(err ? new Set() : capabilityLines(stdout), answered, Date.now(), generation, binary));
@@ -1146,7 +1152,8 @@ function fedSeatArgs(target) {
   return args;
 }
 function spawnFedSeat(target) {
-  return spawn(BIN(), fedSeatArgs(target), connectorSpawnOptions({ stdio: ['pipe', 'pipe', 'inherit'] }));
+  const cmd = tunnelCommand(BIN(), fedSeatArgs(target));
+  return spawn(cmd.file, cmd.args, connectorSpawnOptions({ stdio: ['pipe', 'pipe', 'inherit'] }));
 }
 
 function startChild() {
@@ -1192,7 +1199,8 @@ function startChild() {
     const env = { ...process.env };
     envDelete(env, 'KOSMOS_BOARD_TOKEN_FILE');   // never a stale one inherited from the launcher, in any spelling (with no token file, nothing replaces it)
     if (tokenFile) envSet(env, 'KOSMOS_BOARD_TOKEN_FILE', tokenFile);
-    spawned = spawn(BIN(), args, connectorSpawnOptions({ stdio: ['ignore', 'ignore', 'inherit'], env }));
+    const cmd = tunnelCommand(BIN(), args);
+    spawned = spawn(cmd.file, cmd.args, connectorSpawnOptions({ stdio: ['ignore', 'ignore', 'inherit'], env }));
   } catch (err) {
     restartBecause = 'the tunnel program could not be started: ' + (err && err.message);
     process.stderr.write('remote: ' + restartBecause + '\n');
@@ -1386,7 +1394,8 @@ function setupRun(args, stdin = null, timeoutMs = 0, opts = {}) {
     try {
       // Only a registration run takes an accepted key (opts.register): no other verb registers.
       const env = setupEnv(opts && opts.register ? takeAcceptedKey() : null, shipped);
-      spawned = setupSpawn(BIN(), args, connectorSpawnOptions({ stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) }));
+      const cmd = tunnelCommand(BIN(), args);
+      spawned = setupSpawn(cmd.file, cmd.args, connectorSpawnOptions({ stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) }));
     } catch (err) {
       finish({ ok: false, because: 'the tunnel program could not be started: ' + (err && err.message) });
       return;

@@ -12277,7 +12277,7 @@ test('the sign-up succeeds end to end through the routes, with the fake binary (
      suite uses. */
   const os = require('node:os');
   const sb = fs.realpathSync(mkTemp('plusflow-'));
-  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  const fakeBin = nodePath.join(sb, 'fake-tunnel.js');   // kosmos#8378: .js, run through node (Windows cannot run a shebang)
   fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
     "if (process.argv[2] === 'setup') process.exit(0);",
     'process.exit(0);', ''].join('\n'));
@@ -12350,7 +12350,7 @@ test('the sign-up start refuses a non-email before anything spawns', async () =>
 test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers the rows without the token, and refuses another website', async () => {
   const http = require('node:http');
   const sb = fs.realpathSync(mkTemp('signin-addr-'));
-  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  const fakeBin = nodePath.join(sb, 'fake-tunnel.js');   // kosmos#8378: .js, run through node (Windows cannot run a shebang)
   fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
     'const a = process.argv.slice(2);',
     "if (a[0] === 'signin' && a[1] === 'start') { console.log(JSON.stringify({ stage: 'code_sent' })); process.exit(0); }",
@@ -12422,7 +12422,7 @@ test('#4756: GET /api/remote/signin-addresses needs the held sign-in, answers th
    names that start and is kept once the start has gone out. */
 test('#5995: the name this computer is sent under can be read first, rides the start and is kept after it, and is refused to another website', async () => {
   const sb = fs.realpathSync(mkTemp('computer-name-'));
-  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  const fakeBin = nodePath.join(sb, 'fake-tunnel.js');   // kosmos#8378: .js, run through node (Windows cannot run a shebang)
   const argvLog = nodePath.join(sb, 'argv.jsonl');
   fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
     'const a = process.argv.slice(2);',
@@ -12555,7 +12555,7 @@ test('#5995: the name this computer is sent under can be read first, rides the s
 
 test('the in-app sign-in runs end to end through the routes, and the session token never crosses the HTTP boundary', async () => {
   const sb = fs.realpathSync(mkTemp('signin-'));
-  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  const fakeBin = nodePath.join(sb, 'fake-tunnel.js');   // kosmos#8378: .js, run through node (Windows cannot run a shebang)
   fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
     "const fs = require('node:fs'); const path = require('node:path');",
     'const a = process.argv.slice(2);',
@@ -12649,7 +12649,7 @@ test('the in-app sign-in runs end to end through the routes, and the session tok
 
 test('the in-app enrol flow runs end to end through the routes, and no enrol token crosses the HTTP boundary', async () => {
   const sb = fs.realpathSync(mkTemp('signin-enrol-'));
-  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  const fakeBin = nodePath.join(sb, 'fake-tunnel.js');   // kosmos#8378: .js, run through node (Windows cannot run a shebang)
   fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
     "const fs = require('node:fs'); const path = require('node:path');",
     'const a = process.argv.slice(2);',
@@ -17175,7 +17175,7 @@ test('#4771: a task is put on hold and taken off through its route; a project is
 
 test('kosmos#5628: a managed computer sets up through the company sign-in routes, and no answer carries the secret', async () => {
   const sb = fs.realpathSync(mkTemp('companyflow-'));
-  const fakeBin = nodePath.join(sb, 'fake-tunnel');
+  const fakeBin = nodePath.join(sb, 'fake-tunnel.js');   // kosmos#8378: .js, run through node (Windows cannot run a shebang)
   fs.writeFileSync(fakeBin, ['#!/usr/bin/env node',
     "const a = process.argv.slice(2);",
     "if (a[0] === 'setup' && a[1] === 'company-start') { console.log(JSON.stringify({ setupId: 'setup-r', secret: 'ROUTE-SECRET', matchCode: 'Q4-7X', url: a[a.indexOf('--coordinator') + 1].replace(/\\/+$/, '') + '/v1/sso/begin?x', interval: 5, expiresIn: 900 })); process.exit(0); }",

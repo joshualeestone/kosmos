@@ -25,7 +25,9 @@ for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(no
 process.env.AGENT_WORKFORCE_TUNNEL_STATE = EMPTY_STATE;   // not enrolled, so the switch starts no tunnel
 
 const RECORD = nodePath.join(SANDBOX, 'tunnel-calls.jsonl');
-const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel');
+// kosmos#8378: a .js name, so remote.js runs it through node (engine/tunnelcommand.js); Windows cannot run a script by
+// its shebang line.
+const FAKE_BIN = nodePath.join(SANDBOX, 'fake-kosmos-tunnel.js');
 fs.writeFileSync(FAKE_BIN, `#!/usr/bin/env node
 require('node:fs').appendFileSync(${JSON.stringify(RECORD)}, JSON.stringify(process.argv.slice(2)) + '\\n');
 // kosmos#5422: an older tunnel, which refuses the device-key verb as a usage error (exit 2).

@@ -33,7 +33,9 @@ const https = require('node:https');
 
 function makeFakeTunnel() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-fake-mac-request-'));
-  const bin = path.join(dir, 'fake-kosmos-tunnel');
+  // kosmos#8378: a .js name, so the board runs it through node (engine/tunnelcommand.js); Windows cannot run a script
+  // by its shebang line.
+  const bin = path.join(dir, 'fake-kosmos-tunnel.js');
   const recordFile = path.join(dir, 'record.jsonl');
   fs.writeFileSync(bin, `#!/usr/bin/env node
 'use strict';
