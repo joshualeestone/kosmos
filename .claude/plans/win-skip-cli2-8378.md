@@ -14,8 +14,9 @@ that spawn (191 tests). Re-run on origin/main 4c6f97acd7 in this worktree.
 
 ## Change (test-only; no production code)
 - One `SKIP_POSIX_SHELL` per file with the established shebang reason (false off Windows).
-- Mac-only tests skip on Windows (158). Tests that drive BOTH CLIs keep running on Windows with only their Mac steps and
-  the assertions reading the stub's `seen` list (filled only by the Mac CLI) guarded (33 tests). Every Windows-CLI step
+- Mac-only tests skip on Windows (154, counted from the runs on the box). Tests that drive BOTH CLIs keep running on
+  Windows with only their Mac steps and the assertions reading the stub's `seen` list (filled only by the Mac CLI)
+  guarded (33 tests). The other 4 of the 191 now pass with no guard of their own (not separately explained). Every Windows-CLI step
   and assertion still runs there.
 - tools/windows-tests.js: 14 HOST_BRANCH_EXCLUDED entries, placed after the create.tmux-linux-4917 entry (the fifth
   cluster's open PR adds its entries elsewhere in the object, so the two do not conflict).
