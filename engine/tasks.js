@@ -114,6 +114,37 @@ function doneWhenWords(list) {
   return Array.isArray(list) && list.length ? list.map((c, i) => (i + 1) + ') ' + c).join(' ') : null;
 }
 
+/* #8464 item 2: how each check went, as the agent reports it (`kosmos task check <p> <n> <i> met|unmet "<how>"`).
+   doneWhenResults is index-aligned with doneWhen: entry i is null (not reported) or { met, how, by, at }. A separate
+   field, so doneWhen stays a list of strings and none of its readers change. It is an agent's REPORT, never a
+   verification: every reader says "agent says met". Nothing parses the built note (#5705). The results go when what
+   they describe goes: a changed check drops its own result, a new list drops them all, and taking the built mark off,
+   new work and a reopen drop them with the landed commit (LANDED_FIELDS). Closing keeps them, as it keeps the commit. */
+const CHECK_HOW_MAX = 200;
+/** The results as stored, aligned with `t.doneWhen`: a list of the same length, or null when there are no checks. */
+function checkResultsOf(t) {
+  const checks = t && Array.isArray(t.doneWhen) && t.doneWhen.length ? t.doneWhen : null;
+  if (!checks) return null;
+  const stored = Array.isArray(t.doneWhenResults) ? t.doneWhenResults : [];
+  return checks.map((_, i) => {
+    const r = stored[i];
+    return r && typeof r === 'object' && typeof r.met === 'boolean' && typeof r.how === 'string'
+      ? { met: r.met, how: r.how, by: typeof r.by === 'string' ? r.by : null, at: typeof r.at === 'string' ? r.at : null } : null;
+  });
+}
+/** { total, reported, met } over a task's checks, or null when it has none. */
+function checkCounts(t) {
+  const r = checkResultsOf(t);
+  if (!r) return null;
+  return { total: r.length, reported: r.filter(Boolean).length, met: r.filter((x) => x && x.met).length };
+}
+function withoutResults(t) {
+  if (!t || !('doneWhenResults' in t)) return t;
+  const rest = { ...t };
+  delete rest.doneWhenResults;
+  return rest;
+}
+
 /* #6921: a title over SENTENCE_MAX is shortened instead of refused (an agent's add failed outright and it had to retry).
    The title keeps the most whole words that leave room for "...", or is hard-cut when that would keep half or less
    of the room; the whole original title goes first in the detail, so no words are lost. Returns
@@ -508,7 +539,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     }
     /* #7508: new work, or a task its parts reopened, is not the fix the old commit landed, so the commit goes. Not tied
        to the built mark: a task closed by its parts has already lost that mark (review 1). */
-    if (!closedNow && (forWork || progressOf(t).closed)) changed = withoutLanded(changed);
+    if (!closedNow && (forWork || progressOf(t).closed)) changed = withoutResults(withoutLanded(changed));   // #8464: and the check reports
     /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
        with the control hidden while it was closed). */
     if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldSuggest; delete changed.onHoldConfirmedAt; delete changed.onHoldForPerson; dropHoldTold(changed); heldDropped = true; }
@@ -992,7 +1023,9 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
          (#5152) says what finished means, so an agent's mark on it must say how the checks went; the rules already ask
          for that note, and now a bare mark is refused. The person's mark from the screen never is. After the
          person-mark refusal (review 1), so an agent hears the real answer first. */
-      if (!isPerson && !saidSomething && Array.isArray(t.doneWhen) && t.doneWhen.length) { unsaid = t.doneWhen.length; throw NO_WRITE; }
+      /* #8464 item 2: unless every check has been reported with kosmos task check, which says how each went. */
+      const counts = checkCounts(t);
+      if (!isPerson && !saidSomething && counts && counts.reported < counts.total) { unsaid = counts.total; throw NO_WRITE; }
       /* The same mark again (same marker, same note, same fingerprint) changes no field and records nothing (review round 3: a looping
          agent re-marking wrote a history line each time), and writes nothing (review round 15). */
       /* #6330 slice 2: the fingerprint describes the deliverable, so another agent's mark without one (the checker's,
@@ -1110,7 +1143,7 @@ function clearBuilt(projectId, n, { by = null, person = false, refusePersonMark 
       if (!t) throw new Error('there is no task by that number on this project');
       if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
       had = !!t.builtAt;
-      changed = withoutLanded(withoutBuilt(t));   // #7508: taking the mark off says the work is not done
+      changed = withoutResults(withoutLanded(withoutBuilt(t)));   // #7508: taking the mark off says the work is not done (#8464: and its check reports)
       if (!had) throw NO_WRITE;
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
@@ -1259,7 +1292,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     if (!after || closedAt === null) delete changed.closedUnrun;   // a reopen clears it, also when the parts still read closed
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
     if (after) changed = withoutBuilt(changed);
-    if (before && !after) changed = withoutLanded(changed);   // #7508: a reopen is new work, so the old commit goes
+    if (before && !after) changed = withoutResults(withoutLanded(changed));   // #7508: a reopen is new work, so the old commit goes (#8464: and the check reports)
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
     if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldSuggest; delete changed.onHoldConfirmedAt; delete changed.onHoldForPerson; dropHoldTold(changed); heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
@@ -1599,10 +1632,10 @@ function setDoneWhenCheck(projectId, n, check, text, opts = {}) {
     }
     was = before[number - 1];
     return before.map((c, i) => (i === number - 1 ? wording : c));
-  }, opts, () => ({ changedCheck: number, was }));
+  }, opts, () => ({ changedCheck: number, was }), (results) => results.map((r, i) => (i === number - 1 ? null : r)));
 }
 
-function changeDoneWhen(projectId, n, nextFrom, { by = null, person = false } = {}, recordExtra = null) {
+function changeDoneWhen(projectId, n, nextFrom, { by = null, person = false } = {}, recordExtra = null, resultsAfter = null) {
   let next;
   let changed;
   let didChange = false;
@@ -1630,6 +1663,12 @@ function changeDoneWhen(projectId, n, nextFrom, { by = null, person = false } = 
     next = nextFrom(before);
     didChange = JSON.stringify(before) !== JSON.stringify(next);
     changed = { ...t, doneWhen: next };
+    /* #8464 item 2: a report describes the check it was made against. One changed check drops its own report
+       (`resultsAfter`, from setDoneWhenCheck); any other change to the list drops them all. */
+    if (didChange && 'doneWhenResults' in t) {
+      const kept = next && typeof resultsAfter === 'function' ? resultsAfter(checkResultsOf(t)) : null;
+      if (kept && kept.some(Boolean)) changed.doneWhenResults = kept; else delete changed.doneWhenResults;
+    }
     /* Whose they are now: the person's when the person set them (even the same list an agent wrote: saving it is the
        person adopting it, recorded by the mark and not as a transcript row, since the checks did not change); the
        agent's name when an agent set them (review 2, for kosmos task list); nobody's once cleared. */
@@ -1648,6 +1687,45 @@ function changeDoneWhen(projectId, n, nextFrom, { by = null, person = false } = 
       : { kind: 'done-when-cleared', ...(person ? { person: true } : doneWhenSetter(by) ? { by: doneWhenSetter(by) } : {}) });
   }
   return changed;
+}
+
+/**
+ * #8464 item 2: an agent reports how one done-when check went. `check` is its number (1-based, as task list shows them),
+ * `met` true or false, `how` one line of at most CHECK_HOW_MAX saying how it was checked. `by` is the reporting agent's
+ * name, required: a report is an agent's word, and an unnamed one could be nobody's. The number is read inside the
+ * write, against the checks as they are then. A closed task is refused (409), as is a task with no checks or no such
+ * check. The same report again records nothing. Returns { task, changed }. Throws with a sentence and `err.status`.
+ */
+function setCheckResult(projectId, n, check, met, how, { by = null } = {}) {
+  const fail = (msg, status) => { const e = new Error(msg); if (status) e.status = status; return e; };
+  if (typeof check !== 'number' || !Number.isInteger(check) || check < 1) throw fail('the check number has to be 1 or more, as kosmos task list shows them');
+  if (typeof met !== 'boolean') throw fail('say whether the check is met or unmet');
+  if (typeof how !== 'string' || !how.trim()) throw fail('say in one line how you checked it');
+  if (doneWhenProblem([how])) throw fail(`how you checked it has to be one line of plain text, ${CHECK_HOW_MAX} characters or fewer`);
+  const who = doneWhenSetter(typeof by === 'string' ? by.trim() : null);
+  if (!who) throw fail('a check report needs the agent that makes it, and this caller could not be named', 403);
+  const said = how.trim();
+  let changed = null;
+  let didChange = false;
+  try {
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    if (progressOf(t).closed) throw fail('that task is done, so its checks can no longer be reported; reopen it first', 409);
+    const results = checkResultsOf(t);
+    if (!results) throw fail('that task has no done-when checks to report on', 409);
+    if (check > results.length) throw fail(`that task has ${results.length} done-when ${results.length === 1 ? 'check' : 'checks'}, so there is no check ${check}`, 409);
+    const was = results[check - 1];
+    if (was && was.met === met && was.how === said && was.by === who) { changed = t; throw NO_WRITE; }
+    didChange = true;
+    changed = { ...t, doneWhenResults: results.map((r, i) => (i === check - 1 ? { met, how: said, by: who, at: new Date().toISOString() } : r)) };
+    return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+  });
+  } catch (err) {
+    if (err !== NO_WRITE) throw err;
+  }
+  if (didChange) taskchat.record(projectId, changed.number, { kind: 'check-reported', check, met, how: said, by: who });
+  return { task: changed, changed: didChange };
 }
 
 /**
@@ -2904,6 +2982,6 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
 
 module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  setDoneWhenCheck, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
+  setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, withoutFilePaths, FINGERPRINT_RE, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
