@@ -72,8 +72,10 @@ if [ "$uikit" = 1 ]; then
   # kosmos#8221 slice 9: EndPullUITests (6), the pull past the newest message, a message landing during it included.
   # kosmos#8221 slice 10: ChatSearchUITests (1) and ChatDragUITests (1), search and the drag that takes the keyboard down,
   #   each launch now asserting the UIKit list drew it. Neither is in the lazy arm's list (the 260-message chat's blank, above).
-  # kosmos#8221 slice 11: A11yScrollUITests (7), a scroll up without a finger is not held at the end: animated and slow, a
-  #   scroll that moves nothing, a jump to the newest during one, and three control arms with the fix off.
+  # kosmos#8221 slice 11: A11yScrollUITests (12), a scroll up without a finger is not held at the end: animated and slow, a
+  #   scroll that moves nothing, a jump to the newest during one, and three control arms with the fix off; kosmos#8442 adds
+  #   five: a slow scroll and an animated one with the main thread stalled, the stall grace alone, its control (both off),
+  #   and a record-only animated arm without the grace.
   # kosmos#8283: ChatGapUITests (3), the room between the newest message and the box and the working line's place in it, at
   #   the default and the largest text size, and the line seen from higher up. This arm only (the lazy list keeps its row).
   # kosmos#8221 slice 12: A11yFocusUITests (12), assistive focus on a message off screen, before the newest, brings it on screen and
@@ -86,7 +88,7 @@ if [ "$uikit" = 1 ]; then
   #   EarlierDoubleAskUITests (2), a page landing is not asked for again before the list says where the top is; one control.
   # kosmos#8221 slice 17: EarlierDeleteShiftUITests (2), after a delete the next page is asked from the window as it is (no
   #   message drawn twice); one control.
-  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:7 ChatGapUITests:3 A11yFocusUITests:14 A11yActionsUITests:3 EarlierDroppedUITests:4 EarlierDoubleAskUITests:2 EarlierDeleteShiftUITests:2"
+  classes="KeyboardSlideUITests:6 StopAddingUITests:2 SendMovesOnceUITests:3 ComposerSendUITests:3 EarlierPagesUITests:2 LongPressKeyboardUITests:7 DeleteMessageUITests:3 EndPullUITests:6 ChatSearchUITests:1 ChatDragUITests:1 A11yScrollUITests:12 ChatGapUITests:3 A11yFocusUITests:14 A11yActionsUITests:3 EarlierDroppedUITests:4 EarlierDoubleAskUITests:2 EarlierDeleteShiftUITests:2"
   for t in testRebuiltListShowsTheNewestMessage testRebuiltShortChatShowsTheNewestMessage testRebuiltAfterTheKeyboardWentDown; do
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done
