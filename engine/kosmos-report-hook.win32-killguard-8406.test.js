@@ -139,6 +139,18 @@ const REFUSED = [
   'echo ${#a}; taskkill /F /IM node.exe',
   '(Get-Process node) | Stop-Process',
   'cmd /c"taskkill /F /IM node.exe"',
+  // NAME=value and env before the command (Homer, installed 0.8.04): Git Bash's MSYS_NO_PATHCONV=1 is the usual one.
+  'MSYS_NO_PATHCONV=1 taskkill /F /IM node.exe',
+  'env MSYS_NO_PATHCONV=1 taskkill /F /IM node.exe',
+  'X=1 taskkill /F /IM node.exe',
+  'MSYS_NO_PATHCONV=1 taskkill /F /IM claude.exe',
+  'A=1 B=2 Stop-Process -Name node',
+  'env -i PATH=/c/Windows/System32 taskkill //F //IM node.exe',
+  'env -u FOO -- taskkill //F //IM node.exe',
+  'env -S "taskkill //F //IM node.exe"',
+  'sudo X=1 taskkill //F //IM node.exe',
+  'X=1 sudo taskkill //F //IM node.exe',
+  'cmd //c "set X=1 && taskkill /F /IM node.exe"',
 ];
 const ALLOWED = [
   'taskkill /PID 4242',          // the card's control: one exact process id
@@ -215,6 +227,10 @@ const ALLOWED = [
   "gh pr create --title x --body \"$(cat <<'EOF'\nlogoff\nEOF\n)\"",
   'logoff (user)',
   '  logoff ();',
+  'MSYS_NO_PATHCONV=1 taskkill /F /PID 4242',
+  'X=1',
+  'env',
+  'MSYS_NO_PATHCONV=1 git status',
 ];
 
 test('#8406: every listed Windows form of "stop everything" is refused, in any case', () => {

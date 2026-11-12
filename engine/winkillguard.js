@@ -10,8 +10,9 @@
  * forms of the same act before it runs.
  *
  * It reads the text a tool call would run or write, splits it into commands (newlines, ; & && || and pipes, outside
- * quotes), and looks only at a command in command position: the first word of a command (after call, start with its
- * title and switches, then, do, else, nohup, time, xargs, exec, command, sudo); a ( ) or { } block that starts a
+ * quotes), and looks only at a command in command position: the first word of a command (after NAME=value
+ * assignments, env with its options, call, start with its title and switches, then, do, else, nohup, time, xargs,
+ * exec, command, sudo); a ( ) or { } block that starts a
  * command (a subshell, & { ... }) or follows a control keyword (if, else, foreach, function, try ...); and the
  * command inside cmd /c, bash/sh/zsh -c (also -lc), powershell -Command or powershell's bare words, and iex. A word
  * inside an argument (a commit message, a grep pattern, a path), a block that is code or data (an object literal,
@@ -319,7 +320,25 @@ const PS = new Set(['powershell', 'pwsh']);
 function commandReason(cmd, pipe, at, depth) {
   if (!cmd.length) return '';
   let i = 0;
+  const wd = (k) => (cmd[k] && cmd[k].w !== undefined ? cmd[k].w : undefined);
   for (;;) {
+    const start = i;
+    // kosmos#8406 (Homer, 0.8.04): NAME=value before a command sets its environment and runs it, as in Git Bash's
+    // MSYS_NO_PATHCONV=1 taskkill /F /IM node.exe. Any number of them.
+    while (wd(i) !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(wd(i))) i++;
+    // env [options] [NAME=value ...] command: its options (-u NAME and -C DIR take a value), then assignments.
+    // env -S "..." splits that string into the command, so it is read as one.
+    if (wd(i) !== undefined && base(wd(i)) === 'env') {
+      i++;
+      while (wd(i) !== undefined && /^-/.test(wd(i))) {
+        const o = wd(i);
+        if (o === '--') { i++; break; }
+        if (/^(-S|--split-string)$/.test(o) && wd(i + 1) !== undefined) return reasonIn(wd(i + 1), depth + 1);
+        if (/^--split-string=/.test(o)) return reasonIn(o.slice('--split-string='.length), depth + 1);
+        i += /^(-u|-C|--unset|--chdir)$/.test(o) ? 2 : 1;
+      }
+      while (wd(i) !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(wd(i))) i++;
+    }
     while (i < cmd.length && cmd[i].w !== undefined && PREFIX.test(cmd[i].w)) {
       const was = cmd[i].w.toLowerCase(); i++;
       // start's own switches (/b /min ...) and an empty title, xargs's flags, come before the command
@@ -337,7 +356,7 @@ function commandReason(cmd, pipe, at, depth) {
         else if (w(i + 1) === '==' || /^(equ|neq|lss|leq|gtr|geq)$/i.test(w(i + 1))) i += 3;
       }
     }
-    break;
+    if (i === start) break;   // prefixes, assignments and env can come in any order: repeat until none is left
   }
   if (i >= cmd.length || cmd[i].w === undefined) return '';
   // name( ... ) in code is a function call or a definition, not a command: logoff(), shutdown(x)
