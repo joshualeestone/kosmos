@@ -174,6 +174,17 @@ const REFUSED = [
   'exec -a x taskkill //F //IM node.exe',
   'FOO=$(date) taskkill //F //IM node.exe',
   'TIMEOUT 5 TASKKILL /F /IM NODE.EXE',
+  'env -uSHELL taskkill /F /IM node.exe',
+  'env -CSrc taskkill /F /IM node.exe',
+  'env -iu FOO taskkill /F /IM node.exe',
+  'env -uMSYS_NO_PATHCONV taskkill //F //IM node.exe',
+  'timeout --signal KILL 5 taskkill //F //IM node.exe',
+  'timeout --kill-after 1 5 taskkill //F //IM node.exe',
+  'stdbuf -o 0 taskkill //F //IM node.exe',
+  'time -f %e taskkill //F //IM node.exe',
+  'nice --adjustment 5 taskkill //F //IM node.exe',
+  'sudo -U me taskkill //F //IM node.exe',
+  'exec -ca x taskkill //F //IM node.exe',
 ];
 const ALLOWED = [
   'taskkill /PID 4242',          // the card's control: one exact process id
@@ -264,7 +275,8 @@ const ALLOWED = [
 
 test('#8406: every listed Windows form of "stop everything" is refused, in any case', () => {
   for (const c of REFUSED) assert.ok(guard.reason(c), 'refused: ' + c);
-  // cmd and PowerShell read their commands in any case (bash, sh and env do not, so they are not upper-cased here).
+  // cmd and PowerShell read their commands in any case, so these are checked in capitals. (bash keywords and env's
+  // options are case-sensitive, so this list does not upper-case them; the guard itself matches command words in any case.)
   for (const c of ['TASKKILL /F /IM NODE.EXE', 'TaskKill /f /im Claude.EXE', 'STOP-PROCESS -NAME NODE', 'Get-PROCESS | STOP-PROCESS',
     'LOGOFF', 'SHUTDOWN /S /T 0', 'WMIC PROCESS WHERE NAME="NODE.EXE" DELETE', 'TSKILL NODE', 'RESTART-COMPUTER',
     'MSYS_NO_PATHCONV=1 TASKKILL /F /IM NODE.EXE']) assert.ok(guard.reason(c), 'refused in capitals: ' + c);

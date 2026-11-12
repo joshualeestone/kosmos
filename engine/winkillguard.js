@@ -38,7 +38,7 @@
  *
  * 🛑 A SEATBELT, NOT A SANDBOX, as the Mac guard says of itself: it reads literal text. A name computed at run time,
  * a script that builds the command, Start-Process taskkill with -ArgumentList, an encoded command, a command inside
- * a quoted argument of another program (os.system("..."), node -e "..."), an argument-array spawn (subprocess.run(
+ * a quoted argument of another program (os.system("..."), node -e "..."), an assignment whose value continues past a $( ) (FOO=$(x)y cmd), an argument-array spawn (subprocess.run(
  * ["taskkill", ...]), spawn("taskkill", [...])), backtick command substitution, WMI and CIM
  * (Get-WmiObject ... | Remove-WmiObject, Invoke-CimMethod -MethodName Terminate), the blocks of Invoke-Command,
  * Start-Job and . { }, a bash \' outside quotes, a Where-Object whose test is not a name (CPU -gt 0 selects nearly
@@ -330,20 +330,35 @@ function commandReason(cmd, pipe, at, depth) {
       while (wd(i) !== undefined && ASSIGN.test(wd(i))) { i++; while (cmd[i] && cmd[i].block !== undefined && cmd[i].subst) i++; }
     };
     assigns();
-    // env [options] [NAME=value ...] command: its options (-u NAME and -C DIR take a value), then assignments.
-    // env -S "..." splits that string into the command, so it is read as one.
+    // env [options] [NAME=value ...] command: its options (-u NAME, -C DIR, -P PATH and -a NAME take a value, as a
+    // separate word or glued to the letter), then assignments. env -S "..." splits that string into the command, so
+    // it is read as one.
     if (wd(i) !== undefined && base(wd(i)) === 'env') {
       i++;
+      const after = (k) => cmd.slice(k).filter((t) => t.w !== undefined).map((t) => (/\s/.test(t.w) ? '"' + t.w + '"' : t.w));
       while (wd(i) !== undefined && /^-/.test(wd(i))) {
         const o = wd(i);
         if (o === '--') { i++; break; }
-        // -S STRING, -SSTRING, a cluster ending in S (-iS STRING), --split-string[=]STRING: the string, with any words
-        // after it, is the command.
-        const rest = (k) => [wd(k)].concat(cmd.slice(k + 1).filter((t) => t.w !== undefined).map((t) => (/\s/.test(t.w) ? '"' + t.w + '"' : t.w))).join(' ');
-        if ((/^-[A-Za-z0-9]*S$/.test(o) || o === '--split-string') && wd(i + 1) !== undefined) return reasonIn(rest(i + 1), depth + 1);
-        const glued = /^-[A-Za-z0-9]*S(.+)$/.exec(o) || /^--split-string=(.*)$/.exec(o);
-        if (glued) { const tail = cmd.slice(i + 1).filter((t) => t.w !== undefined).map((t) => (/\s/.test(t.w) ? '"' + t.w + '"' : t.w)); return reasonIn([glued[1]].concat(tail).join(' '), depth + 1); }
-        i += /^(-u|-C|-P|-a|--unset|--chdir|--path|--argv0)$/.test(o) ? 2 : 1;
+        if (/^--/.test(o)) {   // long options: --split-string[=]STRING is the command; --unset, --chdir, --path, --argv0 take a value
+          const m = /^--split-string(?:=(.*))?$/.exec(o);
+          if (m) return reasonIn((m[1] !== undefined ? [m[1]].concat(after(i + 1)) : (wd(i + 1) !== undefined ? [wd(i + 1)].concat(after(i + 2)) : [])).join(' '), depth + 1);
+          i += /^--(unset|chdir|path|argv0)$/.test(o) ? 2 : 1;
+          continue;
+        }
+        // A short cluster, letter by letter, as env reads it: i, v and 0 are plain flags; u, C, P and a take the rest of
+        // the word or else the next word as their value (so -uSHELL unsets SHELL); S takes the rest of the word or else
+        // the next word as the command string, with any words after it.
+        let k = 1; let next = 1;
+        for (; k < o.length; k++) {
+          const ch = o[k];
+          if (ch === 'S') {
+            const str = o.slice(k + 1);
+            if (str) return reasonIn([str].concat(after(i + 1)).join(' '), depth + 1);
+            return wd(i + 1) !== undefined ? reasonIn([wd(i + 1)].concat(after(i + 2)).join(' '), depth + 1) : '';   // env splits the string
+          }
+          if ('uCPa'.includes(ch)) { if (k === o.length - 1) next = 2; break; }   // the value is the rest, or the next word
+        }
+        i += next;
       }
       assigns();
     }
@@ -356,20 +371,25 @@ function commandReason(cmd, pipe, at, depth) {
       }
       if (was === 'xargs') while (i < cmd.length && cmd[i].w !== undefined && /^-/.test(cmd[i].w)) i++;
       if (/^(time|command|exec|stdbuf|setsid)$/.test(was)) {   // their options come before the command; exec -a takes a NAME
-        while (wd(i) !== undefined && /^-/.test(wd(i))) { const o = wd(i); i++; if (o === '--') break; if (was === 'exec' && o === '-a') i++; }
+        while (wd(i) !== undefined && /^-/.test(wd(i))) {
+          const o = wd(i); i++;
+          if (o === '--') break;
+          // exec -a NAME (also in a cluster, -ca NAME), time -f FMT / -o FILE, stdbuf -o MODE / -i / -e
+          if ((was === 'exec' && /^-[a-z]*a$/.test(o)) || (was === 'time' && /^-[fo]$/.test(o)) || (was === 'stdbuf' && /^-[ioe]$/.test(o))) i++;
+        }
       }
       if (was === 'sudo') {   // sudo -E, -u USER, -g GROUP, -C N, -h HOST, -p PROMPT, -D DIR, -R DIR, -T T
         while (wd(i) !== undefined && /^-/.test(wd(i))) {
           const o = wd(i);
           if (o === '--') { i++; break; }
           // -u USER, a cluster ending in a letter that takes a value (-Eu USER), or a long option given as two words
-          const takes = /^-[A-Za-z]*[ugChpDRrtT]$/.test(o) || /^--(user|group|close-from|host|prompt|chdir|chroot|role|type|command-timeout|other-user)$/.test(o);
+          const takes = /^-[A-Za-z]*[ugChpDRrtTU]$/.test(o) || /^--(user|group|close-from|host|prompt|chdir|chroot|role|type|command-timeout|other-user)$/.test(o);
           i += takes ? 2 : 1;
         }
       }
-      if (was === 'nice') { if (/^-n$/.test(wd(i) || '')) i += 2; else if (/^(-n?\d+|--adjustment=.*|-\d+)$/.test(wd(i) || '')) i += 1; if (wd(i) === '--') i++; }
+      if (was === 'nice') { if (/^(-n|--adjustment)$/.test(wd(i) || '')) i += 2; else if (/^(-n?\d+|--adjustment=.*|-\d+)$/.test(wd(i) || '')) i += 1; if (wd(i) === '--') i++; }
       if (was === 'timeout') {   // timeout [-s SIG] [-k T] [--foreground ...] DURATION command
-        while (wd(i) !== undefined && /^-/.test(wd(i)) && wd(i) !== '--') i += /^-(s|k)$/.test(wd(i)) ? 2 : 1;
+        while (wd(i) !== undefined && /^-/.test(wd(i)) && wd(i) !== '--') i += /^(-s|-k|--signal|--kill-after)$/.test(wd(i)) ? 2 : 1;
         if (wd(i) === '--') i++;
         if (wd(i) !== undefined && /^\d+(\.\d+)?[smhd]?$/.test(wd(i))) i++;
       }
