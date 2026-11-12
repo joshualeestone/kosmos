@@ -1188,7 +1188,9 @@ function defaultSources() {
     configRoots: () => { try { return require('./status').configRoots(); } catch { return []; } },
     /* Review 16: on the list is not under the company's rules. The guard is in force only when the agent's own settings
        hold every rule the guard writes for that folder, and the guard could write them all (no root missed, no rule
-       dropped; setup-assistant refuses to guard otherwise, and on Windows at all). Anything else: not read. */
+       dropped; setup-assistant refuses to guard otherwise). Anything else: not read. On Windows it is never in force for this
+       reader: since #5664 step A the guard is written there, but it is never whole (the PATH part is not covered) and the
+       Windows transcript shape is unmeasured, so a Windows agent is not read (fail closed). */
     guarded: (dir, cache) => {
       try {
         if (process.platform === 'win32') return false;
@@ -1310,7 +1312,8 @@ async function tickOnce(opts) {
     const root = o.root || require('./store').ROOT;
     const now = o.now || Date.now();
     const src = o.sources || defaultSources();
-    /* No token-only agent is guarded on Windows (the guard's sandbox is macOS's), so nothing could be read: say so
+    /* No token-only agent is guarded WHOLE on Windows (since #5664 step A its guard is written but its PATH part is not
+       covered, and Windows transcripts are unmeasured), so nothing could be read: say so
        before the agent survey and the collision pass run for nothing (challenge-loop iteration 3). */
     if ((o.platform || process.platform) === 'win32') return { sent: 0, because: 'no agent is guarded on Windows; nothing is read' };
     const joinedAt = Date.parse(rec.enrolledAt);

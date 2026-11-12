@@ -430,6 +430,91 @@ function legacyWinEquivalent(rule) {
   if (!m) return null;
   return `Read(${ruleAbs(m[1], 'win32')}${m[2]})`;
 }
+/* realOrLeaf, but a link on the way that leads nowhere (a dangling junction, a target the board cannot open) throws
+   instead of being kept by its own name: kept, it would read as already real and get no twin, so a later target there
+   would go undenied. A path that simply does not exist yet still resolves through its nearest existing parent. */
+function realOrLeafStrict(p) {
+  const abs = path.resolve(p);
+  let dir = abs;
+  const tail = [];
+  for (;;) {
+    try { return path.join(fs.realpathSync.native(dir), ...tail); } catch { /* absent, or a link that leads nowhere */ }
+    let there = false;
+    // Only a path that is NOT there is climbed past; one that is there but cannot be resolved, or cannot even be looked
+    // at (EACCES, EPERM), throws, so the caller names it rather than keeping it by its own spelling.
+    try { fs.lstatSync(dir); there = true; } catch (e) { there = !(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')); }
+    if (there) throw new Error(`${dir} is there but where it leads could not be worked out`);
+    const parent = path.dirname(dir);
+    if (parent === dir) return abs;
+    tail.unshift(path.basename(dir));
+    dir = parent;
+  }
+}
+/* The names directly in `dir` that are links (a junction reads as a symbolic link to lstat on Windows); none when it
+   cannot be listed. For withRealTwins' glob check; passed in for tests. */
+function linksIn(dir) {
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return []; }
+  return names.filter((n) => { try { return fs.lstatSync(path.join(dir, n)).isSymbolicLink(); } catch { return false; } });
+}
+/* #5664 step A: on Windows, Claude Code resolves junctions and 8.3 names on the path a tool touches, and a rule on a
+   link's OWN path covers nothing (measured, 2.1.319). So for every Read or Edit rule whose literal part (before its first
+   `*`) reaches a different real path, the same rule on the real path is added beside it. A real path the rules cannot
+   carry, or that is too wide (`tooWide`: a drive root, or a folder holding the home or the agent's own folder, which a
+   deny there would take from the agent's work), is returned in `unsafe` (the guard is then not whole), never written;
+   so is one that cannot be resolved. `real` is realOrLeafStrict, passed in for tests. Only the part before the first `*` is
+   resolved: a link under a glob segment (a world folder reached through a junction, made later) gets no twin.
+   Pure apart from `real` and `links` (a folder listing; both passed in for tests); Windows only (elsewhere the rules are
+   returned as they are). */
+function withRealTwins(rules, platform = process.platform, real = realOrLeafStrict, tooWide = (p) => path.win32.parse(p).root === p, links = linksIn) {
+  if (platform !== 'win32') return { rules, unsafe: [], tokenUnsafe: [] };
+  const out = [];
+  const seen = new Set(rules);
+  const unsafe = [];
+  const tokenUnsafe = [];   // the subset that names a board-token rule (the refusal names the token first)
+  const cache = new Map();
+  const linkCache = new Map();
+  const tokenFile = require('./boardauth').TOKEN_FILE;
+  for (const r of rules) {
+    out.push(r);
+    const m = /^(Read|Edit)\((\/\/.+)\)$/.exec(r);
+    if (!m) continue;
+    const inner = m[2];
+    const star = inner.indexOf('*');
+    const cut = star < 0 ? inner.length : inner.lastIndexOf('/', star);
+    if (cut <= 2) continue;
+    const literal = inner.slice(0, cut);
+    const rest = inner.slice(cut);
+    const native = rulePath(literal.slice(2), 'win32');
+    if (!native) continue;
+    // A token rule ends in the token's own name (board.token, or its temp copy .board.token.*), not merely holds it.
+    const leaf = rest ? rest.slice(rest.lastIndexOf('/') + 1) : literal.slice(literal.lastIndexOf('/') + 1);
+    const isToken = leaf === tokenFile || leaf === '.' + tokenFile + '.*';
+    const miss = (why) => { unsafe.push(why); if (isToken) tokenUnsafe.push(why); };
+    /* A share (\\host\...) is never resolved: that is a network lookup that can send this person's Windows credentials
+       to the host it names (as readingsHoldGuide says). Nor is a rule on one claimed: shares (and a mapped drive, which
+       resolves to one) were not measured to hold (the card), so it is named, and a token rule there refuses. */
+    if (/^[\\/]{2}/.test(native)) { miss(`${native} (a network share, which Kosmos has not shown the rules to hold on)`); continue; }
+    let to = cache.get(native);
+    if (to === undefined) { try { to = String(real(native)); } catch { to = null; } cache.set(native, to); }
+    if (to === null) { miss(`${native} (where it leads could not be worked out)`); continue; }
+    if (/^[\\/]{2}/.test(to)) { miss(`${native} (it leads to the network share ${to}, which Kosmos has not shown the rules to hold on)`); continue; }
+    /* A token rule reached through a pattern (worlds/<any>/Kosmos/board.token): a folder the `*` matches that is itself a
+       link leads the token elsewhere, and the rule's own spelling covers nothing there. The ones there now refuse; one
+       made later as a link is not seen (Kosmos makes these folders plain). */
+    if (isToken && rest.startsWith('/*/')) for (const n of (linkCache.has(native) ? linkCache.get(native) : linkCache.set(native, links(native)).get(native))) miss(`${path.win32.join(native, n)} (a link in a folder the token's rule reaches by a pattern, which Kosmos does not follow)`);
+    const twin = ruleAbs(to, 'win32');
+    if (twin.toLowerCase() === literal.toLowerCase()) continue;   // Claude Code matches case-blind on Windows (measured)
+    // Only a rule as wide as its literal part (the path itself, or all under it) can be too wide; a narrower suffix
+    // (`.claude-*/settings.json` under the home) keeps the twin narrow, even under a drive root (`//d/*/notes.md`
+    // reaches one name in each top-level folder there, the same shape the rule already had).
+    if ((rest === '' || rest === '/**') && tooWide(to)) { miss(`${native} (it leads to ${to}, too wide a place for Kosmos to deny)`); continue; }
+    const rule = `${m[1]}(${twin}${rest})`;
+    if (ruleHasPatternChar(rule, '/')) { miss(`${native} (it leads to ${to}, a path the permission rules cannot carry)`); continue; }
+    if (!seen.has(rule)) { seen.add(rule); out.push(rule); }
+  }
+  return { rules: out, unsafe: [...new Set(unsafe)], tokenUnsafe: [...new Set(tokenUnsafe)] };
+}
 /* #4752: on Windows every absolute rule is ALSO written in the older native spelling, beside the //c/ form Claude
    Code's docs say it matches: these are deny rules, the new form is not measured on Windows here, and an extra deny
    costs nothing (a new install then has the same belt-and-braces an older one keeps through migrateKept). The twin
@@ -832,9 +917,10 @@ function supervisorConfigDirs() {
 function launchPathDirs(agentDir, deps = {}) {
   /* Review 12: not on Windows yet. A standard Windows PATH has folders whose names the rules read as patterns and a
      system folder past the scan cap, so the guard would never be whole there and every token-only agent would be
-     refused. Windows coverage is measured and built in the Windows lane (#5516 later part); until then the Windows
-     guard is what it was. */
-  if ((deps.platform || process.platform) === 'win32') return { dirs: [], aliases: [], files: [], linkNames: [], unsafe: [] };
+     refused. Windows coverage is measured and built in the Windows lane (#5516 later part).
+     #5664 step A: the rest of the guard is now written on Windows, so this part is NAMED as not covered (the guard then
+     says it is not whole) rather than returning nothing, which would read as covered. */
+  if ((deps.platform || process.platform) === 'win32') return { dirs: [], aliases: [], files: [], linkNames: [], unsafe: [WIN_LAUNCH_SENTENCE] };
   const pane = deps.panePath !== undefined ? deps.panePath : process.env.KOSMOS_GUARD_PANE_PATH;
   const ownPath = deps.ownPath !== undefined ? deps.ownPath : process.env.PATH;
   const max = deps.linkScanMax || LINK_SCAN_MAX;
@@ -2178,7 +2264,10 @@ function tokenOnlySettingsRules(dir, deps = {}) {
      instruction file became a live wildcard denying a whole tree, in every agent's folder, never pruned; Claude Code
      only ever reads a literal file of that name. */
   const IMPORT_RULE_SYNTAX = /[*?[\]{}()!\\]/;
-  const importBad = (p, rule) => IMPORT_RULE_SYNTAX.test(p) || ruleHasPatternChar(rule);
+  /* #5664: on Windows the backslash is the path separator, which no name can hold, so it is tested in the form the rule
+     is written in (ruleAbs turns it into a slash); tested raw, every Windows path read as one the rules cannot carry. */
+  const importWin = (deps.platform || process.platform) === 'win32';
+  const importBad = (p, rule) => IMPORT_RULE_SYNTAX.test(importWin ? String(p).replace(/\\/g, '/') : p) || ruleHasPatternChar(rule);
   const importFiles = [];
   /* A target inside an agent's folder in the agents' folder (Kosmos's own instruction files say "@-mention", which
      Claude Code reads as an import of <agent>/-mention) gets ONE mid-path glob per name, as the sibling members above
@@ -2418,6 +2507,12 @@ const GUARD_STATE_DIR = 'token-only-guard';
 /* The not-whole reason that depends on the PATH the run measured (a launch's pane PATH, or the board's own). Named once,
    where it is said and where a board start tells it apart (review 9). */
 const LAUNCH_PATH_REASON = 'the PATH this agent starts with has an entry Kosmos could not cover';
+// #5664: on Windows Claude Code has no sandbox, so the guard's rules bind its file tools only.
+const WIN_SHELL_REASON = 'on Windows its shell is not sandboxed, so it is kept from the token in its file tools only';
+// #5664: the Windows wording of the PATH part (nothing on that PATH was looked at, so it names no entry).
+const WIN_PATH_REASON = 'on Windows Kosmos does not yet cover the programs this agent starts from';
+// #5664: launchPathDirs' own marker on Windows (the page says WIN_PATH_REASON instead; this tells it apart from other entries).
+const WIN_LAUNCH_SENTENCE = 'on Windows Kosmos does not cover the folders on this PATH yet';
 function guardStateDir(deps = {}) { return path.join(deps.dataRoot || store.ROOT, GUARD_STATE_DIR); }
 function guardStateFileFor(agentName, deps) { return path.join(guardStateDir(deps), encodeURIComponent(agentName) + '.json'); }
 // The one test of a usable line (review 8), for the board's read and for the board start's replace alike.
@@ -2597,8 +2692,13 @@ function guardTokenOnlyFolder(dir, agentName, deps = {}) {
        any other such reason is kept whole as the launch part. */
     const bare = old && old.ok === false && !oldHasParts && old.because ? String(old.because) : null;
     const barePath = bare !== null && bare.startsWith(LAUNCH_PATH_REASON) ? bare.replace(/; the rest of the guard is in place$/, '') : null;
-    const pathReason = typeof prev.pathReason === 'string' ? prev.pathReason : barePath;
-    const launchReason = typeof prev.launchReason === 'string' ? prev.launchReason : (barePath === null ? bare : null);
+    /* #5664 step A: no Windows launch records a line (only the Mac and Linux supervisor runs the launch refresh), so on
+       Windows nothing kept is a launch's measurement and a board start is the authority on every part. Without this a
+       line from before step A (the old "not been shown to hold" refusal, a bare `because`) was kept as the launch part
+       at every board start, for good. */
+    const noLaunches = (deps.platform || process.platform) === 'win32';
+    const pathReason = noLaunches ? null : (typeof prev.pathReason === 'string' ? prev.pathReason : barePath);
+    const launchReason = noLaunches ? null : (typeof prev.launchReason === 'string' ? prev.launchReason : (barePath === null ? bare : null));
     // Review 21: a board start that reaches the same reason the launch recorded (another runner, Windows) adds nothing.
     const measured = r && !r.ok ? (hasParts ? r.otherReason || null : String(r.because || '') || null) : null;
     const nowOther = measured !== null && measured === launchReason ? null : measured;
@@ -2627,10 +2727,13 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     // unknown one is not assumed to be Claude.
     const runner = deps.runner;
     if (runner !== 'claude') return { ok: false, unsupported: true, because: 'only Claude agents can be kept from reading the board token so far; this agent runs on ' + (runner || 'an unknown runner') };
-    /* Review 24: on Windows Claude Code matches rules against a POSIX form of the path (//c/...), and the rules here
-       are written with the native spelling, so a deny may never match. Not measured on Windows, so the guard says it
-       cannot keep the token out there yet rather than reporting a guard that may hold nothing. */
-    if ((deps.platform || process.platform) === 'win32') return { ok: false, unsupported: true, because: 'on Windows this guard has not been shown to hold yet, so Kosmos does not claim it' };
+    /* #5664 step A (was review 24's refusal): measured on Windows with Claude Code 2.1.319, the //c/... rules ruleAbs
+       writes DO hold for its Read and Edit tools, case-blind, and through junctions and 8.3 names when the rule names the
+       real path (a rule on a link's own path covers nothing; withRealTwins, below, adds the rule on the real one). So Windows is
+       guarded as Linux is: permission rules for the file tools only, the shell not sandboxed (said below, as off macOS).
+       What the agent's next start runs from (its PATH) is not covered on Windows yet: launchPathDirs names it, so the
+       guard is written and says it is not whole rather than claiming it. Not measured: shares, mapped drives, non-NTFS
+       volumes, other Claude Code versions. */
     const settingsDir = path.join(dir, '.claude');
     fs.mkdirSync(settingsDir, { recursive: true });
     const file = path.join(settingsDir, 'settings.json');
@@ -2688,7 +2791,26 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     const had = Array.isArray(perms.deny) ? perms.deny.filter((r) => typeof r === 'string' && !stale.has(r)) : [];
     // Review 12: what a launch prunes is said (count only), so a dropped rule never goes unseen.
     if (stale.size || staleWrites.size) process.stderr.write(`#5663: ${agentName}: pruned ${stale.size} file-tool and ${staleWrites.size} sandbox launch rule(s) whose paths are gone\n`);
-    const deny = [...new Set([...had, ...rules.deny])];
+    /* #5664 step A: on Windows each rule is also written on the real path it reaches (junctions, 8.3 names), since a
+       rule on a link's own path covers nothing there; one whose real path the rules cannot carry makes it not whole. */
+    let realTwins = { rules: rules.deny, unsafe: [], tokenUnsafe: [] };
+    // The twins resolve real paths on THIS host's filesystem, which means something only on a Windows host (a test that
+    // passes platform 'win32' elsewhere has POSIX paths, which would read back as shares).
+    if (plat === 'win32' && process.platform === 'win32') {
+      const homeReal = realOrLeaf(deps.home || kosmosHome()).toLowerCase();
+      const dirReal = realOrLeaf(dir).toLowerCase();
+      const holdsW = (a, b) => b === a || b.startsWith(a.endsWith('\\') ? a : a + '\\');   // case-blind, as Windows paths are
+      realTwins = withRealTwins(rules.deny, plat, realOrLeafStrict, (p) => { const q = String(p).toLowerCase(); return path.win32.parse(p).root === p || holdsW(q, homeReal) || holdsW(q, dirReal); });
+    }
+    /* A rule whose real place cannot be denied leaves that place open to the file tools (a rule on a link's own path
+       covers nothing): the board token, another agent's sender token, the launch hand-off, the guard's own settings.
+       As a rule that cannot be written refuses the guard (tokenRuleDropped, reviews 16 and 17), so does this: nothing
+       written, and said in its own words (the token's first when it is one of them). */
+    if (realTwins.unsafe.length) {
+      const what = realTwins.tokenUnsafe.length ? 'the board token is' : 'a place the guard protects is';
+      return { ok: false, because: what + ' reached through a link or share whose real place Kosmos cannot deny: ' + realTwins.unsafe.join('; ') + '. So the guard cannot be written whole' };
+    }
+    const deny = [...new Set([...had, ...realTwins.rules])];
     /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so
        it goes too (Kosmos never writes it for an agent) and the board log says so. */
     const { additionalDirectories: _dropDirs, ...permsKept } = perms;
@@ -2770,8 +2892,24 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     if (warning) process.stderr.write(`#5663: ${agentName}: ${warning}\n`);
     /* Review 7: after the write, as for the launch path, so one uncarriable link never stops the rest being refreshed.
        Review 8: both reasons together when both apply, so fixing one does not hide the other until the next refresh. */
-    const pathReason = rules.launchUnsafe && rules.launchUnsafe.length ? LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + ')' : null;
-    const otherReason = rules.configUnsafe && rules.configUnsafe.length ? 'a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + ')' + (rules.configUnsafe.some((e) => /cannot carry/.test(e)) ? ": renaming that folder so its name has none of ( ) [ ] { } * ? ! or \\, or pointing the link somewhere else, lets Kosmos cover it" : '') : null;   // review 10: a link reached twice is named once; review 15: the refusal says how to fix it; review 17: every character the rules refuse, and only where renaming is the fix
+    const pathPart = rules.launchUnsafe && rules.launchUnsafe.length ? LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + ')' : null;
+    const configPart = rules.configUnsafe && rules.configUnsafe.length ? 'a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + ')' + (rules.configUnsafe.some((e) => /cannot carry/.test(e)) ? ": renaming that folder so its name has none of ( ) [ ] { } * ? ! or \\, or pointing the link somewhere else, lets Kosmos cover it" : '') : null;   // review 10: a link reached twice is named once; review 15: the refusal says how to fix it; review 17: every character the rules refuse, and only where renaming is the fix
+    /* #5664 step A: on Windows the PATH part is not a launch's measurement (no Windows launch records one; only the Mac
+       and Linux supervisor runs the launch refresh) but a fact of the platform that every run knows. As pathReason a
+       board start would drop it (review 13: a board start keeps only a LAUNCH's PATH part) and record the guard whole.
+       So on Windows it travels as the board start's own part, which every run measures and records. */
+    const winPath = plat === 'win32' && pathPart !== null;
+    const pathReason = winPath ? null : pathPart;
+    /* #5664 condition 1: on Windows the page says what the guard is, file-tool rules only, with the shell not sandboxed
+       (its PowerShell or Bash can still read the token). Said on every Windows run, so a Windows guard never reads whole
+       while that is so: step B (the PATH part) cannot turn the page "complete" by covering the PATH alone. */
+    const winShell = plat === 'win32' ? WIN_SHELL_REASON : null;
+    /* Review round 8: launchUnsafe also carries folders the launch rules could not cover that are NOT the PATH (a launch
+       hand-off folder whose path holds a pattern character, such as an app folder "Kosmos (1)"). On Windows there is
+       no sandbox layer behind them, so each is named, never folded into the generic PATH sentence. */
+    const winLaunchOther = plat === 'win32' ? (rules.launchUnsafe || []).filter((e) => e !== WIN_LAUNCH_SENTENCE) : [];
+    const winLaunchPart = winLaunchOther.length ? 'a folder the guard protects could not be covered (' + winLaunchOther.join(', ') + ')' : null;
+    const otherReason = plat === 'win32' ? [winPath ? WIN_PATH_REASON : null, winLaunchPart, configPart, winShell].filter(Boolean).join('; and ') : configPart;
     /* Review 11: whether the PATH is the ONLY reason, said as a flag, so a board start never reads a joined message's
        first words and misses a config reason behind it (guardTokenOnlyFolder). */
     /* Review 13: each part also on its own (pathReason, otherReason, null when absent), so a board start can replace
@@ -3387,6 +3525,8 @@ module.exports = {
   readingsHoldGuide,
   legacyWinEquivalent,
   withNativeTwins,
+  withRealTwins,   // #5664 step A
+  realOrLeafStrict,
   ruleUnwritable,
   migrateKept,
   finalDeny,

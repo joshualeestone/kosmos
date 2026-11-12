@@ -679,14 +679,18 @@ test('#4491 review 23: the supervisor says so when the guard code is missing at 
   assert.ok(/else\n\s+echo "#4491: \$_roster is listed token-only but its guard could not be checked at launch/.test(block), block.slice(-400));
 });
 
-test('#4491 review 24: on Windows the guard says it cannot hold yet, and writes nothing', () => {
+test('#5664 step A (was #4491 review 24): on Windows the guard is written, as on Linux, and says the PATH is not covered', () => {
   const dir = agentDir('r24win');
   fs.mkdirSync(dir, { recursive: true });
   const g = setup.guardTokenOnlyFolder(dir, 'r24win', { ...DEPS, platform: 'win32' });
-  assert.equal(g.ok, false, 'a Windows guard was reported in place');
-  assert.equal(g.unsupported, true);
-  assert.equal(fs.existsSync(path.join(dir, '.claude', 'settings.json')), false, 'a Windows guard wrote a settings file');
-  assert.equal(setup.guardTokenOnlyFolder(dir, 'r24win', { ...DEPS, platform: 'darwin' }).ok, true, 'CONTROL: the same folder guards on macOS');
+  assert.equal(g.ok, false, 'a Windows guard was reported whole, but its PATH part is not covered');
+  assert.equal(g.unsupported, undefined, 'a Windows guard was refused as unsupported');
+  assert.match(g.because, /on Windows Kosmos does not yet cover the programs this agent starts from/);
+  assert.match(g.because, /the rest of the guard is in place/);
+  const s = readSettings(dir);
+  assert.ok(s.permissions.deny.some((r) => /^Read\(\/\/.*board\.token\)$/.test(r)), 'no board.token Read rule was written: ' + JSON.stringify(s.permissions.deny.slice(0, 5)));
+  assert.equal(s.sandbox, undefined, 'a Windows guard wrote a sandbox block (Claude Code has none there)');
+  assert.equal(setup.guardTokenOnlyFolder(dir, 'r24win', { ...DEPS, platform: 'darwin' }).ok, true, 'CONTROL: the same folder guards whole on macOS');
 });
 
 test('#4491 review 24: permissions.additionalDirectories is removed from both agent files and said in the person\'s', () => {

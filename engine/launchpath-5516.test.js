@@ -517,7 +517,7 @@ test('#5516 review 11: the launchd jobs folder is covered (not scanned), and tmu
   assert.ok(!r2.dirs.includes(realOr(path.join(home, 'Library', 'LaunchAgents'))));
 });
 
-test('#5516 review 12: a file to deny that is a link is denied where it leads too; Windows is left as it was', () => {
+test('#5516 review 12: a file to deny that is a link is denied where it leads too; on Windows the PATH part is named as not covered (#5664)', () => {
   const dots = binDir('dotfiles');
   fs.writeFileSync(path.join(dots, 'tmux.conf'), '');
   const home = binDir('home-lp12');
@@ -531,9 +531,9 @@ test('#5516 review 12: a file to deny that is a link is denied where it leads to
   const plain = path.join(home, 'plain.conf');
   fs.writeFileSync(plain, '');
   assert.equal(setup.launchPathDirs(agentDir('lp-dot'), { ...PIN, launchFiles: [plain], panePath: binDir('empty-12'), ownPath: '' }).files.length, 1);
-  // Windows: nothing scanned, nothing reported (the Windows lane measures it first).
+  // Windows: nothing scanned, and that is NAMED (#5664 step A), so a guard written there says it is not whole.
   const w = setup.launchPathDirs(agentDir('lp-win'), { ...PIN, platform: 'win32', panePath: 'relative;also', ownPath: '' });
-  assert.deepEqual(w, { dirs: [], aliases: [], files: [], linkNames: [], unsafe: [] });
+  assert.deepEqual(w, { dirs: [], aliases: [], files: [], linkNames: [], unsafe: ['on Windows Kosmos does not cover the folders on this PATH yet'] });
   // Both tmux spellings are named, whatever XDG_CONFIG_HOME says.
   const was = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = path.join(SANDBOX, 'elsewhere-xdg');
