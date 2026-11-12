@@ -80,7 +80,7 @@ function writeAll(fd, bytes) {
 
 /* Copies each write on `stream` into `fd`, stamped, then passes it on to the original write. An error on that stream
    (an event, or an I/O error thrown by a write) is recorded once in the file and never ends the board; later writes
-   still go to node's own write, whose callback then carries the error. `name` says which stream, in that line. */
+   still go to node's own write, whose callback then carries the error for a destroyed stream. `name` says which stream, in that line. */
 function tee(stream, fd, lineState, now, name) {
   const { stampText, stampBytes } = require('./logstamp');
   const write = stream.write.bind(stream);

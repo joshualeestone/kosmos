@@ -283,3 +283,14 @@ test('kosmos#8424 a failed write with autoDestroy off is not writable, and retur
   assert.strictEqual(out.writable, false, 'CONTROL: node marked it no longer writable');
   assert.strictEqual(out.write('later, more than four bytes\n'), true, 'a dead stream asked its caller to wait for a drain');
 });
+
+/* kosmos#8424 review 5: the destroyed half of the rule, for a stand-in that reports destroyed but not writable (node's own
+   streams are never both destroyed and writable, so only a stand-in reaches it). */
+test('kosmos#8424 a stand-in that reports only destroyed returns true', (t) => {
+  const out = { destroyed: true, writable: true, write() { return false; }, on() {} };
+  routeConsole(t, out);
+  assert.strictEqual(out.write('x\n'), true, 'a destroyed stand-in asked its caller to wait for a drain');
+  const live = { destroyed: false, writable: true, write() { return false; }, on() {} };
+  routeConsole(t, live);
+  assert.strictEqual(live.write('x\n'), false, 'CONTROL: a live stand-in gets its own answer');
+});
