@@ -257,16 +257,32 @@ test('#8373 once the console has failed, a write returns true, so no caller wait
   assert.strictEqual(out.write('later\n'), true);
 });
 
-/* kosmos#8424: a stream that is still writable after an 'error' event (another writer emitted it) still has real
-   backpressure, and the tee reports it as node does rather than force true. */
-test('kosmos#8424 a stream that errored but is still writable reports its backpressure as node does', async (t) => {
+/* kosmos#8424 review 7: node repairs process.stdout a tick after a failed write, so it reads writable and not destroyed
+   again. A write past the high-water mark must still return true once the console failed: no 'drain' would come. This
+   stand-in fails each write a little later and repairs itself the way stdout does. */
+test('kosmos#8424 a console that failed and then reads writable again (as node repairs stdout) still returns true', (t) => {
+  /* A plain stand-in, not node's internals: its first write fails with an 'error' event, after which it reads writable
+     and not destroyed (as process.stdout does once node repairs it), and its own write reports backpressure. */
+  const listeners = [];
+  const out = { destroyed: false, writable: true, on(ev, fn) { if (ev === 'error') listeners.push(fn); },
+    write() { return false; } };
+  routeConsole(t, out);
+  listeners.forEach((fn) => fn(Object.assign(new Error('write EPIPE'), { code: 'EPIPE', syscall: 'write' })));
+  assert.strictEqual(out.writable, true, 'CONTROL: the failed stream reads writable again, as stdout does');
+  assert.strictEqual(out.destroyed, false, 'CONTROL: and not destroyed');
+  assert.strictEqual(out.write('x'.repeat(64) + '\n'), true, 'a write past the high-water mark after the console failed returned false');
+});
+
+/* The price of that, kept visible (review 7): an 'error' emitted on a stream from outside, which stays healthy, also
+   counts as the console failing, so its backpressure is hidden from then on. */
+test('kosmos#8424 an error emitted from outside also counts as failed (the stated price of the rule above)', async (t) => {
   const pending = [];
   const out = new Writable({ highWaterMark: 4, autoDestroy: false, write(chunk, enc, cb) { pending.push(cb); } });
   routeConsole(t, out);
+  assert.strictEqual(out.write('more than four bytes\n'), false, 'CONTROL: before any error, real backpressure is reported');
   out.emit('error', Object.assign(new Error('flaky'), { code: 'EIO' }));
-  assert.strictEqual(out.destroyed, false, 'CONTROL: the stream was not destroyed by its error');
-  assert.strictEqual(out.writable, true, 'CONTROL: the stream stayed writable after its error');
-  assert.strictEqual(out.write('more than four bytes\n'), false, 'an errored but writable stream hid its backpressure');
+  assert.strictEqual(out.writable, true, 'CONTROL: the stream stayed writable');
+  assert.strictEqual(out.write('more than four bytes\n'), true, 'after an error event the tee forces true, by design');
   pending.forEach((cb) => cb());
 });
 
