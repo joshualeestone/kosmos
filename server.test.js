@@ -166,7 +166,9 @@ process.env.USERPROFILE = process.env.HOME;   // kosmos#8378: os.homedir() reads
 // that means to SUCCEED (record shape, project attachment) must name the account
 // a real such machine would have. The liveness probe runs the fake claude bin
 // (AGENT_WORKFORCE_CLAUDE_BIN=/bin/echo below) -> not a dead sign-in -> the create
-// proceeds. accounts.js reads the default account's record at <HOME>/.claude.json.
+// proceeds. (kosmos#8378: on Windows the stub is node, which refuses the probe's flags, so
+// the probe answers unknown, not connected; that is not a dead sign-in either, and the
+// create still proceeds, down that branch.) accounts.js reads the default account's record at <HOME>/.claude.json.
 // #2724: seal the ENGINE's home seam as well as the OS home. `accounts.js` reads
 // `AGENT_WORKFORCE_HOME || os.homedir()`, so with only `$HOME` sealed an ambient
 // `AGENT_WORKFORCE_HOME` sends the account lookup somewhere other than the

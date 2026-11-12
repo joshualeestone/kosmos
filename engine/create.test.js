@@ -261,6 +261,9 @@ const LINUX_NO_EQUIVALENT_WHY = 'the #4279 leftover-job rules read launchctl pri
    runs on both. On a Mac each one is exactly the plist read or launchctl filter it replaced. */
 const jobfixture = require('../test-support/jobfixture');
 const linuxHost = () => process.platform === 'linux';
+/* kosmos#8378: on Windows jobPath installs the fixture's stand-in Task Scheduler (test-support/jobfixture.js), which
+   from that call on replaces the win32job runner this file installed above, before the fixture was required, so the
+   fixture cannot see it to refuse. A Windows test here that needs its own runner sets it again after asking for a path. */
 const jobText = (name) => fs.readFileSync(jobfixture.jobPath(name), 'utf8');
 /* Every value the job carries, compared whole: each <string> of the plist; on Linux each ExecStart argument, each
    Environment value, and every other directive's whole value (Description, WorkingDirectory and the rest). */

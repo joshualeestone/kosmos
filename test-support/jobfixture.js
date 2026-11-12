@@ -35,7 +35,8 @@ const win32 = () => process.platform === 'win32';
    through its own runner (setRunner: /Query /XML, /Query /FO LIST, the two /FO CSV lists, /Create, /Delete, /Change,
    /Run, /End) from those files. NOT the step forms (installSteps, startSteps, endSteps, taskEnabledSteps): those hand
    `schtasks.exe` to engine/remove.js's runner, which a test stubs on its own, so a put-back or restore through them
-   registers nothing here, whatever that stub answers. */
+   registers nothing here, whatever that stub answers. It answers /Query /XML in UTF-8, so win32job's UTF-16 decode of
+   a real answer (taskXmlFromQuery) is not exercised here; that has its own tests. */
 const NOT_FOUND = 'ERROR: The system cannot find the file specified.';
 
 function win32TaskDir() {
@@ -64,9 +65,10 @@ function switchedOff(text) {
   return !!settings && /<Enabled>\s*(false|0)\s*<\/Enabled>/.test(settings[1]);
 }
 
+let runs = 0;   // the /Run count, so each started task gets its own ownership-row id
+
 /* The agent facts on a task's argument line (name, folder, model, account, runner, runner binary), read the way
    win32job.taskSpec reads them; null when the definition has no argument line. */
-let runs = 0;
 function taskLine(text) {
   const m = /<Arguments>([\s\S]*?)<\/Arguments>/.exec(String(text));
   if (!m) return null;
@@ -88,10 +90,28 @@ function taskRows(dir) {
 
 /* A task file the stand-in cannot read (a folder where the file should be, say) is a look that failed, the way
    schtasks failing to answer is: never thrown at the caller, and never "no such task". */
+const STAND_IN = Symbol('jobfixture stand-in Task Scheduler');
 function stubScheduler(dir) {
   const answer = stubAnswer(dir);
-  return (args) => {
+  const run = (args) => {
     try { return answer(args); } catch (e) { return { ok: false, out: `ERROR: ${(e && e.message) || 'the stand-in Task Scheduler could not read the task'}` }; }
+  };
+  run[STAND_IN] = true;
+  return run;
+}
+
+/* A runner a test installed of its own (a refusing one, say) must never be swapped for the stand-in behind its back:
+   setRunner also clears the liveness and clock seams, so the test would go green against the stand-in instead. From
+   the moment this file loads, win32job.setRunner is watched, and jobPath refuses rather than replace such a runner.
+   A runner installed BEFORE this file was required cannot be seen; engine/create.test.js and engine/status.test.js
+   install theirs that way and say so where they ask for a path. */
+let foreignRunner = false;
+if (win32()) {
+  const win32job = require('../engine/win32job');
+  const setRunner = win32job.setRunner;
+  win32job.setRunner = (fn) => {
+    foreignRunner = typeof fn === 'function' && !fn[STAND_IN];
+    return setRunner(fn);
   };
 }
 
@@ -171,6 +191,10 @@ function stubAnswer(dir) {
 function useWin32Scheduler() {
   const dir = win32TaskDir();
   const win32job = require('../engine/win32job');
+  if (foreignRunner) {
+    throw new Error('jobfixture: a test installed its own win32job runner, and asking for a job path would replace it with '
+      + 'the stand-in Task Scheduler; put it back (win32job.setRunner(null)) or keep the path from before installing it');
+  }
   /* Registering a task copies node beside the task first (win32anchor); here that is a path, never a copy. Installed on
      every call, as the runner is, so a test that put the real anchorer back (setAnchorer(null)) never copies node. */
   win32job.setAnchorer(() => ({ ok: true, node: process.execPath, boot: path.join(dir, 'supervisor-boot.js') }));

@@ -63,3 +63,12 @@ and 11 files keep some Windows failures for other causes, left to later triage s
   Windows (#2615 removed list, adopt #1349 and #1363) name their follow-up card, kosmos#8456. Left as nits: jobFor on
   Windows puts the current world on the task line (nothing reads it yet), and machine.test.js #2304 could assert the
   Windows fallback instead of skipping.
+- Round 2 (no blockers, 3 warnings, 3 nits). Fixed: jobfixture now watches win32job.setRunner from the moment it loads
+  and refuses (throws) rather than replace a runner a test installed of its own; engine/create.test.js and
+  engine/status.test.js install theirs before requiring the fixture, where it cannot see them, and say so at their call
+  sites. machine.test.js: the two chmod-000 tests ("a binary we cannot LOOK at", "an unreadable REQUIRED probe"),
+  which returned early on Windows and asserted nothing, skip there. "something at the path is not the same as something
+  we could run" keeps running on Windows on purpose: there a file with no runnable extension is the same claim, present
+  but not runnable, and its folder arm is real. server.disconnect-stop-2570 sets USERPROFILE beside HOME. Nits: the
+  server.test.js liveness-probe comment says what node answers on Windows; a declaration moved; the header says the
+  stand-in answers in UTF-8, so win32job's UTF-16 decode is not exercised here. 68-file re-run: still 149, only #8454 new.

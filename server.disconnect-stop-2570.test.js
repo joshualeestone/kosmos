@@ -50,6 +50,7 @@ fs.writeFileSync(PANES, '');
    states: several engines fix their paths at load, and one unsandboxed root makes the
    suite decide from the operator's real fleet. */
 process.env.HOME = HOME;
+process.env.USERPROFILE = HOME;   // kosmos#8378: os.homedir() reads USERPROFILE on Windows, where HOME is not asked
 process.env.AGENT_WORKFORCE_HOME = HOME;
 process.env.AGENT_WORKFORCE_DATA = DATA;
 process.env.AGENT_WORKFORCE_WORKERS = WORKERS;

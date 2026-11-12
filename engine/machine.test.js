@@ -233,7 +233,7 @@ test('the reassuring half of the battery answer is not asserted unchecked', () =
     'stopped saying the one true half it had actually checked');
 });
 
-test('a binary we cannot LOOK at is unknown, not "not installed"', () => {
+test('a binary we cannot LOOK at is unknown, not "not installed"', { skip: skipOnWin32('it seals a folder with a POSIX mode (chmod 000) to check the could-not-look answer, which Windows does not keep') }, () => {
   /**
    * ⚠️ THE ARM THAT COULD NEVER FIRE. Written around `fs.existsSync`, which
    * never throws — it swallows every error and answers false. So an unreadable
@@ -421,7 +421,7 @@ test('something at the path is not the same as something we could run', () => {
   }
 });
 
-test('an unreadable REQUIRED probe is unknown, not a definite "not installed"', () => {
+test('an unreadable REQUIRED probe is unknown, not a definite "not installed"', { skip: skipOnWin32('it seals a folder with a POSIX mode (chmod 000) to check the could-not-look answer, which Windows does not keep') }, () => {
   /**
    * ⚠️ THE SIBLING OF THE SLEEP FIX, UNFIXED FOR A WHILE. With Claude
    * genuinely absent and tmux unreadable, the early return on the unreadable
