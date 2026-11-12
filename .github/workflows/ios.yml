@@ -285,12 +285,14 @@ jobs:
   # the per-test limit never reached (no test hung).
   # kosmos#8453: in two halves (ui-sample.sh --shard), as one job took 75 of its 80 minutes on PR #8447 and a slow runner
   # would have timed it out, a red no PR caused. Each half builds the app on its own runner and runs about half the checks
-  # (measured per class: about 27 and 26 minutes of checks, before #8443's longer page delay), so each ends well inside 60.
-  # A half that fails does not cancel the other (fail-fast off), so one red names its own classes.
+  # (measured per class: about 27 and 26 minutes of checks, before #8443's longer page delay; with the build, an estimated
+  # 45 to 55 minutes each). The limit stays 75 until a run measures the halves: a job stopped at its limit is cancelled, not
+  # failed, so its result bundle is never uploaded and its TIMED OUT lines never print, and one hung test costs up to 14
+  # minutes. Lower it once runs show the room. A half that fails does not cancel the other (fail-fast off).
   uikit:
     name: uikit list (sample board) ${{ matrix.shard }}
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:

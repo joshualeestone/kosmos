@@ -34,9 +34,15 @@ test('kosmos#8453: every class named for the first half is a class the UIKit arm
   assert.deepEqual(classes('--uikit', '--shard', '1/2').list.map((c) => c.split(':')[0]).sort(), [...named].sort());
 });
 test('kosmos#8453: --shard is refused without --uikit and for anything but 1/2 or 2/2', () => {
-  assert.equal(classes('--shard', '1/2').status, 2);
-  assert.equal(classes('--uikit', '--shard', '3/2').status, 2);
-  assert.equal(classes('--uikit', '--shard').status, 2);
+  // Review 1: the refusal's own words, as 2 is also what an unknown argument returns.
+  const noUikit = classes('--shard', '1/2');
+  assert.equal(noUikit.status, 2);
+  assert.match(noUikit.err, /--shard is for the UIKit arm/);
+  for (const bad of [['--uikit', '--shard', '3/2'], ['--uikit', '--shard']]) {
+    const r = classes(...bad);
+    assert.equal(r.status, 2, bad.join(' '));
+    assert.match(r.err, /--shard takes 1\/2 or 2\/2/, bad.join(' '));
+  }
 });
 test('kosmos#8453: the ios workflow runs both halves', () => {
   const y = fs.readFileSync(path.join(__dirname, '.github', 'workflows', 'ios.yml'), 'utf8');

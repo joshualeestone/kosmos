@@ -99,7 +99,7 @@ fi
 # kosmos#8453: the UIKit arm in two halves, so each CI job (ios.yml "uikit list (sample board) 1/2" and "2/2") ends well
 # inside its limit: the one job took 75 of its 80 minutes on PR #8447. 1/2 is the earlier-pages classes (their pages are
 # held back 16 s each, the longest checks) and the two short 260-message ones; 2/2 is every other class. A class is in 2/2
-# unless it is named here, so together the halves are always the whole list (tools/test-ui-sample-shard.sh checks it).
+# unless it is named here, so together the halves are always the whole list (ios.ui-sample-shard-8453.test.js checks it).
 # Measured per class on main's run 42940677400 (before #8443 doubled the page delay): 1/2 about 27 min, 2/2 about 26.
 earlier=" EarlierDroppedUITests EarlierDeleteShiftUITests EarlierPagesUITests EarlierDoubleAskUITests ChatSearchUITests ChatDragUITests StopAddingUITests "
 if [ -n "$shard" ]; then
@@ -112,7 +112,7 @@ if [ -n "$shard" ]; then
   classes="${kept# }"
   [ -n "$classes" ] || { echo "FAIL  ui-sample: shard $shard holds no class" >&2; exit 1; }
 fi
-# UI_SAMPLE_PRINT_CLASSES=1: print the classes this run would take and stop (tools/test-ui-sample-shard.sh).
+# UI_SAMPLE_PRINT_CLASSES=1: print the classes this run would take and stop (ios.ui-sample-shard-8453.test.js).
 if [ "${UI_SAMPLE_PRINT_CLASSES:-}" = 1 ]; then printf '%s\n' $classes; exit 0; fi
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
   echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
@@ -149,7 +149,7 @@ for c in $classes; do only="$only -only-testing:KosmosUITests/${c%%:*}"; want=$(
 log="$work/xcodebuild.log"
 # kosmos#8221 slice 14: on the UIKit run, a test that runs past 7 minutes is stopped (failed by xcodebuild; the tally never
 # sees it, so it is named as TIMED OUT below, on a pass as well as a failure). With its retry
-# (-retry-tests-on-failure) one hang costs up to 14 minutes, which still fits the job's 60; two hangs may not.
+# (-retry-tests-on-failure) one hang costs up to 14 minutes, which still fits each half's 75 (kosmos#8453); two hangs may not.
 allow=""
 if [ "$uikit" = 1 ]; then allow="-test-timeouts-enabled YES -default-test-execution-time-allowance 420 -maximum-test-execution-time-allowance 420"; fi
 # shellcheck disable=SC2086  # $only, $skip and $allow are lists of separate arguments
