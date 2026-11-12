@@ -72,6 +72,24 @@ test('withRealTwins: off Windows the rules are returned as they are (CONTROL: th
   assert.equal(setup.withRealTwins(['Read(//c/link/x)'], 'win32', real).rules.length, 2);
 });
 
+test('withRealTwins: a link to a drive root, or to a folder holding the home, is named as too wide, never written', () => {
+  const home = 'C:\\Users\\x';
+  const tooWide = (p) => p === 'D:\\' || home.toLowerCase().startsWith(p.toLowerCase().replace(/\\?$/, '\\')) || p.toLowerCase() === home.toLowerCase();
+  const r = setup.withRealTwins(['Edit(//c/link/**)', 'Edit(//c/up/**)'], 'win32', (p) => (p === 'C:\\link' ? 'D:\\' : p === 'C:\\up' ? 'C:\\Users' : p), tooWide);
+  assert.deepEqual(r.rules, ['Edit(//c/link/**)', 'Edit(//c/up/**)']);
+  assert.equal(r.unsafe.length, 2);
+  assert.ok(r.unsafe.every((u) => /too wide/.test(u)), JSON.stringify(r.unsafe));
+  // CONTROL: a narrower suffix under the same link keeps its twin (the rule stays narrow).
+  const n = setup.withRealTwins(['Edit(//c/link/.claude-*/settings.json)'], 'win32', (p) => (p === 'C:\\link' ? 'D:\\' : p), tooWide);
+  assert.deepEqual(n.rules, ['Edit(//c/link/.claude-*/settings.json)', 'Edit(//d/.claude-*/settings.json)']);
+});
+
+test('withRealTwins: a path whose real place cannot be worked out is named (fails closed), not skipped', () => {
+  const r = setup.withRealTwins(['Read(//c/link/board.token)'], 'win32', () => { throw new Error('EACCES'); });
+  assert.deepEqual(r.rules, ['Read(//c/link/board.token)']);
+  assert.match(r.unsafe[0], /could not be worked out/);
+});
+
 test('launchPathDirs on Windows names the PATH part as not covered, so the guard cannot read as whole', () => {
   const w = setup.launchPathDirs(agentDir('lp'), { ...PIN, platform: 'win32' });
   assert.deepEqual(w.unsafe, ['on Windows Kosmos does not cover the folders on this PATH yet']);
@@ -85,12 +103,32 @@ test('on Windows the guard is written in the //c/ form, with no sandbox block, a
   assert.equal(g.ok, false);
   assert.equal(g.unsupported, undefined, 'refused as unsupported, the old answer');
   assert.match(g.because, WIN_PATH);
-  assert.equal(g.otherReason, null, 'a reason other than the PATH: ' + g.otherReason);
+  // On Windows the PATH part travels as the run's own part (otherReason), never as a launch's pathReason.
+  assert.equal(g.pathReason, null);
+  assert.equal(g.otherReason, 'the PATH this agent starts with has an entry Kosmos could not cover (on Windows Kosmos does not cover the folders on this PATH yet)', 'a reason other than the PATH, or the PATH part missing');
   const d = deny(dir);
   assert.ok(d.includes(ruleFor('Read', path.join(fs.realpathSync.native(store.ROOT), 'board.token'))), 'no board.token Read rule in the //c/ form');
   assert.equal(d.filter((r) => /^\w+\(\/\/[A-Za-z]:/.test(r)).length, 0, 'a rule in the native C:\\ form, measured to match nothing');
   const s = JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8'));
   assert.equal(s.sandbox, undefined);
+});
+
+test('what the agent\'s page is told: a board start on Windows records the guard as NOT whole', { skip: NEEDS_WINDOWS }, () => {
+  /* A board start keeps only a LAUNCH's PATH part (review 13), and no Windows launch records one, so a PATH part sent
+     as pathReason was dropped here and the line read whole (the page then showed the protection as complete). */
+  const dir = agentDir('pagecheck');
+  setup.guardTokenOnlyFolder(dir, 'pagecheck', { ...DEPS, boardStart: true });
+  const line = setup.readGuardState({ dataRoot: store.ROOT }).pagecheck;
+  assert.ok(line, 'no guard state recorded');
+  assert.equal(line.ok, false, 'the page would show the guard as complete: ' + JSON.stringify(line));
+  assert.match(line.because, WIN_PATH);
+  // A second board start (the next board restart) keeps it not whole.
+  setup.guardTokenOnlyFolder(dir, 'pagecheck', { ...DEPS, boardStart: true });
+  assert.equal(setup.readGuardState({ dataRoot: store.ROOT }).pagecheck.ok, false, 'a later board start recorded it whole');
+  // CONTROL: a plain run (not a board start) records the same.
+  const dir2 = agentDir('pagecheck2');
+  setup.guardTokenOnlyFolder(dir2, 'pagecheck2', DEPS);
+  assert.equal(setup.readGuardState({ dataRoot: store.ROOT }).pagecheck2.ok, false);
 });
 
 test('a data folder reached through a junction is denied on its REAL path, not only on the junction', { skip: NEEDS_WINDOWS }, () => {
@@ -132,7 +170,9 @@ test('an instruction file\'s import is covered on Windows (its backslashes are s
   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'See @notes.md\n');
   fs.writeFileSync(path.join(dir, 'notes.md'), 'x\n');
   const g = setup.guardTokenOnlyFolder(dir, 'imports', DEPS);
-  assert.equal(g.otherReason, null, 'the import was read as a path the rules cannot carry: ' + g.otherReason);
+  // The only part missing is the Windows PATH part; before #5664 the import was read as a path the rules cannot carry.
+  assert.doesNotMatch(String(g.otherReason), /cannot carry|could not be covered/, 'the import was read as uncarriable: ' + g.otherReason);
+  assert.match(String(g.otherReason), WIN_PATH);
   // A target inside an agent's folder gets one mid-path glob per name (the agents' folder, *, the name), as elsewhere.
   assert.ok(deny(dir).includes(ruleFor('Edit', path.join(path.dirname(dir), '*', 'notes.md'))), 'the imported file is not denied: ' + JSON.stringify(deny(dir).filter((r) => /notes/.test(r))));
 });

@@ -36,6 +36,13 @@ match nothing; `( ) { } !` are literal, `[ ]` is a character class.
   8.3 to long path; `( )` and `[ ]` refused with nothing written; an import covered). The two tests that pinned the old
   refusal (`engine/boardkeychain-4491` review 24, `engine/launchpath-5516` Windows line) now pin the new behaviour.
 
+- Review round 1 (BLOCKER, fixed): a board start keeps only a LAUNCH's PATH part (review 13), and no Windows launch
+  records one (only bin/agent-supervisor.sh runs the launch refresh), so the Windows PATH sentence sent as pathReason
+  was dropped and the page recorded the guard as complete. On Windows it now travels as otherReason, the part every
+  run measures. A test reads the recorded line after a board start. Also: withRealTwins names (never writes) a twin as
+  wide as a drive root or a folder holding the home or the agent's own folder, and one whose real place cannot be
+  worked out (fails closed).
+
 ## What it means for a person
 - An existing token-only Claude agent on Windows gets its guard written at the next refresh: the board token gets Read
   and Edit denies for its file tools (today it gets none). Its page still says protection is not complete, now with the
@@ -49,6 +56,10 @@ match nothing; `( ) { } !` are literal, `[ ]` is a character class.
   making the guard not whole on Windows when step B covers PATH. Would change my mind: step B needing it.
 - `engine/agentevents.js` still treats Windows as never guarded (it reads nothing there): fail-closed, still correct.
 - Native twins are not added to the guard's rules (they never were; withNativeTwins is the guide's).
+- The page does not name the unsandboxed shell (the agent's PowerShell or Bash can still read the token); that is what
+  Linux says too (condition 1: no stronger claim, and no different wording). For step B this matters more: once the
+  PATH part is covered, the Windows page would read "complete" while the shell can read the token, as on Linux. To be
+  raised on the card for step B.
 
 ## Not covered
 - The PATH part (step B, #5516 later part): System32 past the scan cap, app execution aliases (the card).

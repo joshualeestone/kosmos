@@ -438,9 +438,12 @@ function legacyWinEquivalent(rule) {
 /* #5664 step A: on Windows, Claude Code resolves junctions and 8.3 names on the path a tool touches, and a rule on a
    link's OWN path covers nothing (measured, 2.1.319). So for every Read or Edit rule whose literal part (before its first
    `*`) reaches a different real path, the same rule on the real path is added beside it. A real path the rules cannot
-   carry is returned in `unsafe` (the guard is then not whole), never written. `real` is realOrLeaf, passed in for tests.
+   carry, or that is too wide (`tooWide`: a drive root, or a folder holding the home or the agent's own folder, which a
+   deny there would take from the agent's work), is returned in `unsafe` (the guard is then not whole), never written;
+   so is one that cannot be resolved. `real` is realOrLeaf, passed in for tests. Only the part before the first `*` is
+   resolved: a link under a glob segment (a world folder reached through a junction, made later) gets no twin.
    Pure apart from `real`; Windows only (elsewhere the rules are returned as they are). */
-function withRealTwins(rules, platform = process.platform, real = realOrLeaf) {
+function withRealTwins(rules, platform = process.platform, real = realOrLeaf, tooWide = (p) => path.win32.parse(p).root === p) {
   if (platform !== 'win32') return { rules, unsafe: [] };
   const out = [];
   const seen = new Set(rules);
@@ -458,11 +461,16 @@ function withRealTwins(rules, platform = process.platform, real = realOrLeaf) {
     const rest = inner.slice(cut);
     const native = rulePath(literal.slice(2), 'win32');
     if (!native) continue;
-    let twin = cache.get(native);
-    if (twin === undefined) { try { twin = ruleAbs(real(native), 'win32'); } catch { twin = null; } cache.set(native, twin); }
-    if (!twin || twin.toLowerCase() === literal.toLowerCase()) continue;   // Claude Code matches case-blind on Windows (measured)
+    let to = cache.get(native);
+    if (to === undefined) { try { to = String(real(native)); } catch { to = null; } cache.set(native, to); }
+    if (to === null) { unsafe.push(`${native} (where it leads could not be worked out)`); continue; }
+    const twin = ruleAbs(to, 'win32');
+    if (twin.toLowerCase() === literal.toLowerCase()) continue;   // Claude Code matches case-blind on Windows (measured)
+    // Only a rule as wide as its literal part (the path itself, or all under it) can be too wide; a narrower suffix
+    // (`.claude-*/settings.json` under the home) keeps the twin narrow.
+    if ((rest === '' || rest === '/**') && tooWide(to)) { unsafe.push(`${native} (it leads to ${to}, too wide a place for Kosmos to deny)`); continue; }
     const rule = `${m[1]}(${twin}${rest})`;
-    if (ruleHasPatternChar(rule, '/')) { unsafe.push(`${native} (it leads to ${real(native)}, a path the permission rules cannot carry)`); continue; }
+    if (ruleHasPatternChar(rule, '/')) { unsafe.push(`${native} (it leads to ${to}, a path the permission rules cannot carry)`); continue; }
     if (!seen.has(rule)) { seen.add(rule); out.push(rule); }
   }
   return { rules: out, unsafe: [...new Set(unsafe)] };
@@ -2729,7 +2737,10 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     if (stale.size || staleWrites.size) process.stderr.write(`#5663: ${agentName}: pruned ${stale.size} file-tool and ${staleWrites.size} sandbox launch rule(s) whose paths are gone\n`);
     /* #5664 step A: on Windows each rule is also written on the real path it reaches (junctions, 8.3 names), since a
        rule on a link's own path covers nothing there; one whose real path the rules cannot carry makes it not whole. */
-    const realTwins = withRealTwins(rules.deny, plat);
+    const homeReal = realOrLeaf(deps.home || kosmosHome()).toLowerCase();
+    const dirReal = realOrLeaf(dir).toLowerCase();
+    const holdsW = (a, b) => b === a || b.startsWith(a.endsWith('\\') ? a : a + '\\');   // case-blind, as Windows paths are
+    const realTwins = withRealTwins(rules.deny, plat, realOrLeaf, (p) => { const q = String(p).toLowerCase(); return path.win32.parse(p).root === p || holdsW(q, homeReal) || holdsW(q, dirReal); });
     if (realTwins.unsafe.length) rules.configUnsafe.push(...realTwins.unsafe);
     const deny = [...new Set([...had, ...realTwins.rules])];
     /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so
@@ -2813,8 +2824,15 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     if (warning) process.stderr.write(`#5663: ${agentName}: ${warning}\n`);
     /* Review 7: after the write, as for the launch path, so one uncarriable link never stops the rest being refreshed.
        Review 8: both reasons together when both apply, so fixing one does not hide the other until the next refresh. */
-    const pathReason = rules.launchUnsafe && rules.launchUnsafe.length ? LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + ')' : null;
-    const otherReason = rules.configUnsafe && rules.configUnsafe.length ? 'a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + ')' + (rules.configUnsafe.some((e) => /cannot carry/.test(e)) ? ": renaming that folder so its name has none of ( ) [ ] { } * ? ! or \\, or pointing the link somewhere else, lets Kosmos cover it" : '') : null;   // review 10: a link reached twice is named once; review 15: the refusal says how to fix it; review 17: every character the rules refuse, and only where renaming is the fix
+    const pathPart = rules.launchUnsafe && rules.launchUnsafe.length ? LAUNCH_PATH_REASON + ' (' + rules.launchUnsafe.join(', ') + ')' : null;
+    const configPart = rules.configUnsafe && rules.configUnsafe.length ? 'a file or folder Claude Code reads at start could not be covered (' + [...new Set(rules.configUnsafe)].join(', ') + ')' + (rules.configUnsafe.some((e) => /cannot carry/.test(e)) ? ": renaming that folder so its name has none of ( ) [ ] { } * ? ! or \\, or pointing the link somewhere else, lets Kosmos cover it" : '') : null;   // review 10: a link reached twice is named once; review 15: the refusal says how to fix it; review 17: every character the rules refuse, and only where renaming is the fix
+    /* #5664 step A: on Windows the PATH part is not a launch's measurement (no Windows launch records one; only the Mac
+       and Linux supervisor runs the launch refresh) but a fact of the platform that every run knows. As pathReason a
+       board start would drop it (review 13: a board start keeps only a LAUNCH's PATH part) and record the guard whole.
+       So on Windows it travels as the board start's own part, which every run measures and records. */
+    const winPath = plat === 'win32' && pathPart !== null;
+    const pathReason = winPath ? null : pathPart;
+    const otherReason = winPath ? [pathPart, configPart].filter(Boolean).join('; and ') : configPart;
     /* Review 11: whether the PATH is the ONLY reason, said as a flag, so a board start never reads a joined message's
        first words and misses a config reason behind it (guardTokenOnlyFolder). */
     /* Review 13: each part also on its own (pathReason, otherReason, null when absent), so a board start can replace
