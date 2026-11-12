@@ -113,7 +113,10 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   // counts as runnable in test-support/runnerstub.js, USERPROFILE beside HOME). Each arm about launchd, tmux, POSIX
   // modes or the macOS LaunchAgents survey skips with its reason; the rest runs here.
   'discover.adopt.test.js', 'qwen-review2-5977.test.js', 'machine.test.js', 'register.test.js', 'delete-leftover.test.js',
-  'connect-keep-8293.test.js', 'create.compat-7206.test.js'];
+  'connect-keep-8293.test.js', 'create.compat-7206.test.js',
+  // kosmos#8378: runner resolution and the codex install through the real Windows pipeline (tar.exe, codex.exe in the
+  // tree, the verified marker); its chmod-folder and ~/.local/bin/agy arms skip with their reasons.
+  'runners.test.js'];
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
