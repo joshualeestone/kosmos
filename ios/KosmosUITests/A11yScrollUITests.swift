@@ -12,13 +12,14 @@ final class A11yScrollUITests: XCTestCase {
 
     private struct Report { let pins: Int; let atEnd: Bool; let moved: Int; let window: Bool; let dragged: Bool; let short: Int; let label: String }
 
-    private func scrollUp(mode: String, fixOff: Bool = false, windowByClock: Bool = false) throws -> Report {
+    private func scrollUp(mode: String, fixOff: Bool = false, windowByClock: Bool = false, noStallGrace: Bool = false) throws -> Report {
         guard UIKitListArm.on else { throw XCTSkip("the lazy list has no pin to the end (UIKit list only)") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "1",
                                  "KOSMOS_SAMPLE_A11YSCROLL": "6", "KOSMOS_SAMPLE_A11YSCROLL_MODE": mode]
         if fixOff { app.launchEnvironment["KOSMOS_SAMPLE_NOPERSONSCROLL"] = "1" }
         if windowByClock { app.launchEnvironment["KOSMOS_SAMPLE_WINDOWBYCLOCK"] = "1" }   // kosmos#8442: the control arm
+        if noStallGrace { app.launchEnvironment["KOSMOS_SAMPLE_NOSTALLGRACE"] = "1" }   // kosmos#8442 review 2: the control arm
         UIKitListArm.set(app)
         app.launch()
         UIKitListArm.assertDrawn(app)
@@ -95,6 +96,24 @@ final class A11yScrollUITests: XCTestCase {
         XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened: \(r.label)")
         XCTAssertGreaterThan(r.pins, 0, "the control was not put back at the end, so the stalled check cannot see the defect: \(r.label)")
         XCTAssertLessThan(r.moved, 300, "the control's stalled scroll ran on: \(r.label)")
+    }
+
+    // kosmos#8442 review 2: an animated scroll (as VoiceOver's) with the main thread held 0.6 s a moment into it. Its later
+    // frames are driven by the display, so they may run after the overdue lapse check; the check, seeing it ran late, waits
+    // one more quiet period for them (once a window), so the scroll is not undone.
+    func testAnAnimatedScrollWithAStallIsNotPutBack() throws {
+        let r = try scrollUp(mode: "stalledAnimated")
+        XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened: \(r.label)")
+        XCTAssertEqual(r.pins, 0, "the list put itself back at the end after the stall: \(r.label)")
+        XCTAssertGreaterThan(r.moved, 40, "the scroll did not move the list up: \(r.label)")
+        XCTAssertFalse(r.atEnd, "the reader is still counted at the newest after scrolling up: \(r.label)")
+    }
+
+    // Its control: no stall grace. Recorded, not asserted to fail: whether the display's frames or the overdue check run
+    // first after a stall is the system's choice, so this arm shows what the grace is for when it happens (UI-NOTE).
+    func testWithoutTheStallGraceAnAnimatedStalledScroll() throws {
+        let r = try scrollUp(mode: "stalledAnimated", noStallGrace: true)
+        XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened: \(r.label)")
     }
 
     // A jump to the newest (a send, New messages) during such a scroll wins: the scroll is stopped and the reader stays at

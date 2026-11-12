@@ -47,6 +47,8 @@ struct ChatList: UIViewRepresentable {
     static let personScrollAsk: CFTimeInterval = 0.5
     // ...and how long after its last move it still counts as running.
     static let personScrollQuiet: CFTimeInterval = 0.3
+    // kosmos#8442: a lapse check this late (or later) ran after a stall of the main thread.
+    static let personScrollStallLate: CFTimeInterval = 0.1
     #if DEBUG
     static var sampleUpDone = false   // set once KOSMOS_SAMPLE_SCROLLUP has scrolled; a list made after that does not scroll again
     // KOSMOS_SAMPLE_A11YSCROLL, _A11YFOCUS and _A11YACTIONS share it: one of them runs once a launch, as sampleUpDone.
@@ -54,6 +56,9 @@ struct ChatList: UIViewRepresentable {
     // kosmos#8442: KOSMOS_SAMPLE_WINDOWBYCLOCK=1 reads the person's-scroll window by the clock alone, as before: the control
     // arm of A11yScrollUITests' stalled scroll. Read once a launch.
     static let sampleWindowByClock = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WINDOWBYCLOCK"] == "1"
+    // kosmos#8442 review 2: KOSMOS_SAMPLE_NOSTALLGRACE=1 gives no window the stall grace (personScrollLapsed), the control arm of
+    // the animated stalled scroll. Read once a launch.
+    static let sampleNoStallGrace = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOSTALLGRACE"] == "1"
     // kosmos#8221 slice 13: KOSMOS_SAMPLE_NOCELLACTIONS=1 sets the sheet's opener carried into each cell to nil (configure):
     // the control arm of A11yActionsUITests. Read once a launch.
     static let sampleNoCellActions = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOCELLACTIONS"] == "1"
@@ -195,7 +200,7 @@ struct ChatList: UIViewRepresentable {
             // kosmos#8221 (CI flake, 11-12): whether the newest message is on screen at this moment, a fact of where the list
             // is (atEnd is what the list means to do). The check reads it when its first look comes after this action.
             let wasAtEnd = atEnd, newestWasShown = newestOnScreen(), y0 = list.contentOffset.y
-            let watch: TimeInterval = mode == "stalled" ? 4.0 : mode == "stepped" ? 3.0 : 1.5   // kosmos#8442: a stall adds 0.6 s
+            let watch: TimeInterval = mode == "stalled" ? 4.0 : mode == "stalledAnimated" ? 2.5 : mode == "stepped" ? 3.0 : 1.5   // kosmos#8442: a stall adds 0.6 s
             debugPins = 0
             debugWindowOpened = false
             debugPinsUntil = CACurrentMediaTime() + watch
@@ -216,6 +221,12 @@ struct ChatList: UIViewRepresentable {
                 }
             case "still":
                 break
+            case "stalledAnimated":
+                // kosmos#8442 review 2: the animated scroll (as VoiceOver's), with the main thread held 0.6 s a moment into it,
+                // so its later frames, driven by the display, race the overdue lapse check.
+                let y = max(-list.adjustedContentInset.top, list.contentOffset.y - list.bounds.height * 0.8)
+                list.setContentOffset(CGPoint(x: 0, y: y), animated: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { Thread.sleep(forTimeInterval: 0.6) }
             case "jump":
                 let y = max(-list.adjustedContentInset.top, list.contentOffset.y - list.bounds.height * 0.8)
                 list.setContentOffset(CGPoint(x: 0, y: y), animated: true)
@@ -519,13 +530,33 @@ struct ChatList: UIViewRepresentable {
             debugWindowOpened = true
             #endif
             let window = windowCount
-            DispatchQueue.main.asyncAfter(deadline: .now() + ChatList.personScrollQuiet + 0.05) { [weak self] in self?.personScrollLapsed(window) }
+            lapseCheck(window, after: ChatList.personScrollQuiet + 0.05)
         }
-        func personScrollLapsed(_ window: Int) {
+        // kosmos#8442: the lapse check, with the time it is due, so it can tell it ran late.
+        private func lapseCheck(_ window: Int, after wait: CFTimeInterval) {
+            let due = CACurrentMediaTime() + wait
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.personScrollLapsed(window, due: due) }
+        }
+        var stallGraceWindow = 0   // kosmos#8442: the window the stall grace was given to (once a window)
+        func personScrollLapsed(_ window: Int, due: CFTimeInterval) {
             guard window == windowCount, personUntil > 0 else { return }   // a later window's, or closed already by a reported end
-            if CACurrentMediaTime() < personUntil {   // still moving: look again when it would close (by the clock, kosmos#8442)
-                let wait = personUntil - CACurrentMediaTime() + 0.05
-                DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.personScrollLapsed(window) }
+            let now = CACurrentMediaTime()
+            if now < personUntil {   // still moving: look again when it would close (by the clock, kosmos#8442)
+                lapseCheck(window, after: personUntil - now + 0.05)
+                return
+            }
+            // kosmos#8442 (review 2): a check that runs well after it was due ran after a stall of the main thread, and the
+            // moves the stall held back may come after it: an animated scroll's frames are driven by the display, not by this
+            // queue, so they need not run first. Once a window, it waits one more quiet period for them before letting go. Not
+            // every time: an app stalling over and over would keep the window open and the reader at the newest unfollowed.
+            var grace = now - due > ChatList.personScrollStallLate && stallGraceWindow != window
+            #if DEBUG
+            if ChatList.sampleNoStallGrace { grace = false }   // the control arm of the animated stalled scroll
+            #endif
+            if grace {
+                stallGraceWindow = window
+                personUntil = now + ChatList.personScrollQuiet
+                lapseCheck(window, after: ChatList.personScrollQuiet + 0.05)
                 return
             }
             personUntil = 0   // an ask made during the window is left to open the next one (its own timer lets it go)
