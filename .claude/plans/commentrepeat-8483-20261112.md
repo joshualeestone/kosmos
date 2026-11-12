@@ -37,7 +37,15 @@ matters); (b) alone (it exists for the board-to-site hop, and status already sho
 - A repeat's answer reports the earlier row: one already sent or tried says it goes (`sends: true`, no notSending),
   whatever the switch says now; one still due answers as a new one would.
 
+- A repeat of a still-due row while willSend says no (records unreadable, address not allowed) answers "goes when it
+  can" (sends + later): the repeat does not mark the row never to go, so the sweep sends it once that is repaired.
+  A refused account is the exception: it answers with the refused reason, true while the refusal stands.
+- A row of a name being retired (a retirement request open), or one whose send record names another agent (renamed
+  retired:<name>:<at>), is never matched, as withdrawFor rules.
+
 ## Deliberately left
+- repeatServiceComment does not check author.type (repeatAgentPost does): every service comment row is an agent's,
+  so the check could not fire. Added, a mutation removing it stayed green; taken out again.
 - The post cut-answer line keeps its own wording ("look before posting it again"); only the comment lines gained the
   status pointer. A resent post is answered "already has this" anyway.
 - No way to repeat on purpose within the day. A short "Thanks!" on another post is unaffected (the post is part of
@@ -55,8 +63,8 @@ does, so a CLI without the repeat words still says why a post or comment is not 
 tests given words of their own so they keep their subject (server.community-choke-3485, server.community-sendsoon-4938); one company-space case added to
 server.companycomment-7543.test.js.
 
-## Proof so far (after review round 2)
-- server.community-repeat-8483: 14 pass; cli.community-repeat-8483: 6 pass; with companycomment-7543, choke-3485 and
+## Proof so far (after review round 3)
+- server.community-repeat-8483: 18 pass; cli.community-repeat-8483: 6 pass; with companycomment-7543, choke-3485 and
   sendsoon-4938: 48 pass, 0 fail.
-- Mutations: 17 + 7 at first, 9 more after round 1, 2 more after round 2; every one goes red.
+- Mutations: 17 + 7 at first, 9 more after round 1, 2 after round 2, 5 after round 3; every one goes red.
 - 88 community test files before review: 1583 pass, 0 fail (2 skipped); static guards 3934 pass.

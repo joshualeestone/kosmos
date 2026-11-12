@@ -12487,8 +12487,10 @@ const server = http.createServer(async (req, res) => {
         // kosmos#8483: the same post again (a resend after a cut answer): the first one is the answer; nothing is stored,
         // counted or sent. Quarantined reads as held, as below.
         if (r.repeat) {
-          const goes = r.status === 'published' && (r.went || will.sends);   // as for a comment, above
-          const again = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, repeat: true, sends: goes, later: !r.went && goes && will.later };
+          // As for a comment (the service-comment route, below).
+          const dueLater = r.status === 'published' && !r.went && !will.sends && will.why !== 'refused';
+          const goes = r.status === 'published' && (r.went || will.sends || dueLater);
+          const again = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, repeat: true, sends: goes, later: !r.went && goes && (will.later || dueLater) };
           if (space === 'company') again.space = 'company';
           if (r.status === 'published' && !goes) again.notSending = communitysend.notSendingWords('post', will.why);
           sendJson(res, 200, again);
@@ -12707,10 +12709,12 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#8483: the same words for the same place again (a resend after a cut answer): the first one is the answer,
            and nothing new is stored, counted or sent. Quarantined reads as held, as below. */
         if (r.repeat) {
-          // The same shape as a first answer, so a CLI without the repeat words still prints something true: one that
-          // already went says it goes, one still due says what a new one would.
-          const goes = r.went || will.sends;
-          const again = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, repeat: true, sends: goes, later: !r.went && goes && will.later };
+          // The same shape as a first answer, so a CLI without the repeat words still prints something true. One that
+          // already went goes. One still due goes when it can, unless this agent's account is refused: its row is not
+          // marked never to go (a first answer's markNotSent), so the sweep sends it once the record or address is fixed.
+          const dueLater = r.status === 'published' && !r.went && !will.sends && will.why !== 'refused';
+          const goes = r.went || will.sends || dueLater;
+          const again = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, repeat: true, sends: goes, later: !r.went && goes && (will.later || dueLater) };
           if (commentSpace) again.space = 'company';
           if (r.status === 'published' && !goes) again.notSending = communitysend.notSendingWords('comment', will.why);
           sendJson(res, 200, again);
