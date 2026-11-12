@@ -193,6 +193,7 @@ struct ChatList: UIViewRepresentable {
         var debugPinsUntil: CFTimeInterval = 0
         var debugPins = 0
         var debugWindowOpened = false
+        var debugGraced = false   // kosmos#8442 review 3: whether a lapse check gave the stall grace during the sample scroll
         func sampleA11yScroll(_ report: ((String) -> Void)?) {
             guard !ChatList.sampleA11yDone, let list else { return }
             ChatList.sampleA11yDone = true
@@ -203,6 +204,7 @@ struct ChatList: UIViewRepresentable {
             let watch: TimeInterval = mode == "stalled" ? 4.0 : mode == "stalledAnimated" ? 2.5 : mode == "stepped" ? 3.0 : 1.5   // kosmos#8442: a stall adds 0.6 s
             debugPins = 0
             debugWindowOpened = false
+            debugGraced = false
             debugPinsUntil = CACurrentMediaTime() + watch
             // Not list.accessibilityScroll(.up) itself: on the simulator with VoiceOver off it scrolls nothing (measured 11-09:
             // moved 0 on both arms). This is what that call does with VoiceOver on, through the list's own entry point: the
@@ -238,7 +240,7 @@ struct ChatList: UIViewRepresentable {
             ChatView.trace("uikit list: debug accessibility scroll up, from the end \(wasAtEnd)", ring: false)
             DispatchQueue.main.asyncAfter(deadline: .now() + watch + 0.1) { [weak self] in
                 guard let self, let list = self.list else { return }
-                report?("pins \(self.debugPins), at end \(self.atEnd), moved \(Int(y0 - list.contentOffset.y)), window \(self.debugWindowOpened), dragged \(self.dragged), short \(Int(self.maxY(list) - list.contentOffset.y)), newest shown \(newestWasShown), from the end \(wasAtEnd)")
+                report?("pins \(self.debugPins), at end \(self.atEnd), moved \(Int(y0 - list.contentOffset.y)), window \(self.debugWindowOpened), dragged \(self.dragged), short \(Int(self.maxY(list) - list.contentOffset.y)), graced \(self.debugGraced), newest shown \(newestWasShown), from the end \(wasAtEnd)")
             }
         }
 
@@ -555,6 +557,9 @@ struct ChatList: UIViewRepresentable {
             #endif
             if grace {
                 stallGraceWindow = window
+                #if DEBUG
+                debugGraced = true
+                #endif
                 personUntil = now + ChatList.personScrollQuiet
                 lapseCheck(window, after: ChatList.personScrollQuiet + 0.05)
                 return
