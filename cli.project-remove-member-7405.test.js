@@ -21,12 +21,18 @@ const fs = require('node:fs');
 const os = require('node:os');
 const run = promisify(execFile);
 
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
+
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-pjrm-')));
-fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
-fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
-// The board's own engine beside the command, as an install has it, so the Mac cleans names with projectview.one and
-// not its fallback (kosmos_engine_module looks in $KOSMOS_HOME/engine).
-fs.symlinkSync(path.join(__dirname, 'engine'), path.join(HOME, 'engine'));
+/* kosmos#8378: only the Mac CLI reads these two links, and it never runs on Windows, where the Windows CLI runs in
+   process and reads neither. So Windows makes no links: a link Windows refused would fail the whole file at load. */
+if (!SKIP_POSIX_SHELL) {
+  fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+  // The board's own engine beside the command, as an install has it, so the Mac cleans names with projectview.one and
+  // not its fallback (kosmos_engine_module looks in $KOSMOS_HOME/engine).
+  fs.symlinkSync(path.join(__dirname, 'engine'), path.join(HOME, 'engine'));
+}
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -98,7 +104,7 @@ async function cli(port, args) {
   catch (e) { return { code: e.code, out: String(e.stdout || '') + String(e.stderr || '') }; }
 }
 
-test('#7405 Mac: --yes reads the project, then takes the member off by the sessionName the screen sends', () => withStub(OVERVIEW, GONE, async (port, seen) => {
+test('#7405 Mac: --yes reads the project, then takes the member off by the sessionName the screen sends', { skip: SKIP_POSIX_SHELL }, () => withStub(OVERVIEW, GONE, async (port, seen) => {
   const r = await cli(port, ['project', 'remove-member', 'launch', 'Sally Sales', '--yes']);
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/project/launch/overview', 'DELETE /api/project/launch/agent/sally-sales']);
@@ -106,13 +112,13 @@ test('#7405 Mac: --yes reads the project, then takes the member off by the sessi
   assert.match(r.out, /Sally Sales is off Launch and still on your computer\.$/m);
 }));
 
-test('#7405 Mac: a sessionName works as well as the display name', () => withStub(OVERVIEW, GONE, async (port, seen) => {
+test('#7405 Mac: a sessionName works as well as the display name', { skip: SKIP_POSIX_SHELL }, () => withStub(OVERVIEW, GONE, async (port, seen) => {
   const r = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
   assert.equal(r.code, 0, r.out);
   assert.equal(deletes(seen)[0].url, '/api/project/launch/agent/ada');
 }));
 
-test('#7405 Mac: a name not on the project sends nothing and says so (control: a member does)', () => withStub(OVERVIEW, GONE, async (port, seen) => {
+test('#7405 Mac: a name not on the project sends nothing and says so (control: a member does)', { skip: SKIP_POSIX_SHELL }, () => withStub(OVERVIEW, GONE, async (port, seen) => {
   const r = await cli(port, ['project', 'remove-member', 'launch', 'Nobody', '--yes']);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /No member of Launch is called Nobody, so nothing was changed\. kosmos project show launch lists who is on it, and a member that is not running shows by its machine name\./);
@@ -121,33 +127,33 @@ test('#7405 Mac: a name not on the project sends nothing and says so (control: a
   assert.equal(deletes(seen).length, 1, 'CONTROL: the member was not sent');
 }));
 
-test('#7405 Mac: a display name two members share sends nothing and lists their names', () => withStub(OVERVIEW, GONE, async (port, seen) => {
+test('#7405 Mac: a display name two members share sends nothing and lists their names', { skip: SKIP_POSIX_SHELL }, () => withStub(OVERVIEW, GONE, async (port, seen) => {
   const r = await cli(port, ['project', 'remove-member', 'launch', 'TWIN', '--yes']);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /More than one member of Launch is called TWIN, so nothing was changed\. Use one of these names instead: "twin-1", "twin-2"\./);
   assert.equal(deletes(seen).length, 0);
 }));
 
-test('#7405 Mac: could not update the member is the screen\'s sentence, and still a success', () => withStub(OVERVIEW, COULD_NOT, async (port) => {
+test('#7405 Mac: could not update the member is the screen\'s sentence, and still a success', { skip: SKIP_POSIX_SHELL }, () => withStub(OVERVIEW, COULD_NOT, async (port) => {
   const r = await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /Ada is off Launch\. We could not update them, so this project may still be named in what they were told\. It keeps its instructions somewhere we cannot safely change\.$/m);
 }));
 
-test('#7405 Mac: the board\'s refusal (the members valve) is said in its own words and exits 1', () => withStub(OVERVIEW, VALVE, async (port) => {
+test('#7405 Mac: the board\'s refusal (the members valve) is said in its own words and exits 1', { skip: SKIP_POSIX_SHELL }, () => withStub(OVERVIEW, VALVE, async (port) => {
   const r = await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /Kosmos did not take Ada off Launch: agents have changed who is on projects 60 times in the last hour, so Kosmos is pausing agent-made membership changes for 12 minutes; the person can still change them from the screen\./);
 }));
 
-test('#7405 Mac: a project the board does not have is said and nothing is removed', () => withStub(NO_PROJECT, GONE, async (port, seen) => {
+test('#7405 Mac: a project the board does not have is said and nothing is removed', { skip: SKIP_POSIX_SHELL }, () => withStub(NO_PROJECT, GONE, async (port, seen) => {
   const r = await cli(port, ['project', 'remove-member', 'nope', 'Ada', '--yes']);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /Kosmos could not read nope: there is no project by that name\./);
   assert.equal(deletes(seen).length, 0);
 }));
 
-test('#7405 Mac: no --yes and no terminal is refused before anything is sent (control: --yes sends)', () => withStub(OVERVIEW, GONE, async (port, seen) => {
+test('#7405 Mac: no --yes and no terminal is refused before anything is sent (control: --yes sends)', { skip: SKIP_POSIX_SHELL }, () => withStub(OVERVIEW, GONE, async (port, seen) => {
   const r = await cli(port, ['project', 'remove-member', 'launch', 'Ada']);
   assert.equal(r.code, 2, r.out);
   assert.match(r.out, /Nothing was changed: there is no terminal here to confirm on\. To take Ada off without being asked, add --yes\./);
@@ -156,7 +162,7 @@ test('#7405 Mac: no --yes and no terminal is refused before anything is sent (co
   assert.equal(deletes(seen).length, 1, 'CONTROL: --yes did not send');
 }));
 
-test('#7405 Mac: an option-shaped word, a missing name, or an extra word is refused before any request', () => withStub(OVERVIEW, GONE, async (port, seen) => {
+test('#7405 Mac: an option-shaped word, a missing name, or an extra word is refused before any request', { skip: SKIP_POSIX_SHELL }, () => withStub(OVERVIEW, GONE, async (port, seen) => {
   const opt = await cli(port, ['project', 'remove-member', 'launch', '--foo', '--yes']);
   assert.equal(opt.code, 2, opt.out);
   assert.match(opt.out, /--foo is not an option of kosmos project remove-member, so nothing was done\./);
@@ -235,32 +241,40 @@ test('#7405 Windows: no --yes and no terminal, an option-shaped word, or an extr
 /* ── kosmos#7405 review 1: the change landed but its answer did not, on both ───────────── */
 
 test('#7405 Mac and Windows: a 200 with no project read back says the member is most likely off, exit 3', () => withStub(OVERVIEW, UNREAD, async (port) => {
-  const m = await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
-  assert.equal(m.code, 3, m.out);
-  assert.match(m.out, /Kosmos made the change but could not read the project back\. Ada is most likely off Launch/);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const m = await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
+    assert.equal(m.code, 3, m.out);
+    assert.match(m.out, /Kosmos made the change but could not read the project back\. Ada is most likely off Launch/);
+  }
   const w = await winRun(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
   assert.equal(w.code, 3, w.err);
   assert.match(w.err, /Kosmos made the change but could not read the project back\. Ada is most likely off Launch/);
 }));
 
 test('#7405 Mac and Windows: the connection breaking after the DELETE left says "may be off", exit 3', () => withStub(OVERVIEW, 'drop', async (port, seen) => {
-  const m = await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
-  assert.equal(m.code, 3, m.out);
-  assert.match(m.out, /Ada may be off Launch; look at the project on the board before trying again/);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const m = await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
+    assert.equal(m.code, 3, m.out);
+    assert.match(m.out, /Ada may be off Launch; look at the project on the board before trying again/);
+  }
   const w = await winRun(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
   assert.equal(w.code, 3, w.err);
   assert.match(w.err, /Ada may be off Launch; look at the project on the board before trying again/);
-  assert.equal(deletes(seen).length, 2, 'CONTROL: the DELETE was not sent, so nothing broke after it');
+  // kosmos#8378: one DELETE per command that ran; on Windows only the Windows command ran.
+  assert.equal(deletes(seen).length, SKIP_POSIX_SHELL ? 1 : 2, 'CONTROL: the DELETE was not sent, so nothing broke after it');
 }));
 
 test('#7405 review 2: an answer that is not JSON after the DELETE left says "may be off", exit 3, on both', () => withStub(OVERVIEW, 'html', async (port, seen) => {
-  const m = await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
-  assert.equal(m.code, 3, m.out);
-  assert.match(m.out, /Kosmos gave an answer we could not read after it was asked\. Ada may be off Launch; look at the project on the board before trying again/);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const m = await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
+    assert.equal(m.code, 3, m.out);
+    assert.match(m.out, /Kosmos gave an answer we could not read after it was asked\. Ada may be off Launch; look at the project on the board before trying again/);
+  }
   const w = await winRun(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
   assert.equal(w.code, 3, w.err);
   assert.match(w.err, /Kosmos gave an answer we could not read after it was asked\. Ada may be off Launch; look at the project on the board before trying again/);
-  assert.equal(deletes(seen).length, 2, 'CONTROL: the DELETE was not sent');
+  // kosmos#8378: one DELETE per command that ran; on Windows only the Windows command ran.
+  assert.equal(deletes(seen).length, SKIP_POSIX_SHELL ? 1 : 2, 'CONTROL: the DELETE was not sent');
 }));
 
 /* The Mac's y/N prompt at a real terminal: macOS script(1) gives the command a pty. The answer is typed only once the
@@ -299,21 +313,27 @@ const OVERVIEW2 = [200, { project: SHOWN2, agentsUnreadable: false }];
 
 test('#7405 review 3: a sessionName that is another member\'s display name sends nothing, on both (control: an unambiguous name does)', () => withStub(OVERVIEW2, GONE, async (port, seen) => {
   assert.deepEqual(SHOWN2.members.map((m) => [m.name, m.sessionName]), [['Ada Lovelace', 'ada'], ['ada', 'b7']], 'CONTROL: the fixture does not collide');
-  const m = await cli(port, ['project', 'remove-member', 'lab', 'ada', '--yes']);
-  assert.equal(m.code, 1, m.out);
-  assert.match(m.out, /More than one member of Lab is called ada, so nothing was changed\. Use one of these names instead: "Ada Lovelace", "b7"\./);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const m = await cli(port, ['project', 'remove-member', 'lab', 'ada', '--yes']);
+    assert.equal(m.code, 1, m.out);
+    assert.match(m.out, /More than one member of Lab is called ada, so nothing was changed\. Use one of these names instead: "Ada Lovelace", "b7"\./);
+  }
   const w = await winRun(port, ['project', 'remove-member', 'lab', 'ADA', '--yes']);
   assert.equal(w.code, 1, w.err);
   assert.match(w.err, /Use one of these names instead: "Ada Lovelace", "b7"\./);
   assert.equal(deletes(seen).length, 0, 'an ambiguous name was sent');
-  assert.equal((await cli(port, ['project', 'remove-member', 'lab', 'b7', '--yes'])).code, 0);
+  // kosmos#8378: the control sends through the Mac command where it runs, and through the Windows command on Windows.
+  assert.equal(SKIP_POSIX_SHELL ? (await winRun(port, ['project', 'remove-member', 'lab', 'b7', '--yes'])).code
+    : (await cli(port, ['project', 'remove-member', 'lab', 'b7', '--yes'])).code, 0);
   assert.equal(deletes(seen)[0].url, '/api/project/lab/agent/b7', 'CONTROL: the unambiguous name was not sent');
 }));
 
 test('#7405 review 3: a sessionName typed in another case finds its member, on both', () => withStub(OVERVIEW, GONE, async (port, seen) => {
-  assert.equal((await cli(port, ['project', 'remove-member', 'launch', 'SALLY-SALES', '--yes'])).code, 0);
+  if (!SKIP_POSIX_SHELL) assert.equal((await cli(port, ['project', 'remove-member', 'launch', 'SALLY-SALES', '--yes'])).code, 0);   // kosmos#8378: a Mac command step
   assert.equal((await winRun(port, ['project', 'remove-member', 'launch', 'Sally-Sales', '--yes'])).code, 0);
-  assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/project/launch/agent/sally-sales', '/api/project/launch/agent/sally-sales']);
+  // kosmos#8378: one DELETE per command that ran; on Windows only the Windows command ran.
+  assert.deepEqual(deletes(seen).map((d) => d.url), SKIP_POSIX_SHELL ? ['/api/project/launch/agent/sally-sales']
+    : ['/api/project/launch/agent/sally-sales', '/api/project/launch/agent/sally-sales']);
 }));
 
 /* ── kosmos#7405 review 4 ─────────────────────────────────────────────────────── */
@@ -333,24 +353,32 @@ function overviewWith(change) {
 }
 
 test('#7405 review 4: a member stored as "." is refused with nothing sent, on both (control: a real member is sent)', () => withStub(overviewWith((ms) => { ms[1].sessionName = '.'; ms[1].name = 'Dot'; }), GONE, async (port, seen) => {
-  const m = await cli(port, ['project', 'remove-member', 'launch', 'Dot', '--yes']);
-  assert.equal(m.code, 1, m.out);
-  assert.match(m.out, /Kosmos cannot take a member stored as "\." off from here, so nothing was changed\. Take it off on the board instead/);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const m = await cli(port, ['project', 'remove-member', 'launch', 'Dot', '--yes']);
+    assert.equal(m.code, 1, m.out);
+    assert.match(m.out, /Kosmos cannot take a member stored as "\." off from here, so nothing was changed\. Take it off on the board instead/);
+  }
   const w = await winRun(port, ['project', 'remove-member', 'launch', 'Dot', '--yes']);
   assert.equal(w.code, 1, w.err);
   assert.equal(deletes(seen).length, 0, 'a "." member reached the route');
-  assert.equal((await cli(port, ['project', 'remove-member', 'launch', 'Sally Sales', '--yes'])).code, 0);
+  // kosmos#8378: the control sends through the Mac command where it runs, and through the Windows command on Windows.
+  assert.equal(SKIP_POSIX_SHELL ? (await winRun(port, ['project', 'remove-member', 'launch', 'Sally Sales', '--yes'])).code
+    : (await cli(port, ['project', 'remove-member', 'launch', 'Sally Sales', '--yes'])).code, 0);
   assert.equal(deletes(seen).length, 1, 'CONTROL: a real member was not sent');
 }));
 
 test('#7405 review 4: an escape sequence in a display name never reaches the terminal, on both', () => withStub(overviewWith((ms) => { ms[1].name = 'Ada\u001b[2J‮'; }), GONE, async (port, seen) => {
-  const m = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
-  assert.equal(m.code, 0, m.out);
-  assert.ok(!/[\u001b‮]/.test(m.out), 'the Mac printed a raw escape: ' + JSON.stringify(m.out));
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const m = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
+    assert.equal(m.code, 0, m.out);
+    assert.ok(!/[\u001b‮]/.test(m.out), 'the Mac printed a raw escape: ' + JSON.stringify(m.out));
+  }
   const w = await winRun(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
   assert.equal(w.code, 0, w.err);
   assert.ok(!/[\u001b‮]/.test(w.out + w.err), 'Windows printed a raw escape');
-  assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/project/launch/agent/ada', '/api/project/launch/agent/ada'], 'the raw sessionName was not what was sent');
+  // kosmos#8378: one DELETE per command that ran; on Windows only the Windows command ran.
+  assert.deepEqual(deletes(seen).map((d) => d.url), SKIP_POSIX_SHELL ? ['/api/project/launch/agent/ada']
+    : ['/api/project/launch/agent/ada', '/api/project/launch/agent/ada'], 'the raw sessionName was not what was sent');
 }));
 
 /* ── kosmos#7405 review 5 ─────────────────────────────────────────────────────── */
@@ -358,19 +386,23 @@ test('#7405 review 4: an escape sequence in a display name never reaches the ter
 test('#7405 review 5: when no name tells two members apart, the answer sends the person to the board, not in a circle, on both', () => withStub(overviewWith((ms) => {
   ms[0].sessionName = 'ADA'; ms[0].name = 'ada'; ms[1].sessionName = 'ada'; ms[1].name = 'Ada';
 }), GONE, async (port, seen) => {
-  const m = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
-  assert.equal(m.code, 1, m.out);
-  assert.match(m.out, /and no name here tells them apart, so nothing was changed\. Take the member off on the board instead/);
-  assert.doesNotMatch(m.out, /Use one of these names/, 'it offered names that are themselves ambiguous');
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const m = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
+    assert.equal(m.code, 1, m.out);
+    assert.match(m.out, /and no name here tells them apart, so nothing was changed\. Take the member off on the board instead/);
+    assert.doesNotMatch(m.out, /Use one of these names/, 'it offered names that are themselves ambiguous');
+  }
   const w = await winRun(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
   assert.match(w.err, /no name here tells them apart/);
   assert.equal(deletes(seen).length, 0);
 }));
 
 test('#7405 review 5: when the board could not read its agents, a missed name says members may show by machine name, on both', () => withStub([200, { project: SHOWN, agentsUnreadable: true }], GONE, async (port, seen) => {
-  const m = await cli(port, ['project', 'remove-member', 'launch', 'Nobody', '--yes']);
-  assert.equal(m.code, 1, m.out);
-  assert.match(m.out, /Kosmos could not read its agents just now, so members may show by their machine names: kosmos project show launch lists who is on it\./);
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const m = await cli(port, ['project', 'remove-member', 'launch', 'Nobody', '--yes']);
+    assert.equal(m.code, 1, m.out);
+    assert.match(m.out, /Kosmos could not read its agents just now, so members may show by their machine names: kosmos project show launch lists who is on it\./);
+  }
   const w = await winRun(port, ['project', 'remove-member', 'launch', 'Nobody', '--yes']);
   assert.match(w.err, /Kosmos could not read its agents just now/);
   assert.equal(deletes(seen).length, 0);
@@ -378,9 +410,11 @@ test('#7405 review 5: when the board could not read its agents, a missed name sa
 
 /* ── kosmos#7405 review 6: a joiner in a display name is kept, as project show keeps it ─────────────── */
 test('#7405 review 6: a ZWJ family emoji in a display name is printed whole, on both', () => withStub(overviewWith((ms) => { ms[1].name = 'Ada \u{1F468}‍\u{1F469}‍\u{1F467}'; }), GONE, async (port) => {
-  const m = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
-  assert.equal(m.code, 0, m.out);
-  assert.match(m.out, /Ada \u{1F468}‍\u{1F469}‍\u{1F467} is off Launch/u, 'the Mac split the joined emoji: ' + JSON.stringify(m.out));
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const m = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
+    assert.equal(m.code, 0, m.out);
+    assert.match(m.out, /Ada \u{1F468}‍\u{1F469}‍\u{1F467} is off Launch/u, 'the Mac split the joined emoji: ' + JSON.stringify(m.out));
+  }
   const w = await winRun(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
   assert.match(w.out, /Ada \u{1F468}‍\u{1F469}‍\u{1F467} is off Launch/u, 'Windows split the joined emoji');
 }));
@@ -389,10 +423,12 @@ test('#7405 review 6: a ZWJ family emoji in a display name is printed whole, on 
 test('#7405 review 7: when one candidate has no name of its own, no names are offered, on both (a list would read as all of them)', () => withStub(overviewWith((ms) => {
   ms[0].sessionName = 'ada'; ms[0].name = 'ada'; ms[1].sessionName = 'b7'; ms[1].name = 'ada';
 }), GONE, async (port, seen) => {
-  const m = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
-  assert.equal(m.code, 1, m.out);
-  assert.match(m.out, /and no name here tells them apart, so nothing was changed\. Take the member off on the board instead/);
-  assert.doesNotMatch(m.out, /b7/, 'it offered one candidate as if it were all of them');
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac command's half; the Windows half below runs everywhere
+    const m = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
+    assert.equal(m.code, 1, m.out);
+    assert.match(m.out, /and no name here tells them apart, so nothing was changed\. Take the member off on the board instead/);
+    assert.doesNotMatch(m.out, /b7/, 'it offered one candidate as if it were all of them');
+  }
   const w = await winRun(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
   assert.match(w.err, /no name here tells them apart/);
   assert.doesNotMatch(w.err, /b7/);

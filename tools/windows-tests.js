@@ -116,7 +116,8 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
   'tools.cleanup-fixture-tokens-5418.test.js',   // #5418 ask 2: the cleanup tool must plan and remove the same way on Windows
   'engine.reachable.test.js',   // #5548: its caller keys are posix so a module is not its own caller; measured red here before
   'tools.command-words-7262.test.js',   // #7262: the shared reader; since #7318 its tool-guard arms run here too
-  'tools.run-tests-chunks-7257.test.js'];   // #7257: npm test's node --test in chunks under Windows' command-line cap
+  'tools.run-tests-chunks-7257.test.js',   // #7257: npm test's node --test in chunks under Windows' command-line cap
+  'cli.project-remove-member-7405.test.js'];   // kosmos#8378: the Windows CLI's remove-member arms run here; its Mac CLI arms skip by skipOnWin32
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
