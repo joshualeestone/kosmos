@@ -50,7 +50,7 @@ test.before(async () => {
   fs.writeFileSync(jobfix.jobPath('ava'), '<plist/>');   // the job a Mac or Linux host's survey finds
 
   create.setProbePlatformForTests('win32');
-  // runningJobs still asks create's runner on this branch: nothing is running.
+  // No real launchctl or systemctl for any probe that still asks create's runner.
   create.setRunner(() => ({ ok: true, stdout: '' }));
   win32job.setRunner((args) => {
     if (args[0] !== '/Query') return { ok: true, out: '' };
