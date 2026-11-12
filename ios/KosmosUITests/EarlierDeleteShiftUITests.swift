@@ -92,7 +92,9 @@ final class EarlierDeleteShiftUITests: XCTestCase {
         deleteUnderTheReader(app)
         // Review 1: a page was asked for after the delete and landed. Position 36 comes only with it: the pages before the drop
         // are gone, and the window starts at 39.
-        XCTAssertTrue(Self.label(app, "Checking the venue list, item 37.").exists, "no page landed after the delete")
+        // kosmos#8453: waited for, not read at once: on CI's hosted Mac the row came after the 1 s pause above once (PR #8447,
+        // passed on its retry). Item 37 is drawn only with the page asked for after the delete, so waiting cannot pass without it.
+        XCTAssertTrue(Self.label(app, "Checking the venue list, item 37.").waitForExistence(timeout: 5), "no page landed after the delete")
         XCTAssertGreaterThan(Self.count(app, Self.moved), 0, "CONTROL: the message that moved into the window is not drawn here, so this check sees nothing")
         XCTAssertEqual(Self.count(app, Self.moved), 1, "the message that moved into the window is drawn twice")
     }
