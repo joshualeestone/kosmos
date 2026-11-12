@@ -19,15 +19,15 @@ This also blocks #8466's second half (create.js nameHeld on win32), which would 
 - server.js /api/removed passes startsAtLogin; web/index.html's row says "Its settings and its startup job are left"
   for it (not "Only its settings are left", which would be false); docs/browser-checks/render-settings-leftover-7825.js
   checks that row. Both browser-check gates pass locally.
-- Tests: new engine/delete-leftover.win32-leftover-task-8471.test.js (5), selected for Windows CI by its name; the
-  7820 test's expected partial-delete sentence updated.
+- Tests: new engine/delete-leftover.win32-leftover-task-8471.test.js (6), selected for Windows CI by its name; the
+  7820 test now pins the refusal sentence (it pinned the partial-delete one).
 macOS and Linux are unchanged.
 
 ## Decided, not missed
 - Not in this change: create.js nameHeld on win32 (#8466's second half). It lands after this, now that the leftover
   can be seen and deleted.
 - macOS: filed as #8474 and closed as not planned by its builder (the Mac board already shows a stopped agent with a plist and no folder, with its Delete), so this change is Windows only.
-- The weakest part: for a task with no folder, plan() does not run the "waiting to start in a world switch" check or note a damaged settings file (strandedRefusal runs only with no job), while the list filters such names out; a race between the 5 s poll and a click (review 3, not reproduced). Also startsAtLogin is set for a switched-off task too (the row's words stay true).
+- The weakest part: the removed list may still SHOW such a row while the workers folder is behind a dead link (it is polled, and that look can block on a share that is gone); the click is what is guarded (plan() refuses, review 4). Also startsAtLogin is set for a switched-off task too (the row's words stay true).
 
 ## Measured on the Windows box
 New file 5/5; negative controls: with origin's delete-leftover.js tests 1, 2, 4 and 5 fail (part 1 alone: 1 and 2; part 2
@@ -59,3 +59,10 @@ before, 1442/116/25 after (the 116 are the same failures on this box both ways).
   says "the Kosmos folder of the Task Scheduler Library", not "its Kosmos folder" (which read as the agent's). Not
   changed: the pending-name and damaged-settings checks for a task with no folder (a narrow race, named above as the
   weakest part); the field name startsAtLogin (internal).
+- Round 4 (no blocker; 1 warning, 1 convention, 2 nits). (1) FIXED the warning: plan() skipped strandedRefusal for a
+  task with no folder, so with the workers folder behind a junction to an unplugged disk, every agent would read as a
+  task left with no folder, and a delete would remove its task and its settings for good. plan() now runs strandedRefusal
+  for it (a name waiting to start, a recorded folder behind a dead link, a damaged settings file) and refuses while the
+  workers folder itself leads nowhere. New test with a real dangling junction; negative control: without the check it
+  fails. This also closes round 3's race. (2) The settingsLeftovers header now says Windows also lists a registered
+  task. Nits: the plan's 7820 line fixed; the pre-existing hint and done sentences, now reachable, stay true.

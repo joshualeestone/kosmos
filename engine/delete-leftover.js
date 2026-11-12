@@ -567,6 +567,19 @@ function plan(name, opts) {
     if (st.because) return { ok: false, because: st.because };
     damagedSettings = st.damaged;
   }
+  /* kosmos#8471 review 4: a Windows task with no folder (a row the removed list offers since #8471) deletes its settings
+     for good, so it gets the same checks as settings alone (a name waiting to start, a recorded folder behind a link that
+     leads nowhere, a damaged settings file). Its folder may also be missing only because the folder Kosmos keeps its
+     agents in is behind a link that leads nowhere (an unplugged disk or share); then every agent looks like this, and
+     Kosmos refuses rather than delete their settings. */
+  if (!folder && job && job.task) {
+    const st = strandedRefusal(clean, shown);
+    if (st.because) return { ok: false, because: st.because };
+    damagedSettings = st.damaged;
+    const wAt = resolveRecordedFolder(create.WORKERS_DIR);
+    if (wAt.because === 'dangling') return { ok: false, because: `the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected, so Kosmos will not delete ${shown}'s settings.` };
+    if (wAt.because) return { ok: false, because: `we could not check where ${shown}'s folder was, so we have not offered to delete anything. Try again in a moment.` };
+  }
   const recordsOnly = Boolean(recs);
 
   /* One mode for the whole act, so the sentence is one sentence: to the
@@ -1159,7 +1172,8 @@ function* delSteps(name, opts) {
 
 /* kosmos#7825 PR 2: the names whose only remains are stored settings, for the removed list, which is the one screen
    that lists agents with no card. A profile with no folder, a job KNOWN to be absent (survey's null, "could not look",
-   is left out: hiding a real leftover beats offering a wrong one), not on the removed list (those rows are drawn
+   is left out: hiding a real leftover beats offering a wrong one) or, on Windows only (kosmos#8471), a Scheduled Task
+   KNOWN to be still registered, which no other screen shows; not on the removed list (those rows are drawn
    already), and no world start waiting under the stored name. Built on register.survey, the reader Repair and the
    board's offline rows use, so "no folder, no job" means one thing everywhere. Not filtered by the recorded-folder rule:
    that look can block on a share that is gone, and this is polled; the click asks plan(), which refuses with the true

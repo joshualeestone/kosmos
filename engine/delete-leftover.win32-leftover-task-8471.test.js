@@ -221,6 +221,34 @@ test('kosmos#8471 part 2: the removed list lists a task left with settings and n
   assert.ok(!win.left().names.some((x) => x.name === lone), 'still listed after its delete');
 });
 
+test('kosmos#8471 review 4: a task left with no folder because the workers folder is behind a dead link is refused, never deleted', () => {
+  /* An unplugged disk or share behind a junction: every agent's folder then reads as gone while its task is registered,
+     so every agent looks like a task left with no folder. The delete would remove each task and its settings for good;
+     it must refuse instead, as settings alone in that state already are. */
+  const name = agent('dangle8471', { folder: false });
+  const before = process.env.AGENT_WORKFORCE_WORKERS;
+  const target = nodePath.join(SANDBOX, 'unplugged-disk');
+  const link = nodePath.join(SANDBOX, 'workers-link');
+  fs.mkdirSync(target, { recursive: true });
+  fs.symlinkSync(target, link, 'junction');   // a junction: no admin rights or Developer Mode needed
+  fs.rmSync(target, { recursive: true, force: true });   // the disk goes away; the junction now leads nowhere
+  process.env.AGENT_WORKFORCE_WORKERS = link;
+  try {
+    const p = win.plan(name);
+    assert.equal(p.ok, false, 'a delete was offered while the workers folder leads nowhere: ' + JSON.stringify(p));
+    assert.match(p.because, /^the folder Kosmos keeps its agents in is behind a link that leads nowhere right now/);
+    const done = win.del(name);
+    assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'the delete went ahead');
+    assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings were deleted');
+    assert.ok(tasks.has(win32job.taskName(name)), 'its task was removed');
+  } finally {
+    process.env.AGENT_WORKFORCE_WORKERS = before;
+    fs.rmSync(link, { force: true });
+  }
+  // CONTROL: with the workers folder back, the same row is offered.
+  assert.equal(win.plan(name).ok, true, 'the control did not offer the delete, so the refusal above proves nothing');
+});
+
 test('kosmos#8471 part 2: macOS and Linux still list only a known-absent job', () => {
   const given = { ok: true, agents: [
     { name: 'mac8471', shownAs: 'Mac', profile: true, folder: false, job: true, removed: false },
