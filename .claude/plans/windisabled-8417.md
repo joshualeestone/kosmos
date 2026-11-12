@@ -4,7 +4,7 @@ Addresses #8417. Found in #8410's review 3 (Ice Cream Kitty), the sibling of #84
 
 ## Done when
 1. `create.disabledJobsResult(undefined, 'win32')` names the agents whose Scheduled Task is switched off, `{ ok: false }` when the Kosmos folder could not be listed, and never asks launchctl.
-2. A task switched off by hand in Task Scheduler shows at the next poll, at the cost of one more folder query per poll (register.survey's `list` makes its own).
+2. A task switched off by hand in Task Scheduler shows at the next poll after its Status word moves, and within 10 minutes if it never does (reasoned from the code and tests, not measured on Windows). Kosmos's own disable shows at the next poll. Cost: one more folder query per poll (register.survey's `list` makes its own).
 3. The offline row's sentence on Windows names Task Scheduler and the task, not System Settings.
 
 ## Decided

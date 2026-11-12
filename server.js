@@ -8232,8 +8232,9 @@ const server = http.createServer(async (req, res) => {
           const known = register.survey();
           if (known && known.ok) LAST_SURVEY = { at: Date.now(), s: known };   // kosmos#7825 PR 2: reused by /api/removed; a failed one never (review 3)
           if (!known.ok) return [];
-          /* One launchd probe per poll, for #310's sentence below. Empty on
-             any failure: could-not-look must never read as switched-off. */
+          /* One fleet probe per poll, for #310's sentence below (launchd, systemd, or on
+             Windows Task Scheduler, #8417). Empty on any failure: could-not-look must
+             never read as switched-off. */
           const switchedOff = create.disabledJobs();
           /* And one for #668's sentence: the jobs launchd says are RUNNING.
              An offline row whose job holds a live process is not a stopped
