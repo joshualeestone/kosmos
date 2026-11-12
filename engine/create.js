@@ -4354,7 +4354,8 @@ function disabledJobs(platform) {
   return r.ok ? r.jobs : new Set();
 }
 
-/* ── the job launchd says is running (#668) ──────────────────────────────
+/* ── the job the platform says is running (#668) ─────────────────────────
+   (launchd on a Mac, systemd on Linux, and on Windows the state files the agents' supervisors keep: kosmos#8410)
    The split this answers: the board sees sessions on ITS tmux server, launchd
    runs the job wherever the job's own environment points, and when the two
    disagree the board published "not running" about an agent whose supervisor

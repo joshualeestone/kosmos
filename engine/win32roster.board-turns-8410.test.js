@@ -2,8 +2,8 @@
 /**
  * kosmos#8410 item 1, the Windows half of #6173: the board keeps turning while the agent roster is read.
  *
- * On a Mac and Linux, engine/status.panes-async-6173.test.js pins this with a slow fake tmux, and it skips on Windows
- * (the fake is a sh script). On Windows the roster comes from `claude agents --json` through win32roster's shared
+ * On a Mac and Linux, engine/status.panes-async-6173.test.js pins this with a slow fake tmux, and it is not run on
+ * Windows (the fake is a sh script, and tools/windows-tests.js does not select it). On Windows the roster comes from `claude agents --json` through win32roster's shared
  * cached reader (makeCachedRun), wired into status.setPaneSource. status.paneRosterAsync calls a pane source
  * synchronously, so what keeps the board turning there is the cache: a stale answer is served at once and the fresh
  * read runs in the BACKGROUND, off the board's thread. These pin that through the real status.js, with the background
@@ -73,8 +73,8 @@ test('kosmos#8410: with a warm cache the roster answers at once, and the fresh r
     assert.equal(syncReads, 1, 'CONTROL: the first (cold) read is the one synchronous read');
     clock.t += 5000;   // stale, not expired: served at once, refreshed in the background
 
-    // Review 4: a synchronous read creeping back onto this path is caught by `syncReads` and `bgStarted` below (the
-    // synchronous reader here is fast); the timing proves the slow read's time is not spent inside the request.
+    // A synchronous read creeping back onto this path is caught by `syncReads` and `bgStarted` below, not by the timing
+    // (the synchronous reader here is instant). The timing catches the other regression: a background read that blocks.
     // Review 1: time the REQUEST, not the window after it. The request must come back well before the slow read could,
     // with that read started and still running: then the read's time is spent off the board's thread.
     const t0 = Date.now();
