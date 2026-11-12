@@ -31,7 +31,11 @@ scroll by then); a longer personScrollQuiet (moves the threshold, not the race).
 
 Weakest premise: that a non-person move (an inset change, the keyboard) landing in that short gap between personUntil
 and the lapse check is harmless when read as the person's. It could only happen within a few frames of a fingerless
-scroll's last move, and it would leave the reader where the list moved them rather than pinning. Would change my mind:
+scroll's last move (the lapse check's 0.05 s margin plus however late its timer fires, so it grows with load), and it
+would leave the reader where the list moved them rather than pinning. The same sequence was already possible inside the
+0.3 s window itself, so this widens an existing exposure rather than adding one. A new message landing in the gap is
+the list's own write (apply), so it does not read the reader off the end: the lapse pins them, about 50 ms late (review
+1, read from the code). Would change my mind:
 a check where a new message arrives in that gap and the reader at the newest is not followed.
 
 ## Change
@@ -48,3 +52,12 @@ a check where a new message arrives in that gap and the reader at the newest is 
 - On a simulator (iPhone 17e, iOS 27.0, the UIKit list, each test once, no retries): A11yScrollUITests and
   A11yFocusUITests, 23 of 23 passed. Stalled with the fix: pins 0, moved 387, at end false. The control: pins 13,
   moved 0, at end true. The existing stepped, animated, jump and still scrolls and every focus check unchanged.
+
+## Challenge loop
+
+- Iteration 1 (opus): no finding at WARNING or above. Confirmed from the code: personUntil goes above 0 only in
+  personScrollOpened, which always schedules a lapse check; that check re-arms only while moves are recent and closes
+  within about 0.35 s of the last; every other close sets 0. The control is exactly the pre-change code. NITs: the gap
+  grows with load (now said under the weakest premise); a focus or a finger's end landing in the gap behaves as it did
+  inside the window before; both test arms assume GCD runs overdue main-queue timers in deadline order after the stall
+  (true today, not stated by the test).
