@@ -20,6 +20,7 @@ Card: kosmos#8416 (from the 11-11 daily feedback; given to Mona Lisa by Splinter
 - (1) chunkUtf8 ends a piece just after a space, newline or tab when one is within its last 64 bytes (WORD_BACKOFF), or keeps the cut when the next byte is already one. The pieces rejoin exactly as before. A space is one byte, so the character-boundary rule holds.
 - Rejected for (1): shortening the request under one piece (256 bytes). It would drop the four questions and the privacy rules agents follow from it, and only this one message would be fixed, not every long automatic line.
 - Rejected for (1): detecting a split and saying so. Kosmos cannot see how the composer grouped the pieces.
+- Premise for (1), from the final review: a piece now often ends in a space, so a composer that trimmed trailing whitespace per paste would join the words on each side. Not measured against a composer here. Reasoned: the old byte cut already ended a piece on a space whenever the budget fell on one (in English text, often), through the same paste-buffer path, and no joined-words report exists; paste-buffer types the bytes as given.
 - Weakest premise for (1): word-boundary pieces fix the mid-word read, not the split itself; a busy composer can still show a later piece as pasted text. It now reads as whole words.
 - Residual for (2), accepted: marks are a read-modify-write with no lock. Writes are synchronous in the board process; a writer in another process at the same moment could put back an older mark, and if a section later returned to that older text it would go unnamed. Rare (two processes writing within one read and write), and stated, not built around.
 - forgetMarks that cannot read or write the marks file deletes the whole file (every mark goes: more notices, never a hidden change). Residual, accepted: a disk that refuses that delete too keeps old marks; the board is then failing far more widely.
@@ -43,6 +44,7 @@ Card: kosmos#8416 (from the 11-11 daily feedback; given to Mona Lisa by Splinter
 
 ## Review ledger
 - R1 opus: 2 W (a heading inside a policy or About-you block ended the section early; a copy moved past a section owed mid-pass), 1 C, NITs. Fixed: block markers; owed-again guard; unchanged logged.
+- R8 sonnet (final, whole branch): 0 B, 1 W (the trailing-space premise above, stated rather than measured), NITs (a removed-and-unowed block re-added is named, since its mark was deleted; passOnce is long). Capped at 8.
 - R7 opus: 2 W (a session start during delivery overwritten by older marks, reproduced; one failed forgetMarks kept old marks), 1 C (the guard's reason), NITs. Fixed.
 - R6 sonnet: 1 W (a PLACED line whose markRead failed kept old marks), NITs. Fixed; residuals added.
 - R5 opus: 1 B (keeping an old mark after an UNCONFIRMED line hid a change later undone; measured), 2 W (an unrecorded or failed start kept old marks; the lost-write residual misstated), NITs. Fixed: unknown is no mark everywhere; residual restated; dmfiles damage.
