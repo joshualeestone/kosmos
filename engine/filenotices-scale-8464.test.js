@@ -99,7 +99,7 @@ test('kosmos#8464 end to end: another agent about to change an owned file queues
   const t0 = Date.parse('2026-11-12T10:00:00Z');
   assert.equal(fw.noteWrite(f, 'kitty', { now: t0, projects: roots }), true, 'CONTROL: kitty is the first seen changing it');
   assert.equal(fw.noteWrite(f, 'mona', { now: t0 + 60e3, projects: roots }), true);
-  fs.writeFileSync(f, lines(6).replace('line 6\n', '') + 'new a\nnew b\n');   // mona's edit lands
+  fs.writeFileSync(f + '.tmp', lines(6).replace('line 6\n', '') + 'new a\nnew b\n'); fs.renameSync(f + '.tmp', f);   // mona's edit lands, saved as Claude Code saves
   const text = fn.contextText(fn.handOver('kitty'));
   assert.match(text, /mona was about to change "plan\.md"/, 'CONTROL: the owner was queued the notice');
   assert.match(text, /So far: 2 lines added and 1 line removed, of 6 before\./);
@@ -243,27 +243,13 @@ test('kosmos#8464 review 3: a file opened through a swap that is undone before t
   assert.match(fn.contextText(handed(who)), /So far: Kosmos found no difference/, 'CONTROL: the real file is measured');
 });
 
-/* Review 4: a folder flipped to a link before the open and kept until after the name check, then flipped back, passes
-   every path check: the open and the name both land on the outside file. Forced here by an open and an lstat that both
-   go outside. The file's identity, kept from the notice, is what stops it: an outside file cannot share the inode. */
-test('kosmos#8464 review 4: an outside file reached through every path check is not counted (its identity differs)', () => {
-  const f = fileWith('guess1\nguess2\nguess3\n'); const who = owner();
-  fn.queue(who, 'x', { file: f });
-  const outsideFile = fileWith('guess2\nsecretX\nsecretY\nsecretZ\n');
-  const realOpen = fs.openSync; const realLstat = fs.lstatSync;
-  fs.openSync = (p, ...rest) => realOpen(p === f ? outsideFile : p, ...rest);
-  fs.lstatSync = (p, ...rest) => realLstat(p === f ? outsideFile : p, ...rest);
-  let text;
-  try { text = fn.contextText(handed(who)); } finally { fs.openSync = realOpen; fs.lstatSync = realLstat; }
-  assert.doesNotMatch(text, /So far: \d+ line/, 'the outside file was counted');
-  assert.match(text, /So far: the file was replaced by a new one/, 'CONTROL: it reads as another file, not counted');
-});
-
-test('kosmos#8464 review 4: an edit that writes a new file and renames it over the old one is "replaced", not counted', () => {
+/* Review 6: Claude Code's Edit and Write save by writing a new file and renaming it over the old one (a new inode each
+   time, measured), so that is the common edit, and it is counted. */
+test('kosmos#8464 review 6: an edit that writes a new file and renames it over the old one (as Claude Code saves) is counted', () => {
   const f = fileWith(lines(4)); const who = owner();
   fn.queue(who, 'x', { file: f });
   fs.writeFileSync(f + '.tmp', lines(6)); fs.renameSync(f + '.tmp', f);
-  assert.match(fn.contextText(handed(who)), /So far: the file was replaced by a new one \(written and renamed over it\), so Kosmos did not count the change\./);
+  assert.match(fn.contextText(handed(who)), /So far: 2 lines added and 0 lines removed, of 4 before\./);
   // CONTROL: an edit in place keeps the file, and is counted.
   const g = fileWith(lines(4)); const w2 = owner();
   fn.queue(w2, 'x', { file: g });
