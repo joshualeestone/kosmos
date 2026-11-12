@@ -72,8 +72,12 @@ test('kosmos#8421: the next board says it started again on the version the autom
 test('kosmos#8421: a board that came back on the old version says the automatic update did not finish', async () => {
   const b = board();
   try {
-    await update.refresh();   // the real start: line 1 and the record for 99.0.0
-    const line = update.noteAutoUpdateAtBoot();   // the installer failed after stopping the board; it came back on RUNNING
+    await update.refresh();   // the real start: line 1, the record for 99.0.0, and the #1728 marker with its stamp
+    // The installer failed after stopping the board: its shell writes install.status with the same stamp (review 3).
+    const at = JSON.parse(fs.readFileSync(b.record, 'utf8')).startedAt;
+    assert.ok(at, 'control: the record carries the attempt stamp');
+    fs.writeFileSync(path.join(b.root, 'logs', 'install.status'), '1 ' + at + '\n');
+    const line = update.noteAutoUpdateAtBoot();   // it came back on RUNNING
     assert.match(line, new RegExp(`^Kosmos's automatic update to 99\\.0\\.0 \\(prod channel\\) did not finish; this board is running ${RUNNING.replace(/\./g, '\\.')}\\.`));
     assert.equal(b.said.length, 2, 'both lines, before and after, reach the board log: ' + JSON.stringify(b.said));
     assert.equal(fs.existsSync(b.record), false);
@@ -162,4 +166,31 @@ test('kosmos#8421 review 1: on Windows the automatic update writes no line and n
     assert.deepEqual(b.said, [], 'a Windows automatic update was logged as if it stops the board');
     assert.equal(fs.existsSync(b.record), false);
   } finally { update.setPlatform(null); update.setWindowsBundleRoot(null); clear(); }
+});
+
+test('kosmos#8421 review 3: a board that restarts while the automatic installer still runs keeps the record for the next one', () => {
+  const b = board();
+  try {
+    const at = '2026-11-11T20:00:00.000Z';
+    fs.mkdirSync(path.dirname(b.record), { recursive: true });
+    fs.writeFileSync(b.record, JSON.stringify({ from: RUNNING, to: '99.0.0', channel: 'staging', startedAt: at }));
+    fs.writeFileSync(path.join(b.root, 'logs', 'install.started'), at + '\n');   // the #1728 marker: the attempt has not ended
+    assert.match(update.noteAutoUpdateAtBoot(), /^Kosmos started on .* while its automatic update to 99\.0\.0 \(staging channel\) is still installing;/);
+    assert.equal(fs.existsSync(b.record), true, 'the record was removed while the installer still runs, so the board it starts would say nothing');
+    // The attempt then ends (install.status carries its stamp) and the board comes back on the old version: now it says so.
+    fs.writeFileSync(path.join(b.root, 'logs', 'install.status'), '1 ' + at + '\n');
+    assert.match(update.noteAutoUpdateAtBoot(), /^Kosmos's automatic update to 99\.0\.0 \(staging channel\) did not finish;/);
+    assert.equal(fs.existsSync(b.record), false);
+  } finally { clear(); }
+});
+
+test('kosmos#8421 review 3: a board newer than the update it was installing does not say that update did not finish', () => {
+  const b = board();
+  try {
+    fs.mkdirSync(path.dirname(b.record), { recursive: true });
+    fs.writeFileSync(b.record, JSON.stringify({ from: '0.0.1', to: '0.0.2', channel: 'prod' }));
+    const line = update.noteAutoUpdateAtBoot();
+    assert.match(line, /newer than the 0\.0\.2 its last automatic update was installing/);
+    assert.doesNotMatch(line, /did not finish/);
+  } finally { clear(); }
 });
