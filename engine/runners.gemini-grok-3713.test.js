@@ -36,7 +36,8 @@ test.after(() => { removeTree(SANDBOX); });
    pipeline (tar.exe, grok.exe inside the tree, gemini.cmd, the verified marker) is runners.win32-gemini-grok.test.js.
    The tests whose claim is not about the POSIX pipeline run on Windows through the Windows one (WIN arms below). */
 const WIN = process.platform === 'win32';
-const POSIX_PIPELINE = 'it drives install() with the macOS or Linux pipeline, whose stable path is a symlink or a #!/bin/sh launcher and whose installed program is proved by running it by its shebang line, which Windows cannot do; the Windows pipeline (tar.exe, grok.exe in the tree, gemini.cmd, the verified marker) is runners.win32-gemini-grok.test.js';
+const POSIX_PIPELINE = 'it drives install() with the macOS or Linux pipeline: the macOS arm unpacks with /usr/bin/tar (runners.tarBin), an absolute POSIX path Windows does not have, and both arms make a symlink or a #!/bin/sh launcher the stable path and prove the installed program by running it by its shebang line, which Windows cannot do; the Windows pipeline (tar.exe, grok.exe in the tree, gemini.cmd, the verified marker) is runners.win32-gemini-grok.test.js';
+const POSIX_CODEX = 'it drives install() with the Linux pipeline, which makes a symlink the stable path and proves the installed codex by running it by its shebang line, which Windows cannot do; the Windows Codex pipeline (tar.exe, codex.exe in the tree, the verified marker) is runners.win32-codex.test.js';
 /* kosmos#8378: on Windows the install runs as win32, for this CPU (the Windows Grok build is per CPU). */
 const asHost = (o) => (WIN ? { ...o, platform: 'win32', arch: process.arch } : o);
 
@@ -124,7 +125,7 @@ test('#5419: on Linux, Grok installs the same way: expanded after the checksum, 
 });
 
 for (const [arch, triple] of [['x64', 'x86_64-unknown-linux-musl'], ['arm64', 'aarch64-unknown-linux-musl']]) {
-  test(`#5419: on Linux ${arch}, Codex installs its ${arch} musl build, runs from the managed path, and is found afterwards`, { skip: skipOnWin32(POSIX_PIPELINE) }, async () => {
+  test(`#5419: on Linux ${arch}, Codex installs its ${arch} musl build, runs from the managed path, and is found afterwards`, { skip: skipOnWin32(POSIX_CODEX) }, async () => {
     fs.rmSync(nodePath.join(SANDBOX, 'runners', 'openai'), { recursive: true, force: true });
     const program = '#!/bin/sh\necho "codex-cli 0.149.1 $1"\n';
     const { tgz, integrity } = tarball([[`package/vendor/${triple}/bin/codex`, program, 0o755],
@@ -225,7 +226,7 @@ test('#3713: the Gemini launcher survives a node path with a space and a quote i
   clean();
 });
 
-test('#3713: a Gemini launcher whose node cannot start is failed at the prove step, never left installed', { skip: skipOnWin32('it proves the #!/bin/sh launcher by its shebang line, built with /usr/bin/tar; on Windows the prove runs node on the bundle directly and, by design, falls back to the board\'s own node when the recorded one is gone (runners.spawnTarget), so a missing recorded node does not fail it there; a Windows bundle that does not run is runners.win32-gemini-grok.test.js') }, async () => {
+test('#3713: a Gemini launcher whose node cannot start is failed at the prove step, never left installed', { skip: skipOnWin32('it installs with the macOS pipeline (install() unpacks with /usr/bin/tar) and proves the #!/bin/sh launcher by its shebang line; on Windows the prove runs node on the bundle directly and, by design, falls back to the board\'s own node when the recorded one is gone (runners.spawnTarget), so a missing recorded node does not fail it there; a Windows bundle that does not run is runners.win32-gemini-grok.test.js') }, async () => {
   clean();
   const { tgz, integrity } = tarball([['package/bundle/gemini.js', "console.log('x');\n"]]);
   const job = runners.install('gemini', {

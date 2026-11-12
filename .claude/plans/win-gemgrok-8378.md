@@ -42,3 +42,8 @@ pass.
   built with tar.exe there, and tarBin('linux') answers a bare tar); it now names the symlink or #!/bin/sh stable path and
   the shebang prove. Not changed: the Windows gone-node arm copies node.exe, which a scanner could hold past the cleanup
   retries (a loud red, never a false green).
+- Round 3 (no blockers or warnings; 1 convention, 2 nits), all skip wording, all fixed. CORRECTION to my round-2 note:
+  /usr/bin/tar IS the first thing that stops the darwin-platform tests on Windows (tarBin('darwin') returns it whatever
+  the host); the shared reason now names it for the macOS arm, beside the symlink or #!/bin/sh stable path and the
+  shebang prove. The node-cannot-start reason no longer says the launcher is "built with" tar. The two Linux Codex tests
+  have their own reason, pointing at runners.win32-codex.test.js (the Gemini and Grok file has no Codex tests).
