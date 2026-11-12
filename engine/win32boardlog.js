@@ -41,9 +41,10 @@
  * A DEAD CONSOLE. Once routed, each console stream gets an 'error' listener for as long as the board runs, so a console
  * pipe whose reader has gone (Homer's 0.8.03 in-place update) cannot become an uncaught error; this also quiets an
  * error from any other writer on those streams. The file keeps every line and says, once per stream, that its console
- * copy stopped.
+ * copy stopped; later errors on that stream are dropped.
  *
- * Nothing here throws into the board: when the file cannot be opened the board runs as it did before.
+ * Nothing here throws into the board except what node's own write throws for a caller's bad argument: when the file
+ * cannot be opened the board runs as it did before.
  */
 
 const fs = require('node:fs');
@@ -116,9 +117,11 @@ function tee(stream, fd, lineState, now, name) {
       }
     } catch { /* a full disk or a closed file must not stop the board */ }
     /* Every write still goes to node's own write, even after the console failed: node checks the arguments (a bad one
-       throws as it always did) and reports a dead stream through the callback and an 'error' event, which giveUp
-       absorbs. Defensive: a pipe's EPIPE arrives as that event, not as a throw; only an I/O failure is caught here. */
-    try { return write(chunk, encoding, callback); } catch (err) {
+       throws as it always did) and reports a dead stream through the callback; the first failure also arrives as an
+       'error' event, which giveUp absorbs. Once the console has failed this returns true, because node's false would
+       ask a caller to wait for a 'drain' a dead stream never sends. Defensive: a pipe's EPIPE arrives as that event,
+       not as a throw; only an I/O failure is caught here. */
+    try { const ok = write(chunk, encoding, callback); return dead ? true : ok; } catch (err) {
       if (!(err && (err.syscall || typeof err.errno === 'number'))) throw err;
       giveUp(err);
       if (typeof cb === 'function') process.nextTick(() => cb(err));

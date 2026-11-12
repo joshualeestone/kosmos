@@ -227,3 +227,11 @@ test('#8373 a write that throws an I/O error does not throw out of the board', a
   assert.strictEqual(got, 'EPIPE', 'its callback carries the error');
   assert.match(fs.readFileSync(file, 'utf8'), /kept\n[\s\S]*the console copy of stdout stopped \(EPIPE\)/);
 });
+
+test('#8373 once the console has failed, a write returns true, so no caller waits for a drain', async (t) => {
+  const out = console_('epipe');
+  routeConsole(t, out);
+  out.write('first\n');
+  await tick();
+  assert.strictEqual(out.write('later\n'), true);
+});
