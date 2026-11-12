@@ -19,4 +19,19 @@ enum UIKitListArm {
         let list = app.descendants(matching: .any).matching(identifier: "chat-list-uikit").firstMatch
         XCTAssertTrue(list.waitForExistence(timeout: 20), "the UIKit arm opened a chat not drawn by the UIKit list", file: file, line: line)
     }
+    // kosmos#8221 (CI flake, 11-12): a check whose sample acts by itself a few seconds after the chat opens (A11YSCROLL,
+    // A11YFOCUS) cannot ask for the newest row only AFTER that: the action scrolls it off, and a UIKit row off screen does
+    // not exist, so on a slow runner whose first look comes later than the action (launch alone took 13 to 26 s on CI's
+    // hosted Mac) the row is never seen (main's ios job, red 3 of 5). The chat opened at its newest message if that row
+    // shows, or if the action's report says the newest message was on screen when it acted ("newest shown true", read from
+    // where the list is, ChatList.newestShown). Neither within `timeout` fails as before.
+    static func openedAtNewest(_ newest: XCUIElement, orReported report: XCUIElement, timeout: TimeInterval = 20) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while true {
+            if newest.exists { return true }
+            if report.exists { return report.label.contains("newest shown true") }
+            if Date() >= end { return false }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+    }
 }

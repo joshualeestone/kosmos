@@ -189,7 +189,9 @@ struct ChatList: UIViewRepresentable {
             guard !ChatList.sampleA11yDone, let list else { return }
             ChatList.sampleA11yDone = true
             let mode = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_A11YSCROLL_MODE"] ?? "animated"
-            let wasAtEnd = atEnd, y0 = list.contentOffset.y
+            // kosmos#8221 (CI flake, 11-12): whether the newest message is on screen at this moment, a fact of where the list
+            // is (atEnd is what the list means to do). The check reads it when its first look comes after this action.
+            let wasAtEnd = atEnd, newestWasShown = newestOnScreen(), y0 = list.contentOffset.y
             let watch: TimeInterval = mode == "stepped" ? 3.0 : 1.5
             debugPins = 0
             debugWindowOpened = false
@@ -219,7 +221,7 @@ struct ChatList: UIViewRepresentable {
             ChatView.trace("uikit list: debug accessibility scroll up, from the end \(wasAtEnd)", ring: false)
             DispatchQueue.main.asyncAfter(deadline: .now() + watch + 0.1) { [weak self] in
                 guard let self, let list = self.list else { return }
-                report?("pins \(self.debugPins), at end \(self.atEnd), moved \(Int(y0 - list.contentOffset.y)), window \(self.debugWindowOpened), dragged \(self.dragged), short \(Int(self.maxY(list) - list.contentOffset.y)), from the end \(wasAtEnd)")
+                report?("pins \(self.debugPins), at end \(self.atEnd), moved \(Int(y0 - list.contentOffset.y)), window \(self.debugWindowOpened), dragged \(self.dragged), short \(Int(self.maxY(list) - list.contentOffset.y)), newest shown \(newestWasShown), from the end \(wasAtEnd)")
             }
         }
 
@@ -239,7 +241,7 @@ struct ChatList: UIViewRepresentable {
             let mode = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_A11YFOCUS_MODE"] ?? "above"
             let ids = source.snapshot().itemIdentifiers
             guard ids.count > 30, let newestId = ids.last(where: { !Self.afterNewest.contains($0) }) else { report?("focus too few rows"); return }
-            let wasAtEnd = atEnd
+            let wasAtEnd = atEnd, newestWasShown = newestOnScreen()   // kosmos#8221 (CI flake): as sampleA11yScroll
             var y0 = list.contentOffset.y
             var target = ids[ids.count - 25]
             var element: Any?
@@ -365,7 +367,7 @@ struct ChatList: UIViewRepresentable {
                 }
                 // Whether atEnd agrees with where the list is, as scrolled() and hold() read it.
                 let agrees = self.atEnd == self.endReached(list)
-                report?("focus found \(found), at end \(self.atEnd), on screen \(onScreen), agrees \(agrees), pins \(self.debugPins), moved \(Int(y0 - list.contentOffset.y)), kind \(kind)\(whereRow), from the end \(wasAtEnd)")
+                report?("focus found \(found), at end \(self.atEnd), on screen \(onScreen), agrees \(agrees), pins \(self.debugPins), moved \(Int(y0 - list.contentOffset.y)), kind \(kind)\(whereRow), newest shown \(newestWasShown), from the end \(wasAtEnd)")
             }
         }
 
@@ -717,6 +719,18 @@ struct ChatList: UIViewRepresentable {
             let seenBottom = list.contentOffset.y + list.bounds.height - list.adjustedContentInset.bottom + list.contentInset.bottom
             return a.frame.maxY <= seenBottom + 0.5 && a.frame.minY < seenBottom
         }
+        #if DEBUG
+        // kosmos#8221 (CI flake, 11-12): any of the newest message's row inside the visible part of the list, the fact the UI
+        // checks' "newest row exists" means (a UIKit row off screen does not exist). Not newestShown(): a tall newest message
+        // is on screen without being wholly above the box.
+        func newestOnScreen() -> Bool {
+            guard let list, let source, let newestId = ids.last(where: { !Self.afterNewest.contains($0) }),
+                  let ip = source.indexPath(for: newestId), let a = list.layoutAttributesForItem(at: ip) else { return false }
+            let top = list.contentOffset.y + list.adjustedContentInset.top
+            let bottom = list.contentOffset.y + list.bounds.height - list.adjustedContentInset.bottom
+            return a.frame.maxY > top && a.frame.minY < bottom
+        }
+        #endif
         var lastFocusRow: String?
         var lastFocusPart: Int?
         var appliedSinceFocus = false
