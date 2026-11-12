@@ -198,6 +198,27 @@ test('#8373 a caller\'s bad argument throws as node decides, on a healthy consol
   assert.throws(() => dead.write(Buffer.from('x'), 'bogus'), { code: 'ERR_UNKNOWN_ENCODING' });
 });
 
+/* kosmos#8424: a STRING with an unknown encoding takes another path than the Buffer above. The file copy's Buffer.from
+   throws inside the module's own try (and is dropped), then node's write throws for the caller, on a healthy console and
+   a dead one, and nothing half-written lands in the file. */
+test('kosmos#8424 a string with an unknown encoding throws as node decides, and leaves the file as it was', async (t) => {
+  const healthy = console_('ok');
+  const f1 = routeConsole(t, healthy);
+  healthy.write('before\n');
+  const was = fs.readFileSync(f1, 'utf8');
+  assert.throws(() => healthy.write('x', 'bogus'), { code: 'ERR_UNKNOWN_ENCODING' });
+  assert.strictEqual(fs.readFileSync(f1, 'utf8'), was, 'the bad write left something in the file');
+  healthy.write('after\n');
+  assert.deepStrictEqual(healthy.got, ['before\n', 'after\n'], 'CONTROL: the console still gets a good write');
+  const dead = console_('epipe');
+  const f2 = routeConsole(t, dead);
+  dead.write('x\n');
+  await tick();
+  const was2 = fs.readFileSync(f2, 'utf8');
+  assert.throws(() => dead.write('x', 'bogus'), { code: 'ERR_UNKNOWN_ENCODING' });
+  assert.strictEqual(fs.readFileSync(f2, 'utf8'), was2, 'the bad write on a dead console left something in the file');
+});
+
 test('#8373 control: a healthy console gets every write, and the file says nothing stopped', (t) => {
   const out = console_('ok');
   const file = routeConsole(t, out);
@@ -233,5 +254,18 @@ test('#8373 once the console has failed, a write returns true, so no caller wait
   routeConsole(t, out);
   out.write('first\n');
   await tick();
+  assert.strictEqual(out.destroyed, true, 'CONTROL: node destroyed the failed stream, the case the forced true is for');
   assert.strictEqual(out.write('later\n'), true);
+});
+
+/* kosmos#8424: a stream that emits 'error' but stays writable (autoDestroy off) still has real backpressure, and the
+   tee must report it as node does rather than force true. */
+test('kosmos#8424 a stream that errored but is still writable reports its backpressure as node does', async (t) => {
+  const pending = [];
+  const out = new Writable({ highWaterMark: 4, autoDestroy: false, write(chunk, enc, cb) { pending.push(cb); } });
+  routeConsole(t, out);
+  out.emit('error', Object.assign(new Error('flaky'), { code: 'EIO' }));
+  assert.strictEqual(out.destroyed, false, 'CONTROL: the stream stayed writable after its error');
+  assert.strictEqual(out.write('more than four bytes\n'), false, 'an errored but writable stream hid its backpressure');
+  pending.forEach((cb) => cb());
 });
