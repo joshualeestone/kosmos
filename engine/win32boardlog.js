@@ -40,7 +40,8 @@
  *
  * A DEAD CONSOLE. Once routed, each console stream gets an 'error' listener for as long as the board runs, so a console
  * pipe whose reader has gone (Homer's 0.8.03 in-place update) cannot become an uncaught error; this also quiets an
- * error from any other writer on those streams. After one, the file alone gets the lines and says the console stopped.
+ * error from any other writer on those streams. After any error there, the file alone gets the lines and says, once per
+ * stream, that its console copy stopped.
  *
  * Nothing here throws into the board: when the file cannot be opened the board runs as it did before.
  */
@@ -75,8 +76,9 @@ function writeAll(fd, bytes) {
   }
 }
 
-/* Copies each write on `stream` into `fd`, stamped, then passes it on to the original write, until that stream fails
-   with a system error; from then on the file alone gets it. `name` says which stream, in the line that records it. */
+/* Copies each write on `stream` into `fd`, stamped, then passes it on to the original write, until that stream emits
+   any error or a write to it throws an I/O error; from then on the file alone gets it, and a write's callback runs with
+   no error (the failing write itself may have had its error). `name` says which stream, in the line that records it. */
 function tee(stream, fd, lineState, now, name) {
   const { stampText, stampBytes } = require('./logstamp');
   const write = stream.write.bind(stream);
@@ -119,6 +121,12 @@ function tee(stream, fd, lineState, now, name) {
         if (!(err && (err.syscall || typeof err.errno === 'number'))) throw err;
         giveUp(err);
       }
+    }
+    // A dead console skips node's own write, so its argument check is kept here: a bad chunk still throws.
+    if (typeof chunk !== 'string' && !Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) {
+      const err = new TypeError('The "chunk" argument must be of type string or an instance of Buffer or Uint8Array');
+      err.code = 'ERR_INVALID_ARG_TYPE';
+      throw err;
     }
     if (typeof cb === 'function') process.nextTick(cb);
     return true;

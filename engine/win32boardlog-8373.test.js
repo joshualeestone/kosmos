@@ -211,3 +211,19 @@ test('#8373 a caller\'s bad argument is still thrown, and does not end the conso
   assert.throws(() => out.write('x\n'), { code: 'ERR_INVALID_ARG_TYPE' });
   assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /console copy/);
 });
+
+test('#8373 stdout and stderr fail apart, each with its own line; a dead console still refuses a bad chunk', async (t) => {
+  const file = path.join(scratch(), 'board.log');
+  boardlog.resetForTest();
+  const out = deadConsole('emits'), err = deadConsole('ok');
+  const r = boardlog.route(out, err, { platform: 'win32', path: file, isFile: () => false, taskStarted: () => true, now, handlers: () => 0, onCrash: () => {} });
+  t.after(() => { if (r) fs.closeSync(r.fd); boardlog.resetForTest(); });
+  out.write('o\n');
+  await new Promise((res) => setImmediate(res));
+  err.write('e\n');
+  assert.deepStrictEqual(err.got, ['e\n'], 'stderr still reaches its console after stdout failed');
+  const log = fs.readFileSync(file, 'utf8');
+  assert.match(log, /console copy of stdout stopped/);
+  assert.doesNotMatch(log, /console copy of stderr stopped/);
+  assert.throws(() => out.write(42), { code: 'ERR_INVALID_ARG_TYPE' });
+});
