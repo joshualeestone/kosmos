@@ -117,12 +117,24 @@ function tee(stream, fd, lineState, now, name) {
     } catch { /* a full disk or a closed file must not stop the board */ }
     if (!dead) {
       try { return write(chunk, encoding, callback); } catch (err) {
-        // Only an I/O failure ends the console copy; a caller's bad argument is thrown back as it always was.
+        // Defensive: a pipe's EPIPE arrives as an 'error' event (above), not as a throw. Only an I/O failure ends the
+        // console copy here; a caller's bad argument is thrown back as it always was.
         if (!(err && (err.syscall || typeof err.errno === 'number'))) throw err;
         giveUp(err);
       }
     }
-    // A dead console skips node's own write, so its argument check is kept here: a bad chunk still throws.
+    // A dead console skips node's own write, so its argument checks are kept here: a null or non-text chunk, or an
+    // unknown encoding, still throws.
+    if (chunk === null) {
+      const err = new TypeError('May not write null values to stream');
+      err.code = 'ERR_STREAM_NULL_VALUES';
+      throw err;
+    }
+    if (typeof chunk === 'string' && typeof encoding === 'string' && !Buffer.isEncoding(encoding)) {
+      const err = new TypeError('Unknown encoding: ' + encoding);
+      err.code = 'ERR_UNKNOWN_ENCODING';
+      throw err;
+    }
     if (typeof chunk !== 'string' && !Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) {
       const err = new TypeError('The "chunk" argument must be of type string or an instance of Buffer or Uint8Array');
       err.code = 'ERR_INVALID_ARG_TYPE';

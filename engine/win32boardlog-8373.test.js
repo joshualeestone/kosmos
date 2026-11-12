@@ -199,7 +199,7 @@ test('#8373 control: a healthy console still gets every write', (t) => {
   t.after(() => { if (r) fs.closeSync(r.fd); boardlog.resetForTest(); });
   out.write('a\n'); out.write('b\n');
   assert.deepStrictEqual(out.got, ['a\n', 'b\n']);
-  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /console copy stopped/);
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /console copy of (stdout|stderr) stopped/);
 });
 
 test('#8373 a caller\'s bad argument is still thrown, and does not end the console copy', (t) => {
@@ -226,4 +226,6 @@ test('#8373 stdout and stderr fail apart, each with its own line; a dead console
   assert.match(log, /console copy of stdout stopped/);
   assert.doesNotMatch(log, /console copy of stderr stopped/);
   assert.throws(() => out.write(42), { code: 'ERR_INVALID_ARG_TYPE' });
+  assert.throws(() => out.write(null), { code: 'ERR_STREAM_NULL_VALUES' });
+  assert.throws(() => out.write('x', 'bogus'), { code: 'ERR_UNKNOWN_ENCODING' });
 });
