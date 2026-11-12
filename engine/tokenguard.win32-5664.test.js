@@ -68,7 +68,7 @@ test('withRealTwins: a real path the rules cannot carry ([ ]) is named, never wr
 
 test('withRealTwins: off Windows the rules are returned as they are (CONTROL: the same input twins on win32)', () => {
   const real = () => 'C:\\real\\x';
-  assert.deepEqual(setup.withRealTwins(['Read(//c/link/x)'], 'darwin', real), { rules: ['Read(//c/link/x)'], unsafe: [], tokenUnsafe: [] });
+  assert.deepEqual(setup.withRealTwins(['Read(//c/link/x)'], 'darwin', real), { rules: ['Read(//c/link/x)'], unsafe: [], tokenUnsafe: [], misses: [] });
   assert.equal(setup.withRealTwins(['Read(//c/link/x)'], 'win32', real).rules.length, 2);
 });
 
@@ -128,6 +128,56 @@ test('withRealTwins: only a rule ENDING in the token\'s name is a token rule (bo
   const real = (p) => p.replace('C:\\link', 'C:\\odd [x]');
   assert.equal(setup.withRealTwins(['Edit(//c/link/notes/board.token.md)'], 'win32', real).tokenUnsafe.length, 0);
   assert.equal(setup.withRealTwins(['Read(//c/link/Kosmos/.board.token.*)'], 'win32', real).tokenUnsafe.length, 1, 'CONTROL: the temp copy is the token\'s');
+});
+
+test('#8437 isProtectedRule: the token, sender tokens, hand-off and own settings are protected; an import is not', () => {
+  const rules = {
+    tokenPaths: ['C:\\K\\Kosmos\\board.token'], tokenTmps: ['C:\\K\\Kosmos\\.board.token'], tokenDirs: ['C:\\K\\Kosmos\\sendertokens'],
+    launchSecretDirs: ['C:\\K\\Kosmos\\launch-secrets'], settingsFiles: ['C:\\A\\.claude\\settings.json'], settingsDir: 'C:\\A\\.claude',
+  };
+  assert.equal(setup.isProtectedRule('Read(//c/K/Kosmos/board.token)', rules), true);
+  assert.equal(setup.isProtectedRule('Read(//c/K/Kosmos/.board.token.*)', rules), true, 'the temp copy');
+  assert.equal(setup.isProtectedRule('Read(//c/K/Kosmos/sendertokens/**)', rules), true);
+  assert.equal(setup.isProtectedRule('Read(//c/k/kosmos/LAUNCH-SECRETS/**)', rules), true, 'case-blind on Windows');
+  assert.equal(setup.isProtectedRule('Edit(//c/A/.claude/settings.json)', rules), true);
+  // CONTROL: an instruction file's import, a sibling folder that merely shares a prefix, a start-up file elsewhere.
+  assert.equal(setup.isProtectedRule('Edit(//c/Users/x/notes.md)', rules), false);
+  assert.equal(setup.isProtectedRule('Read(//c/K/Kosmos/sendertokens-old/x)', rules), false, 'a name that only starts the same is not under it');
+  assert.equal(setup.isProtectedRule('Edit(//c/Users/x/.mcp.json)', rules), false);
+});
+
+test('#8437 every protected field classifies as protected; only known incidental places are incidental; unknown refuses', () => {
+  const rules = {
+    undoDirs: ['C:\\K\\Kosmos\\undo'], undoSwitches: ['C:\\K\\Kosmos\\undo.json'], trustedFiles: ['C:\\K\\Kosmos\\created.jsonl'],
+    trustedDirs: ['C:\\K\\Kosmos\\ended-agents.d'], listFile: 'C:\\K\\Kosmos\\agent-token-only.json', guardRecord: 'C:\\K\\Kosmos\\guard\\a.json',
+    worldWrites: ['C:\\K\\worlds.json'],   // as production returns it: the registry path only
+    importFiles: ['C:\\Users\\x\\notes.md'], configStartFiles: ['C:\\Users\\x\\.mcp.json'], pluginDirs: ['C:\\Users\\x\\.claude\\plugins'],
+  };
+  for (const r of ['Edit(//c/K/Kosmos/undo/**)', 'Edit(//c/K/Kosmos/undo.json)', 'Edit(//c/K/Kosmos/created.jsonl)', 'Edit(//c/K/Kosmos/ended-agents.d)',
+    'Edit(//c/K/Kosmos/agent-token-only.json)', 'Edit(//c/K/Kosmos/guard/a.json)', 'Edit(//c/K/worlds.json)']) {
+    assert.equal(setup.isProtectedRule(r, rules), true, r + ' is not protected');
+  }
+  // The registry's temp/lock rule (.worlds.json.*) is not a protected field of its own; it refuses because it is no
+  // incidental place either (the fail-closed default).
+  assert.equal(setup.isIncidentalRule('Edit(//c/K/.worlds.json.*)', rules), false);
+  assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/notes.md)', rules), true);
+  assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/.mcp.json)', rules), true);
+  assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/.claude/plugins/**)', rules), true);
+  // A rule of neither kind is not incidental, so the guard treats its miss as protected and refuses (fail closed).
+  assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/.claude-*/agents/**)', rules), false);
+  assert.equal(setup.isIncidentalRule('Edit(//c/K/Kosmos/undo/**)', rules), false, 'CONTROL: a protected place is not incidental');
+});
+
+test('#8437 only the rule written FOR an incidental place is incidental, never one that merely sits under it', () => {
+  const rules = { pluginDirs: ['C:\\K'], tokenPaths: ['C:\\K\\Kosmos\\board.token'], importFiles: ['C:\\Users\\x\\notes.md'] };
+  assert.equal(setup.isIncidentalRule('Edit(//c/K/**)', rules), true, 'the plugin folder\'s own rule');
+  assert.equal(setup.isIncidentalRule('Edit(//c/K/other/settings.json)', rules), false, 'a rule under a broad incidental folder is not incidental');
+  assert.equal(setup.isIncidentalRule('Edit(//c/Users/X/NOTES.md)', rules), true, 'case-blind on Windows');
+  assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/notes.md.bak)', rules), false, 'no suffix arm for incidental places');
+  // A protected place nested inside an incidental one is protected (the protected question is asked first, and the
+  // incidental one does not reach beneath the place).
+  assert.equal(setup.isProtectedRule('Read(//c/K/Kosmos/board.token)', rules), true);
+  assert.equal(setup.isIncidentalRule('Read(//c/K/Kosmos/board.token)', rules), false);
 });
 
 test('launchPathDirs on Windows names the PATH part as not covered, so the guard cannot read as whole', () => {
@@ -250,6 +300,29 @@ test('a protected place that is not the token, behind a junction that leads nowh
   assert.match(g.because, /a place the guard protects is reached through a link or share whose real place Kosmos cannot deny/);
   assert.doesNotMatch(g.because, /Claude Code reads at start/, 'the gap was filed as a start-up file');
   assert.equal(fs.existsSync(path.join(dir, '.claude', 'settings.json')), false, 'a guard with a gap in its own protection was written');
+});
+
+test('#8437: an import whose real place cannot be denied leaves the guard written and NOT whole, the token still denied', { skip: NEEDS_WINDOWS }, () => {
+  // The imported file is reached through a junction into a folder whose name the rules cannot carry ([ ]): its twin
+  // misses. An import is no protected place, so the guard is written (as on Linux) and says it is not whole.
+  const odd = path.join(SANDBOX, 'imports-real [x]');
+  fs.mkdirSync(odd, { recursive: true });
+  fs.writeFileSync(path.join(odd, 'notes.md'), 'x\n');
+  const link = path.join(SANDBOX, 'imports-link');
+  fs.symlinkSync(odd, link, 'junction');
+  const dir = agentDir('importmiss');
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'See @' + path.join(link, 'notes.md').replace(/\\/g, '/') + '\n');
+  try {
+    const g = setup.guardTokenOnlyFolder(dir, 'importmiss', DEPS);
+    assert.equal(g.ok, false);
+    assert.doesNotMatch(g.because, /reached through a link or share whose real place Kosmos cannot deny/, 'an incidental import refused the whole guard: ' + g.because);
+    assert.match(g.because, /imports-link/, 'the import gap was not named: ' + g.because);
+    assert.ok(fs.existsSync(path.join(dir, '.claude', 'settings.json')), 'the guard was not written');
+    assert.ok(deny(dir).includes(ruleFor('Read', path.join(fs.realpathSync.native(store.ROOT), 'board.token'))), 'the token is not denied');
+  } finally {
+    // The guard reads every agent folder's instruction files, so this import must not reach the tests after this one.
+    fs.rmSync(path.join(dir, 'CLAUDE.md'), { force: true });
+  }
 });
 
 test('an agent folder given by its 8.3 short name is denied on its long real path', { skip: NEEDS_WINDOWS }, (t) => {
