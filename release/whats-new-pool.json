@@ -1469,7 +1469,7 @@
       "title": "A little more room between chat lines",
       "line": "Messages in an agent conversation on the computer now have a little more space between lines.",
       "icon": "chat",
-      "rank": 10.5,
+      "rank": 10.25,
       "since": "0.8.01",
       "status": "pending"
     },
@@ -1678,7 +1678,7 @@
       "platforms": [
         "windows"
       ],
-      "rank": 10.3,
+      "rank": 10.6,
       "since": "0.8.03",
       "status": "pending"
     },
@@ -1744,6 +1744,61 @@
       ],
       "rank": 98,
       "since": "0.8.03",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "A suggested answer beside the question",
+      "line": "When an agent holds a task for your answer, it can add the answer it suggests, shown beside its question on the task and in Tasks.",
+      "icon": "tasks",
+      "rank": 9.5,
+      "since": "0.8.05",
+      "status": "pending"
+    },
+    {
+      "title": "Restarting agents on Windows read as running",
+      "line": "On Windows, an agent whose Claude is restarting or waiting on another task now reads as running, instead of \"Not running\".",
+      "icon": "swarm",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 10.05,
+      "since": "0.8.05",
+      "status": "pending"
+    },
+    {
+      "title": "The board log names automatic updates",
+      "line": "The board's log now says when an automatic update started, and at the next start how it ended.",
+      "icon": "list",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 100,
+      "since": "0.8.05",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "A refused stop stays refused after a prefix",
+      "line": "On Windows, an agent's command to stop Kosmos's own processes is still refused when it starts with NAME=value, env or a launcher.",
+      "icon": "shield",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 101,
+      "since": "0.8.05",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Token-only agents on Windows get a guard",
+      "line": "On Windows, an existing token-only agent's file tools are kept from its board token, and its page says what that does not cover.",
+      "icon": "shield",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 102,
+      "since": "0.8.05",
       "status": "pending",
       "notesOnly": true
     }
