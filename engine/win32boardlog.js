@@ -38,6 +38,10 @@
  * ROTATE_BYTES it moves the first board's open file to `.old`, after which the first board writes there and its
  * diagnostics fall back to the ring.
  *
+ * A DEAD CONSOLE. Once routed, each console stream gets an 'error' listener for as long as the board runs, so a console
+ * pipe whose reader has gone (Homer's 0.8.03 in-place update) cannot become an uncaught error; this also quiets an
+ * error from any other writer on those streams. After one, the file alone gets the lines and says the console stopped.
+ *
  * Nothing here throws into the board: when the file cannot be opened the board runs as it did before.
  */
 
@@ -71,8 +75,9 @@ function writeAll(fd, bytes) {
   }
 }
 
-/* Copies each write on `stream` into `fd`, stamped, then lets the original write go on unchanged. */
-function tee(stream, fd, lineState, now) {
+/* Copies each write on `stream` into `fd`, stamped, then passes it on to the original write, until that stream fails
+   with a system error; from then on the file alone gets it. `name` says which stream, in the line that records it. */
+function tee(stream, fd, lineState, now, name) {
   const { stampText, stampBytes } = require('./logstamp');
   const write = stream.write.bind(stream);
   /* #8373 follow-up (Homer, 0.8.03 in-place update on Windows): the console stream a task-started board inherits can be
@@ -85,8 +90,8 @@ function tee(stream, fd, lineState, now) {
     dead = true;
     const code = (err && err.code) || 'an error';
     try {
-      const text = (lineState.atLineStart ? '' : '\n') + now().toISOString() + ' the console copy stopped (' + code
-        + '); this file keeps every line\n';
+      const text = (lineState.atLineStart ? '' : '\n') + now().toISOString() + ' the console copy of ' + name + ' stopped ('
+        + code + '); this file keeps every line\n';
       writeAll(fd, Buffer.from(text, 'utf8'));
       lineState.atLineStart = true;
     } catch { /* as below */ }
@@ -109,7 +114,11 @@ function tee(stream, fd, lineState, now) {
       }
     } catch { /* a full disk or a closed file must not stop the board */ }
     if (!dead) {
-      try { return write(chunk, encoding, callback); } catch (err) { giveUp(err); }
+      try { return write(chunk, encoding, callback); } catch (err) {
+        // Only an I/O failure ends the console copy; a caller's bad argument is thrown back as it always was.
+        if (!(err && (err.syscall || typeof err.errno === 'number'))) throw err;
+        giveUp(err);
+      }
     }
     if (typeof cb === 'function') process.nextTick(cb);
     return true;
@@ -158,7 +167,9 @@ function route(stdout, stderr, deps) {
         lineState.atLineStart = true;
       } catch { /* nothing more can be done */ }
     });
-    for (const stream of [stdout, stderr]) if (stream && typeof stream.write === 'function') tee(stream, fd, lineState, now);
+    for (const [stream, name] of [[stdout, 'stdout'], [stderr, 'stderr']]) {
+      if (stream && typeof stream.write === 'function') tee(stream, fd, lineState, now, name);
+    }
     routed = { path: file, fd };
     return routed;
   } catch {

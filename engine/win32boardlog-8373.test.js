@@ -146,10 +146,15 @@ function deadConsole(mode) {
   const e = new EventEmitter();
   e.got = [];
   e.write = function (chunk, encoding, cb) {
-    if (mode === 'throws') { const err = new Error('write EPIPE'); err.code = 'EPIPE'; throw err; }
+    if (mode === 'throws') { const err = new Error('write EPIPE'); err.code = 'EPIPE'; err.syscall = 'write'; throw err; }
+    if (mode === 'bad-arg') { const err = new TypeError('The "chunk" argument must be of type string'); err.code = 'ERR_INVALID_ARG_TYPE'; throw err; }
     e.got.push(String(chunk));
-    if (mode === 'emits') { const err = new Error('write EPIPE'); err.code = 'EPIPE'; process.nextTick(() => e.emit('error', err)); }
     const done = typeof encoding === 'function' ? encoding : cb;
+    if (mode === 'emits') {   // as node does: the failed write's callback gets the error, then the stream emits it
+      const err = new Error('write EPIPE'); err.code = 'EPIPE'; err.syscall = 'write';
+      process.nextTick(() => { if (typeof done === 'function') done(err); e.emit('error', err); });
+      return true;
+    }
     if (typeof done === 'function') process.nextTick(done);
     return true;
   };
@@ -170,7 +175,7 @@ test('#8373 a console that emits EPIPE does not become an uncaught error, and th
   await new Promise((res) => setImmediate(res));
   assert.deepStrictEqual(out.got, ['first\n'], 'after the console failed, nothing more is sent to it');
   assert.strictEqual(called, 1, 'the callback still runs');
-  assert.strictEqual(fs.readFileSync(file, 'utf8'), `${T} first\n${T} the console copy stopped (EPIPE); this file keeps every line\n${T} second\n`);
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), `${T} first\n${T} the console copy of stdout stopped (EPIPE); this file keeps every line\n${T} second\n`);
 });
 
 test('#8373 a console whose write throws does not throw out of the board', async (t) => {
@@ -183,7 +188,7 @@ test('#8373 a console whose write throws does not throw out of the board', async
   assert.doesNotThrow(() => out.write('kept\n', 'utf8', () => { called++; }));
   await new Promise((res) => setImmediate(res));
   assert.strictEqual(called, 1);
-  assert.match(fs.readFileSync(file, 'utf8'), /kept\n[\s\S]*the console copy stopped \(EPIPE\)/);
+  assert.match(fs.readFileSync(file, 'utf8'), /kept\n[\s\S]*the console copy of stdout stopped \(EPIPE\)/);
 });
 
 test('#8373 control: a healthy console still gets every write', (t) => {
@@ -195,4 +200,14 @@ test('#8373 control: a healthy console still gets every write', (t) => {
   out.write('a\n'); out.write('b\n');
   assert.deepStrictEqual(out.got, ['a\n', 'b\n']);
   assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /console copy stopped/);
+});
+
+test('#8373 a caller\'s bad argument is still thrown, and does not end the console copy', (t) => {
+  const file = path.join(scratch(), 'board.log');
+  boardlog.resetForTest();
+  const out = deadConsole('bad-arg');
+  const r = boardlog.route(out, fakeStream(), { platform: 'win32', path: file, isFile: () => false, taskStarted: () => true, now, handlers: () => 0, onCrash: () => {} });
+  t.after(() => { if (r) fs.closeSync(r.fd); boardlog.resetForTest(); });
+  assert.throws(() => out.write('x\n'), { code: 'ERR_INVALID_ARG_TYPE' });
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /console copy/);
 });

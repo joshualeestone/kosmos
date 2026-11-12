@@ -54,5 +54,5 @@ test('a task-started board whose console pipe has no reader lives on, and its lo
   assert.equal(r.code, 0);
   for (let i = 1; i <= LINES; i++) assert.match(r.log, new RegExp('line ' + i + '\\n'), 'line ' + i + ' is not in the log');
   // CONTROL: the console really was broken, so the fix's "stopped" note was written (without it the test proves nothing).
-  assert.match(r.log, /the console copy stopped/, 'the console never failed, so this run did not test a broken pipe');
+  assert.match(r.log, /the console copy of stdout stopped/, 'the console never failed, so this run did not test a broken pipe');
 });
