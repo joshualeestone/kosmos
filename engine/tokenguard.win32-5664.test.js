@@ -113,6 +113,23 @@ test('withRealTwins: a rule on a network share, or a drive that resolves to one,
   assert.deepEqual(setup.withRealTwins(['Edit(//c/Kosmos/undo/**)'], 'win32', real).unsafe, []);
 });
 
+test('withRealTwins: a token rule reached by a pattern refuses when a folder the pattern matches is a link', () => {
+  const same = (p) => p;
+  const links = (d) => (d === 'C:\\K\\worlds' ? ['w2'] : []);
+  const r = setup.withRealTwins(['Read(//c/K/worlds/*/Kosmos/board.token)'], 'win32', same, undefined, links);
+  assert.equal(r.tokenUnsafe.length, 1, 'a world folder that is a link went unseen');
+  assert.match(r.tokenUnsafe[0], /C:\\K\\worlds\\w2/);
+  // CONTROL: no link there, nothing named; and a non-token rule by a pattern is not checked this way.
+  assert.deepEqual(setup.withRealTwins(['Read(//c/K/worlds/*/Kosmos/board.token)'], 'win32', same, undefined, () => []).unsafe, []);
+  assert.deepEqual(setup.withRealTwins(['Edit(//c/K/worlds/*/Kosmos/undo/**)'], 'win32', same, undefined, links).unsafe, []);
+});
+
+test('withRealTwins: only a rule ENDING in the token\'s name is a token rule (board.token.md is not)', () => {
+  const real = (p) => p.replace('C:\\link', 'C:\\odd [x]');
+  assert.equal(setup.withRealTwins(['Edit(//c/link/notes/board.token.md)'], 'win32', real).tokenUnsafe.length, 0);
+  assert.equal(setup.withRealTwins(['Read(//c/link/Kosmos/.board.token.*)'], 'win32', real).tokenUnsafe.length, 1, 'CONTROL: the temp copy is the token\'s');
+});
+
 test('launchPathDirs on Windows names the PATH part as not covered, so the guard cannot read as whole', () => {
   const w = setup.launchPathDirs(agentDir('lp'), { ...PIN, platform: 'win32' });
   assert.deepEqual(w.unsafe, ['on Windows Kosmos does not cover the folders on this PATH yet']);

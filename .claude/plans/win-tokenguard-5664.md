@@ -61,6 +61,10 @@ match nothing; `( ) { } !` are literal, `[ ]` is a character class.
   could misread; the refusal is the existing policy. Weakest point: the agent then has no file-tool denies at all until
   the link is fixed.
 
+- Review round 5: a token rule reached through a pattern (`worlds/<any>/Kosmos/board.token`) refuses when a folder the
+  pattern matches NOW is a link (one made later as a link is not seen; Kosmos makes them plain). A token rule is one
+  whose last name IS the token's (board.token or its .board.token.* temp copy), not one merely holding the text.
+
 ## What it means for a person
 - An existing token-only Claude agent on Windows gets its guard written at the next refresh: the board token gets Read
   and Edit denies for its file tools (today it gets none). Its page still says protection is not complete, now with the
@@ -88,7 +92,7 @@ match nothing; `( ) { } !` are literal, `[ ]` is a character class.
 - Whether `[` can be escaped in a rule.
 
 ## Done when
-- On the Windows box: engine/tokenguard.win32-5664 10/10; the guard written for a real folder in a sandbox (probe in
+- On the Windows box: engine/tokenguard.win32-5664 all pass (19 tests); the guard written for a real folder in a sandbox (probe in
   work\t5664); guard-related test files no worse than origin/main by name and by reason.
 - Policy tests green (windows-tests-1777, coupling audit, engine.reachable, separator guard, fixture-discipline,
   no-name-refs).

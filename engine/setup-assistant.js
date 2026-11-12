@@ -458,7 +458,14 @@ function realOrLeafStrict(p) {
    so is one that cannot be resolved. `real` is realOrLeafStrict, passed in for tests. Only the part before the first `*` is
    resolved: a link under a glob segment (a world folder reached through a junction, made later) gets no twin.
    Pure apart from `real`; Windows only (elsewhere the rules are returned as they are). */
-function withRealTwins(rules, platform = process.platform, real = realOrLeafStrict, tooWide = (p) => path.win32.parse(p).root === p) {
+/* The names directly in `dir` that are links (a junction reads as a symbolic link to lstat on Windows); none when it
+   cannot be listed. For withRealTwins' glob check; passed in for tests. */
+function linksIn(dir) {
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return []; }
+  return names.filter((n) => { try { return fs.lstatSync(path.join(dir, n)).isSymbolicLink(); } catch { return false; } });
+}
+function withRealTwins(rules, platform = process.platform, real = realOrLeafStrict, tooWide = (p) => path.win32.parse(p).root === p, links = linksIn) {
   if (platform !== 'win32') return { rules, unsafe: [], tokenUnsafe: [] };
   const out = [];
   const seen = new Set(rules);
@@ -477,7 +484,10 @@ function withRealTwins(rules, platform = process.platform, real = realOrLeafStri
     const rest = inner.slice(cut);
     const native = rulePath(literal.slice(2), 'win32');
     if (!native) continue;
-    const isToken = r.includes(require('./boardauth').TOKEN_FILE);
+    // A token rule ends in the token's own name (board.token, or its temp copy .board.token.*), not merely holds it.
+    const tokenFile = require('./boardauth').TOKEN_FILE;
+    const leaf = rest ? rest.slice(rest.lastIndexOf('/') + 1) : literal.slice(literal.lastIndexOf('/') + 1);
+    const isToken = leaf === tokenFile || leaf === '.' + tokenFile + '.*';
     const miss = (why) => { unsafe.push(why); if (isToken) tokenUnsafe.push(why); };
     /* A share (\\host\...) is never resolved: that is a network lookup that can send this person's Windows credentials
        to the host it names (as readingsHoldGuide says). Nor is a rule on one claimed: shares (and a mapped drive, which
@@ -487,6 +497,10 @@ function withRealTwins(rules, platform = process.platform, real = realOrLeafStri
     if (to === undefined) { try { to = String(real(native)); } catch { to = null; } cache.set(native, to); }
     if (to === null) { miss(`${native} (where it leads could not be worked out)`); continue; }
     if (/^[\\/]{2}/.test(to)) { miss(`${native} (it leads to the network share ${to}, which Kosmos has not shown the rules to hold on)`); continue; }
+    /* A token rule reached through a pattern (worlds/<any>/Kosmos/board.token): a folder the `*` matches that is itself a
+       link leads the token elsewhere, and the rule's own spelling covers nothing there. The ones there now refuse; one
+       made later as a link is not seen (Kosmos makes these folders plain). */
+    if (isToken && rest.startsWith('/*/')) for (const n of links(native)) miss(`${path.win32.join(native, n)} (a link in a folder the token's rule reaches by a pattern, which Kosmos does not follow)`);
     const twin = ruleAbs(to, 'win32');
     if (twin.toLowerCase() === literal.toLowerCase()) continue;   // Claude Code matches case-blind on Windows (measured)
     // Only a rule as wide as its literal part (the path itself, or all under it) can be too wide; a narrower suffix
@@ -2707,7 +2721,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     if (runner !== 'claude') return { ok: false, unsupported: true, because: 'only Claude agents can be kept from reading the board token so far; this agent runs on ' + (runner || 'an unknown runner') };
     /* #5664 step A (was review 24's refusal): measured on Windows with Claude Code 2.1.319, the //c/... rules ruleAbs
        writes DO hold for its Read and Edit tools, case-blind, and through junctions and 8.3 names when the rule names the
-       real path (a rule on a link's own path covers nothing; realOrLeaf and withTarget name the real one). So Windows is
+       real path (a rule on a link's own path covers nothing; withRealTwins, below, adds the rule on the real one). So Windows is
        guarded as Linux is: permission rules for the file tools only, the shell not sandboxed (said below, as off macOS).
        What the agent's next start runs from (its PATH) is not covered on Windows yet: launchPathDirs names it, so the
        guard is written and says it is not whole rather than claiming it. Not measured: shares, mapped drives, non-NTFS
