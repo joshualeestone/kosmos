@@ -43,11 +43,15 @@ later (engine/filenotices.js, through Kosmos's Claude Code hook), by when the ed
 - A net line count: an edit replacing 50 lines with 50 others would read 0.
 
 ## Weakest premise
-What remains after six rounds, stated rather than chased: a precisely timed double flip (a folder turned into a link
-before the open and kept through the name check, then back), or a hard link made to an outside file between the open and
-the name check, could have one read measure an outside file, at the notice or at the hand-over. Only line COUNTS (or
-"too large") could reach the owner agent, about a file that agent, running as the same user, could read itself. The rule
-kept is that the board never COUNTS or REPORTS a file outside the project except in that race, and it may OPEN one in it
-(no openat in node, so a path is the only handle). A dead network mount can block a synchronous realpath or open on the
-board's thread here, as noteWrite's own realpath already could. Also: the "before" fingerprint is taken on setImmediate
-after the hook's answer, so the edit can land first; the no-change wording is hedged for that.
+What remains after eight rounds, stated rather than chased: folder flips timed around the open, the after-read folder
+check and the name check (several transitions in a row, not one) could have one read measure an outside path, at the
+notice or at the hand-over. Then line COUNTS, "too large", or the file's existence ("gone", "not made yet", "made,
+empty", since a read that finds no file answers before any check) could reach the owner agent, about a path that agent,
+running as the same user, could read itself. The rule kept: the board never counts or reports a file outside the project
+except in that race, and may open one in it (no openat in node, so a path is the only handle). A dead network mount or
+an agent-controlled FUSE mount can block a synchronous realpath or open on the board's thread here, as noteWrite's own
+realpath already could. Also: the "before" fingerprint is taken on setImmediate after the hook's answer, so the edit can
+land first; the no-change wording is hedged for that.
+
+Review 8: removing the second resolve left filewriters.projectOf with no caller, which engine.reachable flags; it is
+removed (projectOfResolved is what noteWrite and about use).
