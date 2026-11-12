@@ -44,6 +44,11 @@ function presenceFile(name, rec) {
   fs.mkdirSync(DIR(), { recursive: true });
   fs.writeFileSync(path.join(DIR(), name + presence.PRESENCE_EXT), JSON.stringify(rec));
 }
+/* On Windows a look at a pipe (fs.existsSync) takes its free instance, and the server opens the next one only on its
+   own next loop turn. In production the reader is the board, another process; here the reader and the supervisor are
+   the SAME process, so a second look in the same tick finds the pipe busy (measured on the Windows runner, PR #8426's
+   first run). One turn between looks is what the 200-look test proved enough. */
+const turn = () => new Promise((r) => setImmediate(r));
 const waitFor = async (cond, ms = 3000) => {
   const end = Date.now() + ms;
   while (!cond()) { if (Date.now() > end) return false; await new Promise((r) => setTimeout(r, 10)); }
@@ -58,7 +63,9 @@ test('kosmos#8415: a supervisor up between children (no state file) is running, 
     const rec = presence.readPresence('between');
     assert.equal(rec.pid, process.pid, 'the record names this process');
     assert.ok(fs.existsSync(rec.pipe), 'the pipe the record names is not there');
+    await turn();
     assert.ok(ss.liveNames().has('between'), 'a supervisor that is up, with no state file (between children), does not read as running');
+    await turn();
     assert.ok(create.runningJobs('win32').has('between'), 'create.runningJobs (what server.js reads) misses it');
   } finally { h.stop(); }
   assert.equal(fs.existsSync(presence.presencePath('between')), false, 'a clean stop left its presence record behind');
@@ -253,6 +260,7 @@ test('kosmos#8415 review 2: real connections (what a look is on Windows), half o
     await new Promise((r) => setTimeout(r, 50));
     assert.deepEqual(escaped, [], 'a connection to the presence pipe raised an uncaught exception');
     assert.ok(fs.existsSync(p), 'the pipe is gone after being connected to');
+    await turn();
     assert.ok(ss.liveNames().has('conns'), 'after many connections the supervisor no longer reads as running');
   } finally { process.removeListener('uncaughtException', onUncaught); h.stop(); }
 });
