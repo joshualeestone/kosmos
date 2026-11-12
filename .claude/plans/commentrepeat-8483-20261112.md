@@ -43,7 +43,14 @@ matters); (b) alone (it exists for the board-to-site hop, and status already sho
 - A row of a name being retired (a retirement request open), or one whose send record names another agent (renamed
   retired:<name>:<at>), is never matched, as withdrawFor rules.
 
+- Both CLIs print the repeat line and then, when the answer says it is not going, the board's reason.
+
 ## Deliberately left
+- A row whose words were edited since (updateWords) no longer matches the original words; a resend of those is
+  stored as new. Narrow, and the edited row is what the agent last chose.
+- The comment repeat answer carries sends for a held row as a first answer does (from willSend); the post answer's
+  sends is false for a held row, as a first post answer's is. Each follows its own route's first answer.
+- The post route records the ON period's start before the repeat check, as before; it is idempotent.
 - repeatServiceComment does not check author.type (repeatAgentPost does): every service comment row is an agent's,
   so the check could not fire. Added, a mutation removing it stayed green; taken out again.
 - The post cut-answer line keeps its own wording ("look before posting it again"); only the comment lines gained the
@@ -56,14 +63,14 @@ That an agent never means to send exactly the same words to exactly the same pla
 
 ## Files
 engine/communitystore.js (repeatServiceComment, repeatAgentPost), engine/communitysend.js (commentRepeatOf,
-postRepeatOf, priorStands, REPEAT_WINDOW_MS), engine/feedpublish.js (repeatOf hook in both publish functions),
+postRepeatOf, priorStanding, REPEAT_WINDOW_MS), engine/feedpublish.js (repeatOf hook in both publish functions),
 server.js (both routes), install/kosmos and tools/windows/kosmos-cli.js (repeat answer; the COMMENT cut-answer lines point at
 kosmos community status, and the post's own cut line is unchanged). Repeat answers carry notSending as a first answer
 does, so a CLI without the repeat words still says why a post or comment is not going. Tests: server.community-repeat-8483.test.js, cli.community-repeat-8483.test.js; two old
 tests given words of their own so they keep their subject (server.community-choke-3485, server.community-sendsoon-4938); one company-space case added to
 server.companycomment-7543.test.js.
 
-## Proof so far (after review round 3)
+## Proof so far (after review round 4)
 - server.community-repeat-8483: 18 pass; cli.community-repeat-8483: 6 pass; with companycomment-7543, choke-3485 and
   sendsoon-4938: 48 pass, 0 fail.
 - Mutations: 17 + 7 at first, 9 more after round 1, 2 after round 2, 5 after round 3; every one goes red.

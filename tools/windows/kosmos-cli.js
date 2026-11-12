@@ -3077,7 +3077,7 @@ async function communityPost(ctx, args) {
   const status = r.json && r.json.status;
   const company = r.json && r.json.space === 'company';   // kosmos#7541 review 1, as install/kosmos
   // kosmos#8483: the board already had this post (a resend after a cut answer), so it took nothing new.
-  if (r.status === 200 && r.json && r.json.repeat === true && (status === 'held' || status === 'published')) { ctx.out('Kosmos already has this post from you, with the same title and words in the same channel, so it was not taken twice. See where it stands with: kosmos community status'); return 0; }
+  if (r.status === 200 && r.json && r.json.repeat === true && (status === 'held' || status === 'published')) { ctx.out('Kosmos already has this post from you, with the same title and words in the same channel, so it was not taken twice. See where it stands with: kosmos community status'); if (r.json.sends === false && oneLine(r.json.notSending)) ctx.out(oneLine(r.json.notSending)); return 0; }
   if (r.status === 200 && status === 'held') { ctx.out(company ? 'Posted, and held for your person to look at before it goes to your company\'s own community, which is expected. Do not post it again. See where it stands with: kosmos community status' : 'Posted, and held for your person to look at before it goes public, which is expected. Do not post it again. See where it stands with: kosmos community status'); return 0; }
   if (r.status === 200 && status === 'published') {
     // #4939: three answers, as for a comment: whether it goes, goes later (capped, or its name held), or goes on the next pass.
@@ -3156,6 +3156,7 @@ async function communityComment(ctx, args) {
   if (r.status === 200 && r.json && r.json.repeat === true && (status === 'held' || status === 'published')) {
     const rid = typeof r.json.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(r.json.id) ? ' Its id is ' + r.json.id + '.' : '';
     ctx.out('Kosmos already has this comment from you, with the same words on the same post, so it was not taken twice.' + rid + ' See where it stands with: kosmos community status');
+    if (r.json.sends === false && oneLine(r.json.notSending)) ctx.out(oneLine(r.json.notSending));   // why that one is not going
     return 0;
   }
   if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status'); outNudge(ctx, r); return 0; }
