@@ -72529,7 +72529,7 @@ function tskRow(t, at) {
       + ' <button type="button" class="tsk-unbuild' + (t.builtNote ? ' tsk-unbuild-own' : '') + '" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Undo marking task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain)) + ' built">Undo</button></div>';
   /* #8464 item 2: how many of the task's checks its agents have reported met (kosmos task check). Their word, not a
      verification, so it says "reported". Only once something is reported, and not on a closed row. */
-  const checkCount = t.state === 'closed' ? null : tkCheckCount(t);
+  const checkCount = t.state === 'closed' || typeof tkCheckCount !== 'function' ? null : tkCheckCount(t);   // typeof: tests lift this function alone
   const checksLine = !checkCount || !checkCount.reported ? ''
     : '<div class="why tsk-checks">' + checkCount.met + ' of ' + checkCount.total + (checkCount.total === 1 ? ' check' : ' checks') + ' reported met'
       + (checkCount.reported > checkCount.met ? ', ' + (checkCount.reported - checkCount.met) + ' reported not met' : '') + '</div>';
@@ -73249,7 +73249,7 @@ function paintTaskPage() {
      innerHTML). Rebuilt only when it changed, so the five-second poll does not redraw it under the person. */
   { const row = document.getElementById('tk-donewhen-row');
     const list = document.getElementById('tk-donewhen');
-    const results = tkCheckResults(t);
+    const results = typeof tkCheckResults === 'function' ? tkCheckResults(t) : null;   // typeof: tests lift this function alone
     if (row && list) {
       const items = (results || []).map((r, i) => ({ check: String(t.doneWhen[i]),
         says: !r ? 'Not reported yet' : (r.by ? tkMemberName(p, r.by) : 'An agent') + ' says ' + (r.met ? 'met' : 'not met') + ': ' + r.how }));
