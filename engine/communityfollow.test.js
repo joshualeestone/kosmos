@@ -352,11 +352,11 @@ test('kosmos#8400: read --following says the shared fixture\'s numbers, counted 
     const r = await cf.readFollowing('mara');
     assert.equal(r.ok, true, r.because);
     const line = r.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:'));
-    assert.equal(line, 'Kosmos counted, before this read: 3 replies (listed under the posts they answer) and 2 new posts from the last 24 hours, 1 post you had already seen, 1 post it could not count, and 2 older items from before then. This read shows 2 of the new posts.', r.text);
+    assert.equal(line, 'Kosmos counted, before this read: 3 replies (shown under the posts they answer, up to 3 a post) and 2 new posts from the last 24 hours, 1 post you had already seen, 1 post it could not count, and 2 older items from before then. This read shows 2 of the new posts.', r.text);
     // It adds up: shown + behind + not shown is the new count, and a second read, after the marks, counts none new.
     const again = await cf.readFollowing('mara');
     const line2 = again.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read:')) || '';
-    assert.match(line2, /^Kosmos counted, before this read: 3 replies \(listed under the posts they answer\) and 0 new posts/, 'the posts the first read showed still counted as new: ' + again.text);
+    assert.match(line2, /^Kosmos counted, before this read: 3 replies \(shown under the posts they answer, up to 3 a post\) and no new posts/, 'the posts the first read showed still counted as new: ' + again.text);
     assert.doesNotMatch(line2, /shows 0 of the new posts/, 'with no new posts the line still talked about showing them');
   } finally { await b.close(); }
 });
@@ -372,14 +372,14 @@ test('kosmos#8400: on two pages, the read says home\'s numbers and shown + behin
     assert.deepEqual(home.tallyFollowing(fx.deepPages(now).flat(), home.doneFollowing('mara'), now), fx.EXPECTED_DEEP, 'CONTROL: the deeper fixture');
     const r = await cf.readFollowing('mara');
     const line = r.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read'));
-    assert.equal(line, 'Kosmos counted, before this read: 10 replies (listed under the posts they answer) and 5 new posts from the last 24 hours. This read shows 3 of the new posts, 2 are behind these.', r.text);
+    assert.equal(line, 'Kosmos counted, before this read: 10 replies (shown under the posts they answer, up to 3 a post) and 5 new posts from the last 24 hours. This read shows 3 of the new posts, 2 are behind these.', r.text);
     fresh(); const b2 = await backend();
     try {
       await cf.follow('mara', 'quill');
       b2.st.pages = fx.deepPages(now); b2.st.failPage = 1;   // the second page does not answer
       const cut = await cf.readFollowing('mara');
       const cutLine = cut.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read')) || '';
-      assert.match(cutLine, /^Kosmos counted, before this read and only in the pages it could read: 10 replies \(listed under the posts they answer\) and at least 0 new posts/, cut.text);
+      assert.match(cutLine, /^Kosmos counted, before this read and only in the pages it could read: 10 replies \(shown under the posts they answer, up to 3 a post\) and no new posts from the last 24 hours/, cut.text);
     } finally { await b2.close(); }
   } finally { await b.close(); }
 });
@@ -399,7 +399,7 @@ test('kosmos#8400 iteration 3: a post repeated across pages is one post, an unus
     assert.deepEqual(home.tallyFollowing(b.st.pages.flat(), home.doneFollowing('mara'), now),
       { newPosts: 3, seenPosts: 0, uncounted: 0, olderPosts: 0, replies: 9, olderReplies: 0 }, 'CONTROL: the repeat counted once');
     const r = await cf.readFollowing('mara');
-    assert.equal(lineOf(r), 'Kosmos counted, before this read: 9 replies (listed under the posts they answer) and 3 new posts from the last 24 hours. This read shows 3 of the new posts.', r.text);
+    assert.equal(lineOf(r), 'Kosmos counted, before this read: 9 replies (shown under the posts they answer, up to 3 a post) and 3 new posts from the last 24 hours. This read shows 3 of the new posts.', r.text);
     assert.doesNotMatch(r.text, /could not be shown/, 'a repeated post read as one not shown: ' + r.text);
     // An unusable next cursor: the line says its posts are a floor, and the replies (the newest page, read in full) are not.
     fresh(); await cf.follow('mara', 'quill');
@@ -408,7 +408,7 @@ test('kosmos#8400 iteration 3: a post repeated across pages is one post, an unus
     try {
       const odd = await cf.readFollowing('mara');
       assert.ok(odd.text.includes(cf.CUT_SHORT), 'CONTROL: the read was not cut short, so this tests nothing: ' + odd.text);
-      assert.equal(lineOf(odd), 'Kosmos counted, before this read and only in the pages it could read: 9 replies (listed under the posts they answer) and at least 1 new post from the last 24 hours. This read shows 1 of the new posts.', odd.text);
+      assert.equal(lineOf(odd), 'Kosmos counted, before this read and only in the pages it could read: 9 replies (shown under the posts they answer, up to 3 a post) and at least 1 new post from the last 24 hours. This read shows 1 of the new posts.', odd.text);
     } finally { b.st.cursorOf = undefined; }
     // The seen list cannot be read: the read falls back to its own record, so it says no numbers counted from a
     // different set than home's.
@@ -424,6 +424,25 @@ test('kosmos#8400 iteration 3: a post repeated across pages is one post, an unus
       assert.equal(blind.ok, true, blind.because);
       assert.equal(lineOf(blind), '', 'a line counted without home\'s seen list: ' + blind.text);
     } finally { home.doneFollowing = real; }
+  } finally { await b.close(); }
+});
+
+test('kosmos#8400 iteration 4: four replies on one post: the line says up to 3 are shown a post, and the read shows 3 and says one more', async () => {
+  const fx = require('../test-support/following-fixture-8400');
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');
+    const now = Date.now();
+    const [replies, posts] = fx.deepPages(now);
+    const on = posts[0].id;
+    // Four replies to one post the feed carries, newest first: the read lists them under it, REPLIES_IN_ENTRY at most.
+    const four = replies.slice(0, 4).map((r) => ({ ...r, post: { ...r.post, id: on, title: 'Deep 1' } }));
+    b.st.feed = four.concat(posts[0]);
+    assert.equal(cf.REPLIES_IN_ENTRY, 3, 'CONTROL: the cap this test is about');
+    const r = await cf.readFollowing('mara');
+    const line = r.text.split('\n').find((l) => l.startsWith('Kosmos counted, before this read')) || '';
+    assert.equal(line, 'Kosmos counted, before this read: 4 replies (shown under the posts they answer, up to 3 a post) and 1 new post from the last 24 hours. This read shows 1 of the new posts.', r.text);
+    assert.equal((r.text.match(/\[1\.\d\] /g) || []).length, 3, 'CONTROL: the read did not show 3 of the 4 replies: ' + r.text);
   } finally { await b.close(); }
 });
 
