@@ -17,6 +17,11 @@ const http = require('node:http');
 const { spawn } = require('node:child_process');
 const sw = require('./tools/serve-watch');
 
+// kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
+const { skipOnWin32 } = require('./test-support/skip-on-win32');
+const SKIP_SHEBANG_STUBS = skipOnWin32('it posts through #!/bin/sh stub commands run by their shebang line, which Windows cannot do; serve-watch is a Mac fleet tool run by launchd');
+const SKIP_LAUNCHD_PLIST = skipOnWin32('it builds a launchd plist (a Mac file) from POSIX paths with the host path module; serve-watch is a Mac fleet tool run by launchd');
+
 const SCRIPT = path.join(__dirname, 'tools', 'serve-watch.js');
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const TAR = Buffer.from('a mac tarball\n');
@@ -137,7 +142,7 @@ test('a healthy site is silent, every artifact is checked and hashed, and the st
   assert.ok(site.hits.includes('HEAD /site/setup'), 'the installer script was not checked');
 }));
 
-test('a pointer naming a missing artifact alarms within one run, on the pane and the card, and names the file', () => withSite(async ({ site, base, dir, st }) => {
+test('a pointer naming a missing artifact alarms within one run, on the pane and the card, and names the file', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   assert.equal((await run(base, dir, st, { now: T0 })).code, 0, 'CONTROL: healthy first');
   site.files.delete('kosmos-1.0.0-arm64.tar.gz');   // the 0.7.14 outage: the pointer names a file the site dropped
   const r = await run(base, dir, st, { now: T0 + 900 });
@@ -160,7 +165,7 @@ test('a pointer naming a missing artifact alarms within one run, on the pane and
   assert.equal(st.card(), after, 'the all-clear was repeated');
 }));
 
-test('a site that answers 200 for everything is "could not tell", never healthy, and is said only after an hour', () => withSite(async ({ site, base, dir, st }) => {
+test('a site that answers 200 for everything is "could not tell", never healthy, and is said only after an hour', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.catchAll = true;   // every file is still served: only the passes are in doubt (a failure would alarm, below)
   const r = await run(base, dir, st, { now: T0 });
   assert.equal(r.code, 2, r.out + r.err);
@@ -169,7 +174,7 @@ test('a site that answers 200 for everything is "could not tell", never healthy,
   assert.match(st.card(), /could not tell \(installkosmos\.com answered 200 for a file that does not exist/);
 }));
 
-test('a served file whose bytes do not match the pointer alarms; a wrong content type alarms', () => withSite(async ({ site, base, dir, st }) => {
+test('a served file whose bytes do not match the pointer alarms; a wrong content type alarms', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.files.set('kosmos-1.0.0-win-x64.zip', ['application/zip', Buffer.from('different bytes')]);
   site.files.set('kosmos-1.0.0-arm64.manifest.json', ['text/html', '<html>a 404 page served as 200</html>']);
   const r0 = await run(base, dir, st, { now: T0 });
@@ -203,7 +208,7 @@ test('the bytes are hashed once, again only when the pointer changes, after a fa
   assert.equal(gets(), 3, 'a changed pointer sha was not re-checked at once');
 }));
 
-test('a fallback tarball left on the previous release alarms (on its second sighting), though it matches its own sidecar', () => withSite(async ({ site, base, dir, st }) => {
+test('a fallback tarball left on the previous release alarms (on its second sighting), though it matches its own sidecar', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const OLD = Buffer.from('the previous build\n');
   site.files.set('kosmos-arm64.tar.gz', ['application/gzip', OLD]);
   site.files.set('kosmos-arm64.tar.gz.sha256', ['application/octet-stream', sha(OLD) + '  kosmos-arm64.tar.gz\n']);
@@ -216,7 +221,7 @@ test('a fallback tarball left on the previous release alarms (on its second sigh
   assert.equal((await run(base, dir, st, { now: T0 + 2700 })).code, 1, 'a confirmed stale fallback was forgotten after one short run');
 }));
 
-test('the home page\'s Mac download (Kosmos.pkg) is watched: missing, or not matching its sidecar, alarms', () => withSite(async ({ site, base, dir, st }) => {
+test('the home page\'s Mac download (Kosmos.pkg) is watched: missing, or not matching its sidecar, alarms', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.files.delete('Kosmos.pkg');
   assert.equal((await run(base, dir, st, { now: T0 })).code, 1);
   assert.match(st.card(), /Kosmos\.pkg is not served \(404\): it is the home page's Mac download button/);
@@ -226,14 +231,14 @@ test('the home page\'s Mac download (Kosmos.pkg) is watched: missing, or not mat
   assert.match(st.card(), /Kosmos\.pkg does not match its own \.sha256/);
 }));
 
-test('a pointer sha256 in capitals is refused, as the Windows installer refuses it', () => withSite(async ({ site, base, dir, st }) => {
+test('a pointer sha256 in capitals is refused, as the Windows installer refuses it', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const j = JSON.parse(site.files.get('latest-win.json')[1]); j.sha256 = j.sha256.toUpperCase();
   site.files.set('latest-win.json', ['application/json', JSON.stringify(j)]);
   assert.equal((await run(base, dir, st, { now: T0 })).code, 1);
   assert.match(st.card(), /latest-win\.json carries no sha256 in the lowercase form/);
 }));
 
-test('a failed whole-file read is retried on the next run, not held for a day', () => withSite(async ({ site, base, dir, st }) => {
+test('a failed whole-file read is retried on the next run, not held for a day', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.failGet.set('/dist/kosmos-1.0.0-arm64.tar.gz', 2);   // both tries of the hash read fail this run
   assert.equal((await run(base, dir, st, { now: T0 })).code, 1);
   assert.match(st.card(), /kosmos-1\.0\.0-arm64\.tar\.gz \(named by latest\.json and latest-staging\.json\) could not be read whole/);
@@ -243,7 +248,7 @@ test('a failed whole-file read is retried on the next run, not held for a day', 
   assert.ok(gets() > first, 'a read that failed was not tried again on the next run');
 }));
 
-test('the community site and the relay canary are watched too', () => withSite(async ({ site, base, dir, st }) => {
+test('the community site and the relay canary are watched too', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.health = null;
   site.feedStatus = 500;
   site.relayUp = false;
@@ -255,7 +260,7 @@ test('the community site and the relay canary are watched too', () => withSite(a
   assert.doesNotMatch(st.card(), /People installing or updating/, 'a community or relay problem was called a download failure');
 }));
 
-test('a pointer naming a path outside /dist, or missing a field, is refused, not fetched', () => withSite(async ({ site, base, dir, st }) => {
+test('a pointer naming a path outside /dist, or missing a field, is refused, not fetched', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   // A valid version and arch, so the NAME guard is what refuses them (not an earlier field check).
   site.files.set('latest-win-staging.json', ['application/json', JSON.stringify({ version: '1.0.0', arch: 'x64', sha256: sha(ZIP), artifact: '../secret.zip', versioned: 'kosmos-1.0.0-win-x64.zip' })]);
   site.files.set('latest-staging.json', ['application/json', JSON.stringify({ version: '1.0.0', sha256: sha(TAR), artifact: 'kosmos-1.0.0-arm64.tar.gz' })]);
@@ -266,7 +271,7 @@ test('a pointer naming a path outside /dist, or missing a field, is refused, not
   assert.ok(!site.hits.some((h) => h.includes('secret')), 'a ../ name was fetched');
 }));
 
-test('a healthy week brings one "still watching" line on the card, and no pane message', () => withSite(async ({ base, dir, st }) => {
+test('a healthy week brings one "still watching" line on the card, and no pane message', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ base, dir, st }) => {
   // A fresh state records the clear without a post; a week later the card hears from it.
   assert.equal((await run(base, dir, st, { now: T0 })).code, 0);
   assert.equal(st.card(), '');
@@ -284,7 +289,7 @@ test('the weekly "still watching" line is not posted on a run with a first sight
   assert.doesNotMatch(st.card(), /still watching/, 'still watching on a run that could not tell');
 }));
 
-test('--check prints the verdict and posts nothing; --plist runs every 15 minutes under its own label', () => withSite(async ({ site, base, dir, st }) => {
+test('--check prints the verdict and posts nothing; --plist runs every 15 minutes under its own label', { skip: SKIP_LAUNCHD_PLIST }, () => withSite(async ({ site, base, dir, st }) => {
   site.files.delete('kosmos-win-x64.zip');
   const r = await run(base, dir, st, { now: T0, args: ['--check'] });
   assert.equal(r.code, 1);
@@ -313,7 +318,7 @@ test('the pointers watched are the four the app reads', () => {
   assert.deepEqual(staging.map((a) => [a.name, a.hashed, a.sidecar]), [['kosmos-2.0.0-win-x64.zip', true, true], ['a.zip', false, false]]);
 });
 
-test('Windows staging ahead of release is healthy: the fixed-name zip still holds the released bytes', () => withSite(async ({ site, base, dir, st }) => {
+test('Windows staging ahead of release is healthy: the fixed-name zip still holds the released bytes', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const NEXT = Buffer.from('the next windows build\n');
   site.files.set('kosmos-2.0.0-win-x64.zip', ['application/zip', NEXT]);
   site.files.set('kosmos-2.0.0-win-x64.zip.sha256', ['text/plain', sha(NEXT) + '  kosmos-2.0.0-win-x64.zip\n']);
@@ -327,7 +332,7 @@ test('Windows staging ahead of release is healthy: the fixed-name zip still hold
   assert.match(st.card(), /kosmos-2\.0\.0-win-x64\.zip \(named by latest-win-staging\.json\) does not match/);
 }));
 
-test('the download site down while the rest answers is an alarm at once, not "could not tell"', () => withSite(async ({ site, base, dir, st }) => {
+test('the download site down while the rest answers is an alarm at once, not "could not tell"', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.distDown = 503;
   const r = await run(base, dir, st, { now: T0 });
   assert.equal(r.code, 1, r.out + r.err);
@@ -342,7 +347,7 @@ test('one dropped request is tried again, so a blip is not an alarm', () => with
   assert.equal(st.card(), '');
 }));
 
-test('a sidecar that disagrees with its pointer alarms (the installers would refuse the download)', () => withSite(async ({ site, base, dir, st }) => {
+test('a sidecar that disagrees with its pointer alarms (the installers would refuse the download)', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  kosmos-1.0.0-win-x64.zip\n']);
   site.files.delete('kosmos-1.0.0-arm64.tar.gz.sha256');
   await run(base, dir, st, { now: T0 });
@@ -352,7 +357,7 @@ test('a sidecar that disagrees with its pointer alarms (the installers would ref
   assert.match(st.card(), /kosmos-1\.0\.0-arm64\.tar\.gz\.sha256 \(named by latest\.json and latest-staging\.json\) is not served \(404\)/);
 }));
 
-test('a card post that fails is retried after an hour, not every run; a pane left in its composer (claude-msg exit 7) counts as told', () => withSite(async ({ site, base, dir, st }) => {
+test('a card post that fails is retried after an hour, not every run; a pane left in its composer (claude-msg exit 7) counts as told', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const failGh = path.join(dir, 'gh-fail.sh');
   fs.writeFileSync(failGh, '#!/bin/sh\necho "HTTP 401" >&2\nexit 1\n'); fs.chmodSync(failGh, 0o755);
   const busyMsg = path.join(dir, 'msg-busy.sh');
@@ -371,7 +376,7 @@ test('a card post that fails is retried after an hour, not every run; a pane lef
   assert.match(st.card(), /kosmos-win-x64\.zip/);
 }));
 
-test('a card post beside an exit-7 pane says the pane message may not have gone', () => withSite(async ({ site, base, dir, st }) => {
+test('a card post beside an exit-7 pane says the pane message may not have gone', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const busyMsg = path.join(dir, 'msg-busy.sh');
   fs.writeFileSync(busyMsg, '#!/bin/sh\ncat > /dev/null\nexit 7\n'); fs.chmodSync(busyMsg, 0o755);
   site.files.delete('kosmos-win-x64.zip');
@@ -379,7 +384,7 @@ test('a card post beside an exit-7 pane says the pane message may not have gone'
   assert.match(st.card(), /may not have gone: claude-msg exit 7: the message is in the pane's composer/);
 }));
 
-test('a possible loss on the pane (claude-msg exit 8) is a failure, tried again an hour on', () => withSite(async ({ site, base, dir, st }) => {
+test('a possible loss on the pane (claude-msg exit 8) is a failure, tried again an hour on', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const lost = path.join(dir, 'msg-lost.sh');
   const tries = path.join(dir, 'tries');
   fs.writeFileSync(lost, '#!/bin/sh\ncat > /dev/null\necho x >> "' + tries + '"\nexit 8\n'); fs.chmodSync(lost, 0o755);
@@ -393,7 +398,7 @@ test('a possible loss on the pane (claude-msg exit 8) is a failure, tried again 
   assert.match(st.card(), /did not go/);
 }));
 
-test('latest-win.json without the fixed-name zip is refused: the home page\'s Windows download would be watched by nothing', () => withSite(async ({ site, base, dir, st }) => {
+test('latest-win.json without the fixed-name zip is refused: the home page\'s Windows download would be watched by nothing', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const win = JSON.parse(site.files.get('latest-win.json')[1]); delete win.artifact;
   site.files.set('latest-win.json', ['application/json', JSON.stringify(win)]);
   assert.equal((await run(base, dir, st, { now: T0 })).code, 1);
@@ -405,7 +410,7 @@ test('latest-win.json without the fixed-name zip is refused: the home page\'s Wi
   assert.equal((await run(base, dir, st, { now: T0 + 900 })).code, 0);
 }));
 
-test('after "could not tell", the all-clear says it is able to check again', () => withSite(async ({ site, base, dir, st }) => {
+test('after "could not tell", the all-clear says it is able to check again', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.catchAll = true;
   await run(base, dir, st, { now: T0 });
   await run(base, dir, st, { now: T0 + 3600 });
@@ -416,7 +421,7 @@ test('after "could not tell", the all-clear says it is able to check again', () 
   assert.match(st.card(), /able to check again: every live download/);
 }));
 
-test('what every install fetches is watched too: /setup, the tmux bundle and the fallback tarball against its sidecar', () => withSite(async ({ site, base, dir, st }) => {
+test('what every install fetches is watched too: /setup, the tmux bundle and the fallback tarball against its sidecar', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.setup = false;
   site.files.delete('tmux-arm64.tar.gz');
   site.files.set('kosmos-arm64.tar.gz', ['application/gzip', Buffer.from('stale fallback bytes')]);
@@ -428,13 +433,13 @@ test('what every install fetches is watched too: /setup, the tmux bundle and the
   assert.match(st.card(), /kosmos-arm64\.tar\.gz does not match its own \.sha256/);
 }));
 
-test('a pointer whose names disagree with its version is refused (the installers derive the names)', () => withSite(async ({ site, base, dir, st }) => {
+test('a pointer whose names disagree with its version is refused (the installers derive the names)', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const j = JSON.parse(site.files.get('latest.json')[1]); j.version = '1.0.1'; site.files.set('latest.json', ['application/json', JSON.stringify(j)]);
   assert.equal((await run(base, dir, st, { now: T0 })).code, 1);
   assert.match(st.card(), /latest\.json does not name its artifacts the way the app reads them/);
 }));
 
-test('a catch-all download site still reports a relay outage, not only "could not tell"', () => withSite(async ({ site, base, dir, st }) => {
+test('a catch-all download site still reports a relay outage, not only "could not tell"', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.catchAll = true;
   site.relayUp = false;
   const r = await run(base, dir, st, { now: T0 });
@@ -444,7 +449,7 @@ test('a catch-all download site still reports a relay outage, not only "could no
   assert.match(st.card(), /the downloads that did pass could not be believed: installkosmos\.com answered 200 for a file that does not exist/);
 }));
 
-test('a catch-all site keeps this run\'s hashes and first sightings: a real mismatch alarms, nothing is downloaded every run', () => withSite(async ({ site, base, dir, st }) => {
+test('a catch-all site keeps this run\'s hashes and first sightings: a real mismatch alarms, nothing is downloaded every run', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.catchAll = true;
   const tarGets = () => site.hits.filter((h) => h === 'GET /dist/kosmos-1.0.0-arm64.tar.gz').length;
   for (let i = 0; i < 3; i++) assert.equal((await run(base, dir, st, { now: T0 + i * 900 })).code, 2);
@@ -455,7 +460,7 @@ test('a catch-all site keeps this run\'s hashes and first sightings: a real mism
   assert.match(st.card(), /kosmos-1\.0\.0-win-x64\.zip \(named by [^)]*\) does not match/);
 }));
 
-test('one problem replaced by another is two posts, not a third repeating the second', () => withSite(async ({ site, base, dir, st }) => {
+test('one problem replaced by another is two posts, not a third repeating the second', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const posts = () => (st.card().match(/serve watch \(kosmos#4877\)/g) || []).length;
   site.relayUp = false;
   await run(base, dir, st, { now: T0 });
@@ -466,7 +471,7 @@ test('one problem replaced by another is two posts, not a third repeating the se
   assert.equal(posts(), 2, posts() + ' posts: ' + st.card());
 }));
 
-test('a run that could not look keeps the hold: a problem is not dropped across an offline run', () => withSite(async ({ site, base, dir, st }) => {
+test('a run that could not look keeps the hold: a problem is not dropped across an offline run', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const posts = () => (st.card().match(/serve watch \(kosmos#4877\)/g) || []).length;
   site.files.delete('kosmos-1.0.0-arm64.tar.gz'); site.relayUp = false;   // A and B
   await run(base, dir, st, { now: T0 });
@@ -478,7 +483,7 @@ test('a run that could not look keeps the hold: a problem is not dropped across 
   assert.equal(posts(), 1, 'B was dropped after one run without it, across a run that could not look: ' + st.card());
 }));
 
-test('with no usable state it checks once a day, in the first 30 minutes of the UTC day, and a first sighting alarms then', () => withSite(async ({ site, base, dir, st }) => {
+test('with no usable state it checks once a day, in the first 30 minutes of the UTC day, and a first sighting alarms then', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   fs.mkdirSync(path.join(dir, 'state.json'));   // the state path is a directory: nothing can be kept
   site.files.set('kosmos-1.0.0-win-x64.zip.sha256', ['text/plain', '0'.repeat(64) + '  x\n']);
   const dayStart = T0 - (T0 % 86400);
@@ -504,7 +509,7 @@ test('a first sighting of a sha mismatch is read again on the next run, not judg
   assert.equal(gets(), 2, 'CONTROL: a confirmed mismatch is not downloaded every run');
 }));
 
-test('a catch-all download site still alarms on what fails: a pass proves nothing there, a failure does', () => withSite(async ({ site, base, dir, st }) => {
+test('a catch-all download site still alarms on what fails: a pass proves nothing there, a failure does', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.catchAll = true;
   site.files.set('latest.json', ['text/html', '<html>the home page</html>']);   // the deploy also broke the pointer
   const r = await run(base, dir, st, { now: T0 });
@@ -514,7 +519,7 @@ test('a catch-all download site still alarms on what fails: a pass proves nothin
   assert.match(st.card(), /People installing or updating now get the download failure above/);
 }));
 
-test('a second problem that comes and goes beside a standing one is one post, not one every run', () => withSite(async ({ site, base, dir, st }) => {
+test('a second problem that comes and goes beside a standing one is one post, not one every run', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const posts = () => (st.card().match(/serve watch \(kosmos#4877\)/g) || []).length;
   site.files.delete('kosmos-1.0.0-arm64.tar.gz');   // A stands
   for (let i = 0; i < 8; i++) {
@@ -532,7 +537,7 @@ test('a second problem that comes and goes beside a standing one is one post, no
   assert.equal(posts(), 3, 'B back after an hour gone was not said');
 }));
 
-test('a problem down one run in three is one alarm, alone or beside another', () => withSite(async ({ site, base, dir, st }) => {
+test('a problem down one run in three is one alarm, alone or beside another', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const posts = () => (st.card().match(/serve watch \(kosmos#4877\)/g) || []).length;
   for (let i = 0; i < 12; i++) { site.relayUp = i % 3 !== 0; await run(base, dir, st, { now: T0 + i * 900 }); }
   assert.equal(posts(), 1, 'relay alone: ' + st.card());
@@ -542,7 +547,7 @@ test('a problem down one run in three is one alarm, alone or beside another', ()
   assert.equal(posts(), 2, 'beside a standing problem: ' + st.card());
 }));
 
-test('the community\'s old name is watched too while installed apps still post there (#4895)', () => withSite(async ({ site, base, dir, st }) => {
+test('the community\'s old name is watched too while installed apps still post there (#4895)', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   assert.equal((await run(base, dir, st, { now: T0 })).code, 0, 'CONTROL: both names healthy');
   assert.ok(site.hits.includes('GET /community-old/api/health'), 'the old name was not asked');
   site.oldHealth = false;
@@ -551,7 +556,7 @@ test('the community\'s old name is watched too while installed apps still post t
   assert.doesNotMatch(st.card(), /People installing or updating/, 'a community problem was called a download failure');
 }));
 
-test('the relay check is the relay\'s own page: any other answer (a proxy, a parked domain) is an alarm', () => withSite(async ({ site, base, dir, st }) => {
+test('the relay check is the relay\'s own page: any other answer (a proxy, a parked domain) is an alarm', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.relayUp = false;
   site.relayStatus = 200;   // something answered, but not the relay
   assert.equal((await run(base, dir, st, { now: T0 })).code, 1);
@@ -579,7 +584,7 @@ test('a mismatch that lasts stays an alarm: no "back to healthy" between sightin
   assert.doesNotMatch(st.card(), /back to healthy/, 'a standing mismatch posted an all-clear');
 }));
 
-test('a problem that comes and goes is one standing alarm, not an alarm and an all-clear every run', () => withSite(async ({ site, base, dir, st }) => {
+test('a problem that comes and goes is one standing alarm, not an alarm and an all-clear every run', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const posts = () => (st.card().match(/serve watch \(kosmos#4877\)/g) || []).length;
   for (let i = 0; i < 6; i++) {
     site.relayUp = i % 2 === 1;   // down, up, down, up...
@@ -623,7 +628,7 @@ test('a pending mismatch for a file no pointer names any more is dropped, not ca
   assert.ok(!Object.keys(state.sha).some((u) => u.includes('kosmos-1.0.0-win-x64.zip')), 'a hash record for an unnamed file was kept');
 }));
 
-test('the Windows host has its own negative control: answering 200 for anything there is an alarm', () => withSite(async ({ site, base, dir, st }) => {
+test('the Windows host has its own negative control: answering 200 for anything there is an alarm', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.winCatchAll = true;
   const r = await run(base, dir, st, { now: T0 });
   assert.equal(r.code, 1, r.out + r.err);
@@ -655,7 +660,7 @@ test('the feed as it really is (HEAD refused): one dropped GET is tried again, t
   assert.equal((await run(base, dir, st, { now: T0, args: ['--check'] })).code, 1, 'CONTROL: two dropped GETs are an alarm');
 }));
 
-test('a first sighting still to confirm is not an all-clear', () => withSite(async ({ site, base, dir, st }) => {
+test('a first sighting still to confirm is not an all-clear', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.relayUp = false;
   await run(base, dir, st, { now: T0 });
   site.relayUp = true;
@@ -668,7 +673,7 @@ test('a first sighting still to confirm is not an all-clear', () => withSite(asy
   assert.match(st.card(), /back to healthy/, 'CONTROL: the all-clear comes once it is confirmed fine');
 }));
 
-test('a problem whose hold ran out while nothing could be checked is said again when it returns', () => withSite(async ({ site, base, dir, st }) => {
+test('a problem whose hold ran out while nothing could be checked is said again when it returns', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const posts = () => (st.card().match(/serve watch \(kosmos#4877\)/g) || []).length;
   site.files.delete('kosmos-1.0.0-arm64.tar.gz'); site.relayUp = false;   // A and B
   await run(base, dir, st, { now: T0 });
@@ -681,7 +686,7 @@ test('a problem whose hold ran out while nothing could be checked is said again 
   assert.equal(posts(), 2, 'B returned unsaid: ' + st.card());
 }));
 
-test('a failed first post is retried an hour on even when the problem came and went in between', () => withSite(async ({ site, base, dir, st }) => {
+test('a failed first post is retried an hour on even when the problem came and went in between', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   const failGh = path.join(dir, 'gh-fail.sh');
   fs.writeFileSync(failGh, '#!/bin/sh\nexit 1\n'); fs.chmodSync(failGh, 0o755);
   site.relayUp = false;
@@ -693,7 +698,7 @@ test('a failed first post is retried an hour on even when the problem came and w
   assert.equal((st.card().match(/serve watch \(kosmos#4877\)/g) || []).length, 1, 'the card never heard: ' + JSON.stringify(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).card));
 }));
 
-test('a feed that refuses HEAD and has grown past a megabyte is healthy, judged by its status', () => withSite(async ({ site, base, dir, st }) => {
+test('a feed that refuses HEAD and has grown past a megabyte is healthy, judged by its status', { skip: SKIP_SHEBANG_STUBS }, () => withSite(async ({ site, base, dir, st }) => {
   site.feedNoHead = true;
   site.feedBig = true;
   assert.equal((await run(base, dir, st, { now: T0 })).code, 0, st.card());

@@ -17,6 +17,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
 
+// kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
+const SKIP_TMUX_UID = skipOnWin32('it reads the tmux socket folder under process.getuid(), which Windows does not have');
+const SKIP_TMUX_WALL = skipOnWin32('it fakes tmux with #!/bin/sh scripts run by their shebang line, and reads the tmux socket folder under process.getuid(), neither of which Windows has');
+
 // ⚠️ SANDBOX BEFORE REQUIRING `./status`, because it reads these at module load.
 //
 // Without this, every `snapshot()`, `readIdentity()` and `readProfile()` in this
@@ -1687,7 +1692,7 @@ test('a registry entry naming a different agent is not read for this one', () =>
   }
 });
 
-test('the bundled tmux\'s serverless voice reads as a clean machine, and ONLY with no socket on disk (#224 find)', () => {
+test('the bundled tmux\'s serverless voice reads as a clean machine, and ONLY with no socket on disk (#224 find)', { skip: SKIP_TMUX_UID }, () => {
   /* 🛑 EVERY FRESH INSTALL 500ED until this branch: the shipped 3.5a says
      "server exited unexpectedly" where the engine matched only 3.6\'s
      "no server running", so the first-run machine this product installs
@@ -6490,7 +6495,7 @@ function withEnv(vars, fn) {
 function seams(status, launcher, cands) { status.setLauncherTmux(launcher); status.setTmuxCandidates(cands); status.setOwnTmux('/nonexistent/own/tmux'); }
 function unseam(status) { status.setLauncherTmux(undefined); status.setTmuxCandidates(null); status.setOwnTmux(null); }
 
-test('#2955: at the version wall the board switches to a tmux that can list the server, PATH included', () => {
+test('#2955: at the version wall the board switches to a tmux that can list the server, PATH included', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6502,7 +6507,7 @@ test('#2955: at the version wall the board switches to a tmux that can list the 
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
-test('#2955: an explicit tmux choice is never replaced (no launcher pick, or a value that is not it), and nothing that cannot list is taken', () => {
+test('#2955: an explicit tmux choice is never replaced (no launcher pick, or a value that is not it), and nothing that cannot list is taken', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6528,7 +6533,7 @@ test('#2955: the launcher pick is read from the marker AND the value it marked (
   assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: real, KOSMOS_TMUX_BIN_PICKED: '1' }), 'null');
   assert.equal(read({ AGENT_WORKFORCE_TMUX_BIN: real }), 'null');
 });
-test('#2955: the board\'s look reads through the switch in the same call (no restart)', () => {
+test('#2955: the board\'s look reads through the switch in the same call (no restart)', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6541,7 +6546,7 @@ test('#2955: the board\'s look reads through the switch in the same call (no res
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
-test('#2955: with no socket on disk the serverless words never start a search (a clean Mac spawns nothing)', () => {
+test('#2955: with no socket on disk the serverless words never start a search (a clean Mac spawns nothing)', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6553,7 +6558,7 @@ test('#2955: with no socket on disk the serverless words never start a search (a
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
-test('#2955: Kosmos\'s own tmux is always a candidate, so the board follows a server back to it; PATH does not grow', () => {
+test('#2955: Kosmos\'s own tmux is always a candidate, so the board follows a server back to it; PATH does not grow', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6581,7 +6586,7 @@ test('#2955: Kosmos\'s own tmux is always a candidate, so the board follows a se
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
-test('#2955: a search that found nothing waits before it runs again, and the detail line says what the search did', () => {
+test('#2955: a search that found nothing waits before it runs again, and the detail line says what the search did', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6600,7 +6605,7 @@ test('#2955: a search that found nothing waits before it runs again, and the det
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
-test('#2955: a new agent bakes the launcher\'s pick, not a tmux the board switched to; a later explicit value wins', () => {
+test('#2955: a new agent bakes the launcher\'s pick, not a tmux the board switched to; a later explicit value wins', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const create = require('./create');
   const m = wallMachine();
@@ -6635,7 +6640,7 @@ test('#2955: with no seam, the board finds Kosmos\'s own tmux two directories ab
   assert.match(setup, /for part in bin app runtime; do\s+rm -rf "\$dest\/\$part"[^\n]*\n\s+mv "\$stage\/\$part" "\$dest\/\$part"/, 'app/ is no longer moved to <home>/app');
   assert.match(setup, /^fetch_tmux "\$KOSMOS_HOME\/tmux" \|\|/m, 'the tmux bundle is no longer laid at <home>/tmux');
 });
-test('#2955: one probe per real tmux, however many paths name it (the bundle is a symlink to Homebrew\'s on Agent1s)', () => {
+test('#2955: one probe per real tmux, however many paths name it (the bundle is a symlink to Homebrew\'s on Agent1s)', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6653,7 +6658,7 @@ test('#2955: one probe per real tmux, however many paths name it (the bundle is 
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
-test('#2955: a candidate that hangs is given up after 2 s (a probe runs on a board request path)', () => {
+test('#2955: a candidate that hangs is given up after 2 s (a probe runs on a board request path)', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6669,7 +6674,7 @@ test('#2955: a candidate that hangs is given up after 2 s (a probe runs on a boa
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
-test('#2955: a launcher pick that is gone is not vouched for, and the board looks for another (a brew uninstall after launch)', () => {
+test('#2955: a launcher pick that is gone is not vouched for, and the board looks for another (a brew uninstall after launch)', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const create = require('./create');
   const m = wallMachine();
@@ -6693,7 +6698,7 @@ test('#2955: the wall\'s detail line shows the home folder as ~ (no user name on
   assert.match(said, /\(~\/\.local\/share\/kosmos\/tmux\/bin\/tmux\)/);
   assert.ok(!said.includes(home), 'the home folder (and the user name in it) reached the detail line');
 });
-test('#2955: readerTmux vouches only for a launcher pick whose last look worked (never an explicit stub, never after a failed look)', () => {
+test('#2955: readerTmux vouches only for a launcher pick whose last look worked (never an explicit stub, never after a failed look)', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6712,7 +6717,7 @@ test('#2955: readerTmux vouches only for a launcher pick whose last look worked 
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
-test('#2955: the board\'s tmux gone and no server running: Kosmos\'s own takes over (the supervisor\'s fallback too)', () => {
+test('#2955: the board\'s tmux gone and no server running: Kosmos\'s own takes over (the supervisor\'s fallback too)', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6733,7 +6738,7 @@ test('#2955: the board\'s tmux gone and no server running: Kosmos\'s own takes o
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
-test('#2955: each look\'s detail says only what that look\'s search did, and a server gone takes the reader with it', () => {
+test('#2955: each look\'s detail says only what that look\'s search did, and a server gone takes the reader with it', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6759,7 +6764,7 @@ test('#2955: each look\'s detail says only what that look\'s search did, and a s
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
-test('#2955: attachTmux picks a tmux whose version matches the server (attach needs the same version), the baked one first', () => {
+test('#2955: attachTmux picks a tmux whose version matches the server (attach needs the same version), the baked one first', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6779,7 +6784,7 @@ test('#2955: attachTmux picks a tmux whose version matches the server (attach ne
     });
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
-test('#2955: Open in Terminal asks each tmux its version once (cached by path and mtime), not on every attach', () => {
+test('#2955: Open in Terminal asks each tmux its version once (cached by path and mtime), not on every attach', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {
@@ -6802,7 +6807,7 @@ test('#2955: Open in Terminal asks each tmux its version once (cached by path an
 });
 
 
-test('#6190: a look worded after an await uses ITS OWN search, not one the board\'s poll ran in between', () => {
+test('#6190: a look worded after an await uses ITS OWN search, not one the board\'s poll ran in between', { skip: SKIP_TMUX_WALL }, () => {
   const status = require('./status');
   const m = wallMachine();
   try {

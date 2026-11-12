@@ -15,6 +15,11 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
+// kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
+const { skipOnWin32 } = require('./test-support/skip-on-win32');
+const SKIP_BIN_SH = skipOnWin32('it runs blocks cut from install/setup.sh through /bin/sh by an absolute POSIX path, which Windows cannot run; the systemd board is Linux only');
+const SKIP_SYSTEMD_UNIT = skipOnWin32('the systemd board is Linux only, and linuxboard refuses a folder with a backslash in a systemd unit, which every Windows folder has');
+
 const SETUP = fs.readFileSync(path.join(__dirname, 'install', 'setup.sh'), 'utf8');
 const snippets = [...SETUP.matchAll(/<<'BOARDEOF' 2>\/dev\/null\n([\s\S]*?)\nBOARDEOF\n/g)].map((m) => m[1]);
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-linuxboard-4920-'));
@@ -150,7 +155,7 @@ function runBlock(block, w, { off = 'no', shell = '/bin/sh', env = {} } = {}) {
   return spawnSync(shell, ['-c', script], { encoding: 'utf8', env: { PATH: w.bin, HOME: w.root, KOSMOS_HOME: w.home, AGENT_WORKFORCE_SYSTEMD_DIR: w.unitDir, ...env } });
 }
 
-test('#4920 install: linger on hands the board to systemd and says it starts with the computer', () => {
+test('#4920 install: linger on hands the board to systemd and says it starts with the computer', { skip: SKIP_BIN_SH }, () => {
   const w = world({ nodeOut: 'loose lingering' });
   const r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
@@ -158,7 +163,7 @@ test('#4920 install: linger on hands the board to systemd and says it starts wit
   assert.match(w.restarts(), /^restart --force$/m, 'the running board was not handed to systemd');
 });
 
-test('#4920 install: linger off says it stops at logout and names the loginctl line, and does not hand over', () => {
+test('#4920 install: linger off says it stops at logout and names the loginctl line, and does not hand over', { skip: SKIP_BIN_SH }, () => {
   const w = world({ nodeOut: 'loose not lingering' });
   const r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
@@ -168,7 +173,7 @@ test('#4920 install: linger off says it stops at logout and names the loginctl l
   assert.doesNotMatch(r.stdout, /starts when this computer starts/);
 });
 
-test('#4920 install: a board set to stay off is not restarted and says why', () => {
+test('#4920 install: a board set to stay off is not restarted and says why', { skip: SKIP_BIN_SH }, () => {
   const w = world({ nodeOut: 'loose lingering' });
   const r = runBlock(INSTALL_BLOCK, w, { off: 'yes' });
   assert.equal(r.status, 0, r.stderr);
@@ -176,7 +181,7 @@ test('#4920 install: a board set to stay off is not restarted and says why', () 
   assert.equal(w.restarts(), '', 'a board set off was restarted (that clears board.stopped)');
 });
 
-test('#4920 install: a refusal gives systemd\'s reason, an empty failure says the step did not run; neither restarts', () => {
+test('#4920 install: a refusal gives systemd\'s reason, an empty failure says the step did not run; neither restarts', { skip: SKIP_BIN_SH }, () => {
   let w = world({ nodeOut: 'refused: systemd did not reload its user units: no bus', nodeRc: 3 });
   let r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, 'a refusal must not stop the install: ' + r.stderr);
@@ -190,7 +195,7 @@ test('#4920 install: a refusal gives systemd\'s reason, an empty failure says th
   assert.equal(w.restarts(), '');
 });
 
-test('#4920 install: no systemctl says so and does nothing else', () => {
+test('#4920 install: no systemctl says so and does nothing else', { skip: SKIP_BIN_SH }, () => {
   const w = world({ systemctl: false, nodeOut: 'loose lingering' });
   const r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
@@ -198,7 +203,7 @@ test('#4920 install: no systemctl says so and does nothing else', () => {
   assert.equal(w.restarts(), '');
 });
 
-test('#4920 uninstall: each case names its real cause', () => {
+test('#4920 uninstall: each case names its real cause', { skip: SKIP_BIN_SH }, () => {
   let w = world({ nodeOut: '' });
   let r = runBlock(UNINSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
@@ -220,7 +225,7 @@ test('#4920 uninstall: each case names its real cause', () => {
   assert.match(r.stdout, /may be this install's or another Kosmos's/);
 });
 
-test('#4920 install: a board systemd already runs (an update) is not bounced a second time', () => {
+test('#4920 install: a board systemd already runs (an update) is not bounced a second time', { skip: SKIP_BIN_SH }, () => {
   const w = world({ nodeOut: 'held lingering' });
   const r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
@@ -248,7 +253,7 @@ test('#4920 the board snippets avoid the three shapes that broke bash 3.2 here: 
   }
 });
 
-test('#4920 install: a hand-off that does not bring the board back is said, with kosmos start', () => {
+test('#4920 install: a hand-off that does not bring the board back is said, with kosmos start', { skip: SKIP_BIN_SH }, () => {
   let w = world({ nodeOut: 'loose lingering', restartRc: 1 });
   let r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, 'a failed hand-off must not stop the install: ' + r.stderr);
@@ -259,7 +264,7 @@ test('#4920 install: a hand-off that does not bring the board back is said, with
   assert.doesNotMatch(r.stdout, /did not confirm/, 'CONTROL: a hand-off that worked says nothing extra');
 });
 
-test('#4920 install: an update that changed the unit restarts the board systemd runs, once; unchanged, it does not', () => {
+test('#4920 install: an update that changed the unit restarts the board systemd runs, once; unchanged, it does not', { skip: SKIP_BIN_SH }, () => {
   let w = world({ nodeOut: 'held-changed not lingering' });
   let r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
@@ -293,7 +298,7 @@ test('#4920 the install and uninstall blocks behave the same under dash (Ubuntu 
   assert.match(r.stdout, /app code or runtime is missing/);
 });
 
-test('#4920 install: a sandboxed run says the systemd step was skipped on purpose, not that it failed', () => {
+test('#4920 install: a sandboxed run says the systemd step was skipped on purpose, not that it failed', { skip: SKIP_BIN_SH }, () => {
   const w = world({ nodeOut: 'refused: systemd did not reload its user units: a sandboxed board does not manage real systemd units', nodeRc: 3 });
   const r = runBlock(INSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
@@ -301,7 +306,7 @@ test('#4920 install: a sandboxed run says the systemd step was skipped on purpos
   assert.doesNotMatch(r.stdout, /could not set itself/);
 });
 
-test('#4920 uninstall: an install from a release before linuxboard.js has its shell-written unit removed by that rule', () => {
+test('#4920 uninstall: an install from a release before linuxboard.js has its shell-written unit removed by that rule', { skip: SKIP_BIN_SH }, () => {
   const w = world({ app: false, legacy: true });
   const name = 'kosmos-board.' + require('node:crypto').createHash('sha256').update(w.home).digest('hex').slice(0, 8) + '.service';
   fs.mkdirSync(path.join(w.unitDir, 'default.target.wants'), { recursive: true });
@@ -317,7 +322,7 @@ test('#4920 uninstall: an install from a release before linuxboard.js has its sh
   assert.doesNotMatch(r.stdout, /app code or runtime is missing/, 'blamed a missing app that is there, only older');
 });
 
-test('#4920 uninstall: a sandboxed run says the systemd step was skipped on purpose', () => {
+test('#4920 uninstall: a sandboxed run says the systemd step was skipped on purpose', { skip: SKIP_BIN_SH }, () => {
   const w = world({ nodeOut: '' });
   const r = runBlock(UNINSTALL_BLOCK, w, { env: { AGENT_WORKFORCE_LAUNCH: '/tmp/sandbox-4920', AGENT_WORKFORCE_SYSTEMD_DIR: '' } });
   assert.equal(r.status, 0, r.stderr);
@@ -325,7 +330,7 @@ test('#4920 uninstall: a sandboxed run says the systemd step was skipped on purp
   assert.doesNotMatch(r.stdout, /not fully removed/);
 });
 
-test('#4920 before an update pause, an old unit without KillMode=process gets it and systemd is reloaded; once only', () => {
+test('#4920 before an update pause, an old unit without KillMode=process gets it and systemd is reloaded; once only', { skip: SKIP_BIN_SH }, () => {
   const w = world({});
   for (const tool of ['grep', 'awk', 'mv']) { const src = ['/usr/bin/' + tool, '/bin/' + tool].find((f) => fs.existsSync(f)); if (src && !fs.existsSync(path.join(w.bin, tool))) fs.symlinkSync(src, path.join(w.bin, tool)); }
   fs.writeFileSync(path.join(w.bin, 'uname'), '#!/bin/sh\necho Linux\n'); fs.chmodSync(path.join(w.bin, 'uname'), 0o755);
@@ -354,7 +359,7 @@ test('#4920 the update pause runs the KillMode fix before it stops the board', (
   assert.equal(lines[k + 2], '  KOSMOS_STOP_BY_INSTALL=1 "$KOSMOS_HOME/bin/kosmos" stop --force >/dev/null 2>&1 || true', 'the update pause stop does not follow');
 });
 
-test('#4920 the sandbox sentence matches what the real installBoard says in a sandbox', () => {
+test('#4920 the sandbox sentence matches what the real installBoard says in a sandbox', { skip: SKIP_SYSTEMD_UNIT }, () => {
   /* setup.sh recognises a sandboxed run by linuxboard's own refusal text; this ties the two files, so a reworded
      refusal cannot turn a sandboxed install into "could not set itself to start with systemd". */
   const lb = require('./engine/linuxboard');
@@ -374,7 +379,7 @@ test('#4920 the sandbox sentence matches what the real installBoard says in a sa
   assert.ok(String(r.because).includes(phrase), 'linuxboard says "' + r.because + '", which setup.sh does not recognise as a sandbox');
 });
 
-test('#4920 uninstall: an older install on a box without systemctl says systemctl is missing, not that the app is', () => {
+test('#4920 uninstall: an older install on a box without systemctl says systemctl is missing, not that the app is', { skip: SKIP_BIN_SH }, () => {
   const w = world({ app: false, legacy: true, systemctl: false, units: ['kosmos-board.service'] });
   const r = runBlock(UNINSTALL_BLOCK, w);
   assert.equal(r.status, 0, r.stderr);
@@ -382,7 +387,7 @@ test('#4920 uninstall: an older install on a box without systemctl says systemct
   assert.doesNotMatch(r.stdout, /app code or runtime is missing/);
 });
 
-test('#4920 uninstall without systemctl still deletes this home\'s unit file', () => {
+test('#4920 uninstall without systemctl still deletes this home\'s unit file', { skip: SKIP_BIN_SH }, () => {
   const w = world({ app: false, legacy: true, systemctl: false });
   const name = 'kosmos-board.' + require('node:crypto').createHash('sha256').update(w.home).digest('hex').slice(0, 8) + '.service';
   fs.writeFileSync(path.join(w.unitDir, name), '[Service]\n');
@@ -391,7 +396,7 @@ test('#4920 uninstall without systemctl still deletes this home\'s unit file', (
   assert.ok(!fs.existsSync(path.join(w.unitDir, name)), 'the unit file was left behind');
 });
 
-test('#4920 uninstall: linuxboard present but its node gone (system node uninstalled) still removes the unit', () => {
+test('#4920 uninstall: linuxboard present but its node gone (system node uninstalled) still removes the unit', { skip: SKIP_BIN_SH }, () => {
   const w = world({ app: false, legacy: true });
   fs.mkdirSync(path.join(w.home, 'app', 'engine'), { recursive: true });
   fs.writeFileSync(path.join(w.home, 'app', 'engine', 'linuxboard.js'), '');   // present; runtime/bin/node is not
@@ -404,7 +409,7 @@ test('#4920 uninstall: linuxboard present but its node gone (system node uninsta
   assert.match(w.systemctlLog(), new RegExp('--user stop ' + name.replace(/\./g, '\\.')));
 });
 
-test('#4920 install: linger off says a board systemd runs stops at logout; one setup.sh started, only after a restart', () => {
+test('#4920 install: linger off says a board systemd runs stops at logout; one setup.sh started, only after a restart', { skip: SKIP_BIN_SH }, () => {
   let w = world({ nodeOut: 'held not lingering' });
   let r = runBlock(INSTALL_BLOCK, w);
   assert.match(r.stdout, /linger is off for [^,]+, so it stops when you log out\./, 'held: ' + r.stdout);
@@ -413,7 +418,7 @@ test('#4920 install: linger off says a board systemd runs stops at logout; one s
   assert.match(r.stdout, /so after a restart it stops when you log out\./, 'loose: ' + r.stdout);
 });
 
-test('#4920 uninstall: with the app gone, this home\'s own unit is removed and another home\'s is only named', () => {
+test('#4920 uninstall: with the app gone, this home\'s own unit is removed and another home\'s is only named', { skip: SKIP_BIN_SH }, () => {
   const w = world({ app: false });
   const mine = 'kosmos-board.' + require('node:crypto').createHash('sha256').update(w.home).digest('hex').slice(0, 8) + '.service';
   fs.writeFileSync(path.join(w.unitDir, mine), '[Service]\n');
@@ -432,7 +437,7 @@ test('#4920 uninstall runs the KillMode fix before it stops the board', () => {
   assert.ok(i > 0 && j > i && j - i < 200, 'the KillMode fix is not right before the uninstall stop');
 });
 
-test('#4920 uninstall: when the node step cannot even load linuxboard, the unit is removed by name', () => {
+test('#4920 uninstall: when the node step cannot even load linuxboard, the unit is removed by name', { skip: SKIP_BIN_SH }, () => {
   const w = world({ nodeOut: '', nodeRc: 1 });   // node ran nothing useful: a broken app folder or an old node
   fs.mkdirSync(path.join(w.home, 'app', 'engine'), { recursive: true });
   for (const tool of ['rm']) { const src = ['/bin/' + tool, '/usr/bin/' + tool].find((f) => fs.existsSync(f)); if (src && !fs.existsSync(path.join(w.bin, tool))) fs.symlinkSync(src, path.join(w.bin, tool)); }
@@ -444,7 +449,7 @@ test('#4920 uninstall: when the node step cannot even load linuxboard, the unit 
   assert.ok(!fs.existsSync(path.join(w.unitDir, name)), 'a unit left after a failed node step loops on the deleted folder');
 });
 
-test('#4920 the KillMode fix replaces another KillMode= line rather than adding a second', () => {
+test('#4920 the KillMode fix replaces another KillMode= line rather than adding a second', { skip: SKIP_BIN_SH }, () => {
   const w = world({});
   for (const tool of ['grep', 'awk', 'mv']) { const src = ['/usr/bin/' + tool, '/bin/' + tool].find((f) => fs.existsSync(f)); if (src && !fs.existsSync(path.join(w.bin, tool))) fs.symlinkSync(src, path.join(w.bin, tool)); }
   fs.writeFileSync(path.join(w.bin, 'uname'), '#!/bin/sh\necho Linux\n'); fs.chmodSync(path.join(w.bin, 'uname'), 0o755);
