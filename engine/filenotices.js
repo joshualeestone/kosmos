@@ -33,7 +33,7 @@ const ID_RE = /^[0-9a-f]{12}$/;
 
 /* kosmos#8464: the scale of the change, for the owner's own copy. A notice is made BEFORE the edit (the PreToolUse
    hook), so the file is fingerprinted then (one short hash per line, and one for the whole file) and again when the
-   notice is handed over, by which time the edit has landed. Bounded so the queue file stays small (at most
+   notice is handed over, by which time the edit has landed. Bounded, so the queue file stays bounded (at most
    MAX_PENDING fingerprints of SCALE_MAX_LINES short hashes each, about 22 KB apiece). */
 const SCALE_MAX_BYTES = 128 * 1024;
 const SCALE_MAX_LINES = 2000;
@@ -61,16 +61,15 @@ function fingerprint(file, expectDir = null) {
     try { fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK | NOCTTY); }
     catch (e) { return e && e.code === 'ENOENT' ? { existed: false, lines: [], whole: '' } : null; }
     const st = fs.fstatSync(fd);
-    /* Review 2: a hard link is not a link to O_NOFOLLOW, and one in the project can name a file outside it. */
+    /* Review 2: O_NOFOLLOW does not stop a hard link, and one in the project can name a file outside it. */
     if (!st.isFile() || st.nlink > 1) return null;
-    if (st.size > SCALE_MAX_BYTES) return { tooLarge: true };
+    /* At most SCALE_MAX_BYTES + 1 bytes are read, whatever the size says (a file can grow while it is read). */
     const buf = Buffer.alloc(SCALE_MAX_BYTES + 1);
     let got = 0;
-    for (;;) {
+    while (got < buf.length) {
       const n = fs.readSync(fd, buf, got, buf.length - got, got);
       if (n <= 0) break;
       got += n;
-      if (got > SCALE_MAX_BYTES) return { tooLarge: true };
     }
     /* Review 4: the folder is checked HERE, after the read and before the name is compared, so a link would have to be
        gone for this check and back for the lstat below, which one flip cannot do. */
@@ -80,11 +79,15 @@ function fingerprint(file, expectDir = null) {
        with more than one link is refused above). */
     const now = fs.lstatSync(file);
     if (now.dev !== st.dev || now.ino !== st.ino) return null;
+    /* Review 5: "too large" only AFTER those checks, and with the file's identity, so not even a size is said about a
+       file that is not the one the notice is about. */
+    const id = { existed: true, dev: st.dev, ino: st.ino };
+    if (st.size > SCALE_MAX_BYTES || got > SCALE_MAX_BYTES) return { ...id, tooLarge: true };
     const text = buf.subarray(0, got).toString('utf8');
     const lines = text.split('\n');
     if (lines.length && lines[lines.length - 1] === '') lines.pop();
-    if (lines.length > SCALE_MAX_LINES) return { tooLarge: true };
-    return { existed: true, lines: lines.map((l) => short(l.replace(/\r$/, ''))), whole: short(text), dev: st.dev, ino: st.ino };
+    if (lines.length > SCALE_MAX_LINES) return { ...id, tooLarge: true };
+    return { ...id, lines: lines.map((l) => short(l.replace(/\r$/, ''))), whole: short(text) };
   } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
@@ -92,14 +95,15 @@ function fingerprint(file, expectDir = null) {
    one added and one removed): enough to tell a big change from a small one, not a diff. null when either is missing. */
 function scaleOf(before, after) {
   if (!before || !after || !Array.isArray(before.lines)) return null;
-  if (after.tooLarge) return { tooLarge: true };
-  if (!Array.isArray(after.lines)) return null;
-  /* Review 4: a file that existed at the notice must be the same file (device and inode) at the hand-over; an outside
-     file cannot share the inside one's inode, since a file with more than one link is never measured. An edit that
-     writes a new file and renames it over the old one is "replaced", and not counted. */
-  if (before.existed && after.existed && (before.dev !== after.dev || before.ino !== after.ino)) return { replaced: true };
   if (before.existed && !after.existed) return { gone: true };
   if (!before.existed && !after.existed) return { notMade: true };
+  /* Review 4: a file that existed at the notice must be the same file (device and inode) at the hand-over; an outside
+     file cannot share the inside one's inode, since a file with more than one link is never measured. An edit that
+     writes a new file and renames it over the old one is "replaced", and not counted. Checked before "too large" (review
+     5), so neither is said about another file. */
+  if (before.existed && after.existed && (before.dev !== after.dev || before.ino !== after.ino)) return { replaced: true };
+  if (after.tooLarge) return { tooLarge: true };
+  if (!Array.isArray(after.lines)) return null;
   const left = new Map();
   for (const h of before.lines) left.set(h, (left.get(h) || 0) + 1);
   let added = 0;
