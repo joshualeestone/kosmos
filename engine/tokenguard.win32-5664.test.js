@@ -35,7 +35,7 @@ const WIN = process.platform === 'win32';
 const NEEDS_WINDOWS = !WIN && 'needs a Windows filesystem (a junction, an 8.3 name) and a Windows host';
 const PIN = { panePath: path.join(SANDBOX, 'no-launch-path'), ownPath: '', launchFixed: [], ownProgramDirs: [], launchFiles: [], launchConfigDirs: [], launchTemps: [], launchRunProgs: [] };
 const DEPS = { dataRoot: store.ROOT, home: process.env.AGENT_WORKFORCE_HOME, runner: 'claude', runnerOf: () => 'claude', workersRoot: path.join(SANDBOX, 'workers'), accountConfigDir: null, agentConfigDirs: [], ...PIN };
-const WIN_PATH = /on Windows Kosmos does not cover the folders on this PATH yet/;
+const WIN_PATH = /on Windows Kosmos does not yet cover the programs this agent starts from/;
 
 function agentDir(name) { const d = path.join(SANDBOX, 'workers', name); fs.mkdirSync(d, { recursive: true }); return d; }
 function deny(dir) { return JSON.parse(fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8')).permissions.deny; }
@@ -137,7 +137,7 @@ test('launchPathDirs on Windows names the PATH part as not covered, so the guard
 
 // ---- Windows filesystem arms ----
 
-test('on Windows the guard is written in the //c/ form, with no sandbox block, and says only the PATH part is missing', { skip: NEEDS_WINDOWS }, () => {
+test('on Windows the guard is written in the //c/ form, with no sandbox block, and names the PATH and shell parts as missing', { skip: NEEDS_WINDOWS }, () => {
   const dir = agentDir('plain');
   const g = setup.guardTokenOnlyFolder(dir, 'plain', DEPS);
   assert.equal(g.ok, false);
@@ -145,7 +145,7 @@ test('on Windows the guard is written in the //c/ form, with no sandbox block, a
   assert.match(g.because, WIN_PATH);
   // On Windows the PATH part travels as the run's own part (otherReason), never as a launch's pathReason.
   assert.equal(g.pathReason, null);
-  assert.equal(g.otherReason, 'the PATH this agent starts with has an entry Kosmos could not cover (on Windows Kosmos does not cover the folders on this PATH yet); and on Windows its shell is not sandboxed, so it is kept from the token in its file tools only', 'a reason other than the PATH and the shell, or one of them missing');
+  assert.equal(g.otherReason, 'on Windows Kosmos does not yet cover the programs this agent starts from; and on Windows its shell is not sandboxed, so it is kept from the token in its file tools only', 'a reason other than the PATH and the shell, or one of them missing');
   const d = deny(dir);
   assert.ok(d.includes(ruleFor('Read', path.join(fs.realpathSync.native(store.ROOT), 'board.token'))), 'no board.token Read rule in the //c/ form');
   assert.equal(d.filter((r) => /^\w+\(\/\/[A-Za-z]:/.test(r)).length, 0, 'a rule in the native C:\\ form, measured to match nothing');
@@ -154,7 +154,7 @@ test('on Windows the guard is written in the //c/ form, with no sandbox block, a
 });
 
 test('on Windows the guard says its shell is not sandboxed on every run, so it never reads whole while that is so (condition 1)', () => {
-  // Any host: platform injected. Even with no PATH part (as if step B covered it), the shell part keeps it not whole.
+  // Any host: platform injected. The shell part is said on every Windows run, whatever else is or is not covered.
   const dir = agentDir('shellsays');
   const g = setup.guardTokenOnlyFolder(dir, 'shellsays', { ...DEPS, platform: 'win32' });
   assert.equal(g.ok, false);
@@ -220,6 +220,21 @@ test('a data folder behind a junction that leads nowhere is refused (the token i
   assert.match(g.because, /the board token is reached through a link/);
   assert.doesNotMatch(g.because, /the rest of the guard is in place/, 'the token gap read as a side gap');
   assert.equal(fs.existsSync(path.join(dir, '.claude', 'settings.json')), false, 'a guard missing its token rule was written');
+});
+
+test('a protected place that is not the token, behind a junction that leads nowhere, refuses too (nothing written)', { skip: NEEDS_WINDOWS }, () => {
+  const home2 = path.join(SANDBOX, 'home-dangling');
+  fs.mkdirSync(home2, { recursive: true });
+  const gone = path.join(SANDBOX, 'gone-claude');
+  fs.mkdirSync(gone, { recursive: true });
+  fs.symlinkSync(gone, path.join(home2, '.claude'), 'junction');
+  fs.rmSync(gone, { recursive: true, force: true });   // the account's .claude now leads nowhere
+  const dir = agentDir('danglinghome');
+  const g = setup.guardTokenOnlyFolder(dir, 'danglinghome', { ...DEPS, home: home2 });
+  assert.equal(g.ok, false);
+  assert.match(g.because, /a place the guard protects is reached through a link or share whose real place Kosmos cannot deny/);
+  assert.doesNotMatch(g.because, /Claude Code reads at start/, 'the gap was filed as a start-up file');
+  assert.equal(fs.existsSync(path.join(dir, '.claude', 'settings.json')), false, 'a guard with a gap in its own protection was written');
 });
 
 test('an agent folder given by its 8.3 short name is denied on its long real path', { skip: NEEDS_WINDOWS }, (t) => {

@@ -685,7 +685,7 @@ test('#5664 step A (was #4491 review 24): on Windows the guard is written, as on
   const g = setup.guardTokenOnlyFolder(dir, 'r24win', { ...DEPS, platform: 'win32' });
   assert.equal(g.ok, false, 'a Windows guard was reported whole, but its PATH part is not covered');
   assert.equal(g.unsupported, undefined, 'a Windows guard was refused as unsupported');
-  assert.match(g.because, /on Windows Kosmos does not cover the folders on this PATH yet/);
+  assert.match(g.because, /on Windows Kosmos does not yet cover the programs this agent starts from/);
   assert.match(g.because, /the rest of the guard is in place/);
   const s = readSettings(dir);
   assert.ok(s.permissions.deny.some((r) => /^Read\(\/\/.*board\.token\)$/.test(r)), 'no board.token Read rule was written: ' + JSON.stringify(s.permissions.deny.slice(0, 5)));

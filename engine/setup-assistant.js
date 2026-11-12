@@ -471,8 +471,10 @@ function withRealTwins(rules, platform = process.platform, real = realOrLeafStri
   const out = [];
   const seen = new Set(rules);
   const unsafe = [];
-  const tokenUnsafe = [];   // the subset that names a board-token rule: the guard's main protection, so it refuses
+  const tokenUnsafe = [];   // the subset that names a board-token rule (the refusal names the token first)
   const cache = new Map();
+  const linkCache = new Map();
+  const tokenFile = require('./boardauth').TOKEN_FILE;
   for (const r of rules) {
     out.push(r);
     const m = /^(Read|Edit)\((\/\/.+)\)$/.exec(r);
@@ -486,7 +488,6 @@ function withRealTwins(rules, platform = process.platform, real = realOrLeafStri
     const native = rulePath(literal.slice(2), 'win32');
     if (!native) continue;
     // A token rule ends in the token's own name (board.token, or its temp copy .board.token.*), not merely holds it.
-    const tokenFile = require('./boardauth').TOKEN_FILE;
     const leaf = rest ? rest.slice(rest.lastIndexOf('/') + 1) : literal.slice(literal.lastIndexOf('/') + 1);
     const isToken = leaf === tokenFile || leaf === '.' + tokenFile + '.*';
     const miss = (why) => { unsafe.push(why); if (isToken) tokenUnsafe.push(why); };
@@ -501,7 +502,7 @@ function withRealTwins(rules, platform = process.platform, real = realOrLeafStri
     /* A token rule reached through a pattern (worlds/<any>/Kosmos/board.token): a folder the `*` matches that is itself a
        link leads the token elsewhere, and the rule's own spelling covers nothing there. The ones there now refuse; one
        made later as a link is not seen (Kosmos makes these folders plain). */
-    if (isToken && rest.startsWith('/*/')) for (const n of links(native)) miss(`${path.win32.join(native, n)} (a link in a folder the token's rule reaches by a pattern, which Kosmos does not follow)`);
+    if (isToken && rest.startsWith('/*/')) for (const n of (linkCache.has(native) ? linkCache.get(native) : linkCache.set(native, links(native)).get(native))) miss(`${path.win32.join(native, n)} (a link in a folder the token's rule reaches by a pattern, which Kosmos does not follow)`);
     const twin = ruleAbs(to, 'win32');
     if (twin.toLowerCase() === literal.toLowerCase()) continue;   // Claude Code matches case-blind on Windows (measured)
     // Only a rule as wide as its literal part (the path itself, or all under it) can be too wide; a narrower suffix
@@ -2508,6 +2509,8 @@ const GUARD_STATE_DIR = 'token-only-guard';
 const LAUNCH_PATH_REASON = 'the PATH this agent starts with has an entry Kosmos could not cover';
 // #5664: on Windows Claude Code has no sandbox, so the guard's rules bind its file tools only.
 const WIN_SHELL_REASON = 'on Windows its shell is not sandboxed, so it is kept from the token in its file tools only';
+// #5664: the Windows wording of the PATH part (nothing on that PATH was looked at, so it names no entry).
+const WIN_PATH_REASON = 'on Windows Kosmos does not yet cover the programs this agent starts from';
 function guardStateDir(deps = {}) { return path.join(deps.dataRoot || store.ROOT, GUARD_STATE_DIR); }
 function guardStateFileFor(agentName, deps) { return path.join(guardStateDir(deps), encodeURIComponent(agentName) + '.json'); }
 // The one test of a usable line (review 8), for the board's read and for the board start's replace alike.
@@ -2797,10 +2800,14 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
       const holdsW = (a, b) => b === a || b.startsWith(a.endsWith('\\') ? a : a + '\\');   // case-blind, as Windows paths are
       realTwins = withRealTwins(rules.deny, plat, realOrLeafStrict, (p) => { const q = String(p).toLowerCase(); return path.win32.parse(p).root === p || holdsW(q, homeReal) || holdsW(q, dirReal); });
     }
-    /* A board-token rule whose real place cannot be denied leaves the token itself open (a rule on a link's own path
-       covers nothing): that is the guard's main protection, so it is refused as a dropped token rule is, nothing written. */
-    if (realTwins.tokenUnsafe.length) return { ok: false, because: 'the board token is reached through a link Kosmos cannot deny where it leads (' + realTwins.tokenUnsafe.join(', ') + '), so the guard cannot be written whole' };
-    if (realTwins.unsafe.length) rules.configUnsafe.push(...realTwins.unsafe);
+    /* A rule whose real place cannot be denied leaves that place open to the file tools (a rule on a link's own path
+       covers nothing): the board token, another agent's sender token, the launch hand-off, the guard's own settings.
+       As a rule that cannot be written refuses the guard (tokenRuleDropped, reviews 16 and 17), so does this: nothing
+       written, and said in its own words (the token's first when it is one of them). */
+    if (realTwins.unsafe.length) {
+      const what = realTwins.tokenUnsafe.length ? 'the board token is' : 'a place the guard protects is';
+      return { ok: false, because: what + ' reached through a link or share whose real place Kosmos cannot deny: ' + realTwins.unsafe.join('; ') + '. So the guard cannot be written whole' };
+    }
     const deny = [...new Set([...had, ...realTwins.rules])];
     /* Review 24: permissions.additionalDirectories widens where the sandboxed shell may write, as allowWrite does, so
        it goes too (Kosmos never writes it for an agent) and the board log says so. */
@@ -2895,7 +2902,7 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
        (its PowerShell or Bash can still read the token). Said on every Windows run, so a Windows guard never reads whole
        while that is so: step B (the PATH part) cannot turn the page "complete" by covering the PATH alone. */
     const winShell = plat === 'win32' ? WIN_SHELL_REASON : null;
-    const otherReason = plat === 'win32' ? [winPath ? pathPart : null, configPart, winShell].filter(Boolean).join('; and ') : configPart;
+    const otherReason = plat === 'win32' ? [winPath ? WIN_PATH_REASON : null, configPart, winShell].filter(Boolean).join('; and ') : configPart;
     /* Review 11: whether the PATH is the ONLY reason, said as a flag, so a board start never reads a joined message's
        first words and misses a config reason behind it (guardTokenOnlyFolder). */
     /* Review 13: each part also on its own (pathReason, otherReason, null when absent), so a board start can replace

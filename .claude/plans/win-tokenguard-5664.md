@@ -65,6 +65,12 @@ match nothing; `( ) { } !` are literal, `[ ]` is a character class.
   pattern matches NOW is a link (one made later as a link is not seen; Kosmos makes them plain). A token rule is one
   whose last name IS the token's (board.token or its .board.token.* temp copy), not one merely holding the text.
 
+- Review round 7: ANY rule whose real place cannot be denied (the board token, another agent's sender token, the
+  launch hand-off, the guard's own settings) refuses the guard with nothing written, as a rule that cannot be written
+  always has (tokenRuleDropped), in its own words ("a place the guard protects is reached through a link or share
+  ..."), never filed as a start-up file. The Windows PATH part reads plainly ("on Windows Kosmos does not yet cover
+  the programs this agent starts from"); nothing on that PATH was looked at, so it names no entry.
+
 ## What it means for a person
 - An existing token-only Claude agent on Windows gets its guard written at the next refresh: the board token gets Read
   and Edit denies for its file tools (today it gets none). Its page still says protection is not complete, now with the
