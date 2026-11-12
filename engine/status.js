@@ -6908,14 +6908,24 @@ function readCodexSession(agentName) {
    turn_context names the OLD model: the card would say it confidently until the first turn. A rollout last written
    BEFORE the job file was cannot speak for the job that is running now, so its model is dropped and the card falls
    back to the job's planned model (server.js plannedFor), exactly as for an agent with no turn yet. Only the model:
-   the context ring and the rest still read the rollout. Mac only (a Scheduled Task has no file to compare); on any
-   stat failure the reading is left as it was. Also drops it after an account change (the job is rewritten too),
-   which costs at most "OpenAI Codex" until the next turn, never a wrong name. */
+   the context ring and the rest still read the rollout. On any stat failure the reading is left as it was. Also drops
+   it after an account change (the job is rewritten too), which costs at most "OpenAI Codex" until the next turn, never
+   a wrong name.
+   kosmos#8466: on Windows the job's file is the one Task Scheduler keeps the task in (win32job.taskFilePath, kosmos#8454);
+   this used to return early there, so after a model change a Windows card named the OLD model until the first turn.
+   When the reading is dropped the card shows the job's planned model. That is wrong only when a session is still
+   running a model other than the job's while its reading is dropped: a model change whose restart failed (as on
+   macOS), or a model changed inside the Codex session. On Windows the task file also moves when a world switch or a
+   removal switches the task off but cannot stop it (/Change /DISABLE and /ENABLE rewrite the file, measured), which
+   drops the reading of a session still running. */
 function withoutModelFromBeforeJob(sess, agentName) {
-  if (!sess || !sess.found || !sess.model || !sess.file || process.platform === 'win32') return sess;
+  if (!sess || !sess.found || !sess.model || !sess.file) return sess;
   try {
     // #4918 review 11: on Linux the job file is the agent's systemd unit, not a plist (which never exists there).
-    const jobFile = process.platform === 'linux' ? require('./linuxjob').unitPath(agentName) : require('./create').plistPath(agentName);
+    // kosmos#8466: on Windows it is the Scheduled Task's own file, not a plist (which never exists there either).
+    const jobFile = process.platform === 'linux' ? require('./linuxjob').unitPath(agentName)
+      : process.platform === 'win32' ? require('./win32job').taskFilePath(agentName)
+        : require('./create').plistPath(agentName);
     const jobAt = fs.statSync(jobFile).mtimeMs;
     const rolloutAt = fs.statSync(sess.file).mtimeMs;
     if (jobAt > rolloutAt) return { ...sess, model: null };

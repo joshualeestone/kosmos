@@ -114,6 +114,7 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   // modes or the macOS LaunchAgents survey skips with its reason; the rest runs here.
   'discover.adopt.test.js', 'qwen-review2-5977.test.js', 'machine.test.js', 'register.test.js', 'delete-leftover.test.js',
   'connect-keep-8293.test.js', 'create.compat-7206.test.js',
+  'status.codex-model-switch-4416.test.js',   // kosmos#8466: a Codex model switch, read against the Scheduled Task's own file
   // kosmos#8378: runner resolution and the codex install through the real Windows pipeline (tar.exe, codex.exe in the
   // tree, the verified marker); its chmod-folder and ~/.local/bin/agy arms skip with their reasons.
   'runners.test.js',
@@ -292,7 +293,6 @@ const HOST_BRANCH_EXCLUDED = {
   'server.builtsha-6330.test.js': 'its win32 branches (#6330 slice 2) only skip the two Mac CLI arms (install/kosmos is bash); the Windows CLI\'s --file is tested in tools.windows-kosmos-cli-570.test.js, and the engine and route arms run everywhere',
   'test-support.stray-processes.test.js': 'its six ps-based tests skip on win32 (killUnderScope reads ps, which Windows has not, and does nothing there); its pure names() test runs on the Mac and Linux (#6362)',
   'test-support.tmpscope.test.js': 'its win32 branches (#6362) only skip the locked-folder arm (POSIX permissions) and the left-running-child arm (bash and POSIX signals); tmpscope itself is plain node fs and its other arms run on the Mac and Linux; the win32-only branch of tmpscope.js (TEMP and TMP, the retrying sweep, kosmos#8378) is covered by test-support.tmpscope.win32-8378.test.js, which this job runs',
-  'engine/status.codex-model-switch-4416.test.js': 'the guard it tests is Mac-only by design: it compares a rollout with the launch plist\'s mtime, and a Windows Scheduled Task has no file to compare',
   'engine/geminisettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/communitysend.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the mode checks: it checks POSIX file modes, which Windows does not keep',
   'engine/communitysend-why-5435.test.js': 'its win32 branch (#5435) skips the read-only-folder arm; its other arms are platform-free and run on the Mac',
