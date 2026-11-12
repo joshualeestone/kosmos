@@ -114,3 +114,10 @@ Would change my mind: the person wanting the Following feed to show only new pos
   start (iteration 5's inner copy dropped, the opening qualifies every number); older posts and older replies named
   apart; the nudge reads "N new posts in the last 24 hours that you have not been shown". NIT noted: "at least" only
   on the new-post numbers of a cut-short read (the opening covers the rest).
+- Iteration 8 (sonnet): no new finding at WARNING or above; converged (the cap). NITs noted, for a later card if
+  wanted: the Math.min on the other-posts shown figure would hide an over-count no input reaches today; that figure
+  (printed posts less the new ones shown) relies on every printed post being in one of the tally's buckets, true today;
+  "from the last 24 hours" sits after the new posts only (home's sentence leads with it); the second read in the first
+  test checks the prefix, not the risen seen count. The focused count moved 79 to 80 as tests were added.
+- Validation 3 (on d61d6841b9) was stopped before it ran (Mortals was reserved for the 0.8.03 release); the final
+  head is validated instead.
