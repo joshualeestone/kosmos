@@ -18,4 +18,4 @@ Changed in review round 4: an earlier version skipped node's write once the cons
 Why 0.8.02 survives the same pipe is not known. The fix does not depend on it, but it means another path to the same EPIPE on an unrouted board is not ruled out.
 
 ## Would change my mind
-A Windows run that still crashes with this fix. Renet Tilley's engine/win32boardlog-epipe-realpipe.test.js shows a child surviving a destroyed stdout reader on this branch and dying on origin/main's module (a socketpair on a Mac, a pipe on Windows).
+A Windows run that still crashes with this fix. Renet Tilley's engine/win32boardlog-epipe-realpipe.test.js shows a child surviving a destroyed stdout reader on this branch and dying on origin/main's module, measured on a Mac (a socketpair there). On Windows it is reasoned, not run: the proof is Homer's box installing a Windows build carrying this.

@@ -86,7 +86,8 @@ function tee(stream, fd, lineState, now, name) {
   /* #8373 follow-up (Homer, 0.8.03 in-place update on Windows): the console stream a task-started board inherits can be
      a pipe whose reader is gone. Its EPIPE then arrives as an 'error' event no one listens for, which node turns into an
      uncaught exception, and the board died 74 s after start. This board's output already goes to the file, so the
-     console is the copy that may be lost. */
+     console is the copy that may be lost. Any error event on the stream ends its console copy, not only a dead pipe.
+     The file copy is taken first, so a write node then rejects for a bad argument is still in the file. */
   let dead = false;
   const giveUp = (err) => {
     if (dead) return;
