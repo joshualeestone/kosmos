@@ -457,18 +457,31 @@ function linksIn(dir) {
   try { names = fs.readdirSync(dir); } catch { return []; }
   return names.filter((n) => { try { return fs.lstatSync(path.join(dir, n)).isSymbolicLink(); } catch { return false; } });
 }
-/* #8437: whether a deny rule guards one of the places the token-only guard exists to protect (as opposed to a start-up
-   file, an import or a sibling glob): its path is one of them, or under one, in the form the rule is written in.
-   Case-blind on Windows. `rules` is tokenOnlySettingsRules' answer. */
-function isProtectedRule(rule, rules, platform = 'win32') {
+/* #8437: whether a deny rule's path is one of `places`, or under one, in the form the rule is written in (a `.` suffix
+   covers a temp copy such as .board.token.*). Case-blind on Windows. */
+function ruleUnderAny(rule, places, platform = 'win32') {
   const m = /^(?:Read|Edit)\((\/\/.+)\)$/.exec(String(rule));
   if (!m) return false;
   const low = (x) => (platform === 'win32' ? String(x).toLowerCase() : String(x));
   const inner = low(m[1]);
-  const places = [...(rules.tokenPaths || []), ...(rules.tokenTmps || []), ...(rules.tokenDirs || []), ...(rules.launchSecretDirs || []),
+  return places.filter(Boolean).some((p) => { const pre = low(ruleAbs(p, platform)); return inner === pre || inner.startsWith(pre + '/') || inner.startsWith(pre + '.'); });
+}
+/* #8437: a place the token-only guard exists to protect: the board token and its temp copy, the sender-token folders,
+   the launch hand-off, the undo stores and switches, the guard's own settings, list and record, the records the board
+   trusts, the worlds registry. `rules` is tokenOnlySettingsRules' answer. */
+function isProtectedRule(rule, rules, platform = 'win32') {
+  return ruleUnderAny(rule, [...(rules.tokenPaths || []), ...(rules.tokenTmps || []), ...(rules.tokenDirs || []), ...(rules.launchSecretDirs || []),
     ...(rules.undoDirs || []), ...(rules.undoSwitches || []), ...(rules.settingsFiles || []), ...(rules.trustedFiles || []),
-    ...(rules.trustedDirs || []), rules.settingsDir, rules.listFile, rules.guardRecord].filter(Boolean);
-  return places.some((p) => { const pre = low(ruleAbs(p, platform)); return inner === pre || inner.startsWith(pre + '/') || inner.startsWith(pre + '.'); });
+    ...(rules.trustedDirs || []), ...(rules.worldWrites || []), rules.settingsDir, rules.listFile, rules.guardRecord], platform);
+}
+/* #8437: a place that is a gap like any start-up file when it cannot be covered (the guard is written and says it is not
+   whole, as on Linux): an instruction file's import, the start-up config, a command script, a shell's start files, a
+   plugin folder, a launch folder. Anything NOT listed here is treated as protected, so a new kind of rule added later
+   errs toward refusing the guard, never toward a quiet gap. */
+function isIncidentalRule(rule, rules, platform = 'win32') {
+  return ruleUnderAny(rule, [...(rules.importFiles || []), ...(rules.importStableDirs || []), ...(rules.configStartFiles || []),
+    ...(rules.commandScripts || []), ...(rules.shellStartFiles || []), ...(rules.shellStartDirs || []), ...(rules.pluginDirs || []),
+    ...(rules.launchDirs || []), ...(rules.launchFiles || [])], platform);
 }
 /* #5664 step A: on Windows, Claude Code resolves junctions and 8.3 names on the path a tool touches, and a rule on a
    link's OWN path covers nothing (measured, 2.1.319). So for every Read or Edit rule whose literal part (before its first
@@ -2818,12 +2831,13 @@ function guardTokenOnlyFolderNow(dir, agentName, deps = {}) {
     }
     /* A rule whose real place cannot be denied leaves that place open to the file tools (a rule on a link's own path
        covers nothing). #8437: for a PROTECTED place (the board token and its temp copy, the sender-token folders, the
-       launch hand-off, the undo stores, the guard's own settings, list and record, the records the board trusts) that
-       refuses the guard, as a rule that cannot be written does (tokenRuleDropped, reviews 16 and 17): nothing written,
-       said in its own words. For anything else (an instruction file's import, a start-up file, a sibling glob) it is a
-       gap like any start-up file the rules cannot carry: the guard is written and says it is not whole, as on Linux, so
-       one import on a share no longer switches off the token's protection for every agent. */
-    const protectedMiss = (m) => m.isToken || isProtectedRule(m.rule, rules);
+       launch hand-off, the undo stores, the guard's own settings, list and record, the records the board trusts, the
+       worlds registry) that refuses the guard, as a rule that cannot be written does (tokenRuleDropped, reviews 16 and
+       17): nothing written, said in its own words. For a place known to be incidental (isIncidentalRule: an import, the
+       start-up config, a command script, shell start files, plugins, launch folders) it is a gap like any start-up file
+       the rules cannot carry: the guard is written and says it is not whole, as on Linux, so one import on a share no
+       longer switches off the token's protection for every agent. A miss on a rule of neither kind refuses (fail closed). */
+    const protectedMiss = (m) => m.isToken || isProtectedRule(m.rule, rules) || !isIncidentalRule(m.rule, rules);   // unknown: protected
     const hardMisses = realTwins.misses.filter(protectedMiss);
     if (hardMisses.length) {
       const what = hardMisses.some((m) => m.isToken) ? 'the board token is' : 'a place the guard protects is';
@@ -3547,6 +3561,7 @@ module.exports = {
   withNativeTwins,
   withRealTwins,   // #5664 step A
   isProtectedRule,   // #8437
+  isIncidentalRule,
   realOrLeafStrict,
   ruleUnwritable,
   migrateKept,

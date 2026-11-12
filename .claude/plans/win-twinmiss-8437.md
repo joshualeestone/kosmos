@@ -16,19 +16,29 @@ guard is still written. Raised in #8438's review round 8 and carded.
   exists to protect: the board token and its temp copy, the sender-token folders, the launch hand-off, the undo stores
   and switches, the guard's own settings files and folder, its list and record, the records the board trusts.
   Case-blind on Windows. A name that only starts the same (`sendertokens-old`) is not under it.
-- The guard refuses (nothing written, as before) only when a miss is on a protected rule. Any other miss (an import, a
-  start-up file, a sibling glob) is added to `configUnsafe`: the guard is written and says it is not whole, naming it.
+- The guard refuses (nothing written, as before) when a miss is on a token or protected rule, or on a rule not known
+  to be incidental. A miss on a known incidental place (an import, the start-up config, a command script, shell start
+  files, plugins, launch folders) is added to `configUnsafe`: the guard is written and says it is not whole, naming it.
 - Tests (engine/tokenguard.win32-5664.test.js, the Windows job runs it): the classification, pure; and on a Windows
   filesystem an import reached through a junction into a `[x]` folder now leaves the guard written, the token denied,
   the import named. The existing "a protected place that is not the token ... refuses too" test still holds. Both new
   tests fail against origin/main.
 
+## Review round 1
+- The worlds registry (worldWrites) was missing from the protected list: added.
+- The protected list drifts toward a quiet gap when a new protected field is added. Flipped the default: a miss
+  refuses unless its rule is on a place KNOWN to be incidental (isIncidentalRule: imports, start-up config, command
+  scripts, shell start files, plugins, launch folders). A new kind of rule therefore errs toward refusing. Tests pin
+  every protected field, the incidental ones, and that a rule of neither kind is not incidental.
+
 ## Decided, not missed
+- Launch-folder misses are classed incidental and worded as a start-up file (on Windows launchPathDirs returns no
+  folders, so none occurs today).
 - The undo stores and the trusted records count as protected (they are what the guard denies for the token's sake:
-  a forged undo record is what restore writes out; the trusted records decide who made which agent). Weakest point: the
-  protected list is built from tokenOnlySettingsRules' fields by name; a new protected field added there later must
-  be added here too, or its misses would fall to "not whole" (written, still said). Would change my mind: a reviewer
-  showing a protected place missing from the list.
+  a forged undo record is what restore writes out; the trusted records decide who made which agent). Weakest point now:
+  the INCIDENTAL list is by field name, so a new incidental kind added later refuses until listed (too strict, never
+  a quiet gap); a sibling or import glob miss also refuses today. Would change my mind: a common setup that this
+  over-refuses.
 
 ## Not covered
 - Unchanged from #8438: links under a glob segment for non-token rules, a one-letter share host, the production

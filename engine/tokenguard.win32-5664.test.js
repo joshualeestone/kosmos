@@ -146,6 +146,25 @@ test('#8437 isProtectedRule: the token, sender tokens, hand-off and own settings
   assert.equal(setup.isProtectedRule('Edit(//c/Users/x/.mcp.json)', rules), false);
 });
 
+test('#8437 every protected field classifies as protected; only known incidental places are incidental; unknown refuses', () => {
+  const rules = {
+    undoDirs: ['C:\\K\\Kosmos\\undo'], undoSwitches: ['C:\\K\\Kosmos\\undo.json'], trustedFiles: ['C:\\K\\Kosmos\\created.jsonl'],
+    trustedDirs: ['C:\\K\\Kosmos\\ended-agents.d'], listFile: 'C:\\K\\Kosmos\\agent-token-only.json', guardRecord: 'C:\\K\\Kosmos\\guard\\a.json',
+    worldWrites: ['C:\\K\\worlds.json', 'C:\\K\\.worlds.json'],
+    importFiles: ['C:\\Users\\x\\notes.md'], configStartFiles: ['C:\\Users\\x\\.mcp.json'], pluginDirs: ['C:\\Users\\x\\.claude\\plugins'],
+  };
+  for (const r of ['Edit(//c/K/Kosmos/undo/**)', 'Edit(//c/K/Kosmos/undo.json)', 'Edit(//c/K/Kosmos/created.jsonl)', 'Edit(//c/K/Kosmos/ended-agents.d)',
+    'Edit(//c/K/Kosmos/agent-token-only.json)', 'Edit(//c/K/Kosmos/guard/a.json)', 'Edit(//c/K/worlds.json)', 'Edit(//c/K/.worlds.json.*)']) {
+    assert.equal(setup.isProtectedRule(r, rules), true, r + ' is not protected');
+  }
+  assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/notes.md)', rules), true);
+  assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/.mcp.json)', rules), true);
+  assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/.claude/plugins/**)', rules), true);
+  // A rule of neither kind is not incidental, so the guard treats its miss as protected and refuses (fail closed).
+  assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/.claude-*/agents/**)', rules), false);
+  assert.equal(setup.isIncidentalRule('Edit(//c/K/Kosmos/undo/**)', rules), false, 'CONTROL: a protected place is not incidental');
+});
+
 test('launchPathDirs on Windows names the PATH part as not covered, so the guard cannot read as whole', () => {
   const w = setup.launchPathDirs(agentDir('lp'), { ...PIN, platform: 'win32' });
   assert.deepEqual(w.unsafe, ['on Windows Kosmos does not cover the folders on this PATH yet']);
