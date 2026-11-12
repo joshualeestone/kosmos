@@ -40,6 +40,9 @@ Windows-arm test "#5664 step A", which now passes whole); tokenguard.win32-5664 
   now resolves the deepest existing folder and adds the rest back (as the guard's realOrLeaf does); test against
   C:/PROGRA~1/no-such (fails on the previous helper). The hookscripts parser-skip reason names kosmos#8451.
 
+- Round 4: WARNING, .mcp.json (read by the guard start-command scan in every folder above the agent) added to the names
+  that refuse the move, with a refusal case; success checks look only for the helper own stderr line (a runner node may
+  print unrelated warnings).
 - Round 3: WARNING, the helper compared real paths only, but the guard walks both the written and the real chain: the
   temp folder now counts as inside the home if either spelling is, and both chains of the system folder are checked for
   instruction files (test with a junction-shaped seam, fails on the previous helper). Two test NITs: a control that could

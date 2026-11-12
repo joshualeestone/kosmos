@@ -40,7 +40,9 @@ const path = require('node:path');
 /* The names looked for in the system temp folder and each folder above it. The guard reads CLAUDE.md, CLAUDE.local.md
    and AGENTS.md there, and in .claude the files CLAUDE.md and AGENTS.md and its rules folder (setup-assistant.js,
    topRoots and dotClaudeRoots). A bare .claude folder counts too, whatever it holds: conservative on purpose. */
-const INSTRUCTION_NAMES = ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.claude'];
+// Review round 4: and .mcp.json, the server file the guard's start-command scan reads in every folder above the agent
+// (engine/startcommands.js); the list is every file the guard reads above the agent folder, not only instruction files.
+const INSTRUCTION_NAMES = ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.claude', '.mcp.json'];
 
 /* The real path (a short 8.3 name spelled long, a link followed). A path that does not exist yet is resolved through its
    deepest existing folder with the rest added back, as the guard's realOrLeaf does, so a short spelling above a folder

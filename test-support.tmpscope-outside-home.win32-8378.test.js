@@ -25,7 +25,7 @@ test('the system temp folder is chosen only on Windows, only when the temp folde
   assert.equal(outsideHomeRoot({ ...base, env: {} }), null, 'no system folder named: nothing moves');
   assert.equal(outsideHomeRoot({ ...base, canMake: () => false }), null, 'a folder that cannot be made in is not used');
   // An instruction file in the chosen folder or any folder above it would be read by the guard, so that place is refused.
-  for (const at of ['C:\\Windows\\Temp\\CLAUDE.md', 'C:\\Windows\\AGENTS.md', 'C:\\.claude']) {
+  for (const at of ['C:\\Windows\\Temp\\CLAUDE.md', 'C:\\Windows\\AGENTS.md', 'C:\\.claude', 'C:\\.mcp.json']) {
     assert.equal(outsideHomeRoot({ ...base, exists: (p) => p.toLowerCase() === at.toLowerCase() }), null, at);
   }
   assert.equal(outsideHomeRoot({ ...base, exists: (p) => p === 'C:\\Windows\\CLAUDE.txt' }), W.join('C:\\Windows', 'Temp'), 'CONTROL: a file in a place it looks, but not an instruction name, changes nothing');
@@ -68,7 +68,7 @@ test('on Windows the scope follows what the helper decides for this host: moved 
   assert.equal(fs.existsSync(r.scope), false, 'the scope was left behind after the process ended');
   if (!r.choice.inHome) {
     assert.equal(r.moved, null, 'a temp folder outside the home was moved anyway');
-    assert.equal(r.stderr, '', 'a host with nothing to move said something');
+    assert.doesNotMatch(r.stderr, /tmpscope-outside-home \(kosmos#8378\)/, 'a host with nothing to move said something');
     t.skip('this host keeps its temp folder outside the home, so there is nothing to move');
     return;
   }
@@ -80,7 +80,7 @@ test('on Windows the scope follows what the helper decides for this host: moved 
   }
   assert.equal(r.moved, r.choice.root);
   assert.equal(inHome(r.scope), false, 'the scope is still inside the home: ' + r.scope);
-  assert.equal(r.stderr, '', 'a move said something on stderr');
+  assert.doesNotMatch(r.stderr, /tmpscope-outside-home \(kosmos#8378\)/, 'a move said something on stderr');   // only its own line: a runner node may print unrelated warnings
 });
 
 test('on Windows a refused move is said on stderr, with why', { skip: !WIN && 'about the Windows system temp folder' }, (t) => {
@@ -89,7 +89,7 @@ test('on Windows a refused move is said on stderr, with why', { skip: !WIN && 'a
   const fs = require('node:fs');
   const sys = fs.mkdtempSync(path.join(os.tmpdir(), 'sysroot-'));
   const r = runHelper(sys);
-  if (!r.choice.inHome) { assert.equal(r.stderr, '', 'CONTROL: nothing to move, nothing said'); t.skip('the temp folder here is outside the home, so no move can be refused'); return; }
+  if (!r.choice.inHome) { assert.doesNotMatch(r.stderr, /tmpscope-outside-home \(kosmos#8378\)/, 'CONTROL: nothing to move, nothing said'); t.skip('the temp folder here is outside the home, so no move can be refused'); return; }
   assert.equal(r.moved, null, 'a system folder inside the home was used');
   assert.match(r.stderr, /the temp folder stays inside the home/);
   assert.match(r.stderr, /is inside the home too/, 'the reason was not said');
