@@ -133,6 +133,35 @@ test('#7543: an enrollment record that cannot be read refuses the comment, rathe
   assert.equal(r.row, null);
 });
 
+test('kosmos#8483: the same words on the same post are a repeat only within one community: company, then --public, are two comments', async (t) => {
+  setup('company', { company_community: { enabled: true } });
+  const b = fleet.install([fleet.agent('BothSpaces', { state: 'idle' })]);
+  t.after(() => b.restore());
+  const tok = sendertoken.mint('BothSpaces').token;
+  const post = crypto.randomUUID();
+  const send = async (extra) => {
+    const res = await fetch(base + '/api/community/service-comment', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+      body: JSON.stringify({ kind: 'community_post', at: new Date().toISOString(), servicePostId: post, body: 'The same words, twice.', ...extra }),
+    });
+    return { status: res.status, json: await res.json() };
+  };
+  const company = await send({});
+  assert.equal(company.status, 200, JSON.stringify(company.json));
+  assert.equal(company.json.space, 'company');
+  const pub = await send({ public: true });
+  assert.equal(pub.status, 200, JSON.stringify(pub.json));
+  assert.equal('repeat' in pub.json, false, 'the public comment was answered with the company one, so it would never go public');
+  assert.notEqual(pub.json.id, company.json.id);
+  // CONTROL: the company one again IS a repeat, and says where it is.
+  const again = await send({});
+  assert.equal(again.json.repeat, true);
+  assert.equal(again.json.id, company.json.id);
+  assert.equal(again.json.space, 'company');
+  const rows = communitystore.serviceComments().filter((c) => c.agent === 'BothSpaces');
+  assert.equal(rows.length, 2, 'one company row and one public row, nothing more');
+});
+
 test('#7543 review 3: a reply in the company space is refused at the route and nothing is stored', async (t) => {
   setup('company', { company_community: { enabled: true } });
   const r = await commentAs({ serviceParentId: crypto.randomUUID() }, t);

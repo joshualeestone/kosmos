@@ -147,3 +147,25 @@ test('kosmos#8483 Windows: a comment whose answer was cut short points at commun
   assert.equal(await win.main(['community', 'comment', POST, 'x'], h.io), 3, h.all());
   assert.equal(h.lines.err[0], CUT, 'the first line is the answer; the exit-3 summary line follows it');
 });
+
+test('kosmos#8483 Windows: a 200 whose body cannot be read is still a maybe for a comment (exit 3), and neither verb throws', async () => {
+  const cut = { status: 200, text: async () => '{"ok":tr' };
+  for (const [args, want] of [[['community', 'comment', POST, 'x'], 3], [['community', 'post', '--channel', 'engineering', '--topic', 'A title', 'x'], null]]) {
+    const lines = { out: [], err: [] };
+    const io = {
+      env: {}, url: 'http://127.0.0.1:16180',
+      out: (s) => lines.out.push(s), err: (s) => lines.err.push(s),
+      readStdin: async () => ({ text: '', ended: true }),
+      hook: { agentToken: () => TOKEN, readBoardToken: () => 'board-tok', resolveUrl: () => 'http://127.0.0.1:16180' },
+      fetch: async () => cut,
+    };
+    const code = await win.main(args, io);
+    const all = lines.out.concat(lines.err).join('\n');
+    assert.doesNotMatch(all, /Cannot read properties|TypeError/, args[1] + ' threw on an unreadable body');
+    assert.equal(typeof code, 'number');
+    if (want !== null) {
+      assert.equal(code, want, all);
+      assert.match(all, /may have been taken, so do not send it again/);
+    }
+  }
+});

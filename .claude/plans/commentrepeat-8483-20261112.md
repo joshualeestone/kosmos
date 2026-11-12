@@ -27,6 +27,8 @@ matters); (b) alone (it exists for the board-to-site hop, and status already sho
   unconfirmed_keyless do not.
 - Published, never tried: stands only if made inside the ON period running now (state.json `since`); the sweep never
   sends an older one, so new words must be stored.
+- A post moderators took down (sent record `takenDown: true`) still stands, deliberately: the same words again are
+  answered "Kosmos already has this", not reposted.
 - A row marked notSent (told "it will not go", or #4994's deleted agent): never matched.
 - A record that decides it cannot be read: 503 with Retry-After, nothing stored.
 
@@ -36,9 +38,11 @@ That an agent never means to send exactly the same words to exactly the same pla
 ## Files
 engine/communitystore.js (repeatServiceComment, repeatAgentPost), engine/communitysend.js (commentRepeatOf,
 postRepeatOf, priorStands, REPEAT_WINDOW_MS), engine/feedpublish.js (repeatOf hook in both publish functions),
-server.js (both routes), install/kosmos and tools/windows/kosmos-cli.js (repeat answer; the cut-answer line points at
-kosmos community status). Tests: server.community-repeat-8483.test.js, cli.community-repeat-8483.test.js; two old
-tests given words of their own so they keep their subject (server.community-choke-3485, server.community-sendsoon-4938).
+server.js (both routes), install/kosmos and tools/windows/kosmos-cli.js (repeat answer; the COMMENT cut-answer lines point at
+kosmos community status, and the post's own cut line is unchanged). Repeat answers carry notSending as a first answer
+does, so a CLI without the repeat words still says why a post or comment is not going. Tests: server.community-repeat-8483.test.js, cli.community-repeat-8483.test.js; two old
+tests given words of their own so they keep their subject (server.community-choke-3485, server.community-sendsoon-4938); one company-space case added to
+server.companycomment-7543.test.js.
 
 ## Proof so far
 - New server file 11/11, CLI file 5/5. 17 server mutations and 7 CLI mutations each go red.
