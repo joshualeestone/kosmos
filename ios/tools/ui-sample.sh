@@ -100,7 +100,8 @@ fi
 # inside its limit: the one job took 75 of its 80 minutes on PR #8447. 1/2 is the earlier-pages classes (their pages are
 # held back 16 s each, the longest checks) and the two short 260-message ones; 2/2 is every other class. A class is in 2/2
 # unless it is named here, so together the halves are always the whole list (ios.ui-sample-shard-8453.test.js checks it).
-# Measured per class on main's run 42940677400 (before #8443 doubled the page delay): 1/2 about 27 min, 2/2 about 26.
+# Measured per class on main's run 42940677400, BEFORE #8443 doubled the earlier-pages classes' page delay: 1/2 about 27
+# min, 2/2 about 26. 1/2 is the longer half now; move a class across if a run shows it near the job's limit.
 earlier=" EarlierDroppedUITests EarlierDeleteShiftUITests EarlierPagesUITests EarlierDoubleAskUITests ChatSearchUITests ChatDragUITests StopAddingUITests "
 if [ -n "$shard" ]; then
   [ "$uikit" = 1 ] || { echo "ui-sample: --shard is for the UIKit arm (--uikit) only" >&2; exit 2; }

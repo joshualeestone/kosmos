@@ -48,4 +48,9 @@ test('kosmos#8453: the ios workflow runs both halves', () => {
   const y = fs.readFileSync(path.join(__dirname, '.github', 'workflows', 'ios.yml'), 'utf8');
   assert.ok(/ui-sample\.sh --uikit --shard "\$\{\{ matrix\.shard \}\}"/.test(y), 'the uikit job does not pass its shard');
   assert.ok(/shard: \["1\/2", "2\/2"\]/.test(y), 'the uikit job does not run both halves');
+  // Review 2: and a red half does not cancel the other, and each half's result bundle has its own name (they would clash).
+  const job = y.slice(y.indexOf('  uikit:\n'), y.indexOf('\n  # ', y.indexOf('  uikit:\n') + 1) >>> 0 || undefined);
+  assert.ok(job.includes('ui-sample.sh --uikit --shard'), 'CONTROL: the uikit job was not found');
+  assert.ok(job.includes('fail-fast: false'), 'a red half cancels the other');
+  assert.ok(job.includes('-${{ strategy.job-index }}'), 'the halves would upload result bundles under one name');
 });
