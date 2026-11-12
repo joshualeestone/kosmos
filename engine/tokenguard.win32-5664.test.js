@@ -150,13 +150,16 @@ test('#8437 every protected field classifies as protected; only known incidental
   const rules = {
     undoDirs: ['C:\\K\\Kosmos\\undo'], undoSwitches: ['C:\\K\\Kosmos\\undo.json'], trustedFiles: ['C:\\K\\Kosmos\\created.jsonl'],
     trustedDirs: ['C:\\K\\Kosmos\\ended-agents.d'], listFile: 'C:\\K\\Kosmos\\agent-token-only.json', guardRecord: 'C:\\K\\Kosmos\\guard\\a.json',
-    worldWrites: ['C:\\K\\worlds.json', 'C:\\K\\.worlds.json'],
+    worldWrites: ['C:\\K\\worlds.json'],   // as production returns it: the registry path only
     importFiles: ['C:\\Users\\x\\notes.md'], configStartFiles: ['C:\\Users\\x\\.mcp.json'], pluginDirs: ['C:\\Users\\x\\.claude\\plugins'],
   };
   for (const r of ['Edit(//c/K/Kosmos/undo/**)', 'Edit(//c/K/Kosmos/undo.json)', 'Edit(//c/K/Kosmos/created.jsonl)', 'Edit(//c/K/Kosmos/ended-agents.d)',
-    'Edit(//c/K/Kosmos/agent-token-only.json)', 'Edit(//c/K/Kosmos/guard/a.json)', 'Edit(//c/K/worlds.json)', 'Edit(//c/K/.worlds.json.*)']) {
+    'Edit(//c/K/Kosmos/agent-token-only.json)', 'Edit(//c/K/Kosmos/guard/a.json)', 'Edit(//c/K/worlds.json)']) {
     assert.equal(setup.isProtectedRule(r, rules), true, r + ' is not protected');
   }
+  // The registry's temp/lock rule (.worlds.json.*) is not a protected field of its own; it refuses because it is no
+  // incidental place either (the fail-closed default).
+  assert.equal(setup.isIncidentalRule('Edit(//c/K/.worlds.json.*)', rules), false);
   assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/notes.md)', rules), true);
   assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/.mcp.json)', rules), true);
   assert.equal(setup.isIncidentalRule('Edit(//c/Users/x/.claude/plugins/**)', rules), true);
