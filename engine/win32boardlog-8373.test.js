@@ -264,7 +264,8 @@ test('kosmos#8424 a stream that errored but is still writable reports its backpr
   const out = new Writable({ highWaterMark: 4, autoDestroy: false, write(chunk, enc, cb) { pending.push(cb); } });
   routeConsole(t, out);
   out.emit('error', Object.assign(new Error('flaky'), { code: 'EIO' }));
-  assert.strictEqual(out.destroyed, false, 'CONTROL: the stream stayed writable after its error');
+  assert.strictEqual(out.destroyed, false, 'CONTROL: the stream was not destroyed by its error');
+  assert.strictEqual(out.writable, true, 'CONTROL: the stream stayed writable after its error');
   assert.strictEqual(out.write('more than four bytes\n'), false, 'an errored but writable stream hid its backpressure');
   pending.forEach((cb) => cb());
 });
