@@ -58,6 +58,19 @@ function taskName(agentName, worldId) {
   return TASK_PREFIX + launchidentity.launchKey(agentName, world);
 }
 
+/* kosmos#8454: the file Task Scheduler keeps a registered task in, the Windows sibling of the macOS plist and the Linux
+   unit (linuxjob.unitPath). Its time is when the job last changed: registering with /Create /F, which every rewrite of
+   an agent's job does (a move between accounts included), rewrites it (measured: a re-registration 3 s later moved it
+   3 s). The registering user owns it, so a board that is not elevated can read its time. A sandboxed board
+   (AGENT_WORKFORCE_LAUNCH) keeps its tasks folder in the sandbox, as linuxjob does its units, and never stats the real
+   one. */
+function taskFilePath(agentName, worldId) {
+  const root = process.env.AGENT_WORKFORCE_LAUNCH
+    ? path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'win32-tasks')
+    : path.join(process.env.SystemRoot || process.env.SYSTEMROOT || 'C:\\Windows', 'System32', 'Tasks');
+  return path.join(root, ...taskName(agentName, worldId).split('\\'));
+}
+
 /* The command seam. Tests replace it; production shells schtasks. Returns
    { ok, out } and never throws, so every caller can report rather than unwind. */
 let runFn = null;
@@ -1186,7 +1199,7 @@ function configDirFor(name) {
 
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
-  install, installSteps, disable, enable, end, start, endSteps, startSteps, runningSteps, win32StepResult, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
+  install, installSteps, disable, enable, end, start, endSteps, startSteps, runningSteps, win32StepResult, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec, taskFilePath,
   cachedTaskSpec, switchedOffNames, taskEnabled, taskEnabledFromQuery, taskEnabledSteps, csvFields, commandsAreReal, REFUSED_IN_TEST,
   schtasksMayRunInThisProcess,
   setRunner, setAnchorer, setLiveness, setRunningClock, setPresenceTtl, PRESENCE_TTL_MS,

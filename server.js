@@ -14337,7 +14337,10 @@ const server = http.createServer(async (req, res) => {
           let walked = false;   // built on the first ChatGPT row only: an API-key-only list never walks the agents
           const walk = () => { if (walked) return; walked = true; try {
             const runtime = require('./engine/codexruntime');
-            const jobFile = (n) => (process.platform === 'linux' ? require('./engine/linuxjob').unitPath(n) : create.plistPath(n));
+            /* The job's own file on each platform: the systemd unit, the Scheduled Task's stored file (kosmos#8454: a
+               plist path on Windows named a file that never exists, so a move was never seen there), or the plist. */
+            const jobFile = (n) => (process.platform === 'linux' ? require('./engine/linuxjob').unitPath(n)
+              : process.platform === 'win32' ? require('./engine/win32job').taskFilePath(n) : create.plistPath(n));
             for (const { sessionName, home } of agentsByAccountWalk('codex').entries) {
               /* Only reports written since the agent's job last changed: a move between accounts rewrites the job, and the
                  private home still holds the old account's sessions. Any other rewrite of the job (a rename, a model

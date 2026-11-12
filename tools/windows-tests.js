@@ -125,7 +125,8 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
   'cli.project-remove-member-7405.test.js',   // kosmos#8378: the Windows CLI's remove-member arms run here; its Mac CLI arms skip by skipOnWin32
   // kosmos#8378: the board's roster through the pane source the Windows board uses, and its jobs in a stand-in Task
   // Scheduler; the tmux-stop, launchd and bash sign-in mock arms skip with their reasons.
-  'server.test.js', 'server.disconnect-stop-2570.test.js', 'web.not-running.test.js'];
+  'server.test.js', 'server.disconnect-stop-2570.test.js', 'web.not-running.test.js',
+  'server.codexlimits-6176.test.js'];   // kosmos#8454: a moved Codex agent's job time, read from its Scheduled Task's file
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {

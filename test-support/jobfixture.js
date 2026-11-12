@@ -13,7 +13,7 @@
  *
  * kosmos#8378: on Windows the job is a Scheduled Task, which create.readJob reads through win32job.cachedTaskSpec (a
  * `schtasks /Query /XML`), and a test process never reaches the real Task Scheduler. So on Windows the job is a task
- * definition file in the sandbox (AGENT_WORKFORCE_LAUNCH/win32-tasks/agent-<key>.xml, the text win32job.taskXml
+ * definition file in the sandbox (AGENT_WORKFORCE_LAUNCH/win32-tasks/Kosmos/agent-<key>, where win32job.taskFilePath looks in a sandbox; the text win32job.taskXml
  * writes), and jobPath installs a stand-in Task Scheduler through win32job's own command seam (setRunner) that
  * answers from those files: a test that writes or deletes the file registers or removes the task, exactly as writing
  * or deleting the plist does on a Mac. macOS and Linux are unchanged.
@@ -32,7 +32,7 @@ const path = require('node:path');
 const linux = () => process.platform === 'linux';
 const win32 = () => process.platform === 'win32';
 
-/* kosmos#8378: the stand-in Task Scheduler for a Windows host. Its tasks are the `agent-*.xml` files in one sandbox
+/* kosmos#8378: the stand-in Task Scheduler for a Windows host. Its tasks are the `Kosmos/agent-*` files in one sandbox
    folder, named by the task's name under the Kosmos folder; it answers the schtasks calls engine/win32job.js makes
    through its own runner (setRunner: /Query /XML, /Query /FO LIST, the two /FO CSV lists, /Create, /Delete, /Change,
    /Run, /End) from those files. NOT the step forms (installSteps, startSteps, endSteps, taskEnabledSteps): those hand
@@ -46,11 +46,14 @@ function win32TaskDir() {
     throw new Error('jobfixture.jobPath: no sandbox (set AGENT_WORKFORCE_LAUNCH); on Windows the job is a task file kept there');
   }
   const dir = path.join(process.env.AGENT_WORKFORCE_LAUNCH, 'win32-tasks');
-  fs.mkdirSync(dir, { recursive: true });
+  // kosmos#8454: the Kosmos folder the task files sit in, as Task Scheduler stores them (it makes the sandbox folder too).
+  fs.mkdirSync(path.join(dir, require('../engine/win32job').TASK_PREFIX.split('\\')[0]), { recursive: true });
   return dir;
 }
 
-/* `Kosmos\agent-ava` -> <dir>/agent-ava.xml; null for a name outside the Kosmos folder. */
+/* `Kosmos\agent-ava` -> <dir>/Kosmos/agent-ava, laid out as Task Scheduler stores it (kosmos#8454: the board reads a
+   job's change time from that file, win32job.taskFilePath, which in a sandbox is this folder); null for a name outside
+   the Kosmos folder. */
 function taskFile(dir, tn) {
   const win32job = require('../engine/win32job');
   const folder = win32job.TASK_PREFIX.split('\\')[0] + '\\';
@@ -58,7 +61,7 @@ function taskFile(dir, tn) {
   if (!at.toLowerCase().startsWith(folder.toLowerCase())) return null;
   const leaf = at.slice(folder.length);
   if (!leaf || /[\\/]/.test(leaf)) return null;
-  return path.join(dir, leaf + '.xml');
+  return path.join(dir, folder.slice(0, -1), leaf);
 }
 
 /* The task's own switch, read where Task Scheduler keeps it (<Settings><Enabled>), as win32job.taskEnabled reads it. */
@@ -82,11 +85,11 @@ function taskRows(dir) {
   const win32job = require('../engine/win32job');
   const folder = win32job.TASK_PREFIX.split('\\')[0];
   let names = [];
-  try { names = fs.readdirSync(dir).filter((n) => /^agent-.+\.xml$/.test(n)); } catch { names = []; }
+  try { names = fs.readdirSync(path.join(dir, folder)).filter((n) => /^agent-.+$/.test(n)); } catch { names = []; }
   return names.map((n) => {
     let text = '';
-    try { text = fs.readFileSync(path.join(dir, n), 'utf8'); } catch { text = ''; }
-    return `"\\${folder}\\${n.slice(0, -4)}","N/A","${switchedOff(text) ? 'Disabled' : 'Ready'}"`;
+    try { text = fs.readFileSync(path.join(dir, folder, n), 'utf8'); } catch { text = ''; }
+    return `"\\${folder}\\${n}","N/A","${switchedOff(text) ? 'Disabled' : 'Ready'}"`;
   });
 }
 
