@@ -2286,6 +2286,24 @@ function restoreInner(name, platform) {
     };
   }
   if (!started) {
+    /* kosmos#8475: a Windows agent whose startup job was removed on its own (delete-leftover's taskOnly delete, for a
+       task left with no folder) has no task to turn back on, so "starting by hand" is the wrong way back: Start at login
+       sets the task up again once the board offers it (register.survey's missing list). Only on a look that answered
+       "not registered"; a look that failed keeps the general sentence. */
+    let taskGone = false;
+    if (ops.win32) {
+      try { const pr = win32job.presence(clean, record.worldId); taskGone = pr.known === true && pr.registered === false; } catch { taskGone = false; }
+    }
+    if (taskGone) {
+      // The account and model clause is delete-leftover's, so the two sentences about this way back cannot disagree.
+      let starts = '.';
+      try { starts = require('./delete-leftover').startsAgainWords(clean); } catch { starts = '.'; }
+      return {
+        outcome: OUTCOME.PARTIAL,
+        because: `${shown} is back on the board, but its startup job is no longer set up, so it will not start on its own. Use Start at login when Kosmos offers it${starts}`,
+        steps,
+      };
+    }
     return {
       outcome: OUTCOME.PARTIAL,
       /* #4918 review 33: on Linux a missing unit file fails the enable first, so the Mac's plistGone sentence below

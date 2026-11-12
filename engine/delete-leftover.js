@@ -572,8 +572,9 @@ function plan(name, opts) {
      recoverable instead of the guess sharper: only the Scheduled Task goes. Its settings and picture stay (they then show
      as their own settings-only row, whose delete can go to the Recycle Bin), and so do its community account, standing,
      sender tokens, history and any removal record. If the folder comes back, register.survey lists the agent in
-     `missing` (folder, profile, no job) and Start at login (register.repair, create.installJob) registers the task again.
-     So the recorded-folder checks settings alone need (strandedRefusal) are not asked here: nothing they protect is
+     `missing` (folder, profile, no job) and Start at login (register.repair, create.installJob) registers the task again,
+     on the main account and the model it last ran (the account folder and set model lived only in the task; see
+     taskOnlyBackWords). So the recorded-folder checks settings alone need (strandedRefusal) are not asked here: nothing they protect is
      touched. Only a name waiting to start is refused, as the list leaves it out. */
   if (!folder && job && job.task) {
     let pending = null;
@@ -591,30 +592,38 @@ function plan(name, opts) {
     if (wAt.because === 'dangling') return { ok: false, because: `the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected, so Kosmos will not remove ${shown}'s startup job.${wayOut}` };
     if (wAt.because) return { ok: false, because: `we could not check the folder Kosmos keeps its agents in, so we have not offered to remove ${shown}'s startup job. Try again in a moment.` };
     if (!workersFolderThere()) return { ok: false, because: `the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not remove ${shown}'s startup job.${wayOut}` };
-    let kept = [];
-    try { kept = namedRecords(clean, null).records; } catch { kept = []; }   // only to name what stays; nothing is moved
-    const kw = kept.length ? recordsWords(kept) : null;
-    let removedNow = false;
-    try { removedNow = remove.isRemoved(clean); } catch { removedNow = false; }
-    const back = taskOnlyBackWords(clean, removedNow);
-    return {
-      ok: true,
-      name: clean,
-      shown,
-      taskOnly: true,
-      toTrash: false,
-      typeToConfirm: null,   // nothing is lost for good: the task can be set up again
-      folder: null,
-      records: { files: [], trash: false, kept: null, keptWords: null },
-      job: { path: null, label: job.label, task: true },
-      question: `Remove ${shown}'s startup job?`,
-      reassurance: `Only its startup job is removed, so nothing starts ${shown} when you log in.`
-        + (kw ? ` ${kw.cap} stay${kw.plural ? '' : 's'} on this computer; to delete ${kw.plural ? 'them' : 'it'} too, delete what is left of ${shown} again afterwards.` : '')
-        + ` ${back}`,
-      loses: ['Its startup job, so nothing tries to start it again'],
-      verb: 'Remove its startup job',
-      hint: `Something on this computer still starts ${shown} when you log in, and the name stays taken until it is gone.`,
-    };
+    /* kosmos#8475 review: with nothing stored under the name (no settings or picture, or only ones another agent shares),
+       there is no settings-only row to come back to, and the agent cannot be brought back by Start at login either (the
+       survey needs a profile). Removing the task alone would leave a removed agent's name on the removed list for good
+       (create refuses a removed name, and the next click finds nothing to delete). So that case is the full delete it
+       was on main, below: the task, its tokens, its community account and the removal record, and the name is free. */
+    let stored;
+    try { stored = namedRecords(clean, null); } catch {
+      return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
+    }
+    if (stored.records.length) {
+      let removedNow = false;
+      try { removedNow = remove.isRemoved(clean); } catch { removedNow = false; }
+      const words = taskOnlyWords(clean, shown, removedNow, platform, stored.records);
+      return {
+        ok: true,
+        name: clean,
+        shown,
+        taskOnly: true,
+        toTrash: false,
+        typeToConfirm: null,   // nothing is lost for good: the task can be set up again
+        folder: null,
+        records: { files: [], trash: false, kept: null, keptWords: null },
+        job: { path: null, label: job.label, task: true },
+        question: `Remove ${shown}'s startup job?`,
+        // The way back first (it is why nothing else goes), then what stays and how to delete it.
+        reassurance: `Only its startup job is removed, so nothing starts ${shown} when you log in. ${words.back}${words.stay ? ' ' + words.stay : ''}`,
+        loses: ['Its startup job, so nothing tries to start it again'],
+        verb: 'Remove its startup job',
+        keep: 'Keep its startup job',   // the dialog's cancel button: "Keep the files" names files this act never touches
+        hint: `Something on this computer still starts ${shown} when you log in, and the name stays taken until it is gone.`,
+      };
+    }
   }
   const recordsOnly = Boolean(recs);
 
@@ -691,10 +700,10 @@ function plan(name, opts) {
     const w = recordsWords(recs.records);
     const tail = `${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
     reassurance = !toTrash && jobIsTask
-      /* kosmos#8471: a Windows task with no folder moves nothing, so its settings go for good by design (#7820: the
-         outcome then never stands over a record promised the Recycle Bin). Said as the fact it is: "the Recycle Bin
-         cannot take them" was a reason that was not true. (A Linux unit-only leftover says the same false reason; left
-         as it is here.) */
+      /* kosmos#8471, kosmos#8475: a Windows task with no folder and settings left is the taskOnly plan above since
+         #8475 (the task goes alone, the settings stay), so this arm is reached only if settings appear between that
+         look and the one below. Kept so that race still reads true: the full delete would then delete them for good.
+         (A Linux unit-only leftover says "cannot go to the Trash", a reason that is not true; left as it is here.) */
       /* One "and" per sentence: the settings (and picture, which recordsWords joins with its own "and") and what else
          does not come back are sentences of their own here. */
       ? `Its startup job is removed. ${w.cap} ${w.plural ? 'are' : 'is'} deleted for good${community ? '. Its community account does not come back' : waiting ? '. Anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
@@ -712,8 +721,9 @@ function plan(name, opts) {
     ? (recordsTrash ? `Move ${rw.words} to ${bin}` : `Delete ${rw.words} for good`)
     : folder
     ? (toTrash ? `Move ${filesWords(folder)} to ${bin}` : `Delete ${filesWords(folder)} for good`)
-    /* kosmos#8471: a Windows task with no folder also deletes its settings for good, so the button says so, as the
-       sentence above it does (Linux unit-only leftovers unchanged). */
+    /* kosmos#8471: the button names the settings when the full delete takes them for good. Since kosmos#8475 a Windows
+       task with no folder and settings left is the taskOnly plan, so this is the same race-only arm as the sentence above
+       (Linux unit-only leftovers unchanged). */
     : jobIsTask && recordsLost ? `Remove its startup job and delete ${recordsWords(recs.records).words}`
     : jobIsService ? 'Remove its startup job'
       : (toTrash ? `Move the auto-start file to ${bin}` : 'Delete the auto-start file for good');
@@ -810,13 +820,59 @@ function workersFolderThere() {
    A removed agent is restored first: Restore takes it off the removed list (its own enable finds no task), and only
    then does the board offer Start at login. The folder named is the one the profile records, as written (workerDir
    answers the workers folder for a recorded folder it cannot see, which is the wrong place to send a person); else
-   the one in the workers folder. */
+   the one in the workers folder.
+   NOT the agent as it was (review): the account folder a Claude or Codex agent runs on (win32job.configDirFor) and the
+   model it was set to are kept only in the Scheduled Task, so register.repair starts it on the main account and the
+   model it last ran (server.js modelFor). A Qwen or other vendor agent's account is in its profile and comes back with
+   it. The sentence says so rather than promising the agent back unchanged. */
 function taskOnlyBackWords(name, removed) {
   let where = null;
   try { where = create.recordedDirSpelling(name); } catch { where = null; }
   if (!where) where = create.workerDir(name);
   return `If its folder was only moved, or is on a disk that is not connected, put it back at ${where}`
-    + (removed ? ', use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it.' : ', then use Start at login when Kosmos offers it.');
+    + (removed ? ', use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it' : ', then use Start at login when Kosmos offers it')
+    + startsAgainWords(name);
+}
+/* What Start at login (register.repair) brings back after a startup job was removed: the clause ending a sentence that
+   names Start at login. Exported for remove.restore's sentence for the same state (kosmos#8475). */
+function startsAgainWords(name) {
+  let provider = null;
+  try { provider = require('./store').readProfile(name).provider || null; } catch { provider = null; }
+  let ownAccount = provider === 'alibaba';
+  try { if (require('./anthropiccompat').vendorOf(provider)) ownAccount = true; } catch { /* read as the main account */ }
+  return ownAccount
+    ? '; it starts on the model it last ran, so choose its model again if it used another.'
+    : '; it starts on your main account and the model it last ran, so choose its account and model again if it used others.';
+}
+
+/* kosmos#8475 review: whether a profile records a folder outside the workers folder (read from the profile, never
+   looked at, so a share that is gone cannot block). The settings-only list leaves such a name out, so a task-only delete
+   must not tell a person its settings can be deleted "again" from there. */
+function recordedOutsideWorkers(name, platform) {
+  const caseBlind = platform === 'darwin' || platform === 'win32';
+  const fold = (n) => (caseBlind ? String(n).toLowerCase() : String(n));
+  const workers = [path.resolve(create.WORKERS_DIR)];
+  try { workers.push(fs.realpathSync.native(create.WORKERS_DIR)); } catch { /* the written spelling only */ }
+  let dir = null;
+  try { dir = require('./store').readProfile(name).dir; } catch { dir = null; }
+  if (typeof dir !== 'string' || !dir || !path.isAbsolute(dir)) return false;
+  const d = path.resolve(dir);
+  return !workers.some((w) => fold(d) === fold(w) || insideDir(fold(d), fold(w)));
+}
+
+/* kosmos#8475: the two sentences a task-only plan and its outcome share. `back`: how to get the agent back. `stay`: what
+   stays stored, and (review) the way to delete it ONLY when that delete would be offered: the settings-only list's rule
+   (recordedOutsideWorkers) and the settings-only plan's own refusals (strandedRefusal). `records` is namedRecords' list,
+   or null when it could not be read (then nothing is said about it rather than a guess). */
+function taskOnlyWords(name, shown, removed, platform, records) {
+  const back = taskOnlyBackWords(name, removed);
+  if (!records || !records.length) return { back, stay: '' };
+  const kw = recordsWords(records);
+  let offered = false;
+  try { offered = !recordedOutsideWorkers(name, platform) && !strandedRefusal(name, shown).because; } catch { offered = false; }
+  const stay = `${kw.cap} stay${kw.plural ? '' : 's'} on this computer`
+    + (offered ? `; to delete ${kw.plural ? 'them' : 'it'} too, delete what is left of ${shown} again.` : '.');
+  return { back, stay };
 }
 
 function strandedRefusal(name, shown) {
@@ -978,7 +1034,9 @@ function* delSteps(name, opts) {
   const platform = (opts && opts.platform) || process.platform;
   /* kosmos#8475: a Windows task with no folder: the Scheduled Task and nothing else. Before the community standing reset
      below, which cannot be undone, and with no token revoke, no history cleared, no settings moved, no removal forgotten
-     and no community account retired: if the folder was only moved, the agent comes back whole. Nothing is typed. */
+     and no community account retired: if the folder was only moved, Start at login brings the agent back with its
+     settings, picture, tokens and history (on the main account and the model it last ran: see taskOnlyBackWords).
+     Nothing is typed. */
   if (p.taskOnly) {
     let out;
     try { out = require('./win32job').remove(p.name); }
@@ -992,17 +1050,15 @@ function* delSteps(name, opts) {
     }
     let removedNow = false;
     try { removedNow = remove.isRemoved(p.name); } catch { removedNow = false; }
-    let kept = [];
-    try { kept = namedRecords(p.name, null).records; } catch { kept = []; }
-    const kw = kept.length ? recordsWords(kept) : null;
+    let stored = null;
+    try { stored = namedRecords(p.name, null).records; } catch { stored = null; }   // null: not named, never guessed
+    const words = taskOnlyWords(p.name, p.shown, removedNow, platform, stored);
     return {
       outcome: OUTCOME.DELETED,
       taskOnly: true,
       toTrash: false,
       shown: p.shown,
-      said: `${p.shown}'s startup job is removed, so nothing starts it when you log in.`
-        + (kw ? ` ${kw.cap} stay${kw.plural ? '' : 's'} on this computer; to delete ${kw.plural ? 'them' : 'it'} too, delete what is left of ${p.shown} again.` : '')
-        + ` ${taskOnlyBackWords(p.name, removedNow)}`,
+      said: `${p.shown}'s startup job is removed, so nothing starts it when you log in. ${words.back}${words.stay ? ' ' + words.stay : ''}`,
       steps: [{ step: 'its startup job', ok: true }],
     };
   }
@@ -1279,17 +1335,10 @@ function settingsLeftovers(opts) {
   const fold = (n) => (caseBlind ? String(n).toLowerCase() : String(n));
   let running;
   try { running = new Set(status.paneRoster().map((c) => fold(c.sessionName))); } catch { return { ok: false, names: [] }; }
-  // Both spellings of the workers folder (review 3: /var is /private/var on a Mac); the workers folder exists, so
-  // resolving it cannot block on a share that is gone. The recorded folder itself is never looked at.
-  const workers = [path.resolve(create.WORKERS_DIR)];
-  try { workers.push(fs.realpathSync.native(create.WORKERS_DIR)); } catch { /* the written spelling only */ }
-  const outside = (name) => {
-    let dir = null;
-    try { dir = require('./store').readProfile(name).dir; } catch { dir = null; }
-    if (typeof dir !== 'string' || !dir || !path.isAbsolute(dir)) return false;
-    const d = path.resolve(dir);
-    return !workers.some((w) => fold(d) === fold(w) || insideDir(fold(d), fold(w)));
-  };
+  /* Both spellings of the workers folder (review 3: /var is /private/var on a Mac); the workers folder exists, so
+     resolving it cannot block on a share that is gone. The recorded folder itself is never looked at. One rule with the
+     task-only delete's words (kosmos#8475): recordedOutsideWorkers. */
+  const outside = (name) => recordedOutsideWorkers(name, platform);
   const pending = require('./worldstarts').pendingNames();
   if (pending === null) return { ok: false, names: [] };
   const store = require('./store');
@@ -1389,4 +1438,4 @@ async function delAsync(name, opts) {
   }
 }
 
-module.exports = { OUTCOME, plan, del, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835)
+module.exports = { OUTCOME, plan, del, startsAgainWords, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835)

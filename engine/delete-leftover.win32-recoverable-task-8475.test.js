@@ -80,6 +80,8 @@ function scheduler(args) {
     return { ok: true, out: `SUCCESS: The scheduled task "${tn}" was successfully deleted.` };
   }
   if (a[0] === '/End') return tasks.has(tn) ? { ok: true, out: 'SUCCESS' } : { ok: false, out: NOT_FOUND };
+  // /Change /ENABLE or /DISABLE (remove and restore): only a registered task can be changed.
+  if (a[0] === '/Change') return tasks.has(tn) ? { ok: true, out: `SUCCESS: The parameters of scheduled task "${tn}" have been changed.` } : { ok: false, out: NOT_FOUND };
   return { ok: false, out: 'ERROR: the stand-in Task Scheduler does not know this call.' };
 }
 
@@ -148,6 +150,8 @@ test.afterEach(() => {
     fs.rmSync(store.profilePath(n), { force: true });
     try { fs.rmSync(picture(n), { force: true }); } catch { /* none */ }
     fs.rmSync(liveness.fileFor(n), { force: true });
+    try { fs.rmSync(require('./selfreport').fileFor(n), { force: true }); } catch { /* none */ }
+    try { remove.forget(n); } catch { /* not removed */ }
     try { sendertoken.revoke(n); } catch { /* none */ }
     fs.rmSync(nodePath.join(WORKERS, n), { recursive: true, force: true });
   }
@@ -197,8 +201,13 @@ test('kosmos#8475: its delete removes the Scheduled Task and nothing else, and a
   assert.equal(p.verb, 'Remove its startup job');
   assert.equal(p.question, 'Remove only8475\'s startup job?');
   assert.deepEqual(p.loses, ['Its startup job, so nothing tries to start it again']);
-  assert.equal(p.reassurance, 'Only its startup job is removed, so nothing starts only8475 when you log in. Its settings and picture stay on this computer; to delete them too, delete what is left of only8475 again afterwards. '
-    + `If its folder was only moved, or is on a disk that is not connected, put it back at ${create.workerDir(name)}, then use Start at login when Kosmos offers it.`);
+  assert.equal(p.keep, 'Keep its startup job', 'the cancel button would say "Keep the files" over an act that touches none');
+  /* kosmos#8475 review: the way back first, saying it starts on the main account and the model it last ran (both lived
+     only in the task); then what stays, and how to delete it, since this one's settings would be offered. */
+  const back = `If its folder was only moved, or is on a disk that is not connected, put it back at ${create.workerDir(name)}, then use Start at login when Kosmos offers it; `
+    + 'it starts on your main account and the model it last ran, so choose its account and model again if it used others.';
+  const stay = 'Its settings and picture stay on this computer; to delete them too, delete what is left of only8475 again.';
+  assert.equal(p.reassurance, `Only its startup job is removed, so nothing starts only8475 when you log in. ${back} ${stay}`);
 
   const seen = watchIrreversible(t);
   const done = win.del(name);   // no name typed
@@ -212,8 +221,7 @@ test('kosmos#8475: its delete removes the Scheduled Task and nothing else, and a
   assert.equal(fs.existsSync(liveness.fileFor(name)), true, 'its history went');
   assert.equal(recycled.length, 0, 'something was sent to the Recycle Bin');
   assert.ok(!removedNow().includes(name), 'a removal was recorded');
-  assert.equal(done.said, 'only8475\'s startup job is removed, so nothing starts it when you log in. Its settings and picture stay on this computer; to delete them too, delete what is left of only8475 again. '
-    + `If its folder was only moved, or is on a disk that is not connected, put it back at ${create.workerDir(name)}, then use Start at login when Kosmos offers it.`);
+  assert.equal(done.said, `only8475's startup job is removed, so nothing starts it when you log in. ${back} ${stay}`);
   assert.doesNotMatch(done.said, /name is free/);
 });
 
@@ -279,9 +287,14 @@ test('kosmos#8475: a recorded folder on a disk that is not connected loses only 
     assert.equal(p.ok, true, `${name}: ${p.because}`);
     assert.equal(p.taskOnly, true);
     assert.match(p.reassurance, new RegExp('put it back at ' + dir.replace(/\\/g, '\\\\') + (removed ? ', use Restore' : ', then use Start at login')));
+    /* kosmos#8475 review: its settings are not offered on their own afterwards (below), so no sentence may send the
+       person to delete them "again"; it says only that they stay. */
+    assert.match(p.reassurance, /Its settings and picture stay on this computer\.$/, `${name}: ${p.reassurance}`);
+    assert.doesNotMatch(p.reassurance, /delete what is left/, `${name}: the plan promised a delete that would be refused`);
     if (!removed) assert.equal(listed(name).startsAtLogin, true, 'the task was not listed');
     const done = win.del(name);
     assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+    assert.doesNotMatch(done.said, /delete what is left/, `${name}: the outcome promised a delete that would be refused`);
     assert.equal(fs.existsSync(store.profilePath(name)), true, `${name} lost its settings`);
     assert.equal(store.readProfile(name).dir, dir, `${name} lost the folder it records`);
     assert.equal(sendertoken.holdsTokens(name), true, `${name} lost its sender tokens`);
@@ -291,4 +304,76 @@ test('kosmos#8475: a recorded folder on a disk that is not connected loses only 
     assert.equal(listed(name), null, `${name}: listed as settings only while its folder may be out of sight`);
     fs.rmSync(REMOVED, { force: true });
   }
+});
+
+test('kosmos#8475 review: a REMOVED name with nothing stored is freed in one click, as on main (no dead end)', (t) => {
+  /* With no settings or picture (or only ones another agent shares), removing the task alone left the name on the
+     removed list for good: the next click found nothing to delete, and create refuses a removed name. Such a name gets
+     the full delete instead: the task, its tokens and the removal record, and the name is free. */
+  const bare = 'bare8475';
+  made.push(bare);
+  tasks.add(win32job.taskName(bare));
+  sendertoken.mint(bare);
+  // Shared: its stored name is another agent's too (kept.8475's folder maps to the same key), so its settings stay.
+  const shared = 'kept8475';
+  made.push(shared, 'kept.8475');
+  store.writeProfile(shared, { displayName: 'Kept' });
+  fs.mkdirSync(nodePath.join(WORKERS, 'kept.8475'), { recursive: true });
+  tasks.add(win32job.taskName(shared));
+  for (const name of [bare, shared]) {
+    markRemoved(name);
+    const p = win.plan(name);
+    assert.equal(p.ok, true, `${name}: ${p.because}`);
+    assert.ok(!p.taskOnly, `${name}: nothing stored, yet the plan removes the task alone and keeps the name taken`);
+    assert.equal(p.typeToConfirm, null, `${name}: nothing is lost for good, yet typing was asked`);
+    const done = win.del(name);
+    assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+    assert.ok(!tasks.has(win32job.taskName(name)), `${name}: its task is still registered`);
+    assert.ok(!removedNow().includes(name), `${name}: still on the removed list, so the name stays taken for good`);
+    assert.match(done.said, /The name is free\./, `${name}: ${done.said}`);
+    assert.equal(sendertoken.holdsTokens(name), false, `${name}: the name is free while its sender tokens still work`);
+    assert.deepEqual(win.plan(name).ok, false, `${name}: something is still offered after the name was freed`);
+  }
+  assert.equal(fs.existsSync(store.profilePath(shared)), true, 'the settings another agent shares were deleted');
+  // CONTROL: a removed name WITH its own settings still gets the task-only delete and keeps its row.
+  const own = agent('own8475', { folder: false });
+  markRemoved(own);
+  assert.equal(win.plan(own).taskOnly, true, 'CONTROL: a removed name with settings no longer gets the task-only delete');
+  assert.equal(win.del(own).outcome, leftover.OUTCOME.DELETED);
+  assert.ok(removedNow().includes(own), 'CONTROL: the removed row of a name with settings went');
+});
+
+test('kosmos#8475 review: the way back says which account and model the agent starts on', () => {
+  /* A Claude or Codex agent's account folder and set model lived only in its Scheduled Task, so Start at login brings it
+     back on the main account and the model it last ran. A Qwen agent's account is in its profile and comes back. */
+  const main = agent('acct8475', { folder: false, profile: { provider: 'openai' } });
+  const qwen = agent('qwen8475', { folder: false, profile: { provider: 'alibaba' } });
+  assert.match(win.plan(main).reassurance, /Start at login when Kosmos offers it; it starts on your main account and the model it last ran, so choose its account and model again if it used others\./);
+  const q = win.plan(qwen).reassurance;
+  assert.match(q, /Start at login when Kosmos offers it; it starts on the model it last ran, so choose its model again if it used another\./);
+  assert.doesNotMatch(q, /main account/, 'a Qwen agent was told it starts on the main account');
+});
+
+test('kosmos#8475 review: Restore after its startup job alone was removed says to use Start at login, not to start it by hand', () => {
+  const name = agent('restore8475');
+  /* Removing clears its liveness record but keeps its self-report history (register.hasRun), which is what a real agent
+     that ran here has; without one the board never offers Start at login (the plan names that as its weakest part). */
+  const sr = require('./selfreport').fileFor(name);
+  fs.mkdirSync(nodePath.dirname(sr), { recursive: true });
+  fs.writeFileSync(sr, '');
+  const removal = remove.remove(name, { platform: 'win32' });
+  assert.notEqual(removal.outcome, remove.OUTCOME.REFUSED, JSON.stringify(removal));
+  assert.ok(removedNow().includes(name), 'fixture: the agent was not removed');
+  const away = nodePath.join(SANDBOX, 'restore8475-away');
+  fs.renameSync(create.workerDir(name), away);   // its folder moved elsewhere
+  const done = win.del(name);
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+  assert.ok(!tasks.has(win32job.taskName(name)), 'fixture: the task is still registered');
+  fs.renameSync(away, create.workerDir(name));   // put back
+  const back = remove.restore(name, { platform: 'win32' });
+  assert.equal(back.outcome, remove.OUTCOME.PARTIAL, JSON.stringify(back));
+  assert.match(back.because, /^restore8475 is back on the board, but its startup job is no longer set up, so it will not start on its own\. Use Start at login when Kosmos offers it; it starts on your main account/);
+  assert.doesNotMatch(back.because, /by hand/);
+  assert.ok(!removedNow().includes(name), 'Restore left it on the removed list');
+  assert.ok(register.survey({ platform: 'win32' }).missing.includes(name), 'Start at login is not offered for it');
 });

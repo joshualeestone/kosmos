@@ -112,6 +112,13 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     body = { agents: [], leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }, { name: 'task-8475', shownAs: 'Tasked', startsAtLogin: true }] };
     await paintRemoved();
     out.task = snap();
+    // 2c. kosmos#8475: a task-only plan brings its own cancel words; the next plan without them gets the usual ones back
+    openDeleteModal({ ok: true, name: 'task-8475', shown: 'Tasked', question: 'Remove Tasked\'s startup job?', reassurance: '', loses: [], verb: 'Remove its startup job', keep: 'Keep its startup job', typeToConfirm: null });
+    out.keepTask = document.getElementById('del-keep').textContent;
+    closeDeleteModal();
+    openDeleteModal({ ok: true, name: 'stray-7825', shown: 'Stray', question: 'Delete what is left of Stray?', reassurance: '', loses: [], verb: 'Move its settings to the Trash', typeToConfirm: null });
+    out.keepPlain = document.getElementById('del-keep').textContent;
+    closeDeleteModal();
     // 3. a failed leftovers read (field absent) keeps the rows last drawn
     body = { agents: [{ name: 'gone-7825', shownAs: 'Gone', removedAt: '2026-11-02T00:00:00Z', stopped: true, accountFolderGone: false }] };
     await paintRemoved();
@@ -167,6 +174,8 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   const tasked = r.task.rows.find((x) => x.who === 'Tasked') || {};
   const plain = r.task.rows.find((x) => x.who === 'Stray') || {};
   check(tasked.when === 'Its startup job is still set up, but Kosmos cannot find its folder' && tasked.del === 'task-8475' && tasked.restore === false, 'kosmos#8475: a task left with no folder says its startup job is still set up and has the delete door', JSON.stringify(tasked));
+  check(tasked.delText === 'Remove its startup job…', 'kosmos#8475: its button says it removes the startup job, not "what is left"', tasked.delText);
+  check(r.keepTask === 'Keep its startup job' && r.keepPlain === 'Keep the files', 'kosmos#8475: the cancel button takes a task-only plan\'s words, and the usual ones come back after', JSON.stringify({ task: r.keepTask, plain: r.keepPlain }));
   check(plain.when === 'Only its settings are left', 'kosmos#8475: beside it, a settings-only row still says only its settings', JSON.stringify(plain));
 
   check(r.failed.rows.some((x) => x.who === 'Stray') && r.failed.rows.some((x) => x.who === 'Gone'), 'a failed leftovers read keeps the leftover rows last drawn', JSON.stringify(r.failed.rows));
