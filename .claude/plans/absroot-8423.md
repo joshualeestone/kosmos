@@ -20,3 +20,4 @@ All 15 engine/update*.test.js files and engine.reachable pass (155 pass, 0 fail,
 
 ## Review ledger
 - R1 opus: 0 B, 1 W (installStatusFile's guard untested, not exported), NITs (installLog unguarded, autoRecordFile duplicate check, setUp outside try, file count). Fixed; installLog kept by design and said so.
+- R2 sonnet: 0 B/W/C. Converged. NITs left: updateRefusedFile/updateAbortFile read (never write) under the raw root; a repeated comment; install.auto covered by update-autolog-8421.test.js.
