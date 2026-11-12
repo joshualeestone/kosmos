@@ -1524,8 +1524,17 @@ test('the refusals that protect a name are each reachable and each tested (the l
   // people to expect. (Remove exists now and deletes nothing, so the halves can
   // still come apart; what is still manual is DELETE.)
   const orphan = 'orphan-job';
-  fs.mkdirSync(nodePath.dirname(create.plistPath(orphan)), { recursive: true });
-  fs.writeFileSync(create.plistPath(orphan), '<plist/>', 'utf8');
+  /* kosmos#8466: the job as this platform keeps it. On Windows that is the Scheduled Task's own file (jobfixture's
+     stand-in, at win32job.taskFilePath); this wrote the plist path there, which Windows never has, so the refusal it
+     proved was one no Windows computer can reach, while a real leftover task held nothing. */
+  const orphanJob = jobfixture.jobPath(orphan);
+  fs.mkdirSync(nodePath.dirname(orphanJob), { recursive: true });
+  fs.writeFileSync(orphanJob, '<plist/>', 'utf8');
+  if (process.platform === 'win32') {
+    assert.ok(!fs.existsSync(create.plistPath(orphan)), 'premise: no plist holds the name on Windows, only the task file');
+  }
+  // The one derivation both create and the team step (teamseed.takenDefault) ask.
+  assert.deepEqual(create.nameHeld(orphan), { folder: false, job: true }, 'a leftover job with no folder does not hold its name');
   const refused = create.createAgent({ ...BINS, name: orphan, role: 'pm' });
   assert.equal(refused.outcome, create.OUTCOME.REFUSED,
     'a name whose launchd job is still installed was accepted, so the plist gets '
@@ -1534,7 +1543,8 @@ test('the refusals that protect a name are each reachable and each tested (the l
   assert.equal(calls.length, 0, 'a refused name still ran a command');
 
   // THE CONTROL: with the job gone, the same name goes through.
-  fs.rmSync(create.plistPath(orphan));
+  fs.rmSync(orphanJob);
+  assert.deepEqual(create.nameHeld(orphan), { folder: false, job: false }, 'CONTROL: with the job gone the name is free');
   assert.equal(create.createAgent({ ...BINS, name: orphan, role: 'pm' }).outcome,
     create.OUTCOME.CREATED, 'this name is refused whatever is on disk, so the above proves nothing');
 });

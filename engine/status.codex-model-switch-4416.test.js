@@ -6,6 +6,9 @@
  * folder is the previous session's. status.readCodexSession drops the model of a rollout last written before the
  * job file, and keeps everything else.
  *
+ * kosmos#8466: the same two tests now run on Windows, where the job file is the Scheduled Task's own file
+ * (win32job.taskFilePath); jobfixture.jobPath names it there, in the sandbox the stand-in Task Scheduler keeps.
+ *
  * Sandbox shape copied from status.codex-account-home-2906.test.js: every root the reader touches points into SB,
  * including AGENT_WORKFORCE_LAUNCH, so no plist lands in the real ~/Library/LaunchAgents.
  */
@@ -47,6 +50,8 @@ function codexAgentWithRollout(name, model) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   const plist = jobfix.jobPath(name);
   assert.ok(plist.startsWith(SB), 'the job is written inside the sandbox');
+  // kosmos#8466: on Windows the file the test moves must be the one the board reads, or the tests below prove nothing.
+  if (process.platform === 'win32') assert.equal(plist, require('./win32job').taskFilePath(name), 'the stand-in task file is where the board looks');
   fs.writeFileSync(plist, jobfix.jobFor(name, path.join(SB, 'claude'), path.join(SB, 'tmux'), null, HOME_B, 'codex'), 'utf8');
   const day = path.join(HOME_B, 'sessions', '2026', '09', '28');
   fs.mkdirSync(day, { recursive: true });
@@ -59,7 +64,7 @@ function codexAgentWithRollout(name, model) {
   return { plist, file };
 }
 
-test('#4416: a rollout written BEFORE the job (a model switch, no turn since) does not name the model', { skip: process.platform === 'win32' }, () => {
+test('#4416: a rollout written BEFORE the job (a model switch, no turn since) does not name the model', () => {
   const { plist, file } = codexAgentWithRollout('switched', 'gpt-5.6-sol');
   const t = Date.now() / 1000;
   fs.utimesSync(file, t - 120, t - 120);   // the old session's last turn
@@ -69,7 +74,7 @@ test('#4416: a rollout written BEFORE the job (a model switch, no turn since) do
   assert.equal(sess.model, null, 'the old session named the old model and the card would have said it');
 });
 
-test('#4416: a rollout written AFTER the job names the model (control: the normal case)', { skip: process.platform === 'win32' }, () => {
+test('#4416: a rollout written AFTER the job names the model (control: the normal case)', () => {
   const { plist, file } = codexAgentWithRollout('steady', 'gpt-5.6-sol');
   const t = Date.now() / 1000;
   fs.utimesSync(plist, t - 120, t - 120);

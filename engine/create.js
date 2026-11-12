@@ -7358,7 +7358,11 @@ function selfStartsSentence(platform) {
 function nameHeld(name, platform) {
   /* #4918 review 27: on Linux the job is the systemd unit, not a plist; an orphan unit holds its name as a plist does. */
   const plat = platform || process.platform;
-  const job = plat === 'linux' ? require('./linuxjob').unitPath(name) : plistPath(name);
+  /* kosmos#8466: on Windows the job is the Scheduled Task, kept in the file win32job.taskFilePath names (kosmos#8454);
+     this used to stat the plist path there, which never exists, so a leftover task with no folder held nothing. A
+     stat, not a schtasks query: teamseed asks this per seat, and a non-elevated board can stat the file (measured). */
+  const job = plat === 'linux' ? require('./linuxjob').unitPath(name)
+    : plat === 'win32' ? require('./win32job').taskFilePath(name) : plistPath(name);
   return { folder: fs.existsSync(workerDir(name)), job: fs.existsSync(job) };
 }
 
