@@ -4994,6 +4994,11 @@ test('kosmos#8471: on Windows the removed list marks a task left with no folder,
   const name = 'task-left-8471';
   store.writeProfile(name, { displayName: 'Lefty', provider: 'openai' });
   fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, STUB_BIN, STUB_BIN, null, null, 'claude'));   // a registered task, no folder
+  /* Another agent's folder in the workers folder, as on a computer with agents: an empty or missing workers folder lists
+     no task (kosmos#8471 review 8: every agent would read as a leftover then), so the row needs one to be shown. */
+  const neighbour = nodePath.join(require('./engine/create').WORKERS_DIR, 'neighbour-8471');
+  const madeNeighbour = !fs.existsSync(neighbour);
+  fs.mkdirSync(neighbour, { recursive: true });
   status.setPaneSource(() => '');
   try {
     await req('/api/agent/no-such-8471/leftover', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: '{}' });   // forgets the remembered list
@@ -5005,6 +5010,7 @@ test('kosmos#8471: on Windows the removed list marks a task left with no folder,
     status.setPaneSource(null);
     fs.rmSync(jobfix.jobPath(name), { force: true });
     fs.rmSync(store.profilePath(name), { force: true });
+    if (madeNeighbour) fs.rmSync(neighbour, { recursive: true, force: true });
   }
 });
 

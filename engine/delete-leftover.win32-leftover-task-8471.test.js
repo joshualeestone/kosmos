@@ -29,6 +29,8 @@ process.env.AGENT_WORKFORCE_TRASH = nodePath.join(SANDBOX, 'Trash');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 // review 7: the workers folder exists from the start (as on a real computer), so no test depends on an earlier one making it.
 fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
+// review 8: and holds an agent's folder, as on a computer with agents, since an EMPTY workers folder is refused too.
+fs.mkdirSync(nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, 'neighbour8471'), { recursive: true });
 
 const create = require('./create');
 const remove = require('./remove');
@@ -273,6 +275,31 @@ test('kosmos#8471 review 5: a task left with no folder because the workers folde
     process.env.AGENT_WORKFORCE_WORKERS = before;
   }
   assert.equal(win.plan(name).ok, true, 'the control did not offer the delete, so the refusal above proves nothing');
+});
+
+test('kosmos#8471 review 8: a workers folder renamed and remade empty is refused, never deleted, and lists nothing', () => {
+  /* A person renames or moves the workers folder and the next create remakes it empty: every stopped agent with a task
+     reads as having no folder, while all of them can come back by renaming the folder back. */
+  const name = agent('moved8471', { folder: false });
+  const before = process.env.AGENT_WORKFORCE_WORKERS;
+  const empty = nodePath.join(SANDBOX, 'remade-workers');
+  fs.mkdirSync(empty, { recursive: true });
+  process.env.AGENT_WORKFORCE_WORKERS = empty;
+  try {
+    assert.ok(!win.left().names.some((x) => x.name === name), 'listed as a leftover while the workers folder holds no agent folder');
+    const p = win.plan(name);
+    assert.equal(p.ok, false, 'a delete was offered while the workers folder holds no agent folder: ' + JSON.stringify(p));
+    assert.match(p.because, /^the folder Kosmos keeps its agents in has none of its agents' folders in it right now, perhaps because it was renamed or moved, so Kosmos will not delete moved8471's settings\. If that folder is gone for good, open Task Scheduler, delete agent-moved8471 in the Kosmos folder of the Task Scheduler Library, then try again here\.$/);
+    const done = win.del(name);
+    assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'the delete went ahead');
+    assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings were deleted');
+    assert.ok(tasks.has(win32job.taskName(name)), 'its task was removed');
+    // CONTROL: one agent folder in it, and the same row is offered.
+    fs.mkdirSync(nodePath.join(empty, 'someone'), { recursive: true });
+    assert.equal(win.plan(name).ok, true, 'the control did not offer the delete, so the refusal above proves nothing');
+  } finally {
+    process.env.AGENT_WORKFORCE_WORKERS = before;
+  }
 });
 
 test('kosmos#8471 part 2: macOS and Linux still list only a known-absent job', () => {

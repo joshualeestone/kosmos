@@ -582,13 +582,14 @@ function plan(name, opts) {
     const wayOut = ` If that folder is gone for good, open Task Scheduler, delete ${String(job.label).split('\\').pop()} in the ${String(job.label).split('\\')[0]} folder of the Task Scheduler Library, then try again here.`;
     const wAt = resolveRecordedFolder(create.WORKERS_DIR);
     if (wAt.because === 'dangling') return { ok: false, because: `the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
-    if (wAt.because) return { ok: false, because: `we could not check the folder Kosmos keeps its agents in, so we have not offered to delete anything of ${shown}. Try again in a moment.` };
+    if (wAt.because) return { ok: false, because: `we could not check the folder Kosmos keeps its agents in, so we have not offered to delete ${shown}'s settings or startup job. Try again in a moment.` };
     /* review 5: a workers folder that is not there at all (its drive not connected, or the folder renamed or moved) makes
        every agent with a task look like this too, and resolveRecordedFolder reads a missing drive as "the rest is gone".
-       A task still registered while the whole workers folder is absent is never one agent's leftover, so refuse. */
-    let workersThere = false;
-    try { workersThere = fs.statSync(create.WORKERS_DIR).isDirectory(); } catch { workersThere = false; }
-    if (!workersThere) return { ok: false, because: `the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
+       review 8: so does one renamed or moved and remade empty by the next create. A task still registered while the
+       workers folder is missing or holds no agent folder at all is never one agent's leftover, so refuse. */
+    const wState = workersFolderState();
+    if (wState === 'missing') return { ok: false, because: `the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
+    if (wState === 'empty') return { ok: false, because: `the folder Kosmos keeps its agents in has none of its agents' folders in it right now, perhaps because it was renamed or moved, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
   }
   const recordsOnly = Boolean(recs);
 
@@ -769,6 +770,20 @@ function resolveRecordedFolder(dir) {
    a world start's (that is checked by the record), every reader already treats it as empty, so whatever it recorded is
    lost to its agent anyway, and refusing left it under the name for good. The plan says it could not be checked.
    { because } to refuse, else { damaged }. */
+/* kosmos#8471 review 8: whether the folder Kosmos keeps its agents in is there as a folder AND holds at least one
+   agent's folder. A Windows task with no folder is offered for delete (its settings go for good) only while this holds:
+   a workers folder that is missing, a link that leads nowhere, or one renamed or moved (and remade empty by the next
+   create) makes every stopped agent with a task read as "no folder", and those agents are not leftovers. 'missing',
+   'empty', or 'ok'. A look that fails reads as 'missing' (refuse, never offer). */
+function workersFolderState() {
+  let entries;
+  try {
+    if (!fs.statSync(create.WORKERS_DIR).isDirectory()) return 'missing';
+    entries = fs.readdirSync(create.WORKERS_DIR, { withFileTypes: true });
+  } catch { return 'missing'; }
+  return entries.some((e) => e.isDirectory()) ? 'ok' : 'empty';
+}
+
 function strandedRefusal(name, shown) {
   const store = require('./store');
   const couldNot = `we could not read what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.`;
@@ -1222,10 +1237,10 @@ function settingsLeftovers(opts) {
      `startsAtLogin` lets the row say so rather than "only its settings". macOS and Linux are unchanged.
      review 6: only while the workers folder is there as a folder. Missing or behind a link that leads nowhere (an
      unplugged disk), every agent's folder reads as gone while its task is registered, and the list would call the whole
-     fleet leftovers; plan() refuses those clicks, and the list must not say it either. One stat per call, beside the
+     fleet leftovers; plan() refuses those clicks, and the list must not say it either. review 8: nor while it holds no
+     agent folder at all (renamed or moved, then remade empty). One look per call (workersFolderState), beside the
      realpath this already takes of the same folder above. */
-  let workersThere = false;
-  if (platform === 'win32') { try { workersThere = fs.statSync(create.WORKERS_DIR).isDirectory(); } catch { workersThere = false; } }
+  const workersThere = platform === 'win32' && workersFolderState() === 'ok';
   const taskLeft = (a) => platform === 'win32' && workersThere && a.job === true;
   const names = s.agents
     .filter((a) => a.profile === true && a.folder === false && (a.job === false || taskLeft(a)) && !a.removed && !waiting.has(keyOf(a.name))

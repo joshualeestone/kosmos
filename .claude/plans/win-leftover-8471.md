@@ -16,6 +16,9 @@ This also blocks #8466's second half (create.js nameHeld on win32), which would 
 - engine/delete-leftover.js settingsLeftovers: on win32 it also lists a name with a profile, no folder and a task still
   registered (job === true; a failed look, null, lists nothing), not removed and not running, marked startsAtLogin.
   Its delete (plan and del) already handles a task with no folder: tested end to end.
+- Both the list and plan() treat the workers folder as a fleet-wide signal: while it is missing, a link that leads
+  nowhere, or holds no agent folder at all (renamed or moved, then remade empty), no task is listed and a task-only
+  delete refuses, naming the task to delete in Task Scheduler if the folder is gone for good (reviews 4 to 8).
 - server.js /api/removed passes startsAtLogin; web/index.html's row says "Its settings and its startup job are left"
   for it (not "Only its settings are left", which would be false); docs/browser-checks/render-settings-leftover-7825.js
   checks that row. Both browser-check gates pass locally.
@@ -27,7 +30,7 @@ macOS and Linux are unchanged.
 - Not in this change: create.js nameHeld on win32 (#8466's second half). It lands after this, now that the leftover
   can be seen and deleted.
 - macOS: filed as #8474 and closed as not planned by its builder (the Mac board already shows a stopped agent with a plist and no folder, with its Delete), so this change is Windows only.
-- The weakest part: a profile that records a missing folder INSIDE the workers folder, with its task still registered, is offered (typing the name is required); that is a real leftover, but a folder that is only renamed by hand would read the same. Also startsAtLogin is set for a switched-off task too (the row's words stay true).
+- The weakest part: one agent whose own folder was renamed by hand (the workers folder still holding others) reads as a task left with no folder and is offered (typing the name is required); and a person whose LAST agent folder is truly lost gets only the Task Scheduler way out. Also startsAtLogin is set for a switched-off task too (the row's words stay true).
 
 ## Measured on the Windows box
 New file 7/7; negative controls: with origin's delete-leftover.js every test but 3 (the control) fails (part 1 alone: 1
@@ -85,3 +88,12 @@ before, 1442/116/25 after (the 116 are the same failures on this box both ways).
   leftover trapped without a true way out. (1) FIXED: three tests passed only by order (no test made the workers folder
   until an earlier one did); the sandbox now makes it at the start, and each passes alone. (2) The "could not check"
   refusal names the folder Kosmos keeps its agents in, which is the look that failed.
+- Round 8 (the fleet cap; no blocker rated, 1 warning, 2 nits). The warning: a workers folder renamed or moved and
+  remade empty by the next create made every stopped agent with a task deletable, its settings lost for good once the
+  name was typed, though all could come back by renaming the folder back. I treated it as a BLOCKER, which is what lets
+  the loop pass the 8-round cap: main cannot do this (those tasks are invisible there), so this change would ship a
+  NEW way to lose data. FIXED: workersFolderState() ('missing', 'empty', 'ok'), shared by the list and plan(); an empty
+  workers folder lists nothing and refuses with the way out. New test; negative control: without it, it fails; every
+  test passes alone and in order, with and without the preload. server.test.js's removed-list test makes a neighbour
+  agent folder (361/0/8 whole). Nits fixed: the could-not-check sentence; the Change section now states the
+  workers-folder conditions. Round 9 follows.
