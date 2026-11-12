@@ -108,7 +108,10 @@ function rootsOf(projects) {
 function noteWrite(file, who, { now = Date.now(), projects } = {}) {
   try {
     if (typeof file !== 'string' || !path.isAbsolute(file) || /[\x00-\x1f\x7f]/.test(file)) return false;
-    const at = projectOf(file, Array.isArray(projects) ? rootsOf(projects) : projectRoots(now));
+    /* kosmos#8464 review 3: resolved ONCE, and that one result both placed inside the project and passed to the notice; a
+       second resolve was a second chance for a link swapped in between (the comment above projectOfResolved says so). */
+    const abs = resolved(file);
+    const at = projectOfResolved(abs, Array.isArray(projects) ? rootsOf(projects) : projectRoots(now));
     if (!at) return false;
     if (typeof who === 'function') who = who();
     if (typeof who !== 'string' || !who) return false;
@@ -140,9 +143,9 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
       // The project's members are read only when a notice is due; an owner no longer on it takes no slot and gets no note.
       if (!(Number.isFinite(last) && now - last >= 0 && now - last < NOTICE_EVERY_MS) && onProject(at.projectId, first, now)) {
         if (Object.keys(book).length < NOTICE_ROOM_MAX) {
-          /* kosmos#8464: the RESOLVED path (the one projectOf placed inside the project), never the raw one: the raw path
+          /* kosmos#8464: the path resolved once above, the one placed inside the project, never the raw one: the raw path
              can reach outside through a link and '..' (path.resolve drops '..' before the kernel follows a link). */
-          notice = { projectId: at.projectId, name: at.name, owner: first, writer: who, file: resolved(file) };
+          notice = { projectId: at.projectId, name: at.name, owner: first, writer: who, file: abs };
           book[pair] = entry.at;
         } else if (!held) {
           notice = { projectId: at.projectId, heldBack: true };
