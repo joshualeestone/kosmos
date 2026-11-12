@@ -125,6 +125,7 @@ function setRunner(fn) {
   runFn = typeof fn === 'function' ? fn : null;
   TASK_SPEC_CACHE.clear();
   PRESENCE_MEMO.clear();
+  LAST_STATUS.clear();   // kosmos#8417: a stubbed task's Status word must not outlive the stub either
   livenessFn = null; nowFn = null;
 }
 
@@ -856,12 +857,21 @@ function kosmosFolderTasks(ask) {
 }
 
 function list() {
+  const rows = folderRows();
+  return { known: rows.known, names: new Set(rows.rows.map((row) => row.name)) };
+}
+
+/* The rows `list` reads, one per agent task of THIS Kosmos: its name and the third CSV column, the task's Status word
+   ("Ready", "Running", "Disabled"). kosmos#8417: `switchedOffNames` below reads the status too, and both read this one
+   query, so they cannot parse the same row two ways. ⚠️ The status word is LOCALIZED, so nothing may read its MEANING;
+   `switchedOffNames` only compares it with the word the same task had last time. */
+function folderRows() {
   const r = run(['/Query', '/TN', TASK_FOLDER, '/FO', 'CSV', '/NH']);
   if (!r.ok) {
-    if (NO_SUCH_TASK.test(r.out || '')) return { known: true, names: new Set() };
-    return { known: false, names: new Set() };
+    if (NO_SUCH_TASK.test(r.out || '')) return { known: true, rows: [] };
+    return { known: false, rows: [] };
   }
-  const names = new Set();
+  const rows = [];
   for (const line of String(r.out || '').split('\n')) {
     const fields = csvFields(line);
     if (!fields.length) continue;
@@ -871,8 +881,43 @@ function list() {
     /* #1704: the folder holds every Kosmos's agents; a board lists only its own,
        so another world's task is neither a member of this fleet nor a "stray". */
     const name = launchidentity.nameInWorld(at.slice(TASK_PREFIX.length), launchidentity.currentWorldId());
-    if (name) names.add(name);
+    if (name && !rows.some((row) => row.name === name)) rows.push({ name, status: fields.length > 2 ? fields[2] : '' });
   }
+  return { known: true, rows };
+}
+
+/**
+ * kosmos#8417: which of this Kosmos's agent tasks are switched off, for the board's "switched off" sentence. The win32
+ * arm of `create.disabledJobsResult`, which had none: Windows fell into the launchctl arm, the call failed, and a
+ * switched-off agent read as a plain stopped one.
+ *
+ * 🔑 THE ANSWER IS THE TASK'S OWN `<Settings><Enabled>` (via `cachedTaskSpec`, the #2717 cache), the locale-safe read
+ * `taskEnabled` explains. 🔑 AND IT STAYS FRESH WITHOUT A SPAWN PER AGENT PER POLL: the board asks every five seconds,
+ * so this costs the ONE folder query `list` already makes. A task switched off by hand in Task Scheduler busts no cache
+ * (only Kosmos's own disable/enable do), but its Status word changes, so a task whose word differs from the one it had
+ * last time (or that this process has not seen before) has its remembered definition forgotten and read again. The
+ * word is compared, never interpreted, so a non-English Windows works the same.
+ *
+ * Returns `{ known: true, names }` or `{ known: false }` when the folder could not be listed (could-not-look, never
+ * "none switched off"). One agent whose definition could not be read is left out of `names`: this feeds a sentence,
+ * and an unread task is not said to be off.
+ */
+const LAST_STATUS = new Map();   // task name -> the Status word the previous call saw
+function switchedOffNames() {
+  const rows = folderRows();
+  if (!rows.known) return { known: false };
+  const names = new Set();
+  const seen = new Map();
+  for (const row of rows.rows) {
+    const tn = taskName(row.name);
+    if (LAST_STATUS.get(tn) !== row.status) forgetTaskSpec(row.name);
+    seen.set(tn, row.status);
+    const read = cachedTaskSpec(row.name);
+    if (read && read.known && read.registered && read.enabled === false) names.add(row.name);
+  }
+  // Rebuilt each call, so a removed task's word does not linger.
+  LAST_STATUS.clear();
+  for (const [tn, status] of seen) LAST_STATUS.set(tn, status);
   return { known: true, names };
 }
 
@@ -1114,7 +1159,7 @@ function configDirFor(name) {
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
   install, installSteps, disable, enable, end, start, endSteps, startSteps, runningSteps, win32StepResult, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
-  cachedTaskSpec, taskEnabled, taskEnabledFromQuery, taskEnabledSteps, csvFields, commandsAreReal, REFUSED_IN_TEST,
+  cachedTaskSpec, switchedOffNames, taskEnabled, taskEnabledFromQuery, taskEnabledSteps, csvFields, commandsAreReal, REFUSED_IN_TEST,
   schtasksMayRunInThisProcess,
   setRunner, setAnchorer, setLiveness, setRunningClock, setPresenceTtl, PRESENCE_TTL_MS,
 };
