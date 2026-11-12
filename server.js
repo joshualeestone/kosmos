@@ -29401,6 +29401,8 @@ function start(port = PORT) {
          will fetch, so a staging board, or a board aimed at a mirror, reads as one from its log
          line alone. */
       process.stdout.write(`Kosmos update check: channel=${updates.updateChannel()} pointer=${updates.pointerUrl()}\n`);
+      /* kosmos#8421: if the last board started an automatic update, say whether this one is the version it installed. */
+      try { updates.noteAutoUpdateAtBoot(); } catch { /* a log line must never stop the board */ }
       /* #2036: warn LOUDLY at boot when this box installed from staging (the durable stamp) but is
          resolving prod. Observability only: it changes nothing about which channel resolves or which
          bytes install. Since #2969 the updater follows the stamp, so this fires only when the board's
