@@ -40,8 +40,9 @@
  *
  * A DEAD CONSOLE. Once routed, each console stream gets an 'error' listener for as long as the board runs, so a console
  * pipe whose reader has gone (Homer's 0.8.03 in-place update) cannot become an uncaught error; this also quiets an
- * error from any other writer on those streams. The file keeps every line and says, once per stream, that its console
- * copy stopped; later errors on that stream are dropped.
+ * error from any other writer on those streams. The file keeps every line and records, once per stream, that its
+ * console copy is stopped; later errors on that stream are dropped. Writes still go on to node's own write, which for a
+ * destroyed stream reports the error to the caller (kosmos#8424: "recorded as stopped", not "ended").
  *
  * Nothing here throws into the board except what node's own write throws for a caller's bad argument: when the file
  * cannot be opened the board runs as it did before.
@@ -86,7 +87,8 @@ function tee(stream, fd, lineState, now, name) {
   /* #8373 follow-up (Homer, 0.8.03 in-place update on Windows): the console stream a task-started board inherits can be
      a pipe whose reader is gone. Its EPIPE then arrives as an 'error' event no one listens for, which node turns into an
      uncaught exception, and the board died 74 s after start. This board's output already goes to the file, so the
-     console is the copy that may be lost. Any error event on the stream ends its console copy, not only a dead pipe.
+     console is the copy that may be lost. Any error event on the stream, not only a dead pipe, is recorded as its console
+     copy stopping (kosmos#8424: recorded, not ended; writes still go to node's own write, below).
      The file copy is taken first, so a write node then rejects for a bad argument is still in the file. */
   let dead = false;
   const giveUp = (err) => {
@@ -119,10 +121,11 @@ function tee(stream, fd, lineState, now, name) {
     } catch { /* a full disk or a closed file must not stop the board */ }
     /* Every write still goes to node's own write, even after the console failed: node checks the arguments (a bad one
        throws as it always did) and reports a dead stream through the callback; the first failure also arrives as an
-       'error' event, which giveUp absorbs. Once the console has failed this returns true, because node's false would
-       ask a caller to wait for a 'drain' a dead stream never sends. Defensive: a pipe's EPIPE arrives as that event,
+       'error' event, which giveUp absorbs. Once the console has failed AND node has destroyed the stream, this returns
+       true, because node's false would ask a caller to wait for a 'drain' a destroyed stream never sends. A stream that
+       errored but is still writable answers as node does (kosmos#8424), so its real backpressure is not hidden. Defensive: a pipe's EPIPE arrives as that event,
        not as a throw; only an I/O failure is caught here. */
-    try { const ok = write(chunk, encoding, callback); return dead ? true : ok; } catch (err) {
+    try { const ok = write(chunk, encoding, callback); return dead && stream.destroyed === true ? true : ok; } catch (err) {
       if (!(err && (err.syscall || typeof err.errno === 'number'))) throw err;
       giveUp(err);
       if (typeof cb === 'function') process.nextTick(() => cb(err));
