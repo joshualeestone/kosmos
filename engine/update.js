@@ -569,8 +569,55 @@ function maybeAutoInstall() {
   try {
     if (!autoInstallWouldStart()) return;
     if (cache.paused === true) return;   // kosmos#6620: the fleet's update pause; the next look asks again
+    const was = lastAttempt;
     beginInstall({ auto: true });
+    if (lastAttempt !== was && installStarted && installLaunched) noteAutoStart();   // only an installer that launched
   } catch { /* an update that cannot start must not break the one that shows */ }
+}
+
+/* kosmos#8421: an automatic update wrote nothing to the board log, so the board stopping for it and coming back on a
+   new version read like a crash (three agents showed their test timings before install.log named it). Now the board
+   says, before the installer stops it, what it is installing and from which channel; it leaves a small record beside
+   install.status; and the next board to start reads that record once and says whether it came back on that version.
+   Best-effort throughout: a log line or a record that cannot be written must never stop or fail an update. */
+let autoLog = (line) => { try { process.stdout.write(line + '\n'); } catch { /* a closed stdout */ } };
+function setAutoLog(f) { autoLog = typeof f === 'function' ? f : (line) => { try { process.stdout.write(line + '\n'); } catch { /* a closed stdout */ } }; }
+function autoRecordFile() { return installedRoot() ? path.join(installedRoot(), 'logs', 'install.auto') : null; }
+function noteAutoStart() {
+  const to = cache && cache.latest && cache.latest.version ? String(cache.latest.version) : 'a newer version';
+  const channel = installPointer();
+  const file = autoRecordFile();
+  if (file) {
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ from: RUNNING, to, channel, startedAt: lastAttempt && lastAttempt.startedAt }) + '\n');
+    } catch { /* the line below still says it */ }
+  }
+  autoLog(`Kosmos is updating itself to ${to} from the ${channel} channel (an automatic update, from ${RUNNING}). The board stops while it installs and starts again on the new version; the installer's own record is in ${installLog() || 'install.log'}.`);
+}
+/** kosmos#8421: once, at boot (server.js, after the update-check line): if the last board started an automatic
+    update, say whether this board is the version it was installing, and remove the record. */
+function noteAutoUpdateAtBoot() {
+  const file = autoRecordFile();
+  if (!file) return null;
+  let rec;
+  try { rec = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+  try { fs.unlinkSync(file); } catch { /* read once anyway */ }
+  if (!rec || typeof rec !== 'object' || typeof rec.to !== 'string') return null;
+  const channel = typeof rec.channel === 'string' ? rec.channel : 'its';
+  const line = rec.to === RUNNING
+    ? `Kosmos started again on ${RUNNING} after its automatic update from ${rec.from || 'the version before'} (${channel} channel).`
+    : `Kosmos's automatic update to ${rec.to} (${channel} channel) did not finish; this board is running ${RUNNING}. The installer's own record is in ${installLog() || 'install.log'}.`;
+  autoLog(line);
+  return line;
+}
+/* kosmos#8421: an automatic installer that ended while this board was still alive did not restart it (a refusal before
+   the installer stopped the board): say so, and remove the record, so the next boot does not report it again. */
+function noteAutoEndedAlive() {
+  const file = autoRecordFile();
+  let rec = null;
+  if (file) { try { rec = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* none */ } try { fs.unlinkSync(file); } catch { /* none */ } }
+  autoLog(`Kosmos's automatic update${rec && rec.to ? ' to ' + rec.to : ''} did not finish and the board did not stop; it stays on ${RUNNING}. The installer's own record is in ${installLog() || 'install.log'}.`);
 }
 
 /** What the last look established: for the screen's could-not-reach state.
@@ -1077,6 +1124,7 @@ function wireChild(child, opts) {
        needs a signal the status file was expected-but-unwritten, a separate change. */
     const status = readStatusRaw();
     const realCode = (status && status.startedAt === (owner && owner.startedAt)) ? status.code : code;
+    if (opts && opts.auto) noteAutoEndedAlive();   // kosmos#8421: this board is alive, so the update did not restart it
     if (realCode !== 0) {
       installStarted = false;
       noteAttemptEnd(owner, realCode, 'the installer stopped before it could restart the board');
@@ -1478,6 +1526,7 @@ async function pauseRefusalNow({ fetchImpl } = {}) {
 }
 
 module.exports = {
+  noteAutoUpdateAtBoot, setAutoLog, // kosmos#8421: the board log says an automatic update started, and how it ended
   paused, pauseRefusalNow, // kosmos#6620
   PAUSED_SENTENCE: manifestVerify.PAUSED_SENTENCE, // kosmos#6620
 
