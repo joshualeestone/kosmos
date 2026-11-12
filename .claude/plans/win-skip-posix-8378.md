@@ -15,9 +15,11 @@ Re-measured on origin/main 2b3c0c397d on the Windows box (node 24.19.0, TAP), ev
   `runners.isRunnable`, which on a Windows host judges by PATHEXT, so the extensionless fake `tmux` never counts.
   The function only does work when platform is linux; on Windows the code is never reached.
 - `engine/connect-oldjob-8294` ("a linked folder, tmux -c in the arguments, a home spelling, and the runner's own
-  program"): `foreignStarter` returns null at the "$HOME/agents/homey" arm. `foreignStarter` scans launchd login
-  jobs in ~/Library/LaunchAgents (create.AGENTS_DIR), which Windows does not have, and `folderSpellings`
-  (engine/register.js) adds the "$HOME/..." spelling only for a folder under HOME + '/', a POSIX separator. The test
+  program"): `foreignStarter` returns null at the "$HOME/agents/homey" arm. The test reads plists from a sandbox
+  folder (the other arms pass on Windows); the failure is `folderSpellings` (engine/register.js), which adds the
+  "$HOME/..." spelling only for a folder under os.homedir() + '/': a POSIX separator, and on Windows os.homedir()
+  comes from USERPROFILE, not the HOME the test sets. Not a Windows bug: in production foreignStarter finds no
+  LaunchAgents folder on Windows and returns null first. The test
   is split: the home-spelling arm is its own test ("a home spelling"), skipped on Windows; the linked-folder, tmux -c
   and runner's-own-program arms keep running everywhere.
 - `tools.sbom-o05` ("a tmux bundle entry name with a control character ... refuses", "the command line refuses an
