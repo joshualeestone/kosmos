@@ -29,11 +29,11 @@ let n = 0;
 const rets = [];
 const iv = setInterval(() => {
   n += 1;
-  rets.push(process.stdout.write('line ' + n + '\\n'));
+  rets.push({ r: process.stdout.write('line ' + n + '\\n'), d: process.stdout.destroyed, w: process.stdout.writable });
   if (n >= ${LINES}) {
     clearInterval(iv);
     setTimeout(() => {
-      fs.writeFileSync(process.env.DONE, JSON.stringify({ lived: true, rets, destroyed: process.stdout.destroyed, writable: process.stdout.writable }));
+      fs.writeFileSync(process.env.DONE, JSON.stringify({ lived: true, rets }));
       process.exit(0);
     }, 100);
   }
@@ -64,10 +64,10 @@ test('a task-started board whose console pipe has no reader lives on, and its lo
   for (let i = 1; i <= LINES; i++) assert.match(r.log, new RegExp('line ' + i + '\\n'), 'line ' + i + ' is not in the log');
   // CONTROL: the console really was broken, so the fix's "stopped" note was written (without it the test proves nothing).
   assert.match(r.log, /the console copy of stdout stopped/, 'the console never failed, so this run did not test a broken pipe');
-  /* kosmos#8424 review 6: on the board's REAL stdout, once the console has failed, no write may ask its caller to wait
-     for a 'drain' that will never come. Which arm answers differs by platform, so it is recorded, not asserted:
-     measured on a Mac (node 26), stdout stays writable and not destroyed and node's own write returns true; a review
-     measured it going not-writable, where the tee's not-writable arm returns true. Windows CI runs this file too. */
-  assert.deepStrictEqual(done.rets.slice(-10), Array(10).fill(true), 'a write after the console failed returned false (stdout destroyed '
-    + done.destroyed + ', writable ' + done.writable + '): ' + JSON.stringify(done.rets));
+  /* kosmos#8424 reviews 6 and 7: on the board's REAL stdout, once the console has failed, no write may ask its caller
+     to wait for a 'drain' that will never come. Measured on a Mac (node 26): without the tee node's own write returns
+     false here (the pipe write fails at once, leaving stdout not writable); with the tee each returns true. Each
+     write's return is recorded with the stream's state at that moment. */
+  assert.deepStrictEqual(done.rets.slice(-10).map((x) => x.r), Array(10).fill(true),
+    'a write after the console failed returned false: ' + JSON.stringify(done.rets.slice(-10)));
 });

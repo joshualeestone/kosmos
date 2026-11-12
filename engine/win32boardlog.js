@@ -124,16 +124,18 @@ function tee(stream, fd, lineState, now, name) {
     /* Every write still goes to node's own write, even after the console failed: node checks the arguments (a bad one
        throws as it always did) and reports a DESTROYED stream through the callback (a stream left errored with
        autoDestroy off buffers the write and never calls back, kosmos#8424); the first failure also arrives as an
-       'error' event, which giveUp absorbs. Once node has destroyed the stream, or marked it no longer writable (a
-       failed write with autoDestroy off), this returns true: node's false there would ask a caller to wait for a
-       'drain' that never comes. A stream that is still writable answers as node does (kosmos#8424), so real
-       backpressure is not hidden. node's own state decides, not the error event, which arrives a tick after the
-       destroy. (On node's own streams destroyed implies not writable; the destroyed test is kept for a stand-in that
-       reports only that.) Defensive: a pipe's EPIPE arrives as that event, not as a throw; only an I/O failure is
-       caught here. */
+       'error' event, which giveUp absorbs. This returns true once the console has failed (`dead`), and also whenever
+       node reports the stream destroyed or no longer writable (the tick before the 'error' event arrives, or a failed
+       write with autoDestroy off): node's false there would ask a caller to wait for a 'drain' that never comes.
+       ⚠️ DELIBERATE, kosmos#8424 review 7: `dead` alone forces true even when the stream reads writable again, because
+       node REPAIRS process.stdout a tick after a failed write (writable true, not destroyed), so a later write past
+       the high-water mark would return false with no drain ever coming. The price: a stream that only had an 'error'
+       emitted on it from outside, and stays healthy, has its backpressure hidden from then on. The board's console
+       streams are the ones this is for. Defensive: a pipe's EPIPE arrives as that event, not as a throw; only an I/O
+       failure is caught here. */
     try {
       const ok = write(chunk, encoding, callback);
-      return stream.destroyed === true || stream.writable === false ? true : ok;
+      return dead || stream.destroyed === true || stream.writable === false ? true : ok;
     } catch (err) {
       if (!(err && (err.syscall || typeof err.errno === 'number'))) throw err;
       giveUp(err);
