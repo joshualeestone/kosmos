@@ -61,19 +61,21 @@ function fingerprint(file) {
     try { fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK | NOCTTY); }
     catch (e) { return e && e.code === 'ENOENT' ? { existed: false, lines: [], whole: '' } : null; }
     const st = fs.fstatSync(fd);
-    if (!st.isFile() || st.size > SCALE_MAX_BYTES) return null;
+    /* Review 2: a hard link is not a link to O_NOFOLLOW, and one in the project can name a file outside it. */
+    if (!st.isFile() || st.nlink > 1) return null;
+    if (st.size > SCALE_MAX_BYTES) return { tooLarge: true };
     const buf = Buffer.alloc(SCALE_MAX_BYTES + 1);
     let got = 0;
     for (;;) {
       const n = fs.readSync(fd, buf, got, buf.length - got, got);
       if (n <= 0) break;
       got += n;
-      if (got > SCALE_MAX_BYTES) return null;
+      if (got > SCALE_MAX_BYTES) return { tooLarge: true };
     }
     const text = buf.subarray(0, got).toString('utf8');
     const lines = text.split('\n');
     if (lines.length && lines[lines.length - 1] === '') lines.pop();
-    if (lines.length > SCALE_MAX_LINES) return null;
+    if (lines.length > SCALE_MAX_LINES) return { tooLarge: true };
     return { existed: true, lines: lines.map((l) => short(l.replace(/\r$/, ''))), whole: short(text) };
   } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
@@ -81,8 +83,11 @@ function fingerprint(file) {
 /* Lines added and removed between two fingerprints, counted as multisets (a moved line is no change; a changed line is
    one added and one removed): enough to tell a big change from a small one, not a diff. null when either is missing. */
 function scaleOf(before, after) {
-  if (!before || !after || !Array.isArray(before.lines) || !Array.isArray(after.lines)) return null;
+  if (!before || !after || !Array.isArray(before.lines)) return null;
+  if (after.tooLarge) return { tooLarge: true };
+  if (!Array.isArray(after.lines)) return null;
   if (before.existed && !after.existed) return { gone: true };
+  if (!before.existed && !after.existed) return { notMade: true };
   const left = new Map();
   for (const h of before.lines) left.set(h, (left.get(h) || 0) + 1);
   let added = 0;
@@ -98,6 +103,9 @@ function scaleOf(before, after) {
 function scaleWords(s) {
   if (!s) return '';
   if (s.gone) return ' So far: the file is gone.';
+  if (s.notMade) return ' So far: the file has not been made yet.';
+  if (s.tooLarge) return ' So far: the file is now too large for Kosmos to count the change (over '
+    + Math.round(SCALE_MAX_BYTES / 1024) + ' KB or ' + SCALE_MAX_LINES + ' lines).';
   if (s.created && !s.added) return ' So far: the file was made, empty.';
   if (!s.added && !s.removed) {
     return s.same ? ' So far: Kosmos found no difference in the file since this notice (it may have changed just before).'
@@ -113,7 +121,12 @@ function withScale(notices) {
   return notices.map((n) => {
     const { fp, ...rest } = n;
     let scale = null;
-    if (fp && typeof fp.file === 'string' && typeof fp.dir === 'string' && realDir(fp.file) === fp.dir) scale = scaleOf(fp.before, fingerprint(fp.file));
+    /* Review 2: opened only by the pinned real folder and the file's own name (never the stored path walked again), and
+       the folder checked again AFTER the read, so a link flipped between the check and the read gives no scale. */
+    if (fp && typeof fp.file === 'string' && typeof fp.dir === 'string' && realDir(fp.file) === fp.dir) {
+      const now = fingerprint(path.join(fp.dir, path.basename(fp.file)));
+      if (realDir(fp.file) === fp.dir) scale = scaleOf(fp.before, now);
+    }
     return scale ? { ...rest, scale } : rest;
   });
 }
@@ -147,9 +160,13 @@ function queue(owner, text, { now = Date.now(), file = null } = {}) {
     const rec = read(owner);
     const fresh = rec.notices.filter((n) => now - Date.parse(n.at) >= 0 && now - Date.parse(n.at) < KEEP_MS);
     const entry = { id: crypto.randomBytes(6).toString('hex'), at: new Date(now).toISOString(), text };
-    const before = file ? fingerprint(file) : null;
-    const where = before ? realDir(file) : null;
-    if (before && where) entry.fp = { file, dir: where, before };
+    /* Review 2: only a path whose folder is already its own real path (the caller passes the resolved one), measured
+       by that real folder and name, with the folder checked again after the read. A file already too large gets none. */
+    const dirNow = file && typeof file === 'string' && path.isAbsolute(file) ? realDir(file) : null;
+    if (dirNow && dirNow === path.dirname(file)) {
+      const before = fingerprint(path.join(dirNow, path.basename(file)));
+      if (before && !before.tooLarge && realDir(file) === dirNow) entry.fp = { file, dir: dirNow, before };
+    }
     fresh.push(entry);
     const over = Math.max(0, fresh.length - MAX_PENDING);
     write(owner, { notices: fresh.slice(over), dropped: rec.dropped + over, handedDropped: rec.handedDropped });
