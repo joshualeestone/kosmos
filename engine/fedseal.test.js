@@ -2,6 +2,7 @@
 // kosmos#3728: the sealing primitives. A temp data root; nothing touches a real store.
 const test = require('node:test');
 const assert = require('node:assert');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -134,7 +135,7 @@ test('#3728: this board\'s sealing key is made once, kept at mode 600, and never
   assert.ok(!fs.existsSync(f), 'fixture: no key yet');
   const a = seal.sealingKey();
   assert.ok(fs.existsSync(f));
-  assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600, 'the key file is readable by others');
+  if (!NO_POSIX_MODES) assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600, 'the key file is readable by others');
   const b = seal.sealingKey();
   assert.strictEqual(b.pub, a.pub, 'a second read made a new key');
   const owner = seal.newKeyPair();
@@ -163,14 +164,14 @@ test('#3728: an owner keeps each invite for its project, spends it once, lets it
   assert.strictEqual(seal.isSealedRef('ref-x'), true, 'a project with no live invite fell back to the clear');
   assert.throws(() => seal.stashInvite('ref-y', { s: seal.randomSecret(), code: 'c' }), /not the right shape/, 'an invite with no id was kept');
   const f = path.join(store.ROOT, seal.ROOMS_FILE);
-  assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600, 'the rooms file (room keys) is readable by others');
+  if (!NO_POSIX_MODES) assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600, 'the rooms file (room keys) is readable by others');
 });
 
 test('#3728: a leftover temp file with a wide mode never becomes the rooms file\'s mode', () => {
   const f = path.join(store.ROOT, seal.ROOMS_FILE);
   fs.writeFileSync(f + '.tmp', 'left over', { mode: 0o644 });
   seal.setRoomState('proj-mode', { role: 'owner', keys: { 0: seal.randomSecret() } });
-  assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600);
+  if (!NO_POSIX_MODES) assert.strictEqual(fs.statSync(f).mode & 0o777, 0o600);
   const strays = fs.readdirSync(store.ROOT).filter((n) => n.startsWith(seal.ROOMS_FILE + '.') && n !== seal.ROOMS_FILE + '.tmp');
   assert.deepStrictEqual(strays, [], 'a temp file was left behind: ' + strays);
 });

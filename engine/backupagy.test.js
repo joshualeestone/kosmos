@@ -6,6 +6,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -136,7 +137,7 @@ test('review 1: on an IDLE event loop (nothing else scheduled, as on a quiet boa
   } finally { t.done(); }
 });
 
-test('review 1: the staging folder and every copy are owner-only, even when the folder was left looser', async () => {
+test('review 1: the staging folder and every copy are owner-only, even when the folder was left looser', { skip: NO_POSIX_MODES }, async () => {
   const t = home();
   try {
     const ann = t.mk('workers', 'ann');

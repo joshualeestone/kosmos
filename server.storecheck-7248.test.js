@@ -12,6 +12,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -153,7 +154,7 @@ test('kosmos#7248: putting the good copy back happens only on request, and keeps
     const aside = fs.readdirSync(root).filter((n) => n.startsWith('projects.json.damaged-'));
     assert.equal(aside.length, 1, 'the damaged file was not kept aside');
     assert.equal(fs.readFileSync(path.join(root, aside[0])).every((b) => b === 0), true);
-    assert.equal(fs.statSync(path.join(root, aside[0])).mode & 0o777, 0o600, 'the kept-aside copy is not as private as the store');
+    if (!NO_POSIX_MODES) assert.equal(fs.statSync(path.join(root, aside[0])).mode & 0o777, 0o600, 'the kept-aside copy is not as private as the store');
     assert.equal(sc.current().length, 0, 'a store that was put back is still listed');
     // Review 2: a store saved over since start is never replaced by an older copy; the reply says where the copy is.
     fs.writeFileSync(path.join(root, 'removed.json'), '');

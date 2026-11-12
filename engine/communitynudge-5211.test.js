@@ -10,6 +10,7 @@
 require('../test-support/tmpscope');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -273,7 +274,7 @@ test('noteFollowed keeps two days and drops older lines; a torn line is skipped;
   const lines = fs.readFileSync(nudge.followsFile(), 'utf8').trim().split('\n').map((l) => JSON.parse(l).name);
   assert.deepEqual(lines, ['B', 'C']);
   assert.equal(nudge.localCounts('mara', now).follows, 2);
-  assert.equal((fs.statSync(nudge.followsFile()).mode & 0o777).toString(8), '600');
+  if (!NO_POSIX_MODES) assert.equal((fs.statSync(nudge.followsFile()).mode & 0o777).toString(8), '600');
   fs.rmSync(nudge.followsFile());
   fs.mkdirSync(nudge.followsFile());   // a folder where the file goes: unreadable as a file
   assert.equal(nudge.noteFollowed('mara', 'Z', now), false);

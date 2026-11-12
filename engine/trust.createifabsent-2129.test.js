@@ -15,6 +15,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -80,7 +81,7 @@ test('the created config is keyed on the RESOLVED path Claude Code will read', (
   assert.deepEqual(Object.keys(j.projects), [K(d)]);
 });
 
-test('the created config is born private (mode 600) -- it holds account/session details', () => {
+test('the created config is born private (mode 600) -- it holds account/session details', { skip: NO_POSIX_MODES }, () => {
   const d = folder();
   const cfgDir = freshConfigDir();
   trustFolder(d, { configDir: cfgDir, createIfAbsent: true });
@@ -101,8 +102,10 @@ test('createIfAbsent fills an EMPTY existing config file, KEEPING its existing m
   assert.equal(j.projects[K(d)][KEY], true);
   // The empty-EXISTING path keeps the existing mode; only the ENOENT create path
   // is born private (0o600). Pins that the two paths are not accidentally unified.
-  assert.equal(fs.statSync(cfg).mode & 0o777, 0o644,
-    'an empty existing config must keep its on-disk mode, not be tightened to 600');
+  if (!NO_POSIX_MODES) {
+    assert.equal(fs.statSync(cfg).mode & 0o777, 0o644,
+      'an empty existing config must keep its on-disk mode, not be tightened to 600');
+  }
 });
 
 test('createIfAbsent is idempotent: a second call reports already-trusted and rewrites nothing new', () => {

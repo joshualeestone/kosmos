@@ -2,6 +2,7 @@
 /** #529: the token doors. One engine, a spec per service; each door checks with the service, keeps mode 600, never answers the token. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -52,7 +53,7 @@ test('a token the service accepts is stored mode 600 under secrets/env by variab
   assert.ok(!JSON.stringify(st).includes(token), 'the token came back in the state');
   const file = path.join(DIR, 'DISCORD_BOT_TOKEN');
   assert.equal(fs.readFileSync(file, 'utf8'), token + '\n');
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (!NO_POSIX_MODES) assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.equal(seen[0].req.headers.Authorization, 'Bot ' + token, 'Discord wants Bot, not Bearer');
   assert.equal((await d.state()).who, 'kittybot', 'the state is read from the service, with the held token');
   await d.forget();
@@ -96,8 +97,10 @@ test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place
   fs.mkdirSync(DIR, { recursive: true });
   fs.writeFileSync(file, 'OLD-TOKEN\n');
   fs.chmodSync(file, 0o644);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o644,
-    'the loose plant did not take, so this arm would pass without the fix');
+  if (!NO_POSIX_MODES) {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o644,
+      'the loose plant did not take, so this arm would pass without the fix');
+  }
   const inodeBefore = fs.statSync(file).ino;
 
   d.setFetcher(async () => ({ ok: true, status: 200, body: { username: 'kittybot' } }));
@@ -108,7 +111,7 @@ test('#1787: a pre-existing loose token file is REPLACED, not rewritten in place
     assert.notEqual(fs.statSync(file).ino, inodeBefore,
       'the credential was written IN PLACE into the pre-existing loose file: same inode '
       + 'means no rename, so the token bytes were on disk at 0644 before the chmod');
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'the credential was left loose');
+    if (!NO_POSIX_MODES) assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'the credential was left loose');
   } finally {
     /* Restore on EVERY path: a failing assertion above would leave a stored token
        and a live fetcher for whatever test runs next. */

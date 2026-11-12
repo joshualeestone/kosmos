@@ -11,6 +11,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('./test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
@@ -53,8 +54,10 @@ test('a good key: 200, connection state, and the response NEVER carries the key'
   const settings = JSON.parse(fs.readFileSync(nodePath.join(dir, 'settings.json'), 'utf8'));
   assert.equal(settings.apiKeyHelper, claudeAccounts.apiKeyHelperCommand(dir), 'settings carries the pointer command');
   assert.ok(!JSON.stringify(settings).includes('goodkey'), 'the raw key must never land in settings.json');
-  const mode = fs.statSync(claudeAccounts.keyFile(dir)).mode & 0o777;
-  assert.equal(mode, 0o600, 'the stored key file is owner-only');
+  if (!NO_POSIX_MODES) {
+    const mode = fs.statSync(claudeAccounts.keyFile(dir)).mode & 0o777;
+    assert.equal(mode, 0o600, 'the stored key file is owner-only');
+  }
 });
 
 test('a positively-rejected key is refused at ENTRY (#1315), and no account dir is left behind', async () => {

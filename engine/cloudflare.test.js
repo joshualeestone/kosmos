@@ -1,6 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -34,7 +35,7 @@ test('a token Cloudflare calls active is stored mode 600 and the state is read b
   assert.equal(s.connected, true);
   assert.equal(s.tokenId, 'abc123abc123abc123abc123abc123ab');
   assert.ok(!JSON.stringify(s).includes('cf_test_token'), 'the answer must never carry the token');
-  assert.equal((fs.statSync(cloudflare.FILE).mode & 0o777), 0o600);
+  if (!NO_POSIX_MODES) assert.equal((fs.statSync(cloudflare.FILE).mode & 0o777), 0o600);
   assert.equal(fs.readFileSync(cloudflare.FILE, 'utf8').trim(), 'cf_test_token_abcdefghijklmnopqrstuvwxyz');
   // Revoked on Cloudflare's side: the file is still there, and the door says so instead of "connected".
   cloudflare.setFetcher(fake(revoked));
@@ -71,8 +72,10 @@ test('#1787: a pre-existing loose credential file is REPLACED, not rewritten in 
   fs.mkdirSync(path.dirname(cloudflare.FILE), { recursive: true });
   fs.writeFileSync(cloudflare.FILE, 'OLD-TOKEN\n');
   fs.chmodSync(cloudflare.FILE, 0o644);
-  assert.equal(fs.statSync(cloudflare.FILE).mode & 0o777, 0o644,
-    'the loose plant did not take, so this arm would pass without the fix');
+  if (!NO_POSIX_MODES) {
+    assert.equal(fs.statSync(cloudflare.FILE).mode & 0o777, 0o644,
+      'the loose plant did not take, so this arm would pass without the fix');
+  }
   const inodeBefore = fs.statSync(cloudflare.FILE).ino;
 
   cloudflare.setFetcher(fake(good));
@@ -84,8 +87,10 @@ test('#1787: a pre-existing loose credential file is REPLACED, not rewritten in 
     assert.notEqual(fs.statSync(cloudflare.FILE).ino, inodeBefore,
       'the credential was written IN PLACE into the pre-existing loose file: same inode '
       + 'means no rename, so the token bytes were on disk at 0644 before the chmod');
-    assert.equal(fs.statSync(cloudflare.FILE).mode & 0o777, 0o600,
-      'the credential was left loose');
+    if (!NO_POSIX_MODES) {
+      assert.equal(fs.statSync(cloudflare.FILE).mode & 0o777, 0o600,
+        'the credential was left loose');
+    }
   } finally {
     /* Restore on EVERY path, matching the two sibling arms added in this change. A
        failing assertion above would otherwise leak a live fetcher AND a stored

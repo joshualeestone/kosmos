@@ -9,6 +9,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -66,8 +67,10 @@ test('#5744 2b: a first key is registered at epoch 1, wrapped so the company key
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.epoch, 1);
   assert.equal(c.kept.get(1), r.publicKey.toString('base64url'));
-  assert.equal(fs.statSync(keyFile()).mode & 0o777, 0o600);
-  assert.equal(fs.statSync(path.dirname(keyFile())).mode & 0o777, 0o700);
+  if (!NO_POSIX_MODES) {
+    assert.equal(fs.statSync(keyFile()).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(path.dirname(keyFile())).mode & 0o777, 0o700);
+  }
 });
 
 test('#5744 2b: a key Kosmos+ already took is answered from disk, with no second registration', async () => {
@@ -194,7 +197,7 @@ test('#5744 2b: member_key_reused gets one fresh key at the same epoch; the regi
   assert.deepEqual(limited.sent.map((b) => b.epoch), [1]);
 });
 
-test('#5744 2b: a key folder that already exists with looser permissions is made owner-only', async () => {
+test('#5744 2b: a key folder that already exists with looser permissions is made owner-only', { skip: NO_POSIX_MODES }, async () => {
   fs.mkdirSync(path.join(store.ROOT, 'backupkeys'), { recursive: true });
   fs.chmodSync(path.join(store.ROOT, 'backupkeys'), 0o755);
   const c = fakeCoordinator();
@@ -462,7 +465,7 @@ test('#5744 2b: a failure right after a move keeps the moved key, and the next c
   assert.deepEqual([r.ok, r.epoch, r.publicKey.toString('base64url')], [true, 2, kept['2'].pk], JSON.stringify(r));
 });
 
-test('#5744 2b: a key file left readable by others is made owner-only when read', async () => {
+test('#5744 2b: a key file left readable by others is made owner-only when read', { skip: NO_POSIX_MODES }, async () => {
   const c = fakeCoordinator();
   await mk.ensureMemberKey({ macRequest: c.macRequest });
   fs.chmodSync(keyFile(), 0o644);

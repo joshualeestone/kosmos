@@ -18,6 +18,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const NO_POSIX_MODES = require('../test-support/skip-on-win32').skipOnWin32('it checks POSIX file modes, which Windows does not keep');   // kosmos#8378
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -178,7 +179,7 @@ test('CONTROL: the real store is never touched by this file', () => {
     'the log would land outside the sandbox, at ' + wouldping.fileFor());
 });
 
-test('#1784: a PRE-EXISTING loose log is tightened on its next append, not left loose', () => {
+test('#1784: a PRE-EXISTING loose log is tightened on its next append, not left loose', { skip: NO_POSIX_MODES }, () => {
   /* 🛑 THE DEFECT, AND WHY THE OBVIOUS ARM MISSES IT. `mode:` on appendFileSync
      applies on CREATE only, so a fresh-create arm passes with the mode option
      alone and the re-assert deleted. The bug lives on a file that ALREADY
@@ -196,7 +197,7 @@ test('#1784: a PRE-EXISTING loose log is tightened on its next append, not left 
     'an existing loose log was appended to and left loose: mode: on append is create-only');
 });
 
-test('#1784: a PRE-EXISTING world-readable dir is tightened, not left enumerable', () => {
+test('#1784: a PRE-EXISTING world-readable dir is tightened, not left enumerable', { skip: NO_POSIX_MODES }, () => {
   /* mkdirSync passes its mode on CREATE only too, so a directory that already
      exists at 0755 keeps it. The 0600 on the files is doing less than it looks
      if anyone can list the directory. Revert `chmodSync(dir, 0o700)` and this
@@ -210,7 +211,7 @@ test('#1784: a PRE-EXISTING world-readable dir is tightened, not left enumerable
     'the wouldping directory stayed world-readable, so its 0600 files can be listed');
 });
 
-test('#1784 CONTROL: a FRESH create is already 0700 / 0600 (proves the instrument sees modes)', () => {
+test('#1784 CONTROL: a FRESH create is already 0700 / 0600 (proves the instrument sees modes)', { skip: NO_POSIX_MODES }, () => {
   /* This one passes with the re-assert deleted, because create honours the
      mode. It is here to prove the two arms above measure the RE-ASSERT and not
      the create: if this were red the machine could not observe 0700/0600 at
