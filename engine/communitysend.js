@@ -3572,21 +3572,25 @@ function registrationMismatch(rec, k) {
    when the records that decide it cannot be read, and the route then stores nothing and asks for a retry. */
 const REPEAT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const UNKNOWN_REPEAT = (kind) => ({ unknown: 'Kosmos could not read its record of sent ' + kind + 's, so it could not tell whether it already has this one. Nothing was sent; try again in a minute' });
-/* Whether an earlier published row still stands for these words: sent or on its way, or never tried but inside the ON
-   period running now (the sweep sends it). Not: withheld, refused, marked never to go, or left from an ON period that
-   ended (the sweep never sends those, so the agent's new
-   words must be stored, or they would never go either). For a PUBLISHED row with no removal request; `rec` is its send
-   record (or none yet). */
-function priorStands(row, rec) {
+/* An earlier PUBLISHED row's standing, from its send record (or none yet): 'went' (sent, or tried and unanswered),
+   'due' (never tried, inside the ON period running now, so the sweep sends it), or false (withheld, refused, marked
+   never to go, or from an ON period that ended, which the sweep never sends). The callers handle removal requests and
+   held rows before asking. */
+function priorStanding(row, rec) {
   if (rec) {
-    if (rec.state === 'sent' || rec.state === 'unconfirmed') return true;
+    if (rec.state === 'sent' || rec.state === 'unconfirmed') return 'went';
     if (rec.state !== 'pending') return false;
-    if (rec.attempted) return true;
+    if (rec.attempted) return 'went';
   }
   if (!switchOn()) return false;
   const st = loadJson(stateFile());
-  return Boolean(st && typeof st.since === 'string' && String(row.releasedAt || row.receivedAt) >= st.since);
+  return st && typeof st.since === 'string' && String(row.releasedAt || row.receivedAt) >= st.since ? 'due' : false;
 }
+// The matched row, marked `went` when it has already gone out (or was tried), so the answer can say so.
+const standing = (prior, rec) => {
+  const s = priorStanding(prior, rec);
+  return s === 'went' ? { ...prior, went: true } : s === 'due' ? prior : null;
+};
 function commentRepeatOf(rec, now = Date.now()) {
   const prior = communitystore.repeatServiceComment(rec, new Date(now - REPEAT_WINDOW_MS).toISOString());
   if (!prior) return null;
@@ -3596,7 +3600,7 @@ function commentRepeatOf(rec, now = Date.now()) {
   if (prior.status !== 'published') return prior;   // held: only a take-back decides, read above
   const csent = loadJson(commentsSentFile());
   if (!csent) return UNKNOWN_REPEAT('comment');
-  return priorStands(prior, csent[prior.id]) ? prior : null;
+  return standing(prior, csent[prior.id]);
 }
 function postRepeatOf(rec, now = Date.now()) {
   const prior = communitystore.repeatAgentPost(rec, new Date(now - REPEAT_WINDOW_MS).toISOString());
@@ -3607,7 +3611,7 @@ function postRepeatOf(rec, now = Date.now()) {
   if (prior.status !== 'published') return prior;   // held: only a take-back decides, read above
   const sent = loadJson(sentFile());
   if (!sent) return UNKNOWN_REPEAT('post');
-  return priorStands(prior, sent[prior.id]) ? prior : null;
+  return standing(prior, sent[prior.id]);
 }
 function commentRecords() {
   const csent = loadJson(commentsSentFile());

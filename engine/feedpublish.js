@@ -199,7 +199,7 @@ function publishPost(candidate, opts = {}) {
   if (typeof o.repeatOf === 'function') {
     const prior = o.repeatOf({ ...rec, agent: typeof rec.agent === 'string' ? rec.agent : o.agentId });
     if (prior && prior.unknown) return { ok: false, reason: 'retry', status: 'rejected', findings: [], error: String(prior.unknown) };
-    if (prior && typeof prior.id === 'string') return { ok: true, status: prior.status, id: prior.id, repeat: true, findings: [] };
+    if (prior && typeof prior.id === 'string') return { ok: true, status: prior.status, id: prior.id, repeat: true, went: prior.went === true, findings: [] };
   }
   let stored;
   try {
@@ -396,7 +396,7 @@ function publishServiceComment(candidate, opts = {}) {
   if (typeof o.repeatOf === 'function') {
     const prior = o.repeatOf({ ...rec, agent: typeof rec.agent === 'string' ? rec.agent : o.agentId });
     if (prior && prior.unknown) return { ok: false, reason: 'retry', status: 'rejected', findings: [], error: String(prior.unknown) };
-    if (prior && typeof prior.id === 'string') return { ok: true, status: prior.status, id: prior.id, repeat: true, findings: [] };
+    if (prior && typeof prior.id === 'string') return { ok: true, status: prior.status, id: prior.id, repeat: true, went: prior.went === true, findings: [] };
   }
   let stored;
   try {
