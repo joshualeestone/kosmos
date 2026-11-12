@@ -26,6 +26,9 @@ const USAGE_MODEL_PRICES = Object.freeze({
   // under-estimated. Said on #5626.
   'claude-haiku-5-5': Object.freeze({ in: 0.10, out: 0.50, cw: 0.125, cr: 0.01 }),
   'claude-haiku-4-5': Object.freeze({ in: 1, out: 5, cw: 1.25, cr: 0.10 }),
+  // #8461: claude-fable-5-2 at Anthropic's published rates (Claude API pricing, current 2026-11-03): input 8, output 40,
+  // cache read 0.20; the 5-minute cache write is 1.25x input, as for every row here.
+  'claude-fable-5-2': Object.freeze({ in: 8, out: 40, cw: 10, cr: 0.20 }),
   'claude-fable-5-1': Object.freeze({ in: 10, out: 50, cw: 12.50, cr: 0.25 }),
   'claude-fable-5': Object.freeze({ in: 10, out: 50, cw: 12.50, cr: 1.00 }),
   'gpt-5.1': Object.freeze({ in: 1.25, out: 10, cw: 1.25, cr: 0.125 }),

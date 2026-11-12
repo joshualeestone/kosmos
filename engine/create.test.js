@@ -6032,7 +6032,7 @@ test("#1026: modelsFor scopes to the provider, and today OpenAI's list is empty"
   // #3459: seven, after Opus 5.5 was added.
   // #4439: eight, after Sonnet 5.5 was added.
   // #5626: nine, after Haiku 5.5 was added (Haiku 4.5 kept).
-  assert.equal(create.modelsFor('anthropic').length, 9);
+  assert.equal(create.modelsFor('anthropic').length, 10);   // #8461: Fable 5.2 added
   assert.deepEqual(create.modelsFor('openai'), [],
     'an OpenAI model appeared without anyone adding one, or the filter is wrong');
   // Every entry carries one, or the filter silently drops it from both lists.
@@ -6103,6 +6103,26 @@ test('#5626: the picker offers Claude Haiku 5.5 by its published id, keeps Haiku
   assert.deepEqual(create.MODELS.filter((m) => m.default).map((m) => m.arg), ['claude-sonnet-5'], 'CONTROL: Sonnet 5 is still the one default');
 });
 
+test('#8461: the picker offers Claude Fable 5.2 first, the board names a running one, and its usage is priced', () => {
+  const create = require('./create');
+  const first = create.MODELS.find((m) => m.provider === 'anthropic');
+  assert.equal(first.arg, 'claude-fable-5-2', 'Fable 5.2 does not lead the Claude menu');
+  assert.equal(first.label, 'Claude Fable 5.2');
+  assert.ok(first.why && !/newest/.test(create.MODELS.find((m) => m.arg === 'claude-fable-5-1').why), 'Fable 5.1 still calls itself the newest');
+  assert.ok(create.modelsFor('anthropic').some((m) => m.arg === 'claude-fable-5-2'), 'the picker does not offer it');
+  assert.deepEqual(create.MODELS.filter((m) => m.default).map((m) => m.arg), ['claude-sonnet-5'], 'CONTROL: the default is unchanged');
+  const fs = require('fs');
+  const path = require('path');
+  const status = fs.readFileSync(path.join(__dirname, 'status.js'), 'utf8');
+  assert.match(status, /'claude-fable-5-2': 'Claude Fable 5\.2'/, 'a running Fable 5.2 agent would show its raw id');
+  const price = require('./usageprice');
+  const row = price.modelPrice('claude-fable-5-2');
+  assert.ok(row, 'Fable 5.2 usage has no price');
+  assert.deepEqual({ in: row.in, out: row.out, cw: row.cw, cr: row.cr }, { in: 8, out: 40, cw: 10, cr: 0.20 });
+  const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  assert.match(page, /'claude-fable-5-2': \{ in: 8, out: 40, cw: 10, cr: 0\.20 \}/, 'the page prices Fable 5.2 differently from the engine, or not at all');
+});
+
 test('#2140: the Claude picker is ordered most-powerful-first in Josh\'s exact order (item 10)', () => {
   const create = require('./create');
   // Josh, 0.6.35 feedback item 10: Fable 5.1, Fable 5, Opus 5, Opus 4.8, Sonnet, Haiku.
@@ -6114,7 +6134,8 @@ test('#2140: the Claude picker is ordered most-powerful-first in Josh\'s exact o
     .filter((m) => m.provider === 'anthropic')
     .map((m) => m.arg);
   assert.deepEqual(claudeOrder, [
-    'claude-fable-5-1',   // Fable 5.1 (most capable, leads)
+    'claude-fable-5-2',   // Fable 5.2 (#8461: newest and most capable, leads)
+    'claude-fable-5-1',   // Fable 5.1
     'claude-fable-5',     // Fable 5
     'claude-opus-5-5',    // Opus 5.5 (#3459: newest Opus, leads the Opus tier)
     'claude-opus-5',      // Opus 5

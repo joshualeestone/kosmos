@@ -105,7 +105,7 @@ const launchidentity = require('./launchidentity'); // #1704: the per-Kosmos lau
    MOST-POWERFUL-FIRST, in Josh's exact order. #3459 (2026-09-23) added Opus 5.5
    ahead of Opus 5, #4439 (2026-09-28) added Sonnet 5.5 ahead of Sonnet 5,
    and #5626 (2026-10-08) added Haiku 5.5 ahead of Haiku 4.5, so the order is
-   now: Fable 5.1, Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5, Sonnet 5,
+   now: Fable 5.2 (#8461), Fable 5.1, Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5, Sonnet 5,
    Haiku 5.5, Haiku 4.5. The array order IS the display order (the picker
    renders MODELS in sequence), so this list is the single source of that order;
    create.test.js and model-sort-order-2284.test.js assert it exactly. The DEFAULT
@@ -113,10 +113,15 @@ const launchidentity = require('./launchidentity'); // #1704: the per-Kosmos lau
    `default: true` below) -- Josh asked to reorder the menu, not to change which
    model is pre-selected; that is a separate call. */
 const MODELS = [
+  // #8461: Fable 5.2 (Josh asked, 2026-11-12), id pinned from the installed Claude Code's
+  // own model list (2.1.322 names claude-fable-5-2, "Fable 5.2"). It leads the menu as the
+  // newest and most capable Fable, as 5.1 did (#2140); 5.1 stays, one place down.
+  { key: 'fable52', provider: 'anthropic', label: 'Claude Fable 5.2', arg: 'claude-fable-5-2',
+    why: 'The newest and most capable Fable, and cheaper to run than Fable 5.1. For the hardest and longest work.' },
   // #1356: Fable 5.1 (Josh, 2026-09-01), id pinned from the tool's own model
-  // list (claude-fable-5-1). #2140: it leads the menu as the most capable.
+  // list (claude-fable-5-1). #2140: it led the menu until #8461 added 5.2.
   { key: 'fable51', provider: 'anthropic', label: 'Claude Fable 5.1', arg: 'claude-fable-5-1',
-    why: 'The newest and most capable Fable. Strong on code, and it reports progress as it works through a long task.' },
+    why: 'The previous Fable. Strong on code, and it reports progress as it works through a long task.' },
   { key: 'fable', provider: 'anthropic', label: 'Claude Fable 5', arg: 'claude-fable-5',
     why: 'The previous Fable. Very capable, and the most expensive to run. For work where being right matters more than being quick.' },
   // #3459 (Josh, 2026-09-23): add Opus 5.5, the newest Opus. Id claude-opus-5-5

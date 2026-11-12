@@ -25,6 +25,7 @@ const openai = require('./openaiaccounts');
 test('#2284 Claude models are in Josh\'s exact most-powerful-first order', () => {
   const claude = create.MODELS.filter((m) => m.provider === 'anthropic').map((m) => m.arg);
   assert.deepEqual(claude, [
+    'claude-fable-5-2',
     'claude-fable-5-1',
     'claude-fable-5',
     'claude-opus-5-5',
@@ -34,7 +35,7 @@ test('#2284 Claude models are in Josh\'s exact most-powerful-first order', () =>
     'claude-sonnet-5',
     'claude-haiku-5-5',
     'claude-haiku-4-5-20251001',
-  ], 'Claude picker order (#3459 added Opus 5.5, #4439 Sonnet 5.5, #5626 Haiku 5.5): Fable 5.1, Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5, Sonnet 5, Haiku 5.5, Haiku 4.5');
+  ], 'Claude picker order (#3459 added Opus 5.5, #4439 Sonnet 5.5, #5626 Haiku 5.5, #8461 Fable 5.2): Fable 5.2, Fable 5.1, Fable 5, Opus 5.5, Opus 5, Opus 4.8, Sonnet 5.5, Sonnet 5, Haiku 5.5, Haiku 4.5');
 });
 
 test('#2284 OpenAI sorts most-powerful-first: version descending, then tier (terra>soul>luna>pro>plain>mini>nano)', () => {
