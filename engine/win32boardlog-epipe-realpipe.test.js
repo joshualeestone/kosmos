@@ -26,10 +26,17 @@ const r = bl.route(process.stdout, process.stderr, { platform: 'win32', taskStar
   isFile: () => false, inTest: () => false });
 if (!r) { fs.writeFileSync(process.env.DONE, 'not routed'); process.exit(3); }
 let n = 0;
+const rets = [];
 const iv = setInterval(() => {
   n += 1;
-  process.stdout.write('line ' + n + '\\n');
-  if (n >= ${LINES}) { clearInterval(iv); setTimeout(() => { fs.writeFileSync(process.env.DONE, 'lived'); process.exit(0); }, 100); }
+  rets.push(process.stdout.write('line ' + n + '\\n'));
+  if (n >= ${LINES}) {
+    clearInterval(iv);
+    setTimeout(() => {
+      fs.writeFileSync(process.env.DONE, JSON.stringify({ lived: true, rets, destroyed: process.stdout.destroyed, writable: process.stdout.writable }));
+      process.exit(0);
+    }, 100);
+  }
 }, 25);
 `;
 
@@ -50,9 +57,17 @@ function runChild() {
 
 test('a task-started board whose console pipe has no reader lives on, and its log keeps every line', async () => {
   const r = await runChild();
-  assert.equal(r.done, 'lived', 'the child did not finish (exit ' + r.code + ', signal ' + r.signal + '); log tail:\n' + r.log.slice(-800));
+  let done = null;
+  try { done = JSON.parse(r.done); } catch { done = null; }
+  assert.ok(done && done.lived === true, 'the child did not finish (exit ' + r.code + ', signal ' + r.signal + '); log tail:\n' + r.log.slice(-800));
   assert.equal(r.code, 0);
   for (let i = 1; i <= LINES; i++) assert.match(r.log, new RegExp('line ' + i + '\\n'), 'line ' + i + ' is not in the log');
   // CONTROL: the console really was broken, so the fix's "stopped" note was written (without it the test proves nothing).
   assert.match(r.log, /the console copy of stdout stopped/, 'the console never failed, so this run did not test a broken pipe');
+  /* kosmos#8424 review 6: on the board's REAL stdout, once the console has failed, no write may ask its caller to wait
+     for a 'drain' that will never come. Which arm answers differs by platform, so it is recorded, not asserted:
+     measured on a Mac (node 26), stdout stays writable and not destroyed and node's own write returns true; a review
+     measured it going not-writable, where the tee's not-writable arm returns true. Windows CI runs this file too. */
+  assert.deepStrictEqual(done.rets.slice(-10), Array(10).fill(true), 'a write after the console failed returned false (stdout destroyed '
+    + done.destroyed + ', writable ' + done.writable + '): ' + JSON.stringify(done.rets));
 });
