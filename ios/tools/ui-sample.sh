@@ -4,11 +4,11 @@
 # room opening on its newest post (RoomOpensAtNewestUITests, #7654), the x on an add (StopAddingUITests, #7682) and the
 # keyboard in that long room (RoomKeyboardUITests, #7690), and the launch screen's hand-over to the Connecting wait
 # (LaunchHandoverUITests, #7945), and a sent message settling without a step (SendMovesOnceUITests, #7348).
-# Run by the ios workflow's "ui tests (sample board)" job, with --uikit by its "uikit list (sample board)" job, and by
+# Run by the ios workflow's "ui tests (sample board)" job, with --uikit by its two "uikit list (sample board) 1/2" and "2/2" jobs (--shard, kosmos#8453), and by
 # hand. Prints PASS, or FAIL with the failing check's own words.
 #
 #
-#   ios/tools/ui-sample.sh [--keep] [--uikit]
+#   ios/tools/ui-sample.sh [--keep] [--uikit [--shard 1/2|2/2]]
 #
 # --uikit (kosmos#8221): the same run on the UIKit chat list (TEST_RUNNER_KOSMOS_UIKITLIST=1), the list a phone draws only
 # with Settings' "New chat list" switch on (slice 5). Only classes that switch lists; the full list and each slice's reason
@@ -26,10 +26,13 @@ set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 keep=0
 uikit=0
+shard=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=1; shift ;;
     --uikit) uikit=1; shift ;;
+    # kosmos#8453: half of the UIKit arm's classes, 1/2 (the earlier-pages classes) or 2/2 (the rest); see "shard" below.
+    --shard) shard="${2:-}"; case "$shard" in 1/2|2/2) ;; *) echo "ui-sample: --shard takes 1/2 or 2/2" >&2; exit 2 ;; esac; shift 2 ;;
     # The header comment, however long it grows: a fixed line range has to be raised each time the header grows, and
     # #7690's longer header would have cut its last line.
     -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
@@ -93,6 +96,24 @@ if [ "$uikit" = 1 ]; then
     skip="$skip -skip-testing:KosmosUITests/KeyboardSlideUITests/$t"
   done
 fi
+# kosmos#8453: the UIKit arm in two halves, so each CI job (ios.yml "uikit list (sample board) 1/2" and "2/2") ends well
+# inside its limit: the one job took 75 of its 80 minutes on PR #8447. 1/2 is the earlier-pages classes (their pages are
+# held back 16 s each, the longest checks) and the two short 260-message ones; 2/2 is every other class. A class is in 2/2
+# unless it is named here, so together the halves are always the whole list (tools/test-ui-sample-shard.sh checks it).
+# Measured per class on main's run 42940677400 (before #8443 doubled the page delay): 1/2 about 27 min, 2/2 about 26.
+earlier=" EarlierDroppedUITests EarlierDeleteShiftUITests EarlierPagesUITests EarlierDoubleAskUITests ChatSearchUITests ChatDragUITests StopAddingUITests "
+if [ -n "$shard" ]; then
+  [ "$uikit" = 1 ] || { echo "ui-sample: --shard is for the UIKit arm (--uikit) only" >&2; exit 2; }
+  kept=""
+  for c in $classes; do
+    case "$earlier" in *" ${c%%:*} "*) half=1/2 ;; *) half=2/2 ;; esac
+    [ "$half" = "$shard" ] && kept="$kept $c"
+  done
+  classes="${kept# }"
+  [ -n "$classes" ] || { echo "FAIL  ui-sample: shard $shard holds no class" >&2; exit 1; }
+fi
+# UI_SAMPLE_PRINT_CLASSES=1: print the classes this run would take and stop (tools/test-ui-sample-shard.sh).
+if [ "${UI_SAMPLE_PRINT_CLASSES:-}" = 1 ]; then printf '%s\n' $classes; exit 0; fi
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
   echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
   exit 1

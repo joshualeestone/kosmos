@@ -283,23 +283,31 @@ jobs:
   # kosmos#8221 slice 16: 80 minutes, from 60. Passing runs took 46 to 52 minutes on main and other PRs on 2026-11-10 (one
   # outlier at 29); slice 16 adds four checks of about 1.5 to 2 minutes each, and its first run was cancelled at 60 with
   # the per-test limit never reached (no test hung).
+  # kosmos#8453: in two halves (ui-sample.sh --shard), as one job took 75 of its 80 minutes on PR #8447 and a slow runner
+  # would have timed it out, a red no PR caused. Each half builds the app on its own runner and runs about half the checks
+  # (measured per class: about 27 and 26 minutes of checks, before #8443's longer page delay), so each ends well inside 60.
+  # A half that fails does not cancel the other (fail-fast off), so one red names its own classes.
   uikit:
-    name: uikit list (sample board)
+    name: uikit list (sample board) ${{ matrix.shard }}
     runs-on: macos-latest
-    timeout-minutes: 80
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/2", "2/2"]
     steps:
       - uses: actions/checkout@v4
 
       - name: UI tests on the UIKit list (sample board)
         run: |
           set -o pipefail
-          UI_SAMPLE_FAILED_RESULT="$RUNNER_TEMP/uikit-result.xcresult" ios/tools/ui-sample.sh --uikit | tee "$RUNNER_TEMP/ui-sample.log"
+          UI_SAMPLE_FAILED_RESULT="$RUNNER_TEMP/uikit-result.xcresult" ios/tools/ui-sample.sh --uikit --shard "${{ matrix.shard }}" | tee "$RUNNER_TEMP/ui-sample.log"
           grep -q '^PASS  ui-sample:' "$RUNNER_TEMP/ui-sample.log"
 
-      # Sample data only: no account, no real messages.
+      # Sample data only: no account, no real messages. Named per half (no slash in an artifact name), so two cannot clash.
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: uikit-result-${{ github.run_id }}-${{ github.run_attempt }}
+          name: uikit-result-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
           path: ${{ runner.temp }}/uikit-result*
           retention-days: 7

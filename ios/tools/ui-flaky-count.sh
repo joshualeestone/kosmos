@@ -1,7 +1,7 @@
 #!/bin/bash
 # kosmos#7609: the count ui-sample's retry promises. Over main's last N ios.yml runs (default 10): how many ran, went red, and how many
 # times each test was FLAKY or still failed. A test FLAKY on 3 of 10 is looked at, not left. Usage: ui-flaky-count.sh [N] [job]
-# job: the ios.yml job's exact name, "ui tests (sample board)" by default; "uikit list (sample board)" for the UIKit list (#8221).
+# job: the ios.yml job's exact name, "ui tests (sample board)" by default; "uikit list (sample board) 1/2" or "... 2/2" for the UIKit list (#8221; in two halves since #8453, so count each).
 set -u
 R=joshualeestone/kosmos; N="${1:-10}"; J="${2:-ui tests (sample board)}"; T="$(mktemp)"; trap 'rm -f "$T"' EXIT
 ran=0; red=0; none=0; asked=0; nojob=0; apierr=0
