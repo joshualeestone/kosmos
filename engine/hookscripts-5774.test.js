@@ -24,7 +24,7 @@ const store = require('./store');
 /* kosmos#8378: the tests below whose subject is absent on Windows skip there, each saying why. */
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
 const POSIX_GUARD = skipOnWin32('it runs the macOS or Linux guard (platform darwin or linux, through its seam) over folders made on this host, and those guards write their rules and the macOS Seatbelt sandbox for POSIX paths, never a Windows drive path; the Windows guard is tested in engine/tokenguard.win32-5664.test.js');
-const POSIX_LINES = skipOnWin32('it reads shell lines whose folders are absolute POSIX paths (/A, /H, /opt), which do not exist on Windows, where the splitter resolves them against the current drive');
+const POSIX_LINES = skipOnWin32('it reads shell lines whose folders are absolute POSIX paths (/A, /H, /opt), which do not exist on Windows, where the splitter resolves them against the current drive (its Windows path rules are kosmos#8451)');
 const sc = require('./startcommands');
 
 fs.mkdirSync(store.ROOT, { recursive: true });

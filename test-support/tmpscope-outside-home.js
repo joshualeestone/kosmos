@@ -42,9 +42,17 @@ const path = require('node:path');
    topRoots and dotClaudeRoots). A bare .claude folder counts too, whatever it holds: conservative on purpose. */
 const INSTRUCTION_NAMES = ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', '.claude'];
 
-/* The real path (a short 8.3 name spelled long, a link followed), or the path as given when it cannot be resolved. */
+/* The real path (a short 8.3 name spelled long, a link followed). A path that does not exist yet is resolved through its
+   deepest existing folder with the rest added back, as the guard's realOrLeaf does, so a short spelling above a folder
+   not made yet still compares by its long one (review round 2: on the runner TEMP is C:\Users\RUNNER~1\...). */
 function realOrResolved(p) {
-  try { return fs.realpathSync.native(p); } catch { return path.resolve(p); }
+  const abs = path.resolve(p);
+  const tail = [];
+  for (let d = abs; ; d = path.dirname(d)) {
+    try { return path.join(fs.realpathSync.native(d), ...tail); } catch { /* not there yet: climb */ }
+    if (path.dirname(d) === d) return abs;
+    tail.unshift(path.basename(d));
+  }
 }
 
 const inside = (child, parent, real) => {
@@ -92,4 +100,4 @@ try {
 
 const tmpscope = require('./tmpscope');
 
-module.exports = { ...tmpscope, outsideHomeRoot, outsideHomeChoice, choice: () => choice, movedTo: () => (choice && choice.root) || null };
+module.exports = { ...tmpscope, outsideHomeRoot, outsideHomeChoice, realOrResolved, choice: () => choice, movedTo: () => (choice && choice.root) || null };

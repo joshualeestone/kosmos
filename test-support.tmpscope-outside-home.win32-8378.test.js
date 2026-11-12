@@ -94,3 +94,13 @@ test('on Windows a refused move is said on stderr, with why', { skip: !WIN && 'a
   assert.match(r.stderr, /the temp folder stays inside the home/);
   assert.match(r.stderr, /is inside the home too/, 'the reason was not said');
 });
+
+test('realOrResolved spells a path that does not exist yet by its long name, through its deepest existing folder', { skip: process.platform !== 'win32' && 'about short 8.3 names on Windows' }, (t) => {
+  const { realOrResolved } = require('./test-support/tmpscope-outside-home');
+  const fs = require('node:fs');
+  let long;
+  try { long = fs.realpathSync.native('C:/PROGRA~1'); } catch { long = null; }
+  if (!long || /PROGRA~1/i.test(long)) { t.skip('8.3 names are off on C: here'); return; }
+  // Review round 2: on the runner TEMP is spelled short (RUNNER~1); a folder under it not made yet must still compare long.
+  assert.equal(realOrResolved('C:/PROGRA~1/no-such-8378/x').toLowerCase(), require('node:path').join(long, 'no-such-8378', 'x').toLowerCase());
+});
