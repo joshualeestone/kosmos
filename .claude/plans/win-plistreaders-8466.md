@@ -13,7 +13,7 @@ Windows, where the job is a Scheduled Task.
 ## Change
 - status.js: on win32 the job's time is win32job.taskFilePath's file (#8454), as the plist on macOS and the unit on
   Linux. The early return is gone.
-- create.js nameHeld: on win32 the job is that file existing (a stat, not a schtasks query, because teamseed asks per
+- (Moved to #8471 after review 1, see the log below.) create.js nameHeld: on win32 the job is that file existing (a stat, not a schtasks query, because teamseed asks per
   seat; a non-elevated board can stat it, measured).
 - Tests: engine/status.codex-model-switch-4416 runs on Windows (its skip is gone; it checks the stand-in task file is
   the file the board reads) and moves from HOST_BRANCH_EXCLUDED to ALSO in tools/windows-tests.js. engine/create.test.js's
@@ -35,3 +35,15 @@ status.codex-model-switch-4416 0/0/2 skip -> 2/0/0; create.test 130/0/111 unchan
 on a task file; every other file that touches these functions unchanged (status.test, teamseed, modelname-4416,
 create.win32-job-read 40/0, create.win32-switchedoff-8417 19/0, win32job.taskfile-8454 3/0, server.codexlimits-6176
 8/0). Policy tests pass.
+
+## Review log
+- Round 1: BLOCKER confirmed on the open risk above. A folderless Kosmos task is invisible on a Windows board (win32roster
+  lists live sessions only; createdroster is not wired on win32 and skips a job with no folder; settingsLeftovers needs
+  job === false; register.survey needs a folder), and Kosmos makes that state itself (a delete whose task removal fails
+  still recycles the folder on Windows). With nameHeld fixed, create would refuse such a name forever and point at a page
+  that does not list it. DECIDED: split. This change ships only the status.js half (the model after a change), which
+  can only drop a reading, never show a wrong one (re-verified by the reviewer). The create.js nameHeld half and its
+  create.test.js change are reverted to main, so create on Windows keeps overwriting such a task with /Create /F as
+  today. Filed #8471: list a folderless task in the removed list on win32, stop recycling the folder when the task could
+  not be removed, then land nameHeld. Rejected: making create remove the task first and proceed (it changes what create
+  does to an existing task, and wants its own review). What would change my mind: evidence the overwrite itself harms.
