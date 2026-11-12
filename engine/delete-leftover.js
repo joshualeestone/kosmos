@@ -567,12 +567,12 @@ function plan(name, opts) {
     if (st.because) return { ok: false, because: st.because };
     damagedSettings = st.damaged;
   }
-  /* kosmos#8471 review 4: a Windows task with no folder (a row the removed list offers since #8471) deletes its settings
-     for good, so it gets the checks settings alone get (a name waiting to start, a recorded folder behind a link that
-     leads nowhere, a damaged settings file) and stricter ones: its folder may be missing only because the folder Kosmos
-     keeps its agents in leads nowhere or is not there (an unplugged disk or share); then every agent looks like this,
-     and Kosmos refuses rather than delete their settings. (Settings alone go to the Recycle Bin, which can be undone, so
-     they are not refused in that state.) */
+  /* kosmos#8471: a Windows task with no folder (reached from a removed agent's row) deletes its settings for good, so it
+     gets the checks settings alone get (a name waiting to start, a recorded folder behind a link that leads nowhere, a
+     damaged settings file) and stricter ones: its folder may be missing only because the folder Kosmos keeps its agents
+     in leads nowhere or is not there (an unplugged disk or share); then every agent looks like this, and Kosmos refuses
+     rather than delete their settings. (Settings alone go to the Recycle Bin, which can be undone, so they are not refused
+     in that state.) */
   if (!folder && job && job.task) {
     const st = strandedRefusal(clean, shown);
     if (st.because) return { ok: false, because: st.because };
@@ -585,11 +585,8 @@ function plan(name, opts) {
     if (wAt.because) return { ok: false, because: `we could not check the folder Kosmos keeps its agents in, so we have not offered to delete ${shown}'s settings or startup job. Try again in a moment.` };
     /* review 5: a workers folder that is not there at all (its drive not connected, or the folder renamed or moved) makes
        every agent with a task look like this too, and resolveRecordedFolder reads a missing drive as "the rest is gone".
-       review 8: so does one renamed or moved and remade empty by the next create. A task still registered while the
-       workers folder is missing or holds no agent folder at all is never one agent's leftover, so refuse. */
-    const wState = workersFolderState();
-    if (wState === 'missing') return { ok: false, because: `the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
-    if (wState === 'empty') return { ok: false, because: `the folder Kosmos keeps its agents in has none of its agents' folders in it right now, perhaps because it was renamed or moved, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
+       A task still registered while the whole workers folder is missing is never one agent's leftover, so refuse. */
+    if (!workersFolderThere()) return { ok: false, because: `the folder Kosmos keeps its agents in is not there right now, perhaps on a disk that is not connected, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
   }
   const recordsOnly = Boolean(recs);
 
@@ -770,18 +767,12 @@ function resolveRecordedFolder(dir) {
    a world start's (that is checked by the record), every reader already treats it as empty, so whatever it recorded is
    lost to its agent anyway, and refusing left it under the name for good. The plan says it could not be checked.
    { because } to refuse, else { damaged }. */
-/* kosmos#8471 review 8: whether the folder Kosmos keeps its agents in is there as a folder AND holds at least one
-   agent's folder. A Windows task with no folder is offered for delete (its settings go for good) only while this holds:
-   a workers folder that is missing, a link that leads nowhere, or one renamed or moved (and remade empty by the next
-   create) makes every stopped agent with a task read as "no folder", and those agents are not leftovers. 'missing',
-   'empty', or 'ok'. A look that fails reads as 'missing' (refuse, never offer). */
-function workersFolderState() {
-  let entries;
-  try {
-    if (!fs.statSync(create.WORKERS_DIR).isDirectory()) return 'missing';
-    entries = fs.readdirSync(create.WORKERS_DIR, { withFileTypes: true });
-  } catch { return 'missing'; }
-  return entries.some((e) => e.isDirectory()) ? 'ok' : 'empty';
+/* kosmos#8471: whether the folder Kosmos keeps its agents in is there as a folder. A workers folder that is missing or a
+   link that leads nowhere makes every stopped agent with a task read as "no folder", and those agents are not leftovers.
+   A look that fails reads as not there (refuse, never offer). Not a test of a folder MOVED elsewhere: nothing here can
+   tell a deleted agent folder from a moved one (review 9), which is why this change lists no task with no folder. */
+function workersFolderThere() {
+  try { return fs.statSync(create.WORKERS_DIR).isDirectory(); } catch { return false; }
 }
 
 function strandedRefusal(name, shown) {
@@ -1197,8 +1188,7 @@ function* delSteps(name, opts) {
 
 /* kosmos#7825 PR 2: the names whose only remains are stored settings, for the removed list, which is the one screen
    that lists agents with no card. A profile with no folder, a job KNOWN to be absent (survey's null, "could not look",
-   is left out: hiding a real leftover beats offering a wrong one) or, on Windows only (kosmos#8471), a Scheduled Task
-   KNOWN to be still registered, which no other screen shows; not on the removed list (those rows are drawn
+   is left out: hiding a real leftover beats offering a wrong one), not on the removed list (those rows are drawn
    already), and no world start waiting under the stored name. Built on register.survey, the reader Repair and the
    board's offline rows use, so "no folder, no job" means one thing everywhere. Not filtered by the recorded-folder rule:
    that look can block on a share that is gone, and this is polled; the click asks plan(), which refuses with the true
@@ -1206,7 +1196,7 @@ function* delSteps(name, opts) {
    recording a folder outside the workers folder (read from the profile, never looked at, so a share that is gone
    cannot block the poll; such a folder may only be out of sight). `opts.survey` is a survey the caller already took
    (the board's 5 s poll takes one), so the list does not read every job twice.
-   { ok, names: [{ name, shownAs, startsAtLogin? }] }; ok false lists none. startsAtLogin: kosmos#8471, below. */
+   { ok, names: [{ name, shownAs }] }; ok false lists none. */
 function settingsLeftovers(opts) {
   const s = (opts && opts.survey) || require('./register').survey(opts);
   if (!s || !s.ok) return { ok: false, names: [] };
@@ -1231,21 +1221,10 @@ function settingsLeftovers(opts) {
   const store = require('./store');
   const keyOf = (n) => { try { return store.safeKey(n); } catch { return null; } };
   const waiting = new Set(pending.map(keyOf).filter(Boolean));
-  /* kosmos#8471: on Windows, a task still registered (job === true, never the null of a failed look) with no folder is
-     listed too. No other screen shows it (the Windows roster lists only live sessions, and the restart notice needs a
-     folder), so without this row nobody could delete it. plan() and del() already handle a task with no folder.
-     `startsAtLogin` lets the row say so rather than "only its settings". macOS and Linux are unchanged.
-     review 6: only while the workers folder is there as a folder. Missing or behind a link that leads nowhere (an
-     unplugged disk), every agent's folder reads as gone while its task is registered, and the list would call the whole
-     fleet leftovers; plan() refuses those clicks, and the list must not say it either. review 8: nor while it holds no
-     agent folder at all (renamed or moved, then remade empty). One look per call (workersFolderState), beside the
-     realpath this already takes of the same folder above. */
-  const workersThere = platform === 'win32' && workersFolderState() === 'ok';
-  const taskLeft = (a) => platform === 'win32' && workersThere && a.job === true;
   const names = s.agents
-    .filter((a) => a.profile === true && a.folder === false && (a.job === false || taskLeft(a)) && !a.removed && !waiting.has(keyOf(a.name))
+    .filter((a) => a.profile === true && a.folder === false && a.job === false && !a.removed && !waiting.has(keyOf(a.name))
       && !running.has(fold(a.name)) && !outside(a.name))
-    .map((a) => ({ name: a.name, shownAs: a.shownAs || a.name, ...(taskLeft(a) ? { startsAtLogin: true } : {}) }));
+    .map((a) => ({ name: a.name, shownAs: a.shownAs || a.name }));
   return { ok: true, names };
 }
 
