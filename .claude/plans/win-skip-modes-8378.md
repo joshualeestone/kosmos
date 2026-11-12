@@ -8,7 +8,7 @@
 hold there; the behaviour around them (a token stored, read back, never leaked, a file replaced not rewritten) can.
 
 ## How the set was chosen
-From the #8368 per-test reasons (main 53a164708d), the 26 files where every failing test's reason was a mode check.
+From the #8368 per-test reasons (main 53a164708d), 26 candidate files whose recorded failing reasons looked like mode checks; 24 taken after reading each test (2 not taken, below).
 Re-measured on origin/main a551c86ddf on the Windows box (node 24.19.0, TAP): all 26 still fail, 47 failing tests, the
 same counts. Each failing test was read and run.
 
@@ -32,7 +32,7 @@ same counts. Each failing test was read and run.
 
 ## Not a fix
 None of these is a Windows bug: the assertion is about POSIX mode bits. Whether Windows protects these files another
-way (the user profile's ACL) is a separate question, not measured here and not claimed.
+way (the user profile's ACL) is a separate question, not measured here and not claimed: card #8439.
 
 ## Done when
 - The 24 changed test files run 0 failed on the Windows box.
