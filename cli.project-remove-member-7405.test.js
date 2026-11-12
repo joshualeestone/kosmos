@@ -21,15 +21,20 @@ const fs = require('node:fs');
 const os = require('node:os');
 const run = promisify(execFile);
 
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
+
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-pjrm-')));
-fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
-fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
-// The board's own engine beside the command, as an install has it, so the Mac cleans names with projectview.one and
-// not its fallback (kosmos_engine_module looks in $KOSMOS_HOME/engine).
-fs.symlinkSync(path.join(__dirname, 'engine'), path.join(HOME, 'engine'));
+/* kosmos#8378: only the Mac CLI reads these two links, and it never runs on Windows, where the Windows CLI runs in
+   process and reads neither. So Windows makes no links: a link Windows refused would fail the whole file at load. */
+if (!SKIP_POSIX_SHELL) {
+  fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+  // The board's own engine beside the command, as an install has it, so the Mac cleans names with projectview.one and
+  // not its fallback (kosmos_engine_module looks in $KOSMOS_HOME/engine).
+  fs.symlinkSync(path.join(__dirname, 'engine'), path.join(HOME, 'engine'));
+}
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 const CLI = path.join(__dirname, 'install', 'kosmos');
-const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 /* kosmos#7405 review 1: the overview is the board's own, never hand-built (fixture-discipline): fleet cards through
    projects.describe and projectview.overviewOf, wrapped as the route wraps it ({ project, agentsUnreadable }). A

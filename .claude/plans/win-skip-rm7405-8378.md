@@ -18,9 +18,10 @@ pattern #8446 fixed for other CLI files.
 
 ## Decided, not missed
 - ALSO_ROOT rather than HOST_BRANCH_EXCLUDED (where #8446 put its mixed file): this file's Windows arms are real
-  Windows coverage of the Windows CLI. The weakest part: the file makes two symlinks when it loads (node and the engine
-  folder). They work on this box, and the GitHub runner runs as an administrator, which may make links, but no file in
-  the Windows CI selection does this yet. If the first CI run refuses the links, the file moves to HOST_BRANCH_EXCLUDED.
+  Windows coverage of the Windows CLI.
+- The two symlinks the file made at load (node and the engine folder) are read only by the Mac CLI, so on Windows they
+  are no longer made (review 1). A link the runner refused would have failed the whole file before any test ran. The
+  weakest remaining part: the GitHub runner uses node 26 and this box node 24; the first CI run is the check.
 
 ## Measured on the Windows box
 Before 7 pass / 20 fail / 1 skip; after 18 / 0 / 10. On macOS and Linux every guard is false, so nothing changes there.
