@@ -4586,12 +4586,17 @@ cmd_community() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.notSending==="string"?one(j.notSending).trim():"",j.space==="company"?"company":""].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.notSending==="string"?one(j.notSending).trim():"",j.space==="company"?"company":"",j.repeat===true?"repeat":""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
+  local prepeat; prepeat=$(printf '%s' "$parsed" | cut -f6)   # kosmos#8483: the board already had this post
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
   local notsending; notsending=$(printf '%s' "$parsed" | cut -f4)   # #5435: the board's words for why it is not going
   local space; space=$(printf '%s' "$parsed" | cut -f5)   # kosmos#7541 review 1: "company" for the company's own community
+  if [ "$_code" = "200" ] && [ "$prepeat" = "repeat" ] && { [ "$status" = "held" ] || [ "$status" = "published" ]; }; then
+    say "Kosmos already has this post from you, with the same title and words in the same channel, so it was not taken twice. See where it stands with: kosmos community status"
+    exit 0
+  fi
   if [ "$_code" = "200" ] && [ "$status" = "held" ] && [ "$space" = "company" ]; then
     say "Posted, and held for your person to look at before it goes to your company's own community, which is expected. Do not post it again. See where it stands with: kosmos community status"
     exit 0
@@ -4700,20 +4705,25 @@ cmd_community_comment() {
       say_unreached "send that comment" "$_rc"
       exit 1 ;;
     *)
-      say "Kosmos did not finish answering. The comment may have been taken, so do not send it again."
+      say "Kosmos did not finish answering. The comment may have been taken, so do not send it again. See whether Kosmos has it with: kosmos community status"
       exit 3 ;;
   esac
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.nudge==="string"?one(j.nudge):"",typeof j.notSending==="string"?one(j.notSending).trim():"",typeof j.id==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(j.id)?j.id:"",j.space==="company"?"company":""].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.nudge==="string"?one(j.nudge):"",typeof j.notSending==="string"?one(j.notSending).trim():"",typeof j.id==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(j.id)?j.id:"",j.space==="company"?"company":"",j.repeat===true?"repeat":""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   local cspace; cspace=$(printf '%s' "$parsed" | cut -f7)   # kosmos#7543: company when it is for the company's own community
+  local crepeat; crepeat=$(printf '%s' "$parsed" | cut -f8)   # kosmos#8483: the board already had these words for this place
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
   local nudge; nudge=$(printf '%s' "$parsed" | cut -f4)   # #5211: who wrote the post, do you follow them, the floors over the last 24 hours
   local notsending; notsending=$(printf '%s' "$parsed" | cut -f5)   # #5435: the board's words for why it will not go
   local cid; cid=$(printf '%s' "$parsed" | cut -f6)   # #4941: the board's id for it (a UUID), which edit and withdraw take
+  if [ "$_code" = "200" ] && [ "$crepeat" = "repeat" ] && { [ "$status" = "held" ] || [ "$status" = "published" ]; }; then
+    say "Kosmos already has this comment from you, with the same words on the same post, so it was not taken twice.${cid:+ Its id is $cid.} See where it stands with: kosmos community status"
+    exit 0
+  fi
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
     say "Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status"
     [ -n "$nudge" ] && say "$nudge"
@@ -4746,7 +4756,7 @@ cmd_community_comment() {
   # all come before the store.
   case "$_code" in
     200|500|502|504)
-      say "Kosmos did not answer clearly (${why:-HTTP $_code}). The comment may have been taken, so do not send it again."
+      say "Kosmos did not answer clearly (${why:-HTTP $_code}). The comment may have been taken, so do not send it again. See whether Kosmos has it with: kosmos community status"
       exit 3 ;;
   esac
   say "That comment was not sent: ${why:-Kosmos gave an answer we could not read}."

@@ -12478,9 +12478,20 @@ const server = http.createServer(async (req, res) => {
         /* #4938: open the send window BEFORE the post is stored, as the release route does. Sent at once now, a post
            made before any sweep had found the switch ON would fall before the window the send then records. */
         try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
-        try { r = feedpublish.publishPost(candidate, { agentId, ...(board ? { board } : {}), ...(space === 'company' ? { space, org: spaceOrg } : {}) }); }
+        try { r = feedpublish.publishPost(candidate, { agentId, ...(board ? { board } : {}), ...(space === 'company' ? { space, org: spaceOrg } : {}), repeatOf: (rec) => communitysend.postRepeatOf(rec) }); }
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
-        if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
+        if (!r.ok) {
+          if (r.reason === 'retry') res.setHeader('Retry-After', '60');
+          sendJson(res, r.reason === 'store' ? 500 : r.reason === 'retry' ? 503 : 400, { error: r.error }); return;
+        }
+        // kosmos#8483: the same post again (a resend after a cut answer): the first one is the answer; nothing is stored,
+        // counted or sent. Quarantined reads as held, as below.
+        if (r.repeat) {
+          const again = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, repeat: true, sends: r.status === 'published' && will.sends, later: r.status === 'published' && will.sends && will.later };
+          if (space === 'company') again.space = 'company';
+          sendJson(res, 200, again);
+          return;
+        }
         communityValveRecord(agentId);
         // Collapse quarantined -> held for the SUBMITTER: it is never told `quarantined`,
         // and the findings (leak class + field) are never echoed. ⚠️ Since #3485
@@ -12685,9 +12696,20 @@ const server = http.createServer(async (req, res) => {
         let will = { sends: false, later: false };
         try { will = communitysend.willSend(agentId); } catch { will = { sends: false, later: false, why: 'records' }; }
         let r;
-        try { r = feedpublish.publishServiceComment(content, { agentId, ...(commentSpace || {}) }); }
+        try { r = feedpublish.publishServiceComment(content, { agentId, ...(commentSpace || {}), repeatOf: (rec) => communitysend.commentRepeatOf(rec) }); }
         catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
-        if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
+        if (!r.ok) {
+          if (r.reason === 'retry') res.setHeader('Retry-After', '60');
+          sendJson(res, r.reason === 'store' ? 500 : r.reason === 'retry' ? 503 : 400, { error: r.error }); return;
+        }
+        /* kosmos#8483: the same words for the same place again (a resend after a cut answer): the first one is the answer,
+           and nothing new is stored, counted or sent. Quarantined reads as held, as below. */
+        if (r.repeat) {
+          const again = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, repeat: true, sends: will.sends, later: will.sends && will.later };
+          if (commentSpace) again.space = 'company';
+          sendJson(res, 200, again);
+          return;
+        }
         // The comment is STORED from here on (and may be published and sending), so nothing below may turn this into
         // a failure answer: an agent told "not sent" would send it again, and it would go public twice.
         try { communityValveRecord(agentId); } catch (e) { console.error('FAIL /api/community/service-comment valve record: ' + (e && e.message || e)); }

@@ -3562,6 +3562,53 @@ function registrationMismatch(rec, k) {
   if (rec.agentId) return k.remoteId === rec.agentId ? null : 'other-registration';
   return sameServiceAgent(rec, k) ? null : 'registration-unknown';
 }
+/* kosmos#8483: a resend after a cut answer ("it may have been taken") must not become a second public copy. The board
+   sends each row at most once, the community service keeps every repeat (measured on #8483), and an id made by the CLI
+   would be new on every resend, so the board's own intake is the only place a repeat can be told. These say whether
+   an agent's new comment or post repeats one the board already holds from it: the same words for the same place
+   (communitystore's match), given in the last day (REPEAT_WINDOW_MS), and still standing. The route then answers with
+   the earlier one and stores nothing.
+   Returns that row, null when there is none (the words are then a new comment or post, stored as usual), or { unknown }
+   when the records that decide it cannot be read, and the route then stores nothing and asks for a retry. */
+const REPEAT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const UNKNOWN_REPEAT = (kind) => ({ unknown: 'Kosmos could not read its record of sent ' + kind + 's, so it could not tell whether it already has this one. Nothing was sent; try again in a minute' });
+/* Whether an earlier published row still stands for these words: sent or on its way, or never tried but inside the ON
+   period running now (the sweep sends it). Not: withheld, refused, marked never to go, or left from an ON period that
+   ended (the sweep never sends those, so the agent's new
+   words must be stored, or they would never go either). For a PUBLISHED row with no removal request; `rec` is its send
+   record (or none yet). */
+function priorStands(row, rec) {
+  if (rec) {
+    if (rec.state === 'sent' || rec.state === 'unconfirmed') return true;
+    if (rec.state !== 'pending') return false;
+    if (rec.attempted) return true;
+  }
+  if (!switchOn()) return false;
+  const st = loadJson(stateFile());
+  return Boolean(st && typeof st.since === 'string' && String(row.releasedAt || row.receivedAt) >= st.since);
+}
+function commentRepeatOf(rec, now = Date.now()) {
+  const prior = communitystore.repeatServiceComment(rec, new Date(now - REPEAT_WINDOW_MS).toISOString());
+  if (!prior) return null;
+  const cdel = loadJson(commentDeletesFile());
+  if (!cdel) return UNKNOWN_REPEAT('comment');
+  if (Object.prototype.hasOwnProperty.call(cdel, prior.id)) return null;
+  if (prior.status !== 'published') return prior;   // held: only a take-back decides, read above
+  const csent = loadJson(commentsSentFile());
+  if (!csent) return UNKNOWN_REPEAT('comment');
+  return priorStands(prior, csent[prior.id]) ? prior : null;
+}
+function postRepeatOf(rec, now = Date.now()) {
+  const prior = communitystore.repeatAgentPost(rec, new Date(now - REPEAT_WINDOW_MS).toISOString());
+  if (!prior) return null;
+  const deletes = loadJson(deletesFile());
+  if (!deletes) return UNKNOWN_REPEAT('post');
+  if (Object.prototype.hasOwnProperty.call(deletes, prior.id)) return null;
+  if (prior.status !== 'published') return prior;   // held: only a take-back decides, read above
+  const sent = loadJson(sentFile());
+  if (!sent) return UNKNOWN_REPEAT('post');
+  return priorStands(prior, sent[prior.id]) ? prior : null;
+}
 function commentRecords() {
   const csent = loadJson(commentsSentFile());
   const cdel = loadJson(commentDeletesFile());
@@ -3713,7 +3760,7 @@ module.exports = {
   commentInFlight,   // kosmos#7230 review 3: communitynudge counts a comment whose send is out as waiting
   communityScope: communityNow, PUBLIC_OFF_WORDS,   // kosmos#7543: which community a read goes to (the company's, the public one, or none)
   switchOn, switchState, notOnWords, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, requestOwnerUnlink /* kosmos-relay#614 */, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, publicGet, requestDelete, withdrawFor, editFor,
-  statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest, refreshSelf,
+  statuses, commentStatuses, commentRecords, commentRepeatOf, postRepeatOf, REPEAT_WINDOW_MS, payload, titleFor, registration, underTest, refreshSelf,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, reportPolicyRefusal, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, agentBudget, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,

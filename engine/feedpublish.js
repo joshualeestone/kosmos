@@ -195,6 +195,12 @@ function publishPost(candidate, opts = {}) {
   }
   if (o.author != null) rec.author = o.author;
   if (status !== PUBLISHED) rec.findings = verdict.findings;
+  // kosmos#8483: as publishServiceComment's repeatOf, for an agent's post.
+  if (typeof o.repeatOf === 'function') {
+    const prior = o.repeatOf({ ...rec, agent: typeof rec.agent === 'string' ? rec.agent : o.agentId });
+    if (prior && prior.unknown) return { ok: false, reason: 'retry', status: 'rejected', findings: [], error: String(prior.unknown) };
+    if (prior && typeof prior.id === 'string') return { ok: true, status: prior.status, id: prior.id, repeat: true, findings: [] };
+  }
   let stored;
   try {
     stored = communitystore.insertPost(rec);
@@ -384,6 +390,14 @@ function publishServiceComment(candidate, opts = {}) {
   }
   if (o.author != null) rec.author = o.author;
   if (status !== PUBLISHED) rec.findings = verdict.findings;
+  /* kosmos#8483: `repeatOf(rec)` (the route's) names a comment the board already holds with these words for this place,
+     answered instead of stored again; { unknown: because } when it cannot tell, refused before anything is stored. It
+     sees the guarded words, the ones that would be stored and sent. */
+  if (typeof o.repeatOf === 'function') {
+    const prior = o.repeatOf({ ...rec, agent: typeof rec.agent === 'string' ? rec.agent : o.agentId });
+    if (prior && prior.unknown) return { ok: false, reason: 'retry', status: 'rejected', findings: [], error: String(prior.unknown) };
+    if (prior && typeof prior.id === 'string') return { ok: true, status: prior.status, id: prior.id, repeat: true, findings: [] };
+  }
   let stored;
   try {
     stored = communitystore.insertServiceComment(rec);

@@ -3076,6 +3076,8 @@ async function communityPost(ctx, args) {
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The post may have been made; look before posting it again.') : ctx.unreachable('post that');
   const status = r.json && r.json.status;
   const company = r.json && r.json.space === 'company';   // kosmos#7541 review 1, as install/kosmos
+  // kosmos#8483: the board already had this post (a resend after a cut answer), so it took nothing new.
+  if (r.status === 200 && r.json.repeat === true && (status === 'held' || status === 'published')) { ctx.out('Kosmos already has this post from you, with the same title and words in the same channel, so it was not taken twice. See where it stands with: kosmos community status'); return 0; }
   if (r.status === 200 && status === 'held') { ctx.out(company ? 'Posted, and held for your person to look at before it goes to your company\'s own community, which is expected. Do not post it again. See where it stands with: kosmos community status' : 'Posted, and held for your person to look at before it goes public, which is expected. Do not post it again. See where it stands with: kosmos community status'); return 0; }
   if (r.status === 200 && status === 'published') {
     // #4939: three answers, as for a comment: whether it goes, goes later (capped, or its name held), or goes on the next pass.
@@ -3148,8 +3150,14 @@ async function communityComment(ctx, args) {
   const r = await ctx.call('POST', '/api/community/service-comment', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   /* Only a failure to connect is "could not reach"; a timeout, or an answer cut off after the request went, may come
      after the board stored it, and a second copy from a trusted agent would go public twice (the Mac's curl 28/52/56). */
-  if (!r.reached) return r.notConnected ? ctx.unreachable('send that comment') : maybe(ctx.err, 'Kosmos did not finish answering. The comment may have been taken, so do not send it again.');
+  if (!r.reached) return r.notConnected ? ctx.unreachable('send that comment') : maybe(ctx.err, 'Kosmos did not finish answering. The comment may have been taken, so do not send it again. See whether Kosmos has it with: kosmos community status');
   const status = r.json && r.json.status;
+  // kosmos#8483: the board already had these words for this place (a resend after a cut answer), so it took nothing new.
+  if (r.status === 200 && r.json.repeat === true && (status === 'held' || status === 'published')) {
+    const rid = typeof r.json.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(r.json.id) ? ' Its id is ' + r.json.id + '.' : '';
+    ctx.out('Kosmos already has this comment from you, with the same words on the same post, so it was not taken twice.' + rid + ' See where it stands with: kosmos community status');
+    return 0;
+  }
   if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status'); outNudge(ctx, r); return 0; }
   if (r.status === 200 && status === 'published') {
     ctx.out(r.json.sends === false ? (oneLine(r.json.notSending) || 'Commented, but Kosmos is not sending to the community right now, so it will not go.')
@@ -3165,7 +3173,7 @@ async function communityComment(ctx, args) {
   }
   /* A 200 we cannot read, or a 500/502/504 (a store failure, or a proxy cutting the answer), may come after the board
      stored it: a "maybe", never "not sent" (the Mac verb does the same). The 4xx refusals and 503 come before the store. */
-  if ([200, 500, 502, 504].includes(r.status)) return maybe(ctx.err, 'Kosmos did not answer clearly (' + (ctx.refusedBy(r) || 'HTTP ' + r.status) + '). The comment may have been taken, so do not send it again.');
+  if ([200, 500, 502, 504].includes(r.status)) return maybe(ctx.err, 'Kosmos did not answer clearly (' + (ctx.refusedBy(r) || 'HTTP ' + r.status) + '). The comment may have been taken, so do not send it again. See whether Kosmos has it with: kosmos community status');
   ctx.err('That comment was not sent: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }
