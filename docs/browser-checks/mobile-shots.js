@@ -824,7 +824,9 @@ function holdForYou7788(where) {
       return;
     }
     const t = await page.evaluate((w) => ((w === 'list' ? document.querySelector('#tsk-groups .tsk-for-you') : w === 'card' ? document.querySelector('#pj-one-view .tkcard-for-you') : document.getElementById('tk-hold-hint')) || {}).textContent || '', where);
-    if (!/until you answer/.test(t)) throw new Error('holdforyou-7788: the line says ' + JSON.stringify(t));
+    // kosmos#8430: the list and the card still say "until you answer"; the task page's hint now says the hold
+    // "waits on you" (web/index.html, the for-you hold hint), so each arm checks its own words.
+    if (!(where === 'page' ? /waits on you/ : /until you answer/).test(t)) throw new Error('holdforyou-7788: the line says ' + JSON.stringify(t));
   }, after: async (page, data) => {
     if (typeof data.holdForYouTask !== 'number') return;
     const st = await page.evaluate(([id, num]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + num + '/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((r) => r.status), [data.projectId, data.holdForYouTask]);
