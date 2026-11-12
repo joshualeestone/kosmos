@@ -4,8 +4,10 @@
    copy "stopped". The code keeps passing writes to node's own write. Both comments now say the copy is recorded as
    stopped, and that writes still go on to node.
 2. **Return value.** `dead ? true : ok` forced true after any error event, which hid real backpressure on a stream that
-   errored but stayed writable. Now `dead && stream.destroyed === true ? true : ok`: the forced true is kept only for a
-   stream node destroyed (no 'drain' will ever come); otherwise node's answer stands. Rejected: keeping it and only
+   errored but stayed writable. Now `stream.destroyed === true || stream.writable === false ? true : ok`: the forced
+   true is kept for a stream node destroyed or marked not writable (a failed write with autoDestroy off, review 1), where
+   no 'drain' will ever come; a stream still writable gets node's answer. node's state decides, not the error event,
+   which arrives a tick after the destroy. Rejected: keeping it and only
    documenting it, because a false true makes a caller over-fill a stream that is still writable.
 3. **Test.** `write('x', 'bogus')` (a STRING with an unknown encoding, a different path from the Buffer case): it throws
    ERR_UNKNOWN_ENCODING for the caller on a healthy and a dead console, and leaves the file as it was.
