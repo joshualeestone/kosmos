@@ -640,7 +640,14 @@ function plan(name, opts) {
   /* #7819: a sentence promising the Trash, or "nothing you can lose", is false once settings or a picture go for good. */
   if (recordsLost && (toTrash || jobOnlyTask)) {
     const w = recordsWords(recs.records);
-    reassurance = `${toTrash ? `Its files go to ${bin}, where you can get them back until you empty it${job && (job.unit || job.task) ? ', and its startup job is removed' : ''}, but ` : ''}${toTrash ? w.words : w.cap} cannot go to ${bin}, so ${w.plural ? 'they are' : 'it is'} deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
+    const tail = `${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
+    reassurance = !toTrash && jobIsTask
+      /* kosmos#8471: a Windows task with no folder moves nothing, so its settings go for good by design (#7820: the
+         outcome then never stands over a record promised the Recycle Bin). Said as the fact it is: "the Recycle Bin
+         cannot take them" was a reason that was not true, and this row is reachable on Windows since #8471. (A Linux
+         unit-only leftover says the same false reason; left as it is here.) */
+      ? `Its startup job is removed, and ${w.words} ${w.plural ? 'are' : 'is'} deleted for good${tail}`
+      : `${toTrash ? `Its files go to ${bin}, where you can get them back until you empty it${job && (job.unit || job.task) ? ', and its startup job is removed' : ''}, but ` : ''}${toTrash ? w.words : w.cap} cannot go to ${bin}, so ${w.plural ? 'they are' : 'it is'} deleted for good${tail}`;
   }
   // kosmos#7825: only stored records are left, so every sentence is about them; there are no files or job to name.
   const rw = recordsOnly ? recordsWords(recs.records) : null;
@@ -1006,7 +1013,9 @@ function* delSteps(name, opts) {
       // review 37: the community standing reset (#5000) has already run and cannot be undone, so the sentence says so.
       because: (p.job.task
         // kosmos#8471: the same sentence in Windows words; Task Scheduler is where a person would look for the task.
-        ? `Task Scheduler would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again in a moment.`
+        /* kosmos#8471: a refusal can last (a task another account registered says "Access is denied" every time), so
+           the sentence also names the task, the thing a person can delete in Task Scheduler themselves. */
+        ? `Task Scheduler would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again in a moment, and if it keeps failing, delete the task ${p.job.label} in Task Scheduler, then try again here.`
         : `systemd would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again once this computer's user services are reachable.`)
         + ' Its standing in the community was reset, so if it comes back it starts at the beginning.',
       steps,

@@ -137,7 +137,7 @@ test('kosmos#8471 part 1: a delete whose task Task Scheduler would not remove ke
   assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings went');
   assert.ok(removedNow().includes(name), 'the removal was forgotten, so nothing on screen reaches the agent again');
   assert.equal(sendertoken.holdsTokens(name), true, 'its sender tokens were revoked although nothing was deleted');
-  assert.match(done.because, /^Task Scheduler would not remove stuck8471's startup job, so its folder was kept too\. The name stays taken; try again in a moment\./);
+  assert.match(done.because, /^Task Scheduler would not remove stuck8471's startup job, so its folder was kept too\. The name stays taken; try again in a moment, and if it keeps failing, delete the task Kosmos\\agent-stuck8471 in Task Scheduler, then try again here\./);
   assert.match(done.because, /standing in the community was reset/);
   assert.doesNotMatch(done.because, /systemd|user services/, 'a Windows sentence spoke of Linux');
   const folderStep = done.steps.find((s) => s.step === 'its folder');
@@ -160,7 +160,8 @@ test('kosmos#8471 part 1: with no folder, a task that would not go keeps the set
   deleteRefused = true;
   const done = win.del(name);
   assert.equal(done.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(done));
-  assert.match(done.because, /^Task Scheduler would not remove nofold8471's startup job\. The name stays taken; try again in a moment\./);
+  // kosmos#8471 review 1: a refusal that lasts (another account's task) names the task a person can delete themselves.
+  assert.match(done.because, /^Task Scheduler would not remove nofold8471's startup job\. The name stays taken; try again in a moment, and if it keeps failing, delete the task Kosmos\\agent-nofold8471 in Task Scheduler, then try again here\./);
   assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings went');
   assert.ok(removedNow().includes(name), 'the removal was forgotten');
 });
@@ -205,6 +206,12 @@ test('kosmos#8471 part 2: the removed list lists a task left with settings and n
   assert.equal(p.folder, null);
   assert.ok(p.job && p.job.task, 'the plan did not see the task');
   assert.equal(p.verb, 'Remove its startup job');
+  /* kosmos#8471 review 1: with no folder the settings go for good (by #7820's design) and the name is typed, but the
+     sentence gave a reason that was not true ("the Recycle Bin cannot take them"). It now says the fact. */
+  assert.equal(p.records.trash, false, 'CONTROL: #7820 keeps a task-only delete off the Recycle Bin');
+  assert.equal(p.typeToConfirm, lone, 'settings deleted for good, yet no typing was asked');
+  assert.match(p.reassurance, /^Its startup job is removed, and its settings are deleted for good\. After this, the name task8471 is free for a new agent\.$/);
+  assert.doesNotMatch(p.reassurance, /cannot go to the Recycle Bin|Nothing you can lose/);
   const done = win.del(lone);
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
   assert.ok(!tasks.has(win32job.taskName(lone)), 'the task is still registered');

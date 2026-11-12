@@ -33,3 +33,16 @@ macOS and Linux are unchanged.
 New file 5/5; negative controls: with origin's delete-leftover.js tests 1, 2, 4 and 5 fail (part 1 alone: 1 and 2; part 2
 alone: 4 and 5), test 3 (the control) passes both ways. The 46 files that load delete-leftover or remove: 1437/116/25
 before, 1442/116/25 after (the 116 are the same failures on this box both ways). Policy tests pass.
+
+## Review log
+- Round 1 (no blocker, 2 warnings, 1 convention, 1 nit). (1) The new row's delete told the person "its settings cannot
+  go to the Recycle Bin, so they are deleted for good", a false reason. I first let the settings' own Recycle Bin answer
+  decide; that broke #7820's pinned test, whose reason is that with no folder the outcome sentence ("Nothing starts X
+  any more") must never stand over a record promised the Recycle Bin. DECIDED: keep #7820's design (a task-only delete
+  removes the settings for good and asks for the name) and fix the sentence to the fact: "Its startup job is removed,
+  and its settings are deleted for good." Rejected: settings to the Recycle Bin here (needs new outcome sentences for a
+  move that fails partway; its own change). Would change my mind: someone needing a task-only leftover's settings back.
+  A Linux unit-only leftover says the same false reason; left as it is (a Linux test pins it). (2) "Try again in a
+  moment" can be false (another account's task answers "Access is denied" every time): the sentence now names the task
+  to delete in Task Scheduler if it keeps failing. (3) server.js's comment on /api/removed now names the Windows task
+  and startsAtLogin. Not changed (nit): verbFor's 'its startup job' arm is now only a fallback.

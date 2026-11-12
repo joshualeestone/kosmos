@@ -18484,10 +18484,12 @@ const server = http.createServer(async (req, res) => {
      * none of which the browser reads, and all of which are machine detail this
      * product's whole vocabulary rule says a person is never shown.
      */
-    /* kosmos#7825 PR 2: names with only settings left (no folder, no job, never or no longer removed). The removed list
-       is the one screen listing agents with no card, so their way to "Delete" is drawn there. Omitted when the read
-       failed, so the screen draws nothing rather than a false empty list. Remembered for 15 s (a failed read, 5 s): the list repaints
-       every 5 s on the Agents tab and the read looks at every job. Only name and shownAs, for the reason below. */
+    /* kosmos#7825 PR 2: names with only settings left (no folder, no job, never or no longer removed); on Windows also a
+       name whose Scheduled Task is still registered with no folder (kosmos#8471). The removed list is the one screen
+       listing agents with no card, so their way to "Delete" is drawn there. Omitted when the read failed, so the screen
+       draws nothing rather than a false empty list. Remembered for 15 s (a failed read, 5 s): the list repaints every 5 s
+       on the Agents tab and the read looks at every job. Only name, shownAs and (kosmos#8471) startsAtLogin, so the row
+       can say a startup job is left, for the reason below. */
     const now = Date.now();
     if (!SETTINGS_LEFTOVERS || now - SETTINGS_LEFTOVERS.at > 15000) {
       const fresh = LAST_SURVEY && now - LAST_SURVEY.at < 10000 ? LAST_SURVEY.s : null;
