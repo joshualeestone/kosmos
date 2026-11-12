@@ -131,8 +131,8 @@ const USAGE = {
     '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark; another agent\'s mark keeps them, your own mark without --file drops them',
     '      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it, or --check <number> "<wording>" to change one',
-    '  kosmos task check <project-id> <task-number> <check-number> met|unmet "<how you checked it>"  report how one done-when check went',
     '      --clear                                                  take its checks off',
+    '  kosmos task check <project-id> <task-number> <check-number> met|unmet "<how you checked it>"  report how one done-when check went',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
     '      [--until-task <n> | --until <date or time>]                 ...and say what it waits for; Kosmos tells its owner once it has happened',
     '      [--for-you]                                                 ...and it waits on your person: it joins what is waiting on them',
@@ -1353,7 +1353,7 @@ async function taskList(ctx, args) {
     /* Review 5: on its OWN indented line under the task, never on the task's line: a task's sentence is folded onto
        one line, so it can never print this line, and so cannot forge a set-by mark (a check's brackets are folded too). */
     /* #8464 item 2, as install/kosmos: how many checks agents have reported met (kosmos task check), after them. */
-    const rs = Array.isArray(x.doneWhen) && Array.isArray(x.doneWhenResults) ? x.doneWhenResults.slice(0, x.doneWhen.length).filter((r) => r && typeof r.met === 'boolean') : [];
+    const rs = Array.isArray(x.doneWhen) && Array.isArray(x.doneWhenResults) ? x.doneWhenResults.slice(0, x.doneWhen.length).filter((r) => r && typeof r.met === 'boolean' && typeof r.how === 'string') : [];
     const rmet = rs.filter((r) => r.met === true).length;
     const rw = rs.length ? ' [' + rmet + ' of ' + x.doneWhen.length + ' checks reported met' + (rs.length > rmet ? ', ' + (rs.length - rmet) + ' reported not met' : '') + ']' : '';
     const dw = Array.isArray(x.doneWhen) && x.doneWhen.length ? '    done when' + setBy + ': ' + x.doneWhen.map((c, i) => (i + 1) + ') ' + fold(c)).join(' ') + rw : '';
@@ -2079,6 +2079,7 @@ async function taskCheck(ctx, args) {
   if (verdict !== 'met' && verdict !== 'unmet') { ctx.err('Say met or unmet for the check. ' + CHECK_USAGE); return 2; }
   const how = String(args[4]).replace(/[\t\r\n]/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '');
   if (!how.trim()) { ctx.err('Say in a few words how you checked it. ' + CHECK_USAGE); return 2; }
+  if (how === '--' || /^--[A-Za-z]/.test(how)) { ctx.err('That looks like an option, not how you checked it. ' + CHECK_USAGE); return 2; }
   const met = verdict === 'met';
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/check', { check: Number(which), met, how, from_pane: '' });
   if (!r.reached) {

@@ -124,7 +124,7 @@ test('a built mark keeps the reports; taking it off and a reopen drop them; clos
   assert.equal('doneWhenResults' in stored(id, n), false, 'a reopen is new work');
 });
 
-test('built without a note: refused until EVERY check is reported, then allowed', () => {
+test('built without a note: refused until EVERY check is reported met, then allowed', () => {
   const { id, n } = withChecks(['one', 'two']);
   assert.equal(tasks.setBuilt(id, n, { by: 'x' }).needsNote, true, 'control: no reports, no note, refused');
   tasks.setCheckResult(id, n, 1, true, 'a', { by: 'x' });
