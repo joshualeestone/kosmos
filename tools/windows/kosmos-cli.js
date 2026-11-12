@@ -1352,7 +1352,11 @@ async function taskList(ctx, args) {
     const fold = (c) => one(c).replace(/[\p{Ps}[]/gu, '(').replace(/[\p{Pe}\]]/gu, ')');
     /* Review 5: on its OWN indented line under the task, never on the task's line: a task's sentence is folded onto
        one line, so it can never print this line, and so cannot forge a set-by mark (a check's brackets are folded too). */
-    const dw = Array.isArray(x.doneWhen) && x.doneWhen.length ? '    done when' + setBy + ': ' + x.doneWhen.map((c, i) => (i + 1) + ') ' + fold(c)).join(' ') : '';
+    /* #8464 item 2, as install/kosmos: how many checks agents have reported met (kosmos task check), after them. */
+    const rs = Array.isArray(x.doneWhen) && Array.isArray(x.doneWhenResults) ? x.doneWhenResults.slice(0, x.doneWhen.length).filter((r) => r && typeof r.met === 'boolean') : [];
+    const rmet = rs.filter((r) => r.met === true).length;
+    const rw = rs.length ? ' [' + rmet + ' of ' + x.doneWhen.length + ' checks reported met' + (rs.length > rmet ? ', ' + (rs.length - rmet) + ' reported not met' : '') + ']' : '';
+    const dw = Array.isArray(x.doneWhen) && x.doneWhen.length ? '    done when' + setBy + ': ' + x.doneWhen.map((c, i) => (i + 1) + ') ' + fold(c)).join(' ') + rw : '';
     ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? (Number.isInteger(x.replacedBy) ? '[replaced by ' + x.replacedBy + '] ' : x.closedUnrun === true ? '[not run] ' : '[done] ') :   /* #6923 */ (x.onHold === true ? '[on hold' + holdUntilWords(x) + '] ' + (x.builtAt ? '[built] ' : '')   // #5864: the marks name the group first
       : x.builtAt ? '[built] ' + (x.projectPaused === true ? '[project paused] ' : '')
         : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep);

@@ -280,7 +280,19 @@ function showLines(body, num, project) {
   if (Array.isArray(x.doneWhen) && x.doneWhen.length) {
     const by = x.doneWhenByPerson === true ? ', set by the person' : (x.doneWhenBy ? ', set by ' + q(x.doneWhenBy) : '');
     lines.push('Done when' + by + ':');
-    x.doneWhen.forEach((c, i) => lines.push('    ' + (i + 1) + ') ' + (typeof c === 'string' ? one(c) : '(a check Kosmos could not read)')));
+    /* #8464 item 2: each check's report under it, as the agent's word and never a verification. The words are an
+       agent's, so they are quoted, as a name is, and cannot pass for a line of Kosmos's own. */
+    const results = Array.isArray(x.doneWhenResults) ? x.doneWhenResults : [];
+    x.doneWhen.forEach((c, i) => {
+      lines.push('    ' + (i + 1) + ') ' + (typeof c === 'string' ? one(c) : '(a check Kosmos could not read)'));
+      const r = results[i];
+      if (r && typeof r === 'object' && typeof r.met === 'boolean' && typeof r.how === 'string') {
+        lines.push('       ' + (typeof r.by === 'string' && r.by.trim() ? q(r.by) : 'an agent') + ' says ' + (r.met ? 'met' : 'not met') + ': "' + q(r.how) + '"'
+          + (whenWords(r.at) ? ', ' + whenWords(r.at) : ''));
+      } else {
+        lines.push('       not reported yet');
+      }
+    });
   }
   if (!x.isClosed && x.repeatWords) field('Repeats', one(x.repeatWords) + (x.repeatNextWords ? ', next ' + one(x.repeatNextWords) : ''));
   // Review 6: a repeating task's last run (what `task ran` records), so its latest delivery is part of the task whole.
