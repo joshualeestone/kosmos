@@ -40,8 +40,8 @@
  *
  * A DEAD CONSOLE. Once routed, each console stream gets an 'error' listener for as long as the board runs, so a console
  * pipe whose reader has gone (Homer's 0.8.03 in-place update) cannot become an uncaught error; this also quiets an
- * error from any other writer on those streams. After any error there, the file alone gets the lines and says, once per
- * stream, that its console copy stopped.
+ * error from any other writer on those streams. The file keeps every line and says, once per stream, that its console
+ * copy stopped.
  *
  * Nothing here throws into the board: when the file cannot be opened the board runs as it did before.
  */
@@ -76,9 +76,9 @@ function writeAll(fd, bytes) {
   }
 }
 
-/* Copies each write on `stream` into `fd`, stamped, then passes it on to the original write, until that stream emits
-   any error or a write to it throws an I/O error; from then on the file alone gets it, and a write's callback runs with
-   no error (the failing write itself may have had its error). `name` says which stream, in the line that records it. */
+/* Copies each write on `stream` into `fd`, stamped, then passes it on to the original write. An error on that stream
+   (an event, or an I/O error thrown by a write) is recorded once in the file and never ends the board; later writes
+   still go to node's own write, whose callback then carries the error. `name` says which stream, in that line. */
 function tee(stream, fd, lineState, now, name) {
   const { stampText, stampBytes } = require('./logstamp');
   const write = stream.write.bind(stream);
@@ -115,33 +115,15 @@ function tee(stream, fd, lineState, now, name) {
         writeAll(fd, Buffer.from(chunk, enc));   // a hex or base64 write is not text: copied as it is, like the stamp does
       }
     } catch { /* a full disk or a closed file must not stop the board */ }
-    if (!dead) {
-      try { return write(chunk, encoding, callback); } catch (err) {
-        // Defensive: a pipe's EPIPE arrives as an 'error' event (above), not as a throw. Only an I/O failure ends the
-        // console copy here; a caller's bad argument is thrown back as it always was.
-        if (!(err && (err.syscall || typeof err.errno === 'number'))) throw err;
-        giveUp(err);
-      }
+    /* Every write still goes to node's own write, even after the console failed: node checks the arguments (a bad one
+       throws as it always did) and reports a dead stream through the callback and an 'error' event, which giveUp
+       absorbs. Defensive: a pipe's EPIPE arrives as that event, not as a throw; only an I/O failure is caught here. */
+    try { return write(chunk, encoding, callback); } catch (err) {
+      if (!(err && (err.syscall || typeof err.errno === 'number'))) throw err;
+      giveUp(err);
+      if (typeof cb === 'function') process.nextTick(() => cb(err));
+      return false;
     }
-    // A dead console skips node's own write, so its argument checks are kept here: a null or non-text chunk, or an
-    // unknown encoding, still throws.
-    if (chunk === null) {
-      const err = new TypeError('May not write null values to stream');
-      err.code = 'ERR_STREAM_NULL_VALUES';
-      throw err;
-    }
-    if (typeof chunk === 'string' && typeof encoding === 'string' && !Buffer.isEncoding(encoding)) {
-      const err = new TypeError('Unknown encoding: ' + encoding);
-      err.code = 'ERR_UNKNOWN_ENCODING';
-      throw err;
-    }
-    if (typeof chunk !== 'string' && !Buffer.isBuffer(chunk) && !(chunk instanceof Uint8Array)) {
-      const err = new TypeError('The "chunk" argument must be of type string or an instance of Buffer or Uint8Array');
-      err.code = 'ERR_INVALID_ARG_TYPE';
-      throw err;
-    }
-    if (typeof cb === 'function') process.nextTick(cb);
-    return true;
   };
 }
 
