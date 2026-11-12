@@ -9,7 +9,7 @@
     {
       "icon": "swarm",
       "title": "Restarting agents on Windows read as running",
-      "line": "On Windows, an agent whose Claude is restarting or waiting on another task now reads as running, instead of \"Not running\".",
+      "line": "On Windows, an agent restarted on this version reads as running, not \"Not running\", while its Claude restarts or waits on a task.",
       "platforms": [
         "windows"
       ]
