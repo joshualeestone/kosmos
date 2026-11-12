@@ -6,8 +6,9 @@
  *
  * The supervisor listens on a named pipe with a random name for as long as it runs, and writes `<key>.presence` in
  * win32-state naming that pipe. The PIPE is the proof of life, not the pid: Windows removes a pipe when the process
- * that holds it dies (a crash, a killed task tree, a Fast Startup shutdown), and while it lives no other process can
- * hold the name it made up (after it dies, the name is only in its record, which sits in this account's data folder). Measured on Windows (kosmos#8415, Homer, node 24.19): fs.existsSync on the pipe path reads a live pipe
+ * that holds it dies (a crash, a killed task tree, a Fast Startup shutdown). Its name is random and is written only in
+ * its record, in this account's data folder, and the reader accepts only a `kosmos-sup-` pipe; that is what keeps a
+ * stranger from answering for it (Windows itself protects only the first instance's creator). Measured on Windows (kosmos#8415, Homer, node 24.19): fs.existsSync on the pipe path reads a live pipe
  * true in about 0.1 ms, and false after close, for a name never created, and after taskkill /F of its holder.
  *
  * `opts.pipePath` and `opts.pipeExists` are test seams: off Windows a unix socket path stands in for the pipe.
@@ -21,6 +22,9 @@ const store = require('./store');
 const PRESENCE_VERSION = 1;
 const PRESENCE_EXT = '.presence';
 const PIPE_PREFIX = '\\\\.\\pipe\\kosmos-sup-';
+const RETRY_PAUSE_MS = 5;   // only after a look that missed: a short wait before the second look
+/* A synchronous pause (liveNames is read synchronously by the board's poll). */
+function pause(ms) { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* no pause */ } }
 
 function stateDir() { return path.join(store.ROOT, 'win32-state'); }
 function presencePath(name) { return path.join(stateDir(), store.safeKey(name) + PRESENCE_EXT); }
@@ -58,8 +62,9 @@ function clearPresence(name, ownerPid) {
 /**
  * The supervisor's side. Listens on a fresh pipe and, once it is listening, writes the record. Never throws, and
  * never keeps the process alive (the server is unref'd). Returns `{ stop() }`; stop removes the record (if it is
- * still this process's) and closes the pipe. A pipe that could not be opened is said through `opts.onProblem`, and
- * then no record is written, so the agent falls back to the state-file rule.
+ * still this process's) and closes the pipe. A pipe that could not be opened is said through `opts.onProblem`; when
+ * that happens before it listens, no record is written, so the agent falls back to the state-file rule. (An error
+ * after listening leaves the record, which the reader's pipe and pid rules then judge.)
  */
 function start(name, opts) {
   const o = opts || {};
@@ -75,7 +80,9 @@ function start(name, opts) {
      and the board falls back to its state file. During a restart overlap this also removes the old supervisor's
      record, which is about to be replaced anyway. */
   try { fs.rmSync(presencePath(name), { force: true }); } catch (e) { onProblem('we could not remove an older presence record (' + ((e && e.code) || 'unknown') + ')'); }
-  const server = net.createServer((socket) => { socket.destroy(); });   // a look at the pipe never holds it
+  /* A look at the pipe on Windows (fs.existsSync) opens a client connection, so every board poll arrives here. It is
+     dropped at once, and a connection that errors on the way out (a reset) must not become an uncaught exception. */
+  const server = net.createServer((socket) => { socket.on('error', () => {}); socket.destroy(); });
   server.on('error', (e) => { onProblem('we could not open its presence pipe (' + ((e && e.code) || 'unknown') + ')'); });
   try {
     server.listen(pipe, () => {
@@ -122,7 +129,7 @@ function presenceByName(opts) {
     const rec = readPresence(name);
     if (!rec) continue;
     let up = false;
-    try { up = pipeExists(rec.pipe) === true || pipeExists(rec.pipe) === true; } catch { up = false; }   // one retry: a look can meet a busy pipe
+    try { up = pipeExists(rec.pipe) === true || (pause(RETRY_PAUSE_MS), pipeExists(rec.pipe) === true); } catch { up = false; }   // one retry, after a short pause: a look can meet a busy pipe
     if (up) { out.set(name, true); continue; }
     let pidAlive = true;
     try { pidAlive = isAlive(rec.pid) === true; } catch { pidAlive = true; }   // could not tell: decide nothing

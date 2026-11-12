@@ -36,3 +36,15 @@ matches the Mac, whose launchctl pid is the supervisor's, and a supervisor-less 
   file on a real socket (a unix socket path on Mac/Linux via the `pipePath` seam, the real pipe on Windows CI).
 - Supervisor main(): starts presence for its agent with an onProblem sink, and its stop ends it (the wiring; the
   write-once-listening and remove-on-stop behaviour is covered at the module level).
+
+## Review 2 (applied)
+- The presence server's connection handler gets a no-op `error` listener (a Windows look connects, and a reset on the
+  way out must not be an uncaught exception, as in win32channel). Stated gap: no test off Windows can make a reset
+  reach the server socket, so removing the listener stays green on Mac/Linux (measured). It is a guard, matching the
+  channel's; the Windows CI run is the only place it could be exercised.
+- New test: 100 real connections (sequential and concurrent, half dropped at once by the client) leave the pipe up and
+  raise nothing.
+- The retry now waits 5 ms (a synchronous Atomics.wait, only after a miss) before the second look.
+- Comments: the five state-file limits are lifted only when the pipe is up or the pipe and pid are both gone; the
+  "nobody else can hold the name" claim is replaced by what actually protects it (random name, record in the account's
+  folder, prefix check).

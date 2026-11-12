@@ -608,8 +608,9 @@ function liveIdentity(name) {
  * which hibernates the kernel so uptime still counts from the last full boot. Three leave a LIVE agent reading "Not
  * running": the between-children window; two failed state writes in a row, after which the publisher clears the file
  * rather than leave an older state on disk (flush below); and a wall-clock step after boot, which moves the boot line
- * later. A presence record (kosmos#8415) decides without the pid, the state file or the clock, so none of these five
- * applies to it. Its own limit: a supervisor that died while its Claude child lives on reads not running (the Mac
+ * later. A presence record (kosmos#8415) decides without the state file or the clock when its pipe is up, or when its
+ * pipe is gone and its pid is dead; then none of these five applies. A record whose pipe looks gone while its pid is
+ * alive decides nothing, and these limits apply again through the state-file rule. Its own limit: a supervisor that died while its Claude child lives on reads not running (the Mac
  * reads its supervisor's pid the same way). Each board poll reads every agent's file, seen or not; on Windows a read
  * at the moment the supervisor renames its file in can make that write fail, which (twice in a row) is the clear
  * above. The added risk is one short read per agent per poll against the publisher's 250 ms retry. `opts.bootMs`,

@@ -155,6 +155,31 @@ test('kosmos#8415: a look at the pipe does not hold it: many looks in a row stay
   } finally { h.stop(); }
 });
 
+test('kosmos#8415 review 2: real connections (what a look is on Windows), half of them dropped at once by the client, leave the pipe up and throw nothing', async () => {
+  reset();
+  const net = require('node:net');
+  const h = presence.start('conns', { pipePath: pipePath() });
+  const escaped = [];
+  const onUncaught = (e) => escaped.push(e);
+  process.on('uncaughtException', onUncaught);
+  try {
+    assert.ok(await waitFor(() => presence.readPresence('conns') !== null));
+    const p = presence.readPresence('conns').pipe;
+    const one = (abrupt) => new Promise((resolve) => {
+      const c = net.connect(p);
+      c.on('error', () => resolve());
+      c.on('close', () => resolve());
+      c.on('connect', () => { if (abrupt) c.destroy(); });   // a client that leaves at once, as a look does
+    });
+    for (let i = 0; i < 50; i++) await one(i % 2 === 0);
+    await Promise.all(Array.from({ length: 50 }, (_, i) => one(i % 2 === 1)));
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(escaped, [], 'a connection to the presence pipe raised an uncaught exception');
+    assert.ok(fs.existsSync(p), 'the pipe is gone after being connected to');
+    assert.ok(ss.liveNames().has('conns'), 'after many connections the supervisor no longer reads as running');
+  } finally { process.removeListener('uncaughtException', onUncaught); h.stop(); }
+});
+
 test('kosmos#8415: off Windows with no socket path given, start does nothing (no stray socket file)', () => {
   if (process.platform === 'win32') return;
   reset();
