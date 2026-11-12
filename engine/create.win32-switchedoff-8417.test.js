@@ -2,9 +2,8 @@
 /**
  * kosmos#8417: on Windows, an agent whose Scheduled Task is switched off shows as switched off.
  *
- * 🛑 THE DEFECT. `create.disabledJobsResult` had a Linux arm and otherwise ran `/bin/launchctl print-disabled`, so
- * Windows fell into the Mac arm: no launchctl, the call failed, `{ ok: false }`, and `disabledJobs()` made that an
- * empty set. The board's `jobSwitchedOff` was never true there, and a switched-off agent read as a plain stopped one.
+ * 🛑 THE DEFECT. `create.disabledJobsResult` had a Linux arm and otherwise took the launchctl arm, so on Windows it
+ * answered `{ ok: false }` and `disabledJobs()` made that an empty set. The board's `jobSwitchedOff` was never true there, and a switched-off agent read as a plain stopped one.
  *
  * 🔑 THE PLATFORM IS INJECTED ('win32') so a Mac drives the arm, and win32job's runner is stubbed, so the real
  * schtasks is never asked. The scheduler below answers the two reads the arm makes: the folder list (CSV, one row per
@@ -244,6 +243,20 @@ test('#8417 Kosmos\'s own disable and enable are seen at the next poll, even wit
   tasks['Kosmos\\agent-ava'].off = false;
   assert.equal(job.enable('ava').ok, true);
   assert.equal(create.disabledJobsResult(undefined, 'win32').jobs.size, 0, 'and enable did too');
+});
+
+test('#8417 one folder listing serves list() and the switched-off read on the same poll', () => {
+  const calls = scheduler({ 'Kosmos\\agent-ava': { spec: taskFor('ava'), off: true } });
+  job.setPresenceTtl(2000);
+  try {
+    const csv = () => calls.filter((a) => a.includes('CSV')).length;
+    assert.deepEqual([...job.list().names], ['ava']);
+    assert.deepEqual([...create.disabledJobsResult(undefined, 'win32').jobs], ['ava']);
+    assert.equal(csv(), 1, 'the second read is answered from the listing the first made');
+    job.disable('ava');   // anything but a read forgets it
+    job.list();
+    assert.equal(csv(), 2);
+  } finally { job.setPresenceTtl(null); }
 });
 
 test('#8417 a task that left the folder and came back is read again', () => {

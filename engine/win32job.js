@@ -128,6 +128,7 @@ function setRunner(fn) {
   runFn = typeof fn === 'function' ? fn : null;
   TASK_SPEC_CACHE.clear();
   PRESENCE_MEMO.clear();
+  FOLDER_MEMO.at = null;
   SWITCH_SEEN.clear();   // kosmos#8417: a stubbed task's switch must not outlive the stub either
   livenessFn = null; nowFn = null;
 }
@@ -174,8 +175,8 @@ function schtasksMayRunInThisProcess() {
 }
 
 function run(args) {
-  /* Anything but a read may change a task, so what `presence` remembers goes. */
-  if (!Array.isArray(args) || args[0] !== '/Query') PRESENCE_MEMO.clear();
+  /* Anything but a read may change a task, so what `presence` remembers goes, and the folder listing (#8417) too. */
+  if (!Array.isArray(args) || args[0] !== '/Query') { PRESENCE_MEMO.clear(); FOLDER_MEMO.at = null; }
   if (runFn) return runFn(args);
   /* 🛑 A TEST PROCESS NEVER REACHES THE REAL TASK SCHEDULER, not even to read it.
      The fleet's Windows box runs the suite beside the live fleet, whose tasks
@@ -753,6 +754,7 @@ function presenceTtl() {
 function setPresenceTtl(ms) {
   presenceTtlOverride = Number.isFinite(ms) ? ms : null;
   PRESENCE_MEMO.clear();
+  FOLDER_MEMO.at = null;
 }
 
 function presenceNow(tn) {
@@ -866,7 +868,15 @@ function list() {
 
 /* The rows `list` reads, one per agent task of THIS Kosmos: its name and the third CSV column, the task's Status word
    ("Ready", "Running", "Disabled"), localized. kosmos#8417: `switchedOffNames` reads the rows through this same parse. */
+const FOLDER_MEMO = { at: null, answer: null };   // kosmos#8417: one listing per poll, kept as `presence` keeps its answers
 function folderRows() {
+  const ttl = presenceTtl();
+  if (ttl > 0 && FOLDER_MEMO.at !== null && Date.now() - FOLDER_MEMO.at < ttl) return FOLDER_MEMO.answer;
+  const answer = folderRowsNow();
+  if (ttl > 0 && answer.known) { FOLDER_MEMO.at = Date.now(); FOLDER_MEMO.answer = answer; }
+  return answer;
+}
+function folderRowsNow() {
   const r = run(['/Query', '/TN', TASK_FOLDER, '/FO', 'CSV', '/NH']);
   if (!r.ok) {
     if (NO_SUCH_TASK.test(r.out || '')) return { known: true, rows: [] };
@@ -890,8 +900,7 @@ function folderRows() {
 
 /**
  * kosmos#8417: which of this Kosmos's agent tasks are switched off, for the board's "switched off" sentence. The win32
- * arm of `create.disabledJobsResult`, which had none: Windows fell into the launchctl arm, the call failed, and a
- * switched-off agent read as a plain stopped one.
+ * arm of `create.disabledJobsResult`, which had none, so a switched-off agent read as a plain stopped one.
  *
  * The answer is the task's own `<Settings><Enabled>`, read by `taskEnabled` (the locale-safe read). The board polls
  * every five seconds, so the switch is remembered per task beside the Status word it was read under, and read again
@@ -901,7 +910,8 @@ function folderRows() {
  * could not be read is left out of `names`, and is asked again SWITCH_RETRY_MS later or when its Status word changes. A
  * switch that was read is asked again SWITCH_RECHECK_MS later even if the word never moved.
  * At most SWITCH_READS_PER_CALL definitions are read per call, because each is a synchronous schtasks spawn on the
- * board's poll; a task not read yet, or not read again since its word moved, is left out until a later call reaches it. The clock is `setRunningClock`'s seam.
+ * board's poll; a task not read yet, or not read again since its word moved, is left out until a later call reaches
+ * it. The clock is `setRunningClock`'s seam.
  */
 const SWITCH_SEEN = new Map();   // task name -> { status, enabled, dueAt } (enabled undefined: the switch could not be read)
 const SWITCH_READS_PER_CALL = 4;
