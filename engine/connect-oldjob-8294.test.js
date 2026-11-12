@@ -134,7 +134,9 @@ test('RunAtLoad only, KeepAlive only and KeepAlive as a dict each count', () => 
   }
 });
 
-test('a linked folder, tmux -c in the arguments, a home spelling, and the runner\'s own program', () => {
+// kosmos#8378: the home spelling is "$HOME/agents/homey" with forward slashes, the Mac's; a Windows host spells the
+// folder with backslashes, and launchd login jobs exist only on the Mac.
+test('a linked folder, tmux -c in the arguments, a home spelling, and the runner\'s own program', { skip: require('../test-support/skip-on-win32').skipOnWin32('it reads launchd login jobs, which exist only on the Mac, and spells the folder as "$HOME/agents/homey" with POSIX slashes, which a Windows path never matches') }, () => {
   const dir = agent('linked');
   const link = path.join(SB, 'linkalias');
   fs.symlinkSync(dir, link);
