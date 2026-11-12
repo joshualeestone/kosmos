@@ -21,8 +21,10 @@ Card: kosmos#8416 (from the 11-11 daily feedback; given to Mona Lisa by Splinter
 - Rejected for (1): shortening the request under one piece (256 bytes). It would drop the four questions and the privacy rules agents follow from it, and only this one message would be fixed, not every long automatic line.
 - Rejected for (1): detecting a split and saying so. Kosmos cannot see how the composer grouped the pieces.
 - Weakest premise for (1): word-boundary pieces fix the mid-word read, not the split itself; a busy composer can still show a later piece as pasted text. It now reads as whole words.
-- Residual for (2), accepted: the marks file has one writer process (the board), and every write is synchronous and atomic (store.saveFlushed), so writes do not interleave.
-- Residual for (2), accepted: a session start's marks are taken when its 'started' report reaches the board, a few seconds after the agent read its file. A block rewritten in that gap is marked as read. The debt it owed already ended as 'restarted' on main, so the new loss is only a later rewrite back to the same words. Narrowing it needs the file as the agent read it, which nothing records.
+- Residual for (2), accepted: marks are a read-modify-write with no lock. Two processes writing at once can lose one, and a lost mark only names a section again (an older or missing mark differs from the file), never hides one.
+- Residual for (2), accepted: a session start's marks are taken when its 'started' report reaches the board, a few seconds after the agent read its file. A block rewritten in that gap, and any later rewrite back to those same words, stays unnamed until it changes again. On main that gap's debt already ended as 'restarted'. Narrowing it needs the file as the agent read it, which nothing records.
+- A section gone from the file loses its mark (trueSectionsFor), so a block removed and restored with the same words is named when it returns.
+- Every section Kosmos can owe has its own marker pair (tested), so a renamed heading cannot make a Kosmos block read as missing.
 - Marks move only on a PLACED line (review 3): an UNCONFIRMED one may never have been typed.
 - A damaged block (one marker with no pair) and a heading written twice with no markers cannot be told, so they are named.
 - Weakest premise for (2): a section's change is judged by its own text, so a change elsewhere in the file (outside any owed section) is not named. That is the point, and #7149's changes file still lists every change.
@@ -35,5 +37,6 @@ Card: kosmos#8416 (from the 11-11 daily feedback; given to Mona Lisa by Splinter
 
 ## Review ledger
 - R1 opus: 2 W (a heading inside a policy or About-you block ended the section early; a copy moved past a section owed mid-pass), 1 C, NITs. Fixed: block markers; owed-again guard; unchanged logged.
+- R4 sonnet: 3 W (the session-start residual understated; a removed-then-restored section unnamed; the one-writer claim), 1 C (review labels in comments), NITs. Fixed, residuals restated.
 - R3 opus: 4 W (marks moved on an UNCONFIRMED line; session-start timing; a test that passed with the code wrong; a newline not a boundary), NITs. Fixed, the timing accepted and stated above.
 - R2 sonnet: 2 W (the copy as oracle still let a block rewritten after a landed line go unnamed; a removed section dropped silently), NITs. Fixed: per-section marks that move only when told; the removal rule documented and tested.

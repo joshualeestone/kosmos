@@ -364,7 +364,7 @@ test('kosmos#8416: trueSections drops a section the file does not have, and one 
   assert.deepEqual(ir.trueSections(['community', 'reports'], FILE_8416, told), [], 'CONTROL: nothing changed, nothing named');
   // A section with no heading to look for is named as before.
   assert.deepEqual(ir.trueSections(['bogus'], FILE_8416, told), ['bogus']);
-  // Review 2: a section that was in the file when the agent was told and is gone now owes nothing (oweEach's rule).
+  // A section that was in the file when the agent was told and is gone now owes nothing (oweEach's rule).
   assert.deepEqual(ir.trueSections(['reports'], FILE_8416.replace('## Who you report to\nSplinter.\n', ''), told), []);
 });
 
@@ -392,7 +392,7 @@ test('kosmos#8416: passOnce sends no notice when no owed section is real, and na
   assert.equal(unknown.sent[0][1], ir.lineFor(['community', 'reports']));
 });
 
-test('kosmos#8416 review 2: a block rewritten after a line landed, and owed later, is still named', async () => {
+test('kosmos#8416: a block rewritten after a line landed, and owed later, is still named', async () => {
   const v1 = FILE_8416;
   const v2 = v1.replace('Post at least once a day.', 'Post at least once a week.');
   // The agent was told about everything in v1. A line about reports lands while the file is already v2.
@@ -407,7 +407,7 @@ test('kosmos#8416 review 2: a block rewritten after a line landed, and owed late
     deliver: async () => { current = v2; return { state: D.PLACED }; } } });
   await ir.passOnce(p.o);
   assert.deepEqual(moved, [['ida', ['reports'], v1]], 'marks moved for a section the line did not name, or from text read after it');
-  // Review 3: an unconfirmed line (it may never have been typed) and one that did not land move no mark.
+  // An unconfirmed line (it may never have been typed) and one that did not land move no mark.
   for (const state of [D.UNCONFIRMED, D.COULD_NOT]) {
     const q = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => v1, markRead: () => { moved.push(state); return true; }, deliver: async () => ({ state }) } });
     await ir.passOnce(q.o);
@@ -415,7 +415,7 @@ test('kosmos#8416 review 2: a block rewritten after a line landed, and owed late
   assert.equal(moved.length, 1, 'a line not known to be typed moved marks: ' + JSON.stringify(moved));
 });
 
-test('kosmos#8416 review 3: a damaged block, or a heading written twice with no markers, cannot be told, so it is named', () => {
+test('kosmos#8416: a damaged block, or a heading written twice with no markers, cannot be told, so it is named', () => {
   const P = require('./projects');
   const damaged = ['## Your projects', 'one', P.BLOCK_START, '## Your projects', 'two', ''].join('\n');   // a start with no end
   assert.equal(ir.printOf(damaged, 'projects'), 'unknown');
@@ -425,9 +425,16 @@ test('kosmos#8416 review 3: a damaged block, or a heading written twice with no 
   assert.notEqual(ir.printOf('## Who you report to\nSplinter.\n', 'reports'), 'unknown', 'CONTROL: one heading is told');
 });
 
-test('kosmos#8416 review 3: a debt ended as unchanged leaves no changes file behind', async () => {
+test('kosmos#8416: a debt ended as unchanged leaves no changes file behind', async () => {
   const dropped = [];
   const p = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => [], dropChanges: (s2) => dropped.push(s2) } });
   await ir.passOnce(p.o);
   assert.deepEqual(dropped, ['ida']);
+});
+
+test('kosmos#8416: a held section among the real ones stays owed, and only the real ones are named', async () => {
+  const p = passArgs({ owed: { ida: debt(['reports', 'community', 'projects']) }, o: { trueSections: () => ['reports', 'community'], sectionOn: (x) => x !== 'community' } });
+  await ir.passOnce(p.o);
+  assert.equal(p.sent[0][1], ir.lineFor(['reports']));
+  assert.deepEqual(p.file().ida && p.file().ida.sections, ['community'], 'the held real section was not kept owed, or the unreal one was');
 });

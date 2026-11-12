@@ -413,7 +413,7 @@ const P = require('./projects');
 const policyFile = (rule) => ['# You are Ada', '', P.POLICY_START, "## Your company's AI policy", 'Use only approved tools.', '', '## Data handling', rule, P.POLICY_END, '',
   '## Who you report to', 'Splinter.', ''].join('\n');
 
-test('kosmos#8416 review 1: a heading inside a block (a company policy\'s own ## line) does not end it, so a change below it is named', () => {
+test('kosmos#8416: a heading inside a block (a company policy\'s own ## line) does not end it, so a change below it is named', () => {
   const before = policyFile('Keep customer data in the office.');
   const after = policyFile('Never upload customer data.');
   const m = { policy: ir.printOf(before, 'policy') };
@@ -436,7 +436,7 @@ test('kosmos#8416: trueSectionsFor reads the agent\'s file and the marks of what
   assert.equal(ir.trueSectionsFor('nobody-8416', ['community']), null, 'CONTROL: no file reads as cannot tell');
 });
 
-test('kosmos#8416 review 1: a section owed again while the pass ran keeps the copy from moving past it', async () => {
+test('kosmos#8416: a section owed again while the pass ran keeps the copy from moving past it', async () => {
   let file = { ida: { at: T, last: T, n: 1, sections: ['community'] } };
   const remembered = [];
   const o = {
@@ -462,4 +462,26 @@ test('kosmos#8416: the board pass is handed trueSections (read as source)', () =
   assert.match(src, /markRead: \(session, sections, text\) => ir\.markRead\(session, sections, text\),/);
   assert.match(src, /readText: \(session\) => \{ const g = require\('\.\/engine\/instructions'\)\.read\(session\);/);
   assert.match(src, /\['sent', 'restarted', 'gone', 'expired', 'unchanged'\]\.includes\(d\.act\)/, 'a debt ended as unchanged leaves no log line');
+});
+
+test('kosmos#8416: every section Kosmos can owe has its own block markers, so none can read as missing for a renamed heading', () => {
+  const P2 = require('./projects');
+  const names = { projects: 'BLOCK', you: 'YOU', reports: 'REPORTS', connections: 'CONNECTIONS', dmfiles: 'DMFILES', policy: 'POLICY', rules: 'DOCTRINE', community: 'COMMUNITY', language: 'LANGUAGE' };
+  for (const sec of Object.keys(ir.SECTIONS)) {
+    assert.ok(names[sec], 'a section with no marker pair named here: ' + sec);
+    const file = P2[names[sec] + '_START'] + '\nx\n' + P2[names[sec] + '_END'] + '\n';
+    const p = ir.printOf(file, sec);
+    assert.ok(typeof p === 'string' && p !== 'unknown', sec + ' is not found by its markers');
+  }
+});
+
+test('kosmos#8416: a section gone from the file loses its mark, so it is named when it comes back with the same words', () => {
+  agentFile('rho', BEFORE);
+  assert.equal(ir.rememberRead('rho'), true);
+  assert.deepEqual(ir.trueSectionsFor('rho', ['community']), [], 'CONTROL: unchanged');
+  agentFile('rho', BEFORE.replace(/## The Kosmos\+ community\n[^#]*/, ''));
+  assert.deepEqual(ir.trueSectionsFor('rho', ['community']), [], 'a section not in the file was named');
+  agentFile('rho', BEFORE);
+  assert.deepEqual(ir.trueSectionsFor('rho', ['community']), ['community'], 'a section that came back was not named');
+  ir.forget('rho');
 });

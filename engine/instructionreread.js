@@ -434,7 +434,7 @@ function sectionBody(text, title) {
   }
   return out === null ? null : out.join('\n');
 }
-/* Review 1: each section's own block markers (engine/projects.js), so a heading the person or company wrote inside a
+/* Each section's own block markers (engine/projects.js), so a heading the person or company wrote inside a
    block (an AI policy's "## Data handling", an About-you answer) never ends it early, and a heading of the same name
    elsewhere in the file never stands in for it. */
 function markersOf(section) {
@@ -469,12 +469,12 @@ function printOf(text, sec) {
   try { block = blockOf(text, sec); } catch { return 'unknown'; }
   if (block && block.ambiguous) return 'unknown';
   if (block) return hash(block.found);
-  // Review 3: one of its markers with no pair is a damaged block, not a missing one.
+  // One of its markers with no pair is a damaged block, not a missing one.
   const pairs = markersOf(sec) || [];
   if (pairs.some(([a, b]) => String(text).includes(a) || String(text).includes(b))) return 'unknown';
   const titles = headingsOf(sec);
   if (!titles) return 'unknown';
-  // Review 3: a heading written twice (the person's own and Kosmos's, with no markers) cannot tell which is which.
+  // A heading written twice (the person's own and Kosmos's, with no markers) cannot tell which is which.
   if (titles.some((t) => headingCount(text, t) > 1)) return 'unknown';
   const bodies = titles.map((t) => sectionBody(text, t));
   return bodies.every((b) => b === null) ? null : hash(titles.map((t, k) => t + '\n' + (bodies[k] === null ? '' : bodies[k])).join('\n'));
@@ -492,7 +492,7 @@ function headingCount(text, title) {
   return n;
 }
 /* Pure: the owed sections worth naming, given the file now and the fingerprints of what the agent was last told (marks:
-   { section: print }, or null when Kosmos holds none for it). Review 2: the marks move only for a section the agent was
+   { section: print }, or null when Kosmos holds none for it). The marks move only for a section the agent was
    told about (or read whole at a session start), so a block rewritten after a line landed, and owed later, still differs
    from its mark. A section not in the file now is not named: a block Kosmos removed owes nothing (oweEach's rule, there
    is no section left to read; the agent drops it at its next start). */
@@ -540,7 +540,14 @@ function trueSectionsFor(session, sections) {
     const got = require('./instructions').read(session);
     if (!got || got.exists !== true || typeof got.text !== 'string') return null;
     const all = readMarks();
-    return trueSections(sections, got.text, all[session] || null);
+    const marks = all[session] || null;
+    const out = trueSections(sections, got.text, marks);
+    /* A section gone from the file loses its mark, so if it comes back with the same words it is named then. */
+    if (marks) {
+      const gone = (Array.isArray(sections) ? sections : []).filter((sec) => typeof marks[sec] === 'string' && printOf(got.text, sec) === null);
+      if (gone.length) { const cur = { ...marks }; for (const sec of gone) delete cur[sec]; all[session] = cur; writeMarks(all); }
+    }
+    return out;
   } catch { return null; }
 }
 
@@ -696,10 +703,10 @@ async function passOnce(o) {
         if (off.length) keep[session] = { at: debt.at, last: debt.last, n: 1, sections: off };
         if (typeof o.recordSent === 'function') { try { o.recordSent(session, sentAt); } catch { /* only the turn's label is lost */ } }
         // kosmos#8416: only the sections this line named move their marks.
-        // Review 3: only a line known to be typed (PLACED); an unconfirmed one may never have reached the agent.
+        // Only a line known to be typed (PLACED): an unconfirmed one may never have reached the agent.
         if (toldText !== null && v && o.DELIVERY && v.state === o.DELIVERY.PLACED && typeof o.markRead === 'function') { try { o.markRead(session, on, toldText); } catch { /* the next notice names them again */ } }
-        /* kosmos#7149: the agent reads the file now, so this is what it last read (the next diff starts here). kosmos#8416
-           review 1: not when a section was owed again while this pass ran (its n moved): the text read above may already
+        /* kosmos#7149: the agent reads the file now, so this is what it last read (the next diff starts here). kosmos#8416:
+           not when a section was owed again while this pass ran (its n moved): the text read above may already
            hold that change, which the line did not name, and trueSections would then call it unchanged next time. The
            next diff is then wider, never narrower. */
         let owedAgain = true;
