@@ -345,7 +345,7 @@ test('a PDF with ChatGPT and a key account goes to the key; with no key, ChatGPT
   assert.match(o.readerProblem('chart.pdf', r), /^ChatGPT cannot read a PDF/);
 });
 
-test('Windows: ChatGPT is not used to read org charts, and the person is told why', { skip: SKIP_READER_OFF }, async () => {
+test('Windows: ChatGPT is not used to read org charts, and the person is told why', async () => {
   const real = Object.getOwnPropertyDescriptor(process, 'platform');
   Object.defineProperty(process, 'platform', { value: 'win32' });
   try {
@@ -355,7 +355,8 @@ test('Windows: ChatGPT is not used to read org charts, and the person is told wh
     assert.deepEqual(await c.read({ kind: 'codex', dir: acct }, 'p', 'image/png', PNG, null), { ok: false, because: c.WHY_WINDOWS });
     assert.equal(fs.existsSync(record), false);
   } finally { Object.defineProperty(process, 'platform', real); }
-  assert.equal(o.currentReader().kind, 'codex', 'CONTROL: on this platform it reads');
+  // kosmos#8378: the control needs a host where the reader is on; the faked-Windows half above runs everywhere.
+  if (!SKIP_READER_OFF) assert.equal(o.currentReader().kind, 'codex', 'CONTROL: on this platform it reads');
 });
 
 test('a Codex upgraded after the consent is caught at the read: Codex is never started', { skip: SKIP_READER_OFF }, async () => {
@@ -490,14 +491,15 @@ test('#5346 step 2 review 2/3: on Windows, a ChatGPT account hears Claude first,
   } finally { Object.defineProperty(process, 'platform', real); keys.setAccounts(() => []); }
 });
 
-test('#5346 step 2 review 5: Windows with no Codex says Windows, not "install Codex"; after a failed ChatGPT read ChatGPT is not offered again', { skip: SKIP_READER_OFF }, () => {
+test('#5346 step 2 review 5: Windows with no Codex says Windows, not "install Codex"; after a failed ChatGPT read ChatGPT is not offered again', () => {
   const real = Object.getOwnPropertyDescriptor(process, 'platform');
   c.setBin(() => null);
   try {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     assert.equal(c.pickWithWhy().offWhy, c.WHY_WINDOWS);
     Object.defineProperty(process, 'platform', real);
-    assert.equal(c.pickWithWhy().offWhy, c.WHY_NO_CODEX, 'control: off Windows, no Codex is the reason');
+    // kosmos#8378: the off-Windows control needs a host where the reader is on; the faked-Windows half runs everywhere.
+    if (!SKIP_READER_OFF) assert.equal(c.pickWithWhy().offWhy, c.WHY_NO_CODEX, 'control: off Windows, no Codex is the reason');
   } finally { Object.defineProperty(process, 'platform', real); c.setBin(() => fake); }
   assert.ok(noChatgptAfterClaude(o.noModelAfter({ kind: 'codex', dir: acct })), o.noModelAfter({ kind: 'codex', dir: acct }));
   assert.ok(o.noModelAfter({ kind: 'codex', dir: acct }).includes(c.WHY_NO_CODEX.slice(0, -tail.length)), 'the reason itself is said');

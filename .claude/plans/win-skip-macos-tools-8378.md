@@ -24,6 +24,14 @@ release-gate 2/0/69, serve-watch 13/0/37, gap-alarm 8/0/16, publish-windows-2008
 install.linux-board 10/0/22, engine/status 227/0/17, supervisor.provider-key-inject 1/0/21, openaiaccounts-reauth 3/0/18,
 orgchartcodex 10/0/28, manipcheck 32/0/53, agentevents 79/0/50.
 
+## Review round 1
+- Two orgchartcodex tests that fake Windows were skipped whole; only their off-Windows controls need a host where the
+  reader is on. They now run on Windows with only the controls guarded (orgchartcodex 12/0/26). The review-8 test, which
+  never fakes Windows, stays skipped.
+- The agentevents reason names commands and file paths (some tests classify Read/Edit targets, not bash commands).
+- Note: none of these 12 files is in the Windows CI job (all are in HOST_BRANCH_EXCLUDED), so the fixes and the tests
+  that now pass on Windows are proved by runs on the box, not by Windows CI.
+
 ## Notes (not bugs in shipped Windows code)
 - engine/agentevents.js reads birthtimeMs, which utimesSync does not move on NTFS: a manipcheck test would still fail on
   Windows if the tick ran there (code reading only). For whoever builds agent events on Windows.

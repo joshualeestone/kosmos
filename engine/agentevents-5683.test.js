@@ -16,7 +16,7 @@ const oe = require('./orgenroll');
 
 // kosmos#8378: the tests below that need something Windows does not have skip there, each saying what.
 const { skipOnWin32 } = require('../test-support/skip-on-win32');
-const SKIP_POSIX_PATHS = skipOnWin32('it classifies bash commands naming POSIX paths (/Users/...) with the host path module, which on Windows reads them as Windows paths; agent-event reporting is off on Windows by design (engine/agentevents.js, kosmos#5683 review 41)');
+const SKIP_POSIX_PATHS = skipOnWin32('it classifies commands and file paths naming POSIX paths (/Users/...) with the host path module, which on Windows reads them as Windows paths; agent-event reporting is off on Windows by design (engine/agentevents.js, kosmos#5683 review 41)');
 const SKIP_MAC_SANDBOX = skipOnWin32('it is about a macOS sandbox refusal of a bash command, and Windows has no macOS sandbox; agent-event reporting is off on Windows by design (engine/agentevents.js, kosmos#5683 review 41)');
 
 /* The real clock: enroll stamps enrolledAt with it, and only refusals after that are sent. */
