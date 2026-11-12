@@ -46,3 +46,10 @@ before, 1442/116/25 after (the 116 are the same failures on this box both ways).
   moment" can be false (another account's task answers "Access is denied" every time): the sentence now names the task
   to delete in Task Scheduler if it keeps failing. (3) server.js's comment on /api/removed now names the Windows task
   and startsAtLogin. Not changed (nit): verbFor's 'its startup job' arm is now only a fallback.
+- Round 2 (no blocker, 3 warnings, 3 nits). Fixed: (1) the button now says "Remove its startup job and delete its
+  settings" for a Windows task with no folder, as the sentence above it does (Linux unchanged). (2) A server test now
+  checks /api/removed keeps startsAtLogin for a Windows task left with no folder (negative control: with the field
+  dropped from the route's mapping, it fails). Nits fixed: one "and" per sentence; the web comment says the task is
+  still registered (a removed agent's leftover task is disabled, so "still starts" was not always true); the refusal
+  names the task as Task Scheduler shows it (the agent-<name> task in its Kosmos folder). Not changed: (3) the #7820
+  test now pins the refusal sentence rather than verbFor's "remove its startup job" arm, which is a fallback now.

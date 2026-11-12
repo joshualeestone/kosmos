@@ -646,7 +646,8 @@ function plan(name, opts) {
          outcome then never stands over a record promised the Recycle Bin). Said as the fact it is: "the Recycle Bin
          cannot take them" was a reason that was not true, and this row is reachable on Windows since #8471. (A Linux
          unit-only leftover says the same false reason; left as it is here.) */
-      ? `Its startup job is removed, and ${w.words} ${w.plural ? 'are' : 'is'} deleted for good${tail}`
+      // One "and" per sentence: what else does not come back is a sentence of its own here.
+      ? `Its startup job is removed, and ${w.words} ${w.plural ? 'are' : 'is'} deleted for good${community ? '. Its community account does not come back' : waiting ? '. Anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
       : `${toTrash ? `Its files go to ${bin}, where you can get them back until you empty it${job && (job.unit || job.task) ? ', and its startup job is removed' : ''}, but ` : ''}${toTrash ? w.words : w.cap} cannot go to ${bin}, so ${w.plural ? 'they are' : 'it is'} deleted for good${tail}`;
   }
   // kosmos#7825: only stored records are left, so every sentence is about them; there are no files or job to name.
@@ -661,6 +662,9 @@ function plan(name, opts) {
     ? (recordsTrash ? `Move ${rw.words} to ${bin}` : `Delete ${rw.words} for good`)
     : folder
     ? (toTrash ? `Move ${filesWords(folder)} to ${bin}` : `Delete ${filesWords(folder)} for good`)
+    /* kosmos#8471: a Windows task with no folder also deletes its settings for good, so the button says so, as the
+       sentence above it does (Linux unit-only leftovers unchanged). */
+    : jobIsTask && recordsLost ? `Remove its startup job and delete ${recordsWords(recs.records).words}`
     : jobIsService ? 'Remove its startup job'
       : (toTrash ? `Move the auto-start file to ${bin}` : 'Delete the auto-start file for good');
   const hint = recordsOnly
@@ -1014,8 +1018,9 @@ function* delSteps(name, opts) {
       because: (p.job.task
         // kosmos#8471: the same sentence in Windows words; Task Scheduler is where a person would look for the task.
         /* kosmos#8471: a refusal can last (a task another account registered says "Access is denied" every time), so
-           the sentence also names the task, the thing a person can delete in Task Scheduler themselves. */
-        ? `Task Scheduler would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again in a moment, and if it keeps failing, delete the task ${p.job.label} in Task Scheduler, then try again here.`
+           the sentence also names the task, the thing a person can delete in Task Scheduler themselves, by the folder
+           and name Task Scheduler shows (Kosmos, then agent-<name>), not as one path. */
+        ? `Task Scheduler would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again in a moment, and if it keeps failing, open Task Scheduler, find ${String(p.job.label).split('\\').pop()} in its ${String(p.job.label).split('\\')[0]} folder, delete it, then try again here.`
         : `systemd would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again once this computer's user services are reachable.`)
         + ' Its standing in the community was reset, so if it comes back it starts at the beginning.',
       steps,

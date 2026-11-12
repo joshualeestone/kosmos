@@ -137,7 +137,7 @@ test('kosmos#8471 part 1: a delete whose task Task Scheduler would not remove ke
   assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings went');
   assert.ok(removedNow().includes(name), 'the removal was forgotten, so nothing on screen reaches the agent again');
   assert.equal(sendertoken.holdsTokens(name), true, 'its sender tokens were revoked although nothing was deleted');
-  assert.match(done.because, /^Task Scheduler would not remove stuck8471's startup job, so its folder was kept too\. The name stays taken; try again in a moment, and if it keeps failing, delete the task Kosmos\\agent-stuck8471 in Task Scheduler, then try again here\./);
+  assert.match(done.because, /^Task Scheduler would not remove stuck8471's startup job, so its folder was kept too\. The name stays taken; try again in a moment, and if it keeps failing, open Task Scheduler, find agent-stuck8471 in its Kosmos folder, delete it, then try again here\./);
   assert.match(done.because, /standing in the community was reset/);
   assert.doesNotMatch(done.because, /systemd|user services/, 'a Windows sentence spoke of Linux');
   const folderStep = done.steps.find((s) => s.step === 'its folder');
@@ -161,7 +161,7 @@ test('kosmos#8471 part 1: with no folder, a task that would not go keeps the set
   const done = win.del(name);
   assert.equal(done.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(done));
   // kosmos#8471 review 1: a refusal that lasts (another account's task) names the task a person can delete themselves.
-  assert.match(done.because, /^Task Scheduler would not remove nofold8471's startup job\. The name stays taken; try again in a moment, and if it keeps failing, delete the task Kosmos\\agent-nofold8471 in Task Scheduler, then try again here\./);
+  assert.match(done.because, /^Task Scheduler would not remove nofold8471's startup job\. The name stays taken; try again in a moment, and if it keeps failing, open Task Scheduler, find agent-nofold8471 in its Kosmos folder, delete it, then try again here\./);
   assert.equal(fs.existsSync(store.profilePath(name)), true, 'its settings went');
   assert.ok(removedNow().includes(name), 'the removal was forgotten');
 });
@@ -205,7 +205,8 @@ test('kosmos#8471 part 2: the removed list lists a task left with settings and n
   assert.equal(p.ok, true, p.because);
   assert.equal(p.folder, null);
   assert.ok(p.job && p.job.task, 'the plan did not see the task');
-  assert.equal(p.verb, 'Remove its startup job');
+  // kosmos#8471 review 2: the button names everything the click does, the settings included.
+  assert.equal(p.verb, 'Remove its startup job and delete its settings');
   /* kosmos#8471 review 1: with no folder the settings go for good (by #7820's design) and the name is typed, but the
      sentence gave a reason that was not true ("the Recycle Bin cannot take them"). It now says the fact. */
   assert.equal(p.records.trash, false, 'CONTROL: #7820 keeps a task-only delete off the Recycle Bin');
