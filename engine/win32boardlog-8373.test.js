@@ -198,9 +198,8 @@ test('#8373 a caller\'s bad argument throws as node decides, on a healthy consol
   assert.throws(() => dead.write(Buffer.from('x'), 'bogus'), { code: 'ERR_UNKNOWN_ENCODING' });
 });
 
-/* kosmos#8424: a STRING with an unknown encoding takes another path than the Buffer above. The file copy's Buffer.from
-   throws inside the module's own try (and is dropped), then node's write throws for the caller, on a healthy console and
-   a dead one, and nothing half-written lands in the file. */
+/* kosmos#8424: a STRING with an unknown encoding takes another path than the Buffer above. It throws
+   ERR_UNKNOWN_ENCODING for the caller, on a healthy console and a dead one, and leaves the file as it was. */
 test('kosmos#8424 a string with an unknown encoding throws as node decides, and leaves the file as it was', async (t) => {
   const healthy = console_('ok');
   const f1 = routeConsole(t, healthy);
@@ -258,8 +257,8 @@ test('#8373 once the console has failed, a write returns true, so no caller wait
   assert.strictEqual(out.write('later\n'), true);
 });
 
-/* kosmos#8424: a stream that emits 'error' but stays writable (autoDestroy off) still has real backpressure, and the
-   tee must report it as node does rather than force true. */
+/* kosmos#8424: a stream that is still writable after an 'error' event (another writer emitted it) still has real
+   backpressure, and the tee reports it as node does rather than force true. */
 test('kosmos#8424 a stream that errored but is still writable reports its backpressure as node does', async (t) => {
   const pending = [];
   const out = new Writable({ highWaterMark: 4, autoDestroy: false, write(chunk, enc, cb) { pending.push(cb); } });
@@ -268,4 +267,18 @@ test('kosmos#8424 a stream that errored but is still writable reports its backpr
   assert.strictEqual(out.destroyed, false, 'CONTROL: the stream stayed writable after its error');
   assert.strictEqual(out.write('more than four bytes\n'), false, 'an errored but writable stream hid its backpressure');
   pending.forEach((cb) => cb());
+});
+
+/* kosmos#8424 review 1: a write that fails on a stream with autoDestroy off. node does not destroy it, but marks it no
+   longer writable, and no 'drain' ever comes, so the tee answers true rather than make a caller wait for one. */
+test('kosmos#8424 a failed write with autoDestroy off is not writable, and returns true rather than wait for a drain', async (t) => {
+  const out = new Writable({ highWaterMark: 4, autoDestroy: false,
+    write(chunk, enc, cb) { cb(Object.assign(new Error('write EIO'), { code: 'EIO', syscall: 'write' })); } });
+  out.on('error', () => {});
+  routeConsole(t, out);
+  out.write('first\n');
+  await tick();
+  assert.strictEqual(out.destroyed, false, 'CONTROL: node did not destroy it (autoDestroy off)');
+  assert.strictEqual(out.writable, false, 'CONTROL: node marked it no longer writable');
+  assert.strictEqual(out.write('later, more than four bytes\n'), true, 'a dead stream asked its caller to wait for a drain');
 });

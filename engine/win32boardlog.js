@@ -121,11 +121,12 @@ function tee(stream, fd, lineState, now, name) {
     } catch { /* a full disk or a closed file must not stop the board */ }
     /* Every write still goes to node's own write, even after the console failed: node checks the arguments (a bad one
        throws as it always did) and reports a dead stream through the callback; the first failure also arrives as an
-       'error' event, which giveUp absorbs. Once the console has failed AND node has destroyed the stream, this returns
-       true, because node's false would ask a caller to wait for a 'drain' a destroyed stream never sends. A stream that
-       errored but is still writable answers as node does (kosmos#8424), so its real backpressure is not hidden. Defensive: a pipe's EPIPE arrives as that event,
+       'error' event, which giveUp absorbs. Once node has destroyed the stream, or marked it no longer writable (a failed
+       write with autoDestroy off), this returns true: node's false there would ask a caller to wait for a 'drain'
+       that never comes. A stream that is still writable answers as node does (kosmos#8424), so real backpressure is
+       not hidden. node's own state decides, not the error event, which arrives a tick after the destroy. Defensive: a pipe's EPIPE arrives as that event,
        not as a throw; only an I/O failure is caught here. */
-    try { const ok = write(chunk, encoding, callback); return dead && stream.destroyed === true ? true : ok; } catch (err) {
+    try { const ok = write(chunk, encoding, callback); return stream.destroyed === true || stream.writable === false ? true : ok; } catch (err) {
       if (!(err && (err.syscall || typeof err.errno === 'number'))) throw err;
       giveUp(err);
       if (typeof cb === 'function') process.nextTick(() => cb(err));
