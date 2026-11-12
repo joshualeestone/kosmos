@@ -92,8 +92,8 @@ function readBoardIn(sb, launchctlListStdout, systemdActiveUnits) {
 
   const bin = nodePath.join(sb, 'bin');
   fs.mkdirSync(bin, { recursive: true });
-  // An empty fleet: the board can see no session for ghost, which is the
-  // half of the disagreement the board holds.
+  // The board sees no session for ghost (the half of the disagreement the board holds): that empty fleet comes from
+  // the pane source set in the child below (kosmos#8378). This stub only satisfies the sandbox guard (#1651).
   fs.writeFileSync(nodePath.join(bin, 'tmux'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
   const script = `
@@ -118,6 +118,11 @@ function readBoardIn(sb, launchctlListStdout, systemdActiveUnits) {
     });
     const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
     const srv = app.server || app;
+    /* kosmos#8378: the empty fleet through the pane source the Windows board itself uses (status.setPaneSource), not
+       the #!/bin/sh tmux above, which Windows cannot run by its shebang (it stays for the sandbox guard, #1651). On
+       Windows this still runs the macOS launchd arm (the darwin probe forced above): it shows the roster and ghost-row
+       path works on a Windows host, not that a Windows scheduled task gets the could-not-check pill. */
+    require(${JSON.stringify(nodePath.join(REPO, 'engine', 'status.js'))}).setPaneSource(() => '');
     srv.listen(0, '127.0.0.1', () => {
       http.get({ host: '127.0.0.1', port: srv.address().port, path: '/api/status' }, (res) => {
         let s = ''; res.on('data', (d) => { s += d; }); res.on('end', () => {

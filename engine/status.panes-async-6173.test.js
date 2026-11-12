@@ -3,7 +3,8 @@
 /**
  * #6173: the pane roster read without blocking the board's thread (an account move's restarts ask it). One body
  * yields each tmux call and two drivers answer it; these pin that the async driver gives the sync one's answer, from a
- * real tmux process (a stand-in shell script, so a Mac and Linux file: it is not in tools/windows-tests.js), while the
+ * real tmux process (a stand-in shell script, so a Mac and Linux file: it skips on Windows, listed in
+ * tools/windows-tests.js's HOST_BRANCH_EXCLUDED with its reason, kosmos#8378), while the
  * board's thread keeps turning.
  */
 
@@ -23,6 +24,7 @@ process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
 
 const status = require('./status');
 const fleet = require('../test-support/fleet');
+const SKIP_POSIX_SHELL = require('../test-support/skip-on-win32').skipOnWin32('it fakes tmux with a #!/bin/sh script run by its shebang line, which Windows cannot run');   // kosmos#8378
 
 /* A tmux that takes its time: `sleep` then the panes file, or a no-server answer. */
 function slowTmux(body) {
@@ -38,7 +40,7 @@ function withTmux(bin, fn) {
   return Promise.resolve().then(fn).finally(done);
 }
 
-test('#6173: the async roster reads the same agents as the sync one, and the board keeps turning while tmux answers', async () => {
+test('#6173: the async roster reads the same agents as the sync one, and the board keeps turning while tmux answers', { skip: SKIP_POSIX_SHELL }, async () => {
   const panes = nodePath.join(SANDBOX, 'panes.txt');
   fs.writeFileSync(panes, `${fleet.line({ session: 'dana', claim: 'dana', title: '✳ Claude Code' })}\n`);
   await withTmux(slowTmux(`cat '${panes}'`), async () => {
@@ -52,7 +54,7 @@ test('#6173: the async roster reads the same agents as the sync one, and the boa
   });
 });
 
-test('#6173 control: the sync roster holds the board while tmux answers', async () => {
+test('#6173 control: the sync roster holds the board while tmux answers', { skip: SKIP_POSIX_SHELL }, async () => {
   const panes = nodePath.join(SANDBOX, 'panes2.txt');
   fs.writeFileSync(panes, '');
   await withTmux(slowTmux(`cat '${panes}'`), () => {
@@ -64,7 +66,7 @@ test('#6173 control: the sync roster holds the board while tmux answers', async 
   });
 });
 
-test('#6173: a tmux that cannot be asked fails the async roster the way it fails the sync one', async () => {
+test('#6173: a tmux that cannot be asked fails the async roster the way it fails the sync one', { skip: SKIP_POSIX_SHELL }, async () => {
   await withTmux(slowTmux('echo nope >&2; exit 7'), async () => {
     let syncErr = null;
     try { status.paneRoster(); } catch (e) { syncErr = e; }
@@ -76,7 +78,7 @@ test('#6173: a tmux that cannot be asked fails the async roster the way it fails
   });
 });
 
-test('#6173 (Liu Kang m5607): a session start is read without holding the board, and reads what the sync read reads', async () => {
+test('#6173 (Liu Kang m5607): a session start is read without holding the board, and reads what the sync read reads', { skip: SKIP_POSIX_SHELL }, async () => {
   await withTmux(slowTmux("printf 'dana\\t1700000000\\nother\\t1600000000\\n'"), async () => {
     let turns = 0;
     const iv = setInterval(() => { turns++; }, 5);

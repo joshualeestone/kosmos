@@ -5,7 +5,7 @@
  * speaks an id minted under another install.
  *
  * Same harness shape as server.leftover-removable.test.js: the real server
- * against a sandboxed store with a stub tmux reporting an empty fleet, so
+ * against a sandboxed store with an empty fleet (from the pane source, kosmos#8378), so
  * both seeded agents land in the offline roster deterministically. The
  * install id is PINNED by seeding ping.json, because the whole distinction
  * under test is "this install's id" versus "some other install's id".
@@ -31,9 +31,10 @@ const REPO = __dirname;
  * or a deadline passes, and a failure names what last came back, so a look
  * that failed and an agent that is absent are different sentences.
  *
- * `tmuxScript` is the stub's body; the default reports an empty fleet.
+ * kosmos#8378: the roster now comes through the pane source (status.setPaneSource), not the stub tmux. `failFirst` is
+ * how many looks answer null (a failed look) before the empty fleet; the default, 0, is the empty fleet at once.
  */
-function boardWithSeededIds(tmuxScript) {
+function boardWithSeededIds(failFirst = 0) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-id-'));
   const data = nodePath.join(sb, 'data');
   const profiles = nodePath.join(data, store.APP, 'profiles');
@@ -60,12 +61,18 @@ function boardWithSeededIds(tmuxScript) {
 
   const bin = nodePath.join(sb, 'bin');
   fs.mkdirSync(bin, { recursive: true });
-  fs.writeFileSync(nodePath.join(bin, 'tmux'), tmuxScript || '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  /* kosmos#8378: the roster comes through the pane source the Windows board itself uses (status.setPaneSource), not a
+     #!/bin/sh tmux, which Windows cannot run by its shebang; so this runs on every platform. The stub tmux stays only
+     because the sandbox guard requires AGENT_WORKFORCE_TMUX_BIN (#1651); with a pane source set, the roster never runs it. A
+     pane source answering null is the failed look a refusing tmux gave (engine/status.js). */
+  fs.writeFileSync(nodePath.join(bin, 'tmux'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
   const script = `
     const http = require('node:http');
     const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
     const srv = app.server || app;
+    let looks = 0;
+    require(${JSON.stringify(nodePath.join(REPO, 'engine', 'status.js'))}).setPaneSource(() => { looks += 1; return looks <= ${failFirst} ? null : ''; });
     const WANT = ['homegrown', 'blowin'];
     const DEADLINE_MS = 20000, EVERY_MS = 250;
     const t0 = Date.now(); let tries = 0, last = null;
@@ -149,15 +156,14 @@ test('#170: the board carries this install\'s agent ids and refuses to speak ano
 });
 
 test('#704: a look that fails and then recovers is waited out, not reported as a missing agent', () => {
-  /* The stub refuses its first three calls (the engine answers 500 "we could
+  /* The pane source refuses its first three looks (the engine answers 500 "we could
      not see what is running") and reports an empty fleet from the fourth. A
      single read would have called the seeded agents missing; the poll rides
-     over the failed looks and reaches the roster. No sleep in the stub: the
+     over the failed looks and reaches the roster. No delay in the source: the
      failed look is what is under test, not the timeout that causes one. */
-  const stub = '#!/bin/sh\nC="$(dirname "$0")/calls"\nn=$(cat "$C" 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > "$C"\n[ "$n" -le 3 ] && exit 1\nexit 0\n';
-  const got = boardWithSeededIds(stub);
+  const got = boardWithSeededIds(3);
   assert.equal(got.why, 'present', explain(got));
-  assert.ok(got.tries > 1, 'the stub was meant to fail first, but the first look succeeded: the seam did not engage');
+  assert.ok(got.tries > 1, 'the pane source was meant to fail first, but the first look succeeded: the seam did not engage');
   const names = got.body.agents.map((a) => a.sessionName).sort();
   assert.deepEqual(names, ['blowin', 'homegrown']);
 });

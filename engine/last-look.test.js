@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const { execFileSync } = require('node:child_process');
 const { killServerAt } = require('../test-support/tmux-kill');
+const SKIP_NO_TMUX = require('../test-support/skip-on-win32').skipOnWin32('it reads a real tmux server of its own, and Kosmos runs no tmux on Windows');   // kosmos#8378
 
 const REPO = path.join(__dirname, '..');
 
@@ -59,7 +60,7 @@ test('a tmux that is not there is said in words, not as a null', () => {
   fs.rmSync(sb, { recursive: true, force: true });
 });
 
-test('a tmux that answers is not a problem, and clears an older one', () => {
+test('a tmux that answers is not a problem, and clears an older one', { skip: SKIP_NO_TMUX }, () => {
   /* 📌 The control this pair needs: with a working tmux the field is null, so a
      screen cannot show yesterday's problem beside today's healthy board. */
   /* #5073: its OWN tmux server, not this machine's. Reading the default socket made the result depend on who was
