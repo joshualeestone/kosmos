@@ -310,3 +310,16 @@ test('kosmos#8424 a stand-in that reports only destroyed returns true', (t) => {
   routeConsole(t, live);
   assert.strictEqual(live.write('x\n'), false, 'CONTROL: a live stand-in gets its own answer');
 });
+
+/* kosmos#8424 review 8: the not-writable arm alone. In the same tick as a failed write, before node delivers the 'error'
+   event (so the console is not yet recorded as failed), node already reports the stream not writable. */
+test('kosmos#8424 in the tick before the error event, a not-writable stream returns true', (t) => {
+  const out = new Writable({ highWaterMark: 4, autoDestroy: false,
+    write(chunk, enc, cb) { cb(Object.assign(new Error('write EIO'), { code: 'EIO', syscall: 'write' })); } });
+  out.on('error', () => {});
+  const file = routeConsole(t, out);
+  out.write('first\n');
+  assert.strictEqual(out.writable, false, 'CONTROL: node reports the stream not writable at once');
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /console copy of stdout stopped/, 'CONTROL: the error event has not arrived yet');
+  assert.strictEqual(out.write('later, more than four bytes\n'), true, 'the not-writable arm did not answer');
+});
