@@ -12,13 +12,16 @@ Card: kosmos#8462 (from the 11-12 daily feedback, a Windows seat; given to Mona 
 - Weakest premise: no script outside this repo uses "empty stdout" to mean "no report". If one does, it now reads the sentence as the report.
 
 ## The card's sibling check
-Every place either CLI writes to stderr and then exits 0 (a three-line window scan of both files):
-- `kosmos feedback show` with no report: fixed here.
-- `kosmos room --unanswered` on an older board (kosmos-cli.js, and install/kosmos's twin): a warning that the room shown above is the whole room. Kept on stderr: it is a warning about the output, not an empty answer.
-- `kosmos feedback list`'s note on whose reports these are (#8340): kept on stderr on purpose, so stdout stays a plain list of dates for scripts.
-Every other "Nothing was ..." / "No ... " line on stderr is a refusal with a non-zero exit, which is right.
+Every stderr write in both CLIs (`>&2`, `console.error`, `process.stderr.write`, `ctx.err`) was read, not only the ones near an exit 0:
+- `kosmos feedback show` with no report: fixed (stdout).
+- `kosmos feedback list` (review 1): its kosmos#8340 note on whose reports these are went to stderr on every successful list, and agents are told (engine/feedbacknudge.js) to read it, so under PowerShell it was the same red record. Now all on stdout: the dates, one a line, then a blank line and the note, so a reader taking the dates stops at the blank line. With no report at all, it says so (`fb.noReportsWords()`, shared by both CLIs) instead of printing nothing. Nothing in the repo parses `feedback list` stdout (checked).
+- Kept on stderr, as warnings or progress about an answer, not answers: `kosmos room --unanswered` on an older board, the token-refused hint, the "not the installed kosmos" warning, retry and busy lines, and the triage notes. Every "Nothing was ..." / "No ..." line elsewhere is a refusal with a non-zero exit.
 
 ## Tests
 - cli.feedback-2037.test.js: the sentence on stdout, exactly, and nothing on stderr; the leap-day control on stdout too. Red on main (3 tests).
 - tools.windows-kosmos-cli-verbs.test.js and tools.windows-kosmos-cli-570.test.js: the Windows CLI the same. Red on main.
-- All 157 cli.* and tools.windows-* files pass (1704 pass, 0 fail, 39 skipped).
+- cli.feedback-2037.test.js also pins feedback list: the dates, a blank line, then the note, all on stdout, and the none-yet sentence; red on main.
+- All cli.*, tools.windows-* and engine/feedback* files pass (1940 pass, 0 fail, 39 skipped).
+
+## Review ledger
+- R1 opus: 0 B, 1 W (feedback list's note: the same PowerShell red, and agents read it), 1 C (two comments said stderr), NITs (the sweep description; an empty list printed nothing). Fixed.
