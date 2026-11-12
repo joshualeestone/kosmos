@@ -26,6 +26,12 @@ decide whether the moves have stopped, and looks again while they have not. Ever
 to the newest, rows landing above, dropped pages) already sets personUntil to 0, so no window can stay open: the lapse
 check is always scheduled when a window opens and re-arms only while the clock says the moves are recent.
 
+Second (review 2): a lapse check that runs more than personScrollStallLate (0.1 s) after it was due ran after a stall,
+and the moves it held back may come after it: an animated scroll's frames are driven by the display, not this queue.
+Such a check waits one more quiet period for them, once a window (not every time, so an app stalling over and over cannot
+keep a reader at the newest unfollowed). Either fix alone keeps the stepped stalled scroll (measured: the grace alone gave
+pins 1, moved 373); the control turns both off.
+
 Rejected: reopening a window for a move that comes soon after one closed (the pin at the close has already undone the
 scroll by then); a longer personScrollQuiet (moves the threshold, not the race).
 
@@ -42,9 +48,12 @@ a check where a new message arrives in that gap and the reader at the newest is 
 
 - ios/Kosmos/ChatList.swift: fingerlessScrolling() is `personUntil > 0`; personScrollLapsed reads the clock; debug only:
   a "stalled" mode of KOSMOS_SAMPLE_A11YSCROLL (0.6 s held before the second move, a 4 s watch) and
-  KOSMOS_SAMPLE_WINDOWBYCLOCK=1 (the window as before, the control arm).
+  KOSMOS_SAMPLE_WINDOWBYCLOCK=1 (the window as before, the control arm); personScrollStallLate and the once-a-window stall
+  grace in personScrollLapsed (lapseCheck carries the time it is due), with KOSMOS_SAMPLE_NOSTALLGRACE=1 for its control;
+  a "stalledAnimated" mode (the animated scroll, the main thread held 0.6 s 0.08 s into it).
 - ios/KosmosUITests/A11yScrollUITests.swift: testASlowScrollWithAStallIsStillFollowed and its control
-  testWithTheWindowByTheClockAStalledScrollIsPutBackAtTheEnd.
+  testWithTheWindowByTheClockAStalledScrollIsPutBackAtTheEnd (both fixes off); testAnAnimatedScrollWithAStallIsNotPutBack
+  and its recorded control testWithoutTheStallGraceAnAnimatedStalledScroll.
 
 ## Results
 
@@ -61,3 +70,14 @@ a check where a new message arrives in that gap and the reader at the newest is 
   grows with load (now said under the weakest premise); a focus or a finger's end landing in the gap behaves as it did
   inside the window before; both test arms assume GCD runs overdue main-queue timers in deadline order after the stall
   (true today, not stated by the test).
+- Iteration 2 (sonnet): 1 WARNING FIXED: after a stall, a real (animated) scroll's frames are driven by the display and
+  need not run before the overdue lapse check, which would then close the window and undo the scroll; the stepped test
+  could not see that, its moves being on the same queue. Fixed by the once-a-window stall grace (above), with an
+  animated stalled scroll check. Measured on the simulator: that scroll was kept with and without the grace (pins 0,
+  moved 408; its end was reported and closed the window as the person's), so the grace is not shown to be needed here:
+  it is for a phone or runner where the frames come later, and its control is recorded, not asserted. WARNING 2 (the
+  gap grows with load) was already stated under the weakest premise. NITs: comments on the test bounds and on why the
+  stall lands where intended.
+- Simulator (iPhone 17e, iOS 27.0, UIKit list, once each): A11yFocusUITests 14 of 14 and A11yScrollUITests 10 of 10 on
+  6b614aed54 (only the old control failed, as the grace alone kept its scroll); then A11yScrollUITests 11 of 11 on the
+  corrected control: stalled pins 0, moved 387; control (both off) pins 12, moved 0.
