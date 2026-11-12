@@ -186,7 +186,7 @@ test('#8417 the switch is read even when the argument line is not, and a failed 
   assert.deepEqual(xmlReads(again), [], 'a failed read is not asked again on the next poll');
 });
 
-test('#8417 a failed read is asked again a minute later, and then answers', () => {
+test('#8417 a failed read is asked again a minute later, and a read one ten minutes later', () => {
   let t = 1000000;
   job.setRunner(null);
   const opts = { xmlFails: new Set(['Kosmos\\agent-ava']) };
@@ -202,9 +202,12 @@ test('#8417 a failed read is asked again a minute later, and then answers', () =
     t += 1;
     assert.deepEqual([...create.disabledJobsResult(undefined, 'win32').jobs], ['ava'], 'retried at the minute, it says off');
     calls.length = 0;
-    t += 600000;
+    t += 599999;
     create.disabledJobsResult(undefined, 'win32');
-    assert.deepEqual(xmlReads(calls), [], 'a switch that WAS read is not asked again on time alone');
+    assert.deepEqual(xmlReads(calls), [], 'a switch that WAS read is not asked again before ten minutes');
+    t += 1;
+    create.disabledJobsResult(undefined, 'win32');
+    assert.deepEqual(xmlReads(calls), ['Kosmos\\agent-ava'], 'and is asked again at ten minutes, though its word never moved');
   } finally { job.setRunningClock(null); }
 });
 

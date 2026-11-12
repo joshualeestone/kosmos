@@ -7309,6 +7309,7 @@ function selfStarts(platform, lingering) {
 }
 /* #5445: the board's offline-row sentence for an agent whose job is switched off, or null when it is not. `switchedOff`
    is disabledJobs()'s set, read for probePlatform(). On the Mac: launchd's override, switched off in System Settings.
+   On Windows (#8417): the Scheduled Task's own switch, from win32job.switchedOffNames.
    On Linux: systemd; a masked unit (a link to /dev/null, read from the disk, so it is said even when systemctl could not
    be asked) gets the unmask sentence. Linux had no switched-off set before #5445 (launchctl failed there), so the
    Mac sentence, which points at System Settings, never reached it. */

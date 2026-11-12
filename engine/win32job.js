@@ -895,13 +895,15 @@ function folderRows() {
  * only when that word changes or the task is new to this process. The word is compared, never interpreted.
  *
  * Returns `{ known: true, names }`, or `{ known: false }` when the folder could not be listed. A task whose switch
- * could not be read is left out of `names`, and is asked again SWITCH_RETRY_MS later or when its Status word changes.
+ * could not be read is left out of `names`, and is asked again SWITCH_RETRY_MS later or when its Status word changes. A
+ * switch that was read is asked again SWITCH_RECHECK_MS later even if the word never moved.
  * At most SWITCH_READS_PER_CALL definitions are read per call, because each is a synchronous schtasks spawn on the
  * board's poll; a task not read yet, or not read again since its word moved, is left out until a later call reaches it. The clock is `setRunningClock`'s seam.
  */
-const SWITCH_SEEN = new Map();   // task name -> { status, enabled, retryAt } (enabled undefined: the switch could not be read)
+const SWITCH_SEEN = new Map();   // task name -> { status, enabled, dueAt } (enabled undefined: the switch could not be read)
 const SWITCH_READS_PER_CALL = 4;
 const SWITCH_RETRY_MS = 60000;
+const SWITCH_RECHECK_MS = 600000;
 function switchedOffNames() {
   const rows = folderRows();
   if (!rows.known) return { known: false };
@@ -913,13 +915,13 @@ function switchedOffNames() {
     const tn = taskName(row.name);
     let kept = SWITCH_SEEN.get(tn);
     if (kept && kept.status !== row.status) kept = null;   // the word moved: what was read under the old one is not used
-    const due = !kept || (kept.enabled === undefined && now >= kept.retryAt);
+    const due = !kept || now >= kept.dueAt;
     if (due && reads > 0) {
       reads -= 1;
       let en;
       try { en = taskEnabled(row.name); } catch { en = null; }
       const enabled = (en && en.known && en.registered) ? en.enabled : undefined;
-      kept = { status: row.status, enabled, retryAt: enabled === undefined ? now + SWITCH_RETRY_MS : 0 };
+      kept = { status: row.status, enabled, dueAt: now + (enabled === undefined ? SWITCH_RETRY_MS : SWITCH_RECHECK_MS) };
     }
     if (!kept) continue;
     seen.set(tn, kept);
