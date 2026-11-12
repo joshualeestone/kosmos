@@ -79,3 +79,11 @@ and 11 files keep some Windows failures for other causes, left to later triage s
   the whole app-location test for its one chmod arm; /Run always writes the ownership row, so no test here covers a
   supervisor that never comes up; jobPath resets setLiveness and setRunningClock through setRunner (a test that set
   either first would fail loudly, never pass falsely).
+- Round 4 (no blockers, 2 conventions, 3 nits). Fixed: the create.compat-7206 and qwen-review2-5977 skip reasons named
+  launchctl, which those tests stub; they now name the real mismatch (the macOS arm reads its job from the plist and uses
+  the POSIX runner check, while on Windows the fixture keeps a Scheduled Task and Windows stubs). Kosmos refuses those
+  agents on Windows, so the subject does not exist there and they stay skipped. test-support/skip-on-win32.js now states
+  the one exception the carded skips use: a subject that exists on Windows, with a Mac-only setup, may skip only if the
+  reason says so and names the open card owing its Windows arm. The bootout test's reason names #8456 too. Nits: the
+  fixture header says the stand-in lasts until the next setRunner; delete-leftover's BINS is node on every platform
+  (harmless: the runner is stubbed and nothing runs it), as in machine.test.js.

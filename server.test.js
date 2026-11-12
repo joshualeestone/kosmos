@@ -5699,7 +5699,7 @@ test('a half-removed agent is on the removed list AND still on the board', async
 });
 
 
-test('a job that is disabled but will not unload is recorded, not reported as untouched', { skip: skipOnWin32('it makes launchctl bootout fail, through the runner this test stubs, to check the removal a job that will not unload records; a Windows job is a Scheduled Task, which has no bootout') }, async () => {
+test('a job that is disabled but will not unload is recorded, not reported as untouched', { skip: skipOnWin32('it makes launchctl bootout fail, through the runner this test stubs, to check the removal a job that will not unload records; a Windows job is a Scheduled Task, whose same state (disabled, but /End fails) the stand-in Task Scheduler cannot make here; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
   /**
    * ⚠️ THE WORST STATE THIS MODULE CAN REACH, and it used to be invisible.
    *

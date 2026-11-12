@@ -20,7 +20,9 @@
  *
  * ASK FOR THE PATH EACH TIME YOU WRITE OR DELETE THE FILE on Windows: win32job remembers a task it has read until
  * its own install or remove (the #2717 cache), and jobPath is what forgets it. A path kept in a variable and written
- * again later is read back stale there. The stand-in lives in this process only: a board a test spawns does not see it
+ * again later is read back stale there. Once installed, the stand-in stays until the next win32job.setRunner call: a test
+ * that puts the runner back with setRunner(null) leaves later tests reading "could not look" until one asks for a path
+ * again (loud, never a false pass). The stand-in lives in this process only: a board a test spawns does not see it
  * (jobPathIn still writes a plist there). It also stands in for the start: /Run writes the ownership row the agent's
  * supervisor would (win32sessions, in the sandboxed store).
  */

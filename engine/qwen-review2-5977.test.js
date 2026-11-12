@@ -175,7 +175,7 @@ test('#5977 r3: Windows refuses a Qwen agent everywhere (its codex launch has no
   assert.match(made.because, /Qwen agent on Windows/);
 });
 
-test('#5977 r3: moving a Qwen agent to an account whose model the policy forbids is refused; the codex trust entry goes into the new home', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
+test('#5977 r3: moving a Qwen agent to an account whose model the policy forbids is refused; the codex trust entry goes into the new home', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin), which reads its job from the plist and judges its runners by the POSIX check; on a Windows host the job fixture keeps a Scheduled Task and the runner stubs are Windows ones, so that arm finds neither') }, () => {
   const orgpolicy = require('./orgpolicy');
   const okDir = nodePath.join(HOME, qwen.DIR_PREFIX + 'r3ok');
   qwen.storeEndpoint(okDir, EP);
@@ -250,7 +250,7 @@ test('#5977 r3: the live check never follows a redirect', async () => {
 
 /* ---- review 4 --------------------------------------------------------------------------------------------- */
 
-test('#5977 r4: agentProvider reads a job once per tick, and a switch is seen at once', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
+test('#5977 r4: agentProvider reads a job once per tick, and a switch is seen at once', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin), which reads its job from the plist and judges its runners by the POSIX check; on a Windows host the job fixture keeps a Scheduled Task and the runner stubs are Windows ones, so that arm finds neither') }, () => {
   const name = codexAgent('r4-memo', QWEN_HOME, 'alibaba');
   const fsReads = [];
   const orig = fs.readFileSync;
@@ -289,7 +289,7 @@ test('#5977 r4: the account list asks a dead endpoint briefly and remembers it f
 
 /* ---- review 5 --------------------------------------------------------------------------------------------- */
 
-test('#5977 r5: a Qwen switch and an account move record the account; a switch away clears it', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
+test('#5977 r5: a Qwen switch and an account move record the account; a switch away clears it', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin), which reads its job from the plist and judges its runners by the POSIX check; on a Windows host the job fixture keeps a Scheduled Task and the runner stubs are Windows ones, so that arm finds neither') }, () => {
   const a = nodePath.join(HOME, qwen.DIR_PREFIX + 'r5a'); qwen.storeEndpoint(a, EP);
   const b = nodePath.join(HOME, qwen.DIR_PREFIX + 'r5b'); qwen.storeEndpoint(b, EP);
   const name = codexAgent('r5-rec', null, 'anthropic');
@@ -361,7 +361,7 @@ test('#5977 r6: codexJobProvider says null with no job, so a caller can fall bac
   assert.equal(create.agentProvider('r6-nobody', 'codex'), 'openai', 'CONTROL: the floor callers rely on');
 });
 
-test('#5977 r6: an account move that cannot record the new account moves nothing', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
+test('#5977 r6: an account move that cannot record the new account moves nothing', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin), which reads its job from the plist and judges its runners by the POSIX check; on a Windows host the job fixture keeps a Scheduled Task and the runner stubs are Windows ones, so that arm finds neither') }, () => {
   const a = nodePath.join(HOME, qwen.DIR_PREFIX + 'r6a'); qwen.storeEndpoint(a, EP);
   const b = nodePath.join(HOME, qwen.DIR_PREFIX + 'r6b'); qwen.storeEndpoint(b, EP);
   const name = codexAgent('r6-mover', a, 'alibaba');
@@ -379,7 +379,7 @@ test('#5977 r6: an account move that cannot record the new account moves nothing
 
 /* ---- review 7 --------------------------------------------------------------------------------------------- */
 
-test('#5977 r7: a switch to Qwen that cannot record it changes nothing; a recorded one carries its account', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
+test('#5977 r7: a switch to Qwen that cannot record it changes nothing; a recorded one carries its account', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin), which reads its job from the plist and judges its runners by the POSIX check; on a Windows host the job fixture keeps a Scheduled Task and the runner stubs are Windows ones, so that arm finds neither') }, () => {
   const a = nodePath.join(HOME, qwen.DIR_PREFIX + 'r7a'); qwen.storeEndpoint(a, EP);
   const name = codexAgent('r7-sw', null, 'anthropic');
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), '# brief\n');
@@ -422,7 +422,7 @@ test('#5977 r7: the supervisor takes the key only from a launch-key that succeed
 });
 
 /* Last in the file: setRunner(null) leaves dry-run on, which the earlier switch tests must not inherit. */
-test('#5977 r5: Repair rebuilds a Qwen agent on its recorded Qwen account, and refuses rather than make it OpenAI', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin: a launchd plist and launchctl), which a Windows host does not have') }, () => {
+test('#5977 r5: Repair rebuilds a Qwen agent on its recorded Qwen account, and refuses rather than make it OpenAI', { skip: skipOnWin32('Kosmos refuses a Qwen agent on Windows (#5977 r3), so it drives the macOS arm on purpose (platform darwin), which reads its job from the plist and judges its runners by the POSIX check; on a Windows host the job fixture keeps a Scheduled Task and the runner stubs are Windows ones, so that arm finds neither') }, () => {
   const register = require('./register');
   // installJob would bootstrap with the real launchctl; stubbed, as create.installjob-gemini-grok-3296 does.
   create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false);
