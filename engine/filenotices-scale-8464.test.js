@@ -206,3 +206,39 @@ test('kosmos#8464 review 1: a newline-only change, an empty new file and a chang
   fs.writeFileSync(crlf, 'one\r\ntwo\r\n');
   assert.match(fn.contextText(handed(c)), /So far: the file changed, but no lines were added or removed/, 'line endings read as a rewrite');
 });
+
+/* Review 3, the blocker: the path was resolved twice in noteWrite and only the first was checked. A link flipped between
+   the two (here inside who(), the window the reviewer used) sent an outside folder through. Resolved once now. */
+test('kosmos#8464 review 3: a link flipped while the write is being noted does not send an outside file through', () => {
+  const id = 'flip' + (++seq);
+  const folder = path.join(real, 'projects', id); fs.mkdirSync(path.join(folder, 'realsub'), { recursive: true });
+  const own = 'flipown' + seq;
+  projects.writeAll([...projects.readAll(), { id, name: 'Flip', folder, agents: ['mona', own], createdAt: '2026-01-01T00:00:00.000Z' }]);
+  const roots = [{ id, folder }];
+  fs.writeFileSync(path.join(folder, 'realsub', 'x.md'), 'in1\nin2\nin3\n');
+  const outside = path.join(real, 'flipout' + seq); fs.mkdirSync(outside);
+  fs.writeFileSync(path.join(outside, 'x.md'), 'o1\no2\no3\n');
+  const l = path.join(folder, 'l'); fs.symlinkSync(path.join(folder, 'realsub'), l);
+  const t0 = Date.parse('2026-11-12T12:00:00Z');
+  assert.equal(fw.noteWrite(path.join(l, 'x.md'), own, { now: t0, projects: roots }), true);
+  assert.equal(fw.noteWrite(path.join(l, 'x.md'), () => { fs.rmSync(l); fs.symlinkSync(outside, l); return 'mona'; }, { now: t0 + 60e3, projects: roots }), true);
+  fs.appendFileSync(path.join(outside, 'x.md'), 'o4\no5\n');   // the outside file changes
+  const text = fn.contextText(fn.handOver(own));
+  assert.match(text, /about to change/, 'CONTROL: the notice was queued');
+  assert.doesNotMatch(text, /So far: 2 lines added/, 'the outside file was measured');
+});
+
+/* Review 3: a folder swapped to a link for the moment of the open and back passes both folder checks. Simulated by an
+   open that lands on an outside file for the inside name; the name's device and inode then differ, so no scale. */
+test('kosmos#8464 review 3: a file opened through a swap that is undone before the check is not measured', () => {
+  const f = fileWith(lines(3)); const who = owner();
+  fn.queue(who, 'x', { file: f });
+  const outsideFile = fileWith(lines(9, 'secret'));
+  const realOpen = fs.openSync;
+  fs.openSync = (p, ...rest) => realOpen(p === f ? outsideFile : p, ...rest);
+  let text;
+  try { text = fn.contextText(handed(who)); } finally { fs.openSync = realOpen; }
+  assert.doesNotMatch(text, /So far: \d+ line/, 'a swapped-in file was measured');
+  // CONTROL: the same notice handed over again, with the real open, is measured.
+  assert.match(fn.contextText(handed(who)), /So far: Kosmos found no difference/, 'CONTROL: the real file is measured');
+});

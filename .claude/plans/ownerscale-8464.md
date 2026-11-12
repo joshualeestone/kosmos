@@ -24,6 +24,11 @@ later (engine/filenotices.js, through Kosmos's Claude Code hook), by when the ed
   checks the folder again after the read; the hand-over does the same. A file with more than one hard link is not
   measured (a hard link is not a link to O_NOFOLLOW and can name a file outside). A file that grows past the bounds says
   "now too large for Kosmos to count"; one never made says so.
+- Review 3, security: noteWrite resolves the path ONCE and uses that result both to place it inside the project and for
+  the notice (a second resolve let a link flipped in between send an outside folder through). And after the read, the
+  name's device and inode must equal the open file's, so a folder swapped to a link for the moment of the open and back
+  (which passes both folder checks) is not measured. The after-read folder checks are kept as a second line; the inode
+  check is what a test pins.
 - filewriters passes the path through (noteWrite -> ownerNotice -> queue). The room note is unchanged.
 
 ## Rejected
@@ -32,10 +37,8 @@ later (engine/filenotices.js, through Kosmos's Claude Code hook), by when the ed
 - A net line count: an edit replacing 50 lines with 50 others would read 0.
 
 ## Weakest premise
-That the fingerprint is taken before the edit lands. noteWrite runs on setImmediate after the board answers the hook,
-and the agent's edit runs after its hook process exits, so the board is very likely first; if the edit wins, the
-change reads as smaller (or unchanged) than it was. Also: a multiset of lines ignores moves and counts a changed line
-as one added and one removed. It is meant to tell a big change from a small one, not to be a diff.
-
-## Not in this change
-Item 2 of the card (structured acceptance checks) stays on #8464.
+That the remaining exposure is acceptable: an agent racing renames could at best make the board measure a file whose
+name and inode it controls inside the project, never one outside (the inode check). And that the line counts are worth
+this much care at all: the agents run as the same user and could read such a file themselves; the rule kept is that
+the BOARD never reads outside the project. Also: the "before" fingerprint is taken on setImmediate after the hook's
+answer, so the edit can land first; the no-change wording is hedged for that.

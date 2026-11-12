@@ -72,6 +72,11 @@ function fingerprint(file) {
       got += n;
       if (got > SCALE_MAX_BYTES) return { tooLarge: true };
     }
+    /* Review 3: the name must still be the file that was opened. A folder swapped to a link for the moment of the open
+       and back again passes both folder checks; its outside file cannot have the inside name's device and inode (a file
+       with more than one link is refused above). */
+    const now = fs.lstatSync(file);
+    if (now.dev !== st.dev || now.ino !== st.ino) return null;
     const text = buf.subarray(0, got).toString('utf8');
     const lines = text.split('\n');
     if (lines.length && lines[lines.length - 1] === '') lines.pop();
@@ -109,7 +114,7 @@ function scaleWords(s) {
   if (s.created && !s.added) return ' So far: the file was made, empty.';
   if (!s.added && !s.removed) {
     return s.same ? ' So far: Kosmos found no difference in the file since this notice (it may have changed just before).'
-      : ' So far: the file changed, but no lines were added or removed (line endings or the last newline).';
+      : ' So far: the file changed, but no lines were added or removed (lines moved, line endings or the last newline).';
   }
   const n = (k, w) => k + ' line' + (k === 1 ? '' : 's') + ' ' + w;
   return ' So far: ' + n(s.added, 'added') + ' and ' + n(s.removed, 'removed') + (s.created ? ' (it was new)' : ', of ' + s.before + ' before') + '.';
