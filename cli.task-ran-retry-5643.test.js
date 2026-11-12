@@ -16,6 +16,7 @@ const wincli = require('./tools/windows/kosmos-cli');
 const realHook = require('./engine/kosmos-report-hook');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'ab'.repeat(32);
 const homes = [];
 test.after(() => { for (const h of homes) fs.rmSync(h, { recursive: true, force: true }); });
@@ -71,7 +72,7 @@ function sh(port, home, args) {
 }
 const posts = (seen) => seen.filter((r) => /\/task\/3\/(ran|repeat)$/.test(r)).length;
 
-test('#5643 Mac: a run the board refused once (503) is asked again and recorded', async () => {
+test('#5643 Mac: a run the board refused once (503) is asked again and recorded', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   await withStub([503, 200], async (port, seen) => {
     const r = await sh(port, home, ['task', 'ran', 'proj', '3', 'all clear']);
@@ -81,7 +82,7 @@ test('#5643 Mac: a run the board refused once (503) is asked again and recorded'
   });
 });
 
-test('#5643 Mac: three refusals say it was not recorded and to run it again; a rule is asked once', async () => {
+test('#5643 Mac: three refusals say it was not recorded and to run it again; a rule is asked once', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   await withStub([503], async (port, seen) => {
     const r = await sh(port, home, ['task', 'ran', 'proj', '3', 'all clear']);
@@ -102,7 +103,7 @@ test('#5643 Mac: three refusals say it was not recorded and to run it again; a r
   });
 });
 
-test('#5643 Mac: with no board at all the command still says Kosmos is not running (checked before any attempt)', async () => {
+test('#5643 Mac: with no board at all the command still says Kosmos is not running (checked before any attempt)', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   // A port nothing listens on: the CLI's health check answers first, so the retry never starts.
   const free = await new Promise((resolve) => { const s = http.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
@@ -146,7 +147,7 @@ test('#5643 Windows: retried on a 503 and on a timeout; a timeout keeps "may hav
   assert.equal(r.calls, 1, 'CONTROL: a 400 was retried');
 });
 
-test('#5643 retry review 1 Mac: one run id on every attempt; a cut then busy says it may have been recorded (exit 3)', async () => {
+test('#5643 retry review 1 Mac: one run id on every attempt; a cut then busy says it may have been recorded (exit 3)', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   await withStub(['cut', 503], async (port, seen, bodies) => {
     const r = await sh(port, home, ['task', 'ran', 'proj', '3', 'all clear']);
@@ -160,7 +161,7 @@ test('#5643 retry review 1 Mac: one run id on every attempt; a cut then busy say
   });
 });
 
-test('#5643 retry review 1 Mac: a cut then a duplicate says it was already recorded; a cut then a board gone says it stopped answering', async () => {
+test('#5643 retry review 1 Mac: a cut then a duplicate says it was already recorded; a cut then a board gone says it stopped answering', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   await withStub(['cut', 'dup'], async (port, seen) => {
     const r = await sh(port, home, ['task', 'ran', 'proj', '3', 'all clear']);
@@ -185,7 +186,7 @@ test('#5643 retry review 1 Windows: refused only says not recorded; a reset then
   assert.ok(/^[0-9a-f]{16}$/.test(r.ids[0]) && r.ids.every((x) => x === r.ids[0]), 'the attempts carried different run ids: ' + r.ids);
 });
 
-test('#5643 retry review 2 Mac: a rule (task repeat) that fails says only what it said before', async () => {
+test('#5643 retry review 2 Mac: a rule (task repeat) that fails says only what it said before', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   await withStub(['cut'], async (port, seen) => {
     const r = await sh(port, home, ['task', 'repeat', 'proj', '3', 'daily']);
@@ -200,7 +201,7 @@ test('#5643 retry review 2 Mac: a rule (task repeat) that fails says only what i
   });
 });
 
-test('#5643 retry review 5 Mac: every attempt timing out says it may have been recorded (exit 3), one id; a timeout then a duplicate is recorded once', async () => {
+test('#5643 retry review 5 Mac: every attempt timing out says it may have been recorded (exit 3), one id; a timeout then a duplicate is recorded once', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   const shT = (port, args) => new Promise((resolve, reject) => execFile(CLI, args, { env: { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: '', TMUX_PANE: '', KOSMOS_AGENT_TOKEN: TOKEN, KOSMOS_RETRY_PAUSE_MS: '0', KOSMOS_RAN_TIMEOUT_S: '1' }, timeout: 30000 }, (err, so, se) => {
     if (err && typeof err.code !== 'number') { reject(err); return; }

@@ -16,6 +16,7 @@ const wincli = require('./tools/windows/kosmos-cli');
 const realHook = require('./engine/kosmos-report-hook');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'ab'.repeat(32);
 const homes = [];
 test.after(() => { for (const h of homes) fs.rmSync(h, { recursive: true, force: true }); });
@@ -87,7 +88,7 @@ for (const [state, value, want] of [
   ['same', 'v-same', /the same as what the person was last told \("told "x""\): nothing new to tell them/],
   ['changed', 'v-changed', /CHANGED since the person was last told \(they were told "told "x""\): tell them, then run: kosmos task told p1 3/],
 ]) {
-  test('install/kosmos: task ran --value sends the reading and says it is ' + state + ' against what the person was told', async () => {
+  test('install/kosmos: task ran --value sends the reading and says it is ' + state + ' against what the person was told', { skip: SKIP_POSIX_SHELL }, async () => {
     const home = makeHome();
     await withStub(async (port, seen) => {
       const r = await sh(port, home, ['task', 'ran', 'p1', '3', '--value', value, 'checked it']);
@@ -110,13 +111,15 @@ for (const [state, value, want] of [
 }
 
 test('both CLIs: a run with NO --value sends no value and says nothing about what the person was told (control)', async () => {
-  const home = makeHome();
-  await withStub(async (port, seen) => {
-    const r = await sh(port, home, ['task', 'ran', 'p1', '3', 'checked it']);
-    assert.equal(r.code, 0, r.out);
-    assert.equal('value' in seen[0].body, false);
-    assert.doesNotMatch(r.out, /person was|never been told/);
-  });
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs everywhere
+    const home = makeHome();
+    await withStub(async (port, seen) => {
+      const r = await sh(port, home, ['task', 'ran', 'p1', '3', 'checked it']);
+      assert.equal(r.code, 0, r.out);
+      assert.equal('value' in seen[0].body, false);
+      assert.doesNotMatch(r.out, /person was|never been told/);
+    });
+  }
   const w = await win(['task', 'ran', 'p1', '3', 'checked it']);
   assert.equal(w.code, 0, w.out);
   assert.equal('value' in w.calls[0].body, false);
@@ -124,17 +127,19 @@ test('both CLIs: a run with NO --value sends no value and says nothing about wha
 });
 
 test('both CLIs: task told sends the words given, or none (the board then uses the last reading)', async () => {
-  const home = makeHome();
-  await withStub(async (port, seen) => {
-    let r = await sh(port, home, ['task', 'told', 'p1', '3', '--value', 'price went up to $45']);
-    assert.equal(r.code, 0, r.out);
-    assert.equal(seen[0].route, '/api/project/p1/task/3/told');
-    assert.equal(seen[0].body.value, 'price went up to $45');
-    assert.match(r.out, /Recorded what the person was told about task 3 on p1\./);
-    r = await sh(port, home, ['task', 'told', 'p1', '3']);
-    assert.equal(r.code, 0, r.out);
-    assert.equal('value' in seen[1].body, false);
-  });
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs everywhere
+    const home = makeHome();
+    await withStub(async (port, seen) => {
+      let r = await sh(port, home, ['task', 'told', 'p1', '3', '--value', 'price went up to $45']);
+      assert.equal(r.code, 0, r.out);
+      assert.equal(seen[0].route, '/api/project/p1/task/3/told');
+      assert.equal(seen[0].body.value, 'price went up to $45');
+      assert.match(r.out, /Recorded what the person was told about task 3 on p1\./);
+      r = await sh(port, home, ['task', 'told', 'p1', '3']);
+      assert.equal(r.code, 0, r.out);
+      assert.equal('value' in seen[1].body, false);
+    });
+  }
   let w = await win(['task', 'told', 'p1', '3', '--value', 'price went up to $45']);
   assert.equal(w.code, 0, w.out);
   assert.equal(w.calls[0].route, '/api/project/p1/task/3/told');
@@ -148,26 +153,30 @@ test('both CLIs: task told sends the words given, or none (the board then uses t
 const REFUSED = [['task', 'told', 'p1', '3', '--note', 'x'], ['task', 'told', 'p1', '3', '--value'], ['task', 'ran', 'p1', '3', '--value'],
   ['task', 'ran', 'p1', '3', '--value', '--unchanged'], ['task', 'told', 'p1', '3', '--value', '--note']];
 test('both CLIs: told takes bare words as what was told (as ran takes its note)', async () => {
-  const home = makeHome();
-  await withStub(async (port, seen) => {
-    const r = await sh(port, home, ['task', 'told', 'p1', '3', 'price', 'went', 'up']);
-    assert.equal(r.code, 0, r.out);
-    assert.equal(seen[0].body.value, 'price went up');
-  });
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs everywhere
+    const home = makeHome();
+    await withStub(async (port, seen) => {
+      const r = await sh(port, home, ['task', 'told', 'p1', '3', 'price', 'went', 'up']);
+      assert.equal(r.code, 0, r.out);
+      assert.equal(seen[0].body.value, 'price went up');
+    });
+  }
   const w = await win(['task', 'told', 'p1', '3', 'price', 'went', 'up']);
   assert.equal(w.code, 0, w.out);
   assert.equal(w.calls[0].body.value, 'price went up');
 });
 
 test('both CLIs: told refuses an option, and --value with no words or with an option, before calling the board', async () => {
-  const home = makeHome();
-  await withStub(async (port, seen) => {
-    for (const args of REFUSED) {
-      const r = await sh(port, home, args);
-      assert.equal(r.code, 2, args.join(' ') + ': ' + r.out);
-    }
-    assert.equal(seen.length, 0, 'a refused command reached the board');
-  });
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs everywhere
+    const home = makeHome();
+    await withStub(async (port, seen) => {
+      for (const args of REFUSED) {
+        const r = await sh(port, home, args);
+        assert.equal(r.code, 2, args.join(' ') + ': ' + r.out);
+      }
+      assert.equal(seen.length, 0, 'a refused command reached the board');
+    });
+  }
   for (const args of REFUSED) {
     const w = await win(args);
     assert.equal(w.code, 2, args.join(' ') + ': ' + w.out);
@@ -183,12 +192,14 @@ for (const [args, want] of [
   [['task', 'told', 'p1', '3', '--', '--dry', 'run'], '--dry run'],
 ]) {
   test('both CLIs: told ' + args.slice(4).join(' ') + ' records "' + want + '"', async () => {
-    const home = makeHome();
-    await withStub(async (port, seen) => {
-      const r = await sh(port, home, args);
-      assert.equal(r.code, 0, r.out);
-      assert.equal(seen[0].body.value, want);
-    });
+    if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI's half; the Windows CLI's half below runs everywhere
+      const home = makeHome();
+      await withStub(async (port, seen) => {
+        const r = await sh(port, home, args);
+        assert.equal(r.code, 0, r.out);
+        assert.equal(seen[0].body.value, want);
+      });
+    }
     const w = await win(args);
     assert.equal(w.code, 0, w.out);
     assert.equal(w.calls[0].body.value, want);

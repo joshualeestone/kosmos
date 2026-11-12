@@ -28,6 +28,7 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-connections-4451-
 process.on('exit', () => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const TOKEN = 'bsa_0123456789abcdef0123456789abcdef';
 
 function withStub(answers, fn) {
@@ -176,7 +177,7 @@ const HELD = { services: [
   { name: 'Exa', route: '/api/svc/exa', how: 'token', held: false, connect: 'exa' },
 ] };
 
-test('#4451: kosmos connections reads the cheap route, never the metered sweep, and says each state in words', () => withStub({ 'GET /api/connections/held': { json: HELD } }, async (port, seen) => {
+test('#4451: kosmos connections reads the cheap route, never the metered sweep, and says each state in words', { skip: SKIP_POSIX_SHELL }, () => withStub({ 'GET /api/connections/held': { json: HELD } }, async (port, seen) => {
   const r = await cli(port, ['connections'], null, privateDir());
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /Brave Search: connected \(a token is stored; .*; replace it with: kosmos connect brave-search\)/);
@@ -187,7 +188,7 @@ test('#4451: kosmos connections reads the cheap route, never the metered sweep, 
   assert.equal(seen.filter((q) => q.url === '/api/connections').length, 0, 'kosmos connections called the metered sweep');
 }));
 
-test('#4451: kosmos connect takes the token on stdin, sends it through the door, and leaves no private file behind', () => withStub({
+test('#4451: kosmos connect takes the token on stdin, sends it through the door, and leaves no private file behind', { skip: SKIP_POSIX_SHELL }, () => withStub({
   'POST /api/svc/brave-search/token': { json: { service: 'Brave Search', connected: true, held: true, who: null } },
 }, async (port, seen) => {
   const tmp = privateDir();
@@ -209,7 +210,7 @@ test('#4451: kosmos connect takes the token on stdin, sends it through the door,
   assert.equal(seen.filter((q) => q.url === '/api/connections').length, 0, 'connect called the metered sweep');
 }));
 
-test('#4451: kosmos connect says a refusal in the service\'s words, and refuses an empty token or a bad name before sending', () => withStub({
+test('#4451: kosmos connect says a refusal in the service\'s words, and refuses an empty token or a bad name before sending', { skip: SKIP_POSIX_SHELL }, () => withStub({
   'POST /api/svc/exa/token': { status: 400, json: { service: 'Exa', connected: false, refused: 'Exa did not accept that token' } },
 }, async (port, seen) => {
   const refused = await cli(port, ['connect', 'exa'], TOKEN, privateDir());
@@ -225,7 +226,7 @@ test('#4451: kosmos connect says a refusal in the service\'s words, and refuses 
   assert.equal(seen.filter((q) => q.method === 'POST').length, before, 'an empty token or a bad name was sent anyway');
 }));
 
-test('#4451: an interrupt while the door checks the token leaves no token file behind', () => withStub({
+test('#4451: an interrupt while the door checks the token leaves no token file behind', { skip: SKIP_POSIX_SHELL }, () => withStub({
   'POST /api/svc/brave-search/token': { holdMs: 8000, json: { service: 'Brave Search', connected: true } },
 }, async (port, seen) => {
   const tmp = privateDir();
@@ -256,7 +257,7 @@ test('#4451: an interrupt while the door checks the token leaves no token file b
   } finally { stopAndClean(child, tmp); }
 }));
 
-test('#4451: an interrupt while the token is still arriving on stdin stops at once too, and leaves nothing behind', () => withStub({}, async (port, seen) => {
+test('#4451: an interrupt while the token is still arriving on stdin stops at once too, and leaves nothing behind', { skip: SKIP_POSIX_SHELL }, () => withStub({}, async (port, seen) => {
   const tmp = privateDir();
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMPDIR: tmp };
   delete env.KOSMOS_AGENT_TOKEN;

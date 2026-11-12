@@ -23,6 +23,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const BOARD = 'boardtoken4491slice2';
 const TOKEN = 'ab'.repeat(32);
 
@@ -146,7 +147,7 @@ async function send(port, seen, home, args, token, only, extraEnv) {
 }
 
 for (const [route, args] of VERBS) {
-  test(`kosmos ${verbName(args)} presents a valid agent token as x-kosmos-agent-token, and still the board token`, async () => {
+  test(`kosmos ${verbName(args)} presents a valid agent token as x-kosmos-agent-token, and still the board token`, { skip: SKIP_POSIX_SHELL }, async () => {
     const home = makeHome();
     try {
       await withStub(async (port, seen) => {
@@ -163,7 +164,7 @@ for (const [route, args] of VERBS) {
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 
-  test(`kosmos ${verbName(args)} sends no agent header for a junk or absent token`, async () => {
+  test(`kosmos ${verbName(args)} sends no agent header for a junk or absent token`, { skip: SKIP_POSIX_SHELL }, async () => {
     const home = makeHome();
     try {
       await withStub(async (port, seen) => {
@@ -200,7 +201,7 @@ const PERSON_VERBS = [
 const longName = (args) => (['community', 'report'].includes(args[0]) || args.join(' ').startsWith('room reopen') ? args.slice(0, 2).join(' ') : verbName(args));
 
 for (const [route, args] of TOKEN_ONLY_VERBS) {
-  test(`token-only: kosmos ${longName(args)} sends the agent's token and not the board token`, async () => {
+  test(`token-only: kosmos ${longName(args)} sends the agent's token and not the board token`, { skip: SKIP_POSIX_SHELL }, async () => {
     const home = makeHome();
     try {
       await withStub(async (port, seen) => {
@@ -216,7 +217,7 @@ for (const [route, args] of TOKEN_ONLY_VERBS) {
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
 
-  test(`token-only: kosmos ${longName(args)} keeps the board token when it has no usable agent token, or the switch is not exactly 1`, async () => {
+  test(`token-only: kosmos ${longName(args)} keeps the board token when it has no usable agent token, or the switch is not exactly 1`, { skip: SKIP_POSIX_SHELL }, async () => {
     const home = makeHome();
     try {
       await withStub(async (port, seen) => {
@@ -245,7 +246,7 @@ for (const [route, args] of TOKEN_ONLY_VERBS) {
 }
 
 for (const [route, args] of PERSON_VERBS) {
-  test(`token-only: kosmos ${longName(args)} is the person's and still sends the board token`, async () => {
+  test(`token-only: kosmos ${longName(args)} is the person's and still sends the board token`, { skip: SKIP_POSIX_SHELL }, async () => {
     const home = makeHome();
     try {
       await withStub(async (port, seen) => {
@@ -260,7 +261,7 @@ for (const [route, args] of PERSON_VERBS) {
 /* Slice 5: the board now refuses an agent that is not on the project. Each verb prints the board's own sentence and
    exits 1 (its own stub: the shared one above always answers 200). */
 for (const [args, verb] of [[['task', 'add', 'p4491', 'write the docs'], 'add tasks to it'], [['task', 'close', 'p4491', '1'], 'close its tasks']]) {
-  test(`kosmos ${verbName(args)} prints the board's refusal for an agent that is not on the project, and exits 1`, async () => {
+  test(`kosmos ${verbName(args)} prints the board's refusal for an agent that is not on the project, and exits 1`, { skip: SKIP_POSIX_SHELL }, async () => {
     const home = makeHome();
     const sentence = 'that agent is not on this project, so it cannot ' + verb + "; ask the person to add this agent with the + beside Members on the project's page, then run the same command again";
     const server = http.createServer((req, res) => {

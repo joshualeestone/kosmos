@@ -27,6 +27,7 @@ fs.mkdirSync(ROOT, { recursive: true });
 fs.writeFileSync(path.join(ROOT, 'board.token'), 'board-tok-5359\n', { mode: 0o600 });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 
 function withStub(answers, fn) {
   const seen = [];
@@ -93,7 +94,7 @@ const ACCOUNTS = { accounts: [
   { provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'x@example.com', connection: { state: 'connected', badge: 'rejected', loginStopsAt: Date.now() + 3600 * 1000 } },
 ] };
 
-test('#5359: kosmos accounts reads /api/accounts with the board token, and says each account\'s state in words', () => withStub({ 'GET /api/accounts': { json: ACCOUNTS } }, async (port, seen) => {
+test('#5359: kosmos accounts reads /api/accounts with the board token, and says each account\'s state in words', { skip: SKIP_POSIX_SHELL }, () => withStub({ 'GET /api/accounts': { json: ACCOUNTS } }, async (port, seen) => {
   const r = await cli(port, ['accounts']);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /^Anthropic \/ Claude: a@example\.com \(subscription\): signed in$/m);
@@ -116,7 +117,7 @@ test('#5359: kosmos accounts reads /api/accounts with the board token, and says 
   assert.equal(q.headers['x-kosmos-board-token'], 'board-tok-5359', 'the board token did not reach the route');
 }));
 
-test('#5359: kosmos accounts says when there are none, when the board refuses, and when the answer is unreadable', async () => {
+test('#5359: kosmos accounts says when there are none, when the board refuses, and when the answer is unreadable', { skip: SKIP_POSIX_SHELL }, async () => {
   await withStub({ 'GET /api/accounts': { json: { accounts: [] } } }, async (port) => {
     const r = await cli(port, ['accounts']);
     assert.equal(r.code, 0, r.out);
@@ -154,7 +155,7 @@ test('#5359: kosmos accounts says when there are none, when the board refuses, a
   });
 });
 
-test('#5359 review 7: an install missing its accounts reader says so, with no stack trace and no path, and never blames the board', () => withStub({ 'GET /api/accounts': { json: ACCOUNTS } }, async (port) => {
+test('#5359 review 7: an install missing its accounts reader says so, with no stack trace and no path, and never blames the board', { skip: SKIP_POSIX_SHELL }, () => withStub({ 'GET /api/accounts': { json: ACCOUNTS } }, async (port) => {
   const HOME_NO_ENGINE = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-accounts-noengine-'));
   try {
     const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME_NO_ENGINE });
@@ -168,14 +169,14 @@ test('#5359 review 7: an install missing its accounts reader says so, with no st
   } finally { fs.rmSync(HOME_NO_ENGINE, { recursive: true, force: true }); }
 }));
 
-test('#5359: kosmos accounts --help prints its usage and never runs the live check', () => withStub({ 'GET /api/accounts': { json: ACCOUNTS } }, async (port, seen) => {
+test('#5359: kosmos accounts --help prints its usage and never runs the live check', { skip: SKIP_POSIX_SHELL }, () => withStub({ 'GET /api/accounts': { json: ACCOUNTS } }, async (port, seen) => {
   const r = await cli(port, ['accounts', '--help']);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /^Usage: kosmos accounts /m);
   assert.equal(seen.filter((x) => x.url === '/api/accounts').length, 0, '--help ran the live check');
 }));
 
-test('#5359: kosmos accounts says so when no board answers', async () => {
+test('#5359: kosmos accounts says so when no board answers', { skip: SKIP_POSIX_SHELL }, async () => {
   // A port nothing listens on: taken from a stub that is then closed.
   const port = await new Promise((resolve) => { const sv = http.createServer(); sv.listen(0, '127.0.0.1', () => { const p = sv.address().port; sv.close(() => resolve(p)); }); });
   const r = await cli(port, ['accounts']);

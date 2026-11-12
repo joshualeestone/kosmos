@@ -24,6 +24,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const WIN = path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js');
 // #1765: the Windows CLI sends a token only to a board that proves it holds it; the stub below proves the agent token.
 const { answerProof } = require('./test-support/proof-listener-1765');
@@ -116,7 +117,7 @@ const NOT_HEX = 'NOT-A-TOKEN';   // both CLIs send only a bare lowercase-hex tok
 const VERBS = [['whoami'], ['inbox'], ['reply', 'hello'], ['msg', 'mara', 'hello'], ['post', 'p5333', 'hello'], ['report', 'working', 'on', 'it']];
 
 for (const args of VERBS) {
-  test(`#5333 Mac: kosmos ${args[0]} refused on a sent token prints the board's sentence, then the way back`, async () => {
+  test(`#5333 Mac: kosmos ${args[0]} refused on a sent token prints the board's sentence, then the way back`, { skip: SKIP_POSIX_SHELL }, async () => {
     const home = makeHome();
     try {
       await withStub(NO_MATCH, async (port) => {
@@ -130,7 +131,7 @@ for (const args of VERBS) {
       });
     } finally { fs.rmSync(home, { recursive: true, force: true }); }
   });
-  test(`#5333 Mac CONTROLS: kosmos ${args[0]} with no token sent, or another refusal, adds nothing`, async () => {
+  test(`#5333 Mac CONTROLS: kosmos ${args[0]} with no token sent, or another refusal, adds nothing`, { skip: SKIP_POSIX_SHELL }, async () => {
     const home = makeHome();
     try {
       await withStub(NO_MATCH, async (port) => {
@@ -188,9 +189,11 @@ test('#5333 both CLIs: a refusal shaped { error: <sentence> } gets the hint too'
   const home = makeHome();
   try {
     await withStub(NO_MATCH, async (port) => {
-      const mac = await run(CLI, ['msg', 'mara', 'hello'], envFor(port, home, TOKEN));
-      assert.ok(mac.out.includes(NO_MATCH), `the stub answered: ${mac.out}`);
-      assert.ok(mac.stderr.includes(HINT), `Mac: the error arm says the way back: ${mac.out}`);
+      if (!SKIP_POSIX_SHELL) {   // kosmos#8378: the Mac CLI half only; the Windows half below runs everywhere
+        const mac = await run(CLI, ['msg', 'mara', 'hello'], envFor(port, home, TOKEN));
+        assert.ok(mac.out.includes(NO_MATCH), `the stub answered: ${mac.out}`);
+        assert.ok(mac.stderr.includes(HINT), `Mac: the error arm says the way back: ${mac.out}`);
+      }
       const win = await run(process.execPath, [WIN, 'msg', 'mara', 'hello'], envFor(port, home, TOKEN, WIN_DATA));
       assert.ok(win.out.includes(NO_MATCH), `the stub answered: ${win.out}`);
       assert.ok(win.stderr.includes(HINT), `Windows: the error arm says the way back: ${win.out}`);

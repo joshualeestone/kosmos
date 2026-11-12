@@ -15,6 +15,7 @@ const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-t
 fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
 fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
 const CLI = path.join(__dirname, 'install', 'kosmos');
+const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');   // kosmos#8378
 const SIG = 'd'.repeat(64);
 
 function withStub(fn) {
@@ -57,7 +58,7 @@ function cli(port, args, stdin, extraEnv) {
   });
 }
 
-test('the digest arrives as one readable body: tool, signature, the first error line, the pane; with the agent token', () => withStub(async (port, seen) => {
+test('the digest arrives as one readable body: tool, signature, the first error line, the pane; with the agent token', { skip: SKIP_POSIX_SHELL }, () => withStub(async (port, seen) => {
   const r = await cli(port, ['tool-failed', 'Bash', SIG], 'Exit code 2\nsecond line', { TMUX_PANE: '%5' });
   assert.equal(r.code, 0, r.out);
   assert.equal(seen.length, 1);
@@ -65,7 +66,7 @@ test('the digest arrives as one readable body: tool, signature, the first error 
   assert.equal(seen[0].token, 'ab12cd');
 }));
 
-test('quotes, backslashes and control characters stay readable JSON, even cut at the length limit', () => withStub(async (port, seen) => {
+test('quotes, backslashes and control characters stay readable JSON, even cut at the length limit', { skip: SKIP_POSIX_SHELL }, () => withStub(async (port, seen) => {
   /* 299 characters then a quote: escaped first and cut after, the cut would fall between \ and " and leave a lone
      backslash escaping the closing quote. */
   const tricky = 'a'.repeat(299) + '"\t tail \\ end';
@@ -76,7 +77,7 @@ test('quotes, backslashes and control characters stay readable JSON, even cut at
   assert.equal(seen[0].body.error, tricky.slice(0, 300).replace(/\t/g, ' '));
 }));
 
-test('a signature that is not hex sends nothing, and the verb always exits 0', () => withStub(async (port, seen) => {
+test('a signature that is not hex sends nothing, and the verb always exits 0', { skip: SKIP_POSIX_SHELL }, () => withStub(async (port, seen) => {
   for (const sig of ['', 'xyz', SIG + '"']) {
     const r = await cli(port, ['tool-failed', 'Bash', sig], 'e');
     assert.equal(r.code, 0);
@@ -84,7 +85,7 @@ test('a signature that is not hex sends nothing, and the verb always exits 0', (
   assert.equal(seen.length, 0);
 }));
 
-test('no board answering still exits 0', async () => {
+test('no board answering still exits 0', { skip: SKIP_POSIX_SHELL }, async () => {
   const r = await cli(1, ['tool-failed', 'Bash', SIG], 'e');
   assert.equal(r.code, 0, r.out);
 });
