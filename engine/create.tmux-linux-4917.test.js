@@ -5,6 +5,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const create = require('./create');
+// kosmos#8378: the Linux lookup asks runners.isRunnable, which on a Windows host judges a file by PATHEXT, so the
+// extensionless fake tmux never counts there; this lookup only ever runs on Linux.
+const LINUX_ONLY = require('../test-support/skip-on-win32').skipOnWin32('the Linux tmux lookup asks runners.isRunnable, which on a Windows host judges by PATHEXT, so an extensionless tmux never counts; the lookup runs only on Linux');
 
 function executable(dir, name = 'tmux') {
   fs.mkdirSync(dir, { recursive: true });
@@ -13,7 +16,7 @@ function executable(dir, name = 'tmux') {
   return file;
 }
 
-test('#4917 Linux resolves tmux from PATH before the usual system locations', () => {
+test('#4917 Linux resolves tmux from PATH before the usual system locations', { skip: LINUX_ONLY }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-tmux-linux-'));
   try {
     const first = executable(path.join(root, 'first'));
@@ -22,7 +25,7 @@ test('#4917 Linux resolves tmux from PATH before the usual system locations', ()
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('#4917 Linux ignores a present but non-executable tmux', () => {
+test('#4917 Linux ignores a present but non-executable tmux', { skip: LINUX_ONLY }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-tmux-linux-mode-'));
   try {
     const badDir = path.join(root, 'bad');

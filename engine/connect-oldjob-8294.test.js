@@ -134,7 +134,7 @@ test('RunAtLoad only, KeepAlive only and KeepAlive as a dict each count', () => 
   }
 });
 
-test('a linked folder, tmux -c in the arguments, a home spelling, and the runner\'s own program', () => {
+test('a linked folder, tmux -c in the arguments, and the runner\'s own program', () => {
   const dir = agent('linked');
   const link = path.join(SB, 'linkalias');
   fs.symlinkSync(dir, link);
@@ -145,15 +145,22 @@ test('a linked folder, tmux -c in the arguments, a home spelling, and the runner
   plist('com.tmuxargs.a', { args: ['/opt/homebrew/bin/tmux', 'new-session', '-c', t, 'claude'] });
   assert.equal(register.foreignStarter(t).label, 'com.tmuxargs.a');
   fs.rmSync(path.join(LAUNCH, 'com.tmuxargs.a.plist'));
+  const c = agent('runnerword');
+  plist('com.runnerword.a', { dir: c, args: ['/usr/local/bin/codex'] });
+  assert.equal(register.foreignStarter(c), null);
+  assert.equal(register.foreignStarter(c, 'codex').label, 'com.runnerword.a');
+});
+
+// kosmos#8378: folderSpellings adds the "$HOME/..." spelling only for a folder under os.homedir() + '/', a POSIX
+// separator, and on Windows os.homedir() comes from USERPROFILE, not the HOME this file sets; so on a Windows host
+// the script's "$HOME/agents/homey" is never matched. (In production foreignStarter finds no LaunchAgents folder on
+// Windows and returns null before this matters.)
+test('a home spelling', { skip: require('../test-support/skip-on-win32').skipOnWin32('the "$HOME/..." spelling is made only for a folder under the home and a forward slash, and Windows paths use backslashes (os.homedir() also comes from USERPROFILE there, not HOME)') }, () => {
   const inHome = path.join(process.env.HOME, 'agents', 'homey');
   fs.mkdirSync(inHome, { recursive: true });
   plist('com.homey.a', { args: ['/bin/bash', script('homey.sh', 'cd "$HOME/agents/homey"\nclaude\n')] });
   assert.equal(register.foreignStarter(inHome).label, 'com.homey.a');
   fs.rmSync(path.join(LAUNCH, 'com.homey.a.plist'));
-  const c = agent('runnerword');
-  plist('com.runnerword.a', { dir: c, args: ['/usr/local/bin/codex'] });
-  assert.equal(register.foreignStarter(c), null);
-  assert.equal(register.foreignStarter(c, 'codex').label, 'com.runnerword.a');
 });
 
 test('CONTROL: a session still up with no job is refused by the running check', () => {

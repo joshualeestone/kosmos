@@ -17,6 +17,9 @@ const crypto = require('node:crypto');
 const { execFileSync, spawnSync } = require('node:child_process');
 
 const SBOM_JS = path.join(__dirname, 'tools', 'lib', 'sbom.js');
+// kosmos#8378: readTmuxBundle reads the Mac tmux bundle with /usr/bin/tar, an absolute POSIX path Windows cannot run
+// (the SBOM is built only for the Mac release).
+const SKIP_POSIX_TAR = require('./test-support/skip-on-win32').skipOnWin32('readTmuxBundle reads the bundle with /usr/bin/tar, an absolute POSIX path, which Windows cannot run; the SBOM is built only for the Mac release');
 const { parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build } = require(SBOM_JS);
 
 const SHA = (c) => c.repeat(64);
@@ -910,7 +913,7 @@ test('the installer is listed under its signed hash', () => {
   assert.throws(() => sbom({ ...MANIFEST, setup_sha256: undefined }), /manifest setup_sha256 is not a sha256/);
 });
 
-test('a tmux bundle entry name with a control character (listed by tar as an escape) refuses', () => {
+test('a tmux bundle entry name with a control character (listed by tar as an escape) refuses', { skip: SKIP_POSIX_TAR }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-ctl-'));
   const stage = path.join(root, 'b');
   for (const f of LIBS) { fs.mkdirSync(path.join(stage, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(stage, f), CONTENT[f]); }
@@ -969,7 +972,7 @@ test('a manifest with no connector commit, no node version or a dirty app refuse
   assert.throws(() => sbom({ ...MANIFEST, app: { commit: 'a'.repeat(40), dirty: true } }), /does not say the app was built from a clean tree/);
 });
 
-test('the command line refuses an unsigned manifest; in-process, the same reads build the SBOM; usage exits 2', () => {
+test('the command line refuses an unsigned manifest; in-process, the same reads build the SBOM; usage exits 2', { skip: SKIP_POSIX_TAR }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-'));
   const git = (dir, ...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8' }).trim();
   const repo = (name, tree) => {
@@ -1070,7 +1073,7 @@ test('the command line refuses an unsigned manifest; in-process, the same reads 
   assert.equal(run(mf, '--sig', sg, '--tmux', tgz, '--repo', k.dir, '--relay', r.dir, 'stray').status, 2, 'a stray argument');
 });
 
-test('the command line end to end, against a copy of the tool that pins a test key: the file it writes is build()\'s', () => {
+test('the command line end to end, against a copy of the tool that pins a test key: the file it writes is build()\'s', { skip: SKIP_POSIX_TAR }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sbom-o05-cli-'));
   fs.mkdirSync(path.join(root, 'tools', 'lib'), { recursive: true });
   fs.mkdirSync(path.join(root, 'engine'), { recursive: true });
