@@ -10,15 +10,26 @@ Card: kosmos#8416 (from the 11-11 daily feedback; given to Mona Lisa by Splinter
 - (2) engine/instructionreread.js. A section is owed whenever Kosmos rewrites its block (oweEach, oweChanged, oweNow), and a board-start sweep can rewrite a block to the same words. passOnce named every owed section without looking at the file.
 
 ## Shape (decided)
-- (2) trueSections(sections, now, before): a section is named only when one of its headings is in the file now (outside fenced code) and, when Kosmos holds the copy the agent last read (#7149), its text (from the heading to the next heading of its level or higher) differs from that copy. With no copy, a section in the file is named, as before. "The working rules" uses the defaults.sections() headings. passOnce takes it as an injected trueSections, filters the debt, and ends a debt with nothing real as 'unchanged' (no line). The server passes ir.trueSectionsFor. A reader that cannot tell (null) names everything, as before.
-- (1) chunkUtf8 ends a piece just after a space when one is within its last 64 bytes (WORD_BACKOFF). The pieces rejoin exactly as before. A space is one byte, so the character-boundary rule holds.
+- (2) A section is named only when it is in the agent's file now and its fingerprint (printOf) differs from the mark Kosmos holds for what the agent was last told about it. The fingerprint is a hash of the section's own block, between its markers (projects.findBlock, so a heading inside a policy or an About-you answer never ends it), or, with no markers for it, of the text under its heading.
+  - Marks (instruction-reread-marks.json, per session, per section) move only when the agent is told: every section at a session start (rememberRead), and only the named sections when a line lands, from the text read before it was typed.
+  - So a block rewritten after a line landed and owed later still differs from its mark (review 2: the copy-of-the-file oracle let that go unnamed).
+  - With no mark, a section in the file is named, as before. Markers that cannot be paired: named.
+  - A section no longer in the file is not named: a removed block owes nothing, as oweEach already decides.
+  - passOnce takes trueSections, markRead and readText injected, and ends a debt with nothing real as 'unchanged' (logged by server.js).
+  - The #7149 copy still makes the changes file, and does not move when a section was owed again during the pass.
+- (1) chunkUtf8 ends a piece just after a space when one is within its last 64 bytes (WORD_BACKOFF), or keeps the cut when the next byte is already a space. The pieces rejoin exactly as before. A space is one byte, so the character-boundary rule holds.
 - Rejected for (1): shortening the request under one piece (256 bytes). It would drop the four questions and the privacy rules agents follow from it, and only this one message would be fixed, not every long automatic line.
 - Rejected for (1): detecting a split and saying so. Kosmos cannot see how the composer grouped the pieces.
 - Weakest premise for (1): word-boundary pieces fix the mid-word read, not the split itself; a busy composer can still show a later piece as pasted text. It now reads as whole words.
+- Residual for (2): the marks file has no lock; two writers at once can lose a mark, which only makes that section named again (the safe direction).
 - Weakest premise for (2): a section's change is judged by its own text, so a change elsewhere in the file (outside any owed section) is not named. That is the point, and #7149's changes file still lists every change.
 - Not built: the card's two smaller ideas (whose built mark, a machine-move checklist). Left on the card.
 
 ## Tests
-- engine/chat.test.js: the real request's pieces each end on a space and rejoin exactly; a spaceless text still cuts at the budget (control). Red on main ("a piece ends mid-word").
-- engine/instructionreread.test.js: trueSections drops a missing or fenced heading and an unchanged section, and keeps a changed one; a subsection's change counts; passOnce sends nothing when none is real, names only the real ones, and names all when the reader cannot tell (control). Red on main.
+- engine/chat.test.js: the real request's pieces each meet at a word boundary and rejoin exactly; a word longer than 64 bytes still cuts at the budget; multibyte text rejoins. Red on main ("a piece ends mid-word").
+- engine/instructionreread.test.js: trueSections drops a missing or fenced heading, an unchanged section and a removed one, and keeps a changed one; a block rewritten after a line landed is still named, and only the named sections' marks move (control: a line that did not land moves none); a subsection's change counts; passOnce sends nothing when none is real, names only the real ones, and names all when the reader cannot tell (control). Red on main.
 - Green: chat, instructionreread (three files), server.instructionreread-start-7149, engine.reachable, tree guards.
+
+## Review ledger
+- R1 opus: 2 W (a heading inside a policy or About-you block ended the section early; a copy moved past a section owed mid-pass), 1 C, NITs. Fixed: block markers; owed-again guard; unchanged logged.
+- R2 sonnet: 2 W (the copy as oracle still let a block rewritten after a landed line go unnamed; a removed section dropped silently), NITs. Fixed: per-section marks that move only when told; the removal rule documented and tested.

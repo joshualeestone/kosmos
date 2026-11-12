@@ -416,19 +416,23 @@ const policyFile = (rule) => ['# You are Ada', '', P.POLICY_START, "## Your comp
 test('kosmos#8416 review 1: a heading inside a block (a company policy\'s own ## line) does not end it, so a change below it is named', () => {
   const before = policyFile('Keep customer data in the office.');
   const after = policyFile('Never upload customer data.');
-  assert.deepEqual(ir.trueSections(['policy'], after, before), ['policy'], 'a policy change under its own heading went unnamed');
-  assert.deepEqual(ir.trueSections(['policy'], before, before), [], 'CONTROL: the same policy is not named');
+  const m = { policy: ir.printOf(before, 'policy') };
+  assert.deepEqual(ir.trueSections(['policy'], after, m), ['policy'], 'a policy change under its own heading went unnamed');
+  assert.deepEqual(ir.trueSections(['policy'], before, m), [], 'CONTROL: the same policy is not named');
   // A person's own heading of the same name, outside the block, never stands in for it.
   const mine = (rule) => ['## Your projects', 'my own notes', '', P.BLOCK_START, '## Your projects', rule, P.BLOCK_END, ''].join('\n');
-  assert.deepEqual(ir.trueSections(['projects'], mine('task 2'), mine('task 1')), ['projects'], 'the person\'s own heading hid the block');
+  assert.deepEqual(ir.trueSections(['projects'], mine('task 2'), { projects: ir.printOf(mine('task 1'), 'projects') }), ['projects'], 'the person\'s own heading hid the block');
 });
 
-test('kosmos#8416: trueSectionsFor reads the agent\'s file and the copy it last read', () => {
+test('kosmos#8416: trueSectionsFor reads the agent\'s file and the marks of what it was told; a session start marks it all', () => {
   agentFile('tia', AFTER);
-  assert.equal(ir.remember('tia', AFTER), true);
+  assert.deepEqual(ir.trueSectionsFor('tia', ['community', 'reports']), ['community', 'reports'], 'CONTROL: never marked, both are named');
+  assert.equal(ir.rememberRead('tia'), true);
   assert.deepEqual(ir.trueSectionsFor('tia', ['community', 'reports']), [], 'an unchanged file still named sections');
-  assert.equal(ir.remember('tia', BEFORE), true);
+  assert.equal(ir.markRead('tia', ['community'], BEFORE), true);
   assert.deepEqual(ir.trueSectionsFor('tia', ['community', 'reports']), ['community'], 'the changed section was not named');
+  ir.forget('tia');
+  assert.equal(ir.readMarks().tia, undefined, 'forget left the marks');
   assert.equal(ir.trueSectionsFor('nobody-8416', ['community']), null, 'CONTROL: no file reads as cannot tell');
 });
 
@@ -454,6 +458,6 @@ test('kosmos#8416 review 1: a section owed again while the pass ran keeps the co
 
 test('kosmos#8416: the board pass is handed trueSections (read as source)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /trueSections: \(session, sections\) => ir\.trueSectionsFor\(session, sections\),/);
+  assert.match(src, /trueSections: \(session, sections\) => ir\.trueSectionsFor\(session, sections\),\s*markRead: \(session, sections, text\) => ir\.markRead\(session, sections, text\),/);
   assert.match(src, /\['sent', 'restarted', 'gone', 'expired', 'unchanged'\]\.includes\(d\.act\)/, 'a debt ended as unchanged leaves no log line');
 });

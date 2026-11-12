@@ -353,15 +353,19 @@ test('review 20: the missing-once mark is not kept for a debt that ended, nor ac
 const FILE_8416 = ['# You are Ada', '', '## The Kosmos+ community', 'Post at least once a day.', '', '## Who you report to', 'Splinter.',
   '', '```', '## Your projects', '```', ''].join('\n');   // "Your projects" only inside a code fence: not a section
 
-test('kosmos#8416: trueSections drops a section the file does not have, and one whose text is as the agent last read it', () => {
+const marksOf = (text, secs) => Object.fromEntries(secs.map((x) => [x, ir.printOf(text, x)]).filter(([, p]) => typeof p === 'string' && p !== 'unknown'));
+test('kosmos#8416: trueSections drops a section the file does not have, and one whose text is as the agent was last told', () => {
   // No copy of what the agent read: a section in the file is named; one not in it (or only inside a code fence) is not.
   assert.deepEqual(ir.trueSections(['community', 'reports', 'projects', 'language'], FILE_8416, null), ['community', 'reports']);
   // With the copy: an unchanged section is dropped, a changed one is kept.
   const changed = FILE_8416.replace('Post at least once a day.', 'Post at least once a week.');
-  assert.deepEqual(ir.trueSections(['community', 'reports'], changed, FILE_8416), ['community'], 'an unchanged section was named');
-  assert.deepEqual(ir.trueSections(['community', 'reports'], FILE_8416, FILE_8416), [], 'CONTROL: nothing changed, nothing named');
+  const told = marksOf(FILE_8416, ['community', 'reports']);
+  assert.deepEqual(ir.trueSections(['community', 'reports'], changed, told), ['community'], 'an unchanged section was named');
+  assert.deepEqual(ir.trueSections(['community', 'reports'], FILE_8416, told), [], 'CONTROL: nothing changed, nothing named');
   // A section with no heading to look for is named as before.
-  assert.deepEqual(ir.trueSections(['bogus'], FILE_8416, FILE_8416), ['bogus']);
+  assert.deepEqual(ir.trueSections(['bogus'], FILE_8416, told), ['bogus']);
+  // Review 2: a section that was in the file when the agent was told and is gone now owes nothing (oweEach's rule).
+  assert.deepEqual(ir.trueSections(['reports'], FILE_8416.replace('## Who you report to\nSplinter.\n', ''), told), []);
 });
 
 test('kosmos#8416: a section runs to the next heading of its level or higher, so a change in its subsection counts', () => {
@@ -377,7 +381,7 @@ test('kosmos#8416: passOnce sends no notice when no owed section is real, and na
   const r = await ir.passOnce(none.o);
   assert.deepEqual(none.sent, [], 'a notice was sent naming sections that had not changed');
   assert.deepEqual(r.map((x) => [x.session, x.act]), [['ida', 'unchanged']]);
-  assert.deepEqual(none.file(), {}, 'the debt was kept with nothing real in it');
+  assert.deepEqual(none.file(), {}, 'a debt with nothing real in it was not ended');
   const some = passArgs({ owed: { ida: debt(['community', 'reports', 'projects']) }, o: { trueSections: () => ['reports'] } });
   await ir.passOnce(some.o);
   assert.equal(some.sent.length, 1);
@@ -386,4 +390,22 @@ test('kosmos#8416: passOnce sends no notice when no owed section is real, and na
   const unknown = passArgs({ owed: { ida: debt(['community', 'reports']) }, o: { trueSections: () => null } });
   await ir.passOnce(unknown.o);
   assert.equal(unknown.sent[0][1], ir.lineFor(['community', 'reports']));
+});
+
+test('kosmos#8416 review 2: a block rewritten after a line landed, and owed later, is still named', async () => {
+  const v1 = FILE_8416;
+  const v2 = v1.replace('Post at least once a day.', 'Post at least once a week.');
+  // The agent was told about everything in v1. A line about reports lands while the file is already v2.
+  let marks = marksOf(v1, ['community', 'reports']);
+  for (const x of ['reports']) marks[x] = ir.printOf(v2, x);   // what markRead does for the sections the line named
+  assert.deepEqual(ir.trueSections(['community'], v2, marks), ['community'], 'the community change went unnamed');
+  // The pass moves only the named sections' marks, from the text read before the line.
+  const moved = [];
+  const p = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => v1, markRead: (s2, secs, text) => { moved.push([s2, secs, text]); return true; } } });
+  await ir.passOnce(p.o);
+  assert.deepEqual(moved, [['ida', ['reports'], v1]], 'marks moved for a section the line did not name, or from the wrong text');
+  // CONTROL: a line that did not land moves no mark.
+  const q = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => v1, markRead: () => { moved.push('x'); return true; }, deliver: async () => ({ state: D.COULD_NOT }) } });
+  await ir.passOnce(q.o);
+  assert.equal(moved.length, 1);
 });

@@ -1688,6 +1688,8 @@ async function instructionRereadPass() {
       dropChanges: (session) => ir.dropChanges(session),
       // kosmos#8416: never name a section that is not in the file, or one whose text is as the agent last read it.
       trueSections: (session, sections) => ir.trueSectionsFor(session, sections),
+      markRead: (session, sections, text) => ir.markRead(session, sections, text),
+      readText: (session) => { const g = require('./engine/instructions').read(session); return g && g.exists === true ? g.text : null; },
     });
     for (const d of done) if (['sent', 'restarted', 'gone', 'expired', 'unchanged'].includes(d.act)) process.stdout.write(`instruction-reread: ${d.session} ${d.act}${d.state ? ' (' + d.state + ')' : ''}\n`);
   } catch { /* the next pass tries again */ } finally { instructionRereadRunning = false; }
