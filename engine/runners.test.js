@@ -6,6 +6,9 @@ const os = require('node:os');
 const nodePath = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
+const { writeRunnerStub } = require('../test-support/runnerstub');
+const { removeTree } = require('../test-support/remove-tree');   // kosmos#8378: a virus scanner may briefly hold a freshly unpacked codex.exe on Windows
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
 
 /* Sandbox EVERY root this module writes or reads before requiring it: the
    managed runners dir via its env seam, and the codex env override cleared
@@ -32,10 +35,16 @@ const realInstall = runners.install;
 // The CPU too: the darwin openai pin is arm64, so on an x64 runner an unpinned test would stop at the arch guard.
 runners.install = (provider, o) => realInstall(provider, { platform: 'darwin', arch: 'arm64', ...(o || {}) });
 
-test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+test.after(() => { removeTree(SANDBOX); });
 
-const LEGACY = nodePath.join(SANDBOX, 'legacy', 'codex'); // does not exist unless a test makes it
-const MANAGED = nodePath.join(SANDBOX, 'runners', 'openai', 'codex');
+/* kosmos#8378: on Windows a file runs by its extension (PATHEXT), not by an exec bit, so a runner stand-in there
+   carries one (codex.exe, the name the Windows build has). The Mac and Linux names are unchanged (EXE is empty). */
+const WIN = process.platform === 'win32';
+const EXE = WIN ? '.exe' : '';
+const LEGACY = nodePath.join(SANDBOX, 'legacy', 'codex' + EXE); // does not exist unless a test makes it
+/* kosmos#8378: on Windows the managed codex is codex.exe inside the unpacked tree (no symlink beside it; see
+   runners.managedBin), so the managed path is asked of the module there rather than spelled the Mac way. */
+const MANAGED = WIN ? runners.managedBin(runners.manifestFor('openai')) : nodePath.join(SANDBOX, 'runners', 'openai', 'codex');
 
 const put = (p, body) => {
   fs.mkdirSync(nodePath.dirname(p), { recursive: true });
@@ -43,15 +52,38 @@ const put = (p, body) => {
   fs.chmodSync(p, 0o755);
 };
 
+/* kosmos#8378: a runner Kosmos installed and proved. On the Mac that is the file at the managed path; on Windows
+   resolveBin also asks for the verified marker install() writes once --version passed (a codex.exe that is merely
+   there may be one that failed its prove), so the stand-in writes it too, in install()'s own stamp format. */
+function putManaged(provider, at, body) {
+  put(at, body);
+  if (WIN) {
+    const m = runners.manifestFor(provider);
+    fs.writeFileSync(runners.verifiedMarker('win32', provider), `${m.version} ${m.binInPackage}\n`);
+  }
+}
+function rmManaged(provider, at) {
+  fs.rmSync(at, { force: true });
+  if (WIN) fs.rmSync(runners.verifiedMarker('win32', provider), { force: true });
+}
+
+/* kosmos#8378: the openai install as this host runs it. The file-wide wrapper pins installs to darwin, whose
+   pipeline (a /usr/bin/tar, a symlink, an exec bit) does not exist on Windows; there the tarball tests below run the
+   real Windows pipeline instead (System32 tar.exe, codex.exe in the tree, the verified marker). Mac unchanged. */
+const installCodex = (o) => runners.install('openai', WIN ? { platform: 'win32', arch: process.arch, ...o } : o);
+/* kosmos#8378: the archive member the codex binary is, for the build this host installs. */
+const CODEX_MEMBER = WIN ? 'package/' + runners.manifestFor('openai').binInPackage : 'package/vendor/aarch64-apple-darwin/bin/codex';
+
 /* A real .tgz fixture with the npm layout (package/bin/<name>), built with
-   the same /usr/bin/tar the module unpacks with, so the unpack step is
+   the tar the module unpacks with (runners.tarBin), so the unpack step is
    exercised against genuine tar output rather than a synthetic stream. */
 function fixtureTarball(binRel, body) {
   const dir = fs.mkdtempSync(nodePath.join(SANDBOX, 'fix-'));
   const binAbs = nodePath.join(dir, binRel);
   put(binAbs, body);
   const tgz = nodePath.join(dir, 'fixture.tgz');
-  execFileSync('/usr/bin/tar', ['-czf', tgz, '-C', dir, binRel.split('/')[0]]);
+  // kosmos#8378: on Windows the tar the module unpacks with is System32 tar.exe (runners.tarBin), not /usr/bin/tar.
+  execFileSync(WIN ? runners.tarBin('win32') : '/usr/bin/tar', ['-czf', tgz, '-C', dir, binRel.split('/')[0]]);
   const integrity = 'sha512-' + crypto.createHash('sha512').update(fs.readFileSync(tgz)).digest('base64');
   return { tgz, integrity };
 }
@@ -68,7 +100,7 @@ const downloadFrom = (src) => (url, file, job) => {
 };
 
 test('#979: resolution priority is env override, then managed, then legacy', () => {
-  const envBin = nodePath.join(SANDBOX, 'env', 'codex');
+  const envBin = nodePath.join(SANDBOX, 'env', 'codex' + EXE);
 
   // Nothing anywhere: the answer is WHERE AN INSTALL WOULD LAND, absent.
   let r = runners.resolveBin('openai', { legacyBin: LEGACY });
@@ -81,7 +113,7 @@ test('#979: resolution priority is env override, then managed, then legacy', () 
   assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: LEGACY, present: true, managed: false });
 
   // Managed beats legacy.
-  put(MANAGED);
+  putManaged('openai', MANAGED);
   r = runners.resolveBin('openai', { legacyBin: LEGACY });
   assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: MANAGED, present: true, managed: true });
 
@@ -100,7 +132,7 @@ test('#979: resolution priority is env override, then managed, then legacy', () 
       { bin: nodePath.join(SANDBOX, 'env', 'no-such-codex'), present: false, managed: false });
   } finally {
     delete process.env.AGENT_WORKFORCE_CODEX_BIN;
-    fs.rmSync(MANAGED, { force: true });
+    rmManaged('openai', MANAGED);
     fs.rmSync(LEGACY, { force: true });
   }
 });
@@ -110,9 +142,14 @@ for (const [prov, envName, binName] of [['gemini', 'AGENT_WORKFORCE_GEMINI_BIN',
     // #3296/#3391 resolved env then legacy only; #3713 gives both a managed install, which
     // comes first, as openai's does. The legacy rung is sandboxed through its seam, so
     // nothing here depends on this Mac's real /opt/homebrew/bin/<prov>.
-    const LEGACY = nodePath.join(SANDBOX, 'legacy', binName);
-    const MANAGED = nodePath.join(SANDBOX, 'runners', prov, binName);
-    const envBin = nodePath.join(SANDBOX, 'env', binName);
+    /* kosmos#8378: on Windows a stand-in needs a runnable extension (gemini ships a .cmd, grok an .exe), and the
+       managed copy is where Windows installs it: gemini.cmd (a launcher naming a node, which resolveBin checks) and
+       grok.exe inside the tree, each vouched for by its verified marker (putManaged). */
+    const ext = WIN ? (prov === 'gemini' ? '.cmd' : '.exe') : '';
+    const LEGACY = nodePath.join(SANDBOX, 'legacy', binName + ext);
+    const MANAGED = WIN ? runners.managedBin(runners.manifestFor(prov), 'win32', prov) : nodePath.join(SANDBOX, 'runners', prov, binName);
+    const managedBody = WIN && prov === 'gemini' ? runners.winNodeLauncher(process.execPath, runners.manifestFor(prov).binInPackage) : undefined;
+    const envBin = nodePath.join(SANDBOX, 'env', binName + ext);
     try {
       // Absent everywhere: the MANAGED path is named, so an install is seen the moment it lands.
       let r = runners.resolveBin(prov, { legacyBin: LEGACY });
@@ -125,7 +162,7 @@ for (const [prov, envName, binName] of [['gemini', 'AGENT_WORKFORCE_GEMINI_BIN',
       assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: LEGACY, present: true, managed: false });
 
       // The managed copy wins over the vendor's.
-      put(MANAGED);
+      putManaged(prov, MANAGED, managedBody);
       r = runners.resolveBin(prov, { legacyBin: LEGACY });
       assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: MANAGED, present: true, managed: true });
 
@@ -143,7 +180,8 @@ for (const [prov, envName, binName] of [['gemini', 'AGENT_WORKFORCE_GEMINI_BIN',
       assert.deepEqual({ bin: r.bin, present: r.present, overridden: r.overridden }, { bin: missing, present: false, overridden: true });
     } finally {
       delete process.env[envName];
-      for (const f of [LEGACY, MANAGED, envBin]) fs.rmSync(f, { force: true });
+      for (const f of [LEGACY, envBin]) fs.rmSync(f, { force: true });
+      rmManaged(prov, MANAGED);
     }
   });
 }
@@ -168,9 +206,9 @@ test('#979: an unknown provider resolves to nothing and installs to a refusal', 
 });
 
 test('#979: the happy path walks downloading, verifying, unpacking, proving, installed, and stages a runnable binary', async () => {
-  const { tgz, integrity } = fixtureTarball('package/vendor/aarch64-apple-darwin/bin/codex', '#!/bin/sh\necho fake-codex 9.9.9\n');
+  const { tgz, integrity } = fixtureTarball(CODEX_MEMBER, '#!/bin/sh\necho fake-codex 9.9.9\n');
   let provedBin = null;
-  const job = runners.install('openai', {
+  const job = installCodex({
     legacyBin: LEGACY,
     download: downloadFrom(tgz),
     integrity,
@@ -181,19 +219,22 @@ test('#979: the happy path walks downloading, verifying, unpacking, proving, ins
   assert.equal(job.proved, 'fake-codex 9.9.9');
   assert.equal(provedBin, MANAGED, 'the prove step must run the staged managed binary, not the archive member name');
   assert.ok(fs.existsSync(MANAGED), 'the binary lands at the managed path');
-  assert.ok((fs.statSync(MANAGED).mode & 0o111) !== 0, 'and is executable');
+  /* kosmos#8378: Windows has no exec bit (node reports a file as 0o666 there); what makes it runnable is the
+     extension, which is what isRunnable asks on that host. */
+  if (WIN) assert.ok(runners.isRunnable(MANAGED), 'and is executable');   // kosmos#8378: on Windows true by construction (a .exe runs by its extension); kept as the same claim
+  else assert.ok((fs.statSync(MANAGED).mode & 0o111) !== 0, 'and is executable');
   // The byte counts a progress bar reads were reported.
   assert.ok(job.receivedBytes > 0);
   assert.equal(job.receivedBytes, job.totalBytes);
   // And the resolver now sees it with no seams at all beyond the sandbox.
   const r = runners.resolveBin('openai', { legacyBin: LEGACY });
   assert.deepEqual({ bin: r.bin, present: r.present, managed: r.managed }, { bin: MANAGED, present: true, managed: true });
-  fs.rmSync(MANAGED, { force: true });
+  rmManaged('openai', MANAGED);
 });
 
 test('#979: wrong bytes are refused by checksum, named, and the staging file is deleted', async () => {
-  const { tgz } = fixtureTarball('package/vendor/aarch64-apple-darwin/bin/codex', '#!/bin/sh\necho tampered\n');
-  const job = runners.install('openai', {
+  const { tgz } = fixtureTarball(CODEX_MEMBER, '#!/bin/sh\necho tampered\n');
+  const job = installCodex({
     legacyBin: LEGACY,
     download: downloadFrom(tgz),
     integrity: 'sha512-' + Buffer.alloc(64, 7).toString('base64'), // the RIGHT shape, the WRONG value
@@ -208,8 +249,8 @@ test('#979: wrong bytes are refused by checksum, named, and the staging file is 
 });
 
 test('#979: a runner that does not run is failed at the prove step, never reported installed', async () => {
-  const { tgz, integrity } = fixtureTarball('package/vendor/aarch64-apple-darwin/bin/codex', 'not a program');
-  const job = runners.install('openai', {
+  const { tgz, integrity } = fixtureTarball(CODEX_MEMBER, 'not a program');
+  const job = installCodex({
     legacyBin: LEGACY,
     download: downloadFrom(tgz),
     integrity,
@@ -219,7 +260,19 @@ test('#979: a runner that does not run is failed at the prove step, never report
   assert.equal(job.phase, 'failed');
   assert.match(job.because, /did not run/);
   assert.equal(fs.existsSync(MANAGED), false,
-    'a failed prove must take the symlink down, or a broken runner reads as present');
+    'a failed prove must take the symlink (on Windows, the tree) down, or a broken runner reads as present');
+  if (WIN) {
+    /* kosmos#8378: on Windows what keeps a failed runner absent is its verified marker (runners.js writes it only after
+       the prove), not the tree's removal alone. So the marker must be missing, and a codex.exe left at the managed path
+       (one a virus scanner kept from being deleted, say) must still read absent: with the tree gone, only the marker
+       check can answer that. */
+    assert.equal(fs.existsSync(runners.verifiedMarker('win32', 'openai')), false, 'a failed prove left a verified marker');
+    put(MANAGED);
+    try {
+      assert.equal(runners.resolveBin('openai', { legacyBin: LEGACY }).present, false,
+        'a codex.exe with no verified marker read present, so a failed runner could too');
+    } finally { fs.rmSync(MANAGED, { force: true }); }
+  }
 });
 
 test('#979: a download failure fails the job with the reason, not a hang or a lie', async () => {
@@ -234,29 +287,29 @@ test('#979: a download failure fails the job with the reason, not a hang or a li
 });
 
 test('#979: install is idempotent, a present runner answers installed without touching the network', () => {
-  put(MANAGED);
+  putManaged('openai', MANAGED);
   try {
-    const job = runners.install('openai', {
+    const job = installCodex({
       legacyBin: LEGACY,
       download: () => { throw new Error('a present runner must not download'); },
     });
     assert.equal(job.phase, 'installed');
   } finally {
-    fs.rmSync(MANAGED, { force: true });
+    rmManaged('openai', MANAGED);
   }
 });
 
 test('#979: a second install request joins the running job instead of starting a rival download', async () => {
   let releaseFirst;
   const gate = new Promise((resolve) => { releaseFirst = resolve; });
-  const { tgz, integrity } = fixtureTarball('package/vendor/aarch64-apple-darwin/bin/codex', '#!/bin/sh\nexit 0\n');
-  const first = runners.install('openai', {
+  const { tgz, integrity } = fixtureTarball(CODEX_MEMBER, '#!/bin/sh\nexit 0\n');
+  const first = installCodex({
     legacyBin: LEGACY,
     download: async (url, file, job) => { await gate; return downloadFrom(tgz)(url, file, job); },
     integrity,
     prove: (bin, done) => done(null, 'ok'),
   });
-  const second = runners.install('openai', {
+  const second = installCodex({
     legacyBin: LEGACY,
     download: () => { throw new Error('the second request must join, not download'); },
   });
@@ -264,7 +317,7 @@ test('#979: a second install request joins the running job instead of starting a
   releaseFirst();
   await first.settled;
   assert.equal(first.phase, 'installed', first.because || '');
-  fs.rmSync(MANAGED, { force: true });
+  rmManaged('openai', MANAGED);
 });
 
 test('#979: a truncated-but-clean download fails as truncation with byte counts, not as a tamper accusation', async () => {
@@ -366,8 +419,8 @@ test('#979: the shipped manifest is frozen, its trust anchors cannot be repointe
 test('#979: a Confirm during the proving window joins the live job, never a synthetic installed', async () => {
   let releaseProve;
   const gate = new Promise((resolve) => { releaseProve = resolve; });
-  const { tgz, integrity } = fixtureTarball('package/vendor/aarch64-apple-darwin/bin/codex', '#!/bin/sh\nexit 0\n');
-  const first = runners.install('openai', {
+  const { tgz, integrity } = fixtureTarball(CODEX_MEMBER, '#!/bin/sh\nexit 0\n');
+  const first = installCodex({
     legacyBin: LEGACY,
     download: downloadFrom(tgz),
     integrity,
@@ -378,16 +431,18 @@ test('#979: a Confirm during the proving window joins the live job, never a synt
   // fails crisply instead of spinning to the runner timeout.
   while (first.phase !== 'proving' && first.phase !== 'failed') { await new Promise((r) => setTimeout(r, 5)); }
   assert.equal(first.phase, 'proving', first.because || '');
-  assert.ok(fs.existsSync(MANAGED), 'the window is real: the symlink is up while prove is pending');
+  assert.ok(fs.existsSync(MANAGED), 'the window is real: the symlink (on Windows, the tree) is up while prove is pending');
   // And status() does not call it present in that window: both screens poll `present`
   // to move on to the key step, and --version may still fail.
   assert.equal(runners.status().openai.present, false, 'a runner mid-prove must not read present');
-  const second = runners.install('openai', { legacyBin: LEGACY });
+  /* kosmos#8378: on Windows the tree reads absent mid-prove (its verified marker is not written yet), so a broken join
+     would start a real download; this one fails instead. */
+  const second = installCodex({ legacyBin: LEGACY, download: () => { throw new Error('a mid-prove join must not download'); } });
   assert.equal(second, first, 'mid-prove presence must not mint a synthetic installed');
   releaseProve();
   await first.settled;
   assert.equal(first.phase, 'installed', first.because || '');
-  fs.rmSync(MANAGED, { force: true });
+  rmManaged('openai', MANAGED);
 });
 
 test('#979: the FIRST install on a fresh machine works, no directory pre-created by anything', async () => {
@@ -398,8 +453,8 @@ test('#979: the FIRST install on a fresh machine works, no directory pre-created
   const FRESH = fs.mkdtempSync(nodePath.join(SANDBOX, 'fresh-root-'));
   process.env.AGENT_WORKFORCE_RUNNERS_DIR = nodePath.join(FRESH, 'runners');
   try {
-    const { tgz, integrity } = fixtureTarball('package/vendor/aarch64-apple-darwin/bin/codex', '#!/bin/sh\necho fresh 1.0\n');
-    const job = runners.install('openai', {
+    const { tgz, integrity } = fixtureTarball(CODEX_MEMBER, '#!/bin/sh\necho fresh 1.0\n');
+    const job = installCodex({
       legacyBin: LEGACY,
       download: downloadFrom(tgz),
       integrity,
@@ -407,7 +462,8 @@ test('#979: the FIRST install on a fresh machine works, no directory pre-created
     });
     await job.settled;
     assert.equal(job.phase, 'installed', job.because || '');
-    assert.ok(fs.existsSync(nodePath.join(FRESH, 'runners', 'openai', 'codex')));
+    // kosmos#8378: on Windows the managed codex is codex.exe in the tree, asked of the module under this fresh root.
+    assert.ok(fs.existsSync(WIN ? runners.managedBin(runners.manifestFor('openai')) : nodePath.join(FRESH, 'runners', 'openai', 'codex')));
   } finally {
     process.env.AGENT_WORKFORCE_RUNNERS_DIR = nodePath.join(SANDBOX, 'runners');
   }
@@ -418,9 +474,15 @@ test('#979: the already-present answer claims no version, nothing was downloaded
   // forget prior tests' job receipts so their truthful installed job
   // cannot stand in for it.
   runners.resetForTests();
-  put(MANAGED);
+  /* kosmos#8378: on Windows a codex.exe Kosmos did not prove is not present at the managed path (no verified
+     marker; see resolveBin), so the hand-placed binary is the one Windows does count without a marker: the
+     legacy rung. Unchanged on the Mac. */
+  const handPlaced = WIN ? LEGACY : MANAGED;
+  put(handPlaced);
   try {
-    const job = runners.install('openai', { legacyBin: LEGACY });
+    /* kosmos#8378: a present runner must never download. On a Windows host this test once reached the real npm
+       registry (the hand-placed binary read absent), so a download here fails the test instead of fetching. */
+    const job = installCodex({ legacyBin: LEGACY, download: () => { throw new Error('a present runner must not download'); } });
     assert.equal(job.phase, 'installed');
     /* ⚠️ THE GUARD IS "NO CLAIM", NOT "NO KEY", and those had been conflated.
        The real hazard is asserting the PINNED version for a hand-placed binary
@@ -434,7 +496,7 @@ test('#979: the already-present answer claims no version, nothing was downloaded
     assert.equal(job.version, null, 'and the absence is spelled the one way every other arm spells it');
     assert.equal(job.receivedBytes, null);
   } finally {
-    fs.rmSync(MANAGED, { force: true });
+    fs.rmSync(handPlaced, { force: true });
   }
 });
 
@@ -468,7 +530,8 @@ test('#979: claude resolution is env-authoritative, then the vendor canonical pa
     let r = runners.resolveBin('claude');
     assert.deepEqual(r, { bin: CANONICAL, present: false, managed: false, overridden: false });
     // Canonical present.
-    put(CANONICAL);
+    // kosmos#8378: writeRunnerStub adds the .cmd Windows runs for this extensionless path (PATHEXT); the Mac stub is unchanged.
+    writeRunnerStub(nodePath.dirname(CANONICAL), nodePath.basename(CANONICAL));
     r = runners.resolveBin('claude');
     assert.deepEqual(r, { bin: CANONICAL, present: true, managed: false, overridden: false });
     // Env override is authoritative, present or not -- and it carries the
@@ -479,7 +542,7 @@ test('#979: claude resolution is env-authoritative, then the vendor canonical pa
     process.env.AGENT_WORKFORCE_CLAUDE_BIN = envClaude;
     r = runners.resolveBin('claude');
     assert.deepEqual(r, { bin: envClaude, present: false, managed: false, overridden: true, envName: 'AGENT_WORKFORCE_CLAUDE_BIN' });
-    put(envClaude);
+    writeRunnerStub(nodePath.dirname(envClaude), nodePath.basename(envClaude));
     r = runners.resolveBin('claude');
     assert.deepEqual(r, { bin: envClaude, present: true, managed: false, overridden: true, envName: 'AGENT_WORKFORCE_CLAUDE_BIN' });
   } finally {
@@ -488,6 +551,9 @@ test('#979: claude resolution is env-authoritative, then the vendor canonical pa
     if (prevBin === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
     else process.env.AGENT_WORKFORCE_CLAUDE_BIN = prevBin;
     fs.rmSync(CANONICAL, { force: true });
+    // kosmos#8378: the Windows .cmd too, or every later test would find a claude at the canonical path.
+    fs.rmSync(CANONICAL + '.cmd', { force: true });
+    fs.rmSync(nodePath.join(SANDBOX, 'env', 'claude.cmd'), { force: true });
   }
 });
 
@@ -584,7 +650,7 @@ test('#979: the refusal path reaches no NETWORK -- connect.download is never cal
   });
 });
 
-test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed prove takes the link down', async () => {
+test('#979: a claude found elsewhere is LINKED, not downloaded, and a failed prove takes the link down', { skip: skipOnWin32('the claude link step is the macOS install (this file pins install() to darwin; in production install() refuses claude on Linux and Windows, where Claude Code installs through connect.download), and it makes a symlink, which a Windows account without admin rights or Developer Mode may not') }, async () => {
   const elsewhere = nodePath.join(SANDBOX, 'elsewhere', 'claude');
   put(elsewhere, '#!/bin/sh\necho claude 8.8\n');
   await withClaudeHome(async () => {
@@ -650,7 +716,10 @@ test('#979: the link step REFUSES a canonical path it does not own, by name, ins
   });
 });
 
-test('#979: a link we cannot WRITE is refused in words too, not as a raw errno', async () => {
+/* kosmos#8378: the folder is made unwritable with chmod 0o500, and on Windows chmod sets only the read-only
+   attribute, which Windows ignores on a folder, so the link is still made there. The claude link step itself is the
+   macOS install (install() refuses claude on Linux and Windows, where Claude Code installs through connect.download). */
+test('#979: a link we cannot WRITE is refused in words too, not as a raw errno', { skip: skipOnWin32('the claude link step is the macOS install (this file pins install() to darwin; in production install() refuses claude on Linux and Windows), and it makes a folder unwritable with chmod 0o500, while on Windows chmod sets only the read-only attribute, which Windows ignores on a folder, so the link it expects to fail is made where a symlink can be made at all (an ordinary account without Developer Mode refuses every symlink, which would pass the test for the wrong reason)') }, async () => {
   const elsewhere = nodePath.join(SANDBOX, 'elsewhere', 'claude');
   put(elsewhere);
   await withClaudeHome(async () => {
@@ -718,23 +787,38 @@ test('#979: present means RUNNABLE, a directory or stripped file at a runner pat
   delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
   process.env.AGENT_WORKFORCE_HOME = CLAUDE_HOME;
   try {
-    fs.mkdirSync(CANONICAL, { recursive: true }); // a DIRECTORY at the runner path
+    /* A DIRECTORY at the runner path. kosmos#8378: on Windows at the path Windows would launch (claude.exe): a folder
+       named plain `claude` would read absent there for its missing extension alone, testing nothing about folders. */
+    const asDir = CANONICAL + EXE;
+    fs.mkdirSync(asDir, { recursive: true });
     let r = runners.resolveBin('claude');
     assert.equal(r.present, false, 'a directory must not read as a runnable runner');
-    fs.rmSync(CANONICAL, { recursive: true, force: true });
-    put(CANONICAL); fs.chmodSync(CANONICAL, 0o644); // a file with no exec bit
-    r = runners.resolveBin('claude');
-    assert.equal(r.present, false, 'a stripped file must not read as a runnable runner');
-    // And the positive control, so "absent" above is a real verdict rather
-    // than a path that could never read present.
-    fs.chmodSync(CANONICAL, 0o755);
-    assert.equal(runners.resolveBin('claude').present, true, 'a runnable file at the same path DOES read present');
+    fs.rmSync(asDir, { recursive: true, force: true });
+    if (WIN) {
+      /* kosmos#8378: Windows has no exec bit to strip (chmod sets only the read-only attribute); a file there runs
+         by its extension. So the stripped file is the canonical one with no runnable extension, and the positive
+         control is claude.exe beside it, which is what Windows launches for this path (PATHEXT). */
+      put(CANONICAL);
+      r = runners.resolveBin('claude');
+      assert.equal(r.present, false, 'a file with no runnable extension must not read as a runnable runner');
+      put(CANONICAL + '.exe');
+      assert.equal(runners.resolveBin('claude').present, true, 'a runnable file at the same path DOES read present');
+    } else {
+      put(CANONICAL); fs.chmodSync(CANONICAL, 0o644); // a file with no exec bit
+      r = runners.resolveBin('claude');
+      assert.equal(r.present, false, 'a stripped file must not read as a runnable runner');
+      // And the positive control, so "absent" above is a real verdict rather
+      // than a path that could never read present.
+      fs.chmodSync(CANONICAL, 0o755);
+      assert.equal(runners.resolveBin('claude').present, true, 'a runnable file at the same path DOES read present');
+    }
   } finally {
     if (prevHome === undefined) delete process.env.AGENT_WORKFORCE_HOME;
     else process.env.AGENT_WORKFORCE_HOME = prevHome;
     if (prevBin === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
     else process.env.AGENT_WORKFORCE_CLAUDE_BIN = prevBin;
     fs.rmSync(CANONICAL, { recursive: true, force: true });
+    fs.rmSync(CANONICAL + '.exe', { force: true }); // kosmos#8378: the Windows positive control
   }
 });
 
@@ -766,15 +850,27 @@ test('#979/#133: a codex binary that is not executable BY US reads absent, on ev
      test above only covers the claude rung, and an untested behavior change
      is how a fix becomes a regression. */
   const prevBin = process.env.AGENT_WORKFORCE_CODEX_BIN;
-  const spot = nodePath.join(SANDBOX, 'codexmode', 'codex');
+  // kosmos#8378: codex.exe on Windows, where a file runs by its extension.
+  const spot = nodePath.join(SANDBOX, 'codexmode', 'codex' + EXE);
   try {
     put(spot);
     process.env.AGENT_WORKFORCE_CODEX_BIN = spot;
     // Positive control FIRST, so "absent" below is a verdict about the mode
     // bits rather than about a path that could never read present.
     assert.equal(runners.resolveBin('openai').present, true, 'a runnable codex reads present');
-    fs.chmodSync(spot, 0o644);
-    assert.equal(runners.resolveBin('openai').present, false, 'a non-executable codex reads absent');
+    if (WIN) {
+      /* kosmos#8378: Windows has no exec bit to strip; what is not executable there is a file with no runnable
+         extension, so the override names a codex without one. In a folder of its own: beside codex.exe, Windows
+         would launch codex.exe for it (PATHEXT), and so would isRunnable. */
+      const plain = nodePath.join(SANDBOX, 'codexplain', 'codex');
+      put(plain);
+      process.env.AGENT_WORKFORCE_CODEX_BIN = plain;
+      assert.equal(runners.resolveBin('openai').present, false, 'a non-executable codex reads absent');
+      process.env.AGENT_WORKFORCE_CODEX_BIN = spot;
+    } else {
+      fs.chmodSync(spot, 0o644);
+      assert.equal(runners.resolveBin('openai').present, false, 'a non-executable codex reads absent');
+    }
     fs.rmSync(spot, { force: true });
     fs.mkdirSync(spot, { recursive: true });
     assert.equal(runners.resolveBin('openai').present, false, 'a directory at the codex path reads absent');
@@ -785,7 +881,10 @@ test('#979/#133: a codex binary that is not executable BY US reads absent, on ev
   }
 });
 
-test('#3568: resolveBin(antigravity) is env override, then the vendor path ~/.local/bin/agy under the home seam', () => {
+/* kosmos#8378: on Windows resolveBin never looks at ~/.local/bin/agy and has no "must be called agy" pane rule
+   (no tmux panes there): it answers agy.exe from the folder Kosmos installs it in, vouched for by a verified marker,
+   and engine/agystatus.win32-3568.test.js asserts that on Windows. */
+test('#3568: resolveBin(antigravity) is env override, then the vendor path ~/.local/bin/agy under the home seam', { skip: skipOnWin32('on Windows resolveBin does not read ~/.local/bin/agy or the pane-name rule: it answers agy.exe from the folder Kosmos installs it in, which engine/agystatus.win32-3568.test.js covers') }, () => {
   const AGY_HOME = nodePath.join(SANDBOX, 'agy-home');
   const canonical = nodePath.join(AGY_HOME, '.local', 'bin', 'agy');
   const envBin = nodePath.join(SANDBOX, 'env', 'agy');
