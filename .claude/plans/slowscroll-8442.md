@@ -57,7 +57,7 @@ a check where a new message arrives in that gap and the reader at the newest is 
   a "stalledAnimated" mode (the animated scroll, the main thread held 0.6 s 0.08 s into it).
 - ios/KosmosUITests/A11yScrollUITests.swift: testASlowScrollWithAStallIsStillFollowed and its control
   testWithTheWindowByTheClockAStalledScrollIsPutBackAtTheEnd (both fixes off); testAnAnimatedScrollWithAStallIsNotPutBack
-  and its recorded control testWithoutTheStallGraceAnAnimatedStalledScroll.
+  and its recorded control testRecordOnlyWithoutTheStallGraceAnAnimatedStalledScroll.
 
 ## Results
 
@@ -95,3 +95,9 @@ a check where a new message arrives in that gap and the reader at the newest is 
 - Simulator after iteration 3 (iPhone 17e, iOS 27.0, UIKit list, once each): A11yScrollUITests 12 of 12. Stalled, both
   fixes: pins 0, moved 387, graced false. The grace alone (window by the clock): graced true, pins 1, moved 373. Both off:
   pins 14, moved 0. The animated stalled scroll: pins 0, moved 408, graced false, with and without the grace.
+- Iteration 4 (sonnet): no new finding at WARNING or above; converged. Confirmed: "graced" is cleared before the sample
+  scroll and set only in the grace branch past the window guard, so it cannot read true for another window; the report
+  parsers still read every field. NITs FIXED after it (comments and one test name only, typechecked): the watch comment
+  (a 0.6 s stall, watched 1 s longer); the grace check's lateness (about 0.35 s); the animated control renamed
+  testRecordOnlyWithoutTheStallGraceAnAnimatedStalledScroll, as it asserts only that the window opened. NITs noted: the
+  grace sets personUntil outright where max would match the extend line (equal there, as now >= personUntil).

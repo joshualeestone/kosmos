@@ -91,7 +91,7 @@ final class A11yScrollUITests: XCTestCase {
     }
 
     // kosmos#8442 review 3: the stall grace on its own. With the window read by the clock (the first fix off), the moves
-    // after the stall are not the person's and the lapse check comes 0.3 s late; only the grace (one more quiet period, as
+    // after the stall are not the person's and the lapse check comes about 0.35 s late; only the grace (one more quiet period, as
     // it ran late) keeps the window for the moves after it. The report says the grace fired, so this cannot pass on the
     // first fix; the control below (both off) is undone. Pins are not asserted: one can land before the late check runs.
     func testTheStallGraceAloneKeepsAStalledScroll() throws {
@@ -126,7 +126,7 @@ final class A11yScrollUITests: XCTestCase {
     // Its control: no stall grace. Recorded, not asserted to fail: whether the display's frames or the overdue check run
     // first after a stall is the system's choice. Measured on a simulator (iOS 27.0) it kept the scroll too (pins 0, moved
     // 408): the animation's end was reported and closed the window as the person's. The grace is for when it is not.
-    func testWithoutTheStallGraceAnAnimatedStalledScroll() throws {
+    func testRecordOnlyWithoutTheStallGraceAnAnimatedStalledScroll() throws {
         let r = try scrollUp(mode: "stalledAnimated", noStallGrace: true)
         XCTAssertTrue(r.window, "CONTROL: the person's-scroll window never opened: \(r.label)")
     }

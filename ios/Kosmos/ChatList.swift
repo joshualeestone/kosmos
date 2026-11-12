@@ -201,7 +201,7 @@ struct ChatList: UIViewRepresentable {
             // kosmos#8221 (CI flake, 11-12): whether the newest message is on screen at this moment, a fact of where the list
             // is (atEnd is what the list means to do). The check reads it when its first look comes after this action.
             let wasAtEnd = atEnd, newestWasShown = newestOnScreen(), y0 = list.contentOffset.y
-            let watch: TimeInterval = mode == "stalled" ? 4.0 : mode == "stalledAnimated" ? 2.5 : mode == "stepped" ? 3.0 : 1.5   // kosmos#8442: a stall adds 0.6 s
+            let watch: TimeInterval = mode == "stalled" ? 4.0 : mode == "stalledAnimated" ? 2.5 : mode == "stepped" ? 3.0 : 1.5   // kosmos#8442: a stall of 0.6 s, watched 1 s longer
             debugPins = 0
             debugWindowOpened = false
             debugGraced = false
