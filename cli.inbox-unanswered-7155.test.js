@@ -109,7 +109,7 @@ test('#7155: a --since with no value or with characters no time holds is refused
     assert.equal(w.code, 2, 'Windows ' + args.join(' '));
     assert.equal(w.calls.length, 0, 'Windows sent ' + args.join(' '));
   }
-  assert.equal(seen.length, 0, 'the Mac CLI sent a bad --since');
+  if (!SKIP_POSIX_SHELL) assert.equal(seen.length, 0, 'the Mac CLI sent a bad --since');   // kosmos#8378: only the Mac CLI fills `seen`
 }));
 
 test('#7155: --help names the new flags on both CLIs', async () => {
