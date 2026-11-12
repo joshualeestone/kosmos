@@ -53,7 +53,7 @@ function run(tool, toolInput, { event = 'PreToolUse', noJq = false, noPerl = fal
 const BLOCKED_BASH = [
   'KILL -9 N1', 'KILL -KILL N1', 'KILL -SIGKILL N1', 'KILL -- N1', 'KILL -9 -- N1', 'KILL -s KILL N1',
   // kosmos#8406: a NAME=value or env prefix must not hide it (the Windows guard had that gap; this one never did).
-  'X=1 KILL -9 N1', 'MSYS_NO_PATHCONV=1 KILL -9 N1', 'env X=1 KILL -9 N1', 'A=1 B=2 PKILL -u "$USER"',
+  'X=1 KILL -9 N1', 'MSYS_NO_PATHCONV=1 KILL -9 N1', 'env X=1 KILL -9 N1', 'env -i PATH=/bin KILL -9 N1', 'A=1 B=2 PKILL -u "$USER"',
   '/bin/KILL -9 N1', 'sudo KILL -9 N1', 'KILL -1 N1', 'KILL -9 "N1"', "KILL -9 'N1'", 'KILL\t-9\tN1',
   'x=`KILL -9 N1`', 'KILL -9 N1>/dev/null', 'sleep 1; KILL -9 N1 && echo done', 'cd /tmp\nKILL -9 N1\necho after',
   'echo N1 | xargs KILL -9', "printf -- 'N1' | xargs KILL", 'xargs KILL -9 <<< N1',

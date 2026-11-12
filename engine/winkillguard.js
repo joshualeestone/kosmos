@@ -11,8 +11,8 @@
  *
  * It reads the text a tool call would run or write, splits it into commands (newlines, ; & && || and pipes, outside
  * quotes), and looks only at a command in command position: the first word of a command (after NAME=value
- * assignments, env with its options, call, start with its title and switches, then, do, else, nohup, time, xargs,
- * exec, command, sudo); a ( ) or { } block that starts a
+ * assignments, env with its options and -S string, call, start with its title and switches, then, do, else,
+ * nohup, time, xargs, exec, command, sudo and its options, winpty, nice, timeout); a ( ) or { } block that starts a
  * command (a subshell, & { ... }) or follows a control keyword (if, else, foreach, function, try ...); and the
  * command inside cmd /c, bash/sh/zsh -c (also -lc), powershell -Command or powershell's bare words, and iex. A word
  * inside an argument (a commit message, a grep pattern, a path), a block that is code or data (an object literal,
@@ -310,7 +310,8 @@ function getProcessThenStop(args) {
 
 // A Map, not an object literal: a command word of constructor or __proto__ must not find Object.prototype (review 3).
 const WRAP_C = new Map([['cmd', /^\/{1,2}(c|k)$/i], ['bash', /^-[a-z]*c[a-z]*$/], ['sh', /^-[a-z]*c[a-z]*$/], ['zsh', /^-[a-z]*c[a-z]*$/]]);
-const PREFIX = /^(call|start|@|then|do|else|!|nohup|time|xargs|exec|command|sudo|if|elif|while|until)$/i;   // words before the command
+const PREFIX = /^(call|start|@|then|do|else|!|nohup|time|xargs|exec|command|sudo|if|elif|while|until|winpty|nice|timeout)$/i;   // words before the command
+const ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/;   // NAME=value, NAME+=value, NAME[i]=value before a command
 const CONTROL = /^(if|elseif|else|foreach|for|while|do|until|try|catch|finally|switch|function|filter|trap|then)$/i;   // their blocks run
 const EVAL = new Set(['iex', 'invoke-expression']);
 const PS = new Set(['powershell', 'pwsh']);
@@ -325,7 +326,7 @@ function commandReason(cmd, pipe, at, depth) {
     const start = i;
     // kosmos#8406 (Homer, 0.8.04): NAME=value before a command sets its environment and runs it, as in Git Bash's
     // MSYS_NO_PATHCONV=1 taskkill /F /IM node.exe. Any number of them.
-    while (wd(i) !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(wd(i))) i++;
+    while (wd(i) !== undefined && ASSIGN.test(wd(i))) i++;
     // env [options] [NAME=value ...] command: its options (-u NAME and -C DIR take a value), then assignments.
     // env -S "..." splits that string into the command, so it is read as one.
     if (wd(i) !== undefined && base(wd(i)) === 'env') {
@@ -333,11 +334,15 @@ function commandReason(cmd, pipe, at, depth) {
       while (wd(i) !== undefined && /^-/.test(wd(i))) {
         const o = wd(i);
         if (o === '--') { i++; break; }
-        if (/^(-S|--split-string)$/.test(o) && wd(i + 1) !== undefined) return reasonIn(wd(i + 1), depth + 1);
-        if (/^--split-string=/.test(o)) return reasonIn(o.slice('--split-string='.length), depth + 1);
+        // -S STRING, -SSTRING, a cluster ending in S (-iS STRING), --split-string[=]STRING: the string, with any words
+        // after it, is the command.
+        const rest = (k) => [wd(k)].concat(cmd.slice(k + 1).filter((t) => t.w !== undefined).map((t) => (/\s/.test(t.w) ? '"' + t.w + '"' : t.w))).join(' ');
+        if ((/^-[A-Za-z0-9]*S$/.test(o) || o === '--split-string') && wd(i + 1) !== undefined) return reasonIn(rest(i + 1), depth + 1);
+        const glued = /^-[A-Za-z0-9]*S(.+)$/.exec(o) || /^--split-string=(.*)$/.exec(o);
+        if (glued) { const tail = cmd.slice(i + 1).filter((t) => t.w !== undefined).map((t) => (/\s/.test(t.w) ? '"' + t.w + '"' : t.w)); return reasonIn([glued[1]].concat(tail).join(' '), depth + 1); }
         i += /^(-u|-C|--unset|--chdir)$/.test(o) ? 2 : 1;
       }
-      while (wd(i) !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(wd(i))) i++;
+      while (wd(i) !== undefined && ASSIGN.test(wd(i))) i++;
     }
     while (i < cmd.length && cmd[i].w !== undefined && PREFIX.test(cmd[i].w)) {
       const was = cmd[i].w.toLowerCase(); i++;
@@ -347,6 +352,14 @@ function commandReason(cmd, pipe, at, depth) {
         while (i < cmd.length && cmd[i].w !== undefined && /^\/{1,2}[a-z]/i.test(cmd[i].w)) i++;
       }
       if (was === 'xargs') while (i < cmd.length && cmd[i].w !== undefined && /^-/.test(cmd[i].w)) i++;
+      if (was === 'sudo') {   // sudo -E, -u USER, -g GROUP, -C N, -h HOST, -p PROMPT, -D DIR, -R DIR, -T T
+        while (wd(i) !== undefined && /^-/.test(wd(i))) { const o = wd(i); i += /^-[ugChpDRrtT]$/.test(o) ? 2 : 1; if (o === '--') break; }
+      }
+      if (was === 'nice') { if (/^-n$/.test(wd(i) || '')) i += 2; else if (/^(-n?\d+|--adjustment=.*|-\d+)$/.test(wd(i) || '')) i += 1; }
+      if (was === 'timeout') {   // timeout [-s SIG] [-k T] [--foreground ...] DURATION command
+        while (wd(i) !== undefined && /^-/.test(wd(i))) i += /^-(s|k)$/.test(wd(i)) ? 2 : 1;
+        if (wd(i) !== undefined && /^\d+(\.\d+)?[smhd]?$/.test(wd(i))) i++;
+      }
       if (was === 'if') {   // cmd's if [/i] [not] exist X | defined X | errorlevel N | a==b | a == b, then the command
         const w = (k) => (cmd[k] && cmd[k].w !== undefined ? cmd[k].w : '');
         if (/^\/i$/i.test(w(i))) i++;
