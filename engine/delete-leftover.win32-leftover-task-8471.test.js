@@ -27,6 +27,8 @@ process.env.AGENT_WORKFORCE_SYSTEMD_DIR = nodePath.join(SANDBOX, 'LaunchAgents',
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'support');
 process.env.AGENT_WORKFORCE_TRASH = nodePath.join(SANDBOX, 'Trash');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+// review 7: the workers folder exists from the start (as on a real computer), so no test depends on an earlier one making it.
+fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
 
 const create = require('./create');
 const remove = require('./remove');

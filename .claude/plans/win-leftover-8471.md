@@ -81,3 +81,7 @@ before, 1442/116/25 after (the 116 are the same failures on this box both ways).
   is there as a folder (one stat per call). Negative control: without it, both workers-folder tests fail on the list
   check. Nits fixed: both workers-folder refusals end with the same way out ("delete agent-X in the Kosmos folder of the
   Task Scheduler Library, then try again here"); the plan's weakest part updated.
+- Round 7 (no blocker; 1 warning, 1 nit). No way found for a delete to reach a live or recoverable agent, and no real
+  leftover trapped without a true way out. (1) FIXED: three tests passed only by order (no test made the workers folder
+  until an earlier one did); the sandbox now makes it at the start, and each passes alone. (2) The "could not check"
+  refusal names the folder Kosmos keeps its agents in, which is the look that failed.

@@ -582,7 +582,7 @@ function plan(name, opts) {
     const wayOut = ` If that folder is gone for good, open Task Scheduler, delete ${String(job.label).split('\\').pop()} in the ${String(job.label).split('\\')[0]} folder of the Task Scheduler Library, then try again here.`;
     const wAt = resolveRecordedFolder(create.WORKERS_DIR);
     if (wAt.because === 'dangling') return { ok: false, because: `the folder Kosmos keeps its agents in is behind a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected, so Kosmos will not delete ${shown}'s settings.${wayOut}` };
-    if (wAt.because) return { ok: false, because: `we could not check where ${shown}'s folder was, so we have not offered to delete anything. Try again in a moment.` };
+    if (wAt.because) return { ok: false, because: `we could not check the folder Kosmos keeps its agents in, so we have not offered to delete anything of ${shown}. Try again in a moment.` };
     /* review 5: a workers folder that is not there at all (its drive not connected, or the folder renamed or moved) makes
        every agent with a task look like this too, and resolveRecordedFolder reads a missing drive as "the rest is gone".
        A task still registered while the whole workers folder is absent is never one agent's leftover, so refuse. */
