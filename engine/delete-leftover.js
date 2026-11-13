@@ -625,7 +625,7 @@ function plan(name, opts) {
          ran (whatever its profile does not record: kosmos#8478), and only if it has run here. So the name is typed and the reason comes first. */
       const out = outOfSightWords(clean, shown);
       const unsure = out ? out.words : null;
-      const words = taskOnlyWords(clean, shown, removedNow, platform, stored.records, out ? out.lead : null);
+      const words = taskOnlyWords(clean, shown, removedNow, platform, stored.records, out ? out.lead : null, true);
       return {
         ok: true,
         name: clean,
@@ -885,7 +885,7 @@ function outOfSightWords(name, shown) {
    so the disk is named here). Anything else, a plain moved folder. review 7: with no lead the disk clause is never
    true: an untyped task-only plan has nothing at the agent's path inside a workers folder that is there, and any
    recorded folder out of sight gets the 'unreachable' lead and typing instead. A disk is connected, never "put back". */
-function taskOnlyBackWords(name, removed, lead = null) {
+function taskOnlyBackWords(name, removed, lead = null, preview = false) {
   let where = null;
   try { where = create.recordedDirSpelling(name); } catch { where = null; }
   if (!where) where = create.workerDir(name);
@@ -895,11 +895,11 @@ function taskOnlyBackWords(name, removed, lead = null) {
       ? `If its folder was only moved, put it back at ${where}, or if it is on a disk or shared folder that is not connected, connect it`
       : `If its folder was only moved, put it back at ${where}`)
     + (removed ? ', use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it' : ', then use Start at login when Kosmos offers it')
-    + startsAgainWords(name);
+    + startsAgainWords(name, preview);
 }
 /* What Start at login (register.repair) brings back after a startup job was removed: the clause ending a sentence that
    names Start at login. Exported for remove.restore's sentence for the same state (kosmos#8475). */
-function startsAgainWords(name) {
+function startsAgainWords(name, preview = false) {
   let provider = null;
   try { provider = require('./store').readProfile(name).provider || null; } catch { provider = null; }
   let ownAccount = provider === 'alibaba';
@@ -910,7 +910,11 @@ function startsAgainWords(name) {
      sentence and the repair cannot disagree. Nothing recorded (a task last written before this change): the old words,
      still true. "Set to" because the record is what the agent was set to, not what it last ran. */
   let rec = null;
-  try { rec = create.win32RecordedTask(name); } catch { rec = null; }
+  /* `preview` (the task-only PLAN only, its task still registered): with nothing recorded yet, what the task itself
+     says, because del records exactly that before it removes the task (create.recordWin32TaskFromTask). The outcome
+     and Restore are read after the task is gone and say only what was actually recorded: a record that could not be
+     written leaves them on the old words. */
+  try { rec = create.win32RecordedTask(name, { orTask: preview === true }); } catch { rec = null; }
   if (rec && rec.accountOk && rec.modelOk) return '; it starts on the account and model it was set to before.';
   if (rec && rec.modelOk) {
     return '; it starts on the model it was set to, but on your main account, because the account folder it used is no longer on this computer, so choose its account again if it should use another.';
@@ -942,8 +946,8 @@ function recordedOutsideWorkers(name, platform) {
    stays stored, and (review) the way to delete it ONLY when that delete would be offered: the settings-only list's rule
    (recordedOutsideWorkers) and the settings-only plan's own refusals (strandedRefusal). `records` is namedRecords' list,
    or null when it could not be read (then nothing is said about it rather than a guess). */
-function taskOnlyWords(name, shown, removed, platform, records, lead = null) {
-  const back = taskOnlyBackWords(name, removed, lead);
+function taskOnlyWords(name, shown, removed, platform, records, lead = null, preview = false) {
+  const back = taskOnlyBackWords(name, removed, lead, preview);   // preview: the plan's words (kosmos#8478)
   if (!records || !records.length) return { back, stay: '' };
   const kw = recordsWords(records);
   let offered = false;
@@ -1122,6 +1126,10 @@ function* delSteps(name, opts) {
     if (p.typeToConfirm && String((opts && opts.typed) || '').trim() !== p.typeToConfirm) {
       return { outcome: OUTCOME.REFUSED, because: `type ${p.typeToConfirm} to confirm; nothing was deleted`, plan: p };
     }
+    /* kosmos#8478: an agent whose task was last written before its profile recorded one gets the record now, read from
+       the task, so Start at login puts back its account folder and model. Never a gate: a read or write that fails
+       leaves the delete as it was, and the words below, read after, say only what was recorded. */
+    try { create.recordWin32TaskFromTask(p.name); } catch { /* the delete goes ahead */ }
     let out;
     try { out = require('./win32job').remove(p.name); }
     catch (err) { out = { ok: false, because: String((err && err.message) || err) }; }

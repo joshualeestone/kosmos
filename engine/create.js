@@ -4524,10 +4524,32 @@ function win32AccountThere(runner, dir) {
    flags say whether each can still be put back (win32AccountThere, win32ModelOffered). One reading, shared by
    register.repair (what it builds) and delete-leftover.startsAgainWords (what the person is told), so the two cannot
    disagree. */
-function win32RecordedTask(name) {
+/* kosmos#8478: the record a task that is still registered would give, read from the task's own argument line (the
+   definition win32job parses for configDirFor). null when there is no task or it cannot be read: never a guess. `fresh`
+   reads Task Scheduler again (the delete, which records it); otherwise the remembered definition (the plan's words). */
+function win32TaskOnTask(name, fresh) {
+  let read;
+  try { const job = require('./win32job'); read = fresh ? job.taskSpec(name) : job.cachedTaskSpec(name); } catch { return null; }
+  if (!read || !read.known || !read.registered || !read.spec) return null;
+  return win32TaskRecord({ runner: read.spec.runner, configDir: read.spec.configDir, model: read.spec.model });
+}
+/* kosmos#8478: every agent whose task was last written before the record existed has none, and those are the agents a
+   task-only leftover delete (delete-leftover.del) reaches first. So just before that delete removes the task, an agent
+   with no record gets one, read from the task itself. Best effort: false when a record is already there (it is the
+   newer truth), the task cannot be read, or the write fails, and the delete goes ahead either way. */
+function recordWin32TaskFromTask(name) {
+  try { if (store.readProfile(name).win32Task) return false; } catch { return false; }
+  const rec = win32TaskOnTask(name, true);
+  return rec ? recordWin32Task(name, rec) : false;
+}
+/* `orTask`: with nothing recorded, answer from the task if it is still registered. Only for the task-only delete's
+   PLAN words, which describe the agent after that delete has recorded the task (recordWin32TaskFromTask); its outcome
+   words and Restore's are read after the task is gone, so they say only what was actually recorded. */
+function win32RecordedTask(name, opts) {
   let prof;
   try { prof = store.readProfile(name) || {}; } catch { return null; }
-  const rec = prof.win32Task;
+  let rec = prof.win32Task;
+  if (!rec && opts && opts.orTask === true) rec = win32TaskOnTask(name, false);
   if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return null;
   if (prof.provider === 'alibaba') return null;
   try { if (require('./anthropiccompat').vendorOf(prof.provider)) return null; } catch { return null; }
@@ -7575,7 +7597,7 @@ module.exports = {
   setModel,
   installJob,
   // kosmos#8478: register.repair and delete-leftover read the recorded Windows account and model through one reader.
-  win32RecordedTask,
+  win32RecordedTask, recordWin32TaskFromTask,
   nameUsable,
   hasJob, jobMissing,
   // #570: the one three-state answer the plist-stat readers now share.

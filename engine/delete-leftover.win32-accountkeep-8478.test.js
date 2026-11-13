@@ -100,6 +100,7 @@ function taskOnlyDelete(name) {
     const done = win.del(name);
     assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
     assert.equal(taskThere(name), false, 'fixture: the task is still registered');
+    p = { ...p, said: done.said };   // the outcome's words, beside the plan's
   } finally { fs.renameSync(away, create.workerDir(name)); }
   return p;
 }
@@ -156,12 +157,32 @@ test('kosmos#8478: an agent on another account and a chosen model comes back on 
   assert.equal(r.guessed && r.guessed.model, null, 'the report would say it had no record of its model');
 });
 
-test('kosmos#8478: an agent with nothing recorded comes back on the main account and the model it last ran, as before, and is recorded from then on', WINDOWS_ONLY, () => {
-  // Its task was last written before this change: the profile records nothing.
-  const name = agent('old8478');
+test('kosmos#8478: an agent with NO record (its task written before this change) on another account and a chosen model comes back on both', WINDOWS_ONLY, () => {
+  // The task carries the second account and the chosen model; the profile records nothing (as for every agent today).
+  const name = agent('legacy8478', { model: SET_MODEL });
   assert.equal(store.readProfile(name).win32Task, undefined, 'fixture: something is recorded');
   const p = taskOnlyDelete(name);
-  assert.match(p.reassurance, /it starts on your main account and the model it last ran, so choose its account and model again if it used others\. /);
+  // The delete read them from the task and recorded them before removing it.
+  assert.deepEqual(store.readProfile(name).win32Task, { runner: 'claude', configDir: ACCOUNT, model: SET_MODEL },
+    'the task-only delete did not record the account folder and model from the task first');
+  assert.match(p.reassurance, /then use Start at login when Kosmos offers it; it starts on the account and model it was set to before\./);
+  assert.match(p.said, /then use Start at login when Kosmos offers it; it starts on the account and model it was set to before\./);
+  const r = startAtLogin(name);
+  assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: SET_MODEL }, 'Start at login did not put back its account folder and model');
+  assert.equal(r.guessed && r.guessed.model, null);
+});
+
+test('kosmos#8478: an agent with nothing recorded whose task cannot be read at the delete comes back on the main account and the model it last ran, as before, and is recorded from then on', WINDOWS_ONLY, (t) => {
+  const name = agent('old8478');
+  assert.equal(store.readProfile(name).win32Task, undefined, 'fixture: something is recorded');
+  // The delete's fresh read of the task fails (Task Scheduler would not answer it): the delete goes ahead unrecorded.
+  const spec = t.mock.method(win32job, 'taskSpec', () => ({ known: false, because: 'Task Scheduler did not answer' }));
+  const p = taskOnlyDelete(name);
+  assert.ok(spec.mock.callCount() >= 1, 'CONTROL: the delete never asked for the task, so the failed read guards nothing');
+  spec.mock.restore();
+  assert.equal(store.readProfile(name).win32Task, undefined, 'a record was written from a read that failed');
+  // The outcome is read after the task is gone, so it says only what was recorded: nothing.
+  assert.match(p.said, /it starts on your main account and the model it last ran, so choose its account and model again if it used others\. /);
   startAtLogin(name);
   assert.deepEqual(writtenTask(name), { configDir: null, model: LAST_RAN }, 'with nothing recorded the repair did not fall back as before');
   // The task Start at login wrote is recorded, so the next time the agent comes back as it is now.
