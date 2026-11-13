@@ -3248,6 +3248,9 @@ function adoptExisting(deps) {
   const ok = found.find((f) => f.removed === 'no' && f.g.job === 'yes');
   if (ok) {
     const marked = ok.g.byBirth ? markGuideFolder(ok.g.name) : true;
+    /* Known only by its birth line and the marker would not write: the board would not treat the folder as the guide
+       (no guards at start, the page route refuses it), so flagging it would leave that for good. Not known yet. */
+    if (!marked) return { seeded: false, state: 'unclear', reason: `could not mark the setup guide ${ok.g.name}'s folder`, guideUnchecked: ok.g.name };
     return { seeded: true, name: ok.g.name, adopted: true, avatarCopied: false, marked };
   }
   const f = found[0];
@@ -3277,7 +3280,10 @@ function finishAdoptedGuide(name, avatarDir) {
 /*
  * Seed the setup assistant if it has never been seeded. Returns:
  *   { seeded: true, name, avatarCopied, marked } -- created
- *   { seeded: false, reason: '<why>' }            -- did not create (all benign)
+ *   { seeded: true, name, adopted: true, ... }   -- kosmos#8484: a guide already made, adopted (adoptExisting)
+ *   { seeded: false, reason: '<why>' }            -- did not create (all benign), and per kosmos#8484 maybe
+ *     `because` (a sentence for the person), `state: 'unclear'`, and one of namesTaken, heldByAgent,
+ *     guideRemoved, guideWithoutJob, guideUnchecked, which ensureGuide reads
  *
  * `model` ({ provider, account }) picks what it runs on; ensureGuide passes the
  * first connected one. NEVER throws: its automatic caller (ensureGuide) runs at
@@ -3372,8 +3378,7 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
     /* And one real agent that stopped the loop at its name (Windows, since #8466: a folder there stops): true words
        for it, and, like names-taken, it does not clear by waiting (ensureGuide holds it for the process). */
     const oneAgent = !held && !bothAgents && lastIsAgent;
-    const shownOf = (n) => (n === GUIDE_FALLBACK_NAME ? GUIDE_FALLBACK_NAME : GUIDE_NAME);
-    const agentWords = oneAgent ? `Kosmos did not set up the Kosmos Guide, because one of your agents is already called ${shownOf(name)}. Rename it, restart Kosmos, then choose Set it up now.` : null;
+    const agentWords = oneAgent ? `Kosmos did not set up the Kosmos Guide, because one of your agents is already called ${name}. Rename it, restart Kosmos, then choose Set it up now.` : null;
     return { seeded: false, reason: 'not created: ' + (because || (out && out.outcome) || 'unknown'),
       ...(held ? { because: held } : {}), ...(bothAgents ? { namesTaken: true } : {}), ...(agentWords ? { because: agentWords, heldByAgent: true } : {}) };
   }
@@ -3694,7 +3699,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
       // A model listed but none usable (a dead sign-in, a failed live check) is its own gate,
       // not a refusal: nothing was asked to create.
       return fail(last ? ('not created: ' + (last.reason || 'refused')) : 'a model is listed but none could run yet',
-        namesTaken ? 'names-taken' : last ? 'refused' : 'no-usable-model', (!namesTaken && last && last.because) || null);
+        namesTaken ? 'names-taken' : (last && last.state === 'unclear') ? 'unclear' : last ? 'refused' : 'no-usable-model', (!namesTaken && last && last.because) || null);
     } catch (err) {
       // An internal failure reads 'refused' on /admin like a model refusal; the reason (kept
       // locally) tells them apart.

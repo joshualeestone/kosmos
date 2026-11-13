@@ -441,3 +441,17 @@ test('kosmos#8484: the first leftover is named only when the last name was refus
     assert.equal('because' in r, false, 'freeing Josh was advised for a refusal it would not fix');
   } finally { fs.rmSync(task, { force: true }); }
 });
+
+test('kosmos#8484: a guide known only by its birth line whose marker will not write is not adopted (the board would not treat it as the guide)', () => {
+  const g = agent(sa.GUIDE_NAME);
+  fs.chmodSync(g.dir, 0o555);   // the folder is read-only: the marker write fails
+  try {
+    const calls = [];
+    const r = seed(created(calls), { jobPresence: () => 'yes', birthLog: () => [guideBirth(g.slug, g.id)] });
+    assert.equal(r.seeded, false, 'a guide was flagged whose folder the board will not treat as the guide');
+    assert.equal(r.state, 'unclear');
+    assert.equal('because' in r, false);
+    assert.deepEqual(calls, []);
+    assert.equal(sa.isGuideFolder(g.slug), false, 'CONTROL: the marker really did not write');
+  } finally { fs.chmodSync(g.dir, 0o755); }
+});

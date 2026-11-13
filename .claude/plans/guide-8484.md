@@ -54,7 +54,7 @@ The page sentence depends on create's refusal wording. The tests call the real c
 that wording turns them red.
 
 ## Tests
-- engine/setup-assistant.adopt-8484.test.js (23): adopt by marker; flag record; adopt before any live check, guards
+- engine/setup-assistant.adopt-8484.test.js (24): adopt by marker; flag record; adopt before any live check, guards
   re-applied; by birth line; newest line only; id mismatch, no id, partial; job proven gone; job unknown or unreadable
   (unclear, no advice); removed guide; fallback name; no folder; held folder, held job and removed list with the real
   create; the Linux command form; other refusals unchanged, including "Pick another name for now".
@@ -159,3 +159,15 @@ that wording turns them red.
 - NITs left: the link-that-leads-nowhere Windows form has no test of its own (it degrades to the old wording); a
   birth-line adoption writes the marker the page route trusts, on createdBy/role/purpose plus the newest-line and
   profile-id checks; a guide with no job found only inside the seed counts as a failure for the back-off.
+
+#### Iteration 8 (opus, the whole branch, the last round the 8-round cap allows)
+- WARNING: a guide known only by its birth line was adopted even when its marker would not write; the board then
+  does not treat the folder as the guide (no guards at start, the page route refuses it), and the flag stops any
+  further seed, for good. Fixed: an unwritten marker answers 'unclear', no flag. Test (a read-only folder), control.
+- NITs fixed: the seed's docblock lists what it now returns; a pointless shownOf; ensureGuide keeps 'unclear' when
+  the seed itself finds an unchecked guide (a race).
+- NITs left: heldByAgent is answered before the off switch, as namesTaken is; a Windows "an agent called X is
+  running" pair has no sentence of its own; a person's own setup-role Josh with no flag is adopted, as the board
+  already treats a marked folder.
+- The cap is reached, so this loop stops here unconverged: round 8 found a WARNING, fixed and tested, and no round
+  has looked at that fix.
