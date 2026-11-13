@@ -173,6 +173,12 @@ function stopActs(name, pid) {
   };
 }
 
+/* kosmos#8456 review 2: a stop reported for a running agent left no process behind. On Windows the stand-in table is
+   asked; a Mac's stop is checked by its kill and look-again in `calls`, and the tmux stub keeps no process list. */
+function assertProcessGone(name) {
+  if (procs) assert.equal(procs.pidOf(name), null, `${name} is still running after the answer said it was stopped`);
+}
+
 function removedNames() {
   const list = readRemoved();
   return (Array.isArray(list) ? list : []).map((r) => r && r.name).filter(Boolean);
@@ -264,6 +270,7 @@ test('#2570: with stopAgents the agent is really stopped and the account IS disc
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.equal(r.json.forgotten, true);
   assert.deepEqual(r.json.stopped, ['spade'], 'the answer must name who was stopped');
+  assertProcessGone('spade');
   assert.ok(!fs.existsSync(dir), 'the account directory did not move, so the stop bought nothing');
   /* THE STOP IS REAL, not a reported one. Both halves of the primitive ran. #5500: on Linux the job is a systemd
      unit, disabled and then stopped (remove.js's Linux ops), in the same order. kosmos#8456: on Windows the job is a
@@ -291,6 +298,7 @@ test('#2570: the stopped agent is on the removed list, which is what the answer 
   const r = await del('claude', { dir, stopAgents: true });
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.match(String(r.json.because), /archer was stopped first/);
+  assertProcessGone('archer');
   assert.match(String(r.json.because), /put it back from the removed list once you add this account again under the same name/);
   assert.ok(removedNames().includes('archer'),
     'the answer says the agent can be restored, and no removal record was written, so it cannot be');
@@ -860,6 +868,7 @@ test('#2570: the DELETE door honours stopAgents, and does NOT promise a restore'
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.equal(r.json.removed, true);
   assert.deepEqual(r.json.stopped, ['maigret']);
+  assertProcessGone('maigret');
   assert.ok(!fs.existsSync(dir), 'the account was not deleted');
   /* 🛑 THE SENTENCE MUST DIFFER FROM THE DISCONNECT DOOR'S. The account
      directory is GONE, so restoring the agent would re-enable a launchd job
@@ -881,6 +890,7 @@ test('#2570: the OpenAI route stops its own agents the same way', async () => {
   const r = await del('openai', { dir, stopAgents: true });
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.deepEqual(r.json.stopped, ['poirot'], 'the OpenAI door must not be the one that still refuses');
+  assertProcessGone('poirot');
   assert.match(String(r.json.because), /put it back from the removed list once you add this account again under the same name/);
   assert.ok(removedNames().includes('poirot'), 'no removal record, so the restore promise is false here too');
   /* kosmos#8456: on Windows a codex agent is found through the codex live list, not `claude agents --json`, so a stop

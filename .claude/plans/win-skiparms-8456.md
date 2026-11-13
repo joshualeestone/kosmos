@@ -57,6 +57,19 @@ session, not that a separate process came up. The codex list is stood in at win3
 `win32codexlive` decides a codex agent is live is not exercised, and a mutation of only that seam's DEFAULT passes
 (measured); a byName that drops the codex list fails the OpenAI arm (measured).
 
+## Review round 2
+- The stand-in Task Scheduler tracks which tasks are running: a task runs from its `/Run` to its `/End` or `/Delete`,
+  and a `/Run` on a running task starts nothing (IgnoreNew, as win32job.taskXml registers every task). A restart that
+  skipped its `/End` now gets no new agent and answers PARTIAL. `/End` on a task that is not running answers "is not
+  running", which win32job.end reads as done.
+- Negative control for the restart's "did it come up" check, inside the #2019 test: `procs.neverComesUp(name)` makes
+  the task run with no supervisor (no ownership row, no state file) and the restart must answer `partial`. A
+  `loaded` that always answers true fails it. The model-route arm alone does not catch that; the control does.
+- Every Windows removal arm asserts the agent's process is gone from the table afterwards.
+- The round-trip test's first, engine-direct removal is a dry run on a Mac (no runner). remove.js's dry run does not
+  reach win32job or win32stop (documented in its header), so on Windows the stand-ins make it a dry run: the task's
+  acts answer SUCCESS without acting and the kill does not take. Without that the agent was stopped before the DELETE.
+
 ## Verified
 Each changed file on this box with and without the preload, stdin closed, and with TEMP/TMP set to an 8.3 short
 path. Negative controls: skipped look-again, no-op disable, no-op enable, no taskkill on restart, no boot shim written,

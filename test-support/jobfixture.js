@@ -79,6 +79,15 @@ function switchedOff(text) {
 let runs = 0;   // the /Run count, so each started task gets its own ownership-row id
 let currentScheduler = null;   // kosmos#8456: the stand-in last installed, for win32Step
 let processTable = null;   // kosmos#8456: the running agents, while win32Processes has a table installed
+/* kosmos#8456 review 2: the tasks running now, by task file, so /Run and /End answer as Task Scheduler does: a task
+   runs from its /Run until its /End (or its /Delete), and a /Run while it runs starts nothing under the task's
+   MultipleInstancesPolicy, which is IgnoreNew for every task Kosmos registers (win32job.taskXml) and Task Scheduler's
+   own default. A file that is gone is not running, so a test that deletes and rewrites a task file starts afresh. */
+const runningTasks = new Set();
+function ignoresNew(text) {
+  const policy = /<MultipleInstancesPolicy>\s*(\w+)\s*<\/MultipleInstancesPolicy>/.exec(String(text));
+  return !policy || policy[1] === 'IgnoreNew';
+}
 
 /* The agent facts on a task's argument line (name, folder, model, account, runner, runner binary), read the way
    win32job.taskSpec reads them; null when the definition has no argument line. */
@@ -148,6 +157,7 @@ function stubAnswer(dir) {
     const tn = tnAt >= 0 ? a[tnAt + 1] : null;
     const file = tn ? taskFile(dir, tn) : null;
     const exists = () => !!file && fs.existsSync(file);
+    if (file && !fs.existsSync(file)) runningTasks.delete(file);
     if (verb === '/Query') {
       if (a.includes('/XML')) return exists() ? { ok: true, out: fs.readFileSync(file, 'utf8') } : { ok: false, out: NOT_FOUND };
       if (a.includes('/FO') && a[a.indexOf('/FO') + 1] === 'CSV') {
@@ -171,6 +181,7 @@ function stubAnswer(dir) {
     if (verb === '/Delete') {
       if (!exists()) return { ok: false, out: NOT_FOUND };
       fs.rmSync(file, { force: true });
+      runningTasks.delete(file);
       return { ok: true, out: `SUCCESS: The scheduled task "${tn}" was successfully deleted.` };
     }
     if (verb === '/Change') {
@@ -199,8 +210,14 @@ function stubAnswer(dir) {
       /* A started task runs the agent's supervisor, whose first act is the ownership row win32create.awaitSession
          waits for (win32create.prepareSession). The stand-in writes that row, under the name and runner on the task's
          line, into the sandboxed store, as engine/create.test.js's own Windows runner does. */
-      const spec = taskLine(fs.readFileSync(file, 'utf8'));
-      if (spec && spec.name) {
+      const text = fs.readFileSync(file, 'utf8');
+      /* kosmos#8456 review 2: a task already running is not started again (IgnoreNew): schtasks still answers
+         SUCCESS, and nothing new comes up, which is what a restart that skipped its /End would meet. */
+      if (runningTasks.has(file) && ignoresNew(text)) return { ok: true, out: `SUCCESS: Attempted to run the scheduled task "${tn}".` };
+      runningTasks.add(file);
+      const spec = taskLine(text);
+      // kosmos#8456 review 2: an agent marked neverComesUp has a task that runs and a supervisor that never starts.
+      if (spec && spec.name && !(processTable && processTable.staysDown(spec.name))) {
         const id = `fixture-run-${process.pid}-${++runs}`;
         require('../engine/win32sessions').record(id, { name: spec.name, runner: spec.runner || 'claude' });
         // kosmos#8456: and with a process table installed, the agent the supervisor starts is running (see win32Processes).
@@ -208,7 +225,14 @@ function stubAnswer(dir) {
       }
       return { ok: true, out: `SUCCESS: Attempted to run the scheduled task "${tn}".` };
     }
-    if (verb === '/End') return exists() ? { ok: true, out: 'SUCCESS' } : { ok: false, out: NOT_FOUND };
+    if (verb === '/End') {
+      if (!exists()) return { ok: false, out: NOT_FOUND };
+      /* It ends the task's instance (its supervisor). The agent's own process is ended by taskkill, the act a Mac's
+         kill-session pairs with, so the process table is left to that. Not running answers as schtasks does, which
+         win32job.end reads as the end state it wanted. */
+      if (!runningTasks.delete(file)) return { ok: false, out: `ERROR: The scheduled task "${tn}" is not running.` };
+      return { ok: true, out: `SUCCESS: The scheduled task "${tn}" was terminated successfully.` };
+    }
     return { ok: false, out: 'ERROR: the stand-in Task Scheduler does not know this call.' };
   };
 }
@@ -279,6 +303,9 @@ const TABLE_PID_BASE = 2000000000;
       survive(name)        the next kills of that agent answer SUCCESS and leave it running, so a test can show the
                            look-again catches a kill that did not take. Returns the undo; clearSurvivors() undoes
                            them all.
+      neverComesUp(name)   that agent's task runs at its next /Run but its supervisor never starts: no ownership row,
+                           no live entry, no state file, so a restart's "did it come up" check must answer no.
+                           Returns the undo.
       calls                each act and look, in order: 'taskkill.exe /PID <pid> /T /F' and 'alive <pid>' (and each is
                            handed to opts.onCall too, for a test that keeps one log of every platform's acts).
       stop()               puts win32stop's seams back and removes the state files it wrote.
@@ -303,6 +330,7 @@ function win32Processes(opts) {
   const live = new Map();   // sessionId -> { sessionId, pid, name, runner }
   const perTurn = (runner) => require('../engine/win32codexlive').PER_TURN.has(runner);
   const survivors = new Set();
+  const down = new Set();
   const written = new Set();
   const calls = [];
   const onCall = opts && typeof opts.onCall === 'function' ? opts.onCall : null;
@@ -352,6 +380,11 @@ function win32Processes(opts) {
       return () => { survivors.delete(name); };
     },
     clearSurvivors() { survivors.clear(); },
+    neverComesUp(name) {
+      down.add(name);
+      return () => { down.delete(name); };
+    },
+    staysDown(name) { return down.has(name); },
     stop() {
       if (processTable === table) processTable = null;
       win32stop.setRunner(null);
