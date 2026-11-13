@@ -1748,6 +1748,14 @@
       "notesOnly": true
     },
     {
+      "title": "Claude Fable 5.2 is in the model picker",
+      "line": "You can pick Claude Fable 5.2 for an agent: the newest and most capable Fable, and cheaper per token than Fable 5.1.",
+      "icon": "spark",
+      "rank": 9,
+      "since": "0.8.05",
+      "status": "pending"
+    },
+    {
       "title": "A suggested answer beside the question",
       "line": "When an agent holds a task for your answer, it can add the answer it suggests, shown beside its question on the task and in Tasks.",
       "icon": "tasks",
@@ -1802,14 +1810,6 @@
       "since": "0.8.05",
       "status": "pending",
       "notesOnly": true
-    },
-    {
-      "title": "Claude Fable 5.2 is in the model picker",
-      "line": "You can pick Claude Fable 5.2 for an agent: the newest and most capable Fable, and cheaper per token than Fable 5.1.",
-      "icon": "spark",
-      "rank": 9,
-      "since": "0.8.05",
-      "status": "pending"
     },
     {
       "title": "A leftover Windows startup task can be removed",
