@@ -33,21 +33,29 @@ test('appendTo refuses to add the block twice, keyed on the sentence a person is
    prints. That is the whole ceremony, and it is deliberately one line of
    friction. */
 test('the doctrine version and the block text move together', () => {
-  const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
+  const printOf = (text) => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
+  /* kosmos#8506: from version 50 the block differs by platform (defaults.blockFor), so a version pins one
+     fingerprint per platform, the same whichever platform runs this test. Before it, one block for all. */
+  const perPlatform = () => Object.fromEntries(defaults.PLATFORMS.map((p) => [p, printOf(defaults.blockFor(p))]));
+  const print = defaults.DOCTRINE_VERSION >= 50 ? perPlatform() : printOf(defaults.block());
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771', 30: '459a0b50b68e5660', 31: 'abc33c9b62fa12ae', 32: '73e44376fbc76c20', 33: '2133561e3eab26ea', 34: 'a39a0bc29b3835a1', 35: '6b57ebef325d31bd', 36: '5a663e79f786d9d1', 37: '3b7a0343b77de055', 38: 'd1101aed44310c79', 39: 'fb51f108efd5d1a4', 40: '25e4303042b14af1', 41: '9886a04b66bca4c1', 42: '6dc0b29879f7fc3d', 43: 'e9e1378a3d20145a', 44: '68f2a8f66a49177b', 45: '3711e533b1a4e500', 46: '402a26bcb32c2af7', 47: 'cd1f2e4c64228956', 48: '4e7599776278c915', 49: '1d13807c5e08095d' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771', 30: '459a0b50b68e5660', 31: 'abc33c9b62fa12ae', 32: '73e44376fbc76c20', 33: '2133561e3eab26ea', 34: 'a39a0bc29b3835a1', 35: '6b57ebef325d31bd', 36: '5a663e79f786d9d1', 37: '3b7a0343b77de055', 38: 'd1101aed44310c79', 39: 'fb51f108efd5d1a4', 40: '25e4303042b14af1', 41: '9886a04b66bca4c1', 42: '6dc0b29879f7fc3d', 43: 'e9e1378a3d20145a', 44: '68f2a8f66a49177b', 45: '3711e533b1a4e500', 46: '402a26bcb32c2af7', 47: 'cd1f2e4c64228956', 48: '4e7599776278c915', 49: '1d13807c5e08095d', 50: { darwin: 'ce21a502d452adf1', linux: 'e9d2a81d9ac959df', win32: 'c12d49b5a7b13306' } };
+  const shown = JSON.stringify(print).replace(/"/g, "'");
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
-    `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
-  assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
-    `the block's text changed but DOCTRINE_VERSION did not: bump it, log it, and pin the new fingerprint '${print}'`);
+    `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: ${shown}} here and a line to the version log in defaults.js`);
+  assert.deepEqual(print, PINNED[defaults.DOCTRINE_VERSION],
+    `the block's text changed but DOCTRINE_VERSION did not: bump it, log it, and pin the new fingerprint ${shown}`);
   /* #4890 review 20: every pinned (released) version has its exact block in engine/doctrine-past.js, so an agent holding
      an unedited copy of it is offered the current rules. A row with the version number is not enough: an unreleased
      interim block from a branch can carry the same number. */
   const past = require('./doctrine-past');
-  for (const [v, prefix] of Object.entries(PINNED)) {
-    assert.ok(past.some((r) => r.version === Number(v) && r.sha256.startsWith(prefix)),
-      `released doctrine v${v} (${prefix}) has no row in engine/doctrine-past.js: run node tools/doctrine-past.js`);
+  for (const [v, pinned] of Object.entries(PINNED)) {
+    // kosmos#8506: a per-platform version has a row for each platform's block.
+    for (const prefix of typeof pinned === 'string' ? [pinned] : Object.values(pinned)) {
+      assert.ok(past.some((r) => r.version === Number(v) && r.sha256.startsWith(prefix)),
+        `released doctrine v${v} (${prefix}) has no row in engine/doctrine-past.js: run node tools/doctrine-past.js`);
+    }
   }
 });
 
@@ -421,7 +429,8 @@ test('#3570: an agent holding the old headings is still offered the reactions se
 });
 
 test('#2909 v15: formatted messages are written across lines, per surface, and the examples cannot split the block', () => {
-  const sec = defaults.sections().find((x) => x.heading === '### Formatted messages need line breaks');
+  // kosmos#8506: the PowerShell forms are on Windows only, so the Windows block is the one read here.
+  const sec = defaults.sections('win32').find((x) => x.heading === '### Formatted messages need line breaks');
   assert.ok(sec, 'the section is its own heading, so missingFrom re-offers it to existing agents');
   assert.match(sec.text, /kosmos post --stdin <project> <<'KOSMOS_MSG'/, 'a room post pipes a quoted heredoc');
   assert.match(sec.text, /kosmos reply --stdin <<'KOSMOS_MSG'/, 'a reply to the person pipes a quoted heredoc too (#4582)');
@@ -506,12 +515,17 @@ test('#6653: the shell-trap rule names dollar amounts and its kosmos msg stdin r
   const flat = sec.text.replace(/\s+/g, ' ');
   assert.match(flat, /and so can a dollar amount: `"\$1,200"` reaches Kosmos as `,200`/, 'dollar amounts are not named');
   /* The double-quoted examples are read first, so they point here; the heading they name must exist. */
-  const ask = defaults.sections().find((x) => x.heading === '### Answering where you were asked');
+  // kosmos#8506: the PowerShell half is in the Windows block only; macOS and Linux end at the shell trap.
+  const ask = defaults.sections('win32').find((x) => x.heading === '### Answering where you were asked');
   assert.ok(ask, 'the section holding the double-quoted examples is gone');
   assert.match(ask.text.replace(/\s+/g, ' '), /If the text holds a `\$` or a backtick, give it on stdin instead \(the shell trap under "Send readable messages"\); in PowerShell, use the here-string under "Formatted messages need line breaks"\./, 'the examples no longer point at the shell trap and the PowerShell form');
+  for (const p of ['darwin', 'linux']) {
+    const here = defaults.sections(p).find((x) => x.heading === '### Answering where you were asked');
+    assert.match(here.text.replace(/\s+/g, ' '), /If the text holds a `\$` or a backtick, give it on stdin instead \(the shell trap under "Send readable messages"\)\. /, p + ': the examples no longer point at the shell trap');
+  }
   assert.ok(sec.heading.startsWith('### Send readable messages'), 'the pointer names a heading the shell trap is not under');
   /* Review 3: the PowerShell half must land where a here-string is actually shown, not on the single-quote advice. */
-  const fmt = defaults.sections().find((x) => x.heading === '### Formatted messages need line breaks');
+  const fmt = defaults.sections('win32').find((x) => x.heading === '### Formatted messages need line breaks');
   assert.ok(fmt && /`kosmos msg <agent> @'`/.test(fmt.text), 'the PowerShell pointer names a section with no msg here-string');
   const m = flat.match(/`(kosmos msg --stdin <agent> <<'KOSMOS_MSG')`/);
   assert.ok(m, 'kosmos msg is given no stdin route');
