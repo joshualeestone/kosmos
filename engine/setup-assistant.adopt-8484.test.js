@@ -455,3 +455,26 @@ test('kosmos#8484: a guide known only by its birth line whose marker will not wr
     assert.equal(sa.isGuideFolder(g.slug), false, 'CONTROL: the marker really did not write');
   } finally { fs.chmodSync(g.dir, 0o755); }
 });
+
+/* kosmos#8491: create's three loaded-job refusals. Reaching them through the real create needs launchd or systemd
+   to report a job, so these give heldSentence create's words, and the pin below fails if create's wording drifts. */
+test('kosmos#8491: the three loaded-job refusals say how to free the name, not "try again"', () => {
+  const cases = [
+    ["something called Josh is already set to start on this computer, from a startup file Kosmos did not make here (/u/Library/LaunchAgents/other.plist). Pick another name, or remove that entry first.",
+      'Kosmos did not set up the Kosmos Guide, because the name Josh is in use. Something called Josh is already set to start on this computer, from a startup file Kosmos did not make here (/u/Library/LaunchAgents/other.plist). To free the name, remove that entry first. Then choose Set it up now.'],
+    ["systemd is still running something called Josh, though its startup file is gone. Pick another name, or stop it with: systemctl --user stop 'kosmos-josh.service'",
+      "Kosmos did not set up the Kosmos Guide, because the name Josh is in use. systemd is still running something called Josh, though its startup file is gone. To free the name, stop it with: systemctl --user stop 'kosmos-josh.service'. Then choose Set it up now."],
+    ['something called Josh is already set to start on this computer, though there is nothing else left of it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.',
+      'Kosmos did not set up the Kosmos Guide, because the name Josh is in use. Something called Josh is already set to start on this computer, though there is nothing else left of it. To free the name, open it under Agents and delete what was left of it. Then choose Set it up now.'],
+  ];
+  for (const [because, want] of cases) assert.equal(sa.heldSentenceForTests('Josh', because), want);
+});
+
+test('kosmos#8491: create still words those three refusals as the sentence rewrite expects (a drift pin)', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
+  for (const piece of [
+    'is already set to start on this computer, from a startup file Kosmos did not make here (${namedPath}). Pick another name, or remove that entry first.',
+    "systemd is still running something called ${shown}, though its startup file is gone. Pick another name, or stop it with: systemctl --user stop '${lj.unitName(name)}'",
+    'is already set to start on this computer, though there is nothing else left of it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.',
+  ]) assert.ok(src.includes(piece), 'create.js no longer says: ' + piece);
+});

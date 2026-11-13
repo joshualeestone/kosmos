@@ -177,7 +177,19 @@ test('#4474: every field create reads is either one an agent may send or one it 
     'carryImports',
     // community (kosmos#6908): only the person's create route passes it (the promote gate's test agents). An agent
     // must not opt the agents it makes out of the community the person's Community switch has them in.
-    'community'];
+    'community',
+    // kosmos#8478: Windows account-and-model records. None reaches create from an agent or a request body: installJob
+    // is called only by register.repair, discover.connect and worldstarts with fields each builds itself, and
+    // win32RecordedTask only by register.repair and delete-leftover.
+    // orTask: delete-leftover's plan words only, to read what the task-only delete will record.
+    'orTask',
+    // modelRecorded, accountRecorded: register.repair, after reading the agent's own record, so the report is not a guess.
+    'modelRecorded', 'accountRecorded',
+    // keepRecordedAccount, keepRecordedIdentity: register.repair, keeping a folder it could not reach in the record.
+    'keepRecordedAccount', 'keepRecordedIdentity',
+    // accountVerified: register.repair after its identity check, and discover's adoption that just chose the account. An
+    // agent able to send it could make Start at login trust a folder whose account was reused by someone else.
+    'accountVerified'];
   assert.ok(read.has('claudeBin') && read.has('reportsTo'), 'CONTROL: the scan of create.js found nothing');
   const unsorted = [...read].filter((k) => !team.AGENT_MEMBER_KEYS.includes(k) && !NOT_FROM_AN_AGENT.includes(k));
   assert.deepEqual(unsorted, [], 'create reads a field nobody decided whether an agent may send: ' + unsorted.join(', '));

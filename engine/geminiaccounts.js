@@ -388,13 +388,20 @@ async function listLiveNow() {
 
 const listLive = inflight.collapse(listLiveNow);
 
+/* kosmos#8478 round 2: as accounts.js and openaiaccounts.js. A removed or disconnected Gemini account frees its name
+   for the next sign-in (nextWorkDir), so the Windows records that name it forget it (create.afterAccountGone).
+   Wrapped at the export so every caller gets it (server.js's handleApikeyAccountDelete calls these directly). Lazy:
+   create requires this. */
+function forgetAccountFreeing(dir, usedBy) { const out = forgetAccount(dir, usedBy); try { require('./create').afterAccountGone(dir, out); } catch { /* the account is gone either way */ } return out; }
+function removeAccountFreeing(dir, usedBy) { const out = removeAccount(dir, usedBy); try { require('./create').afterAccountGone(dir, out); } catch { /* the account is gone either way */ } return out; }
+
 module.exports = {
   readApiKey,
   STATE, PROVIDER, PROVIDER_NAME, DIR_PREFIX, KEY_BASENAME, FORGOTTEN_PREFIX,
   homeDir, defaultDir, keyFile, identityOf, list,
   setFetcher, askModels, validateLive, checkLive, listLive,
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
-  storeKey, forgetKey, forgetAccount, removeAccount,
+  storeKey, forgetKey, forgetAccount: forgetAccountFreeing, removeAccount: removeAccountFreeing,
   readName, writeName,
   get HOME_FOR_TEST() { return homeDir(); },
 };

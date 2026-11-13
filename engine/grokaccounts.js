@@ -1088,6 +1088,13 @@ function releaseOwnReauth(dir) {
    it was true. Not a cache. */
 const listLive = inflight.collapse(listLiveNow);
 
+/* kosmos#8478 round 2: as accounts.js and openaiaccounts.js. A removed or disconnected Grok account frees its name for
+   the next sign-in (nextWorkDir), so the Windows records that name it forget it (create.afterAccountGone). Wrapped at
+   the export so every caller gets it (server.js's handleApikeyAccountDelete calls these directly). Lazy: create
+   requires this. */
+function forgetAccountFreeing(dir, usedBy) { const out = forgetAccount(dir, usedBy); try { require('./create').afterAccountGone(dir, out); } catch { /* the account is gone either way */ } return out; }
+function removeAccountFreeing(dir, usedBy) { const out = removeAccount(dir, usedBy); try { require('./create').afterAccountGone(dir, out); } catch { /* the account is gone either way */ } return out; }
+
 module.exports = {
   sinceWords, subscriptionReason, SUBSCRIPTION_STALE_AFTER_MS,
   readApiKey,
@@ -1095,7 +1102,7 @@ module.exports = {
   homeDir, defaultDir, keyFile, identityOf, list,
   setFetcher, askModels, validateLive, checkLive, listLive, subscriptionLive, subscriptionLiveOnce, resetSubscriptionLiveForTest, refusalIsNewer,
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
-  storeKey, forgetKey, forgetAccount, removeAccount,
+  storeKey, forgetKey, forgetAccount: forgetAccountFreeing, removeAccount: removeAccountFreeing,
   authFile, readAuth, parseGrokLoginOutput, startGrokLogin, reauthTarget, grokLoginStatus, cancelGrokLogin, setGrokTimers,
   isSignInPending, MISSING_RUNNER_SENTENCE, holdsCredentials,
   readName, writeName,

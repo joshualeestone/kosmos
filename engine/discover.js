@@ -2237,6 +2237,9 @@ function connect(dir, opts) {
     ...(runner ? { runner } : {}),
     ...(last.account && !last.account.isDefault ? { configDir: last.account.dir } : {}),
     ...(keepModel ? { model: keepModel } : {}),
+    /* kosmos#8478 round 7: the account was just chosen from this computer's account list, so on Windows its identity
+       may be recorded (create.installJob reads one only for a verified folder). */
+    ...(last.account && !last.account.isDefault ? { accountVerified: true } : {}),
   });
   if (!job.ok) {
     /* Rolled back to what was there before, so a failed connect leaves nothing

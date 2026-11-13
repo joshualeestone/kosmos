@@ -1448,6 +1448,8 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
       runner: f.runner, runnerBin: f.runnerBin || undefined, model: f.model, configDir: f.configDir,
       enabled: state.enabled !== false,
     });
+    // kosmos#8478: every setter rewrites through here, so an account move or a model change is recorded too.
+    if (registered && registered.ok) recordWin32Task(clean, f);
     return win32InstalledOutcome(spoken, registered);
   }
   try {
@@ -1514,6 +1516,7 @@ function* rewriteAgentJobWin32Steps(clean, spoken, f) {
     runner: f.runner, runnerBin: f.runnerBin || undefined, model: f.model, configDir: f.configDir,
     enabled: state.enabled !== false,
   }));
+  if (registered && registered.ok) recordWin32Task(clean, f);   // kosmos#8478: as the sync arm
   return win32InstalledOutcome(spoken, registered);
 }
 
@@ -1752,7 +1755,7 @@ function setAccount(name, dir, opts) {
   }
 
   const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir: acct.isDefault ? null : acct.dir, runner: job.runner,
+    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir: acct.isDefault ? null : acct.dir, runner: job.runner, accountChosen: true,   // kosmos#8478 round 6: a newly chosen account
   }, platform);
   if (unwritten) return unwritten;
 
@@ -1869,7 +1872,7 @@ function restoreAccountPrep(name, dir, platform) {
   }
   return {
     ok: true, clean, spoken, job, configDir, qwenJob, qwenBefore,
-    fields: { runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: job.runner },
+    fields: { runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: job.runner, accountChosen: true },   // kosmos#8478 round 6: the put-back chooses it
   };
 }
 
@@ -1986,7 +1989,7 @@ function setCodexAccount(clean, spoken, dir, job, platform) {
      a task) and `job.model` is kept: an account swap is not a runner or model
      change. Runner stays codex. */
   const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir: homeArg, runner: 'codex',
+    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir: homeArg, runner: 'codex', accountChosen: true,   // kosmos#8478 round 6: a newly chosen account
   }, platform);
   if (unwritten) return unwritten;
   /* 🛑 TRUST THE FOLDER IN THE HOME THE AGENT WILL ACTUALLY BOOT, tied to
@@ -2047,7 +2050,7 @@ function setGeminiAccount(clean, spoken, dir, job, platform) {
     configDir = acct.isDefault ? null : acct.dir;
   }
   const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'gemini',
+    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'gemini', accountChosen: true,   // kosmos#8478 round 6: a newly chosen account
   }, platform);
   if (unwritten) return unwritten;
   // #6231 item 8: report the configDir written so account-move can cache the `to` read.
@@ -2086,7 +2089,7 @@ function setQwenAccount(clean, spoken, dir, job, platform) {
   try { store.writeProfile(clean, { qwenAccount: acct.dir }); }
   catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which Qwen account ${spoken} is on, so nothing was changed` }; }
   const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'codex',
+    runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'codex', accountChosen: true,   // kosmos#8478 round 6: a newly chosen account
   }, platform);
   if (unwritten) {
     try { store.writeProfile(clean, { qwenAccount: before }); } catch { /* the job did not move, so Repair finds it */ }
@@ -2117,7 +2120,7 @@ function setVendorAccount(clean, spoken, dir, job, platform, v) {
   try { store.writeProfile(clean, { vendorAccount: acct.dir }); }
   catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which ${v.name} account ${spoken} is on, so nothing was changed` }; }
   const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'claude',
+    runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'claude', accountChosen: true,   // kosmos#8478 round 6: a newly chosen account
   }, platform);
   if (unwritten) {
     try { store.writeProfile(clean, { vendorAccount: before }); } catch { /* the job did not move, so Repair finds it */ }
@@ -2140,7 +2143,7 @@ function setGrokAccount(clean, spoken, dir, job, platform) {
     configDir = acct.isDefault ? null : acct.dir;
   }
   const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'grok',
+    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'grok', accountChosen: true,   // kosmos#8478 round 6: a newly chosen account
   }, platform);
   if (unwritten) return unwritten;
   // #6231 item 8: report the configDir written so account-move can cache the `to` read.
@@ -2674,7 +2677,7 @@ function setProvider(name, provider, opts) {
     /* The account rides into the launch job as CODEX_HOME (#1313). `null` here
        meant the default home, which is the home the add path never writes. */
     const unwritten = rewriteAgentJob(clean, spoken, {
-      runnerBin, tmux: job.tmux, model: null, runner, configDir:
+      runnerBin, tmux: job.tmux, model: null, runner, accountChosen: true, configDir:   // kosmos#8478 round 6: a newly chosen account
       /* 🔑 #1600: THE DEFAULT ROW WRITES NO HOME, WHICH IS THE RULE THE REST OF THIS
          FILE ALREADY FOLLOWS. This used to write `openaiAccount.dir` for EVERY row
          including the default one, so an agent SWITCHED onto the default row had that
@@ -4466,6 +4469,287 @@ function win32RegisterJob(name, o) {
   return require('./win32job').install(win32AgentSpec(name, o));
 }
 
+/* kosmos#8478: on Windows the account folder a Claude or Codex agent runs on, and the model it was set to, lived ONLY
+   in its Scheduled Task, so anything that removed the task (kosmos#8475's task-only leftover delete) lost them, and
+   Start at login (register.repair) brought it back on the main account and the model it last ran. Every time this
+   module writes an agent's task (creation, installJob, the rewrite every setter goes through) it now also records what
+   it wrote in the agent's profile, as `win32Task`, the way a Qwen or vendor account is recorded (qwenAccount,
+   vendorAccount), and register.repair reads it back when the task is gone.
+   WINDOWS ONLY, deliberately: on macOS and Linux the plist or unit is a file that nothing in Kosmos deletes on its own
+   and the readers already take the account and model from it (readJob), so a second copy there would be one more fact
+   that can disagree with the file it copies. The field is named for the platform so a profile carried to a Mac is
+   never read as anything there.
+   The record is the spec as win32AgentSpec normalises it (runner, account folder or null for the main account, model
+   or null for the runner's own default), so what is recorded is what the task carries. */
+function win32TaskRecord(o) {
+  const s = o || {};
+  const model = typeof s.model === 'string' && s.model.trim() ? s.model.trim() : null;
+  const runner = s.runner || 'claude';
+  const configDir = (typeof s.configDir === 'string' && s.configDir) ? s.configDir : null;
+  /* round 3: whose account the folder held when the task was written. A folder NAME is not an account: its sign-in can
+     go and another person's take its place under the same name (nextWorkDir reuses it), so the record keeps who it was,
+     and the readers put the folder back only while it still holds that account. `s.account` (register.repair keeping a
+     folder it could not reach) carries the identity it already had; otherwise it is read now. Null for the main account. */
+  const account = configDir === null ? null
+    : (s.account !== undefined ? (s.account || null) : win32AccountIdentity(runner, configDir));
+  /* round 4: `kept` marks a folder register.repair kept although the task runs on the main account (refreshedRecord
+     keeps such a record over the task, and only that one). */
+  return { runner, configDir, model, account, ...(s.kept === true && configDir !== null ? { kept: true } : {}) };
+}
+/* kosmos#8478 round 3: the account a folder holds, as the account modules themselves read it (the identity their lists
+   show): Claude's sign-in (email and organization) or, for a Claude API key account, the key's last four characters;
+   OpenAI, Gemini and Grok through their own identityOf (sign-in email, or key ending). Lower-cased email, so a change of
+   case is not a different person. null when the folder holds no account Kosmos can read, or for a runner Kosmos keeps
+   no accounts for: then nothing can be checked, and a record holding null is never trusted with a folder. */
+function win32AccountIdentity(runner, dir) {
+  if (typeof dir !== 'string' || !dir) return null;
+  const shape = (who, extra) => {
+    if (!who) return null;
+    const email = typeof who.email === 'string' && who.email ? who.email.toLowerCase() : null;
+    const keyTail = typeof who.keyTail === 'string' && who.keyTail ? who.keyTail : null;
+    const org = extra && typeof extra.org === 'string' && extra.org ? extra.org : null;
+    if (!email && !keyTail) return null;
+    return { kind: (extra && extra.kind) || who.authMode || null, email, keyTail, org };
+  };
+  try {
+    if (!runner || runner === 'claude') {
+      const who = require('./accounts').identityOf(dir);
+      if (who) return shape(who, { kind: 'signin', org: who.organizationUuid || who.organization || null });
+      let key = '';
+      try { key = String(fs.readFileSync(require('./claudeaccounts').keyFile(dir), 'utf8')).trim(); } catch { key = ''; }
+      return key ? { kind: 'apikey', email: null, keyTail: key.slice(-4), org: null } : null;
+    }
+    const mod = runner === 'codex' ? './openaiaccounts' : runner === 'gemini' ? './geminiaccounts' : runner === 'grok' ? './grokaccounts' : null;
+    if (!mod) return null;
+    /* round 4: a ChatGPT sign-in's email alone does not tell two workspaces of one person apart, so the workspace
+       (codex's tokens.account_id, else the id token's chatgpt_account_id) goes with it where codex wrote one. */
+    let org = null;
+    if (runner === 'codex') {
+      try {
+        const oa = require('./openaiaccounts');
+        const parsed = JSON.parse(fs.readFileSync(oa.authFile(dir), 'utf8'));
+        const tokens = parsed && parsed.tokens;
+        const payload = oa.decodeIdTokenPayload(tokens && tokens.id_token);
+        const claim = payload && payload['https://api.openai.com/auth'];
+        const id = (tokens && tokens.account_id) || (claim && typeof claim === 'object' ? claim.chatgpt_account_id : null);
+        org = typeof id === 'string' && id ? id : null;
+      } catch { org = null; }
+    }
+    return shape(require(mod).identityOf(dir), { org });
+  } catch { return null; }
+}
+function sameAccount(a, b) {
+  if (!a || !b) return false;
+  return ['kind', 'email', 'keyTail', 'org'].every((k) => (a[k] || null) === (b[k] || null));
+}
+/* Best effort and never a gate: a task that was written is the truth whether or not its note was. Written only into a
+   profile that is already there (lstat: a profile that is a link still counts as there), so a task written before the
+   profile exists (an adoption) never makes a profile appear; creation records it in its own profile write instead. */
+/* round 6: an identity is read only when the account folder is NEWLY CHOSEN (`o.accountChosen`: creation, an account
+   move or provider switch, installJob's repair onto a verified account). A rewrite that keeps the folder the task
+   already had (setModel) reads none: after a disconnect the task still names the old folder, and whoever signed in
+   there since is not who the agent was set up on. So such a write carries the record over by refreshedRecord's rules
+   (a record on the main account or for a disconnected or removed account stays so; the same folder keeps the identity
+   recorded when it was chosen; any other folder, or no record, gets none, which Start at login never trusts), with the
+   new model. A folder repair kept (`kept`) is dropped by any such rewrite, as the plan says. */
+function recordWin32Task(name, o) {
+  try { fs.lstatSync(store.profilePath(name)); } catch { return false; }
+  let rec;
+  if (o && o.accountChosen === true) rec = win32TaskRecord(o);
+  else {
+    let existing = null;
+    try { existing = store.readProfile(name).win32Task || null; } catch { existing = null; }
+    if (existing && existing.kept === true) existing = null;
+    rec = refreshedRecord(existing, win32TaskRecord({ ...(o || {}), account: null }));
+  }
+  if (!rec) return false;
+  try { store.writeProfile(name, { win32Task: rec }); return true; } catch { return false; }
+}
+/* Whether a recorded model can still be put back in a task for this runner: none (the runner's own default); a Claude
+   model still on the list (a retired one is not); for Codex, Gemini, Grok and Antigravity, a well-formed id that is not
+   a Claude model (setModel's own rule, as those ids are free-form). Muse takes no model. */
+function win32ModelOffered(runner, model) {
+  if (model === null) return true;
+  if (typeof model !== 'string') return false;
+  const claudeModel = modelsFor('anthropic').find((x) => x.key === model || x.arg === model);
+  if (!runner || runner === 'claude') return Boolean(claudeModel);
+  if (runner === 'muse') return false;
+  return !claudeModel && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(model);
+}
+/* Whether a recorded account folder can still be put back in a task for this runner: none (the main account), or a
+   folder that is there now. statSync on purpose, unlike the lstat above: here a link that leads nowhere is an account
+   that cannot be used, and the safe answer is the main account rather than a task pointing at nothing. Never for a
+   runner installJob refuses an account for (Antigravity, Muse), and never a Qwen or vendor account (those agents are
+   restored from qwenAccount/vendorAccount, and installJob refuses a Qwen home on Windows). */
+function win32AccountThere(runner, dir) {
+  if (dir === null) return true;
+  if (typeof dir !== 'string' || !path.isAbsolute(dir)) return false;
+  if (runner === 'antigravity' || runner === 'muse') return false;
+  try { if (require('./qwenaccounts').isQwenHome(dir)) return false; } catch { return false; }
+  try { if (require('./anthropiccompat').vendorOfName(dir)) return false; } catch { return false; }
+  try { return fs.statSync(dir).isDirectory(); } catch { return false; }
+}
+/* kosmos#8478: the record a task that is still registered would give, read from the task's own argument line (the
+   definition win32job parses for configDirFor). null when there is no task or it cannot be read: never a guess. `fresh`
+   reads Task Scheduler again (the delete, which records it); otherwise the remembered definition (the plan's words). */
+function win32TaskOnTask(name, fresh) {
+  let read;
+  try { const job = require('./win32job'); read = fresh ? job.taskSpec(name) : job.cachedTaskSpec(name); } catch { return null; }
+  if (!read || !read.known || !read.registered || !read.spec) return null;
+  /* round 5: NEVER an identity read here. This runs at the task-only delete, long after the task was written, and
+     whoever is signed in to that folder now may be someone else (a disconnected account's folder name reused by the
+     next sign-in). An identity is read only when a task is written; refreshedRecord carries a recorded one over. */
+  const rec = win32TaskRecord({ runner: read.spec.runner, configDir: read.spec.configDir, model: read.spec.model, account: null });
+  /* round 2: a task can outlive its account folder (disconnect-and-stop renames the folder aside and leaves the task;
+     or the folder was deleted by hand). nextWorkDir reads a missing name as free and the next sign-in reuses it, and
+     afterAccountGone cannot clear a record made after the account went. So the task's folder is recorded only if it
+     is a folder right now (statSync: a link leading nowhere is not); otherwise the main account, marked as an account
+     that was not there (accountRemoved, why 'missing'), as an unrecorded agent comes back. The plan's words read this
+     same answer, so they say what the delete records. */
+  if (rec.configDir) {
+    let there = false;
+    try { there = fs.statSync(rec.configDir).isDirectory(); } catch { there = false; }
+    if (!there) return { ...rec, configDir: null, account: null, accountRemoved: true, why: 'missing', missingDir: rec.configDir };   // round 4: the task's folder, for refreshedRecord only (never written)
+  }
+  return rec;
+}
+/* kosmos#8478 round 4: the record to keep when the task can be read just before it goes. The TASK is the truth: a
+   record can be stale (its write is best effort, and an older Kosmos can rewrite the task after a downgrade), so the
+   record is refreshed from it. Two things of the old record survive: a folder repair deliberately kept because it
+   could not reach it (`kept`), but only while the task itself runs on the main account (what that repair wrote); and,
+   for the same folder, the identity recorded when the task was written, never one read now (round 3: whoever signed
+   in to that folder since is not who the agent was set up on). Shared by the delete and the plan's words. */
+function refreshedRecord(existing, fromTask) {
+  const old = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : null;
+  if (!fromTask) return old;
+  const { missingDir, ...task } = fromTask;   // missingDir is never written
+  const sameRunner = Boolean(old) && (old.runner || 'claude') === task.runner;
+  if (sameRunner && old.kept === true && task.configDir === null && task.accountRemoved !== true) return old;
+  /* round 5 (a): a record on the main account, or one whose account was disconnected or removed
+     (forgetWin32TaskAccount; the task still names that folder, disabled), stays on the main account whatever the task
+     names: that folder name may be someone else's now. The task's model is taken. Rules (b) to (d) never read an
+     identity either: (b) the same folder keeps the identity recorded when the task was written; (c) another folder,
+     and (d) no record, take the task's folder with no identity (win32TaskOnTask), which Start at login never trusts. */
+  if (sameRunner && (old.accountRemoved === true || old.configDir == null)) return { ...old, model: task.model };
+  /* The task's folder: the one it names, even when that folder is not there now (missingDir). A record of that same
+     folder keeps its folder and identity (the identity check decides at Start at login whether it is still that
+     account, and a folder out of reach is said as such), with the task's model; only an unrecorded folder that is
+     not there becomes the main account (round 2). */
+  const taskDir = task.configDir || missingDir || null;
+  if (sameRunner && taskDir && typeof old.configDir === 'string' && old.configDir) {
+    const fold = (p) => { const r = path.resolve(p); return process.platform === 'linux' ? r : r.toLowerCase(); };
+    if (fold(old.configDir) === fold(taskDir)) {
+      return { runner: task.runner, configDir: old.configDir, model: task.model,
+        account: old.account && typeof old.account === 'object' ? old.account : null };
+    }
+  }
+  return task;
+}
+/* kosmos#8478: just before the task-only leftover delete (delete-leftover.del) removes the task, the record is refreshed
+   from it (round 4: the task is the truth, by refreshedRecord's rules above, and never with an identity read now). Best
+   effort: false when the task cannot be read, the kept record stays as it is, or the write fails; the delete goes
+   ahead either way. */
+function recordWin32TaskFromTask(name) {
+  let existing;
+  try { existing = store.readProfile(name).win32Task; } catch { return false; }
+  const rec = refreshedRecord(existing, win32TaskOnTask(name, true));
+  if (!rec || rec === existing) return false;   // nothing readable, or the kept record stays as it is
+  // Written as built (win32TaskRecord would read the identity again and drop the marks), into a profile already there.
+  try { fs.lstatSync(store.profilePath(name)); } catch { return false; }
+  try { store.writeProfile(name, { win32Task: rec }); return true; } catch { return false; }
+}
+/* kosmos#8478: what the profile records of the agent's last Windows task, for the runner its profile says it runs on
+   now. null when nothing is recorded (an agent whose task was last written before this change), when the record is for
+   another runner (its provider changed by some route that did not write the task), or for a Qwen or vendor agent
+   (their account is restored from its own field). Otherwise { configDir, model, accountOk, modelOk }, where the two
+   flags say whether each can still be put back (win32AccountThere, win32ModelOffered). One reading, shared by
+   register.repair (what it builds) and delete-leftover.startsAgainWords (what the person is told), so the two cannot
+   disagree.
+   `orTask`: with nothing recorded, answer from the task if it is still registered. Only for the task-only delete's
+   PLAN words, which describe the agent after that delete has recorded the task (recordWin32TaskFromTask); its outcome
+   words and Restore's are read after the task is gone, so they say only what was actually recorded. */
+function win32RecordedTask(name, opts) {
+  let prof;
+  try { prof = store.readProfile(name) || {}; } catch { return null; }
+  let rec = prof.win32Task;
+  // round 4: the plan's words read what the delete will record (refreshedRecord), not a record the task may contradict.
+  if (opts && opts.orTask === true) rec = refreshedRecord(rec, win32TaskOnTask(name, false));
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return null;
+  if (prof.provider === 'alibaba') return null;
+  try { if (require('./anthropiccompat').vendorOf(prof.provider)) return null; } catch { return null; }
+  const runner = providerRunner(prof.provider);
+  if ((rec.runner || 'claude') !== runner) return null;
+  const configDir = typeof rec.configDir === 'string' && rec.configDir ? rec.configDir : null;
+  const model = typeof rec.model === 'string' && rec.model.trim() ? rec.model.trim() : null;
+  // A value of a shape no writer here makes (hand-edited, damaged) is read as cannot be put back, never as "the default".
+  const dirShaped = rec.configDir == null || configDir !== null;
+  const modelShaped = rec.model == null || model !== null;
+  const accountRemoved = rec.accountRemoved === true;   // round 1: its account was removed (forgetWin32TaskAccount)
+  // round 2: why 'missing' when the delete found the task's account folder not there (win32TaskOnTask), else removed.
+  const accountGone = accountRemoved ? (rec.why === 'missing' ? 'missing' : 'removed') : null;
+  /* round 3: why a recorded folder cannot be put back, for the words and for the repair (which keeps only an
+     'unreachable' one in the record). 'unverifiable': the record holds no identity (written before the check, or the
+     folder held no account Kosmos could read then), so nothing says the folder still holds the same account, checked
+     FIRST so a folder on a disk not connected is never promised back once it returns. 'unreachable': the folder is not
+     a folder Kosmos can reach now. 'changed': its account now is not the recorded one, or cannot be read. 'unusable':
+     a folder this runner cannot be put on (win32AccountThere's other refusals), or a damaged value. */
+  let accountWhy = null;
+  const identity = rec.account && typeof rec.account === 'object' ? rec.account : null;
+  if (accountRemoved) accountWhy = accountGone;
+  else if (!dirShaped) accountWhy = 'unusable';
+  else if (configDir !== null) {
+    let reachable = false;
+    try { reachable = fs.statSync(configDir).isDirectory(); } catch { reachable = false; }
+    if (!identity) accountWhy = 'unverifiable';
+    else if (!reachable) accountWhy = 'unreachable';
+    else if (!win32AccountThere(runner, configDir)) accountWhy = 'unusable';
+    else if (!sameAccount(identity, win32AccountIdentity(runner, configDir))) accountWhy = 'changed';
+  }
+  return {
+    configDir, model, identity, accountRemoved, accountGone, accountWhy,
+    accountOk: accountWhy === null,
+    modelOk: modelShaped && win32ModelOffered(runner, model),
+  };
+}
+/* kosmos#8478 round 1: an account removed (or disconnected, which renames its folder aside) frees its folder NAME, and
+   the next sign-in reuses the lowest free one (accounts.nextWorkDir, openaiaccounts.nextWorkDir). The removal's own
+   check finds an account's agents through their tasks only, so an agent whose task is gone is not in it, and its record
+   would put it on whoever signs in next under that name. So every successful removal forgets that folder in each
+   record that names it (the model stays): such an agent comes back on the main account, as it did before records.
+   Never refuses or fails the removal (no new dead end), and never makes a profile. This Kosmos's profiles only: another
+   Kosmos on this computer (a world this board is not serving) keeps its records. Answers the names cleared. */
+function forgetWin32TaskAccount(dir) {
+  // round 4: Windows only, as the records are (a profile carried to a Mac is never read, so it is not written there).
+  if (process.platform !== 'win32') return [];
+  if (typeof dir !== 'string' || !dir) return [];
+  const fold = (p) => { const r = path.resolve(p); return process.platform === 'linux' ? r : r.toLowerCase(); };
+  const gone = fold(dir);
+  let files = [];
+  try { files = fs.readdirSync(store.PROFILES).filter((f) => f.endsWith('.json')); } catch { return []; }
+  const cleared = [];
+  for (const f of files) {
+    const key = f.slice(0, -'.json'.length);
+    let rec;
+    try { rec = (store.readProfile(key) || {}).win32Task; } catch { continue; }
+    if (!rec || typeof rec !== 'object' || typeof rec.configDir !== 'string' || !rec.configDir) continue;
+    if (fold(rec.configDir) !== gone) continue;
+    /* accountRemoved: so the words say the account was removed, rather than read the null as "it was on the main
+       account" and say it comes back on the account it was set to. */
+    try { store.writeProfile(key, { win32Task: { ...rec, configDir: null, accountRemoved: true, removedDir: rec.configDir } }); cleared.push(key); } catch { /* best effort */ }
+  }
+  return cleared;
+}
+/* The one step the account modules' forgetAccount and removeAccount take after they answer (accounts.js,
+   openaiaccounts.js, geminiaccounts.js and grokaccounts.js wrap their exports with it): on success, forget the folder
+   in the records. Hands the answer back
+   unchanged; a failure here is swallowed, because the account is gone either way. */
+function afterAccountGone(dir, out) {
+  // round 5: Windows only, and never able to fail the removal (the wrappers call this after it, inside a try).
+  if (process.platform !== 'win32') return out;
+  if (out && out.ok === true) { try { forgetWin32TaskAccount(String(dir == null ? '' : dir)); } catch { /* best effort */ } }
+  return out;
+}
+
 /**
  * Start it NOW, THROUGH ITS JOB -- and this is now the ONLY way an agent starts
  * on Windows (7c-2).
@@ -4669,6 +4953,14 @@ function installJob(name, opts) {
   }
   const modelArgWin = (opts && typeof opts.model === 'string' && opts.model.trim()) ? opts.model.trim() : null;
   const configDirWin = (opts && typeof opts.configDir === 'string' && opts.configDir) ? opts.configDir : null;
+  const modelRecordedWin = Boolean(opts && opts.modelRecorded === true);   // kosmos#8478: see the win32 arm's guessed
+  const accountRecordedWin = Boolean(opts && opts.accountRecorded === true);   // kosmos#8478 round 1: the same, for the account
+  /* kosmos#8478 round 1: register.repair's recorded account folder it could not reach, kept in the record in place of
+     the main account the task runs on, so the agent comes back on it at the next Start at login, if no change to the
+     agent rewrites its task first (round 2). */
+  const keepAccountWin = (opts && typeof opts.keepRecordedAccount === 'string' && opts.keepRecordedAccount) ? opts.keepRecordedAccount : null;
+  // round 3: with the identity it was recorded with (it cannot be read from a folder out of reach).
+  const keepIdentityWin = keepAccountWin && opts.keepRecordedIdentity && typeof opts.keepRecordedIdentity === 'object' ? opts.keepRecordedIdentity : null;
   /* 🛑 #570: WINDOWS HAS NO LAUNCHD, SO EVERYTHING BELOW THIS POINT IS MAC-ONLY.
      The rest of this function installs the supervisor script, writes a `.plist`,
      `launchctl enable`s the label and `bootstrap`s it. None of those exist on
@@ -4701,8 +4993,8 @@ function installJob(name, opts) {
   if (jobPlatform === 'win32') {
     if (DRY_RUN) {
       return { ok: true, started: true, model: modelArgWin,
-        guessed: { model: modelArgWin ? null : 'we do not know which model it was set to run on, so it will start on the default',
-          account: (configDirWin || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account' },
+        guessed: { model: (modelArgWin || modelRecordedWin) ? null : 'we do not know which model it was set to run on, so it will start on the default',
+          account: (configDirWin || accountRecordedWin || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account' },
         because: 'set up and started now' };
     }
     /* 🔑 ONE ACT NOW, AND THE PROMISE IS NO LONGER SEPARABLE FROM THE FACT (7c-2).
@@ -4715,14 +5007,25 @@ function installJob(name, opts) {
       runner, runnerBin, configDir: configDirWin, model: modelArgWin,
     });
     if (!launched.ok) return { ok: false, because: launched.because };
+    /* kosmos#8478 round 7: an identity is read only when the caller says the folder is verified now
+       (opts.accountVerified: register.repair after its identity check, discover's adoption that just chose it). A
+       folder carried from elsewhere (worldstarts: read from another Kosmos's task at import, used when this one next
+       opens, by which time its account may have been disconnected and its name reused) is recorded with none, which
+       Start at login never trusts. */
+    const verifiedWin = Boolean(opts && opts.accountVerified === true);
+    recordWin32Task(clean, configDirWin || !keepAccountWin
+      ? { runner, configDir: configDirWin, model: modelArgWin, accountChosen: true, ...(verifiedWin ? {} : { account: null }) }
+      : { runner, configDir: keepAccountWin, model: modelArgWin, account: keepIdentityWin, kept: true, accountChosen: true });
     return {
       ok: true,
       started: true,
       model: modelArgWin,
       atLogin: true,
       guessed: {
-        model: modelArgWin ? null : 'we do not know which model it was set to run on, so it will start on the default',
-        account: (configDirWin || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account',
+        /* kosmos#8478: a model the profile recorded as none (the agent was set to the default) is known, not guessed;
+           register.repair says so with modelRecorded, and the page's "no record of which model" line stays away. */
+        model: (modelArgWin || modelRecordedWin) ? null : 'we do not know which model it was set to run on, so it will start on the default',
+        account: (configDirWin || accountRecordedWin || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account',
       },
       because: 'set up and started now, and it will start again at every login',
     };
@@ -7252,6 +7555,11 @@ function createAgentInner(opts) {
        Repair runs exactly when the job is gone). */
     if (provider === 'alibaba') profile.qwenAccount = configDir;
     if (compatVendor) profile.vendorAccount = configDir;   // #7206: Repair rebuilds a vendor agent on it
+    /* kosmos#8478: on Windows, the account folder and model its task was written with, in this same write (the profile
+       does not exist before it, and recordWin32Task never makes one). Exactly the values win32StartViaJob was given. */
+    if (jobPlatform === 'win32' && win32Launched && win32Launched.ok === true) {
+      profile.win32Task = win32TaskRecord({ runner, configDir, model: modelArg });
+    }
     /* #3564: a swarm's kind and settings, from birth (engine/swarm.js). */
     if (kind === 'swarm') Object.assign(profile, require('./swarm').birthProfile({ maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit, dailyAllowancePct: opts.dailyAllowancePct }));
     /* Which revision of the working rules this agent was born with (#539),
@@ -7487,6 +7795,8 @@ module.exports = {
   plistPath,
   setModel,
   installJob,
+  // kosmos#8478: register.repair and delete-leftover read the recorded Windows account and model through one reader.
+  win32RecordedTask, recordWin32TaskFromTask, forgetWin32TaskAccount, afterAccountGone,
   nameUsable,
   hasJob, jobMissing,
   // #570: the one three-state answer the plist-stat readers now share.
