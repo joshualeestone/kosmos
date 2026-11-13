@@ -15,14 +15,17 @@ Card: joshualeestone/kosmos#8501. The measurement and the decision are on the ca
 - `kosmos task add ... --who <agent> --add-member` and `kosmos task assign ... <agent> --add-member`, in both CLIs.
   The request carries `addMember: true`, and the board puts the agent on the project and gives it the task in one
   request.
-- The add follows the member route's rules for a process: the valve counts it and memberChanges records it. One rule
-  is stricter: the agent must be one this board runs, so a typo adds nobody. After the add, the agent's pane gets the
-  joined line, as the member route types it.
+- Who may: whoever may call the member route. That route is not an agent-token route, so a caller the board let in on
+  an agent token alone (agentTokenOnlyCaller) is refused 403 with nothing changed, and the person can add the agent
+  from the project page. A process is counted by the membership valve and recorded in memberChanges. One rule is
+  stricter: the agent must be one this board runs, so a typo adds nobody.
 - `addMember` must be true or absent.
-- Assign: the add happens after the route's own checks (task exists, part chosen, task not done), so a refused assign
-  never leaves a new member.
-- Task add: the add happens just before create. If create then fails, the answer says the member was added and the
-  task was not (`addedMember` is in that answer too).
+- A refused task never leaves a new member. If the create or the give is refused after the add, the member is taken
+  off again (removeAgent). An error after the task was created or moved does not take anyone off. Only if the
+  removal itself fails does the answer say the agent stayed (with `addedMember`).
+- The joined pane line is typed only after the task is given, after the task's own tell has written the project into
+  the agent's instructions (the member route's order: sync, then speak).
+- Assign: the add happens after the route's own checks (task exists, part chosen, task not done).
 - Without the flag, the non-member refusal ends with ". To put <name> on the project and give it the task in one step,
   run the same command again with --add-member", but only when the name is an agent this board runs. The text has
   no double quote, because the Mac CLI reads `error` with sed.
@@ -32,6 +35,8 @@ Card: joshualeestone/kosmos#8501. The measurement and the decision are on the ca
 Rejected:
 - **(b), a contributor field.** The specialist would still be off the project, so its work happens outside the board.
   It would also mean a second owner concept for the board, the CLIs and the phone.
+- **Changing the hint's wording for older CLIs.** A CLI ships with its board, so the hint and the flag arrive
+  together.
 - **A separate `project add-member` verb.** It is two steps, and the card asks for one. The member route already
   exists for anyone who wants that.
 
@@ -45,7 +50,7 @@ valve, and no ruling makes membership the person's alone (searched).
 - tools/windows-tests.js: the new CLI test is listed as its sibling cli.task-assign-4914 is.
 - Tests: server.task-addmember-8501.test.js (9), cli.task-addmember-8501.test.js (3, both CLIs against a real board).
 
-## Proof so far
-- New files: 9/9 and 3/3. 19 mutations, each one red.
-- 2140 test files (task, CLI, project and member families, effectively the whole suite): 29012 tests, 28493 pass,
-  0 fail, 519 skipped.
+## Proof so far (after review round 1)
+- server.task-addmember-8501: 12 pass; cli.task-addmember-8501: 3 pass. 19 mutations before review and 5 after
+  round 1; every one red.
+- 2140 test files before review (effectively the whole suite): 29012 tests, 0 fail.
