@@ -2082,6 +2082,21 @@ if [ "$_vdep_rc" != 0 ]; then
     echo "   This cut now restores the site checkout and removes its local tarball if it created it, as on any failure before step 8 finished; its \"removed: ... (this cut created it and never served it ...)\" lines mean \"not seen served\"."
     exit "$_vdep_rc"
   fi
+else
+  # kosmos#8494: an exit 0 is not a deployment either. On the 0.8.05 cut (2026-11-13) the CLI uploaded 83.5 of 111.3
+  # MB over a slow uplink and returned 0 with no deployment made; step 8 set DEPLOYED=1 on the exit code alone and
+  # step 9 found the old pointer six times. So a CLI success is checked the same way a failure is (#5471): this cut's
+  # own .sha256 served. A real deploy goes live as a whole when the CLI returns, so this is usually one fetch.
+  [ -n "$_my_sha" ] || { echo "vercel deploy exited 0, but this cut's own kosmos-$V-arm64.tar.gz.sha256 cannot be read, so whether it was deployed cannot be checked (kosmos#8494)"; exit 1; }
+  if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" \
+       site_deploy_serves_this_build "${HOST:-https://installkosmos.com}" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" "kosmos-$V-arm64.tar.gz"; then
+    echo "   vercel deploy exited 0 and this cut's build is served (kosmos#8494): the served kosmos-$V-arm64.tar.gz.sha256 is this cut's."
+  else
+    echo "vercel deploy exited 0, but this cut's $V build was not seen served after $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24})) checks: the upload did not become a deployment (kosmos#8494). It may still land."
+    echo "   Before any revert or re-cut: compare the served .sha256 with this cut's sha, printed above ($_my_sha). The local copy is about to be removed."
+    echo "   If it did land: do not revert or re-cut; before any promote, fast-forward $SITE to origin and fetch the served tarball pair back into its dist (docs/releasing.md, after a failed cut)."
+    exit 1
+  fi
 fi
 DEPLOYED=1   # step 8 finished: the site checkout now claims what is served, so the trap leaves it
 # #1548: the pre-cut pointer backup lives under BUILD_ROOT, which the EXIT trap removes
