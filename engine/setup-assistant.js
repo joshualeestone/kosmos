@@ -3199,7 +3199,7 @@ function existingGuide(shown, { jobPresence = (n) => create.jobPresence(n), birt
    person deleted it. This is the sentence to say instead, built from create's own refusal (which already says, per
    platform, how to free the name), with the choice of another name taken out, since the guide's name is not theirs
    to pick. null for every other refusal, which keeps its old wording. */
-const HELD_BY_LEFTOVER = /there is already a folder for an agent called|though there is no folder for it\. Pick another name, or|is on your removed list|though Kosmos cannot find a folder for it\. Pick another name|though its folder cannot be reached: .* Pick another name\. If that agent is gone for good/;
+const HELD_BY_LEFTOVER = /there is already a folder for an agent called|though there is no folder for it\. Pick another name, or|is on your removed list|though Kosmos cannot find a folder for it\. Pick another name|though its folder cannot be reached: .* Pick another name\. If that agent is gone for good|from a startup file Kosmos did not make here \(.*\)\. Pick another name, or|systemd is still running something called .*, though its startup file is gone\. Pick another name, or|though there is nothing else left of it\. Pick another name, or/;   // the last three: kosmos#8491
 function heldSentence(shown, because) {
   const s = String(because || '');
   if (!HELD_BY_LEFTOVER.test(s)) return null;
@@ -3208,14 +3208,15 @@ function heldSentence(shown, because) {
   if (/is on your removed list/.test(s)) {
     return `Kosmos did not set up the Kosmos Guide, because the name ${shown} is in use. ${shown} is on your removed list. To free the name, delete what was left of it from "Show removed agents" at the bottom of the Agents tab. Then choose Set it up now.`;
   }
-  const how = s.replace(/^[a-z]/, (c) => c.toUpperCase())
+  const how = s.replace(/^(?!systemd )[a-z]/, (c) => c.toUpperCase())   // systemd keeps its own lowercase name
     .replace(/Pick another name, or free it with: /, 'To free the name, run: ')   // the Linux job-only form
     // The Windows task forms (create.win32HeldTaskWords, kosmos#8466).
     .replace(/Pick another name, or free this one: /, 'To free the name: ')
     .replace(/Pick another name\. If that agent is gone for good, you can free this (?:one|name): /, 'If that agent is gone for good, you can free the name: ')
     .replace(/, then try again here\.$/, '.')   // "Then choose Set it up now" follows
     .replace(/Pick another name, or ([a-z])/, (m, c) => 'To free the name, ' + c)
-    .replace(/, which frees the name\.$/, '.');   // "To free the name" already says it
+    .replace(/, which frees the name\.$/, '.')   // "To free the name" already says it
+    .replace(/([^.!?])$/, '$1.');   // kosmos#8491: any form that ends without a full stop (the systemd form ends on its command)
   return `Kosmos did not set up the Kosmos Guide, because the name ${shown} is in use. ${how} Then choose Set it up now.`;
 }
 
