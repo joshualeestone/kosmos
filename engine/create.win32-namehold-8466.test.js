@@ -314,8 +314,12 @@ test('kosmos#8466: a healthy guide under the first name with no seeded flag gets
   // Its seeded flag missing (a failed write, or the board died before it): the seed runs again.
   tried.length = 0;
   const again = seedNow(tried);
-  assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a second guide was tried beside a healthy one');
-  assert.equal(again.seeded, false);
+  /* kosmos#8484: the healthy guide is now ADOPTED (its marker is there and its task holds it) before any create is
+     tried, so no create is asked at all, where this used to pin one refused try of the first name. */
+  assert.deepEqual(tried, [], 'a create was tried beside a healthy guide');
+  assert.equal(again.seeded, true, again.reason || '');
+  assert.equal(again.adopted, true);
+  assert.equal(again.name, GUIDE);
   assert.ok(!fs.existsSync(create.workerDir(GUIDE2)), 'a second guide folder was made');
 });
 
