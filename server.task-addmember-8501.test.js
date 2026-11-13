@@ -1,0 +1,180 @@
+'use strict';
+
+/**
+ * kosmos#8501: giving a task to an agent that is not on the project. Without --add-member the refusal names the one
+ * step that fixes it; with it (addMember: true) the board puts the agent on the project and gives it the task in one
+ * request, on both `task add --who` and `task assign`. Real task engine and store; a fleet of three: mara and otto
+ * on the project, zed only on the board. Every "added" case has a control beside it in which nothing is added.
+ *
+ *   node --test server.task-addmember-8501.test.js
+ */
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-taskaddmember-8501-'));
+const HOME = path.join(SANDBOX, 'home');
+fs.mkdirSync(HOME, { recursive: true });
+process.env.HOME = HOME;
+process.env.AGENT_WORKFORCE_HOME = HOME;
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-config-dir');
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { start, server, boardAuthState } = require('./server');
+const projects = require('./engine/projects');
+const tasks = require('./engine/tasks');
+const sendertoken = require('./engine/sendertoken');
+const fleet = require('./test-support/fleet');
+
+let base;
+let projectId;
+let board;
+test.before(async () => {
+  board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' }), fleet.agent('zed', { state: 'idle' })]);
+  await start(0);
+  base = `http://127.0.0.1:${server.address().port}`;
+  projectId = projects.create({ name: 'Moves' }).id;
+  projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'otto'] }));
+});
+test.after(() => {
+  try { server.close(); } catch { /* already down */ }
+  try { board.restore(); } catch { /* ignore */ }
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
+
+const asAgent = (name) => ({ 'x-kosmos-agent-token': sendertoken.mint(name).token });
+async function post(route, body, headers = asAgent('mara')) {
+  const res = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}${route}`, {
+    method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let json = null; try { json = JSON.parse(text); } catch { /* not json */ }
+  return { code: res.status, json, text };
+}
+const project = () => projects.readAll().find((p) => p.id === projectId);
+const members = () => (project().agents || []).slice();
+const ownerOf = (n) => tasks.whoOf(tasks.byNumber(project(), n));
+const taskCount = () => (project().tasks || []).length;
+const fresh = (sentence, who = 'mara') => tasks.create(projectId, { sentence, who }).number;
+// Each test starts with zed off the project, whatever the last one did.
+function zedOff() { projects.mutate(projectId, (p) => ({ ...p, agents: (p.agents || []).filter((a) => a !== 'zed') })); }
+const HINT = /run the same command again with --add-member$/;
+
+test('without --add-member: task add and task assign to a non-member are refused, the refusal names the one step, and nothing changes', async () => {
+  zedOff();
+  const before = taskCount();
+  const add = await post('/tasks', { sentence: 'Check the numbers', who: 'zed' });
+  assert.equal(add.code, 400, add.text);
+  assert.match(add.json.error, /^that agent is not on this project, so the task cannot be given to it\. To put zed on the project/);
+  assert.match(add.json.error, HINT);
+  assert.equal(add.json.error.includes('"'), false, 'the Mac CLI reads error with sed: no double quote');
+  const n = fresh('Write the brief');
+  const as = await post(`/task/${n}/assign`, { who: 'zed' });
+  assert.equal(as.code, 400, as.text);
+  assert.match(as.json.error, HINT);
+  assert.equal(taskCount(), before + 1, 'only the control task (made directly) exists');
+  assert.deepEqual(ownerOf(n), ['mara']);
+  assert.equal(members().includes('zed'), false);
+});
+
+test('CONTROL: a name no agent on this board has gets the plain refusal, with no --add-member step offered', async () => {
+  zedOff();
+  const add = await post('/tasks', { sentence: 'x', who: 'nobody-here' });
+  assert.equal(add.code, 400, add.text);
+  assert.doesNotMatch(add.json.error, /--add-member/);
+});
+
+test('task add --add-member: zed joins the project and holds the task, in one request, recorded as a process member change', async () => {
+  zedOff();
+  const changes = (project().memberChanges || []).length;
+  const r = await post('/tasks', { sentence: 'Check the numbers', who: 'zed', addMember: true });
+  assert.equal(r.code, 200, r.text);
+  assert.equal(r.json.addedMember, 'zed');
+  assert.equal(members().includes('zed'), true);
+  assert.deepEqual(ownerOf(r.json.task.number), ['zed']);
+  const last = (project().memberChanges || []).slice(-1)[0];
+  assert.equal((project().memberChanges || []).length, changes + 1);
+  assert.equal(last.via, 'process');
+  // CONTROL: the same request again, zed now a member, adds nobody and says nothing about adding.
+  const again = await post('/tasks', { sentence: 'Check more numbers', who: 'zed', addMember: true });
+  assert.equal(again.code, 200, again.text);
+  assert.equal('addedMember' in again.json, false);
+  assert.equal((project().memberChanges || []).length, changes + 1, 'a member already on was added again');
+});
+
+test('task assign --add-member: zed joins and the task moves to zed; the answer still names the new owner first', async () => {
+  zedOff();
+  const n = fresh('Write the brief');
+  const r = await post(`/task/${n}/assign`, { who: 'zed', addMember: true });
+  assert.equal(r.code, 200, r.text);
+  assert.ok(r.text.startsWith('{"who":"zed"'), 'the Mac CLI reads the new owner from the start of the answer');
+  assert.equal(r.json.addedMember, 'zed');
+  assert.deepEqual(ownerOf(n), ['zed']);
+  assert.equal(members().includes('zed'), true);
+});
+
+test('--add-member with a name no agent on this board has adds nobody and changes nothing', async () => {
+  zedOff();
+  const before = { tasks: taskCount(), members: members(), changes: (project().memberChanges || []).length };
+  const r = await post('/tasks', { sentence: 'x', who: 'zedd', addMember: true });
+  assert.equal(r.code, 400, r.text);
+  assert.equal(r.json.error, 'there is no agent called zedd on this board, so nobody was added and nothing was changed');
+  assert.equal(taskCount(), before.tasks);
+  assert.deepEqual(members(), before.members);
+  assert.equal((project().memberChanges || []).length, before.changes);
+});
+
+test('addMember must be true or absent', async () => {
+  zedOff();
+  for (const v of [false, 'yes', 1]) {
+    const r = await post('/tasks', { sentence: 'x', who: 'zed', addMember: v });
+    assert.equal(r.code, 400, String(v) + ': ' + r.text);
+    assert.equal(r.json.error, 'addMember must be true or absent');
+  }
+  assert.equal(members().includes('zed'), false);
+});
+
+test('a done task is refused before anyone is added: assign --add-member leaves zed off the project', async () => {
+  zedOff();
+  const n = fresh('Already finished');
+  tasks.close(projectId, n);
+  const r = await post(`/task/${n}/assign`, { who: 'zed', addMember: true });
+  assert.equal(r.code, 400, r.text);
+  assert.match(r.json.error, /is done, so it is not given to anyone/);
+  assert.equal(members().includes('zed'), false, 'a member was added for a task that was never moved');
+});
+
+test('a task add that fails after the add says zed was added, and zed stays on the project', async () => {
+  zedOff();
+  const r = await post('/tasks', { sentence: 'Under nothing', who: 'zed', addMember: true, parent: '999' });
+  assert.equal(r.code, 400, r.text);
+  assert.match(r.json.error, /^zed was added to the project, but the task was not added: /);
+  assert.equal(r.json.addedMember, 'zed');
+  assert.equal(members().includes('zed'), true);
+});
+
+test('the membership valve counts an add made through a task: past it, 429 with retry-after and nothing changes', async () => {
+  zedOff();
+  const now = new Date().toISOString();
+  const keep = project().memberChanges || [];
+  projects.mutate(projectId, (p) => ({ ...p, memberChanges: [...keep, ...Array.from({ length: projects.MEMBERS_PER_HOUR }, () => ({ at: now, via: 'process', agent: 'filler', kind: 'add' }))] }));
+  try {
+    const before = taskCount();
+    const r = await post('/tasks', { sentence: 'x', who: 'zed', addMember: true });
+    assert.equal(r.code, 429, r.text);
+    assert.ok(Number(r.json.retry_after_secs) > 0);
+    assert.equal(members().includes('zed'), false);
+    assert.equal(taskCount(), before);
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, memberChanges: keep }));
+  }
+});

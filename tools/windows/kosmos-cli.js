@@ -114,9 +114,11 @@ const USAGE = {
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
     '      --who <agent>                                            give it to that agent (--who me: to you)',
+    '      --add-member                                             with --who: put that agent on the project first, if it is not on it',
     '      --done "<check>"                                         what finished means for it; up to 3, one --done each',
     '  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody',
     '      --part <part-number>                                     which part, when the task has several',
+    '      --add-member                                             put that agent on the project first, if it is not on it',
     '  kosmos task close <project-id> <task-number> [...] [--with-built]   close one, or several at once; --with-built closes their built subtasks too (numbers are from list)',
     '      --not-run                                                it was closed without ever being run',
     '      --replaced-by <task-number>                              a later task replaced it: closed, but not done',
@@ -1381,7 +1383,7 @@ async function taskAdd(ctx, args) {
      and the option check work as usual, so `add <p> -- --t --parent 3` files a subtask, not "--parent 3" as detail. */
   const escaped = args[1] === '--';
   const sentence = escaped ? args[2] : args[1];
-  if (!project || !sentence) { ctx.err('Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me] [--done "<check>"]'); return 2; }
+  if (!project || !sentence) { ctx.err('Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me [--add-member]] [--done "<check>"]'); return 2; }
   /* #3861, as install/kosmos cmd_task add: the sentence comes first, and `--parent <n>` is
      taken out of the rest wherever it sits; everything else is still the detail. */
   /* Review 3, as install/kosmos: `--parent=3` in the title slot gets the same words as anywhere else. */
@@ -1391,10 +1393,11 @@ async function taskAdd(ctx, args) {
   if (!escaped && (sentence === '--who' || sentence.startsWith('--who='))) { ctx.err('Put what the task is first: kosmos task add <project-id> "<what the task is>" --who <agent>'); return 2; }
   /* #5152 review 3, as install/kosmos: --done in the sentence's place too. */
   if (!escaped && (sentence === '--done' || sentence.startsWith('--done='))) { ctx.err('Put what the task is first: kosmos task add <project-id> "<what the task is>" --done "<check>"'); return 2; }
-  if (!escaped && /^--[A-Za-z]/.test(sentence)) { refuseOption(ctx, 'task add', 'Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me] [--done "<check>"]', sentence); return 2; }
+  if (!escaped && /^--[A-Za-z]/.test(sentence)) { refuseOption(ctx, 'task add', 'Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me [--add-member]] [--done "<check>"]', sentence); return 2; }
   const rest = args.slice(escaped ? 3 : 2);
   let parent = null;
   let who = null;
+  let addMember = false;   // kosmos#8501: put the --who agent on the project first
   const done = [];   // #5152: the --done checks, in order
   const words = [];
   let past = false;
@@ -1421,7 +1424,8 @@ async function taskAdd(ctx, args) {
       if (!clean.trim() || n.startsWith('-')) { ctx.err("--who needs the name of an agent on the project (or me)."); return 2; }
       who = clean; i += 1; continue;
     }
-    if (rest[i] !== '--parent' && /^--[A-Za-z]/.test(rest[i])) { refuseOption(ctx, 'task add', 'Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me] [--done "<check>"]', rest[i]); return 2; }
+    if (rest[i] === '--add-member') { addMember = true; continue; }
+    if (rest[i] !== '--parent' && /^--[A-Za-z]/.test(rest[i])) { refuseOption(ctx, 'task add', 'Usage: kosmos task add <project-id> "<what the task is>" ["more detail"] [--parent <task-number>] [--who <agent>|me [--add-member]] [--done "<check>"]', rest[i]); return 2; }
     if (rest[i] === '--parent') {
       const n = rest[i + 1];
       if (typeof n !== 'string' || !/^[0-9]+$/.test(n)) { ctx.err('--parent needs a task number, from: kosmos task list <project-id>.'); return 2; }
@@ -1429,10 +1433,12 @@ async function taskAdd(ctx, args) {
     }
     words.push(rest[i]);
   }
+  if (addMember && who === null) { ctx.err('--add-member goes with --who <agent>: it puts that agent on the project, then gives it the task.'); return 2; }
   const detail = words.join(' ');
   const body = { sentence, detail, from_pane: '' };
   if (parent !== null) body.parent = parent;
   if (who !== null) body.who = who;
+  if (addMember) body.addMember = true;
   if (done.length) body.doneWhen = done;
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/tasks', body);   // #4491 slice 5: with the agent's own token
   if (!r.reached) return ctx.unreachable('add that task');
@@ -1441,6 +1447,7 @@ async function taskAdd(ctx, args) {
     const forWho = typeof r.json.task.who === 'string' && r.json.task.who ? ', for ' + r.json.task.who : '';
     /* #5175: the new task's number, from the board's answer; a missing or odd one keeps the sentence without it. */
     const num = Number.isInteger(r.json.task.number) && r.json.task.number > 0 ? ' ' + r.json.task.number : '';
+    if (typeof r.json.addedMember === 'string' && r.json.addedMember) ctx.out(addedMemberLine(r.json.addedMember, project));   // kosmos#8501
     ctx.out('Task' + num + ' added to ' + project + (parent !== null ? ', under task ' + parent : '') + forWho + '. See it with: kosmos task list ' + project);
     /* #5376, as install/kosmos: given to nobody (the board says null), the Assigner may hand it to an idle agent; say so. */
     if (r.json.task.who === null) ctx.out('Nobody has it yet: it waits for someone to take it, or Kosmos gives it to an idle agent on the project. To choose who does it: kosmos task assign ' + project + ' ' + (num ? num.trim() : '<task-number>') + ' <agent> (or me)');
@@ -1456,14 +1463,20 @@ const TASK_NUMBER_NOT_A_NUMBER = 'The task number must be a number, from: kosmos
 
 /* #4914: give a task to an agent, to the caller (me), or to nobody. The board picks the part (the only one, or
    --part) and says who has it now; the same as install/kosmos cmd_task assign. */
-const TASK_ASSIGN_USAGE = 'Usage: kosmos task assign <project-id> <task-number> <agent|me|nobody> [--part <part-number>]';
+const TASK_ASSIGN_USAGE = 'Usage: kosmos task assign <project-id> <task-number> <agent|me|nobody> [--part <part-number>] [--add-member]';
+/* kosmos#8501: --add-member put the agent on the project first; the board says so with addedMember. As install/kosmos. */
+function addedMemberLine(name, project) {
+  return oneLine(name) + ' was not on ' + project + ', so Kosmos added it to the project first. See who is on it with: kosmos project show ' + project;
+}
 async function taskAssign(ctx, args) {
   const [project, num, ...rest] = args;
   if (!project || !num) { ctx.err(TASK_ASSIGN_USAGE); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   let who = null;
   let part = null;
+  let addMember = false;   // kosmos#8501
   for (let i = 0; i < rest.length; i += 1) {
+    if (rest[i] === '--add-member') { addMember = true; continue; }
     if (rest[i].startsWith('--part=')) { ctx.err('Write it as --part <part-number>, with a space.'); return 2; }
     if (rest[i] === '--part') {
       const n = rest[i + 1];
@@ -1477,11 +1490,13 @@ async function taskAssign(ctx, args) {
   if (!clean.trim() || clean.startsWith('-')) { ctx.err('Say who the task goes to: an agent on the project, me, or nobody. ' + TASK_ASSIGN_USAGE); return 2; }
   const body = { who: clean, from_pane: '' };
   if (part !== null) body.part = part;
+  if (addMember) body.addMember = true;
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/assign', body);
   if (!r.reached) return ctx.unreachable('move that task');
   if (r.json && r.json.task) {
     const now = typeof r.json.who === 'string' && r.json.who ? 'is now with ' + r.json.who : 'now has nobody on it';
     const shown = num.replace(/^0+(?=\d)/, '');   // "007" is said back as task 7, as --parent is
+    if (typeof r.json.addedMember === 'string' && r.json.addedMember) ctx.out(addedMemberLine(r.json.addedMember, project));   // kosmos#8501
     ctx.out('Task ' + shown + (part !== null ? ', part ' + part + ',' : '') + ' on ' + project + ' ' + now + '. See it with: kosmos task list ' + project);
     return 0;
   }
