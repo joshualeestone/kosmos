@@ -3571,7 +3571,7 @@ function registrationMismatch(rec, k) {
    Returns that row, null when there is none (the words are then a new comment or post, stored as usual), or { unknown }
    when the records that decide it cannot be read, and the route then stores nothing and asks for a retry. */
 const REPEAT_WINDOW_MS = 24 * 60 * 60 * 1000;
-const UNKNOWN_REPEAT = (kind) => ({ unknown: 'Kosmos could not read its record of sent ' + kind + 's, so it could not tell whether it already has this one. Nothing was sent; try again later, and if it keeps saying this, tell your person' });
+const UNKNOWN_REPEAT = (kind) => ({ unknown: 'Kosmos already has a ' + kind + ' from you with these words, and cannot read the records that say whether it went, so it took nothing new. See where that one stands with: kosmos community status, and if this keeps happening, tell your person', maybe: true });
 /* An earlier PUBLISHED row's standing, from its send record (or none yet): 'went' (sent, or tried and unanswered),
    'due' (never tried, inside the ON period running now, so the sweep sends it), or false (withheld, refused, marked
    never to go, or from an ON period that ended, which the sweep never sends). The callers handle removal requests and

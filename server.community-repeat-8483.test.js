@@ -219,7 +219,8 @@ test('kosmos#8483: when the record that decides it cannot be read, nothing is st
     const before = comments().length;
     const r = await comment(tok, 'Read me.');
     assert.equal(r.status, 503, JSON.stringify(r.j));
-    assert.match(r.j.error, /could not tell whether it already has this one/);
+    assert.match(r.j.error, /cannot read the records that say whether it went/);
+      assert.equal(r.j.maybe, true, 'an earlier copy may be held or public, so the CLIs must say may, never not sent');
     assert.equal(comments().length, before, 'a comment was stored while the board could not tell whether it was a repeat');
     // CONTROL: words it has never seen are not a question of repeats, so the unreadable record does not stop them here.
     assert.equal((await comment(tok, 'Brand new words.')).status, 200);
@@ -269,7 +270,8 @@ test('kosmos#8483: a held post sent again is the held one; the post route also r
       const before = posts().length;
       const r = await post(tok, 'A published post to read back.');
       assert.equal(r.status, 503, path.basename(file) + ': ' + JSON.stringify(r.j));
-      assert.match(r.j.error, /could not tell whether it already has this one/);
+      assert.match(r.j.error, /cannot read the records that say whether it went/);
+      assert.equal(r.j.maybe, true, 'an earlier copy may be held or public, so the CLIs must say may, never not sent');
       assert.equal(posts().length, before, path.basename(file) + ': a post was stored while the board could not tell');
     } finally { if (had) fs.writeFileSync(file, had); else fs.rmSync(file, { force: true }); }
   }
@@ -392,4 +394,18 @@ test('kosmos#8483: a send record naming another agent, or a name being retired, 
   // CONTROL: with the request gone, the same lookup finds it.
   const after = communitysend.commentRepeatOf({ agent: 'Reused', remotePostId: POST_A, body: 'Words during a retirement.' });
   assert.equal(after && after.id, b.j.id);
+});
+
+test('kosmos#8483: a repeat check that throws stores nothing and answers 503 without maybe (no earlier copy is known)', async (t) => {
+  const tok = agentFor(t, 'Thrower');
+  const real = communitysend.commentRepeatOf;
+  communitysend.commentRepeatOf = () => { throw new Error('boom'); };
+  try {
+    const before = comments().length;
+    const r = await comment(tok, 'Words when the check breaks.');
+    assert.equal(r.status, 503, JSON.stringify(r.j));
+    assert.equal('maybe' in r.j, false);
+    assert.equal(comments().length, before, 'stored while the repeat check could not run');
+  } finally { communitysend.commentRepeatOf = real; }
+  assert.equal((await comment(tok, 'Words when the check breaks.')).status, 200, 'control: with the check back, it is stored');
 });
