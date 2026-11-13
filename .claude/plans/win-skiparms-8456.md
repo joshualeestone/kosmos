@@ -17,7 +17,9 @@ the Windows CI job runs them with no list change.
   win32stop.endSteps): `schtasks.exe` from the stand-in, `taskkill.exe` from the process table; null otherwise.
 - `win32Processes()`: a stand-in process table behind win32stop's three seams (setLive through the real
   win32live.byName join, setRunner for taskkill, setAlive for the look-again). `start(name)`, a stand-in `/Run` while
-  installed, `taskkill`, `survive(name)` (a kill that answers SUCCESS and does not take), `pidOf`, `calls`, `stop()`.
+  installed, `taskkill`, `survive(name)` (a kill that answers SUCCESS and does not take), `clearSurvivors()`, `pidOf`,
+  `calls`, `stop()`. A per-turn agent (codex, gemini, grok, antigravity) is answered from the codex live list in
+  win32codexlive's row shape, never from the `claude agents --json` stand-in (review round 1).
 
 ## The 14
 
@@ -37,6 +39,7 @@ the Windows CI job runs them with no list change.
 | server: disabled but will not unload | partial, "still running", on removed list | stand-in refuses the task's `/End` (watchScheduler); asserts `/Change /DISABLE` came before that `/End` |
 | adopt: #1349 project block before start | file read at the moment of start | read when the stand-in is asked to `/Run` the task |
 | adopt: #1363 rules and connector words | same | same |
+| server: a half-removed agent stays on the board (15th, review round 1) | partial, recorded not stopped, card kept | it never skipped, but passed on Windows only because the live list could not be read: now the agent runs in the process table and the stand-in refuses the task's `/End`, so a removal that went on past it would end the process and answer REMOVED |
 
 ## Decisions
 - Watch the stand-in rather than create.setRunner on Windows for the adopt tests: Windows never calls that runner to
@@ -50,8 +53,9 @@ the Windows CI job runs them with no list change.
 ## Weakest part
 The process table's supervisor state file names the TEST process's pid, because the restart's "did it come up" check
 (`win32orphan.pidAlive`) has no seam on that path. So the restart arms prove the state file was rewritten with a new
-session, not that a separate process came up. Also, every running agent goes through the one live list, so the codex
-presence read (`win32codexlive`) is not exercised by the OpenAI arm.
+session, not that a separate process came up. The codex list is stood in at win32live's `codexLive` seam, so how
+`win32codexlive` decides a codex agent is live is not exercised, and a mutation of only that seam's DEFAULT passes
+(measured); a byName that drops the codex list fails the OpenAI arm (measured).
 
 ## Verified
 Each changed file on this box with and without the preload, stdin closed, and with TEMP/TMP set to an 8.3 short

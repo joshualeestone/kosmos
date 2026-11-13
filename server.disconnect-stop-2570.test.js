@@ -105,20 +105,23 @@ let calls = [];
    the Task Scheduler, so both stand-ins from test-support/jobfixture are installed, and both report into `calls` the
    way the runner above does on a Mac: the scheduler's acts as `schtasks <args>`, and the table's kills and looks as
    `taskkill.exe /PID <pid> /T /F` and `alive <pid>`. Its reads (/Query) are not acts, as tmux's and launchctl's reads
-   never reach the runner here either. `sessionsStillAlive` means the same there: the kill answers SUCCESS and the
-   process is still there when it is looked at again. */
+   never reach the runner here either. A survivor (markSurvivor) means the same there: the kill answers SUCCESS and
+   the process is still there when it is looked at again. */
 const procs = process.platform === 'win32' ? jobfix.win32Processes({ onCall: (line) => calls.push(line) }) : null;
 const SCHEDULER_ACTS = new Set(['/Change', '/End', '/Run', '/Create', '/Delete']);
 if (procs) jobfix.watchScheduler((a) => { if (SCHEDULER_ACTS.has(a[0])) calls.push(['schtasks', ...a].join(' ')); });
-let survivals = [];
+/* An agent whose kill does not take: tmux still has its session when it is asked again (the runner above), and on
+   Windows its process is still in the table (kosmos#8456). Cleared for every arm by installRunner. */
+function markSurvivor(name) {
+  sessionsStillAlive.add(name);
+  if (procs) procs.survive(name);
+}
 function installRunner() {
   sessionsStillAlive = new Set();
   calls = [];
   if (procs) {
     procs.calls.length = 0;
-    for (const undo of survivals.splice(0)) undo();
-    const add = sessionsStillAlive.add.bind(sessionsStillAlive);
-    sessionsStillAlive.add = (name) => { survivals.push(procs.survive(name)); return add(name); };
+    procs.clearSurvivors();
   }
   /* 🛑 THE PANE LIST IS TRUNCATED PER ARM, NOT APPENDED TO. Appending made every
      arm inherit every earlier arm's agents, and the enumeration is fail-closed:
@@ -347,7 +350,7 @@ test('#2570 PARTIAL: a stop that could not be confirmed leaves the account CONNE
   installRunner();
   const dir = claudeAccount('halfway');
   agentOn('quirke', dir, 'claude');
-  sessionsStillAlive.add('quirke');
+  markSurvivor('quirke');
   const r = await del('claude', { dir, stopAgents: true });
   assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
   assert.deepEqual(r.json.notStopped.map((x) => x.outcome), ['partial'],
@@ -652,7 +655,7 @@ test('#2570: a PARTIAL and a REFUSAL in one batch names BOTH, not just the parti
   installRunner();
   const dir = claudeAccount('twoways');
   agentOn('holmes2', dir, 'claude');                    // will go PARTIAL
-  sessionsStillAlive.add('holmes2');
+  markSurvivor('holmes2');
   agentOn('mycroft2', dir, 'claude', 'someone-elses');  // not ours: REFUSED
   const r = await del('claude', { dir, stopAgents: true });
   assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
@@ -729,7 +732,7 @@ test('#2570: stopped plus PARTIAL does not tell you to go and stop the partial y
   const dir = claudeAccount('halfmixed');
   registeredNotRunning('bell', dir, 'claude');   // stops cleanly
   agentOn('moriarty', dir, 'claude');            // running, and the kill is unconfirmable
-  sessionsStillAlive.add('moriarty');
+  markSurvivor('moriarty');
   const r = await del('claude', { dir, stopAgents: true });
   assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
   assert.deepEqual(r.json.stopped, ['bell']);
@@ -874,12 +877,21 @@ test('#2570: the DELETE door honours stopAgents, and does NOT promise a restore'
 test('#2570: the OpenAI route stops its own agents the same way', async () => {
   installRunner();
   const dir = codexAccount('busy');
-  agentOn('poirot', dir, 'codex');
+  const pid = agentOn('poirot', dir, 'codex');
   const r = await del('openai', { dir, stopAgents: true });
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.deepEqual(r.json.stopped, ['poirot'], 'the OpenAI door must not be the one that still refuses');
   assert.match(String(r.json.because), /put it back from the removed list once you add this account again under the same name/);
   assert.ok(removedNames().includes('poirot'), 'no removal record, so the restore promise is false here too');
+  /* kosmos#8456: on Windows a codex agent is found through the codex live list, not `claude agents --json`, so a stop
+     that could not see it would answer "already gone" and still be recorded. The kill and its look-again are what
+     show it was found and ended. Windows only: the Mac's codex agent is a tmux pane like any other. */
+  if (procs) {
+    const acts = stopActs('poirot', pid);
+    const killAt = calls.findIndex(acts.kill);
+    assert.ok(killAt >= 0, 'the codex agent was never killed, so the stop could not see it running');
+    assert.ok(calls.slice(killAt + 1).some(acts.lookAgain), 'nothing looked again after the kill');
+  }
 });
 
 /* Delete is the more dangerous door, and it was covered on one provider only.

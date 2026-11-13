@@ -4727,204 +4727,207 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
   const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
   const scheduled = [];
   const unwatch = jobfix.watchScheduler((a) => { scheduled.push(a); });
-
-  // An agent that exists, made the way the product makes them.
-  create.setRunner(() => ({ ok: true, stdout: '' }));
-  create.setDryRun(false);
-  status.setPaneSource(() => '');
   try {
-    const made = create.createAgent({ name: 'route-removable', role: 'pm' });
-    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
-  } finally {
-    create.setRunner(null);
+
+    // An agent that exists, made the way the product makes them.
+    create.setRunner(() => ({ ok: true, stdout: '' }));
+    create.setDryRun(false);
+    status.setPaneSource(() => '');
+    try {
+      const made = create.createAgent({ name: 'route-removable', role: 'pm' });
+      assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    } finally {
+      create.setRunner(null);
+      status.setPaneSource(null);
+    }
+
+    // ⚠️ THE QUESTION, which is what the confirmation renders. It is fetched
+    // rather than composed in the browser so the words a person is asked cannot
+    // drift from what the engine will actually do.
+    const asked = await req('/api/agent/route-removable/removal');
+    assert.equal(asked.status, 200);
+    const body = JSON.parse(asked.body);
+    assert.equal(body.ok, true);
+    assert.match(body.question, /route-removable/,
+      'the confirmation does not name the agent, so a misclick reads the same as the right click');
+    assert.match(body.reassurance, /not be deleted/i,
+      'the screen never tells them their files are safe, which is the one thing they want to know');
+    /**
+     * ⚠️ Was `assert.equal(body.steps, undefined, …)`, which could not fail:
+     * `plan` has never returned `steps` in any revision, so it asserted the
+     * absence of something that was never there. An absence assertion needs a
+     * presence to be measured against -- the removal ITSELF returns `steps`, so
+     * that is the control, and the point becomes the real one: the step list is
+     * for the outcome, and the QUESTION must not recite it.
+     */
+    /**
+     * ⚠️ Stub the roster before ACTING, not only before asserting. This ran with
+     * `setPaneSource(null)`, so `plan()` shelled out to the operator's real tmux
+     * and the branch this assertion depends on was decided by whatever the live
+     * fleet happened to be doing -- a real session under this name would change
+     * the outcome. Dry-run, so nothing was stopped; machine-dependent all the
+     * same, in a file that spends two paragraphs elsewhere insisting on exactly
+     * this.
+     */
+    status.setPaneSource(() => fleet.line({ session: 'route-removable', claim: 'route-removable', title: '✳ Claude Code' }));
+    status.setPaneCapture(() => null);
+    const acted = removal.remove('route-removable');
     status.setPaneSource(null);
-  }
-
-  // ⚠️ THE QUESTION, which is what the confirmation renders. It is fetched
-  // rather than composed in the browser so the words a person is asked cannot
-  // drift from what the engine will actually do.
-  const asked = await req('/api/agent/route-removable/removal');
-  assert.equal(asked.status, 200);
-  const body = JSON.parse(asked.body);
-  assert.equal(body.ok, true);
-  assert.match(body.question, /route-removable/,
-    'the confirmation does not name the agent, so a misclick reads the same as the right click');
-  assert.match(body.reassurance, /not be deleted/i,
-    'the screen never tells them their files are safe, which is the one thing they want to know');
-  /**
-   * ⚠️ Was `assert.equal(body.steps, undefined, …)`, which could not fail:
-   * `plan` has never returned `steps` in any revision, so it asserted the
-   * absence of something that was never there. An absence assertion needs a
-   * presence to be measured against -- the removal ITSELF returns `steps`, so
-   * that is the control, and the point becomes the real one: the step list is
-   * for the outcome, and the QUESTION must not recite it.
-   */
-  /**
-   * ⚠️ Stub the roster before ACTING, not only before asserting. This ran with
-   * `setPaneSource(null)`, so `plan()` shelled out to the operator's real tmux
-   * and the branch this assertion depends on was decided by whatever the live
-   * fleet happened to be doing -- a real session under this name would change
-   * the outcome. Dry-run, so nothing was stopped; machine-dependent all the
-   * same, in a file that spends two paragraphs elsewhere insisting on exactly
-   * this.
-   */
-  status.setPaneSource(() => fleet.line({ session: 'route-removable', claim: 'route-removable', title: '✳ Claude Code' }));
-  status.setPaneCapture(() => null);
-  const acted = removal.remove('route-removable');
-  status.setPaneSource(null);
-  status.setPaneCapture(null);
-  assert.ok(Array.isArray(acted.steps) && acted.steps.length > 0,
-    'the control failed: nothing produces a step list, so hiding it from the question proves nothing');
-  assert.equal(body.steps, undefined,
-    'the route is back to reciting launchd steps at a person who does not want them');
-  for (const s of acted.steps) {
-    assert.doesNotMatch(String(body.question) + String(body.reassurance), new RegExp(s.label),
-      'the confirmation recites what the removal will do, which Josh cut for describing our implementation');
-  }
-
-  /**
-   * ⚠️ AN AGENT ANOTHER TOOL CREATED — now REMOVABLE, reversing an earlier
-   * design that refused these. Josh: managing the fleet you actually have is
-   * the point, so an agent Kosmos cannot remove is a hole rather than a
-   * safeguard. Built as one rather than named as one, so the fixture differs
-   * from an owned agent in exactly the property that matters: its job is
-   * another tool's label, not ours.
-   */
-  const foreignName = 'route-foreign';
-  fs.mkdirSync(create.workerDir(foreignName), { recursive: true });
-  fs.writeFileSync(nodePath.join(create.workerDir(foreignName), 'CLAUDE.md'), 'You are **Foreign**.\n', 'utf8');
-  const foreignPlist = nodePath.join(nodePath.dirname(jobfix.jobPath(foreignName)), `com.${foreignName}.discord.plist`);
-  fs.writeFileSync(foreignPlist, '<plist/>', 'utf8');
-
-  const foreign = await req(`/api/agent/${foreignName}/removal`);
-  assert.equal(foreign.status, 200,
-    'the route refused an agent another tool created, which this rebuild exists to support');
-
-  /**
-   * ⚠️ IT IS ASKED ABOUT BY THE NAME ON ITS CARD, NOT ITS NAME ON THE MACHINE.
-   *
-   * This fixture has both, on purpose: the session is `route-foreign` and its
-   * instruction file calls it `Foreign`. They are the same string for every
-   * agent Kosmos creates, so only a pre-existing agent — the kind this rebuild
-   * exists to support — can tell the two apart at all. On the real fleet the
-   * pair is `claudebot` / `Splinter`, and the confirmation asked about
-   * `claudebot`: a name the person has never seen on the board they clicked
-   * from. Josh asked for the confirmation to be named so somebody *understands
-   * what they are doing*, and a name they do not recognise does the opposite.
-   *
-   * The `doesNotMatch` is the half that would have caught it. Asserting only
-   * that "Foreign" appears passes just as happily against a sentence carrying
-   * both names.
-   */
-  const foreignAsk = JSON.parse(foreign.body);
-  assert.match(foreignAsk.question, /Foreign/,
-    'the confirmation does not call the agent what the board calls it');
-  assert.doesNotMatch(foreignAsk.question, /route-foreign/,
-    'the confirmation names the session rather than the agent, so it asks about a name nobody has seen');
-  assert.equal(foreignAsk.label, 'Foreign',
-    'the buttons have no display name to use, so they fall back to naming the session');
-  assert.equal(foreignAsk.name, foreignName,
-    'the display name reached the field the removal is ACTED on, which would remove the wrong thing or nothing');
-
-  // A malformed name answers rather than crashing the process.
-  const bad = await req('/api/agent/%/removal', { method: 'DELETE' });
-  assert.equal(bad.status, 400);
-  const alive = await req('/api/status');
-  assert.match(alive.type, /application\/json/, 'the server died on a malformed name');
-
-  const seenRemoved = [];
-  removal.setRunner((f, a) => { seenRemoved.push([f, a]); return jobfix.win32Step(f, a) || (a && a[0] === 'has-session' ? { ok: false, code: 1 } : { ok: true, stdout: '' }); });
-  removal.setDryRun(false);
-  // ⚠️ THE AGENT HAS TO BE ON THE BOARD BEFORE ANY OF THIS MEANS ANYTHING. An
-  // earlier version of this test asserted "it is gone from the board" without
-  // it ever having been there — which passes against a board that never
-  // filtered anything, and passed against one that filtered everything. The
-  // control below is the assertion that gives the two after it their meaning.
-  /**
-   * ⚠️ Stub the pane CAPTURE as well as the pane SOURCE.
-   *
-   * Overriding only the source makes the roster synthetic and then lets
-   * `/api/status` run real `tmux capture-pane` against every fixture name --
-   * which printed `can't find session: route-removable` to stderr on each run, and made this
-   * test depend on the machine's tmux (it would read differently on a box with
-   * no tmux server, or one where a session happened to share the fixture's
-   * name). `null` is exactly what real tmux answered for a session that does
-   * not exist, so nothing else about the test changes.
-   *
-   * ⚠️ Deliberately per-test rather than at file load: several older tests call
-   * `setPaneCapture(null)` in their own `finally`, which would clear a
-   * file-level stub for everything running after it. And a few of them let the
-   * roster fall through to the REAL fleet on purpose, so a global stub would
-   * quietly change what those are measuring.
-   */
-  status.setPaneSource(() => fleet.line({ session: 'route-removable', claim: 'route-removable', title: '✳ Claude Code' }));
-  status.setPaneCapture(() => null);
-  try {
-    const before = JSON.parse((await req('/api/status')).body).agents.map((a) => a.name);
-    assert.ok(before.includes('route-removable'),
-      'the agent is not on the board to begin with, so nothing below about removing it from the board can fail');
-
-    const gone = await req('/api/agent/route-removable/removal', {
-      method: 'DELETE', headers: { 'content-type': 'application/json' },
-    });
-    assert.equal(gone.status, 200, 'a legitimate removal was refused: ' + gone.body);
-    assert.equal(JSON.parse(gone.body).outcome, 'removed');
-
-    // ⚠️ REMOVE IS NOT DELETE, asserted at the route rather than only in the
-    // engine: this is the layer the browser reaches, and a route that passed a
-    // wipe flag through would satisfy every engine test.
-    assert.ok(fs.existsSync(jobfix.jobPath('route-removable')), 'the route deleted the startup job');
-    assert.ok(fs.existsSync(create.instructionFile('route-removable')),
-      "the route deleted the agent's instructions");
-
-    // ⚠️ AND IT COMES OFF THE BOARD. The engine cannot assert this — the board
-    // is assembled here — and it is the only part of a removal the person who
-    // asked for it can actually see.
-    const listed = JSON.parse((await req('/api/status')).body).agents.map((a) => a.name);
-    assert.ok(!listed.includes('route-removable'),
-      'a removed agent is still on the board, so nothing appeared to happen');
-
-    const removedList = JSON.parse((await req('/api/removed')).body).agents.map((a) => a.name);
-    assert.ok(removedList.includes('route-removable'),
-      'a removed agent is on no list at all, so it is stopped, invisible, and unrecoverable');
-
-    // ⚠️ THE ROUND TRIP. Restore must genuinely put it back — this route is the
-    // reason the confirmation is allowed to be a single light question.
-    const back = await req('/api/agent/route-removable/restore', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-    });
-    assert.equal(back.status, 200, 'restore was refused: ' + back.body);
-    assert.equal(JSON.parse(back.body).outcome, 'restored');
-    /* kosmos#8456: on Windows re-enabling is the task's /Change /ENABLE, made at the stand-in Task Scheduler. */
-    const tn = process.platform === 'win32' ? require('./engine/win32job').taskName('route-removable') : null;
-    assert.ok(process.platform === 'win32'
-      ? scheduled.some((a) => a[0] === '/Change' && a.includes('/ENABLE') && a[a.indexOf('/TN') + 1] === tn)
-      : seenRemoved.some(([f, a]) => enablesJob(f, a)),
-    'nothing was re-enabled, so the agent is "restored" but will not start again');
-    const after = JSON.parse((await req('/api/status')).body).agents.map((a) => a.name);
-    assert.ok(after.includes('route-removable'), 'a restored agent never came back to the board');
-  } finally {
-    removal.setRunner(null);
-    create.setRunner(null);
-    status.setPaneSource(null);
-    // ⚠️ Put the capture back too, or this test's stub leaks onto every test
-    // that runs after it -- including the ones that read the real fleet.
     status.setPaneCapture(null);
+    assert.ok(Array.isArray(acted.steps) && acted.steps.length > 0,
+      'the control failed: nothing produces a step list, so hiding it from the question proves nothing');
+    assert.equal(body.steps, undefined,
+      'the route is back to reciting launchd steps at a person who does not want them');
+    for (const s of acted.steps) {
+      assert.doesNotMatch(String(body.question) + String(body.reassurance), new RegExp(s.label),
+        'the confirmation recites what the removal will do, which Josh cut for describing our implementation');
+    }
+
+    /**
+     * ⚠️ AN AGENT ANOTHER TOOL CREATED — now REMOVABLE, reversing an earlier
+     * design that refused these. Josh: managing the fleet you actually have is
+     * the point, so an agent Kosmos cannot remove is a hole rather than a
+     * safeguard. Built as one rather than named as one, so the fixture differs
+     * from an owned agent in exactly the property that matters: its job is
+     * another tool's label, not ours.
+     */
+    const foreignName = 'route-foreign';
+    fs.mkdirSync(create.workerDir(foreignName), { recursive: true });
+    fs.writeFileSync(nodePath.join(create.workerDir(foreignName), 'CLAUDE.md'), 'You are **Foreign**.\n', 'utf8');
+    const foreignPlist = nodePath.join(nodePath.dirname(jobfix.jobPath(foreignName)), `com.${foreignName}.discord.plist`);
+    fs.writeFileSync(foreignPlist, '<plist/>', 'utf8');
+
+    const foreign = await req(`/api/agent/${foreignName}/removal`);
+    assert.equal(foreign.status, 200,
+      'the route refused an agent another tool created, which this rebuild exists to support');
+
+    /**
+     * ⚠️ IT IS ASKED ABOUT BY THE NAME ON ITS CARD, NOT ITS NAME ON THE MACHINE.
+     *
+     * This fixture has both, on purpose: the session is `route-foreign` and its
+     * instruction file calls it `Foreign`. They are the same string for every
+     * agent Kosmos creates, so only a pre-existing agent — the kind this rebuild
+     * exists to support — can tell the two apart at all. On the real fleet the
+     * pair is `claudebot` / `Splinter`, and the confirmation asked about
+     * `claudebot`: a name the person has never seen on the board they clicked
+     * from. Josh asked for the confirmation to be named so somebody *understands
+     * what they are doing*, and a name they do not recognise does the opposite.
+     *
+     * The `doesNotMatch` is the half that would have caught it. Asserting only
+     * that "Foreign" appears passes just as happily against a sentence carrying
+     * both names.
+     */
+    const foreignAsk = JSON.parse(foreign.body);
+    assert.match(foreignAsk.question, /Foreign/,
+      'the confirmation does not call the agent what the board calls it');
+    assert.doesNotMatch(foreignAsk.question, /route-foreign/,
+      'the confirmation names the session rather than the agent, so it asks about a name nobody has seen');
+    assert.equal(foreignAsk.label, 'Foreign',
+      'the buttons have no display name to use, so they fall back to naming the session');
+    assert.equal(foreignAsk.name, foreignName,
+      'the display name reached the field the removal is ACTED on, which would remove the wrong thing or nothing');
+
+    // A malformed name answers rather than crashing the process.
+    const bad = await req('/api/agent/%/removal', { method: 'DELETE' });
+    assert.equal(bad.status, 400);
+    const alive = await req('/api/status');
+    assert.match(alive.type, /application\/json/, 'the server died on a malformed name');
+
+    const seenRemoved = [];
+    removal.setRunner((f, a) => { seenRemoved.push([f, a]); return jobfix.win32Step(f, a) || (a && a[0] === 'has-session' ? { ok: false, code: 1 } : { ok: true, stdout: '' }); });
+    removal.setDryRun(false);
+    // ⚠️ THE AGENT HAS TO BE ON THE BOARD BEFORE ANY OF THIS MEANS ANYTHING. An
+    // earlier version of this test asserted "it is gone from the board" without
+    // it ever having been there — which passes against a board that never
+    // filtered anything, and passed against one that filtered everything. The
+    // control below is the assertion that gives the two after it their meaning.
+    /**
+     * ⚠️ Stub the pane CAPTURE as well as the pane SOURCE.
+     *
+     * Overriding only the source makes the roster synthetic and then lets
+     * `/api/status` run real `tmux capture-pane` against every fixture name --
+     * which printed `can't find session: route-removable` to stderr on each run, and made this
+     * test depend on the machine's tmux (it would read differently on a box with
+     * no tmux server, or one where a session happened to share the fixture's
+     * name). `null` is exactly what real tmux answered for a session that does
+     * not exist, so nothing else about the test changes.
+     *
+     * ⚠️ Deliberately per-test rather than at file load: several older tests call
+     * `setPaneCapture(null)` in their own `finally`, which would clear a
+     * file-level stub for everything running after it. And a few of them let the
+     * roster fall through to the REAL fleet on purpose, so a global stub would
+     * quietly change what those are measuring.
+     */
+    status.setPaneSource(() => fleet.line({ session: 'route-removable', claim: 'route-removable', title: '✳ Claude Code' }));
+    status.setPaneCapture(() => null);
+    try {
+      const before = JSON.parse((await req('/api/status')).body).agents.map((a) => a.name);
+      assert.ok(before.includes('route-removable'),
+        'the agent is not on the board to begin with, so nothing below about removing it from the board can fail');
+
+      const gone = await req('/api/agent/route-removable/removal', {
+        method: 'DELETE', headers: { 'content-type': 'application/json' },
+      });
+      assert.equal(gone.status, 200, 'a legitimate removal was refused: ' + gone.body);
+      assert.equal(JSON.parse(gone.body).outcome, 'removed');
+
+      // ⚠️ REMOVE IS NOT DELETE, asserted at the route rather than only in the
+      // engine: this is the layer the browser reaches, and a route that passed a
+      // wipe flag through would satisfy every engine test.
+      assert.ok(fs.existsSync(jobfix.jobPath('route-removable')), 'the route deleted the startup job');
+      assert.ok(fs.existsSync(create.instructionFile('route-removable')),
+        "the route deleted the agent's instructions");
+
+      // ⚠️ AND IT COMES OFF THE BOARD. The engine cannot assert this — the board
+      // is assembled here — and it is the only part of a removal the person who
+      // asked for it can actually see.
+      const listed = JSON.parse((await req('/api/status')).body).agents.map((a) => a.name);
+      assert.ok(!listed.includes('route-removable'),
+        'a removed agent is still on the board, so nothing appeared to happen');
+
+      const removedList = JSON.parse((await req('/api/removed')).body).agents.map((a) => a.name);
+      assert.ok(removedList.includes('route-removable'),
+        'a removed agent is on no list at all, so it is stopped, invisible, and unrecoverable');
+
+      // ⚠️ THE ROUND TRIP. Restore must genuinely put it back — this route is the
+      // reason the confirmation is allowed to be a single light question.
+      const back = await req('/api/agent/route-removable/restore', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+      });
+      assert.equal(back.status, 200, 'restore was refused: ' + back.body);
+      assert.equal(JSON.parse(back.body).outcome, 'restored');
+      /* kosmos#8456: on Windows re-enabling is the task's /Change /ENABLE, made at the stand-in Task Scheduler. */
+      const tn = process.platform === 'win32' ? require('./engine/win32job').taskName('route-removable') : null;
+      assert.ok(process.platform === 'win32'
+        ? scheduled.some((a) => a[0] === '/Change' && a.includes('/ENABLE') && a[a.indexOf('/TN') + 1] === tn)
+        : seenRemoved.some(([f, a]) => enablesJob(f, a)),
+      'nothing was re-enabled, so the agent is "restored" but will not start again');
+      const after = JSON.parse((await req('/api/status')).body).agents.map((a) => a.name);
+      assert.ok(after.includes('route-removable'), 'a restored agent never came back to the board');
+    } finally {
+      removal.setRunner(null);
+      create.setRunner(null);
+      status.setPaneSource(null);
+      // ⚠️ Put the capture back too, or this test's stub leaks onto every test
+      // that runs after it -- including the ones that read the real fleet.
+      status.setPaneCapture(null);
+    }
+
+    // ⚠️ AND BOTH WRITES ARE COVERED BY THE CROSS-SITE GUARD. They are
+    // state-changing methods that stop and start real jobs; a page on another
+    // site must not be able to reach either one.
+    const crossSite = await req('/api/agent/route-removable/removal', {
+      method: 'DELETE', headers: { origin: 'https://evil.example' },
+    });
+    assert.equal(crossSite.status, 403, 'another website can remove an agent');
+    const crossSiteBack = await req('/api/agent/route-removable/restore', {
+      method: 'POST', headers: { origin: 'https://evil.example' },
+    });
+    assert.equal(crossSiteBack.status, 403, 'another website can restore an agent');
+  } finally {
     unwatch();
     if (procs) procs.stop();
   }
-
-  // ⚠️ AND BOTH WRITES ARE COVERED BY THE CROSS-SITE GUARD. They are
-  // state-changing methods that stop and start real jobs; a page on another
-  // site must not be able to reach either one.
-  const crossSite = await req('/api/agent/route-removable/removal', {
-    method: 'DELETE', headers: { origin: 'https://evil.example' },
-  });
-  assert.equal(crossSite.status, 403, 'another website can remove an agent');
-  const crossSiteBack = await req('/api/agent/route-removable/restore', {
-    method: 'POST', headers: { origin: 'https://evil.example' },
-  });
-  assert.equal(crossSiteBack.status, 403, 'another website can restore an agent');
 });
 
 test('the confirmation asks by name, defaults to keeping, and never writes its own words', () => {
@@ -5777,7 +5780,15 @@ test('a half-removed agent is on the removed list AND still on the board', async
     ? { ok: false, code: 2 }
     : { ok: true, stdout: '' }));
   removal.setDryRun(false);
+  /* kosmos#8456: on Windows the same half-removal is the task switched off and its /End refused, at the stand-in Task
+     Scheduler (test-support/jobfixture), with the agent really running in the stand-in process table, so the live list
+     can be read: a removal that did not stop on the refused /End would end the process and answer REMOVED. */
+  const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
+  const tn = procs ? require('./engine/win32job').taskName(name) : null;
+  const unwatch = jobfix.watchScheduler((a) => (a[0] === '/End' && a[a.indexOf('/TN') + 1] === tn
+    ? { ok: false, out: 'ERROR: Access is denied.' } : undefined));
   try {
+    if (procs) procs.start(name);
     // ⚠️ CONTROL: it is on the board BEFORE the removal, or "it is still there
     // afterwards" is true of a board that never had it.
     const before = JSON.parse((await req('/api/status')).body).agents;
@@ -5794,6 +5805,8 @@ test('a half-removed agent is on the removed list AND still on the board', async
     assert.ok(after.some((a) => a.sessionName === name),
       'an agent that may still be running was hidden from the board, which is the one thing it must never do');
   } finally {
+    unwatch();
+    if (procs) procs.stop();
     removal.setRunner(null);
     status.setPaneSource(null);
     status.setPaneCapture(null);
@@ -10814,25 +10827,25 @@ test('the model route writes the choice AND restarts, because either alone is a 
      ends it with taskkill, then runs the task again (/End, /Run), yielding each to remove.js's runner: jobfix.win32Step
      answers those from the stand-ins, and anything else is answered as before. */
   const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
-
-  create.setRunner((f, a) => systemd(f, a) || { ok: true, stdout: '' });
-  create.setDryRun(false);
-  statusEngine.setPaneSource(() => '');
-  const made = create.createAgent({ claudeBin: STUB_BIN, tmuxBin: STUB_BIN, name, role: 'pm', model: 'opus' });
-  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
-  create.setRunner(null);
-
-  // The board sees it running, so the restart has a window to close.
-  statusEngine.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
-  const calls = [];
-  removal.setRunner((f, a) => {
-    calls.push([f, a]);
-    if (a && a[0] === 'has-session') return { ok: false, code: 1 };   // the kill worked
-    return jobfix.win32Step(f, a) || systemd(f, a) || { ok: true, stdout: '' };
-  });
-  removal.setDryRun(false);
-  const pid = procs ? procs.pidOf(name) : null;
   try {
+
+    create.setRunner((f, a) => systemd(f, a) || { ok: true, stdout: '' });
+    create.setDryRun(false);
+    statusEngine.setPaneSource(() => '');
+    const made = create.createAgent({ claudeBin: STUB_BIN, tmuxBin: STUB_BIN, name, role: 'pm', model: 'opus' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    create.setRunner(null);
+
+    // The board sees it running, so the restart has a window to close.
+    statusEngine.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
+    const calls = [];
+    removal.setRunner((f, a) => {
+      calls.push([f, a]);
+      if (a && a[0] === 'has-session') return { ok: false, code: 1 };   // the kill worked
+      return jobfix.win32Step(f, a) || systemd(f, a) || { ok: true, stdout: '' };
+    });
+    removal.setDryRun(false);
+    const pid = procs ? procs.pidOf(name) : null;
     if (procs) assert.ok(pid, 'the agent was not running before its model changed, so there is no window to close');
     const r = await req('/api/agent/' + name + '/model', {
       method: 'POST',
@@ -10892,18 +10905,18 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
   const systemd = jobfix.systemdStub();
   // kosmos#8456: on Windows the running agent and its restart, through the stand-ins (as in the model route test above).
   const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
-
-  create.setRunner((f, a) => systemd(f, a) || { ok: true, stdout: '' });
-  create.setDryRun(false);
-  statusEngine.setPaneSource(() => '');
-  const made = create.createAgent({ claudeBin: STUB_BIN, tmuxBin: STUB_BIN, name, role: 'pm' });
-  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
-  create.setRunner(null);
-
-  statusEngine.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
-  removal.setRunner((f, a) => (a && a[0] === 'has-session' ? { ok: false, code: 1 } : jobfix.win32Step(f, a) || systemd(f, a) || { ok: true, stdout: '' }));
-  removal.setDryRun(false);
   try {
+
+    create.setRunner((f, a) => systemd(f, a) || { ok: true, stdout: '' });
+    create.setDryRun(false);
+    statusEngine.setPaneSource(() => '');
+    const made = create.createAgent({ claudeBin: STUB_BIN, tmuxBin: STUB_BIN, name, role: 'pm' });
+    assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+    create.setRunner(null);
+
+    statusEngine.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
+    removal.setRunner((f, a) => (a && a[0] === 'has-session' ? { ok: false, code: 1 } : jobfix.win32Step(f, a) || systemd(f, a) || { ok: true, stdout: '' }));
+    removal.setDryRun(false);
     if (procs) assert.ok(procs.pidOf(name), 'the agent was not running, so this restart would be a first start, not a restart');
     disruption.clear(name);
     // A cause in the body rides through to the disruption record.

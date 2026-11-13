@@ -204,7 +204,7 @@ function stubAnswer(dir) {
         const id = `fixture-run-${process.pid}-${++runs}`;
         require('../engine/win32sessions').record(id, { name: spec.name, runner: spec.runner || 'claude' });
         // kosmos#8456: and with a process table installed, the agent the supervisor starts is running (see win32Processes).
-        if (processTable) processTable.started(spec.name, id);
+        if (processTable) processTable.started(spec.name, id, spec.runner || 'claude');
       }
       return { ok: true, out: `SUCCESS: Attempted to run the scheduled task "${tn}".` };
     }
@@ -277,14 +277,20 @@ const TABLE_PID_BASE = 2000000000;
                            answering as taskkill does; a pid it does not hold answers "not found" (exit 128).
       pidOf(name)          the pid that agent is running under now, or null when it is not running.
       survive(name)        the next kills of that agent answer SUCCESS and leave it running, so a test can show the
-                           look-again catches a kill that did not take. Returns the undo.
+                           look-again catches a kill that did not take. Returns the undo; clearSurvivors() undoes
+                           them all.
       calls                each act and look, in order: 'taskkill.exe /PID <pid> /T /F' and 'alive <pid>' (and each is
                            handed to opts.onCall too, for a test that keeps one log of every platform's acts).
       stop()               puts win32stop's seams back and removes the state files it wrote.
 
-    ⚠️ What it does not stand in for, said so a reader does not assume it: every running agent is answered through the
-    one live list, whatever its runner, so the codex presence read (win32codexlive) is not exercised here (it has its own
-    tests). The state file names THIS test process as the agent's pid, because a restart's "did it come up" check asks the
+    The live list is answered in the two parts the engine joins (win32live.byName): a claude agent from the
+    `claude agents --json` stand-in, and a per-turn agent (codex, gemini, grok, antigravity: win32codexlive.PER_TURN)
+    from the codex live list, in the rows win32codexlive.liveSessions returns, never from the claude list, which a real
+    `claude agents --json` never puts them on. So a byName that dropped the codex list would lose a running codex agent
+    here too.
+
+    ⚠️ What it does not stand in for, said so a reader does not assume it: how win32codexlive decides a per-turn agent
+    is live (its presence and state-file read) is not exercised here; it has its own tests. The state file names THIS test process as the agent's pid, because a restart's "did it come up" check asks the
     real process table (win32orphan.pidAlive has no seam on that path) and the test process is one that is certainly
     alive; nothing ever kills it, since every kill goes to the table, which only holds its own pids. Windows only. */
 function win32Processes(opts) {
@@ -294,7 +300,8 @@ function win32Processes(opts) {
   const win32sessions = require('../engine/win32sessions');
   const streamstate = require('../engine/win32streamstate');
   const store = require('../engine/store');
-  const live = new Map();   // sessionId -> { sessionId, pid, name }
+  const live = new Map();   // sessionId -> { sessionId, pid, name, runner }
+  const perTurn = (runner) => require('../engine/win32codexlive').PER_TURN.has(runner);
   const survivors = new Set();
   const written = new Set();
   const calls = [];
@@ -305,9 +312,9 @@ function win32Processes(opts) {
 
   const table = {
     calls,
-    started(name, sessionId) {
+    started(name, sessionId, runner) {
       const pid = TABLE_PID_BASE + 4 * ++pids;
-      live.set(sessionId, { sessionId, pid, name });
+      live.set(sessionId, { sessionId, pid, name, runner: runner || 'claude' });
       const at = statePath(name);
       fs.mkdirSync(path.dirname(at), { recursive: true });
       fs.writeFileSync(at, JSON.stringify({ v: streamstate.STATE_FILE_VERSION, pid: process.pid, sessionId }));
@@ -317,7 +324,7 @@ function win32Processes(opts) {
     start(name, runner) {
       const id = `fixture-proc-${process.pid}-${++runs}`;
       win32sessions.record(id, { name, runner: runner || 'claude' });
-      return table.started(name, id);
+      return table.started(name, id, runner);
     },
     taskkill(args) {
       note(['taskkill.exe', ...args].join(' '));
@@ -344,6 +351,7 @@ function win32Processes(opts) {
       survivors.add(name);
       return () => { survivors.delete(name); };
     },
+    clearSurvivors() { survivors.clear(); },
     stop() {
       if (processTable === table) processTable = null;
       win32stop.setRunner(null);
@@ -356,8 +364,10 @@ function win32Processes(opts) {
   win32stop.setAlive((pid) => table.alive(pid));
   win32stop.setLive((opts) => win32live.byName({
     ...(opts || {}),
-    run: () => [...live.values()].map((p) => ({ sessionId: p.sessionId, pid: p.pid, name: p.name, status: 'running' })),
-    codexLive: () => [],
+    run: () => [...live.values()].filter((p) => !perTurn(p.runner))
+      .map((p) => ({ sessionId: p.sessionId, pid: p.pid, name: p.name, status: 'running' })),
+    codexLive: () => [...live.values()].filter((p) => perTurn(p.runner))
+      .map((p) => ({ sessionId: p.sessionId, pid: p.pid, name: p.name, kind: 'interactive', runner: p.runner })),
   }));
   processTable = table;
   return table;
