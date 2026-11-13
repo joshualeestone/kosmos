@@ -28,6 +28,25 @@ function takenDefault(slug) {
   return held.folder || held.job;
 }
 
+/* kosmos#8466: on Windows a name held only by a leftover Scheduled Task (no folder) is not "an agent on your board", and
+   the generic sentence gave no way to free it. Such a seat gets create's own words for that name (create.win32HeldTaskWords:
+   the row that removes the task, or the task to delete in Task Scheduler), so the two screens agree. null otherwise. */
+function heldWordsDefault() {
+  /* One per specs call (review 5): the leftover list (a full survey) is read at most once for every seat it is asked for. */
+  let leftovers;
+  const once = () => {
+    if (leftovers === undefined) {
+      try { leftovers = require('./delete-leftover').settingsLeftovers({ platform: 'win32' }); } catch { leftovers = null; }
+    }
+    return leftovers;
+  };
+  return (slug, raw) => {
+    if (process.platform !== 'win32') return null;
+    const held = create.nameHeld(slug, 'win32');
+    return (held.job && !held.folder) ? create.win32HeldTaskWords(slug, raw, once) : null;
+  };
+}
+
 /* Whether that machine name belongs to an agent the person removed (remove keeps its folder). Loaded
    when asked: remove.js itself loads create.js. */
 function removedDefault(slug) {
@@ -188,6 +207,9 @@ function specs(req, cat, deps) {
   const taken = (deps && typeof deps.taken === 'function') ? deps.taken : takenDefault;
   // A caller that hands in its own checks (a test) gets no read of this computer's removed list.
   const removed = deps ? (typeof deps.removed === 'function' ? deps.removed : () => false) : removedDefault;
+  // kosmos#8466: the words for a seat a leftover Windows task holds; replaced with the taken check, as removed is.
+  const heldWords = (deps && typeof deps.heldWords === 'function') ? deps.heldWords
+    : (deps && typeof deps.taken === 'function') ? () => null : heldWordsDefault();
   const gone = notHeld(c);
   if (gone) return { ok: false, because: gone, unavailable: true };
   const key = req && req.team;
@@ -207,6 +229,7 @@ function specs(req, cat, deps) {
   const names = {};
   const seen = new Map();
   const takenSeats = [];
+  const heldSeats = [];   // kosmos#8466: seats held only by a leftover Windows task, in create's words
   for (const m of membersOf(team)) {
     const raw = typeof given[m.slot] === 'string' ? given[m.slot].trim() : '';
     if (!raw) return { ok: false, because: 'give the ' + m.title + ' a name' };
@@ -220,15 +243,28 @@ function specs(req, cat, deps) {
     if (req && req.checkTaken === true && removed(slug)) {
       return { ok: false, because: raw + REMOVED_WORDS + 'give the ' + m.title + ' another name' };
     }
-    if (req && req.checkTaken === true && taken(slug)) takenSeats.push({ raw, title: m.title });
+    if (req && req.checkTaken === true && taken(slug)) {
+      const words = heldWords(slug, raw);
+      // kosmos#8466 review 3: kept, not returned at once, so every taken seat is still said in one answer.
+      if (words) heldSeats.push('the ' + m.title + '\'s name: ' + words);
+      else takenSeats.push({ raw, title: m.title });
+    }
     names[m.slot] = raw;
   }
   // Every taken name in one answer: making the same team again takes all of its suggested names.
+  let agents = null;
   if (takenSeats.length === 1) {
-    return { ok: false, because: 'there is already an agent called ' + takenSeats[0].raw + ' on this computer; give the ' + takenSeats[0].title + ' another name' + MAYBE_OURS };
+    agents = 'there is already an agent called ' + takenSeats[0].raw + ' on this computer; give the ' + takenSeats[0].title + ' another name' + MAYBE_OURS;
   }
   if (takenSeats.length > 1) {
-    return { ok: false, because: 'these names are already taken on this computer: ' + takenSeats.map((t) => t.raw + ' (the ' + t.title + ')').join(', ') + '; give each one another name' + MAYBE_OURS };
+    agents = 'these names are already taken on this computer: ' + takenSeats.map((t) => t.raw + ' (the ' + t.title + ')').join(', ') + '; give each one another name' + MAYBE_OURS;
+  }
+  if (agents && !heldSeats.length) return { ok: false, because: agents };
+  /* kosmos#8466: seats held only by a leftover Windows task, each in create's words (each ends with its own full stop),
+     after the agents' sentence when there is one; every one after the first starts with a capital. */
+  if (heldSeats.length) {
+    const parts = (agents ? [agents + '.'] : []).concat(heldSeats);
+    return { ok: false, because: parts.map((p, i) => (i ? p.charAt(0).toUpperCase() + p.slice(1) : p)).join(' ') };
   }
 
   /* April (#4555): the catalogue's own reason, per member, for anything it would refuse (a role this

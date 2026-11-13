@@ -3159,7 +3159,8 @@ function guideNameStrict() {
  * that must not turn either into an error. The caller writes the once-ever flag
  * on `seeded: true`.
  */
-function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir, model } = {}) {
+/* `platform` (kosmos#8466) is TESTS ONLY: it lets a test pin the macOS and Linux rule from a Windows host. */
+function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir, model, platform } = {}) {
   if (typeof createAgent !== 'function') return { seeded: false, reason: 'no createAgent provided' };
   if (setupAssistantSeeded()) return { seeded: false, reason: 'already seeded' };
 
@@ -3197,7 +3198,29 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
     }
     /* Only a TAKEN name moves on to the fallback; any other refusal (no runner) would
        refuse the fallback the same way. The sentence is create.js's own. */
-    const taken = out && out.outcome !== create.OUTCOME.CREATED && /already an agent called/.test(String(out.because || ''));
+    const refused = Boolean(out && out.outcome !== create.OUTCOME.CREATED);
+    let taken = refused && /already an agent called/.test(String(out.because || ''));
+    /* kosmos#8466, Windows only: create.nameHeld now reads a Windows agent's Scheduled Task, which changes two of
+       create's sentences there, so the sentence alone no longer decides on win32.
+       - Anything at the folder path (a folder, a link, even one that leads nowhere): STOP, whatever the sentence. Main read a Windows guide as "already a folder" and
+         stopped; with the task read, a healthy guide whose seeded flag is missing reads "already an agent called",
+         which would move on and make a second guide beside it.
+       - A leftover task with no folder (which now holds the name, where main overwrote it): move on, as for a taken
+         name. Not a name on the removed list: main stopped there, and still does.
+       Anything else, and macOS and Linux, exactly as before. A look that fails keeps the sentence's answer. */
+    if (refused && (platform || process.platform) === 'win32') {
+      try {
+        const slug = create.slugFor(candidate);
+        const held = create.nameHeld(slug, 'win32');
+        /* Review 5: what is at the folder path, by lstat (as delete-leftover's settingsLeftovers and create's
+           win32HeldTaskWords look), not nameHeld's existsSync, which reads a link that leads nowhere (a guide folder on
+           a disk that is not connected) as nothing. Anything there, or a look that fails other than "not there", stops. */
+        let nothingAtFolder = false;
+        try { fs.lstatSync(create.workerDir(slug)); } catch (e) { nothingAtFolder = Boolean(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')); }
+        if (held.folder || !nothingAtFolder) taken = false;
+        else if (held.job && require('./remove').isRemoved(slug) !== true) taken = true;
+      } catch { /* the sentence's answer stands */ }
+    }
     if (!taken) break;
   }
 

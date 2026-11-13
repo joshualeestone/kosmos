@@ -1523,9 +1523,12 @@ test('the refusals that protect a name are each reachable and each tested (the l
   // A leftover launchd job with no folder: the exact state the README tells
   // people to expect. (Remove exists now and deletes nothing, so the halves can
   // still come apart; what is still manual is DELETE.)
+  /* kosmos#8466: the job as this platform keeps it (jobfixture.jobPath; the plist on macOS, unchanged). On Windows it
+     is the Scheduled Task's file, which nameHeld reads now; this test passed there only because nameHeld read a plist
+     Windows never uses. Asked each time (jobfixture: it also installs its stand-in Task Scheduler on Windows). */
   const orphan = 'orphan-job';
-  fs.mkdirSync(nodePath.dirname(create.plistPath(orphan)), { recursive: true });
-  fs.writeFileSync(create.plistPath(orphan), '<plist/>', 'utf8');
+  fs.mkdirSync(nodePath.dirname(jobfixture.jobPath(orphan)), { recursive: true });
+  fs.writeFileSync(jobfixture.jobPath(orphan), '<plist/>', 'utf8');
   const refused = create.createAgent({ ...BINS, name: orphan, role: 'pm' });
   assert.equal(refused.outcome, create.OUTCOME.REFUSED,
     'a name whose launchd job is still installed was accepted, so the plist gets '
@@ -1534,7 +1537,7 @@ test('the refusals that protect a name are each reachable and each tested (the l
   assert.equal(calls.length, 0, 'a refused name still ran a command');
 
   // THE CONTROL: with the job gone, the same name goes through.
-  fs.rmSync(create.plistPath(orphan));
+  fs.rmSync(jobfixture.jobPath(orphan));
   assert.equal(create.createAgent({ ...BINS, name: orphan, role: 'pm' }).outcome,
     create.OUTCOME.CREATED, 'this name is refused whatever is on disk, so the above proves nothing');
 });

@@ -5848,6 +5848,8 @@ function createAgentInner(opts) {
       outcome: OUTCOME.REFUSED,
       because: lj
         ? `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name, or free it with: systemctl --user disable --now '${lj.unitName(name)}' and then delete '${lj.unitPath(name)}'.`
+        // kosmos#8466: a Windows task with no folder is held now (nameHeld reads the task's file); its words name a true way out.
+        : jobPlatform === 'win32' ? win32HeldTaskWords(name, shown)
         : `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
       field: 'name', // #2606
       steps,
@@ -7358,8 +7360,70 @@ function selfStartsSentence(platform) {
 function nameHeld(name, platform) {
   /* #4918 review 27: on Linux the job is the systemd unit, not a plist; an orphan unit holds its name as a plist does. */
   const plat = platform || process.platform;
-  const job = plat === 'linux' ? require('./linuxjob').unitPath(name) : plistPath(name);
+  /* kosmos#8466: on Windows the job is a Scheduled Task, whose definition Task Scheduler keeps as a file
+     (win32job.taskFilePath, kosmos#8454). A plist never exists there, so this read "no job" for every Windows name, and a
+     leftover task with no folder did not hold its name: create and the team step went on and /Create /F overwrote it. */
+  const job = plat === 'linux' ? require('./linuxjob').unitPath(name)
+    : plat === 'win32' ? require('./win32job').taskFilePath(name)
+      : plistPath(name);
   return { folder: fs.existsSync(workerDir(name)), job: fs.existsSync(job) };
+}
+
+/* kosmos#8466: what create says on Windows for a name whose Scheduled Task is still registered with no folder found. The
+   Mac's "open it under Agents" is not true there: no page lists such a task except the row kosmos#8475 added (the list of
+   what is left of past agents, "Its startup job is still set up, but Kosmos cannot find its folder", whose button removes
+   the task alone). So the sentence points at that row only when the row is there for this name (settingsLeftovers is
+   the one derivation of it), and otherwise at the task itself in Task Scheduler, the way out delete-leftover.js gives
+   where no screen route exists: no profile behind the task, the workers folder missing, a name waiting to start, or a
+   look that failed. A link that leads nowhere at the agent's folder path is named first (see below). A RUNNING agent is
+   told apart: deleting its task would not stop it, and a second agent of the same name would then be made beside it.
+   Each sentence ends with its own full stop, as create's other refusals do: the caller adds none. The screen's words are
+   quoted exactly as web/index.html draws them (the toggle at the bottom of the Agents tab and the row's button). */
+function win32HeldTaskWords(name, shown, leftovers) {
+  const lead = `something called ${shown} is still set to start on this computer, though Kosmos cannot find a folder for it.`;
+  const fold = (n) => String(n).toLowerCase();   // Windows names are case-blind, as settingsLeftovers folds them
+  let listed = null;
+  try {
+    /* `leftovers` (review 5): a caller asking for several names (the team step) passes one settingsLeftovers answer as
+       a function, so the survey runs once for all of them. */
+    const r = typeof leftovers === 'function' ? leftovers() : require('./delete-leftover').settingsLeftovers({ platform: 'win32' });
+    listed = (r && r.ok && r.names.find((x) => x.startsAtLogin && fold(x.name) === fold(name))) || null;
+  } catch { listed = null; }
+  if (listed) {
+    // The name the row itself draws (its profile's shownAs), not the spelling typed here, so the person finds the row.
+    const rowName = listed.shownAs || listed.name;
+    /* The toggle's label as web/index.html draws it: "Show what is left of past agents" with no removed agents, "Show
+       removed agents and what is left of others" with some (both followed by a count). The removed agents are the list
+       /api/removed sends (remove.removedAgents); when it cannot be read, both labels are named. */
+    let toggle;
+    try {
+      toggle = require('./remove').removedAgents().length > 0
+        ? '"Show removed agents and what is left of others"' : '"Show what is left of past agents"';
+    } catch { toggle = '"Show what is left of past agents" (or "Show removed agents and what is left of others")'; }
+    return `${lead} Pick another name, or free this one: at the bottom of the Agents tab, press ${toggle}, then press "Remove its startup job…" beside ${rowName}. Its settings stay on this computer.`;
+  }
+  let running = false;
+  try { running = status.paneRoster().some((c) => fold(c.sessionName) === fold(name)); } catch { running = false; }
+  if (running) {
+    return `an agent called ${shown} is running on this computer, though Kosmos cannot find its folder. Pick another name, or stop ${shown} from its card under Agents and try this name again, and Kosmos will say how to free it.`;
+  }
+  let task = 'agent-' + name;
+  let folder = 'Kosmos';
+  try {
+    const tn = require('./win32job').taskName(name).split('\\');
+    task = tn.pop();
+    folder = tn.pop() || folder;
+  } catch { /* the default spelling still identifies it */ }
+  const scheduler = `open Task Scheduler, delete ${task} in the ${folder} folder of the Task Scheduler Library, then try again here.`;
+  /* Something at the agent's folder path that fs.existsSync does not see (a link that leads nowhere, often to a disk that
+     is not connected): with only the task deleted, the next try would end in "we could not make a folder for it". So the
+     link is named first; the agent may be whole on that disk, which is why connecting it comes before any delete. */
+  let dir = null;
+  try { dir = workerDir(name); fs.lstatSync(dir); } catch { dir = null; }
+  if (dir) {
+    return `something called ${shown} is still set to start on this computer, though its folder cannot be reached: ${dir} is a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected; if so, connecting it brings that agent back. Pick another name. If that agent is gone for good, you can free this name: delete the link at ${dir}, then ${scheduler}`;
+  }
+  return `${lead} Pick another name. If that agent is gone for good, you can free this one: ${scheduler}`;
 }
 
 module.exports = {
@@ -7367,6 +7431,7 @@ module.exports = {
   DEFAULT_BOARD_PORT,
   linuxRun,   // #4918 review 10: worldstarts' Linux arm runs through create's seam too
   nameHeld,
+  win32HeldTaskWords,   // kosmos#8466: the team step says the same for a seat a leftover Windows task holds
   MODELS,
   /* #4479: the name the person sees, for machine.js's login-job row (one derivation with the board's). */
   spokenName,
