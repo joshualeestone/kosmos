@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win-delplan-8477b
-diff_hash: 26c490a167454fbd1398f8ec6cce1fd03d3cc3f0e9f4e9d535364a85d94764b8
+diff_hash: 90f7d47f8ad418d2201a32ff78e1d794241c4ae5c8f9789b851c0c3f06d0337e
 validation: local only, substituted (npm is not on this box, so validation_log_run_or_skip fails before running anything): on the Windows box, on the CI-round commit, engine/delete-leftover.win32-confirmed-plan-8477 15/15 with and without the preload (stdin closed); every delete-leftover suite, web.delete-leftover 8, web.delete-noanswer-7852 28, server.test.js leftover arms, the 8478 suite 20/20, all as on origin/main (known on this box on main too: offthread-7835 one stdin test, server.leftover-removable 2, linuxwiring-4918 10, web.agent-sort-4428, web.pluginreach-5309); browser check render-settings-leftover-7825 all clear headless and both browser-check gates exit 0 on a temporary commit; windows-tests-1777, fixture-discipline, no-name-refs-3071, engine.reachable, win32-separator-guard, windows-coupling-audit-1732, browser-checks-wired all 0 failed; tools/test-staging-agent-online-check.sh full run 72 pass / 8 fail on the branch vs 61 / 7 on an origin/main export, the 7 shared failures and the branch's one extra all in the cases where the script deletes files itself on Windows (expected to pass on a Mac); 66-row case table for tidy_agent run on both trees, in the plan; the full suite and the Windows job on the PR's CI
 subdir_audit: passed (no CLAUDE.md in the diff)
-timestamp: 2026-11-13T19:24:41Z
+timestamp: 2026-11-13T19:50:44Z
 iterations: 13
 converged: false
 ---
