@@ -70,6 +70,12 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
   left its agents' job files behind. It now sends the plan's `confirm` as `confirmed` in both DELETE bodies; when it has
   no plan (its GET failed or refused) it takes the confirm from the refusal's returned plan for its one retry. These are
   the gate's own agents, and it already acted on the board's plan as given. No CLI or other script calls the route.
+  Kosmos#8496 (review 9, a regression against main): with the plan read failed and the first DELETE unanswered, the
+  retry went without a confirm, the board refused it as unconfirmed, and that refusal blocked the gate's own fallback,
+  so the files stayed where main cleared them. Now the no-answer retry reads the plan again when it has no confirm yet;
+  an unconfirmed refusal (`changed`, which the board sends only after its plan passed every safety check) is not
+  counted as a safety refusal, so the fallback still runs unless a real refusal came first; and the gate logs its own
+  sentence ("this script could not read that plan in time to confirm it"), not the page's.
 
 ### The page
 
@@ -146,6 +152,8 @@ suites, `create.win32-namehold-8466`, `jobexists.win32-570` and `linuxwiring-491
   the pause; the no-answer words for a changed plan. Each assertion failed against the previous round's page.
 - `tools/test-staging-agent-online-check.sh` (review 8): its fake board's leftover route now refuses a DELETE without
   the plan's confirm, as the real route does, and sends the plan back; so a gate that stops sending it fails the cases
-  that expect a clear.
+  that expect a clear. Kosmos#8496 adds four cases: a plan read failing once with a lost first DELETE clears; a plan
+  never read ends in the gate's fallback with its own words (never "its files were left", never "before an update");
+  and a real refusal (the pane running) followed by an unconfirmed one keeps the files.
 - Policy: fixture-discipline, no-name-refs-3071, engine.reachable, windows-tests-1777, win32-separator-guard,
   windows-coupling-audit-1732, web.api-routes-3957; both browser-check gates.

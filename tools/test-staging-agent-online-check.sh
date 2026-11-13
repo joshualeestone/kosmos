@@ -240,6 +240,11 @@ case "$route" in
       fi
       if [ "${MOCK_PLAN:-}" = refused ]; then emit '{"ok":false,"because":"we could not check whether it is running right now"}' 200; exit 0; fi
       if [ "${MOCK_PLAN:-}" = fail ]; then emit '{"error":"boom"}' 500; exit 0; fi
+      # kosmos#8496: failonce: each name's first plan read fails, later ones answer.
+      if [ "${MOCK_PLAN:-}" = failonce ] && [ "$(cat "${STATE}.planget" 2>/dev/null | grep -cx "$nm")" = 0 ]; then
+        printf '%s
+' "$nm" >> "${STATE}.planget"; emit '{"error":"boom"}' 500; exit 0
+      fi
       emit "{\"ok\":true,\"name\":\"$nm\",\"job\":{\"path\":\"/x/com.kosmos.agent.$nm.plist\",\"label\":\"com.kosmos.agent.$nm${MOCK_LABEL_SUFFIX:-}\"},\"toTrash\":true,\"typeToConfirm\":$ttc,\"confirm\":\"4.mock-$nm\"}" 200
     elif [ "$method" = DELETE ]; then
       printf '%s\n' "$nm" >> "${STATE}.leftover"
@@ -307,9 +312,11 @@ has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 # exit-code-only assertion is NOT red-capable for the specific branch being tested.
 run_case() {
   local label="$1" exp="$2"; shift 2
-  local want="" kept=""
+  local want="" kept="" reject=""
   if [ "${1:-}" = "--kept" ]; then kept=1; shift; fi
   if [ "${1:-}" = "--expect" ]; then want="$2"; shift 2; fi
+  # kosmos#8496: --reject "<substr>": the output must NOT contain it (an outcome told apart by what is not said).
+  if [ "${1:-}" = "--reject" ]; then reject="$2"; shift 2; fi
   local root state outp rc
   root="$(mktemp -d "${TMPDIR:-/tmp}/aoc-root.XXXXXX")"; printf 'tok\n' > "$root/board.token"
   state="$(mktemp "${TMPDIR:-/tmp}/aoc-state.XXXXXX")"; : > "$state"
@@ -344,6 +351,10 @@ run_case() {
   fi
   if [ -n "$want" ] && ! has "$outp" "$want"; then
     rm -rf "$root" "$state"*; bad "$label: expected output to contain '$want' | got: $(printf '%s' "$outp" | tr '\n' '~' | tail -c 300)"; return
+  fi
+  if [ -n "$reject" ] && has "$outp" "$reject"; then
+    rm -rf "$root" "$state"*; bad "$label: output must not contain '$reject' | got: $(printf '%s' "$outp" | tr '
+' '~' | tail -c 300)"; return
   fi
   rm -rf "$root" "$state"*
   if [ "$rc" = "$exp" ]; then pass "$label -> exit $rc"; else bad "$label: expected exit $exp, got $rc | out: $(printf '%s' "$outp" | head -3 | tr '\n' '~')"; fi
@@ -395,6 +406,14 @@ run_case "a refusal, then lost answers: the refusal still holds, files left (0)"
 run_case "a deleted answer without toTrash claims neither Trash nor gone for good (0)" 0 --expect "', and the name is free." MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=notrashfield
 run_case "a plan refusal that passes in a moment (a pane closing) is asked once more and clears (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=transient
 run_case "after a refusal, the board's typed words from the plan read again (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=transient MOCK_LEFTOVER_TYPED=1 MOCK_SHOWN=Gate-Display
+# kosmos#8496: the plan read fails and the first DELETE gets no answer. The retry reads the plan again and clears.
+run_case "a failed plan read and a lost first DELETE: the retry reads the plan again and clears (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=failonce MOCK_LEFTOVER=lost
+# ... and when the plan can never be read, the board's "not told what you agreed to delete" is no safety refusal: the gate
+# goes on to its own fallback (never "its files were left"), in its own words, not the page's.
+run_case "a plan never read, a lost first DELETE, then unconfirmed: not a safety refusal, the fallback runs (0)" 0 --expect "this script could not read that plan in time to confirm it" --reject "so its files were left" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=fail MOCK_LEFTOVER=lost
+run_case "the gate's own words for an unconfirmed refusal, not the page's (0)" 0 --expect "this script could not read that plan" --reject "before an update" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=fail MOCK_LEFTOVER=lost
+# A real safety refusal (the pane still running) and then an unconfirmed one: the files stay.
+run_case "a running refusal, then an unconfirmed one: the safety refusal still keeps the files (0)" 0 --kept --expect "before that the board refused" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=fail MOCK_LEFTOVER=transient
 run_case "a plan that answers ok:false, then a DELETE that clears, is cleared (0)" 0 --expect "cleared 'verify2129-openai-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=refused
 run_case "the typed words are the board's (its shown name), not the session name (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER_TYPED=1 MOCK_SHOWN=Gate-Display
 run_case "a board with no leftover route (404): the gate deletes the files itself (0)" 0 --expect "were deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=noroute
