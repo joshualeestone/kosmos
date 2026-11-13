@@ -16,6 +16,9 @@ section and community. Only the doctrine block has any:
   commands such as open/start/Start-Process). They read correctly anywhere and are left alone.
 - Elsewhere: the projects.js hits ("Finder did not open", "a folder your Mac hides") are error strings, not
   instruction text.
+- CORRECTED in review round 1: the PM role (engine/roles.js) also had a Windows-only clause, the PowerShell form of
+  `kosmos feedback write`. My first search missed it. A scan of every role's composed instructions on each platform
+  now finds no other: `own` and `setup` embed the doctrine block, so they follow it.
 
 So a Windows agent's block loses 10 lines, a Mac agent's loses 31, and a Linux agent's loses both (41).
 
@@ -26,12 +29,23 @@ So a Windows agent's block loses 10 lines, a Mac agent's loses 31, and a Linux a
 - Markers bracket whole lines and never nest. An unpaired marker throws at load, so a broken edit fails every test
   instead of shipping a marker. The Answering clause was rewrapped so it sits on whole lines, with one wording per
   platform.
+- `exceptOn(['win32'], [...])` keeps lines everywhere but Windows, so a platform not named here (freebsd, say) reads
+  as Linux does. The non-Windows ending of the Answering clause uses it, so no platform gets a broken sentence.
+- The PM role's PowerShell feedback clause is on Windows only (process.platform when roles.js loads, as BLOCK).
+- tools.windows-kosmos-cli-verbs-parity reads every platform's block, so it checks the same lines on every runner.
 - `sections(platform)` takes an optional platform. Tests read each platform's sections, and callers keep the board's.
 - DOCTRINE_VERSION is 50. The pairing test pins one fingerprint per platform from version 50 on, so the pin is the
   same whichever platform runs it. Each pinned prefix must have a row in engine/doctrine-past.js.
 - tools/doctrine-past.js writes a row for each platform's block when a version has `blockFor`. Earlier versions keep
   their one block, and three v50 rows were written. An unedited copy on any platform is still recognised, so the
   consented refresh can offer the current block.
+
+Also in the regenerated ledger: a v49 row (34129 characters) and one section hash that are not from this card. They
+come from an interim commit already on main (75571f7d57) whose block was never written to the ledger. Holding interim
+blocks is what the ledger is for, so the row is kept.
+
+Left alone: the in-passing mentions name commands for Mac and Windows but not Linux (sha256, the install folder).
+That is a gap in coverage, not a platform-only line, and not this card.
 
 Rejected:
 - **Tagging whole sections only.** The PowerShell material is a paragraph and a clause inside shared sections, so
@@ -51,8 +65,8 @@ computer whose board writes them. Remote or cross-platform agents would need the
 - engine/defaults.platform-8506.test.js (5): each platform's board, loaded as it really is (process.platform set before
   the require, in a child), writes only its own lines.
 
-## Proof so far
-- New file 5/5. 5 mutations, each one red: platform ignored, markers leaking, sections ignoring the platform, the tmux
+## Proof so far (after review round 1)
+- New file 7/7. 8 mutations, each one red (5 first, then 3 after round 1): platform ignored, markers leaking, sections ignoring the platform, the tmux
   section on every platform, and a v50 ledger row removed.
 - 90 doctrine-related test files (defaults, doctrine, team, roles, instructions, rules, create): 1299 tests,
   1286 pass, 0 fail, 13 skipped. The Windows-list guard and the past-ledger tool tests: 28 pass.

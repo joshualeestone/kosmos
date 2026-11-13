@@ -41,13 +41,15 @@
    thing that reaches an agent is the composed string. */
 /* kosmos#8506: lines for some platforms only. The board writes its agents' instructions on the computer they run on,
    so process.platform is theirs; a Windows agent got the macOS tmux permission box and a Mac agent the PowerShell
-   forms. onlyOn(['darwin'], [...]) keeps those lines on macOS and drops them elsewhere; blockFor() composes one
-   platform's block. Markers bracket whole lines, never nest, and never reach an agent (blockFor refuses an unpaired
-   one at load, so a broken edit fails every test rather than shipping a marker). */
+   forms. onlyOn(['darwin'], [...]) keeps those lines on macOS only; exceptOn(['win32'], [...]) keeps them everywhere
+   but Windows, so a platform not named here gets them too. blockFor() composes one platform's block. Markers bracket
+   whole lines, never nest, and never reach an agent (blockFor refuses an unpaired one at load, so a broken edit fails
+   every test rather than shipping a marker). */
 const ONLY_MARK = '\u0000kosmos-only:';
 const ONLY_END = '\u0000kosmos-only-end';
 const PLATFORMS = Object.freeze(['darwin', 'linux', 'win32']);
 function onlyOn(platforms, lines) { return [ONLY_MARK + platforms.join(','), ...lines, ONLY_END]; }
+function exceptOn(platforms, lines) { return [ONLY_MARK + '!' + platforms.join(','), ...lines, ONLY_END]; }
 const LINES = [
   '## How you work, whatever the job',
   '',
@@ -220,7 +222,7 @@ const LINES = [
   'direct message, the command at the end of its bracket:',
   '`kosmos msg --in-reply-to <id> <name> "..."`. If the text holds a `$` or a',
   'backtick, give it on stdin instead (the shell trap under "Send readable',
-  ...onlyOn(['darwin', 'linux'], [
+  ...exceptOn(['win32'], [
     'messages").',
   ]),
   ...onlyOn(['win32'], [
@@ -732,8 +734,8 @@ const LINES = [
   'way for you to react back in a direct conversation; answer in words when an',
   'answer is needed.',
 ];
-/* One platform's block: the shared lines plus that platform's own. A platform this file does not name gets the shared
-   lines only, as Linux does. */
+/* One platform's block: the shared lines, the lines kept for that platform, and the exceptOn lines it is not excluded
+   from. A platform this file does not name gets the shared and exceptOn lines, as Linux does. */
 function blockFor(platform) {
   const out = [];
   let keep = true;
@@ -742,7 +744,8 @@ function blockFor(platform) {
     if (typeof line === 'string' && line.startsWith(ONLY_MARK)) {
       if (open) throw new Error('defaults: a platform section opens inside another');
       open = true;
-      keep = line.slice(ONLY_MARK.length).split(',').includes(platform);
+      const spec = line.slice(ONLY_MARK.length);
+      keep = spec.startsWith('!') ? !spec.slice(1).split(',').includes(platform) : spec.split(',').includes(platform);
       continue;
     }
     if (line === ONLY_END) {

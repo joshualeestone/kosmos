@@ -313,7 +313,8 @@ test('#4478: a folder or file removed between the listing and the read is skippe
 
 test('the texts agents are actually given name only verbs the Windows command has: no person-only verb, no missing subcommand', () => {
   const texts = [
-    ['engine/defaults.js block()', require('./engine/defaults').block()],
+    // kosmos#8506: every platform's block, so this reads the same lines on every runner (the Windows forms included).
+    ...require('./engine/defaults').PLATFORMS.map((p) => ['engine/defaults.js blockFor(' + p + ')', require('./engine/defaults').blockFor(p)]),
     ['engine/messages.js blockBody()', require('./engine/messages').blockBody()],
     ['engine/communityblock.js blockBody()', require('./engine/communityblock').blockBody()],
     ...require('./engine/roles').ROLES.map((r) => ['engine/roles.js ' + r.key, r.instructions]),
