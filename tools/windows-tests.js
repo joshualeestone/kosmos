@@ -134,7 +134,8 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
   // kosmos#8378: the board's roster through the pane source the Windows board uses, and its jobs in a stand-in Task
   // Scheduler; the tmux-stop, launchd and bash sign-in mock arms skip with their reasons.
   'server.test.js', 'server.disconnect-stop-2570.test.js', 'web.not-running.test.js',
-  'server.codexlimits-6176.test.js'];   // kosmos#8454: a moved Codex agent's job time, read from its Scheduled Task's file
+  'server.codexlimits-6176.test.js',   // kosmos#8454: a moved Codex agent's job time, read from its Scheduled Task's file
+  'cli.community-repeat-8483.test.js'];   // kosmos#8483: the Windows CLI's repeat and maybe-503 arms run here; its Mac CLI arms skip by skipOnWin32
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
