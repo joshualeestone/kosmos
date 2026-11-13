@@ -6932,17 +6932,36 @@ function addMemberForTask(id, name, roster, viaScreen, tokenOnly) {
     const v = projects.memberValve();
     if (v.refused) return { refusal: [429, v.because], retryAfterSecs: v.retryAfterSecs };
   }
+  const heldAtAdd = openPartsOf(project, name);   // for undoJoinForTask: work it held before this add
   try { projects.addAgent(id, name, roster, { via: viaScreen ? 'screen' : 'process' }); }
   catch (err) {
     const code = (err && err.code === 'UNREADABLE') ? 500 : (/no project by that name/.test(String(err && err.message)) ? 404 : 400);
     return { refusal: [code, String((err && err.message) || 'we could not add that agent to the project') + ', so nothing was changed'] };
   }
-  return { added: true };
+  return { added: true, heldAtAdd };
 }
 /* kosmos#8501: a member added for a task that was then not given is taken off again, so a refused task leaves the
-   project as it was. True when it is off; false when the store would not take it off (the answer then says it stayed). */
-function undoJoinForTask(id, name, viaScreen) {
-  try { projects.removeAgent(id, name, { via: viaScreen ? 'screen' : 'process' }); return true; } catch { return false; }
+   project as it was. Not when another request gave it work on the project while this one waited (an open part it did
+   not hold when it was added, `heldAtAdd`): taking it off would leave that work with someone off the project.
+   True when it is off or stays for that reason; false when the store would not take it off (the answer then says it
+   stayed). Only membership is undone (removeAgent), not the member route's leftovers clean-up or instruction sync:
+   nothing on the add path wrote either before a refusal. */
+function openPartsOf(project, name) {
+  const out = new Set();
+  for (const t of (project && project.tasks) || []) {
+    if (!t || tasks.progressOf(t).closed) continue;
+    for (const x of tasks.partsOf(t)) if (x && x.who === name && !x.closedAt) out.add(t.number + '.' + x.id);
+  }
+  return out;
+}
+function undoJoinForTask(id, name, viaScreen, heldAtAdd) {
+  try {
+    const project = (projects.readAll() || []).find((x) => x && x.id === id);
+    const before = heldAtAdd instanceof Set ? heldAtAdd : new Set();
+    if (project && [...openPartsOf(project, name)].some((k) => !before.has(k))) return true;
+    projects.removeAgent(id, name, { via: viaScreen ? 'screen' : 'process' });
+    return true;
+  } catch { return false; }
 }
 /* kosmos#8501: once the task is given, the joined line the member route types into a running agent's pane. Best effort:
    the task's own tell has already written the project into the agent's instructions. */
@@ -6954,8 +6973,9 @@ async function sayJoinedForTask(id, name, roster) {
 }
 /* kosmos#8501: the non-member refusal, with the one step that fixes it when the name is an agent this board runs. */
 const NOT_ON_PROJECT_GIVE_RE = /^that agent is not on this project, so the (?:task|part) cannot be given to it$/;
-function withAddMemberHint(msg, name, roster) {
-  if (!NOT_ON_PROJECT_GIVE_RE.test(String(msg)) || typeof name !== 'string' || !name) return msg;
+function withAddMemberHint(msg, name, roster, tokenOnly) {
+  // A caller let in on its agent token alone would only meet addMemberForTask's 403, so it is not offered the step.
+  if (tokenOnly || !NOT_ON_PROJECT_GIVE_RE.test(String(msg)) || typeof name !== 'string' || !name) return msg;
   if (!Array.isArray(roster) || !roster.some((a) => a && a.sessionName === name)) return msg;
   return msg + '. To put ' + oneLinePlain(name) + ' on the project and give it the task in one step, run the same command again with --add-member';
 }
@@ -25753,13 +25773,14 @@ const server = http.createServer(async (req, res) => {
         // kosmos#8501: --add-member puts a non-member on the project first (addMemberForTask).
         if (body.addMember !== undefined && body.addMember !== true) { sendJson(res, 400, { error: 'addMember must be true or absent' }); return; }
         let joined = null;
+        let heldAtAdd = null;
         if (body.addMember === true) {
           const j = addMemberForTask(id, whoAsked, roster, viaScreen, agentTokenOnlyCaller(req) !== null);
           if (j.refusal) {
             if (j.retryAfterSecs) res.setHeader('retry-after', String(j.retryAfterSecs));
             sendJson(res, j.refusal[0], { error: j.refusal[1], ...(j.retryAfterSecs ? { retry_after_secs: j.retryAfterSecs } : {}) }); return;
           }
-          if (j.added) joined = whoAsked;
+          if (j.added) { joined = whoAsked; heldAtAdd = j.heldAtAdd; }
         }
         let created = false;   // kosmos#8501: an error after this point is not a refused task, so no member is taken off
         try {
@@ -25845,10 +25866,10 @@ const server = http.createServer(async (req, res) => {
           // the person's input (400).
           const code = (err && err.code === 'UNREADABLE') ? 500
             : (/no project by that name/.test(String(err && err.message)) ? 404 : 400);
-          const msg = withAddMemberHint(String((err && err.message) || 'we could not add that task'), whoAsked, roster);
+          const msg = withAddMemberHint(String((err && err.message) || 'we could not add that task'), whoAsked, roster, agentTokenOnlyCaller(req) !== null);
           // kosmos#8501: a member added for this task is taken off again; only if that fails does the answer say it stayed.
           if (created) { sendJson(res, code, { error: msg, ...(joined ? { addedMember: joined } : {}) }); return; }
-          const stayed = joined && !undoJoinForTask(id, joined, viaScreen);
+          const stayed = joined && !undoJoinForTask(id, joined, viaScreen, heldAtAdd);
           sendJson(res, code, stayed
             ? { error: oneLinePlain(joined) + ' was put on the project and could not be taken off again, and the task was not added: ' + msg, addedMember: joined }
             : { error: msg });
@@ -27295,18 +27316,19 @@ const server = http.createServer(async (req, res) => {
       // kosmos#8501: --add-member puts a non-member on the project first (addMemberForTask), after every check above.
       if (body.addMember !== undefined && body.addMember !== true) { sendJson(res, 400, { error: 'addMember must be true or absent' }); return; }
       let joined = null;
+      let heldAtAdd = null;
       if (body.addMember === true) {
         const j = addMemberForTask(id, asked.who, roster, viaScreen, agentTokenOnlyCaller(req) !== null);
         if (j.refusal) {
           if (j.retryAfterSecs) res.setHeader('retry-after', String(j.retryAfterSecs));
           sendJson(res, j.refusal[0], { error: j.refusal[1], ...(j.retryAfterSecs ? { retry_after_secs: j.retryAfterSecs } : {}) }); return;
         }
-        if (j.added) joined = asked.who;
+        if (j.added) { joined = asked.who; heldAtAdd = j.heldAtAdd; }
       }
       // A member added above for a task that is then not moved is taken off again; only if that fails does it stay.
       let moved = false;   // an error after the move is not a refused move, so no member is taken off
       const failed = (code, msg, extra = {}) => {
-        const stayed = joined && !moved && !undoJoinForTask(id, joined, viaScreen);
+        const stayed = joined && !moved && !undoJoinForTask(id, joined, viaScreen, heldAtAdd);
         sendJson(res, code, stayed
           ? { error: oneLinePlain(joined) + ' was put on the project and could not be taken off again, and the task was not moved: ' + msg, addedMember: joined, ...extra }
           : { error: msg, ...extra });
@@ -27315,14 +27337,14 @@ const server = http.createServer(async (req, res) => {
         partId = Number(partId);
         const g = await givePart(id, task.number, partId, asked.who, { screen: viaScreen, roster, asyncDelivery: true, noPage: toSelf, by: caller.card ? caller.card.sessionName : null });
         if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); failed(429, g.because, { retry_after_secs: g.retryAfterSecs }); return; }
-        if (!g.ok) { failed(g.status || 400, withAddMemberHint(g.because, asked.who, roster)); return; }
+        if (!g.ok) { failed(g.status || 400, withAddMemberHint(g.because, asked.who, roster, agentTokenOnlyCaller(req) !== null)); return; }
         moved = true;
         /* `who` first: the Mac CLI reads the new owner from the start of this answer (the task inside has its own). */
         if (joined) await sayJoinedForTask(id, joined, roster);
         sendJson(res, 200, { who: asked.who === undefined ? null : asked.who, part: Number(partId), task: g.task, told: g.told, heard: g.heard, ...(joined ? { addedMember: joined } : {}) });
       } catch (err) {
         const msg = String((err && err.message) || '');
-        failed(/no project by that name|no task by that number/.test(msg) ? 404 : 400, withAddMemberHint(msg || 'we could not move that task', asked.who, roster));
+        failed(/no project by that name|no task by that number/.test(msg) ? 404 : 400, withAddMemberHint(msg || 'we could not move that task', asked.who, roster, agentTokenOnlyCaller(req) !== null));
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;

@@ -22,7 +22,13 @@ Card: joshualeestone/kosmos#8501. The measurement and the decision are on the ca
 - `addMember` must be true or absent.
 - A refused task never leaves a new member. If the create or the give is refused after the add, the member is taken
   off again (removeAgent). An error after the task was created or moved does not take anyone off. Only if the
-  removal itself fails does the answer say the agent stayed (with `addedMember`).
+  removal itself fails does the answer say the agent stayed (with `addedMember`). The undo keeps the agent if another
+  request gave it open work on the project while this one waited (an open part it did not hold at the add), because
+  taking it off would leave that work with someone off the project. Only membership is undone: nothing on the add
+  path wrote the leftovers or the instruction sync that the member route's DELETE also clears. A refused add and its
+  undo are two memberChanges records, so they count twice against the valve; accepted.
+- The `--add-member` step is not offered in the refusal to a caller on an agent token alone, who would only meet the
+  403.
 - The joined pane line is typed only after the task is given, after the task's own tell has written the project into
   the agent's instructions (the member route's order: sync, then speak).
 - Assign: the add happens after the route's own checks (task exists, part chosen, task not done).
@@ -48,9 +54,9 @@ valve, and no ruling makes membership the person's alone (searched).
 - server.js: addMemberForTask, sayJoinedForTask, withAddMemberHint; the task add and task assign routes.
 - install/kosmos and tools/windows/kosmos-cli.js: the flag on task add and task assign, the added line, and help.
 - tools/windows-tests.js: the new CLI test is listed as its sibling cli.task-assign-4914 is.
-- Tests: server.task-addmember-8501.test.js (9), cli.task-addmember-8501.test.js (3, both CLIs against a real board).
+- Tests: server.task-addmember-8501.test.js (13), cli.task-addmember-8501.test.js (3, both CLIs against a real board).
 
-## Proof so far (after review round 1)
-- server.task-addmember-8501: 12 pass; cli.task-addmember-8501: 3 pass. 19 mutations before review and 5 after
-  round 1; every one red.
+## Proof so far (after review round 2)
+- server.task-addmember-8501: 13 pass; cli.task-addmember-8501: 3 pass. Mutations: 19 before review, 5 after round 1,
+  3 after round 2; every one red.
 - 2140 test files before review (effectively the whole suite): 29012 tests, 0 fail.
