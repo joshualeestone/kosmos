@@ -391,6 +391,7 @@ test('kosmos#8484: two real agents holding both names is still names-taken; one 
   const one = win32Seed((o) => { tried.push(o.name); return { outcome: create.OUTCOME.REFUSED, because: agentWords(o.name) }; });
   assert.deepEqual(tried, [sa.GUIDE_NAME], 'PREMISE: a folder under the first name stops the loop on Windows');
   assert.equal(one.namesTaken, undefined, 'one refused name was reported as "two of your agents"');
+  assert.equal(one.heldByAgent, true);
 });
 
 test('kosmos#8484: the Windows "free this one" form (a removed-list row for the task) reads as one instruction', () => {
@@ -398,4 +399,45 @@ test('kosmos#8484: the Windows "free this one" form (a removed-list row for the 
   assert.equal(s, 'Kosmos did not set up the Kosmos Guide, because the name Josh is in use. Something called Josh is still set to start on this computer, though Kosmos cannot find a folder for it. To free the name: at the bottom of the Agents tab, press "Show what is left of past agents", then press "Remove its startup job…" beside Josh. Its settings stay on this computer. Then choose Set it up now.');
   // A running agent with no folder is a real agent, not a leftover: it keeps its old wording.
   assert.equal(sa.heldSentenceForTests('Josh', 'an agent called Josh is running on this computer, though Kosmos cannot find its folder. Pick another name, or stop Josh from its card under Agents and try this name again, and Kosmos will say how to free it.'), null);
+});
+
+test('kosmos#8484: on Windows, one real agent called Josh says so and is held for the process (no paid retries)', async () => {
+  const agentWords = (n) => `there is already an agent called ${n}. If it never came up, it is half made rather than missing.`;
+  const slug = create.slugFor(sa.GUIDE_NAME);
+  fs.mkdirSync(create.workerDir(slug), { recursive: true });   // a folder there: #8466 stops at the first name on Windows
+  const r = win32Seed(() => ({ outcome: create.OUTCOME.REFUSED, because: agentWords(sa.GUIDE_NAME) }));
+  assert.equal(r.heldByAgent, true);
+  assert.equal(r.because, 'Kosmos did not set up the Kosmos Guide, because one of your agents is already called Josh. Rename it, restart Kosmos, then choose Set it up now.');
+  fs.writeFileSync(sa.armPath(), '{}\n');
+  try {
+    let checks = 0;
+    const calls = [];
+    const deps = { enabled: true, settings: {}, platform: 'win32', jobPresence: () => 'no', birthLog: () => [],
+      listFor: (mod) => (mod === './accounts' ? [{ dir: '/h/.claude', isDefault: true }] : []),
+      connectable: async () => { checks += 1; return { ok: true }; }, liveDefault: async () => true };
+    const createAgent = (o) => { calls.push(o.name); return { outcome: create.OUTCOME.REFUSED, because: agentWords(o.name) }; };
+    const e1 = await sa.ensureGuide({ createAgent, deps });
+    assert.equal(e1.because, r.because);
+    const e2 = await sa.ensureGuide({ createAgent, deps, now: Date.now() + 10 * sa.RETRY_MAX_MS, explicit: true });
+    assert.equal(e2.because, r.because, 'the second try lost the sentence');
+    assert.equal(e2.state, 'refused');
+    assert.equal(checks, 1, 'a name a real agent holds was live-checked again (a paid call each hour)');
+    assert.deepEqual(calls, [sa.GUIDE_NAME], 'the create was tried again');
+  } finally { fs.rmSync(sa.armPath(), { force: true }); }
+  // CONTROL: on a Mac the same refusal moves on, so this answer never applies there.
+  const mac = sa.seedSetupAssistant({ platform: 'darwin', hasConnectedAccount: CONNECTED, deps: { jobPresence: () => 'no', birthLog: () => [] },
+    createAgent: (o) => ({ outcome: o.name === sa.GUIDE_NAME ? create.OUTCOME.REFUSED : create.OUTCOME.CREATED, because: agentWords(o.name), name: create.slugFor(o.name) }) });
+  assert.equal(mac.seeded, true, 'CONTROL: a Mac did not move on to the second name');
+});
+
+test('kosmos#8484: the first leftover is named only when the last name was refused as a real agent', () => {
+  const slug = create.slugFor(sa.GUIDE_NAME);
+  const task = win32job.taskFilePath(slug);
+  fs.mkdirSync(path.dirname(task), { recursive: true });
+  fs.writeFileSync(task, '<Task/>');
+  try {
+    const words = create.win32HeldTaskWords(slug, sa.GUIDE_NAME, noRow);
+    const r = win32Seed((o) => ({ outcome: create.OUTCOME.REFUSED, because: o.name === sa.GUIDE_NAME ? words : 'we could not find Claude Code on this computer' }));
+    assert.equal('because' in r, false, 'freeing Josh was advised for a refusal it would not fix');
+  } finally { fs.rmSync(task, { force: true }); }
 });

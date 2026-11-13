@@ -54,7 +54,7 @@ The page sentence depends on create's refusal wording. The tests call the real c
 that wording turns them red.
 
 ## Tests
-- engine/setup-assistant.adopt-8484.test.js (21): adopt by marker; flag record; adopt before any live check, guards
+- engine/setup-assistant.adopt-8484.test.js (23): adopt by marker; flag record; adopt before any live check, guards
   re-applied; by birth line; newest line only; id mismatch, no id, partial; job proven gone; job unknown or unreadable
   (unclear, no advice); removed guide; fallback name; no folder; held folder, held job and removed list with the real
   create; the Linux command form; other refusals unchanged, including "Pick another name for now".
@@ -140,3 +140,22 @@ that wording turns them red.
   file Kosmos did not make, systemd still running it, a job with nothing else left) still show "Try again in a
   moment"; the profile read when no line matched, and the second adoptExisting inside the seed; the page's unclear
   sentence names only Josh when the guide in doubt is Josh AI.
+
+#### PR #8487 CI, first run: one red, the #6668 watchdog test (tools.run-tests-file-timeout-6668.test.js)
+- Green alone 4 of 4 and green on main's runs at the same base; not this branch. Pushed fresh (empty commit), per
+  the re-run rule. Second run: Windows red on #8466's test "a healthy guide under the first name with no seeded flag
+  gets no second guide beside it": it pinned one refused create of Josh, and the guide is now ADOPTED with no create
+  tried. Its assertion now pins adoption (no create, seeded and adopted under the first name, still no second folder).
+
+#### Iteration 7 (sonnet)
+- WARNING: on Windows one real agent called Josh stops the seed at the first name (#8466); with names-taken now only
+  for two real agents, that case fell to "Try again in a moment" and a paid live check on the back-off, hourly at
+  most, for as long as the board runs. Fixed: the seed answers heldByAgent with a true sentence ("one of your agents is
+  already called Josh. Rename it, restart Kosmos, then choose Set it up now."), and ensureGuide holds it for the
+  process as it holds names-taken. A tests-only deps.platform reaches the seed's #8466 seam from ensureGuide. Tests:
+  the sentence, no second create or live check (explicit too), a Mac control.
+- WARNING: the first leftover's sentence was given whatever the last name's refusal was. Fixed: only when the last
+  name was refused as a real agent. Test.
+- NITs left: the link-that-leads-nowhere Windows form has no test of its own (it degrades to the old wording); a
+  birth-line adoption writes the marker the page route trusts, on createdBy/role/purpose plus the newest-line and
+  profile-id checks; a guide with no job found only inside the seed counts as a failure for the back-off.

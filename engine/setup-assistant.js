@@ -3364,11 +3364,18 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
        with no folder, since #8466), it is that leftover the person can clear, so its sentence is given: "Two of your
        agents already use the Kosmos Guide's names" would be false. */
     const firstLeft = passed.find((x) => !/already an agent called/.test(x.because));
-    const held = heldSentence(name, because) || (firstLeft ? heldSentence(firstLeft.name, firstLeft.because) : null);
+    const lastIsAgent = /already an agent called/.test(because);
+    const held = heldSentence(name, because) || (firstLeft && lastIsAgent ? heldSentence(firstLeft.name, firstLeft.because) : null);
     /* names-taken only when BOTH names were refused as real agents' (create's folder-and-job sentence for each): on
        Windows since #8466 a real Josh stops the loop at the first name, and one refusal is not "two of your agents". */
     const bothAgents = !held && passed.length === 2 && passed.every((x) => /already an agent called/.test(x.because));
-    return { seeded: false, reason: 'not created: ' + (because || (out && out.outcome) || 'unknown'), ...(held ? { because: held } : {}), ...(bothAgents ? { namesTaken: true } : {}) };
+    /* And one real agent that stopped the loop at its name (Windows, since #8466: a folder there stops): true words
+       for it, and, like names-taken, it does not clear by waiting (ensureGuide holds it for the process). */
+    const oneAgent = !held && !bothAgents && lastIsAgent;
+    const shownOf = (n) => (n === GUIDE_FALLBACK_NAME ? GUIDE_FALLBACK_NAME : GUIDE_NAME);
+    const agentWords = oneAgent ? `Kosmos did not set up the Kosmos Guide, because one of your agents is already called ${shownOf(name)}. Rename it, restart Kosmos, then choose Set it up now.` : null;
+    return { seeded: false, reason: 'not created: ' + (because || (out && out.outcome) || 'unknown'),
+      ...(held ? { because: held } : {}), ...(bothAgents ? { namesTaken: true } : {}), ...(agentWords ? { because: agentWords, heldByAgent: true } : {}) };
   }
 
   const avatarCopied = copyGuideAvatar(out.name || name, avatarDir);
@@ -3588,6 +3595,9 @@ let createdHere = false;
    final for this process rather than an hourly live check plus refused creates forever
    (review round 8). A board restart tries once more. */
 let namesTaken = false;
+/* kosmos#8484: one real agent holding the guide's name where the seed does not move on (Windows): final for this
+   process, as namesTaken is, with its sentence kept for the page. A board restart tries once more. */
+let heldByAgent = null;
 
 function retryWaitMs() {
   return Math.min(RETRY_MAX_MS, RETRY_AFTER_MS * Math.pow(2, Math.max(0, failures - 1)));
@@ -3607,8 +3617,8 @@ function retryWaitMs() {
  * one live check per click). Every other gate stands, the never-seeded one included: a guide that was made and
  * then removed is RESTORED by the caller (/api/settings), never made a second time.
  * `deps` is TESTS ONLY: listFor / connectable / liveDefault (the account seams),
- * enabled / settings (the switches), avatarDir, and jobPresence / birthLog (kosmos#8484's look for an existing
- * guide). Production passes none.
+ * enabled / settings (the switches), avatarDir, jobPresence / birthLog (kosmos#8484's look for an existing
+ * guide) and platform (the seed's #8466 seam). Production passes none.
  */
 function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), deps = {}, explicit = false } = {}) {
   if (inFlight) return inFlight;
@@ -3625,6 +3635,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
   if (!isArmed() && !explicit) return Promise.resolve({ seeded: false, state: 'not-armed', reason: 'not armed (first run is not finished)' });
   if (createdHere || setupAssistantSeeded()) return Promise.resolve({ seeded: false, state: 'seeded', reason: 'already seeded' });
   if (namesTaken) return Promise.resolve({ seeded: false, state: 'names-taken', reason: 'both guide names are taken by other agents' });
+  if (heldByAgent) return Promise.resolve({ seeded: false, state: 'refused', reason: 'a guide name is held by another agent', because: heldByAgent });
   /* "Close forever" (the bubble's switch) also means: no guide agent later. */
   let wanted = true;
   try { wanted = settingFrom(deps.settings !== undefined ? deps.settings : store.readSettings()).on; } catch { wanted = true; }
@@ -3658,7 +3669,8 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
         /* hasConnectedAccount is already answered, more strictly, by usable() (any
            provider, create's own gate); the seed's default check is Claude-only and would
            refuse an OpenAI-only person, so it is bypassed here on purpose. */
-        const seed = seedSetupAssistant({ createAgent, hasConnectedAccount: () => true, avatarDir: deps.avatarDir, model, deps: seedDeps });
+        const seed = seedSetupAssistant({ createAgent, hasConnectedAccount: () => true, avatarDir: deps.avatarDir, model, deps: seedDeps,
+          ...(deps.platform ? { platform: deps.platform } : {}) });   // platform: tests only (#8466's seam)
         if (seed && seed.seeded) {
           createdHere = true;
           markSetupAssistantSeeded(seed.adopted ? { name: seed.name, via, adopted: true } : { name: seed.name, via, provider: model.provider });   // kosmos#8484: adopted, no provider
@@ -3673,6 +3685,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
         /* kosmos#8484: only two REAL agents are names-taken (the screen says "Two of your agents"); a leftover holding
            either name carries its sentence (seed.because) instead, below. */
         if (seed && seed.namesTaken) { namesTaken = true; break; }
+        if (seed && seed.heldByAgent) { heldByAgent = seed.because; break; }
         /* kosmos#8484: and a name held by a leftover (seed.because) or a guide found between the look above and here:
            also about the name, so stop. Not final like namesTaken: clearing the leftover frees it. */
         if (seed && (seed.because || seed.guideWithoutJob || seed.guideUnchecked || seed.guideRemoved)) break;
@@ -3694,7 +3707,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
 }
 
 /* Test seam: forget the backoff between cases. */
-function resetEnsureGuideForTests() { inFlight = null; lastFailedAt = 0; failures = 0; failedFingerprint = null; createdHere = false; namesTaken = false; }
+function resetEnsureGuideForTests() { inFlight = null; lastFailedAt = 0; failures = 0; failedFingerprint = null; createdHere = false; namesTaken = false; heldByAgent = null; }
 
 /*
  * The person's switch for the setup assistant bubble (#3034; Josh, 2026-09-24 18:02:
