@@ -568,9 +568,11 @@ const projectsMod = require('./projects');
    create.setRunner (launchctl, systemctl), so the file is read at the first call that runner gets. kosmos#8456: on
    Windows the start is the agent's Scheduled Task being run, so the file is read when the stand-in Task Scheduler
    (test-support/jobfixture) is asked to /Run it; create's runner does not read there, so nothing else can be taken
-   for the start. `.text` stays null until the start happens; `.stop()` ends the watch. */
+   for the start. `.text` stays null until the start happens; `.stop()` ends the watch. `.runs` counts the /Run calls
+   on Windows (kosmos#8456 review 3), where a second start is not otherwise seen: Task Scheduler ignores a /Run on a
+   task that is running. */
 function startWatch(file) {
-  const seen = { text: null, stop: null };
+  const seen = { text: null, stop: null, runs: 0 };
   const read = () => {
     if (seen.text === null) {
       try { seen.text = fs.readFileSync(file, 'utf8'); } catch { seen.text = ''; }
@@ -580,7 +582,7 @@ function startWatch(file) {
     if (process.platform !== 'win32') read();
     return { ok: true, stdout: '' };
   });
-  seen.stop = jobfix.watchScheduler((a) => { if (process.platform === 'win32' && a[0] === '/Run') read(); });
+  seen.stop = jobfix.watchScheduler((a) => { if (process.platform === 'win32' && a[0] === '/Run') { seen.runs += 1; read(); } });
   return seen;
 }
 
@@ -601,6 +603,7 @@ test('#1349: an imported agent gets the project block, BEFORE it is started', ()
   const atStart = watched.text;
   assert.equal(r.ok, true, r.because);
   assert.ok(atStart !== null, 'the runner never ran, so this proves nothing about ordering');
+  if (process.platform === 'win32') assert.equal(watched.runs, 1, 'the agent was started more than once');
   assert.match(atStart, /kosmos:projects:start/,
     'the agent was STARTED before its project block was written: it will be born telling '
     + 'the person to restart it (#732)');
@@ -675,6 +678,7 @@ test('#1363: an imported agent is born with the rules and the connector words', 
   const atStart = watched.text;
   assert.equal(r.ok, true, r.because);
   assert.ok(atStart !== null, 'the runner never ran, so this proves nothing about ordering');
+  if (process.platform === 'win32') assert.equal(watched.runs, 1, 'the agent was started more than once');
 
   /* 🔑 READ AT THE MOMENT OF START, not after connect returned. Rules that arrive
      afterwards are rules the agent was not born with, which is the #732 shape. */

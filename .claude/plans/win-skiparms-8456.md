@@ -74,3 +74,13 @@ session, not that a separate process came up. The codex list is stood in at win3
 Each changed file on this box with and without the preload, stdin closed, and with TEMP/TMP set to an 8.3 short
 path. Negative controls: skipped look-again, no-op disable, no-op enable, no taskkill on restart, no boot shim written,
 project block written after the start, and a task line naming another file: each failed its arm.
+
+## Review round 3
+- Restore on Windows: after the task's `/ENABLE`, a `/Run` for it and the agent running again (`procs.pidOf`).
+- Removal arms with a task (round trip, #2615, allowlist) assert at the stand-in that the task is switched off and
+  ended (`jobfix.win32Task`). `win32Processes().start` marks the agent's task running, as a `/Run` does. The card-name
+  arm is left out: its agent is a legacy `-discord` session whose only job is a Mac plist, so on Windows it has no task
+  to switch off, and a no-op disable or `/End` cannot change it.
+- `reset()` on the process table (live entries, state files, survivors, never-comes-up marks, running tasks), called
+  per arm in the 2570 file; `stop()` does it too. agentOn now refuses an agent already running from an earlier arm.
+- Create and adopt arms assert exactly one `/Run` for the task.

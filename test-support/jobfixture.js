@@ -255,6 +255,16 @@ function useWin32Scheduler() {
   return dir;
 }
 
+/** kosmos#8456 review 3: the agent's task as the stand-in Task Scheduler holds it, read without installing anything:
+    { exists, enabled, running }. `enabled` is the task's own switch (<Settings><Enabled>); `running` is true from an
+    answered /Run (or win32Processes' start) until its /End or /Delete. Windows only. */
+function win32Task(name, worldId) {
+  if (!win32()) throw new Error('jobfixture.win32Task: the stand-in Task Scheduler is Windows only');
+  const file = taskFile(win32TaskDir(), require('../engine/win32job').taskName(name, worldId));
+  const exists = !!file && fs.existsSync(file);
+  return { exists, enabled: exists && !switchedOff(fs.readFileSync(file, 'utf8')), running: exists && runningTasks.has(file) };
+}
+
 /** kosmos#8456: watch the stand-in Task Scheduler. `fn(args)` sees every schtasks call (its arguments, `/Run`, `/TN`,
     the task name...) before the stand-in answers it, whether win32job made it through its own runner or a test passed it
     on with win32Step. Returning `{ ok, out }` answers the call instead of the stand-in (`{ ok: false, out: 'ERROR: Access
@@ -295,7 +305,8 @@ const TABLE_PID_BASE = 2000000000;
 
       start(name, runner)  an agent running now: its ownership row (win32sessions, in the sandboxed store), a live entry
                            with its own pid, and the state file its supervisor writes (win32streamstate), which is what
-                           a restart reads to see the new supervisor came up. Returns { sessionId, pid }.
+                           a restart reads to see the new supervisor came up. Its task, when it has one, is marked
+                           running too, as it is when the agent came up from its /Run. Returns { sessionId, pid }.
       a stand-in /Run      the same, for the task's agent, while the table is installed: starting the task starts it.
       taskkill             ends the entry with that pid (gone from the live list, its supervisor's state file cleared),
                            answering as taskkill does; a pid it does not hold answers "not found" (exit 128).
@@ -308,7 +319,10 @@ const TABLE_PID_BASE = 2000000000;
                            Returns the undo.
       calls                each act and look, in order: 'taskkill.exe /PID <pid> /T /F' and 'alive <pid>' (and each is
                            handed to opts.onCall too, for a test that keeps one log of every platform's acts).
-      stop()               puts win32stop's seams back and removes the state files it wrote.
+      reset()              no agent running and no task running: drops the live entries, their state files, the
+                           survivors and the never-comes-up marks (kosmos#8456 review 3: a test file that sets up a
+                           fresh fleet per arm calls it, so one arm never reads another's agents).
+      stop()               puts win32stop's seams back and does what reset() does.
 
     The live list is answered in the two parts the engine joins (win32live.byName): a claude agent from the
     `claude agents --json` stand-in, and a per-turn agent (codex, gemini, grok, antigravity: win32codexlive.PER_TURN)
@@ -352,7 +366,17 @@ function win32Processes(opts) {
     start(name, runner) {
       const id = `fixture-proc-${process.pid}-${++runs}`;
       win32sessions.record(id, { name, runner: runner || 'claude' });
+      const task = taskFile(win32TaskDir(), require('../engine/win32job').taskName(name));
+      if (task && fs.existsSync(task)) runningTasks.add(task);
       return table.started(name, id, runner);
+    },
+    reset() {
+      live.clear();
+      survivors.clear();
+      down.clear();
+      runningTasks.clear();
+      for (const at of written) fs.rmSync(at, { force: true });
+      written.clear();
     },
     taskkill(args) {
       note(['taskkill.exe', ...args].join(' '));
@@ -390,7 +414,7 @@ function win32Processes(opts) {
       win32stop.setRunner(null);
       win32stop.setAlive(null);
       win32stop.setLive(null);
-      for (const at of written) fs.rmSync(at, { force: true });
+      table.reset();
     },
   };
   win32stop.setRunner((args) => table.taskkill((Array.isArray(args) ? args : []).map(String)));
@@ -496,4 +520,4 @@ function systemdStub() {
   return answer;
 }
 
-module.exports = { jobPath, jobPathIn, jobFor, systemdStub, useJobStore, watchScheduler, win32Step, win32Processes };
+module.exports = { jobPath, jobPathIn, jobFor, systemdStub, useJobStore, watchScheduler, win32Step, win32Processes, win32Task };

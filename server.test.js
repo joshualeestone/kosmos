@@ -81,6 +81,15 @@ const plannedModel = (name) => {
 };
 /* A command that STARTS the job (launchd's bootstrap, systemd's start), and one that re-enables it. */
 const startsJob = (file, a) => Array.isArray(a) && (a[0] === 'bootstrap' || (/systemctl$/.test(String(file)) && a[1] === 'start'));
+/* kosmos#8456 review 3: what a Windows removal leaves of the agent's startup task, read at the stand-in Task Scheduler
+   (test-support/jobfixture): switched off, so it does not start at the next login, and ended, so its supervisor is not
+   still going. The Mac arms check launchctl disable and bootout in their runner's calls instead. */
+function assertWin32TaskStopped(name) {
+  const t = jobfix.win32Task(name);
+  assert.ok(t.exists, 'the startup task is gone, so nothing below says how it was stopped');
+  assert.equal(t.enabled, false, 'the startup task was not switched off, so it starts again at the next login');
+  assert.equal(t.running, false, 'the startup task was never ended, so its supervisor is still going');
+}
 const enablesJob = (file, a) => Array.isArray(a) && (linuxHost() ? (/systemctl$/.test(String(file)) && a[1] === 'enable') : a[0] === 'enable');
 const fs = require('node:fs');
 const nodePath = require('node:path');
@@ -3277,6 +3286,10 @@ test('the create route answers a real creation with the record the screen is bui
       ? act('/Create') >= 0 && act('/Run') > act('/Create')
       : calls.find((c) => (linuxHost() ? startsJob(c[0], c[1]) : /launchctl$/.test(c[0])));
     assert.ok(started, 'the job was never loaded, so nothing would start');
+    // kosmos#8456 review 3: and started once (a second /Run on Windows is ignored while it runs, so it would hide here).
+    if (process.platform === 'win32') {
+      assert.equal(scheduled.filter((a) => a[0] === '/Run' && a[a.indexOf('/TN') + 1] === tn).length, 1, 'the agent was started more than once');
+    }
 
     // And the files are really there, in the sandbox this file sets up.
     assert.ok(fs.existsSync(create.instructionFile('route-made')), 'no instruction file was written');
@@ -4724,10 +4737,12 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
   /* kosmos#8456: on Windows the agent is a process the stand-in Task Scheduler starts when create runs its task, and
      the removal ends it with taskkill (engine/win32stop.js): test-support/jobfixture's process table stands in for
      both. Its job acts are watched at the stand-in, where the Windows removal and restore make them. */
-  const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
+  let procs = null;
   const scheduled = [];
-  const unwatch = jobfix.watchScheduler((a) => { scheduled.push(a); });
+  let unwatch = () => {};
   try {
+    procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
+    unwatch = jobfix.watchScheduler((a) => { scheduled.push(a); });
 
     // An agent that exists, made the way the product makes them.
     create.setRunner(() => ({ ok: true, stdout: '' }));
@@ -4872,6 +4887,7 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
       assert.ok(before.includes('route-removable'),
         'the agent is not on the board to begin with, so nothing below about removing it from the board can fail');
       if (procs) assert.ok(procs.pidOf('route-removable'), 'the agent is not running before the removal, so nothing below can show it was stopped');
+      if (procs) assert.ok(jobfix.win32Task('route-removable').running, 'its task is not running before the removal, so nothing below can show it was ended');
 
       const gone = await req('/api/agent/route-removable/removal', {
         method: 'DELETE', headers: { 'content-type': 'application/json' },
@@ -4879,6 +4895,7 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
       assert.equal(gone.status, 200, 'a legitimate removal was refused: ' + gone.body);
       assert.equal(JSON.parse(gone.body).outcome, 'removed');
       if (procs) assert.equal(procs.pidOf('route-removable'), null, "the agent's process is still running after its removal was reported done");   // kosmos#8456 review 2
+      if (procs) assertWin32TaskStopped('route-removable');
 
       // ⚠️ REMOVE IS NOT DELETE, asserted at the route rather than only in the
       // engine: this is the layer the browser reaches, and a route that passed a
@@ -4911,6 +4928,14 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
         ? scheduled.some((a) => a[0] === '/Change' && a.includes('/ENABLE') && a[a.indexOf('/TN') + 1] === tn)
         : seenRemoved.some(([f, a]) => enablesJob(f, a)),
       'nothing was re-enabled, so the agent is "restored" but will not start again');
+      /* kosmos#8456 review 3: and on Windows it is started again now, not only at the next login: the task is run after
+         it was switched back on, and the agent is running. */
+      if (procs) {
+        const enabledAt = scheduled.findIndex((a) => a[0] === '/Change' && a.includes('/ENABLE') && a[a.indexOf('/TN') + 1] === tn);
+        assert.ok(scheduled.slice(enabledAt + 1).some((a) => a[0] === '/Run' && a[a.indexOf('/TN') + 1] === tn),
+          'the restored task was switched on but never run, so the agent stays off until the next login');
+        assert.ok(procs.pidOf('route-removable'), 'the restored agent is not running');
+      }
       const after = JSON.parse((await req('/api/status')).body).agents.map((a) => a.name);
       assert.ok(after.includes('route-removable'), 'a restored agent never came back to the board');
     } finally {
@@ -5155,6 +5180,7 @@ test('#2615 the removed list reports a gone account folder as gone', async () =>
     if (procs) procs.start(name);
     assert.equal(removal.remove(name).outcome, removal.OUTCOME.REMOVED);
     if (procs) assert.equal(procs.pidOf(name), null, "the agent's process is still running after its removal was reported done");   // kosmos#8456 review 2
+    if (procs) assertWin32TaskStopped(name);
 
     // Present: the route must say NOT gone, or the `true` below is meaningless.
     let row = JSON.parse((await req('/api/removed')).body).agents.find((a) => a.name === name);
@@ -5215,6 +5241,7 @@ test('the removed list gives the browser only what it draws', async () => {
     if (procs) procs.start(name);
     assert.equal(removal.remove(name).outcome, removal.OUTCOME.REMOVED);
     if (procs) assert.equal(procs.pidOf(name), null, "the agent's process is still running after its removal was reported done");   // kosmos#8456 review 2
+    if (procs) assertWin32TaskStopped(name);
 
     // ⚠️ CONTROL: the stored record really does carry the fields being excluded,
     // or "they are absent from the response" is true of nothing.
@@ -5798,11 +5825,13 @@ test('a half-removed agent is on the removed list AND still on the board', async
   /* kosmos#8456: on Windows the same half-removal is the task switched off and its /End refused, at the stand-in Task
      Scheduler (test-support/jobfixture), with the agent really running in the stand-in process table, so the live list
      can be read: a removal that did not stop on the refused /End would end the process and answer REMOVED. */
-  const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
-  const tn = procs ? require('./engine/win32job').taskName(name) : null;
-  const unwatch = jobfix.watchScheduler((a) => (a[0] === '/End' && a[a.indexOf('/TN') + 1] === tn
-    ? { ok: false, out: 'ERROR: Access is denied.' } : undefined));
+  let procs = null;
+  let unwatch = () => {};
   try {
+    procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
+    const tn = procs ? require('./engine/win32job').taskName(name) : null;
+    unwatch = jobfix.watchScheduler((a) => (a[0] === '/End' && a[a.indexOf('/TN') + 1] === tn
+      ? { ok: false, out: 'ERROR: Access is denied.' } : undefined));
     if (procs) procs.start(name);
     // ⚠️ CONTROL: it is on the board BEFORE the removal, or "it is still there
     // afterwards" is true of a board that never had it.
@@ -10841,8 +10870,9 @@ test('the model route writes the choice AND restarts, because either alone is a 
   /* kosmos#8456: on Windows the agent is a process the stand-in Task Scheduler starts when its task is run, and a restart
      ends it with taskkill, then runs the task again (/End, /Run), yielding each to remove.js's runner: jobfix.win32Step
      answers those from the stand-ins, and anything else is answered as before. */
-  const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
+  let procs = null;
   try {
+    procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
 
     create.setRunner((f, a) => systemd(f, a) || { ok: true, stdout: '' });
     create.setDryRun(false);
@@ -10919,8 +10949,9 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
   // #5500: systemd's answers for the Linux job (on a Mac it answers nothing and each runner answers as before).
   const systemd = jobfix.systemdStub();
   // kosmos#8456: on Windows the running agent and its restart, through the stand-ins (as in the model route test above).
-  const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
+  let procs = null;
   try {
+    procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
 
     create.setRunner((f, a) => systemd(f, a) || { ok: true, stdout: '' });
     create.setDryRun(false);

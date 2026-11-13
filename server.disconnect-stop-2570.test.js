@@ -121,7 +121,7 @@ function installRunner() {
   calls = [];
   if (procs) {
     procs.calls.length = 0;
-    procs.clearSurvivors();
+    procs.reset();   // kosmos#8456 review 3: a fresh fleet per arm, as the pane list below is (no agent, task or survivor left over)
   }
   /* 🛑 THE PANE LIST IS TRUNCATED PER ARM, NOT APPENDED TO. Appending made every
      arm inherit every earlier arm's agents, and the enumeration is fail-closed:
@@ -226,6 +226,7 @@ function agentOn(name, configDir, runner, claim) {
     'the seeded launch file is missing, so every assertion below would be right for the wrong reason');
   /* kosmos#8456: on Windows the pane line above is the roster, and the agent behind it is a process: running now, in
      the process table (its ownership row, a live entry and its pid), which is what a Windows stop finds and ends. */
+  if (procs) assert.equal(procs.pidOf(name), null, `${name} is already running from an earlier arm, so this arm would read its agent`);
   return procs ? procs.start(name, runner).pid : null;
 }
 
