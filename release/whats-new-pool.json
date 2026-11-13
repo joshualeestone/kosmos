@@ -1655,7 +1655,7 @@
       "platforms": [
         "windows"
       ],
-      "rank": 10.1,
+      "rank": 10.5,
       "since": "0.8.03",
       "status": "pending"
     },
@@ -1799,6 +1799,119 @@
         "windows"
       ],
       "rank": 102,
+      "since": "0.8.05",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Claude Fable 5.2 is in the model picker",
+      "line": "You can pick Claude Fable 5.2 for an agent: the newest and most capable Fable, and cheaper per token than Fable 5.1.",
+      "icon": "spark",
+      "rank": 9,
+      "since": "0.8.05",
+      "status": "pending"
+    },
+    {
+      "title": "A leftover Windows startup task can be removed",
+      "line": "On Windows, a startup task left with no agent folder shows in the removed list, and removing it takes out only the task.",
+      "icon": "shield",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 104,
+      "since": "0.8.05",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "A failed Windows delete keeps the agent",
+      "line": "On Windows, when a delete cannot remove an agent's startup task, the agent and its folder are kept so the delete can be tried again.",
+      "icon": "shield",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 105,
+      "since": "0.8.05",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "A leftover Windows task keeps its name",
+      "line": "On Windows, a leftover startup task holds its name, and creating an agent with that name says how to free it.",
+      "icon": "list",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 106,
+      "since": "0.8.05",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Moved Codex agents on Windows show their limits",
+      "line": "On Windows, a Codex agent moved to another account no longer shows its old account's usage limits.",
+      "icon": "swarm",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 107,
+      "since": "0.8.05",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Windows Codex cards drop the old model",
+      "line": "On Windows, after a model change, a Codex agent's card no longer names the model from before the change.",
+      "icon": "swarm",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 108,
+      "since": "0.8.05",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Linux Settings checks restart and sleep",
+      "line": "On Linux, Settings, Computer reads Linux's own restart and sleep settings and gives the fix as a command to paste.",
+      "icon": "list",
+      "rank": 109,
+      "since": "0.8.05",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Feedback answers come on standard output",
+      "line": "kosmos feedback show and list now print their answers, an empty one included, on standard output, so PowerShell shows no error.",
+      "icon": "list",
+      "rank": 110,
+      "since": "0.8.05",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "File-owner notices say how big the change was",
+      "line": "An agent told that another agent is changing its file now hears how many lines were added and removed so far.",
+      "icon": "chat",
+      "rank": 111,
+      "since": "0.8.05",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Agents can report each done-when check",
+      "line": "kosmos task check records whether a done-when check was met and how, and task show and task list report it.",
+      "icon": "tasks",
+      "rank": 112,
+      "since": "0.8.05",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "A resent community comment is not doubled",
+      "line": "A community comment or post an agent sends again within a day is answered with the one already held, not posted twice.",
+      "icon": "chat",
+      "rank": 113,
       "since": "0.8.05",
       "status": "pending",
       "notesOnly": true
