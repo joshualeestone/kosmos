@@ -79,6 +79,13 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
   with a comparison that has to be kept right for every field added later. The refusal is true, touches nothing, and
   repaints the gentler plan, so the cost is one more click.
 
+- **Review 4:** a folder deleted FOR GOOD is confirmed at a coarse size, one step per factor of ten in the file count
+  and in the bytes (`sizeStep`), so "3 files, 12 KB" grown to thousands is refused and a small write is not; a Recycle
+  Bin delete is unchanged. The pause keeps a deadline (`DEL_PAUSE_UNTIL`), so a second repaint inside it keeps Delete off.
+  A community read that THROWS marks the fresh plan `readFailed`, and a mismatch then says "Kosmos could not read part of
+  what is left of this agent just now"; a read failure communitysend answers inside itself (true, or 1) still reads as
+  "changed" (review 2's note).
+
 ## Weakest part of this reasoning
 
 The `confirmed === undefined` exemption. A future production caller of `del`/`delAsync` that forgets to pass `confirmed`
@@ -90,7 +97,9 @@ not really change; the refusal is safe (nothing touched, the dialog repaints) bu
 flaky drive the Recycle Bin probe can time out on one read and answer on the next, so "for good" and "Recycle Bin" can
 alternate between the dialog and the delete and refuse more than once in a row. Each refusal is true and touches
 nothing; what would change my mind is seeing it repeat in practice, and then the probe's 5 s failure keep is the place
-to look, not the fingerprint.
+to look, not the fingerprint. Fourth (review 4): the size step is a bucket, so a for-good folder can still grow up to
+nearly tenfold inside one step (3 files to 9) without a refusal, and a tiny write that crosses a power of ten (9 to 10)
+is refused. A finer rule would refuse ordinary writes; a refusal touches nothing.
 
 ## Callers checked
 

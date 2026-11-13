@@ -189,6 +189,9 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     out.repaints.noAnswerSame = goOff();
     deleteNoAnswerShow({ ...noName, question: 'Delete what is left of Tasked?', confirm: '3.b8477' }, 'task-8475', DEL_SHOWN);
     out.repaints.noAnswerChanged = goOff();
+    // review 4: a second repaint with the same plan inside the pause keeps Delete off.
+    deleteNoAnswerShow({ ...noName, question: 'Delete what is left of Tasked?', confirm: '3.b8477' }, 'task-8475', DEL_SHOWN);
+    out.repaints.secondInsidePause = goOff();
     await new Promise((res) => setTimeout(res, 1100));
     out.repaints.noAnswerAfter = goOff();
     closeDeleteModal();
@@ -288,6 +291,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   const rp = r.repaints || {};
   check(rp.noAnswerSame === false && rp.noAnswerChanged === true && rp.noAnswerAfter === false,
     'kosmos#8477 review 3: a no-answer repaint holds Delete off for the pause only when what the plan promises changed', JSON.stringify(rp));
+  check(rp.secondInsidePause === true, 'kosmos#8477 review 4: a second repaint with the same plan inside the pause keeps Delete off', JSON.stringify(rp));
   check(rp.runningEnded === true && rp.runningEndedTitle === 'Delete what is left of Tasked?',
     'kosmos#8477 review 3: a running delete that ended repaints the dialog with Delete held off', JSON.stringify(rp));
   check(r.typedOn === true, 'kosmos#8477 review 1: typing the name the dialog shows turns Delete on, whatever a fresher plan read meanwhile asks', String(r.typedOn));

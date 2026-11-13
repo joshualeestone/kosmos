@@ -81,7 +81,7 @@ function dialog(planOnScreen, detailFor = null) {
     paints: 0,
     fetch: (url, opts) => { calls.push({ url, method: (opts && opts.method) || 'GET' }); return replies.shift()(url, opts); },
   });
-  vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0; let DEL_TOKEN = 0; let DEL_RUNNING_FOR = null; let DEL_SHOWN = null;',
+  vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0; let DEL_TOKEN = 0; let DEL_RUNNING_FOR = null; let DEL_SHOWN = null; let DEL_PAUSE_UNTIL = 0;',
     liftConst(SCRIPT, 'DEL_CHANGED_PAUSE_MS'),
     'let CURRENT = ' + JSON.stringify(detailFor ? CARD[detailFor.toLowerCase()] : null) + ';',
     'let LEFTOVERS_LAST = [{ name: "Miles" }, { name: "Ada" }];',

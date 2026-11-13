@@ -51793,6 +51793,8 @@ let DEL_SHOWN = null;
    second click of a double click cannot confirm a plan nobody has read yet. About the gap between the two clicks of a
    slow double click, and short enough not to feel stuck. */
 const DEL_CHANGED_PAUSE_MS = 1000;
+// kosmos#8477 review 4: when that pause ends (Date.now() time), so a second repaint inside it keeps Delete off too.
+let DEL_PAUSE_UNTIL = 0;
 async function fetchLeftoverPlan(name) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', { cache: 'no-store' });
@@ -51949,11 +51951,15 @@ function repaintDeleteModal(plan) {
   const back = DEL_RETURN;
   openDeleteModal(plan);
   DEL_RETURN = back;
-  if (plan.confirm === before || plan.typeToConfirm) return;
+  if (plan.typeToConfirm) return;   // Delete is off until the name is typed anyway
+  if (plan.confirm !== before) DEL_PAUSE_UNTIL = Date.now() + DEL_CHANGED_PAUSE_MS;
+  // review 4: openDeleteModal turned Delete on; a pause still running (this repaint's, or an earlier one's) keeps it off.
+  const left = DEL_PAUSE_UNTIL - Date.now();
+  if (left <= 0) return;
   const go = document.getElementById('del-go');
   go.disabled = true;
   const repaintedAs = DEL_OPENED;
-  setTimeout(() => { if (repaintedAs === DEL_OPENED) go.disabled = false; }, DEL_CHANGED_PAUSE_MS);
+  setTimeout(() => { if (repaintedAs === DEL_OPENED) go.disabled = false; }, left);
 }
 function openDeleteModal(plan) {
   DEL_OPENED += 1;

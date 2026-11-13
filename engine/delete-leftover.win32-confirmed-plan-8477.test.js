@@ -144,12 +144,12 @@ test('kosmos#8477: every offered plan carries a short fingerprint, the same for 
   const a = agent('same8477', { folder: false });
   const first = win.plan(a);
   assert.equal(first.ok, true, first.because);
-  assert.match(String(first.confirm), /^3\.[0-9a-f]{16}$/, 'the task-only plan carries no fingerprint');
+  assert.match(String(first.confirm), /^4\.[0-9a-f]{16}$/, 'the task-only plan carries no fingerprint');
   assert.equal(win.plan(a).confirm, first.confirm, 'the same leftover planned twice reads as changed');
   const b = agent('full8477');
   const full = win.plan(b);
   assert.equal(full.ok, true, full.because);
-  assert.match(String(full.confirm), /^3\.[0-9a-f]{16}$/, 'the full plan carries no fingerprint');
+  assert.match(String(full.confirm), /^4\.[0-9a-f]{16}$/, 'the full plan carries no fingerprint');
   assert.notEqual(full.confirm, first.confirm);
 });
 
@@ -301,6 +301,45 @@ test('kosmos#8477 review 2: a git repository that appears in the folder after th
   assert.equal(done.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(done));
   assert.equal(done.changed, true);
   untouched(name, { folder: true });
+});
+
+test('kosmos#8477 review 4: going for good, a folder grown materially since the dialog is refused; a small write is not; to the Recycle Bin neither is', () => {
+  const name = agent('grow8477');
+  const grow = (n) => { const d = nodePath.join(folderOf(name), 'grown'); fs.mkdirSync(d, { recursive: true }); for (let i = 0; i < n; i++) fs.writeFileSync(nodePath.join(d, `f${i}.txt`), 'x'.repeat(1024)); };
+  driveNow('Network');   // the Recycle Bin cannot take it: deleted for good, the name typed
+  const shown = win.plan(name);
+  assert.ok(shown.ok && shown.toTrash === false && shown.typeToConfirm === name, 'CONTROL: not the for-good delete: ' + JSON.stringify(shown));
+  fs.writeFileSync(nodePath.join(folderOf(name), 'notes', 'n.md'), 'abc');   // a small write
+  assert.equal(win.plan(name).confirm, shown.confirm, 'a small write reads as a changed promise');
+  grow(2000);
+  const done = win.del(name, { confirmed: shown.confirm, typed: name });
+  assert.equal(done.outcome, leftover.OUTCOME.REFUSED, 'a folder grown to thousands of files went for good: ' + JSON.stringify(done).slice(0, 300));
+  assert.equal(done.because, leftover.CHANGED_SINCE_SHOWN_BECAUSE);
+  untouched(name, { folder: true });
+
+  // To the Recycle Bin the same growth is not refused: everything can be got back.
+  fs.rmSync(nodePath.join(folderOf(name), 'grown'), { recursive: true, force: true });
+  driveNow('Fixed');
+  const toBin = win.plan(name);
+  assert.equal(toBin.toTrash, true, 'CONTROL: not the Recycle Bin');
+  grow(2000);
+  assert.equal(win.plan(name).confirm, toBin.confirm, 'a Recycle Bin delete is refused for the folder growing');
+});
+
+test('kosmos#8477 review 4: a community read that throws refuses with a sentence that says so, not "changed"', (t) => {
+  const communitysend = require('./communitysend');
+  let throws = false;
+  t.mock.method(communitysend, 'hasAccount', () => { if (throws) throw new Error('EBUSY'); return false; });
+  t.mock.method(communitysend, 'unsentCount', () => 0);
+  const name = agent('unread8477');
+  const shown = win.plan(name);
+  throws = true;
+  const done = win.del(name, { confirmed: shown.confirm });
+  assert.equal(done.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(done));
+  assert.equal(done.because, leftover.COULD_NOT_READ_BECAUSE);
+  untouched(name, { folder: true });
+  throws = false;
+  assert.equal(win.del(name, { confirmed: shown.confirm }).outcome, leftover.OUTCOME.DELETED, 'CONTROL: the read back, the same delete runs');
 });
 
 test('kosmos#8477: delAsync (the route\'s path) refuses the same way', async () => {

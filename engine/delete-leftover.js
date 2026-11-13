@@ -705,12 +705,13 @@ function plan(name, opts) {
   /* #4994: the delete retires the name's community account, which no Trash brings back, so the confirmation says so
      rather than promising everything can be got back. */
   let community = false;
-  try { community = require('./communitysend').hasAccount(clean); } catch { community = true; }   // cannot tell: say it
+  let communityUnread = false;   // kosmos#8477 review 4: a read that threw, so a refusal can say so rather than "changed"
+  try { community = require('./communitysend').hasAccount(clean); } catch { community = true; communityUnread = true; }   // cannot tell: say it
   if (community) loses.push('Its community account: anything it posted there stays up, and a new agent with this name joins as a new account, under a changed public name if the old one is still taken');
   /* What it wrote for the community and has not sent is marked never to send by the delete, and a folder brought back
      from the Trash does not undo that, so it is named even when there is no account. */
   let waiting = 0;
-  try { waiting = require('./communitysend').unsentCount(clean); } catch { waiting = 1; }
+  try { waiting = require('./communitysend').unsentCount(clean); } catch { waiting = 1; communityUnread = true; }
   if (waiting) loses.push('Anything it wrote for the community that has not gone out yet: it never goes, even if you bring its folder back');
   const question = `Delete what is left of ${shown}?`;
   /* A Scheduled Task holds nothing a person can lose, so a job-only leftover is
@@ -786,6 +787,7 @@ function plan(name, opts) {
     hint,
   };
   fullPlan.confirm = confirmFingerprint(fullPlan, { retiresCommunity: community, marksUnsent: Boolean(waiting) });   // kosmos#8477: as the loses list words them
+  if (communityUnread) fullPlan.readFailed = true;   // kosmos#8477 review 4: del() words a refusal for it
   return fullPlan;
 }
 
@@ -1037,16 +1039,24 @@ function recordsWords(records) {
    and the other way round, a name newly asked for, is refused by del()'s typed-name check before anything is touched.
    Built from the plan object itself (plus the two facts the object does not carry), so the GET and the re-plan cannot
    derive it two ways. */
-const CONFIRM_FINGERPRINT_VERSION = '3';   // 2: unsent posts in, the typed name out (review 1); 3: the folder's git and capped (review 2)
+const CONFIRM_FINGERPRINT_VERSION = '4';   // 2: unsent posts in, the typed name out (review 1); 3: the folder's git and capped (review 2); 4: its size, going for good (review 4)
+/* review 4: a folder deleted FOR GOOD is confirmed at the size the dialog stated ("Its folder: 3 files, 12 KB"). The
+   fingerprint holds that size coarsely, one step per factor of ten in the file count and in the bytes, so a folder grown
+   materially since the dialog (3 files to thousands) is refused and an ordinary small write is not. A write that crosses
+   a power of ten (9 files to 10) is refused too: that is the price of a coarse bucket, and the refusal touches nothing.
+   Not for the Recycle Bin, where the files can be got back whatever their size. */
+function sizeStep(n) { return Math.floor(Math.log10(Math.max(0, Number(n) || 0) + 1)); }
 const CONFIRM_FINGERPRINT_HEX_CHARS = 16;   // 64 bits: a short value for the page to carry, far past any chance collision between two plans of one name
 function confirmFingerprint(p, { retiresCommunity, marksUnsent }) {
   const promised = {
     kind: p.taskOnly ? 'startup-job-only' : 'full',
     folder: (p.folder && p.folder.path) || null,
     /* review 2: what the dialog says about the folder's contents that does not age: "including a git repository" and
-       "more than N files". Not the count or size themselves (they are what a write to the folder changes), nor "last changed". */
+       "more than N files". Not the exact count or size (they are what a write to the folder changes; only a coarse step of
+       them, and only going for good, below), nor "last changed". */
     folderGit: Boolean(p.folder && p.folder.git),
     folderCapped: Boolean(p.folder && p.folder.capped),
+    folderSizeForGood: p.folder && !p.toTrash ? { files: sizeStep(p.folder.files), bytes: sizeStep(p.folder.bytes) } : null,
     job: (p.job && p.job.label) || null,
     toTrash: Boolean(p.toTrash),
     records: ((p.records && p.records.files) || []).map((r) => r.file).sort(),
@@ -1057,6 +1067,8 @@ function confirmFingerprint(p, { retiresCommunity, marksUnsent }) {
   const hash = require('node:crypto').createHash('sha256').update(JSON.stringify(promised)).digest('hex');
   return CONFIRM_FINGERPRINT_VERSION + '.' + hash.slice(0, CONFIRM_FINGERPRINT_HEX_CHARS);
 }
+/* review 4: the fresh plan's community read threw, so its answer was the safe guess, and the difference may be only that. */
+const COULD_NOT_READ_BECAUSE = 'Kosmos could not read part of what is left of this agent just now, so nothing was deleted. Look at what it says now before deleting.';
 const CHANGED_SINCE_SHOWN_BECAUSE = 'What is left of this agent changed since you looked, so nothing was deleted. Look at what it says now before deleting.';
 const UNCONFIRMED_FULL_DELETE_BECAUSE = 'This page did not say what you agreed to delete, so nothing was deleted. Reload the page and look again before deleting.';
 
@@ -1142,7 +1154,7 @@ function* delSteps(name, opts) {
   if (opts && opts.confirmed !== undefined) {
     const sent = typeof opts.confirmed === 'string' ? opts.confirmed : null;
     if (sent === null ? !p.taskOnly : sent !== p.confirm) {
-      return { outcome: OUTCOME.REFUSED, because: sent === null ? UNCONFIRMED_FULL_DELETE_BECAUSE : CHANGED_SINCE_SHOWN_BECAUSE, changed: true, plan: p };
+      return { outcome: OUTCOME.REFUSED, because: sent === null ? UNCONFIRMED_FULL_DELETE_BECAUSE : p.readFailed ? COULD_NOT_READ_BECAUSE : CHANGED_SINCE_SHOWN_BECAUSE, changed: true, plan: p };
     }
   }
   const platform = (opts && opts.platform) || process.platform;
@@ -1570,4 +1582,4 @@ async function delAsync(name, opts) {
   }
 }
 
-module.exports = { OUTCOME, plan, del, startsAgainWords, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict, CHANGED_SINCE_SHOWN_BECAUSE, UNCONFIRMED_FULL_DELETE_BECAUSE };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835); the two kosmos#8477 refusals too
+module.exports = { OUTCOME, plan, del, startsAgainWords, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict, CHANGED_SINCE_SHOWN_BECAUSE, UNCONFIRMED_FULL_DELETE_BECAUSE, COULD_NOT_READ_BECAUSE };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835); the two kosmos#8477 refusals too
