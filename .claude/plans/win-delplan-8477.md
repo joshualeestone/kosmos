@@ -44,8 +44,9 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
 - **The page sends what the dialog shows, not `DEL_PLAN`.** `DEL_PLAN` can be replaced by the detail page's fresher read
   (`loadLeftover`) while the dialog stays painted with the older plan, which is this card's bug in miniature. A new
   `DEL_SHOWN`, set only by `openDeleteModal` and cleared by `closeDeleteModal`, is what is confirmed.
-- **The refusal:** "What is left of this agent changed since you looked, so nothing was deleted. Look at what it says
-  now before deleting." It returns `changed: true` and the fresh plan; the page repaints the dialog with it (the #7820
+- **The refusal:** "What Kosmos would do here is different now, so nothing was deleted. Look at what it says now before
+  deleting." (Review 5: it was "What is left of this agent changed since you looked", false when only a drive probe's
+  answer changed.) It returns `changed: true` and the fresh plan; the page repaints the dialog with it (the #7820
   repaint, widened to `body.changed`), cursor on Keep unless a name is now to be typed.
 - **Checked before the typed-name check**, so a mismatch refuses even when the name typed would satisfy the new plan:
   the typed name confirms the name, not the act.
@@ -85,6 +86,10 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
   A community read that THROWS marks the fresh plan `readFailed`, and a mismatch then says "Kosmos could not read part of
   what is left of this agent just now"; a read failure communitysend answers inside itself (true, or 1) still reads as
   "changed" (review 2's note).
+
+- **Review 5:** the size step is `floor(log10(n))`, with none (0) a step of its own, so it falls at the powers of ten
+  (9 and 10 differ, 10 and 99 do not). A pause timer leaves Delete off while a delete of the dialog's agent is running
+  (`DEL_RUNNING_FOR`), which `paintLeftoverRunning` turned off.
 
 ## Weakest part of this reasoning
 

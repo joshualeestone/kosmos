@@ -51795,6 +51795,9 @@ let DEL_SHOWN = null;
 const DEL_CHANGED_PAUSE_MS = 1000;
 // kosmos#8477 review 4: when that pause ends (Date.now() time), so a second repaint inside it keeps Delete off too.
 let DEL_PAUSE_UNTIL = 0;
+// kosmos#8477 review 5: the dialog (its DEL_OPENED) whose Delete paintLeftoverRunning turned off because a delete of its
+// agent is running; a pause ending in that dialog leaves Delete off. Any repaint or new dialog moves DEL_OPENED past it.
+let DEL_HELD_RUNNING = -1;
 async function fetchLeftoverPlan(name) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', { cache: 'no-store' });
@@ -51892,6 +51895,7 @@ function paintLeftoverRunning(plan, name) {
   if (DEL_FOR !== null && String(DEL_FOR).toLowerCase() === lower) {
     const go = document.getElementById('del-go');
     if (go) go.disabled = true;
+    DEL_HELD_RUNNING = DEL_OPENED;   // review 5: a pause timer must not turn it back on
     const msg = document.getElementById('del-msg');
     if (msg && !msg.textContent) msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(String(plan.because || ''));
   }
@@ -51959,7 +51963,7 @@ function repaintDeleteModal(plan) {
   const go = document.getElementById('del-go');
   go.disabled = true;
   const repaintedAs = DEL_OPENED;
-  setTimeout(() => { if (repaintedAs === DEL_OPENED) go.disabled = false; }, left);
+  setTimeout(() => { if (repaintedAs === DEL_OPENED && DEL_HELD_RUNNING !== DEL_OPENED) go.disabled = false; }, left);
 }
 function openDeleteModal(plan) {
   DEL_OPENED += 1;

@@ -1044,8 +1044,9 @@ const CONFIRM_FINGERPRINT_VERSION = '4';   // 2: unsent posts in, the typed name
    fingerprint holds that size coarsely, one step per factor of ten in the file count and in the bytes, so a folder grown
    materially since the dialog (3 files to thousands) is refused and an ordinary small write is not. A write that crosses
    a power of ten (9 files to 10) is refused too: that is the price of a coarse bucket, and the refusal touches nothing.
+   The step is floor(log10(n)), with none (0) a step of its own below 1-9: 0 | 1-9 | 10-99 | 100-999 ...
    Not for the Recycle Bin, where the files can be got back whatever their size. */
-function sizeStep(n) { return Math.floor(Math.log10(Math.max(0, Number(n) || 0) + 1)); }
+function sizeStep(n) { const v = Math.max(0, Number(n) || 0); return v < 1 ? -1 : Math.floor(Math.log10(v)); }
 const CONFIRM_FINGERPRINT_HEX_CHARS = 16;   // 64 bits: a short value for the page to carry, far past any chance collision between two plans of one name
 function confirmFingerprint(p, { retiresCommunity, marksUnsent }) {
   const promised = {
@@ -1069,7 +1070,9 @@ function confirmFingerprint(p, { retiresCommunity, marksUnsent }) {
 }
 /* review 4: the fresh plan's community read threw, so its answer was the safe guess, and the difference may be only that. */
 const COULD_NOT_READ_BECAUSE = 'Kosmos could not read part of what is left of this agent just now, so nothing was deleted. Look at what it says now before deleting.';
-const CHANGED_SINCE_SHOWN_BECAUSE = 'What is left of this agent changed since you looked, so nothing was deleted. Look at what it says now before deleting.';
+/* review 5: true in every case. The plan can differ with nothing changed on disk (a drive probe that timed out for the
+   dialog said "for good", the delete's own probe answered), so the sentence speaks of what Kosmos would do, not of the files. */
+const CHANGED_SINCE_SHOWN_BECAUSE = 'What Kosmos would do here is different now, so nothing was deleted. Look at what it says now before deleting.';
 const UNCONFIRMED_FULL_DELETE_BECAUSE = 'This page did not say what you agreed to delete, so nothing was deleted. Reload the page and look again before deleting.';
 
 /* Moves the plan's records where the plan said: the Trash when p.records.trash, else deleted for good. One step per
@@ -1582,4 +1585,4 @@ async function delAsync(name, opts) {
   }
 }
 
-module.exports = { OUTCOME, plan, del, startsAgainWords, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict, CHANGED_SINCE_SHOWN_BECAUSE, UNCONFIRMED_FULL_DELETE_BECAUSE, COULD_NOT_READ_BECAUSE };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835); the two kosmos#8477 refusals too
+module.exports = { sizeStep, OUTCOME, plan, del, startsAgainWords, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict, CHANGED_SINCE_SHOWN_BECAUSE, UNCONFIRMED_FULL_DELETE_BECAUSE, COULD_NOT_READ_BECAUSE };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835); the two kosmos#8477 refusals too

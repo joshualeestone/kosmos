@@ -138,7 +138,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     // 3d. kosmos#8477: the startup job alone was shown; the board found the folder back, so it refuses and sends the new plan
     const changedPlan = { ok: true, name: 'task-8475', shown: 'Tasked', question: 'Delete what is left of Tasked?', reassurance: 'Its files go to the Recycle Bin.', loses: ['Its folder: 3 files'], verb: 'Move 3 files to the Recycle Bin', typeToConfirm: null, confirm: '1.after8477' };
     openDeleteModal({ ok: true, name: 'task-8475', shown: 'Tasked', taskOnly: true, question: 'Remove Tasked\'s startup job?', reassurance: '', loses: [], verb: 'Remove its startup job', keep: 'Keep its startup job', typeToConfirm: null, confirm: '1.before8477' });
-    deleteAnswer = { outcome: 'refused', changed: true, because: 'What is left of this agent changed since you looked, so nothing was deleted. Look at what it says now before deleting.', plan: changedPlan };
+    deleteAnswer = { outcome: 'refused', changed: true, because: 'What Kosmos would do here is different now, so nothing was deleted. Look at what it says now before deleting.', plan: changedPlan };
     document.getElementById('del-go').click();
     await new Promise((res) => setTimeout(res, 80));
     out.changed = {
@@ -194,6 +194,12 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     out.repaints.secondInsidePause = goOff();
     await new Promise((res) => setTimeout(res, 1100));
     out.repaints.noAnswerAfter = goOff();
+    // review 5: a pause running when another tab's delete of this agent starts: Delete stays off after the pause ends.
+    deleteNoAnswerShow({ ...noName, question: 'Delete what is left of Tasked?', confirm: '3.d8477' }, 'task-8475', DEL_SHOWN);
+    paintLeftoverRunning({ ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' }, 'task-8475');
+    await new Promise((res) => setTimeout(res, 1100));
+    out.repaints.runningAfterPause = goOff();
+    DEL_RUNNING_FOR = null;
     closeDeleteModal();
     openDeleteModal({ ...noName, confirm: '3.a8477' });
     DEL_RUNNING_FOR = 'task-8475';
@@ -282,7 +288,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   check(r.sentShown === '1.shown8477', 'kosmos#8477: the delete sends what the dialog on screen promised, not a fresher plan read meanwhile', String(r.sentShown));
   const ch = r.changed || {};
   check(ch.sent === '1.before8477', 'kosmos#8477: the delete sends the shown plan\'s confirm', String(ch.sent));
-  check(ch.open && ch.title === 'Delete what is left of Tasked?' && ch.verb === 'Move 3 files to the Recycle Bin' && /changed since you looked/.test(ch.msg),
+  check(ch.open && ch.title === 'Delete what is left of Tasked?' && ch.verb === 'Move 3 files to the Recycle Bin' && /different now/.test(ch.msg),
     'kosmos#8477: a refusal because what is left changed repaints the dialog with the new plan and says so', JSON.stringify(ch));
   check(ch.goOff === true && ch.sentAtOnce === null, 'kosmos#8477 review 1: right after the repaint Delete is off, so a double click\'s second click confirms nothing', JSON.stringify(ch));
   check(ch.goOffAfterPause === false && ch.sentAgain === '1.after8477', 'kosmos#8477: after the pause Delete is on, and now confirms the new plan', JSON.stringify(ch));
@@ -291,6 +297,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   const rp = r.repaints || {};
   check(rp.noAnswerSame === false && rp.noAnswerChanged === true && rp.noAnswerAfter === false,
     'kosmos#8477 review 3: a no-answer repaint holds Delete off for the pause only when what the plan promises changed', JSON.stringify(rp));
+  check(rp.runningAfterPause === true, 'kosmos#8477 review 5: a delete of this agent started elsewhere during the pause keeps Delete off after it', JSON.stringify(rp));
   check(rp.secondInsidePause === true, 'kosmos#8477 review 4: a second repaint with the same plan inside the pause keeps Delete off', JSON.stringify(rp));
   check(rp.runningEnded === true && rp.runningEndedTitle === 'Delete what is left of Tasked?',
     'kosmos#8477 review 3: a running delete that ended repaints the dialog with Delete held off', JSON.stringify(rp));

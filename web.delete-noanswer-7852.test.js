@@ -81,7 +81,7 @@ function dialog(planOnScreen, detailFor = null) {
     paints: 0,
     fetch: (url, opts) => { calls.push({ url, method: (opts && opts.method) || 'GET' }); return replies.shift()(url, opts); },
   });
-  vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0; let DEL_TOKEN = 0; let DEL_RUNNING_FOR = null; let DEL_SHOWN = null; let DEL_PAUSE_UNTIL = 0;',
+  vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0; let DEL_TOKEN = 0; let DEL_RUNNING_FOR = null; let DEL_SHOWN = null; let DEL_PAUSE_UNTIL = 0; let DEL_HELD_RUNNING = -1;',
     liftConst(SCRIPT, 'DEL_CHANGED_PAUSE_MS'),
     'let CURRENT = ' + JSON.stringify(detailFor ? CARD[detailFor.toLowerCase()] : null) + ';',
     'let LEFTOVERS_LAST = [{ name: "Miles" }, { name: "Ada" }];',
@@ -406,7 +406,7 @@ test('kosmos#7852 an agent page whose delete is running says so, with no button,
   const ctx = vm.createContext({ String, Promise, encodeURIComponent, document: { getElementById: (id) => els[id] || null },
     // the route answers 200 with any plan; an unreadable answer is a proxy's page
     fetch: async () => ({ ok: !failing, json: async () => (readable ? answer : Promise.reject(new Error('not json'))) }) });
-  vm.runInContext(['let DEL_TOKEN = 0; let DEL_PLAN = null; let DEL_FOR = null; let DEL_RUNNING_FOR = null; let CURRENT = null;', 'const CARDS = ' + JSON.stringify(CARD) + ';', 'CURRENT = CARDS.miles;',
+  vm.runInContext(['let DEL_TOKEN = 0; let DEL_PLAN = null; let DEL_FOR = null; let DEL_RUNNING_FOR = null; let CURRENT = null; let DEL_OPENED = 0; let DEL_HELD_RUNNING = -1;', 'const CARDS = ' + JSON.stringify(CARD) + ';', 'CURRENT = CARDS.miles;',
     liftAll(SCRIPT, ['asSentence', 'fetchLeftoverPlan', 'paintLeftoverRunning', 'loadLeftover', 'leftoverOnPoll', 'leftoverOffList']),
     'this.load = loadLeftover; this.state = () => ({ DEL_PLAN, DEL_RUNNING_FOR }); this.view = (n) => { CURRENT = CARDS[n]; }; this.dialog = (n, p) => { DEL_FOR = n; DEL_PLAN = p; }; this.onPoll = leftoverOnPoll; this.offList = leftoverOffList;'].join('\n'), ctx);
   answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };

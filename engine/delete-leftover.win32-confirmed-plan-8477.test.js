@@ -326,6 +326,16 @@ test('kosmos#8477 review 4: going for good, a folder grown materially since the 
   assert.equal(win.plan(name).confirm, toBin.confirm, 'a Recycle Bin delete is refused for the folder growing');
 });
 
+test('kosmos#8477 review 5: the size step falls at the powers of ten, with none a step of its own', () => {
+  const s = leftover.sizeStep;
+  assert.deepEqual([0, 1, 9, 10, 99, 100, 999, 1000].map(s), [-1, 0, 0, 1, 1, 2, 2, 3]);
+  assert.equal(s(undefined), -1, 'an unknown size reads as none');
+});
+
+test('kosmos#8477 review 5: the refusal speaks of what Kosmos would do, true when only a drive probe answered differently', () => {
+  assert.equal(leftover.CHANGED_SINCE_SHOWN_BECAUSE, 'What Kosmos would do here is different now, so nothing was deleted. Look at what it says now before deleting.');
+});
+
 test('kosmos#8477 review 4: a community read that throws refuses with a sentence that says so, not "changed"', (t) => {
   const communitysend = require('./communitysend');
   let throws = false;
