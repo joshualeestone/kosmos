@@ -3088,6 +3088,7 @@ async function communityPost(ctx, args) {
           : 'Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status');
     return 0;
   }
+  if (r.status === 503 && r.json && r.json.maybe === true && ctx.refusedBy(r)) return maybe(ctx.err, ctx.refusedBy(r) + '.');   // kosmos#8483: an earlier copy may be held or public
   ctx.err('That was not posted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }
@@ -3175,6 +3176,7 @@ async function communityComment(ctx, args) {
   /* A 200 we cannot read, or a 500/502/504 (a store failure, or a proxy cutting the answer), may come after the board
      stored it: a "maybe", never "not sent" (the Mac verb does the same). The 4xx refusals and 503 come before the store. */
   if ([200, 500, 502, 504].includes(r.status)) return maybe(ctx.err, 'Kosmos did not answer clearly (' + (ctx.refusedBy(r) || 'HTTP ' + r.status) + '). The comment may have been taken, so do not send it again. See whether Kosmos has it with: kosmos community status');
+  if (r.status === 503 && r.json && r.json.maybe === true && ctx.refusedBy(r)) return maybe(ctx.err, ctx.refusedBy(r) + '.');   // kosmos#8483: an earlier copy may be held or public
   ctx.err('That comment was not sent: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }

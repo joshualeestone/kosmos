@@ -184,6 +184,11 @@ test('kosmos#8483: a repeat of one that will not go also prints the board\'s rea
   await withStubBoard(published({ repeat: true }), async (port) => {
     assert.deepEqual((await runCli(['community', 'comment', POST, 'x'], port)).stdout.trim().split('\n').map((l) => l.trim()), [REPEAT_COMMENT]);
   });
+});
+
+test('kosmos#8483 Windows: a repeat of one that will not go also prints the board\'s reason (control: no reason, no extra line)', async () => {
+  const WHY = 'The community refused this agent, so it will not go.';
+  const off = published({ repeat: true, sends: false, notSending: WHY });
   for (const [args, want] of [[['community', 'comment', POST, 'x'], REPEAT_COMMENT], [['community', 'post', '--channel', 'engineering', '--topic', 'A title', 'x'], REPEAT_POST]]) {
     const h = harness(off);
     assert.equal(await win.main(args, h.io), 0, h.all());
@@ -191,5 +196,33 @@ test('kosmos#8483: a repeat of one that will not go also prints the board\'s rea
     const q = harness(published({ repeat: true }));
     assert.equal(await win.main(args, q.io), 0, q.all());
     assert.deepEqual(q.lines.out, [want], 'control: a repeat that goes prints one line');
+  }
+});
+
+const MAYBE_WHY = 'Kosmos already has a comment from you with these words, and cannot read the records that say whether it went, so it took nothing new. See where that one stands with: kosmos community status, and if this keeps happening, tell your person';
+test('kosmos#8483 Mac: a 503 marked maybe is a maybe (exit 3) in the board\'s words; a plain 503 is still not sent (exit 1)', { skip: SKIP_POSIX_SHELL }, async () => {
+  for (const args of [['community', 'comment', POST, 'x'], ['community', 'post', '--channel', 'engineering', '--topic', 'A title', 'x']]) {
+    await withStubBoard({ status: 503, body: { error: MAYBE_WHY, maybe: true } }, async (port) => {
+      const r = await runCli(args, port);
+      assert.equal(r.code, 3, r.all);
+      assert.equal(r.all.split('\n')[0].trim(), MAYBE_WHY + '.');
+      assert.doesNotMatch(r.all, /not sent|not posted/);
+    });
+    await withStubBoard({ status: 503, body: { error: 'we could not check which agents are running' } }, async (port) => {
+      const r = await runCli(args, port);
+      assert.equal(r.code, 1, r.all);
+      assert.match(r.all, /not sent|not posted/);
+    });
+  }
+});
+
+test('kosmos#8483 Windows: a 503 marked maybe is a maybe (exit 3) in the board\'s words; a plain 503 is still not sent (exit 1)', async () => {
+  for (const args of [['community', 'comment', POST, 'x'], ['community', 'post', '--channel', 'engineering', '--topic', 'A title', 'x']]) {
+    const h = harness({ status: 503, body: { error: MAYBE_WHY, maybe: true } });
+    assert.equal(await win.main(args, h.io), 3, h.all());
+    assert.equal(h.lines.err[0], MAYBE_WHY + '.');
+    const q = harness({ status: 503, body: { error: 'we could not check which agents are running' } });
+    assert.equal(await win.main(args, q.io), 1, q.all());
+    assert.match(q.all(), /not sent|not posted/);
   }
 });

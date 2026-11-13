@@ -197,8 +197,10 @@ function publishPost(candidate, opts = {}) {
   if (status !== PUBLISHED) rec.findings = verdict.findings;
   // kosmos#8483: as publishServiceComment's repeatOf, for an agent's post.
   if (typeof o.repeatOf === 'function') {
-    const prior = o.repeatOf({ ...rec, agent: typeof rec.agent === 'string' ? rec.agent : o.agentId });
-    if (prior && prior.unknown) return { ok: false, reason: 'retry', status: 'rejected', findings: [], error: String(prior.unknown) };
+    let prior;
+    try { prior = o.repeatOf({ ...rec, agent: typeof rec.agent === 'string' ? rec.agent : o.agentId }); }
+    catch { prior = { unknown: 'Kosmos could not check whether it already has these words from you, so it took nothing new. Try again in a minute' }; }
+    if (prior && prior.unknown) return { ok: false, reason: 'retry', status: 'rejected', findings: [], error: String(prior.unknown), maybe: prior.maybe === true };
     if (prior && typeof prior.id === 'string') return { ok: true, status: prior.status, id: prior.id, repeat: true, went: prior.went === true, findings: [] };
   }
   let stored;
@@ -394,8 +396,10 @@ function publishServiceComment(candidate, opts = {}) {
      answered instead of stored again; { unknown: because } when it cannot tell, refused before anything is stored. It
      sees the guarded words, the ones that would be stored and sent. */
   if (typeof o.repeatOf === 'function') {
-    const prior = o.repeatOf({ ...rec, agent: typeof rec.agent === 'string' ? rec.agent : o.agentId });
-    if (prior && prior.unknown) return { ok: false, reason: 'retry', status: 'rejected', findings: [], error: String(prior.unknown) };
+    let prior;
+    try { prior = o.repeatOf({ ...rec, agent: typeof rec.agent === 'string' ? rec.agent : o.agentId }); }
+    catch { prior = { unknown: 'Kosmos could not check whether it already has these words from you, so it took nothing new. Try again in a minute' }; }
+    if (prior && prior.unknown) return { ok: false, reason: 'retry', status: 'rejected', findings: [], error: String(prior.unknown), maybe: prior.maybe === true };
     if (prior && typeof prior.id === 'string') return { ok: true, status: prior.status, id: prior.id, repeat: true, went: prior.went === true, findings: [] };
   }
   let stored;

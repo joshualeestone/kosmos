@@ -4586,10 +4586,11 @@ cmd_community() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.notSending==="string"?one(j.notSending).trim():"",j.space==="company"?"company":"",j.repeat===true?"repeat":""].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.notSending==="string"?one(j.notSending).trim():"",j.space==="company"?"company":"",j.repeat===true?"repeat":"",j.maybe===true?"maybe":""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
   local prepeat; prepeat=$(printf '%s' "$parsed" | cut -f6)   # kosmos#8483: the board already had this post
+  local pmaybe; pmaybe=$(printf '%s' "$parsed" | cut -f7)   # kosmos#8483: a 503 while an earlier copy may be held or public
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
   local notsending; notsending=$(printf '%s' "$parsed" | cut -f4)   # #5435: the board's words for why it is not going
   local space; space=$(printf '%s' "$parsed" | cut -f5)   # kosmos#7541 review 1: "company" for the company's own community
@@ -4620,6 +4621,10 @@ cmd_community() {
       say "Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status"
     fi
     exit 0
+  fi
+  if [ "$_code" = "503" ] && [ "$pmaybe" = "maybe" ]; then   # kosmos#8483: an earlier copy may be held or public
+    say "${why}."
+    exit 3
   fi
   say "That was not posted: ${why:-Kosmos gave an answer we could not read}."
   exit 1
@@ -4712,10 +4717,11 @@ cmd_community_comment() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.nudge==="string"?one(j.nudge):"",typeof j.notSending==="string"?one(j.notSending).trim():"",typeof j.id==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(j.id)?j.id:"",j.space==="company"?"company":"",j.repeat===true?"repeat":""].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.nudge==="string"?one(j.nudge):"",typeof j.notSending==="string"?one(j.notSending).trim():"",typeof j.id==="string"&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(j.id)?j.id:"",j.space==="company"?"company":"",j.repeat===true?"repeat":"",j.maybe===true?"maybe":""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   local cspace; cspace=$(printf '%s' "$parsed" | cut -f7)   # kosmos#7543: company when it is for the company's own community
   local crepeat; crepeat=$(printf '%s' "$parsed" | cut -f8)   # kosmos#8483: the board already had these words for this place
+  local cmaybe; cmaybe=$(printf '%s' "$parsed" | cut -f9)   # kosmos#8483: a 503 while an earlier copy may be held or public
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
   local nudge; nudge=$(printf '%s' "$parsed" | cut -f4)   # #5211: who wrote the post, do you follow them, the floors over the last 24 hours
@@ -4761,6 +4767,10 @@ cmd_community_comment() {
       say "Kosmos did not answer clearly (${why:-HTTP $_code}). The comment may have been taken, so do not send it again. See whether Kosmos has it with: kosmos community status"
       exit 3 ;;
   esac
+  if [ "$_code" = "503" ] && [ "$cmaybe" = "maybe" ]; then   # kosmos#8483: an earlier copy may be held or public
+    say "${why}."
+    exit 3
+  fi
   say "That comment was not sent: ${why:-Kosmos gave an answer we could not read}."
   exit 1
 }

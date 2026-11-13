@@ -30,7 +30,10 @@ matters); (b) alone (it exists for the board-to-site hop, and status already sho
 - A post moderators took down (sent record `takenDown: true`) still stands, deliberately: the same words again are
   answered "Kosmos already has this", not reposted.
 - A row marked notSent (told "it will not go", or #4994's deleted agent): never matched.
-- A record that decides it cannot be read (sent / deletes, or their comment twins): 503 with Retry-After, nothing stored.
+- A record that decides it cannot be read (sent / deletes, or their comment twins): 503 with Retry-After, nothing stored,
+  marked `maybe: true` (an earlier copy matched and may be held or public), so both CLIs answer exit 3 in the board's
+  words, which point at kosmos community status, never "not sent". A repeat check that throws is a plain 503 (no
+  earlier copy is known), so "not sent" is true there.
   Not covered by that: state.json. With no ON-period start recorded (willSend threw, so the route could not record one),
   a never-tried earlier row does not stand and a resend is stored. That fails toward a duplicate only while the
   board's records are already unreadable, when nothing is being sent anyway; accepted.
@@ -70,8 +73,8 @@ does, so a CLI without the repeat words still says why a post or comment is not 
 tests given words of their own so they keep their subject (server.community-choke-3485, server.community-sendsoon-4938); one company-space case added to
 server.companycomment-7543.test.js.
 
-## Proof so far (after review round 4)
-- server.community-repeat-8483: 18 pass; cli.community-repeat-8483: 6 pass; with companycomment-7543, choke-3485 and
-  sendsoon-4938: 48 pass, 0 fail.
-- Mutations: 17 + 7 at first, 9 more after round 1, 2 after round 2, 5 after round 3; every one goes red.
+## Proof so far (after review round 5)
+- server.community-repeat-8483 19 pass, cli.community-repeat-8483 10 pass; with companycomment-7543, choke-3485,
+  sendsoon-4938 and the three existing community CLI files: 113 pass, 0 fail.
+- Mutations: 17 + 7 at first, then 9, 2, 5, 3 and 5 after rounds 1 to 5; every one goes red.
 - 88 community test files before review: 1583 pass, 0 fail (2 skipped); static guards 3934 pass.

@@ -12482,7 +12482,8 @@ const server = http.createServer(async (req, res) => {
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
         if (!r.ok) {
           if (r.reason === 'retry') res.setHeader('Retry-After', '60');
-          sendJson(res, r.reason === 'store' ? 500 : r.reason === 'retry' ? 503 : 400, { error: r.error }); return;
+          // kosmos#8483: `maybe` when an earlier copy may be held or public, so the CLIs say "may" (exit 3), never "not sent".
+          sendJson(res, r.reason === 'store' ? 500 : r.reason === 'retry' ? 503 : 400, { error: r.error, ...(r.maybe ? { maybe: true } : {}) }); return;
         }
         // kosmos#8483: the same post again (a resend after a cut answer): the first one is the answer; nothing is stored,
         // counted or sent. Quarantined reads as held, as below.
@@ -12704,7 +12705,8 @@ const server = http.createServer(async (req, res) => {
         catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
         if (!r.ok) {
           if (r.reason === 'retry') res.setHeader('Retry-After', '60');
-          sendJson(res, r.reason === 'store' ? 500 : r.reason === 'retry' ? 503 : 400, { error: r.error }); return;
+          // kosmos#8483: `maybe` when an earlier copy may be held or public, so the CLIs say "may" (exit 3), never "not sent".
+          sendJson(res, r.reason === 'store' ? 500 : r.reason === 'retry' ? 503 : 400, { error: r.error, ...(r.maybe ? { maybe: true } : {}) }); return;
         }
         /* kosmos#8483: the same words for the same place again (a resend after a cut answer): the first one is the answer,
            and nothing new is stored, counted or sent. Quarantined reads as held, as below. */
